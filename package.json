@@ -1,0 +1,19 @@
+{
+  "name": "pagetollm-canvas-extension",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.1",
+    "vite": "^8.0.1",
+    "vitest": "^4.1.7"
+  },
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "test": "vitest run"
+  }
+}

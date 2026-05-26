@@ -1,0 +1,251 @@
+import {
+  readRecord,
+  writeRecord,
+  listRecords,
+  deleteRecord,
+  deleteAll,
+  findRecordByUrl,
+} from "./worker/storage.js";
+import { runPipeline } from "./worker/orchestrator.js";
+import { callLLMDirect } from "./worker/llm.js";
+
+const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * In-memory job registry to prevent duplicate pipeline runs while the
+ * service worker is alive. Keyed by record key; value is the run promise.
+ * @type {Map<string, Promise<void>>}
+ */
+const _jobRegistry = new Map();
+const _starting = new Set();
+
+/** Clears the in-memory job registry. Exposed for testing only. */
+export function _resetJobRegistry() {
+  _jobRegistry.clear();
+  _starting.clear();
+}
+
+/**
+ * @param {object} rec
+ * @returns {boolean}
+ */
+function isStaleRecord(rec) {
+  if (!rec) return false;
+  const inFlight = new Set(["pending", "splitting", "summarizing"]);
+  if (!inFlight.has(rec.status)) return false;
+  const age = Date.now() - (rec.updatedAt || 0);
+  return age > STALE_THRESHOLD_MS;
+}
+
+/**
+ * @param {string} s
+ * @returns {Promise<string>}
+ */
+async function sha256Hex(s) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  const bytes = new Uint8Array(buf);
+  let out = "";
+  for (let i = 0; i < bytes.length; i++) {
+    out += bytes[i].toString(16).padStart(2, "0");
+  }
+  return out;
+}
+
+/**
+ * Starts the pipeline for a key if it is not already running.
+ * Resumes stale or orphaned in-flight records (e.g. after a SW restart).
+ * If a job is already in the registry but the record is stale (updatedAt older
+ * than STALE_THRESHOLD_MS), the hung promise is evicted and the job is restarted.
+ *
+ * @param {string} key
+ * @returns {Promise<void>}
+ */
+export async function startPipeline(key) {
+  if (_starting.has(key)) return;
+
+  _starting.add(key);
+  try {
+    const rec = await readRecord(key);
+    if (!rec) return;
+
+    const runnableStatuses = new Set(["pending", "splitting", "summarizing"]);
+    if (!runnableStatuses.has(rec.status)) return;
+
+    // Skip if a healthy (non-stale) job is already in the registry.
+    if (_jobRegistry.has(key) && !isStaleRecord(rec)) return;
+
+    // Evict any hung/stale promise before starting fresh.
+    _jobRegistry.delete(key);
+
+    const promise = runPipeline(key)
+      .catch((err) => {
+        console.error("PageToLLM Canvas background pipeline failed for", key, err);
+      })
+      .finally(() => {
+        _jobRegistry.delete(key);
+      });
+
+    _jobRegistry.set(key, promise);
+    return promise;
+  } finally {
+    _starting.delete(key);
+  }
+}
+
+/**
+ * @param {{html?: string, sourceUrl?: string}} submission
+ * @returns {Promise<{ok: boolean, key?: string, error?: string}>}
+ */
+export async function handleSubmit({ html, sourceUrl }) {
+  if (!html) return { ok: false, error: "missing html" };
+
+  let existing = null;
+  if (sourceUrl) {
+    existing = await findRecordByUrl(sourceUrl);
+  }
+
+  let key;
+  if (existing) {
+    key = existing.key;
+  } else {
+    const hex = await sha256Hex(html);
+    key = hex.slice(0, 32);
+    existing = await readRecord(key);
+  }
+
+  if (existing && existing.status === "done") {
+    return { ok: true, key };
+  }
+
+  // If a job is already running (or starting) for this key, do not clobber it.
+  if (_jobRegistry.has(key) || _starting.has(key)) {
+    return { ok: true, key };
+  }
+
+  const now = Date.now();
+  const rec = existing || {
+    key,
+    sourceUrl: sourceUrl || "",
+    html,
+    text: "",
+    status: "pending",
+    error: null,
+    progress: { stage: "queued", done: 0, total: 0 },
+    sentences: [],
+    topics: [],
+    topic_summaries: {},
+    topic_summary_index: {},
+    processingLog: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  if (existing) {
+    rec.status = "pending";
+    rec.error = null;
+    rec.progress = { stage: "queued", done: 0, total: 0 };
+    rec.updatedAt = now;
+    rec.sourceUrl = sourceUrl || rec.sourceUrl;
+    rec.html = html;
+    rec.processingLog = [];
+  }
+  await writeRecord(rec);
+
+  // Start the pipeline in the background; do not await.
+  startPipeline(key).catch((err) => {
+    console.error("PageToLLM Canvas background startPipeline failed:", err);
+  });
+
+  return { ok: true, key };
+}
+
+/**
+ * @param {{prompt?: string, temperature?: number, model?: string}} request
+ * @returns {Promise<{ok: boolean, content?: string, error?: string}>}
+ */
+async function handleLLMRequest({ prompt, temperature = 0.0, model }) {
+  if (!prompt) return { ok: false, error: "missing prompt" };
+  return callLLMDirect({ prompt, temperature, model });
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || !msg.type) {
+    sendResponse({ ok: false, error: "no type" });
+    return false;
+  }
+
+  (async () => {
+    try {
+      switch (msg.type) {
+        case "submit": {
+          const r = await handleSubmit(msg);
+          sendResponse(r);
+          return;
+        }
+        case "ensurePipeline": {
+          const { key } = msg;
+          if (!key) {
+            sendResponse({ ok: false, error: "missing key" });
+            return;
+          }
+          await startPipeline(key);
+          sendResponse({ ok: true });
+          return;
+        }
+        case "retryRecord": {
+          const { key } = msg;
+          if (!key) {
+            sendResponse({ ok: false, error: "missing key" });
+            return;
+          }
+          const rec = await readRecord(key);
+          if (!rec) {
+            sendResponse({ ok: false, error: "record not found" });
+            return;
+          }
+          rec.status = "pending";
+          rec.error = null;
+          rec.progress = { stage: "queued", done: 0, total: 0 };
+          rec.updatedAt = Date.now();
+          await writeRecord(rec);
+          startPipeline(key).catch((err) => {
+            console.error("PageToLLM Canvas retryRecord startPipeline failed:", err);
+          });
+          sendResponse({ ok: true });
+          return;
+        }
+        case "getRecord": {
+          const rec = await readRecord(msg.key);
+          if (rec) sendResponse({ ok: true, record: rec });
+          else sendResponse({ ok: false });
+          return;
+        }
+        case "listRecords": {
+          const items = await listRecords();
+          sendResponse({ ok: true, items });
+          return;
+        }
+        case "deleteRecord": {
+          await deleteRecord(msg.key);
+          sendResponse({ ok: true });
+          return;
+        }
+        case "deleteAll": {
+          await deleteAll();
+          sendResponse({ ok: true });
+          return;
+        }
+        case "llmChatCompletion": {
+          const r = await handleLLMRequest(msg);
+          sendResponse(r);
+          return;
+        }
+        default:
+          sendResponse({ ok: false, error: "unknown type: " + msg.type });
+      }
+    } catch (e) {
+      sendResponse({ ok: false, error: (e && e.message) || String(e) });
+    }
+  })();
+
+  return true;
+});

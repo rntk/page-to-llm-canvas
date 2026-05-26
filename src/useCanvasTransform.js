@@ -1,0 +1,330 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+
+const MIN_SCALE = 0.3;
+const MAX_SCALE = 3;
+const WHEEL_IN = 1.1;
+const WHEEL_OUT = 1 / 1.1;
+const ARROW_STEP = 80;
+
+export function clampScale(value) {
+  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
+}
+
+function cursorAnchoredTranslate({ cursor, translate, currentScale, nextScale }) {
+  const cx = (cursor.x - translate.x) / currentScale;
+  const cy = (cursor.y - translate.y) / currentScale;
+  return {
+    x: cursor.x - cx * nextScale,
+    y: cursor.y - cy * nextScale,
+  };
+}
+
+/**
+ * Simplified canvas transform hook: pan, wheel zoom, programmatic zoom,
+ * page navigation, and arrow/Home/End/PageUp/PageDown keyboard shortcuts.
+ */
+export function useCanvasTransform({ contentRef } = {}) {
+  const [translate, setTranslate] = useState({ x: 40, y: 40 });
+  const [scale, setScale] = useState(1);
+  const [isCanvasDragging, setIsCanvasDragging] = useState(false);
+  const [isFocusingHighlight, setIsFocusingHighlight] = useState(false);
+
+  // Callback refs so listeners can re-bind once the DOM mounts (the canvas
+  // wrap is rendered conditionally on `isDone`, so it is null on first effect).
+  const canvasWrapElRef = useRef(null);
+  const canvasViewportElRef = useRef(null);
+  const [canvasWrapEl, setCanvasWrapEl] = useState(null);
+  const [canvasViewportEl, setCanvasViewportEl] = useState(null);
+  const canvasWrapRef = useCallback((el) => {
+    canvasWrapElRef.current = el;
+    setCanvasWrapEl(el);
+  }, []);
+  const canvasViewportRef = useCallback((el) => {
+    canvasViewportElRef.current = el;
+    setCanvasViewportEl(el);
+  }, []);
+
+  const scaleRef = useRef(1);
+  const translateRef = useRef({ x: 40, y: 40 });
+  const userMovedCanvasRef = useRef(false);
+  const rafRef = useRef(0);
+  const pendingRef = useRef(null);
+  const focusTimerRef = useRef(null);
+
+  useEffect(() => {
+    scaleRef.current = scale;
+  }, [scale]);
+  useEffect(() => {
+    translateRef.current = translate;
+  }, [translate]);
+
+  const setTransformNow = useCallback((nextScale, nextTranslate) => {
+    if (rafRef.current) {
+      window.cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+    }
+    pendingRef.current = null;
+    scaleRef.current = nextScale;
+    translateRef.current = nextTranslate;
+    setScale(nextScale);
+    setTranslate(nextTranslate);
+  }, []);
+
+  const scheduleTransform = useCallback((nextScale, nextTranslate) => {
+    scaleRef.current = nextScale;
+    translateRef.current = nextTranslate;
+    pendingRef.current = { scale: nextScale, translate: nextTranslate };
+    if (rafRef.current) return;
+    rafRef.current = window.requestAnimationFrame(() => {
+      rafRef.current = 0;
+      const pending = pendingRef.current;
+      pendingRef.current = null;
+      if (!pending) return;
+      setScale(pending.scale);
+      setTranslate(pending.translate);
+    });
+  }, []);
+
+  const flashFocus = useCallback(() => {
+    setIsFocusingHighlight(true);
+    if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+    focusTimerRef.current = setTimeout(() => setIsFocusingHighlight(false), 380);
+  }, []);
+
+  // CSS variable sync on the viewport.
+  useEffect(() => {
+    if (!canvasViewportEl) return;
+    canvasViewportEl.style.setProperty("--canvas-translate-x", `${translate.x}px`);
+    canvasViewportEl.style.setProperty("--canvas-translate-y", `${translate.y}px`);
+    canvasViewportEl.style.setProperty("--canvas-scale", `${scale}`);
+  }, [canvasViewportEl, scale, translate.x, translate.y]);
+
+  // Track the canvas wrap's height so sticky titles can clamp to the
+  // visible viewport (the sticky CSS reads --canvas-area-height).
+  useEffect(() => {
+    if (!canvasViewportEl || !canvasWrapEl) return undefined;
+    const update = () => {
+      canvasViewportEl.style.setProperty(
+        "--canvas-area-height",
+        `${canvasWrapEl.clientHeight}px`,
+      );
+    };
+    update();
+    if (typeof window.ResizeObserver === "undefined") {
+      window.addEventListener("resize", update);
+      return () => window.removeEventListener("resize", update);
+    }
+    const ro = new window.ResizeObserver(update);
+    ro.observe(canvasWrapEl);
+    return () => ro.disconnect();
+  }, [canvasViewportEl, canvasWrapEl]);
+
+  // Body cursor while dragging.
+  useEffect(() => {
+    if (isCanvasDragging) document.body.classList.add("canvas-global-dragging");
+    else document.body.classList.remove("canvas-global-dragging");
+    return () => document.body.classList.remove("canvas-global-dragging");
+  }, [isCanvasDragging]);
+
+  // Mouse drag pan.
+  const isDragging = useRef(false);
+  const lastMouse = useRef({ x: 0, y: 0 });
+  const handleMouseDown = useCallback(
+    (e) => {
+      if (e.button !== 0) return;
+      setIsFocusingHighlight(false);
+      setIsCanvasDragging(true);
+      isDragging.current = true;
+      userMovedCanvasRef.current = true;
+      lastMouse.current = { x: e.clientX, y: e.clientY };
+      e.preventDefault();
+      const onMove = (mv) => {
+        if (!isDragging.current) return;
+        const dx = mv.clientX - lastMouse.current.x;
+        const dy = mv.clientY - lastMouse.current.y;
+        lastMouse.current = { x: mv.clientX, y: mv.clientY };
+        scheduleTransform(scaleRef.current || 1, {
+          x: translateRef.current.x + dx,
+          y: translateRef.current.y + dy,
+        });
+      };
+      const onUp = () => {
+        isDragging.current = false;
+        setIsCanvasDragging(false);
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [scheduleTransform],
+  );
+
+  // Wheel zoom (re-binds when the wrap element mounts).
+  useEffect(() => {
+    if (!canvasWrapEl) return undefined;
+    const handleWheel = (e) => {
+      e.preventDefault();
+      const currentScale = scaleRef.current || 1;
+      const delta = e.deltaY > 0 ? WHEEL_OUT : WHEEL_IN;
+      const nextScale = clampScale(currentScale * delta);
+      if (nextScale === currentScale) return;
+      const wrapRect = canvasWrapEl.getBoundingClientRect();
+      const nextTranslate = cursorAnchoredTranslate({
+        cursor: { x: e.clientX - wrapRect.left, y: e.clientY - wrapRect.top },
+        translate: translateRef.current,
+        currentScale,
+        nextScale,
+      });
+      setIsFocusingHighlight(false);
+      userMovedCanvasRef.current = true;
+      scheduleTransform(nextScale, nextTranslate);
+    };
+    canvasWrapEl.addEventListener("wheel", handleWheel, { passive: false });
+    return () => canvasWrapEl.removeEventListener("wheel", handleWheel);
+  }, [canvasWrapEl, scheduleTransform]);
+
+  const panBy = useCallback(
+    (dx, dy) => {
+      userMovedCanvasRef.current = true;
+      setTransformNow(scaleRef.current || 1, {
+        x: translateRef.current.x + dx,
+        y: translateRef.current.y + dy,
+      });
+      flashFocus();
+    },
+    [flashFocus, setTransformNow],
+  );
+
+  const navigateCanvas = useCallback(
+    (pos) => {
+      const wrap = canvasWrapElRef.current;
+      if (!wrap) return;
+      const viewportHeight = wrap.clientHeight || 0;
+      const pageStep = Math.max(120, viewportHeight * 0.8);
+      const topY = 40;
+      const currentTranslate = translateRef.current;
+      const currentScale = scaleRef.current || 1;
+      let nextY = currentTranslate.y;
+      if (pos === "top") {
+        nextY = topY;
+      } else if (pos === "bottom") {
+        const viewport = canvasViewportElRef.current;
+        const content = contentRef?.current;
+        if (viewport && content) {
+          const bottom =
+            content.getBoundingClientRect().bottom -
+            viewport.getBoundingClientRect().top;
+          nextY = Math.min(topY, viewportHeight - bottom - topY);
+        } else {
+          nextY = currentTranslate.y - pageStep;
+        }
+      } else if (pos === "prev") {
+        nextY = currentTranslate.y + pageStep;
+      } else if (pos === "next") {
+        nextY = currentTranslate.y - pageStep;
+      }
+      userMovedCanvasRef.current = true;
+      setTransformNow(currentScale, { ...currentTranslate, y: nextY });
+      flashFocus();
+    },
+    [contentRef, flashFocus, setTransformNow],
+  );
+
+  // Keyboard navigation: arrows pan, Home/End/PageUp/PageDown navigate.
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      const t = e.target;
+      const tag = t?.tagName;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        t?.isContentEditable
+      ) {
+        return;
+      }
+      if (e.key === "Home") {
+        e.preventDefault();
+        navigateCanvas("top");
+      } else if (e.key === "End") {
+        e.preventDefault();
+        navigateCanvas("bottom");
+      } else if (e.key === "PageUp") {
+        e.preventDefault();
+        navigateCanvas("prev");
+      } else if (e.key === "PageDown") {
+        e.preventDefault();
+        navigateCanvas("next");
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        panBy(0, ARROW_STEP);
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        panBy(0, -ARROW_STEP);
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        panBy(ARROW_STEP, 0);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        panBy(-ARROW_STEP, 0);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [navigateCanvas, panBy]);
+
+  const zoomToTarget = useCallback(
+    (targetRect, zoomLevel = 1.4) => {
+      const wrap = canvasWrapElRef.current;
+      const viewport = canvasViewportElRef.current;
+      if (!wrap || !viewport || !targetRect) return;
+      const wrapRect = wrap.getBoundingClientRect();
+      const viewportRect = viewport.getBoundingClientRect();
+      const currentScale = scaleRef.current || 1;
+      const nextScale = clampScale(Math.max(currentScale, zoomLevel));
+      const localTargetY =
+        (targetRect.top + targetRect.height / 2 - viewportRect.top) /
+        currentScale;
+      let nextX;
+      const content = contentRef?.current;
+      if (content) {
+        const localContentX =
+          (content.getBoundingClientRect().left - viewportRect.left) /
+          currentScale;
+        nextX = 40 - localContentX * nextScale;
+      } else {
+        const localTargetX =
+          (targetRect.left + targetRect.width / 2 - viewportRect.left) /
+          currentScale;
+        nextX = wrapRect.width / 2 - localTargetX * nextScale;
+      }
+      userMovedCanvasRef.current = true;
+      setTransformNow(nextScale, {
+        x: nextX,
+        y: wrapRect.height * 0.2 - localTargetY * nextScale,
+      });
+      flashFocus();
+    },
+    [contentRef, flashFocus, setTransformNow],
+  );
+
+  return {
+    translate,
+    scale,
+    isCanvasDragging,
+    isFocusingHighlight,
+    canvasWrapRef,
+    canvasViewportRef,
+    canvasWrapElRef,
+    canvasViewportElRef,
+    scaleRef,
+    translateRef,
+    userMovedCanvasRef,
+    handleMouseDown,
+    setTransformNow,
+    navigateCanvas,
+    zoomToTarget,
+    flashFocus,
+  };
+}

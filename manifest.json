@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "PageToLLMCanvas",
+  "version": "0.1.0",
+  "description": "Pick blocks on any page, summarize and explore topics in an in-page canvas.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "http://192.168.0.147/*",
+    "http://192.168.0.147:8989/*",
+    "https://192.168.0.147/*",
+    "https://192.168.0.147:8989/*",
+    "<all_urls>"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://192.168.0.147:* https://192.168.0.147:*"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["background.js"],
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "96": "icons/icon-96.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png"
+  },
+  "options_page": "options.html",
+  "web_accessible_resources": [
+    {
+      "resources": ["modal.html", "modal.js", "modal.css"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

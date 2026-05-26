@@ -1,0 +1,726 @@
+/* PageToLLM Canvas modal — POC styles. */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100%;
+  min-height: 100vh;
+  background: #fff;
+  color: #1a202c;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+    sans-serif;
+  font-size: 14px;
+}
+
+#pagetollm-root,
+.pagetollm-modal-root {
+  width: 100vw;
+  height: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.pagetollm-modal-root {
+  background: #fff;
+}
+
+/* ── Body / canvas ─────────────────────────────────────────────────────── */
+
+.pagetollm-body {
+  position: relative;
+  flex: 1 1 auto;
+  overflow: hidden;
+  background: #1a1e24;
+  display: flex;
+  flex-direction: column;
+}
+
+.pagetollm-canvas-main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+
+.canvas-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  cursor: grab;
+  touch-action: none;
+  background: radial-gradient(circle, #2a3040 1px, transparent 1px) 0 0 / 28px
+    28px;
+}
+
+.canvas-area.is-dragging {
+  cursor: grabbing;
+}
+
+.canvas-area:focus,
+.canvas-area:focus-visible {
+  outline: none;
+}
+
+body.canvas-global-dragging,
+body.canvas-global-dragging * {
+  cursor: grabbing !important;
+}
+
+.canvas-viewport {
+  position: absolute;
+  transform: translate(
+      var(--canvas-translate-x, 40px),
+      var(--canvas-translate-y, 40px)
+    )
+    scale(var(--canvas-scale, 1));
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.canvas-viewport.is-focusing-highlight {
+  transition: transform 320ms ease;
+}
+
+/* Article + rails container (matches frontend canvas layout) */
+.canvas-article-with-summaries {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+}
+
+.canvas-article-with-summaries.has-topic-hierarchy {
+  padding-right: calc(var(--canvas-topic-hierarchy-width, 430px) + 70px);
+}
+
+.pagetollm-article-text {
+  width: 680px;
+  background: #fff;
+  border-radius: 6px;
+  padding: 32px 36px;
+  font-size: 15px;
+  line-height: 1.75;
+  color: #1a1a1a;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+}
+
+.pagetollm-article-text .pagetollm-text-block {
+  margin: 0;
+}
+
+.canvas-article-with-summaries.is-summary-mode .canvas-summary-view {
+  width: 680px;
+  background: #fff;
+  border-radius: 6px;
+  padding: 24px 28px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+  max-width: none;
+  margin: 0;
+}
+
+/* Topic hierarchy rail floats on the right inside the canvas viewport. */
+.canvas-article-with-summaries .canvas-topic-hierarchy {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-height: auto;
+}
+
+/* ── Zoom controls ─────────────────────────────────────────────────────── */
+
+.canvas-controls {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 10;
+}
+
+.canvas-controls.is-horizontal {
+  flex-direction: row;
+}
+
+.canvas-controls-header {
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+}
+
+.canvas-controls.is-horizontal .canvas-controls-header {
+  flex-direction: column;
+}
+
+.canvas-controls-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.canvas-controls.is-horizontal .canvas-controls-body {
+  flex-direction: row;
+}
+
+.canvas-controls.is-folded .canvas-controls-body {
+  display: none;
+}
+
+.canvas-zoom-btn {
+  width: 32px;
+  height: 32px;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.canvas-zoom-btn:hover {
+  background: #f0f0f0;
+}
+
+.canvas-close-btn {
+  color: #c53030;
+  font-weight: 700;
+}
+
+.canvas-close-btn:hover {
+  background: #fff5f5;
+  border-color: #feb2b2;
+  color: #9b2c2c;
+}
+
+.canvas-read-toggle {
+  width: 32px;
+  height: 32px;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  color: #555;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.canvas-read-toggle.is-active {
+  background: #e6f7ff;
+  border-color: #3182ce;
+  color: #3182ce;
+}
+
+.canvas-spacer {
+  height: 4px;
+}
+
+.canvas-controls.is-horizontal .canvas-spacer {
+  width: 4px;
+  height: auto;
+}
+
+/* ── Spinner overlay ───────────────────────────────────────────────────── */
+
+.pagetollm-spinner-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.85);
+  z-index: 10;
+}
+
+.pagetollm-spinner-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 24px 32px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.16);
+  min-width: 240px;
+  text-align: center;
+}
+
+.pagetollm-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid #cbd5e0;
+  border-top-color: #3182ce;
+  border-radius: 50%;
+  animation: pagetollm-spin 0.8s linear infinite;
+}
+
+@keyframes pagetollm-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.pagetollm-spinner-stage {
+  color: #2d3748;
+  font-weight: 600;
+}
+
+.pagetollm-spinner-error-title {
+  color: #c53030;
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.pagetollm-spinner-error-body {
+  color: #2d3748;
+  font-size: 13px;
+}
+
+.pagetollm-spinner-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.pagetollm-spinner-retry-btn,
+.pagetollm-spinner-close-btn {
+  padding: 7px 18px;
+  border-radius: 6px;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.pagetollm-spinner-retry-btn {
+  background: #3182ce;
+  color: #fff;
+}
+
+.pagetollm-spinner-retry-btn:hover {
+  background: #2b6cb0;
+}
+
+.pagetollm-spinner-close-btn {
+  background: #e2e8f0;
+  color: #2d3748;
+}
+
+.pagetollm-spinner-close-btn:hover {
+  background: #cbd5e0;
+}
+
+/* ── Normal view (sentence list) ───────────────────────────────────────── */
+
+.pagetollm-normal-view {
+  max-width: 800px;
+  margin: 0 auto;
+  line-height: 1.55;
+  font-size: 15px;
+  color: #1a202c;
+}
+
+.pagetollm-text-block {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.pagetollm-sentence {
+  display: inline;
+  padding: 1px 2px;
+  border-radius: 3px;
+  transition: background 0.12s;
+}
+
+.pagetollm-sentence:hover {
+  background: #edf2f7;
+}
+
+.pagetollm-sentence.is-hover-topic {
+  background: #fefcbf;
+}
+
+.pagetollm-sentence.is-selected-topic {
+  background: #fef3c7;
+}
+
+/* ── TopicLevelSwitcher ────────────────────────────────────────────────── */
+
+.topic-level-switcher {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.topic-level-switcher__label {
+  font-size: 12px;
+  color: #4a5568;
+  font-weight: 600;
+}
+
+.topic-level-switcher__buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.topic-level-switcher__button {
+  padding: 4px 8px;
+  border: 1px solid #cbd5e0;
+  background: #fff;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  color: #2d3748;
+}
+
+.topic-level-switcher__button.active {
+  background: #3182ce;
+  color: #fff;
+  border-color: #3182ce;
+}
+
+/* ── Topic hierarchy rail (copied/adapted from frontend) ───────────────── */
+
+.canvas-topic-hierarchy {
+  position: relative;
+  width: var(--canvas-topic-hierarchy-width, 380px);
+  min-height: 100%;
+  pointer-events: auto;
+  user-select: text;
+  overflow: visible;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.canvas-control-hierarchy-group {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+
+.canvas-controls .topic-level-switcher {
+  display: flex;
+  align-items: center;
+}
+
+.canvas-controls .topic-level-switcher__buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.canvas-controls .topic-level-switcher__button {
+  width: 32px;
+  height: 32px;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  color: #555;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.canvas-controls .topic-level-switcher__button:hover {
+  background: #f0f0f0;
+}
+
+.canvas-controls .topic-level-switcher__button.active {
+  background: #e6f7ff;
+  border-color: #3182ce;
+  color: #3182ce;
+}
+
+.canvas-topic-hierarchy__body {
+  position: relative;
+  min-height: 100%;
+  padding: 0 12px 24px;
+  box-sizing: border-box;
+}
+
+.canvas-topic-hierarchy__empty {
+  margin: 24px 0 0;
+  padding: 10px 12px;
+  border: 1px dashed rgba(144, 205, 244, 0.24);
+  border-radius: 8px;
+  color: #9fb5cc;
+  background: rgba(17, 24, 39, 0.78);
+  font-size: 12px;
+}
+
+.canvas-topic-hierarchy__card {
+  position: absolute;
+  top: var(--topic-card-top);
+  height: var(--topic-card-height);
+  right: var(--topic-card-right);
+  width: var(--topic-card-width, 240px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 8px 10px 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--topic-accent-color) 45%, #fff);
+  border-left: 4px solid var(--topic-accent-color);
+  border-radius: 8px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--topic-accent-color) 26%, #fff) 0%,
+    color-mix(in srgb, var(--topic-accent-color) 14%, #fff) 100%
+  );
+  color: #111827;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  box-shadow:
+    0 8px 18px rgba(15, 23, 42, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.42);
+  transition:
+    box-shadow 0.15s ease,
+    transform 0.15s ease,
+    border-color 0.15s ease;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.canvas-topic-hierarchy__card:hover,
+.canvas-topic-hierarchy__card.is-active,
+.canvas-topic-hierarchy__card.is-selected {
+  border-color: var(--topic-accent-color);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--topic-accent-color) 24%, transparent),
+    0 10px 24px rgba(15, 23, 42, 0.28);
+  transform: translateX(-3px);
+}
+
+.canvas-topic-hierarchy__card--child {
+  border-style: dashed;
+}
+
+/*
+ * Sticky label within tall topic cards.
+ *
+ * The canvas uses a CSS transform (translate + scale) rather than scroll,
+ * so `position: sticky` does not work. Instead we compute a translateY offset
+ * using CSS custom properties so the label tracks the visible slice of the
+ * card without leaving the card's bounds.
+ *
+ * Variables (all inherited from ancestor elements):
+ *   --canvas-translate-y  set on .canvas-viewport
+ *   --canvas-scale        set on .canvas-viewport
+ *   --canvas-area-height  set on .canvas-viewport via ResizeObserver
+ *   --topic-card-top      set on the parent .canvas-topic-hierarchy__card
+ *   --topic-card-height   set on the parent .canvas-topic-hierarchy__card
+ */
+.canvas-topic-hierarchy__card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+
+  --_lh: 50px;
+  --_p: 6px;
+
+  --_vis-top: max(
+    0px,
+    calc(
+      -1 * var(--canvas-translate-y) / var(--canvas-scale) -
+        var(--topic-card-top)
+    )
+  );
+  --_vis-bot: min(
+    var(--topic-card-height),
+    calc(
+      (var(--canvas-area-height, 100dvh) - var(--canvas-translate-y)) /
+        var(--canvas-scale) - var(--topic-card-top)
+    )
+  );
+
+  --_vis-center: calc((var(--_vis-top) + var(--_vis-bot)) / 2);
+
+  --_offset: clamp(
+    calc(var(--_lh) / 2 + var(--_p) - var(--topic-card-height) / 2),
+    calc(var(--_vis-center) - var(--topic-card-height) / 2),
+    calc(var(--topic-card-height) / 2 - var(--_lh) / 2 - var(--_p))
+  );
+
+  transform: translateY(var(--_offset));
+  will-change: transform;
+}
+
+.canvas-topic-hierarchy__card-name {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: var(--topic-card-title-font-size, 14px);
+  font-weight: 800;
+  line-height: 1.2;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.canvas-topic-hierarchy__card-meta {
+  color: rgba(15, 23, 42, 0.6);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.canvas-topic-hierarchy__card.is-read::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  pointer-events: none;
+  border-radius: 4px;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(0, 0, 0, 0.13) 0,
+    rgba(0, 0, 0, 0.13) 2px,
+    transparent 2px,
+    transparent 8px
+  );
+  opacity: 0.72;
+  z-index: 1;
+}
+
+/* ── Summary view ──────────────────────────────────────────────────────── */
+
+.canvas-summary-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 4px;
+}
+
+.canvas-summary-view__empty {
+  color: #718096;
+  font-style: italic;
+  padding: 24px 4px;
+}
+
+.canvas-summary-view__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.canvas-summary-view__card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s,
+    background 0.15s;
+}
+
+.canvas-summary-view__card:hover {
+  border-color: #90cdf4;
+}
+
+.canvas-summary-view__card.is-active {
+  border-color: #3182ce;
+  background: #ebf8ff;
+  box-shadow: 0 0 0 2px rgba(49, 130, 206, 0.2);
+}
+
+.canvas-summary-view__card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.canvas-summary-view__card-path {
+  font-size: 12px;
+  font-weight: 600;
+  color: #2b6cb0;
+  word-break: break-word;
+}
+
+.canvas-summary-view__card-meta {
+  font-size: 11px;
+  color: #718096;
+  white-space: nowrap;
+}
+
+.canvas-summary-view__card-text {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: #1a202c;
+  line-height: 1.4;
+}
+
+.canvas-summary-view__card-bullets {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  color: #2d3748;
+  line-height: 1.4;
+}
+
+.canvas-summary-view__summary-tooltip-wrap {
+  position: relative;
+}
+
+.canvas-summary-view__summary-tooltip {
+  display: none;
+}
+
+.canvas-summary-view__summary-tooltip-wrap:hover
+  .canvas-summary-view__summary-tooltip,
+.canvas-summary-view__summary-tooltip-wrap:focus-within
+  .canvas-summary-view__summary-tooltip {
+  display: block;
+  margin-top: 8px;
+}
+
+.canvas-summary-view__summary-tooltip-button {
+  padding: 6px 10px;
+  border: 1px solid rgba(144, 205, 244, 0.38);
+  border-radius: 6px;
+  background: #ebf8ff;
+  color: #1a365d;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.canvas-summary-view__summary-tooltip-button:hover {
+  border-color: #63b3ed;
+  background: #bee3f8;
+}
