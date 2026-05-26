@@ -2,6 +2,128 @@ import React from "react";
 import { getHierarchyTopicAccentColor } from "../utils/topicColorUtils.js";
 import { isTopicRead } from "../utils/topicReadUtils.js";
 
+const DENSE_CARD_GAP = 4;
+const DENSE_CARD_MIN_HEIGHT = 56;
+const DENSE_CARD_MAX_COMPACT_HEIGHT = 96;
+const DENSE_CARD_HEIGHT_REDUCTION = 16;
+const DENSE_CARD_MAX_NUDGE = 18;
+const CARD_TITLE_LINE_HEIGHT = 1.2;
+const CARD_TITLE_MAX_LINES = 2;
+const CARD_VERTICAL_CHROME_PX = 31;
+
+function getFiniteNumber(value, fallback) {
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function cardsOverlapVertically(topCard, bottomCard) {
+  return (
+    topCard.top + topCard.height + DENSE_CARD_GAP > bottomCard.top &&
+    bottomCard.top + bottomCard.height + DENSE_CARD_GAP > topCard.top
+  );
+}
+
+function getCompactCardHeight(card, isCrowded) {
+  const height = getFiniteNumber(card.height, DENSE_CARD_MIN_HEIGHT);
+  if (!isCrowded || height > DENSE_CARD_MAX_COMPACT_HEIGHT) return height;
+  return Math.max(DENSE_CARD_MIN_HEIGHT, height - DENSE_CARD_HEIGHT_REDUCTION);
+}
+
+function getAdjustedTitleFontSize(card, height) {
+  const fontSize = getFiniteNumber(card.titleFontSize, 12);
+  const availableTitleHeight = Math.max(1, height - CARD_VERTICAL_CHROME_PX);
+  const heightCapped =
+    availableTitleHeight / (CARD_TITLE_LINE_HEIGHT * CARD_TITLE_MAX_LINES);
+  return Math.max(1, Math.min(fontSize, heightCapped));
+}
+
+function nudgeCrowdedPair(topCard, bottomCard) {
+  const overlap =
+    topCard.top + topCard.height + DENSE_CARD_GAP - bottomCard.top;
+  if (overlap <= 0) return;
+
+  let remaining = overlap;
+  const topMin = Math.max(0, topCard.originalTop - DENSE_CARD_MAX_NUDGE);
+  const bottomMax = bottomCard.originalTop + DENSE_CARD_MAX_NUDGE;
+
+  const topMove = Math.min(
+    remaining / 2,
+    Math.max(0, topCard.top - topMin),
+  );
+  topCard.top -= topMove;
+  remaining -= topMove;
+
+  const bottomMove = Math.min(
+    remaining,
+    Math.max(0, bottomMax - bottomCard.top),
+  );
+  bottomCard.top += bottomMove;
+}
+
+function getDenseCardZIndex(card, isCrowded) {
+  if (!isCrowded) return 1;
+  return 20 + Math.max(0, 10 - Math.min(card.sentenceCount || 0, 10));
+}
+
+function adjustCrowdedLevelCards(levelCards) {
+  const sortedCards = [...levelCards].sort(
+    (left, right) =>
+      left.top - right.top || left.fullPath.localeCompare(right.fullPath),
+  );
+
+  const workingCards = sortedCards.map((card, index) => {
+    const previousCard = sortedCards[index - 1];
+    const nextCard = sortedCards[index + 1];
+    const isCrowded =
+      (previousCard && cardsOverlapVertically(previousCard, card)) ||
+      (nextCard && cardsOverlapVertically(card, nextCard));
+    const height = getCompactCardHeight(card, isCrowded);
+
+    return {
+      ...card,
+      sourceCard: card,
+      top: getFiniteNumber(card.top, 0),
+      height,
+      originalTop: getFiniteNumber(card.top, 0),
+      isCrowded,
+    };
+  });
+
+  for (let pass = 0; pass < 3; pass += 1) {
+    for (let index = 1; index < workingCards.length; index += 1) {
+      nudgeCrowdedPair(workingCards[index - 1], workingCards[index]);
+    }
+    for (let index = workingCards.length - 2; index >= 0; index -= 1) {
+      nudgeCrowdedPair(workingCards[index], workingCards[index + 1]);
+    }
+  }
+
+  return workingCards.map(({ originalTop, isCrowded, ...card }) => ({
+    ...card,
+    top: Math.round(card.top),
+    height: Math.round(card.height),
+    titleFontSize: getAdjustedTitleFontSize(card, card.height),
+    zIndex: getDenseCardZIndex(card, isCrowded),
+  }));
+}
+
+function getAdjustedHierarchyCards(cards) {
+  const cardsByLevel = new Map();
+  cards.forEach((card) => {
+    const levelCards = cardsByLevel.get(card.levelIndex) || [];
+    levelCards.push(card);
+    cardsByLevel.set(card.levelIndex, levelCards);
+  });
+
+  return Array.from(cardsByLevel.values())
+    .flatMap(adjustCrowdedLevelCards)
+    .sort(
+      (left, right) =>
+        left.levelIndex - right.levelIndex ||
+        left.top - right.top ||
+        left.fullPath.localeCompare(right.fullPath),
+    );
+}
+
 /**
  * @typedef {Object} CanvasTopicCard
  * @property {string} key
@@ -75,6 +197,10 @@ export default function CanvasTopicHierarchyRail({
         ),
     [selectedLevel, topicCards],
   );
+  const adjustedHierarchyCards = React.useMemo(
+    () => getAdjustedHierarchyCards(hierarchyCards),
+    [hierarchyCards],
+  );
 
   if (!show) return null;
 
@@ -95,8 +221,8 @@ export default function CanvasTopicHierarchyRail({
       <div
         className="canvas-topic-hierarchy__body"
         style={{
-          height: hierarchyCards.length
-            ? `${Math.max(...hierarchyCards.map((c) => c.top + c.height)) + 20}px`
+          height: adjustedHierarchyCards.length
+            ? `${Math.max(...adjustedHierarchyCards.map((c) => c.top + c.height)) + 20}px`
             : "auto",
         }}
       >
@@ -106,7 +232,7 @@ export default function CanvasTopicHierarchyRail({
           </p>
         ) : (
           <>
-            {hierarchyCards.map((card) => {
+            {adjustedHierarchyCards.map((card) => {
               const isActive = activeTopicKey === card.fullPath;
               const isSelected = selectedTopicKey === card.fullPath;
               const isRead = isTopicRead(card.fullPath, safeReadTopics);
@@ -121,6 +247,7 @@ export default function CanvasTopicHierarchyRail({
               ]
                 .filter(Boolean)
                 .join(" ");
+              const sourceCard = card.sourceCard || card;
 
               return (
                 <button
@@ -136,11 +263,12 @@ export default function CanvasTopicHierarchyRail({
                       card.fullPath,
                       card.depth,
                     ),
+                    zIndex: isSelected ? 60 : isActive ? 50 : card.zIndex,
                   }}
                   onMouseEnter={() => onTopicEnter(card.fullPath)}
                   onMouseLeave={() => onTopicLeave(card.fullPath)}
                   onClick={() => {
-                    onTopicClick(card.fullPath, card);
+                    onTopicClick(card.fullPath, sourceCard);
                     if (onToggleRead) {
                       onToggleRead(card.fullPath);
                     }
