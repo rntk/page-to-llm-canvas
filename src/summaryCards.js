@@ -5,8 +5,20 @@ import { splitTopicPath } from "./topicCards.js";
  * record.topic_summary_index (preferred, hierarchical) into the
  * summaryViewCards[] array consumed by CanvasSummaryView.
  *
- * Card shape: { path, name, text, bullets, sourceSentences, startSentence, levelIndex }
+ * Card shape: { path, name, text, sourceSentences, startSentence, levelIndex }
  */
+function summaryText(summary) {
+  if (!summary || typeof summary !== "object") return "";
+  const text = typeof summary.text === "string" ? summary.text.trim() : "";
+  const bullets = Array.isArray(summary.bullets)
+    ? summary.bullets
+        .filter((bullet) => typeof bullet === "string" && bullet.trim())
+        .map((bullet) => `- ${bullet.trim()}`)
+    : [];
+
+  return [text, ...bullets].filter(Boolean).join("\n");
+}
+
 export function buildSummaryCards(topics, topicSummaries, topicSummaryIndex) {
   const index = topicSummaryIndex && typeof topicSummaryIndex === "object"
     ? topicSummaryIndex
@@ -28,8 +40,7 @@ export function buildSummaryCards(topics, topicSummaries, topicSummaryIndex) {
       cards.push({
         path,
         name,
-        text: typeof entry.text === "string" ? entry.text : "",
-        bullets: Array.isArray(entry.bullets) ? entry.bullets : [],
+        text: summaryText(entry),
         sourceSentences,
         startSentence,
         levelIndex:
@@ -55,8 +66,6 @@ export function buildSummaryCards(topics, topicSummaries, topicSummaryIndex) {
     const name = parts[parts.length - 1] || path;
 
     const summary = summaries[topic.name] || summaries[path] || {};
-    const text = typeof summary.text === "string" ? summary.text : "";
-    const bullets = Array.isArray(summary.bullets) ? summary.bullets : [];
     const sourceSentences = Array.isArray(summary.source_sentences)
       ? summary.source_sentences
       : Array.isArray(topic.sentences)
@@ -71,8 +80,7 @@ export function buildSummaryCards(topics, topicSummaries, topicSummaryIndex) {
     cards.push({
       path,
       name,
-      text,
-      bullets,
+      text: summaryText(summary),
       sourceSentences,
       startSentence,
       levelIndex: parts.length - 1,

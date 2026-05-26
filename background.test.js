@@ -44,6 +44,12 @@ function makeChromeMock() {
       sendMessage: vi.fn(),
       onMessage: { addListener: vi.fn() },
     },
+    alarms: {
+      create: vi.fn(),
+      clear: vi.fn(),
+      get: vi.fn((_name, cb) => cb(undefined)),
+      onAlarm: { addListener: vi.fn() },
+    },
   };
 }
 

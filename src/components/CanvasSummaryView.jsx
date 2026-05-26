@@ -23,8 +23,7 @@ export default function CanvasSummaryView({
       <div className="canvas-summary-view__cards">
         {summaryViewCards.map((card) => {
           const isActive = summaryViewActivePath === card.path;
-          const hasSummaryContent =
-            Boolean(card.text) || card.bullets.length > 0;
+          const hasSummaryContent = Boolean(card.text);
           const canShowSourceSentences = card.sourceSentences.length > 0;
           return (
             <article
@@ -59,13 +58,6 @@ export default function CanvasSummaryView({
                     <p className="canvas-summary-view__card-text">
                       {card.text}
                     </p>
-                  )}
-                  {card.bullets.length > 0 && (
-                    <ul className="canvas-summary-view__card-bullets">
-                      {card.bullets.map((b, i) => (
-                        <li key={i}>{b}</li>
-                      ))}
-                    </ul>
                   )}
                   {canShowSourceSentences && (
                     <div

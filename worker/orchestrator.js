@@ -51,26 +51,12 @@ function chunkTaggedText(tagged, maxChars) {
   return chunks;
 }
 
-function parseSummaryResponse(raw) {
-  if (!raw) return { text: "", bullets: [] };
+export function parseSummaryResponse(raw) {
+  if (!raw) return "";
   let s = raw.trim();
-  // Strip markdown fences if present.
-  s = s.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
-  // Attempt to locate JSON object if surrounded by extra text.
-  if (s[0] !== "{") {
-    const start = s.indexOf("{");
-    const end = s.lastIndexOf("}");
-    if (start >= 0 && end > start) s = s.slice(start, end + 1);
-  }
-  try {
-    const obj = JSON.parse(s);
-    return {
-      text: typeof obj.text === "string" ? obj.text : "",
-      bullets: Array.isArray(obj.bullets) ? obj.bullets.filter((b) => typeof b === "string") : [],
-    };
-  } catch {
-    return { text: raw.slice(0, 200), bullets: [] };
-  }
+
+  s = s.replace(/^```[a-z0-9_-]*\s*/i, "").replace(/```\s*$/i, "").trim();
+  return s;
 }
 
 function buildTopicTree(topics) {
@@ -119,7 +105,7 @@ async function mergeChildSummaries(childRecords) {
     formatChunkSummariesForMerge(childRecords),
   );
   const resp = await callLLMWithRetry({ prompt, temperature: 0.0 });
-  return parseSummaryResponse(resp);
+  return { text: parseSummaryResponse(resp) };
 }
 
 function rangesToSentenceList(ranges) {
@@ -256,25 +242,24 @@ export async function runPipeline(key) {
         .filter(Boolean)
         .join(" ");
       const prompt = buildArticleSummaryPrompt(sourceText);
-      let parsed;
+      let summaryText;
       try {
         const resp = await callLLMWithRetry({ prompt, temperature: 0.0 });
-        parsed = parseSummaryResponse(resp);
+        summaryText = parseSummaryResponse(resp);
         await logPipeline(key, "topic_summary_llm_response", {
           topic: topic.name,
           responseLength: resp.length,
-          bulletCount: parsed.bullets.length,
+          summaryLength: summaryText.length,
         });
       } catch (e) {
         await logPipeline(key, "topic_summary_llm_error", {
           topic: topic.name,
           error: (e && e.message) || String(e),
         });
-        parsed = { text: "", bullets: [] };
+        summaryText = "";
       }
       topic_summaries[topic.name] = {
-        text: parsed.text,
-        bullets: parsed.bullets,
+        text: summaryText,
         source_sentences: topic.sentences,
       };
       done++;
@@ -292,7 +277,6 @@ export async function runPipeline(key) {
       if (path && topic_summaries[path]) {
         node.leafSummary = {
           text: topic_summaries[path].text || "",
-          bullets: topic_summaries[path].bullets || [],
         };
       }
     }
@@ -300,7 +284,7 @@ export async function runPipeline(key) {
     async function summarizeNode(node) {
       for (const child of node.children) await summarizeNode(child);
       if (node.children.length === 0) {
-        node.summary = node.leafSummary || { text: "", bullets: [] };
+        node.summary = node.leafSummary || { text: "" };
         return;
       }
       if (node.children.length === 1) {
@@ -312,7 +296,7 @@ export async function runPipeline(key) {
         return {
           start_sentence: sents[0] || 0,
           end_sentence: sents[sents.length - 1] || 0,
-          summary: c.summary || { text: "", bullets: [] },
+          summary: c.summary || { text: "" },
         };
       });
       try {
@@ -322,7 +306,7 @@ export async function runPipeline(key) {
           path: node.path,
           error: (e && e.message) || String(e),
         });
-        node.summary = { text: "", bullets: [] };
+        node.summary = { text: "" };
       }
     }
     await summarizeNode(root);
@@ -332,7 +316,6 @@ export async function runPipeline(key) {
       if (!path) continue;
       topic_summary_index[path] = {
         text: (node.summary && node.summary.text) || "",
-        bullets: (node.summary && node.summary.bullets) || [],
         level: node.level - 1,
         source_sentences: node.sourceSentences,
       };

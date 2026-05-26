@@ -11,6 +11,43 @@ import { callLLMDirect } from "./worker/llm.js";
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 
+// Alarm name used to keep the service worker alive while pipelines are running.
+const KEEPALIVE_ALARM = "pipeline-keepalive";
+// Chrome MV3 enforces a minimum of 30 s (0.5 min) for alarm periods.
+const KEEPALIVE_PERIOD_MINUTES = 0.5;
+
+function scheduleKeepAlive() {
+  chrome.alarms.get(KEEPALIVE_ALARM, (existing) => {
+    if (!existing) {
+      chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: KEEPALIVE_PERIOD_MINUTES });
+    }
+  });
+}
+
+function clearKeepAliveIfIdle() {
+  if (_jobRegistry.size === 0 && _starting.size === 0) {
+    chrome.alarms.clear(KEEPALIVE_ALARM);
+  }
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== KEEPALIVE_ALARM) return;
+  // Resume any in-flight records that lost their SW context (e.g. after SW termination).
+  listRecords().then((items) => {
+    const inFlightStatuses = new Set(["pending", "splitting", "summarizing"]);
+    const inFlight = items.filter((r) => inFlightStatuses.has(r.status));
+    if (inFlight.length === 0) {
+      chrome.alarms.clear(KEEPALIVE_ALARM);
+      return;
+    }
+    for (const rec of inFlight) {
+      startPipeline(rec.key).catch((err) => {
+        console.error("PageToLLM Canvas keepalive resume failed for", rec.key, err);
+      });
+    }
+  });
+});
+
 /**
  * In-memory job registry to prevent duplicate pipeline runs while the
  * service worker is alive. Keyed by record key; value is the run promise.
@@ -77,12 +114,15 @@ export async function startPipeline(key) {
     // Evict any hung/stale promise before starting fresh.
     _jobRegistry.delete(key);
 
+    scheduleKeepAlive();
+
     const promise = runPipeline(key)
       .catch((err) => {
         console.error("PageToLLM Canvas background pipeline failed for", key, err);
       })
       .finally(() => {
         _jobRegistry.delete(key);
+        clearKeepAliveIfIdle();
       });
 
     _jobRegistry.set(key, promise);
