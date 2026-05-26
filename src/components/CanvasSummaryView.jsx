@@ -27,10 +27,10 @@ export default function CanvasSummaryView({
           const canShowSourceSentences = card.sourceSentences.length > 0;
           return (
             <article
-              key={card.path}
+              key={card.key || card.path}
               ref={(el) => {
-                if (el) summaryCardRefs.current[card.path] = el;
-                else delete summaryCardRefs.current[card.path];
+                if (el) summaryCardRefs.current[card.key || card.path] = el;
+                else delete summaryCardRefs.current[card.key || card.path];
               }}
               className={`canvas-summary-view__card${isActive ? " is-active" : ""}`}
               onMouseEnter={() => setHoveredTopicKey(card.path)}

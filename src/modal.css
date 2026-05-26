@@ -688,13 +688,6 @@ body.canvas-global-dragging * {
 }
 
 .canvas-summary-view__summary-tooltip {
-  display: none;
-}
-
-.canvas-summary-view__summary-tooltip-wrap:hover
-  .canvas-summary-view__summary-tooltip,
-.canvas-summary-view__summary-tooltip-wrap:focus-within
-  .canvas-summary-view__summary-tooltip {
   display: block;
   margin-top: 8px;
 }

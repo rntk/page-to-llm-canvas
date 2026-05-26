@@ -1,11 +1,11 @@
-import { splitTopicPath } from "./topicCards.js";
+import { splitTopicPath, splitSentenceRuns } from "./topicCards.js";
 
 /**
  * Pure helper that turns record.topics + record.topic_summaries (legacy) or
  * record.topic_summary_index (preferred, hierarchical) into the
  * summaryViewCards[] array consumed by CanvasSummaryView.
  *
- * Card shape: { path, name, text, sourceSentences, startSentence, levelIndex }
+ * Card shape: { key, path, name, text, sourceSentences, startSentence, levelIndex }
  */
 function summaryText(summary) {
   if (!summary || typeof summary !== "object") return "";
@@ -34,17 +34,23 @@ export function buildSummaryCards(topics, topicSummaries, topicSummaryIndex) {
       const sourceSentences = Array.isArray(entry.source_sentences)
         ? entry.source_sentences
         : [];
-      const startSentence = sourceSentences.length
-        ? Math.min(...sourceSentences)
-        : 0;
-      cards.push({
-        path,
-        name,
-        text: summaryText(entry),
-        sourceSentences,
-        startSentence,
-        levelIndex:
-          typeof entry.level === "number" ? entry.level : parts.length - 1,
+      const levelIndex =
+        typeof entry.level === "number" ? entry.level : parts.length - 1;
+
+      const runs = splitSentenceRuns(sourceSentences);
+      const runsToProcess = runs.length > 0 ? runs : [[]];
+
+      runsToProcess.forEach((run, runIndex) => {
+        const startSentence = run.length ? Math.min(...run) : 0;
+        cards.push({
+          key: `${path}#${levelIndex}#${runIndex}`,
+          path,
+          name,
+          text: summaryText(entry),
+          sourceSentences: run,
+          startSentence,
+          levelIndex,
+        });
       });
     }
     cards.sort(
@@ -71,21 +77,30 @@ export function buildSummaryCards(topics, topicSummaries, topicSummaryIndex) {
       : Array.isArray(topic.sentences)
         ? topic.sentences
         : [];
-    const startSentence = sourceSentences.length
-      ? Math.min(...sourceSentences)
-      : Array.isArray(topic.sentences) && topic.sentences.length
-        ? Math.min(...topic.sentences)
-        : 0;
+    const levelIndex = parts.length - 1;
 
-    cards.push({
-      path,
-      name,
-      text: summaryText(summary),
-      sourceSentences,
-      startSentence,
-      levelIndex: parts.length - 1,
+    const runs = splitSentenceRuns(sourceSentences);
+    const runsToProcess = runs.length > 0 ? runs : [[]];
+
+    runsToProcess.forEach((run, runIndex) => {
+      const startSentence = run.length ? Math.min(...run) : 0;
+      cards.push({
+        key: `${path}#${levelIndex}#${runIndex}`,
+        path,
+        name,
+        text: summaryText(summary),
+        sourceSentences: run,
+        startSentence,
+        levelIndex,
+      });
     });
   }
 
+  cards.sort(
+    (a, b) =>
+      a.levelIndex - b.levelIndex ||
+      a.startSentence - b.startSentence ||
+      a.path.localeCompare(b.path),
+  );
   return cards;
 }

@@ -133,7 +133,7 @@ export function getTopicSentenceNumbers(topic) {
  * @param {number[]} sentenceNumbers
  * @returns {number[][]}
  */
-function splitSentenceRuns(sentenceNumbers) {
+export function splitSentenceRuns(sentenceNumbers) {
   if (sentenceNumbers.length === 0) return [];
 
   /** @type {number[][]} */

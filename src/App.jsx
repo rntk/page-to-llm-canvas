@@ -305,21 +305,33 @@ export default function App({ initialKey }) {
       // gets a unique pseudo-sentence number, and the sentenceMetrics map uses
       // those numbers. To keep things simple, we instead patch positions
       // post-build using a path -> {top, height} map.
+      const summaryCardMap = new Map(allSummaryCards.map((c) => [c.key, c]));
       const cards = buildTopicCards(topics, selectedLevel, new Map());
       return cards.map((card) => {
         // Find best matching summary card path (exact, ancestor, or descendant).
-        const direct = summaryMetricsState.get(card.fullPath);
+        const direct = summaryMetricsState.get(card.key);
         if (direct) {
           return { ...card, top: direct.top, height: direct.height };
         }
         let top = Infinity;
         let bottom = -Infinity;
-        for (const [path, m] of summaryMetricsState) {
+        for (const [key, m] of summaryMetricsState) {
+          const path = key.split("#")[0];
           if (
             path === card.fullPath ||
             path.startsWith(card.fullPath + " > ") ||
             card.fullPath.startsWith(path + " > ")
           ) {
+            const summaryCard = summaryCardMap.get(key);
+            if (summaryCard) {
+              const start = summaryCard.startSentence;
+              const hasOverlap =
+                (start >= card.startSentence && start <= card.endSentence) ||
+                (card.startSentence === 0 && card.endSentence === 0);
+              if (!hasOverlap) {
+                continue;
+              }
+            }
             if (m.top < top) top = m.top;
             if (m.top + m.height > bottom) bottom = m.top + m.height;
           }
@@ -331,7 +343,7 @@ export default function App({ initialKey }) {
       });
     }
     return buildTopicCards(topics, selectedLevel, sentenceMetrics);
-  }, [topics, selectedLevel, sentenceMetrics, showSummaryMode, summaryMetricsState]);
+  }, [topics, selectedLevel, sentenceMetrics, showSummaryMode, summaryMetricsState, allSummaryCards]);
 
   const cardWidth = useMemo(() => getZoomAdjustedCardWidth(scale), [scale]);
 
@@ -441,10 +453,13 @@ export default function App({ initialKey }) {
       if (!topicKey) return;
       if (showSummaryMode) {
         const summaryEl =
+          (card && summaryCardRefs.current[card.key]) ||
           summaryCardRefs.current[topicKey] ||
           Object.entries(summaryCardRefs.current).find(
-            ([path]) =>
-              path === topicKey || path.startsWith(topicKey + " > "),
+            ([key]) => {
+              const path = key.split("#")[0];
+              return path === topicKey || path.startsWith(topicKey + " > ");
+            },
           )?.[1];
         if (summaryEl) {
           zoomToTarget(summaryEl.getBoundingClientRect());
