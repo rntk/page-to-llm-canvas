@@ -104,7 +104,7 @@ async function mergeChildSummaries(childRecords) {
   const prompt = buildArticleSummaryMergePrompt(
     formatChunkSummariesForMerge(childRecords),
   );
-  const resp = await callLLMWithRetry({ prompt, temperature: 0.0 });
+  const resp = await callLLMWithRetry({ prompt, temperature: 0.8 });
   return { text: parseSummaryResponse(resp) };
 }
 
@@ -185,7 +185,7 @@ export async function runPipeline(key) {
         chunkIndex,
         promptLength: prompt.length,
       });
-      const resp = await callLLMWithRetry({ prompt, temperature: 0.0 });
+      const resp = await callLLMWithRetry({ prompt, temperature: 0.8 });
       await logPipeline(key, "topic_ranges_llm_response", {
         chunkIndex,
         responseLength: resp.length,
@@ -244,7 +244,7 @@ export async function runPipeline(key) {
       const prompt = buildArticleSummaryPrompt(sourceText);
       let summaryText;
       try {
-        const resp = await callLLMWithRetry({ prompt, temperature: 0.0 });
+        const resp = await callLLMWithRetry({ prompt, temperature: 0.8 });
         summaryText = parseSummaryResponse(resp);
         await logPipeline(key, "topic_summary_llm_response", {
           topic: topic.name,

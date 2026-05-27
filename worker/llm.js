@@ -13,7 +13,7 @@ const THINK_TAG_RE = /<think\b[^>]*>[\s\S]*?<\/think>/gi;
  * @param {{prompt: string, temperature?: number, model?: string}} options
  * @returns {Promise<{ok: boolean, content?: string, error?: string}>}
  */
-export async function callLLMDirect({ prompt, temperature = 0.0, model = DEFAULT_MODEL }) {
+export async function callLLMDirect({ prompt, temperature = 0.8, model = DEFAULT_MODEL }) {
   const body = {
     model,
     messages: [{ role: "user", content: prompt }],
