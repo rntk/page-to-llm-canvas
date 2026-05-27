@@ -732,8 +732,8 @@
     document.documentElement.style.setProperty('--pagetollm-rail-reserve', `${RAIL_WIDTH + 16}px`);
     document.body.classList.add('pagetollm-rail-open');
 
-    const railRect = railEl.getBoundingClientRect();
-    const railOriginTop = railRect.top + window.scrollY;
+    const bodyRect = body.getBoundingClientRect();
+    const railOriginTop = bodyRect.top + window.scrollY;
 
     function clearAllHighlights() {
       const cls = 'is-highlight';
