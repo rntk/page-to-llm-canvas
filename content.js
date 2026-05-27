@@ -929,6 +929,15 @@
 
     function renderCards() {
       body.innerHTML = '';
+      let frontCard = null;
+
+      function bringCardToFront(card) {
+        if (frontCard && frontCard !== card) {
+          frontCard.classList.remove('is-front');
+        }
+        frontCard = card;
+        card.classList.add('is-front');
+      }
 
       const isSummary = state.mode === 'summaries';
       const entries = isSummary
@@ -985,9 +994,17 @@
         card.appendChild(content);
 
         const sentenceList = spec.sentences || spec.sourceSentences || [];
-        card.addEventListener('mouseenter', () => highlightTopic(sentenceList, true));
+        card.addEventListener('mouseenter', () => {
+          bringCardToFront(card);
+          highlightTopic(sentenceList, true);
+        });
         card.addEventListener('mouseleave', () => highlightTopic(sentenceList, false));
-        card.addEventListener('click', () => scrollToFirst(sentenceList));
+        card.addEventListener('focus', () => bringCardToFront(card));
+        card.addEventListener('pointerdown', () => bringCardToFront(card));
+        card.addEventListener('click', () => {
+          bringCardToFront(card);
+          scrollToFirst(sentenceList);
+        });
 
         body.appendChild(card);
       }
