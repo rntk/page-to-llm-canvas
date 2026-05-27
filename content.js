@@ -673,9 +673,103 @@
 
     const head = document.createElement('div');
     head.className = 'pagetollm-rail-head';
-    const title = document.createElement('span');
-    title.className = 'pagetollm-rail-title';
-    title.textContent = mode === 'summaries' ? 'Topic summaries' : 'Topics';
+
+    // Functional dropdown title
+    const dropdownContainer = document.createElement('div');
+    dropdownContainer.className = 'pagetollm-rail-dropdown-container';
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.type = 'button';
+    toggleBtn.className = 'pagetollm-rail-dropdown-toggle pagetollm-rail-title';
+
+    const labelSpan = document.createElement('span');
+    labelSpan.className = 'pagetollm-rail-dropdown-label';
+    labelSpan.textContent = mode === 'summaries' ? 'Topic summaries' : 'Topics';
+    toggleBtn.appendChild(labelSpan);
+
+    const arrowSpan = document.createElement('span');
+    arrowSpan.className = 'pagetollm-rail-dropdown-arrow';
+    arrowSpan.textContent = '▾';
+    toggleBtn.appendChild(arrowSpan);
+
+    const dropdownMenu = document.createElement('div');
+    dropdownMenu.className = 'pagetollm-rail-dropdown-menu';
+
+    const itemTopics = document.createElement('button');
+    itemTopics.type = 'button';
+    itemTopics.className = 'pagetollm-rail-dropdown-item';
+    itemTopics.textContent = 'Topics';
+    if (mode === 'topics') itemTopics.classList.add('active');
+
+    const itemSummaries = document.createElement('button');
+    itemSummaries.type = 'button';
+    itemSummaries.className = 'pagetollm-rail-dropdown-item';
+    itemSummaries.textContent = 'Topic summaries';
+    if (mode === 'summaries') itemSummaries.classList.add('active');
+
+    const itemCanvas = document.createElement('button');
+    itemCanvas.type = 'button';
+    itemCanvas.className = 'pagetollm-rail-dropdown-item';
+    itemCanvas.textContent = 'Canvas view';
+
+    dropdownMenu.appendChild(itemTopics);
+    dropdownMenu.appendChild(itemSummaries);
+    dropdownMenu.appendChild(itemCanvas);
+    dropdownContainer.appendChild(toggleBtn);
+    dropdownContainer.appendChild(dropdownMenu);
+
+    toggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdownContainer.classList.toggle('open');
+    });
+
+    const closeDropdown = () => {
+      dropdownContainer.classList.remove('open');
+    };
+
+    const changeMode = (newMode) => {
+      if (mode === newMode) return;
+      mode = newMode;
+      railEl.dataset.mode = mode;
+
+      itemTopics.classList.toggle('active', mode === 'topics');
+      itemSummaries.classList.toggle('active', mode === 'summaries');
+      itemCanvas.classList.toggle('active', false);
+      labelSpan.textContent = mode === 'summaries' ? 'Topic summaries' : 'Topics';
+
+      const RAIL_WIDTH = mode === 'summaries' ? 340 : 260;
+      railEl.style.width = `${RAIL_WIDTH}px`;
+      document.documentElement.style.setProperty('--pagetollm-rail-reserve', `${RAIL_WIDTH + 16}px`);
+
+      clearAllHighlights();
+      renderCards();
+    };
+
+    itemTopics.addEventListener('click', (e) => {
+      e.stopPropagation();
+      changeMode('topics');
+      closeDropdown();
+    });
+
+    itemSummaries.addEventListener('click', (e) => {
+      e.stopPropagation();
+      changeMode('summaries');
+      closeDropdown();
+    });
+
+    itemCanvas.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeDropdown();
+      openCanvasIframe(record.key);
+      closeInPageRail();
+    });
+
+    const onDocumentClick = (e) => {
+      if (!dropdownContainer.contains(e.target)) {
+        closeDropdown();
+      }
+    };
+    document.addEventListener('click', onDocumentClick);
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'pagetollm-rail-close';
@@ -684,7 +778,7 @@
     closeBtn.title = 'Close rail';
     closeBtn.addEventListener('click', closeInPageRail);
 
-    head.appendChild(title);
+    head.appendChild(dropdownContainer);
 
     if (maxLevel > 0) {
       const switcher = document.createElement('div');
@@ -858,6 +952,7 @@
         unwrapWords(elements);
         document.body.classList.remove('pagetollm-rail-open');
         document.documentElement.style.removeProperty('--pagetollm-rail-reserve');
+        document.removeEventListener('click', onDocumentClick);
       },
     };
   }

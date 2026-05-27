@@ -336,3 +336,101 @@ body.pagetollm-rail-open {
   color: #ffffff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
+
+/* Custom Dropdown Selector in Rail Header */
+.pagetollm-rail-dropdown-container {
+  position: relative;
+  display: inline-block;
+}
+
+.pagetollm-rail-dropdown-toggle {
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.pagetollm-rail-dropdown-toggle:hover {
+  color: #f9fafb;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.pagetollm-rail-dropdown-arrow {
+  font-size: 10px;
+  color: #6b7280;
+  transition: transform 0.2s ease;
+}
+
+.pagetollm-rail-dropdown-container.open .pagetollm-rail-dropdown-arrow {
+  transform: rotate(180deg);
+}
+
+.pagetollm-rail-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+  background: rgba(31, 41, 55, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+  min-width: 180px;
+  z-index: 100;
+  padding: 4px;
+  backdrop-filter: blur(8px);
+}
+
+.pagetollm-rail-dropdown-container.open .pagetollm-rail-dropdown-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: pagetollm-dropdown-fade-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.pagetollm-rail-dropdown-item {
+  background: transparent;
+  border: none;
+  color: #d1d5db;
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  white-space: nowrap;
+}
+
+.pagetollm-rail-dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.pagetollm-rail-dropdown-item.active {
+  background: rgba(96, 165, 250, 0.15);
+  color: #60a5fa;
+  font-weight: 600;
+}
+
+@keyframes pagetollm-dropdown-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
