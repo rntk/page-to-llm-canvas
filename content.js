@@ -967,7 +967,11 @@
         card.type = 'button';
         card.className = `pagetollm-rail-card${isSummary ? ' is-summary' : ''}`;
         card.style.top = `${spec.box.top}px`;
-        card.style.minHeight = `${spec.box.height}px`;
+        if (isSummary) {
+          card.style.height = `${spec.box.height}px`;
+        } else {
+          card.style.minHeight = `${spec.box.height}px`;
+        }
         card.style.borderColor = topicAccentColor(spec.path, spec.level || 0);
         card.style.setProperty('--pagetollm-card-accent', topicAccentColor(spec.path, spec.level || 0));
 
