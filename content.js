@@ -5,13 +5,25 @@
   let pickCounter = 0;
   let dragSrcIndex = null;
   let canvasIframe = null;
-  let pageRecordsWidget = null;
   let inPageRailController = null;
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === "startSelection") {
       showSelectionToolbar();
       sendResponse({ status: "ready" });
+      return true;
+    }
+    if (message.action === "openRecordView") {
+      const key = message.key;
+      const mode = message.mode || "canvas";
+      if (!key) {
+        sendResponse({ status: "error", error: "missing key" });
+        return true;
+      }
+      handleRecordViewRequest({ key }, mode)
+        .then(() => sendResponse({ status: "ok" }))
+        .catch((err) => sendResponse({ status: "error", error: err && err.message ? err.message : String(err) }));
+      return true;
     }
     return true;
   });
@@ -47,153 +59,15 @@
     return parts.join(" > ");
   }
 
-  // ── Page records widget ───────────────────────────────────────────────────
+  // ── Record view actions ───────────────────────────────────────────────────
 
-  function getRecordHostname(sourceUrl) {
-    if (!sourceUrl) return '';
-    try { return new URL(sourceUrl).hostname; } catch (_) { return ''; }
-  }
-
-  function getUrlLabel(sourceUrl) {
-    if (!sourceUrl) return 'Unknown page';
-    try {
-      const u = new URL(sourceUrl);
-      const path = u.pathname + (u.search || '');
-      return path.length > 1 ? path : u.hostname;
-    } catch (_) {
-      return sourceUrl.slice(0, 60);
-    }
-  }
-
-  function getStatusLabel(status) {
-    const map = { done: 'Done', pending: 'Pending', splitting: 'Processing', summarizing: 'Processing', error: 'Error' };
-    return map[status] || status || '?';
-  }
-
-  function removePageRecordsWidget() {
-    if (pageRecordsWidget) {
-      pageRecordsWidget.remove();
-      pageRecordsWidget = null;
-    }
-  }
-
-  function makeViewButton(label, mode, rec) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = `pagetollm-prd-action pagetollm-prd-action--${mode}`;
-    btn.textContent = label;
-    btn.title = label;
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      handleRecordAction(rec, mode);
-    });
-    return btn;
-  }
-
-  function updateRecordList(list, records) {
-    list.innerHTML = '';
-    records.forEach((rec) => {
-      const item = document.createElement('li');
-      item.className = 'pagetollm-prd-item';
-
-      const label = document.createElement('span');
-      label.className = 'pagetollm-prd-label';
-      label.textContent = getUrlLabel(rec.sourceUrl);
-      label.title = rec.sourceUrl || '';
-
-      const badge = document.createElement('span');
-      badge.className = `pagetollm-prd-badge pagetollm-prd-badge--${rec.status || 'unknown'}`;
-      badge.textContent = getStatusLabel(rec.status);
-
-      const actions = document.createElement('div');
-      actions.className = 'pagetollm-prd-actions';
-      const isDone = rec.status === 'done';
-
-      actions.appendChild(makeViewButton('Canvas', 'canvas', rec));
-      if (isDone) {
-        actions.appendChild(makeViewButton('Topics', 'topics', rec));
-        actions.appendChild(makeViewButton('Summaries', 'summaries', rec));
-      }
-
-      item.appendChild(label);
-      item.appendChild(badge);
-      item.appendChild(actions);
-      list.appendChild(item);
-    });
-  }
-
-  function handleRecordAction(rec, mode) {
+  async function handleRecordViewRequest(rec, mode) {
     if (mode === 'canvas') {
       openCanvasIframe(rec.key);
       return;
     }
-    openInPageRail(rec, mode);
+    await openInPageRail(rec, mode);
   }
-
-  function renderPageRecordsWidget(records) {
-    const hostname = window.location.hostname;
-    const matching = records.filter((r) => getRecordHostname(r.sourceUrl) === hostname);
-
-    if (matching.length === 0) {
-      removePageRecordsWidget();
-      return;
-    }
-
-    if (pageRecordsWidget) {
-      const list = pageRecordsWidget.querySelector('#pagetollm-prd-list');
-      if (list) { updateRecordList(list, matching); return; }
-    }
-
-    const widget = document.createElement('div');
-    widget.id = 'pagetollm-page-records-widget';
-
-    const header = document.createElement('div');
-    header.className = 'pagetollm-prd-header';
-
-    const title = document.createElement('span');
-    title.className = 'pagetollm-prd-title';
-    title.textContent = 'Saved analyses';
-
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'pagetollm-prd-close';
-    closeBtn.textContent = '×';
-    closeBtn.title = 'Close';
-    closeBtn.addEventListener('click', removePageRecordsWidget);
-
-    header.appendChild(title);
-    header.appendChild(closeBtn);
-
-    const list = document.createElement('ul');
-    list.id = 'pagetollm-prd-list';
-    updateRecordList(list, matching);
-
-    widget.appendChild(header);
-    widget.appendChild(list);
-    document.documentElement.appendChild(widget);
-    pageRecordsWidget = widget;
-  }
-
-  function refreshPageRecordsWidget() {
-    try {
-      chrome.runtime.sendMessage({ type: 'listRecords' }, (resp) => {
-        if (chrome.runtime.lastError) return;
-        if (resp && resp.ok && Array.isArray(resp.items)) {
-          renderPageRecordsWidget(resp.items);
-        }
-      });
-    } catch (_) { /* extension context unavailable */ }
-  }
-
-  try {
-    chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== 'local') return;
-      if (Object.keys(changes).some((k) => k.startsWith('pagetollm:'))) {
-        refreshPageRecordsWidget();
-      }
-    });
-  } catch (_) { /* noop */ }
-
-  refreshPageRecordsWidget();
 
   // ── Selection toolbar ─────────────────────────────────────────────────────
 
@@ -471,7 +345,6 @@
     if (!node || node.nodeType !== 1) return false;
     const tag = node.tagName;
     if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return true;
-    if (node.id === 'pagetollm-page-records-widget') return true;
     if (node.id === 'pagetollm-in-page-rail') return true;
     if (node.classList && node.classList.contains('pagetollm-word')) return true;
     return false;

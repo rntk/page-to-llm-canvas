@@ -4,42 +4,241 @@
   <meta charset="UTF-8">
   <title>PageToLLM Canvas</title>
   <style>
-    body {
-      width: 260px;
-      padding: 14px;
+    :root {
+      color-scheme: light;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    body {
+      width: 360px;
       margin: 0;
+      color: #172033;
+      background: #f8fafc;
     }
-    h3 {
-      margin: 0 0 12px 0;
+
+    .shell {
+      display: flex;
+      flex-direction: column;
+      min-height: 220px;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 14px 10px;
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    h1 {
+      margin: 0;
       font-size: 15px;
-      color: #1f2937;
+      line-height: 1.2;
+      font-weight: 700;
     }
-    button {
-      width: 100%;
-      padding: 10px;
+
+    .host {
+      margin-top: 3px;
+      max-width: 210px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #64748b;
+      font-size: 12px;
+    }
+
+    .icon-btn {
+      width: 30px;
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      color: #334155;
+      background: #ffffff;
+      cursor: pointer;
+      font-size: 15px;
+      line-height: 1;
+    }
+
+    .icon-btn:hover {
+      background: #f1f5f9;
+      border-color: #94a3b8;
+    }
+
+    .primary {
+      margin: 12px 14px 10px;
+      padding: 10px 12px;
       cursor: pointer;
       border: none;
       border-radius: 6px;
       font-size: 13px;
-      font-weight: 600;
+      font-weight: 700;
       background: #2563eb;
-      color: #fff;
+      color: #ffffff;
     }
-    button:hover { background: #1d4ed8; }
-    .row {
-      margin-top: 10px;
+
+    .primary:hover { background: #1d4ed8; }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px 7px;
+      color: #475569;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .records {
+      list-style: none;
+      margin: 0;
+      padding: 0 8px 10px;
+      max-height: 340px;
+      overflow: auto;
+    }
+
+    .record {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      padding: 10px 6px;
+      border-top: 1px solid #e2e8f0;
+    }
+
+    .record:first-child { border-top: none; }
+
+    .label {
+      min-width: 0;
+      font-size: 13px;
+      line-height: 1.25;
+      font-weight: 650;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .meta {
+      margin-top: 4px;
+      color: #64748b;
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .badge {
+      align-self: start;
+      padding: 3px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .badge.done {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .badge.pending,
+    .badge.splitting,
+    .badge.summarizing {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+
+    .badge.error {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+
+    .actions {
+      grid-column: 1 / -1;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .action {
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #1e293b;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 750;
+      padding: 6px 8px;
+    }
+
+    .action:hover {
+      border-color: #94a3b8;
+      background: #f1f5f9;
+    }
+
+    .empty,
+    .error {
+      margin: 2px 14px 14px;
+      padding: 18px 12px;
+      border: 1px dashed #cbd5e1;
+      border-radius: 8px;
+      color: #64748b;
+      text-align: center;
+      font-size: 13px;
+      line-height: 1.35;
+      background: #ffffff;
+    }
+
+    .error {
+      border-color: #fecaca;
+      color: #991b1b;
+      background: #fff7f7;
+    }
+
+    .footer {
+      margin-top: auto;
+      padding: 9px 14px 12px;
       text-align: center;
       font-size: 12px;
+      border-top: 1px solid #e2e8f0;
+      background: #ffffff;
     }
-    a { color: #2563eb; text-decoration: none; }
+
+    a {
+      color: #2563eb;
+      text-decoration: none;
+    }
+
     a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
-  <h3>PageToLLM Canvas</h3>
-  <button id="pick-btn" type="button">Pick Blocks</button>
-  <div class="row"><a href="#" id="open-options">Open Options</a></div>
+  <main class="shell">
+    <header class="header">
+      <div>
+        <h1>PageToLLM Canvas</h1>
+        <div class="host" id="active-host">Loading page...</div>
+      </div>
+      <button class="icon-btn" id="refresh-btn" type="button" title="Refresh saved analyses">↻</button>
+    </header>
+
+    <button class="primary" id="pick-btn" type="button">Pick Blocks</button>
+
+    <div class="section-title">
+      <span>Saved analyses</span>
+      <span id="record-count"></span>
+    </div>
+    <ul class="records" id="records"></ul>
+    <div class="empty" id="empty" hidden>No saved analyses for this page yet.</div>
+    <div class="error" id="error" hidden></div>
+
+    <footer class="footer"><a href="#" id="open-options">Open Options</a></footer>
+  </main>
   <script src="popup.js"></script>
 </body>
 </html>
