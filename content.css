@@ -40,7 +40,7 @@
   padding: 6px 12px;
   border: none;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 600;
   cursor: pointer;
   transition: transform 0.15s ease, opacity 0.15s ease;
@@ -116,7 +116,7 @@
 .rsstag-drag-handle {
   cursor: grab;
   color: #9ca3af;
-  font-size: 14px;
+  font-size: 17px;
   flex-shrink: 0;
 }
 
@@ -125,7 +125,7 @@
 }
 
 .rsstag-block-label {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 500;
   flex: 1;
 }
@@ -134,7 +134,7 @@
   background: transparent !important;
   color: #9ca3af !important;
   padding: 0 4px !important;
-  font-size: 12px !important;
+  font-size: 14px !important;
   font-weight: 400 !important;
   border-radius: 4px !important;
   line-height: 1;
@@ -192,7 +192,7 @@ body.pagetollm-rail-open {
 }
 
 .pagetollm-rail-title {
-  font-size: 11px;
+  font-size: 16px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -261,7 +261,7 @@ body.pagetollm-rail-open {
 }
 
 .pagetollm-rail-card-title {
-  font-size: 12px;
+  font-size: 18px;
   font-weight: 700;
   line-height: 1.25;
   color: var(--pagetollm-card-accent, #f9fafb);
@@ -271,12 +271,12 @@ body.pagetollm-rail-open {
 }
 
 .pagetollm-rail-card-meta {
-  font-size: 10px;
+  font-size: 14px;
   color: #9ca3af;
 }
 
 .pagetollm-rail-card-body {
-  font-size: 12px;
+  font-size: 18px;
   line-height: 1.4;
   color: #e5e7eb;
   white-space: pre-wrap;
@@ -317,7 +317,7 @@ body.pagetollm-rail-open {
   background: transparent;
   border: none;
   color: #9ca3af;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   padding: 3px 8px;
   border-radius: 4px;
