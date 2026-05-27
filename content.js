@@ -670,6 +670,42 @@
     });
   }
 
+  function buildHierarchicalTopicEntries(record, selectedLevel) {
+    const topics = Array.isArray(record.topics) ? record.topics : [];
+    const nodes = new Map();
+
+    for (const t of topics) {
+      const parts = splitPath(t.name);
+      const limit = Math.min(parts.length, selectedLevel + 1);
+      const sentences = getTopicSentenceNumbers(t);
+
+      for (let i = 0; i < limit; i++) {
+        const path = parts.slice(0, i + 1).join(' > ');
+        const name = parts[i];
+        if (!nodes.has(path)) {
+          nodes.set(path, {
+            path,
+            name,
+            level: i,
+            sentences: new Set(),
+          });
+        }
+        const node = nodes.get(path);
+        for (const s of sentences) {
+          node.sentences.add(s);
+        }
+      }
+    }
+
+    return Array.from(nodes.values()).map((node) => ({
+      path: node.path,
+      name: node.name,
+      level: node.level,
+      sentences: Array.from(node.sentences).sort((a, b) => a - b),
+    }));
+  }
+
+
   function computeCardVerticalBox(sentences, sentenceRanges, wordEntries, railOriginTop) {
     if (!sentences || sentences.length === 0) return null;
     let top = Infinity, bottom = -Infinity;
@@ -739,6 +775,25 @@
     const sentences = Array.isArray(record.sentences) ? record.sentences : [];
     const sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
 
+    let selectedLevel = 0;
+
+    // Calculate maxLevel
+    let maxLevel = 0;
+    const topics = Array.isArray(record.topics) ? record.topics : [];
+    for (const t of topics) {
+      const depth = splitPath(t.name).length - 1;
+      if (depth > maxLevel) maxLevel = depth;
+    }
+    const index = record.topic_summary_index;
+    if (index && typeof index === 'object') {
+      for (const [rawPath, entry] of Object.entries(index)) {
+        if (!rawPath) continue;
+        const parts = splitPath(rawPath);
+        const level = typeof entry.level === 'number' ? entry.level : parts.length - 1;
+        if (level > maxLevel) maxLevel = level;
+      }
+    }
+
     const railEl = document.createElement('aside');
     railEl.id = 'pagetollm-in-page-rail';
     railEl.dataset.mode = mode;
@@ -748,13 +803,47 @@
     const title = document.createElement('span');
     title.className = 'pagetollm-rail-title';
     title.textContent = mode === 'summaries' ? 'Topic summaries' : 'Topics';
+
     const closeBtn = document.createElement('button');
     closeBtn.className = 'pagetollm-rail-close';
     closeBtn.type = 'button';
     closeBtn.textContent = '×';
     closeBtn.title = 'Close rail';
     closeBtn.addEventListener('click', closeInPageRail);
+
     head.appendChild(title);
+
+    if (maxLevel > 0) {
+      const switcher = document.createElement('div');
+      switcher.className = 'pagetollm-rail-level-switcher';
+      
+      const buttonsContainer = document.createElement('div');
+      buttonsContainer.className = 'pagetollm-rail-level-buttons';
+      
+      for (let level = 0; level <= maxLevel; level++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `pagetollm-rail-level-btn${selectedLevel === level ? ' active' : ''}`;
+        btn.textContent = `L${level}`;
+        btn.title = `Switch to level ${level}`;
+        btn.addEventListener('click', () => {
+          if (selectedLevel === level) return;
+          selectedLevel = level;
+          
+          buttonsContainer.querySelectorAll('.pagetollm-rail-level-btn').forEach((b, idx) => {
+            if (idx === level) b.classList.add('active');
+            else b.classList.remove('active');
+          });
+          
+          clearAllHighlights();
+          renderCards();
+        });
+        buttonsContainer.appendChild(btn);
+      }
+      switcher.appendChild(buttonsContainer);
+      head.appendChild(switcher);
+    }
+
     head.appendChild(closeBtn);
 
     const body = document.createElement('div');
@@ -773,46 +862,14 @@
     const railRect = railEl.getBoundingClientRect();
     const railOriginTop = railRect.top + window.scrollY;
 
-    let cardSpecs;
-    if (mode === 'summaries') {
-      const { entries } = buildSummaryEntries(record);
-      const paths = new Set(entries.map((e) => e.path));
-      const leafEntries = entries.filter(
-        (e) => !Array.from(paths).some(
-          (p) => p !== e.path && p.startsWith(e.path + ' > '),
-        ),
-      );
-      cardSpecs = leafEntries
-        .map((e) => {
-          const box = computeCardVerticalBox(e.sourceSentences, sentenceRanges, wordEntries, railOriginTop);
-          return { ...e, sentences: e.sourceSentences, box };
-        })
-        .filter((c) => c.box)
-        .sort((a, b) => a.box.top - b.box.top);
-    } else {
-      const entries = buildTopicEntries(record);
-      cardSpecs = entries
-        .map((e) => {
-          const box = computeCardVerticalBox(e.sentences, sentenceRanges, wordEntries, railOriginTop);
-          return { ...e, box };
-        })
-        .filter((c) => c.box)
-        .sort((a, b) => a.box.top - b.box.top);
+    function clearAllHighlights() {
+      const cls = 'is-highlight';
+      wordEntries.forEach((entry) => {
+        if (entry && entry.span) {
+          entry.span.classList.remove(cls);
+        }
+      });
     }
-
-    // De-overlap: bump cards down if they would visually collide.
-    const MIN_GAP = 6;
-    for (let i = 1; i < cardSpecs.length; i++) {
-      const prev = cardSpecs[i - 1].box;
-      const cur = cardSpecs[i].box;
-      const minTop = prev.top + prev.height + MIN_GAP;
-      if (cur.top < minTop) cur.top = minTop;
-    }
-
-    const railHeight = cardSpecs.length
-      ? Math.max(...cardSpecs.map((c) => c.box.top + c.box.height)) + 80
-      : 200;
-    body.style.height = `${railHeight}px`;
 
     function highlightTopic(sentenceList, on) {
       const cls = 'is-highlight';
@@ -838,45 +895,88 @@
       }
     }
 
-    for (const spec of cardSpecs) {
-      const card = document.createElement('button');
-      card.type = 'button';
-      const isSummary = mode === 'summaries';
-      card.className = `pagetollm-rail-card${isSummary ? ' is-summary' : ''}`;
-      card.style.top = `${spec.box.top}px`;
-      card.style.minHeight = `${spec.box.height}px`;
-      card.style.borderColor = topicAccentColor(spec.path, spec.level || 0);
-      card.style.setProperty('--pagetollm-card-accent', topicAccentColor(spec.path, spec.level || 0));
+    function renderCards() {
+      body.innerHTML = '';
 
-      const content = document.createElement('div');
-      content.className = 'pagetollm-rail-card-content';
-
-      const heading = document.createElement('div');
-      heading.className = 'pagetollm-rail-card-title';
-      heading.textContent = spec.name;
-      heading.title = spec.path;
-      content.appendChild(heading);
-
-      if (isSummary) {
-        const body = document.createElement('div');
-        body.className = 'pagetollm-rail-card-body';
-        body.textContent = spec.text || '(no summary)';
-        content.appendChild(body);
+      let cardSpecs;
+      if (mode === 'summaries') {
+        const { entries } = buildSummaryEntries(record);
+        const eligible = entries.filter((e) => e.level === selectedLevel);
+        cardSpecs = eligible
+          .map((e) => {
+            const box = computeCardVerticalBox(e.sourceSentences, sentenceRanges, wordEntries, railOriginTop);
+            return { ...e, sentences: e.sourceSentences, box };
+          })
+          .filter((c) => c.box)
+          .sort((a, b) => a.box.top - b.box.top);
       } else {
-        const meta = document.createElement('div');
-        meta.className = 'pagetollm-rail-card-meta';
-        meta.textContent = `${spec.sentences.length} sent.`;
-        content.appendChild(meta);
+        const entries = buildHierarchicalTopicEntries(record, selectedLevel);
+        const eligible = entries.filter((e) => e.level === selectedLevel);
+        cardSpecs = eligible
+          .map((e) => {
+            const box = computeCardVerticalBox(e.sentences, sentenceRanges, wordEntries, railOriginTop);
+            return { ...e, box };
+          })
+          .filter((c) => c.box)
+          .sort((a, b) => a.box.top - b.box.top);
       }
-      card.appendChild(content);
 
-      const sentenceList = spec.sentences || spec.sourceSentences || [];
-      card.addEventListener('mouseenter', () => highlightTopic(sentenceList, true));
-      card.addEventListener('mouseleave', () => highlightTopic(sentenceList, false));
-      card.addEventListener('click', () => scrollToFirst(sentenceList));
+      // De-overlap: bump cards down if they would visually collide.
+      const MIN_GAP = 6;
+      for (let i = 1; i < cardSpecs.length; i++) {
+        const prev = cardSpecs[i - 1].box;
+        const cur = cardSpecs[i].box;
+        const minTop = prev.top + prev.height + MIN_GAP;
+        if (cur.top < minTop) cur.top = minTop;
+      }
 
-      body.appendChild(card);
+      const railHeight = cardSpecs.length
+        ? Math.max(...cardSpecs.map((c) => c.box.top + c.box.height)) + 80
+        : 200;
+      body.style.height = `${railHeight}px`;
+
+      for (const spec of cardSpecs) {
+        const card = document.createElement('button');
+        card.type = 'button';
+        const isSummary = mode === 'summaries';
+        card.className = `pagetollm-rail-card${isSummary ? ' is-summary' : ''}`;
+        card.style.top = `${spec.box.top}px`;
+        card.style.minHeight = `${spec.box.height}px`;
+        card.style.borderColor = topicAccentColor(spec.path, spec.level || 0);
+        card.style.setProperty('--pagetollm-card-accent', topicAccentColor(spec.path, spec.level || 0));
+
+        const content = document.createElement('div');
+        content.className = 'pagetollm-rail-card-content';
+
+        const heading = document.createElement('div');
+        heading.className = 'pagetollm-rail-card-title';
+        heading.textContent = spec.name;
+        heading.title = spec.path;
+        content.appendChild(heading);
+
+        if (isSummary) {
+          const cardBody = document.createElement('div');
+          cardBody.className = 'pagetollm-rail-card-body';
+          cardBody.textContent = spec.text || '(no summary)';
+          content.appendChild(cardBody);
+        } else {
+          const meta = document.createElement('div');
+          meta.className = 'pagetollm-rail-card-meta';
+          meta.textContent = `${spec.sentences.length} sent.`;
+          content.appendChild(meta);
+        }
+        card.appendChild(content);
+
+        const sentenceList = spec.sentences || spec.sourceSentences || [];
+        card.addEventListener('mouseenter', () => highlightTopic(sentenceList, true));
+        card.addEventListener('mouseleave', () => highlightTopic(sentenceList, false));
+        card.addEventListener('click', () => scrollToFirst(sentenceList));
+
+        body.appendChild(card);
+      }
     }
+
+    renderCards();
 
     inPageRailController = {
       railEl,
@@ -888,6 +988,7 @@
       },
     };
   }
+
 
   function closeInPageRail() {
     if (inPageRailController) {
