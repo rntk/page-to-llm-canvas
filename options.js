@@ -42,6 +42,7 @@ async function render() {
       <td><span class="status ${item.status || ''}">${item.status || 'unknown'}</span></td>
       <td>
         <button data-action="open" data-key="${item.key}" type="button">Open</button>
+        <button data-action="reprocess" data-key="${item.key}" type="button">Reprocess</button>
         <button data-action="delete" data-key="${item.key}" class="danger" type="button">Delete</button>
       </td>
     `;
@@ -72,6 +73,10 @@ async function onAction(e) {
   if (action === 'delete') {
     if (!confirm('Delete this record?')) return;
     await sendMessage({ type: 'deleteRecord', key });
+    render();
+  } else if (action === 'reprocess') {
+    if (!confirm('Reprocess this record? Existing topics and summaries will be regenerated.')) return;
+    await sendMessage({ type: 'reprocessRecord', key });
     render();
   } else if (action === 'open') {
     alert('Open by re-picking the same blocks on the source page.');

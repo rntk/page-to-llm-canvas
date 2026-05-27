@@ -167,6 +167,42 @@ function renderRecords(records) {
       actions.appendChild(makeAction('Summaries', record.key, 'summaries'));
     }
 
+    const reprocessBtn = document.createElement('button');
+    reprocessBtn.className = 'action warning';
+    reprocessBtn.type = 'button';
+    reprocessBtn.textContent = 'Reprocess';
+    reprocessBtn.addEventListener('click', async () => {
+      if (!confirm('Reprocess this analysis? Existing topics and summaries will be regenerated.')) return;
+      try {
+        const response = await runtimeMessage({ type: 'reprocessRecord', key: record.key });
+        if (!response || !response.ok) {
+          throw new Error((response && response.error) || 'Reprocess failed');
+        }
+        await refreshRecords();
+      } catch (err) {
+        setError(err.message || String(err));
+      }
+    });
+    actions.appendChild(reprocessBtn);
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'action danger';
+    deleteBtn.type = 'button';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', async () => {
+      if (!confirm('Delete this record?')) return;
+      try {
+        const response = await runtimeMessage({ type: 'deleteRecord', key: record.key });
+        if (!response || !response.ok) {
+          throw new Error((response && response.error) || 'Delete failed');
+        }
+        await refreshRecords();
+      } catch (err) {
+        setError(err.message || String(err));
+      }
+    });
+    actions.appendChild(deleteBtn);
+
     item.appendChild(copy);
     item.appendChild(badge);
     item.appendChild(actions);

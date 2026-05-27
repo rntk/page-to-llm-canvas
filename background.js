@@ -1,6 +1,7 @@
 import {
   readRecord,
   writeRecord,
+  updateRecord,
   listRecords,
   deleteRecord,
   deleteAll,
@@ -251,6 +252,34 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           await writeRecord(rec);
           startPipeline(key).catch((err) => {
             console.error("PageToLLM Canvas retryRecord startPipeline failed:", err);
+          });
+          sendResponse({ ok: true });
+          return;
+        }
+        case "reprocessRecord": {
+          const { key } = msg;
+          if (!key) {
+            sendResponse({ ok: false, error: "missing key" });
+            return;
+          }
+          const rec = await readRecord(key);
+          if (!rec) {
+            sendResponse({ ok: false, error: "record not found" });
+            return;
+          }
+          await updateRecord(key, {
+            status: "pending",
+            error: null,
+            progress: { stage: "queued", done: 0, total: 0 },
+            topics: [],
+            topic_summaries: {},
+            topic_summary_index: {},
+            sentences: [],
+            text: "",
+            processingLog: [],
+          });
+          startPipeline(key).catch((err) => {
+            console.error("PageToLLM Canvas reprocessRecord startPipeline failed:", err);
           });
           sendResponse({ ok: true });
           return;
