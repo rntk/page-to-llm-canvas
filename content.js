@@ -6,6 +6,11 @@
   let dragSrcIndex = null;
   let canvasIframe = null;
   let inPageRailController = null;
+  const IN_PAGE_RAIL_WIDTHS = Object.freeze({
+    topics: 260,
+    summaries: 340
+  });
+  const IN_PAGE_RAIL_RESERVE_GAP = 16;
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === "startSelection") {
@@ -623,7 +628,7 @@
     return found;
   }
 
-  async function openInPageRail(rec, mode) {
+  async function openInPageRail(rec, initialMode) {
     closeInPageRail();
     removeCanvasIframe();
 
@@ -648,7 +653,10 @@
     const sentences = Array.isArray(record.sentences) ? record.sentences : [];
     const sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
 
-    let selectedLevel = 0;
+    const state = {
+      mode: initialMode,
+      selectedLevel: 0
+    };
 
     // Calculate maxLevel
     let maxLevel = 0;
@@ -669,77 +677,75 @@
 
     const railEl = document.createElement('aside');
     railEl.id = 'pagetollm-in-page-rail';
-    railEl.dataset.mode = mode;
+    railEl.dataset.mode = state.mode;
+
+    const setRailWidthForMode = () => {
+      const railWidth = IN_PAGE_RAIL_WIDTHS[state.mode] || IN_PAGE_RAIL_WIDTHS.topics;
+      railEl.style.width = `${railWidth}px`;
+      document.documentElement.style.setProperty(
+        '--pagetollm-rail-reserve',
+        `${railWidth + IN_PAGE_RAIL_RESERVE_GAP}px`
+      );
+    };
 
     const head = document.createElement('div');
     head.className = 'pagetollm-rail-head';
 
-    // Functional dropdown title
+    const dropdownMenuId = `pagetollm-dropdown-menu-${record.key}`;
+    const initialLabel = state.mode === 'summaries' ? 'Topic summaries' : 'Topics';
+
     const dropdownContainer = document.createElement('div');
     dropdownContainer.className = 'pagetollm-rail-dropdown-container';
+    dropdownContainer.innerHTML = `
+      <button type="button" class="pagetollm-rail-dropdown-toggle pagetollm-rail-title"
+              aria-haspopup="true" aria-expanded="false" aria-controls="${dropdownMenuId}">
+        <span class="pagetollm-rail-dropdown-label"></span>
+        <span class="pagetollm-rail-dropdown-arrow" aria-hidden="true">▾</span>
+      </button>
+      <div id="${dropdownMenuId}" class="pagetollm-rail-dropdown-menu" role="menu">
+        <button type="button" class="pagetollm-rail-dropdown-item" role="menuitem" data-mode="topics">Topics</button>
+        <button type="button" class="pagetollm-rail-dropdown-item" role="menuitem" data-mode="summaries">Topic summaries</button>
+        <button type="button" class="pagetollm-rail-dropdown-item" role="menuitem" data-mode="canvas">Canvas view</button>
+      </div>
+    `;
 
-    const toggleBtn = document.createElement('button');
-    toggleBtn.type = 'button';
-    toggleBtn.className = 'pagetollm-rail-dropdown-toggle pagetollm-rail-title';
+    const toggleBtn = dropdownContainer.querySelector('.pagetollm-rail-dropdown-toggle');
+    const labelSpan = dropdownContainer.querySelector('.pagetollm-rail-dropdown-label');
+    const itemTopics = dropdownContainer.querySelector('[data-mode="topics"]');
+    const itemSummaries = dropdownContainer.querySelector('[data-mode="summaries"]');
+    const itemCanvas = dropdownContainer.querySelector('[data-mode="canvas"]');
 
-    const labelSpan = document.createElement('span');
-    labelSpan.className = 'pagetollm-rail-dropdown-label';
-    labelSpan.textContent = mode === 'summaries' ? 'Topic summaries' : 'Topics';
-    toggleBtn.appendChild(labelSpan);
+    labelSpan.textContent = initialLabel;
+    if (state.mode === 'topics') itemTopics.classList.add('active');
+    if (state.mode === 'summaries') itemSummaries.classList.add('active');
 
-    const arrowSpan = document.createElement('span');
-    arrowSpan.className = 'pagetollm-rail-dropdown-arrow';
-    arrowSpan.textContent = '▾';
-    toggleBtn.appendChild(arrowSpan);
-
-    const dropdownMenu = document.createElement('div');
-    dropdownMenu.className = 'pagetollm-rail-dropdown-menu';
-
-    const itemTopics = document.createElement('button');
-    itemTopics.type = 'button';
-    itemTopics.className = 'pagetollm-rail-dropdown-item';
-    itemTopics.textContent = 'Topics';
-    if (mode === 'topics') itemTopics.classList.add('active');
-
-    const itemSummaries = document.createElement('button');
-    itemSummaries.type = 'button';
-    itemSummaries.className = 'pagetollm-rail-dropdown-item';
-    itemSummaries.textContent = 'Topic summaries';
-    if (mode === 'summaries') itemSummaries.classList.add('active');
-
-    const itemCanvas = document.createElement('button');
-    itemCanvas.type = 'button';
-    itemCanvas.className = 'pagetollm-rail-dropdown-item';
-    itemCanvas.textContent = 'Canvas view';
-
-    dropdownMenu.appendChild(itemTopics);
-    dropdownMenu.appendChild(itemSummaries);
-    dropdownMenu.appendChild(itemCanvas);
-    dropdownContainer.appendChild(toggleBtn);
-    dropdownContainer.appendChild(dropdownMenu);
+    const menuItems = [itemTopics, itemSummaries, itemCanvas];
 
     toggleBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      dropdownContainer.classList.toggle('open');
+      const isOpen = dropdownContainer.classList.toggle('open');
+      toggleBtn.setAttribute('aria-expanded', String(isOpen));
+      if (isOpen) {
+        itemTopics.focus();
+      }
     });
 
     const closeDropdown = () => {
       dropdownContainer.classList.remove('open');
+      toggleBtn.setAttribute('aria-expanded', 'false');
     };
 
     const changeMode = (newMode) => {
-      if (mode === newMode) return;
-      mode = newMode;
-      railEl.dataset.mode = mode;
+      if (state.mode === newMode) return;
+      state.mode = newMode;
+      railEl.dataset.mode = state.mode;
 
-      itemTopics.classList.toggle('active', mode === 'topics');
-      itemSummaries.classList.toggle('active', mode === 'summaries');
+      itemTopics.classList.toggle('active', state.mode === 'topics');
+      itemSummaries.classList.toggle('active', state.mode === 'summaries');
       itemCanvas.classList.toggle('active', false);
-      labelSpan.textContent = mode === 'summaries' ? 'Topic summaries' : 'Topics';
+      labelSpan.textContent = state.mode === 'summaries' ? 'Topic summaries' : 'Topics';
 
-      const RAIL_WIDTH = mode === 'summaries' ? 340 : 260;
-      railEl.style.width = `${RAIL_WIDTH}px`;
-      document.documentElement.style.setProperty('--pagetollm-rail-reserve', `${RAIL_WIDTH + 16}px`);
+      setRailWidthForMode();
 
       clearAllHighlights();
       renderCards();
@@ -760,8 +766,8 @@
     itemCanvas.addEventListener('click', (e) => {
       e.stopPropagation();
       closeDropdown();
-      openCanvasIframe(record.key);
       closeInPageRail();
+      openCanvasIframe(record.key);
     });
 
     const onDocumentClick = (e) => {
@@ -770,6 +776,55 @@
       }
     };
     document.addEventListener('click', onDocumentClick);
+
+    const onDropdownKeydown = (e) => {
+      const isOpen = dropdownContainer.classList.contains('open');
+
+      switch (e.key) {
+        case 'Escape':
+          if (isOpen) {
+            e.preventDefault();
+            closeDropdown();
+            toggleBtn.focus();
+          }
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          if (!isOpen) {
+            dropdownContainer.classList.add('open');
+            toggleBtn.setAttribute('aria-expanded', 'true');
+          }
+          {
+            const activeIndex = menuItems.indexOf(document.activeElement);
+            const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % menuItems.length : 0;
+            menuItems[nextIndex].focus();
+          }
+          break;
+        case 'ArrowUp':
+          if (isOpen) {
+            e.preventDefault();
+            const activeIndex = menuItems.indexOf(document.activeElement);
+            const prevIndex = activeIndex >= 0
+              ? (activeIndex - 1 + menuItems.length) % menuItems.length
+              : menuItems.length - 1;
+            menuItems[prevIndex].focus();
+          }
+          break;
+        case 'Home':
+          if (isOpen) {
+            e.preventDefault();
+            menuItems[0].focus();
+          }
+          break;
+        case 'End':
+          if (isOpen) {
+            e.preventDefault();
+            menuItems[menuItems.length - 1].focus();
+          }
+          break;
+      }
+    };
+    dropdownContainer.addEventListener('keydown', onDropdownKeydown);
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'pagetollm-rail-close';
@@ -783,31 +838,27 @@
     if (maxLevel > 0) {
       const switcher = document.createElement('div');
       switcher.className = 'pagetollm-rail-level-switcher';
-      
-      const buttonsContainer = document.createElement('div');
-      buttonsContainer.className = 'pagetollm-rail-level-buttons';
-      
-      for (let level = 0; level <= maxLevel; level++) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = `pagetollm-rail-level-btn${selectedLevel === level ? ' active' : ''}`;
-        btn.textContent = `L${level}`;
-        btn.title = `Switch to level ${level}`;
-        btn.addEventListener('click', () => {
-          if (selectedLevel === level) return;
-          selectedLevel = level;
-          
-          buttonsContainer.querySelectorAll('.pagetollm-rail-level-btn').forEach((b, idx) => {
-            if (idx === level) b.classList.add('active');
-            else b.classList.remove('active');
-          });
-          
-          clearAllHighlights();
-          renderCards();
+      const levelButtonsHtml = Array.from({ length: maxLevel + 1 }, (_, level) => `
+        <button type="button"
+                class="pagetollm-rail-level-btn${state.selectedLevel === level ? ' active' : ''}"
+                title="Switch to level ${level}"
+                data-level="${level}">L${level}</button>
+      `).join('');
+      switcher.innerHTML = `<div class="pagetollm-rail-level-buttons">${levelButtonsHtml}</div>`;
+
+      const buttonsContainer = switcher.querySelector('.pagetollm-rail-level-buttons');
+      buttonsContainer.addEventListener('click', (e) => {
+        const btn = e.target.closest('.pagetollm-rail-level-btn');
+        if (!btn) return;
+        const level = parseInt(btn.dataset.level, 10);
+        if (state.selectedLevel === level) return;
+        state.selectedLevel = level;
+        buttonsContainer.querySelectorAll('.pagetollm-rail-level-btn').forEach((b, idx) => {
+          b.classList.toggle('active', idx === level);
         });
-        buttonsContainer.appendChild(btn);
-      }
-      switcher.appendChild(buttonsContainer);
+        clearAllHighlights();
+        renderCards();
+      });
       head.appendChild(switcher);
     }
 
@@ -821,9 +872,7 @@
     document.documentElement.appendChild(railEl);
 
     // Reserve space on the right side of the page so the rail does not overlap text.
-    const RAIL_WIDTH = mode === 'summaries' ? 340 : 260;
-    railEl.style.width = `${RAIL_WIDTH}px`;
-    document.documentElement.style.setProperty('--pagetollm-rail-reserve', `${RAIL_WIDTH + 16}px`);
+    setRailWidthForMode();
     document.body.classList.add('pagetollm-rail-open');
 
     const bodyRect = body.getBoundingClientRect();
@@ -862,40 +911,42 @@
       }
     }
 
+    function splitIntoContiguousRuns(sentences) {
+      const sorted = (sentences || []).slice().sort((a, b) => a - b);
+      const runs = [];
+      let cur = [];
+      for (const s of sorted) {
+        if (cur.length === 0 || s === cur[cur.length - 1] + 1) {
+          cur.push(s);
+        } else {
+          runs.push(cur);
+          cur = [s];
+        }
+      }
+      if (cur.length) runs.push(cur);
+      return runs;
+    }
+
     function renderCards() {
       body.innerHTML = '';
 
-      let cardSpecs;
-      if (mode === 'summaries') {
-        const { entries } = buildSummaryEntries(record);
-        const eligible = entries.filter((e) => e.level === selectedLevel);
-        cardSpecs = eligible
-          .map((e) => {
-            const box = computeCardVerticalBox(e.sourceSentences, sentenceRanges, wordEntries, railOriginTop);
-            return { ...e, sentences: e.sourceSentences, box };
-          })
-          .filter((c) => c.box)
-          .sort((a, b) => a.box.top - b.box.top);
-      } else {
-        const entries = buildHierarchicalTopicEntries(record, selectedLevel);
-        const eligible = entries.filter((e) => e.level === selectedLevel);
-        cardSpecs = eligible
-          .map((e) => {
-            const box = computeCardVerticalBox(e.sentences, sentenceRanges, wordEntries, railOriginTop);
-            return { ...e, box };
-          })
-          .filter((c) => c.box)
-          .sort((a, b) => a.box.top - b.box.top);
-      }
+      const isSummary = state.mode === 'summaries';
+      const entries = isSummary
+        ? buildSummaryEntries(record).entries
+        : buildHierarchicalTopicEntries(record, state.selectedLevel);
+      const eligible = entries.filter((e) => e.level === state.selectedLevel);
 
-      // De-overlap: bump cards down if they would visually collide.
-      const MIN_GAP = 6;
-      for (let i = 1; i < cardSpecs.length; i++) {
-        const prev = cardSpecs[i - 1].box;
-        const cur = cardSpecs[i].box;
-        const minTop = prev.top + prev.height + MIN_GAP;
-        if (cur.top < minTop) cur.top = minTop;
+      const cardSpecs = [];
+      for (const e of eligible) {
+        const allSentences = isSummary ? e.sourceSentences : e.sentences;
+        const runs = splitIntoContiguousRuns(allSentences);
+        for (const run of runs) {
+          const box = computeCardVerticalBox(run, sentenceRanges, wordEntries, railOriginTop);
+          if (!box) continue;
+          cardSpecs.push({ ...e, sentences: run, allSentences, box });
+        }
       }
+      cardSpecs.sort((a, b) => a.box.top - b.box.top);
 
       const railHeight = cardSpecs.length
         ? Math.max(...cardSpecs.map((c) => c.box.top + c.box.height)) + 80
@@ -905,7 +956,6 @@
       for (const spec of cardSpecs) {
         const card = document.createElement('button');
         card.type = 'button';
-        const isSummary = mode === 'summaries';
         card.className = `pagetollm-rail-card${isSummary ? ' is-summary' : ''}`;
         card.style.top = `${spec.box.top}px`;
         card.style.minHeight = `${spec.box.height}px`;
@@ -953,6 +1003,7 @@
         document.body.classList.remove('pagetollm-rail-open');
         document.documentElement.style.removeProperty('--pagetollm-rail-reserve');
         document.removeEventListener('click', onDocumentClick);
+        dropdownContainer.removeEventListener('keydown', onDropdownKeydown);
       },
     };
   }
