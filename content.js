@@ -601,7 +601,8 @@
       if (sBottom > bottom) bottom = sBottom;
     }
     if (!Number.isFinite(top) || !Number.isFinite(bottom)) return null;
-    return { top, height: Math.max(40, bottom - top) };
+    const clampedTop = Math.max(0, top);
+    return { top: clampedTop, height: Math.max(40, bottom - clampedTop) };
   }
 
   async function fetchRecord(key) {
