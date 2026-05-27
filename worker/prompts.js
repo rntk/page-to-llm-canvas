@@ -85,7 +85,8 @@ export const SENTENCE_SUMMARY_PROMPT_TEMPLATE =
   "Rules:\n" +
   "- Maximum 15 words.\n" +
   "- Only include facts explicitly stated in the text. Do not infer, speculate, or add external knowledge.\n" +
-  "- Prefer words and phrases from the original text.\n\n" +
+  "- Prefer words and phrases from the original text.\n" +
+  "- If the text is already short enough that a summary would not be meaningfully shorter or clearer than the original (roughly 15 words or fewer, or a single brief sentence), respond with exactly NO_SUMMARY and nothing else. Do not paraphrase short text.\n\n" +
   "Text:\n<text>{sentence}</text>\n\nSummary:";
 
 export const ARTICLE_SUMMARY_PROMPT_TEMPLATE =
@@ -104,7 +105,8 @@ export const ARTICLE_SUMMARY_PROMPT_TEMPLATE =
   "- Each bullet line must be a brief verifiable fact from the article, max 12 words.\n" +
   "- Do not split one fact into multiple bullet lines just to reach a count.\n" +
   "- Do not include duplicate bullet lines.\n" +
-  "- Do not return JSON, markdown fences, headings, labels, or commentary.\n\n" +
+  "- Do not return JSON, markdown fences, headings, labels, or commentary.\n" +
+  "- If the article text is already so short that any summary would be as long as or longer than the original (for example a single short sentence, or only 2-3 short sentences with one clear fact), respond with exactly NO_SUMMARY and nothing else. Do not paraphrase short text just to produce a summary.\n\n" +
   "Article text:\n<text>{text}</text>\n";
 
 export const ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE =
@@ -125,7 +127,8 @@ export const ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE =
   "- Remove duplicate bullet lines created by overlapping chunks.\n" +
   "- Merge semantically equivalent points into a single bullet line.\n" +
   "- Do not mention chunk numbers.\n" +
-  "- Do not return JSON, markdown fences, headings, labels, or commentary.\n\n" +
+  "- Do not return JSON, markdown fences, headings, labels, or commentary.\n" +
+  "- If the chunk summaries together contain so little distinct content that a merged summary would not be shorter or clearer than simply reading them, respond with exactly NO_SUMMARY and nothing else.\n\n" +
   "Chunk summaries:\n<chunk_summaries>{chunk_summaries}</chunk_summaries>\n";
 
 export function buildArticleSummaryPrompt(text) {

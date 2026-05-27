@@ -56,6 +56,7 @@ export function parseSummaryResponse(raw) {
   let s = raw.trim();
 
   s = s.replace(/^```[a-z0-9_-]*\s*/i, "").replace(/```\s*$/i, "").trim();
+  if (/^NO_SUMMARY\.?$/i.test(s)) return "";
   return s;
 }
 
