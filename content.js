@@ -848,23 +848,27 @@
       card.style.borderColor = topicAccentColor(spec.path, spec.level || 0);
       card.style.setProperty('--pagetollm-card-accent', topicAccentColor(spec.path, spec.level || 0));
 
+      const content = document.createElement('div');
+      content.className = 'pagetollm-rail-card-content';
+
       const heading = document.createElement('div');
       heading.className = 'pagetollm-rail-card-title';
       heading.textContent = spec.name;
       heading.title = spec.path;
-      card.appendChild(heading);
+      content.appendChild(heading);
 
       if (isSummary) {
         const body = document.createElement('div');
         body.className = 'pagetollm-rail-card-body';
         body.textContent = spec.text || '(no summary)';
-        card.appendChild(body);
+        content.appendChild(body);
       } else {
         const meta = document.createElement('div');
         meta.className = 'pagetollm-rail-card-meta';
         meta.textContent = `${spec.sentences.length} sent.`;
-        card.appendChild(meta);
+        content.appendChild(meta);
       }
+      card.appendChild(content);
 
       const sentenceList = spec.sentences || spec.sourceSentences || [];
       card.addEventListener('mouseenter', () => highlightTopic(sentenceList, true));
