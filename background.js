@@ -136,7 +136,7 @@ export async function startPipeline(key) {
  * @param {{html?: string, sourceUrl?: string}} submission
  * @returns {Promise<{ok: boolean, key?: string, error?: string}>}
  */
-export async function handleSubmit({ html, sourceUrl }) {
+export async function handleSubmit({ html, sourceUrl, selectors }) {
   if (!html) return { ok: false, error: "missing html" };
 
   let existing = null;
@@ -176,6 +176,7 @@ export async function handleSubmit({ html, sourceUrl }) {
     topic_summaries: {},
     topic_summary_index: {},
     processingLog: [],
+    selectors: Array.isArray(selectors) ? selectors : [],
     createdAt: now,
     updatedAt: now,
   };
@@ -187,6 +188,7 @@ export async function handleSubmit({ html, sourceUrl }) {
     rec.sourceUrl = sourceUrl || rec.sourceUrl;
     rec.html = html;
     rec.processingLog = [];
+    if (Array.isArray(selectors)) rec.selectors = selectors;
   }
   await writeRecord(rec);
 
@@ -202,7 +204,7 @@ export async function handleSubmit({ html, sourceUrl }) {
  * @param {{prompt?: string, temperature?: number, model?: string}} request
  * @returns {Promise<{ok: boolean, content?: string, error?: string}>}
  */
-async function handleLLMRequest({ prompt, temperature = 0.0, model }) {
+async function handleLLMRequest({ prompt, temperature = 0.8, model }) {
   if (!prompt) return { ok: false, error: "missing prompt" };
   return callLLMDirect({ prompt, temperature, model });
 }
