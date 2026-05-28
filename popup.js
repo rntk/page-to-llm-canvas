@@ -165,6 +165,7 @@ function renderRecords(records) {
     if (record.status === 'done') {
       actions.appendChild(makeAction('Topics', record.key, 'topics'));
       actions.appendChild(makeAction('Summaries', record.key, 'summaries'));
+      actions.appendChild(makeAction('Hierarchy', record.key, 'hierarchy'));
     }
 
     const reprocessBtn = document.createElement('button');

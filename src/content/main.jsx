@@ -78,6 +78,10 @@ import InPageRail from "./InPageRail.jsx";
       openCanvasIframe(rec.key);
       return;
     }
+    if (mode === 'hierarchy') {
+      openHierarchyIframe(rec.key);
+      return;
+    }
     await openInPageRail(rec, mode);
   }
 
@@ -290,6 +294,17 @@ import InPageRail from "./InPageRail.jsx";
     const iframe = document.createElement('iframe');
     iframe.id = 'pagetollm-canvas-iframe';
     iframe.src = chrome.runtime.getURL('modal.html') + '?key=' + encodeURIComponent(key);
+    iframe.style.cssText = 'position:fixed;inset:0;width:100vw;min-width:100vw;height:100vh;min-height:100vh;border:0;z-index:2147483647;';
+    document.documentElement.appendChild(iframe);
+    canvasIframe = iframe;
+  }
+
+  function openHierarchyIframe(key) {
+    removeCanvasIframe();
+    closeInPageRail();
+    const iframe = document.createElement('iframe');
+    iframe.id = 'pagetollm-canvas-iframe';
+    iframe.src = chrome.runtime.getURL('modal.html') + '?key=' + encodeURIComponent(key) + '&view=hierarchy';
     iframe.style.cssText = 'position:fixed;inset:0;width:100vw;min-width:100vw;height:100vh;min-height:100vh;border:0;z-index:2147483647;';
     document.documentElement.appendChild(iframe);
     canvasIframe = iframe;
@@ -785,6 +800,11 @@ import InPageRail from "./InPageRail.jsx";
               if (mode === 'canvas') {
                 closeInPageRail();
                 openCanvasIframe(record.key);
+                return;
+              }
+              if (mode === 'hierarchy') {
+                closeInPageRail();
+                openHierarchyIframe(record.key);
                 return;
               }
               if (state.mode === mode) return;

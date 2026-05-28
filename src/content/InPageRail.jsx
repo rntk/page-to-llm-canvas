@@ -87,13 +87,16 @@ function ModeDropdown({ mode, recordKey, onSelectMode }) {
         {[
           ["topics", "Topics"],
           ["summaries", "Summaries"],
+          ["hierarchy", "Hierarchy view"],
           ["canvas", "Canvas view"],
         ].map(([itemMode, text]) => (
           <button
             key={itemMode}
             type="button"
             className={`pagetollm-rail-dropdown-item${
-              mode === itemMode && itemMode !== "canvas" ? " active" : ""
+              mode === itemMode && itemMode !== "canvas" && itemMode !== "hierarchy"
+                ? " active"
+                : ""
             }`}
             role="menuitem"
             data-mode={itemMode}
