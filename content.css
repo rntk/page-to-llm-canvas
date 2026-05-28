@@ -327,9 +327,11 @@ body.pagetollm-rail-open {
   font-weight: 700;
   line-height: 1.25;
   color: var(--on-surface);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  -webkit-hyphens: auto;
+  hyphens: auto;
 }
 
 .pagetollm-rail-card-meta {
@@ -430,9 +432,11 @@ body.pagetollm-rail-open {
   font-weight: 800;
   line-height: 1.25;
   color: var(--on-surface);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  -webkit-hyphens: auto;
+  hyphens: auto;
 }
 
 .pagetollm-summary-active-card-body {

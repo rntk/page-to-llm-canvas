@@ -161,7 +161,7 @@ function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen 
       onClick={() => onOpen(card)}
     >
       <div className="pagetollm-rail-card-content">
-        <div className="pagetollm-rail-card-title" title={card.path}>
+        <div className="pagetollm-rail-card-title" title={card.path} lang="en">
           {card.name}
         </div>
         {isSummary ? (
@@ -267,7 +267,7 @@ function SummaryCursorView({ cards, bodyRef, bodyHeight, onHighlightCard, onScro
           }}
           onClick={() => onScrollToCard(activeCard)}
         >
-          <div className="pagetollm-summary-active-card-title" title={activeCard.path}>
+          <div className="pagetollm-summary-active-card-title" title={activeCard.path} lang="en">
             {activeCard.name}
           </div>
           <div className="pagetollm-summary-active-card-body">
