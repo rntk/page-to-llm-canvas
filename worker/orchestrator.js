@@ -13,11 +13,13 @@ import {
   buildArticleSummaryMergePrompt,
   formatChunkSummariesForMerge,
 } from "./prompts.js";
-import { parseTopicRanges } from "./topic_parser.js";
+import { parseTopicRanges, TopicParseError } from "./topic_parser.js";
 import { callLLMWithRetry, parallelMap } from "./llm.js";
 
 const MAX_TAGGED_CHARS = 60000;
 const SUMMARY_CONCURRENCY = 4;
+const TOPIC_RANGE_MAX_RETRIES = 3;
+const TOPIC_RANGE_RETRY_BASE_DELAY_MS = 2000;
 
 /**
  * @param {string} key
@@ -179,23 +181,39 @@ export async function runPipeline(key) {
       chunkCount: chunks.length,
     });
 
-    const responses = [];
-    for (const [chunkIndex, chunk] of chunks.entries()) {
-      const prompt = buildTopicRangesPrompt(chunk);
-      await logPipeline(key, "topic_ranges_llm_request", {
-        chunkIndex,
-        promptLength: prompt.length,
-      });
-      const resp = await callLLMWithRetry({ prompt, temperature: 0.8 });
-      await logPipeline(key, "topic_ranges_llm_response", {
-        chunkIndex,
-        responseLength: resp.length,
-      });
-      responses.push(resp);
+    let groups;
+    for (let topicAttempt = 0; topicAttempt <= TOPIC_RANGE_MAX_RETRIES; topicAttempt++) {
+      const responses = [];
+      for (const [chunkIndex, chunk] of chunks.entries()) {
+        const prompt = buildTopicRangesPrompt(chunk);
+        await logPipeline(key, "topic_ranges_llm_request", {
+          chunkIndex,
+          promptLength: prompt.length,
+          attempt: topicAttempt + 1,
+        });
+        const resp = await callLLMWithRetry({ prompt, temperature: 0.8 });
+        await logPipeline(key, "topic_ranges_llm_response", {
+          chunkIndex,
+          responseLength: resp.length,
+          attempt: topicAttempt + 1,
+        });
+        responses.push(resp);
+      }
+      const combined = responses.join("\n");
+      try {
+        groups = parseTopicRanges(combined, sentenceTexts.length);
+        break;
+      } catch (e) {
+        if (!(e instanceof TopicParseError) || topicAttempt >= TOPIC_RANGE_MAX_RETRIES) throw e;
+        await logPipeline(key, "topic_ranges_parse_retry", {
+          attempt: topicAttempt + 1,
+          maxRetries: TOPIC_RANGE_MAX_RETRIES,
+          error: e.message,
+        });
+        const delay = TOPIC_RANGE_RETRY_BASE_DELAY_MS * Math.pow(2, topicAttempt);
+        await new Promise((r) => setTimeout(r, delay));
+      }
     }
-    const combined = responses.join("\n");
-
-    const groups = parseTopicRanges(combined, sentenceTexts.length);
     await logPipeline(key, "topic_ranges_done", {
       groupCount: groups.length,
     });
