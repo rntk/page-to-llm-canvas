@@ -88,7 +88,7 @@ function HierarchyNode({ entry, summaryLookup, selectedTopicPath, onTopicClick }
             borderLeftColor: accentColor,
             "--th-accent-color": accentColor,
           }}
-          title={`${node.fullPath} (${sentenceCount} sentences)`}
+          title={`${node.fullPath.replace(/>/g, " ")} (${sentenceCount} sentences)`}
           onClick={() => onTopicClick?.(entry)}
         >
           <span className="th-leaf__label">{node.name}</span>
@@ -112,11 +112,11 @@ function HierarchyNode({ entry, summaryLookup, selectedTopicPath, onTopicClick }
           borderLeftColor: accentColor,
           "--th-accent-color": accentColor,
         }}
-        title={node.fullPath}
+        title={node.fullPath.replace(/>/g, " ")}
         onClick={() => onTopicClick?.(entry)}
       >
         <span className="th-node__label-text">{node.name}</span>
-        <span className="th-node__drill" aria-hidden="true">&gt;</span>
+        <span className="th-node__drill" aria-hidden="true"></span>
       </div>
       <div className="th-node__children">
         {children.map((child) => (

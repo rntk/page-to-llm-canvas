@@ -44,6 +44,13 @@ import InPageRail from "./InPageRail.jsx";
     const data = event.data;
     if (data && data.type === "pagetollm-close") {
       removeCanvasIframe();
+    } else if (data && data.type === "pagetollm-scroll-to-topic-sentences") {
+      removeCanvasIframe();
+      openInPageRail({ key: data.key }, "topics", {
+        sentenceNumbers: data.sentenceNumbers,
+        level: data.level,
+        topicPath: data.topicPath
+      });
     }
   });
 
@@ -670,7 +677,7 @@ import InPageRail from "./InPageRail.jsx";
     return found;
   }
 
-  async function openInPageRail(rec, initialMode) {
+  async function openInPageRail(rec, initialMode, options = {}) {
     closeInPageRail();
     removeCanvasIframe();
 
@@ -698,7 +705,7 @@ import InPageRail from "./InPageRail.jsx";
 
     const state = {
       mode: initialMode,
-      selectedLevel: 0
+      selectedLevel: (options && typeof options.level === 'number') ? options.level : 0
     };
 
     // Calculate maxLevel
@@ -887,6 +894,13 @@ import InPageRail from "./InPageRail.jsx";
     const bodyRect = railEl.querySelector('.pagetollm-rail-body').getBoundingClientRect();
     railOriginTop = getRailOriginTop(bodyRect, scrollContainer);
     renderRail();
+
+    if (options && options.sentenceNumbers && options.sentenceNumbers.length > 0) {
+      requestAnimationFrame(() => {
+        highlightTopic(options.sentenceNumbers, true);
+        scrollToFirst(options.sentenceNumbers);
+      });
+    }
 
     inPageRailController = {
       railEl,

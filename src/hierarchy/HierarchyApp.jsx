@@ -35,33 +35,12 @@ function getSentencesForNode(entry) {
 
 export default function HierarchyApp({ initialKey }) {
   const { record, error } = useRecord(initialKey);
-  const [selectedTopic, setSelectedTopic] = useState(null);
-  const textPaneBodyRef = useRef(null);
 
   const topics = useMemo(
     () => (Array.isArray(record?.topics) ? record.topics : []),
     [record],
   );
-  const sentences = useMemo(
-    () => (Array.isArray(record?.sentences) ? record.sentences : []),
-    [record],
-  );
   const isDone = record?.status === "done";
-
-  useEffect(() => {
-    if (selectedTopic && selectedTopic.sentenceNumbers.length > 0 && textPaneBodyRef.current) {
-      const firstIndex = selectedTopic.sentenceNumbers[0];
-      const targetElement = textPaneBodyRef.current.querySelector(
-        `[data-sentence-index="${firstIndex}"]`
-      );
-      if (targetElement) {
-        targetElement.scrollIntoView({
-          behavior: "smooth",
-          block: "center",
-        });
-      }
-    }
-  }, [selectedTopic]);
 
   let body;
   if (error && !record) {
@@ -76,31 +55,26 @@ export default function HierarchyApp({ initialKey }) {
         topics={topics}
         topicSummaries={record?.topic_summaries}
         topicSummaryIndex={record?.topic_summary_index}
-        selectedTopicPath={selectedTopic?.path}
         onTopicClick={(entry) => {
-          const path = entry.node.fullPath;
           const sentenceNumbers = getSentencesForNode(entry);
-          const highlightColor = getHierarchyTopicHighlightColor(
-            entry.node.fullPath,
-            entry.node.depth
-          );
-          const accentColor = getHierarchyTopicAccentColor(
-            entry.node.fullPath,
-            entry.node.depth
-          );
-          setSelectedTopic({
-            path,
-            sentenceNumbers,
-            highlightColor,
-            accentColor,
-            clickId: Date.now(),
-          });
+          try {
+            window.parent.postMessage(
+              {
+                type: "pagetollm-scroll-to-topic-sentences",
+                key: initialKey,
+                sentenceNumbers,
+                level: entry.node.depth,
+                topicPath: entry.node.fullPath,
+              },
+              "*"
+            );
+          } catch (_) {
+            /* noop */
+          }
         }}
       />
     );
   }
-
-  const hasSelection = !!selectedTopic;
 
   return (
     <div className="th-page">
@@ -116,65 +90,9 @@ export default function HierarchyApp({ initialKey }) {
         </button>
       </header>
       <div className="th-page__content">
-        <div className={`th-page__hierarchy-pane ${hasSelection ? "is-split" : ""}`}>
+        <div className="th-page__hierarchy-pane">
           <div className="th-page__body">{body}</div>
         </div>
-        {hasSelection && (
-          <div className="th-page__text-pane">
-            <header className="th-text-pane__header">
-              <div className="th-text-pane__title-container">
-                <h2 className="th-text-pane__title">Original Text</h2>
-                <div className="th-text-pane__subtitle" title={selectedTopic.path}>
-                  Topic: <strong>{selectedTopic.path}</strong>
-                </div>
-              </div>
-              <button
-                type="button"
-                className="th-text-pane__close"
-                onClick={() => setSelectedTopic(null)}
-                title="Hide Text"
-              >
-                ×
-              </button>
-            </header>
-            <div className="th-text-pane__body" ref={textPaneBodyRef}>
-              <p className="th-text-pane__paragraph">
-                {sentences.map((text, i) => {
-                  const oneBased = i + 1;
-                  const isHighlighted = selectedTopic.sentenceNumbers.includes(oneBased);
-                  const isDimmed = selectedTopic.sentenceNumbers.length > 0 && !isHighlighted;
-
-                  const style = isHighlighted
-                    ? {
-                        backgroundColor: selectedTopic.highlightColor,
-                        borderBottom: `2px solid ${selectedTopic.accentColor}`,
-                      }
-                    : {};
-
-                  const cls = [
-                    "th-sentence",
-                    isHighlighted ? "is-highlighted" : "",
-                    isDimmed ? "is-dimmed" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ");
-
-                  return (
-                    <span
-                      key={i}
-                      className={cls}
-                      style={style}
-                      data-sentence-index={oneBased}
-                    >
-                      {i > 0 ? " " : ""}
-                      {text}
-                    </span>
-                  );
-                })}
-              </p>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
