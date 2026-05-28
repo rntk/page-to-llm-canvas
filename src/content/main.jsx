@@ -672,6 +672,10 @@ import InPageRail from "./InPageRail.jsx";
         '--pagetollm-rail-reserve',
         `${railWidth + IN_PAGE_RAIL_RESERVE_GAP}px`
       );
+      document.documentElement.style.setProperty(
+        '--pagetollm-rail-width',
+        `${railWidth}px`
+      );
     };
     document.documentElement.appendChild(railEl);
 
@@ -822,6 +826,7 @@ import InPageRail from "./InPageRail.jsx";
         unwrapWords(elements);
         document.body.classList.remove('pagetollm-rail-open');
         document.documentElement.style.removeProperty('--pagetollm-rail-reserve');
+        document.documentElement.style.removeProperty('--pagetollm-rail-width');
       },
     };
   }

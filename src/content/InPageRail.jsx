@@ -1,4 +1,7 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+
+const SUMMARY_CURSOR_VIEWPORT_RATIO = 0.38;
+const SUMMARY_CURSOR_MIN_TOP = 112;
 
 function ModeDropdown({ mode, recordKey, onSelectMode }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -168,6 +171,111 @@ function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen 
   );
 }
 
+function SummaryCursorView({ cards, bodyRef, bodyHeight, onHighlightCard, onScrollToCard }) {
+  const [activeCardId, setActiveCardId] = useState(null);
+  const [cursorTop, setCursorTop] = useState(SUMMARY_CURSOR_MIN_TOP);
+  const activeCardRef = useRef(null);
+
+  const activeCard = useMemo(
+    () => cards.find((card) => card.id === activeCardId) || null,
+    [activeCardId, cards],
+  );
+
+  useEffect(() => {
+    let frameId = 0;
+
+    const updateActiveCard = () => {
+      frameId = 0;
+      const body = bodyRef.current;
+      if (!body || cards.length === 0) {
+        setActiveCardId(null);
+        return;
+      }
+
+      const cursorTop = Math.max(
+        SUMMARY_CURSOR_MIN_TOP,
+        Math.round(window.innerHeight * SUMMARY_CURSOR_VIEWPORT_RATIO),
+      );
+      setCursorTop(cursorTop);
+
+      const bodyTop = body.getBoundingClientRect().top + window.scrollY;
+      const cursorY = window.scrollY + cursorTop;
+      const relativeY = cursorY - bodyTop;
+      const matching = cards
+        .filter((card) => (
+          relativeY >= card.box.top &&
+          relativeY <= card.box.top + card.box.height
+        ))
+        .sort((a, b) => a.box.height - b.box.height || a.box.top - b.box.top);
+
+      setActiveCardId(matching[0]?.id || null);
+    };
+
+    const scheduleUpdate = () => {
+      if (frameId) return;
+      frameId = window.requestAnimationFrame(updateActiveCard);
+    };
+
+    updateActiveCard();
+    window.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate);
+    return () => {
+      if (frameId) window.cancelAnimationFrame(frameId);
+      window.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+    };
+  }, [bodyRef, cards]);
+
+  useEffect(() => {
+    const previous = activeCardRef.current;
+    if (previous && previous.id !== activeCard?.id) {
+      onHighlightCard(previous, false);
+    }
+    if (activeCard && previous?.id !== activeCard.id) {
+      onHighlightCard(activeCard, true);
+    }
+    activeCardRef.current = activeCard;
+
+    return () => {
+      if (activeCardRef.current) {
+        onHighlightCard(activeCardRef.current, false);
+        activeCardRef.current = null;
+      }
+    };
+  }, [activeCard, onHighlightCard]);
+
+  const cursorTopStyle = `${cursorTop}px`;
+
+  return (
+    <>
+      <div
+        className="pagetollm-summary-cursor-line"
+        style={{ "--pagetollm-summary-cursor-top": cursorTopStyle }}
+        aria-hidden="true"
+      />
+      <div className="pagetollm-summary-cursor-hitbox" style={{ height: `${bodyHeight}px` }} />
+      {activeCard ? (
+        <button
+          type="button"
+          className="pagetollm-summary-active-card"
+          style={{
+            "--pagetollm-summary-cursor-top": cursorTopStyle,
+            "--pagetollm-card-accent": activeCard.accent,
+          }}
+          onClick={() => onScrollToCard(activeCard)}
+        >
+          <div className="pagetollm-summary-active-card-title" title={activeCard.path}>
+            {activeCard.name}
+          </div>
+          <div className="pagetollm-summary-active-card-body">
+            {activeCard.text || "(no summary)"}
+          </div>
+        </button>
+      ) : null}
+    </>
+  );
+}
+
 export default function InPageRail({
   recordKey,
   mode,
@@ -182,6 +290,7 @@ export default function InPageRail({
   onScrollToCard,
 }) {
   const [frontCardId, setFrontCardId] = useState(null);
+  const bodyRef = useRef(null);
   const isSummary = mode === "summaries";
   const normalizedHeight = useMemo(() => `${bodyHeight}px`, [bodyHeight]);
 
@@ -205,25 +314,35 @@ export default function InPageRail({
           ×
         </button>
       </div>
-      <div className="pagetollm-rail-body" style={{ height: normalizedHeight }}>
-        {cards.map((card) => (
-          <RailCard
-            key={card.id}
-            card={card}
-            isSummary={isSummary}
-            isFront={frontCardId === card.id}
-            onEnter={(nextCard) => {
-              bringForward(nextCard);
-              onHighlightCard(nextCard, true);
-            }}
-            onLeave={(nextCard) => onHighlightCard(nextCard, false)}
-            onFocus={bringForward}
-            onOpen={(nextCard) => {
-              bringForward(nextCard);
-              onScrollToCard(nextCard);
-            }}
+      <div className="pagetollm-rail-body" ref={bodyRef} style={{ height: normalizedHeight }}>
+        {isSummary ? (
+          <SummaryCursorView
+            cards={cards}
+            bodyRef={bodyRef}
+            bodyHeight={bodyHeight}
+            onHighlightCard={onHighlightCard}
+            onScrollToCard={onScrollToCard}
           />
-        ))}
+        ) : (
+          cards.map((card) => (
+            <RailCard
+              key={card.id}
+              card={card}
+              isSummary={isSummary}
+              isFront={frontCardId === card.id}
+              onEnter={(nextCard) => {
+                bringForward(nextCard);
+                onHighlightCard(nextCard, true);
+              }}
+              onLeave={(nextCard) => onHighlightCard(nextCard, false)}
+              onFocus={bringForward}
+              onOpen={(nextCard) => {
+                bringForward(nextCard);
+                onScrollToCard(nextCard);
+              }}
+            />
+          ))
+        )}
       </div>
     </>
   );

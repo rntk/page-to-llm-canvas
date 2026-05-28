@@ -363,6 +363,99 @@ body.pagetollm-rail-open {
   border-radius: 0;
 }
 
+.pagetollm-summary-cursor-line {
+  position: fixed;
+  top: var(--pagetollm-summary-cursor-top, 38vh);
+  left: 0;
+  right: var(--pagetollm-rail-reserve, 356px);
+  z-index: 2147483644;
+  height: 1px;
+  background: var(--ink);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.86);
+  pointer-events: none;
+}
+
+.pagetollm-summary-cursor-line::after {
+  content: "";
+  position: absolute;
+  right: -10px;
+  top: -4px;
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  background: var(--surface);
+  border: 1px solid var(--ink);
+}
+
+.pagetollm-summary-cursor-hitbox {
+  position: absolute;
+  inset: 0 0 auto;
+  pointer-events: none;
+}
+
+.pagetollm-summary-active-card {
+  position: fixed;
+  top: calc(var(--pagetollm-summary-cursor-top, 38vh) + 14px);
+  right: 12px;
+  z-index: 2001;
+  width: calc(var(--pagetollm-rail-width, 340px) - 24px);
+  max-height: calc(100vh - var(--pagetollm-summary-cursor-top, 38vh) - 28px);
+  box-sizing: border-box;
+  padding: 10px 12px 12px;
+  background: var(--surface);
+  border: 1px solid var(--ink);
+  border-left: 4px solid var(--pagetollm-card-accent, var(--ink));
+  border-radius: 0;
+  color: var(--on-surface);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: -3px 3px 0 rgba(0, 0, 0, 0.08);
+}
+
+.pagetollm-summary-active-card:hover,
+.pagetollm-summary-active-card:focus {
+  transform: translateX(-2px);
+}
+
+.pagetollm-summary-active-card:focus {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.pagetollm-summary-active-card-title {
+  margin-bottom: 7px;
+  font-family: var(--font-data);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.25;
+  color: var(--on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pagetollm-summary-active-card-body {
+  max-height: calc(100vh - var(--pagetollm-summary-cursor-top, 38vh) - 78px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  font-size: 15px;
+  line-height: 1.48;
+  color: var(--on-surface);
+  white-space: pre-wrap;
+  scrollbar-width: thin;
+}
+
+.pagetollm-summary-active-card-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.pagetollm-summary-active-card-body::-webkit-scrollbar-thumb {
+  background: var(--ghost);
+  border-radius: 0;
+}
+
 /* Per-word highlights inside the picked article */
 .pagetollm-word {
   transition: background-color 0.08s ease, color 0.08s ease;
