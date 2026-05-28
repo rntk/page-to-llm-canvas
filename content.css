@@ -4,12 +4,12 @@
 #rsstag-selection-toolbar,
 #pagetollm-in-page-rail {
   --ink: #000000;
-  --accent: #7e0000;
+  --accent: #3a404d;
   --surface: #ffffff;
-  --surface-low: #f3f1ea;
-  --surface-highest: #e7e3d8;
+  --surface-low: #f2f3f5;
+  --surface-highest: #e4e7eb;
   --on-surface: #141414;
-  --on-surface-muted: #5a574e;
+  --on-surface-muted: #5f646b;
   --ghost: rgba(0, 0, 0, 0.2);
   --font-voice: "Newsreader", Georgia, "Times New Roman", serif;
   --font-data: "Work Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -188,9 +188,10 @@
 }
 
 .rsstag-selected {
+  --accent: #3a404d;
   outline: 3px solid var(--accent) !important;
   outline-offset: 2px;
-  background: rgba(126, 0, 0, 0.12) !important;
+  background: rgba(58, 64, 77, 0.12) !important;
 }
 
 /* ── In-page rail (topics / summaries view) ────────────────────────────── */
@@ -368,7 +369,8 @@ body.pagetollm-rail-open {
 }
 
 .pagetollm-word.is-highlight {
-  background: rgba(126, 0, 0, 0.12);
+  --accent: #3a404d;
+  background: rgba(58, 64, 77, 0.12);
   border-radius: 0;
   box-shadow: inset 0 -2px 0 var(--accent);
 }

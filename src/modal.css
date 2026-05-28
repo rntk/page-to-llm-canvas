@@ -3,12 +3,12 @@
 :root {
   /* Ink & page */
   --ink: #000000;
-  --accent: #7e0000; /* The Editor's Mark — used sparingly */
+  --accent: #3a404d; /* The Editor's Mark — used sparingly */
   --surface: #ffffff;
-  --surface-low: #f3f1ea; /* paper stock: insets, canvas */
-  --surface-highest: #e7e3d8; /* weight: nav / footer */
+  --surface-low: #f2f3f5; /* paper stock: insets, canvas */
+  --surface-highest: #e4e7eb; /* weight: nav / footer */
   --on-surface: #141414;
-  --on-surface-muted: #5a574e;
+  --on-surface-muted: #5f646b;
   --ghost: rgba(0, 0, 0, 0.2); /* outline-variant @ 20% */
 
   /* Voice (serif) vs Data (sans) */
@@ -263,7 +263,7 @@ body.canvas-global-dragging * {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(243, 241, 234, 0.7);
+  background: rgba(242, 243, 245, 0.7);
   backdrop-filter: blur(16px);
   z-index: 10;
 }
@@ -384,7 +384,7 @@ body.canvas-global-dragging * {
 }
 
 .pagetollm-sentence.is-selected-topic {
-  background: rgba(126, 0, 0, 0.12);
+  background: rgba(58, 64, 77, 0.12);
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
