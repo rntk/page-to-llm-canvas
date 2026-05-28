@@ -214,6 +214,7 @@ export default function App({ initialKey }) {
   const [hoveredTopicKey, setHoveredTopicKey] = useState(null);
   const [selectedLevel, setSelectedLevel] = useState(0);
   const [sentenceMetrics, setSentenceMetrics] = useState(() => new Map());
+  const [pendingZoomSentence, setPendingZoomSentence] = useState(null);
 
   const articleTextRef = useRef(null);
   const summaryWrapRef = useRef(null);
@@ -478,6 +479,20 @@ export default function App({ initialKey }) {
     [showSummaryMode, zoomToTarget],
   );
 
+  useEffect(() => {
+    if (pendingZoomSentence !== null) {
+      const sentenceNumber = Number(pendingZoomSentence);
+      if (Number.isInteger(sentenceNumber) && sentenceNumber > 0) {
+        const articleEl = articleTextRef.current;
+        const sel = articleEl?.querySelector(`[data-sentence-index="${sentenceNumber}"]`);
+        if (sel) {
+          zoomToTarget(sel.getBoundingClientRect());
+        }
+      }
+      setPendingZoomSentence(null);
+    }
+  }, [pendingZoomSentence, zoomToTarget]);
+
   // ── Focus ────────────────────────────────────────────────────────────────
   // The modal runs inside an iframe. Keyboard listeners on the iframe's
   // window only fire when the iframe itself has focus, so pull focus in as
@@ -566,6 +581,7 @@ export default function App({ initialKey }) {
                       onShowSourceSentences={(card) => {
                         setSelectedTopicKey(card.path);
                         setShowSummaryMode(false);
+                        setPendingZoomSentence(card.startSentence);
                       }}
                     />
                   ) : (
