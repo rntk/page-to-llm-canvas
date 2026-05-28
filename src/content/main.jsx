@@ -458,7 +458,10 @@ import InPageRail from "./InPageRail.jsx";
     const set = new Set();
     (topic.ranges || []).forEach((r) => {
       const s = Number(r.sentence_start);
-      const e = Number(r.sentence_end ?? r.sentence_start);
+      const rawEnd = (r.sentence_end === null || r.sentence_end === undefined || r.sentence_end === '')
+        ? r.sentence_start
+        : r.sentence_end;
+      const e = Number(rawEnd);
       if (!Number.isInteger(s) || !Number.isInteger(e)) return;
       for (let i = Math.min(s, e); i <= Math.max(s, e); i++) set.add(i);
     });
@@ -586,6 +589,7 @@ import InPageRail from "./InPageRail.jsx";
   function computeCardVerticalBox(sentences, sentenceRanges, wordEntries, railOriginTop) {
     if (!sentences || sentences.length === 0) return null;
     let top = Infinity, bottom = -Infinity;
+    const isLaidOut = (rect) => rect && (rect.width > 0 || rect.height > 0);
     for (const sNum of sentences) {
       const range = sentenceRanges.get(sNum);
       if (!range) continue;
@@ -594,8 +598,12 @@ import InPageRail from "./InPageRail.jsx";
       if (!startSpan || !endSpan) continue;
       const r1 = startSpan.getBoundingClientRect();
       const r2 = endSpan.getBoundingClientRect();
-      const sTop = Math.min(r1.top, r2.top) + window.scrollY - railOriginTop;
-      const sBottom = Math.max(r1.bottom, r2.bottom) + window.scrollY - railOriginTop;
+      // Skip spans that aren't laid out (display:none etc.) — their zero rect
+      // would otherwise collapse `top` to 0 and inflate the card to full height.
+      const rects = [r1, r2].filter(isLaidOut);
+      if (rects.length === 0) continue;
+      const sTop = Math.min(...rects.map((r) => r.top)) + window.scrollY - railOriginTop;
+      const sBottom = Math.max(...rects.map((r) => r.bottom)) + window.scrollY - railOriginTop;
       if (sTop < top) top = sTop;
       if (sBottom > bottom) bottom = sBottom;
     }
