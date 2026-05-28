@@ -195,7 +195,6 @@ body.pagetollm-rail-open {
 .pagetollm-rail-title {
   font-size: 16px;
   font-weight: 700;
-  text-transform: uppercase;
   letter-spacing: 0.06em;
   color: #9ca3af;
 }
@@ -383,7 +382,6 @@ body.pagetollm-rail-open {
   font-family: inherit;
   font-size: 16px;
   font-weight: 700;
-  text-transform: uppercase;
   letter-spacing: 0.06em;
   color: #9ca3af;
   cursor: pointer;

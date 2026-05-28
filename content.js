@@ -647,7 +647,7 @@
       </button>
       <div id="${menuId}" class="pagetollm-rail-dropdown-menu" role="menu">
         <button type="button" class="pagetollm-rail-dropdown-item" role="menuitem" data-mode="topics">Topics</button>
-        <button type="button" class="pagetollm-rail-dropdown-item" role="menuitem" data-mode="summaries">Topic summaries</button>
+        <button type="button" class="pagetollm-rail-dropdown-item" role="menuitem" data-mode="summaries">Summaries</button>
         <button type="button" class="pagetollm-rail-dropdown-item" role="menuitem" data-mode="canvas">Canvas view</button>
       </div>
     `;
@@ -660,7 +660,7 @@
       menuItems.forEach((item) => {
         item.classList.toggle('active', item.dataset.mode === mode && mode !== 'canvas');
       });
-      labelSpan.textContent = mode === 'summaries' ? 'Topic summaries' : 'Topics';
+      labelSpan.textContent = mode === 'summaries' ? 'Summaries' : 'Topics';
     };
     setActiveMode(initialMode);
 
