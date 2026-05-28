@@ -12,6 +12,9 @@ import { callLLMDirect } from "./worker/llm.js";
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 
+// Record statuses that mean a pipeline is (or should be) actively running.
+const IN_FLIGHT_STATUSES = new Set(["pending", "splitting", "summarizing"]);
+
 // Alarm name used to keep the service worker alive while pipelines are running.
 const KEEPALIVE_ALARM = "pipeline-keepalive";
 // Chrome MV3 enforces a minimum of 30 s (0.5 min) for alarm periods.
@@ -35,8 +38,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== KEEPALIVE_ALARM) return;
   // Resume any in-flight records that lost their SW context (e.g. after SW termination).
   listRecords().then((items) => {
-    const inFlightStatuses = new Set(["pending", "splitting", "summarizing"]);
-    const inFlight = items.filter((r) => inFlightStatuses.has(r.status));
+    const inFlight = items.filter((r) => IN_FLIGHT_STATUSES.has(r.status));
     if (inFlight.length === 0) {
       chrome.alarms.clear(KEEPALIVE_ALARM);
       return;
@@ -69,8 +71,7 @@ export function _resetJobRegistry() {
  */
 function isStaleRecord(rec) {
   if (!rec) return false;
-  const inFlight = new Set(["pending", "splitting", "summarizing"]);
-  if (!inFlight.has(rec.status)) return false;
+  if (!IN_FLIGHT_STATUSES.has(rec.status)) return false;
   const age = Date.now() - (rec.updatedAt || 0);
   return age > STALE_THRESHOLD_MS;
 }
@@ -106,8 +107,7 @@ export async function startPipeline(key) {
     const rec = await readRecord(key);
     if (!rec) return;
 
-    const runnableStatuses = new Set(["pending", "splitting", "summarizing"]);
-    if (!runnableStatuses.has(rec.status)) return;
+    if (!IN_FLIGHT_STATUSES.has(rec.status)) return;
 
     // Skip if a healthy (non-stale) job is already in the registry.
     if (_jobRegistry.has(key) && !isStaleRecord(rec)) return;
@@ -240,16 +240,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             sendResponse({ ok: false, error: "missing key" });
             return;
           }
-          const rec = await readRecord(key);
-          if (!rec) {
+          const updated = await updateRecord(key, {
+            status: "pending",
+            error: null,
+            progress: { stage: "queued", done: 0, total: 0 },
+          });
+          if (!updated) {
             sendResponse({ ok: false, error: "record not found" });
             return;
           }
-          rec.status = "pending";
-          rec.error = null;
-          rec.progress = { stage: "queued", done: 0, total: 0 };
-          rec.updatedAt = Date.now();
-          await writeRecord(rec);
           startPipeline(key).catch((err) => {
             console.error("PageToLLM Canvas retryRecord startPipeline failed:", err);
           });

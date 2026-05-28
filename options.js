@@ -39,7 +39,7 @@ async function render() {
     tr.innerHTML = `
       <td class="url">${item.sourceUrl ? escapeHtml(item.sourceUrl) : '(no url)'}</td>
       <td>${fmtDate(item.createdAt)}</td>
-      <td><span class="status ${item.status || ''}">${item.status || 'unknown'}</span></td>
+      <td><span class="status ${escapeHtml(item.status || '')}">${escapeHtml(item.status || 'unknown')}</span></td>
       <td>
         <button data-action="open" data-key="${item.key}" type="button">Open</button>
         <button data-action="reprocess" data-key="${item.key}" type="button">Reprocess</button>

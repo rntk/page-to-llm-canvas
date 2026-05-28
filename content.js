@@ -629,6 +629,125 @@
     return found;
   }
 
+  /**
+   * Builds the mode-switcher dropdown (Topics / Topic summaries / Canvas view).
+   * Owns its own open/close, keyboard navigation, and active-state; reports the
+   * chosen mode through `onSelectMode`. Returns the element plus a teardown that
+   * detaches the document/keyboard listeners it installed.
+   */
+  function createModeDropdown({ recordKey, initialMode, onSelectMode }) {
+    const menuId = `pagetollm-dropdown-menu-${recordKey}`;
+    const container = document.createElement('div');
+    container.className = 'pagetollm-rail-dropdown-container';
+    container.innerHTML = `
+      <button type="button" class="pagetollm-rail-dropdown-toggle pagetollm-rail-title"
+              aria-haspopup="true" aria-expanded="false" aria-controls="${menuId}">
+        <span class="pagetollm-rail-dropdown-label"></span>
+        <span class="pagetollm-rail-dropdown-arrow" aria-hidden="true">▾</span>
+      </button>
+      <div id="${menuId}" class="pagetollm-rail-dropdown-menu" role="menu">
+        <button type="button" class="pagetollm-rail-dropdown-item" role="menuitem" data-mode="topics">Topics</button>
+        <button type="button" class="pagetollm-rail-dropdown-item" role="menuitem" data-mode="summaries">Topic summaries</button>
+        <button type="button" class="pagetollm-rail-dropdown-item" role="menuitem" data-mode="canvas">Canvas view</button>
+      </div>
+    `;
+
+    const toggleBtn = container.querySelector('.pagetollm-rail-dropdown-toggle');
+    const labelSpan = container.querySelector('.pagetollm-rail-dropdown-label');
+    const menuItems = Array.from(container.querySelectorAll('.pagetollm-rail-dropdown-item'));
+
+    const setActiveMode = (mode) => {
+      menuItems.forEach((item) => {
+        item.classList.toggle('active', item.dataset.mode === mode && mode !== 'canvas');
+      });
+      labelSpan.textContent = mode === 'summaries' ? 'Topic summaries' : 'Topics';
+    };
+    setActiveMode(initialMode);
+
+    const closeDropdown = () => {
+      container.classList.remove('open');
+      toggleBtn.setAttribute('aria-expanded', 'false');
+    };
+    const openDropdown = () => {
+      container.classList.add('open');
+      toggleBtn.setAttribute('aria-expanded', 'true');
+    };
+
+    toggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = container.classList.toggle('open');
+      toggleBtn.setAttribute('aria-expanded', String(isOpen));
+      if (isOpen) menuItems[0].focus();
+    });
+
+    menuItems.forEach((item) => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const mode = item.dataset.mode;
+        closeDropdown();
+        if (mode !== 'canvas') setActiveMode(mode);
+        onSelectMode(mode);
+      });
+    });
+
+    const onDocumentClick = (e) => {
+      if (!container.contains(e.target)) closeDropdown();
+    };
+    document.addEventListener('click', onDocumentClick);
+
+    const onKeydown = (e) => {
+      const isOpen = container.classList.contains('open');
+      switch (e.key) {
+        case 'Escape':
+          if (isOpen) {
+            e.preventDefault();
+            closeDropdown();
+            toggleBtn.focus();
+          }
+          break;
+        case 'ArrowDown': {
+          e.preventDefault();
+          if (!isOpen) openDropdown();
+          const activeIndex = menuItems.indexOf(document.activeElement);
+          const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % menuItems.length : 0;
+          menuItems[nextIndex].focus();
+          break;
+        }
+        case 'ArrowUp':
+          if (isOpen) {
+            e.preventDefault();
+            const activeIndex = menuItems.indexOf(document.activeElement);
+            const prevIndex = activeIndex >= 0
+              ? (activeIndex - 1 + menuItems.length) % menuItems.length
+              : menuItems.length - 1;
+            menuItems[prevIndex].focus();
+          }
+          break;
+        case 'Home':
+          if (isOpen) {
+            e.preventDefault();
+            menuItems[0].focus();
+          }
+          break;
+        case 'End':
+          if (isOpen) {
+            e.preventDefault();
+            menuItems[menuItems.length - 1].focus();
+          }
+          break;
+      }
+    };
+    container.addEventListener('keydown', onKeydown);
+
+    return {
+      element: container,
+      teardown() {
+        document.removeEventListener('click', onDocumentClick);
+        container.removeEventListener('keydown', onKeydown);
+      },
+    };
+  }
+
   async function openInPageRail(rec, initialMode) {
     closeInPageRail();
     removeCanvasIframe();
@@ -692,140 +811,24 @@
     const head = document.createElement('div');
     head.className = 'pagetollm-rail-head';
 
-    const dropdownMenuId = `pagetollm-dropdown-menu-${record.key}`;
-    const initialLabel = state.mode === 'summaries' ? 'Topic summaries' : 'Topics';
-
-    const dropdownContainer = document.createElement('div');
-    dropdownContainer.className = 'pagetollm-rail-dropdown-container';
-    dropdownContainer.innerHTML = `
-      <button type="button" class="pagetollm-rail-dropdown-toggle pagetollm-rail-title"
-              aria-haspopup="true" aria-expanded="false" aria-controls="${dropdownMenuId}">
-        <span class="pagetollm-rail-dropdown-label"></span>
-        <span class="pagetollm-rail-dropdown-arrow" aria-hidden="true">▾</span>
-      </button>
-      <div id="${dropdownMenuId}" class="pagetollm-rail-dropdown-menu" role="menu">
-        <button type="button" class="pagetollm-rail-dropdown-item" role="menuitem" data-mode="topics">Topics</button>
-        <button type="button" class="pagetollm-rail-dropdown-item" role="menuitem" data-mode="summaries">Topic summaries</button>
-        <button type="button" class="pagetollm-rail-dropdown-item" role="menuitem" data-mode="canvas">Canvas view</button>
-      </div>
-    `;
-
-    const toggleBtn = dropdownContainer.querySelector('.pagetollm-rail-dropdown-toggle');
-    const labelSpan = dropdownContainer.querySelector('.pagetollm-rail-dropdown-label');
-    const itemTopics = dropdownContainer.querySelector('[data-mode="topics"]');
-    const itemSummaries = dropdownContainer.querySelector('[data-mode="summaries"]');
-    const itemCanvas = dropdownContainer.querySelector('[data-mode="canvas"]');
-
-    labelSpan.textContent = initialLabel;
-    if (state.mode === 'topics') itemTopics.classList.add('active');
-    if (state.mode === 'summaries') itemSummaries.classList.add('active');
-
-    const menuItems = [itemTopics, itemSummaries, itemCanvas];
-
-    toggleBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const isOpen = dropdownContainer.classList.toggle('open');
-      toggleBtn.setAttribute('aria-expanded', String(isOpen));
-      if (isOpen) {
-        itemTopics.focus();
-      }
+    const dropdown = createModeDropdown({
+      recordKey: record.key,
+      initialMode: state.mode,
+      onSelectMode: (mode) => {
+        if (mode === 'canvas') {
+          closeInPageRail();
+          openCanvasIframe(record.key);
+          return;
+        }
+        if (state.mode === mode) return;
+        state.mode = mode;
+        railEl.dataset.mode = state.mode;
+        setRailWidthForMode();
+        clearAllHighlights();
+        renderCards();
+      },
     });
-
-    const closeDropdown = () => {
-      dropdownContainer.classList.remove('open');
-      toggleBtn.setAttribute('aria-expanded', 'false');
-    };
-
-    const changeMode = (newMode) => {
-      if (state.mode === newMode) return;
-      state.mode = newMode;
-      railEl.dataset.mode = state.mode;
-
-      itemTopics.classList.toggle('active', state.mode === 'topics');
-      itemSummaries.classList.toggle('active', state.mode === 'summaries');
-      itemCanvas.classList.toggle('active', false);
-      labelSpan.textContent = state.mode === 'summaries' ? 'Topic summaries' : 'Topics';
-
-      setRailWidthForMode();
-
-      clearAllHighlights();
-      renderCards();
-    };
-
-    itemTopics.addEventListener('click', (e) => {
-      e.stopPropagation();
-      changeMode('topics');
-      closeDropdown();
-    });
-
-    itemSummaries.addEventListener('click', (e) => {
-      e.stopPropagation();
-      changeMode('summaries');
-      closeDropdown();
-    });
-
-    itemCanvas.addEventListener('click', (e) => {
-      e.stopPropagation();
-      closeDropdown();
-      closeInPageRail();
-      openCanvasIframe(record.key);
-    });
-
-    const onDocumentClick = (e) => {
-      if (!dropdownContainer.contains(e.target)) {
-        closeDropdown();
-      }
-    };
-    document.addEventListener('click', onDocumentClick);
-
-    const onDropdownKeydown = (e) => {
-      const isOpen = dropdownContainer.classList.contains('open');
-
-      switch (e.key) {
-        case 'Escape':
-          if (isOpen) {
-            e.preventDefault();
-            closeDropdown();
-            toggleBtn.focus();
-          }
-          break;
-        case 'ArrowDown':
-          e.preventDefault();
-          if (!isOpen) {
-            dropdownContainer.classList.add('open');
-            toggleBtn.setAttribute('aria-expanded', 'true');
-          }
-          {
-            const activeIndex = menuItems.indexOf(document.activeElement);
-            const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % menuItems.length : 0;
-            menuItems[nextIndex].focus();
-          }
-          break;
-        case 'ArrowUp':
-          if (isOpen) {
-            e.preventDefault();
-            const activeIndex = menuItems.indexOf(document.activeElement);
-            const prevIndex = activeIndex >= 0
-              ? (activeIndex - 1 + menuItems.length) % menuItems.length
-              : menuItems.length - 1;
-            menuItems[prevIndex].focus();
-          }
-          break;
-        case 'Home':
-          if (isOpen) {
-            e.preventDefault();
-            menuItems[0].focus();
-          }
-          break;
-        case 'End':
-          if (isOpen) {
-            e.preventDefault();
-            menuItems[menuItems.length - 1].focus();
-          }
-          break;
-      }
-    };
-    dropdownContainer.addEventListener('keydown', onDropdownKeydown);
+    const dropdownContainer = dropdown.element;
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'pagetollm-rail-close';
@@ -973,8 +976,9 @@
         } else {
           card.style.minHeight = `${spec.box.height}px`;
         }
-        card.style.borderColor = topicAccentColor(spec.path, spec.level || 0);
-        card.style.setProperty('--pagetollm-card-accent', topicAccentColor(spec.path, spec.level || 0));
+        const accent = topicAccentColor(spec.path, spec.level || 0);
+        card.style.borderColor = accent;
+        card.style.setProperty('--pagetollm-card-accent', accent);
 
         const content = document.createElement('div');
         content.className = 'pagetollm-rail-card-content';
@@ -1024,8 +1028,7 @@
         unwrapWords(elements);
         document.body.classList.remove('pagetollm-rail-open');
         document.documentElement.style.removeProperty('--pagetollm-rail-reserve');
-        document.removeEventListener('click', onDocumentClick);
-        dropdownContainer.removeEventListener('keydown', onDropdownKeydown);
+        dropdown.teardown();
       },
     };
   }

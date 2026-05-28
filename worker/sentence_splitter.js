@@ -5,7 +5,6 @@
 
 const CLOSING = `"'”’)\\]»`;
 const TERMINAL_RE = new RegExp(`([.!?…])(?:[${CLOSING}])*(\\s+)`, "g");
-const WORD_RE = /\S+/g;
 const SENTENCE_START_RE = /[A-Z0-9À-ɏ"'(\[\{“‘«]/;
 const ABBREVS = new Set(["Mr.", "Mrs.", "Ms.", "Dr.", "Prof.", "Gen.", "Gov.", "Sgt.", "Col.", "Capt."]);
 

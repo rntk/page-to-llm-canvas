@@ -6,6 +6,8 @@
  * Cards are laid out in columns by depth level, matching the frontend canvas.
  */
 
+import { clampScale } from "./useCanvasTransform.js";
+
 export const CARD_WIDTH = 240;
 export const COLUMN_GAP = 18;
 export const RAIL_PADDING = 24;
@@ -16,13 +18,6 @@ const CARD_TITLE_FONT_SIZE = 12;
 const CARD_TITLE_LINE_HEIGHT = 1.2;
 const CARD_TITLE_MAX_LINES = 2;
 const CARD_VERTICAL_CHROME_PX = 31;
-const MIN_SCALE = 0.3;
-const MAX_SCALE = 3;
-
-function clampScale(value) {
-  const safe = Number.isFinite(value) ? value : 1;
-  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, safe));
-}
 
 /**
  * Per-card title font size that grows on zoom-out (1/scale, capped at 1) and

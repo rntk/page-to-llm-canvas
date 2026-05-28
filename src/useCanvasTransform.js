@@ -7,7 +7,8 @@ const WHEEL_OUT = 1 / 1.1;
 const ARROW_STEP = 80;
 
 export function clampScale(value) {
-  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
+  const safe = Number.isFinite(value) ? value : 1;
+  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, safe));
 }
 
 function cursorAnchoredTranslate({ cursor, translate, currentScale, nextScale }) {
