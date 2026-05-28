@@ -12,8 +12,8 @@
     "vitest": "^4.1.7"
   },
   "scripts": {
-    "build": "vite build",
-    "dev": "vite build --watch",
+    "build": "node scripts/build-extension.mjs",
+    "dev": "node scripts/build-extension.mjs --watch",
     "test": "vitest run"
   }
 }

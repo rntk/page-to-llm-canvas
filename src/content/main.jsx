@@ -1,9 +1,16 @@
-(function () {
+import React from "react";
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
+import SelectionToolbar from "./SelectionToolbar.jsx";
+import InPageRail from "./InPageRail.jsx";
+
   let selectionToolbar = null;
+  let selectionToolbarRoot = null;
   let selectionMode = false;
   let selectedElements = [];
   let pickCounter = 0;
   let dragSrcIndex = null;
+  let dragOverIndex = null;
   let canvasIframe = null;
   let inPageRailController = null;
   const IN_PAGE_RAIL_WIDTHS = Object.freeze({
@@ -78,42 +85,25 @@
 
   function showSelectionToolbar() {
     if (selectionToolbar) {
+      selectionToolbarRoot && selectionToolbarRoot.unmount();
       selectionToolbar.remove();
     }
 
     selectionToolbar = document.createElement('div');
     selectionToolbar.id = 'rsstag-selection-toolbar';
-    selectionToolbar.innerHTML = `
-      <div id="rsstag-toolbar-top">
-        <button id="rsstag-pick-btn" type="button">Pick Block</button>
-        <button id="rsstag-submit-btn" type="button" disabled>Submit</button>
-        <button id="rsstag-cancel-btn" type="button">Cancel</button>
-      </div>
-      <ul id="rsstag-block-list"></ul>
-    `;
-
     document.body.appendChild(selectionToolbar);
-
-    document.getElementById('rsstag-pick-btn').addEventListener('click', toggleSelectionMode);
-    document.getElementById('rsstag-submit-btn').addEventListener('click', submitSelection);
-    document.getElementById('rsstag-cancel-btn').addEventListener('click', cleanupSelection);
-
-    renderBlockList();
+    selectionToolbarRoot = createRoot(selectionToolbar);
+    renderSelectionToolbar();
   }
 
   function toggleSelectionMode() {
     selectionMode = !selectionMode;
-    const pickBtn = document.getElementById('rsstag-pick-btn');
-
     if (selectionMode) {
-      pickBtn.classList.add('active');
-      pickBtn.textContent = 'Picking…';
       enableSelection();
     } else {
-      pickBtn.classList.remove('active');
-      pickBtn.textContent = 'Pick Block';
       disableSelection();
     }
+    renderSelectionToolbar();
   }
 
   function enableSelection() {
@@ -164,40 +154,33 @@
     selectionMode = false;
     disableSelection();
 
-    const pickBtn = document.getElementById('rsstag-pick-btn');
-    pickBtn.classList.remove('active');
-    pickBtn.textContent = 'Pick Block';
-
-    renderBlockList();
+    renderSelectionToolbar();
     updateSubmitState();
   }
 
-  function renderBlockList() {
-    const list = document.getElementById('rsstag-block-list');
-    if (!list) return;
-    list.innerHTML = '';
+  function renderSelectionToolbar() {
+    if (!selectionToolbarRoot) return;
+    const selectedBlocks = selectedElements.map((entry) => ({
+      id: entry.originalNumber,
+      originalNumber: entry.originalNumber,
+    }));
 
-    selectedElements.forEach(({ el, originalNumber }, index) => {
-      const item = document.createElement('li');
-      item.className = 'rsstag-block-item';
-      item.draggable = true;
-      item.dataset.index = index;
-
-      item.innerHTML = `
-        <span class="rsstag-drag-handle" title="Drag to reorder">&#9776;</span>
-        <span class="rsstag-block-label">Block ${originalNumber}</span>
-        <button class="rsstag-remove-btn" type="button" title="Remove block">&#10005;</button>
-      `;
-
-      item.querySelector('.rsstag-remove-btn').addEventListener('click', () => removeBlock(index));
-
-      item.addEventListener('dragstart', onDragStart);
-      item.addEventListener('dragover', onDragOver);
-      item.addEventListener('drop', onDrop);
-      item.addEventListener('dragend', onDragEnd);
-
-      list.appendChild(item);
-    });
+    selectionToolbarRoot.render(
+      <SelectionToolbar
+        isPicking={selectionMode}
+        selectedBlocks={selectedBlocks}
+        draggingIndex={dragSrcIndex}
+        dragOverIndex={dragOverIndex}
+        onTogglePicking={toggleSelectionMode}
+        onSubmit={submitSelection}
+        onCancel={cleanupSelection}
+        onRemoveBlock={removeBlock}
+        onDragStart={onDragStart}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+        onDragEnd={onDragEnd}
+      />,
+    );
   }
 
   function removeBlock(index) {
@@ -206,43 +189,44 @@
       entry.el.classList.remove('rsstag-selected');
     }
     selectedElements.splice(index, 1);
-    renderBlockList();
+    renderSelectionToolbar();
     updateSubmitState();
   }
 
-  function onDragStart(event) {
-    dragSrcIndex = parseInt(event.currentTarget.dataset.index);
+  function onDragStart(event, index) {
+    dragSrcIndex = Number.isInteger(index) ? index : parseInt(event.currentTarget.dataset.index);
     event.currentTarget.classList.add('rsstag-dragging');
     event.dataTransfer.effectAllowed = 'move';
+    renderSelectionToolbar();
   }
 
-  function onDragOver(event) {
+  function onDragOver(event, index) {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
-    const target = event.currentTarget;
-    document.querySelectorAll('.rsstag-block-item').forEach(i => i.classList.remove('rsstag-drag-over'));
-    if (parseInt(target.dataset.index) !== dragSrcIndex) {
-      target.classList.add('rsstag-drag-over');
+    const nextDragOverIndex = Number.isInteger(index) ? index : parseInt(event.currentTarget.dataset.index);
+    if (dragOverIndex !== nextDragOverIndex) {
+      dragOverIndex = nextDragOverIndex;
+      renderSelectionToolbar();
     }
   }
 
-  function onDrop(event) {
+  function onDrop(event, index) {
     event.preventDefault();
-    const destIndex = parseInt(event.currentTarget.dataset.index);
+    const destIndex = Number.isInteger(index) ? index : parseInt(event.currentTarget.dataset.index);
     if (dragSrcIndex === null || dragSrcIndex === destIndex) return;
 
     const moved = selectedElements.splice(dragSrcIndex, 1)[0];
     selectedElements.splice(destIndex, 0, moved);
+    dragOverIndex = null;
 
-    renderBlockList();
+    renderSelectionToolbar();
     updateSubmitState();
   }
 
-  function onDragEnd(event) {
+  function onDragEnd() {
     dragSrcIndex = null;
-    document.querySelectorAll('.rsstag-block-item').forEach(i => {
-      i.classList.remove('rsstag-dragging', 'rsstag-drag-over');
-    });
+    dragOverIndex = null;
+    renderSelectionToolbar();
   }
 
   function buildHtml(elements) {
@@ -261,11 +245,7 @@
   }
 
   function updateSubmitState() {
-    const submitBtn = document.getElementById('rsstag-submit-btn');
-    if (!submitBtn) return;
-    const count = selectedElements.length;
-    submitBtn.disabled = count === 0;
-    submitBtn.textContent = count > 0 ? `Submit (${count})` : 'Submit';
+    renderSelectionToolbar();
   }
 
   async function submitSelection(event) {
@@ -326,6 +306,8 @@
 
   function cleanupSelection() {
     if (selectionToolbar) {
+      selectionToolbarRoot && selectionToolbarRoot.unmount();
+      selectionToolbarRoot = null;
       selectionToolbar.remove();
       selectionToolbar = null;
     }
@@ -333,6 +315,8 @@
     selectedElements.forEach(({ el }) => el.classList.remove('rsstag-selected'));
     selectedElements = [];
     pickCounter = 0;
+    dragSrcIndex = null;
+    dragOverIndex = null;
 
     selectionMode = false;
     disableSelection();
@@ -629,125 +613,6 @@
     return found;
   }
 
-  /**
-   * Builds the mode-switcher dropdown (Topics / Topic summaries / Canvas view).
-   * Owns its own open/close, keyboard navigation, and active-state; reports the
-   * chosen mode through `onSelectMode`. Returns the element plus a teardown that
-   * detaches the document/keyboard listeners it installed.
-   */
-  function createModeDropdown({ recordKey, initialMode, onSelectMode }) {
-    const menuId = `pagetollm-dropdown-menu-${recordKey}`;
-    const container = document.createElement('div');
-    container.className = 'pagetollm-rail-dropdown-container';
-    container.innerHTML = `
-      <button type="button" class="pagetollm-rail-dropdown-toggle pagetollm-rail-title"
-              aria-haspopup="true" aria-expanded="false" aria-controls="${menuId}">
-        <span class="pagetollm-rail-dropdown-label"></span>
-        <span class="pagetollm-rail-dropdown-arrow" aria-hidden="true">▾</span>
-      </button>
-      <div id="${menuId}" class="pagetollm-rail-dropdown-menu" role="menu">
-        <button type="button" class="pagetollm-rail-dropdown-item" role="menuitem" data-mode="topics">Topics</button>
-        <button type="button" class="pagetollm-rail-dropdown-item" role="menuitem" data-mode="summaries">Summaries</button>
-        <button type="button" class="pagetollm-rail-dropdown-item" role="menuitem" data-mode="canvas">Canvas view</button>
-      </div>
-    `;
-
-    const toggleBtn = container.querySelector('.pagetollm-rail-dropdown-toggle');
-    const labelSpan = container.querySelector('.pagetollm-rail-dropdown-label');
-    const menuItems = Array.from(container.querySelectorAll('.pagetollm-rail-dropdown-item'));
-
-    const setActiveMode = (mode) => {
-      menuItems.forEach((item) => {
-        item.classList.toggle('active', item.dataset.mode === mode && mode !== 'canvas');
-      });
-      labelSpan.textContent = mode === 'summaries' ? 'Summaries' : 'Topics';
-    };
-    setActiveMode(initialMode);
-
-    const closeDropdown = () => {
-      container.classList.remove('open');
-      toggleBtn.setAttribute('aria-expanded', 'false');
-    };
-    const openDropdown = () => {
-      container.classList.add('open');
-      toggleBtn.setAttribute('aria-expanded', 'true');
-    };
-
-    toggleBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const isOpen = container.classList.toggle('open');
-      toggleBtn.setAttribute('aria-expanded', String(isOpen));
-      if (isOpen) menuItems[0].focus();
-    });
-
-    menuItems.forEach((item) => {
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const mode = item.dataset.mode;
-        closeDropdown();
-        if (mode !== 'canvas') setActiveMode(mode);
-        onSelectMode(mode);
-      });
-    });
-
-    const onDocumentClick = (e) => {
-      if (!container.contains(e.target)) closeDropdown();
-    };
-    document.addEventListener('click', onDocumentClick);
-
-    const onKeydown = (e) => {
-      const isOpen = container.classList.contains('open');
-      switch (e.key) {
-        case 'Escape':
-          if (isOpen) {
-            e.preventDefault();
-            closeDropdown();
-            toggleBtn.focus();
-          }
-          break;
-        case 'ArrowDown': {
-          e.preventDefault();
-          if (!isOpen) openDropdown();
-          const activeIndex = menuItems.indexOf(document.activeElement);
-          const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % menuItems.length : 0;
-          menuItems[nextIndex].focus();
-          break;
-        }
-        case 'ArrowUp':
-          if (isOpen) {
-            e.preventDefault();
-            const activeIndex = menuItems.indexOf(document.activeElement);
-            const prevIndex = activeIndex >= 0
-              ? (activeIndex - 1 + menuItems.length) % menuItems.length
-              : menuItems.length - 1;
-            menuItems[prevIndex].focus();
-          }
-          break;
-        case 'Home':
-          if (isOpen) {
-            e.preventDefault();
-            menuItems[0].focus();
-          }
-          break;
-        case 'End':
-          if (isOpen) {
-            e.preventDefault();
-            menuItems[menuItems.length - 1].focus();
-          }
-          break;
-      }
-    };
-    container.addEventListener('keydown', onKeydown);
-
-    return {
-      element: container,
-      teardown() {
-        document.removeEventListener('click', onDocumentClick);
-        container.removeEventListener('keydown', onKeydown);
-      },
-    };
-  }
-
   async function openInPageRail(rec, initialMode) {
     closeInPageRail();
     removeCanvasIframe();
@@ -798,6 +663,7 @@
     const railEl = document.createElement('aside');
     railEl.id = 'pagetollm-in-page-rail';
     railEl.dataset.mode = state.mode;
+    const railRoot = createRoot(railEl);
 
     const setRailWidthForMode = () => {
       const railWidth = IN_PAGE_RAIL_WIDTHS[state.mode] || IN_PAGE_RAIL_WIDTHS.topics;
@@ -807,80 +673,13 @@
         `${railWidth + IN_PAGE_RAIL_RESERVE_GAP}px`
       );
     };
-
-    const head = document.createElement('div');
-    head.className = 'pagetollm-rail-head';
-
-    const dropdown = createModeDropdown({
-      recordKey: record.key,
-      initialMode: state.mode,
-      onSelectMode: (mode) => {
-        if (mode === 'canvas') {
-          closeInPageRail();
-          openCanvasIframe(record.key);
-          return;
-        }
-        if (state.mode === mode) return;
-        state.mode = mode;
-        railEl.dataset.mode = state.mode;
-        setRailWidthForMode();
-        clearAllHighlights();
-        renderCards();
-      },
-    });
-    const dropdownContainer = dropdown.element;
-
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'pagetollm-rail-close';
-    closeBtn.type = 'button';
-    closeBtn.textContent = '×';
-    closeBtn.title = 'Close rail';
-    closeBtn.addEventListener('click', closeInPageRail);
-
-    head.appendChild(dropdownContainer);
-
-    if (maxLevel > 0) {
-      const switcher = document.createElement('div');
-      switcher.className = 'pagetollm-rail-level-switcher';
-      const levelButtonsHtml = Array.from({ length: maxLevel + 1 }, (_, level) => `
-        <button type="button"
-                class="pagetollm-rail-level-btn${state.selectedLevel === level ? ' active' : ''}"
-                title="Switch to level ${level}"
-                data-level="${level}">L${level}</button>
-      `).join('');
-      switcher.innerHTML = `<div class="pagetollm-rail-level-buttons">${levelButtonsHtml}</div>`;
-
-      const buttonsContainer = switcher.querySelector('.pagetollm-rail-level-buttons');
-      buttonsContainer.addEventListener('click', (e) => {
-        const btn = e.target.closest('.pagetollm-rail-level-btn');
-        if (!btn) return;
-        const level = parseInt(btn.dataset.level, 10);
-        if (state.selectedLevel === level) return;
-        state.selectedLevel = level;
-        buttonsContainer.querySelectorAll('.pagetollm-rail-level-btn').forEach((b, idx) => {
-          b.classList.toggle('active', idx === level);
-        });
-        clearAllHighlights();
-        renderCards();
-      });
-      head.appendChild(switcher);
-    }
-
-    head.appendChild(closeBtn);
-
-    const body = document.createElement('div');
-    body.className = 'pagetollm-rail-body';
-
-    railEl.appendChild(head);
-    railEl.appendChild(body);
     document.documentElement.appendChild(railEl);
 
     // Reserve space on the right side of the page so the rail does not overlap text.
     setRailWidthForMode();
     document.body.classList.add('pagetollm-rail-open');
 
-    const bodyRect = body.getBoundingClientRect();
-    const railOriginTop = bodyRect.top + window.scrollY;
+    let railOriginTop = 0;
 
     function clearAllHighlights() {
       const cls = 'is-highlight';
@@ -931,18 +730,7 @@
       return runs;
     }
 
-    function renderCards() {
-      body.innerHTML = '';
-      let frontCard = null;
-
-      function bringCardToFront(card) {
-        if (frontCard && frontCard !== card) {
-          frontCard.classList.remove('is-front');
-        }
-        frontCard = card;
-        card.classList.add('is-front');
-      }
-
+    function buildRailCards() {
       const isSummary = state.mode === 'summaries';
       const entries = isSummary
         ? buildSummaryEntries(record).entries
@@ -956,7 +744,15 @@
         for (const run of runs) {
           const box = computeCardVerticalBox(run, sentenceRanges, wordEntries, railOriginTop);
           if (!box) continue;
-          cardSpecs.push({ ...e, sentences: run, allSentences, box });
+          const accent = topicAccentColor(e.path, e.level || 0);
+          cardSpecs.push({
+            ...e,
+            id: `${e.path}-${run.join('-')}`,
+            sentences: run,
+            allSentences,
+            box,
+            accent,
+          });
         }
       }
       cardSpecs.sort((a, b) => a.box.top - b.box.top);
@@ -964,71 +760,68 @@
       const railHeight = cardSpecs.length
         ? Math.max(...cardSpecs.map((c) => c.box.top + c.box.height)) + 80
         : 200;
-      body.style.height = `${railHeight}px`;
-
-      for (const spec of cardSpecs) {
-        const card = document.createElement('button');
-        card.type = 'button';
-        card.className = `pagetollm-rail-card${isSummary ? ' is-summary' : ''}`;
-        card.style.top = `${spec.box.top}px`;
-        if (isSummary) {
-          card.style.height = `${spec.box.height}px`;
-        } else {
-          card.style.minHeight = `${spec.box.height}px`;
-        }
-        const accent = topicAccentColor(spec.path, spec.level || 0);
-        card.style.borderColor = accent;
-        card.style.setProperty('--pagetollm-card-accent', accent);
-
-        const content = document.createElement('div');
-        content.className = 'pagetollm-rail-card-content';
-
-        const heading = document.createElement('div');
-        heading.className = 'pagetollm-rail-card-title';
-        heading.textContent = spec.name;
-        heading.title = spec.path;
-        content.appendChild(heading);
-
-        if (isSummary) {
-          const cardBody = document.createElement('div');
-          cardBody.className = 'pagetollm-rail-card-body';
-          cardBody.textContent = spec.text || '(no summary)';
-          content.appendChild(cardBody);
-        } else {
-          const meta = document.createElement('div');
-          meta.className = 'pagetollm-rail-card-meta';
-          meta.textContent = `${spec.sentences.length} sent.`;
-          content.appendChild(meta);
-        }
-        card.appendChild(content);
-
-        const sentenceList = spec.sentences || spec.sourceSentences || [];
-        card.addEventListener('mouseenter', () => {
-          bringCardToFront(card);
-          highlightTopic(sentenceList, true);
-        });
-        card.addEventListener('mouseleave', () => highlightTopic(sentenceList, false));
-        card.addEventListener('focus', () => bringCardToFront(card));
-        card.addEventListener('pointerdown', () => bringCardToFront(card));
-        card.addEventListener('click', () => {
-          bringCardToFront(card);
-          scrollToFirst(sentenceList);
-        });
-
-        body.appendChild(card);
-      }
+      return { cards: cardSpecs, bodyHeight: railHeight };
     }
 
-    renderCards();
+    function renderRail({ measureOnly = false } = {}) {
+      const { cards, bodyHeight } = railOriginTop
+        ? buildRailCards()
+        : { cards: [], bodyHeight: 200 };
+      flushSync(() => {
+        railRoot.render(
+          <InPageRail
+            recordKey={record.key}
+            mode={state.mode}
+            maxLevel={maxLevel}
+            selectedLevel={state.selectedLevel}
+            cards={measureOnly ? [] : cards}
+            bodyHeight={measureOnly ? 200 : bodyHeight}
+            onClose={closeInPageRail}
+            onSelectMode={(mode) => {
+              if (mode === 'canvas') {
+                closeInPageRail();
+                openCanvasIframe(record.key);
+                return;
+              }
+              if (state.mode === mode) return;
+              state.mode = mode;
+              railEl.dataset.mode = state.mode;
+              setRailWidthForMode();
+              clearAllHighlights();
+              renderRail();
+            }}
+            onSelectLevel={(level) => {
+              if (state.selectedLevel === level) return;
+              state.selectedLevel = level;
+              clearAllHighlights();
+              renderRail();
+            }}
+            onHighlightCard={(card, on) => {
+              const sentenceList = card.sentences || card.sourceSentences || [];
+              highlightTopic(sentenceList, on);
+            }}
+            onScrollToCard={(card) => {
+              const sentenceList = card.sentences || card.sourceSentences || [];
+              scrollToFirst(sentenceList);
+            }}
+          />,
+        );
+      });
+    }
+
+    renderRail({ measureOnly: true });
+    const bodyRect = railEl.querySelector('.pagetollm-rail-body').getBoundingClientRect();
+    railOriginTop = bodyRect.top + window.scrollY;
+    renderRail();
 
     inPageRailController = {
       railEl,
       teardown() {
+        railRoot.unmount();
         railEl.remove();
         unwrapWords(elements);
         document.body.classList.remove('pagetollm-rail-open');
         document.documentElement.style.removeProperty('--pagetollm-rail-reserve');
-        dropdown.teardown();
       },
     };
   }
@@ -1040,4 +833,3 @@
       inPageRailController = null;
     }
   }
-})();
