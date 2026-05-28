@@ -1,4 +1,21 @@
-/* PageToLLM Canvas modal — POC styles. */
+/* PageToLLM Canvas modal — "The Editorial Absolute" design system. */
+
+:root {
+  /* Ink & page */
+  --ink: #000000;
+  --accent: #7e0000; /* The Editor's Mark — used sparingly */
+  --surface: #ffffff;
+  --surface-low: #f3f1ea; /* paper stock: insets, canvas */
+  --surface-highest: #e7e3d8; /* weight: nav / footer */
+  --on-surface: #141414;
+  --on-surface-muted: #5a574e;
+  --ghost: rgba(0, 0, 0, 0.2); /* outline-variant @ 20% */
+
+  /* Voice (serif) vs Data (sans) */
+  --font-voice: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-data: "Work Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Oxygen, Ubuntu, sans-serif;
+}
 
 html,
 body {
@@ -7,11 +24,9 @@ body {
   width: 100vw;
   height: 100%;
   min-height: 100vh;
-  background: #fff;
-  color: #1a202c;
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
-    sans-serif;
+  background: var(--surface);
+  color: var(--on-surface);
+  font-family: var(--font-data);
   font-size: 14px;
 }
 
@@ -25,7 +40,7 @@ body {
 }
 
 .pagetollm-modal-root {
-  background: #fff;
+  background: var(--surface);
 }
 
 /* ── Body / canvas ─────────────────────────────────────────────────────── */
@@ -34,7 +49,7 @@ body {
   position: relative;
   flex: 1 1 auto;
   overflow: hidden;
-  background: #1a1e24;
+  background: var(--surface-low);
   display: flex;
   flex-direction: column;
 }
@@ -55,8 +70,9 @@ body {
   user-select: none;
   cursor: grab;
   touch-action: none;
-  background: radial-gradient(circle, #2a3040 1px, transparent 1px) 0 0 / 28px
-    28px;
+  background: var(--surface-low)
+    radial-gradient(circle, rgba(0, 0, 0, 0.06) 1px, transparent 1px) 0 0 /
+    28px 28px;
 }
 
 .canvas-area.is-dragging {
@@ -99,15 +115,16 @@ body.canvas-global-dragging * {
   padding-right: calc(var(--canvas-topic-hierarchy-width, 430px) + 70px);
 }
 
+/* The article: a sheet of paper "tipped-in" onto the canvas. */
 .pagetollm-article-text {
   width: 680px;
-  background: #fff;
-  border-radius: 6px;
-  padding: 32px 36px;
-  font-size: 15px;
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  padding: 40px 44px;
+  font-size: 16px;
   line-height: 1.75;
-  color: #1a1a1a;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+  color: var(--on-surface);
 }
 
 .pagetollm-article-text .pagetollm-text-block {
@@ -116,10 +133,10 @@ body.canvas-global-dragging * {
 
 .canvas-article-with-summaries.is-summary-mode .canvas-summary-view {
   width: 680px;
-  background: #fff;
-  border-radius: 6px;
-  padding: 24px 28px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  padding: 28px 32px;
   max-width: none;
   margin: 0;
 }
@@ -132,7 +149,7 @@ body.canvas-global-dragging * {
   min-height: auto;
 }
 
-/* ── Zoom controls ─────────────────────────────────────────────────────── */
+/* ── Zoom controls (floating: frosted vellum) ──────────────────────────── */
 
 .canvas-controls {
   position: absolute;
@@ -175,57 +192,58 @@ body.canvas-global-dragging * {
 .canvas-zoom-btn {
   width: 32px;
   height: 32px;
-  background: #fff;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--ink);
+  border-radius: 0;
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  color: var(--ink);
 }
 
 .canvas-zoom-btn:hover {
-  background: #f0f0f0;
+  background: var(--ink);
+  color: var(--surface);
 }
 
 .canvas-close-btn {
-  color: #c53030;
+  color: var(--accent);
   font-weight: 700;
 }
 
 .canvas-close-btn:hover {
-  background: #fff5f5;
-  border-color: #feb2b2;
-  color: #9b2c2c;
+  background: var(--accent);
+  color: var(--surface);
+  border-color: var(--accent);
 }
 
 .canvas-read-toggle {
   width: 32px;
   height: 32px;
-  background: #fff;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--ink);
+  border-radius: 0;
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
-  color: #555;
+  color: var(--ink);
   transition:
     background 0.15s,
-    border-color 0.15s,
     color 0.15s;
 }
 
 .canvas-read-toggle.is-active {
-  background: #e6f7ff;
-  border-color: #3182ce;
-  color: #3182ce;
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--surface);
 }
 
 .canvas-spacer {
@@ -237,7 +255,7 @@ body.canvas-global-dragging * {
   height: auto;
 }
 
-/* ── Spinner overlay ───────────────────────────────────────────────────── */
+/* ── Spinner overlay (floating: frosted vellum) ────────────────────────── */
 
 .pagetollm-spinner-overlay {
   position: absolute;
@@ -245,7 +263,8 @@ body.canvas-global-dragging * {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(243, 241, 234, 0.7);
+  backdrop-filter: blur(16px);
   z-index: 10;
 }
 
@@ -254,11 +273,10 @@ body.canvas-global-dragging * {
   flex-direction: column;
   align-items: center;
   gap: 14px;
-  padding: 24px 32px;
-  border-radius: 12px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.16);
+  padding: 28px 36px;
+  border-radius: 0;
+  background: var(--surface);
+  border: 2px solid var(--ink);
   min-width: 240px;
   text-align: center;
 }
@@ -266,8 +284,8 @@ body.canvas-global-dragging * {
 .pagetollm-spinner {
   width: 36px;
   height: 36px;
-  border: 3px solid #cbd5e0;
-  border-top-color: #3182ce;
+  border: 3px solid var(--ghost);
+  border-top-color: var(--ink);
   border-radius: 50%;
   animation: pagetollm-spin 0.8s linear infinite;
 }
@@ -279,18 +297,20 @@ body.canvas-global-dragging * {
 }
 
 .pagetollm-spinner-stage {
-  color: #2d3748;
+  color: var(--on-surface);
   font-weight: 600;
 }
 
 .pagetollm-spinner-error-title {
-  color: #c53030;
+  color: var(--accent);
+  font-family: var(--font-voice);
   font-weight: 800;
-  font-size: 16px;
+  font-size: 20px;
+  letter-spacing: -0.01em;
 }
 
 .pagetollm-spinner-error-body {
-  color: #2d3748;
+  color: var(--on-surface);
   font-size: 13px;
 }
 
@@ -303,31 +323,34 @@ body.canvas-global-dragging * {
 
 .pagetollm-spinner-retry-btn,
 .pagetollm-spinner-close-btn {
-  padding: 7px 18px;
-  border-radius: 6px;
-  border: none;
+  padding: 8px 18px;
+  border-radius: 0;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
-  transition: background 0.15s;
 }
 
+/* Primary: ink fill */
 .pagetollm-spinner-retry-btn {
-  background: #3182ce;
-  color: #fff;
+  background: var(--ink);
+  color: var(--surface);
+  border: 2px solid var(--ink);
 }
 
 .pagetollm-spinner-retry-btn:hover {
-  background: #2b6cb0;
+  background: var(--surface);
+  color: var(--ink);
 }
 
+/* Secondary: outlined */
 .pagetollm-spinner-close-btn {
-  background: #e2e8f0;
-  color: #2d3748;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--ink);
 }
 
 .pagetollm-spinner-close-btn:hover {
-  background: #cbd5e0;
+  background: var(--surface-low);
 }
 
 /* ── Normal view (sentence list) ───────────────────────────────────────── */
@@ -337,7 +360,7 @@ body.canvas-global-dragging * {
   margin: 0 auto;
   line-height: 1.55;
   font-size: 15px;
-  color: #1a202c;
+  color: var(--on-surface);
 }
 
 .pagetollm-text-block {
@@ -348,20 +371,21 @@ body.canvas-global-dragging * {
 .pagetollm-sentence {
   display: inline;
   padding: 1px 2px;
-  border-radius: 3px;
+  border-radius: 0;
   transition: background 0.12s;
 }
 
 .pagetollm-sentence:hover {
-  background: #edf2f7;
+  background: var(--surface-highest);
 }
 
 .pagetollm-sentence.is-hover-topic {
-  background: #fefcbf;
+  background: var(--surface-highest);
 }
 
 .pagetollm-sentence.is-selected-topic {
-  background: #fef3c7;
+  background: rgba(126, 0, 0, 0.12);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 /* ── TopicLevelSwitcher ────────────────────────────────────────────────── */
@@ -374,7 +398,7 @@ body.canvas-global-dragging * {
 
 .topic-level-switcher__label {
   font-size: 12px;
-  color: #4a5568;
+  color: var(--on-surface-muted);
   font-weight: 600;
 }
 
@@ -385,22 +409,22 @@ body.canvas-global-dragging * {
 
 .topic-level-switcher__button {
   padding: 4px 8px;
-  border: 1px solid #cbd5e0;
-  background: #fff;
-  border-radius: 4px;
+  border: 1px solid var(--ink);
+  background: var(--surface);
+  border-radius: 0;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
-  color: #2d3748;
+  color: var(--ink);
 }
 
 .topic-level-switcher__button.active {
-  background: #3182ce;
-  color: #fff;
-  border-color: #3182ce;
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
 }
 
-/* ── Topic hierarchy rail (copied/adapted from frontend) ───────────────── */
+/* ── Topic hierarchy rail ──────────────────────────────────────────────── */
 
 .canvas-topic-hierarchy {
   position: relative;
@@ -433,31 +457,31 @@ body.canvas-global-dragging * {
 .canvas-controls .topic-level-switcher__button {
   width: 32px;
   height: 32px;
-  background: #fff;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--ink);
+  border-radius: 0;
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
-  color: #555;
+  color: var(--ink);
   transition:
     background 0.15s,
-    border-color 0.15s,
     color 0.15s;
 }
 
 .canvas-controls .topic-level-switcher__button:hover {
-  background: #f0f0f0;
+  background: var(--ink);
+  color: var(--surface);
 }
 
 .canvas-controls .topic-level-switcher__button.active {
-  background: #e6f7ff;
-  border-color: #3182ce;
-  color: #3182ce;
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--surface);
 }
 
 .canvas-topic-hierarchy__body {
@@ -470,13 +494,14 @@ body.canvas-global-dragging * {
 .canvas-topic-hierarchy__empty {
   margin: 24px 0 0;
   padding: 10px 12px;
-  border: 1px dashed rgba(144, 205, 244, 0.24);
-  border-radius: 8px;
-  color: #9fb5cc;
-  background: rgba(17, 24, 39, 0.78);
+  border: 1px solid var(--ghost);
+  border-radius: 0;
+  color: var(--on-surface-muted);
+  background: var(--surface-low);
   font-size: 12px;
 }
 
+/* Editorial card: white sheet, ghost border, per-topic accent as a left rule. */
 .canvas-topic-hierarchy__card {
   position: absolute;
   top: var(--topic-card-top);
@@ -487,24 +512,15 @@ body.canvas-global-dragging * {
   flex-direction: column;
   justify-content: center;
   padding: 8px 10px 8px 12px;
-  border: 1px solid color-mix(in srgb, var(--topic-accent-color) 45%, #fff);
+  border: 1px solid var(--ghost);
   border-left: 4px solid var(--topic-accent-color);
-  border-radius: 8px;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--topic-accent-color) 26%, #fff) 0%,
-    color-mix(in srgb, var(--topic-accent-color) 14%, #fff) 100%
-  );
-  color: #111827;
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--on-surface);
   cursor: pointer;
   font: inherit;
   text-align: left;
-  box-shadow:
-    0 4px 10px rgba(15, 23, 42, 0.12),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.36);
-  transition:
-    box-shadow 0.18s ease,
-    border-color 0.18s ease;
+  transition: border-color 0.18s ease;
   overflow: hidden;
   box-sizing: border-box;
 }
@@ -512,14 +528,12 @@ body.canvas-global-dragging * {
 .canvas-topic-hierarchy__card:hover,
 .canvas-topic-hierarchy__card.is-active,
 .canvas-topic-hierarchy__card.is-selected {
-  border-color: var(--topic-accent-color);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--topic-accent-color) 18%, transparent),
-    0 4px 11px rgba(15, 23, 42, 0.15);
+  border: 2px solid var(--ink);
+  border-left: 4px solid var(--topic-accent-color);
 }
 
 .canvas-topic-hierarchy__card--child {
-  border-style: dashed;
+  background: var(--surface);
 }
 
 /*
@@ -575,19 +589,20 @@ body.canvas-global-dragging * {
 .canvas-topic-hierarchy__card-name {
   display: -webkit-box;
   overflow: hidden;
-  color: #0f172a;
+  color: var(--on-surface);
+  font-family: var(--font-data);
   font-size: var(--topic-card-title-font-size, 14px);
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.2;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 
 .canvas-topic-hierarchy__card-meta {
-  color: rgba(15, 23, 42, 0.6);
+  color: var(--on-surface-muted);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
@@ -596,7 +611,7 @@ body.canvas-global-dragging * {
   position: absolute;
   inset: 1px;
   pointer-events: none;
-  border-radius: 4px;
+  border-radius: 0;
   background-image: repeating-linear-gradient(
     45deg,
     rgba(0, 0, 0, 0.13) 0,
@@ -621,7 +636,7 @@ body.canvas-global-dragging * {
 }
 
 .canvas-summary-view__empty {
-  color: #718096;
+  color: var(--on-surface-muted);
   font-style: italic;
   padding: 24px 4px;
 }
@@ -633,25 +648,24 @@ body.canvas-global-dragging * {
 }
 
 .canvas-summary-view__card {
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  padding: 14px 16px;
   cursor: pointer;
   transition:
     border-color 0.15s,
-    box-shadow 0.15s,
     background 0.15s;
 }
 
 .canvas-summary-view__card:hover {
-  border-color: #90cdf4;
+  border-color: var(--ink);
+  background: var(--surface-low);
 }
 
 .canvas-summary-view__card.is-active {
-  border-color: #3182ce;
-  background: #ebf8ff;
-  box-shadow: 0 0 0 2px rgba(49, 130, 206, 0.2);
+  border: 2px solid var(--ink);
+  background: var(--surface-low);
 }
 
 .canvas-summary-view__card-header {
@@ -659,27 +673,32 @@ body.canvas-global-dragging * {
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .canvas-summary-view__card-path {
-  font-size: 12px;
-  font-weight: 600;
-  color: #2b6cb0;
+  font-family: var(--font-data);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--on-surface);
   word-break: break-word;
 }
 
 .canvas-summary-view__card-meta {
-  font-size: 11px;
-  color: #718096;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--on-surface-muted);
   white-space: nowrap;
 }
 
 .canvas-summary-view__card-text {
   margin: 0;
   font-size: 14px;
-  color: #1a202c;
-  line-height: 1.4;
+  color: var(--on-surface);
+  line-height: 1.5;
   white-space: pre-wrap;
 }
 
@@ -689,22 +708,25 @@ body.canvas-global-dragging * {
 
 .canvas-summary-view__summary-tooltip {
   display: block;
-  margin-top: 8px;
+  margin-top: 10px;
 }
 
+/* Secondary / tertiary action: outlined, sharp. */
 .canvas-summary-view__summary-tooltip-button {
-  padding: 6px 10px;
-  border: 1px solid rgba(144, 205, 244, 0.38);
-  border-radius: 6px;
-  background: #ebf8ff;
-  color: #1a365d;
+  padding: 6px 12px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--ink);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
 .canvas-summary-view__summary-tooltip-button:hover {
-  border-color: #63b3ed;
-  background: #bee3f8;
+  background: var(--ink);
+  color: var(--surface);
 }

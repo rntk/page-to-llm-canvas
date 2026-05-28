@@ -1,16 +1,35 @@
-/* Styles for selection toolbar injected by content script */
+/* Content-script styles — "The Editorial Absolute" design system.
+ * Injected into arbitrary host pages, so all tokens are scoped to our IDs. */
+
+#rsstag-selection-toolbar,
+#pagetollm-in-page-rail {
+  --ink: #000000;
+  --accent: #7e0000;
+  --surface: #ffffff;
+  --surface-low: #f3f1ea;
+  --surface-highest: #e7e3d8;
+  --on-surface: #141414;
+  --on-surface-muted: #5a574e;
+  --ghost: rgba(0, 0, 0, 0.2);
+  --font-voice: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-data: "Work Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, sans-serif;
+}
+
+/* Selection toolbar: floating frosted vellum. */
 #rsstag-selection-toolbar {
   position: fixed;
   top: 20px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 999999;
-  background: #1f2937;
-  color: #f9fafb;
-  padding: 12px 18px;
-  border-radius: 10px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(16px);
+  color: var(--on-surface);
+  padding: 12px 14px;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  font-family: var(--font-data);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -38,45 +57,60 @@
 
 #rsstag-selection-toolbar button {
   padding: 6px 12px;
-  border: none;
-  border-radius: 6px;
-  font-size: 16px;
-  font-weight: 600;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  font-size: 14px;
+  font-weight: 700;
   cursor: pointer;
-  transition: transform 0.15s ease, opacity 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease;
   white-space: nowrap;
 }
 
+/* Pick: secondary (outlined); active: ink fill. */
 #rsstag-pick-btn {
-  background: #60a5fa;
-  color: #0b1e34;
+  background: var(--surface);
+  color: var(--ink);
 }
 
 #rsstag-pick-btn.active {
-  background: #fbbf24;
-  color: #1f1300;
+  background: var(--ink);
+  color: var(--surface);
 }
 
+/* Submit: primary (ink fill). */
 #rsstag-submit-btn {
-  background: #10b981;
-  color: #06281c;
+  background: var(--ink);
+  color: var(--surface);
 }
 
 #rsstag-submit-btn:disabled {
-  background: #6b7280;
-  color: #e5e7eb;
+  background: var(--surface);
+  color: var(--on-surface-muted);
+  border-color: var(--ghost);
   cursor: not-allowed;
-  opacity: 0.8;
 }
 
+/* Cancel: the single Editor's Mark. */
 #rsstag-cancel-btn {
-  background: #ef4444;
-  color: #fff;
+  background: var(--surface);
+  color: var(--accent);
+  border-color: var(--accent);
   margin-left: auto;
 }
 
-#rsstag-selection-toolbar button:hover:not(:disabled) {
-  transform: translateY(-1px);
+#rsstag-cancel-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--surface);
+}
+
+#rsstag-selection-toolbar button:hover:not(:disabled):not(.active):not(
+    #rsstag-cancel-btn
+  ) {
+  background: var(--ink);
+  color: var(--surface);
 }
 
 #rsstag-block-list {
@@ -96,17 +130,17 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  background: #374151;
-  border-radius: 6px;
+  background: var(--surface-low);
+  border-radius: 0;
   padding: 5px 8px;
   cursor: default;
   user-select: none;
-  border: 2px solid transparent;
+  border: 1px solid var(--ghost);
   transition: border-color 0.1s ease;
 }
 
 .rsstag-block-item.rsstag-drag-over {
-  border-color: #60a5fa;
+  border-color: var(--ink);
 }
 
 .rsstag-block-item.rsstag-dragging {
@@ -115,7 +149,7 @@
 
 .rsstag-drag-handle {
   cursor: grab;
-  color: #9ca3af;
+  color: var(--on-surface-muted);
   font-size: 17px;
   flex-shrink: 0;
 }
@@ -125,41 +159,41 @@
 }
 
 .rsstag-block-label {
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
   flex: 1;
 }
 
 .rsstag-remove-btn {
   background: transparent !important;
-  color: #9ca3af !important;
+  color: var(--on-surface-muted) !important;
   padding: 0 4px !important;
   font-size: 14px !important;
   font-weight: 400 !important;
-  border-radius: 4px !important;
+  border: none !important;
+  border-radius: 0 !important;
   line-height: 1;
 }
 
 .rsstag-remove-btn:hover:not(:disabled) {
-  color: #ef4444 !important;
-  background: rgba(239, 68, 68, 0.15) !important;
-  transform: none !important;
+  color: var(--accent) !important;
+  background: transparent !important;
 }
 
 .rsstag-element-highlight {
-  outline: 2px solid #60a5fa !important;
+  outline: 2px solid var(--ink) !important;
   outline-offset: 2px;
-  background: rgba(96, 165, 250, 0.12) !important;
+  background: rgba(0, 0, 0, 0.06) !important;
   cursor: pointer !important;
 }
 
 .rsstag-selected {
-  outline: 3px solid #fbbf24 !important;
+  outline: 3px solid var(--accent) !important;
   outline-offset: 2px;
-  background: rgba(251, 191, 36, 0.2) !important;
+  background: rgba(126, 0, 0, 0.12) !important;
 }
 
-/* In-page rail (topics / summaries view) */
+/* ── In-page rail (topics / summaries view) ────────────────────────────── */
 
 body.pagetollm-rail-open {
   padding-right: var(--pagetollm-rail-reserve, 0) !important;
@@ -171,12 +205,11 @@ body.pagetollm-rail-open {
   top: 0;
   right: 0;
   z-index: 2147483645;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: rgba(17, 24, 39, 0.96);
-  color: #f9fafb;
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  font-family: var(--font-data);
+  background: var(--surface);
+  color: var(--on-surface);
+  border-left: 2px solid var(--ink);
   min-height: 100vh;
-  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
   isolation: isolate;
 }
 
@@ -187,29 +220,33 @@ body.pagetollm-rail-open {
   align-items: center;
   justify-content: space-between;
   padding: 5px 5px;
-  background: rgba(17, 24, 39, 0.98);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--ink);
   z-index: 2000;
 }
 
 .pagetollm-rail-title {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: #9ca3af;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--on-surface-muted);
 }
 
 .pagetollm-rail-close {
   background: transparent;
   border: none;
-  color: #9ca3af;
+  color: var(--on-surface-muted);
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
   padding: 0 4px;
 }
 
-.pagetollm-rail-close:hover { color: #f9fafb; }
+.pagetollm-rail-close:hover {
+  color: var(--accent);
+}
 
 .pagetollm-rail-body {
   position: relative;
@@ -223,18 +260,19 @@ body.pagetollm-rail-open {
   right: 12px;
   z-index: 1;
   box-sizing: border-box;
-  background: rgba(31, 41, 55, 0.95);
-  border: 2px solid var(--pagetollm-card-accent, #4b5563);
-  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--ghost);
+  border-left: 4px solid var(--pagetollm-card-accent, var(--ink));
+  border-radius: 0;
   padding: 8px 10px;
-  color: #f9fafb;
+  color: var(--on-surface);
   text-align: left;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   gap: 4px;
   overflow: visible;
-  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  transition: transform 0.1s ease;
 }
 
 .pagetollm-rail-card-content {
@@ -248,12 +286,12 @@ body.pagetollm-rail-open {
   gap: 4px;
   max-height: calc(100vh - 64px);
   overflow: hidden;
-  border-radius: 5px;
-  background: rgba(31, 41, 55, 0.95);
+  border-radius: 0;
+  background: var(--surface);
 }
 
 .pagetollm-rail-card.is-summary .pagetollm-rail-card-content {
-  background: rgba(31, 41, 55, 0.98);
+  background: var(--surface);
   max-height: calc(100vh - 96px);
 }
 
@@ -268,40 +306,45 @@ body.pagetollm-rail-open {
 .pagetollm-rail-card:focus,
 .pagetollm-rail-card.is-front {
   transform: translateX(-2px);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  border: 2px solid var(--ink);
+  border-left: 4px solid var(--pagetollm-card-accent, var(--ink));
 }
 
 .pagetollm-rail-card:focus {
-  outline: 2px solid rgba(249, 250, 251, 0.7);
+  outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
 
 .pagetollm-rail-card.is-summary {
-  background: rgba(31, 41, 55, 0.98);
+  background: var(--surface);
 }
 
 .pagetollm-rail-card-title {
   flex: 0 0 auto;
+  font-family: var(--font-data);
   font-size: 18px;
   font-weight: 700;
   line-height: 1.25;
-  color: var(--pagetollm-card-accent, #f9fafb);
+  color: var(--on-surface);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .pagetollm-rail-card-meta {
-  font-size: 14px;
-  color: #9ca3af;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--on-surface-muted);
 }
 
 .pagetollm-rail-card-body {
   flex: 1 1 auto;
   position: relative;
-  font-size: 18px;
-  line-height: 1.4;
-  color: #e5e7eb;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--on-surface);
   white-space: pre-wrap;
   min-height: 0;
   overflow-y: auto;
@@ -315,8 +358,8 @@ body.pagetollm-rail-open {
 }
 
 .pagetollm-rail-card-body::-webkit-scrollbar-thumb {
-  background: rgba(156, 163, 175, 0.65);
-  border-radius: 999px;
+  background: var(--ghost);
+  border-radius: 0;
 }
 
 /* Per-word highlights inside the picked article */
@@ -325,9 +368,9 @@ body.pagetollm-rail-open {
 }
 
 .pagetollm-word.is-highlight {
-  background: rgba(251, 191, 36, 0.45);
-  border-radius: 2px;
-  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.6);
+  background: rgba(126, 0, 0, 0.12);
+  border-radius: 0;
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 /* Level Switcher in Rail Header */
@@ -340,34 +383,33 @@ body.pagetollm-rail-open {
 
 .pagetollm-rail-level-buttons {
   display: flex;
-  background: rgba(0, 0, 0, 0.4);
-  border-radius: 6px;
-  padding: 2px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface);
+  border-radius: 0;
+  padding: 0;
+  border: 1px solid var(--ink);
 }
 
 .pagetollm-rail-level-btn {
   background: transparent;
   border: none;
-  color: #9ca3af;
-  font-size: 13px;
+  color: var(--on-surface-muted);
+  font-size: 12px;
   font-weight: 700;
-  padding: 3px 8px;
-  border-radius: 4px;
+  padding: 4px 9px;
+  border-radius: 0;
   cursor: pointer;
   transition: all 0.1s ease;
   line-height: 1;
 }
 
 .pagetollm-rail-level-btn:hover {
-  color: #f9fafb;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink);
+  background: var(--surface-low);
 }
 
 .pagetollm-rail-level-btn.active {
-  background: #374151;
-  color: #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  background: var(--ink);
+  color: var(--surface);
 }
 
 /* Custom Dropdown Selector in Rail Header */
@@ -379,14 +421,15 @@ body.pagetollm-rail-open {
 .pagetollm-rail-dropdown-toggle {
   background: transparent;
   border: none;
-  font-family: inherit;
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: #9ca3af;
+  font-family: var(--font-data);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--on-surface-muted);
   cursor: pointer;
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: 0;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -394,13 +437,13 @@ body.pagetollm-rail-open {
 }
 
 .pagetollm-rail-dropdown-toggle:hover {
-  color: #f9fafb;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink);
+  background: var(--surface-low);
 }
 
 .pagetollm-rail-dropdown-arrow {
   font-size: 10px;
-  color: #6b7280;
+  color: var(--on-surface-muted);
   transition: transform 0.2s ease;
 }
 
@@ -414,46 +457,44 @@ body.pagetollm-rail-open {
   top: 100%;
   left: 0;
   margin-top: 6px;
-  background: rgba(31, 41, 55, 0.98);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--ink);
+  border-radius: 0;
   min-width: 180px;
   z-index: 100;
-  padding: 4px;
-  backdrop-filter: blur(8px);
+  padding: 0;
 }
 
 .pagetollm-rail-dropdown-container.open .pagetollm-rail-dropdown-menu {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
   animation: pagetollm-dropdown-fade-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .pagetollm-rail-dropdown-item {
   background: transparent;
   border: none;
-  color: #d1d5db;
+  color: var(--on-surface);
   text-align: left;
-  padding: 8px 12px;
-  font-size: 14px;
-  font-weight: 500;
-  border-radius: 6px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 0;
   cursor: pointer;
   transition: all 0.12s ease;
   white-space: nowrap;
 }
 
 .pagetollm-rail-dropdown-item:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
+  background: var(--surface-low);
+  color: var(--ink);
 }
 
 .pagetollm-rail-dropdown-item.active {
-  background: rgba(96, 165, 250, 0.15);
-  color: #60a5fa;
-  font-weight: 600;
+  background: var(--ink);
+  color: var(--surface);
 }
 
 @keyframes pagetollm-dropdown-fade-in {
