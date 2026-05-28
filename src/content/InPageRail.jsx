@@ -174,7 +174,37 @@ function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen 
   );
 }
 
-function SummaryCursorView({ cards, bodyRef, bodyHeight, onHighlightCard, onScrollToCard }) {
+function getScrollContainerTop(scrollContainer) {
+  if (!scrollContainer || scrollContainer === window) return window.scrollY;
+  return scrollContainer.scrollTop;
+}
+
+function getScrollContainerViewportHeight(scrollContainer) {
+  if (!scrollContainer || scrollContainer === window) return window.innerHeight;
+  return scrollContainer.clientHeight || window.innerHeight;
+}
+
+function getScrollContainerViewportTop(scrollContainer) {
+  if (!scrollContainer || scrollContainer === window) return 0;
+  return scrollContainer.getBoundingClientRect().top;
+}
+
+function getCursorRelativeY(scrollContainer, body, cursorTop) {
+  const bodyTop = body.getBoundingClientRect().top;
+  if (!scrollContainer || scrollContainer === window) {
+    return cursorTop - bodyTop;
+  }
+  return scrollContainer.scrollTop + cursorTop - bodyTop;
+}
+
+function SummaryCursorView({
+  cards,
+  bodyRef,
+  bodyHeight,
+  scrollContainer,
+  onHighlightCard,
+  onScrollToCard,
+}) {
   const [activeCardId, setActiveCardId] = useState(null);
   const [cursorTop, setCursorTop] = useState(SUMMARY_CURSOR_MIN_TOP);
   const activeCardRef = useRef(null);
@@ -195,15 +225,15 @@ function SummaryCursorView({ cards, bodyRef, bodyHeight, onHighlightCard, onScro
         return;
       }
 
-      const cursorTop = Math.max(
+      const containerTop = getScrollContainerViewportTop(scrollContainer);
+      const containerHeight = getScrollContainerViewportHeight(scrollContainer);
+      const nextCursorTop = Math.max(
         SUMMARY_CURSOR_MIN_TOP,
-        Math.round(window.innerHeight * SUMMARY_CURSOR_VIEWPORT_RATIO),
+        Math.round(containerTop + containerHeight * SUMMARY_CURSOR_VIEWPORT_RATIO),
       );
-      setCursorTop(cursorTop);
+      setCursorTop(nextCursorTop);
 
-      const bodyTop = body.getBoundingClientRect().top + window.scrollY;
-      const cursorY = window.scrollY + cursorTop;
-      const relativeY = cursorY - bodyTop;
+      const relativeY = getCursorRelativeY(scrollContainer, body, nextCursorTop);
       const matching = cards
         .filter((card) => (
           relativeY >= card.box.top &&
@@ -220,14 +250,21 @@ function SummaryCursorView({ cards, bodyRef, bodyHeight, onHighlightCard, onScro
     };
 
     updateActiveCard();
-    window.addEventListener("scroll", scheduleUpdate, { passive: true });
+    const target = scrollContainer || window;
+    target.addEventListener("scroll", scheduleUpdate, { passive: true });
+    if (target !== window) {
+      window.addEventListener("scroll", scheduleUpdate, { passive: true });
+    }
     window.addEventListener("resize", scheduleUpdate);
     return () => {
       if (frameId) window.cancelAnimationFrame(frameId);
-      window.removeEventListener("scroll", scheduleUpdate);
+      target.removeEventListener("scroll", scheduleUpdate);
+      if (target !== window) {
+        window.removeEventListener("scroll", scheduleUpdate);
+      }
       window.removeEventListener("resize", scheduleUpdate);
     };
-  }, [bodyRef, cards]);
+  }, [bodyRef, cards, scrollContainer]);
 
   useEffect(() => {
     const previous = activeCardRef.current;
@@ -291,13 +328,40 @@ export default function InPageRail({
   onSelectLevel,
   onHighlightCard,
   onScrollToCard,
+  scrollContainer,
 }) {
   const [frontCardId, setFrontCardId] = useState(null);
+  const [scrollOffset, setScrollOffset] = useState(() => getScrollContainerTop(scrollContainer));
   const bodyRef = useRef(null);
   const isSummary = mode === "summaries";
   const normalizedHeight = useMemo(() => `${bodyHeight}px`, [bodyHeight]);
+  const isNestedScroll = scrollContainer && scrollContainer !== window;
+
+  useEffect(() => {
+    const target = scrollContainer || window;
+    let frameId = 0;
+    const updateScrollOffset = () => {
+      frameId = 0;
+      setScrollOffset(getScrollContainerTop(scrollContainer));
+    };
+    const scheduleUpdate = () => {
+      if (frameId) return;
+      frameId = window.requestAnimationFrame(updateScrollOffset);
+    };
+
+    updateScrollOffset();
+    target.addEventListener("scroll", scheduleUpdate, { passive: true });
+    return () => {
+      if (frameId) window.cancelAnimationFrame(frameId);
+      target.removeEventListener("scroll", scheduleUpdate);
+    };
+  }, [scrollContainer]);
 
   const bringForward = (card) => setFrontCardId(card.id);
+  const bodyStyle = {
+    height: normalizedHeight,
+    transform: isNestedScroll && !isSummary ? `translateY(${-scrollOffset}px)` : undefined,
+  };
 
   return (
     <>
@@ -317,12 +381,13 @@ export default function InPageRail({
           ×
         </button>
       </div>
-      <div className="pagetollm-rail-body" ref={bodyRef} style={{ height: normalizedHeight }}>
+      <div className="pagetollm-rail-body" ref={bodyRef} style={bodyStyle}>
         {isSummary ? (
           <SummaryCursorView
             cards={cards}
             bodyRef={bodyRef}
             bodyHeight={bodyHeight}
+            scrollContainer={scrollContainer}
             onHighlightCard={onHighlightCard}
             onScrollToCard={onScrollToCard}
           />

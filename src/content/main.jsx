@@ -586,10 +586,44 @@ import InPageRail from "./InPageRail.jsx";
   }
 
 
-  function computeCardVerticalBox(sentences, sentenceRanges, wordEntries, railOriginTop) {
+  function getScrollableAncestor(elements) {
+    const picked = Array.isArray(elements) ? elements.filter(Boolean) : [];
+    if (picked.length === 0) return window;
+
+    const containsPickedElements = (candidate) => (
+      picked.every((el) => candidate === el || candidate.contains(el))
+    );
+    const isScrollable = (el) => {
+      if (!el || el === document.body || el === document.documentElement) return false;
+      const style = window.getComputedStyle(el);
+      const overflowY = `${style.overflowY} ${style.overflow}`;
+      return /(auto|scroll|overlay)/.test(overflowY) && el.scrollHeight > el.clientHeight + 1;
+    };
+
+    let node = picked[0];
+    while (node && node !== document.body && node !== document.documentElement) {
+      if (isScrollable(node) && containsPickedElements(node)) return node;
+      node = node.parentElement;
+    }
+
+    return window;
+  }
+
+  function getScrollTop(scrollContainer) {
+    return scrollContainer && scrollContainer !== window ? scrollContainer.scrollTop : window.scrollY;
+  }
+
+  function getRailOriginTop(bodyRect, scrollContainer) {
+    return scrollContainer && scrollContainer !== window
+      ? bodyRect.top
+      : bodyRect.top + window.scrollY;
+  }
+
+  function computeCardVerticalBox(sentences, sentenceRanges, wordEntries, railOriginTop, scrollContainer) {
     if (!sentences || sentences.length === 0) return null;
     let top = Infinity, bottom = -Infinity;
     const isLaidOut = (rect) => rect && (rect.width > 0 || rect.height > 0);
+    const scrollTop = getScrollTop(scrollContainer);
     for (const sNum of sentences) {
       const range = sentenceRanges.get(sNum);
       if (!range) continue;
@@ -602,8 +636,8 @@ import InPageRail from "./InPageRail.jsx";
       // would otherwise collapse `top` to 0 and inflate the card to full height.
       const rects = [r1, r2].filter(isLaidOut);
       if (rects.length === 0) continue;
-      const sTop = Math.min(...rects.map((r) => r.top)) + window.scrollY - railOriginTop;
-      const sBottom = Math.max(...rects.map((r) => r.bottom)) + window.scrollY - railOriginTop;
+      const sTop = Math.min(...rects.map((r) => r.top)) + scrollTop - railOriginTop;
+      const sBottom = Math.max(...rects.map((r) => r.bottom)) + scrollTop - railOriginTop;
       if (sTop < top) top = sTop;
       if (sBottom > bottom) bottom = sBottom;
     }
@@ -660,6 +694,7 @@ import InPageRail from "./InPageRail.jsx";
     const wordEntries = wrapWordsInElements(elements);
     const sentences = Array.isArray(record.sentences) ? record.sentences : [];
     const sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
+    const scrollContainer = getScrollableAncestor(elements);
 
     const state = {
       mode: initialMode,
@@ -769,7 +804,13 @@ import InPageRail from "./InPageRail.jsx";
         const allSentences = isSummary ? e.sourceSentences : e.sentences;
         const runs = splitIntoContiguousRuns(allSentences);
         for (const run of runs) {
-          const box = computeCardVerticalBox(run, sentenceRanges, wordEntries, railOriginTop);
+          const box = computeCardVerticalBox(
+            run,
+            sentenceRanges,
+            wordEntries,
+            railOriginTop,
+            scrollContainer,
+          );
           if (!box) continue;
           const accent = topicAccentColor(e.path, e.level || 0);
           cardSpecs.push({
@@ -836,6 +877,7 @@ import InPageRail from "./InPageRail.jsx";
               const sentenceList = card.sentences || card.sourceSentences || [];
               scrollToFirst(sentenceList);
             }}
+            scrollContainer={scrollContainer}
           />,
         );
       });
@@ -843,7 +885,7 @@ import InPageRail from "./InPageRail.jsx";
 
     renderRail({ measureOnly: true });
     const bodyRect = railEl.querySelector('.pagetollm-rail-body').getBoundingClientRect();
-    railOriginTop = bodyRect.top + window.scrollY;
+    railOriginTop = getRailOriginTop(bodyRect, scrollContainer);
     renderRail();
 
     inPageRailController = {
