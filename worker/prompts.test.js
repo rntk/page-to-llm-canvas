@@ -9,6 +9,7 @@ import {
   formatChunkSummariesForMerge,
   SENTENCE_SUMMARY_PROMPT_TEMPLATE,
   ARTICLE_SUMMARY_PROMPT_TEMPLATE,
+  ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE,
 } from "./prompts.js";
 
 describe("buildSystemPrompt", () => {
@@ -57,6 +58,11 @@ describe("buildArticleSummaryPrompt", () => {
     expect(prompt).toContain("My article text");
     expect(prompt).not.toContain("{text}");
   });
+
+  it("instructs summaries to lead with substance", () => {
+    const prompt = buildArticleSummaryPrompt("My article text");
+    expect(prompt).toContain("Begin with the substance itself");
+  });
 });
 
 describe("buildArticleSummaryMergePrompt", () => {
@@ -66,6 +72,11 @@ describe("buildArticleSummaryMergePrompt", () => {
     expect(prompt).toContain(summaries);
     expect(prompt).not.toContain("{chunk_summaries}");
   });
+
+  it("instructs merged summaries to lead with substance", () => {
+    const prompt = buildArticleSummaryMergePrompt("Chunk 1: summary one");
+    expect(prompt).toContain("Begin with the substance itself");
+  });
 });
 
 describe("buildSentenceSummaryPrompt", () => {
@@ -73,6 +84,11 @@ describe("buildSentenceSummaryPrompt", () => {
     const prompt = buildSentenceSummaryPrompt("The quick brown fox.");
     expect(prompt).toContain("The quick brown fox.");
     expect(prompt).not.toContain("{sentence}");
+  });
+
+  it("instructs sentence summaries to lead with substance", () => {
+    const prompt = buildSentenceSummaryPrompt("The quick brown fox.");
+    expect(prompt).toContain("Begin with the substance itself");
   });
 });
 
@@ -126,5 +142,9 @@ describe("prompt template constants", () => {
 
   it("ARTICLE_SUMMARY_PROMPT_TEMPLATE contains {text} placeholder", () => {
     expect(ARTICLE_SUMMARY_PROMPT_TEMPLATE).toContain("{text}");
+  });
+
+  it("ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE contains {chunk_summaries} placeholder", () => {
+    expect(ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE).toContain("{chunk_summaries}");
   });
 });
