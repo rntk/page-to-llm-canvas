@@ -1,11 +1,7 @@
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useMemo } from "react";
 import { useRecord } from "../useRecord.js";
 import TopicHierarchyView from "./TopicHierarchyView.jsx";
-import { getTopicSentenceNumbers } from "../topicCards.js";
-import {
-  getHierarchyTopicHighlightColor,
-  getHierarchyTopicAccentColor,
-} from "../utils/topicColorUtils.js";
+import { getSentencesForNode } from "./hierarchyUtils.js";
 import "./hierarchy.css";
 
 function closeView() {
@@ -14,23 +10,6 @@ function closeView() {
   } catch (_) {
     /* noop */
   }
-}
-
-function getSentencesForNode(entry) {
-  const sentenceNumbers = new Set();
-  const traverse = (nodeEntry) => {
-    if (nodeEntry.node.topic) {
-      const nums = getTopicSentenceNumbers(nodeEntry.node.topic);
-      nums.forEach((num) => sentenceNumbers.add(num));
-    }
-    if (nodeEntry.children) {
-      for (const child of nodeEntry.children.values()) {
-        traverse(child);
-      }
-    }
-  };
-  traverse(entry);
-  return Array.from(sentenceNumbers).sort((a, b) => a - b);
 }
 
 export default function HierarchyApp({ initialKey }) {

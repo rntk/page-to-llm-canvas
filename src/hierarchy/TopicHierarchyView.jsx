@@ -4,57 +4,15 @@ import {
   getHierarchyTopicHighlightColor,
   getHierarchyTopicAccentColor,
 } from "../utils/topicColorUtils.js";
+import {
+  normalizeTopicPath,
+  spacedTopicPath,
+  getSummaryText,
+  buildSummaryLookup,
+} from "./topicViewUtils.js";
 
 function getSentenceCount(topic) {
   return Array.isArray(topic?.sentences) ? topic.sentences.length : 0;
-}
-
-function normalizeTopicPath(path) {
-  return String(path || "")
-    .split(">")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .join(">");
-}
-
-function spacedTopicPath(path) {
-  return normalizeTopicPath(path).split(">").filter(Boolean).join(" > ");
-}
-
-function getSummaryText(summary) {
-  if (!summary) return "";
-  if (typeof summary === "string") return summary.trim();
-  if (typeof summary !== "object") return "";
-
-  const text = typeof summary.text === "string" ? summary.text.trim() : "";
-  const bullets = Array.isArray(summary.bullets)
-    ? summary.bullets
-        .filter((bullet) => typeof bullet === "string" && bullet.trim())
-        .map((bullet) => bullet.trim())
-    : [];
-
-  return [text, ...bullets].filter(Boolean).join(" ");
-}
-
-function buildSummaryLookup(topicSummaries, topicSummaryIndex) {
-  const lookup = new Map();
-  const addSummary = (path, summary) => {
-    const text = getSummaryText(summary);
-    const normalizedPath = normalizeTopicPath(path);
-    if (!text || !normalizedPath) return;
-    lookup.set(normalizedPath, text);
-    lookup.set(spacedTopicPath(normalizedPath), text);
-  };
-
-  if (topicSummaries && typeof topicSummaries === "object") {
-    Object.entries(topicSummaries).forEach(([path, summary]) => addSummary(path, summary));
-  }
-
-  if (topicSummaryIndex && typeof topicSummaryIndex === "object") {
-    Object.entries(topicSummaryIndex).forEach(([path, summary]) => addSummary(path, summary));
-  }
-
-  return lookup;
 }
 
 function getLeafSummary(node, summaryLookup) {
