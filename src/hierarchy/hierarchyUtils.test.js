@@ -1,5 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { getSentencesForNode } from "./hierarchyUtils.js";
+import { getTopicSentenceNumbers } from "../topicCards.js";
+
+vi.mock("../topicCards.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    getTopicSentenceNumbers: vi.fn(actual.getTopicSentenceNumbers),
+  };
+});
 
 /** Build a minimal tree entry with explicit sentence numbers. */
 function makeLeaf(fullPath, sentences = []) {
@@ -73,7 +82,10 @@ describe("getSentencesForNode", () => {
       children: new Map([["A", leaf]]),
       parent: null,
     };
+    getTopicSentenceNumbers.mockClear();
     expect(getSentencesForNode(branchWithNullTopic)).toEqual([1, 2]);
+    expect(getTopicSentenceNumbers).toHaveBeenCalledTimes(1);
+    expect(getTopicSentenceNumbers).not.toHaveBeenCalledWith(null);
   });
 
   it("handles an entry where children is undefined or null", () => {

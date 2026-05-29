@@ -11,7 +11,7 @@ export function normalizeTopicPath(path) {
 }
 
 export function spacedTopicPath(path) {
-  return normalizeTopicPath(path).split(">").filter(Boolean).join(" > ");
+  return normalizeTopicPath(path).split(">").join(" > ");
 }
 
 export function getSummaryText(summary) {
@@ -21,9 +21,7 @@ export function getSummaryText(summary) {
 
   const text = typeof summary.text === "string" ? summary.text.trim() : "";
   const bullets = Array.isArray(summary.bullets)
-    ? summary.bullets
-        .filter((bullet) => typeof bullet === "string" && bullet.trim())
-        .map((bullet) => bullet.trim())
+    ? summary.bullets.map((bullet) => (typeof bullet === "string" ? bullet.trim() : ""))
     : [];
 
   return [text, ...bullets].filter(Boolean).join(" ");

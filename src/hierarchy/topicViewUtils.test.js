@@ -96,6 +96,27 @@ describe("getSummaryText", () => {
   it("returns empty string for an empty object", () => {
     expect(getSummaryText({})).toBe("");
   });
+
+  it("returns empty string for a function with text property because it is not an object", () => {
+    const func = () => {};
+    func.text = "hello";
+    expect(getSummaryText(func)).toBe("");
+  });
+
+  it("trims whitespace from summary.text", () => {
+    const summary = { text: "  Intro  " };
+    expect(getSummaryText(summary)).toBe("Intro");
+  });
+
+  it("ignores non-string bullets in an object summary", () => {
+    const summary = { text: "Main", bullets: [42, null, "Valid"] };
+    expect(getSummaryText(summary)).toBe("Main Valid");
+  });
+
+  it("trims whitespace from bullets", () => {
+    const summary = { bullets: ["  Point A  "] };
+    expect(getSummaryText(summary)).toBe("Point A");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -104,6 +125,11 @@ describe("getSummaryText", () => {
 describe("buildSummaryLookup", () => {
   it("returns an empty map when both arguments are null", () => {
     const lookup = buildSummaryLookup(null, null);
+    expect(lookup.size).toBe(0);
+  });
+
+  it("ignores non-object arguments when building lookup", () => {
+    const lookup = buildSummaryLookup("invalid", "also-invalid");
     expect(lookup.size).toBe(0);
   });
 
