@@ -1,11 +1,20 @@
 // Port of txt_splitt/sentences/parsers.py TopicRangeParser (text mode only) +
-// AdjacentSameTopicJoiner (simple version: adjacent same-label lines merge).
+// RepairingGapHandler (deterministic coverage repair) + AdjacentSameTopicJoiner.
+//
+// Robustness contract (matches the Python txt_splitt library, not split_text.py's
+// specific handler choice): the parser is permissive — it CLAMPS ranges to
+// [0, sentenceCount-1] and never rejects the response for duplicate, missing, or
+// out-of-range markers. A separate deterministic repair step then trims overlaps
+// (first-claim-wins) and fills gaps by extending adjacent ranges, guaranteeing
+// continuous [0, sentenceCount-1] coverage without any extra LLM calls. The only
+// remaining hard failure is a response with no parseable topic ranges at all,
+// which still raises TopicParseError so the orchestrator can retry.
 
 const TOPIC_LINE_RE = /^(.+):\s*(\d[\d\s,\-]*)\s*$/;
 const RANGE_RE = /(\d+)\s*-\s*(\d+)/;
 const SINGLE_RE = /(\d+)/;
 
-/** Thrown when the LLM response violates the exact-once coverage contract. */
+/** Thrown when the LLM response contains no parseable topic ranges at all. */
 export class TopicParseError extends Error {
   /**
    * @param {string} message
@@ -55,6 +64,27 @@ function parseRangeString(str) {
   return results;
 }
 
+/**
+ * Clamp a (start, end) pair into [0, maxIndex], swapping if reversed.
+ * Port of parsers.py _clamp_range. Returns null when maxIndex < 0.
+ *
+ * @param {number} start
+ * @param {number} end
+ * @param {number} maxIndex
+ * @returns {{start: number, end: number} | null}
+ */
+function clampRange(start, end, maxIndex) {
+  if (maxIndex < 0) return null;
+  start = Math.max(0, Math.min(start, maxIndex));
+  end = Math.max(0, Math.min(end, maxIndex));
+  if (start > end) {
+    const tmp = start;
+    start = end;
+    end = tmp;
+  }
+  return { start, end };
+}
+
 function mergeRanges(ranges) {
   if (!ranges.length) return [];
   const ordered = ranges.slice().sort((a, b) => a.start - b.start || a.end - b.end);
@@ -72,56 +102,70 @@ function mergeRanges(ranges) {
 }
 
 /**
- * Validates that every sentence index in [0, sentenceCount-1] is covered
- * exactly once across all parsed groups.  Throws TopicParseError if not.
+ * Repair group coverage so every index in [0, sentenceCount-1] is covered
+ * exactly once. Port of gap_handlers.py RepairingGapHandler.handle (the
+ * deterministic, no-LLM variant):
+ *   - Sorts all ranges by start; later overlapping ranges are trimmed so the
+ *     earliest-starting range keeps the contested indices (first-claim-wins).
+ *   - Fills gaps by extending an adjacent range: a gap at the very beginning
+ *     pulls the first range's start back to 0; a gap in the middle extends the
+ *     previously-added range forward; a trailing gap extends the last range.
  *
- * @param {Array<{start: number, end: number}>} allRanges - flat, merged 0-based ranges
+ * @param {Array<{label: string[], ranges: Array<{start: number, end: number}>}>} groups
  * @param {number} sentenceCount
+ * @returns {Array<{label: string[], ranges: Array<{start: number, end: number}>}>}
  */
-function validateCoverage(allRanges, sentenceCount) {
-  const seen = new Map(); // index -> first topic key that claimed it
+function repairCoverage(groups, sentenceCount) {
+  const maxIndex = sentenceCount - 1;
 
-  const outOfRange = [];
-  const duplicates = [];
+  // Flatten all (groupIndex, range) pairs and sort by (start, end).
+  const flat = [];
+  groups.forEach((g, gi) => {
+    for (const r of g.ranges) flat.push({ gi, range: r });
+  });
+  flat.sort((a, b) => a.range.start - b.range.start || a.range.end - b.range.end);
 
-  for (const r of allRanges) {
-    // Detect out-of-range at the range boundary level — never iterate over
-    // hallucinated indices, which could be arbitrarily large.
-    const clampedStart = Math.max(0, r.start);
-    const clampedEnd = Math.min(sentenceCount - 1, r.end);
+  const adjusted = groups.map(() => []);
+  let nextExpected = 0;
+  let lastAdded = null; // { gi, idx } of the most recently appended range
 
-    if (r.start < 0 || r.end >= sentenceCount) {
-      // Record just the boundary values as representative diagnostics.
-      if (r.start < 0 && !outOfRange.includes(r.start)) outOfRange.push(r.start);
-      if (r.end >= sentenceCount && !outOfRange.includes(r.end)) outOfRange.push(r.end);
+  for (const { gi, range } of flat) {
+    if (range.end < nextExpected) {
+      // Entirely consumed by an earlier range (overlap) — drop it.
+      continue;
     }
+    let start = Math.max(range.start, nextExpected);
+    if (start > range.end) continue;
 
-    // Only iterate within the valid window; duplicates still need tracking.
-    for (let i = clampedStart; i <= clampedEnd; i++) {
-      if (seen.has(i)) {
-        if (!duplicates.includes(i)) duplicates.push(i);
+    if (start > nextExpected) {
+      // Gap before this range.
+      if (lastAdded === null) {
+        // Gap at the very beginning: pull this first range back to 0.
+        start = 0;
       } else {
-        seen.set(i, true);
+        // Gap in the middle: extend the previously-added range forward.
+        const prev = adjusted[lastAdded.gi][lastAdded.idx];
+        adjusted[lastAdded.gi][lastAdded.idx] = { start: prev.start, end: start - 1 };
       }
     }
+
+    adjusted[gi].push({ start, end: range.end });
+    lastAdded = { gi, idx: adjusted[gi].length - 1 };
+    nextExpected = range.end + 1;
   }
 
-  const missing = [];
-  for (let i = 0; i < sentenceCount; i++) {
-    if (!seen.has(i)) missing.push(i);
+  // Trailing gap: extend the last added range to the final index.
+  if (nextExpected <= maxIndex && lastAdded !== null) {
+    const prev = adjusted[lastAdded.gi][lastAdded.idx];
+    adjusted[lastAdded.gi][lastAdded.idx] = { start: prev.start, end: maxIndex };
   }
 
-  const problems = [];
-  if (outOfRange.length) problems.push(`out-of-range markers: ${outOfRange.join(", ")}`);
-  if (duplicates.length) problems.push(`duplicate markers: ${duplicates.join(", ")}`);
-  if (missing.length) problems.push(`missing markers: ${missing.join(", ")}`);
-
-  if (problems.length) {
-    throw new TopicParseError(
-      `Topic parse validation failed — ${problems.join("; ")}`,
-      { outOfRange, duplicates, missing },
-    );
-  }
+  // Rebuild groups in original order, dropping any that lost all ranges.
+  const result = [];
+  groups.forEach((g, gi) => {
+    if (adjusted[gi].length) result.push({ label: g.label, ranges: adjusted[gi] });
+  });
+  return result;
 }
 
 // Returns Array<{ label: string[], ranges: Array<{start, end}> }> (inclusive 0-based).
@@ -156,23 +200,22 @@ export function parseTopicRanges(response, sentenceCount) {
     label = keyToCanonical.get(key);
 
     const parsed = parseRangeString(rangesStr);
-    const valid = [];
+    const clamped = [];
     for (const [s, e] of parsed) {
-      const start = Math.min(s, e);
-      const end = Math.max(s, e);
-      // Collect as-is; out-of-range detection happens in validateCoverage.
-      valid.push({ start, end });
+      // Clamp to bounds (matches Python TopicRangeParser); never reject.
+      const r = clampRange(s, e, maxIndex);
+      if (r !== null) clamped.push(r);
     }
-    if (!valid.length) continue;
+    if (!clamped.length) continue;
 
     if (!grouped.has(key)) {
       grouped.set(key, { label, ranges: [] });
       order.push(key);
     }
-    grouped.get(key).ranges.push(...valid);
+    grouped.get(key).ranges.push(...clamped);
   }
 
-  const groups = [];
+  let groups = [];
   for (const key of order) {
     const g = grouped.get(key);
     const merged = mergeRanges(g.ranges);
@@ -181,9 +224,8 @@ export function parseTopicRanges(response, sentenceCount) {
   }
   if (!groups.length) throw new TopicParseError("No valid topic ranges found in response", {});
 
-  // Validate exact-once coverage before returning.
-  const allRanges = groups.flatMap((g) => g.ranges);
-  validateCoverage(allRanges, sentenceCount);
+  // Repair overlaps and gaps so coverage is continuous over [0, maxIndex].
+  groups = repairCoverage(groups, sentenceCount);
 
   // AdjacentSameTopicJoiner: merge consecutive groups with identical labels.
   const joined = [];

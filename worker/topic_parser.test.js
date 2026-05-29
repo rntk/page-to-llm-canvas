@@ -56,78 +56,85 @@ describe("valid complete coverage", () => {
   });
 });
 
-// Out-of-range ---------------------------------------------------------------
+// Helper: flatten group ranges into a sorted unique index list.
+function coveredIndices(group) {
+  const out = [];
+  for (const r of group.ranges) {
+    for (let i = r.start; i <= r.end; i++) out.push(i);
+  }
+  return out.sort((a, b) => a - b);
+}
 
-describe("out-of-range sentence", () => {
-  it("throws TopicParseError when marker exceeds sentenceCount", () => {
-    // 5 sentences (0-4), but response claims sentence 5
-    const resp = "Tech>A: 0-3\nTech>B: 4-5";
-    expect(() => parseTopicRanges(resp, 5)).toThrow(TopicParseError);
+// Helper: assert groups cover [0, n-1] exactly once with no overlap or gap.
+function expectExactCoverage(groups, n) {
+  const seen = new Array(n).fill(0);
+  for (const g of groups) {
+    for (const i of coveredIndices(g)) seen[i] = (seen[i] || 0) + 1;
+  }
+  expect(seen).toEqual(new Array(n).fill(1));
+}
+
+// Out-of-range markers (clamped, not rejected) -------------------------------
+
+describe("out-of-range markers are clamped", () => {
+  it("clamps an over-shooting range end into bounds", () => {
+    // 5 sentences (0-4), but response claims sentence 5 → clamp to 4.
+    const groups = parseTopicRanges("Tech>A: 0-3\nTech>B: 4-5", 5);
+    const a = groups.find((g) => g.label.join(">") === "Tech>A");
+    const b = groups.find((g) => g.label.join(">") === "Tech>B");
+    expect(a.ranges).toEqual([{ start: 0, end: 3 }]);
+    expect(b.ranges).toEqual([{ start: 4, end: 4 }]);
+    expectExactCoverage(groups, 5);
   });
 
-  it("error message mentions out-of-range", () => {
-    const resp = "Tech>A: 0-3\nTech>B: 4-5";
-    try {
-      parseTopicRanges(resp, 5);
-    } catch (e) {
-      expect(e.message).toMatch(/out-of-range/);
-      expect(e.diagnostics.outOfRange).toContain(5);
-    }
-  });
-
-  it("throws when entire range is beyond bounds", () => {
-    expect(() => parseTopicRanges("Tech>A: 10-20", 5)).toThrow(TopicParseError);
-  });
-});
-
-// Missing coverage -----------------------------------------------------------
-
-describe("missing sentence", () => {
-  it("throws when a sentence index is not assigned", () => {
-    // 5 sentences, but index 2 is skipped
-    const resp = "Tech>A: 0-1\nTech>B: 3-4";
-    expect(() => parseTopicRanges(resp, 5)).toThrow(TopicParseError);
-  });
-
-  it("diagnostics report the missing index", () => {
-    const resp = "Tech>A: 0-1\nTech>B: 3-4";
-    try {
-      parseTopicRanges(resp, 5);
-    } catch (e) {
-      expect(e.diagnostics.missing).toContain(2);
-    }
-  });
-
-  it("throws when response covers only part of the sentences", () => {
-    expect(() => parseTopicRanges("Tech>A: 0-2", 5)).toThrow(TopicParseError);
+  it("clamps a range entirely beyond bounds and still covers all", () => {
+    // 10-20 clamps to 4-4, then the leading gap (0-3) pulls start back to 0.
+    const groups = parseTopicRanges("Tech>A: 10-20", 5);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].ranges).toEqual([{ start: 0, end: 4 }]);
+    expectExactCoverage(groups, 5);
   });
 });
 
-// Duplicate/overlapping sentences --------------------------------------------
+// Missing coverage (gaps filled, not rejected) -------------------------------
 
-describe("duplicate sentence", () => {
-  it("throws when two topics claim the same sentence index", () => {
-    const resp = "Tech>A: 0-3\nTech>B: 2-4";
-    expect(() => parseTopicRanges(resp, 5)).toThrow(TopicParseError);
+describe("gaps are filled by extending adjacent ranges", () => {
+  it("fills an interior gap by extending the previous range forward", () => {
+    // Index 2 is omitted; previous range (A) absorbs it: A→0-2, B→3-4.
+    const groups = parseTopicRanges("Tech>A: 0-1\nTech>B: 3-4", 5);
+    const a = groups.find((g) => g.label.join(">") === "Tech>A");
+    const b = groups.find((g) => g.label.join(">") === "Tech>B");
+    expect(a.ranges).toEqual([{ start: 0, end: 2 }]);
+    expect(b.ranges).toEqual([{ start: 3, end: 4 }]);
+    expectExactCoverage(groups, 5);
   });
 
-  it("diagnostics report duplicate indices", () => {
-    const resp = "Tech>A: 0-3\nTech>B: 2-4";
-    try {
-      parseTopicRanges(resp, 5);
-    } catch (e) {
-      expect(e.diagnostics.duplicates.length).toBeGreaterThan(0);
-    }
+  it("fills a trailing gap by extending the last range to the end", () => {
+    const groups = parseTopicRanges("Tech>A: 0-2", 5);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].ranges).toEqual([{ start: 0, end: 4 }]);
+    expectExactCoverage(groups, 5);
+  });
+});
+
+// Duplicate/overlapping sentences (overlaps trimmed, not rejected) -----------
+
+describe("overlaps are trimmed first-claim-wins", () => {
+  it("gives contested indices to the earliest-starting topic", () => {
+    // A:0-3 and B:2-4 overlap on 2-3; A claimed them first → B keeps only 4.
+    const groups = parseTopicRanges("Tech>A: 0-3\nTech>B: 2-4", 5);
+    const a = groups.find((g) => g.label.join(">") === "Tech>A");
+    const b = groups.find((g) => g.label.join(">") === "Tech>B");
+    expect(a.ranges).toEqual([{ start: 0, end: 3 }]);
+    expect(b.ranges).toEqual([{ start: 4, end: 4 }]);
+    expectExactCoverage(groups, 5);
   });
 
-  it("throws when same topic lists overlapping ranges", () => {
-    // After mergeRanges on same key, overlap is absorbed, but if the
-    // overlap comes from two different keys it is a duplicate.
-    const resp = "Tech>A: 0-2\nTech>A: 1-4";
-    // Same-label ranges are merged per-key before validation,
-    // but index 1-2 would be covered by merged 0-4 once only.
-    // After adjacent-join the merged range is 0-4 covering all 5 — valid.
-    expect(() => parseTopicRanges(resp, 5)).not.toThrow();
+  it("absorbs overlapping ranges that share a topic label", () => {
+    const groups = parseTopicRanges("Tech>A: 0-2\nTech>A: 1-4", 5);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].ranges).toEqual([{ start: 0, end: 4 }]);
+    expectExactCoverage(groups, 5);
   });
 });
 
@@ -167,19 +174,12 @@ describe("malformed numbering", () => {
 // Hallucinated huge range -------------------------------------------------
 
 describe("hallucinated huge range", () => {
-  it("fails fast without iterating billions of indices", () => {
-    // A real hang would make this test time out. The fix must detect
-    // out-of-range from the boundary values alone.
-    const resp = "Tech>A: 0-999999999";
-    expect(() => parseTopicRanges(resp, 5)).toThrow(TopicParseError);
-  });
-
-  it("reports the hallucinated end boundary in diagnostics", () => {
-    try {
-      parseTopicRanges("Tech>A: 0-999999999", 5);
-    } catch (e) {
-      expect(e.diagnostics.outOfRange).toContain(999999999);
-    }
+  it("clamps fast without iterating billions of indices", () => {
+    // A real hang would make this test time out. Clamping happens at the
+    // boundary level, before any per-index iteration.
+    const groups = parseTopicRanges("Tech>A: 0-999999999", 5);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].ranges).toEqual([{ start: 0, end: 4 }]);
   });
 });
 
@@ -195,14 +195,19 @@ describe("TopicParseError identity", () => {
     }
   });
 
-  it("carries structured diagnostics object", () => {
+  it("repairs partial coverage instead of throwing", () => {
+    // Previously threw on missing 2,3,4; now the trailing gap is filled.
+    const groups = parseTopicRanges("Tech>A: 0-1", 5);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].ranges).toEqual([{ start: 0, end: 4 }]);
+  });
+
+  it("carries a structured diagnostics object on the no-ranges error", () => {
     try {
-      parseTopicRanges("Tech>A: 0-1", 5); // missing 2,3,4
+      parseTopicRanges("no parseable ranges here", 5);
     } catch (e) {
+      expect(e).toBeInstanceOf(TopicParseError);
       expect(e.diagnostics).toBeDefined();
-      expect(Array.isArray(e.diagnostics.missing)).toBe(true);
-      expect(Array.isArray(e.diagnostics.duplicates)).toBe(true);
-      expect(Array.isArray(e.diagnostics.outOfRange)).toBe(true);
     }
   });
 });
