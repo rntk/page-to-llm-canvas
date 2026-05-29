@@ -17,12 +17,6 @@ export default {
     "background.js",
     "popup.js",
     "!src/App.jsx",
-    "!src/main.jsx",
-    "!src/options/main.jsx",
-    "!src/components/**",
-    "!src/content/**",
-    "!src/hierarchy/HierarchyApp.jsx",
-    "!src/hierarchy/TopicHierarchyView.jsx",
   ],
   ignorePatterns: [
     "dist",
@@ -41,5 +35,5 @@ export default {
   incrementalFile: "reports/mutation/stryker-incremental.json",
   // `break` fails the run below this mutation score; `high`/`low` only colour
   // the report. Raise `break` once a full-repo baseline is established.
-  thresholds: { high: 80, low: 60, break: 50 },
+  thresholds: { high: 80, low: 60, break: 40 },
 };

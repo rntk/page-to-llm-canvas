@@ -30,10 +30,10 @@ export default defineConfig({
       // (e.g. once the React UI files under src/components and src/content gain
       // behavioural tests). Do not lower them.
       thresholds: {
-        lines: 65,
-        statements: 64,
-        functions: 56,
-        branches: 49,
+        lines: 68,
+        statements: 66,
+        functions: 74,
+        branches: 54,
       },
     },
   },
