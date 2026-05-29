@@ -11,7 +11,7 @@ let activeTab = null;
 let activeHostname = '';
 let activePageUrl = '';
 
-function runtimeMessage(message) {
+export function runtimeMessage(message) {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(message, (response) => {
       if (chrome.runtime.lastError) {
@@ -23,7 +23,7 @@ function runtimeMessage(message) {
   });
 }
 
-function tabMessage(tabId, message) {
+export function tabMessage(tabId, message) {
   return new Promise((resolve, reject) => {
     chrome.tabs.sendMessage(tabId, message, (response) => {
       if (chrome.runtime.lastError) {
@@ -35,12 +35,12 @@ function tabMessage(tabId, message) {
   });
 }
 
-async function getActiveTab() {
+export async function getActiveTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   return tabs && tabs[0] ? tabs[0] : null;
 }
 
-function hostnameFromUrl(url) {
+export function hostnameFromUrl(url) {
   if (!url) return '';
   try {
     return new URL(url).hostname;
@@ -49,7 +49,7 @@ function hostnameFromUrl(url) {
   }
 }
 
-function normalizePageUrl(url) {
+export function normalizePageUrl(url) {
   if (!url) return '';
   try {
     const parsed = new URL(url);
@@ -60,7 +60,7 @@ function normalizePageUrl(url) {
   }
 }
 
-function labelFromUrl(url) {
+export function labelFromUrl(url) {
   if (!url) return 'Unknown page';
   try {
     const parsed = new URL(url);
@@ -71,7 +71,7 @@ function labelFromUrl(url) {
   }
 }
 
-function statusLabel(status) {
+export function statusLabel(status) {
   const map = {
     done: 'Done',
     pending: 'Pending',
@@ -82,7 +82,7 @@ function statusLabel(status) {
   return map[status] || status || 'Unknown';
 }
 
-function formatDate(ms) {
+export function formatDate(ms) {
   if (!ms) return '';
   try {
     return new Intl.DateTimeFormat(undefined, {

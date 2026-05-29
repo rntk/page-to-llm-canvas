@@ -34,7 +34,7 @@ async function logPipeline(key, stage, details = {}) {
   });
 }
 
-function chunkTaggedText(tagged, maxChars) {
+export function chunkTaggedText(tagged, maxChars) {
   const lines = tagged.split("\n");
   const chunks = [];
   let cur = [];
@@ -62,7 +62,7 @@ export function parseSummaryResponse(raw) {
   return s;
 }
 
-function buildTopicTree(topics) {
+export function buildTopicTree(topics) {
   const root = { path: "", name: "", level: 0, children: [], leafSummary: null, sourceSentences: [] };
   const nodes = new Map([["", root]]);
 
@@ -111,7 +111,7 @@ async function mergeChildSummaries(childRecords) {
   return { text: parseSummaryResponse(resp) };
 }
 
-function rangesToSentenceList(ranges) {
+export function rangesToSentenceList(ranges) {
   // ranges are 0-based inclusive; output 1-based ordered unique list.
   const set = new Set();
   for (const r of ranges) {
@@ -120,7 +120,7 @@ function rangesToSentenceList(ranges) {
   return Array.from(set).sort((a, b) => a - b).map((i) => i + 1);
 }
 
-function mapTextOffsetToHtml(mapping, textOffset) {
+export function mapTextOffsetToHtml(mapping, textOffset) {
   if (textOffset < 0) textOffset = 0;
   if (textOffset >= mapping.length) textOffset = mapping.length - 1;
   return mapping[textOffset];

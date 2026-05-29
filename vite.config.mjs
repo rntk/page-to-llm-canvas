@@ -25,6 +25,16 @@ export default defineConfig({
         "**/*.spec.{js,jsx,ts,tsx,mjs}",
         "dist/**",
       ],
+      // Ratchet floors. `test:coverage` fails if global coverage drops below
+      // these, preventing silent regressions. Raise them as coverage improves
+      // (e.g. once the React UI files under src/components and src/content gain
+      // behavioural tests). Do not lower them.
+      thresholds: {
+        lines: 65,
+        statements: 64,
+        functions: 56,
+        branches: 49,
+      },
     },
   },
 });

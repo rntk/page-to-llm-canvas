@@ -11,7 +11,7 @@ export function clampScale(value) {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, safe));
 }
 
-function cursorAnchoredTranslate({ cursor, translate, currentScale, nextScale }) {
+export function cursorAnchoredTranslate({ cursor, translate, currentScale, nextScale }) {
   const cx = (cursor.x - translate.x) / currentScale;
   const cy = (cursor.y - translate.y) / currentScale;
   return {
