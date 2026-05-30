@@ -1,4 +1,4 @@
-export const INDEX_KEY = "pagetollm:index";
+export const INDEX_KEY = 'pagetollm:index';
 const MAX_PROCESSING_LOG_ENTRIES = 80;
 
 export function recordStorageKey(key) {
@@ -47,7 +47,7 @@ async function removeLocal(keys) {
  * @type {Map<string, Promise<void>>}
  */
 const _updateQueues = new Map();
-const MUTATION_QUEUE_KEY = "pagetollm:mutation-queue";
+const MUTATION_QUEUE_KEY = 'pagetollm:mutation-queue';
 
 /**
  * Runs `fn` after all previously-queued work for `key` has settled.
@@ -94,7 +94,7 @@ export async function readRecord(key) {
 }
 
 export async function writeRecord(rec) {
-  if (!rec || !rec.key) throw new Error("writeRecord: record.key required");
+  if (!rec || !rec.key) throw new Error('writeRecord: record.key required');
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
     return queuedUpdate(rec.key, async () => {
       const sKey = recordStorageKey(rec.key);
@@ -167,7 +167,7 @@ export async function listRecords() {
         key: rec.key,
         sourceUrl: rec.sourceUrl,
         createdAt: rec.createdAt,
-        status: rec.status
+        status: rec.status,
       });
     }
   }

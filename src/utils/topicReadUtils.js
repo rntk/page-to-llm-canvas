@@ -9,10 +9,10 @@ export function isTopicRead(topicName, readTopics) {
   const set = toReadTopicsSet(readTopics);
   if (set.size === 0) return false;
   const parts = String(topicName)
-    .split(">")
+    .split('>')
     .map((p) => p.trim())
     .filter(Boolean);
-  let current = "";
+  let current = '';
   for (let i = 0; i < parts.length; i += 1) {
     current = i === 0 ? parts[i] : `${current}>${parts[i]}`;
     if (set.has(current)) return true;

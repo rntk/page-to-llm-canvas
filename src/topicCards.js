@@ -6,7 +6,7 @@
  * Cards are laid out in columns by depth level, matching the frontend canvas.
  */
 
-import { clampScale } from "./useCanvasTransform.js";
+import { clampScale } from './useCanvasTransform.js';
 
 export const CARD_WIDTH = 240;
 export const COLUMN_GAP = 18;
@@ -43,8 +43,7 @@ export function getTopicTitleFontSize({ scale, height }) {
     1,
     (Number.isFinite(height) ? height : CARD_HEIGHT) - CARD_VERTICAL_CHROME_PX,
   );
-  const heightCapped =
-    availableTitleHeight / (CARD_TITLE_LINE_HEIGHT * CARD_TITLE_MAX_LINES);
+  const heightCapped = availableTitleHeight / (CARD_TITLE_LINE_HEIGHT * CARD_TITLE_MAX_LINES);
   return Math.max(1, Math.min(zoomAdjusted, heightCapped));
 }
 
@@ -70,8 +69,8 @@ export function getTopicTitleFontSize({ scale, height }) {
  * @returns {string[]} An array of path segment strings.
  */
 export function splitTopicPath(name) {
-  return String(name || "")
-    .split(">")
+  return String(name || '')
+    .split('>')
     .map((p) => p.trim())
     .filter(Boolean);
 }
@@ -216,7 +215,7 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
     };
   }
 
-  const rootNode = createTreeNode("root", "", -1);
+  const rootNode = createTreeNode('root', '', -1);
 
   // Build the tree hierarchy up to selected level
   for (const topic of topics) {
@@ -226,7 +225,7 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
     let curr = rootNode;
     for (let i = 0; i < limit; i += 1) {
       const segment = parts[i];
-      const fullPath = parts.slice(0, i + 1).join(" > ");
+      const fullPath = parts.slice(0, i + 1).join(' > ');
 
       if (!curr.children.has(segment)) {
         curr.children.set(segment, createTreeNode(segment, fullPath, i));
@@ -291,9 +290,7 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
       if (childLayouts.length === 0) return;
 
       const top = Math.min(...childLayouts.map((layout) => layout.top));
-      const bottom = Math.max(
-        ...childLayouts.map((layout) => layout.top + layout.height),
-      );
+      const bottom = Math.max(...childLayouts.map((layout) => layout.top + layout.height));
       layoutByPath.set(node.fullPath, {
         top,
         height: Math.max(CARD_HEIGHT, bottom - top),
@@ -308,9 +305,7 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
     const nodes = sortedNodesByDepth.get(depth) || [];
 
     nodes.forEach((node) => {
-      const sentenceArray = Array.from(node.sentences).sort(
-        (left, right) => left - right,
-      );
+      const sentenceArray = Array.from(node.sentences).sort((left, right) => left - right);
       const sentenceRuns = splitSentenceRuns(sentenceArray);
       const runs = sentenceRuns.length > 0 ? sentenceRuns : [[]];
 

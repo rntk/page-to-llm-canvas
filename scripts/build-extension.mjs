@@ -1,23 +1,23 @@
-import { build, defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { build, defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const watch = process.argv.includes("--watch");
+const watch = process.argv.includes('--watch');
 
 const STATIC_FILES = [
-  "manifest.json",
-  "background.js",
-  "content.css",
-  "popup.html",
-  "popup.js",
-  "options.html",
-  "modal.html",
+  'manifest.json',
+  'background.js',
+  'content.css',
+  'popup.html',
+  'popup.js',
+  'options.html',
+  'modal.html',
 ];
 
-const STATIC_DIRS = ["worker", "icons"];
+const STATIC_DIRS = ['worker', 'icons'];
 
 function copyFileIfExists(src, dest) {
   if (!fs.existsSync(src)) return;
@@ -40,7 +40,7 @@ function copyDirRecursive(src, dest) {
 }
 
 function copyExtensionStaticAssets() {
-  const outDir = path.join(root, "dist");
+  const outDir = path.join(root, 'dist');
   for (const file of STATIC_FILES) {
     copyFileIfExists(path.join(root, file), path.join(outDir, file));
   }
@@ -55,23 +55,23 @@ function configForEntry({ name, input, emptyOutDir }) {
     root,
     plugins: [react()],
     build: {
-      outDir: "dist",
+      outDir: 'dist',
       emptyOutDir,
-      assetsDir: ".",
+      assetsDir: '.',
       cssCodeSplit: false,
       ...(watch ? { watch: {} } : {}),
       rollupOptions: {
         input,
         output: {
-          format: "iife",
+          format: 'iife',
           inlineDynamicImports: true,
           entryFileNames: `${name}.js`,
-          chunkFileNames: "[name].js",
+          chunkFileNames: '[name].js',
           assetFileNames: (assetInfo) => {
-            if (assetInfo.name && assetInfo.name.endsWith(".css")) {
-              return name === "modal" ? "modal.css" : `${name}-bundle.css`;
+            if (assetInfo.name && assetInfo.name.endsWith('.css')) {
+              return name === 'modal' ? 'modal.css' : `${name}-bundle.css`;
             }
-            return "[name][extname]";
+            return '[name][extname]';
           },
         },
       },
@@ -81,18 +81,18 @@ function configForEntry({ name, input, emptyOutDir }) {
 
 const entries = [
   {
-    name: "content",
-    input: path.join(root, "src/content/main.jsx"),
+    name: 'content',
+    input: path.join(root, 'src/content/main.jsx'),
     emptyOutDir: true,
   },
   {
-    name: "modal",
-    input: path.join(root, "src/main.jsx"),
+    name: 'modal',
+    input: path.join(root, 'src/main.jsx'),
     emptyOutDir: false,
   },
   {
-    name: "options",
-    input: path.join(root, "src/options/main.jsx"),
+    name: 'options',
+    input: path.join(root, 'src/options/main.jsx'),
     emptyOutDir: false,
   },
 ];

@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import TopicLevelSwitcher from "./TopicLevelSwitcher.jsx";
+import React, { useState } from 'react';
+import TopicLevelSwitcher from './TopicLevelSwitcher.jsx';
 
 /**
  * Floating zoom & view-mode controls for the canvas, mirroring the main app.
@@ -39,7 +39,7 @@ export default function CanvasZoomControls({
 
   return (
     <div
-      className={`canvas-controls${isFolded ? " is-folded" : ""}${isHorizontal ? " is-horizontal" : ""}`}
+      className={`canvas-controls${isFolded ? ' is-folded' : ''}${isHorizontal ? ' is-horizontal' : ''}`}
       onMouseDown={(event) => event.stopPropagation()}
     >
       <div className="canvas-controls-header">
@@ -47,17 +47,17 @@ export default function CanvasZoomControls({
           type="button"
           className="canvas-zoom-btn"
           onClick={() => setIsFolded((v) => !v)}
-          title={isFolded ? "Expand controls" : "Collapse controls"}
+          title={isFolded ? 'Expand controls' : 'Collapse controls'}
         >
-          {isFolded ? "⊞" : "⊟"}
+          {isFolded ? '⊞' : '⊟'}
         </button>
         <button
           type="button"
           className="canvas-zoom-btn"
           onClick={() => setIsHorizontal((v) => !v)}
-          title={isHorizontal ? "Switch to vertical" : "Switch to horizontal"}
+          title={isHorizontal ? 'Switch to vertical' : 'Switch to horizontal'}
         >
-          {isHorizontal ? "⬍" : "⬌"}
+          {isHorizontal ? '⬍' : '⬌'}
         </button>
         <button
           type="button"
@@ -74,7 +74,7 @@ export default function CanvasZoomControls({
           <button
             type="button"
             className="canvas-zoom-btn"
-            onClick={() => onNavigate("top")}
+            onClick={() => onNavigate('top')}
             title="Scroll to top"
           >
             ⇈
@@ -82,7 +82,7 @@ export default function CanvasZoomControls({
           <button
             type="button"
             className="canvas-zoom-btn"
-            onClick={() => onNavigate("prev")}
+            onClick={() => onNavigate('prev')}
             title="Previous page"
           >
             ↑
@@ -90,7 +90,7 @@ export default function CanvasZoomControls({
           <button
             type="button"
             className="canvas-zoom-btn"
-            onClick={() => onNavigate("next")}
+            onClick={() => onNavigate('next')}
             title="Next page"
           >
             ↓
@@ -98,46 +98,27 @@ export default function CanvasZoomControls({
           <button
             type="button"
             className="canvas-zoom-btn"
-            onClick={() => onNavigate("bottom")}
+            onClick={() => onNavigate('bottom')}
             title="Scroll to bottom"
           >
             ⇊
           </button>
           <div className="canvas-spacer" />
-          <button
-            type="button"
-            className="canvas-zoom-btn"
-            onClick={onZoomIn}
-            title="Zoom in"
-          >
+          <button type="button" className="canvas-zoom-btn" onClick={onZoomIn} title="Zoom in">
             +
           </button>
-          <button
-            type="button"
-            className="canvas-zoom-btn"
-            onClick={onZoomOut}
-            title="Zoom out"
-          >
+          <button type="button" className="canvas-zoom-btn" onClick={onZoomOut} title="Zoom out">
             −
           </button>
-          <button
-            type="button"
-            className="canvas-zoom-btn"
-            onClick={onReset}
-            title="Reset zoom"
-          >
+          <button type="button" className="canvas-zoom-btn" onClick={onReset} title="Reset zoom">
             ⊙
           </button>
           <div className="canvas-spacer" />
           <button
             type="button"
-            className={`canvas-read-toggle${showSummaryMode ? " is-active" : ""}`}
+            className={`canvas-read-toggle${showSummaryMode ? ' is-active' : ''}`}
             onClick={onToggleSummaryMode}
-            title={
-              showSummaryMode
-                ? "Show article text"
-                : "Show summary view (per topic level)"
-            }
+            title={showSummaryMode ? 'Show article text' : 'Show summary view (per topic level)'}
           >
             M
           </button>
@@ -152,11 +133,9 @@ export default function CanvasZoomControls({
             )}
             <button
               type="button"
-              className={`canvas-read-toggle${showTopicHierarchy ? " is-active" : ""}`}
+              className={`canvas-read-toggle${showTopicHierarchy ? ' is-active' : ''}`}
               onClick={onToggleTopicHierarchy}
-              title={
-                showTopicHierarchy ? "Hide topic hierarchy" : "Show topic hierarchy"
-              }
+              title={showTopicHierarchy ? 'Hide topic hierarchy' : 'Show topic hierarchy'}
             >
               H
             </button>

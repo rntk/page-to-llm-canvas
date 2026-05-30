@@ -1,12 +1,12 @@
-import React, { useMemo } from "react";
-import { useRecord } from "../useRecord.js";
-import TopicHierarchyView from "./TopicHierarchyView.jsx";
-import { getSentencesForNode } from "./hierarchyUtils.js";
-import "./hierarchy.css";
+import React, { useMemo } from 'react';
+import { useRecord } from '../useRecord.js';
+import TopicHierarchyView from './TopicHierarchyView.jsx';
+import { getSentencesForNode } from './hierarchyUtils.js';
+import './hierarchy.css';
 
 function closeView() {
   try {
-    window.parent.postMessage({ type: "pagetollm-close" }, "*");
+    window.parent.postMessage({ type: 'pagetollm-close' }, '*');
   } catch (_) {
     /* noop */
   }
@@ -15,11 +15,8 @@ function closeView() {
 export default function HierarchyApp({ initialKey }) {
   const { record, error } = useRecord(initialKey);
 
-  const topics = useMemo(
-    () => (Array.isArray(record?.topics) ? record.topics : []),
-    [record],
-  );
-  const isDone = record?.status === "done";
+  const topics = useMemo(() => (Array.isArray(record?.topics) ? record.topics : []), [record]);
+  const isDone = record?.status === 'done';
 
   let body;
   if (error && !record) {
@@ -39,13 +36,13 @@ export default function HierarchyApp({ initialKey }) {
           try {
             window.parent.postMessage(
               {
-                type: "pagetollm-scroll-to-topic-sentences",
+                type: 'pagetollm-scroll-to-topic-sentences',
                 key: initialKey,
                 sentenceNumbers,
                 level: entry.node.depth,
                 topicPath: entry.node.fullPath,
               },
-              "*"
+              '*',
             );
           } catch (_) {
             /* noop */
@@ -59,12 +56,7 @@ export default function HierarchyApp({ initialKey }) {
     <div className="th-page">
       <header className="th-page__bar">
         <h1 className="th-page__title">Topic Hierarchy</h1>
-        <button
-          type="button"
-          className="th-page__close"
-          onClick={closeView}
-          title="Close"
-        >
+        <button type="button" className="th-page__close" onClick={closeView} title="Close">
           ×
         </button>
       </header>

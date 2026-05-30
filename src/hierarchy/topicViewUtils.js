@@ -3,28 +3,28 @@
  */
 
 export function normalizeTopicPath(path) {
-  return String(path || "")
-    .split(">")
+  return String(path || '')
+    .split('>')
     .map((part) => part.trim())
     .filter(Boolean)
-    .join(">");
+    .join('>');
 }
 
 export function spacedTopicPath(path) {
-  return normalizeTopicPath(path).split(">").join(" > ");
+  return normalizeTopicPath(path).split('>').join(' > ');
 }
 
 export function getSummaryText(summary) {
-  if (!summary) return "";
-  if (typeof summary === "string") return summary.trim();
-  if (typeof summary !== "object") return "";
+  if (!summary) return '';
+  if (typeof summary === 'string') return summary.trim();
+  if (typeof summary !== 'object') return '';
 
-  const text = typeof summary.text === "string" ? summary.text.trim() : "";
+  const text = typeof summary.text === 'string' ? summary.text.trim() : '';
   const bullets = Array.isArray(summary.bullets)
-    ? summary.bullets.map((bullet) => (typeof bullet === "string" ? bullet.trim() : ""))
+    ? summary.bullets.map((bullet) => (typeof bullet === 'string' ? bullet.trim() : ''))
     : [];
 
-  return [text, ...bullets].filter(Boolean).join(" ");
+  return [text, ...bullets].filter(Boolean).join(' ');
 }
 
 /**
@@ -46,11 +46,11 @@ export function buildSummaryLookup(topicSummaries, topicSummaryIndex) {
     lookup.set(spacedTopicPath(normalizedPath), text);
   };
 
-  if (topicSummaries && typeof topicSummaries === "object") {
+  if (topicSummaries && typeof topicSummaries === 'object') {
     Object.entries(topicSummaries).forEach(([path, summary]) => addSummary(path, summary));
   }
 
-  if (topicSummaryIndex && typeof topicSummaryIndex === "object") {
+  if (topicSummaryIndex && typeof topicSummaryIndex === 'object') {
     Object.entries(topicSummaryIndex).forEach(([path, summary]) => addSummary(path, summary));
   }
 

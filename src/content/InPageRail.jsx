@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 const SUMMARY_CURSOR_VIEWPORT_RATIO = 0.38;
 const SUMMARY_CURSOR_MIN_TOP = 112;
@@ -6,53 +6,48 @@ const SUMMARY_CURSOR_MIN_TOP = 112;
 function ModeDropdown({ mode, recordKey, onSelectMode }) {
   const [isOpen, setIsOpen] = useState(false);
   const menuId = `pagetollm-dropdown-menu-${recordKey}`;
-  const label = mode === "summaries" ? "Summaries" : "Topics";
+  const label = mode === 'summaries' ? 'Summaries' : 'Topics';
 
   useEffect(() => {
     if (!isOpen) return undefined;
     const onDocumentClick = () => setIsOpen(false);
-    document.addEventListener("click", onDocumentClick);
-    return () => document.removeEventListener("click", onDocumentClick);
+    document.addEventListener('click', onDocumentClick);
+    return () => document.removeEventListener('click', onDocumentClick);
   }, [isOpen]);
 
   const onKeyDown = (event) => {
-    const items = Array.from(
-      event.currentTarget.querySelectorAll(".pagetollm-rail-dropdown-item"),
-    );
+    const items = Array.from(event.currentTarget.querySelectorAll('.pagetollm-rail-dropdown-item'));
     const activeIndex = items.indexOf(document.activeElement);
     switch (event.key) {
-      case "Escape":
+      case 'Escape':
         if (isOpen) {
           event.preventDefault();
           setIsOpen(false);
-          event.currentTarget
-            .querySelector(".pagetollm-rail-dropdown-toggle")
-            ?.focus();
+          event.currentTarget.querySelector('.pagetollm-rail-dropdown-toggle')?.focus();
         }
         break;
-      case "ArrowDown": {
+      case 'ArrowDown': {
         event.preventDefault();
         setIsOpen(true);
         const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % items.length : 0;
         items[nextIndex]?.focus();
         break;
       }
-      case "ArrowUp":
+      case 'ArrowUp':
         if (isOpen) {
           event.preventDefault();
-          const nextIndex = activeIndex >= 0
-            ? (activeIndex - 1 + items.length) % items.length
-            : items.length - 1;
+          const nextIndex =
+            activeIndex >= 0 ? (activeIndex - 1 + items.length) % items.length : items.length - 1;
           items[nextIndex]?.focus();
         }
         break;
-      case "Home":
+      case 'Home':
         if (isOpen) {
           event.preventDefault();
           items[0]?.focus();
         }
         break;
-      case "End":
+      case 'End':
         if (isOpen) {
           event.preventDefault();
           items[items.length - 1]?.focus();
@@ -68,7 +63,7 @@ function ModeDropdown({ mode, recordKey, onSelectMode }) {
 
   return (
     <div
-      className={`pagetollm-rail-dropdown-container${isOpen ? " open" : ""}`}
+      className={`pagetollm-rail-dropdown-container${isOpen ? ' open' : ''}`}
       onClick={(event) => event.stopPropagation()}
       onKeyDown={onKeyDown}
     >
@@ -81,22 +76,24 @@ function ModeDropdown({ mode, recordKey, onSelectMode }) {
         onClick={() => setIsOpen((value) => !value)}
       >
         <span className="pagetollm-rail-dropdown-label">{label}</span>
-        <span className="pagetollm-rail-dropdown-arrow" aria-hidden="true">▾</span>
+        <span className="pagetollm-rail-dropdown-arrow" aria-hidden="true">
+          ▾
+        </span>
       </button>
       <div id={menuId} className="pagetollm-rail-dropdown-menu" role="menu">
         {[
-          ["topics", "Topics"],
-          ["summaries", "Summaries"],
-          ["hierarchy", "Hierarchy view"],
-          ["canvas", "Canvas view"],
+          ['topics', 'Topics'],
+          ['summaries', 'Summaries'],
+          ['hierarchy', 'Hierarchy view'],
+          ['canvas', 'Canvas view'],
         ].map(([itemMode, text]) => (
           <button
             key={itemMode}
             type="button"
             className={`pagetollm-rail-dropdown-item${
-              mode === itemMode && itemMode !== "canvas" && itemMode !== "hierarchy"
-                ? " active"
-                : ""
+              mode === itemMode && itemMode !== 'canvas' && itemMode !== 'hierarchy'
+                ? ' active'
+                : ''
             }`}
             role="menuitem"
             data-mode={itemMode}
@@ -120,7 +117,7 @@ function LevelSwitcher({ maxLevel, selectedLevel, onSelectLevel }) {
           <button
             key={level}
             type="button"
-            className={`pagetollm-rail-level-btn${selectedLevel === level ? " active" : ""}`}
+            className={`pagetollm-rail-level-btn${selectedLevel === level ? ' active' : ''}`}
             title={`Switch to level ${level}`}
             data-level={level}
             onClick={() => onSelectLevel(level)}
@@ -137,7 +134,7 @@ function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen 
   const style = {
     top: `${card.box.top}px`,
     borderColor: card.accent,
-    "--pagetollm-card-accent": card.accent,
+    '--pagetollm-card-accent': card.accent,
   };
   if (isSummary) {
     style.height = `${card.box.height}px`;
@@ -148,11 +145,9 @@ function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen 
   return (
     <button
       type="button"
-      className={[
-        "pagetollm-rail-card",
-        isSummary ? "is-summary" : "",
-        isFront ? "is-front" : "",
-      ].filter(Boolean).join(" ")}
+      className={['pagetollm-rail-card', isSummary ? 'is-summary' : '', isFront ? 'is-front' : '']
+        .filter(Boolean)
+        .join(' ')}
       style={style}
       onMouseEnter={() => onEnter(card)}
       onMouseLeave={() => onLeave(card)}
@@ -165,7 +160,7 @@ function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen 
           {card.name}
         </div>
         {isSummary ? (
-          <div className="pagetollm-rail-card-body">{card.text || "(no summary)"}</div>
+          <div className="pagetollm-rail-card-body">{card.text || '(no summary)'}</div>
         ) : (
           <div className="pagetollm-rail-card-meta">{card.sentences.length} sent.</div>
         )}
@@ -235,10 +230,7 @@ function SummaryCursorView({
 
       const relativeY = getCursorRelativeY(scrollContainer, body, nextCursorTop);
       const matching = cards
-        .filter((card) => (
-          relativeY >= card.box.top &&
-          relativeY <= card.box.top + card.box.height
-        ))
+        .filter((card) => relativeY >= card.box.top && relativeY <= card.box.top + card.box.height)
         .sort((a, b) => a.box.height - b.box.height || a.box.top - b.box.top);
 
       setActiveCardId(matching[0]?.id || null);
@@ -251,18 +243,18 @@ function SummaryCursorView({
 
     updateActiveCard();
     const target = scrollContainer || window;
-    target.addEventListener("scroll", scheduleUpdate, { passive: true });
+    target.addEventListener('scroll', scheduleUpdate, { passive: true });
     if (target !== window) {
-      window.addEventListener("scroll", scheduleUpdate, { passive: true });
+      window.addEventListener('scroll', scheduleUpdate, { passive: true });
     }
-    window.addEventListener("resize", scheduleUpdate);
+    window.addEventListener('resize', scheduleUpdate);
     return () => {
       if (frameId) window.cancelAnimationFrame(frameId);
-      target.removeEventListener("scroll", scheduleUpdate);
+      target.removeEventListener('scroll', scheduleUpdate);
       if (target !== window) {
-        window.removeEventListener("scroll", scheduleUpdate);
+        window.removeEventListener('scroll', scheduleUpdate);
       }
-      window.removeEventListener("resize", scheduleUpdate);
+      window.removeEventListener('resize', scheduleUpdate);
     };
   }, [bodyRef, cards, scrollContainer]);
 
@@ -290,7 +282,7 @@ function SummaryCursorView({
     <>
       <div
         className="pagetollm-summary-cursor-line"
-        style={{ "--pagetollm-summary-cursor-top": cursorTopStyle }}
+        style={{ '--pagetollm-summary-cursor-top': cursorTopStyle }}
         aria-hidden="true"
       />
       <div className="pagetollm-summary-cursor-hitbox" style={{ height: `${bodyHeight}px` }} />
@@ -299,8 +291,8 @@ function SummaryCursorView({
           type="button"
           className="pagetollm-summary-active-card"
           style={{
-            "--pagetollm-summary-cursor-top": cursorTopStyle,
-            "--pagetollm-card-accent": activeCard.accent,
+            '--pagetollm-summary-cursor-top': cursorTopStyle,
+            '--pagetollm-card-accent': activeCard.accent,
           }}
           onClick={() => onScrollToCard(activeCard)}
         >
@@ -308,7 +300,7 @@ function SummaryCursorView({
             {activeCard.name}
           </div>
           <div className="pagetollm-summary-active-card-body">
-            {activeCard.text || "(no summary)"}
+            {activeCard.text || '(no summary)'}
           </div>
         </button>
       ) : null}
@@ -333,7 +325,7 @@ export default function InPageRail({
   const [frontCardId, setFrontCardId] = useState(null);
   const [scrollOffset, setScrollOffset] = useState(() => getScrollContainerTop(scrollContainer));
   const bodyRef = useRef(null);
-  const isSummary = mode === "summaries";
+  const isSummary = mode === 'summaries';
   const normalizedHeight = useMemo(() => `${bodyHeight}px`, [bodyHeight]);
   const isNestedScroll = scrollContainer && scrollContainer !== window;
 
@@ -350,10 +342,10 @@ export default function InPageRail({
     };
 
     updateScrollOffset();
-    target.addEventListener("scroll", scheduleUpdate, { passive: true });
+    target.addEventListener('scroll', scheduleUpdate, { passive: true });
     return () => {
       if (frameId) window.cancelAnimationFrame(frameId);
-      target.removeEventListener("scroll", scheduleUpdate);
+      target.removeEventListener('scroll', scheduleUpdate);
     };
   }, [scrollContainer]);
 
@@ -372,12 +364,7 @@ export default function InPageRail({
           selectedLevel={selectedLevel}
           onSelectLevel={onSelectLevel}
         />
-        <button
-          className="pagetollm-rail-close"
-          type="button"
-          title="Close rail"
-          onClick={onClose}
-        >
+        <button className="pagetollm-rail-close" type="button" title="Close rail" onClick={onClose}>
           ×
         </button>
       </div>

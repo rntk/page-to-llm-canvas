@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react';
 
 /**
  * Subscribes to the record stored at `pagetollm:rec:${key}`.
@@ -14,7 +14,7 @@ export function useRecord(key) {
 
   useEffect(() => {
     if (!key) {
-      setError("missing record key");
+      setError('missing record key');
       return undefined;
     }
 
@@ -23,10 +23,10 @@ export function useRecord(key) {
 
     // 1) initial load via SW
     try {
-      chrome.runtime.sendMessage({ type: "getRecord", key }, (resp) => {
+      chrome.runtime.sendMessage({ type: 'getRecord', key }, (resp) => {
         if (cancelled) return;
         if (chrome.runtime.lastError) {
-          setError(String(chrome.runtime.lastError.message || "runtime error"));
+          setError(String(chrome.runtime.lastError.message || 'runtime error'));
           return;
         }
         if (resp && resp.ok && resp.record) {
@@ -41,7 +41,7 @@ export function useRecord(key) {
               setRecord(rec);
               setError(null);
             } else {
-              setError("record not found");
+              setError('record not found');
             }
           });
         }
@@ -52,7 +52,7 @@ export function useRecord(key) {
 
     // 2) live updates
     const onChanged = (changes, areaName) => {
-      if (areaName !== "local") return;
+      if (areaName !== 'local') return;
       const change = changes[storageKey];
       if (!change) return;
       if (change.newValue) {
@@ -61,7 +61,7 @@ export function useRecord(key) {
       } else if (change.oldValue) {
         // Record was deleted from storage.
         setRecord(null);
-        setError("record deleted");
+        setError('record deleted');
       }
     };
     try {

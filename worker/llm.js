@@ -1,63 +1,71 @@
-// OpenAI-compatible LLM client for the PageToLLM Canvas pipeline.
-// Runs in the service worker context; fetches the LLM endpoint directly.
+// LLM client entrypoint for the PageToLLM Canvas pipeline.
+// Runs in the service worker context; dispatches to the active provider's client.
 
-import { LLM_ENDPOINT, LLM_REQUEST_TIMEOUT_MS, DEFAULT_MODEL } from "./config.js";
-
-const THINK_TAG_RE = /<think\b[^>]*>[\s\S]*?<\/think>/gi;
+import { LLM_REQUEST_TIMEOUT_MS } from './config.js';
+import { getActiveProvider } from './providers.js';
+import { createClient } from './llm_clients.js';
 
 /**
- * Makes a single direct fetch to the LLM endpoint.
+ * Makes a single completion call to the active provider.
  * Returns `{ok, content?, error?}` — the same shape used by the background
  * message handler so it can delegate here too.
+ *
+ * The `model` argument is accepted for backwards-compatibility but ignored; the
+ * model is taken from the active provider configured on the options page.
  *
  * @param {{prompt: string, temperature?: number, model?: string}} options
  * @returns {Promise<{ok: boolean, content?: string, error?: string}>}
  */
-export async function callLLMDirect({ prompt, temperature = 0.8, model = DEFAULT_MODEL }) {
-  const body = {
-    model,
-    messages: [{ role: "user", content: prompt }],
-    temperature,
-    cache_prompt: true,
-  };
+export async function callLLMDirect({ prompt, temperature = 0.8 }) {
+  let provider;
+  try {
+    provider = await getActiveProvider();
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+  if (!provider) {
+    return {
+      ok: false,
+      error: 'No LLM provider configured. Add one in the extension options page.',
+    };
+  }
+
+  let client;
+  try {
+    client = createClient(provider);
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+
   const startedAt = Date.now();
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), LLM_REQUEST_TIMEOUT_MS);
-  console.info("PageToLLM Canvas LLM request:", {
-    endpoint: LLM_ENDPOINT,
-    model,
+  console.info('PageToLLM Canvas LLM request:', {
+    provider: provider.name,
+    type: provider.type,
+    model: provider.model,
     promptLength: prompt.length,
     temperature,
   });
 
   try {
-    const res = await fetch(LLM_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+    const { content, endpoint } = await client.complete({
+      prompt,
+      temperature,
       signal: controller.signal,
     });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      return { ok: false, error: `LLM HTTP ${res.status}: ${txt.slice(0, 300)}` };
-    }
-    const data = await res.json();
-    const content = data?.choices?.[0]?.message?.content;
-    if (typeof content !== "string" || !content.trim()) {
-      return { ok: false, error: "Empty LLM response" };
-    }
-    console.info("PageToLLM Canvas LLM response:", {
-      status: res.status,
+    console.info('PageToLLM Canvas LLM response:', {
+      endpoint,
       durationMs: Date.now() - startedAt,
       responseLength: content.length,
     });
-    return { ok: true, content: content.replace(THINK_TAG_RE, "").trim() };
+    return { ok: true, content };
   } catch (e) {
     const message =
-      e && e.name === "AbortError"
+      e && e.name === 'AbortError'
         ? `LLM request timed out after ${LLM_REQUEST_TIMEOUT_MS}ms`
         : (e && e.message) || String(e);
-    console.warn("PageToLLM Canvas LLM request failed:", message);
+    console.warn('PageToLLM Canvas LLM request failed:', message);
     return { ok: false, error: message };
   } finally {
     clearTimeout(timeoutId);
@@ -70,8 +78,8 @@ export async function callLLMDirect({ prompt, temperature = 0.8, model = DEFAULT
  */
 export async function callLLM(options) {
   const response = await callLLMDirect(options);
-  if (!response.ok || typeof response.content !== "string") {
-    const message = response.error || "LLM request failed";
+  if (!response.ok || typeof response.content !== 'string') {
+    const message = response.error || 'LLM request failed';
     throw new Error(message);
   }
   return response.content;
@@ -89,7 +97,7 @@ export async function callLLMWithRetry(opts, maxRetries = 3) {
       return await callLLM(opts);
     } catch (e) {
       lastErr = e;
-      console.warn("PageToLLM Canvas LLM attempt failed:", {
+      console.warn('PageToLLM Canvas LLM attempt failed:', {
         attempt: attempt + 1,
         maxRetries,
         error: (e && e.message) || String(e),

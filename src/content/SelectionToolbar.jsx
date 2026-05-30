@@ -1,4 +1,4 @@
-import React from "react";
+import React from 'react';
 
 export default function SelectionToolbar({
   isPicking,
@@ -14,20 +14,18 @@ export default function SelectionToolbar({
   onDrop,
   onDragEnd,
 }) {
-  const submitLabel = selectedBlocks.length > 0
-    ? `Submit (${selectedBlocks.length})`
-    : "Submit";
+  const submitLabel = selectedBlocks.length > 0 ? `Submit (${selectedBlocks.length})` : 'Submit';
 
   return (
     <>
       <div id="rsstag-toolbar-top">
         <button
           id="rsstag-pick-btn"
-          className={isPicking ? "active" : ""}
+          className={isPicking ? 'active' : ''}
           type="button"
           onClick={onTogglePicking}
         >
-          {isPicking ? "Picking..." : "Pick Block"}
+          {isPicking ? 'Picking...' : 'Pick Block'}
         </button>
         <button
           id="rsstag-submit-btn"
@@ -44,10 +42,12 @@ export default function SelectionToolbar({
       <ul id="rsstag-block-list">
         {selectedBlocks.map((block, index) => {
           const classes = [
-            "rsstag-block-item",
-            draggingIndex === index ? "rsstag-dragging" : "",
-            dragOverIndex === index && draggingIndex !== index ? "rsstag-drag-over" : "",
-          ].filter(Boolean).join(" ");
+            'rsstag-block-item',
+            draggingIndex === index ? 'rsstag-dragging' : '',
+            dragOverIndex === index && draggingIndex !== index ? 'rsstag-drag-over' : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
 
           return (
             <li

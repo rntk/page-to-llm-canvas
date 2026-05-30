@@ -1,4 +1,4 @@
-import React from "react";
+import React from 'react';
 
 /**
  * @param {{
@@ -15,13 +15,11 @@ export default function TopicLevelSwitcher({
   selectedLevel,
   maxLevel,
   onChange,
-  label = "Level:",
-  className = "",
+  label = 'Level:',
+  className = '',
   getOptionLabel = (level) => `L${level}`,
 }) {
-  const rootClassName = ["topic-level-switcher", className]
-    .filter(Boolean)
-    .join(" ");
+  const rootClassName = ['topic-level-switcher', className].filter(Boolean).join(' ');
 
   return (
     <div className={rootClassName}>
@@ -31,7 +29,7 @@ export default function TopicLevelSwitcher({
           <button
             key={level}
             type="button"
-            className={`topic-level-switcher__button${selectedLevel === level ? " active" : ""}`}
+            className={`topic-level-switcher__button${selectedLevel === level ? ' active' : ''}`}
             onClick={() => onChange(level)}
           >
             {getOptionLabel(level)}
@@ -41,4 +39,3 @@ export default function TopicLevelSwitcher({
     </div>
   );
 }
-

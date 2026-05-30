@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 3;
@@ -95,9 +95,9 @@ export function useCanvasTransform({ contentRef } = {}) {
   // CSS variable sync on the viewport.
   useEffect(() => {
     if (!canvasViewportEl) return;
-    canvasViewportEl.style.setProperty("--canvas-translate-x", `${translate.x}px`);
-    canvasViewportEl.style.setProperty("--canvas-translate-y", `${translate.y}px`);
-    canvasViewportEl.style.setProperty("--canvas-scale", `${scale}`);
+    canvasViewportEl.style.setProperty('--canvas-translate-x', `${translate.x}px`);
+    canvasViewportEl.style.setProperty('--canvas-translate-y', `${translate.y}px`);
+    canvasViewportEl.style.setProperty('--canvas-scale', `${scale}`);
   }, [canvasViewportEl, scale, translate.x, translate.y]);
 
   // Track the canvas wrap's height so sticky titles can clamp to the
@@ -105,15 +105,12 @@ export function useCanvasTransform({ contentRef } = {}) {
   useEffect(() => {
     if (!canvasViewportEl || !canvasWrapEl) return undefined;
     const update = () => {
-      canvasViewportEl.style.setProperty(
-        "--canvas-area-height",
-        `${canvasWrapEl.clientHeight}px`,
-      );
+      canvasViewportEl.style.setProperty('--canvas-area-height', `${canvasWrapEl.clientHeight}px`);
     };
     update();
-    if (typeof window.ResizeObserver === "undefined") {
-      window.addEventListener("resize", update);
-      return () => window.removeEventListener("resize", update);
+    if (typeof window.ResizeObserver === 'undefined') {
+      window.addEventListener('resize', update);
+      return () => window.removeEventListener('resize', update);
     }
     const ro = new window.ResizeObserver(update);
     ro.observe(canvasWrapEl);
@@ -122,9 +119,9 @@ export function useCanvasTransform({ contentRef } = {}) {
 
   // Body cursor while dragging.
   useEffect(() => {
-    if (isCanvasDragging) document.body.classList.add("canvas-global-dragging");
-    else document.body.classList.remove("canvas-global-dragging");
-    return () => document.body.classList.remove("canvas-global-dragging");
+    if (isCanvasDragging) document.body.classList.add('canvas-global-dragging');
+    else document.body.classList.remove('canvas-global-dragging');
+    return () => document.body.classList.remove('canvas-global-dragging');
   }, [isCanvasDragging]);
 
   // Mouse drag pan.
@@ -152,11 +149,11 @@ export function useCanvasTransform({ contentRef } = {}) {
       const onUp = () => {
         isDragging.current = false;
         setIsCanvasDragging(false);
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
       };
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp);
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
     },
     [scheduleTransform],
   );
@@ -181,8 +178,8 @@ export function useCanvasTransform({ contentRef } = {}) {
       userMovedCanvasRef.current = true;
       scheduleTransform(nextScale, nextTranslate);
     };
-    canvasWrapEl.addEventListener("wheel", handleWheel, { passive: false });
-    return () => canvasWrapEl.removeEventListener("wheel", handleWheel);
+    canvasWrapEl.addEventListener('wheel', handleWheel, { passive: false });
+    return () => canvasWrapEl.removeEventListener('wheel', handleWheel);
   }, [canvasWrapEl, scheduleTransform]);
 
   const panBy = useCallback(
@@ -207,22 +204,21 @@ export function useCanvasTransform({ contentRef } = {}) {
       const currentTranslate = translateRef.current;
       const currentScale = scaleRef.current || 1;
       let nextY = currentTranslate.y;
-      if (pos === "top") {
+      if (pos === 'top') {
         nextY = topY;
-      } else if (pos === "bottom") {
+      } else if (pos === 'bottom') {
         const viewport = canvasViewportElRef.current;
         const content = contentRef?.current;
         if (viewport && content) {
           const bottom =
-            content.getBoundingClientRect().bottom -
-            viewport.getBoundingClientRect().top;
+            content.getBoundingClientRect().bottom - viewport.getBoundingClientRect().top;
           nextY = Math.min(topY, viewportHeight - bottom - topY);
         } else {
           nextY = currentTranslate.y - pageStep;
         }
-      } else if (pos === "prev") {
+      } else if (pos === 'prev') {
         nextY = currentTranslate.y + pageStep;
-      } else if (pos === "next") {
+      } else if (pos === 'next') {
         nextY = currentTranslate.y - pageStep;
       }
       userMovedCanvasRef.current = true;
@@ -237,42 +233,37 @@ export function useCanvasTransform({ contentRef } = {}) {
     const onKeyDown = (e) => {
       const t = e.target;
       const tag = t?.tagName;
-      if (
-        tag === "INPUT" ||
-        tag === "TEXTAREA" ||
-        tag === "SELECT" ||
-        t?.isContentEditable
-      ) {
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) {
         return;
       }
-      if (e.key === "Home") {
+      if (e.key === 'Home') {
         e.preventDefault();
-        navigateCanvas("top");
-      } else if (e.key === "End") {
+        navigateCanvas('top');
+      } else if (e.key === 'End') {
         e.preventDefault();
-        navigateCanvas("bottom");
-      } else if (e.key === "PageUp") {
+        navigateCanvas('bottom');
+      } else if (e.key === 'PageUp') {
         e.preventDefault();
-        navigateCanvas("prev");
-      } else if (e.key === "PageDown") {
+        navigateCanvas('prev');
+      } else if (e.key === 'PageDown') {
         e.preventDefault();
-        navigateCanvas("next");
-      } else if (e.key === "ArrowUp") {
+        navigateCanvas('next');
+      } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         panBy(0, ARROW_STEP);
-      } else if (e.key === "ArrowDown") {
+      } else if (e.key === 'ArrowDown') {
         e.preventDefault();
         panBy(0, -ARROW_STEP);
-      } else if (e.key === "ArrowLeft") {
+      } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
         panBy(ARROW_STEP, 0);
-      } else if (e.key === "ArrowRight") {
+      } else if (e.key === 'ArrowRight') {
         e.preventDefault();
         panBy(-ARROW_STEP, 0);
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, [navigateCanvas, panBy]);
 
   const zoomToTarget = useCallback(
@@ -285,19 +276,16 @@ export function useCanvasTransform({ contentRef } = {}) {
       const currentScale = scaleRef.current || 1;
       const nextScale = clampScale(Math.max(currentScale, zoomLevel));
       const localTargetY =
-        (targetRect.top + targetRect.height / 2 - viewportRect.top) /
-        currentScale;
+        (targetRect.top + targetRect.height / 2 - viewportRect.top) / currentScale;
       let nextX;
       const content = contentRef?.current;
       if (content) {
         const localContentX =
-          (content.getBoundingClientRect().left - viewportRect.left) /
-          currentScale;
+          (content.getBoundingClientRect().left - viewportRect.left) / currentScale;
         nextX = 40 - localContentX * nextScale;
       } else {
         const localTargetX =
-          (targetRect.left + targetRect.width / 2 - viewportRect.left) /
-          currentScale;
+          (targetRect.left + targetRect.width / 2 - viewportRect.left) / currentScale;
         nextX = wrapRect.width / 2 - localTargetX * nextScale;
       }
       userMovedCanvasRef.current = true;

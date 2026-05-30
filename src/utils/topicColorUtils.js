@@ -4,7 +4,7 @@
 
 function hashString(value) {
   let hash = 0;
-  const input = String(value || "");
+  const input = String(value || '');
   for (let i = 0; i < input.length; i += 1) {
     hash = (hash << 5) - hash + input.charCodeAt(i);
     hash |= 0;
@@ -13,16 +13,16 @@ function hashString(value) {
 }
 
 function getRootTopicName(topicName) {
-  const parts = String(topicName || "")
-    .split(">")
+  const parts = String(topicName || '')
+    .split('>')
     .map((p) => p.trim())
     .filter(Boolean);
-  return parts[0] || "";
+  return parts[0] || '';
 }
 
 function getTopicDepth(topicName) {
-  const parts = String(topicName || "")
-    .split(">")
+  const parts = String(topicName || '')
+    .split('>')
     .map((p) => p.trim())
     .filter(Boolean);
   return Math.max(0, parts.length - 1);

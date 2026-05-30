@@ -1,15 +1,10 @@
-import React, { useMemo } from "react";
-import { buildTopicTree, countLeafDescendants } from "../utils/topicTree.js";
+import React, { useMemo } from 'react';
+import { buildTopicTree, countLeafDescendants } from '../utils/topicTree.js';
 import {
   getHierarchyTopicHighlightColor,
   getHierarchyTopicAccentColor,
-} from "../utils/topicColorUtils.js";
-import {
-  normalizeTopicPath,
-  spacedTopicPath,
-  getSummaryText,
-  buildSummaryLookup,
-} from "./topicViewUtils.js";
+} from '../utils/topicColorUtils.js';
+import { spacedTopicPath, getSummaryText, buildSummaryLookup } from './topicViewUtils.js';
 
 function getSentenceCount(topic) {
   return Array.isArray(topic?.sentences) ? topic.sentences.length : 0;
@@ -22,7 +17,7 @@ function getLeafSummary(node, summaryLookup) {
     getSummaryText(node.topic?.summary_text) ||
     summaryLookup.get(node.fullPath) ||
     summaryLookup.get(spacedTopicPath(node.fullPath)) ||
-    ""
+    ''
   );
 }
 
@@ -40,13 +35,13 @@ function HierarchyNode({ entry, summaryLookup, selectedTopicPath, onTopicClick }
     return (
       <div className="th-leaf-row">
         <div
-          className={`th-leaf ${isSelected ? "is-selected" : ""}`}
+          className={`th-leaf ${isSelected ? 'is-selected' : ''}`}
           style={{
             backgroundColor: highlightColor,
             borderLeftColor: accentColor,
-            "--th-accent-color": accentColor,
+            '--th-accent-color': accentColor,
           }}
-          title={`${node.fullPath.replace(/>/g, " ")} (${sentenceCount} sentences)`}
+          title={`${node.fullPath.replace(/>/g, ' ')} (${sentenceCount} sentences)`}
           onClick={() => onTopicClick?.(entry)}
         >
           <span className="th-leaf__label">{node.name}</span>
@@ -62,15 +57,15 @@ function HierarchyNode({ entry, summaryLookup, selectedTopicPath, onTopicClick }
   }
 
   return (
-    <div className="th-node" style={{ "--th-row-span": countLeafDescendants(entry) }}>
+    <div className="th-node" style={{ '--th-row-span': countLeafDescendants(entry) }}>
       <div
-        className={`th-node__label ${isSelected ? "is-selected" : ""}`}
+        className={`th-node__label ${isSelected ? 'is-selected' : ''}`}
         style={{
           backgroundColor: highlightColor,
           borderLeftColor: accentColor,
-          "--th-accent-color": accentColor,
+          '--th-accent-color': accentColor,
         }}
-        title={node.fullPath.replace(/>/g, " ")}
+        title={node.fullPath.replace(/>/g, ' ')}
         onClick={() => onTopicClick?.(entry)}
       >
         <span className="th-node__label-text">{node.name}</span>

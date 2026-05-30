@@ -1,6 +1,6 @@
-import React from "react";
-import { getHierarchyTopicAccentColor } from "../utils/topicColorUtils.js";
-import { isTopicRead } from "../utils/topicReadUtils.js";
+import React from 'react';
+import { getHierarchyTopicAccentColor } from '../utils/topicColorUtils.js';
+import { isTopicRead } from '../utils/topicReadUtils.js';
 
 const DENSE_CARD_GAP = 4;
 const DENSE_CARD_MIN_HEIGHT = 56;
@@ -31,31 +31,23 @@ function getCompactCardHeight(card, isCrowded) {
 function getAdjustedTitleFontSize(card, height) {
   const fontSize = getFiniteNumber(card.titleFontSize, 12);
   const availableTitleHeight = Math.max(1, height - CARD_VERTICAL_CHROME_PX);
-  const heightCapped =
-    availableTitleHeight / (CARD_TITLE_LINE_HEIGHT * CARD_TITLE_MAX_LINES);
+  const heightCapped = availableTitleHeight / (CARD_TITLE_LINE_HEIGHT * CARD_TITLE_MAX_LINES);
   return Math.max(1, Math.min(fontSize, heightCapped));
 }
 
 function nudgeCrowdedPair(topCard, bottomCard) {
-  const overlap =
-    topCard.top + topCard.height + DENSE_CARD_GAP - bottomCard.top;
+  const overlap = topCard.top + topCard.height + DENSE_CARD_GAP - bottomCard.top;
   if (overlap <= 0) return;
 
   let remaining = overlap;
   const topMin = Math.max(0, topCard.originalTop - DENSE_CARD_MAX_NUDGE);
   const bottomMax = bottomCard.originalTop + DENSE_CARD_MAX_NUDGE;
 
-  const topMove = Math.min(
-    remaining / 2,
-    Math.max(0, topCard.top - topMin),
-  );
+  const topMove = Math.min(remaining / 2, Math.max(0, topCard.top - topMin));
   topCard.top -= topMove;
   remaining -= topMove;
 
-  const bottomMove = Math.min(
-    remaining,
-    Math.max(0, bottomMax - bottomCard.top),
-  );
+  const bottomMove = Math.min(remaining, Math.max(0, bottomMax - bottomCard.top));
   bottomCard.top += bottomMove;
 }
 
@@ -66,8 +58,7 @@ function getDenseCardZIndex(card, isCrowded) {
 
 function adjustCrowdedLevelCards(levelCards) {
   const sortedCards = [...levelCards].sort(
-    (left, right) =>
-      left.top - right.top || left.fullPath.localeCompare(right.fullPath),
+    (left, right) => left.top - right.top || left.fullPath.localeCompare(right.fullPath),
   );
 
   const workingCards = sortedCards.map((card, index) => {
@@ -97,7 +88,7 @@ function adjustCrowdedLevelCards(levelCards) {
     }
   }
 
-  return workingCards.map(({ originalTop, isCrowded, ...card }) => ({
+  return workingCards.map(({ isCrowded, ...card }) => ({
     ...card,
     top: Math.round(card.top),
     height: Math.round(card.height),
@@ -183,8 +174,7 @@ export default function CanvasTopicHierarchyRail({
   readTopics,
   onToggleRead,
 }) {
-  const safeReadTopics =
-    readTopics instanceof Set ? readTopics : new Set(readTopics || []);
+  const safeReadTopics = readTopics instanceof Set ? readTopics : new Set(readTopics || []);
   const hierarchyCards = React.useMemo(
     () =>
       (Array.isArray(topicCards) ? topicCards : [])
@@ -209,13 +199,13 @@ export default function CanvasTopicHierarchyRail({
       className="canvas-topic-hierarchy"
       aria-label="Topic hierarchy"
       onMouseDown={(event) => {
-        if (event.target.closest("button, a, input, select, textarea")) {
+        if (event.target.closest('button, a, input, select, textarea')) {
           event.stopPropagation();
         }
       }}
       style={{
-        "--canvas-topic-hierarchy-width": `${railWidth}px`,
-        "--topic-card-width": `${cardWidth}px`,
+        '--canvas-topic-hierarchy-width': `${railWidth}px`,
+        '--topic-card-width': `${cardWidth}px`,
       }}
     >
       <div
@@ -223,13 +213,11 @@ export default function CanvasTopicHierarchyRail({
         style={{
           height: adjustedHierarchyCards.length
             ? `${Math.max(...adjustedHierarchyCards.map((c) => c.top + c.height)) + 20}px`
-            : "auto",
+            : 'auto',
         }}
       >
         {hierarchyCards.length === 0 ? (
-          <p className="canvas-topic-hierarchy__empty">
-            No topics at this level.
-          </p>
+          <p className="canvas-topic-hierarchy__empty">No topics at this level.</p>
         ) : (
           <>
             {adjustedHierarchyCards.map((card) => {
@@ -237,16 +225,16 @@ export default function CanvasTopicHierarchyRail({
               const isSelected = selectedTopicKey === card.fullPath;
               const isRead = isTopicRead(card.fullPath, safeReadTopics);
               const classes = [
-                "canvas-topic-hierarchy__card",
+                'canvas-topic-hierarchy__card',
                 card.levelIndex === 0
-                  ? "canvas-topic-hierarchy__card--root"
-                  : "canvas-topic-hierarchy__card--child",
-                isActive ? "is-active" : "",
-                isSelected ? "is-selected" : "",
-                isRead ? "is-read" : "",
+                  ? 'canvas-topic-hierarchy__card--root'
+                  : 'canvas-topic-hierarchy__card--child',
+                isActive ? 'is-active' : '',
+                isSelected ? 'is-selected' : '',
+                isRead ? 'is-read' : '',
               ]
                 .filter(Boolean)
-                .join(" ");
+                .join(' ');
               const sourceCard = card.sourceCard || card;
 
               return (
@@ -255,14 +243,11 @@ export default function CanvasTopicHierarchyRail({
                   type="button"
                   className={classes}
                   style={{
-                    "--topic-card-top": `${card.top}px`,
-                    "--topic-card-height": `${card.height}px`,
-                    "--topic-card-title-font-size": `${card.titleFontSize}px`,
-                    "--topic-card-right": `${card.right}px`,
-                    "--topic-accent-color": getHierarchyTopicAccentColor(
-                      card.fullPath,
-                      card.depth,
-                    ),
+                    '--topic-card-top': `${card.top}px`,
+                    '--topic-card-height': `${card.height}px`,
+                    '--topic-card-title-font-size': `${card.titleFontSize}px`,
+                    '--topic-card-right': `${card.right}px`,
+                    '--topic-accent-color': getHierarchyTopicAccentColor(card.fullPath, card.depth),
                     zIndex: isSelected ? 60 : isActive ? 50 : card.zIndex,
                   }}
                   onMouseEnter={() => onTopicEnter(card.fullPath)}
@@ -282,9 +267,7 @@ export default function CanvasTopicHierarchyRail({
                   title={`${card.fullPath}: sentences ${card.startSentence}-${card.endSentence}`}
                 >
                   <div className="canvas-topic-hierarchy__card-content">
-                    <span className="canvas-topic-hierarchy__card-name">
-                      {card.displayName}
-                    </span>
+                    <span className="canvas-topic-hierarchy__card-name">{card.displayName}</span>
                     <span className="canvas-topic-hierarchy__card-meta">
                       {card.sentenceCount} sent.
                     </span>

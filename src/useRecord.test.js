@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createElement } from "react";
-import { createRoot } from "react-dom/client";
-import { act } from "react";
-import { useRecord } from "./useRecord.js";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { act } from 'react';
+import { useRecord } from './useRecord.js';
 
 function renderHook(callback) {
-  const container = document.createElement("div");
+  const container = document.createElement('div');
   document.body.appendChild(container);
   let result = { current: null };
   function TestComponent() {
@@ -24,12 +24,12 @@ function renderHook(callback) {
   };
 }
 
-describe("useRecord", () => {
+describe('useRecord', () => {
   let changeListeners = [];
 
   beforeEach(() => {
     changeListeners = [];
-    vi.stubGlobal("chrome", {
+    vi.stubGlobal('chrome', {
       runtime: {
         sendMessage: vi.fn(),
         lastError: null,
@@ -49,38 +49,38 @@ describe("useRecord", () => {
     });
   });
 
-  it("sets error when key is missing", () => {
-    const { result } = renderHook(() => useRecord(""));
-    expect(result.current.error).toBe("missing record key");
+  it('sets error when key is missing', () => {
+    const { result } = renderHook(() => useRecord(''));
+    expect(result.current.error).toBe('missing record key');
     expect(result.current.record).toBeNull();
   });
 
-  it("fetches record via sendMessage on mount", () => {
-    const record = { key: "test", status: "done" };
+  it('fetches record via sendMessage on mount', () => {
+    const record = { key: 'test', status: 'done' };
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
       cb({ ok: true, record });
     });
 
-    const { result } = renderHook(() => useRecord("test"));
+    const { result } = renderHook(() => useRecord('test'));
     expect(result.current.record).toEqual(record);
     expect(result.current.error).toBeNull();
   });
 
-  it("falls back to storage.local when sendMessage returns no record", () => {
+  it('falls back to storage.local when sendMessage returns no record', () => {
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
       cb({ ok: false });
     });
-    const record = { key: "test", status: "done" };
+    const record = { key: 'test', status: 'done' };
     chrome.storage.local.get.mockImplementation((keys, cb) => {
-      cb({ "pagetollm:rec:test": record });
+      cb({ 'pagetollm:rec:test': record });
     });
 
-    const { result } = renderHook(() => useRecord("test"));
+    const { result } = renderHook(() => useRecord('test'));
     expect(result.current.record).toEqual(record);
     expect(result.current.error).toBeNull();
   });
 
-  it("sets error when record is not found anywhere", () => {
+  it('sets error when record is not found anywhere', () => {
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
       cb({ ok: false });
     });
@@ -88,112 +88,103 @@ describe("useRecord", () => {
       cb({});
     });
 
-    const { result } = renderHook(() => useRecord("test"));
-    expect(result.current.error).toBe("record not found");
+    const { result } = renderHook(() => useRecord('test'));
+    expect(result.current.error).toBe('record not found');
     expect(result.current.record).toBeNull();
   });
 
-  it("handles runtime.lastError on sendMessage", () => {
+  it('handles runtime.lastError on sendMessage', () => {
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      chrome.runtime.lastError = { message: "disconnected" };
+      chrome.runtime.lastError = { message: 'disconnected' };
       cb();
       chrome.runtime.lastError = null;
     });
 
-    const { result } = renderHook(() => useRecord("test"));
-    expect(result.current.error).toBe("disconnected");
+    const { result } = renderHook(() => useRecord('test'));
+    expect(result.current.error).toBe('disconnected');
   });
 
-  it("updates record on storage change", () => {
+  it('updates record on storage change', () => {
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      cb({ ok: true, record: { key: "test", status: "pending" } });
+      cb({ ok: true, record: { key: 'test', status: 'pending' } });
     });
 
-    const { result } = renderHook(() => useRecord("test"));
-    expect(result.current.record.status).toBe("pending");
+    const { result } = renderHook(() => useRecord('test'));
+    expect(result.current.record.status).toBe('pending');
 
     act(() => {
       changeListeners.forEach((fn) =>
-        fn(
-          { "pagetollm:rec:test": { newValue: { key: "test", status: "done" } } },
-          "local",
-        ),
+        fn({ 'pagetollm:rec:test': { newValue: { key: 'test', status: 'done' } } }, 'local'),
       );
     });
 
-    expect(result.current.record.status).toBe("done");
+    expect(result.current.record.status).toBe('done');
     expect(result.current.error).toBeNull();
   });
 
-  it("sets error when record is deleted from storage", () => {
+  it('sets error when record is deleted from storage', () => {
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      cb({ ok: true, record: { key: "test", status: "pending" } });
+      cb({ ok: true, record: { key: 'test', status: 'pending' } });
     });
 
-    const { result } = renderHook(() => useRecord("test"));
+    const { result } = renderHook(() => useRecord('test'));
 
     act(() => {
       changeListeners.forEach((fn) =>
         fn(
           {
-            "pagetollm:rec:test": {
-              oldValue: { key: "test" },
+            'pagetollm:rec:test': {
+              oldValue: { key: 'test' },
               newValue: undefined,
             },
           },
-          "local",
+          'local',
         ),
       );
     });
 
     expect(result.current.record).toBeNull();
-    expect(result.current.error).toBe("record deleted");
+    expect(result.current.error).toBe('record deleted');
   });
 
-  it("ignores storage changes for other keys", () => {
+  it('ignores storage changes for other keys', () => {
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      cb({ ok: true, record: { key: "test", status: "pending" } });
+      cb({ ok: true, record: { key: 'test', status: 'pending' } });
     });
 
-    const { result } = renderHook(() => useRecord("test"));
+    const { result } = renderHook(() => useRecord('test'));
 
     act(() => {
       changeListeners.forEach((fn) =>
-        fn(
-          { "pagetollm:rec:other": { newValue: { key: "other" } } },
-          "local",
-        ),
+        fn({ 'pagetollm:rec:other': { newValue: { key: 'other' } } }, 'local'),
       );
     });
 
-    expect(result.current.record.status).toBe("pending");
+    expect(result.current.record.status).toBe('pending');
   });
 
-  it("ignores storage changes for non-local area", () => {
+  it('ignores storage changes for non-local area', () => {
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      cb({ ok: true, record: { key: "test", status: "pending" } });
+      cb({ ok: true, record: { key: 'test', status: 'pending' } });
     });
 
-    const { result } = renderHook(() => useRecord("test"));
+    const { result } = renderHook(() => useRecord('test'));
 
     act(() => {
       changeListeners.forEach((fn) =>
-        fn(
-          { "pagetollm:rec:test": { newValue: { key: "test", status: "done" } } },
-          "sync",
-        ),
+        fn({ 'pagetollm:rec:test': { newValue: { key: 'test', status: 'done' } } }, 'sync'),
       );
     });
 
-    expect(result.current.record.status).toBe("pending");
+    expect(result.current.record.status).toBe('pending');
   });
 
-  it("removes onChanged listener on unmount", () => {
+  it('removes onChanged listener on unmount', () => {
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      cb({ ok: true, record: { key: "test", status: "pending" } });
+      cb({ ok: true, record: { key: 'test', status: 'pending' } });
     });
 
-    const { unmount } = renderHook(() => useRecord("test"));
+    const { unmount } = renderHook(() => useRecord('test'));
     expect(chrome.storage.onChanged.addListener).toHaveBeenCalled();
     unmount();
     expect(chrome.storage.onChanged.removeListener).toHaveBeenCalled();

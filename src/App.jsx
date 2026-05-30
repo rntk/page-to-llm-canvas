@@ -1,12 +1,5 @@
-import React, {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { useRecord } from "./useRecord.js";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useRecord } from './useRecord.js';
 import {
   buildTopicCards,
   getMaxTopicLevel,
@@ -16,21 +9,21 @@ import {
   splitTopicPath,
   COLUMN_GAP,
   RAIL_PADDING,
-} from "./topicCards.js";
+} from './topicCards.js';
 
 /** Normalize a raw topic.name ("A>B>C") to the rail's canonical form ("A > B > C"). */
 function normalizeTopicPath(name) {
-  return splitTopicPath(name).join(" > ");
+  return splitTopicPath(name).join(' > ');
 }
-import { buildSummaryCards } from "./summaryCards.js";
-import CanvasTopicHierarchyRail from "./components/CanvasTopicHierarchyRail.jsx";
-import CanvasSummaryView from "./components/CanvasSummaryView.jsx";
-import CanvasZoomControls from "./components/CanvasZoomControls.jsx";
-import { useCanvasTransform, clampScale } from "./useCanvasTransform.js";
+import { buildSummaryCards } from './summaryCards.js';
+import CanvasTopicHierarchyRail from './components/CanvasTopicHierarchyRail.jsx';
+import CanvasSummaryView from './components/CanvasSummaryView.jsx';
+import CanvasZoomControls from './components/CanvasZoomControls.jsx';
+import { useCanvasTransform, clampScale } from './useCanvasTransform.js';
 
 function closeModal() {
   try {
-    window.parent.postMessage({ type: "pagetollm-close" }, "*");
+    window.parent.postMessage({ type: 'pagetollm-close' }, '*');
   } catch (_) {
     /* noop */
   }
@@ -88,9 +81,7 @@ function SpinnerOverlay({ stage, error, recordError, onRetry, isMissing, isDelet
       <div className="pagetollm-spinner-overlay" role="alert">
         <div className="pagetollm-spinner-box">
           <div className="pagetollm-spinner-error-title">Processing Failed</div>
-          {recordError && (
-            <div className="pagetollm-spinner-error-body">{recordError}</div>
-          )}
+          {recordError && <div className="pagetollm-spinner-error-body">{recordError}</div>}
           <div className="pagetollm-spinner-actions">
             {onRetry && (
               <button className="pagetollm-spinner-retry-btn" onClick={onRetry}>
@@ -126,9 +117,7 @@ function SpinnerOverlay({ stage, error, recordError, onRetry, isMissing, isDelet
     <div className="pagetollm-spinner-overlay" role="status" aria-live="polite">
       <div className="pagetollm-spinner-box">
         <div className="pagetollm-spinner" />
-        <div className="pagetollm-spinner-stage">
-          {stage || "Processing..."}
-        </div>
+        <div className="pagetollm-spinner-stage">{stage || 'Processing...'}</div>
       </div>
     </div>
   );
@@ -139,13 +128,7 @@ function SpinnerOverlay({ stage, error, recordError, onRetry, isMissing, isDelet
  * Sentence elements carry `data-sentence-index` so positions can be measured
  * for the topic-hierarchy rail and for zoom-to-target.
  */
-function ArticleText({
-  sentences,
-  topics,
-  hoveredTopicKey,
-  selectedTopicKey,
-  articleTextRef,
-}) {
+function ArticleText({ sentences, topics, hoveredTopicKey, selectedTopicKey, articleTextRef }) {
   const sentenceTopics = useMemo(() => {
     const map = new Map();
     for (const t of topics) {
@@ -167,32 +150,28 @@ function ArticleText({
           const isInHovered =
             hoveredTopicKey &&
             sentTopics.some(
-              (name) =>
-                name === hoveredTopicKey ||
-                name.startsWith(hoveredTopicKey + " > "),
+              (name) => name === hoveredTopicKey || name.startsWith(hoveredTopicKey + ' > '),
             );
           const isInSelected =
             selectedTopicKey &&
             sentTopics.some(
-              (name) =>
-                name === selectedTopicKey ||
-                name.startsWith(selectedTopicKey + " > "),
+              (name) => name === selectedTopicKey || name.startsWith(selectedTopicKey + ' > '),
             );
           const cls = [
-            "pagetollm-sentence",
-            isInHovered ? "is-hover-topic" : "",
-            isInSelected ? "is-selected-topic" : "",
+            'pagetollm-sentence',
+            isInHovered ? 'is-hover-topic' : '',
+            isInSelected ? 'is-selected-topic' : '',
           ]
             .filter(Boolean)
-            .join(" ");
+            .join(' ');
           return (
             <span
               key={i}
               className={cls}
               data-sentence-index={oneBased}
-              title={sentTopics.join(" | ")}
+              title={sentTopics.join(' | ')}
             >
-              {i > 0 ? " " : ""}
+              {i > 0 ? ' ' : ''}
               {text}
             </span>
           );
@@ -221,7 +200,6 @@ export default function App({ initialKey }) {
   const summaryCardRefs = useRef({});
 
   const {
-    translate,
     scale,
     isCanvasDragging,
     isFocusingHighlight,
@@ -241,7 +219,7 @@ export default function App({ initialKey }) {
       // preventDefault inside handleMouseDown suppresses native focus,
       // so re-focus the wrap explicitly to keep keyboard shortcuts alive.
       const wrap = canvasWrapElRef.current;
-      if (wrap && typeof wrap.focus === "function") {
+      if (wrap && typeof wrap.focus === 'function') {
         wrap.focus({ preventScroll: true });
       }
       try {
@@ -254,10 +232,7 @@ export default function App({ initialKey }) {
     [handleMouseDown, canvasWrapElRef],
   );
 
-  const topics = useMemo(
-    () => (Array.isArray(record?.topics) ? record.topics : []),
-    [record],
-  );
+  const topics = useMemo(() => (Array.isArray(record?.topics) ? record.topics : []), [record]);
 
   const sentences = useMemo(
     () => (Array.isArray(record?.sentences) ? record.sentences : []),
@@ -266,12 +241,7 @@ export default function App({ initialKey }) {
 
   const maxLevel = useMemo(() => getMaxTopicLevel(topics), [topics]);
   const allSummaryCards = useMemo(
-    () =>
-      buildSummaryCards(
-        topics,
-        record?.topic_summaries,
-        record?.topic_summary_index,
-      ),
+    () => buildSummaryCards(topics, record?.topic_summaries, record?.topic_summary_index),
     [topics, record],
   );
   const summaryCards = useMemo(() => {
@@ -279,21 +249,14 @@ export default function App({ initialKey }) {
     // if it exists, otherwise the deepest available card for branches that
     // don't go that deep. Cards are ordered by sentence position so they align
     // with the rail visually.
-    const eligible = allSummaryCards.filter(
-      (card) => card.levelIndex <= selectedLevel,
-    );
+    const eligible = allSummaryCards.filter((card) => card.levelIndex <= selectedLevel);
     const paths = new Set(eligible.map((c) => c.path));
     return eligible
       .filter(
         (card) =>
-          !Array.from(paths).some(
-            (p) => p !== card.path && p.startsWith(card.path + " > "),
-          ),
+          !Array.from(paths).some((p) => p !== card.path && p.startsWith(card.path + ' > ')),
       )
-      .sort(
-        (a, b) =>
-          a.startSentence - b.startSentence || a.path.localeCompare(b.path),
-      );
+      .sort((a, b) => a.startSentence - b.startSentence || a.path.localeCompare(b.path));
   }, [allSummaryCards, selectedLevel]);
 
   // Topic-card positions in summary mode are derived from the rendered
@@ -317,11 +280,11 @@ export default function App({ initialKey }) {
         let top = Infinity;
         let bottom = -Infinity;
         for (const [key, m] of summaryMetricsState) {
-          const path = key.split("#")[0];
+          const path = key.split('#')[0];
           if (
             path === card.fullPath ||
-            path.startsWith(card.fullPath + " > ") ||
-            card.fullPath.startsWith(path + " > ")
+            path.startsWith(card.fullPath + ' > ') ||
+            card.fullPath.startsWith(path + ' > ')
           ) {
             const summaryCard = summaryCardMap.get(key);
             if (summaryCard) {
@@ -344,15 +307,19 @@ export default function App({ initialKey }) {
       });
     }
     return buildTopicCards(topics, selectedLevel, sentenceMetrics);
-  }, [topics, selectedLevel, sentenceMetrics, showSummaryMode, summaryMetricsState, allSummaryCards]);
+  }, [
+    topics,
+    selectedLevel,
+    sentenceMetrics,
+    showSummaryMode,
+    summaryMetricsState,
+    allSummaryCards,
+  ]);
 
   const cardWidth = useMemo(() => getZoomAdjustedCardWidth(scale), [scale]);
 
   const railWidth = useMemo(
-    () =>
-      (selectedLevel + 1) * cardWidth +
-      selectedLevel * COLUMN_GAP +
-      RAIL_PADDING * 2,
+    () => (selectedLevel + 1) * cardWidth + selectedLevel * COLUMN_GAP + RAIL_PADDING * 2,
     [selectedLevel, cardWidth],
   );
 
@@ -366,11 +333,11 @@ export default function App({ initialKey }) {
     [scale, cardWidth, topicCards],
   );
 
-  const isDone = record?.status === "done";
-  const isRecordError = record?.status === "error";
-  const isMissing = !record && error === "record not found";
-  const isDeleted = !record && error === "record deleted";
-  const stage = record?.progress?.stage || record?.status || "loading";
+  const isDone = record?.status === 'done';
+  const isRecordError = record?.status === 'error';
+  const isMissing = !record && error === 'record not found';
+  const isDeleted = !record && error === 'record deleted';
+  const stage = record?.progress?.stage || record?.status || 'loading';
 
   const activeTopicKey = hoveredTopicKey || selectedTopicKey;
 
@@ -384,8 +351,8 @@ export default function App({ initialKey }) {
     const wrapRect = wrap.getBoundingClientRect();
     const s = scaleRef.current || 1;
     const nextMetrics = new Map();
-    articleEl.querySelectorAll("[data-sentence-index]").forEach((el) => {
-      const n = Number(el.getAttribute("data-sentence-index"));
+    articleEl.querySelectorAll('[data-sentence-index]').forEach((el) => {
+      const n = Number(el.getAttribute('data-sentence-index'));
       if (!Number.isInteger(n) || n <= 0) return;
       const r = el.getBoundingClientRect();
       nextMetrics.set(n, {
@@ -424,18 +391,17 @@ export default function App({ initialKey }) {
       });
     };
     schedule();
-    window.addEventListener("resize", schedule);
+    window.addEventListener('resize', schedule);
 
     let resizeObserver = null;
-    if (typeof window.ResizeObserver !== "undefined") {
+    if (typeof window.ResizeObserver !== 'undefined') {
       resizeObserver = new window.ResizeObserver(schedule);
       if (summaryWrapRef.current) resizeObserver.observe(summaryWrapRef.current);
-      if (articleTextRef.current)
-        resizeObserver.observe(articleTextRef.current);
+      if (articleTextRef.current) resizeObserver.observe(articleTextRef.current);
     }
     return () => {
       window.cancelAnimationFrame(raf);
-      window.removeEventListener("resize", schedule);
+      window.removeEventListener('resize', schedule);
       if (resizeObserver) resizeObserver.disconnect();
     };
   }, [
@@ -456,12 +422,10 @@ export default function App({ initialKey }) {
         const summaryEl =
           (card && summaryCardRefs.current[card.key]) ||
           summaryCardRefs.current[topicKey] ||
-          Object.entries(summaryCardRefs.current).find(
-            ([key]) => {
-              const path = key.split("#")[0];
-              return path === topicKey || path.startsWith(topicKey + " > ");
-            },
-          )?.[1];
+          Object.entries(summaryCardRefs.current).find(([key]) => {
+            const path = key.split('#')[0];
+            return path === topicKey || path.startsWith(topicKey + ' > ');
+          })?.[1];
         if (summaryEl) {
           zoomToTarget(summaryEl.getBoundingClientRect());
         }
@@ -469,9 +433,10 @@ export default function App({ initialKey }) {
       }
       const articleEl = articleTextRef.current;
       const sentenceNumber = Number(card?.startSentence);
-      const sel = Number.isInteger(sentenceNumber) && sentenceNumber > 0
-        ? articleEl?.querySelector(`[data-sentence-index="${sentenceNumber}"]`)
-        : null;
+      const sel =
+        Number.isInteger(sentenceNumber) && sentenceNumber > 0
+          ? articleEl?.querySelector(`[data-sentence-index="${sentenceNumber}"]`)
+          : null;
       if (sel) {
         zoomToTarget(sel.getBoundingClientRect());
       }
@@ -505,7 +470,7 @@ export default function App({ initialKey }) {
       /* noop */
     }
     const wrap = canvasWrapElRef.current;
-    if (wrap && typeof wrap.focus === "function") {
+    if (wrap && typeof wrap.focus === 'function') {
       wrap.focus({ preventScroll: true });
     }
   }, [isDone, canvasWrapElRef]);
@@ -517,22 +482,22 @@ export default function App({ initialKey }) {
 
   useEffect(() => {
     if (!initialKey) return;
-    chrome.runtime.sendMessage({ type: "ensurePipeline", key: initialKey }, (resp) => {
+    chrome.runtime.sendMessage({ type: 'ensurePipeline', key: initialKey }, (resp) => {
       if (chrome.runtime.lastError) {
-        console.warn("PageToLLM Canvas ensurePipeline error:", chrome.runtime.lastError.message);
+        console.warn('PageToLLM Canvas ensurePipeline error:', chrome.runtime.lastError.message);
       } else if (resp && !resp.ok) {
-        console.warn("PageToLLM Canvas ensurePipeline failed:", resp.error);
+        console.warn('PageToLLM Canvas ensurePipeline failed:', resp.error);
       }
     });
   }, [initialKey]);
 
   const handleRetry = useCallback(() => {
     if (!initialKey) return;
-    chrome.runtime.sendMessage({ type: "retryRecord", key: initialKey }, (resp) => {
+    chrome.runtime.sendMessage({ type: 'retryRecord', key: initialKey }, (resp) => {
       if (chrome.runtime.lastError) {
-        console.warn("PageToLLM Canvas retry error:", chrome.runtime.lastError.message);
+        console.warn('PageToLLM Canvas retry error:', chrome.runtime.lastError.message);
       } else if (resp && !resp.ok) {
-        console.warn("PageToLLM Canvas retry failed:", resp.error);
+        console.warn('PageToLLM Canvas retry failed:', resp.error);
       }
     });
   }, [initialKey]);
@@ -546,7 +511,7 @@ export default function App({ initialKey }) {
           <SpinnerOverlay
             stage={stage}
             error={!isRecordError && !isMissing && !isDeleted ? error : null}
-            recordError={isRecordError ? (record?.error ?? "") : undefined}
+            recordError={isRecordError ? (record?.error ?? '') : undefined}
             onRetry={isRecordError ? handleRetry : undefined}
             isMissing={isMissing}
             isDeleted={isDeleted}
@@ -556,19 +521,19 @@ export default function App({ initialKey }) {
           <div className="pagetollm-canvas-main">
             <div
               ref={canvasWrapRef}
-              className={`canvas-area${isCanvasDragging ? " is-dragging" : ""}`}
+              className={`canvas-area${isCanvasDragging ? ' is-dragging' : ''}`}
               onMouseDown={handleCanvasMouseDown}
               tabIndex={0}
             >
               <div
                 ref={canvasViewportRef}
-                className={`canvas-viewport${isFocusingHighlight ? " is-focusing-highlight" : ""}`}
+                className={`canvas-viewport${isFocusingHighlight ? ' is-focusing-highlight' : ''}`}
               >
                 <div
                   ref={summaryWrapRef}
-                  className={`canvas-article-with-summaries${showTopicHierarchy || showSummaryMode ? " has-topic-hierarchy" : ""}${showSummaryMode ? " is-summary-mode" : ""}`}
+                  className={`canvas-article-with-summaries${showTopicHierarchy || showSummaryMode ? ' has-topic-hierarchy' : ''}${showSummaryMode ? ' is-summary-mode' : ''}`}
                   style={{
-                    "--canvas-topic-hierarchy-width": `${railWidth}px`,
+                    '--canvas-topic-hierarchy-width': `${railWidth}px`,
                   }}
                 >
                   {showSummaryMode ? (
@@ -603,9 +568,7 @@ export default function App({ initialKey }) {
                     activeTopicKey={activeTopicKey}
                     selectedTopicKey={selectedTopicKey}
                     onTopicEnter={(k) => setHoveredTopicKey(k)}
-                    onTopicLeave={(k) =>
-                      setHoveredTopicKey((cur) => (cur === k ? null : cur))
-                    }
+                    onTopicLeave={(k) => setHoveredTopicKey((cur) => (cur === k ? null : cur))}
                     onTopicClick={(k, card) => {
                       setSelectedTopicKey((cur) => (cur === k ? null : k));
                       zoomToTopic(k, card);
@@ -621,16 +584,10 @@ export default function App({ initialKey }) {
               onClose={closeModal}
               onNavigate={navigateCanvas}
               onZoomIn={() =>
-                setTransformNow(
-                  clampScale((scaleRef.current || 1) * 1.2),
-                  translateRef.current,
-                )
+                setTransformNow(clampScale((scaleRef.current || 1) * 1.2), translateRef.current)
               }
               onZoomOut={() =>
-                setTransformNow(
-                  clampScale((scaleRef.current || 1) / 1.2),
-                  translateRef.current,
-                )
+                setTransformNow(clampScale((scaleRef.current || 1) / 1.2), translateRef.current)
               }
               onReset={() => setTransformNow(1, { x: 40, y: 40 })}
               showSummaryMode={showSummaryMode}

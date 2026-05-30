@@ -1,4 +1,4 @@
-import { getTopicSentenceNumbers } from "../topicCards.js";
+import { getTopicSentenceNumbers } from '../topicCards.js';
 
 /**
  * Collect all sentence numbers for a topic tree entry and its descendants.

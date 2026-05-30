@@ -4,9 +4,20 @@
 // short list, and signal-kind merging refinements.
 
 const CLOSING = `"'”’)\\]»`;
-const TERMINAL_RE = new RegExp(`([.!?…])(?:[${CLOSING}])*(\\s+)`, "g");
-const SENTENCE_START_RE = /[A-Z0-9À-ɏ"'(\[\{“‘«]/;
-const ABBREVS = new Set(["Mr.", "Mrs.", "Ms.", "Dr.", "Prof.", "Gen.", "Gov.", "Sgt.", "Col.", "Capt."]);
+const TERMINAL_RE = new RegExp(`([.!?…])(?:[${CLOSING}])*(\\s+)`, 'g');
+const SENTENCE_START_RE = /[A-Z0-9À-ɏ"'([{“‘«]/;
+const ABBREVS = new Set([
+  'Mr.',
+  'Mrs.',
+  'Ms.',
+  'Dr.',
+  'Prof.',
+  'Gen.',
+  'Gov.',
+  'Sgt.',
+  'Col.',
+  'Capt.',
+]);
 
 function countWords(text, start, end) {
   let n = 0;
@@ -40,7 +51,7 @@ function collectTerminalBoundaries(text) {
     if (gapEnd >= text.length) continue;
     const nextCh = text[gapEnd];
     if (!SENTENCE_START_RE.test(nextCh)) continue;
-    if (text[punctEnd - 1] === "." && precededByAbbrev(text, punctEnd - 1)) continue;
+    if (text[punctEnd - 1] === '.' && precededByAbbrev(text, punctEnd - 1)) continue;
     out.push([gapStart, gapEnd]);
   }
   return out;
@@ -90,7 +101,10 @@ function anchorLongSpan(text, start, end, anchorEvery, longThreshold, minWords) 
     // Find whitespace cut at/after wordEnd.
     let cut = -1;
     for (let p = wordEnd; p < end; p++) {
-      if (/\s/.test(text[p])) { cut = p; break; }
+      if (/\s/.test(text[p])) {
+        cut = p;
+        break;
+      }
     }
     if (cut < 0 || cut <= cursor) {
       const [s, e] = trimWs(text, cursor, end);

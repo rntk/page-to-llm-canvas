@@ -10,7 +10,7 @@
 // remaining hard failure is a response with no parseable topic ranges at all,
 // which still raises TopicParseError so the orchestrator can retry.
 
-const TOPIC_LINE_RE = /^(.+):\s*(\d[\d\s,\-]*)\s*$/;
+const TOPIC_LINE_RE = /^(.+):\s*(\d[\d\s,-]*)\s*$/;
 const RANGE_RE = /(\d+)\s*-\s*(\d+)/;
 const SINGLE_RE = /(\d+)/;
 
@@ -22,7 +22,7 @@ export class TopicParseError extends Error {
    */
   constructor(message, diagnostics = {}) {
     super(message);
-    this.name = "TopicParseError";
+    this.name = 'TopicParseError';
     this.diagnostics = diagnostics;
   }
 }
@@ -32,7 +32,7 @@ function normalizeLabelParts(parts) {
   for (const raw of parts) {
     const part = raw.trim();
     if (!part) continue;
-    for (const sub of part.split(":")) {
+    for (const sub of part.split(':')) {
       const s = sub.trim();
       if (s) out.push(s);
     }
@@ -41,14 +41,14 @@ function normalizeLabelParts(parts) {
 }
 
 function normalizeLabelKey(label) {
-  return label.map((p) => p.toLowerCase().replace(/[^a-z0-9]/g, "")).join("|");
+  return label.map((p) => p.toLowerCase().replace(/[^a-z0-9]/g, '')).join('|');
 }
 
 function parseRangeString(str) {
   const results = [];
-  for (const partRaw of str.split(",")) {
+  for (const partRaw of str.split(',')) {
     const part = partRaw.trim();
-    if (part.includes("-") && !part.startsWith("-")) {
+    if (part.includes('-') && !part.startsWith('-')) {
       const m = RANGE_RE.exec(part);
       if (m) {
         results.push([parseInt(m[1], 10), parseInt(m[2], 10)]);
@@ -170,9 +170,13 @@ function repairCoverage(groups, sentenceCount) {
 
 // Returns Array<{ label: string[], ranges: Array<{start, end}> }> (inclusive 0-based).
 export function parseTopicRanges(response, sentenceCount) {
-  if (sentenceCount <= 0) throw new Error("sentenceCount must be positive");
+  if (sentenceCount <= 0) throw new Error('sentenceCount must be positive');
   const maxIndex = sentenceCount - 1;
-  const lines = response.trim().split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const lines = response
+    .trim()
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
 
   const grouped = new Map(); // key -> { label, ranges[] }
   const order = [];
@@ -184,8 +188,8 @@ export function parseTopicRanges(response, sentenceCount) {
     if (m) {
       topicPath = m[1].trim();
       rangesStr = m[2].trim();
-    } else if (ln.includes(":")) {
-      const idx = ln.indexOf(":");
+    } else if (ln.includes(':')) {
+      const idx = ln.indexOf(':');
       topicPath = ln.slice(0, idx).trim();
       rangesStr = ln.slice(idx + 1).trim();
     } else {
@@ -193,7 +197,7 @@ export function parseTopicRanges(response, sentenceCount) {
     }
     if (!topicPath) continue;
 
-    let label = normalizeLabelParts(topicPath.split(">"));
+    let label = normalizeLabelParts(topicPath.split('>'));
     if (!label.length) continue;
     const key = normalizeLabelKey(label);
     if (!keyToCanonical.has(key)) keyToCanonical.set(key, label);
@@ -222,7 +226,7 @@ export function parseTopicRanges(response, sentenceCount) {
     if (!merged.length) continue;
     groups.push({ label: g.label, ranges: merged });
   }
-  if (!groups.length) throw new TopicParseError("No valid topic ranges found in response", {});
+  if (!groups.length) throw new TopicParseError('No valid topic ranges found in response', {});
 
   // Repair overlaps and gaps so coverage is continuous over [0, maxIndex].
   groups = repairCoverage(groups, sentenceCount);
@@ -231,7 +235,11 @@ export function parseTopicRanges(response, sentenceCount) {
   const joined = [];
   for (const g of groups) {
     const last = joined[joined.length - 1];
-    if (last && last.label.length === g.label.length && last.label.every((p, i) => p === g.label[i])) {
+    if (
+      last &&
+      last.label.length === g.label.length &&
+      last.label.every((p, i) => p === g.label[i])
+    ) {
       last.ranges = mergeRanges(last.ranges.concat(g.ranges));
     } else {
       joined.push({ label: g.label.slice(), ranges: g.ranges.slice() });

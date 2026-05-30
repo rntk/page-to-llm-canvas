@@ -173,7 +173,8 @@ function renderRecords(records) {
     reprocessBtn.type = 'button';
     reprocessBtn.textContent = 'Reprocess';
     reprocessBtn.addEventListener('click', async () => {
-      if (!confirm('Reprocess this analysis? Existing topics and summaries will be regenerated.')) return;
+      if (!confirm('Reprocess this analysis? Existing topics and summaries will be regenerated.'))
+        return;
       try {
         const response = await runtimeMessage({ type: 'reprocessRecord', key: record.key });
         if (!response || !response.ok) {
@@ -236,7 +237,7 @@ async function refreshRecords() {
 }
 
 pickBtn.addEventListener('click', async () => {
-  activeTab = activeTab || await getActiveTab();
+  activeTab = activeTab || (await getActiveTab());
   if (!activeTab || !activeTab.id) {
     window.close();
     return;

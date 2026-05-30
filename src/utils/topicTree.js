@@ -14,8 +14,8 @@ export function buildTopicTree(topics, startDepth = 0) {
   const roots = new Map();
 
   for (const topic of Array.isArray(topics) ? topics : []) {
-    const parts = String(topic?.name || "")
-      .split(">")
+    const parts = String(topic?.name || '')
+      .split('>')
       .map((p) => p.trim())
       .filter(Boolean);
     if (parts.length <= startDepth) continue;
@@ -24,7 +24,7 @@ export function buildTopicTree(topics, startDepth = 0) {
     let parent = null;
     for (let i = startDepth; i < parts.length; i += 1) {
       const name = parts[i];
-      const fullPath = parts.slice(0, i + 1).join(">");
+      const fullPath = parts.slice(0, i + 1).join('>');
       let entry = level.get(name);
       if (!entry) {
         entry = {

@@ -1,17 +1,17 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import React, { createElement } from "react";
-import { createRoot } from "react-dom/client";
-import { act } from "react";
-import HierarchyApp from "./HierarchyApp.jsx";
-import { useRecord } from "../useRecord.js";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { act } from 'react';
+import HierarchyApp from './HierarchyApp.jsx';
+import { useRecord } from '../useRecord.js';
 
-vi.mock("../useRecord.js", () => ({
+vi.mock('../useRecord.js', () => ({
   useRecord: vi.fn(),
 }));
 
 function render(element) {
-  const container = document.createElement("div");
+  const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
   act(() => root.render(element));
@@ -24,79 +24,66 @@ function render(element) {
   };
 }
 
-describe("HierarchyApp", () => {
+describe('HierarchyApp', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal("parent", {
+    vi.stubGlobal('parent', {
       postMessage: vi.fn(),
     });
   });
 
-  it("renders loading state when record is null and no error", () => {
+  it('renders loading state when record is null and no error', () => {
     useRecord.mockReturnValue({ record: null, error: null });
-    const { container, unmount } = render(
-      createElement(HierarchyApp, { initialKey: "key1" })
-    );
+    const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
 
-    expect(container.textContent).toContain("Loading…");
+    expect(container.textContent).toContain('Loading…');
     unmount();
   });
 
-  it("renders error state when error is present and no record", () => {
-    useRecord.mockReturnValue({ record: null, error: "Failed to load record" });
-    const { container, unmount } = render(
-      createElement(HierarchyApp, { initialKey: "key1" })
-    );
+  it('renders error state when error is present and no record', () => {
+    useRecord.mockReturnValue({ record: null, error: 'Failed to load record' });
+    const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
 
-    expect(container.textContent).toContain("Error: Failed to load record");
+    expect(container.textContent).toContain('Error: Failed to load record');
     unmount();
   });
 
-  it("renders processing state when record status is not done", () => {
-    useRecord.mockReturnValue({ record: { status: "pending" }, error: null });
-    const { container, unmount } = render(
-      createElement(HierarchyApp, { initialKey: "key1" })
-    );
+  it('renders processing state when record status is not done', () => {
+    useRecord.mockReturnValue({ record: { status: 'pending' }, error: null });
+    const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
 
-    expect(container.textContent).toContain("Still processing this page…");
+    expect(container.textContent).toContain('Still processing this page…');
     unmount();
   });
 
-  it("renders TopicHierarchyView and handles click events, plus header close click", () => {
+  it('renders TopicHierarchyView and handles click events, plus header close click', () => {
     const mockRecord = {
-      status: "done",
-      topics: [
-        { name: "Fruit", sentences: [1] }
-      ],
+      status: 'done',
+      topics: [{ name: 'Fruit', sentences: [1] }],
       topic_summaries: {},
       topic_summary_index: {},
     };
     useRecord.mockReturnValue({ record: mockRecord, error: null });
 
-    const { container, unmount } = render(
-      createElement(HierarchyApp, { initialKey: "key1" })
-    );
+    const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
 
     // Header close button
-    const closeBtn = container.querySelector(".th-page__close");
+    const closeBtn = container.querySelector('.th-page__close');
     act(() => closeBtn.click());
-    expect(window.parent.postMessage).toHaveBeenCalledWith(
-      { type: "pagetollm-close" },
-      "*"
-    );
+    expect(window.parent.postMessage).toHaveBeenCalledWith({ type: 'pagetollm-close' }, '*');
 
     // Topic click
-    const topicLeaf = container.querySelector(".th-leaf");
+    const topicLeaf = container.querySelector('.th-leaf');
     act(() => topicLeaf.click());
     expect(window.parent.postMessage).toHaveBeenCalledWith(
       {
-        type: "pagetollm-scroll-to-topic-sentences",
-        key: "key1",
+        type: 'pagetollm-scroll-to-topic-sentences',
+        key: 'key1',
         sentenceNumbers: [1],
         level: 0,
-        topicPath: "Fruit",
+        topicPath: 'Fruit',
       },
-      "*"
+      '*',
     );
 
     unmount();
