@@ -13,13 +13,20 @@ import {
   buildArticleSummaryMergePrompt,
   formatChunkSummariesForMerge,
 } from './prompts.js';
-import { parseTopicRanges, TopicParseError } from './topic_parser.js';
+import { parseTopicRanges, groupsFromSegments, TopicParseError } from './topic_parser.js';
 import { callLLMWithRetry, parallelMap } from './llm.js';
 
 const MAX_TAGGED_CHARS = 60000;
 const SUMMARY_CONCURRENCY = 4;
 const TOPIC_RANGE_MAX_RETRIES = 3;
 const TOPIC_RANGE_RETRY_BASE_DELAY_MS = 2000;
+// A single topic range covering more than this many sentences is considered
+// "too big" — the LLM lumped distinct subjects together. We re-query the LLM on
+// just that slice to subdivide it, mirroring the gap-recovery idea (re-ask the
+// LLM about a problematic region). TOPIC_RANGE_RESPLIT_MAX_DEPTH bounds how many
+// nested re-split passes a single oversized range may trigger.
+const TOPIC_RANGE_MAX_SENTENCES = 40;
+const TOPIC_RANGE_RESPLIT_MAX_DEPTH = 2;
 
 /**
  * @param {string} key
@@ -136,6 +143,168 @@ export function mapTextOffsetToHtml(mapping, textOffset) {
   return mapping[textOffset];
 }
 
+/**
+ * Re-query the LLM to subdivide a single oversized sentence range. The slice is
+ * re-tagged with local 0-based markers, partitioned by the same topic-ranges
+ * prompt, then offset back to global sentence indices. Because parseTopicRanges
+ * guarantees continuous coverage of [0, sliceLen-1], the returned segments cover
+ * exactly [seg.start, seg.end] with no gaps or overlaps.
+ *
+ * Returns null when the re-split made no real progress (LLM/parse failure, or the
+ * slice came back as a single topic) so the caller keeps the original range.
+ *
+ * @param {string} key
+ * @param {{label: string[], start: number, end: number}} seg
+ * @param {string[]} sentenceTexts
+ * @param {number} depth
+ * @returns {Promise<Array<{label: string[], start: number, end: number}> | null>}
+ */
+async function resplitSegment(key, seg, sentenceTexts, depth) {
+  const span = seg.end - seg.start + 1;
+  const sliceTexts = sentenceTexts.slice(seg.start, seg.end + 1);
+  const tagged = buildTaggedText(sliceTexts);
+  const chunks =
+    tagged.length > MAX_TAGGED_CHARS ? chunkTaggedText(tagged, MAX_TAGGED_CHARS) : [tagged];
+
+  await logPipeline(key, 'topic_ranges_resplit_request', {
+    start: seg.start,
+    end: seg.end,
+    span,
+    depth,
+    chunkCount: chunks.length,
+  });
+
+  const responses = [];
+  for (const chunk of chunks) {
+    const prompt = buildTopicRangesPrompt(chunk);
+    try {
+      responses.push(await callLLMWithRetry({ prompt, temperature: 0.8 }));
+    } catch (e) {
+      await logPipeline(key, 'topic_ranges_resplit_error', {
+        start: seg.start,
+        end: seg.end,
+        depth,
+        error: (e && e.message) || String(e),
+      });
+      return null;
+    }
+  }
+
+  let subGroups;
+  try {
+    subGroups = parseTopicRanges(responses.join('\n'), sliceTexts.length);
+  } catch (e) {
+    await logPipeline(key, 'topic_ranges_resplit_error', {
+      start: seg.start,
+      end: seg.end,
+      depth,
+      error: (e && e.message) || String(e),
+    });
+    return null;
+  }
+
+  // Offset local marker indices back to global sentence indices.
+  const offset = seg.start;
+  let subSegments = [];
+  for (const g of subGroups) {
+    for (const r of g.ranges) {
+      subSegments.push({ label: g.label, start: r.start + offset, end: r.end + offset });
+    }
+  }
+  subSegments.sort((a, b) => a.start - b.start);
+
+  if (subSegments.length <= 1) {
+    // The LLM still considers the slice one topic — keep the original range.
+    await logPipeline(key, 'topic_ranges_resplit_no_progress', {
+      start: seg.start,
+      end: seg.end,
+      span,
+      depth,
+    });
+    return null;
+  }
+
+  await logPipeline(key, 'topic_ranges_resplit_response', {
+    start: seg.start,
+    end: seg.end,
+    span,
+    depth,
+    subSegmentCount: subSegments.length,
+  });
+
+  // Recurse into any sub-segment that is still oversized, up to the depth bound.
+  if (depth + 1 < TOPIC_RANGE_RESPLIT_MAX_DEPTH) {
+    const expanded = [];
+    for (const s of subSegments) {
+      if (s.end - s.start + 1 > TOPIC_RANGE_MAX_SENTENCES) {
+        const deeper = await resplitSegment(key, s, sentenceTexts, depth + 1);
+        if (deeper) {
+          expanded.push(...deeper);
+          continue;
+        }
+      }
+      expanded.push(s);
+    }
+    subSegments = expanded;
+  }
+
+  return subSegments;
+}
+
+/**
+ * Best-effort refinement of oversized topic ranges. Flattens groups into ordered
+ * segments, re-splits any segment exceeding TOPIC_RANGE_MAX_SENTENCES via extra
+ * LLM calls, then rebuilds groups (deduping labels to preserve unique topic
+ * names). Returns the original groups unchanged on any failure or when nothing
+ * needed refining.
+ *
+ * @param {string} key
+ * @param {Array<{label: string[], ranges: Array<{start: number, end: number}>}>} groups
+ * @param {string[]} sentenceTexts
+ * @returns {Promise<Array<{label: string[], ranges: Array<{start: number, end: number}>}>>}
+ */
+async function refineOversizedRanges(key, groups, sentenceTexts) {
+  const segments = [];
+  for (const g of groups) {
+    for (const r of g.ranges) {
+      segments.push({ label: g.label, start: r.start, end: r.end });
+    }
+  }
+  segments.sort((a, b) => a.start - b.start);
+
+  const oversized = segments.filter((s) => s.end - s.start + 1 > TOPIC_RANGE_MAX_SENTENCES);
+  if (!oversized.length) return groups;
+
+  await logPipeline(key, 'topic_ranges_oversize_detected', {
+    oversizeCount: oversized.length,
+    maxSentences: TOPIC_RANGE_MAX_SENTENCES,
+    spans: oversized.map((s) => s.end - s.start + 1),
+  });
+
+  let changed = false;
+  const refined = [];
+  for (const seg of segments) {
+    if (seg.end - seg.start + 1 > TOPIC_RANGE_MAX_SENTENCES) {
+      const subSegments = await resplitSegment(key, seg, sentenceTexts, 0);
+      if (subSegments && subSegments.length > 1) {
+        refined.push(...subSegments);
+        changed = true;
+        continue;
+      }
+    }
+    refined.push(seg);
+  }
+
+  if (!changed) return groups;
+
+  const regrouped = groupsFromSegments(refined, sentenceTexts.length);
+  await logPipeline(key, 'topic_ranges_oversize_refined', {
+    groupCountBefore: groups.length,
+    groupCountAfter: regrouped.length,
+  });
+  return regrouped;
+}
+
 export async function runPipeline(key) {
   try {
     await logPipeline(key, 'pipeline_start');
@@ -225,6 +394,16 @@ export async function runPipeline(key) {
         await new Promise((r) => setTimeout(r, delay));
       }
     }
+
+    try {
+      groups = await refineOversizedRanges(key, groups, sentenceTexts);
+    } catch (e) {
+      // Refinement is best-effort; never fail the pipeline over an oversized range.
+      await logPipeline(key, 'topic_ranges_oversize_error', {
+        error: (e && e.message) || String(e),
+      });
+    }
+
     await logPipeline(key, 'topic_ranges_done', {
       groupCount: groups.length,
     });

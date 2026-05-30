@@ -421,6 +421,124 @@ describe('runPipeline', () => {
     );
   });
 
+  it('re-splits an oversized topic range via additional LLM calls', async () => {
+    // 60 sentences > TOPIC_RANGE_MAX_SENTENCES (40): the first partition lumps
+    // them into one topic, the re-split call subdivides into two.
+    const n = 60;
+    const plainText = Array.from({ length: n }, (_, i) => `S${i}.`).join(' ');
+    const mapping = makeMapping(plainText);
+    storage.readRecord.mockResolvedValue(makeRecord('keyBig', `<p>${plainText}</p>`));
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    sentenceSplitter.splitSentences.mockReturnValue(
+      Array.from({ length: n }, (_, i) => ({ text: `S${i}.`, start: i * 4, end: i * 4 + 3 })),
+    );
+
+    let partitionCalls = 0;
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) {
+        partitionCalls++;
+        // First call: one giant topic. Re-split call(s): subdivide the slice
+        // (which is re-tagged with local 0-based markers, so 0-29 / 30-59).
+        if (partitionCalls === 1) return `Tech>All: 0-${n - 1}`;
+        return 'Tech>FirstHalf: 0-29\nTech>SecondHalf: 30-59';
+      }
+      if (prompt.includes('Summarize the article text')) return 'Summary.';
+      return '';
+    });
+
+    await runPipeline('keyBig');
+
+    expect(partitionCalls).toBeGreaterThan(1);
+    const topicCall = storage.updateRecord.mock.calls.find(
+      (call) => call[1].topics && call[1].status === 'summarizing',
+    );
+    const names = topicCall[1].topics.map((t) => t.name);
+    expect(names).toEqual(['Tech>FirstHalf', 'Tech>SecondHalf']);
+    // Coverage of the original range is preserved across the subdivision.
+    expect(topicCall[1].topics[0].sentences).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
+    expect(topicCall[1].topics[1].sentences).toEqual(Array.from({ length: 30 }, (_, i) => i + 31));
+  });
+
+  it('keeps the original range when a re-split makes no progress', async () => {
+    // The re-split call insists the slice is still a single topic, so the
+    // oversized range is left intact rather than looping.
+    const n = 60;
+    const plainText = Array.from({ length: n }, (_, i) => `S${i}.`).join(' ');
+    const mapping = makeMapping(plainText);
+    storage.readRecord.mockResolvedValue(makeRecord('keyBig2', `<p>${plainText}</p>`));
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    sentenceSplitter.splitSentences.mockReturnValue(
+      Array.from({ length: n }, (_, i) => ({ text: `S${i}.`, start: i * 4, end: i * 4 + 3 })),
+    );
+
+    let partitionCalls = 0;
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) {
+        partitionCalls++;
+        return `Tech>All: 0-${n - 1}`;
+      }
+      if (prompt.includes('Summarize the article text')) return 'Summary.';
+      return '';
+    });
+
+    await runPipeline('keyBig2');
+
+    // One re-split was attempted (no progress), then we stopped — no loop.
+    expect(partitionCalls).toBe(2);
+    const topicCall = storage.updateRecord.mock.calls.find(
+      (call) => call[1].topics && call[1].status === 'summarizing',
+    );
+    expect(topicCall[1].topics.map((t) => t.name)).toEqual(['Tech>All']);
+    const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
+    expect(doneCall).toBeDefined();
+  });
+
+  it('recursively re-splits a sub-segment that is still oversized', async () => {
+    // First partition: one giant topic (90 sentences). First re-split yields a
+    // small head and a still-oversized tail (60 > 40), which a second-level
+    // re-split subdivides — exercising the depth recursion.
+    const n = 90;
+    const plainText = Array.from({ length: n }, (_, i) => `S${i}.`).join(' ');
+    const mapping = makeMapping(plainText);
+    storage.readRecord.mockResolvedValue(makeRecord('keyDeep', `<p>${plainText}</p>`));
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    sentenceSplitter.splitSentences.mockReturnValue(
+      Array.from({ length: n }, (_, i) => ({ text: `S${i}.`, start: i * 4, end: i * 4 + 3 })),
+    );
+
+    let partitionCalls = 0;
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) {
+        partitionCalls++;
+        if (partitionCalls === 1) return `Tech>All: 0-${n - 1}`;
+        if (partitionCalls === 2) {
+          // Slice is the full 90: a 30-sentence head + a 60-sentence tail.
+          return 'Tech>Head: 0-29\nTech>Tail: 30-89';
+        }
+        // Second-level re-split of the 60-sentence tail slice (local 0-59).
+        return 'Tech>TailA: 0-29\nTech>TailB: 30-59';
+      }
+      if (prompt.includes('Summarize the article text')) return 'Summary.';
+      return '';
+    });
+
+    await runPipeline('keyDeep');
+
+    expect(partitionCalls).toBe(3);
+    const topicCall = storage.updateRecord.mock.calls.find(
+      (call) => call[1].topics && call[1].status === 'summarizing',
+    );
+    expect(topicCall[1].topics.map((t) => t.name)).toEqual([
+      'Tech>Head',
+      'Tech>TailA',
+      'Tech>TailB',
+    ]);
+    // Global offsets: Head 1-30, TailA 31-60, TailB 61-90.
+    expect(topicCall[1].topics[1].sentences[0]).toBe(31);
+    expect(topicCall[1].topics[2].sentences[0]).toBe(61);
+    expect(topicCall[1].topics[2].sentences.at(-1)).toBe(90);
+  });
+
   it('propagates non-TopicParseError immediately without retry', async () => {
     const plainText = 'A. B.';
     const mapping = makeMapping(plainText);

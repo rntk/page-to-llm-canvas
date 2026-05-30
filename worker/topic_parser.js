@@ -168,6 +168,76 @@ function repairCoverage(groups, sentenceCount) {
   return result;
 }
 
+/**
+ * Shared tail of parseTopicRanges: takes label-grouped ranges (in first-appearance
+ * order, labels already deduped) and produces the final continuous, non-overlapping,
+ * adjacent-joined groups. Extracted so oversized-range refinement can rebuild the
+ * same shape from re-split segments without re-parsing a raw LLM response.
+ *
+ * @param {Array<{label: string[], ranges: Array<{start: number, end: number}>}>} rawGroups
+ * @param {number} sentenceCount
+ * @returns {Array<{label: string[], ranges: Array<{start: number, end: number}>}>}
+ */
+function finalizeGroups(rawGroups, sentenceCount) {
+  let groups = [];
+  for (const g of rawGroups) {
+    const merged = mergeRanges(g.ranges);
+    if (!merged.length) continue;
+    groups.push({ label: g.label, ranges: merged });
+  }
+  if (!groups.length) throw new TopicParseError('No valid topic ranges found in response', {});
+
+  // Repair overlaps and gaps so coverage is continuous over [0, maxIndex].
+  groups = repairCoverage(groups, sentenceCount);
+
+  // AdjacentSameTopicJoiner: merge consecutive groups with identical labels.
+  const joined = [];
+  for (const g of groups) {
+    const last = joined[joined.length - 1];
+    if (
+      last &&
+      last.label.length === g.label.length &&
+      last.label.every((p, i) => p === g.label[i])
+    ) {
+      last.ranges = mergeRanges(last.ranges.concat(g.ranges));
+    } else {
+      joined.push({ label: g.label.slice(), ranges: g.ranges.slice() });
+    }
+  }
+  return joined;
+}
+
+/**
+ * Rebuild final groups from a flat list of labeled segments (e.g. produced by
+ * re-splitting an oversized range). Segments sharing a normalized label key are
+ * merged into one group — preserving the invariant that every topic name is
+ * unique — and coverage is repaired/joined exactly like parseTopicRanges.
+ *
+ * @param {Array<{label: string[], start: number, end: number}>} segments
+ * @param {number} sentenceCount
+ * @returns {Array<{label: string[], ranges: Array<{start: number, end: number}>}>}
+ */
+export function groupsFromSegments(segments, sentenceCount) {
+  if (sentenceCount <= 0) throw new Error('sentenceCount must be positive');
+
+  const grouped = new Map();
+  const order = [];
+  const keyToCanonical = new Map();
+  for (const seg of segments) {
+    if (!seg.label || !seg.label.length) continue;
+    const key = normalizeLabelKey(seg.label);
+    if (!keyToCanonical.has(key)) keyToCanonical.set(key, seg.label);
+    const label = keyToCanonical.get(key);
+    if (!grouped.has(key)) {
+      grouped.set(key, { label, ranges: [] });
+      order.push(key);
+    }
+    grouped.get(key).ranges.push({ start: seg.start, end: seg.end });
+  }
+  const rawGroups = order.map((k) => grouped.get(k));
+  return finalizeGroups(rawGroups, sentenceCount);
+}
+
 // Returns Array<{ label: string[], ranges: Array<{start, end}> }> (inclusive 0-based).
 export function parseTopicRanges(response, sentenceCount) {
   if (sentenceCount <= 0) throw new Error('sentenceCount must be positive');
@@ -219,31 +289,6 @@ export function parseTopicRanges(response, sentenceCount) {
     grouped.get(key).ranges.push(...clamped);
   }
 
-  let groups = [];
-  for (const key of order) {
-    const g = grouped.get(key);
-    const merged = mergeRanges(g.ranges);
-    if (!merged.length) continue;
-    groups.push({ label: g.label, ranges: merged });
-  }
-  if (!groups.length) throw new TopicParseError('No valid topic ranges found in response', {});
-
-  // Repair overlaps and gaps so coverage is continuous over [0, maxIndex].
-  groups = repairCoverage(groups, sentenceCount);
-
-  // AdjacentSameTopicJoiner: merge consecutive groups with identical labels.
-  const joined = [];
-  for (const g of groups) {
-    const last = joined[joined.length - 1];
-    if (
-      last &&
-      last.label.length === g.label.length &&
-      last.label.every((p, i) => p === g.label[i])
-    ) {
-      last.ranges = mergeRanges(last.ranges.concat(g.ranges));
-    } else {
-      joined.push({ label: g.label.slice(), ranges: g.ranges.slice() });
-    }
-  }
-  return joined;
+  const rawGroups = order.map((key) => grouped.get(key));
+  return finalizeGroups(rawGroups, sentenceCount);
 }

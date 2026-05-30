@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTopicRanges, TopicParseError } from './topic_parser.js';
+import { parseTopicRanges, groupsFromSegments, TopicParseError } from './topic_parser.js';
 
 // Helpers -------------------------------------------------------------------
 
@@ -208,5 +208,58 @@ describe('TopicParseError identity', () => {
       expect(e).toBeInstanceOf(TopicParseError);
       expect(e.diagnostics).toBeDefined();
     }
+  });
+});
+
+// groupsFromSegments -------------------------------------------------------
+
+describe('groupsFromSegments', () => {
+  it('rebuilds groups from ordered labeled segments', () => {
+    const groups = groupsFromSegments(
+      [
+        { label: ['Tech', 'AI'], start: 0, end: 2 },
+        { label: ['Tech', 'Hardware'], start: 3, end: 5 },
+      ],
+      6,
+    );
+    expect(groups).toHaveLength(2);
+    expect(groups[0].label).toEqual(['Tech', 'AI']);
+    expect(groups[0].ranges).toEqual([{ start: 0, end: 2 }]);
+    expect(groups[1].ranges).toEqual([{ start: 3, end: 5 }]);
+  });
+
+  it('merges segments that share a normalized label into one group', () => {
+    // Two disjoint segments with the same topic must collapse to a single,
+    // uniquely-named group (the invariant downstream summaries depend on).
+    const groups = groupsFromSegments(
+      [
+        { label: ['Tech', 'AI'], start: 0, end: 1 },
+        { label: ['Biz', 'Deal'], start: 2, end: 3 },
+        { label: ['Tech', 'AI'], start: 4, end: 5 },
+      ],
+      6,
+    );
+    const aiGroups = groups.filter((g) => g.label.join('>') === 'Tech>AI');
+    expect(aiGroups).toHaveLength(1);
+    expect(aiGroups[0].ranges).toEqual([
+      { start: 0, end: 1 },
+      { start: 4, end: 5 },
+    ]);
+  });
+
+  it('repairs gaps so coverage stays continuous', () => {
+    const groups = groupsFromSegments(
+      [
+        { label: ['A', 'One'], start: 0, end: 1 },
+        // Gap at 2-3 left by a dropped segment.
+        { label: ['A', 'Two'], start: 4, end: 5 },
+      ],
+      6,
+    );
+    const covered = new Set();
+    for (const g of groups) {
+      for (const r of g.ranges) for (let i = r.start; i <= r.end; i++) covered.add(i);
+    }
+    expect([...covered].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5]);
   });
 });
