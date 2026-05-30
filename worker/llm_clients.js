@@ -92,6 +92,9 @@ function openAICompatibleClient({
       }
       if (cachePrompt) body.cache_prompt = true;
 
+      console.log('LLM client raw prompt:', prompt);
+      console.log('LLM client request:', { endpoint, body });
+
       const res = await fetch(endpoint, {
         method: 'POST',
         headers,
@@ -101,6 +104,7 @@ function openAICompatibleClient({
       if (!res.ok) throw new Error(await readErrorText(res));
 
       const data = await res.json();
+      console.log('LLM client raw response data:', data);
       const content = data?.choices?.[0]?.message?.content;
       const cleaned = typeof content === 'string' ? stripThink(content) : '';
       if (!cleaned) throw new Error('Empty LLM response');
@@ -128,6 +132,9 @@ function anthropicClient({ apiKey, model }) {
       };
       if (typeof temperature === 'number') body.temperature = temperature;
 
+      console.log('LLM client raw prompt:', prompt);
+      console.log('LLM client request:', { endpoint, body });
+
       const res = await fetch(endpoint, {
         method: 'POST',
         headers,
@@ -137,6 +144,7 @@ function anthropicClient({ apiKey, model }) {
       if (!res.ok) throw new Error(await readErrorText(res));
 
       const data = await res.json();
+      console.log('LLM client raw response data:', data);
       const blocks = Array.isArray(data?.content) ? data.content : [];
       const content = blocks
         .filter((b) => b?.type === 'text' && typeof b.text === 'string')
