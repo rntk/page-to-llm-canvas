@@ -203,6 +203,10 @@ function removeBlock(index) {
     entry.el.classList.remove('rsstag-selected');
   }
   selectedElements.splice(index, 1);
+  selectedElements.forEach((item, idx) => {
+    item.originalNumber = idx + 1;
+  });
+  pickCounter = selectedElements.length;
   renderSelectionToolbar();
   updateSubmitState();
 }
@@ -234,6 +238,10 @@ function onDrop(event, index) {
   const moved = selectedElements.splice(dragSrcIndex, 1)[0];
   selectedElements.splice(destIndex, 0, moved);
   dragOverIndex = null;
+
+  selectedElements.forEach((item, idx) => {
+    item.originalNumber = idx + 1;
+  });
 
   renderSelectionToolbar();
   updateSubmitState();

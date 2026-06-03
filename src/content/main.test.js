@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { act } from 'react';
 
 let messageListener = null;
 let postMessageListener = null;
@@ -83,4 +84,67 @@ describe('content script main.jsx', () => {
 
     expect(document.getElementById('pagetollm-canvas-iframe')).toBeNull();
   });
+
+  it('resets block numbers and counter properly on removal', async () => {
+    const sendResponse = vi.fn();
+    await act(async () => {
+      messageListener({ action: 'startSelection' }, {}, sendResponse);
+    });
+
+    const pickBtn = document.getElementById('rsstag-pick-btn');
+    expect(pickBtn).not.toBeNull();
+
+    // Enable picking and select dummy 1
+    await act(async () => {
+      pickBtn.click();
+    });
+
+    const dummy1 = document.createElement('div');
+    dummy1.id = 'dummy-1';
+    document.body.appendChild(dummy1);
+    await act(async () => {
+      dummy1.click();
+    });
+
+    let listItems = document.querySelectorAll('.rsstag-block-item');
+    expect(listItems).toHaveLength(1);
+    expect(listItems[0].textContent).toContain('Block 1');
+
+    // Remove the block
+    const removeBtn = listItems[0].querySelector('.rsstag-remove-btn');
+    await act(async () => {
+      removeBtn.click();
+    });
+
+    listItems = document.querySelectorAll('.rsstag-block-item');
+    expect(listItems).toHaveLength(0);
+
+    // Enable picking again and select dummy 2
+    await act(async () => {
+      pickBtn.click();
+    });
+
+    const dummy2 = document.createElement('div');
+    dummy2.id = 'dummy-2';
+    document.body.appendChild(dummy2);
+    await act(async () => {
+      dummy2.click();
+    });
+
+    listItems = document.querySelectorAll('.rsstag-block-item');
+    expect(listItems).toHaveLength(1);
+    expect(listItems[0].textContent).toContain('Block 1');
+
+    // Clean up
+    dummy1.remove();
+    dummy2.remove();
+    const cancelBtn = document.getElementById('rsstag-cancel-btn');
+    if (cancelBtn) {
+      await act(async () => {
+        cancelBtn.click();
+      });
+    }
+  });
 });
+
+
