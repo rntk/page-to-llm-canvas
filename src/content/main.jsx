@@ -364,6 +364,11 @@ function cleanupSelection() {
 // ── In-page rail view ─────────────────────────────────────────────────────
 
 const WORD_TOKEN_RE = /\S+/g;
+const HIGHLIGHT_NAME = 'pagetollm-sentence';
+
+function supportsHighlightApi() {
+  return typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight !== 'undefined';
+}
 
 function tokenizeText(text) {
   return String(text || '').match(WORD_TOKEN_RE) || [];
@@ -374,15 +379,16 @@ function isSkippableContainer(node) {
   const tag = node.tagName;
   if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return true;
   if (node.id === 'pagetollm-in-page-rail') return true;
-  if (node.classList && node.classList.contains('pagetollm-word')) return true;
   return false;
 }
 
 /**
- * Walk text nodes within roots and replace each with per-word spans.
- * Returns the global ordered list of word entries: [{ word, span }].
+ * Walk text nodes within roots and record each word's position WITHOUT mutating
+ * the DOM. Returns the global ordered list of word entries:
+ * [{ word, node, start, end }] where node/start/end locate the word inside a
+ * live text node, suitable for building a Range.
  */
-function wrapWordsInElements(roots) {
+function collectWordEntries(roots) {
   const entries = [];
   const textNodes = [];
   const walker = (root) => {
@@ -406,46 +412,51 @@ function wrapWordsInElements(roots) {
 
   for (const textNode of textNodes) {
     const value = textNode.nodeValue;
-    const frag = document.createDocumentFragment();
-    let lastIndex = 0;
     WORD_TOKEN_RE.lastIndex = 0;
     let m;
     while ((m = WORD_TOKEN_RE.exec(value))) {
-      if (m.index > lastIndex) {
-        frag.appendChild(document.createTextNode(value.slice(lastIndex, m.index)));
-      }
-      const span = document.createElement('span');
-      span.className = 'pagetollm-word';
-      span.dataset.wIdx = String(entries.length);
-      span.textContent = m[0];
-      frag.appendChild(span);
-      entries.push({ word: m[0], span });
-      lastIndex = m.index + m[0].length;
+      entries.push({
+        word: m[0],
+        node: textNode,
+        start: m.index,
+        end: m.index + m[0].length,
+      });
     }
-    if (lastIndex < value.length) {
-      frag.appendChild(document.createTextNode(value.slice(lastIndex)));
-    }
-    textNode.parentNode.replaceChild(frag, textNode);
   }
 
   return entries;
 }
 
-function unwrapWords(roots) {
-  roots.forEach((root) => {
-    if (!root || !root.querySelectorAll) return;
-    root.querySelectorAll('.pagetollm-word').forEach((span) => {
-      const text = document.createTextNode(span.textContent);
-      span.parentNode.replaceChild(text, span);
-    });
-    root.normalize && root.normalize();
-  });
+/**
+ * Build a live DOM Range spanning from the first word to the last word of a
+ * sentence (inclusive). Returns null if the entries are missing.
+ */
+function buildSentenceDomRange(sentenceRanges, wordEntries, sNum) {
+  const range = sentenceRanges.get(sNum);
+  if (!range) return null;
+  const startEntry = wordEntries[range.startIdx];
+  const endEntry = wordEntries[range.endIdx];
+  if (!startEntry || !endEntry) return null;
+  try {
+    const domRange = document.createRange();
+    domRange.setStart(startEntry.node, startEntry.start);
+    domRange.setEnd(endEntry.node, endEntry.end);
+    return domRange;
+  } catch (_) {
+    return null;
+  }
 }
 
 /**
  * Map each sentence (1-based) to a [wordStartIndex, wordEndIndex] (inclusive).
- * Sequential walk: tokenize each sentence; expect tokens to match next entries.
- * If a mismatch occurs, scan forward up to a small window to resync.
+ *
+ * Both ends are anchored to actually-matched DOM words rather than trusting a
+ * 1:1 token count, because the record's tokenization can drift from the DOM's
+ * (punctuation splits, em-dashes, an interleaved caption word, etc.). The start
+ * matches the first token within a forward window; the end matches the last
+ * token within a window around the *expected* end. Anchoring the end matters
+ * for continuous-range highlighting: an overshoot no longer paints a solid
+ * block into the next paragraph, it just lands on the real final word.
  */
 function buildSentenceWordRanges(sentences, wordEntries) {
   const ranges = new Map();
@@ -453,24 +464,50 @@ function buildSentenceWordRanges(sentences, wordEntries) {
     String(s)
       .toLowerCase()
       .replace(/[^a-z0-9]+/gi, '');
+  const norm = wordEntries.map((e) => normalize(e.word));
+  const START_WINDOW = 80;
+  const END_WINDOW = 12;
   let cursor = 0;
 
   sentences.forEach((sentText, i) => {
     const tokens = tokenizeText(sentText);
     if (tokens.length === 0) return;
 
-    // Find the start by attempting to match the first token within a window.
+    // Anchor the start: first token within a forward window from the cursor.
     const targetFirst = normalize(tokens[0]);
     let startIdx = -1;
-    for (let k = cursor; k < Math.min(wordEntries.length, cursor + 80); k++) {
-      if (normalize(wordEntries[k].word) === targetFirst) {
+    for (let k = cursor; k < Math.min(norm.length, cursor + START_WINDOW); k++) {
+      if (norm[k] === targetFirst) {
         startIdx = k;
         break;
       }
     }
     if (startIdx === -1) startIdx = cursor;
 
-    let endIdx = Math.min(wordEntries.length - 1, startIdx + tokens.length - 1);
+    // Position the end would land at if tokens mapped 1:1 with DOM words.
+    const expectedEnd = Math.min(norm.length - 1, startIdx + tokens.length - 1);
+
+    let endIdx;
+    if (tokens.length === 1) {
+      endIdx = startIdx;
+    } else {
+      // Anchor the end: last token nearest the expected end position, so token
+      // drift doesn't run the range past the sentence's true final word.
+      const targetLast = normalize(tokens[tokens.length - 1]);
+      const lo = Math.max(startIdx, expectedEnd - END_WINDOW);
+      const hi = Math.min(norm.length - 1, expectedEnd + END_WINDOW);
+      let best = -1;
+      for (let k = lo; k <= hi; k++) {
+        if (
+          norm[k] === targetLast &&
+          (best === -1 || Math.abs(k - expectedEnd) < Math.abs(best - expectedEnd))
+        ) {
+          best = k;
+        }
+      }
+      endIdx = best >= startIdx ? best : expectedEnd;
+    }
+
     ranges.set(i + 1, { startIdx, endIdx });
     cursor = endIdx + 1;
   });
@@ -651,16 +688,12 @@ function computeCardVerticalBox(
   const isLaidOut = (rect) => rect && (rect.width > 0 || rect.height > 0);
   const scrollTop = getScrollTop(scrollContainer);
   for (const sNum of sentences) {
-    const range = sentenceRanges.get(sNum);
-    if (!range) continue;
-    const startSpan = wordEntries[range.startIdx] && wordEntries[range.startIdx].span;
-    const endSpan = wordEntries[range.endIdx] && wordEntries[range.endIdx].span;
-    if (!startSpan || !endSpan) continue;
-    const r1 = startSpan.getBoundingClientRect();
-    const r2 = endSpan.getBoundingClientRect();
-    // Skip spans that aren't laid out (display:none etc.) — their zero rect
-    // would otherwise collapse `top` to 0 and inflate the card to full height.
-    const rects = [r1, r2].filter(isLaidOut);
+    const domRange = buildSentenceDomRange(sentenceRanges, wordEntries, sNum);
+    if (!domRange) continue;
+    // getClientRects() yields one rect per line box the sentence spans, giving
+    // a tighter measurement than the start/end corners alone. Skip rects that
+    // aren't laid out (display:none etc.) so they don't collapse `top` to 0.
+    const rects = Array.from(domRange.getClientRects()).filter(isLaidOut);
     if (rects.length === 0) continue;
     const sTop = Math.min(...rects.map((r) => r.top)) + scrollTop - railOriginTop;
     const sBottom = Math.max(...rects.map((r) => r.bottom)) + scrollTop - railOriginTop;
@@ -726,7 +759,7 @@ async function openInPageRail(rec, initialMode, options = {}) {
     return;
   }
 
-  const wordEntries = wrapWordsInElements(elements);
+  const wordEntries = collectWordEntries(elements);
   const sentences = Array.isArray(record.sentences) ? record.sentences : [];
   const sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
   const scrollContainer = getScrollableAncestor(elements);
@@ -775,36 +808,52 @@ async function openInPageRail(rec, initialMode, options = {}) {
 
   let railOriginTop = 0;
 
+  // Native CSS Custom Highlight API: highlights are painted from a set of live
+  // Ranges registered under HIGHLIGHT_NAME. Unlike per-word spans, a single
+  // Range per sentence paints continuously across whitespace and inline tags,
+  // so there are no gaps between words.
+  const activeSentences = new Set();
+
+  function rebuildHighlight() {
+    if (!supportsHighlightApi()) return;
+    if (activeSentences.size === 0) {
+      CSS.highlights.delete(HIGHLIGHT_NAME);
+      return;
+    }
+    const highlight = new Highlight();
+    for (const sNum of activeSentences) {
+      const domRange = buildSentenceDomRange(sentenceRanges, wordEntries, sNum);
+      if (domRange) highlight.add(domRange);
+    }
+    CSS.highlights.set(HIGHLIGHT_NAME, highlight);
+  }
+
   function clearAllHighlights() {
-    const cls = 'is-highlight';
-    wordEntries.forEach((entry) => {
-      if (entry && entry.span) {
-        entry.span.classList.remove(cls);
-      }
-    });
+    activeSentences.clear();
+    rebuildHighlight();
   }
 
   function highlightTopic(sentenceList, on) {
-    const cls = 'is-highlight';
     for (const sNum of sentenceList) {
-      const range = sentenceRanges.get(sNum);
-      if (!range) continue;
-      for (let k = range.startIdx; k <= range.endIdx; k++) {
-        const entry = wordEntries[k];
-        if (!entry) continue;
-        if (on) entry.span.classList.add(cls);
-        else entry.span.classList.remove(cls);
-      }
+      if (on) activeSentences.add(sNum);
+      else activeSentences.delete(sNum);
     }
+    rebuildHighlight();
   }
 
   function scrollToFirst(sentenceList) {
     if (!sentenceList || !sentenceList.length) return;
-    const range = sentenceRanges.get(sentenceList[0]);
-    if (!range) return;
-    const span = wordEntries[range.startIdx] && wordEntries[range.startIdx].span;
-    if (span) {
-      span.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const domRange = buildSentenceDomRange(sentenceRanges, wordEntries, sentenceList[0]);
+    if (!domRange) return;
+    const rect = domRange.getBoundingClientRect();
+    if (!rect || (rect.width === 0 && rect.height === 0)) return;
+    if (scrollContainer && scrollContainer !== window) {
+      const cRect = scrollContainer.getBoundingClientRect();
+      const delta = rect.top - cRect.top - scrollContainer.clientHeight / 2;
+      scrollContainer.scrollTo({ top: scrollContainer.scrollTop + delta, behavior: 'smooth' });
+    } else {
+      const targetY = rect.top + window.scrollY - window.innerHeight / 2;
+      window.scrollTo({ top: targetY, behavior: 'smooth' });
     }
   }
 
@@ -930,7 +979,7 @@ async function openInPageRail(rec, initialMode, options = {}) {
     teardown() {
       railRoot.unmount();
       railEl.remove();
-      unwrapWords(elements);
+      if (supportsHighlightApi()) CSS.highlights.delete(HIGHLIGHT_NAME);
       document.body.classList.remove('pagetollm-rail-open');
       document.documentElement.style.removeProperty('--pagetollm-rail-reserve');
       document.documentElement.style.removeProperty('--pagetollm-rail-width');
