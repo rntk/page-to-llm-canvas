@@ -140,7 +140,7 @@ const HIGHLIGHT_HOVER = 'pagetollm-sentence-hover';
  * subtree (see sentenceHighlight.js) rather than per-sentence spans, so the
  * markup can stay structurally identical to the source for readability.
  */
-function ArticleHtml({ html, articleTextRef }) {
+const ArticleHtml = React.memo(function ArticleHtml({ html, articleTextRef }) {
   return (
     <div
       className="pagetollm-article-text pagetollm-article-html"
@@ -148,7 +148,7 @@ function ArticleHtml({ html, articleTextRef }) {
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
-}
+});
 
 /**
  * @param {{ initialKey: string }} props
@@ -210,20 +210,32 @@ export default function App({ initialKey }) {
 
   const topics = useMemo(() => (Array.isArray(record?.topics) ? record.topics : []), [record]);
 
+  // Keep a referentially-stable `sentences` array across record writes that
+  // don't actually change the sentences. The orchestrator rewrites the record
+  // several times after `status: done` (e.g. the `pipeline_done` processing-log
+  // entry, `updatedAt` bumps). Each write hands `useRecord` a brand-new object,
+  // so a naive `[record]` memo would yield a new array every time and thrash
+  // every downstream effect (range rebuild, measurement, highlight repaint).
+  // Sentences are immutable once extracted, so their count is a cheap, stable
+  // identity key — the memo only produces a new array when the count changes.
+  const sentenceCount = Array.isArray(record?.sentences) ? record.sentences.length : 0;
   const sentences = useMemo(
     () => (Array.isArray(record?.sentences) ? record.sentences : []),
-    [record],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sentenceCount],
   );
 
   // Prefer the original article markup for readability; fall back to a plain
-  // paragraph of sentences when a record predates HTML capture. Memoized on the
-  // raw HTML so React never re-parses the subtree (which would detach the live
-  // highlight Ranges that point into it).
+  // paragraph of sentences when a record predates HTML capture. Keyed on the raw
+  // HTML (not the whole record) so unrelated record writes never recompute it,
+  // keeping the string identity — and thus the rendered subtree and the live
+  // highlight Ranges that point into it — stable.
   const articleHtml = useMemo(() => {
-    if (record?.html) return sanitizeArticleHtml(record.html);
+    const html = record?.html;
+    if (html) return sanitizeArticleHtml(html);
     if (sentences.length) return `<p>${sentences.map(escapeHtml).join(' ')}</p>`;
     return '';
-  }, [record, sentences]);
+  }, [record?.html, sentences]);
 
   const maxLevel = useMemo(() => getMaxTopicLevel(topics), [topics]);
   const allSummaryCards = useMemo(
