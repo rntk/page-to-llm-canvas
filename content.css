@@ -462,10 +462,6 @@ body.pagetollm-rail-open {
    former box-shadow underline is expressed as text-decoration. */
 ::highlight(pagetollm-sentence) {
   background-color: rgb(58 64 77 / 12%);
-  text-decoration-line: underline;
-  text-decoration-color: #3a404d;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 2px;
 }
 
 /* Level Switcher in Rail Header */
