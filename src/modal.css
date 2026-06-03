@@ -127,6 +127,57 @@ body.canvas-global-dragging * {
   margin: 0;
 }
 
+/* Re-rendered original article markup. Keep the source structure but constrain
+   media and reset a few things so it reads well on the canvas sheet. */
+.pagetollm-article-html {
+  overflow-wrap: break-word;
+}
+
+.pagetollm-article-html > :first-child {
+  margin-top: 0;
+}
+
+.pagetollm-article-html > :last-child {
+  margin-bottom: 0;
+}
+
+.pagetollm-article-html img,
+.pagetollm-article-html video,
+.pagetollm-article-html svg,
+.pagetollm-article-html figure,
+.pagetollm-article-html table {
+  max-width: 100%;
+  height: auto;
+}
+
+.pagetollm-article-html figure {
+  margin: 1em 0;
+}
+
+.pagetollm-article-html h1,
+.pagetollm-article-html h2,
+.pagetollm-article-html h3,
+.pagetollm-article-html h4 {
+  line-height: 1.3;
+  color: var(--ink);
+}
+
+.pagetollm-article-html a {
+  color: var(--accent);
+}
+
+.pagetollm-article-html pre {
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.pagetollm-article-html blockquote {
+  margin: 1em 0;
+  padding-left: 1em;
+  border-left: 3px solid var(--surface-highest);
+  color: var(--on-surface-muted);
+}
+
 .canvas-article-with-summaries.is-summary-mode .canvas-summary-view {
   width: 680px;
   background: var(--surface);
@@ -364,24 +415,12 @@ body.canvas-global-dragging * {
   line-height: 1.7;
 }
 
-.pagetollm-sentence {
-  display: inline;
-  padding: 1px 2px;
-  border-radius: 0;
-  transition: background 0.12s;
+::highlight(pagetollm-sentence-hover) {
+  background-color: var(--surface-highest);
 }
 
-.pagetollm-sentence:hover {
-  background: var(--surface-highest);
-}
-
-.pagetollm-sentence.is-hover-topic {
-  background: var(--surface-highest);
-}
-
-.pagetollm-sentence.is-selected-topic {
-  background: rgb(58 64 77 / 12%);
-  box-shadow: inset 2px 0 0 var(--accent);
+::highlight(pagetollm-sentence) {
+  background-color: rgb(58 64 77 / 12%);
 }
 
 /* ── TopicLevelSwitcher ────────────────────────────────────────────────── */

@@ -16,6 +16,14 @@ function normalizeTopicPath(name) {
   return splitTopicPath(name).join(' > ');
 }
 import { buildSummaryCards } from './summaryCards.js';
+import {
+  HIGHLIGHT_NAME,
+  supportsHighlightApi,
+  collectWordEntries,
+  buildSentenceDomRange,
+  buildSentenceWordRanges,
+} from './sentenceHighlight.js';
+import { sanitizeArticleHtml, escapeHtml } from './articleHtml.js';
 import CanvasTopicHierarchyRail from './components/CanvasTopicHierarchyRail.jsx';
 import CanvasSummaryView from './components/CanvasSummaryView.jsx';
 import CanvasZoomControls from './components/CanvasZoomControls.jsx';
@@ -123,61 +131,22 @@ function SpinnerOverlay({ stage, error, recordError, onRetry, isMissing, isDelet
   );
 }
 
-/**
- * Article text rendered as a single block of sentence spans.
- * Sentence elements carry `data-sentence-index` so positions can be measured
- * for the topic-hierarchy rail and for zoom-to-target.
- */
-function ArticleText({ sentences, topics, hoveredTopicKey, selectedTopicKey, articleTextRef }) {
-  const sentenceTopics = useMemo(() => {
-    const map = new Map();
-    for (const t of topics) {
-      const path = normalizeTopicPath(t.name);
-      for (const idx of getTopicSentenceNumbers(t)) {
-        if (!map.has(idx)) map.set(idx, []);
-        map.get(idx).push(path);
-      }
-    }
-    return map;
-  }, [topics]);
+/** Second CSS Custom Highlight name, used for the hovered (not selected) topic. */
+const HIGHLIGHT_HOVER = 'pagetollm-sentence-hover';
 
+/**
+ * The original article HTML, re-rendered onto the canvas sheet. Sentence
+ * highlighting and rail measurement work off live DOM Ranges built over this
+ * subtree (see sentenceHighlight.js) rather than per-sentence spans, so the
+ * markup can stay structurally identical to the source for readability.
+ */
+function ArticleHtml({ html, articleTextRef }) {
   return (
-    <div className="pagetollm-article-text" ref={articleTextRef}>
-      <p className="pagetollm-text-block">
-        {sentences.map((text, i) => {
-          const oneBased = i + 1;
-          const sentTopics = sentenceTopics.get(oneBased) || [];
-          const isInHovered =
-            hoveredTopicKey &&
-            sentTopics.some(
-              (name) => name === hoveredTopicKey || name.startsWith(hoveredTopicKey + ' > '),
-            );
-          const isInSelected =
-            selectedTopicKey &&
-            sentTopics.some(
-              (name) => name === selectedTopicKey || name.startsWith(selectedTopicKey + ' > '),
-            );
-          const cls = [
-            'pagetollm-sentence',
-            isInHovered ? 'is-hover-topic' : '',
-            isInSelected ? 'is-selected-topic' : '',
-          ]
-            .filter(Boolean)
-            .join(' ');
-          return (
-            <span
-              key={i}
-              className={cls}
-              data-sentence-index={oneBased}
-              title={sentTopics.join(' | ')}
-            >
-              {i > 0 ? ' ' : ''}
-              {text}
-            </span>
-          );
-        })}
-      </p>
-    </div>
+    <div
+      className="pagetollm-article-text pagetollm-article-html"
+      ref={articleTextRef}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
   );
 }
 
@@ -198,6 +167,13 @@ export default function App({ initialKey }) {
   const articleTextRef = useRef(null);
   const summaryWrapRef = useRef(null);
   const summaryCardRefs = useRef({});
+
+  // Live DOM Ranges over the rendered article HTML, keyed by sentence number.
+  // Built in a layout effect after the HTML mounts; `rangesVersion` bumps so the
+  // measurement and highlight effects re-run once ranges exist.
+  const wordEntriesRef = useRef([]);
+  const sentenceRangesRef = useRef(new Map());
+  const [rangesVersion, setRangesVersion] = useState(0);
 
   const {
     scale,
@@ -238,6 +214,16 @@ export default function App({ initialKey }) {
     () => (Array.isArray(record?.sentences) ? record.sentences : []),
     [record],
   );
+
+  // Prefer the original article markup for readability; fall back to a plain
+  // paragraph of sentences when a record predates HTML capture. Memoized on the
+  // raw HTML so React never re-parses the subtree (which would detach the live
+  // highlight Ranges that point into it).
+  const articleHtml = useMemo(() => {
+    if (record?.html) return sanitizeArticleHtml(record.html);
+    if (sentences.length) return `<p>${sentences.map(escapeHtml).join(' ')}</p>`;
+    return '';
+  }, [record, sentences]);
 
   const maxLevel = useMemo(() => getMaxTopicLevel(topics), [topics]);
   const allSummaryCards = useMemo(
@@ -343,25 +329,72 @@ export default function App({ initialKey }) {
 
   // ── Measurement ──────────────────────────────────────────────────────────
 
+  // Build live word entries + sentence ranges once the article HTML is mounted.
+  // Runs synchronously before paint so measurement (below) sees real ranges.
+  useLayoutEffect(() => {
+    if (!isDone || showSummaryMode) return;
+    const articleEl = articleTextRef.current;
+    if (!articleEl) return;
+    const wordEntries = collectWordEntries([articleEl]);
+    wordEntriesRef.current = wordEntries;
+    sentenceRangesRef.current = buildSentenceWordRanges(sentences, wordEntries);
+    setRangesVersion((v) => v + 1);
+  }, [isDone, showSummaryMode, articleHtml, sentences]);
+
+  // Rebuild word entries + sentence ranges from the *current* article DOM.
+  // The Highlight API and measurement hold live Ranges into text nodes; if those
+  // nodes are ever replaced by a re-render, the stale Ranges resolve to nothing
+  // (getClientRects() returns empty). Rebuilding on demand keeps them pinned to
+  // the live, laid-out nodes. Collecting ~1k words is cheap.
+  const refreshSentenceRanges = useCallback(() => {
+    const articleEl = articleTextRef.current;
+    if (!articleEl) return { wordEntries: wordEntriesRef.current, sentenceRanges: sentenceRangesRef.current };
+    const wordEntries = collectWordEntries([articleEl]);
+    const sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
+    wordEntriesRef.current = wordEntries;
+    sentenceRangesRef.current = sentenceRanges;
+    return { wordEntries, sentenceRanges };
+  }, [sentences]);
+
   const measureSentencePositions = useCallback(() => {
     const wrap = summaryWrapRef.current;
-    const articleEl = articleTextRef.current;
-    if (!wrap || !articleEl || showSummaryMode) return;
+    if (!wrap || showSummaryMode) return;
+    const { wordEntries, sentenceRanges } = refreshSentenceRanges();
+    if (!sentenceRanges.size) return;
 
     const wrapRect = wrap.getBoundingClientRect();
     const s = scaleRef.current || 1;
+    const isLaidOut = (r) => r && (r.width > 0 || r.height > 0);
     const nextMetrics = new Map();
-    articleEl.querySelectorAll('[data-sentence-index]').forEach((el) => {
-      const n = Number(el.getAttribute('data-sentence-index'));
-      if (!Number.isInteger(n) || n <= 0) return;
-      const r = el.getBoundingClientRect();
-      nextMetrics.set(n, {
-        top: (r.top - wrapRect.top) / s,
-        bottom: (r.bottom - wrapRect.top) / s,
-      });
-    });
+    for (const n of sentenceRanges.keys()) {
+      const domRange = buildSentenceDomRange(sentenceRanges, wordEntries, n);
+      if (!domRange) continue;
+      // One rect per line box gives a tighter measurement than the corners and
+      // skips collapsed (display:none) fragments that would pin `top` to 0.
+      const rects = Array.from(domRange.getClientRects()).filter(isLaidOut);
+      if (rects.length === 0) continue;
+      const top = (Math.min(...rects.map((r) => r.top)) - wrapRect.top) / s;
+      const bottom = (Math.max(...rects.map((r) => r.bottom)) - wrapRect.top) / s;
+      nextMetrics.set(n, { top, bottom });
+    }
+    // TEMP DIAGNOSTIC — remove once rail alignment is confirmed.
+    const dr0 = buildSentenceDomRange(sentenceRanges, wordEntries, 1);
+    console.log(
+      '[pagetollm] metrics',
+      nextMetrics.size,
+      'of',
+      sentences.length,
+      '| words',
+      wordEntries.length,
+      '| w0connected',
+      wordEntries[0]?.node?.isConnected,
+      '| dr0rects',
+      dr0 ? dr0.getClientRects().length : -1,
+      '| first tops',
+      [...nextMetrics.entries()].slice(0, 5).map(([n, m]) => [n, Math.round(m.top)]),
+    );
     setSentenceMetrics(nextMetrics);
-  }, [scaleRef, showSummaryMode]);
+  }, [scaleRef, showSummaryMode, sentences, refreshSentenceRanges]);
 
   const measureSummaryPositions = useCallback(() => {
     const wrap = summaryWrapRef.current;
@@ -382,12 +415,20 @@ export default function App({ initialKey }) {
 
   useLayoutEffect(() => {
     if (!isDone) return undefined;
-    let raf = 0;
+    let raf1 = 0;
+    let raf2 = 0;
+    const measure = () => {
+      measureSentencePositions();
+      measureSummaryPositions();
+    };
+    // Double rAF: the first frame lets the freshly-injected article HTML lay out,
+    // the second captures positions after that first reflow settles.
     const schedule = () => {
-      window.cancelAnimationFrame(raf);
-      raf = window.requestAnimationFrame(() => {
-        measureSentencePositions();
-        measureSummaryPositions();
+      window.cancelAnimationFrame(raf1);
+      window.cancelAnimationFrame(raf2);
+      raf1 = window.requestAnimationFrame(() => {
+        measure();
+        raf2 = window.requestAnimationFrame(measure);
       });
     };
     schedule();
@@ -399,18 +440,103 @@ export default function App({ initialKey }) {
       if (summaryWrapRef.current) resizeObserver.observe(summaryWrapRef.current);
       if (articleTextRef.current) resizeObserver.observe(articleTextRef.current);
     }
+
+    // Images and web fonts in the re-rendered article finish loading *after*
+    // the first measurement and shift every sentence below them. Re-measure as
+    // each settles so the rail doesn't stay pinned to the pre-load layout.
+    const articleEl = articleTextRef.current;
+    const images = articleEl ? Array.from(articleEl.querySelectorAll('img')) : [];
+    const pending = images.filter((img) => !img.complete);
+    pending.forEach((img) => {
+      img.addEventListener('load', schedule);
+      img.addEventListener('error', schedule);
+    });
+    let fontsCancelled = false;
+    if (document.fonts && typeof document.fonts.ready?.then === 'function') {
+      document.fonts.ready.then(() => {
+        if (!fontsCancelled) schedule();
+      });
+    }
+
     return () => {
-      window.cancelAnimationFrame(raf);
+      window.cancelAnimationFrame(raf1);
+      window.cancelAnimationFrame(raf2);
       window.removeEventListener('resize', schedule);
       if (resizeObserver) resizeObserver.disconnect();
+      pending.forEach((img) => {
+        img.removeEventListener('load', schedule);
+        img.removeEventListener('error', schedule);
+      });
+      fontsCancelled = true;
     };
   }, [
     isDone,
     showSummaryMode,
     sentences,
     summaryCards,
+    rangesVersion,
     measureSentencePositions,
     measureSummaryPositions,
+  ]);
+
+  // ── Sentence highlighting (native CSS Custom Highlight API) ───────────────
+  // A single live Range per sentence paints continuously across whitespace and
+  // inline tags. The selected topic and the hovered topic get separate named
+  // highlights so they can be styled distinctly via ::highlight() in modal.css.
+  useEffect(() => {
+    if (!isDone || showSummaryMode || !supportsHighlightApi()) return undefined;
+    const { wordEntries, sentenceRanges } = refreshSentenceRanges();
+
+    const sentencesForKey = (key) => {
+      if (!key) return [];
+      const set = new Set();
+      for (const t of topics) {
+        const path = normalizeTopicPath(t.name);
+        if (path === key || path.startsWith(key + ' > ')) {
+          for (const idx of getTopicSentenceNumbers(t)) set.add(idx);
+        }
+      }
+      return Array.from(set);
+    };
+
+    const setHighlight = (name, nums) => {
+      if (!nums.length) {
+        CSS.highlights.delete(name);
+        return;
+      }
+      const highlight = new Highlight();
+      let any = false;
+      for (const n of nums) {
+        const domRange = buildSentenceDomRange(sentenceRanges, wordEntries, n);
+        if (domRange) {
+          highlight.add(domRange);
+          any = true;
+        }
+      }
+      if (any) CSS.highlights.set(name, highlight);
+      else CSS.highlights.delete(name);
+    };
+
+    const selectedNums = sentencesForKey(selectedTopicKey);
+    const selectedSet = new Set(selectedNums);
+    // Don't double-paint sentences that are already in the selected highlight.
+    const hoverNums = sentencesForKey(hoveredTopicKey).filter((n) => !selectedSet.has(n));
+
+    setHighlight(HIGHLIGHT_NAME, selectedNums);
+    setHighlight(HIGHLIGHT_HOVER, hoverNums);
+
+    return () => {
+      CSS.highlights.delete(HIGHLIGHT_NAME);
+      CSS.highlights.delete(HIGHLIGHT_HOVER);
+    };
+  }, [
+    isDone,
+    showSummaryMode,
+    topics,
+    selectedTopicKey,
+    hoveredTopicKey,
+    rangesVersion,
+    refreshSentenceRanges,
   ]);
 
   // ── Topic interaction ────────────────────────────────────────────────────
@@ -431,32 +557,32 @@ export default function App({ initialKey }) {
         }
         return;
       }
-      const articleEl = articleTextRef.current;
       const sentenceNumber = Number(card?.startSentence);
-      const sel =
+      const { wordEntries, sentenceRanges } = refreshSentenceRanges();
+      const domRange =
         Number.isInteger(sentenceNumber) && sentenceNumber > 0
-          ? articleEl?.querySelector(`[data-sentence-index="${sentenceNumber}"]`)
+          ? buildSentenceDomRange(sentenceRanges, wordEntries, sentenceNumber)
           : null;
-      if (sel) {
-        zoomToTarget(sel.getBoundingClientRect());
+      if (domRange) {
+        zoomToTarget(domRange.getBoundingClientRect());
       }
     },
-    [showSummaryMode, zoomToTarget],
+    [showSummaryMode, zoomToTarget, refreshSentenceRanges],
   );
 
   useEffect(() => {
     if (pendingZoomSentence !== null) {
       const sentenceNumber = Number(pendingZoomSentence);
       if (Number.isInteger(sentenceNumber) && sentenceNumber > 0) {
-        const articleEl = articleTextRef.current;
-        const sel = articleEl?.querySelector(`[data-sentence-index="${sentenceNumber}"]`);
-        if (sel) {
-          zoomToTarget(sel.getBoundingClientRect());
+        const { wordEntries, sentenceRanges } = refreshSentenceRanges();
+        const domRange = buildSentenceDomRange(sentenceRanges, wordEntries, sentenceNumber);
+        if (domRange) {
+          zoomToTarget(domRange.getBoundingClientRect());
         }
       }
       setPendingZoomSentence(null);
     }
-  }, [pendingZoomSentence, zoomToTarget]);
+  }, [pendingZoomSentence, zoomToTarget, refreshSentenceRanges]);
 
   // ── Focus ────────────────────────────────────────────────────────────────
   // The modal runs inside an iframe. Keyboard listeners on the iframe's
@@ -550,13 +676,7 @@ export default function App({ initialKey }) {
                       }}
                     />
                   ) : (
-                    <ArticleText
-                      sentences={sentences}
-                      topics={topics}
-                      hoveredTopicKey={hoveredTopicKey}
-                      selectedTopicKey={selectedTopicKey}
-                      articleTextRef={articleTextRef}
-                    />
+                    <ArticleHtml html={articleHtml} articleTextRef={articleTextRef} />
                   )}
 
                   <CanvasTopicHierarchyRail

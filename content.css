@@ -455,11 +455,6 @@ body.pagetollm-rail-open {
   border-radius: 0;
 }
 
-/* Sentence highlights inside the picked article, painted via the native CSS
-   Custom Highlight API. A single Range per sentence fills continuously across
-   whitespace and inline tags — no per-word gaps. Note: ::highlight() only
-   supports color, background-color, text-decoration and text-shadow, so the
-   former box-shadow underline is expressed as text-decoration. */
 ::highlight(pagetollm-sentence) {
   background-color: rgb(58 64 77 / 12%);
 }

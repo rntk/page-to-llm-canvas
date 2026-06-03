@@ -59,6 +59,12 @@ function configForEntry({ name, input, emptyOutDir }) {
       emptyOutDir,
       assetsDir: '.',
       cssCodeSplit: false,
+      // Disable CSS minification: the default lightningcss minifier warns that
+      // the native CSS Custom Highlight API's ::highlight() pseudo-element is
+      // unrecognized (it only knows the :highlight pseudo-class), and esbuild
+      // isn't available in this rolldown-vite toolchain. The bundled CSS is
+      // small, so skipping minification is a fine trade for clean builds.
+      cssMinify: false,
       ...(watch ? { watch: {} } : {}),
       rollupOptions: {
         input,
