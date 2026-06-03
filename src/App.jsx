@@ -377,24 +377,8 @@ export default function App({ initialKey }) {
       const bottom = (Math.max(...rects.map((r) => r.bottom)) - wrapRect.top) / s;
       nextMetrics.set(n, { top, bottom });
     }
-    // TEMP DIAGNOSTIC — remove once rail alignment is confirmed.
-    const dr0 = buildSentenceDomRange(sentenceRanges, wordEntries, 1);
-    console.log(
-      '[pagetollm] metrics',
-      nextMetrics.size,
-      'of',
-      sentences.length,
-      '| words',
-      wordEntries.length,
-      '| w0connected',
-      wordEntries[0]?.node?.isConnected,
-      '| dr0rects',
-      dr0 ? dr0.getClientRects().length : -1,
-      '| first tops',
-      [...nextMetrics.entries()].slice(0, 5).map(([n, m]) => [n, Math.round(m.top)]),
-    );
     setSentenceMetrics(nextMetrics);
-  }, [scaleRef, showSummaryMode, sentences, refreshSentenceRanges]);
+  }, [scaleRef, showSummaryMode, refreshSentenceRanges]);
 
   const measureSummaryPositions = useCallback(() => {
     const wrap = summaryWrapRef.current;

@@ -3,7 +3,7 @@
 // in-page rail (src/content/main.jsx, operating on the live page) and the
 // canvas modal (src/App.jsx, operating on the re-rendered article HTML).
 
-export const WORD_TOKEN_RE = /\S+/g;
+const WORD_TOKEN_RE = /\S+/g;
 export const HIGHLIGHT_NAME = 'pagetollm-sentence';
 
 export function supportsHighlightApi() {
