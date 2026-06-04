@@ -55,7 +55,7 @@ export default function HierarchyApp({ initialKey }) {
   return (
     <div className="th-page">
       <header className="th-page__bar">
-        <h1 className="th-page__title">Topic Hierarchy</h1>
+        <h1 className="th-page__title">Topic Hierarchy and Summaries</h1>
         <button type="button" className="th-page__close" onClick={closeView} title="Close">
           ×
         </button>
