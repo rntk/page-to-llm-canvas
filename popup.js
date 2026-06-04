@@ -7,9 +7,16 @@ const emptyEl = document.getElementById('empty');
 const errorEl = document.getElementById('error');
 const countEl = document.getElementById('record-count');
 
+export const NO_LLM_PROVIDER_MESSAGE =
+  'No LLM provider configured. Add one in Options before picking blocks so PageToLLM can process the selected data.';
+
+export const NO_ACTIVE_LLM_PROVIDER_MESSAGE =
+  'No active LLM provider selected. Choose an active provider in Options before picking blocks.';
+
 let activeTab = null;
 let activeHostname = '';
 let activePageUrl = '';
+let providerReady = false;
 
 export function runtimeMessage(message) {
   return new Promise((resolve, reject) => {
@@ -94,6 +101,13 @@ export function formatDate(ms) {
   } catch (_) {
     return '';
   }
+}
+
+export function providerConfigurationMessage(state) {
+  const providers = Array.isArray(state && state.providers) ? state.providers : [];
+  if (providers.length === 0) return NO_LLM_PROVIDER_MESSAGE;
+  if (!state || !state.activeId) return NO_ACTIVE_LLM_PROVIDER_MESSAGE;
+  return '';
 }
 
 function setError(message) {
@@ -212,6 +226,25 @@ function renderRecords(records) {
   });
 }
 
+async function refreshProviderReadiness() {
+  try {
+    const response = await runtimeMessage({ type: 'listProviders' });
+    if (!response || !response.ok) {
+      throw new Error((response && response.error) || 'Unable to load LLM provider settings');
+    }
+    const message = providerConfigurationMessage(response);
+    providerReady = !message;
+    pickBtn.disabled = !providerReady;
+    setError(message);
+  } catch (err) {
+    providerReady = false;
+    pickBtn.disabled = true;
+    setError(
+      `${err.message || 'Unable to load LLM provider settings'}. Open Options and check your LLM provider configuration.`,
+    );
+  }
+}
+
 async function refreshRecords() {
   setLoading();
   activeTab = await getActiveTab();
@@ -229,6 +262,7 @@ async function refreshRecords() {
       ? response.items.filter((record) => normalizePageUrl(record.sourceUrl) === activePageUrl)
       : response.items;
     renderRecords(matching);
+    await refreshProviderReadiness();
   } catch (err) {
     recordsEl.innerHTML = '';
     emptyEl.hidden = true;
@@ -243,6 +277,8 @@ pickBtn.addEventListener('click', async () => {
     return;
   }
   try {
+    await refreshProviderReadiness();
+    if (!providerReady) return;
     await tabMessage(activeTab.id, { action: 'startSelection' });
     window.close();
   } catch (err) {

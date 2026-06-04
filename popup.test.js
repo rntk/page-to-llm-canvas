@@ -104,6 +104,24 @@ describe('popup pure functions', () => {
     expect(popup.formatDate(null)).toBe('');
   });
 
+  it('providerConfigurationMessage explains missing providers', () => {
+    expect(popup.providerConfigurationMessage({ providers: [], activeId: null })).toContain(
+      'No LLM provider configured',
+    );
+  });
+
+  it('providerConfigurationMessage explains missing active provider', () => {
+    expect(
+      popup.providerConfigurationMessage({ providers: [{ id: 'p1' }], activeId: null }),
+    ).toContain('No active LLM provider selected');
+  });
+
+  it('providerConfigurationMessage returns empty when a provider is active', () => {
+    expect(
+      popup.providerConfigurationMessage({ providers: [{ id: 'p1' }], activeId: 'p1' }),
+    ).toBe('');
+  });
+
   it('getActiveTab returns first active tab', async () => {
     chrome.tabs.query.mockResolvedValue([{ id: 1, url: 'https://example.com' }]);
     const tab = await popup.getActiveTab();
