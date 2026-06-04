@@ -660,8 +660,10 @@ async function openInPageRail(rec, initialMode, options = {}) {
   railEl.id = 'pagetollm-in-page-rail';
   railEl.dataset.mode = state.mode;
   const railRoot = createRoot(railEl);
+  let railClosed = false;
 
   const setRailWidthForMode = () => {
+    if (railClosed) return;
     const railWidth = IN_PAGE_RAIL_WIDTHS[state.mode] || IN_PAGE_RAIL_WIDTHS.topics;
     railEl.style.width = `${railWidth}px`;
     document.documentElement.style.setProperty(
@@ -671,6 +673,18 @@ async function openInPageRail(rec, initialMode, options = {}) {
     document.documentElement.style.setProperty('--pagetollm-rail-width', `${railWidth}px`);
   };
   document.documentElement.appendChild(railEl);
+  inPageRailController = {
+    railEl,
+    teardown() {
+      railClosed = true;
+      railRoot.unmount();
+      railEl.remove();
+      if (supportsHighlightApi()) CSS.highlights.delete(HIGHLIGHT_NAME);
+      document.body.classList.remove('pagetollm-rail-open');
+      document.documentElement.style.removeProperty('--pagetollm-rail-reserve');
+      document.documentElement.style.removeProperty('--pagetollm-rail-width');
+    },
+  };
 
   // Reserve space on the right side of the page so the rail does not overlap text.
   setRailWidthForMode();
@@ -783,6 +797,7 @@ async function openInPageRail(rec, initialMode, options = {}) {
   }
 
   const handleSelectMode = (mode) => {
+    if (railClosed) return;
     if (mode === 'canvas') {
       closeInPageRail();
       openCanvasIframe(record.key);
@@ -802,6 +817,7 @@ async function openInPageRail(rec, initialMode, options = {}) {
   };
 
   const handleSelectLevel = (level) => {
+    if (railClosed) return;
     if (state.selectedLevel === level) return;
     state.selectedLevel = level;
     clearAllHighlights();
@@ -819,6 +835,7 @@ async function openInPageRail(rec, initialMode, options = {}) {
   };
 
   function renderRail({ measureOnly = false } = {}) {
+    if (railClosed || currentRailLoadingToken !== token) return;
     const { cards, bodyHeight } = railOriginTop ? buildRailCards() : { cards: [], bodyHeight: 200 };
     flushSync(() => {
       railRoot.render(
@@ -841,28 +858,18 @@ async function openInPageRail(rec, initialMode, options = {}) {
   }
 
   renderRail({ measureOnly: true });
+  if (railClosed || currentRailLoadingToken !== token) return;
   const bodyRect = railEl.querySelector('.pagetollm-rail-body').getBoundingClientRect();
   railOriginTop = getRailOriginTop(bodyRect, scrollContainer);
   renderRail();
 
   if (options && options.sentenceNumbers && options.sentenceNumbers.length > 0) {
     requestAnimationFrame(() => {
+      if (railClosed || currentRailLoadingToken !== token) return;
       highlightTopic(options.sentenceNumbers, true);
       scrollToFirst(options.sentenceNumbers);
     });
   }
-
-  inPageRailController = {
-    railEl,
-    teardown() {
-      railRoot.unmount();
-      railEl.remove();
-      if (supportsHighlightApi()) CSS.highlights.delete(HIGHLIGHT_NAME);
-      document.body.classList.remove('pagetollm-rail-open');
-      document.documentElement.style.removeProperty('--pagetollm-rail-reserve');
-      document.documentElement.style.removeProperty('--pagetollm-rail-width');
-    },
-  };
 }
 
 function closeInPageRail() {
@@ -875,4 +882,8 @@ function closeInPageRail() {
     }
     inPageRailController = null;
   }
+  document.querySelectorAll('#pagetollm-in-page-rail').forEach((railEl) => railEl.remove());
+  document.body.classList.remove('pagetollm-rail-open');
+  document.documentElement.style.removeProperty('--pagetollm-rail-reserve');
+  document.documentElement.style.removeProperty('--pagetollm-rail-width');
 }

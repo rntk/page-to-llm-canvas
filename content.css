@@ -223,7 +223,7 @@ body.pagetollm-rail-open {
   background: rgb(255 255 255 / 85%);
   backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--ink);
-  z-index: 2000;
+  z-index: 3000;
 }
 
 .pagetollm-rail-title {
@@ -548,7 +548,7 @@ body.pagetollm-rail-open {
   border: 1px solid var(--ink);
   border-radius: 0;
   min-width: 180px;
-  z-index: 100;
+  z-index: 3001;
   padding: 0;
 }
 

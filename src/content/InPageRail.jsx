@@ -246,7 +246,10 @@ function SummaryCursorView({
     let frameId = 0;
     const scheduleUpdate = () => {
       if (frameId) return;
-      frameId = window.requestAnimationFrame(updateActiveCard);
+      frameId = window.requestAnimationFrame(() => {
+        frameId = 0;
+        updateActiveCard();
+      });
     };
 
     updateActiveCard();
@@ -357,19 +360,28 @@ export default function InPageRail({
 
   const bringForward = useCallback((card) => setFrontCardId(card.id), []);
 
-  const handleCardEnter = useCallback((card) => {
-    bringForward(card);
-    onHighlightCard(card, true);
-  }, [bringForward, onHighlightCard]);
+  const handleCardEnter = useCallback(
+    (card) => {
+      bringForward(card);
+      onHighlightCard(card, true);
+    },
+    [bringForward, onHighlightCard],
+  );
 
-  const handleCardLeave = useCallback((card) => {
-    onHighlightCard(card, false);
-  }, [onHighlightCard]);
+  const handleCardLeave = useCallback(
+    (card) => {
+      onHighlightCard(card, false);
+    },
+    [onHighlightCard],
+  );
 
-  const handleCardOpen = useCallback((card) => {
-    bringForward(card);
-    onScrollToCard(card);
-  }, [bringForward, onScrollToCard]);
+  const handleCardOpen = useCallback(
+    (card) => {
+      bringForward(card);
+      onScrollToCard(card);
+    },
+    [bringForward, onScrollToCard],
+  );
 
   const bodyStyle = {
     height: normalizedHeight,

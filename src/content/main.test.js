@@ -188,4 +188,66 @@ describe('content script main.jsx', () => {
     const iframe = document.getElementById('pagetollm-canvas-iframe');
     if (iframe) iframe.remove();
   });
+
+  it('replaces an existing summaries rail when popup opens topics view', async () => {
+    const host = document.createElement('main');
+    host.id = 'rail-switch-host';
+    host.textContent = 'Alpha sentence. Beta sentence.';
+    document.body.appendChild(host);
+
+    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
+      if (msg.type === 'getRecord' && msg.key === 'switch-key') {
+        cb({
+          ok: true,
+          record: {
+            key: 'switch-key',
+            status: 'done',
+            selectors: ['#rail-switch-host'],
+            sentences: ['Alpha sentence.', 'Beta sentence.'],
+            topics: [{ name: 'Topic A', sentences: [0, 1] }],
+            topic_summary_index: {
+              'Topic A': {
+                level: 0,
+                text: 'Summary A',
+                source_sentences: [0, 1],
+              },
+            },
+          },
+        });
+        return;
+      }
+      cb({ ok: false });
+    });
+
+    await act(async () => {
+      messageListener(
+        { action: 'openRecordView', key: 'switch-key', mode: 'summaries' },
+        {},
+        vi.fn(),
+      );
+      await Promise.resolve();
+    });
+
+    let rails = document.querySelectorAll('#pagetollm-in-page-rail');
+    expect(rails).toHaveLength(1);
+    expect(rails[0].dataset.mode).toBe('summaries');
+
+    await act(async () => {
+      messageListener({ action: 'openRecordView', key: 'switch-key', mode: 'topics' }, {}, vi.fn());
+      await Promise.resolve();
+    });
+
+    rails = document.querySelectorAll('#pagetollm-in-page-rail');
+    expect(rails).toHaveLength(1);
+    expect(rails[0].dataset.mode).toBe('topics');
+    expect(document.querySelector('.pagetollm-summary-active-card')).toBeNull();
+
+    messageListener(
+      { action: 'openRecordView', key: 'cleanup-canvas', mode: 'canvas' },
+      {},
+      vi.fn(),
+    );
+    document.getElementById('pagetollm-canvas-iframe')?.remove();
+    host.remove();
+  });
 });

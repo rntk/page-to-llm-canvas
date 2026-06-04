@@ -179,9 +179,20 @@ describe('InPageRail', () => {
     unmount();
   });
 
-  it('handles SummaryCursorView logic in summaries mode', () => {
+  it('handles SummaryCursorView logic in summaries mode', async () => {
     const onHighlightCard = vi.fn();
     const onScrollToCard = vi.fn();
+    const rafCallbacks = [];
+    vi.stubGlobal('requestAnimationFrame', (cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
+    const flushFrames = () => {
+      while (rafCallbacks.length) {
+        rafCallbacks.shift()();
+      }
+    };
 
     const mockScrollContainer = document.createElement('div');
     mockScrollContainer.getBoundingClientRect = () => ({
@@ -193,7 +204,11 @@ describe('InPageRail', () => {
       width: 200,
     });
     Object.defineProperty(mockScrollContainer, 'clientHeight', { value: 800, configurable: true });
-    Object.defineProperty(mockScrollContainer, 'scrollTop', { value: 50, configurable: true });
+    let scrollTop = 0;
+    Object.defineProperty(mockScrollContainer, 'scrollTop', {
+      get: () => scrollTop,
+      configurable: true,
+    });
 
     const { container, unmount } = render(
       createElement(InPageRail, {
@@ -215,9 +230,23 @@ describe('InPageRail', () => {
       width: 200,
     });
 
+    onHighlightCard.mockClear();
     act(() => {
       mockScrollContainer.dispatchEvent(new Event('scroll'));
+      flushFrames();
     });
+    await Promise.resolve();
+    expect(onHighlightCard).toHaveBeenCalledWith(mockCards[0], true);
+
+    onHighlightCard.mockClear();
+    scrollTop = 100;
+    act(() => {
+      mockScrollContainer.dispatchEvent(new Event('scroll'));
+      flushFrames();
+    });
+    await Promise.resolve();
+    expect(onHighlightCard).toHaveBeenCalledWith(mockCards[0], false);
+    expect(onHighlightCard).toHaveBeenCalledWith(mockCards[1], true);
 
     const activeLine = container.querySelector('.pagetollm-summary-cursor-line');
     expect(activeLine).not.toBeNull();
