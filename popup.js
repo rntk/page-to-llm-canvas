@@ -187,7 +187,7 @@ function renderRecords(records) {
     reprocessBtn.type = 'button';
     reprocessBtn.textContent = 'Reprocess';
     reprocessBtn.addEventListener('click', async () => {
-      if (!confirm('Reprocess this analysis? Existing topics and summaries will be regenerated.'))
+      if (!confirm('Reprocess this analysis? Existing results will be overwritten.'))
         return;
       try {
         const response = await runtimeMessage({ type: 'reprocessRecord', key: record.key });

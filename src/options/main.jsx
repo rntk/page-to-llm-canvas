@@ -269,7 +269,7 @@ function OptionsApp() {
     }
 
     if (action === 'reprocess') {
-      if (!confirm('Reprocess this record? Existing topics and summaries will be regenerated.')) {
+      if (!confirm('Reprocess this record? Existing results will be overwritten.')) {
         return;
       }
       await sendMessage({ type: 'reprocessRecord', key });
