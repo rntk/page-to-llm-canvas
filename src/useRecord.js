@@ -10,13 +10,17 @@ import { useEffect, useState } from 'react';
  */
 export function useRecord(key) {
   const [record, setRecord] = useState(null);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(() => (key ? null : 'missing record key'));
+
+  const [prevKey, setPrevKey] = useState(key);
+  if (key !== prevKey) {
+    setPrevKey(key);
+    setRecord(null);
+    setError(key ? null : 'missing record key');
+  }
 
   useEffect(() => {
-    if (!key) {
-      setError('missing record key');
-      return undefined;
-    }
+    if (!key) return undefined;
 
     let cancelled = false;
     const storageKey = `pagetollm:rec:${key}`;

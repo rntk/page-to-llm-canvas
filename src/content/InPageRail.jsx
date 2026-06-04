@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 
 const SUMMARY_CURSOR_VIEWPORT_RATIO = 0.38;
 const SUMMARY_CURSOR_MIN_TOP = 112;
@@ -169,6 +169,8 @@ function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen 
   );
 }
 
+const MemoizedRailCard = React.memo(RailCard);
+
 function getScrollContainerTop(scrollContainer) {
   if (!scrollContainer || scrollContainer === window) return window.scrollY;
   return scrollContainer.scrollTop;
@@ -202,40 +204,46 @@ function SummaryCursorView({
 }) {
   const [activeCardId, setActiveCardId] = useState(null);
   const [cursorTop, setCursorTop] = useState(SUMMARY_CURSOR_MIN_TOP);
-  const activeCardRef = useRef(null);
+  const cardsRef = useRef(cards);
+  useEffect(() => {
+    cardsRef.current = cards;
+  }, [cards]);
+  const onHighlightCardRef = useRef(onHighlightCard);
+  useEffect(() => {
+    onHighlightCardRef.current = onHighlightCard;
+  }, [onHighlightCard]);
 
   const activeCard = useMemo(
     () => cards.find((card) => card.id === activeCardId) || null,
     [activeCardId, cards],
   );
 
+  const updateActiveCard = useCallback(() => {
+    const body = bodyRef.current;
+    const currentCards = cardsRef.current;
+    if (!body || currentCards.length === 0) {
+      setActiveCardId(null);
+      return;
+    }
+
+    const containerTop = getScrollContainerViewportTop(scrollContainer);
+    const containerHeight = getScrollContainerViewportHeight(scrollContainer);
+    const nextCursorTop = Math.max(
+      SUMMARY_CURSOR_MIN_TOP,
+      Math.round(containerTop + containerHeight * SUMMARY_CURSOR_VIEWPORT_RATIO),
+    );
+    setCursorTop(nextCursorTop);
+
+    const relativeY = getCursorRelativeY(scrollContainer, body, nextCursorTop);
+    const matching = currentCards
+      .filter((card) => relativeY >= card.box.top && relativeY <= card.box.top + card.box.height)
+      .sort((a, b) => a.box.height - b.box.height || a.box.top - b.box.top);
+
+    setActiveCardId(matching[0]?.id || null);
+  }, [bodyRef, scrollContainer]);
+
   useEffect(() => {
     let frameId = 0;
-
-    const updateActiveCard = () => {
-      frameId = 0;
-      const body = bodyRef.current;
-      if (!body || cards.length === 0) {
-        setActiveCardId(null);
-        return;
-      }
-
-      const containerTop = getScrollContainerViewportTop(scrollContainer);
-      const containerHeight = getScrollContainerViewportHeight(scrollContainer);
-      const nextCursorTop = Math.max(
-        SUMMARY_CURSOR_MIN_TOP,
-        Math.round(containerTop + containerHeight * SUMMARY_CURSOR_VIEWPORT_RATIO),
-      );
-      setCursorTop(nextCursorTop);
-
-      const relativeY = getCursorRelativeY(scrollContainer, body, nextCursorTop);
-      const matching = cards
-        .filter((card) => relativeY >= card.box.top && relativeY <= card.box.top + card.box.height)
-        .sort((a, b) => a.box.height - b.box.height || a.box.top - b.box.top);
-
-      setActiveCardId(matching[0]?.id || null);
-    };
-
     const scheduleUpdate = () => {
       if (frameId) return;
       frameId = window.requestAnimationFrame(updateActiveCard);
@@ -256,25 +264,23 @@ function SummaryCursorView({
       }
       window.removeEventListener('resize', scheduleUpdate);
     };
-  }, [bodyRef, cards, scrollContainer]);
+  }, [updateActiveCard, scrollContainer]);
 
   useEffect(() => {
-    const previous = activeCardRef.current;
-    if (previous && previous.id !== activeCard?.id) {
-      onHighlightCard(previous, false);
-    }
-    if (activeCard && previous?.id !== activeCard.id) {
-      onHighlightCard(activeCard, true);
-    }
-    activeCardRef.current = activeCard;
+    updateActiveCard();
+  }, [cards, updateActiveCard]);
 
+  useEffect(() => {
+    const highlightFn = onHighlightCardRef.current;
+    if (activeCard) {
+      highlightFn(activeCard, true);
+    }
     return () => {
-      if (activeCardRef.current) {
-        onHighlightCard(activeCardRef.current, false);
-        activeCardRef.current = null;
+      if (activeCard) {
+        highlightFn(activeCard, false);
       }
     };
-  }, [activeCard, onHighlightCard]);
+  }, [activeCard]);
 
   const cursorTopStyle = `${cursorTop}px`;
 
@@ -349,7 +355,22 @@ export default function InPageRail({
     };
   }, [scrollContainer]);
 
-  const bringForward = (card) => setFrontCardId(card.id);
+  const bringForward = useCallback((card) => setFrontCardId(card.id), []);
+
+  const handleCardEnter = useCallback((card) => {
+    bringForward(card);
+    onHighlightCard(card, true);
+  }, [bringForward, onHighlightCard]);
+
+  const handleCardLeave = useCallback((card) => {
+    onHighlightCard(card, false);
+  }, [onHighlightCard]);
+
+  const handleCardOpen = useCallback((card) => {
+    bringForward(card);
+    onScrollToCard(card);
+  }, [bringForward, onScrollToCard]);
+
   const bodyStyle = {
     height: normalizedHeight,
     transform: isNestedScroll && !isSummary ? `translateY(${-scrollOffset}px)` : undefined,
@@ -380,21 +401,15 @@ export default function InPageRail({
           />
         ) : (
           cards.map((card) => (
-            <RailCard
+            <MemoizedRailCard
               key={card.id}
               card={card}
               isSummary={isSummary}
               isFront={frontCardId === card.id}
-              onEnter={(nextCard) => {
-                bringForward(nextCard);
-                onHighlightCard(nextCard, true);
-              }}
-              onLeave={(nextCard) => onHighlightCard(nextCard, false)}
+              onEnter={handleCardEnter}
+              onLeave={handleCardLeave}
               onFocus={bringForward}
-              onOpen={(nextCard) => {
-                bringForward(nextCard);
-                onScrollToCard(nextCard);
-              }}
+              onOpen={handleCardOpen}
             />
           ))
         )}

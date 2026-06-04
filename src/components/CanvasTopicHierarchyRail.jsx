@@ -160,7 +160,7 @@ function getAdjustedHierarchyCards(cards) {
  *   onToggleRead: ((topicKey: string) => void) | null,
  * }} props
  */
-export default function CanvasTopicHierarchyRail({
+function CanvasTopicHierarchyRail({
   show,
   selectedLevel,
   topicCards,
@@ -281,3 +281,5 @@ export default function CanvasTopicHierarchyRail({
     </aside>
   );
 }
+
+export default React.memo(CanvasTopicHierarchyRail);

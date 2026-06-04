@@ -20,7 +20,7 @@ import TopicLevelSwitcher from './TopicLevelSwitcher.jsx';
  * }} props
  * @returns {import("react").JSX.Element}
  */
-export default function CanvasZoomControls({
+function CanvasZoomControls({
   onNavigate,
   onZoomIn,
   onZoomOut,
@@ -145,3 +145,5 @@ export default function CanvasZoomControls({
     </div>
   );
 }
+
+export default React.memo(CanvasZoomControls);

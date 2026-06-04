@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function CanvasSummaryView({
+function CanvasSummaryView({
   summaryViewCards,
   summaryViewActivePath,
   summaryCardRefs,
@@ -72,3 +72,5 @@ export default function CanvasSummaryView({
     </div>
   );
 }
+
+export default React.memo(CanvasSummaryView);

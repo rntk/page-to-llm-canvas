@@ -169,11 +169,10 @@ export default function App({ initialKey }) {
   const summaryCardRefs = useRef({});
 
   // Live DOM Ranges over the rendered article HTML, keyed by sentence number.
-  // Built in a layout effect after the HTML mounts; `rangesVersion` bumps so the
-  // measurement and highlight effects re-run once ranges exist.
+  // Built in a layout effect after the HTML mounts; the measurement and highlight
+  // effects re-run once layout changes.
   const wordEntriesRef = useRef([]);
   const sentenceRangesRef = useRef(new Map());
-  const [rangesVersion, setRangesVersion] = useState(0);
 
   const {
     scale,
@@ -208,7 +207,12 @@ export default function App({ initialKey }) {
     [handleMouseDown, canvasWrapElRef],
   );
 
-  const topics = useMemo(() => (Array.isArray(record?.topics) ? record.topics : []), [record]);
+  const topicsJson = JSON.stringify(record?.topics || null);
+  const topics = useMemo(
+    () => (Array.isArray(record?.topics) ? record.topics : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [topicsJson],
+  );
 
   // Keep a referentially-stable `sentences` array across record writes that
   // don't actually change the sentences. The orchestrator rewrites the record
@@ -238,9 +242,12 @@ export default function App({ initialKey }) {
   }, [record?.html, sentences]);
 
   const maxLevel = useMemo(() => getMaxTopicLevel(topics), [topics]);
+  const summariesJson = JSON.stringify(record?.topic_summaries || null);
+  const summaryIndexJson = JSON.stringify(record?.topic_summary_index || null);
   const allSummaryCards = useMemo(
     () => buildSummaryCards(topics, record?.topic_summaries, record?.topic_summary_index),
-    [topics, record],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [topics, summariesJson, summaryIndexJson],
   );
   const summaryCards = useMemo(() => {
     // Show one summary per topic branch at the current level: the level-N card
@@ -339,20 +346,6 @@ export default function App({ initialKey }) {
 
   const activeTopicKey = hoveredTopicKey || selectedTopicKey;
 
-  // ── Measurement ──────────────────────────────────────────────────────────
-
-  // Build live word entries + sentence ranges once the article HTML is mounted.
-  // Runs synchronously before paint so measurement (below) sees real ranges.
-  useLayoutEffect(() => {
-    if (!isDone || showSummaryMode) return;
-    const articleEl = articleTextRef.current;
-    if (!articleEl) return;
-    const wordEntries = collectWordEntries([articleEl]);
-    wordEntriesRef.current = wordEntries;
-    sentenceRangesRef.current = buildSentenceWordRanges(sentences, wordEntries);
-    setRangesVersion((v) => v + 1);
-  }, [isDone, showSummaryMode, articleHtml, sentences]);
-
   // Rebuild word entries + sentence ranges from the *current* article DOM.
   // The Highlight API and measurement hold live Ranges into text nodes; if those
   // nodes are ever replaced by a re-render, the stale Ranges resolve to nothing
@@ -367,6 +360,12 @@ export default function App({ initialKey }) {
     sentenceRangesRef.current = sentenceRanges;
     return { wordEntries, sentenceRanges };
   }, [sentences]);
+
+  // Re-build word entries and sentence ranges synchronously before paint whenever layout changes.
+  useLayoutEffect(() => {
+    if (!isDone || showSummaryMode) return;
+    refreshSentenceRanges();
+  }, [isDone, showSummaryMode, articleHtml, refreshSentenceRanges]);
 
   const measureSentencePositions = useCallback(() => {
     const wrap = summaryWrapRef.current;
@@ -470,7 +469,7 @@ export default function App({ initialKey }) {
     showSummaryMode,
     sentences,
     summaryCards,
-    rangesVersion,
+    articleHtml,
     measureSentencePositions,
     measureSummaryPositions,
   ]);
@@ -531,7 +530,7 @@ export default function App({ initialKey }) {
     topics,
     selectedTopicKey,
     hoveredTopicKey,
-    rangesVersion,
+    articleHtml,
     refreshSentenceRanges,
   ]);
 
@@ -567,18 +566,19 @@ export default function App({ initialKey }) {
   );
 
   useEffect(() => {
-    if (pendingZoomSentence !== null) {
-      const sentenceNumber = Number(pendingZoomSentence);
-      if (Number.isInteger(sentenceNumber) && sentenceNumber > 0) {
-        const { wordEntries, sentenceRanges } = refreshSentenceRanges();
-        const domRange = buildSentenceDomRange(sentenceRanges, wordEntries, sentenceNumber);
-        if (domRange) {
-          zoomToTarget(domRange.getBoundingClientRect());
-        }
+    // Wait until we're in article mode (the article DOM must be mounted) before
+    // resolving the queued sentence to a live range and zooming to it.
+    if (showSummaryMode || pendingZoomSentence === null) return;
+    setPendingZoomSentence(null);
+    const sentenceNumber = Number(pendingZoomSentence);
+    if (Number.isInteger(sentenceNumber) && sentenceNumber > 0) {
+      const { wordEntries, sentenceRanges } = refreshSentenceRanges();
+      const domRange = buildSentenceDomRange(sentenceRanges, wordEntries, sentenceNumber);
+      if (domRange) {
+        zoomToTarget(domRange.getBoundingClientRect());
       }
-      setPendingZoomSentence(null);
     }
-  }, [pendingZoomSentence, zoomToTarget, refreshSentenceRanges]);
+  }, [showSummaryMode, pendingZoomSentence, zoomToTarget, refreshSentenceRanges]);
 
   // ── Focus ────────────────────────────────────────────────────────────────
   // The modal runs inside an iframe. Keyboard listeners on the iframe's
@@ -624,6 +624,53 @@ export default function App({ initialKey }) {
     });
   }, [initialKey]);
 
+  const handleTopicEnter = useCallback((k) => {
+    setHoveredTopicKey(k);
+  }, []);
+
+  const handleTopicLeave = useCallback((k) => {
+    setHoveredTopicKey((cur) => (cur === k ? null : cur));
+  }, []);
+
+  const handleTopicClick = useCallback(
+    (k, card) => {
+      setSelectedTopicKey((cur) => (cur === k ? null : k));
+      zoomToTopic(k, card);
+    },
+    [zoomToTopic],
+  );
+
+  const handleShowSourceSentences = useCallback((card) => {
+    setSelectedTopicKey(card.path);
+    setShowSummaryMode(false);
+    setPendingZoomSentence(card.startSentence);
+  }, []);
+  const handleZoomIn = useCallback(() => {
+    setTransformNow(clampScale((scaleRef.current || 1) * 1.2), translateRef.current);
+  }, [setTransformNow, scaleRef, translateRef]);
+
+  const handleZoomOut = useCallback(() => {
+    setTransformNow(clampScale((scaleRef.current || 1) / 1.2), translateRef.current);
+  }, [setTransformNow, scaleRef, translateRef]);
+
+  const handleReset = useCallback(() => {
+    setTransformNow(1, { x: 40, y: 40 });
+  }, [setTransformNow]);
+
+  const handleToggleSummaryMode = useCallback(() => {
+    setShowSummaryMode((v) => !v);
+  }, []);
+
+  const handleToggleTopicHierarchy = useCallback(() => {
+    setShowTopicHierarchy((v) => !v);
+  }, []);
+
+  const handleLevelChange = useCallback((level) => {
+    setSelectedLevel(level);
+    setHoveredTopicKey(null);
+    setSelectedTopicKey(null);
+  }, []);
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -665,11 +712,7 @@ export default function App({ initialKey }) {
                       summaryCardRefs={summaryCardRefs}
                       setHoveredTopicKey={setHoveredTopicKey}
                       articleTextRef={articleTextRef}
-                      onShowSourceSentences={(card) => {
-                        setSelectedTopicKey(card.path);
-                        setShowSummaryMode(false);
-                        setPendingZoomSentence(card.startSentence);
-                      }}
+                      onShowSourceSentences={handleShowSourceSentences}
                     />
                   ) : (
                     <ArticleHtml html={articleHtml} articleTextRef={articleTextRef} />
@@ -683,12 +726,9 @@ export default function App({ initialKey }) {
                     cardWidth={cardWidth}
                     activeTopicKey={activeTopicKey}
                     selectedTopicKey={selectedTopicKey}
-                    onTopicEnter={(k) => setHoveredTopicKey(k)}
-                    onTopicLeave={(k) => setHoveredTopicKey((cur) => (cur === k ? null : cur))}
-                    onTopicClick={(k, card) => {
-                      setSelectedTopicKey((cur) => (cur === k ? null : k));
-                      zoomToTopic(k, card);
-                    }}
+                    onTopicEnter={handleTopicEnter}
+                    onTopicLeave={handleTopicLeave}
+                    onTopicClick={handleTopicClick}
                     readTopics={null}
                     onToggleRead={null}
                   />
@@ -699,24 +739,16 @@ export default function App({ initialKey }) {
             <CanvasZoomControls
               onClose={closeModal}
               onNavigate={navigateCanvas}
-              onZoomIn={() =>
-                setTransformNow(clampScale((scaleRef.current || 1) * 1.2), translateRef.current)
-              }
-              onZoomOut={() =>
-                setTransformNow(clampScale((scaleRef.current || 1) / 1.2), translateRef.current)
-              }
-              onReset={() => setTransformNow(1, { x: 40, y: 40 })}
+              onZoomIn={handleZoomIn}
+              onZoomOut={handleZoomOut}
+              onReset={handleReset}
               showSummaryMode={showSummaryMode}
-              onToggleSummaryMode={() => setShowSummaryMode((v) => !v)}
+              onToggleSummaryMode={handleToggleSummaryMode}
               showTopicHierarchy={showTopicHierarchy}
-              onToggleTopicHierarchy={() => setShowTopicHierarchy((v) => !v)}
+              onToggleTopicHierarchy={handleToggleTopicHierarchy}
               selectedLevel={selectedLevel}
               maxLevel={maxLevel}
-              onLevelChange={(level) => {
-                setSelectedLevel(level);
-                setHoveredTopicKey(null);
-                setSelectedTopicKey(null);
-              }}
+              onLevelChange={handleLevelChange}
             />
           </div>
         )}

@@ -189,4 +189,36 @@ describe('useRecord', () => {
     unmount();
     expect(chrome.storage.onChanged.removeListener).toHaveBeenCalled();
   });
+
+  it('resets record and fetches new record when key changes', () => {
+    let currentKey = 'key1';
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    let result = { current: null };
+    function TestComponent() {
+      result.current = useRecord(currentKey);
+      return null;
+    }
+    const root = createRoot(container);
+
+    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
+      if (msg.key === 'key1') {
+        cb({ ok: true, record: { key: 'key1', val: 'a' } });
+      } else if (msg.key === 'key2') {
+        cb({ ok: true, record: { key: 'key2', val: 'b' } });
+      }
+    });
+
+    act(() => root.render(createElement(TestComponent)));
+    expect(result.current.record).toEqual({ key: 'key1', val: 'a' });
+
+    // Change key and re-render
+    currentKey = 'key2';
+    act(() => root.render(createElement(TestComponent)));
+
+    expect(result.current.record).toEqual({ key: 'key2', val: 'b' });
+
+    act(() => root.unmount());
+    container.remove();
+  });
 });

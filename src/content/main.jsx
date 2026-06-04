@@ -20,6 +20,8 @@ let dragSrcIndex = null;
 let dragOverIndex = null;
 let canvasIframe = null;
 let inPageRailController = null;
+let isSubmitting = false;
+let currentRailLoadingToken = null;
 const IN_PAGE_RAIL_WIDTHS = Object.freeze({
   topics: 260,
   summaries: 340,
@@ -189,6 +191,7 @@ function renderSelectionToolbar() {
   selectionToolbarRoot.render(
     <SelectionToolbar
       isPicking={selectionMode}
+      isSubmitting={isSubmitting}
       selectedBlocks={selectedBlocks}
       draggingIndex={dragSrcIndex}
       dragOverIndex={dragOverIndex}
@@ -285,10 +288,14 @@ async function submitSelection(event) {
     event.preventDefault();
     event.stopPropagation();
   }
+  if (isSubmitting) return;
   if (selectedElements.length === 0) {
     alert('Please pick at least one block first.');
     return;
   }
+
+  isSubmitting = true;
+  updateSubmitState();
 
   const sourceUrl = window.location.href;
   const els = selectedElements.map(({ el }) => el);
@@ -312,6 +319,7 @@ async function submitSelection(event) {
     console.error('PageToLLM submit error:', err);
     alert('PageToLLM error: ' + err.message);
   } finally {
+    isSubmitting = false;
     cleanupSelection();
   }
 }
@@ -595,8 +603,15 @@ async function openInPageRail(rec, initialMode, options = {}) {
   closeInPageRail();
   removeCanvasIframe();
 
+  const token = Symbol('rail-loading');
+  currentRailLoadingToken = token;
+
   // Always re-fetch to get the latest data even if widget data is stale.
   const record = await fetchRecord(rec.key);
+  if (currentRailLoadingToken !== token) {
+    // A newer rail request has started loading, abort this one!
+    return;
+  }
   if (!record || record.status !== 'done') {
     alert('PageToLLM: record is not ready yet.');
     return;
@@ -767,6 +782,42 @@ async function openInPageRail(rec, initialMode, options = {}) {
     return { cards: cardSpecs, bodyHeight: railHeight };
   }
 
+  const handleSelectMode = (mode) => {
+    if (mode === 'canvas') {
+      closeInPageRail();
+      openCanvasIframe(record.key);
+      return;
+    }
+    if (mode === 'hierarchy') {
+      closeInPageRail();
+      openHierarchyIframe(record.key);
+      return;
+    }
+    if (state.mode === mode) return;
+    state.mode = mode;
+    railEl.dataset.mode = state.mode;
+    setRailWidthForMode();
+    clearAllHighlights();
+    renderRail();
+  };
+
+  const handleSelectLevel = (level) => {
+    if (state.selectedLevel === level) return;
+    state.selectedLevel = level;
+    clearAllHighlights();
+    renderRail();
+  };
+
+  const handleHighlightCard = (card, on) => {
+    const sentenceList = card.sentences || card.sourceSentences || [];
+    highlightTopic(sentenceList, on);
+  };
+
+  const handleScrollToCard = (card) => {
+    const sentenceList = card.sentences || card.sourceSentences || [];
+    scrollToFirst(sentenceList);
+  };
+
   function renderRail({ measureOnly = false } = {}) {
     const { cards, bodyHeight } = railOriginTop ? buildRailCards() : { cards: [], bodyHeight: 200 };
     flushSync(() => {
@@ -779,38 +830,10 @@ async function openInPageRail(rec, initialMode, options = {}) {
           cards={measureOnly ? [] : cards}
           bodyHeight={measureOnly ? 200 : bodyHeight}
           onClose={closeInPageRail}
-          onSelectMode={(mode) => {
-            if (mode === 'canvas') {
-              closeInPageRail();
-              openCanvasIframe(record.key);
-              return;
-            }
-            if (mode === 'hierarchy') {
-              closeInPageRail();
-              openHierarchyIframe(record.key);
-              return;
-            }
-            if (state.mode === mode) return;
-            state.mode = mode;
-            railEl.dataset.mode = state.mode;
-            setRailWidthForMode();
-            clearAllHighlights();
-            renderRail();
-          }}
-          onSelectLevel={(level) => {
-            if (state.selectedLevel === level) return;
-            state.selectedLevel = level;
-            clearAllHighlights();
-            renderRail();
-          }}
-          onHighlightCard={(card, on) => {
-            const sentenceList = card.sentences || card.sourceSentences || [];
-            highlightTopic(sentenceList, on);
-          }}
-          onScrollToCard={(card) => {
-            const sentenceList = card.sentences || card.sourceSentences || [];
-            scrollToFirst(sentenceList);
-          }}
+          onSelectMode={handleSelectMode}
+          onSelectLevel={handleSelectLevel}
+          onHighlightCard={handleHighlightCard}
+          onScrollToCard={handleScrollToCard}
           scrollContainer={scrollContainer}
         />,
       );
@@ -843,6 +866,7 @@ async function openInPageRail(rec, initialMode, options = {}) {
 }
 
 function closeInPageRail() {
+  currentRailLoadingToken = null;
   if (inPageRailController) {
     try {
       inPageRailController.teardown();

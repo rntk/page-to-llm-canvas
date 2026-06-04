@@ -145,6 +145,47 @@ describe('content script main.jsx', () => {
       });
     }
   });
+
+  it('aborts openInPageRail if closeInPageRail is called before loading finishes', async () => {
+    let resolveMessage = null;
+    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
+      if (msg.type === 'getRecord' && msg.key === 'delay-key') {
+        resolveMessage = () =>
+          cb({
+            ok: true,
+            record: {
+              key: 'delay-key',
+              status: 'done',
+              selectors: ['body'],
+              topics: [],
+            },
+          });
+      } else {
+        cb({ ok: false });
+      }
+    });
+
+    const sendResponse = vi.fn();
+    messageListener(
+      { action: 'openRecordView', key: 'delay-key', mode: 'topics' },
+      {},
+      sendResponse,
+    );
+
+    expect(document.getElementById('pagetollm-in-page-rail')).toBeNull();
+
+    messageListener({ action: 'openRecordView', key: 'canvas-key', mode: 'canvas' }, {}, vi.fn());
+
+    expect(document.getElementById('pagetollm-canvas-iframe')).not.toBeNull();
+
+    expect(resolveMessage).not.toBeNull();
+    await act(async () => {
+      resolveMessage();
+    });
+
+    expect(document.getElementById('pagetollm-in-page-rail')).toBeNull();
+
+    const iframe = document.getElementById('pagetollm-canvas-iframe');
+    if (iframe) iframe.remove();
+  });
 });
-
-
