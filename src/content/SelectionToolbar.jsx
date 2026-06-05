@@ -23,9 +23,9 @@ export default function SelectionToolbar({
 
   return (
     <>
-      <div id="rsstag-toolbar-top">
+      <div id="pagetollm-toolbar-top">
         <button
-          id="rsstag-pick-btn"
+          id="pagetollm-pick-btn"
           className={isPicking ? 'active' : ''}
           type="button"
           disabled={isSubmitting}
@@ -34,23 +34,23 @@ export default function SelectionToolbar({
           {isPicking ? 'Picking...' : 'Pick Block'}
         </button>
         <button
-          id="rsstag-submit-btn"
+          id="pagetollm-submit-btn"
           type="button"
           disabled={selectedBlocks.length === 0 || isSubmitting}
           onClick={onSubmit}
         >
           {submitLabel}
         </button>
-        <button id="rsstag-cancel-btn" type="button" disabled={isSubmitting} onClick={onCancel}>
+        <button id="pagetollm-cancel-btn" type="button" disabled={isSubmitting} onClick={onCancel}>
           Cancel
         </button>
       </div>
-      <ul id="rsstag-block-list">
+      <ul id="pagetollm-block-list">
         {selectedBlocks.map((block, index) => {
           const classes = [
-            'rsstag-block-item',
-            draggingIndex === index ? 'rsstag-dragging' : '',
-            dragOverIndex === index && draggingIndex !== index ? 'rsstag-drag-over' : '',
+            'pagetollm-block-item',
+            draggingIndex === index ? 'pagetollm-dragging' : '',
+            dragOverIndex === index && draggingIndex !== index ? 'pagetollm-drag-over' : '',
           ]
             .filter(Boolean)
             .join(' ');
@@ -66,12 +66,12 @@ export default function SelectionToolbar({
               onDrop={(event) => !isSubmitting && onDrop(event, index)}
               onDragEnd={onDragEnd}
             >
-              <span className="rsstag-drag-handle" title="Drag to reorder">
+              <span className="pagetollm-drag-handle" title="Drag to reorder">
                 &#9776;
               </span>
-              <span className="rsstag-block-label">Block {block.originalNumber}</span>
+              <span className="pagetollm-block-label">Block {block.originalNumber}</span>
               <button
-                className="rsstag-remove-btn"
+                className="pagetollm-remove-btn"
                 type="button"
                 title="Remove block"
                 disabled={isSubmitting}

@@ -113,7 +113,7 @@ function showSelectionToolbar() {
   }
 
   selectionToolbar = document.createElement('div');
-  selectionToolbar.id = 'rsstag-selection-toolbar';
+  selectionToolbar.id = 'pagetollm-selection-toolbar';
   document.body.appendChild(selectionToolbar);
   selectionToolbarRoot = createRoot(selectionToolbar);
   renderSelectionToolbar();
@@ -139,38 +139,38 @@ function disableSelection() {
   document.removeEventListener('mouseover', highlightElement);
   document.removeEventListener('mouseout', unhighlightElement);
   document.removeEventListener('click', selectElement, true);
-  document.querySelectorAll('.rsstag-element-highlight').forEach((el) => {
-    el.classList.remove('rsstag-element-highlight');
+  document.querySelectorAll('.pagetollm-element-highlight').forEach((el) => {
+    el.classList.remove('pagetollm-element-highlight');
   });
 }
 
 function highlightElement(event) {
   if (!selectionMode) return;
-  if (event.target.closest('#rsstag-selection-toolbar')) return;
+  if (event.target.closest('#pagetollm-selection-toolbar')) return;
   const el = event.target;
   if (el && el !== document.body && el !== document.documentElement) {
-    el.classList.add('rsstag-element-highlight');
+    el.classList.add('pagetollm-element-highlight');
   }
 }
 
 function unhighlightElement(event) {
   if (!selectionMode) return;
-  if (event.target.closest('#rsstag-selection-toolbar')) return;
+  if (event.target.closest('#pagetollm-selection-toolbar')) return;
   const el = event.target;
   if (el && !selectedElements.some((entry) => entry.el === el)) {
-    el.classList.remove('rsstag-element-highlight');
+    el.classList.remove('pagetollm-element-highlight');
   }
 }
 
 function selectElement(event) {
   if (!selectionMode) return;
-  if (event.target.closest('#rsstag-selection-toolbar')) return;
+  if (event.target.closest('#pagetollm-selection-toolbar')) return;
 
   event.preventDefault();
   event.stopPropagation();
 
   const el = event.target;
-  el.classList.add('rsstag-selected');
+  el.classList.add('pagetollm-selected');
   pickCounter += 1;
   selectedElements.push({ el, originalNumber: pickCounter });
 
@@ -210,7 +210,7 @@ function renderSelectionToolbar() {
 function removeBlock(index) {
   const entry = selectedElements[index];
   if (entry) {
-    entry.el.classList.remove('rsstag-selected');
+    entry.el.classList.remove('pagetollm-selected');
   }
   selectedElements.splice(index, 1);
   selectedElements.forEach((item, idx) => {
@@ -223,7 +223,7 @@ function removeBlock(index) {
 
 function onDragStart(event, index) {
   dragSrcIndex = Number.isInteger(index) ? index : parseInt(event.currentTarget.dataset.index);
-  event.currentTarget.classList.add('rsstag-dragging');
+  event.currentTarget.classList.add('pagetollm-dragging');
   event.dataTransfer.effectAllowed = 'move';
   renderSelectionToolbar();
 }
@@ -268,11 +268,11 @@ function buildHtml(elements) {
   for (const el of elements) {
     const clone = el.cloneNode(true);
     if (clone.classList) {
-      clone.classList.remove('rsstag-selected', 'rsstag-element-highlight');
+      clone.classList.remove('pagetollm-selected', 'pagetollm-element-highlight');
     }
     clone.querySelectorAll &&
-      clone.querySelectorAll('.rsstag-selected, .rsstag-element-highlight').forEach((c) => {
-        c.classList.remove('rsstag-selected', 'rsstag-element-highlight');
+      clone.querySelectorAll('.pagetollm-selected, .pagetollm-element-highlight').forEach((c) => {
+        c.classList.remove('pagetollm-selected', 'pagetollm-element-highlight');
       });
     parts.push(clone.outerHTML);
   }
@@ -366,7 +366,7 @@ function cleanupSelection() {
     selectionToolbar = null;
   }
 
-  selectedElements.forEach(({ el }) => el.classList.remove('rsstag-selected'));
+  selectedElements.forEach(({ el }) => el.classList.remove('pagetollm-selected'));
   selectedElements = [];
   pickCounter = 0;
   dragSrcIndex = null;

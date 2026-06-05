@@ -38,8 +38,8 @@ describe('SelectionToolbar', () => {
   it('renders correctly with empty blocks', () => {
     const { container, unmount } = render(createElement(SelectionToolbar, defaultProps));
 
-    const pickBtn = container.querySelector('#rsstag-pick-btn');
-    const submitBtn = container.querySelector('#rsstag-submit-btn');
+    const pickBtn = container.querySelector('#pagetollm-pick-btn');
+    const submitBtn = container.querySelector('#pagetollm-submit-btn');
 
     expect(pickBtn.textContent).toBe('Pick Block');
     expect(pickBtn.className).not.toContain('active');
@@ -70,9 +70,9 @@ describe('SelectionToolbar', () => {
       }),
     );
 
-    const pickBtn = container.querySelector('#rsstag-pick-btn');
-    const submitBtn = container.querySelector('#rsstag-submit-btn');
-    const cancelBtn = container.querySelector('#rsstag-cancel-btn');
+    const pickBtn = container.querySelector('#pagetollm-pick-btn');
+    const submitBtn = container.querySelector('#pagetollm-submit-btn');
+    const cancelBtn = container.querySelector('#pagetollm-cancel-btn');
 
     expect(pickBtn.textContent).toBe('Picking...');
     expect(pickBtn.className).toContain('active');
@@ -90,13 +90,13 @@ describe('SelectionToolbar', () => {
     expect(onCancel).toHaveBeenCalled();
 
     // Test list items
-    const listItems = container.querySelectorAll('.rsstag-block-item');
+    const listItems = container.querySelectorAll('.pagetollm-block-item');
     expect(listItems).toHaveLength(2);
     expect(listItems[0].textContent).toContain('Block 1');
     expect(listItems[1].textContent).toContain('Block 2');
 
     // Remove button click
-    const removeBtn = listItems[0].querySelector('.rsstag-remove-btn');
+    const removeBtn = listItems[0].querySelector('.pagetollm-remove-btn');
     act(() => removeBtn.click());
     expect(onRemoveBlock).toHaveBeenCalledWith(0);
 
@@ -125,9 +125,9 @@ describe('SelectionToolbar', () => {
       }),
     );
 
-    const listItems = container.querySelectorAll('.rsstag-block-item');
-    expect(listItems[0].className).toContain('rsstag-dragging');
-    expect(listItems[1].className).toContain('rsstag-drag-over');
+    const listItems = container.querySelectorAll('.pagetollm-block-item');
+    expect(listItems[0].className).toContain('pagetollm-dragging');
+    expect(listItems[1].className).toContain('pagetollm-drag-over');
 
     // Simulate drag start on first item
     const dragStartEvent = new CustomEvent('dragstart', { bubbles: true });

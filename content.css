@@ -1,7 +1,7 @@
 /* Content-script styles — "The Editorial Absolute" design system.
  * Injected into arbitrary host pages, so all tokens are scoped to our IDs. */
 
-#rsstag-selection-toolbar,
+#pagetollm-selection-toolbar,
 #pagetollm-in-page-rail {
   --ink: #000;
   --accent: #3a404d;
@@ -16,7 +16,7 @@
 }
 
 /* Selection toolbar: floating frosted vellum. */
-#rsstag-selection-toolbar {
+#pagetollm-selection-toolbar {
   position: fixed;
   top: 20px;
   left: 50%;
@@ -34,10 +34,10 @@
   gap: 10px;
   min-width: 320px;
   max-width: 520px;
-  animation: rsstag-slideDown 0.2s ease-out;
+  animation: pagetollm-slideDown 0.2s ease-out;
 }
 
-@keyframes rsstag-slideDown {
+@keyframes pagetollm-slideDown {
   from {
     transform: translateX(-50%) translateY(-12px);
     opacity: 0;
@@ -49,13 +49,13 @@
   }
 }
 
-#rsstag-toolbar-top {
+#pagetollm-toolbar-top {
   display: flex;
   gap: 8px;
   align-items: center;
 }
 
-#rsstag-selection-toolbar button {
+#pagetollm-selection-toolbar button {
   padding: 6px 12px;
   border: 1px solid var(--ink);
   border-radius: 0;
@@ -70,23 +70,23 @@
 }
 
 /* Pick: secondary (outlined); active: ink fill. */
-#rsstag-pick-btn {
+#pagetollm-pick-btn {
   background: var(--surface);
   color: var(--ink);
 }
 
-#rsstag-pick-btn.active {
+#pagetollm-pick-btn.active {
   background: var(--ink);
   color: var(--surface);
 }
 
 /* Submit: primary (ink fill). */
-#rsstag-submit-btn {
+#pagetollm-submit-btn {
   background: var(--ink);
   color: var(--surface);
 }
 
-#rsstag-submit-btn:disabled {
+#pagetollm-submit-btn:disabled {
   background: var(--surface);
   color: var(--on-surface-muted);
   border-color: var(--ghost);
@@ -94,24 +94,24 @@
 }
 
 /* Cancel: the single Editor's Mark. */
-#rsstag-cancel-btn {
+#pagetollm-cancel-btn {
   background: var(--surface);
   color: var(--accent);
   border-color: var(--accent);
   margin-left: auto;
 }
 
-#rsstag-cancel-btn:hover:not(:disabled) {
+#pagetollm-cancel-btn:hover:not(:disabled) {
   background: var(--accent);
   color: var(--surface);
 }
 
-#rsstag-selection-toolbar button:hover:not(:disabled, .active, #rsstag-cancel-btn) {
+#pagetollm-selection-toolbar button:hover:not(:disabled, .active, #pagetollm-cancel-btn) {
   background: var(--ink);
   color: var(--surface);
 }
 
-#rsstag-block-list {
+#pagetollm-block-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -120,11 +120,11 @@
   gap: 4px;
 }
 
-#rsstag-block-list:empty {
+#pagetollm-block-list:empty {
   display: none;
 }
 
-.rsstag-block-item {
+.pagetollm-block-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -137,32 +137,32 @@
   transition: border-color 0.1s ease;
 }
 
-.rsstag-block-item.rsstag-drag-over {
+.pagetollm-block-item.pagetollm-drag-over {
   border-color: var(--ink);
 }
 
-.rsstag-block-item.rsstag-dragging {
+.pagetollm-block-item.pagetollm-dragging {
   opacity: 0.4;
 }
 
-.rsstag-drag-handle {
+.pagetollm-drag-handle {
   cursor: grab;
   color: var(--on-surface-muted);
   font-size: 17px;
   flex-shrink: 0;
 }
 
-.rsstag-drag-handle:active {
+.pagetollm-drag-handle:active {
   cursor: grabbing;
 }
 
-.rsstag-block-label {
+.pagetollm-block-label {
   font-size: 14px;
   font-weight: 600;
   flex: 1;
 }
 
-.rsstag-remove-btn {
+.pagetollm-remove-btn {
   background: transparent !important;
   color: var(--on-surface-muted) !important;
   padding: 0 4px !important;
@@ -173,19 +173,19 @@
   line-height: 1;
 }
 
-.rsstag-remove-btn:hover:not(:disabled) {
+.pagetollm-remove-btn:hover:not(:disabled) {
   color: var(--accent) !important;
   background: transparent !important;
 }
 
-.rsstag-element-highlight {
+.pagetollm-element-highlight {
   outline: 2px solid var(--ink) !important;
   outline-offset: 2px;
   background: rgb(0 0 0 / 6%) !important;
   cursor: pointer !important;
 }
 
-.rsstag-selected {
+.pagetollm-selected {
   --accent: #3a404d;
 
   outline: 3px solid var(--accent) !important;

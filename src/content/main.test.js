@@ -50,7 +50,7 @@ describe('content script main.jsx', () => {
     messageListener({ action: 'startSelection' }, {}, sendResponse);
     expect(sendResponse).toHaveBeenCalledWith({ status: 'ready' });
 
-    const toolbar = document.getElementById('rsstag-selection-toolbar');
+    const toolbar = document.getElementById('pagetollm-selection-toolbar');
     expect(toolbar).not.toBeNull();
   });
 
@@ -91,7 +91,7 @@ describe('content script main.jsx', () => {
       messageListener({ action: 'startSelection' }, {}, sendResponse);
     });
 
-    const pickBtn = document.getElementById('rsstag-pick-btn');
+    const pickBtn = document.getElementById('pagetollm-pick-btn');
     expect(pickBtn).not.toBeNull();
 
     // Enable picking and select dummy 1
@@ -106,17 +106,17 @@ describe('content script main.jsx', () => {
       dummy1.click();
     });
 
-    let listItems = document.querySelectorAll('.rsstag-block-item');
+    let listItems = document.querySelectorAll('.pagetollm-block-item');
     expect(listItems).toHaveLength(1);
     expect(listItems[0].textContent).toContain('Block 1');
 
     // Remove the block
-    const removeBtn = listItems[0].querySelector('.rsstag-remove-btn');
+    const removeBtn = listItems[0].querySelector('.pagetollm-remove-btn');
     await act(async () => {
       removeBtn.click();
     });
 
-    listItems = document.querySelectorAll('.rsstag-block-item');
+    listItems = document.querySelectorAll('.pagetollm-block-item');
     expect(listItems).toHaveLength(0);
 
     // Enable picking again and select dummy 2
@@ -131,14 +131,14 @@ describe('content script main.jsx', () => {
       dummy2.click();
     });
 
-    listItems = document.querySelectorAll('.rsstag-block-item');
+    listItems = document.querySelectorAll('.pagetollm-block-item');
     expect(listItems).toHaveLength(1);
     expect(listItems[0].textContent).toContain('Block 1');
 
     // Clean up
     dummy1.remove();
     dummy2.remove();
-    const cancelBtn = document.getElementById('rsstag-cancel-btn');
+    const cancelBtn = document.getElementById('pagetollm-cancel-btn');
     if (cancelBtn) {
       await act(async () => {
         cancelBtn.click();
