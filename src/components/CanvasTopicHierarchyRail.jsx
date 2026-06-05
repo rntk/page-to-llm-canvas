@@ -158,6 +158,10 @@ function getAdjustedHierarchyCards(cards) {
  *   onTopicClick: (topicKey: string, card: CanvasTopicCard) => void,
  *   readTopics: Set<string> | string[] | null,
  *   onToggleRead: ((topicKey: string) => void) | null,
+ *   currentTopicSummary: {
+ *     path: string,
+ *     text: string,
+ *   } | null,
  * }} props
  */
 function CanvasTopicHierarchyRail({
@@ -173,6 +177,7 @@ function CanvasTopicHierarchyRail({
   onTopicClick,
   readTopics,
   onToggleRead,
+  currentTopicSummary,
 }) {
   const safeReadTopics = readTopics instanceof Set ? readTopics : new Set(readTopics || []);
   const hierarchyCards = React.useMemo(
@@ -192,93 +197,139 @@ function CanvasTopicHierarchyRail({
     [hierarchyCards],
   );
 
+  // Publish the rendered height of the current-topic summary card so the sticky
+  // CSS can clamp its bottom edge to the visible viewport (see modal.css). The
+  // card's height depends on its text, so we remeasure whenever it changes.
+  const summaryRef = React.useRef(null);
+  React.useLayoutEffect(() => {
+    const el = summaryRef.current;
+    if (!el) return;
+    el.style.setProperty('--current-summary-height', `${el.offsetHeight}px`);
+  }, [currentTopicSummary]);
+
   if (!show) return null;
 
+  const summaryAnchorCard = currentTopicSummary
+    ? adjustedHierarchyCards.find((card) => card.fullPath === currentTopicSummary.path)
+    : null;
+  const summaryTop = summaryAnchorCard ? summaryAnchorCard.top : 0;
+
   return (
-    <aside
-      className="canvas-topic-hierarchy"
-      aria-label="Topic hierarchy"
-      onMouseDown={(event) => {
-        if (event.target.closest('button, a, input, select, textarea')) {
-          event.stopPropagation();
-        }
-      }}
-      style={{
-        '--canvas-topic-hierarchy-width': `${railWidth}px`,
-        '--topic-card-width': `${cardWidth}px`,
-      }}
-    >
-      <div
-        className="canvas-topic-hierarchy__body"
+    <>
+      {currentTopicSummary && (
+        <aside
+          ref={summaryRef}
+          className="canvas-topic-current-summary"
+          aria-label="Current topic summary"
+          style={{
+            // Core placement is set inline so the card stays pinned to the left
+            // (opposite the right-hand rail) even if modal.css lags behind the
+            // JS bundle — otherwise the aside falls into the flex flow and lands
+            // on top of the rail. The CSS rule layers on width/transition.
+            position: 'absolute',
+            left: 0,
+            top: summaryTop,
+            '--current-summary-top': `${summaryTop}px`,
+          }}
+        >
+          <article className="canvas-summary-view__card is-active">
+            <header className="canvas-summary-view__card-header">
+              <span className="canvas-summary-view__card-path">{currentTopicSummary.path}</span>
+            </header>
+            {currentTopicSummary.text && (
+              <p className="canvas-summary-view__card-text">{currentTopicSummary.text}</p>
+            )}
+          </article>
+        </aside>
+      )}
+      <aside
+        className="canvas-topic-hierarchy"
+        aria-label="Topic hierarchy"
+        onMouseDown={(event) => {
+          if (event.target.closest('button, a, input, select, textarea')) {
+            event.stopPropagation();
+          }
+        }}
         style={{
-          height: adjustedHierarchyCards.length
-            ? `${Math.max(...adjustedHierarchyCards.map((c) => c.top + c.height)) + 20}px`
-            : 'auto',
+          '--canvas-topic-hierarchy-width': `${railWidth}px`,
+          '--topic-card-width': `${cardWidth}px`,
         }}
       >
-        {hierarchyCards.length === 0 ? (
-          <p className="canvas-topic-hierarchy__empty">No topics at this level.</p>
-        ) : (
-          <>
-            {adjustedHierarchyCards.map((card) => {
-              const isActive = activeTopicKey === card.fullPath;
-              const isSelected = selectedTopicKey === card.fullPath;
-              const isRead = isTopicRead(card.fullPath, safeReadTopics);
-              const classes = [
-                'canvas-topic-hierarchy__card',
-                card.levelIndex === 0
-                  ? 'canvas-topic-hierarchy__card--root'
-                  : 'canvas-topic-hierarchy__card--child',
-                isActive ? 'is-active' : '',
-                isSelected ? 'is-selected' : '',
-                isRead ? 'is-read' : '',
-              ]
-                .filter(Boolean)
-                .join(' ');
-              const sourceCard = card.sourceCard || card;
+        <div
+          className="canvas-topic-hierarchy__body"
+          style={{
+            height: adjustedHierarchyCards.length
+              ? `${Math.max(...adjustedHierarchyCards.map((c) => c.top + c.height)) + 20}px`
+              : 'auto',
+          }}
+        >
+          {hierarchyCards.length === 0 ? (
+            <p className="canvas-topic-hierarchy__empty">No topics at this level.</p>
+          ) : (
+            <>
+              {adjustedHierarchyCards.map((card) => {
+                const isActive = activeTopicKey === card.fullPath;
+                const isSelected = selectedTopicKey === card.fullPath;
+                const isRead = isTopicRead(card.fullPath, safeReadTopics);
+                const classes = [
+                  'canvas-topic-hierarchy__card',
+                  card.levelIndex === 0
+                    ? 'canvas-topic-hierarchy__card--root'
+                    : 'canvas-topic-hierarchy__card--child',
+                  isActive ? 'is-active' : '',
+                  isSelected ? 'is-selected' : '',
+                  isRead ? 'is-read' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ');
+                const sourceCard = card.sourceCard || card;
 
-              return (
-                <button
-                  key={card.key}
-                  type="button"
-                  className={classes}
-                  style={{
-                    '--topic-card-top': `${card.top}px`,
-                    '--topic-card-height': `${card.height}px`,
-                    '--topic-card-title-font-size': `${card.titleFontSize}px`,
-                    '--topic-card-right': `${card.right}px`,
-                    '--topic-accent-color': getHierarchyTopicAccentColor(card.fullPath, card.depth),
-                    zIndex: isSelected ? 60 : isActive ? 50 : card.zIndex,
-                  }}
-                  onMouseEnter={() => onTopicEnter(card.fullPath)}
-                  onMouseLeave={() => onTopicLeave(card.fullPath)}
-                  onClick={() => {
-                    onTopicClick(card.fullPath, sourceCard);
-                    if (onToggleRead) {
-                      onToggleRead(card.fullPath);
-                    }
-                  }}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    if (onToggleRead) {
-                      onToggleRead(card.fullPath);
-                    }
-                  }}
-                  title={`${card.fullPath}: sentences ${card.startSentence}-${card.endSentence}`}
-                >
-                  <div className="canvas-topic-hierarchy__card-content">
-                    <span className="canvas-topic-hierarchy__card-name">{card.displayName}</span>
-                    <span className="canvas-topic-hierarchy__card-meta">
-                      {card.sentenceCount} sent.
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
-          </>
-        )}
-      </div>
-    </aside>
+                return (
+                  <button
+                    key={card.key}
+                    type="button"
+                    className={classes}
+                    style={{
+                      '--topic-card-top': `${card.top}px`,
+                      '--topic-card-height': `${card.height}px`,
+                      '--topic-card-title-font-size': `${card.titleFontSize}px`,
+                      '--topic-card-right': `${card.right}px`,
+                      '--topic-accent-color': getHierarchyTopicAccentColor(
+                        card.fullPath,
+                        card.depth,
+                      ),
+                      zIndex: isSelected ? 60 : isActive ? 50 : card.zIndex,
+                    }}
+                    onMouseEnter={() => onTopicEnter(card.fullPath)}
+                    onMouseLeave={() => onTopicLeave(card.fullPath)}
+                    onClick={() => {
+                      onTopicClick(card.fullPath, sourceCard);
+                      if (onToggleRead) {
+                        onToggleRead(card.fullPath);
+                      }
+                    }}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      if (onToggleRead) {
+                        onToggleRead(card.fullPath);
+                      }
+                    }}
+                    title={`${card.fullPath}: sentences ${card.startSentence}-${card.endSentence}`}
+                  >
+                    <div className="canvas-topic-hierarchy__card-content">
+                      <span className="canvas-topic-hierarchy__card-name">{card.displayName}</span>
+                      <span className="canvas-topic-hierarchy__card-meta">
+                        {card.sentenceCount} sent.
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </>
+          )}
+        </div>
+      </aside>
+    </>
   );
 }
 

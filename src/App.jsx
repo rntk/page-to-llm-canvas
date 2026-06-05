@@ -231,6 +231,15 @@ export default function App({ initialKey }) {
 
   const activeTopicKey = hoveredTopicKey || selectedTopicKey;
 
+  // The single summary card shown to the left of the article for whichever topic
+  // is currently hovered or selected in the rail. Suppressed in summary mode,
+  // where every summary is already shown in the center column.
+  const currentTopicSummary = useMemo(() => {
+    if (showSummaryMode || !activeTopicKey) return null;
+    const card = allSummaryCards.find((c) => c.path === activeTopicKey);
+    return card && card.text ? card : null;
+  }, [showSummaryMode, activeTopicKey, allSummaryCards]);
+
   // Rebuild word entries + sentence ranges from the *current* article DOM.
   // The Highlight API and measurement hold live Ranges into text nodes; if those
   // nodes are ever replaced by a re-render, the stale Ranges resolve to nothing
@@ -616,6 +625,7 @@ export default function App({ initialKey }) {
                     onTopicClick={handleTopicClick}
                     readTopics={null}
                     onToggleRead={null}
+                    currentTopicSummary={currentTopicSummary}
                   />
                 </div>
               </div>

@@ -111,6 +111,63 @@ body.canvas-global-dragging * {
   padding-right: calc(var(--canvas-topic-hierarchy-width, 430px) + 70px);
 }
 
+/* Reserve a left gutter for the current-topic summary card while reading the
+   article. Not needed in summary mode, where summaries fill the center. */
+.canvas-article-with-summaries.has-topic-hierarchy:not(.is-summary-mode) {
+  padding-left: 380px;
+}
+
+/* Single summary card for the hovered/selected topic, pinned to the left
+   gutter and vertically aligned with its card in the rail.
+ *
+ * The canvas pans via a CSS transform (not scroll), so `position: sticky`
+ * cannot keep the card on screen. Mirroring the topic-card label trick below,
+ * we keep the card's natural position in `top` (so it animates smoothly on a
+ * topic switch) and add a `translateY` that clamps the card into the visible
+ * slice of the viewport — instantly, with no transition, so it tracks the pan.
+ *
+ * Variables (inherited from .canvas-viewport):
+ *   --canvas-translate-y   live pan offset
+ *   --canvas-scale         live zoom
+ *   --canvas-area-height   visible viewport height (ResizeObserver)
+ *   --current-summary-top    natural top, aligned with the rail card
+ *   --current-summary-height measured card height (set in JS)
+ */
+.canvas-topic-current-summary {
+  position: absolute;
+  left: 0;
+  top: var(--current-summary-top, 0);
+  width: 340px;
+  transition: top 0.15s ease;
+
+  --_pad: 20px;
+  --_vis-top: calc(-1 * var(--canvas-translate-y, 0px) / var(--canvas-scale, 1));
+  --_vis-bot: calc(
+    (var(--canvas-area-height, 100dvh) - var(--canvas-translate-y, 0px)) / var(--canvas-scale, 1)
+  );
+
+  /* delta to pull the card down past the top edge … */
+  --_stick-top: calc(var(--_vis-top) + var(--_pad) - var(--current-summary-top, 0px));
+
+  /* … or up so its bottom edge stays above the bottom edge. */
+  --_stick-bot: calc(
+    var(--_vis-bot) - var(--_pad) - var(--current-summary-height, 220px) -
+      var(--current-summary-top, 0px)
+  );
+
+  /* median of (top-push, 0, bottom-push): 0 while the card is fully in view. */
+  transform: translateY(clamp(var(--_stick-top), 0px, var(--_stick-bot)));
+  will-change: transform;
+}
+
+/* Solid surface + shadow so the card reads clearly against the canvas, whose
+   own background is --surface-low (same as the card's default is-active fill). */
+.canvas-topic-current-summary .canvas-summary-view__card,
+.canvas-topic-current-summary .canvas-summary-view__card.is-active {
+  background: var(--surface);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 14%);
+}
+
 /* The article: a sheet of paper "tipped-in" onto the canvas. */
 .pagetollm-article-text {
   width: 680px;

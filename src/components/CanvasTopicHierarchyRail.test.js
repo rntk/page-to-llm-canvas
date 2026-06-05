@@ -207,6 +207,42 @@ describe('CanvasTopicHierarchyRail', () => {
     unmount();
   });
 
+  it('renders the current-topic summary card aligned to its rail card', () => {
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        currentTopicSummary: {
+          path: 'Topic A > Sub B',
+          text: 'A short summary of Sub B.',
+        },
+      }),
+    );
+
+    const summary = container.querySelector('.canvas-topic-current-summary');
+    expect(summary).not.toBeNull();
+    // Vertically aligned with card2 (top: 80).
+    expect(summary.style.getPropertyValue('--current-summary-top')).toBe('80px');
+    expect(summary.querySelector('.canvas-summary-view__card-path').textContent).toBe(
+      'Topic A > Sub B',
+    );
+    expect(summary.querySelector('.canvas-summary-view__card-text').textContent).toBe(
+      'A short summary of Sub B.',
+    );
+    expect(summary.querySelector('.canvas-summary-view__card-meta')).toBeNull();
+    unmount();
+  });
+
+  it('omits the current-topic summary card when none is provided', () => {
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        currentTopicSummary: null,
+      }),
+    );
+    expect(container.querySelector('.canvas-topic-current-summary')).toBeNull();
+    unmount();
+  });
+
   it('handles crowding and overlap logic (nudgeCrowdedPair & compact height)', () => {
     // Create two cards that overlap significantly
     const overlappingCards = [
