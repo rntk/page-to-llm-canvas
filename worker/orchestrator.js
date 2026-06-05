@@ -311,238 +311,43 @@ export async function runPipeline(key) {
     const rec = await readRecord(key);
     if (!rec) throw new Error(`record not found: ${key}`);
 
-    await updateRecord(key, {
-      status: 'splitting',
-      progress: { stage: 'cleaning_html', done: 0, total: 0 },
-      error: null,
-    });
-    await logPipeline(key, 'cleaning_html_start', {
-      htmlLength: String(rec.html || '').length,
-    });
+    // Resume path. A record left in 'summarizing' means topic ranges were
+    // already computed for the *current* html (status is set to 'summarizing'
+    // only after topics are persisted, and any re-submit/reprocess resets the
+    // status to 'pending' first). On a service-worker recycle the keepalive
+    // alarm re-invokes runPipeline; without this branch we would redo the
+    // expensive clean/split/topic_ranges stages and re-summarize every topic.
+    // Resuming reuses the stored topics and sentences and only fills in the
+    // summaries that are still missing.
+    const resuming =
+      rec.status === 'summarizing' && Array.isArray(rec.topics) && rec.topics.length > 0;
 
-    const { text, mapping } = stripTagsKeepOffsets(rec.html || '');
-    await logPipeline(key, 'cleaning_html_done', {
-      textLength: text.length,
-      mappingLength: mapping.length,
-    });
-
-    await updateRecord(key, {
-      text,
-      progress: { stage: 'splitting_sentences', done: 0, total: 0 },
-    });
-    await logPipeline(key, 'splitting_sentences_start');
-
-    const sentenceObjs = splitSentences(text);
-    const sentenceTexts = sentenceObjs.map((s) => s.text);
-    await logPipeline(key, 'splitting_sentences_done', {
-      sentenceCount: sentenceTexts.length,
-    });
-
-    await updateRecord(key, {
-      sentences: sentenceTexts,
-      progress: { stage: 'topic_ranges', done: 0, total: sentenceTexts.length },
-    });
-
-    if (sentenceTexts.length === 0) {
-      await updateRecord(key, {
-        status: 'done',
-        topics: [],
-        topic_summaries: {},
-        progress: { stage: 'done', done: 0, total: 0 },
+    let topics;
+    let sentenceTexts;
+    if (resuming) {
+      topics = rec.topics;
+      sentenceTexts = Array.isArray(rec.sentences) ? rec.sentences : [];
+      const existingSummaries =
+        rec.topic_summaries && typeof rec.topic_summaries === 'object' ? rec.topic_summaries : {};
+      await logPipeline(key, 'pipeline_resume', {
+        stage: 'summarizing',
+        topicCount: topics.length,
+        existingSummaryCount: Object.keys(existingSummaries).length,
       });
-      return;
+      await updateRecord(key, { status: 'summarizing', error: null });
+    } else {
+      ({ topics, sentenceTexts } = await computeTopics(key, rec));
+      if (!topics) return; // no sentences — pipeline already marked done.
     }
 
-    const tagged = buildTaggedText(sentenceTexts);
-    const chunks =
-      tagged.length > MAX_TAGGED_CHARS ? chunkTaggedText(tagged, MAX_TAGGED_CHARS) : [tagged];
-    await logPipeline(key, 'topic_ranges_start', {
-      taggedLength: tagged.length,
-      chunkCount: chunks.length,
-    });
-
-    let groups;
-    for (let topicAttempt = 0; topicAttempt <= TOPIC_RANGE_MAX_RETRIES; topicAttempt++) {
-      const responses = [];
-      for (const [chunkIndex, chunk] of chunks.entries()) {
-        const prompt = buildTopicRangesPrompt(chunk);
-        await logPipeline(key, 'topic_ranges_llm_request', {
-          chunkIndex,
-          promptLength: prompt.length,
-          attempt: topicAttempt + 1,
-        });
-        const resp = await callLLMWithRetry({ prompt, temperature: 0.8 });
-        await logPipeline(key, 'topic_ranges_llm_response', {
-          chunkIndex,
-          responseLength: resp.length,
-          attempt: topicAttempt + 1,
-        });
-        responses.push(resp);
-      }
-      const combined = responses.join('\n');
-      try {
-        groups = parseTopicRanges(combined, sentenceTexts.length);
-        break;
-      } catch (e) {
-        if (!(e instanceof TopicParseError) || topicAttempt >= TOPIC_RANGE_MAX_RETRIES) throw e;
-        await logPipeline(key, 'topic_ranges_parse_retry', {
-          attempt: topicAttempt + 1,
-          maxRetries: TOPIC_RANGE_MAX_RETRIES,
-          error: e.message,
-        });
-        const delay = TOPIC_RANGE_RETRY_BASE_DELAY_MS * Math.pow(2, topicAttempt);
-        await new Promise((r) => setTimeout(r, delay));
-      }
-    }
-
-    try {
-      groups = await refineOversizedRanges(key, groups, sentenceTexts);
-    } catch (e) {
-      // Refinement is best-effort; never fail the pipeline over an oversized range.
-      await logPipeline(key, 'topic_ranges_oversize_error', {
-        error: (e && e.message) || String(e),
-      });
-    }
-
-    await logPipeline(key, 'topic_ranges_done', {
-      groupCount: groups.length,
-    });
-
-    const topics = groups.map((g) => {
-      const name = g.label.join('>');
-      const oneBased = rangesToSentenceList(g.ranges);
-      const sentence_spans = oneBased.map((oneIdx) => {
-        const idx = oneIdx - 1;
-        const so = sentenceObjs[idx];
-        return {
-          sentence: oneIdx,
-          start: mapTextOffsetToHtml(mapping, so.start),
-          end: mapTextOffsetToHtml(mapping, so.end),
-        };
-      });
-      const ranges = g.ranges.map((r) => {
-        const sIdx = r.start;
-        const eIdx = r.end;
-        return {
-          sentence_start: sIdx + 1,
-          sentence_end: eIdx + 1,
-          start: mapTextOffsetToHtml(mapping, sentenceObjs[sIdx].start),
-          end: mapTextOffsetToHtml(mapping, sentenceObjs[eIdx].end),
-        };
-      });
-      return { name, sentences: oneBased, sentence_spans, ranges };
-    });
-
-    await updateRecord(key, {
-      topics,
-      status: 'summarizing',
-      progress: { stage: 'summarizing_topics', done: 0, total: topics.length },
-    });
-
-    const topic_summaries = {};
-    let done = 0;
-    await parallelMap(topics, SUMMARY_CONCURRENCY, async (topic) => {
-      await logPipeline(key, 'topic_summary_llm_request', {
-        topic: topic.name,
-        sentenceCount: topic.sentences.length,
-      });
-      const sourceText = topic.sentences
-        .map((oneIdx) => sentenceTexts[oneIdx - 1])
-        .filter(Boolean)
-        .join(' ');
-      const prompt = buildArticleSummaryPrompt(sourceText);
-      let summaryText;
-      try {
-        const resp = await callLLMWithRetry({ prompt, temperature: 0.8 });
-        summaryText = parseSummaryResponse(resp);
-        await logPipeline(key, 'topic_summary_llm_response', {
-          topic: topic.name,
-          responseLength: resp.length,
-          summaryLength: summaryText.length,
-        });
-      } catch (e) {
-        await logPipeline(key, 'topic_summary_llm_error', {
-          topic: topic.name,
-          error: (e && e.message) || String(e),
-        });
-        summaryText = '';
-      }
-      topic_summaries[topic.name] = {
-        text: summaryText,
-        source_sentences: topic.sentences,
-      };
-      done++;
-      await updateRecord(key, {
-        topic_summaries: { ...topic_summaries },
-        progress: { stage: 'summarizing_topics', done, total: topics.length },
-      });
-    });
-
-    await logPipeline(key, 'topic_tree_merge_start', {
-      leafCount: topics.length,
-    });
-    const { root, nodes } = buildTopicTree(topics);
-    for (const [path, node] of nodes) {
-      if (path && topic_summaries[path]) {
-        node.leafSummary = {
-          text: topic_summaries[path].text || '',
-        };
-      }
-    }
-
-    async function summarizeNode(node) {
-      for (const child of node.children) await summarizeNode(child);
-      if (node.children.length === 0) {
-        node.summary = node.leafSummary || { text: '' };
-        return;
-      }
-      if (node.children.length === 1) {
-        node.summary = node.children[0].summary;
-        return;
-      }
-      const records = node.children.map((c) => {
-        const sents = c.sourceSentences;
-        return {
-          start_sentence: sents[0] || 0,
-          end_sentence: sents[sents.length - 1] || 0,
-          summary: c.summary || { text: '' },
-        };
-      });
-      try {
-        node.summary = await mergeChildSummaries(records);
-      } catch (e) {
-        await logPipeline(key, 'topic_tree_merge_error', {
-          path: node.path,
-          error: (e && e.message) || String(e),
-        });
-        node.summary = { text: '' };
-      }
-    }
-    await summarizeNode(root);
-
-    const topic_summary_index = {};
-    for (const [path, node] of nodes) {
-      if (!path) continue;
-      topic_summary_index[path] = {
-        text: (node.summary && node.summary.text) || '',
-        level: node.level - 1,
-        source_sentences: node.sourceSentences,
-      };
-    }
-    await logPipeline(key, 'topic_tree_merge_done', {
-      nodeCount: Object.keys(topic_summary_index).length,
-    });
-
-    await updateRecord(key, {
-      status: 'done',
-      topic_summaries,
-      topic_summary_index,
-      progress: { stage: 'done', done: topics.length, total: topics.length },
-    });
-    await logPipeline(key, 'pipeline_done', {
-      topicCount: topics.length,
-      summaryNodeCount: Object.keys(topic_summary_index).length,
-    });
+    // Reuse already-computed summaries only when resuming: those were produced
+    // for the current html. On a fresh run (re-submit / retry) the stored
+    // summaries may belong to different html, so we start clean.
+    const previousSummaries =
+      resuming && rec.topic_summaries && typeof rec.topic_summaries === 'object'
+        ? rec.topic_summaries
+        : {};
+    await runSummaries(key, topics, sentenceTexts, previousSummaries);
   } catch (e) {
     await logPipeline(key, 'pipeline_error', {
       error: String(e && e.stack ? e.stack : e),
@@ -555,4 +360,312 @@ export async function runPipeline(key) {
     });
     throw e;
   }
+}
+
+/**
+ * Cleans the HTML, splits sentences, and runs the LLM topic-ranges stage.
+ * Returns `{ topics, sentenceTexts }`, or `{ topics: null }` when the page had
+ * no sentences (in which case the record is already marked done).
+ *
+ * @param {string} key
+ * @param {object} rec
+ * @returns {Promise<{topics: Array<object>|null, sentenceTexts: string[]}>}
+ */
+async function computeTopics(key, rec) {
+  await updateRecord(key, {
+    status: 'splitting',
+    progress: { stage: 'cleaning_html', done: 0, total: 0 },
+    error: null,
+    topics: [],
+    topic_summaries: {},
+    topic_summary_index: {},
+  });
+  await logPipeline(key, 'cleaning_html_start', {
+    htmlLength: String(rec.html || '').length,
+  });
+
+  const { text, mapping } = stripTagsKeepOffsets(rec.html || '');
+  await logPipeline(key, 'cleaning_html_done', {
+    textLength: text.length,
+    mappingLength: mapping.length,
+  });
+
+  await updateRecord(key, {
+    text,
+    progress: { stage: 'splitting_sentences', done: 0, total: 0 },
+  });
+  await logPipeline(key, 'splitting_sentences_start');
+
+  const sentenceObjs = splitSentences(text);
+  const sentenceTexts = sentenceObjs.map((s) => s.text);
+  await logPipeline(key, 'splitting_sentences_done', {
+    sentenceCount: sentenceTexts.length,
+  });
+
+  await updateRecord(key, {
+    sentences: sentenceTexts,
+    progress: { stage: 'topic_ranges', done: 0, total: sentenceTexts.length },
+  });
+
+  if (sentenceTexts.length === 0) {
+    await updateRecord(key, {
+      status: 'done',
+      topics: [],
+      topic_summaries: {},
+      progress: { stage: 'done', done: 0, total: 0 },
+    });
+    return { topics: null, sentenceTexts };
+  }
+
+  const tagged = buildTaggedText(sentenceTexts);
+  const chunks =
+    tagged.length > MAX_TAGGED_CHARS ? chunkTaggedText(tagged, MAX_TAGGED_CHARS) : [tagged];
+  await logPipeline(key, 'topic_ranges_start', {
+    taggedLength: tagged.length,
+    chunkCount: chunks.length,
+  });
+
+  let groups;
+  for (let topicAttempt = 0; topicAttempt <= TOPIC_RANGE_MAX_RETRIES; topicAttempt++) {
+    const responses = [];
+    for (const [chunkIndex, chunk] of chunks.entries()) {
+      const prompt = buildTopicRangesPrompt(chunk);
+      await logPipeline(key, 'topic_ranges_llm_request', {
+        chunkIndex,
+        promptLength: prompt.length,
+        attempt: topicAttempt + 1,
+      });
+      const resp = await callLLMWithRetry({ prompt, temperature: 0.8 });
+      await logPipeline(key, 'topic_ranges_llm_response', {
+        chunkIndex,
+        responseLength: resp.length,
+        attempt: topicAttempt + 1,
+      });
+      responses.push(resp);
+    }
+    const combined = responses.join('\n');
+    try {
+      groups = parseTopicRanges(combined, sentenceTexts.length);
+      break;
+    } catch (e) {
+      if (!(e instanceof TopicParseError) || topicAttempt >= TOPIC_RANGE_MAX_RETRIES) throw e;
+      await logPipeline(key, 'topic_ranges_parse_retry', {
+        attempt: topicAttempt + 1,
+        maxRetries: TOPIC_RANGE_MAX_RETRIES,
+        error: e.message,
+      });
+      const delay = TOPIC_RANGE_RETRY_BASE_DELAY_MS * Math.pow(2, topicAttempt);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+
+  try {
+    groups = await refineOversizedRanges(key, groups, sentenceTexts);
+  } catch (e) {
+    // Refinement is best-effort; never fail the pipeline over an oversized range.
+    await logPipeline(key, 'topic_ranges_oversize_error', {
+      error: (e && e.message) || String(e),
+    });
+  }
+
+  await logPipeline(key, 'topic_ranges_done', {
+    groupCount: groups.length,
+  });
+
+  const topics = groups.map((g) => {
+    const name = g.label.join('>');
+    const oneBased = rangesToSentenceList(g.ranges);
+    const sentence_spans = oneBased.map((oneIdx) => {
+      const idx = oneIdx - 1;
+      const so = sentenceObjs[idx];
+      return {
+        sentence: oneIdx,
+        start: mapTextOffsetToHtml(mapping, so.start),
+        end: mapTextOffsetToHtml(mapping, so.end),
+      };
+    });
+    const ranges = g.ranges.map((r) => {
+      const sIdx = r.start;
+      const eIdx = r.end;
+      return {
+        sentence_start: sIdx + 1,
+        sentence_end: eIdx + 1,
+        start: mapTextOffsetToHtml(mapping, sentenceObjs[sIdx].start),
+        end: mapTextOffsetToHtml(mapping, sentenceObjs[eIdx].end),
+      };
+    });
+    return { name, sentences: oneBased, sentence_spans, ranges };
+  });
+
+  await updateRecord(key, {
+    topics,
+    status: 'summarizing',
+    progress: { stage: 'summarizing_topics', done: 0, total: topics.length },
+  });
+
+  return { topics, sentenceTexts };
+}
+
+/**
+ * Per-topic leaf summaries followed by the topic-tree merge. Summaries that
+ * already succeeded (present and not flagged with an error) are reused so a
+ * resumed run only re-queries the LLM for the topics that are still missing or
+ * previously failed — failed leaves are stored with `error: true` so a legit
+ * NO_SUMMARY (empty text, no error) is not retried forever.
+ *
+ * @param {string} key
+ * @param {Array<object>} topics
+ * @param {string[]} sentenceTexts
+ * @param {Record<string, {text: string, error?: boolean}>} previousSummaries
+ * @returns {Promise<void>}
+ */
+async function runSummaries(key, topics, sentenceTexts, previousSummaries) {
+  // Seed with summaries that are already complete; collect the rest as pending.
+  const topic_summaries = {};
+  const pending = [];
+  for (const topic of topics) {
+    const prev = previousSummaries[topic.name];
+    if (prev && !prev.error) {
+      topic_summaries[topic.name] = {
+        text: prev.text || '',
+        source_sentences: topic.sentences,
+      };
+    } else {
+      pending.push(topic);
+    }
+  }
+
+  let done = topics.length - pending.length;
+  await updateRecord(key, {
+    progress: { stage: 'summarizing_topics', done, total: topics.length },
+  });
+  if (pending.length < topics.length) {
+    await logPipeline(key, 'topic_summaries_reused', {
+      reusedCount: topics.length - pending.length,
+      pendingCount: pending.length,
+      total: topics.length,
+    });
+  }
+
+  await parallelMap(pending, SUMMARY_CONCURRENCY, async (topic) => {
+    await logPipeline(key, 'topic_summary_llm_request', {
+      topic: topic.name,
+      sentenceCount: topic.sentences.length,
+    });
+    const sourceText = topic.sentences
+      .map((oneIdx) => sentenceTexts[oneIdx - 1])
+      .filter(Boolean)
+      .join(' ');
+    const prompt = buildArticleSummaryPrompt(sourceText);
+    let summaryText = '';
+    let failed = false;
+    try {
+      const resp = await callLLMWithRetry({ prompt, temperature: 0.8 });
+      summaryText = parseSummaryResponse(resp);
+      await logPipeline(key, 'topic_summary_llm_response', {
+        topic: topic.name,
+        responseLength: resp.length,
+        summaryLength: summaryText.length,
+      });
+    } catch (e) {
+      await logPipeline(key, 'topic_summary_llm_error', {
+        topic: topic.name,
+        error: (e && e.message) || String(e),
+      });
+      failed = true;
+    }
+    topic_summaries[topic.name] = {
+      text: summaryText,
+      source_sentences: topic.sentences,
+      // Mark failures so a later resume retries only this topic. Successful
+      // empty results (NO_SUMMARY) are stored without the flag and kept.
+      ...(failed ? { error: true } : {}),
+    };
+    done++;
+    await updateRecord(key, {
+      topic_summaries: { ...topic_summaries },
+      progress: { stage: 'summarizing_topics', done, total: topics.length },
+    });
+  });
+
+  await logPipeline(key, 'topic_tree_merge_start', {
+    leafCount: topics.length,
+  });
+  const { root, nodes } = buildTopicTree(topics);
+  for (const [path, node] of nodes) {
+    if (path && topic_summaries[path]) {
+      node.leafSummary = {
+        text: topic_summaries[path].text || '',
+      };
+    }
+  }
+
+  async function summarizeNode(node) {
+    for (const child of node.children) await summarizeNode(child);
+    if (node.children.length === 0) {
+      node.summary = node.leafSummary || { text: '' };
+      return;
+    }
+    if (node.children.length === 1) {
+      node.summary = node.children[0].summary;
+      return;
+    }
+    const records = node.children.map((c) => {
+      const sents = c.sourceSentences;
+      return {
+        start_sentence: sents[0] || 0,
+        end_sentence: sents[sents.length - 1] || 0,
+        summary: c.summary || { text: '' },
+      };
+    });
+    try {
+      node.summary = await mergeChildSummaries(records);
+    } catch (e) {
+      await logPipeline(key, 'topic_tree_merge_error', {
+        path: node.path,
+        error: (e && e.message) || String(e),
+      });
+      node.summary = { text: '' };
+    }
+  }
+  await summarizeNode(root);
+
+  const topic_summary_index = {};
+  for (const [path, node] of nodes) {
+    if (!path) continue;
+    topic_summary_index[path] = {
+      text: (node.summary && node.summary.text) || '',
+      level: node.level - 1,
+      source_sentences: node.sourceSentences,
+    };
+  }
+  await logPipeline(key, 'topic_tree_merge_done', {
+    nodeCount: Object.keys(topic_summary_index).length,
+  });
+
+  // The `error` flag is an in-flight-only invariant: it exists solely so a run
+  // resumed mid-summarizing (status still 'summarizing') retries failed leaves
+  // instead of treating their empty text as a legit NO_SUMMARY. Once we reach
+  // the terminal 'done' state the flag is vestigial and would never be honored,
+  // so strip it. This restores the pre-change terminal shape (every topic
+  // present; a persistent failure resolves to empty text, recoverable only via
+  // reprocess).
+  const finalizedSummaries = {};
+  for (const [name, summary] of Object.entries(topic_summaries)) {
+    finalizedSummaries[name] = {
+      text: summary.text || '',
+      source_sentences: summary.source_sentences,
+    };
+  }
+
+  await updateRecord(key, {
+    status: 'done',
+    topic_summaries: finalizedSummaries,
+    topic_summary_index,
+    progress: { stage: 'done', done: topics.length, total: topics.length },
+  });
+  await logPipeline(key, 'pipeline_done', {
+    topicCount: topics.length,
+    summaryNodeCount: Object.keys(topic_summary_index).length,
+  });
 }

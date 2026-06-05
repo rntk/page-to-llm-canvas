@@ -589,4 +589,171 @@ describe('runPipeline', () => {
     ]);
     expect(topics[0].ranges).toEqual([{ sentence_start: 1, sentence_end: 2, start: 0, end: 70 }]);
   });
+
+  it('resumes a summarizing record without redoing topic ranges and only summarizes missing topics', async () => {
+    // A record left in 'summarizing' with topics + one completed summary, as
+    // happens after a service-worker recycle mid-summary.
+    storage.readRecord.mockResolvedValue({
+      key: 'resume1',
+      html: '<p>ignored on resume</p>',
+      status: 'summarizing',
+      sentences: ['Alpha.', 'Beta.'],
+      topics: [
+        { name: 'A', sentences: [1], sentence_spans: [], ranges: [] },
+        { name: 'B', sentences: [2], sentence_spans: [], ranges: [] },
+      ],
+      topic_summaries: {
+        A: { text: 'Existing A summary.', source_sentences: [1] },
+      },
+      topic_summary_index: {},
+    });
+
+    const summaryPrompts = [];
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) return 'SHOULD_NOT_BE_CALLED: 0-1';
+      if (prompt.includes('Summarize the article text')) {
+        summaryPrompts.push(prompt);
+        return 'Fresh B summary.';
+      }
+      return '';
+    });
+
+    await runPipeline('resume1');
+
+    // Topic-ranges stage must be skipped entirely on resume.
+    const topicRangeCalls = llm.callLLMWithRetry.mock.calls.filter((c) =>
+      c[0].prompt.includes('Partition the markers'),
+    );
+    expect(topicRangeCalls).toHaveLength(0);
+    // HTML cleaning / sentence splitting must be skipped too.
+    expect(html.stripTagsKeepOffsets).not.toHaveBeenCalled();
+    expect(sentenceSplitter.splitSentences).not.toHaveBeenCalled();
+
+    // Only the missing topic (B) should be summarized; A is reused.
+    expect(summaryPrompts).toHaveLength(1);
+    expect(summaryPrompts[0]).toContain('Beta.');
+
+    const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
+    expect(doneCall).toBeDefined();
+    expect(doneCall[1].topic_summaries.A.text).toBe('Existing A summary.');
+    expect(doneCall[1].topic_summaries.B.text).toBe('Fresh B summary.');
+  });
+
+  it('retries only summaries flagged with an error, keeping legit empty (NO_SUMMARY) results', async () => {
+    storage.readRecord.mockResolvedValue({
+      key: 'resume2',
+      html: '<p>ignored</p>',
+      status: 'summarizing',
+      sentences: ['Alpha.', 'Beta.', 'Gamma.'],
+      topics: [
+        { name: 'A', sentences: [1], sentence_spans: [], ranges: [] },
+        { name: 'B', sentences: [2], sentence_spans: [], ranges: [] },
+        { name: 'C', sentences: [3], sentence_spans: [], ranges: [] },
+      ],
+      topic_summaries: {
+        A: { text: 'Good A.', source_sentences: [1] },
+        B: { text: '', source_sentences: [2] }, // legit NO_SUMMARY — keep
+        C: { text: '', source_sentences: [3], error: true }, // failed — retry
+      },
+      topic_summary_index: {},
+    });
+
+    const summaryPrompts = [];
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Summarize the article text')) {
+        summaryPrompts.push(prompt);
+        return 'Recovered C.';
+      }
+      return '';
+    });
+
+    await runPipeline('resume2');
+
+    // Only the errored topic C is re-queried.
+    expect(summaryPrompts).toHaveLength(1);
+    expect(summaryPrompts[0]).toContain('Gamma.');
+
+    const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
+    expect(doneCall[1].topic_summaries.A.text).toBe('Good A.');
+    expect(doneCall[1].topic_summaries.B.text).toBe('');
+    expect(doneCall[1].topic_summaries.C.text).toBe('Recovered C.');
+    expect(doneCall[1].topic_summaries.C.error).toBeUndefined();
+  });
+
+  it('flags a failed summary with error:true while summarizing, but strips it once done', async () => {
+    storage.readRecord.mockResolvedValue(makeRecord('failmark', '<p>One. Two.</p>'));
+    html.stripTagsKeepOffsets.mockReturnValue({
+      text: 'One. Two.',
+      mapping: makeMapping('One. Two.'),
+    });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'One.', start: 0, end: 4 },
+      { text: 'Two.', start: 5, end: 9 },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
+      if (prompt.includes('Summarize the article text')) throw new Error('LLM down');
+      return '';
+    });
+
+    await runPipeline('failmark');
+
+    // Production side: while summarizing, the failed leaf is persisted with the
+    // error flag so a recycle-resume retries it instead of reusing empty text.
+    const inFlightFlagged = storage.updateRecord.mock.calls.find(
+      (call) => call[1].topic_summaries && call[1].topic_summaries['Tech>All']?.error === true,
+    );
+    expect(inFlightFlagged).toBeDefined();
+
+    // Terminal side: the flag is an in-flight-only invariant and must not leak
+    // into the done record — the leaf resolves to plain empty text.
+    const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
+    expect(doneCall[1].topic_summaries['Tech>All'].text).toBe('');
+    expect(doneCall[1].topic_summaries['Tech>All'].error).toBeUndefined();
+  });
+
+  it('clears stale topics and summaries on a fresh run (non-resume path)', async () => {
+    storage.readRecord.mockResolvedValue({
+      key: 'fresh1',
+      html: '<p>One. Two.</p>',
+      status: 'pending',
+      topics: [{ name: 'StaleTopic', sentences: [1], sentence_spans: [], ranges: [] }],
+      topic_summaries: {
+        StaleTopic: { text: 'Old summary.', source_sentences: [1] },
+      },
+      topic_summary_index: { StaleTopic: { text: 'Old' } },
+    });
+
+    html.stripTagsKeepOffsets.mockReturnValue({
+      text: 'One. Two.',
+      mapping: makeMapping('One. Two.'),
+    });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'One.', start: 0, end: 4 },
+      { text: 'Two.', start: 5, end: 9 },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
+      if (prompt.includes('Summarize the article text')) return 'Fresh summary.';
+      return '';
+    });
+
+    await runPipeline('fresh1');
+
+    // The first updateRecord call must have cleared topics and summaries.
+    const firstUpdateCall = storage.updateRecord.mock.calls[0];
+    expect(firstUpdateCall[1]).toEqual({
+      status: 'splitting',
+      progress: { stage: 'cleaning_html', done: 0, total: 0 },
+      error: null,
+      topics: [],
+      topic_summaries: {},
+      topic_summary_index: {},
+    });
+
+    // The final result has only the fresh summaries.
+    const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
+    expect(doneCall[1].topic_summaries.StaleTopic).toBeUndefined();
+    expect(doneCall[1].topic_summaries['Tech>All'].text).toBe('Fresh summary.');
+  });
 });
