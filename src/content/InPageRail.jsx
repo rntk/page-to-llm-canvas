@@ -3,107 +3,23 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 const SUMMARY_CURSOR_VIEWPORT_RATIO = 0.38;
 const SUMMARY_CURSOR_MIN_TOP = 112;
 
-function ModeDropdown({ mode, recordKey, onSelectMode }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const menuId = `pagetollm-dropdown-menu-${recordKey}`;
-  const label = mode === 'summaries' ? 'Summaries' : 'Topics';
+const RAIL_MODE_OPTIONS = new Set(['topics', 'summaries', 'hierarchy', 'canvas']);
 
-  useEffect(() => {
-    if (!isOpen) return undefined;
-    const onDocumentClick = () => setIsOpen(false);
-    document.addEventListener('click', onDocumentClick);
-    return () => document.removeEventListener('click', onDocumentClick);
-  }, [isOpen]);
-
-  const onKeyDown = (event) => {
-    const items = Array.from(event.currentTarget.querySelectorAll('.pagetollm-rail-dropdown-item'));
-    const activeIndex = items.indexOf(document.activeElement);
-    switch (event.key) {
-      case 'Escape':
-        if (isOpen) {
-          event.preventDefault();
-          setIsOpen(false);
-          event.currentTarget.querySelector('.pagetollm-rail-dropdown-toggle')?.focus();
-        }
-        break;
-      case 'ArrowDown': {
-        event.preventDefault();
-        setIsOpen(true);
-        const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % items.length : 0;
-        items[nextIndex]?.focus();
-        break;
-      }
-      case 'ArrowUp':
-        if (isOpen) {
-          event.preventDefault();
-          const nextIndex =
-            activeIndex >= 0 ? (activeIndex - 1 + items.length) % items.length : items.length - 1;
-          items[nextIndex]?.focus();
-        }
-        break;
-      case 'Home':
-        if (isOpen) {
-          event.preventDefault();
-          items[0]?.focus();
-        }
-        break;
-      case 'End':
-        if (isOpen) {
-          event.preventDefault();
-          items[items.length - 1]?.focus();
-        }
-        break;
-    }
-  };
-
-  const chooseMode = (nextMode) => {
-    setIsOpen(false);
-    onSelectMode(nextMode);
-  };
+function ModeDropdown({ mode, onSelectMode }) {
+  const activeMode = RAIL_MODE_OPTIONS.has(mode) ? mode : 'topics';
 
   return (
-    <div
-      className={`pagetollm-rail-dropdown-container${isOpen ? ' open' : ''}`}
-      onClick={(event) => event.stopPropagation()}
-      onKeyDown={onKeyDown}
+    <select
+      className="pagetollm-rail-mode-select pagetollm-rail-title"
+      aria-label="Rail view"
+      value={activeMode}
+      onChange={(event) => onSelectMode(event.target.value)}
     >
-      <button
-        type="button"
-        className="pagetollm-rail-dropdown-toggle pagetollm-rail-title"
-        aria-haspopup="true"
-        aria-expanded={isOpen}
-        aria-controls={menuId}
-        onClick={() => setIsOpen((value) => !value)}
-      >
-        <span className="pagetollm-rail-dropdown-label">{label}</span>
-        <span className="pagetollm-rail-dropdown-arrow" aria-hidden="true">
-          ▾
-        </span>
-      </button>
-      <div id={menuId} className="pagetollm-rail-dropdown-menu" role="menu">
-        {[
-          ['topics', 'Topics'],
-          ['summaries', 'Summaries'],
-          ['hierarchy', 'Hierarchy view'],
-          ['canvas', 'Canvas view'],
-        ].map(([itemMode, text]) => (
-          <button
-            key={itemMode}
-            type="button"
-            className={`pagetollm-rail-dropdown-item${
-              mode === itemMode && itemMode !== 'canvas' && itemMode !== 'hierarchy'
-                ? ' active'
-                : ''
-            }`}
-            role="menuitem"
-            data-mode={itemMode}
-            onClick={() => chooseMode(itemMode)}
-          >
-            {text}
-          </button>
-        ))}
-      </div>
-    </div>
+      <option value="topics">Topics</option>
+      <option value="summaries">Summaries</option>
+      <option value="hierarchy">Hierarchy view</option>
+      <option value="canvas">Canvas view</option>
+    </select>
   );
 }
 
@@ -318,7 +234,6 @@ function SummaryCursorView({
 }
 
 export default function InPageRail({
-  recordKey,
   mode,
   maxLevel,
   selectedLevel,
@@ -391,7 +306,7 @@ export default function InPageRail({
   return (
     <>
       <div className="pagetollm-rail-head">
-        <ModeDropdown mode={mode} recordKey={recordKey} onSelectMode={onSelectMode} />
+        <ModeDropdown mode={mode} onSelectMode={onSelectMode} />
         <LevelSwitcher
           maxLevel={maxLevel}
           selectedLevel={selectedLevel}

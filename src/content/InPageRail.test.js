@@ -52,7 +52,6 @@ describe('InPageRail', () => {
   ];
 
   const defaultProps = {
-    recordKey: 'testKey',
     mode: 'topics',
     maxLevel: 2,
     selectedLevel: 1,
@@ -89,52 +88,21 @@ describe('InPageRail', () => {
     unmount();
   });
 
-  it('handles dropdown mode switching and keyboard navigation', () => {
+  it('handles native mode switching', () => {
     const onSelectMode = vi.fn();
     const { container, unmount } = render(
       createElement(InPageRail, { ...defaultProps, onSelectMode }),
     );
 
-    const toggleBtn = container.querySelector('.pagetollm-rail-dropdown-toggle');
-    const containerDiv = container.querySelector('.pagetollm-rail-dropdown-container');
+    const select = container.querySelector('.pagetollm-rail-mode-select');
+    expect(select).not.toBeNull();
+    expect(select.value).toBe('topics');
+    expect(select.querySelectorAll('option')).toHaveLength(4);
 
-    expect(containerDiv.className).not.toContain('open');
-
-    // Click to open
-    act(() => toggleBtn.click());
-    expect(containerDiv.className).toContain('open');
-
-    // Click document to close dropdown
     act(() => {
-      document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      select.value = 'summaries';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    expect(containerDiv.className).not.toContain('open');
-
-    // Keyboard navigation: Escape
-    act(() => toggleBtn.click()); // open it again
-    expect(containerDiv.className).toContain('open');
-    act(() => {
-      containerDiv.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    });
-    expect(containerDiv.className).not.toContain('open');
-
-    // Keyboard navigation: ArrowDown
-    act(() => {
-      containerDiv.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
-    });
-    expect(containerDiv.className).toContain('open');
-
-    // ArrowUp, Home, End keyboard events
-    act(() => {
-      containerDiv.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
-      containerDiv.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
-      containerDiv.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
-    });
-
-    // Choose mode
-    const items = container.querySelectorAll('.pagetollm-rail-dropdown-item');
-    expect(items).toHaveLength(4);
-    act(() => items[1].click()); // Click summaries
     expect(onSelectMode).toHaveBeenCalledWith('summaries');
 
     unmount();

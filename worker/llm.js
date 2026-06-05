@@ -38,8 +38,7 @@ export async function callLLMDirect({ prompt, temperature = 0.8 }) {
   }
 
   const startedAt = Date.now();
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), LLM_REQUEST_TIMEOUT_MS);
+  const timeoutSignal = createRequestTimeoutSignal(LLM_REQUEST_TIMEOUT_MS);
   console.info('PageToLLM Canvas LLM request:', {
     provider: provider.name,
     type: provider.type,
@@ -52,7 +51,7 @@ export async function callLLMDirect({ prompt, temperature = 0.8 }) {
     const { content, endpoint } = await client.complete({
       prompt,
       temperature,
-      signal: controller.signal,
+      signal: timeoutSignal.signal,
     });
     console.info('PageToLLM Canvas LLM response:', {
       endpoint,
@@ -62,14 +61,32 @@ export async function callLLMDirect({ prompt, temperature = 0.8 }) {
     return { ok: true, content };
   } catch (e) {
     const message =
-      e && e.name === 'AbortError'
+      e && (e.name === 'AbortError' || e.name === 'TimeoutError')
         ? `LLM request timed out after ${LLM_REQUEST_TIMEOUT_MS}ms`
         : (e && e.message) || String(e);
     console.warn('PageToLLM Canvas LLM request failed:', message);
     return { ok: false, error: message };
   } finally {
-    clearTimeout(timeoutId);
+    timeoutSignal.dispose();
   }
+}
+
+function createRequestTimeoutSignal(ms) {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return {
+      signal: AbortSignal.timeout(ms),
+      dispose() {},
+    };
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ms);
+  return {
+    signal: controller.signal,
+    dispose() {
+      clearTimeout(timeoutId);
+    },
+  };
 }
 
 /**

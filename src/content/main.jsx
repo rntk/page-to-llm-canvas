@@ -840,7 +840,6 @@ async function openInPageRail(rec, initialMode, options = {}) {
     flushSync(() => {
       railRoot.render(
         <InPageRail
-          recordKey={record.key}
           mode={state.mode}
           maxLevel={maxLevel}
           selectedLevel={state.selectedLevel}

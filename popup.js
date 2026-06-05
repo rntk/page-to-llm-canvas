@@ -116,7 +116,7 @@ function setError(message) {
 }
 
 function setLoading() {
-  recordsEl.innerHTML = '';
+  recordsEl.replaceChildren();
   emptyEl.hidden = true;
   countEl.textContent = '';
   setError('');
@@ -146,7 +146,7 @@ function makeAction(label, key, mode) {
 }
 
 function renderRecords(records) {
-  recordsEl.innerHTML = '';
+  recordsEl.replaceChildren();
   countEl.textContent = records.length ? String(records.length) : '';
   emptyEl.hidden = records.length !== 0;
 
@@ -264,7 +264,7 @@ async function refreshRecords() {
     renderRecords(matching);
     await refreshProviderReadiness();
   } catch (err) {
-    recordsEl.innerHTML = '';
+    recordsEl.replaceChildren();
     emptyEl.hidden = true;
     setError(err.message || String(err));
   }
