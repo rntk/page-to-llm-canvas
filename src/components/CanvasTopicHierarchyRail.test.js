@@ -232,6 +232,28 @@ describe('CanvasTopicHierarchyRail', () => {
     unmount();
   });
 
+  it('scales the current-topic summary card fonts from the matched rail title size', () => {
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        topicCards: defaultProps.topicCards.map((card) =>
+          card.fullPath === 'Topic A > Sub B'
+            ? { ...card, height: 120, titleFontSize: 18 }
+            : card,
+        ),
+        currentTopicSummary: {
+          path: 'Topic A > Sub B',
+          text: 'A short summary of Sub B.',
+        },
+      }),
+    );
+
+    const summary = container.querySelector('.canvas-topic-current-summary');
+    expect(summary.style.getPropertyValue('--current-summary-title-font-size')).toBe('24px');
+    expect(summary.style.getPropertyValue('--current-summary-text-font-size')).toBe('21px');
+    unmount();
+  });
+
   it('omits the current-topic summary card when none is provided', () => {
     const { container, unmount } = render(
       createElement(CanvasTopicHierarchyRail, {

@@ -114,7 +114,7 @@ body.canvas-global-dragging * {
 /* Reserve a left gutter for the current-topic summary card while reading the
    article. Not needed in summary mode, where summaries fill the center. */
 .canvas-article-with-summaries.has-topic-hierarchy:not(.is-summary-mode) {
-  padding-left: 380px;
+  padding-left: calc(var(--current-summary-width, 340px) + 40px);
 }
 
 /* Single summary card for the hovered/selected topic, pinned to the left
@@ -137,7 +137,7 @@ body.canvas-global-dragging * {
   position: absolute;
   left: 0;
   top: var(--current-summary-top, 0);
-  width: 340px;
+  width: var(--current-summary-width, 340px);
   transition: top 0.15s ease;
 
   --_pad: 20px;
@@ -166,6 +166,14 @@ body.canvas-global-dragging * {
 .canvas-topic-current-summary .canvas-summary-view__card.is-active {
   background: var(--surface);
   box-shadow: 0 4px 16px rgb(0 0 0 / 14%);
+}
+
+.canvas-topic-current-summary .canvas-summary-view__card-path {
+  font-size: var(--current-summary-title-font-size, 16px);
+}
+
+.canvas-topic-current-summary .canvas-summary-view__card-text {
+  font-size: var(--current-summary-text-font-size, 14px);
 }
 
 /* The article: a sheet of paper "tipped-in" onto the canvas. */

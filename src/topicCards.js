@@ -9,6 +9,8 @@
 import { clampScale } from './useCanvasTransform.js';
 
 export const CARD_WIDTH = 240;
+export const SUMMARY_CARD_WIDTH = 340;
+export const SUMMARY_CARD_MAX_WIDTH = 760;
 export const COLUMN_GAP = 18;
 export const RAIL_PADDING = 24;
 
@@ -35,6 +37,10 @@ const CARD_VERTICAL_CHROME_PX = 31;
  */
 export function getZoomAdjustedCardWidth(scale) {
   return CARD_WIDTH * Math.max(1, 1 / clampScale(scale));
+}
+
+export function getZoomAdjustedSummaryCardWidth(scale) {
+  return Math.min(SUMMARY_CARD_MAX_WIDTH, SUMMARY_CARD_WIDTH * Math.max(1, 1 / clampScale(scale)));
 }
 
 export function getTopicTitleFontSize({ scale, height }) {

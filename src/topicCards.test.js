@@ -5,9 +5,12 @@ import {
   getTopicSentenceNumbers,
   splitSentenceRuns,
   getZoomAdjustedCardWidth,
+  getZoomAdjustedSummaryCardWidth,
   getTopicTitleFontSize,
   buildTopicCards,
   CARD_WIDTH,
+  SUMMARY_CARD_WIDTH,
+  SUMMARY_CARD_MAX_WIDTH,
   COLUMN_GAP,
   RAIL_PADDING,
 } from './topicCards.js';
@@ -15,6 +18,8 @@ import {
 describe('constants', () => {
   it('exports expected card layout constants', () => {
     expect(CARD_WIDTH).toBe(240);
+    expect(SUMMARY_CARD_WIDTH).toBe(340);
+    expect(SUMMARY_CARD_MAX_WIDTH).toBe(760);
     expect(COLUMN_GAP).toBe(18);
     expect(RAIL_PADDING).toBe(24);
   });
@@ -157,6 +162,24 @@ describe('getZoomAdjustedCardWidth', () => {
 
   it('returns CARD_WIDTH when zoomed in (scale > 1)', () => {
     expect(getZoomAdjustedCardWidth(2)).toBe(CARD_WIDTH);
+  });
+});
+
+describe('getZoomAdjustedSummaryCardWidth', () => {
+  it('returns SUMMARY_CARD_WIDTH at scale 1', () => {
+    expect(getZoomAdjustedSummaryCardWidth(1)).toBe(SUMMARY_CARD_WIDTH);
+  });
+
+  it('grows when zoomed out', () => {
+    expect(getZoomAdjustedSummaryCardWidth(0.5)).toBeGreaterThan(SUMMARY_CARD_WIDTH);
+  });
+
+  it('caps the summary card width', () => {
+    expect(getZoomAdjustedSummaryCardWidth(0.3)).toBe(SUMMARY_CARD_MAX_WIDTH);
+  });
+
+  it('returns SUMMARY_CARD_WIDTH when zoomed in', () => {
+    expect(getZoomAdjustedSummaryCardWidth(2)).toBe(SUMMARY_CARD_WIDTH);
   });
 });
 

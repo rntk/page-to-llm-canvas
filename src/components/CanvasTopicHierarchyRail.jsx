@@ -10,6 +10,9 @@ const DENSE_CARD_MAX_NUDGE = 18;
 const CARD_TITLE_LINE_HEIGHT = 1.2;
 const CARD_TITLE_MAX_LINES = 2;
 const CARD_VERTICAL_CHROME_PX = 31;
+const BASE_TOPIC_TITLE_FONT_SIZE = 12;
+const SUMMARY_TITLE_FONT_SIZE = 16;
+const SUMMARY_TEXT_FONT_SIZE = 14;
 
 function getFiniteNumber(value, fallback) {
   return Number.isFinite(value) ? value : fallback;
@@ -115,6 +118,16 @@ function getAdjustedHierarchyCards(cards) {
     );
 }
 
+function getSummaryFontSizes(anchorCard) {
+  const anchorTitleSize = getFiniteNumber(anchorCard?.titleFontSize, BASE_TOPIC_TITLE_FONT_SIZE);
+  const zoomMultiplier = Math.max(1, anchorTitleSize / BASE_TOPIC_TITLE_FONT_SIZE);
+
+  return {
+    title: SUMMARY_TITLE_FONT_SIZE * zoomMultiplier,
+    text: SUMMARY_TEXT_FONT_SIZE * zoomMultiplier,
+  };
+}
+
 /**
  * @typedef {Object} CanvasTopicCard
  * @property {string} key
@@ -196,23 +209,24 @@ function CanvasTopicHierarchyRail({
     () => getAdjustedHierarchyCards(hierarchyCards),
     [hierarchyCards],
   );
+  const summaryAnchorCard = currentTopicSummary
+    ? adjustedHierarchyCards.find((card) => card.fullPath === currentTopicSummary.path)
+    : null;
+  const summaryTop = summaryAnchorCard ? summaryAnchorCard.top : 0;
+  const summaryFontSizes = getSummaryFontSizes(summaryAnchorCard);
 
   // Publish the rendered height of the current-topic summary card so the sticky
   // CSS can clamp its bottom edge to the visible viewport (see modal.css). The
-  // card's height depends on its text, so we remeasure whenever it changes.
+  // card's height depends on its text and zoom-adjusted font size, so we
+  // remeasure whenever either changes.
   const summaryRef = React.useRef(null);
   React.useLayoutEffect(() => {
     const el = summaryRef.current;
     if (!el) return;
     el.style.setProperty('--current-summary-height', `${el.offsetHeight}px`);
-  }, [currentTopicSummary]);
+  }, [currentTopicSummary, summaryFontSizes.title, summaryFontSizes.text]);
 
   if (!show) return null;
-
-  const summaryAnchorCard = currentTopicSummary
-    ? adjustedHierarchyCards.find((card) => card.fullPath === currentTopicSummary.path)
-    : null;
-  const summaryTop = summaryAnchorCard ? summaryAnchorCard.top : 0;
 
   return (
     <>
@@ -230,6 +244,8 @@ function CanvasTopicHierarchyRail({
             left: 0,
             top: summaryTop,
             '--current-summary-top': `${summaryTop}px`,
+            '--current-summary-title-font-size': `${summaryFontSizes.title}px`,
+            '--current-summary-text-font-size': `${summaryFontSizes.text}px`,
           }}
         >
           <article className="canvas-summary-view__card is-active">

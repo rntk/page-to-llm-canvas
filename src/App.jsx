@@ -6,6 +6,7 @@ import {
   getTopicSentenceNumbers,
   getTopicTitleFontSize,
   getZoomAdjustedCardWidth,
+  getZoomAdjustedSummaryCardWidth,
   splitTopicPath,
   COLUMN_GAP,
   RAIL_PADDING,
@@ -207,6 +208,7 @@ export default function App({ initialKey }) {
   ]);
 
   const cardWidth = useMemo(() => getZoomAdjustedCardWidth(scale), [scale]);
+  const currentSummaryWidth = useMemo(() => getZoomAdjustedSummaryCardWidth(scale), [scale]);
 
   const railWidth = useMemo(
     () => (selectedLevel + 1) * cardWidth + selectedLevel * COLUMN_GAP + RAIL_PADDING * 2,
@@ -597,6 +599,7 @@ export default function App({ initialKey }) {
                   className={`canvas-article-with-summaries${showTopicHierarchy || showSummaryMode ? ' has-topic-hierarchy' : ''}${showSummaryMode ? ' is-summary-mode' : ''}`}
                   style={{
                     '--canvas-topic-hierarchy-width': `${railWidth}px`,
+                    '--current-summary-width': `${currentSummaryWidth}px`,
                   }}
                 >
                   {showSummaryMode ? (
