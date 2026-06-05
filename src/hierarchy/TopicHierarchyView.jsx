@@ -68,8 +68,10 @@ function HierarchyNode({ entry, summaryLookup, selectedTopicPath, onTopicClick }
         title={node.fullPath.replace(/>/g, ' ')}
         onClick={() => onTopicClick?.(entry)}
       >
-        <span className="th-node__label-text">{node.name}</span>
-        <span className="th-node__drill" aria-hidden="true"></span>
+        <span className="th-node__label-content">
+          <span className="th-node__label-text">{node.name}</span>
+          <span className="th-node__drill" aria-hidden="true"></span>
+        </span>
       </div>
       <div className="th-node__children">
         {children.map((child) => (
