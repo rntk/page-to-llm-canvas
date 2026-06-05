@@ -27,128 +27,13 @@ import { sanitizeArticleHtml, escapeHtml } from './articleHtml.js';
 import CanvasTopicHierarchyRail from './components/CanvasTopicHierarchyRail.jsx';
 import CanvasSummaryView from './components/CanvasSummaryView.jsx';
 import CanvasZoomControls from './components/CanvasZoomControls.jsx';
+import SpinnerOverlay from './components/SpinnerOverlay.jsx';
+import ArticleHtml from './components/ArticleHtml.jsx';
+import { closeModal } from './closeModal.js';
 import { useCanvasTransform, clampScale } from './useCanvasTransform.js';
-
-function closeModal() {
-  try {
-    window.parent.postMessage({ type: 'pagetollm-close' }, '*');
-  } catch (_) {
-    /* noop */
-  }
-}
-
-/**
- * @param {{
- *   stage?: string,
- *   error?: string | null,
- *   recordError?: string | null,
- *   onRetry?: () => void,
- *   isMissing?: boolean,
- *   isDeleted?: boolean,
- * }} props
- */
-function SpinnerOverlay({ stage, error, recordError, onRetry, isMissing, isDeleted }) {
-  if (isMissing) {
-    return (
-      <div className="pagetollm-spinner-overlay" role="alert">
-        <div className="pagetollm-spinner-box">
-          <div className="pagetollm-spinner-error-title">Article Not Found</div>
-          <div className="pagetollm-spinner-error-body">
-            This article could not be found. It may not have been submitted yet.
-          </div>
-          <div className="pagetollm-spinner-actions">
-            <button className="pagetollm-spinner-close-btn" onClick={closeModal}>
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (isDeleted) {
-    return (
-      <div className="pagetollm-spinner-overlay" role="alert">
-        <div className="pagetollm-spinner-box">
-          <div className="pagetollm-spinner-error-title">Article Deleted</div>
-          <div className="pagetollm-spinner-error-body">
-            This article was deleted while the canvas was open.
-          </div>
-          <div className="pagetollm-spinner-actions">
-            <button className="pagetollm-spinner-close-btn" onClick={closeModal}>
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (recordError !== undefined) {
-    return (
-      <div className="pagetollm-spinner-overlay" role="alert">
-        <div className="pagetollm-spinner-box">
-          <div className="pagetollm-spinner-error-title">Processing Failed</div>
-          {recordError && <div className="pagetollm-spinner-error-body">{recordError}</div>}
-          <div className="pagetollm-spinner-actions">
-            {onRetry && (
-              <button className="pagetollm-spinner-retry-btn" onClick={onRetry}>
-                Retry
-              </button>
-            )}
-            <button className="pagetollm-spinner-close-btn" onClick={closeModal}>
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="pagetollm-spinner-overlay" role="alert">
-        <div className="pagetollm-spinner-box">
-          <div className="pagetollm-spinner-error-title">Error</div>
-          <div className="pagetollm-spinner-error-body">{error}</div>
-          <div className="pagetollm-spinner-actions">
-            <button className="pagetollm-spinner-close-btn" onClick={closeModal}>
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="pagetollm-spinner-overlay" role="status" aria-live="polite">
-      <div className="pagetollm-spinner-box">
-        <div className="pagetollm-spinner" />
-        <div className="pagetollm-spinner-stage">{stage || 'Processing...'}</div>
-      </div>
-    </div>
-  );
-}
 
 /** Second CSS Custom Highlight name, used for the hovered (not selected) topic. */
 const HIGHLIGHT_HOVER = 'pagetollm-sentence-hover';
-
-/**
- * The original article HTML, re-rendered onto the canvas sheet. Sentence
- * highlighting and rail measurement work off live DOM Ranges built over this
- * subtree (see sentenceHighlight.js) rather than per-sentence spans, so the
- * markup can stay structurally identical to the source for readability.
- */
-const ArticleHtml = React.memo(function ArticleHtml({ html, articleTextRef }) {
-  return (
-    <div
-      className="pagetollm-article-text pagetollm-article-html"
-      ref={articleTextRef}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  );
-});
 
 /**
  * @param {{ initialKey: string }} props

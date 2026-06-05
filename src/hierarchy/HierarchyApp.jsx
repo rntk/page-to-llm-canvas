@@ -2,15 +2,8 @@ import React, { useMemo } from 'react';
 import { useRecord } from '../useRecord.js';
 import TopicHierarchyView from './TopicHierarchyView.jsx';
 import { getSentencesForNode } from './hierarchyUtils.js';
+import { closeModal } from '../closeModal.js';
 import './hierarchy.css';
-
-function closeView() {
-  try {
-    window.parent.postMessage({ type: 'pagetollm-close' }, '*');
-  } catch (_) {
-    /* noop */
-  }
-}
 
 export default function HierarchyApp({ initialKey }) {
   const { record, error } = useRecord(initialKey);
@@ -56,7 +49,7 @@ export default function HierarchyApp({ initialKey }) {
     <div className="th-page">
       <header className="th-page__bar">
         <h1 className="th-page__title">Topic Hierarchy and Summaries</h1>
-        <button type="button" className="th-page__close" onClick={closeView} title="Close">
+        <button type="button" className="th-page__close" onClick={closeModal} title="Close">
           ×
         </button>
       </header>
