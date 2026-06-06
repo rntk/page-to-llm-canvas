@@ -11,14 +11,19 @@
 // which still raises TopicParseError so the orchestrator can retry.
 
 const TOPIC_LINE_RE = /^(.+):\s*(\d[\d\s,-]*)\s*$/;
-const RANGE_RE = /(\d+)\s*-\s*(\d+)/;
-const SINGLE_RE = /(\d+)/;
+const RANGE_TOKEN_RE = /^(\d+)\s*-\s*(\d+)$/;
+const SINGLE_TOKEN_RE = /^(\d+)$/;
 
 /** Thrown when the LLM response contains no parseable topic ranges at all. */
 export class TopicParseError extends Error {
   /**
    * @param {string} message
-   * @param {{ outOfRange?: number[], duplicates?: number[], missing?: number[] }} diagnostics
+   * @param {{
+   *   outOfRange?: Array<[number, number]>,
+   *   duplicates?: number[],
+   *   missing?: number[],
+   *   invalidRangeTokens?: number
+   * }} diagnostics
    */
   constructor(message, diagnostics = {}) {
     super(message);
@@ -41,27 +46,31 @@ function normalizeLabelParts(parts) {
 }
 
 function normalizeLabelKey(label) {
-  return label.map((p) => p.toLowerCase().replace(/[^a-z0-9]/g, '')).join('|');
+  return label
+    .map((p) => p.normalize('NFKC').trim().toLocaleLowerCase().replace(/\s+/gu, ' '))
+    .join('|');
 }
 
 function parseRangeString(str) {
   const results = [];
+  let invalidCount = 0;
   for (const partRaw of str.split(',')) {
     const part = partRaw.trim();
-    if (part.includes('-') && !part.startsWith('-')) {
-      const m = RANGE_RE.exec(part);
-      if (m) {
-        results.push([parseInt(m[1], 10), parseInt(m[2], 10)]);
-        continue;
-      }
+    if (!part) continue;
+    const rangeMatch = RANGE_TOKEN_RE.exec(part);
+    if (rangeMatch) {
+      results.push([parseInt(rangeMatch[1], 10), parseInt(rangeMatch[2], 10)]);
+      continue;
     }
-    const m = SINGLE_RE.exec(part);
-    if (m) {
-      const n = parseInt(m[1], 10);
+    const singleMatch = SINGLE_TOKEN_RE.exec(part);
+    if (singleMatch) {
+      const n = parseInt(singleMatch[1], 10);
       results.push([n, n]);
+      continue;
     }
+    invalidCount++;
   }
-  return results;
+  return { ranges: results, invalidCount };
 }
 
 /**
@@ -75,6 +84,7 @@ function parseRangeString(str) {
  */
 function clampRange(start, end, maxIndex) {
   if (maxIndex < 0) return null;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
   start = Math.max(0, Math.min(start, maxIndex));
   end = Math.max(0, Math.min(end, maxIndex));
   if (start > end) {
@@ -118,12 +128,12 @@ function mergeRanges(ranges) {
 function repairCoverage(groups, sentenceCount) {
   const maxIndex = sentenceCount - 1;
 
-  // Flatten all (groupIndex, range) pairs and sort by (start, end).
+  // Flatten all (groupIndex, range) pairs and sort by start, then parse order.
   const flat = [];
   groups.forEach((g, gi) => {
     for (const r of g.ranges) flat.push({ gi, range: r });
   });
-  flat.sort((a, b) => a.range.start - b.range.start || a.range.end - b.range.end);
+  flat.sort((a, b) => a.range.start - b.range.start || a.range.ordinal - b.range.ordinal);
 
   const adjusted = groups.map(() => []);
   let nextExpected = 0;
@@ -178,14 +188,44 @@ function repairCoverage(groups, sentenceCount) {
  * @param {number} sentenceCount
  * @returns {Array<{label: string[], ranges: Array<{start: number, end: number}>}>}
  */
-function finalizeGroups(rawGroups, sentenceCount) {
+function collectDiagnostics(rawGroups, sentenceCount, invalidRangeTokens = 0) {
+  const seen = new Array(sentenceCount).fill(0);
+  const outOfRange = [];
+
+  for (const g of rawGroups) {
+    for (const r of g.ranges) {
+      if (
+        r.rawStart < 0 ||
+        r.rawEnd < 0 ||
+        r.rawStart >= sentenceCount ||
+        r.rawEnd >= sentenceCount
+      ) {
+        outOfRange.push([r.rawStart, r.rawEnd]);
+      }
+      for (let i = r.start; i <= r.end; i++) seen[i]++;
+    }
+  }
+
+  const duplicates = [];
+  const missing = [];
+  for (let i = 0; i < seen.length; i++) {
+    if (seen[i] > 1) duplicates.push(i);
+    if (seen[i] === 0) missing.push(i);
+  }
+
+  return { outOfRange, duplicates, missing, invalidRangeTokens };
+}
+
+function finalizeGroups(rawGroups, sentenceCount, invalidRangeTokens = 0) {
   let groups = [];
   for (const g of rawGroups) {
     const merged = mergeRanges(g.ranges);
     if (!merged.length) continue;
     groups.push({ label: g.label, ranges: merged });
   }
-  if (!groups.length) throw new TopicParseError('No valid topic ranges found in response', {});
+  const diagnostics = collectDiagnostics(rawGroups, sentenceCount, invalidRangeTokens);
+  if (!groups.length)
+    throw new TopicParseError('No valid topic ranges found in response', diagnostics);
 
   // Repair overlaps and gaps so coverage is continuous over [0, maxIndex].
   groups = repairCoverage(groups, sentenceCount);
@@ -219,20 +259,29 @@ function finalizeGroups(rawGroups, sentenceCount) {
  */
 export function groupsFromSegments(segments, sentenceCount) {
   if (sentenceCount <= 0) throw new Error('sentenceCount must be positive');
+  const maxIndex = sentenceCount - 1;
 
   const grouped = new Map();
   const order = [];
   const keyToCanonical = new Map();
+  let ordinal = 0;
   for (const seg of segments) {
     if (!seg.label || !seg.label.length) continue;
     const key = normalizeLabelKey(seg.label);
     if (!keyToCanonical.has(key)) keyToCanonical.set(key, seg.label);
     const label = keyToCanonical.get(key);
+    const range = clampRange(seg.start, seg.end, maxIndex);
+    if (range === null) continue;
     if (!grouped.has(key)) {
       grouped.set(key, { label, ranges: [] });
       order.push(key);
     }
-    grouped.get(key).ranges.push({ start: seg.start, end: seg.end });
+    grouped.get(key).ranges.push({
+      ...range,
+      rawStart: seg.start,
+      rawEnd: seg.end,
+      ordinal: ordinal++,
+    });
   }
   const rawGroups = order.map((k) => grouped.get(k));
   return finalizeGroups(rawGroups, sentenceCount);
@@ -251,6 +300,8 @@ export function parseTopicRanges(response, sentenceCount) {
   const grouped = new Map(); // key -> { label, ranges[] }
   const order = [];
   const keyToCanonical = new Map();
+  let ordinal = 0;
+  let invalidRangeTokens = 0;
 
   for (const ln of lines) {
     let topicPath, rangesStr;
@@ -274,11 +325,14 @@ export function parseTopicRanges(response, sentenceCount) {
     label = keyToCanonical.get(key);
 
     const parsed = parseRangeString(rangesStr);
+    invalidRangeTokens += parsed.invalidCount;
     const clamped = [];
-    for (const [s, e] of parsed) {
+    for (const [s, e] of parsed.ranges) {
       // Clamp to bounds (matches Python TopicRangeParser); never reject.
       const r = clampRange(s, e, maxIndex);
-      if (r !== null) clamped.push(r);
+      if (r !== null) {
+        clamped.push({ ...r, rawStart: s, rawEnd: e, ordinal: ordinal++ });
+      }
     }
     if (!clamped.length) continue;
 
@@ -290,5 +344,5 @@ export function parseTopicRanges(response, sentenceCount) {
   }
 
   const rawGroups = order.map((key) => grouped.get(key));
-  return finalizeGroups(rawGroups, sentenceCount);
+  return finalizeGroups(rawGroups, sentenceCount, invalidRangeTokens);
 }

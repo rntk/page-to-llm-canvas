@@ -158,6 +158,12 @@ describe('malformed numbering', () => {
     expect(() => parseTopicRanges('Tech>A: a-b', 3)).toThrow(TopicParseError);
   });
 
+  it('does not salvage numbers from malformed range tokens', () => {
+    expect(() => parseTopicRanges('Tech>A: abc 2 def', 3)).toThrow(TopicParseError);
+    expect(() => parseTopicRanges('Tech>A: -1', 3)).toThrow(TopicParseError);
+    expect(() => parseTopicRanges('Tech>A: 1-2-3', 3)).toThrow(TopicParseError);
+  });
+
   it('handles reversed range (start > end) by normalising', () => {
     // e.g. LLM writes 4-0 for 5 sentences; should be treated as 0-4
     const resp = 'Tech>A: 4-0';
@@ -261,5 +267,46 @@ describe('groupsFromSegments', () => {
       for (const r of g.ranges) for (let i = r.start; i <= r.end; i++) covered.add(i);
     }
     expect([...covered].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  it('clamps and normalizes segment ranges before finalizing', () => {
+    const groups = groupsFromSegments(
+      [
+        { label: ['A', 'One'], start: 4, end: 1 },
+        { label: ['A', 'Two'], start: 20, end: 30 },
+      ],
+      5,
+    );
+
+    expect(groups[0].ranges).toEqual([{ start: 0, end: 4 }]);
+  });
+
+  it('drops segments with non-finite bounds', () => {
+    const groups = groupsFromSegments(
+      [
+        { label: ['A', 'Bad'], start: Number.NaN, end: 2 },
+        { label: ['A', 'Good'], start: 0, end: 2 },
+      ],
+      3,
+    );
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toEqual(['A', 'Good']);
+  });
+});
+
+describe('label normalization', () => {
+  it('does not collapse punctuation-distinct topic labels', () => {
+    const groups = parseTopicRanges('Tech>C++: 0-1\nTech>C#: 2-3', 4);
+    expect(groups.map((g) => g.label.join('>'))).toEqual(['Tech>C++', 'Tech>C#']);
+  });
+});
+
+describe('overlap ordering', () => {
+  it('uses response order when ranges start at the same sentence', () => {
+    const groups = parseTopicRanges('Tech>Wide: 0-4\nTech>Narrow: 0-1', 5);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toEqual(['Tech', 'Wide']);
+    expect(groups[0].ranges).toEqual([{ start: 0, end: 4 }]);
   });
 });
