@@ -48,7 +48,7 @@ export default function App({ initialKey }) {
   const [hoveredTopicKey, setHoveredTopicKey] = useState(null);
   const [selectedLevel, setSelectedLevel] = useState(0);
   const [sentenceMetrics, setSentenceMetrics] = useState(() => new Map());
-  const [pendingZoomSentence, setPendingZoomSentence] = useState(null);
+  const pendingZoomSentenceRef = useRef(null);
 
   const articleTextRef = useRef(null);
   const summaryWrapRef = useRef(null);
@@ -249,7 +249,8 @@ export default function App({ initialKey }) {
   // the live, laid-out nodes. Collecting ~1k words is cheap.
   const refreshSentenceRanges = useCallback(() => {
     const articleEl = articleTextRef.current;
-    if (!articleEl) return { wordEntries: wordEntriesRef.current, sentenceRanges: sentenceRangesRef.current };
+    if (!articleEl)
+      return { wordEntries: wordEntriesRef.current, sentenceRanges: sentenceRangesRef.current };
     const wordEntries = collectWordEntries([articleEl]);
     const sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
     wordEntriesRef.current = wordEntries;
@@ -464,9 +465,9 @@ export default function App({ initialKey }) {
   useEffect(() => {
     // Wait until we're in article mode (the article DOM must be mounted) before
     // resolving the queued sentence to a live range and zooming to it.
-    if (showSummaryMode || pendingZoomSentence === null) return;
-    setPendingZoomSentence(null);
-    const sentenceNumber = Number(pendingZoomSentence);
+    if (showSummaryMode || pendingZoomSentenceRef.current === null) return;
+    const sentenceNumber = Number(pendingZoomSentenceRef.current);
+    pendingZoomSentenceRef.current = null;
     if (Number.isInteger(sentenceNumber) && sentenceNumber > 0) {
       const { wordEntries, sentenceRanges } = refreshSentenceRanges();
       const domRange = buildSentenceDomRange(sentenceRanges, wordEntries, sentenceNumber);
@@ -474,7 +475,7 @@ export default function App({ initialKey }) {
         zoomToTarget(domRange.getBoundingClientRect());
       }
     }
-  }, [showSummaryMode, pendingZoomSentence, zoomToTarget, refreshSentenceRanges]);
+  }, [showSummaryMode, zoomToTarget, refreshSentenceRanges]);
 
   // ── Focus ────────────────────────────────────────────────────────────────
   // The modal runs inside an iframe. Keyboard listeners on the iframe's
@@ -539,7 +540,7 @@ export default function App({ initialKey }) {
   const handleShowSourceSentences = useCallback((card) => {
     setSelectedTopicKey(card.path);
     setShowSummaryMode(false);
-    setPendingZoomSentence(card.startSentence);
+    pendingZoomSentenceRef.current = card.startSentence;
   }, []);
   const handleZoomIn = useCallback(() => {
     setTransformNow(clampScale((scaleRef.current || 1) * 1.2), translateRef.current);

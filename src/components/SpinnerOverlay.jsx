@@ -43,7 +43,14 @@ function OverlayShell({ title, body, onRetry }) {
  *   isDeleted?: boolean,
  * }} props
  */
-export default function SpinnerOverlay({ stage, error, recordError, onRetry, isMissing, isDeleted }) {
+export default function SpinnerOverlay({
+  stage,
+  error,
+  recordError,
+  onRetry,
+  isMissing,
+  isDeleted,
+}) {
   if (isMissing) {
     return (
       <OverlayShell
@@ -66,7 +73,9 @@ export default function SpinnerOverlay({ stage, error, recordError, onRetry, isM
   // string still means "pipeline failed" (just without a message), so this must
   // stay an explicit `!== undefined` check rather than a truthiness test.
   if (recordError !== undefined) {
-    return <OverlayShell title="Processing Failed" body={recordError || undefined} onRetry={onRetry} />;
+    return (
+      <OverlayShell title="Processing Failed" body={recordError || undefined} onRetry={onRetry} />
+    );
   }
 
   if (error) {

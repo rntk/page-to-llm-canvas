@@ -117,9 +117,9 @@ describe('popup pure functions', () => {
   });
 
   it('providerConfigurationMessage returns empty when a provider is active', () => {
-    expect(
-      popup.providerConfigurationMessage({ providers: [{ id: 'p1' }], activeId: 'p1' }),
-    ).toBe('');
+    expect(popup.providerConfigurationMessage({ providers: [{ id: 'p1' }], activeId: 'p1' })).toBe(
+      '',
+    );
   });
 
   it('getActiveTab returns first active tab', async () => {

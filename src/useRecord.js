@@ -51,7 +51,12 @@ export function useRecord(key) {
         }
       });
     } catch (e) {
-      setError(String(e && e.message ? e.message : e));
+      const msg = String(e && e.message ? e.message : e);
+      Promise.resolve().then(() => {
+        if (!cancelled) {
+          setError(msg);
+        }
+      });
     }
 
     // 2) live updates

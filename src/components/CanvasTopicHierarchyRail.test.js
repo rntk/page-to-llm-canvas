@@ -237,9 +237,7 @@ describe('CanvasTopicHierarchyRail', () => {
       createElement(CanvasTopicHierarchyRail, {
         ...defaultProps,
         topicCards: defaultProps.topicCards.map((card) =>
-          card.fullPath === 'Topic A > Sub B'
-            ? { ...card, height: 120, titleFontSize: 18 }
-            : card,
+          card.fullPath === 'Topic A > Sub B' ? { ...card, height: 120, titleFontSize: 18 } : card,
         ),
         currentTopicSummary: {
           path: 'Topic A > Sub B',
