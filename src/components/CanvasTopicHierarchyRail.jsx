@@ -250,10 +250,10 @@ function CanvasTopicHierarchyRail({
         >
           <article className="canvas-summary-view__card is-active">
             <header className="canvas-summary-view__card-header">
-              <span className="canvas-summary-view__card-path">{currentTopicSummary.path}</span>
+              <span key={currentTopicSummary.path} className="canvas-summary-view__card-path">{currentTopicSummary.path}</span>
             </header>
             {currentTopicSummary.text && (
-              <p className="canvas-summary-view__card-text">{currentTopicSummary.text}</p>
+              <p key={currentTopicSummary.path} className="canvas-summary-view__card-text">{currentTopicSummary.text}</p>
             )}
           </article>
         </aside>
