@@ -1,7 +1,7 @@
 // LLM client entrypoint for the PageToLLM Canvas pipeline.
 // Runs in the service worker context; dispatches to the active provider's client.
 
-import { LLM_REQUEST_TIMEOUT_MS } from './config.js';
+export const LLM_REQUEST_TIMEOUT_MS = 120_000;
 import { getActiveProvider } from './providers.js';
 import { createClient } from './llm_clients.js';
 

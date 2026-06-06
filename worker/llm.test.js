@@ -365,3 +365,11 @@ describe('parallelMap', () => {
     expect(res).toEqual([]);
   });
 });
+
+describe('exports', () => {
+  it('exports a positive LLM_REQUEST_TIMEOUT_MS number', async () => {
+    const { LLM_REQUEST_TIMEOUT_MS } = await getLLM();
+    expect(typeof LLM_REQUEST_TIMEOUT_MS).toBe('number');
+    expect(LLM_REQUEST_TIMEOUT_MS).toBeGreaterThan(0);
+  });
+});
