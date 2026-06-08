@@ -222,6 +222,7 @@ describe('CanvasTopicHierarchyRail', () => {
     expect(summary).not.toBeNull();
     // Vertically aligned with card2 (top: 80).
     expect(summary.style.getPropertyValue('--current-summary-top')).toBe('80px');
+    expect(summary.querySelector('.canvas-summary-view__card-kicker').textContent).toBe('Summary');
     expect(summary.querySelector('.canvas-summary-view__card-path').textContent).toBe(
       'Topic A > Sub B',
     );
@@ -247,6 +248,7 @@ describe('CanvasTopicHierarchyRail', () => {
     );
 
     const summary = container.querySelector('.canvas-topic-current-summary');
+    expect(summary.style.getPropertyValue('--current-summary-kicker-font-size')).toBe('15px');
     expect(summary.style.getPropertyValue('--current-summary-title-font-size')).toBe('24px');
     expect(summary.style.getPropertyValue('--current-summary-text-font-size')).toBe('21px');
     unmount();

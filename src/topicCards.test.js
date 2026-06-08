@@ -18,8 +18,8 @@ import {
 describe('constants', () => {
   it('exports expected card layout constants', () => {
     expect(CARD_WIDTH).toBe(240);
-    expect(SUMMARY_CARD_WIDTH).toBe(340);
-    expect(SUMMARY_CARD_MAX_WIDTH).toBe(760);
+    expect(SUMMARY_CARD_WIDTH).toBe(442);
+    expect(SUMMARY_CARD_MAX_WIDTH).toBe(988);
     expect(COLUMN_GAP).toBe(18);
     expect(RAIL_PADDING).toBe(24);
   });

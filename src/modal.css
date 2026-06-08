@@ -114,7 +114,7 @@ body.canvas-global-dragging * {
 /* Reserve a left gutter for the current-topic summary card while reading the
    article. Not needed in summary mode, where summaries fill the center. */
 .canvas-article-with-summaries.has-topic-hierarchy:not(.is-summary-mode) {
-  padding-left: calc(var(--current-summary-width, 340px) + 40px);
+  padding-left: calc(var(--current-summary-width, 442px) + 40px);
 }
 
 /* Single summary card for the hovered/selected topic, pinned to the left
@@ -137,7 +137,7 @@ body.canvas-global-dragging * {
   position: absolute;
   left: 0;
   top: var(--current-summary-top, 0);
-  width: var(--current-summary-width, 340px);
+  width: var(--current-summary-width, 442px);
   transition: top 0.28s cubic-bezier(0.25, 1, 0.5, 1);
 
   --_pad: 20px;
@@ -171,6 +171,11 @@ body.canvas-global-dragging * {
 
 .canvas-topic-current-summary .canvas-summary-view__card-path {
   font-size: var(--current-summary-title-font-size, 16px);
+  animation: summary-text-fade-in 0.25s ease-out both;
+}
+
+.canvas-topic-current-summary .canvas-summary-view__card-kicker {
+  font-size: var(--current-summary-kicker-font-size, 10px);
   animation: summary-text-fade-in 0.25s ease-out both;
 }
 
@@ -798,6 +803,26 @@ body.canvas-global-dragging * {
   align-items: baseline;
   gap: 8px;
   margin-bottom: 8px;
+}
+
+.canvas-summary-view__card-header--stacked {
+  align-items: flex-start;
+}
+
+.canvas-summary-view__card-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.canvas-summary-view__card-kicker {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-transform: uppercase;
+  color: var(--on-surface-muted);
 }
 
 .canvas-summary-view__card-path {

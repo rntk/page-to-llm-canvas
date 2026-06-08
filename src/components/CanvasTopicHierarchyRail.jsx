@@ -11,6 +11,7 @@ const CARD_TITLE_LINE_HEIGHT = 1.2;
 const CARD_TITLE_MAX_LINES = 2;
 const CARD_VERTICAL_CHROME_PX = 31;
 const BASE_TOPIC_TITLE_FONT_SIZE = 12;
+const SUMMARY_KICKER_FONT_SIZE = 10;
 const SUMMARY_TITLE_FONT_SIZE = 16;
 const SUMMARY_TEXT_FONT_SIZE = 14;
 
@@ -123,6 +124,7 @@ function getSummaryFontSizes(anchorCard) {
   const zoomMultiplier = Math.max(1, anchorTitleSize / BASE_TOPIC_TITLE_FONT_SIZE);
 
   return {
+    kicker: SUMMARY_KICKER_FONT_SIZE * zoomMultiplier,
     title: SUMMARY_TITLE_FONT_SIZE * zoomMultiplier,
     text: SUMMARY_TEXT_FONT_SIZE * zoomMultiplier,
   };
@@ -224,7 +226,12 @@ function CanvasTopicHierarchyRail({
     const el = summaryRef.current;
     if (!el) return;
     el.style.setProperty('--current-summary-height', `${el.offsetHeight}px`);
-  }, [currentTopicSummary, summaryFontSizes.title, summaryFontSizes.text]);
+  }, [
+    currentTopicSummary,
+    summaryFontSizes.kicker,
+    summaryFontSizes.title,
+    summaryFontSizes.text,
+  ]);
 
   if (!show) return null;
 
@@ -244,15 +251,19 @@ function CanvasTopicHierarchyRail({
             left: 0,
             top: summaryTop,
             '--current-summary-top': `${summaryTop}px`,
+            '--current-summary-kicker-font-size': `${summaryFontSizes.kicker}px`,
             '--current-summary-title-font-size': `${summaryFontSizes.title}px`,
             '--current-summary-text-font-size': `${summaryFontSizes.text}px`,
           }}
         >
           <article className="canvas-summary-view__card is-active">
-            <header className="canvas-summary-view__card-header">
-              <span key={currentTopicSummary.path} className="canvas-summary-view__card-path">
-                {currentTopicSummary.path}
-              </span>
+            <header className="canvas-summary-view__card-header canvas-summary-view__card-header--stacked">
+              <div className="canvas-summary-view__card-title-block">
+                <span className="canvas-summary-view__card-kicker">Summary</span>
+                <span key={currentTopicSummary.path} className="canvas-summary-view__card-path">
+                  {currentTopicSummary.path}
+                </span>
+              </div>
             </header>
             {currentTopicSummary.text && (
               <p key={currentTopicSummary.path} className="canvas-summary-view__card-text">

@@ -9,8 +9,8 @@
 import { clampScale } from './useCanvasTransform.js';
 
 export const CARD_WIDTH = 240;
-export const SUMMARY_CARD_WIDTH = 340;
-export const SUMMARY_CARD_MAX_WIDTH = 760;
+export const SUMMARY_CARD_WIDTH = 442;
+export const SUMMARY_CARD_MAX_WIDTH = 988;
 export const COLUMN_GAP = 18;
 export const RAIL_PADDING = 24;
 
