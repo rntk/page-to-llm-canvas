@@ -1,8 +1,32 @@
 # Extension Canvas
 
-Chrome MV3 extension that lets you pick blocks of HTML on any page, summarize them, and explore topic structure in an in-page canvas.
+Extension Canvas is a Chrome extension for turning parts of a web page into a clearer, easier-to-explore view.
 
-## Build
+Pick content from any page, open it in a focused canvas, and use summaries and topic hints to understand the page faster. It is meant for reading, reviewing, and making sense of long or complex web content without losing the connection to the original text.
+
+## What it helps with
+
+- Focus on the important parts of a page
+- Get a quick summary of selected content
+- Explore the main topics in a visual canvas
+- Jump between highlighted ideas and the original text
+- Reduce clutter while reading online
+
+## How to use it
+
+1. Install the extension in Chrome.
+2. Open a web page you want to explore.
+3. Select the content you care about.
+4. Open the canvas view.
+5. Review the summary, topics, and highlighted text.
+
+## Who it is for
+
+Extension Canvas is useful for readers, researchers, students, and anyone who wants to quickly understand web articles, documents, or dense pages.
+
+## Status
+
+This project is currently a proof of concept. Some features may still be experimental or require manual setup.
 
 Build is owned by `scripts/build-extension.mjs`, which runs Vite once per React entrypoint so extension scripts stay self-contained browser files. Produces a `dist/` directory containing:
 
