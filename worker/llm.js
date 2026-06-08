@@ -16,7 +16,8 @@ import { createClient } from './llm_clients.js';
  * @param {{prompt: string, temperature?: number, model?: string}} options
  * @returns {Promise<{ok: boolean, content?: string, error?: string}>}
  */
-export async function callLLMDirect({ prompt, temperature = 0.8 }) {
+export async function callLLMDirect(options) {
+  const { prompt, temperature = 0.8 } = options;
   let provider;
   try {
     provider = await getActiveProvider();

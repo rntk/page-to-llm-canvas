@@ -135,11 +135,11 @@ export const ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE =
   'Chunk summaries:\n<chunk_summaries>{chunk_summaries}</chunk_summaries>\n';
 
 export function buildArticleSummaryPrompt(text) {
-  return ARTICLE_SUMMARY_PROMPT_TEMPLATE.replace('{text}', text);
+  return ARTICLE_SUMMARY_PROMPT_TEMPLATE.replace('{text}', () => text);
 }
 
 export function buildArticleSummaryMergePrompt(chunkSummaries) {
-  return ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE.replace('{chunk_summaries}', chunkSummaries);
+  return ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE.replace('{chunk_summaries}', () => chunkSummaries);
 }
 
 export function formatChunkSummariesForMerge(records) {
@@ -155,7 +155,7 @@ export function formatChunkSummariesForMerge(records) {
 }
 
 export function buildSentenceSummaryPrompt(sentence) {
-  return SENTENCE_SUMMARY_PROMPT_TEMPLATE.replace('{sentence}', sentence);
+  return SENTENCE_SUMMARY_PROMPT_TEMPLATE.replace('{sentence}', () => sentence);
 }
 
 // BracketMarker port: prefixes each sentence with {N}.

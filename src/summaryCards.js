@@ -1,11 +1,9 @@
 import { splitTopicPath, splitSentenceRuns } from './topicCards.js';
 
 /**
- * Pure helper that turns record.topics + record.topic_summaries (legacy) or
- * record.topic_summary_index (preferred, hierarchical) into the
- * summaryViewCards[] array consumed by CanvasSummaryView.
- *
- * Card shape: { key, path, name, text, sourceSentences, startSentence, levelIndex }
+ * Formats a summary object into a single plain-text string (with bullet prefixing).
+ * @param {object} summary - The summary object containing optional text and bullets.
+ * @returns {string} The formatted plain text.
  */
 function summaryText(summary) {
   if (!summary || typeof summary !== 'object') return '';
@@ -19,6 +17,16 @@ function summaryText(summary) {
   return [text, ...bullets].filter(Boolean).join('\n');
 }
 
+/**
+ * Pure helper that turns record.topics + record.topic_summaries (legacy) or
+ * record.topic_summary_index (preferred, hierarchical) into the
+ * summaryViewCards[] array consumed by CanvasSummaryView.
+ *
+ * @param {Array} topics
+ * @param {object} topicSummaries
+ * @param {object} topicSummaryIndex
+ * @returns {Array} Card shape: { key, path, name, text, sourceSentences, startSentence, levelIndex }
+ */
 export function buildSummaryCards(topics, topicSummaries, topicSummaryIndex) {
   const index =
     topicSummaryIndex && typeof topicSummaryIndex === 'object' ? topicSummaryIndex : null;

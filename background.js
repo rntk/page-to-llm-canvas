@@ -152,10 +152,11 @@ export async function startPipeline(key) {
 }
 
 /**
- * @param {{html?: string, sourceUrl?: string}} submission
+ * @param {{html?: string, sourceUrl?: string, selectors?: string[]}} submission
  * @returns {Promise<{ok: boolean, key?: string, error?: string}>}
  */
-export async function handleSubmit({ html, sourceUrl, selectors }) {
+export async function handleSubmit(submission) {
+  const { html, sourceUrl, selectors } = submission;
   if (!html) return { ok: false, error: 'missing html' };
 
   let existing = null;
@@ -223,7 +224,8 @@ export async function handleSubmit({ html, sourceUrl, selectors }) {
  * @param {{prompt?: string, temperature?: number, model?: string}} request
  * @returns {Promise<{ok: boolean, content?: string, error?: string}>}
  */
-async function handleLLMRequest({ prompt, temperature = 0.8, model }) {
+async function handleLLMRequest(request) {
+  const { prompt, temperature = 0.8, model } = request;
   if (!prompt) return { ok: false, error: 'missing prompt' };
   return callLLMDirect({ prompt, temperature, model });
 }
