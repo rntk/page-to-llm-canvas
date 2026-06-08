@@ -11,7 +11,7 @@ describe('stripTagsKeepOffsets properties', () => {
         expect(Array.isArray(result.mapping)).toBe(true);
         expect(result.mapping.length).toBe(result.text.length + 1);
       }),
-      { numRuns: 500 }
+      { numRuns: 500 },
     );
   });
 
@@ -24,7 +24,7 @@ describe('stripTagsKeepOffsets properties', () => {
           expect(result.mapping[i]).toBeLessThanOrEqual(html.length);
         }
       }),
-      { numRuns: 500 }
+      { numRuns: 500 },
     );
   });
 
@@ -36,7 +36,7 @@ describe('stripTagsKeepOffsets properties', () => {
           expect(result.mapping[i]).toBeGreaterThanOrEqual(result.mapping[i - 1]);
         }
       }),
-      { numRuns: 500 }
+      { numRuns: 500 },
     );
   });
 
@@ -61,9 +61,9 @@ describe('stripTagsKeepOffsets properties', () => {
           if (normalize(after).length > 0) {
             expect(normalized).toContain(normalize(after));
           }
-        }
+        },
       ),
-      { numRuns: 300 }
+      { numRuns: 300 },
     );
   });
 
@@ -74,27 +74,24 @@ describe('stripTagsKeepOffsets properties', () => {
         const sentinel = result.mapping[result.mapping.length - 1];
         expect(sentinel).toBe(html.length);
       }),
-      { numRuns: 500 }
+      { numRuns: 500 },
     );
   });
 
   it('plain text without tags preserves exact character mapping', () => {
     fc.assert(
-      fc.property(
-        fc.string({ unit: fc.constantFrom('a', 'b', 'c', 'd', 'e', ' ') }),
-        (plain) => {
-          const html = plain;
-          const result = stripTagsKeepOffsets(html);
-          // After whitespace collapse, mapping should still point to original chars.
-          for (let i = 0; i < result.text.length; i++) {
-            const origIdx = result.mapping[i];
-            if (origIdx >= 0 && origIdx < html.length) {
-              expect(html[origIdx]).toBe(result.text[i]);
-            }
+      fc.property(fc.string({ unit: fc.constantFrom('a', 'b', 'c', 'd', 'e', ' ') }), (plain) => {
+        const html = plain;
+        const result = stripTagsKeepOffsets(html);
+        // After whitespace collapse, mapping should still point to original chars.
+        for (let i = 0; i < result.text.length; i++) {
+          const origIdx = result.mapping[i];
+          if (origIdx >= 0 && origIdx < html.length) {
+            expect(html[origIdx]).toBe(result.text[i]);
           }
         }
-      ),
-      { numRuns: 500 }
+      }),
+      { numRuns: 500 },
     );
   });
 });

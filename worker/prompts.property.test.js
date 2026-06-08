@@ -22,7 +22,7 @@ describe('buildTaggedText properties', () => {
           expect(lines.length).toBe(sentences.length);
         }
       }),
-      { numRuns: 500 }
+      { numRuns: 500 },
     );
   });
 
@@ -36,7 +36,7 @@ describe('buildTaggedText properties', () => {
           expect(lines[i]).toMatch(new RegExp(`^\\{${i}\\} `));
         }
       }),
-      { numRuns: 500 }
+      { numRuns: 500 },
     );
   });
 
@@ -47,7 +47,7 @@ describe('buildTaggedText properties', () => {
         const objectResult = buildTaggedText(sentences.map((s) => ({ text: s })));
         expect(objectResult).toBe(stringResult);
       }),
-      { numRuns: 500 }
+      { numRuns: 500 },
     );
   });
 });
@@ -61,7 +61,7 @@ describe('buildSystemPrompt properties', () => {
         expect(a).toBe(b);
         expect(a.length).toBeGreaterThan(0);
       }),
-      { numRuns: 100 }
+      { numRuns: 100 },
     );
   });
 });
@@ -76,7 +76,7 @@ describe('buildTopicRangesPrompt properties', () => {
         expect(prompt).toContain('<content>');
         expect(prompt).toContain('</content>');
       }),
-      { numRuns: 300 }
+      { numRuns: 300 },
     );
   });
 });
@@ -90,7 +90,7 @@ describe('buildArticleSummaryPrompt properties', () => {
         // Template wraps text inside <text> tags, so verify presence there.
         expect(prompt).toContain(`<text>${text}</text>`);
       }),
-      { numRuns: 300 }
+      { numRuns: 300 },
     );
   });
 });
@@ -103,7 +103,7 @@ describe('buildArticleSummaryMergePrompt properties', () => {
         expect(prompt).not.toContain('{chunk_summaries}');
         expect(prompt).toContain(`<chunk_summaries>${summaries}</chunk_summaries>`);
       }),
-      { numRuns: 300 }
+      { numRuns: 300 },
     );
   });
 });
@@ -116,7 +116,7 @@ describe('buildSentenceSummaryPrompt properties', () => {
         expect(prompt).not.toContain('{sentence}');
         expect(prompt).toContain(`<text>${sentence}</text>`);
       }),
-      { numRuns: 300 }
+      { numRuns: 300 },
     );
   });
 });
@@ -129,20 +129,17 @@ describe('formatChunkSummariesForMerge properties', () => {
           fc.record({
             start_sentence: fc.nat(1000),
             end_sentence: fc.nat(1000),
-            summary: fc.option(
-              fc.record({ text: fc.string() }),
-              { nil: undefined }
-            ),
-          })
+            summary: fc.option(fc.record({ text: fc.string() }), { nil: undefined }),
+          }),
         ),
         (records) => {
           const result = formatChunkSummariesForMerge(records);
           for (let i = 0; i < records.length; i++) {
             expect(result).toContain(`Chunk ${i + 1}`);
           }
-        }
+        },
       ),
-      { numRuns: 200 }
+      { numRuns: 200 },
     );
   });
 
@@ -159,15 +156,15 @@ describe('formatChunkSummariesForMerge properties', () => {
             end_sentence: fc.nat(100),
             summary: fc.option(fc.record({ text: fc.string() }), { nil: undefined }),
           }),
-          { minLength: 1 }
+          { minLength: 1 },
         ),
         (records) => {
           const full = formatChunkSummariesForMerge(records);
           const truncated = formatChunkSummariesForMerge(records.slice(0, -1));
           expect(full.length).toBeGreaterThan(truncated.length);
-        }
+        },
       ),
-      { numRuns: 200 }
+      { numRuns: 200 },
     );
   });
 });

@@ -30,7 +30,7 @@ This project is currently a proof of concept. Some features may still be experim
 
 Build is owned by `scripts/build-extension.mjs`, which runs Vite once per React entrypoint so extension scripts stay self-contained browser files. Produces a `dist/` directory containing:
 
-- `manifest.json`, `background.js`, `content.js`, `content.css`, `popup.html`, `popup.js`, `options.html`, `options.js`, `icons/`
+- `manifest.json`, `background.js`, `content.js`, `content.css`, `popup.html`, `popup.js`, `options.html`, `options.js`, `icons/`, `worker/`
 - `modal.html`, `modal.js`, `modal.css` (React bundle)
 
 Source entrypoints:
@@ -59,13 +59,15 @@ npm run build
 3. Enable Developer mode.
 4. Click "Load unpacked" and pick the `dist/` directory.
 
-## LLM endpoint
+## LLM configuration
 
-Hardcoded for the POC. The orchestrator (background-side) calls:
+The extension supports multiple user-configurable LLM providers, which are stored in the browser's local storage and managed via the Options page.
 
-- Base URL: `http://192.168.0.147:8989`
-- Path: `POST /v1/chat/completions` (OpenAI-compatible)
-- Default model: `gpt-oss-20B`
-- No auth.
+Supported provider types:
 
-See `CONTRACT.md` for the storage and message-protocol contract shared across all parts.
+- **OpenAI**: Connects to the official OpenAI API (requires an API key).
+- **Anthropic**: Connects to the official Anthropic API (requires an API key).
+- **OpenRouter**: Connects to OpenRouter (requires an API key).
+- **OpenAI-compatible (custom URL)**: Connects to a custom URL (e.g., a local server like `http://localhost:8989` or `http://192.168.0.147:8989`) and supports local prompt caching (`cache_prompt`).
+
+The pipeline uses the designated **active** provider and will not run until at least one provider has been configured and selected as active.
