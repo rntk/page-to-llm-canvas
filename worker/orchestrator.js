@@ -547,46 +547,62 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries) {
     });
   }
 
-  await parallelMap(pending, SUMMARY_CONCURRENCY, async (topic) => {
-    await logPipeline(key, 'topic_summary_llm_request', {
-      topic: topic.name,
-      sentenceCount: topic.sentences.length,
+  // Warm the provider's prompt/KV cache before the concurrent burst: every
+  // summary prompt shares the same long instruction prefix, so running one
+  // request to completion first lets a caching provider commit that prefix and
+  // the rest reuse it instead of each re-prefilling it from cold. On a provider
+  // without prefix caching it just costs one request of serial latency up front.
+  if (pending.length > 1) {
+    await logPipeline(key, 'topic_summaries_warmup', {
+      pendingCount: pending.length,
+      concurrency: SUMMARY_CONCURRENCY,
     });
-    const sourceText = topic.sentences
-      .map((oneIdx) => sentenceTexts[oneIdx - 1])
-      .filter(Boolean)
-      .join(' ');
-    const prompt = buildArticleSummaryPrompt(sourceText);
-    let summaryText = '';
-    let failed = false;
-    try {
-      const resp = await callLLMWithRetry({ prompt, temperature: 0.8 });
-      summaryText = parseSummaryResponse(resp);
-      await logPipeline(key, 'topic_summary_llm_response', {
+  }
+  await parallelMap(
+    pending,
+    SUMMARY_CONCURRENCY,
+    async (topic) => {
+      await logPipeline(key, 'topic_summary_llm_request', {
         topic: topic.name,
-        responseLength: resp.length,
-        summaryLength: summaryText.length,
+        sentenceCount: topic.sentences.length,
       });
-    } catch (e) {
-      await logPipeline(key, 'topic_summary_llm_error', {
-        topic: topic.name,
-        error: (e && e.message) || String(e),
+      const sourceText = topic.sentences
+        .map((oneIdx) => sentenceTexts[oneIdx - 1])
+        .filter(Boolean)
+        .join(' ');
+      const prompt = buildArticleSummaryPrompt(sourceText);
+      let summaryText = '';
+      let failed = false;
+      try {
+        const resp = await callLLMWithRetry({ prompt, temperature: 0.8 });
+        summaryText = parseSummaryResponse(resp);
+        await logPipeline(key, 'topic_summary_llm_response', {
+          topic: topic.name,
+          responseLength: resp.length,
+          summaryLength: summaryText.length,
+        });
+      } catch (e) {
+        await logPipeline(key, 'topic_summary_llm_error', {
+          topic: topic.name,
+          error: (e && e.message) || String(e),
+        });
+        failed = true;
+      }
+      topic_summaries[topic.name] = {
+        text: summaryText,
+        source_sentences: topic.sentences,
+        // Mark failures so a later resume retries only this topic. Successful
+        // empty results (NO_SUMMARY) are stored without the flag and kept.
+        ...(failed ? { error: true } : {}),
+      };
+      done++;
+      await updateRecord(key, {
+        topic_summaries: { ...topic_summaries },
+        progress: { stage: 'summarizing_topics', done, total: topics.length },
       });
-      failed = true;
-    }
-    topic_summaries[topic.name] = {
-      text: summaryText,
-      source_sentences: topic.sentences,
-      // Mark failures so a later resume retries only this topic. Successful
-      // empty results (NO_SUMMARY) are stored without the flag and kept.
-      ...(failed ? { error: true } : {}),
-    };
-    done++;
-    await updateRecord(key, {
-      topic_summaries: { ...topic_summaries },
-      progress: { stage: 'summarizing_topics', done, total: topics.length },
-    });
-  });
+    },
+    { warmupFirst: true },
+  );
 
   await logPipeline(key, 'topic_tree_merge_start', {
     leafCount: topics.length,

@@ -364,6 +364,36 @@ describe('parallelMap', () => {
     const res = await parallelMap([], 2, async (x) => x);
     expect(res).toEqual([]);
   });
+
+  it('runs the first item to completion before the concurrent burst when warmupFirst', async () => {
+    const { parallelMap } = await getLLM();
+    const items = [1, 2, 3, 4, 5];
+    const log = [];
+    const fn = async (x) => {
+      log.push(`start ${x}`);
+      await new Promise((r) => setTimeout(r, 10));
+      log.push(`end ${x}`);
+      return x * 2;
+    };
+
+    const res = await parallelMap(items, 2, fn, { warmupFirst: true });
+    expect(res).toEqual([2, 4, 6, 8, 10]);
+    // The lead item finishes entirely before anything else starts.
+    expect(log.slice(0, 2)).toEqual(['start 1', 'end 1']);
+    expect(log.indexOf('start 2')).toBeGreaterThan(log.indexOf('end 1'));
+  });
+
+  it('does not warm up a single-item list (keeps it in the parallel phase)', async () => {
+    const { parallelMap } = await getLLM();
+    const order = [];
+    const fn = async (x) => {
+      order.push(x);
+      return x;
+    };
+    const res = await parallelMap([1], 4, fn, { warmupFirst: true });
+    expect(res).toEqual([1]);
+    expect(order).toEqual([1]);
+  });
 });
 
 describe('exports', () => {

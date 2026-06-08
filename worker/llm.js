@@ -133,12 +133,25 @@ export async function callLLMWithRetry(opts, maxRetries = 3) {
  * @param {T[]} items
  * @param {number} limit
  * @param {(item: T, index: number) => Promise<U>} fn
+ * @param {{warmupFirst?: boolean}} [options] When `warmupFirst` is set, the first
+ *   item runs to completion before the concurrent burst is released. Every
+ *   request in a burst shares the same long prompt prefix, so completing one
+ *   first lets the provider commit that prefix to its prompt/KV cache and the
+ *   rest reuse it instead of each re-prefilling it from cold. Skipped when there
+ *   is fewer than one item to follow, so at least one item always remains for
+ *   the parallel phase. A throwing `fn` rejects before the burst starts, just as
+ *   it would inside the burst.
  * @returns {Promise<U[]>}
  */
-export async function parallelMap(items, limit, fn) {
+export async function parallelMap(items, limit, fn, { warmupFirst = false } = {}) {
   const results = new Array(items.length);
   let next = 0;
-  const workers = new Array(Math.min(limit, items.length || 1)).fill(0).map(async () => {
+  if (warmupFirst && items.length > 1) {
+    results[next] = await fn(items[next], next);
+    next++;
+  }
+  const remaining = Math.max(items.length - next, 1);
+  const workers = new Array(Math.min(limit, remaining)).fill(0).map(async () => {
     while (true) {
       const i = next++;
       if (i >= items.length) return;
