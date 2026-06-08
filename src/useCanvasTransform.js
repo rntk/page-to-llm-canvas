@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 3;
@@ -92,8 +92,11 @@ export function useCanvasTransform({ contentRef } = {}) {
     focusTimerRef.current = setTimeout(() => setIsFocusingHighlight(false), 380);
   }, []);
 
-  // CSS variable sync on the viewport.
-  useEffect(() => {
+  // CSS variable sync on the viewport. Runs in a layout effect (synchronously
+  // after commit, before paint) so the transform is applied before any
+  // post-transform measurement — notably the zoom-to-target re-pin below, which
+  // reads the settled layout in a requestAnimationFrame.
+  useLayoutEffect(() => {
     if (!canvasViewportEl) return;
     canvasViewportEl.style.setProperty('--canvas-translate-x', `${translate.x}px`);
     canvasViewportEl.style.setProperty('--canvas-translate-y', `${translate.y}px`);
@@ -288,12 +291,37 @@ export function useCanvasTransform({ contentRef } = {}) {
           (targetRect.left + targetRect.width / 2 - viewportRect.left) / currentScale;
         nextX = wrapRect.width / 2 - localTargetX * nextScale;
       }
+      const nextY = wrapRect.height * 0.2 - localTargetY * nextScale;
       userMovedCanvasRef.current = true;
       setTransformNow(nextScale, {
         x: nextX,
-        y: wrapRect.height * 0.2 - localTargetY * nextScale,
+        y: nextY,
       });
       flashFocus();
+
+      // The article column's left offset is zoom-adjusted: the summary gutter
+      // and rail cards are sized 1/scale so they stay screen-constant, which
+      // makes the article's local-x a function of `scale`. `nextX` above was
+      // computed from the pre-zoom layout, so when the new scale reflows (e.g.
+      // zooming in from a zoomed-out state collapses the inflated gutter) the
+      // article slides sideways and the zoom lands on the rail instead of the
+      // sentence. Re-pin the content's left edge from the *settled* layout once
+      // the reflow has happened. Scale is unchanged here, so this is a pure pan
+      // and triggers no further reflow.
+      if (content) {
+        window.requestAnimationFrame(() => {
+          const settledViewport = canvasViewportElRef.current;
+          if (!settledViewport) return;
+          const settledViewportRect = settledViewport.getBoundingClientRect();
+          const settledContentLeft = content.getBoundingClientRect().left;
+          const correctedX = 40 - (settledContentLeft - settledViewportRect.left);
+          if (Math.abs(correctedX - (translateRef.current?.x ?? nextX)) < 0.5) return;
+          setTransformNow(scaleRef.current || nextScale, {
+            x: correctedX,
+            y: translateRef.current?.y ?? nextY,
+          });
+        });
+      }
     },
     [contentRef, flashFocus, setTransformNow],
   );

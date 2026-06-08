@@ -178,6 +178,56 @@ describe('useCanvasTransform', () => {
     expect(result.current.translate).not.toEqual({ x: 40, y: 40 });
   });
 
+  it('zoomToTarget re-pins the content left edge after a zoom-induced reflow', async () => {
+    // Regression: the article column's left padding is zoom-adjusted (sized
+    // 1/scale to stay screen-constant), so zooming IN from a zoomed-out state
+    // collapses the gutter and the content slides left *after* the transform
+    // applies. zoomToTarget must re-pin the content's left edge from the
+    // settled layout, or the zoom lands on the rail instead of the sentence.
+    const content = document.createElement('div');
+    let contentLeft = 300; // pre-reflow position at the inflated gutter
+    content.getBoundingClientRect = () => ({ left: contentLeft, top: 0, width: 0, height: 0 });
+    const contentRef = { current: content };
+    const { result } = renderHook(() => useCanvasTransform({ contentRef }));
+
+    const wrap = document.createElement('div');
+    wrap.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 1000 });
+    const viewport = document.createElement('div');
+    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 1000 });
+
+    act(() => {
+      result.current.canvasWrapRef(wrap);
+      result.current.canvasViewportRef(viewport);
+    });
+
+    // Start zoomed out so zooming in collapses the gutter.
+    act(() => {
+      result.current.setTransformNow(0.3, { x: 0, y: 0 });
+    });
+
+    act(() => {
+      result.current.zoomToTarget({ top: 100, left: 320, width: 50, height: 50 }, 1.5);
+    });
+
+    // Initial placement from the inflated (pre-reflow) layout:
+    // localContentX = (300 - 0) / 0.3 = 1000; nextX = 40 - 1000 * 1.5 = -1460.
+    expect(result.current.scale).toBe(1.5);
+    expect(result.current.translate.x).toBe(-1460);
+    const pinnedY = result.current.translate.y;
+
+    // The scale change reflows: the gutter collapses and the content settles.
+    contentLeft = 200;
+
+    // Flush the queued rAF (mocked as setTimeout(fn, 0)).
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+
+    // Re-pinned to the settled content edge: 40 - (200 - 0) = -160, y unchanged.
+    expect(result.current.translate.x).toBe(-160);
+    expect(result.current.translate.y).toBe(pinnedY);
+  });
+
   it('navigateCanvas moves to top', () => {
     const { result } = renderHook(() => useCanvasTransform());
     const wrap = document.createElement('div');
