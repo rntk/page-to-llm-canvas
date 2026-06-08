@@ -66,6 +66,64 @@ async function readErrorText(res) {
 // example/llm/openai_client.py). Sending temperature to these yields a 400.
 const NO_TEMPERATURE_MODELS = new Set(['gpt-5-mini', 'gpt-5-nano']);
 
+function finiteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function roundedPercent(part, total) {
+  if (!Number.isFinite(part) || !Number.isFinite(total) || total <= 0) return undefined;
+  return Math.round((part / total) * 1000) / 10;
+}
+
+function logCacheUsage(provider, data) {
+  const usage = data?.usage || {};
+  const promptTokens = finiteNumber(usage.prompt_tokens ?? usage.input_tokens);
+  const openAiCachedTokens = finiteNumber(usage.prompt_tokens_details?.cached_tokens);
+  const deepSeekHitTokens = finiteNumber(usage.prompt_cache_hit_tokens);
+  const deepSeekMissTokens = finiteNumber(usage.prompt_cache_miss_tokens);
+  const anthropicCacheReadTokens = finiteNumber(usage.cache_read_input_tokens);
+  const anthropicCacheCreationTokens = finiteNumber(usage.cache_creation_input_tokens);
+  const anthropicInputTokens = finiteNumber(usage.input_tokens);
+  const llamaCacheTokens = finiteNumber(data?.timings?.cache_n);
+  const llamaPromptEvalTokens = finiteNumber(data?.timings?.prompt_n);
+
+  let cacheHitTokens;
+  let cacheMissTokens;
+  let totalCacheLookupTokens;
+
+  if (deepSeekHitTokens !== undefined || deepSeekMissTokens !== undefined) {
+    cacheHitTokens = deepSeekHitTokens;
+    cacheMissTokens = deepSeekMissTokens;
+    totalCacheLookupTokens = (deepSeekHitTokens ?? 0) + (deepSeekMissTokens ?? 0);
+  } else if (provider === 'anthropic') {
+    cacheHitTokens = anthropicCacheReadTokens;
+    cacheMissTokens = anthropicInputTokens;
+    totalCacheLookupTokens =
+      (anthropicCacheReadTokens ?? 0) +
+      (anthropicCacheCreationTokens ?? 0) +
+      (anthropicInputTokens ?? 0);
+  } else if (llamaCacheTokens !== undefined || llamaPromptEvalTokens !== undefined) {
+    cacheHitTokens = llamaCacheTokens;
+    cacheMissTokens = llamaPromptEvalTokens;
+    totalCacheLookupTokens = (llamaCacheTokens ?? 0) + (llamaPromptEvalTokens ?? 0);
+  } else if (openAiCachedTokens !== undefined) {
+    cacheHitTokens = openAiCachedTokens;
+    cacheMissTokens = promptTokens !== undefined ? Math.max(promptTokens - openAiCachedTokens, 0) : undefined;
+    totalCacheLookupTokens = promptTokens;
+  }
+
+  console.log('LLM cache usage:', {
+    provider,
+    cache_hit_tokens: cacheHitTokens,
+    cache_miss_tokens: cacheMissTokens,
+    cache_hit_rate_percent: roundedPercent(cacheHitTokens, totalCacheLookupTokens),
+    prompt_tokens: promptTokens,
+    cache_creation_tokens: anthropicCacheCreationTokens,
+    raw_usage: usage,
+    llama_timings: data?.timings,
+  });
+}
+
 /**
  * OpenAI-compatible `/chat/completions` client. Covers openai, openrouter and
  * openai_comp (custom URL). `cachePrompt` adds the llama.cpp-specific
@@ -80,6 +138,7 @@ function openAICompatibleClient({
   cachePrompt = false,
   promptCacheKey = '',
   guardTemperature = false,
+  providerLabel = 'openai-compatible',
 }) {
   return {
     async complete({ prompt, temperature = 0.8, signal }) {
@@ -110,6 +169,7 @@ function openAICompatibleClient({
 
       const data = await res.json();
       console.log('LLM client raw response data:', data);
+      logCacheUsage(providerLabel, data);
       const content = data?.choices?.[0]?.message?.content;
       const cleaned = typeof content === 'string' ? stripThink(content) : '';
       if (!cleaned) throw new Error('Empty LLM response');
@@ -170,6 +230,7 @@ function anthropicClient({ apiKey, model }) {
 
       const data = await res.json();
       console.log('LLM client raw response data:', data);
+      logCacheUsage('anthropic', data);
       const blocks = Array.isArray(data?.content) ? data.content : [];
       const content = blocks
         .filter((b) => b?.type === 'text' && typeof b.text === 'string')
@@ -200,22 +261,31 @@ export function createClient(provider) {
         model,
         promptCacheKey: OPENAI_PROMPT_CACHE_KEY,
         guardTemperature: true,
+        providerLabel: 'openai',
       });
     case ProviderType.DEEPSEEK:
       return openAICompatibleClient({
         baseUrl: 'https://api.deepseek.com/chat/completions',
         apiKey: token,
         model,
+        providerLabel: 'deepseek',
       });
     case ProviderType.OPENROUTER:
       return openAICompatibleClient({
         baseUrl: 'https://openrouter.ai/api/v1',
         apiKey: token,
         model,
+        providerLabel: 'openrouter',
       });
     case ProviderType.OPENAI_COMP:
       if (!url) throw new Error('OpenAI-compatible provider requires a base URL');
-      return openAICompatibleClient({ baseUrl: url, apiKey: token, model, cachePrompt: true });
+      return openAICompatibleClient({
+        baseUrl: url,
+        apiKey: token,
+        model,
+        cachePrompt: true,
+        providerLabel: 'openai-compatible',
+      });
     case ProviderType.ANTHROPIC:
       return anthropicClient({ apiKey: token, model });
     default:

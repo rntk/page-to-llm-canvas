@@ -37,10 +37,14 @@ describe('stripThink', () => {
 });
 
 describe('createClient dispatch', () => {
+  let consoleLogSpy;
+
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   });
   afterEach(() => {
+    consoleLogSpy.mockRestore();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -51,10 +55,35 @@ describe('createClient dispatch', () => {
   });
 
   it('openai client posts to api.openai.com with bearer token and cache key, no cache_prompt', async () => {
-    vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'hi' } }] }));
+    vi.mocked(fetch).mockResolvedValue(
+      okJson({
+        choices: [{ message: { content: 'hi' } }],
+        usage: {
+          prompt_tokens: 1200,
+          completion_tokens: 12,
+          total_tokens: 1212,
+          prompt_tokens_details: { cached_tokens: 900 },
+        },
+      }),
+    );
     const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'sk-1' });
     const out = await client.complete({ prompt: 'p', temperature: 0.3 });
     expect(out.content).toBe('hi');
+    expect(consoleLogSpy).toHaveBeenCalledWith('LLM cache usage:', {
+      provider: 'openai',
+      cache_hit_tokens: 900,
+      cache_miss_tokens: 300,
+      cache_hit_rate_percent: 75,
+      prompt_tokens: 1200,
+      cache_creation_tokens: undefined,
+      raw_usage: {
+        prompt_tokens: 1200,
+        completion_tokens: 12,
+        total_tokens: 1212,
+        prompt_tokens_details: { cached_tokens: 900 },
+      },
+      llama_timings: undefined,
+    });
 
     const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(url).toBe('https://api.openai.com/v1/chat/completions');
@@ -101,9 +130,29 @@ describe('createClient dispatch', () => {
   });
 
   it('deepseek client posts to api.deepseek.com without OpenAI or llama.cpp cache knobs', async () => {
-    vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'hi' } }] }));
+    vi.mocked(fetch).mockResolvedValue(
+      okJson({
+        choices: [{ message: { content: 'hi' } }],
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 10,
+          total_tokens: 1010,
+          prompt_cache_hit_tokens: 640,
+          prompt_cache_miss_tokens: 360,
+        },
+      }),
+    );
     const client = createClient({ type: 'deepseek', model: 'deepseek-v4-flash', token: 'k' });
     await client.complete({ prompt: 'p' });
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      'LLM cache usage:',
+      expect.objectContaining({
+        provider: 'deepseek',
+        cache_hit_tokens: 640,
+        cache_miss_tokens: 360,
+        cache_hit_rate_percent: 64,
+      }),
+    );
     const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(url).toBe('https://api.deepseek.com/chat/completions');
     expect(init.headers.Authorization).toBe('Bearer k');
@@ -115,9 +164,36 @@ describe('createClient dispatch', () => {
   it('openai_comp client requires a url and adds cache_prompt', async () => {
     expect(() => createClient({ type: 'openai_comp', model: 'm' })).toThrow(/base URL/);
 
-    vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'hi' } }] }));
+    vi.mocked(fetch).mockResolvedValue(
+      okJson({
+        choices: [{ message: { content: 'hi' } }],
+        usage: {
+          completion_tokens: 20,
+          prompt_tokens: 80,
+          total_tokens: 100,
+          prompt_tokens_details: { cached_tokens: 50 },
+        },
+        timings: {
+          cache_n: 50,
+          prompt_n: 30,
+          prompt_ms: 12,
+          predicted_n: 20,
+          predicted_ms: 35,
+        },
+      }),
+    );
     const client = createClient({ type: 'openai_comp', model: 'm', url: 'http://host:8989' });
     await client.complete({ prompt: 'p' });
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      'LLM cache usage:',
+      expect.objectContaining({
+        provider: 'openai-compatible',
+        cache_hit_tokens: 50,
+        cache_miss_tokens: 30,
+        cache_hit_rate_percent: 62.5,
+        llama_timings: expect.objectContaining({ cache_n: 50, prompt_n: 30 }),
+      }),
+    );
     const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(url).toBe('http://host:8989/v1/chat/completions');
     expect(JSON.parse(init.body).cache_prompt).toBe(true);
@@ -164,11 +240,26 @@ describe('createClient dispatch', () => {
           { type: 'thinking', thinking: 'ignored' },
           { type: 'text', text: 'line2' },
         ],
+        usage: {
+          input_tokens: 50,
+          output_tokens: 15,
+          cache_creation_input_tokens: 1000,
+          cache_read_input_tokens: 3000,
+        },
       }),
     );
     const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'sk-ant' });
     const out = await client.complete({ prompt: 'p', temperature: 0.5 });
     expect(out.content).toBe('line1\nline2');
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      'LLM cache usage:',
+      expect.objectContaining({
+        provider: 'anthropic',
+        cache_hit_tokens: 3000,
+        cache_miss_tokens: 50,
+        cache_creation_tokens: 1000,
+      }),
+    );
 
     const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(url).toBe('https://api.anthropic.com/v1/messages');
