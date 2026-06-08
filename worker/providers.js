@@ -11,6 +11,7 @@
  */
 export const ProviderType = Object.freeze({
   OPENAI: 'openai',
+  DEEPSEEK: 'deepseek',
   ANTHROPIC: 'anthropic',
   OPENROUTER: 'openrouter',
   OPENAI_COMP: 'openai_comp',
@@ -29,6 +30,13 @@ export const PROVIDER_DEFINITIONS = Object.freeze([
     displayName: 'OpenAI',
     models: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-5-mini', 'gpt-5-nano'],
     defaultModel: 'gpt-5.4-nano',
+    requiresUrl: false,
+  },
+  {
+    type: ProviderType.DEEPSEEK,
+    displayName: 'DeepSeek',
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    defaultModel: 'deepseek-v4-flash',
     requiresUrl: false,
   },
   {

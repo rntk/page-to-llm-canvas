@@ -12,6 +12,9 @@
 import { ProviderType } from './providers.js';
 
 const THINK_TAG_RE = /<think\b[^>]*>[\s\S]*?<\/think>/gi;
+const OPENAI_PROMPT_CACHE_KEY = 'pagetollm-canvas';
+const ANTHROPIC_CACHE_CONTROL = Object.freeze({ type: 'ephemeral' });
+const ANTHROPIC_CACHE_PREFIX_MARKERS = Object.freeze(['\n<content>\n', '\n<text>']);
 
 /** @param {string} text */
 export function stripThink(text) {
@@ -75,6 +78,7 @@ function openAICompatibleClient({
   apiKey,
   model,
   cachePrompt = false,
+  promptCacheKey = '',
   guardTemperature = false,
 }) {
   return {
@@ -90,6 +94,7 @@ function openAICompatibleClient({
       if (!(guardTemperature && NO_TEMPERATURE_MODELS.has(model))) {
         body.temperature = temperature;
       }
+      if (promptCacheKey) body.prompt_cache_key = promptCacheKey;
       if (cachePrompt) body.cache_prompt = true;
 
       console.log('LLM client raw prompt:', prompt);
@@ -113,6 +118,21 @@ function openAICompatibleClient({
   };
 }
 
+function anthropicCacheableContent(prompt) {
+  const marker = ANTHROPIC_CACHE_PREFIX_MARKERS.find((oneMarker) => prompt.includes(oneMarker));
+  if (!marker) return prompt;
+
+  const splitAt = prompt.indexOf(marker) + marker.length;
+  const prefix = prompt.slice(0, splitAt);
+  const suffix = prompt.slice(splitAt);
+  if (!prefix || !suffix) return prompt;
+
+  return [
+    { type: 'text', text: prefix, cache_control: ANTHROPIC_CACHE_CONTROL },
+    { type: 'text', text: suffix },
+  ];
+}
+
 /** Anthropic Messages API client. */
 function anthropicClient({ apiKey, model }) {
   return {
@@ -125,10 +145,15 @@ function anthropicClient({ apiKey, model }) {
         // Required for direct browser/extension calls to the Anthropic API.
         'anthropic-dangerous-direct-browser-access': 'true',
       };
+      // No top-level cache_control: anthropicCacheableContent already places the
+      // breakpoint on the stable prefix. Top-level auto-caching would add a
+      // second breakpoint on the *last* block (the dynamic suffix, or the whole
+      // prompt when there's no marker), paying the cache-write premium on volatile
+      // content that's never read back.
       const body = {
         model,
         max_tokens: 4096,
-        messages: [{ role: 'user', content: prompt }],
+        messages: [{ role: 'user', content: anthropicCacheableContent(prompt) }],
       };
       if (typeof temperature === 'number') body.temperature = temperature;
 
@@ -173,7 +198,14 @@ export function createClient(provider) {
         baseUrl: 'https://api.openai.com/v1',
         apiKey: token,
         model,
+        promptCacheKey: OPENAI_PROMPT_CACHE_KEY,
         guardTemperature: true,
+      });
+    case ProviderType.DEEPSEEK:
+      return openAICompatibleClient({
+        baseUrl: 'https://api.deepseek.com/chat/completions',
+        apiKey: token,
+        model,
       });
     case ProviderType.OPENROUTER:
       return openAICompatibleClient({

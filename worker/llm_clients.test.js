@@ -50,7 +50,7 @@ describe('createClient dispatch', () => {
     expect(() => createClient(null)).toThrow(/required/);
   });
 
-  it('openai client posts to api.openai.com with bearer token, no cache_prompt', async () => {
+  it('openai client posts to api.openai.com with bearer token and cache key, no cache_prompt', async () => {
     vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'hi' } }] }));
     const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'sk-1' });
     const out = await client.complete({ prompt: 'p', temperature: 0.3 });
@@ -64,7 +64,9 @@ describe('createClient dispatch', () => {
       model: 'gpt-4o',
       messages: [{ role: 'user', content: 'p' }],
       temperature: 0.3,
+      prompt_cache_key: 'pagetollm-canvas',
     });
+    expect(body.cache_prompt).toBeUndefined();
   });
 
   it('openai client omits temperature for gpt-5-mini / gpt-5-nano', async () => {
@@ -72,7 +74,11 @@ describe('createClient dispatch', () => {
     const client = createClient({ type: 'openai', model: 'gpt-5-nano', token: 'k' });
     await client.complete({ prompt: 'p', temperature: 0.7 });
     const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
-    expect(body).toEqual({ model: 'gpt-5-nano', messages: [{ role: 'user', content: 'p' }] });
+    expect(body).toEqual({
+      model: 'gpt-5-nano',
+      messages: [{ role: 'user', content: 'p' }],
+      prompt_cache_key: 'pagetollm-canvas',
+    });
     expect('temperature' in body).toBe(false);
   });
 
@@ -89,6 +95,21 @@ describe('createClient dispatch', () => {
     const client = createClient({ type: 'openrouter', model: 'openai/gpt-4o-mini', token: 'k' });
     await client.complete({ prompt: 'p' });
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://openrouter.ai/api/v1/chat/completions');
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+    expect(body.prompt_cache_key).toBeUndefined();
+    expect(body.cache_prompt).toBeUndefined();
+  });
+
+  it('deepseek client posts to api.deepseek.com without OpenAI or llama.cpp cache knobs', async () => {
+    vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'hi' } }] }));
+    const client = createClient({ type: 'deepseek', model: 'deepseek-v4-flash', token: 'k' });
+    await client.complete({ prompt: 'p' });
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe('https://api.deepseek.com/chat/completions');
+    expect(init.headers.Authorization).toBe('Bearer k');
+    const body = JSON.parse(init.body);
+    expect(body.prompt_cache_key).toBeUndefined();
+    expect(body.cache_prompt).toBeUndefined();
   });
 
   it('openai_comp client requires a url and adds cache_prompt', async () => {
@@ -156,8 +177,35 @@ describe('createClient dispatch', () => {
     expect(init.headers['anthropic-dangerous-direct-browser-access']).toBe('true');
     const body = JSON.parse(init.body);
     expect(body.max_tokens).toBe(4096);
+    // No top-level cache_control: with no marker there is no stable prefix to
+    // cache, so we must not auto-cache the (volatile) whole prompt.
+    expect(body.cache_control).toBeUndefined();
     expect(body.temperature).toBe(0.5);
     expect(body.messages).toEqual([{ role: 'user', content: 'p' }]);
+  });
+
+  it('anthropic client marks stable prompt prefixes as explicit cache breakpoints', async () => {
+    vi.mocked(fetch).mockResolvedValue(okJson({ content: [{ type: 'text', text: 'ok' }] }));
+    const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'k' });
+    await client.complete({ prompt: 'Static rules\n<text>Dynamic article text</text>' });
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+    expect(body.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: 'Static rules\n<text>',
+            cache_control: { type: 'ephemeral' },
+          },
+          { type: 'text', text: 'Dynamic article text</text>' },
+        ],
+      },
+    ]);
+    // The dynamic suffix must not carry a breakpoint, and there must be no
+    // top-level auto-cache that would re-add one on the last (volatile) block.
+    expect(body.messages[0].content[1].cache_control).toBeUndefined();
+    expect(body.cache_control).toBeUndefined();
   });
 
   it('anthropic client throws when no text blocks are returned', async () => {

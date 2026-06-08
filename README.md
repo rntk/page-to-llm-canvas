@@ -66,8 +66,11 @@ The extension supports multiple user-configurable LLM providers, which are store
 Supported provider types:
 
 - **OpenAI**: Connects to the official OpenAI API (requires an API key).
+- **DeepSeek**: Connects to the official DeepSeek API (requires an API key).
 - **Anthropic**: Connects to the official Anthropic API (requires an API key).
 - **OpenRouter**: Connects to OpenRouter (requires an API key).
 - **OpenAI-compatible (custom URL)**: Connects to a custom URL (e.g., a local server like `http://localhost:8989` or `http://192.168.0.147:8989`) and supports local prompt caching (`cache_prompt`).
+
+Provider cache support is API-specific: OpenAI prompt caching is automatic and uses a stable `prompt_cache_key`; DeepSeek context caching is automatic; Anthropic requests include `cache_control` breakpoints for stable prompt prefixes; local llama.cpp-compatible servers receive `cache_prompt: true`.
 
 The pipeline uses the designated **active** provider and will not run until at least one provider has been configured and selected as active.
