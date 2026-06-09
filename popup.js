@@ -110,6 +110,10 @@ export function providerConfigurationMessage(state) {
   return '';
 }
 
+function responseErrorMessage(response, fallback) {
+  return (response && response.error) || fallback;
+}
+
 function setError(message) {
   errorEl.textContent = message;
   errorEl.hidden = !message;
@@ -127,7 +131,8 @@ async function openRecordView(key, mode) {
   try {
     const response = await tabMessage(activeTab.id, { action: 'openRecordView', key, mode });
     if (response && response.status === 'error') {
-      throw new Error(response.error || 'Unable to open saved analysis');
+      setError(responseErrorMessage(response, 'Unable to open saved analysis'));
+      return;
     }
     window.close();
   } catch (err) {
@@ -191,7 +196,8 @@ function renderRecords(records) {
       try {
         const response = await runtimeMessage({ type: 'reprocessRecord', key: record.key });
         if (!response || !response.ok) {
-          throw new Error((response && response.error) || 'Reprocess failed');
+          setError(responseErrorMessage(response, 'Reprocess failed'));
+          return;
         }
         await refreshRecords();
       } catch (err) {
@@ -209,7 +215,8 @@ function renderRecords(records) {
       try {
         const response = await runtimeMessage({ type: 'deleteRecord', key: record.key });
         if (!response || !response.ok) {
-          throw new Error((response && response.error) || 'Delete failed');
+          setError(responseErrorMessage(response, 'Delete failed'));
+          return;
         }
         await refreshRecords();
       } catch (err) {
@@ -229,7 +236,12 @@ async function refreshProviderReadiness() {
   try {
     const response = await runtimeMessage({ type: 'listProviders' });
     if (!response || !response.ok) {
-      throw new Error((response && response.error) || 'Unable to load LLM provider settings');
+      providerReady = false;
+      pickBtn.disabled = true;
+      setError(
+        `${responseErrorMessage(response, 'Unable to load LLM provider settings')}. Open Options and check your LLM provider configuration.`,
+      );
+      return;
     }
     const message = providerConfigurationMessage(response);
     providerReady = !message;
@@ -255,7 +267,10 @@ async function refreshRecords() {
   try {
     const response = await runtimeMessage({ type: 'listRecords' });
     if (!response || !response.ok || !Array.isArray(response.items)) {
-      throw new Error((response && response.error) || 'Unable to load saved analyses');
+      recordsEl.replaceChildren();
+      emptyEl.hidden = true;
+      setError(responseErrorMessage(response, 'Unable to load saved analyses'));
+      return;
     }
     const matching = activePageUrl
       ? response.items.filter((record) => normalizePageUrl(record.sourceUrl) === activePageUrl)
