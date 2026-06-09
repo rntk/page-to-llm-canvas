@@ -3,6 +3,7 @@ import {
   ProviderType,
   PROVIDER_TYPES,
   PROVIDER_DEFINITIONS,
+  ServiceTier,
   getProviderDefinition,
   normalizeProvider,
   sanitizeProvider,
@@ -85,6 +86,42 @@ describe('normalizeProvider', () => {
   it('preserves a supplied id', () => {
     const entry = normalizeProvider({ id: 'fixed', type: 'openai', name: 'n', model: 'm' });
     expect(entry.id).toBe('fixed');
+  });
+
+  it('normalizes supported service tiers and rejects unsupported provider combinations', () => {
+    expect(
+      normalizeProvider({
+        type: 'openai',
+        name: 'n',
+        model: 'm',
+        serviceTier: ServiceTier.FLEX,
+      }).serviceTier,
+    ).toBe(ServiceTier.FLEX);
+    expect(
+      normalizeProvider({
+        type: 'anthropic',
+        name: 'n',
+        model: 'claude-haiku-4-5',
+        serviceTier: ServiceTier.PRIORITY,
+      }).serviceTier,
+    ).toBe(ServiceTier.PRIORITY);
+    expect(() =>
+      normalizeProvider({
+        type: 'anthropic',
+        name: 'n',
+        model: 'claude-haiku-4-5',
+        serviceTier: ServiceTier.FLEX,
+      }),
+    ).toThrow(/Service tier/);
+    expect(() =>
+      normalizeProvider({
+        type: 'openai_comp',
+        name: 'n',
+        model: 'm',
+        url: 'http://localhost:8989',
+        serviceTier: ServiceTier.FLEX,
+      }),
+    ).toThrow(/Service tier/);
   });
 
   it('sanitizes tokens for UI responses', () => {

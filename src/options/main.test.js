@@ -181,6 +181,7 @@ describe('options main.jsx', () => {
     setValue('provider-name', 'My OpenAI');
     setValue('provider-model', 'gpt-4o');
     setValue('provider-token', 'sk-123');
+    setValue('provider-service-tier', 'flex');
 
     document
       .querySelector('.provider-form')
@@ -195,6 +196,7 @@ describe('options main.jsx', () => {
           type: 'openai',
           model: 'gpt-4o',
           token: 'sk-123',
+          serviceTier: 'flex',
         }),
       }),
       expect.any(Function),

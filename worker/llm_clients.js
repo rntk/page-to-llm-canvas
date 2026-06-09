@@ -9,7 +9,7 @@
 //   complete({ prompt, temperature?, signal? }) -> Promise<{ content, endpoint, model }>
 // and throws an Error (message reused verbatim in callLLMDirect) on failure.
 
-import { ProviderType } from './providers.js';
+import { ProviderType, ServiceTier } from './providers.js';
 
 const THINK_TAG_RE = /<think\b[^>]*>[\s\S]*?<\/think>/gi;
 const OPENAI_PROMPT_CACHE_KEY = 'pagetollm-canvas';
@@ -135,6 +135,7 @@ function openAICompatibleClient({
   baseUrl,
   apiKey,
   model,
+  serviceTier,
   cachePrompt = false,
   promptCacheKey = '',
   guardTemperature = false,
@@ -153,6 +154,7 @@ function openAICompatibleClient({
       if (!(guardTemperature && NO_TEMPERATURE_MODELS.has(model))) {
         body.temperature = temperature;
       }
+      if (serviceTier) body.service_tier = serviceTier;
       if (promptCacheKey) body.prompt_cache_key = promptCacheKey;
       if (cachePrompt) body.cache_prompt = true;
 
@@ -194,7 +196,7 @@ function anthropicCacheableContent(prompt) {
 }
 
 /** Anthropic Messages API client. */
-function anthropicClient({ apiKey, model }) {
+function anthropicClient({ apiKey, model, serviceTier }) {
   return {
     async complete({ prompt, temperature, signal }) {
       const endpoint = 'https://api.anthropic.com/v1/messages';
@@ -215,6 +217,8 @@ function anthropicClient({ apiKey, model }) {
         max_tokens: 4096,
         messages: [{ role: 'user', content: anthropicCacheableContent(prompt) }],
       };
+      const anthropicServiceTier = toAnthropicServiceTier(serviceTier);
+      if (anthropicServiceTier) body.service_tier = anthropicServiceTier;
       if (typeof temperature === 'number') body.temperature = temperature;
 
       console.log('LLM client raw prompt:', prompt);
@@ -243,6 +247,12 @@ function anthropicClient({ apiKey, model }) {
   };
 }
 
+function toAnthropicServiceTier(serviceTier) {
+  if (serviceTier === ServiceTier.PRIORITY || serviceTier === ServiceTier.AUTO) return 'auto';
+  if (serviceTier === ServiceTier.DEFAULT) return 'standard_only';
+  return undefined;
+}
+
 /**
  * Creates a completion client for a stored provider entry.
  * @param {{type: string, model: string, token?: string, url?: string}} provider
@@ -252,13 +262,14 @@ export function createClient(provider) {
   if (!provider || typeof provider !== 'object') {
     throw new Error('Provider is required');
   }
-  const { type, model, token, url } = provider;
+  const { type, model, token, url, serviceTier } = provider;
   switch (type) {
     case ProviderType.OPENAI:
       return openAICompatibleClient({
         baseUrl: 'https://api.openai.com/v1',
         apiKey: token,
         model,
+        serviceTier,
         promptCacheKey: OPENAI_PROMPT_CACHE_KEY,
         guardTemperature: true,
         providerLabel: 'openai',
@@ -275,6 +286,7 @@ export function createClient(provider) {
         baseUrl: 'https://openrouter.ai/api/v1',
         apiKey: token,
         model,
+        serviceTier,
         providerLabel: 'openrouter',
       });
     case ProviderType.OPENAI_COMP:
@@ -287,7 +299,7 @@ export function createClient(provider) {
         providerLabel: 'openai-compatible',
       });
     case ProviderType.ANTHROPIC:
-      return anthropicClient({ apiKey: token, model });
+      return anthropicClient({ apiKey: token, model, serviceTier });
     default:
       throw new Error(`Unsupported provider type: ${type}`);
   }

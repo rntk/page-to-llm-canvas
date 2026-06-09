@@ -1,5 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { PROVIDER_DEFINITIONS, getProviderDefinition } from '../../worker/providers.js';
+import {
+  PROVIDER_DEFINITIONS,
+  SERVICE_TIER_DEFINITIONS,
+  getProviderDefinition,
+} from '../../worker/providers.js';
 
 function fmtDate(ts) {
   if (!ts) return '';
@@ -17,7 +21,15 @@ function statusClass(status) {
   return `status ${status || ''}`.trim();
 }
 
-const EMPTY_FORM = { id: '', name: '', type: 'openai', model: '', token: '', url: '' };
+const EMPTY_FORM = {
+  id: '',
+  name: '',
+  type: 'openai',
+  model: '',
+  token: '',
+  url: '',
+  serviceTier: '',
+};
 
 function providerTypeLabel(type) {
   return getProviderDefinition(type)?.displayName || type;
@@ -44,11 +56,17 @@ export function ProvidersSection() {
 
   const def = getProviderDefinition(form.type);
   const requiresUrl = !!def?.requiresUrl;
+  const serviceTiers = SERVICE_TIER_DEFINITIONS[form.type] || [];
   const isEditing = !!form.id;
 
   const onTypeChange = (type) => {
     const nextDef = getProviderDefinition(type);
-    setForm((f) => ({ ...f, type, model: f.model || nextDef?.defaultModel || '' }));
+    setForm((f) => ({
+      ...f,
+      type,
+      model: f.model || nextDef?.defaultModel || '',
+      serviceTier: '',
+    }));
   };
 
   const setField = (key) => (e) => {
@@ -77,6 +95,7 @@ export function ProvidersSection() {
       model: p.model,
       token: '',
       url: p.url || '',
+      serviceTier: p.serviceTier || '',
     });
   };
 
@@ -134,7 +153,10 @@ export function ProvidersSection() {
                   {p.name} {p.id === activeId ? <span className="badge">Active</span> : null}
                 </td>
                 <td>{providerTypeLabel(p.type)}</td>
-                <td className="mono">{p.model}</td>
+                <td className="mono">
+                  {p.model}
+                  {p.serviceTier ? <span className="badge">{p.serviceTier}</span> : null}
+                </td>
                 <td>
                   <button type="button" onClick={() => edit(p)}>
                     Edit
@@ -221,6 +243,24 @@ export function ProvidersSection() {
               onChange={setField('url')}
               placeholder="http://localhost:8989"
             />
+          </div>
+        ) : null}
+
+        {serviceTiers.length ? (
+          <div className="field">
+            <label htmlFor="provider-service-tier">Service tier</label>
+            <select
+              id="provider-service-tier"
+              value={form.serviceTier}
+              onChange={setField('serviceTier')}
+            >
+              <option value="">Provider default</option>
+              {serviceTiers.map((tier) => (
+                <option key={tier.value} value={tier.value}>
+                  {tier.label}
+                </option>
+              ))}
+            </select>
           </div>
         ) : null}
 

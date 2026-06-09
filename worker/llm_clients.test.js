@@ -111,6 +111,19 @@ describe('createClient dispatch', () => {
     expect('temperature' in body).toBe(false);
   });
 
+  it('openai client forwards configured flex service tier', async () => {
+    vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'hi' } }] }));
+    const client = createClient({
+      type: 'openai',
+      model: 'gpt-4o',
+      token: 'k',
+      serviceTier: 'flex',
+    });
+    await client.complete({ prompt: 'p' });
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+    expect(body.service_tier).toBe('flex');
+  });
+
   it('openai_comp client keeps temperature even for gpt-5-nano-named models', async () => {
     vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'hi' } }] }));
     const client = createClient({ type: 'openai_comp', model: 'gpt-5-nano', url: 'http://h' });
@@ -127,6 +140,19 @@ describe('createClient dispatch', () => {
     const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
     expect(body.prompt_cache_key).toBeUndefined();
     expect(body.cache_prompt).toBeUndefined();
+  });
+
+  it('openrouter client forwards configured service tier', async () => {
+    vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'hi' } }] }));
+    const client = createClient({
+      type: 'openrouter',
+      model: 'openai/gpt-5',
+      token: 'k',
+      serviceTier: 'priority',
+    });
+    await client.complete({ prompt: 'p' });
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+    expect(body.service_tier).toBe('priority');
   });
 
   it('deepseek client posts to api.deepseek.com without OpenAI or llama.cpp cache knobs', async () => {
@@ -273,6 +299,29 @@ describe('createClient dispatch', () => {
     expect(body.cache_control).toBeUndefined();
     expect(body.temperature).toBe(0.5);
     expect(body.messages).toEqual([{ role: 'user', content: 'p' }]);
+  });
+
+  it('anthropic client maps supported service tiers to native request values', async () => {
+    vi.mocked(fetch).mockResolvedValue(okJson({ content: [{ type: 'text', text: 'ok' }] }));
+    const priorityClient = createClient({
+      type: 'anthropic',
+      model: 'claude-haiku-4-5',
+      token: 'k',
+      serviceTier: 'priority',
+    });
+    await priorityClient.complete({ prompt: 'p' });
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1].body).service_tier).toBe('auto');
+
+    const standardClient = createClient({
+      type: 'anthropic',
+      model: 'claude-haiku-4-5',
+      token: 'k',
+      serviceTier: 'default',
+    });
+    await standardClient.complete({ prompt: 'p' });
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[1][1].body).service_tier).toBe(
+      'standard_only',
+    );
   });
 
   it('anthropic client marks stable prompt prefixes as explicit cache breakpoints', async () => {

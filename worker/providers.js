@@ -19,6 +19,30 @@ export const ProviderType = Object.freeze({
 
 export const PROVIDER_TYPES = Object.freeze(Object.values(ProviderType));
 
+export const ServiceTier = Object.freeze({
+  AUTO: 'auto',
+  DEFAULT: 'default',
+  FLEX: 'flex',
+  PRIORITY: 'priority',
+});
+
+export const SERVICE_TIER_DEFINITIONS = Object.freeze({
+  [ProviderType.OPENAI]: Object.freeze([
+    { value: ServiceTier.FLEX, label: 'Flex' },
+    { value: ServiceTier.PRIORITY, label: 'Priority' },
+    { value: ServiceTier.DEFAULT, label: 'Default' },
+    { value: ServiceTier.AUTO, label: 'Auto' },
+  ]),
+  [ProviderType.ANTHROPIC]: Object.freeze([
+    { value: ServiceTier.PRIORITY, label: 'Priority when available' },
+    { value: ServiceTier.DEFAULT, label: 'Standard only' },
+  ]),
+  [ProviderType.OPENROUTER]: Object.freeze([
+    { value: ServiceTier.FLEX, label: 'Flex' },
+    { value: ServiceTier.PRIORITY, label: 'Priority' },
+  ]),
+});
+
 /**
  * Default model suggestions per provider type, used to seed the options-page
  * dropdowns. Ported from example/llm/base.py DEFAULT_PROVIDER_DEFINITIONS.
@@ -85,6 +109,7 @@ export const PROVIDERS_KEY = 'pagetollm:llm:providers';
  * @property {string} model       Model identifier sent to the provider.
  * @property {string} token       API key / bearer token (may be empty for local).
  * @property {string} [url]       Base URL — required for openai_comp.
+ * @property {string} [serviceTier] Optional provider service tier.
  */
 
 /**
@@ -194,9 +219,20 @@ export function normalizeProvider(input) {
   }
 
   const token = String(input.token || '').trim();
+  const serviceTier = normalizeServiceTier(type, input.serviceTier);
   const id = String(input.id || '').trim() || generateId();
 
-  return { id, name, type, model, token, url: url || undefined };
+  return { id, name, type, model, token, url: url || undefined, serviceTier };
+}
+
+function normalizeServiceTier(type, value) {
+  const tier = String(value || '').trim();
+  if (!tier) return undefined;
+  const allowed = SERVICE_TIER_DEFINITIONS[type] || [];
+  if (!allowed.some((oneTier) => oneTier.value === tier)) {
+    throw new Error(`Service tier is not supported for provider type: ${type}`);
+  }
+  return tier;
 }
 
 function generateId() {
