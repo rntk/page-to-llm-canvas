@@ -146,6 +146,48 @@ describe('content script main.jsx', () => {
     }
   });
 
+  it('submits selected blocks without immediately opening the canvas', async () => {
+    chrome.runtime.sendMessage.mockResolvedValueOnce({ ok: true, key: 'submitted-key' });
+
+    const sendResponse = vi.fn();
+    await act(async () => {
+      messageListener({ action: 'startSelection' }, {}, sendResponse);
+    });
+
+    const pickBtn = document.getElementById('pagetollm-pick-btn');
+    await act(async () => {
+      pickBtn.click();
+    });
+
+    const block = document.createElement('section');
+    block.id = 'submit-block';
+    block.textContent = 'Submitted block text.';
+    document.body.appendChild(block);
+
+    await act(async () => {
+      block.click();
+    });
+
+    const submitBtn = document.getElementById('pagetollm-submit-btn');
+    await act(async () => {
+      submitBtn.click();
+      await Promise.resolve();
+    });
+
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'submit',
+        html: expect.stringContaining('Submitted block text.'),
+        selectors: ['section#submit-block'],
+      }),
+    );
+    expect(document.getElementById('pagetollm-canvas-iframe')).toBeNull();
+    expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
+    expect(block.classList.contains('pagetollm-selected')).toBe(false);
+
+    block.remove();
+  });
+
   it('aborts openInPageRail if closeInPageRail is called before loading finishes', async () => {
     let resolveMessage = null;
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {

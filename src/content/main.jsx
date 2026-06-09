@@ -315,8 +315,6 @@ async function submitSelection(event) {
     if (!response || !response.ok) {
       throw new Error((response && response.error) || 'Submission failed');
     }
-
-    openCanvasIframe(response.key);
   } catch (err) {
     console.error('PageToLLM submit error:', err);
     alert('PageToLLM error: ' + err.message);
