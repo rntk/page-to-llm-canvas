@@ -183,9 +183,11 @@ describe('background pipeline lifecycle', () => {
     _resetJobRegistry();
 
     // Start a job but do not await its completion.
-    startPipeline('running1');
+    const p1 = startPipeline('running1');
     // Immediately try to start again.
     await startPipeline('running1');
+
+    await p1;
 
     const { runPipeline } = await import('./worker/orchestrator.js');
     expect(runPipeline).toHaveBeenCalledTimes(1);

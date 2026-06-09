@@ -57,10 +57,12 @@ window.addEventListener('message', (event) => {
     removeCanvasIframe();
   } else if (data && data.type === 'pagetollm-scroll-to-topic-sentences') {
     removeCanvasIframe();
-    openInPageRail({ key: data.key }, 'topics', {
+    void openInPageRail({ key: data.key }, 'topics', {
       sentenceNumbers: data.sentenceNumbers,
       level: data.level,
       topicPath: data.topicPath,
+    }).catch((err) => {
+      console.error('PageToLLM in-page rail error:', err);
     });
   }
 });

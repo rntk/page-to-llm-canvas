@@ -68,7 +68,7 @@ export function stripTagsKeepOffsets(html) {
     const ch = html[i];
     if (ch === '<') {
       // Detect <script> or <style> blocks (skip including content).
-      const lowered = html.substr(i, 9).toLowerCase();
+      const lowered = html.slice(i, i + 9).toLowerCase();
       let blockTag = null;
       if (
         lowered.startsWith('<script') &&

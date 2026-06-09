@@ -301,11 +301,11 @@ try {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local') return;
     if (Object.keys(changes).some((key) => key.startsWith('pagetollm:'))) {
-      refreshRecords();
+      void refreshRecords();
     }
   });
 } catch (_) {
   /* noop */
 }
 
-refreshRecords();
+void refreshRecords();
