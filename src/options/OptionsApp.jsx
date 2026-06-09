@@ -17,6 +17,20 @@ function sendMessage(msg) {
   });
 }
 
+async function listProviders() {
+  const resp = await sendMessage({ type: 'listProviders' });
+  if (!resp || !resp.ok) return null;
+  return {
+    providers: resp.providers || [],
+    activeId: resp.activeId || null,
+  };
+}
+
+async function listRecords() {
+  const resp = await sendMessage({ type: 'listRecords' });
+  return (resp && resp.ok && resp.items) || [];
+}
+
 function statusClass(status) {
   return `status ${status || ''}`.trim();
 }
@@ -41,18 +55,29 @@ export function ProvidersSection() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
 
-  const load = useCallback(async () => {
-    const resp = await sendMessage({ type: 'listProviders' });
-    if (resp && resp.ok) {
-      setProviders(resp.providers || []);
-      setActiveId(resp.activeId || null);
-    }
+  const applyProviders = useCallback((next) => {
+    if (!next) return;
+    setProviders(next.providers);
+    setActiveId(next.activeId);
   }, []);
 
+  const load = useCallback(async () => {
+    applyProviders(await listProviders());
+  }, [applyProviders]);
+
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    load();
-  }, [load]);
+    let isCurrent = true;
+
+    async function loadInitialProviders() {
+      const next = await listProviders();
+      if (isCurrent) applyProviders(next);
+    }
+
+    void loadInitialProviders();
+    return () => {
+      isCurrent = false;
+    };
+  }, [applyProviders]);
 
   const def = getProviderDefinition(form.type);
   const requiresUrl = !!def?.requiresUrl;
@@ -283,17 +308,29 @@ export function OptionsApp() {
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const loadRecords = useCallback(async () => {
-    setIsLoading(true);
-    const resp = await sendMessage({ type: 'listRecords' });
-    setItems((resp && resp.ok && resp.items) || []);
+  const applyRecords = useCallback((nextItems) => {
+    setItems(nextItems);
     setIsLoading(false);
   }, []);
 
+  const loadRecords = useCallback(async () => {
+    setIsLoading(true);
+    applyRecords(await listRecords());
+  }, [applyRecords]);
+
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadRecords();
-  }, [loadRecords]);
+    let isCurrent = true;
+
+    async function loadInitialRecords() {
+      const nextItems = await listRecords();
+      if (isCurrent) applyRecords(nextItems);
+    }
+
+    void loadInitialRecords();
+    return () => {
+      isCurrent = false;
+    };
+  }, [applyRecords]);
 
   const deleteAll = async () => {
     if (!confirm('Delete ALL records?')) return;
