@@ -195,6 +195,19 @@ describe('useCanvasTransform', () => {
     const viewport = document.createElement('div');
     viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 1000 });
 
+    // The viewport's `transform` transition means the re-pin's rAF reads a
+    // *mid-animation* layout, still at the old scale (0.3). The re-pin divides
+    // the measured rect by the scale actually applied to the DOM, so simulate
+    // that by reporting a 0.3-scaled transform from getComputedStyle.
+    let appliedScale = 0.3;
+    const realGetComputedStyle = window.getComputedStyle.bind(window);
+    const getComputedStyleSpy = vi.spyOn(window, 'getComputedStyle').mockImplementation((el) => {
+      if (el === viewport) {
+        return { transform: `matrix(${appliedScale}, 0, 0, ${appliedScale}, 0, 0)` };
+      }
+      return realGetComputedStyle(el);
+    });
+
     act(() => {
       result.current.canvasWrapRef(wrap);
       result.current.canvasViewportRef(viewport);
@@ -215,17 +228,24 @@ describe('useCanvasTransform', () => {
     expect(result.current.translate.x).toBe(-1460);
     const pinnedY = result.current.translate.y;
 
-    // The scale change reflows: the gutter collapses and the content settles.
-    contentLeft = 200;
+    // The scale change reflows the gutter; the content's settled local-left is
+    // 400px. The rAF still runs mid-transition (transform applied at scale 0.3),
+    // so the content's *screen* left reads 400 * 0.3 = 120.
+    contentLeft = 120;
 
     // Flush the queued rAF (mocked as setTimeout(fn, 0)).
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 5));
     });
 
-    // Re-pinned to the settled content edge: 40 - (200 - 0) = -160, y unchanged.
-    expect(result.current.translate.x).toBe(-160);
+    // Re-pinned from the transform-invariant local-left: dividing the animated
+    // rect (120) by the applied scale (0.3) recovers 400, then re-pins at the
+    // target scale: 40 - 400 * 1.5 = -560. Reading the raw rect would have
+    // pinned to 40 - 120 = -80, sliding the article far to the right.
+    expect(result.current.translate.x).toBe(-560);
     expect(result.current.translate.y).toBe(pinnedY);
+
+    getComputedStyleSpy.mockRestore();
   });
 
   it('navigateCanvas moves to top', () => {

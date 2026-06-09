@@ -292,6 +292,7 @@ export function useCanvasTransform({ contentRef } = {}) {
         nextX = wrapRect.width / 2 - localTargetX * nextScale;
       }
       const nextY = wrapRect.height * 0.2 - localTargetY * nextScale;
+
       userMovedCanvasRef.current = true;
       setTransformNow(nextScale, {
         x: nextX,
@@ -314,7 +315,21 @@ export function useCanvasTransform({ contentRef } = {}) {
           if (!settledViewport) return;
           const settledViewportRect = settledViewport.getBoundingClientRect();
           const settledContentLeft = content.getBoundingClientRect().left;
-          const correctedX = 40 - (settledContentLeft - settledViewportRect.left);
+          // `flashFocus()` adds a 320ms `transform` transition, so this rAF runs
+          // while the viewport is still animating toward `nextScale` — the rects
+          // above are mid-flight at the *old* scale. But the transform is shared
+          // by both elements, so `(contentLeft - viewportLeft)` always equals
+          // `contentLocalLeft * appliedScale` at every instant of the animation.
+          // The layout (gutter width) is already settled, so dividing by the
+          // scale actually applied to the DOM recovers the transform-invariant
+          // local left, which we then re-pin at `nextScale`. (Reading the
+          // animated rect without this division pins to the old scale's layout,
+          // shifting the article sideways — badly on large zoom jumps.)
+          const appliedScale =
+            new DOMMatrixReadOnly(window.getComputedStyle(settledViewport).transform).a ||
+            nextScale;
+          const localContentLeft = (settledContentLeft - settledViewportRect.left) / appliedScale;
+          const correctedX = 40 - localContentLeft * nextScale;
           if (Math.abs(correctedX - (translateRef.current?.x ?? nextX)) < 0.5) return;
           setTransformNow(scaleRef.current || nextScale, {
             x: correctedX,
