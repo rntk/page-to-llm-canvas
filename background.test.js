@@ -88,6 +88,50 @@ describe('background pipeline lifecycle', () => {
     vi.clearAllMocks();
   });
 
+  it('summarizes idle action icon state', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    const { summarizeProcessingState } = await import('./background.js');
+
+    expect(summarizeProcessingState([{ status: 'done' }, { status: 'error' }])).toEqual({
+      active: false,
+      count: 0,
+      ratio: 0,
+    });
+  });
+
+  it('summarizes indeterminate action icon state for queued work', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    const { summarizeProcessingState } = await import('./background.js');
+    const state = summarizeProcessingState([
+      { status: 'pending', progress: { stage: 'queued', done: 0, total: 0 } },
+    ]);
+
+    expect(state.active).toBe(true);
+    expect(state.count).toBe(1);
+    expect(state.ratio).toBeGreaterThan(0);
+    expect(state.ratio).toBeLessThan(1);
+  });
+
+  it('summarizes determinate action icon progress across in-flight records', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    const { summarizeProcessingState } = await import('./background.js');
+    const state = summarizeProcessingState([
+      { status: 'summarizing', progress: { stage: 'summarizing_topics', done: 2, total: 4 } },
+      { status: 'splitting', progress: { stage: 'topic_ranges', done: 3, total: 6 } },
+      { status: 'done', progress: { stage: 'done', done: 1, total: 1 } },
+    ]);
+
+    expect(state.active).toBe(true);
+    expect(state.count).toBe(2);
+    expect(state.ratio).toBeCloseTo(0.5);
+  });
+
   it('submit starts a new job for a fresh record', async () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);
