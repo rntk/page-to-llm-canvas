@@ -422,7 +422,6 @@ describe('deleteAll', () => {
 
 describe('_updateQueues pruning', () => {
   it('removes the Map entry after a queued update settles', async () => {
-    const { _updateQueues } = await import('./storage.js?prune-test');
     // We can't import the private Map directly, so verify behaviour indirectly:
     // After all queued work for a key resolves, a subsequent write should still
     // enqueue and complete correctly (proving the queue entry was rebuilt from

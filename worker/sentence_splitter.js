@@ -4,7 +4,7 @@
 // short list, and signal-kind merging refinements.
 
 const CLOSING = `"'”’)\\]»`;
-const TERMINAL_RE = new RegExp(`([.!?…])(?:[${CLOSING}])*(\\s+)`, 'g');
+const TERMINAL_RE = new RegExp(`([.!?…])[${CLOSING}]*(\\s+)`, 'g');
 const SENTENCE_START_RE = /[A-Z0-9À-ɏ"'([{“‘«]/;
 const ABBREVS = new Set([
   'Mr.',

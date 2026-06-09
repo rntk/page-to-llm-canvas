@@ -186,6 +186,7 @@ function repairCoverage(groups, sentenceCount) {
  *
  * @param {Array<{label: string[], ranges: Array<{start: number, end: number}>}>} rawGroups
  * @param {number} sentenceCount
+ * @param invalidRangeTokens
  * @returns {Array<{label: string[], ranges: Array<{start: number, end: number}>}>}
  */
 function collectDiagnostics(rawGroups, sentenceCount, invalidRangeTokens = 0) {
