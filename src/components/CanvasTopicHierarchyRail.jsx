@@ -171,6 +171,7 @@ function getSummaryFontSizes(anchorCard) {
  *   onTopicEnter: (topicKey: string) => void,
  *   onTopicLeave: (topicKey: string) => void,
  *   onTopicClick: (topicKey: string, card: CanvasTopicCard) => void,
+ *   onCancelTopicSelection: (() => void) | null,
  *   readTopics: Set<string> | string[] | null,
  *   onToggleRead: ((topicKey: string) => void) | null,
  *   currentTopicSummary: {
@@ -190,6 +191,7 @@ function CanvasTopicHierarchyRail({
   onTopicEnter,
   onTopicLeave,
   onTopicClick,
+  onCancelTopicSelection,
   readTopics,
   onToggleRead,
   currentTopicSummary,
@@ -214,6 +216,7 @@ function CanvasTopicHierarchyRail({
   const summaryAnchorCard = currentTopicSummary
     ? adjustedHierarchyCards.find((card) => card.fullPath === currentTopicSummary.path)
     : null;
+  const hasCurrentTopicSummary = Boolean(currentTopicSummary);
   const summaryTop = summaryAnchorCard ? summaryAnchorCard.top : 0;
   const summaryFontSizes = getSummaryFontSizes(summaryAnchorCard);
 
@@ -232,6 +235,21 @@ function CanvasTopicHierarchyRail({
     summaryFontSizes.title,
     summaryFontSizes.text,
   ]);
+
+  React.useEffect(() => {
+    if (!show || !onCancelTopicSelection || (!selectedTopicKey && !hasCurrentTopicSummary)) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onCancelTopicSelection();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [show, selectedTopicKey, hasCurrentTopicSummary, onCancelTopicSelection]);
 
   if (!show) return null;
 

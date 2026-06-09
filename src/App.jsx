@@ -537,6 +537,11 @@ export default function App({ initialKey }) {
     [zoomToTopic],
   );
 
+  const handleCancelTopicSelection = useCallback(() => {
+    setSelectedTopicKey(null);
+    setHoveredTopicKey(null);
+  }, []);
+
   const handleShowSourceSentences = useCallback((card) => {
     setSelectedTopicKey(card.path);
     setShowSummaryMode(false);
@@ -627,6 +632,7 @@ export default function App({ initialKey }) {
                     onTopicEnter={handleTopicEnter}
                     onTopicLeave={handleTopicLeave}
                     onTopicClick={handleTopicClick}
+                    onCancelTopicSelection={handleCancelTopicSelection}
                     readTopics={null}
                     onToggleRead={null}
                     currentTopicSummary={currentTopicSummary}

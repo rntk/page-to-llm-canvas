@@ -265,6 +265,31 @@ describe('CanvasTopicHierarchyRail', () => {
     unmount();
   });
 
+  it('cancels the current topic selection on Escape', () => {
+    const onCancelTopicSelection = vi.fn();
+    const { unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        selectedTopicKey: 'Topic A > Sub B',
+        currentTopicSummary: {
+          path: 'Topic A > Sub B',
+          text: 'A short summary of Sub B.',
+        },
+        onCancelTopicSelection,
+      }),
+    );
+
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+    vi.spyOn(event, 'preventDefault');
+    act(() => {
+      window.dispatchEvent(event);
+    });
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(onCancelTopicSelection).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
   it('handles crowding and overlap logic (nudgeCrowdedPair & compact height)', () => {
     // Create two cards that overlap significantly
     const overlappingCards = [
