@@ -16,6 +16,7 @@ export const RAIL_PADDING = 24;
 
 const CARD_HEIGHT = 72;
 const CARD_VERTICAL_GAP = 8;
+const CARD_MIN_CLAMPED_HEIGHT = 56;
 const CARD_TITLE_FONT_SIZE = 12;
 const CARD_TITLE_LINE_HEIGHT = 1.2;
 const CARD_TITLE_MAX_LINES = 2;
@@ -179,6 +180,65 @@ function getMeasuredRunLayout(sentenceRun, sentenceMetrics) {
 }
 
 /**
+ * Hard layout invariant: within a column (levelIndex), cards laid out in
+ * document order (by start sentence) never overlap vertically.
+ *
+ * Measured sentence positions can be wrong — e.g. emails with repeated
+ * invisible preheader sentences or clipped footers fuzzy-match the wrong DOM
+ * text, stretching one card's rect across its neighbours. A card whose extent
+ * runs past the next card's top is clipped to end above it; a card overlapped
+ * from above is pushed down. The result is always a clean vertical stack.
+ *
+ * @template {{key: string, levelIndex: number, startSentence: number, top: number, height: number, fullPath: string}} T
+ * @param {T[]} cards
+ * @returns {T[]}
+ */
+export function resolveColumnOverlaps(cards) {
+  if (!Array.isArray(cards) || cards.length === 0) return cards;
+
+  /** @type {Map<number, T[]>} */
+  const cardsByLevel = new Map();
+  for (const card of cards) {
+    const levelCards = cardsByLevel.get(card.levelIndex) || [];
+    levelCards.push(card);
+    cardsByLevel.set(card.levelIndex, levelCards);
+  }
+
+  /** @type {Map<string, {top: number, height: number}>} */
+  const adjustedByKey = new Map();
+  for (const levelCards of cardsByLevel.values()) {
+    const ordered = [...levelCards].sort(
+      (a, b) =>
+        a.startSentence - b.startSentence ||
+        a.top - b.top ||
+        a.fullPath.localeCompare(b.fullPath),
+    );
+
+    let prevBottom = -Infinity;
+    ordered.forEach((card, index) => {
+      const top = Math.max(card.top, prevBottom + CARD_VERTICAL_GAP);
+      let bottom = Math.max(card.top + card.height, top + CARD_MIN_CLAMPED_HEIGHT);
+
+      // Clip to the next card's measured top when there is room for at least a
+      // minimum-height card; otherwise keep our extent and let the next card
+      // be pushed below us on its own iteration.
+      const next = ordered[index + 1];
+      if (next && next.top - CARD_VERTICAL_GAP >= top + CARD_MIN_CLAMPED_HEIGHT) {
+        bottom = Math.min(bottom, next.top - CARD_VERTICAL_GAP);
+      }
+
+      prevBottom = bottom;
+      adjustedByKey.set(card.key, { top, height: bottom - top });
+    });
+  }
+
+  return cards.map((card) => {
+    const adjusted = adjustedByKey.get(card.key);
+    return adjusted ? { ...card, top: adjusted.top, height: adjusted.height } : card;
+  });
+}
+
+/**
  * Builds the positioned topic card objects for the rail view, showing all
  * hierarchy levels from 0 through selectedLevel in separate columns.
  *
@@ -266,38 +326,59 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
   }
   collect(rootNode);
 
-  /** @type {Map<number, TopicTreeNode[]>} */
-  const sortedNodesByDepth = new Map();
+  // A topic with non-contiguous sentences (e.g. a newsletter header/footer
+  // wrapping the body) renders as one card per contiguous run, so fallback
+  // layouts must be computed per run — sharing a per-node layout would stack
+  // the runs on top of each other and stretch them across the gap.
+  /** @type {Map<number, Array<{node: TopicTreeNode, run: number[], runIndex: number, runKey: string, start: number, end: number}>>} */
+  const runEntriesByDepth = new Map();
+  /** @type {Map<string, Array<{runKey: string, start: number, end: number}>>} */
+  const runEntriesByPath = new Map();
   /** @type {Map<string, {top: number, height: number}>} */
-  const layoutByPath = new Map();
+  const layoutByRunKey = new Map();
 
   for (let depth = 0; depth <= level; depth += 1) {
     const nodes = nodesByDepth.get(depth) || [];
-    const sortedNodes = [...nodes].sort((a, b) => {
-      const aMin = a.sentences.size ? Math.min(...a.sentences) : Infinity;
-      const bMin = b.sentences.size ? Math.min(...b.sentences) : Infinity;
-      if (aMin !== bMin) return aMin - bMin;
-      return a.name.localeCompare(b.name);
+    const runEntries = nodes.flatMap((node) => {
+      const sentenceArray = Array.from(node.sentences).sort((left, right) => left - right);
+      const sentenceRuns = splitSentenceRuns(sentenceArray);
+      const runs = sentenceRuns.length > 0 ? sentenceRuns : [[]];
+      const entries = runs.map((run, runIndex) => ({
+        node,
+        run,
+        runIndex,
+        runKey: `${node.fullPath}#${runIndex}`,
+        start: run.length ? run[0] : Infinity,
+        end: run.length ? run[run.length - 1] : Infinity,
+      }));
+      runEntriesByPath.set(node.fullPath, entries);
+      return entries;
     });
 
-    sortedNodesByDepth.set(depth, sortedNodes);
-    sortedNodes.forEach((node, index) => {
+    runEntries.sort((a, b) => a.start - b.start || a.node.name.localeCompare(b.node.name));
+    runEntriesByDepth.set(depth, runEntries);
+    runEntries.forEach((entry, index) => {
       const top = index * (CARD_HEIGHT + CARD_VERTICAL_GAP);
-      layoutByPath.set(node.fullPath, { top, height: CARD_HEIGHT });
+      layoutByRunKey.set(entry.runKey, { top, height: CARD_HEIGHT });
     });
   }
 
   for (let depth = level - 1; depth >= 0; depth -= 1) {
-    const nodes = sortedNodesByDepth.get(depth) || [];
-    nodes.forEach((node) => {
-      const childLayouts = Array.from(node.children.values())
-        .map((child) => layoutByPath.get(child.fullPath))
+    const runEntries = runEntriesByDepth.get(depth) || [];
+    runEntries.forEach((entry) => {
+      // Child sentences are a subset of the parent's, and parent runs are
+      // maximal contiguous blocks, so each child run falls entirely inside
+      // exactly one parent run.
+      const childLayouts = Array.from(entry.node.children.values())
+        .flatMap((child) => runEntriesByPath.get(child.fullPath) || [])
+        .filter((childEntry) => childEntry.start >= entry.start && childEntry.end <= entry.end)
+        .map((childEntry) => layoutByRunKey.get(childEntry.runKey))
         .filter(Boolean);
       if (childLayouts.length === 0) return;
 
       const top = Math.min(...childLayouts.map((layout) => layout.top));
       const bottom = Math.max(...childLayouts.map((layout) => layout.top + layout.height));
-      layoutByPath.set(node.fullPath, {
+      layoutByRunKey.set(entry.runKey, {
         top,
         height: Math.max(CARD_HEIGHT, bottom - top),
       });
@@ -308,42 +389,36 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
 
   // Emit cards level by level so each depth occupies its own column
   for (let depth = 0; depth <= level; depth += 1) {
-    const nodes = sortedNodesByDepth.get(depth) || [];
+    const runEntries = runEntriesByDepth.get(depth) || [];
 
-    nodes.forEach((node) => {
-      const sentenceArray = Array.from(node.sentences).sort((left, right) => left - right);
-      const sentenceRuns = splitSentenceRuns(sentenceArray);
-      const runs = sentenceRuns.length > 0 ? sentenceRuns : [[]];
+    runEntries.forEach(({ node, run, runIndex, runKey }) => {
+      const measuredLayout = getMeasuredRunLayout(run, sentenceMetrics);
+      const fallbackLayout = layoutByRunKey.get(runKey) || {
+        top: 0,
+        height: CARD_HEIGHT,
+      };
+      const layout = measuredLayout || fallbackLayout;
+      const startSentence = run.length ? Math.min(...run) : 0;
+      const endSentence = run.length ? Math.max(...run) : 0;
 
-      runs.forEach((run, runIndex) => {
-        const measuredLayout = getMeasuredRunLayout(run, sentenceMetrics);
-        const fallbackLayout = layoutByPath.get(node.fullPath) || {
-          top: 0,
-          height: CARD_HEIGHT,
-        };
-        const layout = measuredLayout || fallbackLayout;
-        const startSentence = run.length ? Math.min(...run) : 0;
-        const endSentence = run.length ? Math.max(...run) : 0;
-
-        cards.push({
-          key: `${node.fullPath}#${node.depth}#${runIndex}`,
-          fullPath: node.fullPath,
-          displayName: node.name,
-          sentenceCount: run.length || node.sentences.size,
-          startSentence,
-          endSentence,
-          top: layout.top,
-          height: layout.height,
-          titleFontSize: CARD_TITLE_FONT_SIZE,
-          depth: node.depth,
-          levelIndex: node.depth,
-          right: RAIL_PADDING + node.depth * (CARD_WIDTH + COLUMN_GAP),
-        });
+      cards.push({
+        key: `${node.fullPath}#${node.depth}#${runIndex}`,
+        fullPath: node.fullPath,
+        displayName: node.name,
+        sentenceCount: run.length || node.sentences.size,
+        startSentence,
+        endSentence,
+        top: layout.top,
+        height: layout.height,
+        titleFontSize: CARD_TITLE_FONT_SIZE,
+        depth: node.depth,
+        levelIndex: node.depth,
+        right: RAIL_PADDING + node.depth * (CARD_WIDTH + COLUMN_GAP),
       });
     });
   }
 
-  return cards.sort(
+  return resolveColumnOverlaps(cards).sort(
     (left, right) =>
       left.levelIndex - right.levelIndex ||
       left.top - right.top ||

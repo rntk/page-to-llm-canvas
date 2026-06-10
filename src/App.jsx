@@ -7,6 +7,7 @@ import {
   getTopicTitleFontSize,
   getZoomAdjustedCardWidth,
   getZoomAdjustedSummaryCardWidth,
+  resolveColumnOverlaps,
   splitTopicPath,
   COLUMN_GAP,
   RAIL_PADDING,
@@ -163,7 +164,7 @@ export default function App({ initialKey }) {
       // post-build using a path -> {top, height} map.
       const summaryCardMap = new Map(allSummaryCards.map((c) => [c.key, c]));
       const cards = buildTopicCards(topics, selectedLevel, new Map());
-      return cards.map((card) => {
+      const patchedCards = cards.map((card) => {
         // Find best matching summary card path (exact, ancestor, or descendant).
         const direct = summaryMetricsState.get(card.key);
         if (direct) {
@@ -197,6 +198,11 @@ export default function App({ initialKey }) {
         }
         return card;
       });
+      // Re-assert the no-overlap column invariant: the patching above replaces
+      // tops/heights with measured summary positions and can reintroduce
+      // collisions (e.g. an unpatched run keeping its slot layout amid
+      // pixel-measured neighbours).
+      return resolveColumnOverlaps(patchedCards);
     }
     return buildTopicCards(topics, selectedLevel, sentenceMetrics);
   }, [

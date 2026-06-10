@@ -8,6 +8,7 @@ import {
   getZoomAdjustedSummaryCardWidth,
   getTopicTitleFontSize,
   buildTopicCards,
+  resolveColumnOverlaps,
   CARD_WIDTH,
   SUMMARY_CARD_WIDTH,
   SUMMARY_CARD_MAX_WIDTH,
@@ -274,5 +275,130 @@ describe('buildTopicCards', () => {
     const cards = buildTopicCards(topics, 0, metrics);
     expect(cards).toHaveLength(1);
     expect(cards[0].top).toBe(100);
+  });
+
+  it('emits one card per contiguous run for a non-contiguous topic', () => {
+    const topics = [
+      { name: 'News > Header', sentences: [1, 2] },
+      { name: 'Body > Main', sentences: [3, 4, 5] },
+      { name: 'News > Footer', sentences: [6, 7] },
+    ];
+    const cards = buildTopicCards(topics, 0);
+    const newsCards = cards.filter((c) => c.fullPath === 'News');
+    expect(newsCards).toHaveLength(2);
+    expect(newsCards.map((c) => [c.startSentence, c.endSentence])).toEqual([
+      [1, 2],
+      [6, 7],
+    ]);
+  });
+
+  it('gives each run of a non-contiguous topic its own non-overlapping fallback layout', () => {
+    // "News" wraps around "Body" (header at 1-2, footer at 6-7). Without
+    // measured metrics, the two News runs must not share one layout that
+    // stacks them and stretches across the Body cards.
+    const topics = [
+      { name: 'News > Header', sentences: [1, 2] },
+      { name: 'Body > Main', sentences: [3, 4, 5] },
+      { name: 'News > Footer', sentences: [6, 7] },
+    ];
+    const cards = buildTopicCards(topics, 1);
+    const level0 = cards.filter((c) => c.levelIndex === 0);
+    expect(level0.map((c) => c.fullPath)).toEqual(['News', 'Body', 'News']);
+
+    for (let i = 1; i < level0.length; i++) {
+      const prev = level0[i - 1];
+      expect(level0[i].top).toBeGreaterThanOrEqual(prev.top + prev.height);
+    }
+
+    // Each News run wraps only its own child, not the full column.
+    const header = cards.find((c) => c.fullPath === 'News > Header');
+    const footer = cards.find((c) => c.fullPath === 'News > Footer');
+    const [newsTop, , newsBottom] = level0;
+    expect(newsTop.top).toBe(header.top);
+    expect(newsTop.top + newsTop.height).toBeLessThanOrEqual(footer.top);
+    expect(newsBottom.top).toBe(footer.top);
+  });
+
+  it('never lets cards in a column overlap, even with corrupt sentence metrics', () => {
+    // Sentence 2 is mis-measured far below the rest (e.g. fuzzy-matching a
+    // repeated invisible preheader sentence to the wrong DOM text), stretching
+    // News run 1 across the whole document.
+    const metrics = new Map([
+      [1, { top: 0, bottom: 30 }],
+      [2, { top: 2000, bottom: 2030 }],
+      [3, { top: 200, bottom: 300 }],
+      [4, { top: 300, bottom: 400 }],
+      [5, { top: 400, bottom: 500 }],
+      [6, { top: 600, bottom: 650 }],
+      [7, { top: 650, bottom: 700 }],
+    ]);
+    const topics = [
+      { name: 'News > Header', sentences: [1, 2] },
+      { name: 'Body > Main', sentences: [3, 4, 5] },
+      { name: 'News > Footer', sentences: [6, 7] },
+    ];
+    const cards = buildTopicCards(topics, 0, metrics);
+    const ordered = [...cards].sort((a, b) => a.top - b.top);
+    expect(ordered.map((c) => c.fullPath)).toEqual(['News', 'Body', 'News']);
+    for (let i = 1; i < ordered.length; i++) {
+      const prev = ordered[i - 1];
+      expect(ordered[i].top).toBeGreaterThanOrEqual(prev.top + prev.height);
+    }
+  });
+});
+
+describe('resolveColumnOverlaps', () => {
+  const makeCard = (overrides) => ({
+    key: 'A#0#0',
+    fullPath: 'A',
+    levelIndex: 0,
+    startSentence: 1,
+    top: 0,
+    height: 72,
+    ...overrides,
+  });
+
+  it('returns input unchanged shapes for empty or non-array input', () => {
+    expect(resolveColumnOverlaps([])).toEqual([]);
+    expect(resolveColumnOverlaps(null)).toBe(null);
+  });
+
+  it('leaves already-disjoint cards untouched', () => {
+    const cards = [
+      makeCard({ key: 'A#0#0', fullPath: 'A', startSentence: 1, top: 0, height: 72 }),
+      makeCard({ key: 'B#0#0', fullPath: 'B', startSentence: 5, top: 100, height: 72 }),
+    ];
+    const resolved = resolveColumnOverlaps(cards);
+    expect(resolved[0]).toMatchObject({ top: 0, height: 72 });
+    expect(resolved[1]).toMatchObject({ top: 100, height: 72 });
+  });
+
+  it('clips a card that stretches over the next card in document order', () => {
+    const cards = [
+      makeCard({ key: 'A#0#0', fullPath: 'A', startSentence: 1, top: 0, height: 2000 }),
+      makeCard({ key: 'B#0#0', fullPath: 'B', startSentence: 5, top: 400, height: 300 }),
+    ];
+    const [a, b] = resolveColumnOverlaps(cards);
+    expect(a.top + a.height).toBeLessThanOrEqual(b.top);
+    expect(b).toMatchObject({ top: 400, height: 300 });
+  });
+
+  it('pushes a card down when there is no room to clip the previous one', () => {
+    const cards = [
+      makeCard({ key: 'A#0#0', fullPath: 'A', startSentence: 1, top: 0, height: 72 }),
+      makeCard({ key: 'B#0#0', fullPath: 'B', startSentence: 5, top: 10, height: 72 }),
+    ];
+    const [a, b] = resolveColumnOverlaps(cards);
+    expect(b.top).toBeGreaterThanOrEqual(a.top + a.height);
+  });
+
+  it('only resolves overlaps within the same column', () => {
+    const cards = [
+      makeCard({ key: 'A#0#0', fullPath: 'A', levelIndex: 0, startSentence: 1, top: 0, height: 500 }),
+      makeCard({ key: 'A > B#1#0', fullPath: 'A > B', levelIndex: 1, startSentence: 1, top: 0, height: 200 }),
+    ];
+    const resolved = resolveColumnOverlaps(cards);
+    expect(resolved[0]).toMatchObject({ top: 0, height: 500 });
+    expect(resolved[1]).toMatchObject({ top: 0, height: 200 });
   });
 });
