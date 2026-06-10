@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 
 async function waitFor(assertion, timeout = 1000) {
   const start = Date.now();
@@ -46,6 +46,9 @@ describe('options main.jsx', () => {
   afterEach(() => {
     const rootEl = document.getElementById('options-root');
     if (rootEl) rootEl.remove();
+  });
+
+  afterAll(() => {
     vi.unstubAllGlobals();
   });
 
@@ -200,11 +203,11 @@ describe('options main.jsx', () => {
     });
 
     await import('./main.jsx');
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    const empty = document.querySelector('#content .empty');
-    expect(empty).not.toBeNull();
-    expect(empty.textContent).toContain('No records yet');
+    await waitFor(() => {
+      const empty = document.querySelector('#content .empty');
+      expect(empty).not.toBeNull();
+      expect(empty.textContent).toContain('No records yet');
+    });
   });
 
   it('handles deleteAll', async () => {
@@ -227,10 +230,11 @@ describe('options main.jsx', () => {
     });
 
     await import('./main.jsx');
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitFor(() => {
+      expect(document.querySelector('.danger')).not.toBeNull();
+    });
 
     const deleteAllBtn = document.querySelector('.danger');
-    expect(deleteAllBtn).not.toBeNull();
 
     deleteAllBtn.click();
     expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('Delete ALL records'));
@@ -253,11 +257,15 @@ describe('options main.jsx', () => {
     });
 
     await import('./main.jsx');
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitFor(() => {
+      const tables = document.querySelectorAll('table');
+      expect(tables.length).toBeGreaterThan(0);
+      const providerRows = tables[0].querySelectorAll('tbody tr');
+      expect(providerRows).toHaveLength(2);
+    });
 
     const tables = document.querySelectorAll('table');
     const providerRows = tables[0].querySelectorAll('tbody tr');
-    expect(providerRows).toHaveLength(2);
     expect(providerRows[1].textContent).toContain('Claude');
     expect(providerRows[1].textContent).toContain('Active');
 
@@ -273,7 +281,9 @@ describe('options main.jsx', () => {
     });
 
     await import('./main.jsx');
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitFor(() => {
+      expect(document.getElementById('provider-name')).not.toBeNull();
+    });
 
     const setValue = (id, value) => {
       const el = document.getElementById(id);
@@ -333,7 +343,12 @@ describe('options main.jsx', () => {
     });
 
     await import('./main.jsx');
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitFor(() => {
+      const editBtn = Array.from(document.querySelectorAll('button')).find(
+        (b) => b.textContent === 'Edit',
+      );
+      expect(editBtn).not.toBeUndefined();
+    });
 
     const setValue = (id, value) => {
       const el = document.getElementById(id);
@@ -394,7 +409,12 @@ describe('options main.jsx', () => {
     });
 
     await import('./main.jsx');
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitFor(() => {
+      const editBtn = Array.from(document.querySelectorAll('button')).find(
+        (b) => b.textContent === 'Edit',
+      );
+      expect(editBtn).not.toBeUndefined();
+    });
 
     const editBtn = Array.from(document.querySelectorAll('button')).find(
       (b) => b.textContent === 'Edit',
@@ -433,7 +453,14 @@ describe('options main.jsx', () => {
     });
 
     await import('./main.jsx');
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitFor(() => {
+      const tables = document.querySelectorAll('table');
+      expect(tables.length).toBeGreaterThan(0);
+      const providerTable = tables[0];
+      const buttons = providerTable.querySelectorAll('tbody button');
+      const deleteBtn = Array.from(buttons).find((b) => b.textContent === 'Delete');
+      expect(deleteBtn).not.toBeUndefined();
+    });
 
     const providerTable = document.querySelectorAll('table')[0];
     const buttons = providerTable.querySelectorAll('tbody button');
