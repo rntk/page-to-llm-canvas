@@ -15,6 +15,9 @@ import {
 } from './prompts.js';
 import { parseTopicRanges, groupsFromSegments, TopicParseError } from './topic_parser.js';
 import { callLLMWithRetry, createLimiter, parallelMap } from './llm.js';
+import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
+import { planSummaryWork } from './summaryPlanning.js';
+import { summarizeTopicTree } from './topicTreeMerge.js';
 
 const MAX_TAGGED_CHARS = 60000;
 const SUMMARY_CONCURRENCY = 4;
@@ -206,27 +209,23 @@ async function resplitSegment(key, seg, sentenceTexts, depth) {
     chunkCount: chunks.length,
   });
 
-  let responses;
-  try {
-    responses = await parallelMap(chunks, TOPIC_RANGE_CONCURRENCY, (chunk) =>
-      callLLMWithRetry({
-        prompt: buildTopicRangesPrompt(chunk),
-        temperature: TOPIC_RANGE_TEMPERATURE,
-      }),
-    );
-  } catch (e) {
-    await logPipeline(key, 'topic_ranges_resplit_error', {
-      start: seg.start,
-      end: seg.end,
-      depth,
-      error: (e && e.message) || String(e),
-    });
-    return null;
-  }
-
   let subGroups;
   try {
-    subGroups = parseTopicRanges(responses.join('\n'), sliceTexts.length);
+    // Single attempt (no parse-retry): on any LLM or parse failure we log a
+    // resplit error and fall back to the original range below.
+    subGroups = await queryTopicRangesWithRetry({
+      maxRetries: 0,
+      callLLM: async () => {
+        const responses = await parallelMap(chunks, TOPIC_RANGE_CONCURRENCY, (chunk) =>
+          callLLMWithRetry({
+            prompt: buildTopicRangesPrompt(chunk),
+            temperature: TOPIC_RANGE_TEMPERATURE,
+          }),
+        );
+        return responses.join('\n');
+      },
+      parse: (raw) => parseTopicRanges(raw, sliceTexts.length),
+    });
   } catch (e) {
     await logPipeline(key, 'topic_ranges_resplit_error', {
       start: seg.start,
@@ -455,44 +454,42 @@ async function computeTopics(key, rec) {
     chunkCount: chunks.length,
   });
 
-  let groups;
-  for (let topicAttempt = 0; topicAttempt <= TOPIC_RANGE_MAX_RETRIES; topicAttempt++) {
-    // Chunks are independent (markers are global, assigned before chunking),
-    // so query them concurrently; parallelMap preserves response order.
-    const responses = await parallelMap(
-      chunks,
-      TOPIC_RANGE_CONCURRENCY,
-      async (chunk, chunkIndex) => {
-        const prompt = buildTopicRangesPrompt(chunk);
-        await logPipeline(key, 'topic_ranges_llm_request', {
-          chunkIndex,
-          promptLength: prompt.length,
-          attempt: topicAttempt + 1,
-        });
-        const resp = await callLLMWithRetry({ prompt, temperature: TOPIC_RANGE_TEMPERATURE });
-        await logPipeline(key, 'topic_ranges_llm_response', {
-          chunkIndex,
-          responseLength: resp.length,
-          attempt: topicAttempt + 1,
-        });
-        return resp;
-      },
-    );
-    const combined = responses.join('\n');
-    try {
-      groups = parseTopicRanges(combined, sentenceTexts.length);
-      break;
-    } catch (e) {
-      if (!(e instanceof TopicParseError) || topicAttempt >= TOPIC_RANGE_MAX_RETRIES) throw e;
-      await logPipeline(key, 'topic_ranges_parse_retry', {
-        attempt: topicAttempt + 1,
-        maxRetries: TOPIC_RANGE_MAX_RETRIES,
-        error: e.message,
-      });
-      const delay = TOPIC_RANGE_RETRY_BASE_DELAY_MS * Math.pow(2, topicAttempt);
-      await new Promise((r) => setTimeout(r, delay));
-    }
-  }
+  let groups = await queryTopicRangesWithRetry({
+    maxRetries: TOPIC_RANGE_MAX_RETRIES,
+    baseDelayMs: TOPIC_RANGE_RETRY_BASE_DELAY_MS,
+    isRetryable: (e) => e instanceof TopicParseError,
+    callLLM: async (attemptIndex) => {
+      // Chunks are independent (markers are global, assigned before chunking),
+      // so query them concurrently; parallelMap preserves response order.
+      const responses = await parallelMap(
+        chunks,
+        TOPIC_RANGE_CONCURRENCY,
+        async (chunk, chunkIndex) => {
+          const prompt = buildTopicRangesPrompt(chunk);
+          await logPipeline(key, 'topic_ranges_llm_request', {
+            chunkIndex,
+            promptLength: prompt.length,
+            attempt: attemptIndex + 1,
+          });
+          const resp = await callLLMWithRetry({ prompt, temperature: TOPIC_RANGE_TEMPERATURE });
+          await logPipeline(key, 'topic_ranges_llm_response', {
+            chunkIndex,
+            responseLength: resp.length,
+            attempt: attemptIndex + 1,
+          });
+          return resp;
+        },
+      );
+      return responses.join('\n');
+    },
+    parse: (combined) => parseTopicRanges(combined, sentenceTexts.length),
+    onParseRetry: ({ attemptNumber, maxRetries, error }) =>
+      logPipeline(key, 'topic_ranges_parse_retry', {
+        attempt: attemptNumber,
+        maxRetries,
+        error: error.message,
+      }),
+  });
 
   try {
     groups = await refineOversizedRanges(key, groups, sentenceTexts);
@@ -532,30 +529,22 @@ async function computeTopics(key, rec) {
  * @returns {Promise<void>}
  */
 async function runSummaries(key, topics, sentenceTexts, previousSummaries) {
-  // Seed with summaries that are already complete; collect the rest as pending.
-  const topic_summaries = {};
-  const pending = [];
-  for (const topic of topics) {
-    const prev = previousSummaries[topic.name];
-    if (prev && !prev.error) {
-      topic_summaries[topic.name] = {
-        text: prev.text || '',
-        source_sentences: topic.sentences,
-      };
-    } else {
-      pending.push(topic);
-    }
-  }
+  // Plan: which topics reuse a stored summary vs. still need an LLM call.
+  const { reused, pending, reusedCount, pendingCount, total } = planSummaryWork(
+    topics,
+    previousSummaries,
+  );
+  const topic_summaries = { ...reused };
 
-  let done = topics.length - pending.length;
+  let done = reusedCount;
   await updateRecord(key, {
-    progress: { stage: 'summarizing_topics', done, total: topics.length },
+    progress: { stage: 'summarizing_topics', done, total },
   });
-  if (pending.length < topics.length) {
+  if (pendingCount < total) {
     await logPipeline(key, 'topic_summaries_reused', {
-      reusedCount: topics.length - pending.length,
-      pendingCount: pending.length,
-      total: topics.length,
+      reusedCount,
+      pendingCount,
+      total,
     });
   }
 
@@ -564,9 +553,9 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries) {
   // request to completion first lets a caching provider commit that prefix and
   // the rest reuse it instead of each re-prefilling it from cold. On a provider
   // without prefix caching it just costs one request of serial latency up front.
-  if (pending.length > 1) {
+  if (pendingCount > 1) {
     await logPipeline(key, 'topic_summaries_warmup', {
-      pendingCount: pending.length,
+      pendingCount,
       concurrency: SUMMARY_CONCURRENCY,
     });
   }
@@ -610,71 +599,31 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries) {
       done++;
       await updateRecord(key, {
         topic_summaries: { ...topic_summaries },
-        progress: { stage: 'summarizing_topics', done, total: topics.length },
+        progress: { stage: 'summarizing_topics', done, total },
       });
     },
     { warmupFirst: true },
   );
 
   await logPipeline(key, 'topic_tree_merge_start', {
-    leafCount: topics.length,
+    leafCount: total,
   });
   const { root, nodes } = buildTopicTree(topics);
-  for (const [path, node] of nodes) {
-    if (path && topic_summaries[path]) {
-      node.leafSummary = {
-        text: topic_summaries[path].text || '',
-      };
-    }
-  }
 
   // Sibling subtrees are traversed concurrently, so a wide hierarchy could
   // otherwise fire every merge LLM call at once and trip provider rate limits
-  // (merge failures degrade to empty summaries, see catch below). The limiter
-  // bounds the in-flight merge calls while leaving the traversal unbounded.
+  // (merge failures degrade to empty summaries). The limiter bounds the
+  // in-flight merge calls while leaving the traversal unbounded.
   const limitMerge = createLimiter(SUMMARY_CONCURRENCY);
-
-  async function summarizeNode(node) {
-    // Sibling subtrees are independent; merge them concurrently. Each level
-    // still waits on its children, so merges stay bottom-up.
-    await Promise.all(node.children.map((child) => summarizeNode(child)));
-    if (node.children.length === 0) {
-      node.summary = node.leafSummary || { text: '' };
-      return;
-    }
-    if (node.children.length === 1) {
-      node.summary = node.children[0].summary;
-      return;
-    }
-    const records = node.children.map((c) => {
-      const sents = c.sourceSentences;
-      return {
-        start_sentence: sents[0] || 0,
-        end_sentence: sents[sents.length - 1] || 0,
-        summary: c.summary || { text: '' },
-      };
-    });
-    try {
-      node.summary = await limitMerge(() => mergeChildSummaries(records));
-    } catch (e) {
-      await logPipeline(key, 'topic_tree_merge_error', {
-        path: node.path,
-        error: (e && e.message) || String(e),
-      });
-      node.summary = { text: '' };
-    }
-  }
-  await summarizeNode(root);
-
-  const topic_summary_index = {};
-  for (const [path, node] of nodes) {
-    if (!path) continue;
-    topic_summary_index[path] = {
-      text: (node.summary && node.summary.text) || '',
-      level: node.level - 1,
-      source_sentences: node.sourceSentences,
-    };
-  }
+  const topic_summary_index = await summarizeTopicTree({
+    root,
+    nodes,
+    leafSummaries: topic_summaries,
+    merge: mergeChildSummaries,
+    limit: limitMerge,
+    onMergeError: ({ path, error }) =>
+      logPipeline(key, 'topic_tree_merge_error', { path, error }),
+  });
   await logPipeline(key, 'topic_tree_merge_done', {
     nodeCount: Object.keys(topic_summary_index).length,
   });
@@ -698,10 +647,10 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries) {
     status: 'done',
     topic_summaries: finalizedSummaries,
     topic_summary_index,
-    progress: { stage: 'done', done: topics.length, total: topics.length },
+    progress: { stage: 'done', done: total, total },
   });
   await logPipeline(key, 'pipeline_done', {
-    topicCount: topics.length,
+    topicCount: total,
     summaryNodeCount: Object.keys(topic_summary_index).length,
   });
 }

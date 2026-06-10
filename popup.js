@@ -205,33 +205,60 @@ function makeAction(label, key, mode) {
   return button;
 }
 
+export async function handleMessageAction(action, key, { confirm, runtimeMessage, onSuccess, onError }) {
+  if (!confirm(action.confirmMessage)) return;
+  try {
+    const response = await runtimeMessage({ type: action.messageType, key });
+    if (!response || !response.ok) {
+      onError(responseErrorMessage(response, action.failureMessage));
+      return;
+    }
+    await onSuccess();
+  } catch (err) {
+    onError(err.message || String(err));
+  }
+}
+
 function makeMessageAction(action, key) {
   const button = document.createElement('button');
   button.className = ['action', action.className].filter(Boolean).join(' ');
   button.type = 'button';
   button.textContent = action.label;
-  button.addEventListener('click', async () => {
-    if (!confirm(action.confirmMessage)) return;
-    try {
-      const response = await runtimeMessage({ type: action.messageType, key });
-      if (!response || !response.ok) {
-        setError(responseErrorMessage(response, action.failureMessage));
-        return;
-      }
-      await refreshRecords();
-    } catch (err) {
-      setError(err.message || String(err));
-    }
-  });
+  button.addEventListener('click', () =>
+    handleMessageAction(action, key, {
+      confirm,
+      runtimeMessage,
+      onSuccess: () => refreshRecords(),
+      onError: setError,
+    }),
+  );
   return button;
 }
 
-function renderRecords(records) {
-  recordsEl.replaceChildren();
-  countEl.textContent = records.length ? String(records.length) : '';
-  emptyEl.hidden = records.length !== 0;
+export function buildRecordDisplayData(records) {
+  const items = Array.isArray(records) ? records : [];
+  return {
+    count: items.length,
+    isEmpty: items.length === 0,
+    records: items.map((record) => ({
+      key: record.key,
+      label: labelFromUrl(record.sourceUrl),
+      sourceUrl: record.sourceUrl || '',
+      date: formatDate(record.createdAt),
+      status: record.status || 'unknown',
+      badge: statusLabel(record.status),
+      actions: getRecordActions(record),
+    })),
+  };
+}
 
-  records.forEach((record) => {
+function renderRecords(records) {
+  const data = buildRecordDisplayData(records);
+  recordsEl.replaceChildren();
+  countEl.textContent = data.count ? String(data.count) : '';
+  emptyEl.hidden = !data.isEmpty;
+
+  data.records.forEach((display) => {
     const item = document.createElement('li');
     item.className = 'record';
 
@@ -240,27 +267,27 @@ function renderRecords(records) {
 
     const label = document.createElement('div');
     label.className = 'label';
-    label.textContent = labelFromUrl(record.sourceUrl);
-    label.title = record.sourceUrl || '';
+    label.textContent = display.label;
+    label.title = display.sourceUrl;
 
     const meta = document.createElement('div');
     meta.className = 'meta';
-    meta.textContent = formatDate(record.createdAt);
+    meta.textContent = display.date;
 
     copy.appendChild(label);
     copy.appendChild(meta);
 
     const badge = document.createElement('span');
-    badge.className = `badge ${record.status || 'unknown'}`;
-    badge.textContent = statusLabel(record.status);
+    badge.className = `badge ${display.status}`;
+    badge.textContent = display.badge;
 
     const actions = document.createElement('div');
     actions.className = 'actions';
-    getRecordActions(record).forEach((action) => {
+    display.actions.forEach((action) => {
       actions.appendChild(
         action.kind === 'view'
-          ? makeAction(action.label, record.key, action.mode)
-          : makeMessageAction(action, record.key),
+          ? makeAction(action.label, display.key, action.mode)
+          : makeMessageAction(action, display.key),
       );
     });
 

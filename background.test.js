@@ -381,3 +381,145 @@ describe('provider message handlers', () => {
     expect(res.error).toMatch(/extension pages/);
   });
 });
+
+describe('dispatchMessage unit tests', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  async function loadDispatchMessage(chromeMock) {
+    vi.stubGlobal('chrome', chromeMock);
+    const { dispatchMessage } = await import('./background.js');
+    return dispatchMessage;
+  }
+
+  it('returns unknown-type error for unregistered type', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+
+    const fakeHandlers = {};
+    const res = await dispatchMessage({ type: 'nope' }, {}, fakeHandlers);
+    expect(res).toEqual({ ok: false, error: 'unknown type: nope' });
+  });
+
+  it('returns validation error when validate returns a string', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+
+    const fakeHandlers = {
+      doThing: {
+        requiresExtensionPage: false,
+        validate: () => 'missing key',
+        handle: vi.fn(async () => ({ ok: true })),
+      },
+    };
+    const res = await dispatchMessage({ type: 'doThing' }, {}, fakeHandlers);
+    expect(res).toEqual({ ok: false, error: 'missing key' });
+    expect(fakeHandlers.doThing.handle).not.toHaveBeenCalled();
+  });
+
+  it('blocks extension-page-gated handlers from non-extension senders', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+
+    const fakeHandlers = {
+      secret: {
+        requiresExtensionPage: true,
+        validate: () => null,
+        handle: vi.fn(async () => ({ ok: true })),
+      },
+    };
+    const res = await dispatchMessage(
+      { type: 'secret' },
+      { url: 'https://example.com/page' },
+      fakeHandlers,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/extension pages/);
+    expect(fakeHandlers.secret.handle).not.toHaveBeenCalled();
+  });
+
+  it('allows extension-page-gated handlers from extension senders', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+
+    const fakeHandlers = {
+      secret: {
+        requiresExtensionPage: true,
+        validate: () => null,
+        handle: vi.fn(async () => ({ ok: true, data: 42 })),
+      },
+    };
+    const res = await dispatchMessage(
+      { type: 'secret' },
+      { url: 'chrome-extension://test-id/options.html' },
+      fakeHandlers,
+    );
+    expect(res).toEqual({ ok: true, data: 42 });
+    expect(fakeHandlers.secret.handle).toHaveBeenCalledTimes(1);
+  });
+
+  it('wraps handler exceptions into { ok: false, error } response', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+
+    const fakeHandlers = {
+      boom: {
+        requiresExtensionPage: false,
+        validate: () => null,
+        handle: vi.fn(async () => {
+          throw new Error('something went wrong');
+        }),
+      },
+    };
+    const res = await dispatchMessage({ type: 'boom' }, {}, fakeHandlers);
+    expect(res).toEqual({ ok: false, error: 'something went wrong' });
+  });
+
+  it('returns handler result on success', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+
+    const fakeHandlers = {
+      ping: {
+        requiresExtensionPage: false,
+        validate: () => null,
+        handle: vi.fn(async (_msg, _sender) => ({ ok: true, pong: true })),
+      },
+    };
+    const msg = { type: 'ping' };
+    const sender = { url: 'chrome-extension://test-id/popup.html' };
+    const res = await dispatchMessage(msg, sender, fakeHandlers);
+    expect(res).toEqual({ ok: true, pong: true });
+    expect(fakeHandlers.ping.handle).toHaveBeenCalledWith(msg, sender);
+  });
+
+  it('passes msg and sender to handler', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+
+    const fakeHandlers = {
+      echo: {
+        requiresExtensionPage: false,
+        validate: () => null,
+        handle: vi.fn(async (msg, sender) => ({ ok: true, type: msg.type, from: sender.url })),
+      },
+    };
+    const res = await dispatchMessage(
+      { type: 'echo' },
+      { url: 'chrome-extension://test-id/options.html' },
+      fakeHandlers,
+    );
+    expect(res).toEqual({ ok: true, type: 'echo', from: 'chrome-extension://test-id/options.html' });
+  });
+
+  it('uses MESSAGE_HANDLERS registry by default (smoke test)', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+
+    const res = await dispatchMessage({ type: 'listRecords' }, {});
+    expect(res.ok).toBe(true);
+    expect(Array.isArray(res.items)).toBe(true);
+  });
+});

@@ -7,7 +7,7 @@ import {
   getTopicTitleFontSize,
   getZoomAdjustedCardWidth,
   getZoomAdjustedSummaryCardWidth,
-  resolveColumnOverlaps,
+  patchTopicCardsFromSummaryMetrics,
   splitTopicPath,
   COLUMN_GAP,
   RAIL_PADDING,
@@ -17,7 +17,7 @@ import {
 function normalizeTopicPath(name) {
   return splitTopicPath(name).join(' > ');
 }
-import { buildSummaryCards } from './summaryCards.js';
+import { buildSummaryCards, filterSummaryCardsByLevel } from './summaryCards.js';
 import {
   HIGHLIGHT_NAME,
   supportsHighlightApi,
@@ -137,20 +137,10 @@ export default function App({ initialKey }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [topics, summariesJson, summaryIndexJson],
   );
-  const summaryCards = useMemo(() => {
-    // Show one summary per topic branch at the current level: the level-N card
-    // if it exists, otherwise the deepest available card for branches that
-    // don't go that deep. Cards are ordered by sentence position so they align
-    // with the rail visually.
-    const eligible = allSummaryCards.filter((card) => card.levelIndex <= selectedLevel);
-    const paths = new Set(eligible.map((c) => c.path));
-    return eligible
-      .filter(
-        (card) =>
-          !Array.from(paths).some((p) => p !== card.path && p.startsWith(card.path + ' > ')),
-      )
-      .sort((a, b) => a.startSentence - b.startSentence || a.path.localeCompare(b.path));
-  }, [allSummaryCards, selectedLevel]);
+  const summaryCards = useMemo(
+    () => filterSummaryCardsByLevel(allSummaryCards, selectedLevel),
+    [allSummaryCards, selectedLevel],
+  );
 
   // Topic-card positions in summary mode are derived from the rendered
   // summary cards' bounding rects (measured by an effect below).
@@ -161,48 +151,10 @@ export default function App({ initialKey }) {
       // Build cards using synthesized "sentence" indices: each summary card path
       // gets a unique pseudo-sentence number, and the sentenceMetrics map uses
       // those numbers. To keep things simple, we instead patch positions
-      // post-build using a path -> {top, height} map.
-      const summaryCardMap = new Map(allSummaryCards.map((c) => [c.key, c]));
+      // post-build using a path -> {top, height} map derived from measured
+      // summary-card bounding rects.
       const cards = buildTopicCards(topics, selectedLevel, new Map());
-      const patchedCards = cards.map((card) => {
-        // Find best matching summary card path (exact, ancestor, or descendant).
-        const direct = summaryMetricsState.get(card.key);
-        if (direct) {
-          return { ...card, top: direct.top, height: direct.height };
-        }
-        let top = Infinity;
-        let bottom = -Infinity;
-        for (const [key, m] of summaryMetricsState) {
-          const path = key.split('#')[0];
-          if (
-            path === card.fullPath ||
-            path.startsWith(card.fullPath + ' > ') ||
-            card.fullPath.startsWith(path + ' > ')
-          ) {
-            const summaryCard = summaryCardMap.get(key);
-            if (summaryCard) {
-              const start = summaryCard.startSentence;
-              const hasOverlap =
-                (start >= card.startSentence && start <= card.endSentence) ||
-                (card.startSentence === 0 && card.endSentence === 0);
-              if (!hasOverlap) {
-                continue;
-              }
-            }
-            if (m.top < top) top = m.top;
-            if (m.top + m.height > bottom) bottom = m.top + m.height;
-          }
-        }
-        if (Number.isFinite(top) && Number.isFinite(bottom)) {
-          return { ...card, top, height: Math.max(72, bottom - top) };
-        }
-        return card;
-      });
-      // Re-assert the no-overlap column invariant: the patching above replaces
-      // tops/heights with measured summary positions and can reintroduce
-      // collisions (e.g. an unpatched run keeping its slot layout amid
-      // pixel-measured neighbours).
-      return resolveColumnOverlaps(patchedCards);
+      return patchTopicCardsFromSummaryMetrics(cards, allSummaryCards, summaryMetricsState);
     }
     return buildTopicCards(topics, selectedLevel, sentenceMetrics);
   }, [

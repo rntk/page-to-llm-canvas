@@ -4,6 +4,12 @@ import {
   SERVICE_TIER_DEFINITIONS,
   getProviderDefinition,
 } from '../../worker/providers.js';
+import {
+  shouldWarnTokenWipe,
+  actionToMessageType,
+  actionConfirmPrompt,
+  actionErrorMessage,
+} from './optionsLogic.js';
 
 function fmtDate(ts) {
   if (!ts) return '';
@@ -131,13 +137,8 @@ export function ProvidersSection() {
   const submit = async (e) => {
     e.preventDefault();
     setError('');
-    const tokenWillBeWiped =
-      editingProvider?.type === 'openai_comp' &&
-      editingProvider.hasToken &&
-      !form.token.trim() &&
-      (editingProvider.url || '') !== form.url.trim();
     if (
-      tokenWillBeWiped &&
+      shouldWarnTokenWipe(editingProvider, form) &&
       !confirm(
         'Changing this OpenAI-compatible base URL will wipe the stored token for the previous URL. Save anyway?',
       )
@@ -388,29 +389,9 @@ export function OptionsApp() {
 
   const runAction = async (action, key) => {
     setError('');
-    if (action === 'delete') {
-      if (!confirm('Delete this record?')) return;
-      const resp = await sendMessage({ type: 'deleteRecord', key });
-      if (!resp || !resp.ok) {
-        setError((resp && resp.error) || 'Failed to delete record');
-        return;
-      }
-      await loadRecords();
-      return;
-    }
 
-    if (action === 'reprocess') {
-      if (!confirm('Reprocess this record? Existing results will be overwritten.')) {
-        return;
-      }
-      const resp = await sendMessage({ type: 'reprocessRecord', key });
-      if (!resp || !resp.ok) {
-        setError((resp && resp.error) || 'Failed to reprocess record');
-        return;
-      }
-      await loadRecords();
-      return;
-    }
+    const confirmPrompt = actionConfirmPrompt(action);
+    if (confirmPrompt !== null && !confirm(confirmPrompt)) return;
 
     if (action === 'open') {
       if (
@@ -423,12 +404,23 @@ export function OptionsApp() {
         return;
       }
       alert('Open by re-picking the same blocks on the source page.');
+      return;
+    }
+
+    if (action === 'delete' || action === 'reprocess') {
+      const resp = await sendMessage({ type: actionToMessageType(action), key });
+      if (!resp || !resp.ok) {
+        setError((resp && resp.error) || actionErrorMessage(action));
+        return;
+      }
+      await loadRecords();
+      return;
     }
 
     if (action === 'exportMetadata') {
-      const resp = await sendMessage({ type: 'getRecord', key });
+      const resp = await sendMessage({ type: actionToMessageType(action), key });
       if (!resp || !resp.ok || !resp.record) {
-        setError((resp && resp.error) || 'Failed to export record metadata');
+        setError((resp && resp.error) || actionErrorMessage(action));
         return;
       }
       const metadata = buildRecordMetadata(resp.record);

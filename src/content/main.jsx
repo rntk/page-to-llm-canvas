@@ -18,6 +18,20 @@ import {
   buildSentenceDomRange,
   buildSentenceWordRanges,
 } from '../sentenceHighlight.js';
+import {
+  splitPath,
+  topicAccentColor,
+  buildSummaryEntries,
+  buildHierarchicalTopicEntries,
+  splitIntoContiguousRuns,
+} from './recordTransform.js';
+import { buildCssPath, stripHighlightClasses } from './cssPath.js';
+import {
+  fetchRecord,
+  findPickedElements,
+  assessRecordForRail,
+  createLoadToken,
+} from './recordFetch.js';
 
 let selectionToolbar = null;
 let selectionToolbarRoot = null;
@@ -30,7 +44,7 @@ let dragOverIndex = null;
 let canvasIframe = null;
 let inPageRailController = null;
 let isSubmitting = false;
-let currentRailLoadingToken = null;
+const railLoadingTokenHolder = { current: null };
 const IN_PAGE_RAIL_WIDTHS = Object.freeze({
   topics: 260,
   summaries: 340,
@@ -203,31 +217,6 @@ window.addEventListener('message', (event) => {
   }
 });
 
-
-// ── CSS selector path ─────────────────────────────────────────────────────
-
-function buildCssPath(el) {
-  if (!(el instanceof Element)) return '';
-  const parts = [];
-  let node = el;
-  while (node && node.nodeType === 1 && node !== document.documentElement) {
-    let selector = node.nodeName.toLowerCase();
-    if (node.id) {
-      selector += `#${CSS.escape(node.id)}`;
-      parts.unshift(selector);
-      break;
-    }
-    let sib = node,
-      nth = 1;
-    while ((sib = sib.previousElementSibling)) {
-      if (sib.nodeName === node.nodeName) nth++;
-    }
-    selector += `:nth-of-type(${nth})`;
-    parts.unshift(selector);
-    node = node.parentElement;
-  }
-  return parts.join(' > ');
-}
 
 // ── Record view actions ───────────────────────────────────────────────────
 
@@ -411,13 +400,7 @@ function buildHtml(elements) {
   const parts = [];
   for (const el of elements) {
     const clone = el.cloneNode(true);
-    if (clone.classList) {
-      clone.classList.remove('pagetollm-selected', 'pagetollm-element-highlight');
-    }
-    clone.querySelectorAll &&
-      clone.querySelectorAll('.pagetollm-selected, .pagetollm-element-highlight').forEach((c) => {
-        c.classList.remove('pagetollm-selected', 'pagetollm-element-highlight');
-      });
+    stripHighlightClasses(clone);
     parts.push(clone.outerHTML);
   }
   return parts.join('\n');
@@ -526,134 +509,6 @@ function cleanupSelection(event) {
 
 // ── In-page rail view ─────────────────────────────────────────────────────
 
-function getTopicSentenceNumbers(topic) {
-  if (Array.isArray(topic.sentences) && topic.sentences.length) {
-    return topic.sentences.slice().sort((a, b) => a - b);
-  }
-  const set = new Set();
-  (topic.ranges || []).forEach((r) => {
-    const s = Number(r.sentence_start);
-    const rawEnd =
-      r.sentence_end === null || r.sentence_end === undefined || r.sentence_end === ''
-        ? r.sentence_start
-        : r.sentence_end;
-    const e = Number(rawEnd);
-    if (!Number.isInteger(s) || !Number.isInteger(e)) return;
-    for (let i = Math.min(s, e); i <= Math.max(s, e); i++) set.add(i);
-  });
-  return Array.from(set).sort((a, b) => a - b);
-}
-
-function splitPath(name) {
-  return String(name || '')
-    .split('>')
-    .map((p) => p.trim())
-    .filter(Boolean);
-}
-
-function hashHue(str) {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = ((h << 5) - h + str.charCodeAt(i)) | 0;
-  return Math.abs(h) % 360;
-}
-
-function topicAccentColor(path, depth) {
-  const root = splitPath(path)[0] || '';
-  const hue = hashHue(root);
-  const sat = Math.max(30, 60 - depth * 6);
-  const light = Math.min(62, 38 + depth * 6);
-  return `hsl(${hue}, ${sat}%, ${light}%)`;
-}
-
-/**
- * Build summary cards from record: one card per node in topic_summary_index
- * (preferred) or fall back to leaf topic_summaries.
- */
-function buildSummaryEntries(record) {
-  const out = [];
-  const index = record.topic_summary_index;
-  const sentenceNumbersByPath = new Map();
-
-  if (index && typeof index === 'object' && Object.keys(index).length > 0) {
-    for (const [rawPath, entry] of Object.entries(index)) {
-      if (!rawPath) continue;
-      const parts = splitPath(rawPath);
-      const path = parts.join(' > ');
-      const sourceSentences = Array.isArray(entry.source_sentences)
-        ? entry.source_sentences.slice().sort((a, b) => a - b)
-        : [];
-      const level = typeof entry.level === 'number' ? entry.level : parts.length - 1;
-      sentenceNumbersByPath.set(path, sourceSentences);
-      out.push({
-        path,
-        name: parts[parts.length - 1] || path,
-        text: (entry.text || '').trim(),
-        sourceSentences,
-        level,
-      });
-    }
-  } else {
-    const topics = Array.isArray(record.topics) ? record.topics : [];
-    const summaries = record.topic_summaries || {};
-    for (const topic of topics) {
-      const parts = splitPath(topic.name);
-      const path = parts.join(' > ');
-      const summary = summaries[topic.name] || summaries[path] || {};
-      const sourceSentences = (
-        Array.isArray(summary.source_sentences)
-          ? summary.source_sentences
-          : getTopicSentenceNumbers(topic)
-      )
-        .slice()
-        .sort((a, b) => a - b);
-      sentenceNumbersByPath.set(path, sourceSentences);
-      out.push({
-        path,
-        name: parts[parts.length - 1] || path,
-        text: (summary.text || '').trim(),
-        sourceSentences,
-        level: parts.length - 1,
-      });
-    }
-  }
-  return { entries: out, sentenceNumbersByPath };
-}
-
-function buildHierarchicalTopicEntries(record, selectedLevel) {
-  const topics = Array.isArray(record.topics) ? record.topics : [];
-  const nodes = new Map();
-
-  for (const t of topics) {
-    const parts = splitPath(t.name);
-    const limit = Math.min(parts.length, selectedLevel + 1);
-    const sentences = getTopicSentenceNumbers(t);
-
-    for (let i = 0; i < limit; i++) {
-      const path = parts.slice(0, i + 1).join(' > ');
-      const name = parts[i];
-      if (!nodes.has(path)) {
-        nodes.set(path, {
-          path,
-          name,
-          level: i,
-          sentences: new Set(),
-        });
-      }
-      const node = nodes.get(path);
-      for (const s of sentences) {
-        node.sentences.add(s);
-      }
-    }
-  }
-
-  return Array.from(nodes.values()).map((node) => ({
-    path: node.path,
-    name: node.name,
-    level: node.level,
-    sentences: Array.from(node.sentences).sort((a, b) => a - b),
-  }));
-}
-
 function getScrollableAncestor(elements) {
   const picked = Array.isArray(elements) ? elements.filter(Boolean) : [];
   if (picked.length === 0) return window;
@@ -716,87 +571,59 @@ function computeCardVerticalBox(
   return { top: clampedTop, height: Math.max(40, bottom - clampedTop) };
 }
 
-async function fetchRecord(key) {
-  return new Promise((resolve) => {
-    try {
-      chrome.runtime.sendMessage({ type: 'getRecord', key }, (resp) => {
-        if (chrome.runtime.lastError) {
-          resolve(null);
-          return;
-        }
-        resolve(resp && resp.ok ? resp.record : null);
-      });
-    } catch (_) {
-      resolve(null);
-    }
-  });
-}
-
-function findPickedElements(selectors) {
-  if (!Array.isArray(selectors)) return [];
-  const found = [];
-  for (const sel of selectors) {
-    if (!sel) continue;
-    try {
-      const el = document.querySelector(sel);
-      if (el) found.push(el);
-    } catch (_) {
-      /* invalid selector — skip */
-    }
-  }
-  return found;
-}
-
 async function openInPageRail(rec, initialMode, options = {}) {
   closeInPageRail();
   removeCanvasIframe();
 
-  const token = Symbol('rail-loading');
-  currentRailLoadingToken = token;
+  const guard = createLoadToken(railLoadingTokenHolder);
 
   // Always re-fetch to get the latest data even if widget data is stale.
-  const record = await fetchRecord(rec.key);
-  if (currentRailLoadingToken !== token) {
+  const fetched = await fetchRecord(rec.key);
+  if (guard.isStale()) {
     // A newer rail request has started loading, abort this one!
     return;
   }
-  if (!record) {
+
+  const assessment = assessRecordForRail(fetched);
+  if (assessment.kind === 'not_found') {
     alert('PageToLLM: Analysis record not found.');
     return;
   }
-  if (record.status === 'error') {
-    const { message } = splitError(record.error || 'Unknown error occurred during processing.');
+  if (assessment.kind === 'error') {
+    const { message } = splitError(
+      assessment.record.error || 'Unknown error occurred during processing.',
+    );
     const retry = confirm(
       `PageToLLM: Processing failed.\n\nError: ${message}\n\nWould you like to retry analyzing this page?`,
     );
     if (retry) {
       try {
-        await retryRecord(record.key, 'InPageRail');
-        openCanvasIframe(record.key);
+        await retryRecord(assessment.record.key, 'InPageRail');
+        openCanvasIframe(assessment.record.key);
       } catch (err) {
         alert('Retry failed: ' + (err.message || String(err)));
       }
     }
     return;
   }
-  if (record.status !== 'done') {
-    const stage = record.progress?.stage || record.status || 'queued';
+  if (assessment.kind === 'in_progress') {
     alert(
-      `PageToLLM: Analysis is currently in progress (status: ${stage}). Please wait a moment and try again.`,
+      `PageToLLM: Analysis is currently in progress (status: ${assessment.stage}). Please wait a moment and try again.`,
     );
     return;
   }
-  const selectors = Array.isArray(record.selectors) ? record.selectors : [];
-  if (selectors.length === 0) {
+  if (assessment.kind === 'no_selectors') {
     const openCanvas = confirm(
       'PageToLLM: This record has no saved selectors.\n\nWould you like to open it in the full canvas view instead?',
     );
     if (openCanvas) {
-      openCanvasIframe(record.key);
+      openCanvasIframe(assessment.record.key);
     }
     return;
   }
-  const elements = findPickedElements(selectors);
+  // assessment.kind === 'ready'
+  const record = assessment.record;
+  const elements = findPickedElements(record.selectors);
   if (elements.length === 0) {
     const openCanvas = confirm(
       'PageToLLM: Could not locate the original article blocks on this page; the page layout may have changed.\n\nWould you like to open it in the full canvas view instead?',
@@ -919,22 +746,6 @@ async function openInPageRail(rec, initialMode, options = {}) {
     }
   }
 
-  function splitIntoContiguousRuns(sentences) {
-    const sorted = (sentences || []).slice().sort((a, b) => a - b);
-    const runs = [];
-    let cur = [];
-    for (const s of sorted) {
-      if (cur.length === 0 || s === cur[cur.length - 1] + 1) {
-        cur.push(s);
-      } else {
-        runs.push(cur);
-        cur = [s];
-      }
-    }
-    if (cur.length) runs.push(cur);
-    return runs;
-  }
-
   function buildRailCards() {
     const isSummary = state.mode === 'summaries';
     const entries = isSummary
@@ -1033,7 +844,7 @@ async function openInPageRail(rec, initialMode, options = {}) {
   };
 
   function renderRail({ measureOnly = false } = {}) {
-    if (railClosed || currentRailLoadingToken !== token) return;
+    if (railClosed || guard.isStale()) return;
     const { cards, bodyHeight } = railOriginTop ? buildRailCards() : { cards: [], bodyHeight: 200 };
     flushSync(() => {
       railRoot.render(
@@ -1055,14 +866,14 @@ async function openInPageRail(rec, initialMode, options = {}) {
   }
 
   renderRail({ measureOnly: true });
-  if (railClosed || currentRailLoadingToken !== token) return;
+  if (railClosed || guard.isStale()) return;
   const bodyRect = railEl.querySelector('.pagetollm-rail-body').getBoundingClientRect();
   railOriginTop = getRailOriginTop(bodyRect, scrollContainer);
   renderRail();
 
   if (options && options.sentenceNumbers && options.sentenceNumbers.length > 0) {
     requestAnimationFrame(() => {
-      if (railClosed || currentRailLoadingToken !== token) return;
+      if (railClosed || guard.isStale()) return;
       highlightTopic(options.sentenceNumbers, true);
       scrollToFirst(options.sentenceNumbers);
     });
@@ -1070,7 +881,7 @@ async function openInPageRail(rec, initialMode, options = {}) {
 }
 
 function closeInPageRail() {
-  currentRailLoadingToken = null;
+  railLoadingTokenHolder.current = null;
   if (inPageRailController) {
     try {
       inPageRailController.teardown();

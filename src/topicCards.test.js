@@ -9,6 +9,7 @@ import {
   getTopicTitleFontSize,
   buildTopicCards,
   resolveColumnOverlaps,
+  patchTopicCardsFromSummaryMetrics,
   CARD_WIDTH,
   SUMMARY_CARD_WIDTH,
   SUMMARY_CARD_MAX_WIDTH,
@@ -419,5 +420,213 @@ describe('resolveColumnOverlaps', () => {
     const resolved = resolveColumnOverlaps(cards);
     expect(resolved[0]).toMatchObject({ top: 0, height: 500 });
     expect(resolved[1]).toMatchObject({ top: 0, height: 200 });
+  });
+});
+
+describe('patchTopicCardsFromSummaryMetrics', () => {
+  // Minimal card factory matching the shape expected by the function.
+  function makeTopicCard(overrides) {
+    return {
+      key: 'A#0#0',
+      fullPath: 'A',
+      displayName: 'A',
+      sentenceCount: 1,
+      startSentence: 1,
+      endSentence: 3,
+      top: 0,
+      height: 72,
+      titleFontSize: 12,
+      depth: 0,
+      levelIndex: 0,
+      right: 24,
+      ...overrides,
+    };
+  }
+
+  // Minimal summary card factory.
+  function makeSummaryCard(path, levelIndex, startSentence, runIndex = 0) {
+    return {
+      key: `${path}#${levelIndex}#${runIndex}`,
+      path,
+      name: path.split(' > ').pop(),
+      text: '',
+      sourceSentences: [],
+      startSentence,
+      levelIndex,
+    };
+  }
+
+  it('returns overlap-resolved cards unchanged when metrics map is empty', () => {
+    const card = makeTopicCard({ top: 50, height: 72 });
+    const result = patchTopicCardsFromSummaryMetrics([card], [], new Map());
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ top: 50, height: 72 });
+  });
+
+  it('returns overlap-resolved cards unchanged when metrics is not a Map', () => {
+    const card = makeTopicCard({ top: 50, height: 72 });
+    const result = patchTopicCardsFromSummaryMetrics([card], [], null);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ top: 50, height: 72 });
+  });
+
+  it('patches card by exact key match', () => {
+    const card = makeTopicCard({ key: 'A#0#0', fullPath: 'A', top: 0, height: 72 });
+    const metrics = new Map([['A#0#0', { top: 200, height: 100 }]]);
+    const result = patchTopicCardsFromSummaryMetrics([card], [], metrics);
+    expect(result[0]).toMatchObject({ top: 200, height: 100 });
+  });
+
+  it('patches card by ancestor path matching (metric path is ancestor of card)', () => {
+    // Metric key has path "A", card fullPath is "A > B" -> card.fullPath.startsWith("A > ")
+    const card = makeTopicCard({
+      key: 'A > B#1#0',
+      fullPath: 'A > B',
+      startSentence: 1,
+      endSentence: 3,
+      top: 0,
+      height: 72,
+      levelIndex: 1,
+    });
+    const summaryCard = makeSummaryCard('A', 0, 1);
+    const metrics = new Map([[summaryCard.key, { top: 100, height: 80 }]]);
+    const result = patchTopicCardsFromSummaryMetrics([card], [summaryCard], metrics);
+    expect(result[0]).toMatchObject({ top: 100, height: 80 });
+  });
+
+  it('patches card by descendant path matching (metric path is descendant of card)', () => {
+    // Metric key has path "A > B > C", card fullPath is "A" -> path.startsWith("A > ")
+    const card = makeTopicCard({
+      key: 'A#0#0',
+      fullPath: 'A',
+      startSentence: 1,
+      endSentence: 5,
+      top: 0,
+      height: 72,
+      levelIndex: 0,
+    });
+    const summaryCard = makeSummaryCard('A > B > C', 2, 2);
+    const metrics = new Map([[summaryCard.key, { top: 150, height: 90 }]]);
+    const result = patchTopicCardsFromSummaryMetrics([card], [summaryCard], metrics);
+    expect(result[0]).toMatchObject({ top: 150, height: 90 });
+  });
+
+  it('accumulates bounding box across multiple matching metrics', () => {
+    const card = makeTopicCard({
+      key: 'A#0#0',
+      fullPath: 'A',
+      startSentence: 1,
+      endSentence: 10,
+      top: 0,
+      height: 72,
+      levelIndex: 0,
+    });
+    const s1 = makeSummaryCard('A > B', 1, 2);
+    const s2 = makeSummaryCard('A > C', 1, 7);
+    const metrics = new Map([
+      [s1.key, { top: 100, height: 60 }],
+      [s2.key, { top: 200, height: 50 }],
+    ]);
+    // top=100, bottom=max(160,250)=250, height=150
+    const result = patchTopicCardsFromSummaryMetrics([card], [s1, s2], metrics);
+    expect(result[0].top).toBe(100);
+    expect(result[0].height).toBe(150);
+  });
+
+  it('enforces minimum height of 72 when bounding box collapses', () => {
+    const card = makeTopicCard({
+      key: 'A#0#0',
+      fullPath: 'A',
+      startSentence: 1,
+      endSentence: 3,
+      top: 0,
+      height: 72,
+      levelIndex: 0,
+    });
+    const s = makeSummaryCard('A > B', 1, 1);
+    const metrics = new Map([[s.key, { top: 50, height: 0 }]]);
+    const result = patchTopicCardsFromSummaryMetrics([card], [s], metrics);
+    expect(result[0].height).toBeGreaterThanOrEqual(72);
+  });
+
+  it('skips summary metrics whose startSentence is outside card sentence range', () => {
+    const card = makeTopicCard({
+      key: 'A#0#0',
+      fullPath: 'A',
+      startSentence: 1,
+      endSentence: 3,
+      top: 10,
+      height: 72,
+      levelIndex: 0,
+    });
+    const s = makeSummaryCard('A > B', 1, 99);
+    const metrics = new Map([[s.key, { top: 500, height: 100 }]]);
+    const result = patchTopicCardsFromSummaryMetrics([card], [s], metrics);
+    expect(result[0].top).toBe(10);
+  });
+
+  it('always patches when card has startSentence=0 and endSentence=0', () => {
+    const card = makeTopicCard({
+      key: 'A#0#0',
+      fullPath: 'A',
+      startSentence: 0,
+      endSentence: 0,
+      top: 0,
+      height: 72,
+      levelIndex: 0,
+    });
+    const s = makeSummaryCard('A > B', 1, 5);
+    const metrics = new Map([[s.key, { top: 300, height: 80 }]]);
+    const result = patchTopicCardsFromSummaryMetrics([card], [s], metrics);
+    expect(result[0].top).toBe(300);
+    expect(result[0].height).toBe(80);
+  });
+
+  it('re-runs overlap resolution after patching to eliminate collisions', () => {
+    const card1 = makeTopicCard({
+      key: 'A#0#0',
+      fullPath: 'A',
+      startSentence: 1,
+      endSentence: 2,
+      top: 0,
+      height: 72,
+      levelIndex: 0,
+    });
+    const card2 = makeTopicCard({
+      key: 'B#0#0',
+      fullPath: 'B',
+      startSentence: 5,
+      endSentence: 6,
+      top: 80,
+      height: 72,
+      levelIndex: 0,
+    });
+    const sA = makeSummaryCard('A', 0, 1);
+    const sB = makeSummaryCard('B', 0, 5);
+    const metrics = new Map([
+      [sA.key, { top: 0, height: 72 }],
+      [sB.key, { top: 10, height: 72 }],
+    ]);
+    const result = patchTopicCardsFromSummaryMetrics([card1, card2], [sA, sB], metrics);
+    const sorted = result.slice().sort((a, b) => a.top - b.top);
+    const [r1, r2] = sorted;
+    expect(r2.top).toBeGreaterThanOrEqual(r1.top + r1.height);
+  });
+
+  it('does not patch a card when no metric path matches its fullPath', () => {
+    const card = makeTopicCard({
+      key: 'Z#0#0',
+      fullPath: 'Z',
+      startSentence: 1,
+      endSentence: 3,
+      top: 20,
+      height: 72,
+      levelIndex: 0,
+    });
+    const s = makeSummaryCard('X', 0, 1);
+    const metrics = new Map([[s.key, { top: 999, height: 200 }]]);
+    const result = patchTopicCardsFromSummaryMetrics([card], [s], metrics);
+    expect(result[0].top).toBe(20);
+    expect(result[0].height).toBe(72);
   });
 });

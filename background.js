@@ -37,10 +37,6 @@ function isExtensionPageSender(sender) {
   return !!sender?.url && !!extensionRoot && sender.url.startsWith(extensionRoot);
 }
 
-function sendSafeProviderState(sendResponse, state, extra = {}) {
-  sendResponse({ ok: true, ...extra, ...sanitizeProvidersState(state) });
-}
-
 // Record statuses that mean a pipeline is (or should be) actively running.
 const IN_FLIGHT_STATUSES = new Set(['pending', 'splitting', 'summarizing']);
 
@@ -391,13 +387,210 @@ export async function handleSubmit(submission) {
 }
 
 /**
- * @param {{prompt?: string, temperature?: number, model?: string}} request
- * @returns {Promise<{ok: boolean, content?: string, error?: string}>}
+ * Declarative handler registry.
+ *
+ * Each entry has:
+ *   requiresExtensionPage {boolean}  – when true, sender must be an extension page
+ *   validate(msg) {function}         – returns an error string or null
+ *   handle(msg, sender) {function}   – async, returns the response fields object
+ *
+ * @type {Record<string, {
+ *   requiresExtensionPage: boolean,
+ *   validate: (msg: object) => string | null,
+ *   handle: (msg: object, sender: object) => Promise<object>
+ * }>}
  */
-async function handleLLMRequest(request) {
-  const { prompt, temperature = 0.8, model } = request;
-  if (!prompt) return { ok: false, error: 'missing prompt' };
-  return callLLMDirect({ prompt, temperature, model });
+export const MESSAGE_HANDLERS = {
+  submit: {
+    requiresExtensionPage: false,
+    validate: () => null,
+    async handle(msg) {
+      return handleSubmit(msg);
+    },
+  },
+
+  ensurePipeline: {
+    requiresExtensionPage: false,
+    validate(msg) {
+      return msg.key ? null : 'missing key';
+    },
+    async handle(msg) {
+      await startPipeline(msg.key);
+      return { ok: true };
+    },
+  },
+
+  retryRecord: {
+    requiresExtensionPage: false,
+    validate(msg) {
+      return msg.key ? null : 'missing key';
+    },
+    async handle(msg) {
+      const updated = await updateRecord(msg.key, {
+        status: 'pending',
+        error: null,
+        progress: { stage: 'queued', done: 0, total: 0 },
+      });
+      if (!updated) {
+        return { ok: false, error: 'record not found' };
+      }
+      startPipeline(msg.key).catch((err) => {
+        console.error('PageToLLM Canvas retryRecord startPipeline failed:', err);
+      });
+      return { ok: true };
+    },
+  },
+
+  reprocessRecord: {
+    requiresExtensionPage: false,
+    validate(msg) {
+      return msg.key ? null : 'missing key';
+    },
+    async handle(msg) {
+      const rec = await readRecord(msg.key);
+      if (!rec) {
+        return { ok: false, error: 'record not found' };
+      }
+      await updateRecord(msg.key, {
+        status: 'pending',
+        error: null,
+        progress: { stage: 'queued', done: 0, total: 0 },
+        topics: [],
+        topic_summaries: {},
+        topic_summary_index: {},
+        sentences: [],
+        text: '',
+        processingLog: [],
+      });
+      startPipeline(msg.key).catch((err) => {
+        console.error('PageToLLM Canvas reprocessRecord startPipeline failed:', err);
+      });
+      return { ok: true };
+    },
+  },
+
+  getRecord: {
+    requiresExtensionPage: false,
+    validate: () => null,
+    async handle(msg) {
+      const rec = await readRecord(msg.key);
+      if (rec) return { ok: true, record: rec };
+      return { ok: false };
+    },
+  },
+
+  listRecords: {
+    requiresExtensionPage: false,
+    validate: () => null,
+    async handle() {
+      const items = await listRecords();
+      return { ok: true, items };
+    },
+  },
+
+  deleteRecord: {
+    requiresExtensionPage: false,
+    validate: () => null,
+    async handle(msg) {
+      await deleteRecord(msg.key);
+      return { ok: true };
+    },
+  },
+
+  deleteAll: {
+    requiresExtensionPage: false,
+    validate: () => null,
+    async handle() {
+      await deleteAll();
+      return { ok: true };
+    },
+  },
+
+  llmChatCompletion: {
+    requiresExtensionPage: false,
+    validate: () => null,
+    async handle(msg) {
+      const { prompt, temperature = 0.8, model } = msg;
+      if (!prompt) return { ok: false, error: 'missing prompt' };
+      return callLLMDirect({ prompt, temperature, model });
+    },
+  },
+
+  listProviders: {
+    requiresExtensionPage: true,
+    validate: () => null,
+    async handle() {
+      const state = await getProvidersState();
+      return { ok: true, ...sanitizeProvidersState(state) };
+    },
+  },
+
+  saveProvider: {
+    requiresExtensionPage: true,
+    validate: () => null,
+    async handle(msg) {
+      const provider = await saveProvider(msg.provider);
+      const state = await getProvidersState();
+      return { ok: true, provider: sanitizeProvider(provider), ...sanitizeProvidersState(state) };
+    },
+  },
+
+  deleteProvider: {
+    requiresExtensionPage: true,
+    validate(msg) {
+      return msg.id ? null : 'missing id';
+    },
+    async handle(msg) {
+      const state = await deleteProvider(msg.id);
+      return { ok: true, ...sanitizeProvidersState(state) };
+    },
+  },
+
+  setActiveProvider: {
+    requiresExtensionPage: true,
+    validate(msg) {
+      return msg.id ? null : 'missing id';
+    },
+    async handle(msg) {
+      const state = await setActiveProvider(msg.id);
+      return { ok: true, ...sanitizeProvidersState(state) };
+    },
+  },
+};
+
+/**
+ * Pure dispatch function. Owns: unknown-type handling, extension-page sender
+ * gating, per-handler validation, and try/catch wrapping. Always resolves.
+ *
+ * Precondition: msg is non-null and has a non-empty `type` field.
+ * (The `no type` short-circuit is the listener's responsibility so it can
+ * return `false` synchronously in that case.)
+ *
+ * @param {object} msg
+ * @param {object} sender
+ * @param {typeof MESSAGE_HANDLERS} [handlers]
+ * @returns {Promise<object>}
+ */
+export async function dispatchMessage(msg, sender, handlers = MESSAGE_HANDLERS) {
+  const entry = handlers[msg.type];
+  if (!entry) {
+    return { ok: false, error: 'unknown type: ' + msg.type };
+  }
+
+  if (entry.requiresExtensionPage && !isExtensionPageSender(sender)) {
+    return { ok: false, error: 'provider settings are only available to extension pages' };
+  }
+
+  const validationError = entry.validate(msg);
+  if (validationError) {
+    return { ok: false, error: validationError };
+  }
+
+  try {
+    return await entry.handle(msg, sender);
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -406,163 +599,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false;
   }
 
-  (async () => {
-    try {
-      switch (msg.type) {
-        case 'submit': {
-          const r = await handleSubmit(msg);
-          sendResponse(r);
-          return;
-        }
-        case 'ensurePipeline': {
-          const { key } = msg;
-          if (!key) {
-            sendResponse({ ok: false, error: 'missing key' });
-            return;
-          }
-          await startPipeline(key);
-          sendResponse({ ok: true });
-          return;
-        }
-        case 'retryRecord': {
-          const { key } = msg;
-          if (!key) {
-            sendResponse({ ok: false, error: 'missing key' });
-            return;
-          }
-          const updated = await updateRecord(key, {
-            status: 'pending',
-            error: null,
-            progress: { stage: 'queued', done: 0, total: 0 },
-          });
-          if (!updated) {
-            sendResponse({ ok: false, error: 'record not found' });
-            return;
-          }
-          startPipeline(key).catch((err) => {
-            console.error('PageToLLM Canvas retryRecord startPipeline failed:', err);
-          });
-          sendResponse({ ok: true });
-          return;
-        }
-        case 'reprocessRecord': {
-          const { key } = msg;
-          if (!key) {
-            sendResponse({ ok: false, error: 'missing key' });
-            return;
-          }
-          const rec = await readRecord(key);
-          if (!rec) {
-            sendResponse({ ok: false, error: 'record not found' });
-            return;
-          }
-          await updateRecord(key, {
-            status: 'pending',
-            error: null,
-            progress: { stage: 'queued', done: 0, total: 0 },
-            topics: [],
-            topic_summaries: {},
-            topic_summary_index: {},
-            sentences: [],
-            text: '',
-            processingLog: [],
-          });
-          startPipeline(key).catch((err) => {
-            console.error('PageToLLM Canvas reprocessRecord startPipeline failed:', err);
-          });
-          sendResponse({ ok: true });
-          return;
-        }
-        case 'getRecord': {
-          const rec = await readRecord(msg.key);
-          if (rec) sendResponse({ ok: true, record: rec });
-          else sendResponse({ ok: false });
-          return;
-        }
-        case 'listRecords': {
-          const items = await listRecords();
-          sendResponse({ ok: true, items });
-          return;
-        }
-        case 'deleteRecord': {
-          await deleteRecord(msg.key);
-          sendResponse({ ok: true });
-          return;
-        }
-        case 'deleteAll': {
-          await deleteAll();
-          sendResponse({ ok: true });
-          return;
-        }
-        case 'llmChatCompletion': {
-          const r = await handleLLMRequest(msg);
-          sendResponse(r);
-          return;
-        }
-        case 'listProviders': {
-          if (!isExtensionPageSender(sender)) {
-            sendResponse({
-              ok: false,
-              error: 'provider settings are only available to extension pages',
-            });
-            return;
-          }
-          const state = await getProvidersState();
-          sendSafeProviderState(sendResponse, state);
-          return;
-        }
-        case 'saveProvider': {
-          if (!isExtensionPageSender(sender)) {
-            sendResponse({
-              ok: false,
-              error: 'provider settings are only available to extension pages',
-            });
-            return;
-          }
-          const provider = await saveProvider(msg.provider);
-          const state = await getProvidersState();
-          sendSafeProviderState(sendResponse, state, { provider: sanitizeProvider(provider) });
-          return;
-        }
-        case 'deleteProvider': {
-          if (!isExtensionPageSender(sender)) {
-            sendResponse({
-              ok: false,
-              error: 'provider settings are only available to extension pages',
-            });
-            return;
-          }
-          if (!msg.id) {
-            sendResponse({ ok: false, error: 'missing id' });
-            return;
-          }
-          const state = await deleteProvider(msg.id);
-          sendSafeProviderState(sendResponse, state);
-          return;
-        }
-        case 'setActiveProvider': {
-          if (!isExtensionPageSender(sender)) {
-            sendResponse({
-              ok: false,
-              error: 'provider settings are only available to extension pages',
-            });
-            return;
-          }
-          if (!msg.id) {
-            sendResponse({ ok: false, error: 'missing id' });
-            return;
-          }
-          const state = await setActiveProvider(msg.id);
-          sendSafeProviderState(sendResponse, state);
-          return;
-        }
-        default:
-          sendResponse({ ok: false, error: 'unknown type: ' + msg.type });
-      }
-    } catch (e) {
-      sendResponse({ ok: false, error: (e && e.message) || String(e) });
-    }
-  })();
+  dispatchMessage(msg, sender).then(sendResponse);
 
   return true;
 });

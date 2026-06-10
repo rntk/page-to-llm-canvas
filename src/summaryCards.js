@@ -18,6 +18,27 @@ function summaryText(summary) {
 }
 
 /**
+ * Filters allSummaryCards to one card per topic branch at the current
+ * selected level. A card is kept when it is the deepest eligible card for its
+ * branch (no eligible card with a strictly-longer path that is a descendant).
+ * Cards are sorted by startSentence then path so they align with the rail.
+ *
+ * @param {Array} allSummaryCards - Full set of summary cards as returned by buildSummaryCards.
+ * @param {number} selectedLevel - The currently selected maximum level index (0-based).
+ * @returns {Array} Filtered and sorted summary cards.
+ */
+export function filterSummaryCardsByLevel(allSummaryCards, selectedLevel) {
+  const eligible = allSummaryCards.filter((card) => card.levelIndex <= selectedLevel);
+  const paths = new Set(eligible.map((c) => c.path));
+  return eligible
+    .filter(
+      (card) =>
+        !Array.from(paths).some((p) => p !== card.path && p.startsWith(card.path + ' > ')),
+    )
+    .sort((a, b) => a.startSentence - b.startSentence || a.path.localeCompare(b.path));
+}
+
+/**
  * Pure helper that turns record.topics + record.topic_summaries (legacy) or
  * record.topic_summary_index (preferred, hierarchical) into the
  * summaryViewCards[] array consumed by CanvasSummaryView.

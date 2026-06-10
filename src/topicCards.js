@@ -249,6 +249,70 @@ export function resolveColumnOverlaps(cards) {
 }
 
 /**
+ * Patches topic card positions from measured summary-card bounding rects,
+ * then re-runs overlap resolution so the no-overlap column invariant holds.
+ *
+ * For each topic card the function looks for matching summary metrics using
+ * path ancestor/descendant string matching — the same logic used in the
+ * App.jsx useMemo. The accumulated bounding box across all matching metrics
+ * (filtered by sentence-range overlap) becomes the card's new top/height.
+ * Cards without any matching metric are left at their original positions.
+ *
+ * @param {Array<{key: string, fullPath: string, startSentence: number, endSentence: number, top: number, height: number, levelIndex: number}>} cards
+ *   Topic cards as returned by buildTopicCards.
+ * @param {Array<{key: string, path: string, startSentence: number}>} allSummaryCards
+ *   All summary cards as returned by buildSummaryCards (used for sentence-range overlap check).
+ * @param {Map<string, {top: number, height: number}>} summaryMetrics
+ *   Map from summary card key to measured {top, height}.
+ * @returns {Array} New topic cards with patched positions and overlaps resolved.
+ */
+export function patchTopicCardsFromSummaryMetrics(cards, allSummaryCards, summaryMetrics) {
+  if (!(summaryMetrics instanceof Map) || summaryMetrics.size === 0) {
+    return resolveColumnOverlaps(cards);
+  }
+
+  const summaryCardMap = new Map(allSummaryCards.map((c) => [c.key, c]));
+
+  const patchedCards = cards.map((card) => {
+    // Exact key match takes priority.
+    const direct = summaryMetrics.get(card.key);
+    if (direct) {
+      return { ...card, top: direct.top, height: direct.height };
+    }
+
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (const [key, m] of summaryMetrics) {
+      const path = key.split('#')[0];
+      if (
+        path === card.fullPath ||
+        path.startsWith(card.fullPath + ' > ') ||
+        card.fullPath.startsWith(path + ' > ')
+      ) {
+        const summaryCard = summaryCardMap.get(key);
+        if (summaryCard) {
+          const start = summaryCard.startSentence;
+          const hasOverlap =
+            (start >= card.startSentence && start <= card.endSentence) ||
+            (card.startSentence === 0 && card.endSentence === 0);
+          if (!hasOverlap) {
+            continue;
+          }
+        }
+        if (m.top < top) top = m.top;
+        if (m.top + m.height > bottom) bottom = m.top + m.height;
+      }
+    }
+    if (Number.isFinite(top) && Number.isFinite(bottom)) {
+      return { ...card, top, height: Math.max(72, bottom - top) };
+    }
+    return card;
+  });
+
+  return resolveColumnOverlaps(patchedCards);
+}
+
+/**
  * Builds the positioned topic card objects for the rail view, showing all
  * hierarchy levels from 0 through selectedLevel in separate columns.
  *

@@ -236,3 +236,194 @@ describe('popup pure functions', () => {
     await expect(popup.tabMessage(1, { action: 'test' })).rejects.toThrow('closed');
   });
 });
+
+describe('handleMessageAction', () => {
+  let popup;
+
+  beforeAll(async () => {
+    popup = await import('./popup.js');
+  });
+
+  const makeAction = (overrides = {}) => ({
+    confirmMessage: 'Confirm?',
+    messageType: 'doSomething',
+    failureMessage: 'Action failed',
+    ...overrides,
+  });
+
+  it('does nothing when user cancels confirm', async () => {
+    const runtimeMessage = vi.fn();
+    const onSuccess = vi.fn();
+    const onError = vi.fn();
+    await popup.handleMessageAction(makeAction(), 'k1', {
+      confirm: () => false,
+      runtimeMessage,
+      onSuccess,
+      onError,
+    });
+    expect(runtimeMessage).not.toHaveBeenCalled();
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('calls onSuccess when response is ok', async () => {
+    const runtimeMessage = vi.fn().mockResolvedValue({ ok: true });
+    const onSuccess = vi.fn().mockResolvedValue(undefined);
+    const onError = vi.fn();
+    await popup.handleMessageAction(makeAction(), 'k1', {
+      confirm: () => true,
+      runtimeMessage,
+      onSuccess,
+      onError,
+    });
+    expect(runtimeMessage).toHaveBeenCalledWith({ type: 'doSomething', key: 'k1' });
+    expect(onSuccess).toHaveBeenCalledTimes(1);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('calls onError with derived message when response is not ok', async () => {
+    const runtimeMessage = vi.fn().mockResolvedValue({ ok: false, error: 'Server error' });
+    const onSuccess = vi.fn();
+    const onError = vi.fn();
+    await popup.handleMessageAction(makeAction({ failureMessage: 'Action failed' }), 'k1', {
+      confirm: () => true,
+      runtimeMessage,
+      onSuccess,
+      onError,
+    });
+    expect(onError).toHaveBeenCalledWith('Server error');
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it('calls onError with failureMessage when response has no error field', async () => {
+    const runtimeMessage = vi.fn().mockResolvedValue({ ok: false });
+    const onError = vi.fn();
+    await popup.handleMessageAction(makeAction({ failureMessage: 'Custom fallback' }), 'k2', {
+      confirm: () => true,
+      runtimeMessage,
+      onSuccess: vi.fn(),
+      onError,
+    });
+    expect(onError).toHaveBeenCalledWith('Custom fallback');
+  });
+
+  it('calls onError with null response using failureMessage', async () => {
+    const runtimeMessage = vi.fn().mockResolvedValue(null);
+    const onError = vi.fn();
+    await popup.handleMessageAction(makeAction({ failureMessage: 'Null fallback' }), 'k3', {
+      confirm: () => true,
+      runtimeMessage,
+      onSuccess: vi.fn(),
+      onError,
+    });
+    expect(onError).toHaveBeenCalledWith('Null fallback');
+  });
+
+  it('calls onError with err.message when runtimeMessage throws an Error', async () => {
+    const runtimeMessage = vi.fn().mockRejectedValue(new Error('network down'));
+    const onError = vi.fn();
+    await popup.handleMessageAction(makeAction(), 'k4', {
+      confirm: () => true,
+      runtimeMessage,
+      onSuccess: vi.fn(),
+      onError,
+    });
+    expect(onError).toHaveBeenCalledWith('network down');
+  });
+
+  it('calls onError with String(err) when thrown value has no message', async () => {
+    const runtimeMessage = vi.fn().mockRejectedValue('just a string error');
+    const onError = vi.fn();
+    await popup.handleMessageAction(makeAction(), 'k5', {
+      confirm: () => true,
+      runtimeMessage,
+      onSuccess: vi.fn(),
+      onError,
+    });
+    expect(onError).toHaveBeenCalledWith('just a string error');
+  });
+});
+
+describe('buildRecordDisplayData', () => {
+  let popup;
+
+  beforeAll(async () => {
+    popup = await import('./popup.js');
+  });
+
+  it('returns empty state for empty array', () => {
+    const result = popup.buildRecordDisplayData([]);
+    expect(result.count).toBe(0);
+    expect(result.isEmpty).toBe(true);
+    expect(result.records).toEqual([]);
+  });
+
+  it('returns correct count and isEmpty=false for non-empty array', () => {
+    const records = [
+      { key: 'a', sourceUrl: 'https://example.com/page', createdAt: 0, status: 'done' },
+    ];
+    const result = popup.buildRecordDisplayData(records);
+    expect(result.count).toBe(1);
+    expect(result.isEmpty).toBe(false);
+  });
+
+  it('shapes a done record correctly', () => {
+    const records = [
+      {
+        key: 'rec1',
+        sourceUrl: 'https://example.com/path',
+        createdAt: 0,
+        status: 'done',
+      },
+    ];
+    const result = popup.buildRecordDisplayData(records);
+    const r = result.records[0];
+    expect(r.key).toBe('rec1');
+    expect(r.label).toBe('/path');
+    expect(r.sourceUrl).toBe('https://example.com/path');
+    expect(r.status).toBe('done');
+    expect(r.badge).toBe('Done');
+    expect(Array.isArray(r.actions)).toBe(true);
+    expect(r.actions.length).toBeGreaterThan(0);
+  });
+
+  it('handles a record with missing sourceUrl', () => {
+    const records = [{ key: 'r2', createdAt: 0, status: 'pending' }];
+    const result = popup.buildRecordDisplayData(records);
+    const r = result.records[0];
+    expect(r.label).toBe('Unknown page');
+    expect(r.sourceUrl).toBe('');
+    expect(r.badge).toBe('Pending');
+  });
+
+  it('handles unknown status', () => {
+    const records = [{ key: 'r3', sourceUrl: 'https://x.com/', createdAt: 0, status: 'weird' }];
+    const result = popup.buildRecordDisplayData(records);
+    const r = result.records[0];
+    expect(r.status).toBe('weird');
+    expect(r.badge).toBe('weird');
+  });
+
+  it('handles non-array input gracefully', () => {
+    const result = popup.buildRecordDisplayData(null);
+    expect(result.count).toBe(0);
+    expect(result.isEmpty).toBe(true);
+    expect(result.records).toEqual([]);
+  });
+
+  it('includes all four view actions for done records', () => {
+    const records = [{ key: 'r4', sourceUrl: 'https://x.com/', createdAt: 0, status: 'done' }];
+    const result = popup.buildRecordDisplayData(records);
+    const viewActions = result.records[0].actions.filter((a) => a.kind === 'view');
+    expect(viewActions.map((a) => a.mode)).toEqual(['canvas', 'topics', 'summaries', 'hierarchy']);
+  });
+
+  it('includes only canvas view action for non-done records', () => {
+    const records = [
+      { key: 'r5', sourceUrl: 'https://x.com/', createdAt: 0, status: 'summarizing' },
+    ];
+    const result = popup.buildRecordDisplayData(records);
+    const viewActions = result.records[0].actions.filter((a) => a.kind === 'view');
+    expect(viewActions.map((a) => a.mode)).toEqual(['canvas']);
+  });
+});
