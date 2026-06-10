@@ -31,6 +31,34 @@ async function listRecords() {
   return (resp && resp.ok && resp.items) || [];
 }
 
+function buildRecordMetadata(record) {
+  if (!record || typeof record !== 'object') return {};
+  const { html: _html, text: _text, ...metadata } = record;
+  return metadata;
+}
+
+function safeFilenamePart(value) {
+  const cleaned = String(value || 'record')
+    .replace(/[^a-z0-9._-]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return cleaned || 'record';
+}
+
+function downloadJsonFile(filename, value) {
+  const blob = new Blob([JSON.stringify(value, null, 2) + '\n'], {
+    type: 'application/json',
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function statusClass(status) {
   return `status ${status || ''}`.trim();
 }
@@ -396,6 +424,16 @@ export function OptionsApp() {
       }
       alert('Open by re-picking the same blocks on the source page.');
     }
+
+    if (action === 'exportMetadata') {
+      const resp = await sendMessage({ type: 'getRecord', key });
+      if (!resp || !resp.ok || !resp.record) {
+        setError((resp && resp.error) || 'Failed to export record metadata');
+        return;
+      }
+      const metadata = buildRecordMetadata(resp.record);
+      downloadJsonFile(`pagetollm-metadata-${safeFilenamePart(key)}.json`, metadata);
+    }
   };
 
   return (
@@ -449,6 +487,9 @@ export function OptionsApp() {
                       </button>{' '}
                       <button type="button" onClick={() => runAction('reprocess', item.key)}>
                         Reprocess
+                      </button>{' '}
+                      <button type="button" onClick={() => runAction('exportMetadata', item.key)}>
+                        Export metadata
                       </button>{' '}
                       <button
                         className="danger"

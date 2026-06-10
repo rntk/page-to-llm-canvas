@@ -75,13 +75,104 @@ describe('options main.jsx', () => {
       expect.any(Function),
     );
 
-    const deleteBtn = rows[0].querySelectorAll('button')[2];
+    const deleteBtn = rows[0].querySelectorAll('button')[3];
     deleteBtn.click();
     expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('Delete this record'));
     expect(sendMessageMock).toHaveBeenCalledWith(
       { type: 'deleteRecord', key: 'rec1' },
       expect.any(Function),
     );
+  });
+
+  it('exports a stored record metadata JSON file without raw content fields', async () => {
+    const createObjectURLMock = vi.fn(() => 'blob:metadata-json');
+    const revokeObjectURLMock = vi.fn();
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: createObjectURLMock,
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: revokeObjectURLMock,
+    });
+    const clickMock = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    try {
+      const record = {
+        key: 'rec1',
+        sourceUrl: 'https://example.com/post',
+        html: '<p>raw html</p>',
+        text: 'raw text',
+        status: 'done',
+        selectors: ['main article'],
+        topics: [{ name: 'Topic', sentences: [1] }],
+        processingLog: [{ stage: 'pipeline_start' }],
+        createdAt: 1716972000000,
+      };
+
+      sendMessageMock.mockImplementation((msg, cb) => {
+        if (msg.type === 'listRecords') {
+          cb({
+            ok: true,
+            items: [
+              {
+                key: 'rec1',
+                sourceUrl: record.sourceUrl,
+                createdAt: record.createdAt,
+                status: record.status,
+              },
+            ],
+          });
+        } else if (msg.type === 'getRecord') {
+          cb({ ok: true, record });
+        } else if (msg.type === 'listProviders') {
+          cb({ ok: true, providers: [], activeId: null });
+        }
+      });
+
+      await import('./main.jsx');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const row = document.querySelector('tbody tr');
+      const exportBtn = Array.from(row.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Export metadata',
+      );
+      exportBtn.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(sendMessageMock).toHaveBeenCalledWith(
+        { type: 'getRecord', key: 'rec1' },
+        expect.any(Function),
+      );
+      expect(createObjectURLMock).toHaveBeenCalledWith(expect.any(Blob));
+      const blob = createObjectURLMock.mock.calls[0][0];
+      const exported = JSON.parse(await blob.text());
+      expect(exported).toEqual({
+        key: 'rec1',
+        sourceUrl: 'https://example.com/post',
+        status: 'done',
+        selectors: ['main article'],
+        topics: [{ name: 'Topic', sentences: [1] }],
+        processingLog: [{ stage: 'pipeline_start' }],
+        createdAt: 1716972000000,
+      });
+      expect(exported).not.toHaveProperty('html');
+      expect(exported).not.toHaveProperty('text');
+      expect(clickMock).toHaveBeenCalledTimes(1);
+      expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:metadata-json');
+    } finally {
+      clickMock.mockRestore();
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: originalCreateObjectURL,
+      });
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: originalRevokeObjectURL,
+      });
+    }
   });
 
   it('handles empty record list', async () => {
