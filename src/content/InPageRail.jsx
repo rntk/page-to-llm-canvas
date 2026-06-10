@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 
 const SUMMARY_CURSOR_VIEWPORT_RATIO = 0.38;
 const SUMMARY_CURSOR_MIN_TOP = 112;
+const RAIL_STICKY_OFFSET = 48;
 
 const RAIL_MODE_OPTIONS = new Set(['topics', 'summaries', 'hierarchy', 'canvas']);
 
@@ -46,11 +47,28 @@ function LevelSwitcher({ maxLevel, selectedLevel, onSelectLevel }) {
   );
 }
 
-function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen }) {
+function getNestedStickyTitleOffset(card, scrollOffset, isNestedScroll, isSummary) {
+  if (!isNestedScroll || isSummary) return 0;
+  const rawOffset = scrollOffset + RAIL_STICKY_OFFSET - card.box.top;
+  const maxOffset = Math.max(0, card.box.height - RAIL_STICKY_OFFSET);
+  return Math.min(Math.max(0, rawOffset), maxOffset);
+}
+
+function RailCard({
+  card,
+  isSummary,
+  isFront,
+  stickyTitleOffset,
+  onEnter,
+  onLeave,
+  onFocus,
+  onOpen,
+}) {
   const style = {
     top: `${card.box.top}px`,
     borderColor: card.accent,
     '--pagetollm-card-accent': card.accent,
+    '--pagetollm-card-title-offset': `${stickyTitleOffset}px`,
   };
   if (isSummary) {
     style.height = `${card.box.height}px`;
@@ -61,7 +79,11 @@ function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen 
   return (
     <button
       type="button"
-      className={['pagetollm-rail-card', isSummary ? 'is-summary' : '', isFront ? 'is-front' : '']
+      className={[
+        'pagetollm-rail-card',
+        isSummary ? 'is-summary' : 'is-topic',
+        isFront ? 'is-front' : '',
+      ]
         .filter(Boolean)
         .join(' ')}
       style={style}
@@ -333,6 +355,12 @@ export default function InPageRail({
               card={card}
               isSummary={isSummary}
               isFront={frontCardId === card.id}
+              stickyTitleOffset={getNestedStickyTitleOffset(
+                card,
+                scrollOffset,
+                isNestedScroll,
+                isSummary,
+              )}
               onEnter={handleCardEnter}
               onLeave={handleCardLeave}
               onFocus={bringForward}

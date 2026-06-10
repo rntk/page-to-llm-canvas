@@ -147,6 +147,27 @@ describe('InPageRail', () => {
     unmount();
   });
 
+  it('offsets topic titles for nested scroll containers', () => {
+    const mockScrollContainer = document.createElement('div');
+    Object.defineProperty(mockScrollContainer, 'scrollTop', { value: 120, configurable: true });
+
+    const { container, unmount } = render(
+      createElement(InPageRail, {
+        ...defaultProps,
+        scrollContainer: mockScrollContainer,
+      }),
+    );
+
+    const railBody = container.querySelector('.pagetollm-rail-body');
+    const firstCard = container.querySelector('.pagetollm-rail-card');
+
+    expect(railBody.style.transform).toBe('translateY(-120px)');
+    expect(firstCard.className).toContain('is-topic');
+    expect(firstCard.style.getPropertyValue('--pagetollm-card-title-offset')).toBe('68px');
+
+    unmount();
+  });
+
   it('handles SummaryCursorView logic in summaries mode', async () => {
     const onHighlightCard = vi.fn();
     const onScrollToCard = vi.fn();
