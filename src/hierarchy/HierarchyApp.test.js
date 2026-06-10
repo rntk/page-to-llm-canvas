@@ -89,6 +89,23 @@ describe('HierarchyApp', () => {
     unmount();
   });
 
+  it('closes the modal on Escape keypress', () => {
+    const mockRecord = {
+      status: 'done',
+      topics: [],
+    };
+    useRecord.mockReturnValue({ record: mockRecord, error: null });
+    const { unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
+
+    const event = new KeyboardEvent('keydown', { key: 'Escape' });
+    act(() => {
+      window.dispatchEvent(event);
+    });
+
+    expect(window.parent.postMessage).toHaveBeenCalledWith({ type: 'pagetollm-close' }, '*');
+    unmount();
+  });
+
   it('renders pipeline error state and triggers retry', () => {
     const sendMessageMock = vi.fn();
     vi.stubGlobal('chrome', {

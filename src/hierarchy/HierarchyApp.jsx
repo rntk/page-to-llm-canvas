@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useEffect } from 'react';
 import { useRecord } from '../useRecord.js';
 import TopicHierarchyView from './TopicHierarchyView.jsx';
 import { getSentencesForNode } from './hierarchyUtils.js';
@@ -9,6 +9,18 @@ import './hierarchy.css';
 
 export default function HierarchyApp({ initialKey }) {
   const { record, error } = useRecord(initialKey);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        closeModal();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   const handleRetry = useCallback(() => {
     if (!initialKey) return;
