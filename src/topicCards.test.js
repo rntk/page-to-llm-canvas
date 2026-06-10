@@ -202,6 +202,11 @@ describe('getTopicTitleFontSize', () => {
     expect(zoomedOut).toBeGreaterThan(normal);
   });
 
+  it('lets compact cards use spare vertical space for one larger readable line', () => {
+    const zoomedOut = getTopicTitleFontSize({ scale: 0.5, height: 56 });
+    expect(zoomedOut).toBeGreaterThan(18);
+  });
+
   it('uses default height when height is not finite', () => {
     const withHeight = getTopicTitleFontSize({ scale: 1, height: 72 });
     const withoutHeight = getTopicTitleFontSize({ scale: 1, height: NaN });
@@ -394,8 +399,22 @@ describe('resolveColumnOverlaps', () => {
 
   it('only resolves overlaps within the same column', () => {
     const cards = [
-      makeCard({ key: 'A#0#0', fullPath: 'A', levelIndex: 0, startSentence: 1, top: 0, height: 500 }),
-      makeCard({ key: 'A > B#1#0', fullPath: 'A > B', levelIndex: 1, startSentence: 1, top: 0, height: 200 }),
+      makeCard({
+        key: 'A#0#0',
+        fullPath: 'A',
+        levelIndex: 0,
+        startSentence: 1,
+        top: 0,
+        height: 500,
+      }),
+      makeCard({
+        key: 'A > B#1#0',
+        fullPath: 'A > B',
+        levelIndex: 1,
+        startSentence: 1,
+        top: 0,
+        height: 200,
+      }),
     ];
     const resolved = resolveColumnOverlaps(cards);
     expect(resolved[0]).toMatchObject({ top: 0, height: 500 });

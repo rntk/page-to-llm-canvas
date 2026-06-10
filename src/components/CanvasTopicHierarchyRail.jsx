@@ -9,7 +9,11 @@ const DENSE_CARD_HEIGHT_REDUCTION = 16;
 const DENSE_CARD_MAX_NUDGE = 18;
 const CARD_TITLE_LINE_HEIGHT = 1.2;
 const CARD_TITLE_MAX_LINES = 2;
-const CARD_VERTICAL_CHROME_PX = 31;
+const CARD_COMPACT_TITLE_MAX_LINES = 1;
+const CARD_COMPACT_HEIGHT_THRESHOLD = 88;
+const CARD_VERTICAL_PADDING_PX = 16;
+const CARD_META_LINE_HEIGHT_PX = 12;
+const CARD_CONTENT_GAP_PX = 3;
 const BASE_TOPIC_TITLE_FONT_SIZE = 12;
 const SUMMARY_KICKER_FONT_SIZE = 10;
 const SUMMARY_TITLE_FONT_SIZE = 16;
@@ -32,11 +36,27 @@ function getCompactCardHeight(card, isCrowded) {
   return Math.max(DENSE_CARD_MIN_HEIGHT, height - DENSE_CARD_HEIGHT_REDUCTION);
 }
 
+function getTitleLineBudget(height) {
+  return height < CARD_COMPACT_HEIGHT_THRESHOLD
+    ? CARD_COMPACT_TITLE_MAX_LINES
+    : CARD_TITLE_MAX_LINES;
+}
+
 function getAdjustedTitleFontSize(card, height) {
   const fontSize = getFiniteNumber(card.titleFontSize, 12);
-  const availableTitleHeight = Math.max(1, height - CARD_VERTICAL_CHROME_PX);
-  const heightCapped = availableTitleHeight / (CARD_TITLE_LINE_HEIGHT * CARD_TITLE_MAX_LINES);
+  const titleLines = getTitleLineBudget(height);
+  const availableTitleHeight = Math.max(
+    1,
+    height - CARD_VERTICAL_PADDING_PX - CARD_META_LINE_HEIGHT_PX - CARD_CONTENT_GAP_PX,
+  );
+  const heightCapped = availableTitleHeight / (CARD_TITLE_LINE_HEIGHT * titleLines);
   return Math.max(1, Math.min(fontSize, heightCapped));
+}
+
+function getCardLabelHeight(card) {
+  const titleLines = getTitleLineBudget(card.height);
+  const titleHeight = card.titleFontSize * CARD_TITLE_LINE_HEIGHT * titleLines;
+  return Math.ceil(titleHeight + CARD_CONTENT_GAP_PX + CARD_META_LINE_HEIGHT_PX);
 }
 
 function nudgeCrowdedPair(topCard, bottomCard) {
@@ -320,6 +340,9 @@ function CanvasTopicHierarchyRail({
                   card.levelIndex === 0
                     ? 'canvas-topic-hierarchy__card--root'
                     : 'canvas-topic-hierarchy__card--child',
+                  getTitleLineBudget(card.height) === CARD_COMPACT_TITLE_MAX_LINES
+                    ? 'is-compact'
+                    : '',
                   isActive ? 'is-active' : '',
                   isSelected ? 'is-selected' : '',
                   isRead ? 'is-read' : '',
@@ -337,6 +360,8 @@ function CanvasTopicHierarchyRail({
                       '--topic-card-top': `${card.top}px`,
                       '--topic-card-height': `${card.height}px`,
                       '--topic-card-title-font-size': `${card.titleFontSize}px`,
+                      '--topic-card-title-line-clamp': getTitleLineBudget(card.height),
+                      '--topic-card-label-height': `${getCardLabelHeight(card)}px`,
                       '--topic-card-right': `${card.right}px`,
                       '--topic-accent-color': getHierarchyTopicAccentColor(
                         card.fullPath,

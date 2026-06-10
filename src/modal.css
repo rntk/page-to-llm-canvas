@@ -689,6 +689,11 @@ body.canvas-global-dragging * {
   box-sizing: border-box;
 }
 
+.canvas-topic-hierarchy__card.is-compact {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
 .canvas-topic-hierarchy__card:hover,
 .canvas-topic-hierarchy__card.is-active,
 .canvas-topic-hierarchy__card.is-selected {
@@ -720,7 +725,7 @@ body.canvas-global-dragging * {
   flex-direction: column;
   gap: 3px;
 
-  --_lh: 50px;
+  --_lh: var(--topic-card-label-height, 50px);
   --_p: 6px;
   --_vis-top: max(
     0px,
@@ -754,7 +759,7 @@ body.canvas-global-dragging * {
   line-height: 1.2;
   line-clamp: 2;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: var(--topic-card-title-line-clamp, 2);
 }
 
 .canvas-topic-hierarchy__card-meta {

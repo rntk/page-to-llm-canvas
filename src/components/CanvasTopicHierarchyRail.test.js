@@ -254,6 +254,28 @@ describe('CanvasTopicHierarchyRail', () => {
     unmount();
   });
 
+  it('renders compact cards with one larger title line and matching label height', () => {
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        topicCards: [
+          {
+            ...defaultProps.topicCards[0],
+            height: 56,
+            titleFontSize: 20,
+          },
+        ],
+      }),
+    );
+
+    const button = container.querySelector('.canvas-topic-hierarchy__card');
+    expect(button.className).toContain('is-compact');
+    expect(button.style.getPropertyValue('--topic-card-title-line-clamp')).toBe('1');
+    expect(button.style.getPropertyValue('--topic-card-label-height')).toBe('39px');
+    expect(button.style.getPropertyValue('--topic-card-title-font-size')).toBe('20px');
+    unmount();
+  });
+
   it('omits the current-topic summary card when none is provided', () => {
     const { container, unmount } = render(
       createElement(CanvasTopicHierarchyRail, {

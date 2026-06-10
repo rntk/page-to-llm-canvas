@@ -20,7 +20,11 @@ const CARD_MIN_CLAMPED_HEIGHT = 56;
 const CARD_TITLE_FONT_SIZE = 12;
 const CARD_TITLE_LINE_HEIGHT = 1.2;
 const CARD_TITLE_MAX_LINES = 2;
-const CARD_VERTICAL_CHROME_PX = 31;
+const CARD_COMPACT_TITLE_MAX_LINES = 1;
+const CARD_COMPACT_HEIGHT_THRESHOLD = 88;
+const CARD_VERTICAL_PADDING_PX = 16;
+const CARD_META_LINE_HEIGHT_PX = 12;
+const CARD_CONTENT_GAP_PX = 3;
 
 /**
  * Per-card title font size that grows on zoom-out (1/scale, capped at 1) and
@@ -44,13 +48,21 @@ export function getZoomAdjustedSummaryCardWidth(scale) {
   return Math.min(SUMMARY_CARD_MAX_WIDTH, SUMMARY_CARD_WIDTH * Math.max(1, 1 / clampScale(scale)));
 }
 
+function getTitleLineBudget(height) {
+  return height < CARD_COMPACT_HEIGHT_THRESHOLD
+    ? CARD_COMPACT_TITLE_MAX_LINES
+    : CARD_TITLE_MAX_LINES;
+}
+
 export function getTopicTitleFontSize({ scale, height }) {
   const zoomAdjusted = CARD_TITLE_FONT_SIZE * Math.max(1, 1 / clampScale(scale));
+  const safeHeight = Number.isFinite(height) ? height : CARD_HEIGHT;
+  const titleLines = getTitleLineBudget(safeHeight);
   const availableTitleHeight = Math.max(
     1,
-    (Number.isFinite(height) ? height : CARD_HEIGHT) - CARD_VERTICAL_CHROME_PX,
+    safeHeight - CARD_VERTICAL_PADDING_PX - CARD_META_LINE_HEIGHT_PX - CARD_CONTENT_GAP_PX,
   );
-  const heightCapped = availableTitleHeight / (CARD_TITLE_LINE_HEIGHT * CARD_TITLE_MAX_LINES);
+  const heightCapped = availableTitleHeight / (CARD_TITLE_LINE_HEIGHT * titleLines);
   return Math.max(1, Math.min(zoomAdjusted, heightCapped));
 }
 
@@ -209,9 +221,7 @@ export function resolveColumnOverlaps(cards) {
   for (const levelCards of cardsByLevel.values()) {
     const ordered = [...levelCards].sort(
       (a, b) =>
-        a.startSentence - b.startSentence ||
-        a.top - b.top ||
-        a.fullPath.localeCompare(b.fullPath),
+        a.startSentence - b.startSentence || a.top - b.top || a.fullPath.localeCompare(b.fullPath),
     );
 
     let prevBottom = -Infinity;
