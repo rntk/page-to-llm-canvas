@@ -29,6 +29,7 @@ vi.mock('./sentence_splitter.js', () => ({
 
 vi.mock('./llm.js', () => ({
   callLLMWithRetry: vi.fn(),
+  createLimiter: vi.fn(() => (fn) => fn()),
   parallelMap: vi.fn(async (items, limit, fn) => {
     const results = [];
     for (let i = 0; i < items.length; i++) {

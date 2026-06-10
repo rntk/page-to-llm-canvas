@@ -14,10 +14,15 @@ import {
   formatChunkSummariesForMerge,
 } from './prompts.js';
 import { parseTopicRanges, groupsFromSegments, TopicParseError } from './topic_parser.js';
-import { callLLMWithRetry, parallelMap } from './llm.js';
+import { callLLMWithRetry, createLimiter, parallelMap } from './llm.js';
 
 const MAX_TAGGED_CHARS = 60000;
 const SUMMARY_CONCURRENCY = 4;
+const TOPIC_RANGE_CONCURRENCY = 4;
+// The topic-ranges and resplit calls demand a strict line format; a low
+// temperature cuts malformed output (and the expensive parse-retry loop it
+// triggers). Summaries and merges are prose and keep their own temperature.
+const TOPIC_RANGE_TEMPERATURE = 0.2;
 const TOPIC_RANGE_MAX_RETRIES = 3;
 const TOPIC_RANGE_RETRY_BASE_DELAY_MS = 2000;
 // A single topic range covering more than this many sentences is considered
@@ -201,20 +206,22 @@ async function resplitSegment(key, seg, sentenceTexts, depth) {
     chunkCount: chunks.length,
   });
 
-  const responses = [];
-  for (const chunk of chunks) {
-    const prompt = buildTopicRangesPrompt(chunk);
-    try {
-      responses.push(await callLLMWithRetry({ prompt, temperature: 0.8 }));
-    } catch (e) {
-      await logPipeline(key, 'topic_ranges_resplit_error', {
-        start: seg.start,
-        end: seg.end,
-        depth,
-        error: (e && e.message) || String(e),
-      });
-      return null;
-    }
+  let responses;
+  try {
+    responses = await parallelMap(chunks, TOPIC_RANGE_CONCURRENCY, (chunk) =>
+      callLLMWithRetry({
+        prompt: buildTopicRangesPrompt(chunk),
+        temperature: TOPIC_RANGE_TEMPERATURE,
+      }),
+    );
+  } catch (e) {
+    await logPipeline(key, 'topic_ranges_resplit_error', {
+      start: seg.start,
+      end: seg.end,
+      depth,
+      error: (e && e.message) || String(e),
+    });
+    return null;
   }
 
   let subGroups;
@@ -261,18 +268,14 @@ async function resplitSegment(key, seg, sentenceTexts, depth) {
 
   // Recurse into any sub-segment that is still oversized, up to the depth bound.
   if (depth + 1 < TOPIC_RANGE_RESPLIT_MAX_DEPTH) {
-    const expanded = [];
-    for (const s of subSegments) {
+    const expanded = await parallelMap(subSegments, TOPIC_RANGE_CONCURRENCY, async (s) => {
       if (s.end - s.start + 1 > TOPIC_RANGE_MAX_SENTENCES) {
         const deeper = await resplitSegment(key, s, sentenceTexts, depth + 1);
-        if (deeper) {
-          expanded.push(...deeper);
-          continue;
-        }
+        if (deeper) return deeper;
       }
-      expanded.push(s);
-    }
-    subSegments = expanded;
+      return [s];
+    });
+    subSegments = expanded.flat();
   }
 
   return subSegments;
@@ -309,18 +312,18 @@ async function refineOversizedRanges(key, groups, sentenceTexts) {
   });
 
   let changed = false;
-  const refined = [];
-  for (const seg of segments) {
+  // Re-split oversized segments concurrently; parallelMap keeps document order.
+  const refinedParts = await parallelMap(segments, TOPIC_RANGE_CONCURRENCY, async (seg) => {
     if (seg.end - seg.start + 1 > TOPIC_RANGE_MAX_SENTENCES) {
       const subSegments = await resplitSegment(key, seg, sentenceTexts, 0);
       if (subSegments && subSegments.length > 1) {
-        refined.push(...subSegments);
         changed = true;
-        continue;
+        return subSegments;
       }
     }
-    refined.push(seg);
-  }
+    return [seg];
+  });
+  const refined = refinedParts.flat();
 
   if (!changed) return groups;
 
@@ -454,22 +457,27 @@ async function computeTopics(key, rec) {
 
   let groups;
   for (let topicAttempt = 0; topicAttempt <= TOPIC_RANGE_MAX_RETRIES; topicAttempt++) {
-    const responses = [];
-    for (const [chunkIndex, chunk] of chunks.entries()) {
-      const prompt = buildTopicRangesPrompt(chunk);
-      await logPipeline(key, 'topic_ranges_llm_request', {
-        chunkIndex,
-        promptLength: prompt.length,
-        attempt: topicAttempt + 1,
-      });
-      const resp = await callLLMWithRetry({ prompt, temperature: 0.8 });
-      await logPipeline(key, 'topic_ranges_llm_response', {
-        chunkIndex,
-        responseLength: resp.length,
-        attempt: topicAttempt + 1,
-      });
-      responses.push(resp);
-    }
+    // Chunks are independent (markers are global, assigned before chunking),
+    // so query them concurrently; parallelMap preserves response order.
+    const responses = await parallelMap(
+      chunks,
+      TOPIC_RANGE_CONCURRENCY,
+      async (chunk, chunkIndex) => {
+        const prompt = buildTopicRangesPrompt(chunk);
+        await logPipeline(key, 'topic_ranges_llm_request', {
+          chunkIndex,
+          promptLength: prompt.length,
+          attempt: topicAttempt + 1,
+        });
+        const resp = await callLLMWithRetry({ prompt, temperature: TOPIC_RANGE_TEMPERATURE });
+        await logPipeline(key, 'topic_ranges_llm_response', {
+          chunkIndex,
+          responseLength: resp.length,
+          attempt: topicAttempt + 1,
+        });
+        return resp;
+      },
+    );
     const combined = responses.join('\n');
     try {
       groups = parseTopicRanges(combined, sentenceTexts.length);
@@ -620,8 +628,16 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries) {
     }
   }
 
+  // Sibling subtrees are traversed concurrently, so a wide hierarchy could
+  // otherwise fire every merge LLM call at once and trip provider rate limits
+  // (merge failures degrade to empty summaries, see catch below). The limiter
+  // bounds the in-flight merge calls while leaving the traversal unbounded.
+  const limitMerge = createLimiter(SUMMARY_CONCURRENCY);
+
   async function summarizeNode(node) {
-    for (const child of node.children) await summarizeNode(child);
+    // Sibling subtrees are independent; merge them concurrently. Each level
+    // still waits on its children, so merges stay bottom-up.
+    await Promise.all(node.children.map((child) => summarizeNode(child)));
     if (node.children.length === 0) {
       node.summary = node.leafSummary || { text: '' };
       return;
@@ -639,7 +655,7 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries) {
       };
     });
     try {
-      node.summary = await mergeChildSummaries(records);
+      node.summary = await limitMerge(() => mergeChildSummaries(records));
     } catch (e) {
       await logPipeline(key, 'topic_tree_merge_error', {
         path: node.path,

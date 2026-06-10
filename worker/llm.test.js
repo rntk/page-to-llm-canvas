@@ -396,6 +396,60 @@ describe('parallelMap', () => {
   });
 });
 
+describe('createLimiter', () => {
+  it('never runs more tasks than the limit concurrently', async () => {
+    const { createLimiter } = await getLLM();
+    const limit = createLimiter(2);
+    let active = 0;
+    let maxActive = 0;
+    const task = async (x) => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((r) => setTimeout(r, 10));
+      active--;
+      return x * 2;
+    };
+
+    const res = await Promise.all([1, 2, 3, 4, 5].map((x) => limit(() => task(x))));
+    expect(res).toEqual([2, 4, 6, 8, 10]);
+    expect(maxActive).toBe(2);
+  });
+
+  it('propagates rejections and keeps admitting queued tasks', async () => {
+    const { createLimiter } = await getLLM();
+    const limit = createLimiter(1);
+    const order = [];
+
+    const failing = limit(async () => {
+      order.push('fail');
+      throw new Error('boom');
+    });
+    const succeeding = limit(async () => {
+      order.push('ok');
+      return 42;
+    });
+
+    await expect(failing).rejects.toThrow('boom');
+    await expect(succeeding).resolves.toBe(42);
+    expect(order).toEqual(['fail', 'ok']);
+  });
+
+  it('runs queued tasks in FIFO order under a limit of 1', async () => {
+    const { createLimiter } = await getLLM();
+    const limit = createLimiter(1);
+    const order = [];
+    await Promise.all(
+      [1, 2, 3].map((x) =>
+        limit(async () => {
+          order.push(x);
+          await new Promise((r) => setTimeout(r, 5));
+        }),
+      ),
+    );
+    expect(order).toEqual([1, 2, 3]);
+  });
+});
+
 describe('exports', () => {
   it('exports a positive LLM_REQUEST_TIMEOUT_MS number', async () => {
     const { LLM_REQUEST_TIMEOUT_MS } = await getLLM();

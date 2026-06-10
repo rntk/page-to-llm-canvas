@@ -143,6 +143,41 @@ export async function callLLMWithRetry(opts, maxRetries = 3) {
  *   it would inside the burst.
  * @returns {Promise<U[]>}
  */
+/**
+ * Returns a function that runs async tasks with at most `limit` in flight.
+ * Tasks beyond the limit queue in FIFO order. Unlike parallelMap this gates
+ * individually submitted tasks, so it suits recursive traversals where the
+ * full task list is not known up front.
+ *
+ * @param {number} limit
+ * @returns {<T>(fn: () => Promise<T>) => Promise<T>}
+ */
+export function createLimiter(limit) {
+  let active = 0;
+  const queue = [];
+  function tryNext() {
+    if (active >= limit) return;
+    const next = queue.shift();
+    if (!next) return;
+    active++;
+    next();
+  }
+  return function run(fn) {
+    return new Promise((resolve, reject) => {
+      queue.push(() => {
+        Promise.resolve()
+          .then(fn)
+          .then(resolve, reject)
+          .finally(() => {
+            active--;
+            tryNext();
+          });
+      });
+      tryNext();
+    });
+  };
+}
+
 export async function parallelMap(items, limit, fn, { warmupFirst = false } = {}) {
   const results = new Array(items.length);
   let next = 0;
