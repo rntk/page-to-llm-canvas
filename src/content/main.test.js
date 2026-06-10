@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest';
 import { act } from 'react';
 
 let messageListener = null;
@@ -26,7 +26,7 @@ beforeAll(() => {
         }),
       },
       sendMessage: vi.fn(),
-      getURL: vi.fn((p) => 'http://mock/' + p),
+      getURL: vi.fn((p) => 'about:blank#' + p),
     },
   });
 
@@ -49,6 +49,11 @@ afterAll(() => {
 describe('content script main.jsx', () => {
   beforeAll(async () => {
     await import('./main.jsx');
+  });
+
+  afterEach(() => {
+    document.getElementById('pagetollm-canvas-iframe')?.remove();
+    document.getElementById('pagetollm-in-page-rail')?.remove();
   });
 
   it('registers chrome runtime onMessage listener and window message listener', () => {
@@ -93,7 +98,10 @@ describe('content script main.jsx', () => {
     expect(iframe.src).toContain('test-key');
   });
 
-  it('handles postMessage close events', () => {
+  it('handles postMessage close events', async () => {
+    messageListener({ action: 'openRecordView', key: 'test-key', mode: 'canvas' }, {}, vi.fn());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
     expect(document.getElementById('pagetollm-canvas-iframe')).not.toBeNull();
 
     postMessageListener({ data: { type: 'pagetollm-close' } });

@@ -1,6 +1,23 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+async function waitFor(assertion, timeout = 1000) {
+  const start = Date.now();
+  let lastError;
+
+  while (Date.now() - start < timeout) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  throw lastError;
+}
+
 describe('options main.jsx', () => {
   let sendMessageMock;
   let confirmMock;
@@ -51,12 +68,10 @@ describe('options main.jsx', () => {
 
     await import('./main.jsx');
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    expect(sendMessageMock).toHaveBeenCalledWith({ type: 'listRecords' }, expect.any(Function));
-
-    const table = document.querySelector('table');
-    expect(table).not.toBeNull();
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledWith({ type: 'listRecords' }, expect.any(Function));
+      expect(document.querySelector('table')).not.toBeNull();
+    });
 
     const rows = document.querySelectorAll('tbody tr');
     expect(rows).toHaveLength(1);
@@ -133,7 +148,9 @@ describe('options main.jsx', () => {
       });
 
       await import('./main.jsx');
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await waitFor(() => {
+        expect(document.querySelector('tbody tr')).not.toBeNull();
+      });
 
       const row = document.querySelector('tbody tr');
       const exportBtn = Array.from(row.querySelectorAll('button')).find(
