@@ -83,6 +83,7 @@ export function ProvidersSection() {
   const requiresUrl = !!def?.requiresUrl;
   const serviceTiers = SERVICE_TIER_DEFINITIONS[form.type] || [];
   const isEditing = !!form.id;
+  const editingProvider = isEditing ? providers.find((p) => p.id === form.id) : null;
 
   const onTypeChange = (type) => {
     const nextDef = getProviderDefinition(type);
@@ -102,6 +103,19 @@ export function ProvidersSection() {
   const submit = async (e) => {
     e.preventDefault();
     setError('');
+    const tokenWillBeWiped =
+      editingProvider?.type === 'openai_comp' &&
+      editingProvider.hasToken &&
+      !form.token.trim() &&
+      (editingProvider.url || '') !== form.url.trim();
+    if (
+      tokenWillBeWiped &&
+      !confirm(
+        'Changing this OpenAI-compatible base URL will wipe the stored token for the previous URL. Save anyway?',
+      )
+    ) {
+      return;
+    }
     const resp = await sendMessage({ type: 'saveProvider', provider: { ...form } });
     if (!resp || !resp.ok) {
       setError((resp && resp.error) || 'Failed to save provider');
@@ -251,7 +265,7 @@ export function ProvidersSection() {
             aria-describedby="provider-token-note"
             autoComplete="off"
           />
-          {isEditing && providers.find((p) => p.id === form.id)?.hasToken ? (
+          {editingProvider?.hasToken ? (
             <div id="provider-token-note" className="note">
               Leave blank to keep the stored token.
             </div>

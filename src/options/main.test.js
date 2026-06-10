@@ -203,6 +203,113 @@ describe('options main.jsx', () => {
     );
   });
 
+  it('warns and wipes the stored token when an openai_comp URL changes with a blank token', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') cb({ ok: true, items: [] });
+      else if (msg.type === 'listProviders') {
+        cb({
+          ok: true,
+          providers: [
+            {
+              id: 'p1',
+              name: 'Local',
+              type: 'openai_comp',
+              model: 'm',
+              url: 'http://h',
+              hasToken: true,
+            },
+          ],
+          activeId: 'p1',
+        });
+      } else if (msg.type === 'saveProvider') cb({ ok: true, provider: msg.provider });
+    });
+
+    await import('./main.jsx');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const setValue = (id, value) => {
+      const el = document.getElementById(id);
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(el, value);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    const editBtn = Array.from(document.querySelectorAll('button')).find(
+      (b) => b.textContent === 'Edit',
+    );
+    editBtn.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    setValue('provider-url', 'http://h2');
+    sendMessageMock.mockClear();
+
+    document
+      .querySelector('.provider-form')
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('wipe the stored token'));
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'saveProvider',
+        provider: expect.objectContaining({
+          id: 'p1',
+          url: 'http://h2',
+          token: '',
+        }),
+      }),
+      expect.any(Function),
+    );
+  });
+
+  it('does not save an openai_comp URL change when token wipe is canceled', async () => {
+    confirmMock.mockReturnValueOnce(false);
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') cb({ ok: true, items: [] });
+      else if (msg.type === 'listProviders') {
+        cb({
+          ok: true,
+          providers: [
+            {
+              id: 'p1',
+              name: 'Local',
+              type: 'openai_comp',
+              model: 'm',
+              url: 'http://h',
+              hasToken: true,
+            },
+          ],
+          activeId: 'p1',
+        });
+      } else if (msg.type === 'saveProvider') cb({ ok: true, provider: msg.provider });
+    });
+
+    await import('./main.jsx');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const editBtn = Array.from(document.querySelectorAll('button')).find(
+      (b) => b.textContent === 'Edit',
+    );
+    editBtn.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const urlEl = document.getElementById('provider-url');
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(urlEl, 'http://h2');
+    urlEl.dispatchEvent(new Event('input', { bubbles: true }));
+    urlEl.dispatchEvent(new Event('change', { bubbles: true }));
+    sendMessageMock.mockClear();
+
+    document
+      .querySelector('.provider-form')
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('wipe the stored token'));
+    expect(sendMessageMock.mock.calls.some(([msg]) => msg.type === 'saveProvider')).toBe(false);
+  });
+
   it('activates and deletes providers', async () => {
     sendMessageMock.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') cb({ ok: true, items: [] });

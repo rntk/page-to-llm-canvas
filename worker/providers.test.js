@@ -192,6 +192,26 @@ describe('provider storage', () => {
     expect(updated.token).toBe('');
   });
 
+  it('does not carry an openai_comp token when the base URL changes', async () => {
+    const mod = await freshProviders();
+    const a = await mod.saveProvider({
+      type: 'openai_comp',
+      name: 'Local',
+      model: 'm',
+      token: 'k1',
+      url: 'http://localhost:8989',
+    });
+    await mod.saveProvider({
+      id: a.id,
+      type: 'openai_comp',
+      name: 'Local',
+      model: 'm',
+      url: 'http://localhost:8990',
+    });
+    const updated = (await mod.getProvidersState()).providers[0];
+    expect(updated.token).toBe('');
+  });
+
   it('setActiveProvider switches the active id and rejects unknown ids', async () => {
     const mod = await freshProviders();
     const a = await mod.saveProvider({ type: 'openai', name: 'A', model: 'm' });

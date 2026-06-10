@@ -253,7 +253,9 @@ export async function saveProvider(input) {
     state.providers.push(entry);
   } else {
     const existing = state.providers[existingIndex];
-    if (!entry.token && existing.type === entry.type) {
+    const openAiCompatibleUrlChanged =
+      entry.type === ProviderType.OPENAI_COMP && (existing.url || '') !== (entry.url || '');
+    if (!entry.token && existing.type === entry.type && !openAiCompatibleUrlChanged) {
       entry.token = existing.token || '';
     }
     state.providers[existingIndex] = entry;
