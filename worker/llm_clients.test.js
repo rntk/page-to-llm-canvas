@@ -319,9 +319,7 @@ describe('createClient dispatch', () => {
       serviceTier: 'default',
     });
     await standardClient.complete({ prompt: 'p' });
-    expect(JSON.parse(vi.mocked(fetch).mock.calls[1][1].body).service_tier).toBe(
-      'standard_only',
-    );
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[1][1].body).service_tier).toBe('standard_only');
   });
 
   it('anthropic client marks stable prompt prefixes as explicit cache breakpoints', async () => {

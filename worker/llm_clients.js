@@ -108,7 +108,8 @@ function logCacheUsage(provider, data) {
     totalCacheLookupTokens = (llamaCacheTokens ?? 0) + (llamaPromptEvalTokens ?? 0);
   } else if (openAiCachedTokens !== undefined) {
     cacheHitTokens = openAiCachedTokens;
-    cacheMissTokens = promptTokens !== undefined ? Math.max(promptTokens - openAiCachedTokens, 0) : undefined;
+    cacheMissTokens =
+      promptTokens !== undefined ? Math.max(promptTokens - openAiCachedTokens, 0) : undefined;
     totalCacheLookupTokens = promptTokens;
   }
 

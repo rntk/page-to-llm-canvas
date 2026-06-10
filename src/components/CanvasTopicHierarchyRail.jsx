@@ -229,12 +229,7 @@ function CanvasTopicHierarchyRail({
     const el = summaryRef.current;
     if (!el) return;
     el.style.setProperty('--current-summary-height', `${el.offsetHeight}px`);
-  }, [
-    currentTopicSummary,
-    summaryFontSizes.kicker,
-    summaryFontSizes.title,
-    summaryFontSizes.text,
-  ]);
+  }, [currentTopicSummary, summaryFontSizes.kicker, summaryFontSizes.title, summaryFontSizes.text]);
 
   React.useEffect(() => {
     if (!show || !onCancelTopicSelection || (!selectedTopicKey && !hasCurrentTopicSummary)) {
