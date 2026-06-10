@@ -143,6 +143,33 @@ export function mapTextOffsetToHtml(mapping, textOffset) {
   return mapping[textOffset];
 }
 
+export function groupsToTopics(groups, sentenceObjs, mapping) {
+  return groups.map((g) => {
+    const name = g.label.join('>');
+    const oneBased = rangesToSentenceList(g.ranges);
+    const sentence_spans = oneBased.map((oneIdx) => {
+      const idx = oneIdx - 1;
+      const so = sentenceObjs[idx];
+      return {
+        sentence: oneIdx,
+        start: mapTextOffsetToHtml(mapping, so.start),
+        end: mapTextOffsetToHtml(mapping, so.end),
+      };
+    });
+    const ranges = g.ranges.map((r) => {
+      const sIdx = r.start;
+      const eIdx = r.end;
+      return {
+        sentence_start: sIdx + 1,
+        sentence_end: eIdx + 1,
+        start: mapTextOffsetToHtml(mapping, sentenceObjs[sIdx].start),
+        end: mapTextOffsetToHtml(mapping, sentenceObjs[eIdx].end),
+      };
+    });
+    return { name, sentences: oneBased, sentence_spans, ranges };
+  });
+}
+
 /**
  * Re-query the LLM to subdivide a single oversized sentence range. The slice is
  * re-tagged with local 0-based markers, partitioned by the same topic-ranges
@@ -472,30 +499,7 @@ async function computeTopics(key, rec) {
     groupCount: groups.length,
   });
 
-  const topics = groups.map((g) => {
-    const name = g.label.join('>');
-    const oneBased = rangesToSentenceList(g.ranges);
-    const sentence_spans = oneBased.map((oneIdx) => {
-      const idx = oneIdx - 1;
-      const so = sentenceObjs[idx];
-      return {
-        sentence: oneIdx,
-        start: mapTextOffsetToHtml(mapping, so.start),
-        end: mapTextOffsetToHtml(mapping, so.end),
-      };
-    });
-    const ranges = g.ranges.map((r) => {
-      const sIdx = r.start;
-      const eIdx = r.end;
-      return {
-        sentence_start: sIdx + 1,
-        sentence_end: eIdx + 1,
-        start: mapTextOffsetToHtml(mapping, sentenceObjs[sIdx].start),
-        end: mapTextOffsetToHtml(mapping, sentenceObjs[eIdx].end),
-      };
-    });
-    return { name, sentences: oneBased, sentence_spans, ranges };
-  });
+  const topics = groupsToTopics(groups, sentenceObjs, mapping);
 
   await updateRecord(key, {
     topics,

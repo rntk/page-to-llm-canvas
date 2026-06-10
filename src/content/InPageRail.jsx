@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { computeSummaryCursorState } from './summaryCursor.js';
 
-const SUMMARY_CURSOR_VIEWPORT_RATIO = 0.38;
 const SUMMARY_CURSOR_MIN_TOP = 112;
 const RAIL_STICKY_OFFSET = 48;
 
@@ -124,14 +124,6 @@ function getScrollContainerViewportTop(scrollContainer) {
   return scrollContainer.getBoundingClientRect().top;
 }
 
-function getCursorRelativeY(scrollContainer, body, cursorTop) {
-  const bodyTop = body.getBoundingClientRect().top;
-  if (!scrollContainer || scrollContainer === window) {
-    return cursorTop - bodyTop;
-  }
-  return scrollContainer.scrollTop + cursorTop - bodyTop;
-}
-
 function SummaryCursorView({
   cards,
   bodyRef,
@@ -164,20 +156,17 @@ function SummaryCursorView({
       return;
     }
 
-    const containerTop = getScrollContainerViewportTop(scrollContainer);
-    const containerHeight = getScrollContainerViewportHeight(scrollContainer);
-    const nextCursorTop = Math.max(
-      SUMMARY_CURSOR_MIN_TOP,
-      Math.round(containerTop + containerHeight * SUMMARY_CURSOR_VIEWPORT_RATIO),
-    );
+    const nextState = computeSummaryCursorState({
+      cards: currentCards,
+      bodyTop: body.getBoundingClientRect().top,
+      containerTop: getScrollContainerViewportTop(scrollContainer),
+      containerHeight: getScrollContainerViewportHeight(scrollContainer),
+      scrollTop: getScrollContainerTop(scrollContainer),
+      isWindowScroll: !scrollContainer || scrollContainer === window,
+    });
+    const nextCursorTop = nextState.cursorTop;
     setCursorTop(nextCursorTop);
-
-    const relativeY = getCursorRelativeY(scrollContainer, body, nextCursorTop);
-    const matching = currentCards
-      .filter((card) => relativeY >= card.box.top && relativeY <= card.box.top + card.box.height)
-      .sort((a, b) => a.box.height - b.box.height || a.box.top - b.box.top);
-
-    setActiveCardId(matching[0]?.id || null);
+    setActiveCardId(nextState.activeCardId);
   }, [bodyRef, scrollContainer]);
 
   useEffect(() => {

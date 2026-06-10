@@ -122,6 +122,74 @@ describe('popup pure functions', () => {
     );
   });
 
+  it('providerReadinessState enables picking when provider state is active', () => {
+    expect(
+      popup.providerReadinessState({ ok: true, providers: [{ id: 'p1' }], activeId: 'p1' }),
+    ).toEqual({
+      ready: true,
+      disabled: false,
+      error: '',
+    });
+  });
+
+  it('providerReadinessState reports backend and thrown provider errors', () => {
+    expect(popup.providerReadinessState({ ok: false, error: 'Provider load failed' })).toEqual({
+      ready: false,
+      disabled: true,
+      error: 'Provider load failed. Open Options and check your LLM provider configuration.',
+    });
+    expect(popup.providerReadinessState(null, new Error('Storage unavailable'))).toEqual({
+      ready: false,
+      disabled: true,
+      error: 'Storage unavailable. Open Options and check your LLM provider configuration.',
+    });
+  });
+
+  it('getRecordActions returns all view actions only for done records', () => {
+    expect(popup.getRecordActions({ status: 'done' }).map((action) => action.label)).toEqual([
+      'Canvas',
+      'Topics',
+      'Summaries',
+      'Hierarchy',
+      'Reprocess',
+      'Delete',
+    ]);
+    expect(popup.getRecordActions({ status: 'summarizing' }).map((action) => action.label)).toEqual(
+      ['Canvas', 'Reprocess', 'Delete'],
+    );
+  });
+
+  it('getRecordActions keeps stable modes and message types', () => {
+    expect(popup.getRecordActions({ status: 'done' })).toEqual([
+      expect.objectContaining({ kind: 'view', label: 'Canvas', mode: 'canvas' }),
+      expect.objectContaining({ kind: 'view', label: 'Topics', mode: 'topics' }),
+      expect.objectContaining({ kind: 'view', label: 'Summaries', mode: 'summaries' }),
+      expect.objectContaining({ kind: 'view', label: 'Hierarchy', mode: 'hierarchy' }),
+      expect.objectContaining({
+        kind: 'message',
+        label: 'Reprocess',
+        messageType: 'reprocessRecord',
+      }),
+      expect.objectContaining({ kind: 'message', label: 'Delete', messageType: 'deleteRecord' }),
+    ]);
+  });
+
+  it('filterRecordsForActivePage matches hash-normalized source URLs', () => {
+    const records = [
+      { key: 'a', sourceUrl: 'https://example.com/page#one' },
+      { key: 'b', sourceUrl: 'https://example.com/other' },
+      { key: 'c', sourceUrl: 'not-a-url#hash' },
+    ];
+    expect(
+      popup.filterRecordsForActivePage(records, 'https://example.com/page').map((r) => r.key),
+    ).toEqual(['a']);
+    expect(popup.filterRecordsForActivePage(records, '').map((r) => r.key)).toEqual([
+      'a',
+      'b',
+      'c',
+    ]);
+  });
+
   it('getActiveTab returns first active tab', async () => {
     chrome.tabs.query.mockResolvedValue([{ id: 1, url: 'https://example.com' }]);
     const tab = await popup.getActiveTab();

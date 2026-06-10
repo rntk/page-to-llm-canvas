@@ -7,6 +7,11 @@ import { guardTrustedUserEvent } from './eventSecurity.js';
 import { splitError, retryRecord } from '../utils/errorUtils.js';
 import { resolveColumnOverlaps } from '../topicCards.js';
 import {
+  moveSelectedEntry,
+  removeSelectedEntry,
+  selectedBlocksForToolbar,
+} from './selectionState.js';
+import {
   HIGHLIGHT_NAME,
   supportsHighlightApi,
   collectWordEntries,
@@ -327,10 +332,7 @@ function selectElement(event) {
 
 function renderSelectionToolbar() {
   if (!selectionToolbarRoot) return;
-  const selectedBlocks = selectedElements.map((entry) => ({
-    id: entry.originalNumber,
-    originalNumber: entry.originalNumber,
-  }));
+  const selectedBlocks = selectedBlocksForToolbar(selectedElements);
 
   selectionToolbarRoot.render(
     <SelectionToolbar
@@ -357,10 +359,7 @@ function removeBlock(event, index) {
   if (entry) {
     entry.el.classList.remove('pagetollm-selected');
   }
-  selectedElements.splice(index, 1);
-  selectedElements.forEach((item, idx) => {
-    item.originalNumber = idx + 1;
-  });
+  selectedElements = removeSelectedEntry(selectedElements, index);
   pickCounter = selectedElements.length;
   renderSelectionToolbar();
   updateSubmitState();
@@ -393,13 +392,8 @@ function onDrop(event, index) {
   const destIndex = Number.isInteger(index) ? index : parseInt(event.currentTarget.dataset.index);
   if (dragSrcIndex === null || dragSrcIndex === destIndex) return;
 
-  const moved = selectedElements.splice(dragSrcIndex, 1)[0];
-  selectedElements.splice(destIndex, 0, moved);
+  selectedElements = moveSelectedEntry(selectedElements, dragSrcIndex, destIndex);
   dragOverIndex = null;
-
-  selectedElements.forEach((item, idx) => {
-    item.originalNumber = idx + 1;
-  });
 
   renderSelectionToolbar();
   updateSubmitState();

@@ -3,6 +3,7 @@ import {
   runPipeline,
   chunkTaggedText,
   buildTopicTree,
+  groupsToTopics,
   rangesToSentenceList,
   mapTextOffsetToHtml,
   parseSummaryResponse,
@@ -169,6 +170,63 @@ describe('buildTopicTree', () => {
     const { root, nodes } = buildTopicTree([]);
     expect(root.path).toBe('');
     expect(nodes.get('')).toBe(root);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// groupsToTopics
+// ---------------------------------------------------------------------------
+
+describe('groupsToTopics', () => {
+  it('converts parsed groups into stored topic records with HTML offsets', () => {
+    const sentenceObjs = [
+      { text: 'AB.', start: 0, end: 3 },
+      { text: 'CD.', start: 4, end: 7 },
+      { text: 'EF.', start: 8, end: 11 },
+    ];
+    const mapping = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110];
+    const topics = groupsToTopics(
+      [{ label: ['Tech', 'AI'], ranges: [{ start: 0, end: 1 }] }],
+      sentenceObjs,
+      mapping,
+    );
+
+    expect(topics).toEqual([
+      {
+        name: 'Tech>AI',
+        sentences: [1, 2],
+        sentence_spans: [
+          { sentence: 1, start: 0, end: 30 },
+          { sentence: 2, start: 40, end: 70 },
+        ],
+        ranges: [{ sentence_start: 1, sentence_end: 2, start: 0, end: 70 }],
+      },
+    ]);
+  });
+
+  it('deduplicates overlapping sentence ranges while preserving range records', () => {
+    const sentenceObjs = [
+      { text: 'A.', start: 0, end: 2 },
+      { text: 'B.', start: 3, end: 5 },
+      { text: 'C.', start: 6, end: 8 },
+    ];
+    const topics = groupsToTopics(
+      [
+        {
+          label: ['Overlap'],
+          ranges: [
+            { start: 0, end: 1 },
+            { start: 1, end: 2 },
+          ],
+        },
+      ],
+      sentenceObjs,
+      makeMapping('A. B. C.'),
+    );
+
+    expect(topics[0].sentences).toEqual([1, 2, 3]);
+    expect(topics[0].sentence_spans.map((span) => span.sentence)).toEqual([1, 2, 3]);
+    expect(topics[0].ranges).toHaveLength(2);
   });
 });
 

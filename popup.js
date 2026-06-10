@@ -110,6 +110,61 @@ export function providerConfigurationMessage(state) {
   return '';
 }
 
+export function providerReadinessState(response, error) {
+  if (error) {
+    return {
+      ready: false,
+      disabled: true,
+      error: `${error.message || 'Unable to load LLM provider settings'}. Open Options and check your LLM provider configuration.`,
+    };
+  }
+  if (!response || !response.ok) {
+    return {
+      ready: false,
+      disabled: true,
+      error: `${responseErrorMessage(response, 'Unable to load LLM provider settings')}. Open Options and check your LLM provider configuration.`,
+    };
+  }
+  const message = providerConfigurationMessage(response);
+  return { ready: !message, disabled: Boolean(message), error: message };
+}
+
+export function getRecordActions(record) {
+  const viewActions = [{ label: 'Canvas', mode: 'canvas' }];
+  if (record && record.status === 'done') {
+    viewActions.push(
+      { label: 'Topics', mode: 'topics' },
+      { label: 'Summaries', mode: 'summaries' },
+      { label: 'Hierarchy', mode: 'hierarchy' },
+    );
+  }
+  return [
+    ...viewActions.map((action) => ({ kind: 'view', ...action })),
+    {
+      kind: 'message',
+      label: 'Reprocess',
+      className: 'warning',
+      messageType: 'reprocessRecord',
+      confirmMessage: 'Reprocess this analysis? Existing results will be overwritten.',
+      failureMessage: 'Reprocess failed',
+    },
+    {
+      kind: 'message',
+      label: 'Delete',
+      className: 'danger',
+      messageType: 'deleteRecord',
+      confirmMessage: 'Delete this record?',
+      failureMessage: 'Delete failed',
+    },
+  ];
+}
+
+export function filterRecordsForActivePage(records, activePageUrl) {
+  const items = Array.isArray(records) ? records : [];
+  if (!activePageUrl) return items;
+  return items.filter((record) => normalizePageUrl(record && record.sourceUrl) === activePageUrl);
+}
+
 function responseErrorMessage(response, fallback) {
   return (response && response.error) || fallback;
 }
@@ -150,6 +205,27 @@ function makeAction(label, key, mode) {
   return button;
 }
 
+function makeMessageAction(action, key) {
+  const button = document.createElement('button');
+  button.className = ['action', action.className].filter(Boolean).join(' ');
+  button.type = 'button';
+  button.textContent = action.label;
+  button.addEventListener('click', async () => {
+    if (!confirm(action.confirmMessage)) return;
+    try {
+      const response = await runtimeMessage({ type: action.messageType, key });
+      if (!response || !response.ok) {
+        setError(responseErrorMessage(response, action.failureMessage));
+        return;
+      }
+      await refreshRecords();
+    } catch (err) {
+      setError(err.message || String(err));
+    }
+  });
+  return button;
+}
+
 function renderRecords(records) {
   recordsEl.replaceChildren();
   countEl.textContent = records.length ? String(records.length) : '';
@@ -180,50 +256,13 @@ function renderRecords(records) {
 
     const actions = document.createElement('div');
     actions.className = 'actions';
-    actions.appendChild(makeAction('Canvas', record.key, 'canvas'));
-    if (record.status === 'done') {
-      actions.appendChild(makeAction('Topics', record.key, 'topics'));
-      actions.appendChild(makeAction('Summaries', record.key, 'summaries'));
-      actions.appendChild(makeAction('Hierarchy', record.key, 'hierarchy'));
-    }
-
-    const reprocessBtn = document.createElement('button');
-    reprocessBtn.className = 'action warning';
-    reprocessBtn.type = 'button';
-    reprocessBtn.textContent = 'Reprocess';
-    reprocessBtn.addEventListener('click', async () => {
-      if (!confirm('Reprocess this analysis? Existing results will be overwritten.')) return;
-      try {
-        const response = await runtimeMessage({ type: 'reprocessRecord', key: record.key });
-        if (!response || !response.ok) {
-          setError(responseErrorMessage(response, 'Reprocess failed'));
-          return;
-        }
-        await refreshRecords();
-      } catch (err) {
-        setError(err.message || String(err));
-      }
+    getRecordActions(record).forEach((action) => {
+      actions.appendChild(
+        action.kind === 'view'
+          ? makeAction(action.label, record.key, action.mode)
+          : makeMessageAction(action, record.key),
+      );
     });
-    actions.appendChild(reprocessBtn);
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'action danger';
-    deleteBtn.type = 'button';
-    deleteBtn.textContent = 'Delete';
-    deleteBtn.addEventListener('click', async () => {
-      if (!confirm('Delete this record?')) return;
-      try {
-        const response = await runtimeMessage({ type: 'deleteRecord', key: record.key });
-        if (!response || !response.ok) {
-          setError(responseErrorMessage(response, 'Delete failed'));
-          return;
-        }
-        await refreshRecords();
-      } catch (err) {
-        setError(err.message || String(err));
-      }
-    });
-    actions.appendChild(deleteBtn);
 
     item.appendChild(copy);
     item.appendChild(badge);
@@ -235,24 +274,15 @@ function renderRecords(records) {
 async function refreshProviderReadiness() {
   try {
     const response = await runtimeMessage({ type: 'listProviders' });
-    if (!response || !response.ok) {
-      providerReady = false;
-      pickBtn.disabled = true;
-      setError(
-        `${responseErrorMessage(response, 'Unable to load LLM provider settings')}. Open Options and check your LLM provider configuration.`,
-      );
-      return;
-    }
-    const message = providerConfigurationMessage(response);
-    providerReady = !message;
-    pickBtn.disabled = !providerReady;
-    setError(message);
+    const state = providerReadinessState(response);
+    providerReady = state.ready;
+    pickBtn.disabled = state.disabled;
+    setError(state.error);
   } catch (err) {
-    providerReady = false;
-    pickBtn.disabled = true;
-    setError(
-      `${err.message || 'Unable to load LLM provider settings'}. Open Options and check your LLM provider configuration.`,
-    );
+    const state = providerReadinessState(null, err);
+    providerReady = state.ready;
+    pickBtn.disabled = state.disabled;
+    setError(state.error);
   }
 }
 
@@ -272,9 +302,7 @@ async function refreshRecords() {
       setError(responseErrorMessage(response, 'Unable to load saved analyses'));
       return;
     }
-    const matching = activePageUrl
-      ? response.items.filter((record) => normalizePageUrl(record.sourceUrl) === activePageUrl)
-      : response.items;
+    const matching = filterRecordsForActivePage(response.items, activePageUrl);
     renderRecords(matching);
     await refreshProviderReadiness();
   } catch (err) {
