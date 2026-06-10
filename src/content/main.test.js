@@ -5,6 +5,18 @@ import { act } from 'react';
 let messageListener = null;
 let postMessageListener = null;
 
+function toolbarRoot() {
+  return window.__pagetollmTestSelectionToolbarRoot;
+}
+
+function toolbarQuery(selector) {
+  return toolbarRoot()?.querySelector(selector) ?? null;
+}
+
+function toolbarQueryAll(selector) {
+  return toolbarRoot()?.querySelectorAll(selector) ?? [];
+}
+
 beforeAll(() => {
   vi.stubGlobal('chrome', {
     runtime: {
@@ -45,13 +57,17 @@ describe('content script main.jsx', () => {
     expect(postMessageListener).not.toBeNull();
   });
 
-  it('handles startSelection message', () => {
+  it('handles startSelection message', async () => {
     const sendResponse = vi.fn();
-    messageListener({ action: 'startSelection' }, {}, sendResponse);
+    await act(async () => {
+      messageListener({ action: 'startSelection' }, {}, sendResponse);
+    });
     expect(sendResponse).toHaveBeenCalledWith({ status: 'ready' });
 
     const toolbar = document.getElementById('pagetollm-selection-toolbar');
     expect(toolbar).not.toBeNull();
+    expect(toolbar.shadowRoot).toBeNull();
+    expect(toolbarQuery('#pagetollm-pick-btn')).not.toBeNull();
   });
 
   it('handles openRecordView with missing key', async () => {
@@ -91,7 +107,7 @@ describe('content script main.jsx', () => {
       messageListener({ action: 'startSelection' }, {}, sendResponse);
     });
 
-    const pickBtn = document.getElementById('pagetollm-pick-btn');
+    const pickBtn = toolbarQuery('#pagetollm-pick-btn');
     expect(pickBtn).not.toBeNull();
 
     // Enable picking and select dummy 1
@@ -106,7 +122,7 @@ describe('content script main.jsx', () => {
       dummy1.click();
     });
 
-    let listItems = document.querySelectorAll('.pagetollm-block-item');
+    let listItems = toolbarQueryAll('.pagetollm-block-item');
     expect(listItems).toHaveLength(1);
     expect(listItems[0].textContent).toContain('Block 1');
 
@@ -116,7 +132,7 @@ describe('content script main.jsx', () => {
       removeBtn.click();
     });
 
-    listItems = document.querySelectorAll('.pagetollm-block-item');
+    listItems = toolbarQueryAll('.pagetollm-block-item');
     expect(listItems).toHaveLength(0);
 
     // Enable picking again and select dummy 2
@@ -131,14 +147,14 @@ describe('content script main.jsx', () => {
       dummy2.click();
     });
 
-    listItems = document.querySelectorAll('.pagetollm-block-item');
+    listItems = toolbarQueryAll('.pagetollm-block-item');
     expect(listItems).toHaveLength(1);
     expect(listItems[0].textContent).toContain('Block 1');
 
     // Clean up
     dummy1.remove();
     dummy2.remove();
-    const cancelBtn = document.getElementById('pagetollm-cancel-btn');
+    const cancelBtn = toolbarQuery('#pagetollm-cancel-btn');
     if (cancelBtn) {
       await act(async () => {
         cancelBtn.click();
@@ -154,7 +170,7 @@ describe('content script main.jsx', () => {
       messageListener({ action: 'startSelection' }, {}, sendResponse);
     });
 
-    const pickBtn = document.getElementById('pagetollm-pick-btn');
+    const pickBtn = toolbarQuery('#pagetollm-pick-btn');
     await act(async () => {
       pickBtn.click();
     });
@@ -168,7 +184,7 @@ describe('content script main.jsx', () => {
       block.click();
     });
 
-    const submitBtn = document.getElementById('pagetollm-submit-btn');
+    const submitBtn = toolbarQuery('#pagetollm-submit-btn');
     await act(async () => {
       submitBtn.click();
       await Promise.resolve();

@@ -98,7 +98,7 @@ describe('SelectionToolbar', () => {
     // Remove button click
     const removeBtn = listItems[0].querySelector('.pagetollm-remove-btn');
     act(() => removeBtn.click());
-    expect(onRemoveBlock).toHaveBeenCalledWith(0);
+    expect(onRemoveBlock).toHaveBeenCalledWith(expect.any(Object), 0);
 
     unmount();
   });

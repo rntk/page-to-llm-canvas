@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import SelectionToolbar from './SelectionToolbar.jsx';
 import InPageRail from './InPageRail.jsx';
+import { guardTrustedUserEvent } from './eventSecurity.js';
 import { splitError, retryRecord } from '../utils/errorUtils.js';
 import {
   HIGHLIGHT_NAME,
@@ -14,6 +15,7 @@ import {
 
 let selectionToolbar = null;
 let selectionToolbarRoot = null;
+let selectionToolbarShadowRoot = null;
 let selectionMode = false;
 let selectedElements = [];
 let pickCounter = 0;
@@ -28,6 +30,133 @@ const IN_PAGE_RAIL_WIDTHS = Object.freeze({
   summaries: 340,
 });
 const IN_PAGE_RAIL_RESERVE_GAP = 16;
+const TOOLBAR_SHADOW_STYLES = `
+  #pagetollm-toolbar-top {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  button {
+    padding: 6px 12px;
+    border: 1px solid var(--ink);
+    border-radius: 0;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition:
+      background 0.15s ease,
+      color 0.15s ease,
+      opacity 0.15s ease;
+    white-space: nowrap;
+  }
+
+  #pagetollm-pick-btn {
+    background: var(--surface);
+    color: var(--ink);
+  }
+
+  #pagetollm-pick-btn.active {
+    background: var(--ink);
+    color: var(--surface);
+  }
+
+  #pagetollm-submit-btn {
+    background: var(--ink);
+    color: var(--surface);
+  }
+
+  #pagetollm-submit-btn:disabled {
+    background: var(--surface);
+    color: var(--on-surface-muted);
+    border-color: var(--ghost);
+    cursor: not-allowed;
+  }
+
+  #pagetollm-cancel-btn {
+    background: var(--surface);
+    color: var(--accent);
+    border-color: var(--accent);
+    margin-left: auto;
+  }
+
+  #pagetollm-cancel-btn:hover:not(:disabled) {
+    background: var(--accent);
+    color: var(--surface);
+  }
+
+  button:hover:not(:disabled, .active, #pagetollm-cancel-btn) {
+    background: var(--ink);
+    color: var(--surface);
+  }
+
+  #pagetollm-block-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  #pagetollm-block-list:empty {
+    display: none;
+  }
+
+  .pagetollm-block-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface-low);
+    border-radius: 0;
+    padding: 5px 8px;
+    cursor: default;
+    user-select: none;
+    border: 1px solid var(--ghost);
+    transition: border-color 0.1s ease;
+  }
+
+  .pagetollm-block-item.pagetollm-drag-over {
+    border-color: var(--ink);
+  }
+
+  .pagetollm-block-item.pagetollm-dragging {
+    opacity: 0.4;
+  }
+
+  .pagetollm-drag-handle {
+    cursor: grab;
+    color: var(--on-surface-muted);
+    font-size: 17px;
+    flex-shrink: 0;
+  }
+
+  .pagetollm-drag-handle:active {
+    cursor: grabbing;
+  }
+
+  .pagetollm-block-label {
+    font-size: 14px;
+    font-weight: 600;
+    flex: 1;
+  }
+
+  .pagetollm-remove-btn {
+    background: transparent !important;
+    color: var(--on-surface-muted) !important;
+    padding: 0 4px !important;
+    font-size: 14px !important;
+    font-weight: 400 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    line-height: 1;
+  }
+
+  .pagetollm-remove-btn:hover:not(:disabled) {
+    color: var(--accent) !important;
+    background: transparent !important;
+  }
+`;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'startSelection') {
@@ -117,12 +246,22 @@ function showSelectionToolbar() {
 
   selectionToolbar = document.createElement('div');
   selectionToolbar.id = 'pagetollm-selection-toolbar';
+  selectionToolbarShadowRoot = selectionToolbar.attachShadow({ mode: 'closed' });
+  const style = document.createElement('style');
+  style.textContent = TOOLBAR_SHADOW_STYLES;
+  selectionToolbarShadowRoot.appendChild(style);
+  const toolbarMount = document.createElement('div');
+  selectionToolbarShadowRoot.appendChild(toolbarMount);
   document.body.appendChild(selectionToolbar);
-  selectionToolbarRoot = createRoot(selectionToolbar);
+  selectionToolbarRoot = createRoot(toolbarMount);
+  if (import.meta.env.MODE === 'test') {
+    window.__pagetollmTestSelectionToolbarRoot = selectionToolbarShadowRoot;
+  }
   renderSelectionToolbar();
 }
 
-function toggleSelectionMode() {
+function toggleSelectionMode(event) {
+  if (!guardTrustedUserEvent(event)) return;
   selectionMode = !selectionMode;
   if (selectionMode) {
     enableSelection();
@@ -168,6 +307,7 @@ function unhighlightElement(event) {
 function selectElement(event) {
   if (!selectionMode) return;
   if (event.target.closest('#pagetollm-selection-toolbar')) return;
+  if (!guardTrustedUserEvent(event)) return;
 
   event.preventDefault();
   event.stopPropagation();
@@ -210,7 +350,8 @@ function renderSelectionToolbar() {
   );
 }
 
-function removeBlock(index) {
+function removeBlock(event, index) {
+  if (!guardTrustedUserEvent(event)) return;
   const entry = selectedElements[index];
   if (entry) {
     entry.el.classList.remove('pagetollm-selected');
@@ -225,15 +366,17 @@ function removeBlock(index) {
 }
 
 function onDragStart(event, index) {
+  if (!guardTrustedUserEvent(event)) return;
   dragSrcIndex = Number.isInteger(index) ? index : parseInt(event.currentTarget.dataset.index);
   event.currentTarget.classList.add('pagetollm-dragging');
-  event.dataTransfer.effectAllowed = 'move';
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
   renderSelectionToolbar();
 }
 
 function onDragOver(event, index) {
+  if (!guardTrustedUserEvent(event)) return;
   event.preventDefault();
-  event.dataTransfer.dropEffect = 'move';
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
   const nextDragOverIndex = Number.isInteger(index)
     ? index
     : parseInt(event.currentTarget.dataset.index);
@@ -244,6 +387,7 @@ function onDragOver(event, index) {
 }
 
 function onDrop(event, index) {
+  if (!guardTrustedUserEvent(event)) return;
   event.preventDefault();
   const destIndex = Number.isInteger(index) ? index : parseInt(event.currentTarget.dataset.index);
   if (dragSrcIndex === null || dragSrcIndex === destIndex) return;
@@ -260,7 +404,8 @@ function onDrop(event, index) {
   updateSubmitState();
 }
 
-function onDragEnd() {
+function onDragEnd(event) {
+  if (!guardTrustedUserEvent(event)) return;
   dragSrcIndex = null;
   dragOverIndex = null;
   renderSelectionToolbar();
@@ -287,6 +432,7 @@ function updateSubmitState() {
 }
 
 async function submitSelection(event) {
+  if (!guardTrustedUserEvent(event)) return;
   if (event) {
     event.preventDefault();
     event.stopPropagation();
@@ -359,12 +505,17 @@ function removeCanvasIframe() {
   if (existing) existing.remove();
 }
 
-function cleanupSelection() {
+function cleanupSelection(event) {
+  if (!guardTrustedUserEvent(event)) return;
   if (selectionToolbar) {
     selectionToolbarRoot && selectionToolbarRoot.unmount();
     selectionToolbarRoot = null;
     selectionToolbar.remove();
     selectionToolbar = null;
+    selectionToolbarShadowRoot = null;
+    if (import.meta.env.MODE === 'test') {
+      window.__pagetollmTestSelectionToolbarRoot = null;
+    }
   }
 
   selectedElements.forEach(({ el }) => el.classList.remove('pagetollm-selected'));

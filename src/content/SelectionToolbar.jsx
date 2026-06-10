@@ -75,7 +75,7 @@ export default function SelectionToolbar({
                 type="button"
                 title="Remove block"
                 disabled={isSubmitting}
-                onClick={() => onRemoveBlock(index)}
+                onClick={(event) => onRemoveBlock(event, index)}
               >
                 &#10005;
               </button>
