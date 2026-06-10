@@ -203,6 +203,7 @@ window.addEventListener('message', (event) => {
   }
 });
 
+
 // ── CSS selector path ─────────────────────────────────────────────────────
 
 function buildCssPath(el) {

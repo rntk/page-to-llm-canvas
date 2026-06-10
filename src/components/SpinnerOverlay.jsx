@@ -100,6 +100,11 @@ export default function SpinnerOverlay({
       <div className="pagetollm-spinner-box">
         <div className="pagetollm-spinner" />
         <div className="pagetollm-spinner-stage">{stage || 'Processing...'}</div>
+        <div className="pagetollm-spinner-actions">
+          <button className="pagetollm-spinner-close-btn" onClick={closeModal}>
+            Close
+          </button>
+        </div>
       </div>
     </div>
   );

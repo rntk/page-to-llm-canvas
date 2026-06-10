@@ -484,22 +484,26 @@ export default function App({ initialKey }) {
     }
   }, [showSummaryMode, zoomToTarget, refreshSentenceRanges]);
 
-  // ── Focus ────────────────────────────────────────────────────────────────
+  // ── Focus & Keyboard Shortcuts ──────────────────────────────────────────
   // The modal runs inside an iframe. Keyboard listeners on the iframe's
   // window only fire when the iframe itself has focus, so pull focus in as
   // soon as the canvas mounts and whenever the user clicks inside it.
   useEffect(() => {
-    if (!isDone) return;
     try {
       window.focus();
     } catch (_) {
       /* noop */
     }
+  }, []);
+
+  useEffect(() => {
+    if (!isDone) return;
     const wrap = canvasWrapElRef.current;
     if (wrap && typeof wrap.focus === 'function') {
       wrap.focus({ preventScroll: true });
     }
   }, [isDone, canvasWrapElRef]);
+
 
   // ── Pipeline lifecycle ───────────────────────────────────────────────────
   // The modal does NOT start the pipeline. It only asks the background to

@@ -25,6 +25,8 @@ describe('SpinnerOverlay', () => {
     expect(container.querySelector('.pagetollm-spinner')).not.toBeNull();
     expect(container.querySelector('.pagetollm-spinner-stage').textContent).toBe('Summarizing');
     expect(container.querySelector('[role="status"]')).not.toBeNull();
+    expect(container.querySelector('.pagetollm-spinner-close-btn')).not.toBeNull();
+    expect(container.querySelector('.pagetollm-spinner-close-btn').textContent).toBe('Close');
     unmount();
   });
 
