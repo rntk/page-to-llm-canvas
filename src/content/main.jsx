@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import SelectionToolbar from './SelectionToolbar.jsx';
 import InPageRail from './InPageRail.jsx';
+import { splitError, retryRecord } from '../utils/errorUtils.js';
 import {
   HIGHLIGHT_NAME,
   supportsHighlightApi,
@@ -612,20 +613,50 @@ async function openInPageRail(rec, initialMode, options = {}) {
     // A newer rail request has started loading, abort this one!
     return;
   }
-  if (!record || record.status !== 'done') {
-    alert('PageToLLM: record is not ready yet.');
+  if (!record) {
+    alert('PageToLLM: Analysis record not found.');
+    return;
+  }
+  if (record.status === 'error') {
+    const { message } = splitError(record.error || 'Unknown error occurred during processing.');
+    const retry = confirm(
+      `PageToLLM: Processing failed.\n\nError: ${message}\n\nWould you like to retry analyzing this page?`,
+    );
+    if (retry) {
+      try {
+        await retryRecord(record.key, 'InPageRail');
+        openCanvasIframe(record.key);
+      } catch (err) {
+        alert('Retry failed: ' + (err.message || String(err)));
+      }
+    }
+    return;
+  }
+  if (record.status !== 'done') {
+    const stage = record.progress?.stage || record.status || 'queued';
+    alert(
+      `PageToLLM: Analysis is currently in progress (status: ${stage}). Please wait a moment and try again.`,
+    );
     return;
   }
   const selectors = Array.isArray(record.selectors) ? record.selectors : [];
   if (selectors.length === 0) {
-    alert('PageToLLM: this record has no saved selectors; open it in the canvas view instead.');
+    const openCanvas = confirm(
+      'PageToLLM: This record has no saved selectors.\n\nWould you like to open it in the full canvas view instead?',
+    );
+    if (openCanvas) {
+      openCanvasIframe(record.key);
+    }
     return;
   }
   const elements = findPickedElements(selectors);
   if (elements.length === 0) {
-    alert(
-      'PageToLLM: could not locate the original article blocks on this page; the layout may have changed.',
+    const openCanvas = confirm(
+      'PageToLLM: Could not locate the original article blocks on this page; the page layout may have changed.\n\nWould you like to open it in the full canvas view instead?',
     );
+    if (openCanvas) {
+      openCanvasIframe(record.key);
+    }
     return;
   }
 

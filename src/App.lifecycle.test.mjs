@@ -37,7 +37,7 @@ describe('App.jsx record error states', () => {
   });
 
   it('sends retryRecord message on retry', () => {
-    expect(appSource).toContain("'retryRecord'");
+    expect(appSource).toContain('retryRecord');
   });
 
   it('renders spinner only when not done, not error, not missing, not deleted', () => {

@@ -88,4 +88,34 @@ describe('HierarchyApp', () => {
 
     unmount();
   });
+
+  it('renders pipeline error state and triggers retry', () => {
+    const sendMessageMock = vi.fn();
+    vi.stubGlobal('chrome', {
+      runtime: {
+        sendMessage: sendMessageMock,
+      },
+    });
+    useRecord.mockReturnValue({
+      record: { status: 'error', error: 'boom\nstack trace details' },
+      error: null,
+    });
+    const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
+
+    expect(container.textContent).toContain('Processing Failed');
+    expect(container.textContent).toContain('boom');
+
+    const details = container.querySelector('.th-page__error-details');
+    expect(details).not.toBeNull();
+    expect(details.textContent).toContain('stack trace details');
+
+    const retryBtn = container.querySelector('.th-page__retry-btn');
+    act(() => retryBtn.click());
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      { type: 'retryRecord', key: 'key1' },
+      expect.any(Function),
+    );
+
+    unmount();
+  });
 });

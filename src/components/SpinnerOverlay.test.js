@@ -74,4 +74,26 @@ describe('SpinnerOverlay', () => {
     expect(container.querySelector('.pagetollm-spinner-error-body').textContent).toBe('offline');
     unmount();
   });
+
+  it('renders multi-line pipeline error with collapsible details', () => {
+    const { container, unmount } = render(
+      createElement(SpinnerOverlay, {
+        recordError: 'failed\ndetails line 1\ndetails line 2',
+        onRetry: () => {},
+      }),
+    );
+    expect(container.querySelector('.pagetollm-spinner-error-title').textContent).toBe(
+      'Processing Failed',
+    );
+    expect(container.querySelector('.pagetollm-spinner-error-msg').textContent).toBe('failed');
+
+    const details = container.querySelector('.pagetollm-spinner-error-details');
+    expect(details).not.toBeNull();
+
+    const pre = details.querySelector('pre');
+    expect(pre).not.toBeNull();
+    expect(pre.textContent).toBe('details line 1\ndetails line 2');
+
+    unmount();
+  });
 });

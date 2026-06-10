@@ -307,6 +307,7 @@ export function ProvidersSection() {
 export function OptionsApp() {
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const applyRecords = useCallback((nextItems) => {
     setItems(nextItems);
@@ -333,15 +334,25 @@ export function OptionsApp() {
   }, [applyRecords]);
 
   const deleteAll = async () => {
+    setError('');
     if (!confirm('Delete ALL records?')) return;
-    await sendMessage({ type: 'deleteAll' });
+    const resp = await sendMessage({ type: 'deleteAll' });
+    if (!resp || !resp.ok) {
+      setError((resp && resp.error) || 'Failed to delete all records');
+      return;
+    }
     await loadRecords();
   };
 
   const runAction = async (action, key) => {
+    setError('');
     if (action === 'delete') {
       if (!confirm('Delete this record?')) return;
-      await sendMessage({ type: 'deleteRecord', key });
+      const resp = await sendMessage({ type: 'deleteRecord', key });
+      if (!resp || !resp.ok) {
+        setError((resp && resp.error) || 'Failed to delete record');
+        return;
+      }
       await loadRecords();
       return;
     }
@@ -350,12 +361,25 @@ export function OptionsApp() {
       if (!confirm('Reprocess this record? Existing results will be overwritten.')) {
         return;
       }
-      await sendMessage({ type: 'reprocessRecord', key });
+      const resp = await sendMessage({ type: 'reprocessRecord', key });
+      if (!resp || !resp.ok) {
+        setError((resp && resp.error) || 'Failed to reprocess record');
+        return;
+      }
       await loadRecords();
       return;
     }
 
     if (action === 'open') {
+      if (
+        typeof chrome !== 'undefined' &&
+        chrome.runtime &&
+        typeof chrome.runtime.getURL === 'function'
+      ) {
+        const url = chrome.runtime.getURL('modal.html') + '?key=' + encodeURIComponent(key);
+        window.open(url, '_blank');
+        return;
+      }
       alert('Open by re-picking the same blocks on the source page.');
     }
   };
@@ -369,12 +393,17 @@ export function OptionsApp() {
       <section className="section">
         <h2>Stored Records</h2>
         <div className="toolbar">
-          <div className="note">Open by re-picking on the source page.</div>
+          <div className="note">Open dynamically inside a standalone tab.</div>
           <button className="danger" type="button" onClick={deleteAll}>
             Delete all
           </button>
         </div>
         <div id="content">
+          {error ? (
+            <div className="form-error" style={{ marginBottom: '12px' }}>
+              {error}
+            </div>
+          ) : null}
           {isLoading ? (
             <div className="empty">Loading records...</div>
           ) : items.length === 0 ? (
@@ -395,7 +424,10 @@ export function OptionsApp() {
                     <td className="url">{item.sourceUrl || '(no url)'}</td>
                     <td>{fmtDate(item.createdAt)}</td>
                     <td>
-                      <span className={statusClass(item.status)}>{item.status || 'unknown'}</span>
+                      <span className={statusClass(item.status)} title={item.error || undefined}>
+                        {item.status || 'unknown'}
+                        {item.status === 'error' && item.error ? ' ⚠️' : ''}
+                      </span>
                     </td>
                     <td>
                       <button type="button" onClick={() => runAction('open', item.key)}>

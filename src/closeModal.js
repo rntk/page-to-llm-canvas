@@ -4,6 +4,10 @@
  */
 export function closeModal() {
   try {
+    if (window.parent === window) {
+      window.close();
+      return;
+    }
     window.parent.postMessage({ type: 'pagetollm-close' }, '*');
   } catch (_) {
     /* noop */

@@ -32,6 +32,7 @@ import SpinnerOverlay from './components/SpinnerOverlay.jsx';
 import ArticleHtml from './components/ArticleHtml.jsx';
 import { closeModal } from './closeModal.js';
 import { useCanvasTransform, clampScale } from './useCanvasTransform.js';
+import { retryRecord } from './utils/errorUtils.js';
 
 /** Second CSS Custom Highlight name, used for the hovered (not selected) topic. */
 const HIGHLIGHT_HOVER = 'pagetollm-sentence-hover';
@@ -512,13 +513,7 @@ export default function App({ initialKey }) {
 
   const handleRetry = useCallback(() => {
     if (!initialKey) return;
-    chrome.runtime.sendMessage({ type: 'retryRecord', key: initialKey }, (resp) => {
-      if (chrome.runtime.lastError) {
-        console.warn('PageToLLM Canvas retry error:', chrome.runtime.lastError.message);
-      } else if (resp && !resp.ok) {
-        console.warn('PageToLLM Canvas retry failed:', resp.error);
-      }
-    });
+    retryRecord(initialKey, 'Canvas').catch(() => {});
   }, [initialKey]);
 
   const handleTopicEnter = useCallback((k) => {

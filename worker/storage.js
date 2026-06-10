@@ -169,6 +169,7 @@ export async function listRecords() {
         createdAt: rec.createdAt,
         status: rec.status,
         progress: rec.progress,
+        error: rec.error,
       });
     }
   }

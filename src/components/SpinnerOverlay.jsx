@@ -1,5 +1,7 @@
 import React from 'react';
 import { closeModal } from '../closeModal.js';
+import { splitError } from '../utils/errorUtils.js';
+import ErrorDetails from './ErrorDetails.jsx';
 
 /**
  * Shared chrome for every overlay state: a centered box with a title, an
@@ -73,9 +75,20 @@ export default function SpinnerOverlay({
   // string still means "pipeline failed" (just without a message), so this must
   // stay an explicit `!== undefined` check rather than a truthiness test.
   if (recordError !== undefined) {
-    return (
-      <OverlayShell title="Processing Failed" body={recordError || undefined} onRetry={onRetry} />
-    );
+    let body = undefined;
+    if (recordError !== '') {
+      const { message, details } = splitError(recordError);
+      body = (
+        <ErrorDetails
+          message={message}
+          details={details}
+          msgClassName="pagetollm-spinner-error-msg"
+          detailsClassName="pagetollm-spinner-error-details"
+        />
+      );
+    }
+
+    return <OverlayShell title="Processing Failed" body={body} onRetry={onRetry} />;
   }
 
   if (error) {
