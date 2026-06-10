@@ -5,6 +5,7 @@ import SelectionToolbar from './SelectionToolbar.jsx';
 import InPageRail from './InPageRail.jsx';
 import { guardTrustedUserEvent } from './eventSecurity.js';
 import { splitError, retryRecord } from '../utils/errorUtils.js';
+import { resolveColumnOverlaps } from '../topicCards.js';
 import {
   HIGHLIGHT_NAME,
   supportsHighlightApi,
@@ -969,6 +970,26 @@ async function openInPageRail(rec, initialMode, options = {}) {
           accent,
         });
       }
+    }
+
+    // Mirror the canvas hierarchy rail: cards in a column must never overlap.
+    // Each card already spans one contiguous sentence run, but a mis-measured
+    // run can stretch a card across its neighbours and hide the cards in
+    // between. resolveColumnOverlaps clips/pushes them into a clean stack.
+    const resolved = resolveColumnOverlaps(
+      cardSpecs.map((card) => ({
+        key: card.id,
+        levelIndex: card.level || 0,
+        startSentence: card.sentences[0] ?? 0,
+        fullPath: card.path,
+        top: card.box.top,
+        height: card.box.height,
+      })),
+    );
+    const adjustedById = new Map(resolved.map((card) => [card.key, card]));
+    for (const card of cardSpecs) {
+      const adjusted = adjustedById.get(card.id);
+      if (adjusted) card.box = { top: adjusted.top, height: adjusted.height };
     }
     cardSpecs.sort((a, b) => a.box.top - b.box.top);
 
