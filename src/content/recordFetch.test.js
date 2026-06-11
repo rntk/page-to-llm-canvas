@@ -1,6 +1,11 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fetchRecord, findPickedElements, assessRecordForRail, createLoadToken } from './recordFetch.js';
+import {
+  fetchRecord,
+  findPickedElements,
+  assessRecordForRail,
+  createLoadToken,
+} from './recordFetch.js';
 
 // ---------------------------------------------------------------------------
 // fetchRecord
@@ -50,11 +55,10 @@ describe('fetchRecord', () => {
       runtime: {
         sendMessage: vi.fn((msg, cb) => {
           // Simulate lastError being set at callback time
-          Object.defineProperty(
-            globalThis.chrome.runtime,
-            'lastError',
-            { value: { message: 'Extension context invalidated.' }, configurable: true },
-          );
+          Object.defineProperty(globalThis.chrome.runtime, 'lastError', {
+            value: { message: 'Extension context invalidated.' },
+            configurable: true,
+          });
           cb({ ok: true, record: { key: 'k1' } });
         }),
         lastError: undefined,
@@ -67,7 +71,9 @@ describe('fetchRecord', () => {
   it('resolves null when sendMessage throws', async () => {
     vi.stubGlobal('chrome', {
       runtime: {
-        sendMessage: vi.fn(() => { throw new Error('no chrome'); }),
+        sendMessage: vi.fn(() => {
+          throw new Error('no chrome');
+        }),
         lastError: undefined,
       },
     });

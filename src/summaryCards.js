@@ -32,8 +32,7 @@ export function filterSummaryCardsByLevel(allSummaryCards, selectedLevel) {
   const paths = new Set(eligible.map((c) => c.path));
   return eligible
     .filter(
-      (card) =>
-        !Array.from(paths).some((p) => p !== card.path && p.startsWith(card.path + ' > ')),
+      (card) => !Array.from(paths).some((p) => p !== card.path && p.startsWith(card.path + ' > ')),
     )
     .sort((a, b) => a.startSentence - b.startSentence || a.path.localeCompare(b.path));
 }

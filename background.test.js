@@ -637,7 +637,11 @@ describe('dispatchMessage unit tests', () => {
       { url: 'chrome-extension://test-id/options.html' },
       fakeHandlers,
     );
-    expect(res).toEqual({ ok: true, type: 'echo', from: 'chrome-extension://test-id/options.html' });
+    expect(res).toEqual({
+      ok: true,
+      type: 'echo',
+      from: 'chrome-extension://test-id/options.html',
+    });
   });
 
   it('uses MESSAGE_HANDLERS registry by default (smoke test)', async () => {

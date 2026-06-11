@@ -1,4 +1,7 @@
-export function isTrustedUserEvent(event, { allowSynthetic = import.meta.env.MODE === 'test' } = {}) {
+export function isTrustedUserEvent(
+  event,
+  { allowSynthetic = import.meta.env.MODE === 'test' } = {},
+) {
   if (!event) return true;
   return Boolean(event.isTrusted ?? event.nativeEvent?.isTrusted) || allowSynthetic;
 }

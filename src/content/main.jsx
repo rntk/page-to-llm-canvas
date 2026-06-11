@@ -217,7 +217,6 @@ window.addEventListener('message', (event) => {
   }
 });
 
-
 // ── Record view actions ───────────────────────────────────────────────────
 
 async function handleRecordViewRequest(rec, mode) {

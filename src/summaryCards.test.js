@@ -23,11 +23,7 @@ describe('filterSummaryCardsByLevel', () => {
   });
 
   it('returns only level-0 cards when selectedLevel is 0', () => {
-    const cards = [
-      makeCard('Tech', 0, 1),
-      makeCard('Tech > AI', 1, 2),
-      makeCard('Science', 0, 5),
-    ];
+    const cards = [makeCard('Tech', 0, 1), makeCard('Tech > AI', 1, 2), makeCard('Science', 0, 5)];
     const result = filterSummaryCardsByLevel(cards, 0);
     expect(result.map((c) => c.path)).toEqual(['Tech', 'Science']);
   });
@@ -65,11 +61,7 @@ describe('filterSummaryCardsByLevel', () => {
   });
 
   it('selectedLevel deeper than any branch returns all leaf cards', () => {
-    const cards = [
-      makeCard('A', 0, 1),
-      makeCard('A > B', 1, 2),
-      makeCard('C', 0, 10),
-    ];
+    const cards = [makeCard('A', 0, 1), makeCard('A > B', 1, 2), makeCard('C', 0, 10)];
     // selectedLevel 5 is beyond any existing card; only leaves survive.
     const result = filterSummaryCardsByLevel(cards, 5);
     const paths = result.map((c) => c.path);
@@ -79,32 +71,20 @@ describe('filterSummaryCardsByLevel', () => {
   });
 
   it('sorts by startSentence ascending', () => {
-    const cards = [
-      makeCard('C', 0, 20),
-      makeCard('A', 0, 5),
-      makeCard('B', 0, 10),
-    ];
+    const cards = [makeCard('C', 0, 20), makeCard('A', 0, 5), makeCard('B', 0, 10)];
     const result = filterSummaryCardsByLevel(cards, 0);
     expect(result.map((c) => c.path)).toEqual(['A', 'B', 'C']);
   });
 
   it('breaks startSentence ties by path lexicographic order', () => {
     // Both cards start at sentence 1; path order decides.
-    const cards = [
-      makeCard('Zebra', 0, 1),
-      makeCard('Alpha', 0, 1),
-      makeCard('Mango', 0, 1),
-    ];
+    const cards = [makeCard('Zebra', 0, 1), makeCard('Alpha', 0, 1), makeCard('Mango', 0, 1)];
     const result = filterSummaryCardsByLevel(cards, 0);
     expect(result.map((c) => c.path)).toEqual(['Alpha', 'Mango', 'Zebra']);
   });
 
   it('excludes cards above selectedLevel', () => {
-    const cards = [
-      makeCard('A', 0, 1),
-      makeCard('A > B', 1, 2),
-      makeCard('A > B > C', 2, 3),
-    ];
+    const cards = [makeCard('A', 0, 1), makeCard('A > B', 1, 2), makeCard('A > B > C', 2, 3)];
     // At level 1 the level-2 card is ineligible.
     const result = filterSummaryCardsByLevel(cards, 1);
     const paths = result.map((c) => c.path);

@@ -450,9 +450,7 @@ describe('runPipeline', () => {
     // silently finishing the failed topic empty.
     expect(storage.updateRecord.mock.calls.some((c) => c[1].status === 'done')).toBe(false);
 
-    const parkCall = storage.updateRecord.mock.calls.find(
-      (c) => c[1].status === 'needs_attention',
-    );
+    const parkCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'needs_attention');
     expect(parkCall).toBeDefined();
     expect(parkCall[1].summaryErrors).toHaveLength(1);
     expect(parkCall[1].summaryErrors[0].topic).toBe('Tech>All');
@@ -781,9 +779,7 @@ describe('runPipeline', () => {
     // Terminal side: with the failure unresolved the run parks rather than
     // reaching 'done'. The user's retry/skip decision drives it from here.
     expect(storage.updateRecord.mock.calls.some((c) => c[1].status === 'done')).toBe(false);
-    const parkCall = storage.updateRecord.mock.calls.find(
-      (c) => c[1].status === 'needs_attention',
-    );
+    const parkCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'needs_attention');
     expect(parkCall).toBeDefined();
     expect(parkCall[1].summaryErrors.map((e) => e.topic)).toContain('Tech>All');
   });
@@ -846,9 +842,7 @@ describe('runPipeline', () => {
 
     // Leaves all succeeded, so the park is triggered by the merge, not a leaf.
     expect(storage.updateRecord.mock.calls.some((c) => c[1].status === 'done')).toBe(false);
-    const parkCall = storage.updateRecord.mock.calls.find(
-      (c) => c[1].status === 'needs_attention',
-    );
+    const parkCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'needs_attention');
     expect(parkCall).toBeDefined();
     expect(parkCall[1].summaryErrors.map((e) => e.topic)).toContain('Tech');
     expect(parkCall[1].summaryErrors[0].error_kind).toBe('rate_limited');
@@ -948,7 +942,9 @@ describe('classifyLlmError', () => {
   });
 
   it('classifies rate limits', () => {
-    expect(classifyLlmError(new Error('LLM HTTP 429: too many requests')).kind).toBe('rate_limited');
+    expect(classifyLlmError(new Error('LLM HTTP 429: too many requests')).kind).toBe(
+      'rate_limited',
+    );
     expect(classifyLlmError(new Error('rate limit exceeded')).kind).toBe('rate_limited');
   });
 

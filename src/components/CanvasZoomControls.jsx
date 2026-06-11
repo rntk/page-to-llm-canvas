@@ -120,7 +120,7 @@ function CanvasZoomControls({
             onClick={onToggleSummaryMode}
             title={showSummaryMode ? 'Show article text' : 'Show summary view (per topic level)'}
           >
-            M
+            S
           </button>
           <div className="canvas-control-hierarchy-group">
             {(showTopicHierarchy || showSummaryMode) && (

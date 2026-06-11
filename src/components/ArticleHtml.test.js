@@ -44,7 +44,7 @@ describe('ArticleHtml', () => {
   it('correctly forwards the ref to the outer div element', () => {
     const htmlContent = '<div>Test</div>';
     const ref = createRef();
-    const { container, unmount } = render(
+    const { unmount } = render(
       createElement(ArticleHtml, {
         html: htmlContent,
         articleTextRef: ref,

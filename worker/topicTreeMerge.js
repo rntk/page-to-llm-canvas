@@ -26,7 +26,14 @@
  * @param {(info: {path: string, error: string}) => (void | Promise<void>)} [params.onMergeError]
  * @returns {Promise<Record<string, {text: string, level: number, source_sentences: number[]}>>}
  */
-export async function summarizeTopicTree({ root, nodes, leafSummaries, merge, limit, onMergeError }) {
+export async function summarizeTopicTree({
+  root,
+  nodes,
+  leafSummaries,
+  merge,
+  limit,
+  onMergeError,
+}) {
   // Seed leaf summaries onto their nodes.
   for (const [path, node] of nodes) {
     if (path && leafSummaries[path]) {

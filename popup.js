@@ -205,7 +205,11 @@ function makeAction(label, key, mode) {
   return button;
 }
 
-export async function handleMessageAction(action, key, { confirm, runtimeMessage, onSuccess, onError }) {
+export async function handleMessageAction(
+  action,
+  key,
+  { confirm, runtimeMessage, onSuccess, onError },
+) {
   if (!confirm(action.confirmMessage)) return;
   try {
     const response = await runtimeMessage({ type: action.messageType, key });

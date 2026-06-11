@@ -133,7 +133,9 @@ describe('getCompactCardHeight', () => {
 // ---------------------------------------------------------------------------
 describe('getTitleLineBudget', () => {
   it('returns CARD_COMPACT_TITLE_MAX_LINES for heights below threshold', () => {
-    expect(getTitleLineBudget(CARD_COMPACT_HEIGHT_THRESHOLD - 1)).toBe(CARD_COMPACT_TITLE_MAX_LINES);
+    expect(getTitleLineBudget(CARD_COMPACT_HEIGHT_THRESHOLD - 1)).toBe(
+      CARD_COMPACT_TITLE_MAX_LINES,
+    );
   });
 
   it('returns CARD_TITLE_MAX_LINES at exactly the threshold', () => {
@@ -329,11 +331,7 @@ describe('adjustCrowdedLevelCards', () => {
   it('resolves 3 overlapping cards so none remain overlapping', () => {
     // compact height = max(56, 80-16) = 64; cards spaced 80px apart
     // overlaps = 0+64+4-80=-12 → no residual overlap needed, nudge is a no-op
-    const cards = [
-      makeCard('A', 0, 80),
-      makeCard('B', 80, 80),
-      makeCard('C', 160, 80),
-    ];
+    const cards = [makeCard('A', 0, 80), makeCard('B', 80, 80), makeCard('C', 160, 80)];
     const result = adjustCrowdedLevelCards(cards);
     expect(result).toHaveLength(3);
     for (let i = 0; i < result.length - 1; i += 1) {
@@ -399,7 +397,15 @@ describe('adjustCrowdedLevelCards', () => {
 // ---------------------------------------------------------------------------
 describe('getAdjustedHierarchyCards', () => {
   function makeCard(fullPath, top, height, levelIndex = 0) {
-    return { key: fullPath, fullPath, top, height, titleFontSize: 12, sentenceCount: 5, levelIndex };
+    return {
+      key: fullPath,
+      fullPath,
+      top,
+      height,
+      titleFontSize: 12,
+      sentenceCount: 5,
+      levelIndex,
+    };
   }
 
   it('returns an empty array for empty input', () => {
@@ -409,20 +415,13 @@ describe('getAdjustedHierarchyCards', () => {
   it('processes each level independently', () => {
     // Two cards at different levels with the same vertical position should each
     // be processed in their own column and not affect each other.
-    const cards = [
-      makeCard('A', 50, 80, 0),
-      makeCard('B', 50, 80, 1),
-    ];
+    const cards = [makeCard('A', 50, 80, 0), makeCard('B', 50, 80, 1)];
     const result = getAdjustedHierarchyCards(cards);
     expect(result).toHaveLength(2);
   });
 
   it('returns cards sorted by levelIndex then top then fullPath', () => {
-    const cards = [
-      makeCard('Z', 200, 60, 1),
-      makeCard('A', 0, 60, 0),
-      makeCard('M', 100, 60, 1),
-    ];
+    const cards = [makeCard('Z', 200, 60, 1), makeCard('A', 0, 60, 0), makeCard('M', 100, 60, 1)];
     const result = getAdjustedHierarchyCards(cards);
     expect(result[0].levelIndex).toBeLessThanOrEqual(result[1].levelIndex);
     if (result[1].levelIndex === result[2].levelIndex) {
@@ -432,11 +431,7 @@ describe('getAdjustedHierarchyCards', () => {
 
   it('resolves multi-card overlap within a level column', () => {
     // compact height = max(56, 80-16) = 64; cards spaced 80px apart — no residual overlap
-    const cards = [
-      makeCard('A', 0, 80, 0),
-      makeCard('B', 80, 80, 0),
-      makeCard('C', 160, 80, 0),
-    ];
+    const cards = [makeCard('A', 0, 80, 0), makeCard('B', 80, 80, 0), makeCard('C', 160, 80, 0)];
     const result = getAdjustedHierarchyCards(cards);
     for (let i = 0; i < result.length - 1; i += 1) {
       const a = result[i];

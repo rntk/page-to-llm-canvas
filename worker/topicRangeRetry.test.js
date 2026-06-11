@@ -133,9 +133,9 @@ describe('queryTopicRangesWithRetry', () => {
     });
     const sleep = vi.fn(async () => {});
 
-    await expect(
-      queryTopicRangesWithRetry({ callLLM, parse, maxRetries: 0, sleep }),
-    ).rejects.toBe(err);
+    await expect(queryTopicRangesWithRetry({ callLLM, parse, maxRetries: 0, sleep })).rejects.toBe(
+      err,
+    );
     expect(callLLM).toHaveBeenCalledTimes(1);
     expect(sleep).not.toHaveBeenCalled();
   });
@@ -184,13 +184,7 @@ describe('queryTopicRangesWithRetry', () => {
     expect(onParseRetry.mock.calls[0][0].error).toBeInstanceOf(TopicParseError);
     // onAttempt fires before its LLM dispatch; onParseRetry fires before the
     // next attempt's onAttempt.
-    expect(order).toEqual([
-      'attempt:0',
-      'llm:0',
-      'retry:0',
-      'attempt:1',
-      'llm:1',
-    ]);
+    expect(order).toEqual(['attempt:0', 'llm:0', 'retry:0', 'attempt:1', 'llm:1']);
   });
 
   it('defaults to a real-timer sleep when none is injected', async () => {

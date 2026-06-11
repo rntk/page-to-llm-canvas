@@ -89,7 +89,10 @@ export function classifyLlmError(e) {
     return { kind: 'no_provider', message: 'No model is configured. Add one in the options page.' };
   }
   if (/\b401\b|\b403\b|unauthor|forbidden|api key/i.test(raw)) {
-    return { kind: 'auth', message: 'The model provider rejected the request (check your API key).' };
+    return {
+      kind: 'auth',
+      message: 'The model provider rejected the request (check your API key).',
+    };
   }
   // Unclassified: surface the raw error but cap it — provider clients can embed a
   // few hundred chars of response body, which we don't want dumped into the popup.
@@ -729,7 +732,12 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries, force
     limit: limitMerge,
     onMergeError: ({ path, error }) => {
       const { kind, message } = classifyLlmError(error);
-      mergeErrors.push({ topic: path, error_kind: kind, error_message: message, error_detail: String(error) });
+      mergeErrors.push({
+        topic: path,
+        error_kind: kind,
+        error_message: message,
+        error_detail: String(error),
+      });
       return logPipeline(key, 'topic_tree_merge_error', { path, error_kind: kind, error: message });
     },
   });

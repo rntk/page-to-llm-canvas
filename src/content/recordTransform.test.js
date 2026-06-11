@@ -337,7 +337,10 @@ describe('splitIntoContiguousRuns', () => {
   });
 
   it('sorts input before splitting (unsorted input)', () => {
-    expect(splitIntoContiguousRuns([6, 1, 5, 2])).toEqual([[1, 2], [5, 6]]);
+    expect(splitIntoContiguousRuns([6, 1, 5, 2])).toEqual([
+      [1, 2],
+      [5, 6],
+    ]);
   });
 
   it('does not mutate the original array', () => {

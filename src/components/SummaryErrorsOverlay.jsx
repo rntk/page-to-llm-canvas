@@ -34,17 +34,21 @@ export default function SummaryErrorsOverlay({ summaryErrors, onRetry, onSkip })
     <div className="pagetollm-spinner-overlay" role="alertdialog" aria-live="polite">
       <div className="pagetollm-spinner-box">
         <div className="pagetollm-spinner-error-title">
-          {count === 1 ? '1 topic could not be summarized' : `${count} topics could not be summarized`}
+          {count === 1
+            ? '1 topic could not be summarized'
+            : `${count} topics could not be summarized`}
         </div>
         <div className="pagetollm-spinner-error-body">
-          The model kept failing on these after several automatic retries. Retry
-          them, or skip to finish with those topics left empty.
+          The model kept failing on these after several automatic retries. Retry them, or skip to
+          finish with those topics left empty.
         </div>
         {count > 0 && (
           <ul className="pagetollm-summary-errors-list">
             {errors.map((e, i) => (
               <li key={`${e.topic}-${i}`} className="pagetollm-summary-errors-item">
-                <span className="pagetollm-summary-errors-topic">{e.topic || 'Untitled topic'}</span>
+                <span className="pagetollm-summary-errors-topic">
+                  {e.topic || 'Untitled topic'}
+                </span>
                 {e.error_message && (
                   <span className="pagetollm-summary-errors-reason">{e.error_message}</span>
                 )}
@@ -53,18 +57,10 @@ export default function SummaryErrorsOverlay({ summaryErrors, onRetry, onSkip })
           </ul>
         )}
         <div className="pagetollm-spinner-actions">
-          <button
-            className="pagetollm-spinner-retry-btn"
-            onClick={run(onRetry)}
-            disabled={busy}
-          >
+          <button className="pagetollm-spinner-retry-btn" onClick={run(onRetry)} disabled={busy}>
             Retry all
           </button>
-          <button
-            className="pagetollm-spinner-skip-btn"
-            onClick={run(onSkip)}
-            disabled={busy}
-          >
+          <button className="pagetollm-spinner-skip-btn" onClick={run(onSkip)} disabled={busy}>
             Skip
           </button>
           <button className="pagetollm-spinner-close-btn" onClick={closeModal} disabled={busy}>
