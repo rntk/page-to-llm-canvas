@@ -458,7 +458,6 @@ export default function App({ initialKey }) {
     }
   }, [isDone, canvasWrapElRef]);
 
-
   // ── Pipeline lifecycle ───────────────────────────────────────────────────
   // The modal does NOT start the pipeline. It only asks the background to
   // ensure a pipeline is running for this key, then renders whatever state
@@ -587,10 +586,14 @@ export default function App({ initialKey }) {
                     <CanvasSummaryView
                       summaryViewCards={summaryCards}
                       summaryViewActivePath={activeTopicKey}
+                      summaryViewHoveredPath={hoveredTopicKey}
                       summaryCardRefs={summaryCardRefs}
                       setHoveredTopicKey={setHoveredTopicKey}
                       articleTextRef={articleTextRef}
                       onShowSourceSentences={handleShowSourceSentences}
+                      articleHtml={articleHtml}
+                      sentences={sentences}
+                      previewWidth={currentSummaryWidth}
                     />
                   ) : (
                     <ArticleHtml html={articleHtml} articleTextRef={articleTextRef} />

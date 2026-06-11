@@ -111,8 +111,13 @@ body.canvas-global-dragging * {
   padding-right: calc(var(--canvas-topic-hierarchy-width, 430px) + 70px);
 }
 
+.canvas-article-with-summaries.has-topic-hierarchy.is-summary-mode {
+  padding-right: calc(var(--canvas-topic-hierarchy-width, 430px) + 5px);
+}
+
 /* Reserve a left gutter for the current-topic summary card while reading the
-   article. Not needed in summary mode, where summaries fill the center. */
+   article. Summary-mode source previews are absolutely positioned beside the
+   summary column and do not reserve layout space. */
 .canvas-article-with-summaries.has-topic-hierarchy:not(.is-summary-mode) {
   padding-left: calc(var(--current-summary-width, 442px) + 40px);
 }
@@ -882,6 +887,10 @@ body.canvas-global-dragging * {
   background: var(--surface-low);
 }
 
+.canvas-summary-view__card.is-source-preview-active {
+  box-shadow: -4px 0 0 var(--ink);
+}
+
 .canvas-summary-view__card-header {
   display: flex;
   justify-content: space-between;
@@ -963,4 +972,66 @@ body.canvas-global-dragging * {
 .canvas-summary-view__summary-tooltip-button:hover {
   background: var(--ink);
   color: var(--surface);
+}
+
+.canvas-summary-source-preview {
+  position: absolute;
+  top: var(--summary-source-preview-top, 0);
+  left: var(--summary-source-preview-left, 0);
+  width: var(--current-summary-width, 442px);
+  z-index: 70;
+  pointer-events: auto;
+  transition: top 0.28s cubic-bezier(0.25, 1, 0.5, 1);
+
+  --_pad: 20px;
+  --_vis-top: calc(-1 * var(--canvas-translate-y, 0px) / var(--canvas-scale, 1));
+  --_vis-bot: calc(
+    (var(--canvas-area-height, 100dvh) - var(--canvas-translate-y, 0px)) / var(--canvas-scale, 1)
+  );
+  --_max-height: calc((var(--canvas-area-height, 100dvh) - 40px) / var(--canvas-scale, 1));
+  --_stick-top: calc(var(--_vis-top) + var(--_pad) - var(--summary-source-preview-top, 0px));
+  --_stick-bot: calc(
+    var(--_vis-bot) - var(--_pad) - var(--summary-source-preview-height, 220px) -
+      var(--summary-source-preview-top, 0px)
+  );
+
+  transform: translateY(clamp(var(--_stick-top), 0px, var(--_stick-bot)));
+  will-change: transform;
+}
+
+.canvas-summary-source-preview__card {
+  max-height: var(--_max-height);
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  padding: 14px 16px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 14%);
+}
+
+.canvas-summary-source-preview__article {
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--on-surface);
+}
+
+.canvas-summary-source-preview__article > :first-child {
+  margin-top: 0;
+}
+
+.canvas-summary-source-preview__article > :last-child {
+  margin-bottom: 0;
+}
+
+.canvas-summary-source-preview__highlight {
+  padding: 0 2px;
+  background: transparent;
+  background-color: rgb(58 64 77 / 12%);
+  color: inherit;
 }
