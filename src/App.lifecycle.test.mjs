@@ -40,9 +40,15 @@ describe('App.jsx record error states', () => {
     expect(appSource).toContain('retryRecord');
   });
 
-  it('renders spinner only when not done, not error, not missing, not deleted', () => {
-    expect(appSource).toContain('!isDone && (');
+  it('renders spinner only when not done, not needs-attention, not missing, not deleted', () => {
+    expect(appSource).toContain('!isDone && !isNeedsAttention && (');
     expect(appSource).toContain('isMissing');
     expect(appSource).toContain('isDeleted');
+  });
+
+  it('renders the summary-errors popup when the record is parked for review', () => {
+    expect(appSource).toContain('isNeedsAttention && (');
+    expect(appSource).toContain('SummaryErrorsOverlay');
+    expect(appSource).toContain('resolveSummaryErrors');
   });
 });

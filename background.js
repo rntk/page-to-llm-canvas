@@ -52,6 +52,29 @@ function isInFlightRecord(record) {
   return !!record && IN_FLIGHT_STATUSES.has(record.status);
 }
 
+/**
+ * Returns a copy of the topic-summaries map with every in-flight error marker
+ * (the `error` flag and its reason fields) removed, so the failed leaves are
+ * reused as legit empty summaries on the next resume instead of being re-queried.
+ *
+ * @param {Record<string, object>} topicSummaries
+ * @returns {Record<string, object>}
+ */
+function clearSummaryErrorFlags(topicSummaries) {
+  const src = topicSummaries && typeof topicSummaries === 'object' ? topicSummaries : {};
+  const out = {};
+  for (const [name, s] of Object.entries(src)) {
+    if (s && typeof s === 'object') {
+      // eslint-disable-next-line no-unused-vars
+      const { error, error_kind, error_message, error_detail, ...rest } = s;
+      out[name] = rest;
+    } else {
+      out[name] = s;
+    }
+  }
+  return out;
+}
+
 export function summarizeProcessingState(records) {
   const inFlight = (Array.isArray(records) ? records : []).filter(isInFlightRecord);
   if (inFlight.length === 0) {
@@ -464,6 +487,46 @@ export const MESSAGE_HANDLERS = {
       });
       startPipeline(msg.key).catch((err) => {
         console.error('PageToLLM Canvas reprocessRecord startPipeline failed:', err);
+      });
+      return { ok: true };
+    },
+  },
+
+  resolveSummaryErrors: {
+    requiresExtensionPage: false,
+    validate(msg) {
+      if (!msg.key) return 'missing key';
+      if (msg.action !== 'retry' && msg.action !== 'skip') return 'invalid action';
+      return null;
+    },
+    async handle(msg) {
+      const rec = await readRecord(msg.key);
+      if (!rec) {
+        return { ok: false, error: 'record not found' };
+      }
+      // Only a parked record can be resolved; ignore stale/double clicks.
+      if (rec.status !== 'needs_attention') {
+        return { ok: true, stale: true };
+      }
+
+      const patch = {
+        status: 'summarizing',
+        error: null,
+        summaryErrors: [],
+        forceFinalize: msg.action === 'skip',
+        // Reset the parked progress stage so the resuming UI shows summarizing,
+        // not the transient 'needs_attention' stage, before the worker's first write.
+        progress: { stage: 'summarizing_topics', done: 0, total: 0 },
+      };
+      if (msg.action === 'skip') {
+        // Accept the empty summaries: drop the in-flight error flags so the
+        // resumed run reuses the failed leaves as-is (no re-query), and let
+        // forceFinalize push the merge/finalize through even if it also degrades.
+        patch.topic_summaries = clearSummaryErrorFlags(rec.topic_summaries);
+      }
+      await updateRecord(msg.key, patch);
+      startPipeline(msg.key).catch((err) => {
+        console.error('PageToLLM Canvas resolveSummaryErrors startPipeline failed:', err);
       });
       return { ok: true };
     },

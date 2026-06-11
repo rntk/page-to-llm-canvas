@@ -181,6 +181,18 @@ describe('assessRecordForRail', () => {
     expect(result.record).toBe(record);
   });
 
+  it('returns needs_attention for a parked record (not in_progress)', () => {
+    const record = {
+      key: 'k',
+      status: 'needs_attention',
+      progress: { stage: 'needs_attention' },
+      summaryErrors: [{ topic: 'Tech>AI', error_kind: 'timeout' }],
+    };
+    const result = assessRecordForRail(record);
+    expect(result.kind).toBe('needs_attention');
+    expect(result.record).toBe(record);
+  });
+
   it('returns in_progress with stage from progress.stage when status is queued', () => {
     const record = { key: 'k', status: 'queued', progress: { stage: 'tokenising' } };
     const result = assessRecordForRail(record);

@@ -56,11 +56,12 @@ export function findPickedElements(selectors) {
 /**
  * Discriminated result shapes returned by assessRecordForRail.
  *
- *   { kind: 'ready',        record }
+ *   { kind: 'ready',           record }
  *   { kind: 'not_found' }
- *   { kind: 'error',        record }
- *   { kind: 'in_progress',  stage }
- *   { kind: 'no_selectors', record }
+ *   { kind: 'error',           record }
+ *   { kind: 'needs_attention', record }
+ *   { kind: 'in_progress',     stage }
+ *   { kind: 'no_selectors',    record }
  */
 
 /**
@@ -77,6 +78,13 @@ export function assessRecordForRail(record) {
   }
   if (record.status === 'error') {
     return { kind: 'error', record };
+  }
+  // Parked awaiting a user retry/skip decision. This is deliberately not an
+  // in-flight status and never auto-resumes, so it must NOT look like ordinary
+  // progress (which would tell the user to "wait"); route it to the canvas where
+  // the retry/skip popup lives.
+  if (record.status === 'needs_attention') {
+    return { kind: 'needs_attention', record };
   }
   if (record.status !== 'done') {
     const stage = record.progress?.stage || record.status || 'queued';

@@ -43,3 +43,28 @@ export function retryRecord(key, serviceName = 'Canvas') {
     });
   });
 }
+
+/**
+ * Resolves a record parked in `needs_attention`: re-runs the failed summaries
+ * ("retry") or accepts them empty and finishes ("skip").
+ *
+ * @param {string} key - The unique storage key for the record.
+ * @param {'retry'|'skip'} action
+ * @param {string} [serviceName] - The name of the calling service (for logs).
+ * @returns {Promise<object>}
+ */
+export function resolveSummaryErrors(key, action, serviceName = 'Canvas') {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ type: 'resolveSummaryErrors', key, action }, (resp) => {
+      if (chrome.runtime.lastError) {
+        console.warn(`PageToLLM ${serviceName} resolve error:`, chrome.runtime.lastError.message);
+        reject(new Error(chrome.runtime.lastError.message));
+      } else if (resp && !resp.ok) {
+        console.warn(`PageToLLM ${serviceName} resolve failed:`, resp.error);
+        reject(new Error(resp.error || 'Resolve failed'));
+      } else {
+        resolve(resp);
+      }
+    });
+  });
+}

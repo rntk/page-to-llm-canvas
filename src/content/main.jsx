@@ -606,6 +606,16 @@ async function openInPageRail(rec, initialMode, options = {}) {
     }
     return;
   }
+  if (assessment.kind === 'needs_attention') {
+    const open = confirm(
+      'PageToLLM: Some topics could not be summarized after several retries.\n\n' +
+        'Open the canvas view to retry or skip them?',
+    );
+    if (open) {
+      openCanvasIframe(assessment.record.key);
+    }
+    return;
+  }
   if (assessment.kind === 'in_progress') {
     alert(
       `PageToLLM: Analysis is currently in progress (status: ${assessment.stage}). Please wait a moment and try again.`,

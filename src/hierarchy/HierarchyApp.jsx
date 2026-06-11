@@ -30,6 +30,7 @@ export default function HierarchyApp({ initialKey }) {
   const topics = useMemo(() => (Array.isArray(record?.topics) ? record.topics : []), [record]);
   const isDone = record?.status === 'done';
   const isRecordError = record?.status === 'error';
+  const isNeedsAttention = record?.status === 'needs_attention';
 
   let body;
   if (error && !record) {
@@ -53,6 +54,24 @@ export default function HierarchyApp({ initialKey }) {
           <button type="button" className="th-page__retry-btn" onClick={handleRetry}>
             Retry
           </button>
+          <button type="button" className="th-page__close-btn" onClick={closeModal}>
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  } else if (isNeedsAttention) {
+    const count = Array.isArray(record?.summaryErrors) ? record.summaryErrors.length : 0;
+    body = (
+      <div className="th-page__state th-page__state--error" role="alert">
+        <div className="th-page__error-title">
+          {count === 1 ? '1 topic needs attention' : `${count} topics need attention`}
+        </div>
+        <div className="th-page__error-message">
+          Some topics could not be summarized after several retries. Open the canvas view to
+          retry or skip them.
+        </div>
+        <div className="th-page__error-actions">
           <button type="button" className="th-page__close-btn" onClick={closeModal}>
             Close
           </button>

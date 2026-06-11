@@ -30,10 +30,11 @@ import CanvasTopicHierarchyRail from './components/CanvasTopicHierarchyRail.jsx'
 import CanvasSummaryView from './components/CanvasSummaryView.jsx';
 import CanvasZoomControls from './components/CanvasZoomControls.jsx';
 import SpinnerOverlay from './components/SpinnerOverlay.jsx';
+import SummaryErrorsOverlay from './components/SummaryErrorsOverlay.jsx';
 import ArticleHtml from './components/ArticleHtml.jsx';
 import { closeModal } from './closeModal.js';
 import { useCanvasTransform, clampScale } from './useCanvasTransform.js';
-import { retryRecord } from './utils/errorUtils.js';
+import { retryRecord, resolveSummaryErrors } from './utils/errorUtils.js';
 
 /** Second CSS Custom Highlight name, used for the hovered (not selected) topic. */
 const HIGHLIGHT_HOVER = 'pagetollm-sentence-hover';
@@ -185,6 +186,7 @@ export default function App({ initialKey }) {
   );
 
   const isDone = record?.status === 'done';
+  const isNeedsAttention = record?.status === 'needs_attention';
   const isRecordError = record?.status === 'error';
   const isMissing = !record && error === 'record not found';
   const isDeleted = !record && error === 'record deleted';
@@ -478,6 +480,15 @@ export default function App({ initialKey }) {
     retryRecord(initialKey, 'Canvas').catch(() => {});
   }, [initialKey]);
 
+  const handleSummaryErrorsRetry = useCallback(
+    () => resolveSummaryErrors(initialKey, 'retry', 'Canvas'),
+    [initialKey],
+  );
+  const handleSummaryErrorsSkip = useCallback(
+    () => resolveSummaryErrors(initialKey, 'skip', 'Canvas'),
+    [initialKey],
+  );
+
   const handleTopicEnter = useCallback((k) => {
     setHoveredTopicKey(k);
   }, []);
@@ -535,7 +546,14 @@ export default function App({ initialKey }) {
   return (
     <div className="pagetollm-modal-root">
       <main className="pagetollm-body">
-        {!isDone && (
+        {isNeedsAttention && (
+          <SummaryErrorsOverlay
+            summaryErrors={record?.summaryErrors}
+            onRetry={handleSummaryErrorsRetry}
+            onSkip={handleSummaryErrorsSkip}
+          />
+        )}
+        {!isDone && !isNeedsAttention && (
           <SpinnerOverlay
             stage={stage}
             error={!isRecordError && !isMissing && !isDeleted ? error : null}

@@ -101,6 +101,21 @@ describe('background pipeline lifecycle', () => {
     });
   });
 
+  it('treats a parked (needs_attention) record as not in-flight', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    const { summarizeProcessingState } = await import('./background.js');
+
+    // The "won't auto-resume" invariant for needs_attention rests entirely on it
+    // staying out of IN_FLIGHT_STATUSES; pin that so adding it back would fail here.
+    expect(
+      summarizeProcessingState([
+        { status: 'needs_attention', progress: { stage: 'needs_attention', done: 1, total: 2 } },
+      ]),
+    ).toEqual({ active: false, count: 0, ratio: 0 });
+  });
+
   it('summarizes indeterminate action icon state for queued work', async () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);
@@ -194,6 +209,117 @@ describe('background pipeline lifecycle', () => {
 
     const { runPipeline } = await import('./worker/orchestrator.js');
     expect(runPipeline).not.toHaveBeenCalled();
+  });
+
+  it('resolveSummaryErrors retry resumes the pipeline and keeps leaf error flags', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    seedRecord(
+      chromeMock,
+      makeRecord('park1', {
+        status: 'needs_attention',
+        summaryErrors: [{ topic: 'Tech>All', error_kind: 'timeout', error_message: 'x' }],
+        topic_summaries: {
+          'Tech>All': { text: '', source_sentences: [1], error: true, error_kind: 'timeout' },
+        },
+      }),
+    );
+
+    const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const res = await dispatchMessage(
+      { type: 'resolveSummaryErrors', key: 'park1', action: 'retry' },
+      {},
+    );
+    expect(res.ok).toBe(true);
+
+    const updated = chromeMock.storage.local._store.get('pagetollm:rec:park1');
+    expect(updated.status).toBe('summarizing');
+    expect(updated.forceFinalize).toBe(false);
+    expect(updated.summaryErrors).toEqual([]);
+    // Retry keeps the flag so the resumed run re-queries only the failed leaf.
+    expect(updated.topic_summaries['Tech>All'].error).toBe(true);
+
+    await new Promise((r) => setTimeout(r, 30));
+    const { runPipeline } = await import('./worker/orchestrator.js');
+    expect(runPipeline).toHaveBeenCalledWith('park1');
+  });
+
+  it('resolveSummaryErrors skip clears leaf error flags and forces finalize', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    seedRecord(
+      chromeMock,
+      makeRecord('park2', {
+        status: 'needs_attention',
+        summaryErrors: [{ topic: 'Tech>All', error_kind: 'timeout', error_message: 'x' }],
+        topic_summaries: {
+          'Tech>All': {
+            text: '',
+            source_sentences: [1],
+            error: true,
+            error_kind: 'timeout',
+            error_message: 'x',
+          },
+        },
+      }),
+    );
+
+    const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const res = await dispatchMessage(
+      { type: 'resolveSummaryErrors', key: 'park2', action: 'skip' },
+      {},
+    );
+    expect(res.ok).toBe(true);
+
+    const updated = chromeMock.storage.local._store.get('pagetollm:rec:park2');
+    expect(updated.status).toBe('summarizing');
+    expect(updated.forceFinalize).toBe(true);
+    const leaf = updated.topic_summaries['Tech>All'];
+    expect(leaf.error).toBeUndefined();
+    expect(leaf.error_kind).toBeUndefined();
+    expect(leaf.error_message).toBeUndefined();
+    expect(leaf.text).toBe('');
+    expect(leaf.source_sentences).toEqual([1]);
+  });
+
+  it('resolveSummaryErrors is a no-op when the record is not parked', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    seedRecord(chromeMock, makeRecord('notparked', { status: 'done' }));
+
+    const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const res = await dispatchMessage(
+      { type: 'resolveSummaryErrors', key: 'notparked', action: 'retry' },
+      {},
+    );
+    expect(res.ok).toBe(true);
+    expect(res.stale).toBe(true);
+
+    await new Promise((r) => setTimeout(r, 30));
+    const { runPipeline } = await import('./worker/orchestrator.js');
+    expect(runPipeline).not.toHaveBeenCalled();
+  });
+
+  it('resolveSummaryErrors rejects an invalid action', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    const { dispatchMessage } = await import('./background.js');
+    const res = await dispatchMessage(
+      { type: 'resolveSummaryErrors', key: 'x', action: 'nope' },
+      {},
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe('invalid action');
   });
 
   it('resumes a stale in-flight record', async () => {

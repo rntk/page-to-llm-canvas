@@ -68,6 +68,35 @@ export function chunkTaggedText(tagged, maxChars) {
   return chunks;
 }
 
+/**
+ * Maps a raw LLM/transport error to a stable `kind` plus a short, user-facing
+ * message. The `kind` drives any UI grouping; `message` is what the confirm
+ * popup and the processing log show the user. The raw error is preserved
+ * separately so the technical detail is never lost.
+ *
+ * @param {unknown} e
+ * @returns {{ kind: string, message: string }}
+ */
+export function classifyLlmError(e) {
+  const raw = (e && e.message) || String(e);
+  if (/timed out|timeout/i.test(raw)) {
+    return { kind: 'timeout', message: 'The model did not respond in time.' };
+  }
+  if (/\b429\b|rate.?limit/i.test(raw)) {
+    return { kind: 'rate_limited', message: 'The model provider is rate limiting requests.' };
+  }
+  if (/no llm provider|provider configured|no model configured/i.test(raw)) {
+    return { kind: 'no_provider', message: 'No model is configured. Add one in the options page.' };
+  }
+  if (/\b401\b|\b403\b|unauthor|forbidden|api key/i.test(raw)) {
+    return { kind: 'auth', message: 'The model provider rejected the request (check your API key).' };
+  }
+  // Unclassified: surface the raw error but cap it — provider clients can embed a
+  // few hundred chars of response body, which we don't want dumped into the popup.
+  const message = raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
+  return { kind: 'error', message };
+}
+
 export function parseSummaryResponse(raw) {
   if (!raw) return '';
   let s = raw.trim();
@@ -376,7 +405,11 @@ export async function runPipeline(key) {
       resuming && rec.topic_summaries && typeof rec.topic_summaries === 'object'
         ? rec.topic_summaries
         : {};
-    await runSummaries(key, topics, sentenceTexts, previousSummaries);
+    // `forceFinalize` is set by the "skip" decision on a parked (needs_attention)
+    // record: it tells runSummaries to finish to `done` accepting empty summaries
+    // for the failed topics instead of parking again. Only honored on a resume.
+    const forceFinalize = resuming && rec.forceFinalize === true;
+    await runSummaries(key, topics, sentenceTexts, previousSummaries, forceFinalize);
   } catch (e) {
     await logPipeline(key, 'pipeline_error', {
       error: String(e && e.stack ? e.stack : e),
@@ -516,6 +549,54 @@ async function computeTopics(key, rec) {
 }
 
 /**
+ * Flattens the leaf summary map into the `summaryErrors` shape used by the
+ * confirm popup: one entry per leaf still flagged `error: true`.
+ *
+ * @param {Record<string, {error?: boolean, error_kind?: string, error_message?: string, error_detail?: string}>} topicSummaries
+ * @returns {Array<{topic: string, error_kind: string, error_message: string, error_detail?: string}>}
+ */
+function collectSummaryErrors(topicSummaries) {
+  const out = [];
+  for (const [topic, s] of Object.entries(topicSummaries)) {
+    if (s && s.error) {
+      out.push({
+        topic,
+        error_kind: s.error_kind || 'error',
+        error_message: s.error_message || 'Summary failed.',
+        error_detail: s.error_detail,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Parks the record awaiting a user decision: status `needs_attention` plus the
+ * `summaryErrors` list the popup renders. The record is left otherwise intact so
+ * a "retry"/"skip" resume can pick up exactly where it stopped. `needs_attention`
+ * is deliberately not an in-flight status, so the keepalive alarm won't auto-resume.
+ *
+ * @param {string} key
+ * @param {Array<object>} summaryErrors
+ * @param {'leaf'|'merge'} phase
+ * @param {{done: number, total: number}} progress
+ * @returns {Promise<void>}
+ */
+async function parkForReview(key, summaryErrors, phase, { done, total }) {
+  await updateRecord(key, {
+    status: 'needs_attention',
+    summaryErrors,
+    forceFinalize: false,
+    progress: { stage: 'needs_attention', done, total },
+  });
+  await logPipeline(key, 'topic_summaries_needs_attention', {
+    phase,
+    errorCount: summaryErrors.length,
+    topics: summaryErrors.map((e) => e.topic),
+  });
+}
+
+/**
  * Per-topic leaf summaries followed by the topic-tree merge. Summaries that
  * already succeeded (present and not flagged with an error) are reused so a
  * resumed run only re-queries the LLM for the topics that are still missing or
@@ -525,10 +606,18 @@ async function computeTopics(key, rec) {
  * @param {string} key
  * @param {Array<object>} topics
  * @param {string[]} sentenceTexts
+ * When any leaf (or, later, any tree merge) is still failing after the built-in
+ * retries, the run parks the record in `needs_attention` with a `summaryErrors`
+ * list instead of silently finishing those topics empty. The UI surfaces a
+ * confirm popup; the user's "retry"/"skip" decision resumes the pipeline. On a
+ * "skip" resume `forceFinalize` is set so the run finishes to `done` accepting
+ * the empties instead of parking again.
+ *
  * @param {Record<string, {text: string, error?: boolean}>} previousSummaries
+ * @param {boolean} [forceFinalize]
  * @returns {Promise<void>}
  */
-async function runSummaries(key, topics, sentenceTexts, previousSummaries) {
+async function runSummaries(key, topics, sentenceTexts, previousSummaries, forceFinalize = false) {
   // Plan: which topics reuse a stored summary vs. still need an LLM call.
   const { reused, pending, reusedCount, pendingCount, total } = planSummaryWork(
     topics,
@@ -573,7 +662,7 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries) {
         .join(' ');
       const prompt = buildArticleSummaryPrompt(sourceText);
       let summaryText = '';
-      let failed = false;
+      let failure = null;
       try {
         const resp = await callLLMWithRetry({ prompt, temperature: 0.8 });
         summaryText = parseSummaryResponse(resp);
@@ -583,18 +672,23 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries) {
           summaryLength: summaryText.length,
         });
       } catch (e) {
+        const { kind, message } = classifyLlmError(e);
+        const detail = (e && e.message) || String(e);
         await logPipeline(key, 'topic_summary_llm_error', {
           topic: topic.name,
-          error: (e && e.message) || String(e),
+          error_kind: kind,
+          error: message,
+          detail,
         });
-        failed = true;
+        failure = { error_kind: kind, error_message: message, error_detail: detail };
       }
       topic_summaries[topic.name] = {
         text: summaryText,
         source_sentences: topic.sentences,
-        // Mark failures so a later resume retries only this topic. Successful
-        // empty results (NO_SUMMARY) are stored without the flag and kept.
-        ...(failed ? { error: true } : {}),
+        // Mark failures so a later resume retries only this topic, and carry a
+        // helpful reason for the confirm popup. Successful empty results
+        // (NO_SUMMARY) are stored without the flag and kept.
+        ...(failure ? { error: true, ...failure } : {}),
       };
       done++;
       await updateRecord(key, {
@@ -604,6 +698,16 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries) {
     },
     { warmupFirst: true },
   );
+
+  // Leaves that are still failing after the built-in retries park the run for a
+  // user decision (unless this is a "skip" resume). Merging on top of failed
+  // leaves would bury the failure as a degraded/empty parent summary, so we stop
+  // before the merge.
+  const leafErrors = collectSummaryErrors(topic_summaries);
+  if (leafErrors.length && !forceFinalize) {
+    await parkForReview(key, leafErrors, 'leaf', { done, total });
+    return;
+  }
 
   await logPipeline(key, 'topic_tree_merge_start', {
     leafCount: total,
@@ -615,26 +719,37 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries) {
   // (merge failures degrade to empty summaries). The limiter bounds the
   // in-flight merge calls while leaving the traversal unbounded.
   const limitMerge = createLimiter(SUMMARY_CONCURRENCY);
+  const mergeErrors = [];
+  const merge = forceFinalize ? async () => ({ text: '' }) : mergeChildSummaries;
   const topic_summary_index = await summarizeTopicTree({
     root,
     nodes,
     leafSummaries: topic_summaries,
-    merge: mergeChildSummaries,
+    merge,
     limit: limitMerge,
-    onMergeError: ({ path, error }) =>
-      logPipeline(key, 'topic_tree_merge_error', { path, error }),
+    onMergeError: ({ path, error }) => {
+      const { kind, message } = classifyLlmError(error);
+      mergeErrors.push({ topic: path, error_kind: kind, error_message: message, error_detail: String(error) });
+      return logPipeline(key, 'topic_tree_merge_error', { path, error_kind: kind, error: message });
+    },
   });
   await logPipeline(key, 'topic_tree_merge_done', {
     nodeCount: Object.keys(topic_summary_index).length,
   });
 
-  // The `error` flag is an in-flight-only invariant: it exists solely so a run
-  // resumed mid-summarizing (status still 'summarizing') retries failed leaves
-  // instead of treating their empty text as a legit NO_SUMMARY. Once we reach
-  // the terminal 'done' state the flag is vestigial and would never be honored,
-  // so strip it. This restores the pre-change terminal shape (every topic
-  // present; a persistent failure resolves to empty text, recoverable only via
-  // reprocess).
+  // A merge that failed after retries left an empty parent summary; park the run
+  // (same confirm popup) rather than silently shipping an empty topic. A "skip"
+  // resume bypasses this and accepts the empty merge.
+  if (mergeErrors.length && !forceFinalize) {
+    await parkForReview(key, mergeErrors, 'merge', { done: total, total });
+    return;
+  }
+
+  // The `error` flag (and its attached reason fields) is an in-flight-only
+  // invariant: it exists so a run resumed mid-summarizing retries failed leaves,
+  // or parks them for review. Once we reach the terminal 'done' state — either no
+  // failures remained or the user chose "skip" — the flag is vestigial, so strip
+  // it. A skipped failure resolves to empty text (recoverable via retry/reprocess).
   const finalizedSummaries = {};
   for (const [name, summary] of Object.entries(topic_summaries)) {
     finalizedSummaries[name] = {
@@ -648,6 +763,9 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries) {
     topic_summaries: finalizedSummaries,
     topic_summary_index,
     progress: { stage: 'done', done: total, total },
+    // Clear any parked-review state now that the run has finalized.
+    summaryErrors: [],
+    forceFinalize: false,
   });
   await logPipeline(key, 'pipeline_done', {
     topicCount: total,

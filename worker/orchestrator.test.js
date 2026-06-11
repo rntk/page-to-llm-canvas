@@ -7,6 +7,7 @@ import {
   rangesToSentenceList,
   mapTextOffsetToHtml,
   parseSummaryResponse,
+  classifyLlmError,
 } from './orchestrator.js';
 import * as storage from './storage.js';
 import * as html from './html.js';
@@ -425,7 +426,7 @@ describe('runPipeline', () => {
     expect(lastCall[1].topic_summary_index['Tech'].text).toBe('Merged tech summary.');
   });
 
-  it('handles LLM summary errors gracefully per topic', async () => {
+  it('parks for review with a helpful error when a topic summary keeps failing', async () => {
     const plainText = 'A. B.';
     const mapping = makeMapping(plainText);
     storage.readRecord.mockResolvedValue(makeRecord('key6', '<p>A. B.</p>'));
@@ -437,14 +438,26 @@ describe('runPipeline', () => {
 
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
-      if (prompt.includes('Summarize the article text')) throw new Error('LLM down');
+      if (prompt.includes('Summarize the article text')) {
+        throw new Error('LLM request timed out after 120000ms');
+      }
       return '';
     });
 
     await runPipeline('key6');
 
-    const lastCall = storage.updateRecord.mock.calls[storage.updateRecord.mock.calls.length - 1];
-    expect(lastCall[1].topic_summaries['Tech>All'].text).toBe('');
+    // No 'done' write: the run parks awaiting a user decision instead of
+    // silently finishing the failed topic empty.
+    expect(storage.updateRecord.mock.calls.some((c) => c[1].status === 'done')).toBe(false);
+
+    const parkCall = storage.updateRecord.mock.calls.find(
+      (c) => c[1].status === 'needs_attention',
+    );
+    expect(parkCall).toBeDefined();
+    expect(parkCall[1].summaryErrors).toHaveLength(1);
+    expect(parkCall[1].summaryErrors[0].topic).toBe('Tech>All');
+    expect(parkCall[1].summaryErrors[0].error_kind).toBe('timeout');
+    expect(parkCall[1].summaryErrors[0].error_message).toMatch(/did not respond/i);
   });
 
   it('chunks tagged text when it exceeds MAX_TAGGED_CHARS', async () => {
@@ -739,7 +752,7 @@ describe('runPipeline', () => {
     expect(doneCall[1].topic_summaries.C.error).toBeUndefined();
   });
 
-  it('flags a failed summary with error:true while summarizing, but strips it once done', async () => {
+  it('flags a failed summary with error:true while summarizing, then parks instead of finishing', async () => {
     storage.readRecord.mockResolvedValue(makeRecord('failmark', '<p>One. Two.</p>'));
     html.stripTagsKeepOffsets.mockReturnValue({
       text: 'One. Two.',
@@ -757,18 +770,128 @@ describe('runPipeline', () => {
 
     await runPipeline('failmark');
 
-    // Production side: while summarizing, the failed leaf is persisted with the
-    // error flag so a recycle-resume retries it instead of reusing empty text.
+    // While summarizing, the failed leaf is persisted with the error flag (plus a
+    // reason) so a recycle-resume retries it instead of reusing empty text.
     const inFlightFlagged = storage.updateRecord.mock.calls.find(
       (call) => call[1].topic_summaries && call[1].topic_summaries['Tech>All']?.error === true,
     );
     expect(inFlightFlagged).toBeDefined();
+    expect(inFlightFlagged[1].topic_summaries['Tech>All'].error_message).toBeTruthy();
 
-    // Terminal side: the flag is an in-flight-only invariant and must not leak
-    // into the done record — the leaf resolves to plain empty text.
-    const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
+    // Terminal side: with the failure unresolved the run parks rather than
+    // reaching 'done'. The user's retry/skip decision drives it from here.
+    expect(storage.updateRecord.mock.calls.some((c) => c[1].status === 'done')).toBe(false);
+    const parkCall = storage.updateRecord.mock.calls.find(
+      (c) => c[1].status === 'needs_attention',
+    );
+    expect(parkCall).toBeDefined();
+    expect(parkCall[1].summaryErrors.map((e) => e.topic)).toContain('Tech>All');
+  });
+
+  it('finalizes a parked failure to empty text when resumed with forceFinalize (skip)', async () => {
+    // Simulate the "skip" resume: record is back in 'summarizing', the failed
+    // leaf's error flag was already cleared by the resolveSummaryErrors handler,
+    // and forceFinalize tells the run to finish accepting the empty summary.
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('skip1', '<p>One. Two.</p>'),
+      status: 'summarizing',
+      forceFinalize: true,
+      topics: [{ name: 'Tech>All', sentences: [1, 2], sentence_spans: [], ranges: [] }],
+      sentences: ['One.', 'Two.'],
+      topic_summaries: { 'Tech>All': { text: '', source_sentences: [1, 2] } },
+    });
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Merge the chunk summaries')) return 'Merged.';
+      return '';
+    });
+
+    await runPipeline('skip1');
+
+    const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
+    expect(doneCall).toBeDefined();
     expect(doneCall[1].topic_summaries['Tech>All'].text).toBe('');
     expect(doneCall[1].topic_summaries['Tech>All'].error).toBeUndefined();
+    // Park state is cleared on finalize.
+    expect(doneCall[1].summaryErrors).toEqual([]);
+    expect(doneCall[1].forceFinalize).toBe(false);
+    // No new summary LLM call happened — skip reuses the empty leaf as-is.
+    expect(
+      llm.callLLMWithRetry.mock.calls.some(([opts]) =>
+        opts.prompt.includes('Summarize the article text'),
+      ),
+    ).toBe(false);
+  });
+
+  it('parks for review when a tree-merge keeps failing (merge phase)', async () => {
+    const plainText = 'A. B. C. D.';
+    const mapping = makeMapping(plainText);
+    storage.readRecord.mockResolvedValue(makeRecord('mergefail', '<p>A. B. C. D.</p>'));
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'A.', start: 0, end: 2 },
+      { text: 'B.', start: 3, end: 5 },
+      { text: 'C.', start: 6, end: 8 },
+      { text: 'D.', start: 9, end: 11 },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      // Two sibling topics under "Tech" → a real merge call is made for the parent.
+      if (prompt.includes('Partition the markers')) return 'Tech>AI: 0-1\nTech>Hardware: 2-3';
+      if (prompt.includes('Merge the chunk summaries')) {
+        throw new Error('LLM HTTP 429: too many requests');
+      }
+      return 'Leaf summary.';
+    });
+
+    await runPipeline('mergefail');
+
+    // Leaves all succeeded, so the park is triggered by the merge, not a leaf.
+    expect(storage.updateRecord.mock.calls.some((c) => c[1].status === 'done')).toBe(false);
+    const parkCall = storage.updateRecord.mock.calls.find(
+      (c) => c[1].status === 'needs_attention',
+    );
+    expect(parkCall).toBeDefined();
+    expect(parkCall[1].summaryErrors.map((e) => e.topic)).toContain('Tech');
+    expect(parkCall[1].summaryErrors[0].error_kind).toBe('rate_limited');
+  });
+
+  it('forceFinalize (skip) bypasses the merge-phase park and finishes empty', async () => {
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('mergeskip', '<p>A. B. C. D.</p>'),
+      status: 'summarizing',
+      forceFinalize: true,
+      topics: [
+        { name: 'Tech>AI', sentences: [1, 2], sentence_spans: [], ranges: [] },
+        { name: 'Tech>Hardware', sentences: [3, 4], sentence_spans: [], ranges: [] },
+      ],
+      sentences: ['A.', 'B.', 'C.', 'D.'],
+      topic_summaries: {
+        'Tech>AI': { text: 'AI summary.', source_sentences: [1, 2] },
+        'Tech>Hardware': { text: 'HW summary.', source_sentences: [3, 4] },
+      },
+    });
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Merge the chunk summaries')) throw new Error('LLM HTTP 429');
+      return '';
+    });
+
+    await runPipeline('mergeskip');
+
+    // No re-park and no provider call: the skipped merge degrades immediately.
+    expect(storage.updateRecord.mock.calls.some((c) => c[1].status === 'needs_attention')).toBe(
+      false,
+    );
+    expect(
+      llm.callLLMWithRetry.mock.calls.some(([opts]) =>
+        opts.prompt.includes('Merge the chunk summaries'),
+      ),
+    ).toBe(false);
+    const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
+    expect(doneCall).toBeDefined();
+    // The failed parent merge degrades to empty text; the leaves are kept.
+    expect(doneCall[1].topic_summary_index['Tech'].text).toBe('');
+    expect(doneCall[1].topic_summaries['Tech>AI'].text).toBe('AI summary.');
+    expect(doneCall[1].summaryErrors).toEqual([]);
+    expect(doneCall[1].forceFinalize).toBe(false);
   });
 
   it('clears stale topics and summaries on a fresh run (non-resume path)', async () => {
@@ -814,5 +937,40 @@ describe('runPipeline', () => {
     const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
     expect(doneCall[1].topic_summaries.StaleTopic).toBeUndefined();
     expect(doneCall[1].topic_summaries['Tech>All'].text).toBe('Fresh summary.');
+  });
+});
+
+describe('classifyLlmError', () => {
+  it('classifies timeouts', () => {
+    const r = classifyLlmError(new Error('LLM request timed out after 120000ms'));
+    expect(r.kind).toBe('timeout');
+    expect(r.message).toMatch(/did not respond/i);
+  });
+
+  it('classifies rate limits', () => {
+    expect(classifyLlmError(new Error('LLM HTTP 429: too many requests')).kind).toBe('rate_limited');
+    expect(classifyLlmError(new Error('rate limit exceeded')).kind).toBe('rate_limited');
+  });
+
+  it('classifies a missing provider', () => {
+    expect(classifyLlmError(new Error('No LLM provider configured.')).kind).toBe('no_provider');
+  });
+
+  it('classifies auth failures', () => {
+    expect(classifyLlmError(new Error('LLM HTTP 401: unauthorized')).kind).toBe('auth');
+    expect(classifyLlmError(new Error('invalid api key')).kind).toBe('auth');
+  });
+
+  it('falls back to a capped raw message for unknown errors', () => {
+    const long = 'x'.repeat(500);
+    const r = classifyLlmError(new Error(long));
+    expect(r.kind).toBe('error');
+    expect(r.message.length).toBeLessThanOrEqual(201);
+    expect(r.message.endsWith('…')).toBe(true);
+  });
+
+  it('handles non-Error values', () => {
+    expect(classifyLlmError('plain string boom').kind).toBe('error');
+    expect(classifyLlmError(null).kind).toBe('error');
   });
 });
