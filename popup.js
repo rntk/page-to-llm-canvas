@@ -130,12 +130,30 @@ export function providerReadinessState(response, error) {
 }
 
 export function getRecordActions(record) {
-  const viewActions = [{ label: 'Canvas', mode: 'canvas' }];
+  const viewActions = [
+    {
+      label: 'Canvas',
+      mode: 'canvas',
+      description: 'Open the saved visual canvas for this page.',
+    },
+  ];
   if (record && record.status === 'done') {
     viewActions.push(
-      { label: 'Topics', mode: 'topics' },
-      { label: 'Summaries', mode: 'summaries' },
-      { label: 'Hierarchy', mode: 'hierarchy' },
+      {
+        label: 'Topics',
+        mode: 'topics',
+        description: 'View extracted topics from this analysis.',
+      },
+      {
+        label: 'Summaries',
+        mode: 'summaries',
+        description: 'View generated summaries for selected content.',
+      },
+      {
+        label: 'Hierarchy',
+        mode: 'hierarchy',
+        description: 'View the content structure and relationships.',
+      },
     );
   }
   return [
@@ -147,6 +165,7 @@ export function getRecordActions(record) {
       messageType: 'reprocessRecord',
       confirmMessage: 'Reprocess this analysis? Existing results will be overwritten.',
       failureMessage: 'Reprocess failed',
+      description: 'Run this analysis again and overwrite existing results.',
     },
     {
       kind: 'message',
@@ -155,6 +174,7 @@ export function getRecordActions(record) {
       messageType: 'deleteRecord',
       confirmMessage: 'Delete this record?',
       failureMessage: 'Delete failed',
+      description: 'Remove this saved analysis from the extension.',
     },
   ];
 }
@@ -196,11 +216,18 @@ async function openRecordView(key, mode) {
   }
 }
 
-function makeAction(label, key, mode) {
+function addActionHint(button, label, description) {
+  if (!description) return;
+  button.title = description;
+  button.setAttribute('aria-label', `${label}: ${description}`);
+}
+
+function makeAction(label, key, mode, description) {
   const button = document.createElement('button');
   button.className = 'action';
   button.type = 'button';
   button.textContent = label;
+  addActionHint(button, label, description);
   button.addEventListener('click', () => openRecordView(key, mode));
   return button;
 }
@@ -228,6 +255,7 @@ function makeMessageAction(action, key) {
   button.className = ['action', action.className].filter(Boolean).join(' ');
   button.type = 'button';
   button.textContent = action.label;
+  addActionHint(button, action.label, action.description);
   button.addEventListener('click', () =>
     handleMessageAction(action, key, {
       confirm,
@@ -290,7 +318,7 @@ function renderRecords(records) {
     display.actions.forEach((action) => {
       actions.appendChild(
         action.kind === 'view'
-          ? makeAction(action.label, display.key, action.mode)
+          ? makeAction(action.label, display.key, action.mode, action.description)
           : makeMessageAction(action, display.key),
       );
     });

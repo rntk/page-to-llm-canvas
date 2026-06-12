@@ -100,6 +100,13 @@
         color: var(--ink);
       }
 
+      .control-hint {
+        margin: -4px 14px 12px;
+        color: var(--on-surface-muted);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
       .primary:disabled,
       .primary:disabled:hover {
         cursor: not-allowed;
@@ -276,6 +283,13 @@
         color: var(--accent);
         border-color: var(--accent);
       }
+
+      .footer-hint {
+        margin-top: 6px;
+        color: var(--on-surface-muted);
+        font-size: 11px;
+        line-height: 1.3;
+      }
     </style>
   </head>
   <body>
@@ -285,12 +299,29 @@
           <h1>PageToLLM Canvas</h1>
           <div class="host" id="active-host">Loading page...</div>
         </div>
-        <button class="icon-btn" id="refresh-btn" type="button" title="Refresh saved analyses">
+        <button
+          class="icon-btn"
+          id="refresh-btn"
+          type="button"
+          title="Reload saved analyses for the current page."
+          aria-label="Reload saved analyses for the current page"
+        >
           ↻
         </button>
       </header>
 
-      <button class="primary" id="pick-btn" type="button">Pick Blocks</button>
+      <button
+        class="primary"
+        id="pick-btn"
+        type="button"
+        title="Select blocks on this page and send them to your active LLM provider for analysis."
+        aria-describedby="pick-hint"
+      >
+        Pick Blocks
+      </button>
+      <div class="control-hint" id="pick-hint">
+        Select page sections to analyze and save as a canvas.
+      </div>
 
       <div class="section-title">
         <span>Saved analyses</span>
@@ -300,7 +331,17 @@
       <div class="empty" id="empty" hidden>No saved analyses for this page yet.</div>
       <div class="error" id="error" hidden></div>
 
-      <footer class="footer"><a href="#" id="open-options">Open Options</a></footer>
+      <footer class="footer">
+        <a
+          href="#"
+          id="open-options"
+          title="Configure LLM providers and extension settings."
+          aria-describedby="options-hint"
+        >
+          Open Options
+        </a>
+        <div class="footer-hint" id="options-hint">Configure providers and extension settings.</div>
+      </footer>
     </main>
     <script type="module" src="popup.js"></script>
   </body>
