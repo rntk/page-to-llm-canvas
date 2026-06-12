@@ -55,7 +55,7 @@ function getTitleLineBudget(height) {
 }
 
 export function getTopicTitleFontSize({ scale, height }) {
-  const zoomAdjusted = CARD_TITLE_FONT_SIZE * Math.max(1, 1 / clampScale(scale));
+  const zoomAdjusted = CARD_TITLE_FONT_SIZE * Math.max(1, 1.25 / clampScale(scale) - 0.25);
   const safeHeight = Number.isFinite(height) ? height : CARD_HEIGHT;
   const titleLines = getTitleLineBudget(safeHeight);
   const availableTitleHeight = Math.max(
@@ -65,6 +65,7 @@ export function getTopicTitleFontSize({ scale, height }) {
   const heightCapped = availableTitleHeight / (CARD_TITLE_LINE_HEIGHT * titleLines);
   return Math.max(1, Math.min(zoomAdjusted, heightCapped));
 }
+
 
 /**
  * @typedef {Object} TopicTreeNode

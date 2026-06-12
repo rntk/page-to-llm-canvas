@@ -356,4 +356,36 @@ describe('CanvasTopicHierarchyRail', () => {
     expect(buttons).toHaveLength(2);
     unmount();
   });
+
+  it('caps font size based on fixed rendered spacing', () => {
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        topicCards: [
+          {
+            key: 'o1',
+            fullPath: 'Topic A',
+            displayName: 'Topic A',
+            sentenceCount: 5,
+            startSentence: 1,
+            endSentence: 5,
+            top: 50,
+            height: 72,
+            titleFontSize: 40,
+            depth: 0,
+            levelIndex: 0,
+            right: 0,
+          },
+        ],
+      }),
+    );
+
+    const button = container.querySelector('.canvas-topic-hierarchy__card');
+    // At local height=72, with fixed spacing:
+    // availableTitleHeight = 72 - 31 = 41px.
+    // heightCapped = 41 / 1.2 = 34.16px.
+    // Since titleFontSize is 40, it exceeds heightCapped and should be capped to ~34px.
+    expect(button.style.getPropertyValue('--topic-card-title-font-size')).toContain('34');
+    unmount();
+  });
 });

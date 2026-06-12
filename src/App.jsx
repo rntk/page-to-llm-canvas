@@ -614,6 +614,7 @@ export default function App({ initialKey }) {
                     readTopics={null}
                     onToggleRead={null}
                     currentTopicSummary={currentTopicSummary}
+                    scale={scale}
                   />
                 </div>
               </div>
