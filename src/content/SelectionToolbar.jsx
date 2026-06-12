@@ -20,6 +20,14 @@ export default function SelectionToolbar({
     : selectedBlocks.length > 0
       ? `Submit (${selectedBlocks.length})`
       : 'Submit';
+  const pickHint = isPicking
+    ? 'Stop picking page blocks'
+    : 'Pick page blocks to include in the summary';
+  const submitHint =
+    selectedBlocks.length > 0
+      ? 'Submit the selected blocks for processing'
+      : 'Select at least one block before submitting';
+  const cancelHint = 'Cancel selection and close this toolbar';
 
   return (
     <>
@@ -29,6 +37,8 @@ export default function SelectionToolbar({
           className={isPicking ? 'active' : ''}
           type="button"
           disabled={isSubmitting}
+          title={pickHint}
+          aria-label={pickHint}
           onClick={onTogglePicking}
         >
           {isPicking ? 'Picking...' : 'Pick Block'}
@@ -37,11 +47,20 @@ export default function SelectionToolbar({
           id="pagetollm-submit-btn"
           type="button"
           disabled={selectedBlocks.length === 0 || isSubmitting}
+          title={submitHint}
+          aria-label={submitHint}
           onClick={onSubmit}
         >
           {submitLabel}
         </button>
-        <button id="pagetollm-cancel-btn" type="button" disabled={isSubmitting} onClick={onCancel}>
+        <button
+          id="pagetollm-cancel-btn"
+          type="button"
+          disabled={isSubmitting}
+          title={cancelHint}
+          aria-label={cancelHint}
+          onClick={onCancel}
+        >
           Cancel
         </button>
       </div>
