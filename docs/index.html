@@ -58,10 +58,11 @@
     <!-- Hero Section -->
     <section class="hero" id="hero">
       <div class="hero-content">
-        <h1 class="hero-title">LLM-Generated Topics, Subtopics, and Summaries for Web Pages</h1>
+        <h1 class="hero-title">Turn dense web pages into a clear, explorable canvas</h1>
         <p class="hero-subtitle">
-          The extension uses an LLM to find topics and subtopics in selected page text, generate
-          summaries for each topic, and show that metadata in inline, hierarchy, and canvas views.
+          Pick a block of any page and an LLM you configure finds its topics and subtopics, writes a
+          summary for each, and lays everything out in inline, hierarchy, and canvas views — so you
+          can grasp a long article at a glance.
         </p>
         <div class="hero-actions">
           <a href="#quickstart" class="btn btn-primary" id="btn-hero-get-started">
@@ -90,8 +91,18 @@
         <div class="section-header">
           <h2 class="section-title">Quickstart Guide</h2>
           <p class="section-desc">
-            Get Extension Canvas up and running on your local machine in minutes.
+            Six steps from cloning the repo to exploring your first canvas — install once, then it's
+            just pick, process, explore.
           </p>
+        </div>
+
+        <div class="prereq-bar">
+          <span class="prereq-label"><i class="fa-solid fa-circle-check"></i> Before you start</span>
+          <ul class="prereq-list">
+            <li><i class="fa-brands fa-chrome"></i> Chrome or any Chromium browser</li>
+            <li><i class="fa-brands fa-node-js"></i> Node.js 20+ <span>(or skip it with Docker)</span></li>
+            <li><i class="fa-solid fa-key"></i> An LLM API key <span>(or a local model)</span></li>
+          </ul>
         </div>
 
         <div class="steps-grid">
@@ -153,8 +164,8 @@ npm run build</code></pre>
             <div class="step-num">03</div>
             <h3>Configure LLM Provider</h3>
             <p>
-              Before running the pipeline, set up an API provider under the settings page. Access
-              this by clicking <strong>Options</strong> in the popup or extension details.
+              Before running the pipeline, set up an API provider on the settings page. Open it with
+              the <strong>Open Options</strong> link at the bottom of the popup.
             </p>
             <ul class="step-list">
               <li>
@@ -175,7 +186,86 @@ npm run build</code></pre>
               />
             </div>
           </div>
+
+          <!-- Step 4 -->
+          <div class="step-card">
+            <div class="step-num">04</div>
+            <h3>Pick a Page Block</h3>
+            <p>
+              Open any article and click the extension icon. Hit <strong>Pick Blocks</strong>, then
+              choose just the part of the page you want analyzed.
+            </p>
+            <ol class="step-list">
+              <li>In the popup, click <strong>Pick Blocks</strong> to enter pick mode.</li>
+              <li>Hover the page and click a section to capture it (pick more than one if needed).</li>
+              <li>
+                On the toolbar at the top, click <strong>Submit</strong> to start — or
+                <strong>Cancel</strong> to back out.
+              </li>
+            </ol>
+            <div class="step-image-wrapper">
+              <img
+                src="media/screenshots/page-toolbar-picked-plock.png"
+                alt="Selecting a page block with the Pick Block, Submit, and Cancel toolbar"
+                class="step-image lightbox-trigger"
+              />
+            </div>
+          </div>
+
+          <!-- Step 5 -->
+          <div class="step-card">
+            <div class="step-num">05</div>
+            <h3>Watch It Process</h3>
+            <p>
+              The toolbar icon shows live status while the LLM splits, summarizes, and maps topics. A
+              small activity marker means it's still working; the icon returns to its ready state when
+              your canvas is done.
+            </p>
+            <div class="icon-status-grid in-step">
+              <figure>
+                <img
+                  src="media/screenshots/extension-icon-processing-in-progress.png"
+                  alt="Extension toolbar icon while processing is in progress"
+                />
+                <figcaption>Processing</figcaption>
+              </figure>
+              <figure>
+                <img
+                  src="media/screenshots/extension-icon-processing-finished.png"
+                  alt="Extension toolbar icon after processing has finished"
+                />
+                <figcaption>Done</figcaption>
+              </figure>
+            </div>
+          </div>
+
+          <!-- Step 6 -->
+          <div class="step-card">
+            <div class="step-num">06</div>
+            <h3>Explore Your Canvas</h3>
+            <p>
+              Once it's done, dig into the results three ways — each is a different lens on the same
+              topics and summaries.
+            </p>
+            <ul class="step-list">
+              <li><strong>Inline:</strong> topic tags layered onto the source page.</li>
+              <li><strong>Hierarchy:</strong> nested topics and subtopics in the sidebar.</li>
+              <li><strong>Canvas:</strong> pan and zoom through the summary cards.</li>
+            </ul>
+            <div class="step-image-wrapper">
+              <img
+                src="media/screenshots/canvas-topics-view.png"
+                alt="Exploring generated topics and summaries on the canvas"
+                class="step-image lightbox-trigger"
+              />
+            </div>
+          </div>
         </div>
+
+        <p class="quickstart-footnote">
+          Prefer to see it first? <a href="#screencasts">Watch the demos</a> for a walkthrough of
+          each view.
+        </p>
       </div>
     </section>
 
@@ -328,36 +418,6 @@ npm run build</code></pre>
                 sent to third-party tracking services; page content is only sent to the LLM provider
                 you configure and mark as active.
               </p>
-            </div>
-          </div>
-
-          <div class="faq-item">
-            <button class="faq-question" onclick="toggleFaq(this)">
-              <span>How can I tell when processing is done?</span>
-              <span class="faq-icon"><i class="fa-solid fa-chevron-down"></i></span>
-            </button>
-            <div class="faq-answer">
-              <p>
-                The extension icon shows the current processing state in the browser toolbar. A
-                small activity marker means work is still running. When processing finishes, the
-                icon returns to its ready state.
-              </p>
-              <div class="icon-status-grid">
-                <figure>
-                  <img
-                    src="media/screenshots/extension-icon-processing-in-progress.png"
-                    alt="Extension toolbar icon while processing is in progress"
-                  />
-                  <figcaption>Processing in progress</figcaption>
-                </figure>
-                <figure>
-                  <img
-                    src="media/screenshots/extension-icon-processing-finished.png"
-                    alt="Extension toolbar icon after processing has finished"
-                  />
-                  <figcaption>Processing finished</figcaption>
-                </figure>
-              </div>
             </div>
           </div>
         </div>
