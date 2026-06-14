@@ -2,6 +2,8 @@
 
 Extension Canvas is a Chrome extension for turning parts of a web page into a clearer, easier-to-explore view.
 
+🚀 **[View the Interactive Documentation & Help Manual](https://rntk.github.io/page-to-llm-canvas/)** for visual walkthroughs, screenshots, interactive demos, and troubleshooting guides.
+
 Pick content from any page, open it in a focused canvas, and use summaries and topic hints to understand the page faster. It is meant for reading, reviewing, and making sense of long or complex web content without losing the connection to the original text.
 
 ## What it helps with

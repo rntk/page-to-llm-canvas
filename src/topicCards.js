@@ -66,7 +66,6 @@ export function getTopicTitleFontSize({ scale, height }) {
   return Math.max(1, Math.min(zoomAdjusted, heightCapped));
 }
 
-
 /**
  * @typedef {Object} TopicTreeNode
  * @property {string} name

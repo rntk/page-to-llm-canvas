@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Extension Canvas — Turn web pages into clear, explorable canvases</title>
+    <meta
+      name="description"
+      content="Extension Canvas uses configured LLMs to find topics and subtopics, generate summaries, and show page metadata in inline, hierarchy, and canvas views."
+    />
+
+    <!-- SEO & Social Meta Tags -->
+    <meta property="og:title" content="Extension Canvas — Page to LLM Canvas View" />
+    <meta
+      property="og:description"
+      content="Transform long web articles into clear visual maps of topics and AI-generated summaries. Explore, search, and jump back to the source text seamlessly."
+    />
+    <meta property="og:type" content="website" />
+
+    <!-- Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&family=Work+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+
+    <!-- Favicons -->
+    <link rel="icon" type="image/png" sizes="16x16" href="icons/icon-16.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="icons/icon-48.png" />
+    <link rel="icon" type="image/png" sizes="96x96" href="icons/icon-96.png" />
+
+    <!-- Custom Stylesheet -->
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- Navigation -->
+    <header class="navbar">
+      <div class="nav-container">
+        <nav class="nav-links">
+          <a href="#about"><i class="fa-solid fa-circle-info"></i> About</a>
+          <a href="#quickstart"><i class="fa-solid fa-rocket"></i> Quickstart</a>
+          <a href="#screencasts"><i class="fa-solid fa-circle-play"></i> Demos</a>
+          <a href="#faq"><i class="fa-solid fa-circle-question"></i> Help</a>
+        </nav>
+        <div class="nav-actions">
+          <a href="https://github.com/rntk/page-to-llm-canvas" class="github-btn" target="_blank">
+            <i class="fa-brands fa-github"></i> GitHub
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero" id="hero">
+      <div class="hero-content">
+        <h1 class="hero-title">LLM-Generated Topics, Subtopics, and Summaries for Web Pages</h1>
+        <p class="hero-subtitle">
+          The extension uses an LLM to find topics and subtopics in selected page text, generate
+          summaries for each topic, and show that metadata in inline, hierarchy, and canvas views.
+        </p>
+        <div class="hero-actions">
+          <a href="#quickstart" class="btn btn-primary" id="btn-hero-get-started">
+            Get Started <i class="fa-solid fa-arrow-right"></i>
+          </a>
+          <a href="#screencasts" class="btn btn-secondary" id="btn-hero-watch-demo">
+            Watch Demos <i class="fa-solid fa-play"></i>
+          </a>
+        </div>
+      </div>
+      <div class="hero-visual">
+        <div class="canvas-mockup-wrapper">
+          <img
+            src="media/screenshots/canvas-summaries-view.png"
+            alt="Extension Canvas Summary View Dashboard"
+            class="hero-image"
+            id="hero-img-main"
+          />
+        </div>
+      </div>
+    </section>
+
+    <!-- Quickstart & Installation -->
+    <section class="section quickstart" id="quickstart">
+      <div class="container">
+        <div class="section-header">
+          <h2 class="section-title">Quickstart Guide</h2>
+          <p class="section-desc">
+            Get Extension Canvas up and running on your local machine in minutes.
+          </p>
+        </div>
+
+        <div class="steps-grid">
+          <!-- Step 1 -->
+          <div class="step-card">
+            <div class="step-num">01</div>
+            <h3>Build the Extension</h3>
+            <p>
+              Clone the repository and run the build script locally, or build via Docker. This
+              compiles the React modules and packs extension files into the
+              <code>dist/</code> directory.
+            </p>
+
+            <div class="code-tab-container">
+              <div class="code-tab-header">
+                <button class="code-tab-btn active" onclick="switchCodeTab(event, 'local-build')">
+                  Local
+                </button>
+                <button class="code-tab-btn" onclick="switchCodeTab(event, 'docker-build')">
+                  Docker
+                </button>
+              </div>
+              <div class="code-tab-content active" id="local-build">
+                <pre><code>npm ci
+npm run build</code></pre>
+              </div>
+              <div class="code-tab-content" id="docker-build">
+                <pre><code>docker run --rm --user "${UID:-1000}" \
+  -v "$PWD:/app" -w /app node:24-alpine \
+  sh -c "npm ci && npm run build"</code></pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2 -->
+          <div class="step-card">
+            <div class="step-num">02</div>
+            <h3>Load Unpacked into Chrome</h3>
+            <p>Load the compiled build directly into your browser:</p>
+            <ol class="step-list">
+              <li>Navigate to <code class="url-code">chrome://extensions</code> in Chrome.</li>
+              <li>Enable <strong>Developer mode</strong> in the top-right corner.</li>
+              <li>
+                Click <strong>Load unpacked</strong> and select the generated
+                <code>dist/</code> directory.
+              </li>
+            </ol>
+            <div class="step-image-wrapper">
+              <img
+                src="media/screenshots/extension-popup-without-llm-provider.png"
+                alt="Unpacked Extension Popup Screen"
+                class="step-image lightbox-trigger"
+              />
+            </div>
+          </div>
+
+          <!-- Step 3 -->
+          <div class="step-card">
+            <div class="step-num">03</div>
+            <h3>Configure LLM Provider</h3>
+            <p>
+              Before running the pipeline, set up an API provider under the settings page. Access
+              this by clicking <strong>Options</strong> in the popup or extension details.
+            </p>
+            <ul class="step-list">
+              <li>
+                Select from <strong>OpenAI</strong>, <strong>DeepSeek</strong>,
+                <strong>Anthropic</strong>, <strong>OpenRouter</strong>, or any
+                <strong>OpenAI-compatible URL</strong>.
+              </li>
+              <li>
+                Configure model options and API keys, then set the provider as
+                <strong>Active</strong>.
+              </li>
+            </ul>
+            <div class="step-image-wrapper">
+              <img
+                src="media/screenshots/options-page-added-llm-provider.png"
+                alt="Options page with configured LLM provider"
+                class="step-image lightbox-trigger"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive Demos (Screencasts) -->
+    <section class="section screencasts-section" id="screencasts">
+      <div class="container">
+        <div class="section-header">
+          <h2 class="section-title">Interactive Demos & Screencasts</h2>
+          <p class="section-desc">
+            Watch Extension Canvas in action. Learn how to extract pages, configure structures, and
+            explore the generated canvas.
+          </p>
+        </div>
+
+        <div class="screencast-player-container">
+          <!-- Left Side: Interactive Sidebar Selector -->
+          <div class="screencast-sidebar">
+            <button
+              class="screencast-tab-btn active"
+              id="tab-btn-pick-block"
+              onclick="selectScreencast('how-pick-block', this)"
+            >
+              <span class="tab-icon"><i class="fa-solid fa-hand-pointer"></i></span>
+              <div class="tab-info">
+                <h4>Pick a Page Block</h4>
+                <p>Select the exact page area you want processed.</p>
+              </div>
+            </button>
+
+            <button
+              class="screencast-tab-btn"
+              id="tab-btn-summaries"
+              onclick="selectScreencast('page-summaries', this)"
+            >
+              <span class="tab-icon"><i class="fa-solid fa-list-check"></i></span>
+              <div class="tab-info">
+                <h4>Page Summaries</h4>
+                <p>Extract and summarize selected articles instantly.</p>
+              </div>
+            </button>
+
+            <button
+              class="screencast-tab-btn"
+              id="tab-btn-topics"
+              onclick="selectScreencast('canvas-topics', this)"
+            >
+              <span class="tab-icon"><i class="fa-solid fa-diagram-project"></i></span>
+              <div class="tab-info">
+                <h4>Canvas Topics Exploration</h4>
+                <p>Navigate the generated topics dynamically on canvas.</p>
+              </div>
+            </button>
+
+            <button
+              class="screencast-tab-btn"
+              id="tab-btn-hierarchy"
+              onclick="selectScreencast('page-topics-hierarchy', this)"
+            >
+              <span class="tab-icon"><i class="fa-solid fa-sitemap"></i></span>
+              <div class="tab-info">
+                <h4>Topic Hierarchy Sidebar</h4>
+                <p>Explore deep document hierarchies via sidebar.</p>
+              </div>
+            </button>
+
+            <button
+              class="screencast-tab-btn"
+              id="tab-btn-pagetopics"
+              onclick="selectScreencast('page-topics', this)"
+            >
+              <span class="tab-icon"><i class="fa-solid fa-tags"></i></span>
+              <div class="tab-info">
+                <h4>Page Topics & Inline Tags</h4>
+                <p>See categorized topics aligned with page content.</p>
+              </div>
+            </button>
+          </div>
+
+          <!-- Right Side: Video Player Display -->
+          <div class="screencast-display">
+            <div class="video-wrapper">
+              <video
+                id="screencast-video"
+                controls
+                muted
+                playsinline
+                poster="media/screenshots/extension-popup-ready-to-pick-block.png"
+              >
+                <source
+                  id="screencast-source"
+                  src="media/screencasts/how-pick-block.webm"
+                  type="video/webm"
+                />
+                Your browser does not support the video tag.
+              </video>
+              <div class="video-overlay-play" id="video-overlay">
+                <i class="fa-solid fa-play"></i>
+              </div>
+            </div>
+            <div class="screencast-details">
+              <h3 id="screencast-title">Picking a Page Block</h3>
+              <p id="screencast-description">
+                Start pick mode from the extension popup, choose the content block on the page, and
+                click the "Submit" button to send only that selected area into the summarization
+                pipeline.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Help & Troubleshooting -->
+    <section class="section faq" id="faq">
+      <div class="container">
+        <div class="section-header">
+          <h2 class="section-title">Help & Troubleshooting</h2>
+          <p class="section-desc">
+            Common setup questions and quick checks for local processing issues.
+          </p>
+        </div>
+
+        <div class="faq-list">
+          <div class="faq-item">
+            <button class="faq-question" onclick="toggleFaq(this)">
+              <span>How do I configure a local LLM like Ollama or Llama.cpp?</span>
+              <span class="faq-icon"><i class="fa-solid fa-chevron-down"></i></span>
+            </button>
+            <div class="faq-answer">
+              <p>
+                Under <strong>Options</strong>, select the
+                <strong>OpenAI-compatible</strong> provider. Enter your local endpoint URL (for
+                example, <code>http://localhost:11434</code> for Ollama or
+                <code>http://localhost:8080</code> for Llama.cpp; the extension automatically
+                appends <code>/v1/chat/completions</code> if needed) and input your designated model
+                identifier. Mark the provider as active before processing pages.
+              </p>
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" onclick="toggleFaq(this)">
+              <span>Where is my data stored?</span>
+              <span class="faq-icon"><i class="fa-solid fa-chevron-down"></i></span>
+            </button>
+            <div class="faq-answer">
+              <p>
+                All extracted texts, options, API configurations, and topic summaries are stored
+                inside your browser profile with <code>chrome.storage.local</code>. No content is
+                sent to third-party tracking services; page content is only sent to the LLM provider
+                you configure and mark as active.
+              </p>
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" onclick="toggleFaq(this)">
+              <span>How can I tell when processing is done?</span>
+              <span class="faq-icon"><i class="fa-solid fa-chevron-down"></i></span>
+            </button>
+            <div class="faq-answer">
+              <p>
+                The extension icon shows the current processing state in the browser toolbar. A
+                small activity marker means work is still running. When processing finishes, the
+                icon returns to its ready state.
+              </p>
+              <div class="icon-status-grid">
+                <figure>
+                  <img
+                    src="media/screenshots/extension-icon-processing-in-progress.png"
+                    alt="Extension toolbar icon while processing is in progress"
+                  />
+                  <figcaption>Processing in progress</figcaption>
+                </figure>
+                <figure>
+                  <img
+                    src="media/screenshots/extension-icon-processing-finished.png"
+                    alt="Extension toolbar icon after processing has finished"
+                  />
+                  <figcaption>Processing finished</figcaption>
+                </figure>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Lightbox Modal for Screenshots -->
+    <div class="lightbox" id="gallery-lightbox">
+      <span class="lightbox-close" id="lightbox-close-btn" onclick="closeLightbox()">&times;</span>
+      <img class="lightbox-content" id="lightbox-img" alt="Enlarged gallery view" />
+      <div class="lightbox-caption" id="lightbox-caption"></div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="container footer-content">
+        <div class="footer-links">
+          <a href="#hero">Back to Top</a>
+          <a href="https://github.com/rntk/page-to-llm-canvas" target="_blank"
+            ><i class="fa-brands fa-github"></i> Source Code</a
+          >
+        </div>
+      </div>
+    </footer>
+
+    <!-- Custom Scripts -->
+    <script src="script.js"></script>
+  </body>
+</html>
