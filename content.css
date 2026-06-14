@@ -13,6 +13,10 @@
   --ghost: rgb(0 0 0 / 20%);
   --font-voice: 'Newsreader', georgia, 'Times New Roman', serif;
   --font-data: 'Work Sans', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-serif;
+
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizelegibility;
 }
 
 /* Selection toolbar: floating frosted vellum. */

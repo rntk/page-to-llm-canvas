@@ -28,6 +28,9 @@ body {
   color: var(--on-surface);
   font-family: var(--font-data);
   font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizelegibility;
 }
 
 #pagetollm-root,
@@ -93,7 +96,6 @@ body.canvas-global-dragging * {
   transform: translate(var(--canvas-translate-x, 40px), var(--canvas-translate-y, 40px))
     scale(var(--canvas-scale, 1));
   transform-origin: 0 0;
-  will-change: transform;
 }
 
 .canvas-viewport.is-focusing-highlight {
@@ -162,7 +164,6 @@ body.canvas-global-dragging * {
 
   /* median of (top-push, 0, bottom-push): 0 while the card is fully in view. */
   transform: translateY(clamp(var(--_stick-top), 0px, var(--_stick-bot)));
-  will-change: transform;
 }
 
 /* Solid surface + shadow so the card reads clearly against the canvas, whose
@@ -801,7 +802,6 @@ body.canvas-global-dragging * {
   );
 
   transform: translateY(var(--_offset));
-  will-change: transform;
 }
 
 .canvas-topic-hierarchy__card-name {
@@ -996,7 +996,6 @@ body.canvas-global-dragging * {
   );
 
   transform: translateY(clamp(var(--_stick-top), 0px, var(--_stick-bot)));
-  will-change: transform;
 }
 
 .canvas-summary-source-preview__card {
