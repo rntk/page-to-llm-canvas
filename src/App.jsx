@@ -77,6 +77,7 @@ export default function App({ initialKey }) {
     setTransformNow,
     navigateCanvas,
     zoomToTarget,
+    flashFocus,
   } = useCanvasTransform({ contentRef: articleTextRef });
 
   const handleCanvasMouseDown = useCallback(
@@ -194,13 +195,14 @@ export default function App({ initialKey }) {
   // *before* they change state so the post-change pan can preserve the column's
   // on-screen position. The reading column (articleTextRef) is the anchor in
   // both modes; the rail and side cards are allowed to reflow around it.
-  const { captureAnchor } = useCanvasAlignment({
+  const { captureAnchor, skipNextAlignment } = useCanvasAlignment({
     enabled: isDone,
     anchorRef: articleTextRef,
     wrapElRef: canvasWrapElRef,
     setTransformNow,
     translateRef,
     scaleRef,
+    flashFocus,
     deps: [showSummaryMode, selectedLevel, showTopicHierarchy],
   });
 
@@ -529,12 +531,14 @@ export default function App({ initialKey }) {
 
   const handleShowSourceSentences = useCallback(
     (card) => {
-      captureAnchor(true);
+      // Leaving summary mode here hands positioning to the pending zoom-to-
+      // sentence effect, so suppress alignment to avoid a glide-then-yank.
+      skipNextAlignment();
       setSelectedTopicKey(card.path);
       setShowSummaryMode(false);
       pendingZoomSentenceRef.current = card.startSentence;
     },
-    [captureAnchor],
+    [skipNextAlignment],
   );
   const handleZoomIn = useCallback(() => {
     setTransformNow(clampScale((scaleRef.current || 1) * 1.2), translateRef.current);

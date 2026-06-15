@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
 // Top inset restored when the reading column is (re)centered from scratch.
 const TOP_MARGIN = 40;
@@ -61,6 +61,13 @@ export function computeComfortLeft(currentLeft, columnWidth, wrapWidth) {
  *  - Comfort: only then, and only if the column drifted out of the dead-zone,
  *    do we nudge it back by the minimum amount (see `computeComfortLeft`).
  *
+ * Animation: the continuity correction is applied *instantly* (it cancels the
+ * reflow, so animating it would re-introduce the very jump it removes). Any
+ * remaining intentional move — the comfort nudge, or the top-margin reset on a
+ * content swap — is applied one frame later *with* a transition (via
+ * `flashFocus`), so it slides smoothly from the jump-free position. The initial
+ * center is instant (no lurch on open).
+ *
  * This runs only on a deliberate switch (the `deps` change) or the initial
  * center — never during free pan/zoom — so it never fights manual panning.
  *
@@ -74,9 +81,13 @@ export function computeComfortLeft(currentLeft, columnWidth, wrapWidth) {
  *   setTransformNow: (scale: number, translate: {x: number, y: number}) => void,
  *   translateRef: import('react').RefObject<{x: number, y: number}>,
  *   scaleRef: import('react').RefObject<number>,
+ *   flashFocus?: () => void,
  *   deps: ReadonlyArray<unknown>,
  * }} params
- * @returns {{ captureAnchor: (resetTop?: boolean) => void }}
+ * @returns {{
+ *   captureAnchor: (resetTop?: boolean) => void,
+ *   skipNextAlignment: () => void,
+ * }}
  */
 export function useCanvasAlignment({
   enabled,
@@ -85,6 +96,7 @@ export function useCanvasAlignment({
   setTransformNow,
   translateRef,
   scaleRef,
+  flashFocus,
   deps,
 }) {
   // The column's pre-change screen position, recorded synchronously by callers
@@ -95,6 +107,15 @@ export function useCanvasAlignment({
   // Tracks the deps we last aligned for, so we run continuity only on a real
   // change and the initial center exactly once.
   const stateRef = useRef({ inited: false, deps: null });
+  // Pending rAF for the deferred (animated) comfort/reset move.
+  const moveRafRef = useRef(0);
+  // When set, the next deps change is positioned by someone else (e.g. a
+  // pending zoom-to-sentence) — skip alignment so the two don't fight.
+  const skipNextRef = useRef(false);
+
+  const skipNextAlignment = useCallback(() => {
+    skipNextRef.current = true;
+  }, []);
 
   const captureAnchor = useCallback(
     (resetTop = false) => {
@@ -127,34 +148,69 @@ export function useCanvasAlignment({
       const anchorTop = anchorRect.top - wrapRect.top;
       const columnWidth = anchorRect.width;
 
+      const panTo = (left, top) => {
+        const dx = left - anchorLeft;
+        const dy = top - anchorTop;
+        if (Math.abs(dx) < MIN_DELTA && Math.abs(dy) < MIN_DELTA) return false;
+        setTransformNow(scaleRef.current || 1, {
+          x: translateRef.current.x + dx,
+          y: translateRef.current.y + dy,
+        });
+        return true;
+      };
+
+      // Initial center: no prior position to preserve — center and pin the top
+      // margin in one instant move (no animation, so opening doesn't lurch).
+      if (isInitial) {
+        panTo(computeComfortLeft(anchorLeft, columnWidth, wrapRect.width), TOP_MARGIN);
+        return;
+      }
+
       const captured = pendingAnchorRef.current;
       pendingAnchorRef.current = null;
 
-      // Continuity: start from where the column was on screen pre-change. With
-      // no capture (initial center, or a programmatic trigger) start from its
-      // current position and reset the top inset.
-      let targetLeft;
-      let targetTop;
-      if (!isInitial && captured) {
-        targetLeft = captured.left;
-        targetTop = captured.resetTop ? TOP_MARGIN : captured.top;
-      } else {
-        targetLeft = anchorLeft;
-        targetTop = TOP_MARGIN;
+      // Baseline = the column's pre-switch on-screen position (continuity). For a
+      // content swap (`resetTop`) the vertical baseline stays where it is and the
+      // top reset becomes part of the animated move below.
+      const baseLeft = captured ? captured.left : anchorLeft;
+      const baseTop = captured && !captured.resetTop ? captured.top : anchorTop;
+
+      // Final = baseline gently re-centered (x), top margin restored on a swap.
+      const finalLeft = computeComfortLeft(baseLeft, columnWidth, wrapRect.width);
+      const finalTop = captured && captured.resetTop ? TOP_MARGIN : baseTop;
+
+      // Step 1 — instant continuity: cancel the reflow so the switch shows no
+      // jump. Applied synchronously, pre-paint, with no transition.
+      panTo(baseLeft, baseTop);
+
+      // Step 2 — animated move: the intentional re-center / top reset, deferred a
+      // frame so the continuity transform paints first and the slide starts from
+      // the jump-free position.
+      if (Math.abs(finalLeft - baseLeft) < MIN_DELTA && Math.abs(finalTop - baseTop) < MIN_DELTA) {
+        return;
       }
-
-      // Comfort: gentle, minimum re-centering toward the dead-zone.
-      targetLeft = computeComfortLeft(targetLeft, columnWidth, wrapRect.width);
-
-      const dx = targetLeft - anchorLeft;
-      const dy = targetTop - anchorTop;
-      if (Math.abs(dx) < MIN_DELTA && Math.abs(dy) < MIN_DELTA) return;
-      setTransformNow(scaleRef.current || 1, {
-        x: translateRef.current.x + dx,
-        y: translateRef.current.y + dy,
+      if (moveRafRef.current) cancelAnimationFrame(moveRafRef.current);
+      moveRafRef.current = requestAnimationFrame(() => {
+        moveRafRef.current = 0;
+        if (flashFocus) flashFocus();
+        const a = anchorRef.current;
+        const w = wrapElRef.current;
+        if (!a || !w) return;
+        const wRect = w.getBoundingClientRect();
+        const aRect = a.getBoundingClientRect();
+        if (wRect.width === 0 || aRect.width === 0) return;
+        const curLeft = aRect.left - wRect.left;
+        const curTop = aRect.top - wRect.top;
+        const dx = finalLeft - curLeft;
+        const dy = finalTop - curTop;
+        if (Math.abs(dx) < MIN_DELTA && Math.abs(dy) < MIN_DELTA) return;
+        setTransformNow(scaleRef.current || 1, {
+          x: translateRef.current.x + dx,
+          y: translateRef.current.y + dy,
+        });
       });
     },
-    [anchorRef, wrapElRef, setTransformNow, translateRef, scaleRef],
+    [anchorRef, wrapElRef, setTransformNow, translateRef, scaleRef, flashFocus],
   );
 
   // Layout effect (synchronous, pre-paint): the reading column's left edge is a
@@ -178,9 +234,29 @@ export function useCanvasAlignment({
       return;
     }
     stateRef.current = { inited: true, deps: depsKey };
+    if (skipNextRef.current) {
+      // This switch is positioned by another controller (zoom-to-sentence).
+      // Record the deps (so the *next* real switch still aligns) and bail,
+      // dropping any stale capture / pending animated move.
+      skipNextRef.current = false;
+      pendingAnchorRef.current = null;
+      if (moveRafRef.current) {
+        cancelAnimationFrame(moveRafRef.current);
+        moveRafRef.current = 0;
+      }
+      return;
+    }
     align(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, align, ...deps]);
 
-  return { captureAnchor };
+  // Cancel any in-flight animated move on unmount.
+  useEffect(
+    () => () => {
+      if (moveRafRef.current) cancelAnimationFrame(moveRafRef.current);
+    },
+    [],
+  );
+
+  return { captureAnchor, skipNextAlignment };
 }

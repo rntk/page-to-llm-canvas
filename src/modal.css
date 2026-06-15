@@ -877,6 +877,13 @@ body.canvas-global-dragging * {
     background 0.15s;
 }
 
+/* Gentle entrance for the summary-mode cards when summary mode is opened (the
+   cards mount together). Scoped to the cards column so it can't override the
+   current-topic summary aside's own appear animation. */
+.canvas-summary-view__cards > .canvas-summary-view__card {
+  animation: summary-card-appear 0.3s cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
 .canvas-summary-view__card:hover {
   border-color: var(--ink);
   background: var(--surface-low);
@@ -1008,6 +1015,10 @@ body.canvas-global-dragging * {
   border-radius: 0;
   padding: 14px 16px;
   box-shadow: 0 4px 16px rgb(0 0 0 / 14%);
+
+  /* Opacity-only fade (the aside itself drives a translateY for sticky paging,
+     so the entrance must not touch transform). */
+  animation: summary-text-fade-in 0.18s ease-out both;
 }
 
 .canvas-summary-source-preview__article {
@@ -1033,4 +1044,28 @@ body.canvas-global-dragging * {
   background: transparent;
   background-color: rgb(58 64 77 / 12%);
   color: inherit;
+}
+
+/* Honour the OS "reduce motion" setting: drop the canvas slide and all entrance
+   animations so transitions become instant. The alignment engine still keeps
+   the layout jump-free — it just snaps to the final position with no glide. */
+@media (prefers-reduced-motion: reduce) {
+  .canvas-viewport.is-focusing-highlight {
+    transition: none;
+  }
+
+  .canvas-topic-current-summary,
+  .canvas-summary-source-preview,
+  .canvas-topic-hierarchy__card {
+    transition: none;
+  }
+
+  .canvas-summary-view__cards > .canvas-summary-view__card,
+  .canvas-summary-source-preview__card,
+  .canvas-topic-current-summary .canvas-summary-view__card,
+  .canvas-topic-current-summary .canvas-summary-view__card-path,
+  .canvas-topic-current-summary .canvas-summary-view__card-kicker,
+  .canvas-topic-current-summary .canvas-summary-view__card-text {
+    animation: none;
+  }
 }

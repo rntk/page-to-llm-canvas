@@ -49,6 +49,16 @@ describe('computeComfortLeft', () => {
 // ---------------------------------------------------------------------------
 
 function setup({ wrapRect, anchorRect }) {
+  // The deferred (animated) move runs in requestAnimationFrame; run it
+  // synchronously so its result is observable right after render() in act().
+  const origRaf = window.requestAnimationFrame;
+  const origCancel = window.cancelAnimationFrame;
+  window.requestAnimationFrame = (cb) => {
+    cb();
+    return 0;
+  };
+  window.cancelAnimationFrame = () => {};
+
   const wrapEl = document.createElement('div');
   const anchorEl = document.createElement('div');
   const rects = { wrap: { ...wrapRect }, anchor: { ...anchorRect } };
@@ -59,6 +69,7 @@ function setup({ wrapRect, anchorRect }) {
   const wrapElRef = { current: wrapEl };
   const translateRef = { current: { x: 40, y: 40 } };
   const scaleRef = { current: 1 };
+  const flashFocus = vi.fn();
   const setTransformNow = vi.fn((s, t) => {
     translateRef.current = t;
   });
@@ -72,6 +83,7 @@ function setup({ wrapRect, anchorRect }) {
       setTransformNow,
       translateRef,
       scaleRef,
+      flashFocus,
       deps: [d],
     });
     return null;
@@ -87,10 +99,13 @@ function setup({ wrapRect, anchorRect }) {
     apiRef,
     translateRef,
     setTransformNow,
+    flashFocus,
     render,
     cleanup: () => {
       act(() => root.unmount());
       container.remove();
+      window.requestAnimationFrame = origRaf;
+      window.cancelAnimationFrame = origCancel;
     },
   };
 }
@@ -105,9 +120,10 @@ describe('useCanvasAlignment runtime', () => {
     ctx.render(1);
 
     // Comfort nudges to the dead-zone edge: target center 350 → target left 150
-    // → dx 50; top pinned to margin 40 → dy -160.
+    // → dx 50; top pinned to margin 40 → dy -160. Initial center is instant.
     expect(ctx.setTransformNow).toHaveBeenCalledTimes(1);
     expect(ctx.translateRef.current).toEqual({ x: 90, y: -120 });
+    expect(ctx.flashFocus).not.toHaveBeenCalled();
     ctx.cleanup();
   });
 
@@ -128,8 +144,10 @@ describe('useCanvasAlignment runtime', () => {
     ctx.render(2);
 
     // Continuity pans by +200 so the column lands back where it was on screen.
+    // It's instant (no animation) — animating it would re-introduce the jump.
     expect(ctx.setTransformNow).toHaveBeenCalledTimes(1);
     expect(ctx.translateRef.current).toEqual({ x: 240, y: 40 });
+    expect(ctx.flashFocus).not.toHaveBeenCalled();
     ctx.cleanup();
   });
 
@@ -146,9 +164,35 @@ describe('useCanvasAlignment runtime', () => {
     ctx.render(2);
 
     // Horizontal preserved (still centered), vertical pulled back to margin 40
-    // → dy = 40 - 300 = -260.
+    // → dy = 40 - 300 = -260. The reset is the animated move (flashFocus).
     expect(ctx.setTransformNow).toHaveBeenCalledTimes(1);
     expect(ctx.translateRef.current).toEqual({ x: 40, y: -220 });
+    expect(ctx.flashFocus).toHaveBeenCalledTimes(1);
+    ctx.cleanup();
+  });
+
+  it('skips alignment for a switch positioned by another controller', () => {
+    const ctx = setup({
+      wrapRect: { left: 0, top: 0, width: WRAP, height: 800 },
+      anchorRect: { left: 100, top: 300, width: COL, height: 600 },
+    });
+    ctx.render(1); // initial center
+    ctx.setTransformNow.mockClear();
+    ctx.flashFocus.mockClear();
+
+    // Hand positioning to a zoom: even though the layout shifts, the engine must
+    // not pan — the other controller owns the final position.
+    act(() => ctx.apiRef.current.skipNextAlignment());
+    ctx.rects.anchor = { left: 700, top: 50, width: COL, height: 600 };
+    ctx.render(2);
+    expect(ctx.setTransformNow).not.toHaveBeenCalled();
+    expect(ctx.flashFocus).not.toHaveBeenCalled();
+
+    // …and a subsequent genuine switch aligns again.
+    act(() => ctx.apiRef.current.captureAnchor(false));
+    ctx.rects.anchor = { left: 100, top: 50, width: COL, height: 600 };
+    ctx.render(3);
+    expect(ctx.setTransformNow).toHaveBeenCalled();
     ctx.cleanup();
   });
 
