@@ -34,6 +34,7 @@ import SummaryErrorsOverlay from './components/SummaryErrorsOverlay.jsx';
 import ArticleHtml from './components/ArticleHtml.jsx';
 import { closeModal } from './closeModal.js';
 import { useCanvasTransform, clampScale } from './useCanvasTransform.js';
+import { useCanvasAlignment } from './useCanvasAlignment.js';
 import { retryRecord, resolveSummaryErrors } from './utils/errorUtils.js';
 
 /** Second CSS Custom Highlight name, used for the hovered (not selected) topic. */
@@ -186,6 +187,23 @@ export default function App({ initialKey }) {
   );
 
   const isDone = record?.status === 'done';
+
+  // Unified canvas alignment: keeps the reading column steady across mode/level
+  // changes (no jump) and only gently re-centers it when it drifts out of the
+  // comfort dead-zone. `captureAnchor()` is called by the toggle handlers below
+  // *before* they change state so the post-change pan can preserve the column's
+  // on-screen position. The reading column (articleTextRef) is the anchor in
+  // both modes; the rail and side cards are allowed to reflow around it.
+  const { captureAnchor } = useCanvasAlignment({
+    enabled: isDone,
+    anchorRef: articleTextRef,
+    wrapElRef: canvasWrapElRef,
+    setTransformNow,
+    translateRef,
+    scaleRef,
+    deps: [showSummaryMode, selectedLevel, showTopicHierarchy],
+  });
+
   const isNeedsAttention = record?.status === 'needs_attention';
   const isRecordError = record?.status === 'error';
   const isMissing = !record && error === 'record not found';
@@ -509,11 +527,15 @@ export default function App({ initialKey }) {
     setHoveredTopicKey(null);
   }, []);
 
-  const handleShowSourceSentences = useCallback((card) => {
-    setSelectedTopicKey(card.path);
-    setShowSummaryMode(false);
-    pendingZoomSentenceRef.current = card.startSentence;
-  }, []);
+  const handleShowSourceSentences = useCallback(
+    (card) => {
+      captureAnchor(true);
+      setSelectedTopicKey(card.path);
+      setShowSummaryMode(false);
+      pendingZoomSentenceRef.current = card.startSentence;
+    },
+    [captureAnchor],
+  );
   const handleZoomIn = useCallback(() => {
     setTransformNow(clampScale((scaleRef.current || 1) * 1.2), translateRef.current);
   }, [setTransformNow, scaleRef, translateRef]);
@@ -527,18 +549,34 @@ export default function App({ initialKey }) {
   }, [setTransformNow]);
 
   const handleToggleSummaryMode = useCallback(() => {
+    // Content swaps wholesale (article ⇄ summary cards), so reset the vertical
+    // position to the top margin; horizontal stays continuous.
+    captureAnchor(true);
     setShowSummaryMode((v) => !v);
-  }, []);
+  }, [captureAnchor]);
 
   const handleToggleTopicHierarchy = useCallback(() => {
+    // Same content, only the rail's reserved width changes — preserve both axes.
+    captureAnchor(false);
     setShowTopicHierarchy((v) => !v);
-  }, []);
+  }, [captureAnchor]);
 
-  const handleLevelChange = useCallback((level) => {
-    setSelectedLevel(level);
-    setHoveredTopicKey(null);
-    setSelectedTopicKey(null);
-  }, []);
+  const handleLevelChange = useCallback(
+    (level) => {
+      // Clicking the already-selected level is a no-op; skip so we never strand
+      // a captured anchor that the next real switch would then mis-consume.
+      if (level === selectedLevel) return;
+      // Same content, denser/sparser rail — preserve both axes.
+      captureAnchor(false);
+      setSelectedLevel(level);
+      setHoveredTopicKey(null);
+      setSelectedTopicKey(null);
+    },
+    [captureAnchor, selectedLevel],
+  );
+
+  // Canvas alignment (centering + anti-jump continuity) is owned by
+  // useCanvasAlignment above.
 
   // ── Render ───────────────────────────────────────────────────────────────
 
