@@ -48,16 +48,26 @@ describe('computeComfortLeft', () => {
 // hook inert — so we stub getBoundingClientRect on the anchor and wrap).
 // ---------------------------------------------------------------------------
 
-function setup({ wrapRect, anchorRect }) {
-  // The deferred (animated) move runs in requestAnimationFrame; run it
-  // synchronously so its result is observable right after render() in act().
+function setup({ wrapRect, anchorRect, autoRaf = true }) {
+  // By default the deferred (animated) move runs synchronously so its result is
+  // observable right after render() in act(). Timing-sensitive tests can opt
+  // into a manual queue.
   const origRaf = window.requestAnimationFrame;
   const origCancel = window.cancelAnimationFrame;
+  const rafQueue = new Map();
+  let rafId = 0;
   window.requestAnimationFrame = (cb) => {
-    cb();
-    return 0;
+    if (autoRaf) {
+      cb();
+      return 0;
+    }
+    rafId += 1;
+    rafQueue.set(rafId, cb);
+    return rafId;
   };
-  window.cancelAnimationFrame = () => {};
+  window.cancelAnimationFrame = (id) => {
+    rafQueue.delete(id);
+  };
 
   const wrapEl = document.createElement('div');
   const anchorEl = document.createElement('div');
@@ -101,6 +111,11 @@ function setup({ wrapRect, anchorRect }) {
     setTransformNow,
     flashFocus,
     render,
+    flushRafs: () => {
+      const callbacks = [...rafQueue.values()];
+      rafQueue.clear();
+      callbacks.forEach((cb) => cb());
+    },
     cleanup: () => {
       act(() => root.unmount());
       container.remove();
@@ -205,6 +220,30 @@ describe('useCanvasAlignment runtime', () => {
     act(() => ctx.apiRef.current.captureAnchor(false));
     ctx.render(2); // layout unchanged
     expect(ctx.setTransformNow).not.toHaveBeenCalled();
+    ctx.cleanup();
+  });
+
+  it('cancels a stale deferred move when a newer switch has no animated move', () => {
+    const ctx = setup({
+      wrapRect: { left: 0, top: 0, width: WRAP, height: 800 },
+      anchorRect: { left: 300, top: 40, width: COL, height: 600 },
+      autoRaf: false,
+    });
+    ctx.render(1);
+
+    act(() => ctx.apiRef.current.captureAnchor(true));
+    ctx.rects.anchor = { left: 300, top: 300, width: COL, height: 600 };
+    ctx.render(2);
+    expect(ctx.setTransformNow).not.toHaveBeenCalled();
+
+    // Before the deferred top reset runs, a newer layout switch keeps the
+    // column centered and needs no animated follow-up. The old frame must not
+    // survive and apply the obsolete top target afterwards.
+    ctx.render(3);
+    ctx.flushRafs();
+
+    expect(ctx.setTransformNow).not.toHaveBeenCalled();
+    expect(ctx.flashFocus).not.toHaveBeenCalled();
     ctx.cleanup();
   });
 });

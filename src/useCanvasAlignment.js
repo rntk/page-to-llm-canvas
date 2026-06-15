@@ -136,6 +136,10 @@ export function useCanvasAlignment({
 
   const align = useCallback(
     (isInitial) => {
+      if (moveRafRef.current) {
+        cancelAnimationFrame(moveRafRef.current);
+        moveRafRef.current = 0;
+      }
       const anchor = anchorRef.current;
       const wrap = wrapElRef.current;
       if (!anchor || !wrap) return;
@@ -189,7 +193,6 @@ export function useCanvasAlignment({
       if (Math.abs(finalLeft - baseLeft) < MIN_DELTA && Math.abs(finalTop - baseTop) < MIN_DELTA) {
         return;
       }
-      if (moveRafRef.current) cancelAnimationFrame(moveRafRef.current);
       moveRafRef.current = requestAnimationFrame(() => {
         moveRafRef.current = 0;
         if (flashFocus) flashFocus();

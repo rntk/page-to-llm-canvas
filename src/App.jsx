@@ -534,9 +534,9 @@ export default function App({ initialKey }) {
       // Leaving summary mode here hands positioning to the pending zoom-to-
       // sentence effect, so suppress alignment to avoid a glide-then-yank.
       skipNextAlignment();
+      pendingZoomSentenceRef.current = card.startSentence;
       setSelectedTopicKey(card.path);
       setShowSummaryMode(false);
-      pendingZoomSentenceRef.current = card.startSentence;
     },
     [skipNextAlignment],
   );
