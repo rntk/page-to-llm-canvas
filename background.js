@@ -60,7 +60,7 @@ function isInFlightRecord(record) {
  * @param {Record<string, object>} topicSummaries
  * @returns {Record<string, object>}
  */
-function clearSummaryErrorFlags(topicSummaries) {
+export function clearSummaryErrorFlags(topicSummaries) {
   const src = topicSummaries && typeof topicSummaries === 'object' ? topicSummaries : {};
   const out = {};
   for (const [name, s] of Object.entries(src)) {

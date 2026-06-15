@@ -235,6 +235,13 @@ describe('popup pure functions', () => {
     });
     await expect(popup.tabMessage(1, { action: 'test' })).rejects.toThrow('closed');
   });
+
+  it('responseErrorMessage prefers response.error then fallback', () => {
+    expect(popup.responseErrorMessage({ error: 'boom' }, 'fb')).toBe('boom');
+    expect(popup.responseErrorMessage({ ok: true }, 'fb')).toBe('fb');
+    expect(popup.responseErrorMessage(null, 'fb')).toBe('fb');
+    expect(popup.responseErrorMessage(undefined, 'def')).toBe('def');
+  });
 });
 
 describe('handleMessageAction', () => {

@@ -185,7 +185,7 @@ export function filterRecordsForActivePage(records, activePageUrl) {
   return items.filter((record) => normalizePageUrl(record && record.sourceUrl) === activePageUrl);
 }
 
-function responseErrorMessage(response, fallback) {
+export function responseErrorMessage(response, fallback) {
   return (response && response.error) || fallback;
 }
 

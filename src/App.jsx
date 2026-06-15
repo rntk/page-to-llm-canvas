@@ -247,7 +247,14 @@ export default function App({ initialKey }) {
 
   const measureSentencePositions = useCallback(() => {
     const wrap = summaryWrapRef.current;
-    if (!wrap || showSummaryMode) return;
+    // While a zoom-to-sentence animation is in flight (e.g. after "Show source
+    // sentences" exits summary mode), the canvas transform is mid-transition but
+    // `scaleRef` already holds the *target* scale. Measuring now divides settled-
+    // scale into animating rects, yielding wrong (tiny, top-pinned) sentence
+    // positions that pin the rail cards to a small stacked layout. Skip until the
+    // transform settles; `isFocusingHighlight` is in the deps so flipping it back
+    // to false re-runs the measurement effects with the final layout.
+    if (!wrap || showSummaryMode || isFocusingHighlight) return;
     const { wordEntries, sentenceRanges } = refreshSentenceRanges();
     if (!sentenceRanges.size) return;
 
@@ -266,8 +273,10 @@ export default function App({ initialKey }) {
       const bottom = (Math.max(...rects.map((r) => r.bottom)) - wrapRect.top) / s;
       nextMetrics.set(n, { top, bottom });
     }
-    setSentenceMetrics(nextMetrics);
-  }, [scaleRef, showSummaryMode, refreshSentenceRanges]);
+    if (nextMetrics.size > 0) {
+      setSentenceMetrics(nextMetrics);
+    }
+  }, [scaleRef, showSummaryMode, isFocusingHighlight, refreshSentenceRanges]);
 
   const measureSummaryPositions = useCallback(() => {
     const wrap = summaryWrapRef.current;
@@ -286,22 +295,53 @@ export default function App({ initialKey }) {
     setSummaryMetricsState(next);
   }, [scaleRef, showSummaryMode]);
 
+  // When leaving summary mode (e.g. via "Show source sentences"), ensure we
+  // (re)measure sentence positions against the freshly mounted article DOM so
+  // that topic cards in the rail are built from real measured layouts (tall,
+  // article-aligned) rather than falling back to the synthetic small stacked
+  // layout near the top.
+  const prevShowSummaryRef = useRef(showSummaryMode);
+  useLayoutEffect(() => {
+    const wasInSummary = prevShowSummaryRef.current;
+    prevShowSummaryRef.current = showSummaryMode;
+    if (wasInSummary && !showSummaryMode) {
+      // Schedule after paint so getClientRects on the article sentences are valid.
+      const raf = window.requestAnimationFrame(() => {
+        measureSentencePositions();
+      });
+      return () => window.cancelAnimationFrame(raf);
+    }
+  }, [showSummaryMode, measureSentencePositions]);
+
   useLayoutEffect(() => {
     if (!isDone) return undefined;
     let raf1 = 0;
     let raf2 = 0;
+    let raf3 = 0;
     const measure = () => {
       measureSentencePositions();
       measureSummaryPositions();
     };
-    // Double rAF: the first frame lets the freshly-injected article HTML lay out,
-    // the second captures positions after that first reflow settles.
+    // Triple rAF on layout changes (incl. summary<->article switches): gives the
+    // injected article (or summary cards) time to lay out before we sample
+    // sentence/summary rects for rail card positioning. Extra attempts guard
+    // against races where early passes see no client rects and would otherwise
+    // leave topic cards stuck in the small synthetic fallback layout.
+    // Track and cancel the third rAF callback: when the effect is cleaned up
+    // after the second animation frame has scheduled this third measurement,
+    // cleanup must cancel it too. Otherwise it can still run after a mode switch
+    // or unmount, using stale showSummaryMode / measure* closures and writing
+    // metrics for the wrong DOM.
     const schedule = () => {
       window.cancelAnimationFrame(raf1);
       window.cancelAnimationFrame(raf2);
+      window.cancelAnimationFrame(raf3);
       raf1 = window.requestAnimationFrame(() => {
         measure();
-        raf2 = window.requestAnimationFrame(measure);
+        raf2 = window.requestAnimationFrame(() => {
+          measure();
+          raf3 = window.requestAnimationFrame(measure);
+        });
       });
     };
     schedule();
@@ -334,6 +374,7 @@ export default function App({ initialKey }) {
     return () => {
       window.cancelAnimationFrame(raf1);
       window.cancelAnimationFrame(raf2);
+      window.cancelAnimationFrame(raf3);
       window.removeEventListener('resize', schedule);
       if (resizeObserver) resizeObserver.disconnect();
       pending.forEach((img) => {
