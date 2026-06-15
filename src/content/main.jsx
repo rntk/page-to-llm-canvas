@@ -25,7 +25,13 @@ import {
   buildHierarchicalTopicEntries,
   splitIntoContiguousRuns,
 } from './recordTransform.js';
-import { buildCssPath, stripHighlightClasses } from './cssPath.js';
+import { buildCssPath } from './cssPath.js';
+import { buildHtml } from './selectionHtml.js';
+import {
+  getScrollableAncestor,
+  getRailOriginTop,
+  computeCardVerticalBox,
+} from './railGeometry.js';
 import {
   fetchRecord,
   findPickedElements,
@@ -395,16 +401,6 @@ function onDragEnd(event) {
   renderSelectionToolbar();
 }
 
-function buildHtml(elements) {
-  const parts = [];
-  for (const el of elements) {
-    const clone = el.cloneNode(true);
-    stripHighlightClasses(clone);
-    parts.push(clone.outerHTML);
-  }
-  return parts.join('\n');
-}
-
 function updateSubmitState() {
   renderSelectionToolbar();
 }
@@ -507,68 +503,6 @@ function cleanupSelection(event) {
 }
 
 // ── In-page rail view ─────────────────────────────────────────────────────
-
-function getScrollableAncestor(elements) {
-  const picked = Array.isArray(elements) ? elements.filter(Boolean) : [];
-  if (picked.length === 0) return window;
-
-  const containsPickedElements = (candidate) =>
-    picked.every((el) => candidate === el || candidate.contains(el));
-  const isScrollable = (el) => {
-    if (!el || el === document.body || el === document.documentElement) return false;
-    const style = window.getComputedStyle(el);
-    const overflowY = `${style.overflowY} ${style.overflow}`;
-    return /(auto|scroll|overlay)/.test(overflowY) && el.scrollHeight > el.clientHeight + 1;
-  };
-
-  let node = picked[0];
-  while (node && node !== document.body && node !== document.documentElement) {
-    if (isScrollable(node) && containsPickedElements(node)) return node;
-    node = node.parentElement;
-  }
-
-  return window;
-}
-
-function getScrollTop(scrollContainer) {
-  return scrollContainer && scrollContainer !== window ? scrollContainer.scrollTop : window.scrollY;
-}
-
-function getRailOriginTop(bodyRect, scrollContainer) {
-  return scrollContainer && scrollContainer !== window
-    ? bodyRect.top
-    : bodyRect.top + window.scrollY;
-}
-
-function computeCardVerticalBox(
-  sentences,
-  sentenceRanges,
-  wordEntries,
-  railOriginTop,
-  scrollContainer,
-) {
-  if (!sentences || sentences.length === 0) return null;
-  let top = Infinity,
-    bottom = -Infinity;
-  const isLaidOut = (rect) => rect && (rect.width > 0 || rect.height > 0);
-  const scrollTop = getScrollTop(scrollContainer);
-  for (const sNum of sentences) {
-    const domRange = buildSentenceDomRange(sentenceRanges, wordEntries, sNum);
-    if (!domRange) continue;
-    // getClientRects() yields one rect per line box the sentence spans, giving
-    // a tighter measurement than the start/end corners alone. Skip rects that
-    // aren't laid out (display:none etc.) so they don't collapse `top` to 0.
-    const rects = Array.from(domRange.getClientRects()).filter(isLaidOut);
-    if (rects.length === 0) continue;
-    const sTop = Math.min(...rects.map((r) => r.top)) + scrollTop - railOriginTop;
-    const sBottom = Math.max(...rects.map((r) => r.bottom)) + scrollTop - railOriginTop;
-    if (sTop < top) top = sTop;
-    if (sBottom > bottom) bottom = sBottom;
-  }
-  if (!Number.isFinite(top) || !Number.isFinite(bottom)) return null;
-  const clampedTop = Math.max(0, top);
-  return { top: clampedTop, height: Math.max(40, bottom - clampedTop) };
-}
 
 async function openInPageRail(rec, initialMode, options = {}) {
   closeInPageRail();

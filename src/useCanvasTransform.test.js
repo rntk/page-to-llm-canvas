@@ -345,4 +345,91 @@ describe('useCanvasTransform', () => {
     // Should still be default because listener checks target tagName
     expect(result.current.translate).toEqual({ x: 40, y: 40 });
   });
+
+  it('navigateCanvas bottom/prev/next adjust y using viewport and content rects', () => {
+    const content = document.createElement('div');
+    content.getBoundingClientRect = () => ({ left: 0, top: 0, bottom: 800, width: 100, height: 800 });
+    const contentRef = { current: content };
+
+    const wrap = document.createElement('div');
+    wrap.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 500 });
+    // Make clientHeight match the rect so pageStep uses the mocked height (500 * 0.8 = 400)
+    Object.defineProperty(wrap, 'clientHeight', { value: 500, configurable: true });
+
+    const viewport = document.createElement('div');
+    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 500 });
+
+    const { result } = renderHook(() => useCanvasTransform({ contentRef }));
+    act(() => {
+      result.current.canvasWrapRef(wrap);
+      result.current.canvasViewportRef(viewport);
+    });
+
+    // bottom: content.bottom - viewport.top = 800; nextY = min(40, 500 - 800 - 40) = min(40, -340) = -340
+    act(() => result.current.navigateCanvas('bottom'));
+    expect(result.current.translate.y).toBe(-340);
+
+    // prev (from -340): -340 + pageStep(400) = 60
+    act(() => result.current.navigateCanvas('prev'));
+    expect(result.current.translate.y).toBe(60);
+
+    // next (from 60): 60 - 400 = -340
+    act(() => result.current.navigateCanvas('next'));
+    expect(result.current.translate.y).toBe(-340);
+  });
+
+  it('wheel zoom on the wrap updates scale and translate via schedule path', async () => {
+    const { result } = renderHook(() => useCanvasTransform());
+    const wrap = document.createElement('div');
+    wrap.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
+    document.body.appendChild(wrap);
+    act(() => {
+      result.current.canvasWrapRef(wrap);
+    });
+
+    // Dispatch a wheel "out" (deltaY > 0) which should zoom out (apply WHEEL_OUT)
+    const wheelOut = new WheelEvent('wheel', { deltaY: 120, clientX: 100, clientY: 100, bubbles: true });
+    act(() => {
+      wrap.dispatchEvent(wheelOut);
+    });
+    // Flush the rAF scheduled inside scheduleTransform (mocked to setTimeout 0)
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 5));
+    });
+    // scale should have changed (clamped)
+    expect(result.current.scale).toBeLessThan(1);
+
+    // Dispatch a wheel "in"
+    const wheelIn = new WheelEvent('wheel', { deltaY: -120, clientX: 100, clientY: 100, bubbles: true });
+    act(() => {
+      wrap.dispatchEvent(wheelIn);
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 5));
+    });
+    // scale should have increased again (but still >= MIN)
+    expect(result.current.scale).toBeGreaterThanOrEqual(0.3);
+  });
+
+  it('wheel with no effective scale change early returns without updating', () => {
+    const { result } = renderHook(() => useCanvasTransform());
+    const wrap = document.createElement('div');
+    wrap.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
+    document.body.appendChild(wrap);
+    act(() => {
+      result.current.canvasWrapRef(wrap);
+    });
+
+    // Force current scale to MIN so further WHEEL_OUT produces no change
+    act(() => {
+      result.current.setTransformNow(0.3, { x: 0, y: 0 });
+    });
+    const before = { ...result.current.translate };
+
+    const wheelOut = new WheelEvent('wheel', { deltaY: 120, clientX: 50, clientY: 50 });
+    act(() => {
+      wrap.dispatchEvent(wheelOut);
+    });
+    expect(result.current.translate).toEqual(before);
+  });
 });
