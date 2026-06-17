@@ -89,6 +89,23 @@ describe('HierarchyApp', () => {
     unmount();
   });
 
+  it('pulls focus into the iframe and scrollable body on mount', () => {
+    const focusSpy = vi.spyOn(window, 'focus').mockImplementation(() => {});
+    const mockRecord = {
+      status: 'done',
+      topics: [],
+    };
+    useRecord.mockReturnValue({ record: mockRecord, error: null });
+    const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
+
+    expect(focusSpy).toHaveBeenCalled();
+    const body = container.querySelector('.th-page__body');
+    expect(document.activeElement).toBe(body);
+
+    focusSpy.mockRestore();
+    unmount();
+  });
+
   it('closes the modal on Escape keypress', () => {
     const mockRecord = {
       status: 'done',

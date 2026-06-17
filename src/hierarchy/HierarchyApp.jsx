@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useEffect } from 'react';
+import React, { useMemo, useCallback, useEffect, useRef } from 'react';
 import { useRecord } from '../useRecord.js';
 import TopicHierarchyView from './TopicHierarchyView.jsx';
 import { getSentencesForNode } from './hierarchyUtils.js';
@@ -9,6 +9,22 @@ import './hierarchy.css';
 
 export default function HierarchyApp({ initialKey }) {
   const { record, error } = useRecord(initialKey);
+  const bodyRef = useRef(null);
+
+  useEffect(() => {
+    // The hierarchy runs inside an iframe. Pull focus into the iframe and onto
+    // the scrollable body so keyboard scrolling (Page Up/Down, arrow keys, etc.)
+    // works immediately without requiring an extra click.
+    try {
+      window.focus();
+    } catch (_) {
+      /* noop */
+    }
+    const body = bodyRef.current;
+    if (body && typeof body.focus === 'function') {
+      body.focus({ preventScroll: true });
+    }
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -117,7 +133,9 @@ export default function HierarchyApp({ initialKey }) {
       </header>
       <div className="th-page__content">
         <div className="th-page__hierarchy-pane">
-          <div className="th-page__body">{body}</div>
+          <div ref={bodyRef} className="th-page__body" tabIndex={-1}>
+            {body}
+          </div>
         </div>
       </div>
     </div>
