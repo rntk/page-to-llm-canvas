@@ -47,8 +47,14 @@ describe('selectionState', () => {
 
   it('builds the toolbar view model from selected entries', () => {
     expect(selectedBlocksForToolbar(renumberSelectedEntries(entries(['a', 'b'])))).toEqual([
-      { id: 1, originalNumber: 1 },
-      { id: 2, originalNumber: 2 },
+      { id: 1, originalNumber: 1, canStepUp: true },
+      { id: 2, originalNumber: 2, canStepUp: true },
     ]);
+  });
+
+  it('derives canStepUp per entry from the provided predicate', () => {
+    const input = renumberSelectedEntries(entries(['a', 'b']));
+    const result = selectedBlocksForToolbar(input, (el) => el.name !== 'b');
+    expect(result.map((block) => block.canStepUp)).toEqual([true, false]);
   });
 });

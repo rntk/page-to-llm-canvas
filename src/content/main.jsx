@@ -182,6 +182,27 @@ const TOOLBAR_SHADOW_STYLES = `
     color: var(--accent) !important;
     background: transparent !important;
   }
+
+  .pagetollm-stepup-btn {
+    background: transparent !important;
+    color: var(--on-surface-muted) !important;
+    padding: 0 4px !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    line-height: 1;
+  }
+
+  .pagetollm-stepup-btn:hover:not(:disabled) {
+    color: var(--ink) !important;
+    background: transparent !important;
+  }
+
+  .pagetollm-stepup-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
 `;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -327,7 +348,7 @@ function selectElement(event) {
 
 function renderSelectionToolbar() {
   if (!selectionToolbarRoot) return;
-  const selectedBlocks = selectedBlocksForToolbar(selectedElements);
+  const selectedBlocks = selectedBlocksForToolbar(selectedElements, canStepUp);
 
   selectionToolbarRoot.render(
     <SelectionToolbar
@@ -340,6 +361,7 @@ function renderSelectionToolbar() {
       onSubmit={submitSelection}
       onCancel={cleanupSelection}
       onRemoveBlock={removeBlock}
+      onStepUpBlock={stepUpBlock}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
@@ -356,6 +378,29 @@ function removeBlock(event, index) {
   }
   selectedElements = removeSelectedEntry(selectedElements, index);
   pickCounter = selectedElements.length;
+  renderSelectionToolbar();
+  updateSubmitState();
+}
+
+function canStepUp(el) {
+  const parent = el && el.parentElement;
+  return Boolean(parent && parent !== document.body && parent !== document.documentElement);
+}
+
+function stepUpBlock(event, index) {
+  if (!guardTrustedUserEvent(event)) return;
+  const entry = selectedElements[index];
+  if (!entry || !canStepUp(entry.el)) return;
+
+  const parent = entry.el.parentElement;
+  // Avoid double-selecting if the parent is already a picked block; collapse the
+  // child entry into the parent so the same element is never captured twice.
+  entry.el.classList.remove('pagetollm-selected');
+  parent.classList.add('pagetollm-selected');
+  entry.el = parent;
+
+  // The .pagetollm-selected outline now follows the parent on the page, so the
+  // user can see exactly which (larger) block will be captured.
   renderSelectionToolbar();
   updateSubmitState();
 }

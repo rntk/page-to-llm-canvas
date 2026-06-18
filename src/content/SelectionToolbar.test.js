@@ -29,6 +29,7 @@ describe('SelectionToolbar', () => {
     onSubmit: vi.fn(),
     onCancel: vi.fn(),
     onRemoveBlock: vi.fn(),
+    onStepUpBlock: vi.fn(),
     onDragStart: vi.fn(),
     onDragOver: vi.fn(),
     onDrop: vi.fn(),
@@ -99,6 +100,36 @@ describe('SelectionToolbar', () => {
     const removeBtn = listItems[0].querySelector('.pagetollm-remove-btn');
     act(() => removeBtn.click());
     expect(onRemoveBlock).toHaveBeenCalledWith(expect.any(Object), 0);
+
+    unmount();
+  });
+
+  it('renders the step-up button and triggers onStepUpBlock', () => {
+    const onStepUpBlock = vi.fn();
+
+    const { container, unmount } = render(
+      createElement(SelectionToolbar, {
+        ...defaultProps,
+        selectedBlocks: [
+          { id: 'b1', originalNumber: 1, canStepUp: true },
+          { id: 'b2', originalNumber: 2, canStepUp: false },
+        ],
+        onStepUpBlock,
+      }),
+    );
+
+    const listItems = container.querySelectorAll('.pagetollm-block-item');
+    const stepUpButtons = container.querySelectorAll('.pagetollm-stepup-btn');
+    expect(stepUpButtons).toHaveLength(2);
+    expect(stepUpButtons[0].disabled).toBe(false);
+    expect(stepUpButtons[1].disabled).toBe(true);
+
+    act(() => stepUpButtons[0].click());
+    expect(onStepUpBlock).toHaveBeenCalledWith(expect.any(Object), 0);
+
+    // Disabled button on a non-steppable block does not fire.
+    act(() => listItems[1].querySelector('.pagetollm-stepup-btn').click());
+    expect(onStepUpBlock).toHaveBeenCalledTimes(1);
 
     unmount();
   });

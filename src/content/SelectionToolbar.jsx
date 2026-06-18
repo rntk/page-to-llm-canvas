@@ -10,6 +10,7 @@ export default function SelectionToolbar({
   onSubmit,
   onCancel,
   onRemoveBlock,
+  onStepUpBlock,
   onDragStart,
   onDragOver,
   onDrop,
@@ -89,6 +90,16 @@ export default function SelectionToolbar({
                 &#9776;
               </span>
               <span className="pagetollm-block-label">Block {block.originalNumber}</span>
+              <button
+                className="pagetollm-stepup-btn"
+                type="button"
+                title="Expand selection to parent block"
+                aria-label="Expand selection to parent block"
+                disabled={isSubmitting || block.canStepUp === false}
+                onClick={(event) => onStepUpBlock(event, index)}
+              >
+                &#8593;
+              </button>
               <button
                 className="pagetollm-remove-btn"
                 type="button"

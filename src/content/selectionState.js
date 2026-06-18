@@ -32,9 +32,10 @@ export function moveSelectedEntry(entries, fromIndex, toIndex) {
   return renumberSelectedEntries(next);
 }
 
-export function selectedBlocksForToolbar(entries) {
+export function selectedBlocksForToolbar(entries, canStepUp) {
   return entries.map((entry) => ({
     id: entry.originalNumber,
     originalNumber: entry.originalNumber,
+    canStepUp: typeof canStepUp === 'function' ? canStepUp(entry.el) : true,
   }));
 }
