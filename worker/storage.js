@@ -1,5 +1,6 @@
 export const INDEX_KEY = 'pagetollm:index';
 const MAX_PROCESSING_LOG_ENTRIES = 80;
+const RECORD_SNIPPET_MAX_CHARS = 500;
 
 export function recordStorageKey(key) {
   return `pagetollm:rec:${key}`;
@@ -166,6 +167,7 @@ export async function listRecords() {
       out.push({
         key: rec.key,
         sourceUrl: rec.sourceUrl,
+        snippet: buildRecordSnippet(rec),
         createdAt: rec.createdAt,
         status: rec.status,
         progress: rec.progress,
@@ -174,6 +176,14 @@ export async function listRecords() {
     }
   }
   return out;
+}
+
+export function buildRecordSnippet(record) {
+  const text = String((record && record.text) || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (text.length <= RECORD_SNIPPET_MAX_CHARS) return text;
+  return `${text.slice(0, RECORD_SNIPPET_MAX_CHARS).trimEnd()}...`;
 }
 
 export async function deleteRecord(key) {

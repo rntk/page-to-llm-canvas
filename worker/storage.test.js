@@ -7,6 +7,7 @@ import {
   listRecords,
   deleteRecord,
   deleteAll,
+  buildRecordSnippet,
   recordStorageKey,
   INDEX_KEY,
   _resetUpdateQueues,
@@ -345,7 +346,28 @@ describe('listRecords', () => {
       expect(item).not.toHaveProperty('html');
       expect(item).toHaveProperty('key');
       expect(item).toHaveProperty('status');
+      expect(item).toHaveProperty('snippet');
     }
+  });
+
+  it('includes a normalized bounded text snippet', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    const longText = `  ${'word '.repeat(140)}  `;
+    seedRecord(mock, makeRecord('r1', { text: `First line\n\n${longText}` }));
+
+    const [item] = await listRecords();
+    expect(item.snippet).toMatch(/^First line word word/);
+    expect(item.snippet.length).toBeLessThanOrEqual(503);
+    expect(item.snippet.endsWith('...')).toBe(true);
+  });
+});
+
+describe('buildRecordSnippet', () => {
+  it('normalizes whitespace and returns an empty string for missing text', () => {
+    expect(buildRecordSnippet({ text: '  Alpha\nBeta\tGamma  ' })).toBe('Alpha Beta Gamma');
+    expect(buildRecordSnippet({})).toBe('');
   });
 });
 

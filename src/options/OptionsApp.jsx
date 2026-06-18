@@ -465,7 +465,14 @@ export function OptionsApp() {
               <tbody>
                 {items.map((item) => (
                   <tr key={item.key}>
-                    <td className="url">{item.sourceUrl || '(no url)'}</td>
+                    <td className="url">
+                      <div className="record-url">{item.sourceUrl || '(no url)'}</div>
+                      {item.snippet ? (
+                        <div className="record-snippet" title={item.snippet}>
+                          {item.snippet}
+                        </div>
+                      ) : null}
+                    </td>
                     <td>{fmtDate(item.createdAt)}</td>
                     <td>
                       <span className={statusClass(item.status)} title={item.error || undefined}>

@@ -61,6 +61,7 @@ describe('options main.jsx', () => {
             {
               key: 'rec1',
               sourceUrl: 'https://example.com',
+              snippet: 'A short preview of the selected document.',
               createdAt: 1716972000000,
               status: 'done',
             },
@@ -79,6 +80,7 @@ describe('options main.jsx', () => {
     const rows = document.querySelectorAll('tbody tr');
     expect(rows).toHaveLength(1);
     expect(rows[0].textContent).toContain('https://example.com');
+    expect(rows[0].textContent).toContain('A short preview of the selected document.');
     expect(rows[0].textContent).toContain('done');
 
     const openBtn = rows[0].querySelectorAll('button')[0];

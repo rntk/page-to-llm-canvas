@@ -379,6 +379,7 @@ describe('buildRecordDisplayData', () => {
       {
         key: 'rec1',
         sourceUrl: 'https://example.com/path',
+        snippet: 'A short preview of the selected document.',
         createdAt: 0,
         status: 'done',
       },
@@ -388,6 +389,7 @@ describe('buildRecordDisplayData', () => {
     expect(r.key).toBe('rec1');
     expect(r.label).toBe('/path');
     expect(r.sourceUrl).toBe('https://example.com/path');
+    expect(r.snippet).toBe('A short preview of the selected document.');
     expect(r.status).toBe('done');
     expect(r.badge).toBe('Done');
     expect(Array.isArray(r.actions)).toBe(true);

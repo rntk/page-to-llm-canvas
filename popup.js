@@ -276,6 +276,7 @@ export function buildRecordDisplayData(records) {
       key: record.key,
       label: labelFromUrl(record.sourceUrl),
       sourceUrl: record.sourceUrl || '',
+      snippet: record.snippet || '',
       date: formatDate(record.createdAt),
       status: record.status || 'unknown',
       badge: statusLabel(record.status),
@@ -307,6 +308,13 @@ function renderRecords(records) {
     meta.textContent = display.date;
 
     copy.appendChild(label);
+    if (display.snippet) {
+      const snippet = document.createElement('div');
+      snippet.className = 'snippet';
+      snippet.textContent = display.snippet;
+      snippet.title = display.snippet;
+      copy.appendChild(snippet);
+    }
     copy.appendChild(meta);
 
     const badge = document.createElement('span');
