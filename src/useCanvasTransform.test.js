@@ -153,6 +153,9 @@ describe('useCanvasTransform', () => {
     });
     expect(result.current.translate).toEqual({ x: 40, y: 120 });
     expect(result.current.isFocusingHighlight).toBe(true);
+    // Pan flashes the focus glow but must NOT mark a zoom-to-target: that flag
+    // gates the expensive sentence remeasurement, which a pan never needs.
+    expect(result.current.isZoomingToTarget).toBe(false);
   });
 
   it('zoomToTarget calculates transform from target rect', () => {
@@ -176,6 +179,9 @@ describe('useCanvasTransform', () => {
 
     expect(result.current.scale).toBe(1.5);
     expect(result.current.translate).not.toEqual({ x: 40, y: 40 });
+    // A real zoom (scale change) must suppress sentence measurement until the
+    // transition settles; the flag's false-flip later drives the remeasure.
+    expect(result.current.isZoomingToTarget).toBe(true);
   });
 
   it('zoomToTarget re-pins the content left edge after a zoom-induced reflow', async () => {

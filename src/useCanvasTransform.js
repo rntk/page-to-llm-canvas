@@ -29,6 +29,14 @@ export function useCanvasTransform({ contentRef } = {}) {
   const [scale, setScale] = useState(1);
   const [isCanvasDragging, setIsCanvasDragging] = useState(false);
   const [isFocusingHighlight, setIsFocusingHighlight] = useState(false);
+  // Distinct from `isFocusingHighlight` (a purely visual focus glow that any
+  // pan/zoom flashes). This flips true only for an actual zoom-to-target, where
+  // the *scale* changes mid-transition; sentence measurement must be suppressed
+  // until it settles. Keeping it separate means ordinary pan (mouse/keyboard)
+  // no longer recreates the measurement callback and re-runs the expensive
+  // remeasure. It must be state, not a ref: the false-flip is what re-triggers
+  // the post-settle remeasurement.
+  const [isZoomingToTarget, setIsZoomingToTarget] = useState(false);
 
   // Callback refs so listeners can re-bind once the DOM mounts (the canvas
   // wrap is rendered conditionally on `isDone`, so it is null on first effect).
@@ -51,6 +59,12 @@ export function useCanvasTransform({ contentRef } = {}) {
   const rafRef = useRef(0);
   const pendingRef = useRef(null);
   const focusTimerRef = useRef(null);
+  const zoomingTimerRef = useRef(null);
+  // Drag pan writes the transform imperatively (CSS vars + translateRef) on a
+  // dedicated rAF, bypassing React state so a mouse drag does not re-render the
+  // whole canvas tree ~60fps. State is committed once on mouse-up.
+  const dragRafRef = useRef(0);
+  const dragPendingRef = useRef(null);
 
   useEffect(() => {
     scaleRef.current = scale;
@@ -90,6 +104,29 @@ export function useCanvasTransform({ contentRef } = {}) {
     setIsFocusingHighlight(true);
     if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
     focusTimerRef.current = setTimeout(() => setIsFocusingHighlight(false), 380);
+  }, []);
+
+  // Mark a zoom-to-target as in flight so sentence measurement is suppressed
+  // until the (≈320ms) transform transition settles. The false-flip drives the
+  // post-settle remeasure, so the timing must outlast the transition; mirror
+  // flashFocus's 380ms.
+  const flashZoomingToTarget = useCallback(() => {
+    setIsZoomingToTarget(true);
+    if (zoomingTimerRef.current) clearTimeout(zoomingTimerRef.current);
+    zoomingTimerRef.current = setTimeout(() => setIsZoomingToTarget(false), 380);
+  }, []);
+
+  // Apply a translate directly to the DOM + ref without touching React state.
+  // Used by the drag-pan rAF; `translate` state is only read by the CSS-var
+  // layout effect, so writing the vars here keeps the canvas in sync while
+  // avoiding a render storm. State is reconciled on mouse-up.
+  const applyTranslateImperative = useCallback((next) => {
+    translateRef.current = next;
+    const viewport = canvasViewportElRef.current;
+    if (viewport) {
+      viewport.style.setProperty('--canvas-translate-x', `${next.x}px`);
+      viewport.style.setProperty('--canvas-translate-y', `${next.y}px`);
+    }
   }, []);
 
   // CSS variable sync on the viewport. Runs in a layout effect (synchronously
@@ -144,21 +181,38 @@ export function useCanvasTransform({ contentRef } = {}) {
         const dx = mv.clientX - lastMouse.current.x;
         const dy = mv.clientY - lastMouse.current.y;
         lastMouse.current = { x: mv.clientX, y: mv.clientY };
-        scheduleTransform(scaleRef.current || 1, {
-          x: translateRef.current.x + dx,
-          y: translateRef.current.y + dy,
+        // Accumulate from the last *pending* target (not translateRef, which
+        // only updates once per rAF) so multiple moves within a frame compose.
+        const base = dragPendingRef.current || translateRef.current;
+        dragPendingRef.current = { x: base.x + dx, y: base.y + dy };
+        if (dragRafRef.current) return;
+        dragRafRef.current = window.requestAnimationFrame(() => {
+          dragRafRef.current = 0;
+          const pending = dragPendingRef.current;
+          dragPendingRef.current = null;
+          if (pending) applyTranslateImperative(pending);
         });
       };
       const onUp = () => {
         isDragging.current = false;
         setIsCanvasDragging(false);
+        if (dragRafRef.current) {
+          window.cancelAnimationFrame(dragRafRef.current);
+          dragRafRef.current = 0;
+        }
+        const pending = dragPendingRef.current;
+        dragPendingRef.current = null;
+        if (pending) applyTranslateImperative(pending);
+        // Reconcile React state with the ref so the CSS-var layout effect won't
+        // later overwrite the imperatively-set vars with a stale translate.
+        setTransformNow(scaleRef.current || 1, translateRef.current);
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', onUp);
       };
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
     },
-    [scheduleTransform],
+    [applyTranslateImperative, setTransformNow],
   );
 
   // Wheel zoom (re-binds when the wrap element mounts).
@@ -299,6 +353,9 @@ export function useCanvasTransform({ contentRef } = {}) {
         y: nextY,
       });
       flashFocus();
+      // Scale changes here; suppress sentence measurement until the transition
+      // settles (see isZoomingToTarget). Pan paths deliberately do not call this.
+      flashZoomingToTarget();
 
       // The article column's left offset is zoom-adjusted: the summary gutter
       // and rail cards are sized 1/scale so they stay screen-constant, which
@@ -338,7 +395,16 @@ export function useCanvasTransform({ contentRef } = {}) {
         });
       }
     },
-    [contentRef, flashFocus, setTransformNow],
+    [contentRef, flashFocus, flashZoomingToTarget, setTransformNow],
+  );
+
+  // Clean up the focus/zoom timers on unmount.
+  useEffect(
+    () => () => {
+      if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+      if (zoomingTimerRef.current) clearTimeout(zoomingTimerRef.current);
+    },
+    [],
   );
 
   return {
@@ -346,6 +412,7 @@ export function useCanvasTransform({ contentRef } = {}) {
     scale,
     isCanvasDragging,
     isFocusingHighlight,
+    isZoomingToTarget,
     canvasWrapRef,
     canvasViewportRef,
     canvasWrapElRef,

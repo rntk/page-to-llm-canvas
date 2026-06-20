@@ -51,6 +51,23 @@ function areSentenceMetricsEqual(prevMetrics, nextMetrics) {
   return true;
 }
 
+function areSummaryMetricsEqual(prevMetrics, nextMetrics) {
+  if (prevMetrics === nextMetrics) return true;
+  if (!(prevMetrics instanceof Map) || !(nextMetrics instanceof Map)) return false;
+  if (prevMetrics.size !== nextMetrics.size) return false;
+  for (const [path, nextMetric] of nextMetrics) {
+    const prevMetric = prevMetrics.get(path);
+    if (
+      !prevMetric ||
+      !Object.is(prevMetric.top, nextMetric.top) ||
+      !Object.is(prevMetric.height, nextMetric.height)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * @param {{ initialKey: string }} props
  * @returns {import("react").JSX.Element}
@@ -80,6 +97,7 @@ export default function App({ initialKey }) {
     scale,
     isCanvasDragging,
     isFocusingHighlight,
+    isZoomingToTarget,
     canvasWrapRef,
     canvasViewportRef,
     canvasWrapElRef,
@@ -281,9 +299,11 @@ export default function App({ initialKey }) {
     // `scaleRef` already holds the *target* scale. Measuring now divides settled-
     // scale into animating rects, yielding wrong (tiny, top-pinned) sentence
     // positions that pin the rail cards to a small stacked layout. Skip until the
-    // transform settles; `isFocusingHighlight` is in the deps so flipping it back
-    // to false re-runs the measurement effects with the final layout.
-    if (!wrap || showSummaryMode || isFocusingHighlight) return;
+    // transform settles; `isZoomingToTarget` is in the deps so flipping it back
+    // to false re-runs the measurement effects with the final layout. (Ordinary
+    // pan only flashes the focus glow and never sets this flag, so pan no longer
+    // recreates this callback or reschedules the remeasure.)
+    if (!wrap || showSummaryMode || isZoomingToTarget) return;
     const { wordEntries, sentenceRanges } = refreshSentenceRanges();
     if (!sentenceRanges.size) return;
 
@@ -308,7 +328,7 @@ export default function App({ initialKey }) {
         setSentenceMetrics(nextMetrics);
       }
     }
-  }, [scaleRef, showSummaryMode, isFocusingHighlight, refreshSentenceRanges]);
+  }, [scaleRef, showSummaryMode, isZoomingToTarget, refreshSentenceRanges]);
 
   const measureSummaryPositions = useCallback(() => {
     const wrap = summaryWrapRef.current;
@@ -324,7 +344,9 @@ export default function App({ initialKey }) {
         height: r.height / s,
       });
     });
-    setSummaryMetricsState(next);
+    // The triple-rAF measurement schedule calls this up to 3x per layout pass;
+    // bail the render when geometry is unchanged so we don't thrash the rail.
+    setSummaryMetricsState((prev) => (areSummaryMetricsEqual(prev, next) ? prev : next));
   }, [scaleRef, showSummaryMode]);
 
   // When leaving summary mode (e.g. via "Show source sentences"), ensure we

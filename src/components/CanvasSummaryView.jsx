@@ -51,22 +51,18 @@ function pruneEmptyElements(root) {
     'SOURCE',
     'PICTURE',
   ]);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    Array.from(root.querySelectorAll('*'))
-      .reverse()
-      .forEach((el) => {
-        if (keepEmptyTags.has(el.tagName)) return;
-        if (
-          el.textContent.trim() === '' &&
-          el.querySelector('img, video, audio, iframe') === null
-        ) {
-          el.remove();
-          changed = true;
-        }
-      });
-  }
+  // Reverse document order is bottom-up: a parent is visited only after its
+  // descendants, so a single pass handles cascading emptiness (a parent left
+  // empty by removed children is itself empty by the time we reach it). This
+  // replaces a previous while(changed) loop that re-scanned the whole tree.
+  Array.from(root.querySelectorAll('*'))
+    .reverse()
+    .forEach((el) => {
+      if (keepEmptyTags.has(el.tagName)) return;
+      if (el.textContent.trim() === '' && el.querySelector('img, video, audio, iframe') === null) {
+        el.remove();
+      }
+    });
 }
 
 function normalizeSentenceNumbers(sourceSentences, sentenceOffset) {
@@ -232,6 +228,20 @@ function buildHighlightedSentencePreviewHtml(sourceModel, contextSentences, high
 
 const previewHtmlCache = new Map();
 
+// The source model is keyed on its inputs so the per-render memo below returns a
+// stable identity across hover toggles (which flip the memo's `hasActivePreview`
+// dep without changing the content). Without this, every cursor enter/leave would
+// rebuild the whole article index and wipe previewHtmlCache.
+let sourceModelCache = { articleHtml: null, sentences: null, model: null };
+function getOrBuildPreviewSourceModel(articleHtml, sentences) {
+  if (sourceModelCache.articleHtml === articleHtml && sourceModelCache.sentences === sentences) {
+    return sourceModelCache.model;
+  }
+  const model = buildPreviewSourceModel(articleHtml, sentences);
+  sourceModelCache = { articleHtml, sentences, model };
+  return model;
+}
+
 function CanvasSummaryView({
   summaryViewCards,
   summaryViewActivePath,
@@ -310,10 +320,53 @@ function CanvasSummaryView({
     ].filter((card) => Array.isArray(card?.sourceSentences) && card.sourceSentences.length > 0);
     return Array.from(new Set(contextCards.flatMap((card) => card.sourceSentences)));
   }, [previewCard, previewCardKey, summaryViewCards]);
+  // Indexing the whole article (clone + word/sentence ranges) is the heaviest
+  // step in this view and is needed only once a source preview is shown. Gate
+  // the build behind `previewModelReady` so summary-mode entry isn't blocked by
+  // an eager build: the flag flips either when a preview is first needed or
+  // during idle shortly after mount (whichever comes first), so the first hover
+  // still finds the model ready. Once flipped it stays on; the useMemo below
+  // rebuilds only when the source content actually changes.
+  const [previewModelReady, setPreviewModelReady] = React.useState(false);
+  // Warm the (lazy) source-model build during idle time after mount so the first
+  // hover finds it ready without blocking summary-mode entry.
+  React.useEffect(() => {
+    if (previewModelReady || !articleHtml || !Array.isArray(sentences) || sentences.length === 0) {
+      return undefined;
+    }
+    let cancelled = false;
+    const activate = () => {
+      if (!cancelled) setPreviewModelReady(true);
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(activate, { timeout: 200 });
+      return () => {
+        cancelled = true;
+        window.cancelIdleCallback?.(id);
+      };
+    }
+    const id = window.setTimeout(activate, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
+  }, [previewModelReady, articleHtml, sentences]);
+  // Build when warmed, or immediately if a preview is needed before the idle
+  // warm-up fires. The boolean (not previewCard itself) keeps the memo stable
+  // across different hovers so the heavy index isn't rebuilt per card.
+  const hasActivePreview = Boolean(previewCard);
   const previewSourceModel = React.useMemo(
-    () => buildPreviewSourceModel(articleHtml, sentences),
-    [articleHtml, sentences],
+    () =>
+      (previewModelReady || hasActivePreview) &&
+      articleHtml &&
+      Array.isArray(sentences) &&
+      sentences.length > 0
+        ? getOrBuildPreviewSourceModel(articleHtml, sentences)
+        : null,
+    [previewModelReady, hasActivePreview, articleHtml, sentences],
   );
+  // The per-preview HTML cache is invalidated when the source model or the card
+  // set changes.
   React.useEffect(() => {
     previewHtmlCache.clear();
   }, [previewSourceModel, summaryViewCards]);
