@@ -400,14 +400,22 @@ describe('clearSummaryErrorFlags (pure)', () => {
   it('strips error markers from topic summaries while preserving other fields', async () => {
     const { clearSummaryErrorFlags } = await import('./background.js');
     const input = {
-      'A>B': { text: 't', source_sentences: [1], error: true, error_kind: 'timeout', error_message: 'x', error_detail: 'y', other: 42 },
-      'C': { text: 'ok', source_sentences: [3] },
+      'A>B': {
+        text: 't',
+        source_sentences: [1],
+        error: true,
+        error_kind: 'timeout',
+        error_message: 'x',
+        error_detail: 'y',
+        other: 42,
+      },
+      C: { text: 'ok', source_sentences: [3] },
       bad: null,
     };
     const out = clearSummaryErrorFlags(input);
     expect(out).toEqual({
       'A>B': { text: 't', source_sentences: [1], other: 42 },
-      'C': { text: 'ok', source_sentences: [3] },
+      C: { text: 'ok', source_sentences: [3] },
       bad: null,
     });
   });

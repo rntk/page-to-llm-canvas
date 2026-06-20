@@ -27,11 +27,7 @@ import {
 } from './recordTransform.js';
 import { buildCssPath } from './cssPath.js';
 import { buildHtml } from './selectionHtml.js';
-import {
-  getScrollableAncestor,
-  getRailOriginTop,
-  computeCardVerticalBox,
-} from './railGeometry.js';
+import { getScrollableAncestor, getRailOriginTop, computeCardVerticalBox } from './railGeometry.js';
 import {
   fetchRecord,
   findPickedElements,

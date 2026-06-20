@@ -75,7 +75,11 @@ describe('getScrollableAncestor', () => {
       return { overflowY: '', overflow: '' };
     };
 
-    const ancestor = getScrollableAncestor([picked], { getComputedStyle: gcs, body: document.body, docEl: document.documentElement });
+    const ancestor = getScrollableAncestor([picked], {
+      getComputedStyle: gcs,
+      body: document.body,
+      docEl: document.documentElement,
+    });
     expect(ancestor).toBe(outer);
   });
 
@@ -86,7 +90,11 @@ describe('getScrollableAncestor', () => {
     container.appendChild(parent);
 
     const gcs = () => ({ overflowY: 'visible', overflow: 'visible' });
-    const ancestor = getScrollableAncestor([picked], { getComputedStyle: gcs, body: document.body, docEl: document.documentElement });
+    const ancestor = getScrollableAncestor([picked], {
+      getComputedStyle: gcs,
+      body: document.body,
+      docEl: document.documentElement,
+    });
     expect(ancestor).toBe(window);
   });
 
@@ -165,6 +173,8 @@ describe('computeCardVerticalBox', () => {
       getClientRects: () => [{ top: Infinity, bottom: -Infinity, width: 0, height: 0 }],
     };
     const buildRange = () => fakeRange;
-    expect(computeCardVerticalBox([1], sentenceRanges, wordEntries, 0, window, { buildRange })).toBeNull();
+    expect(
+      computeCardVerticalBox([1], sentenceRanges, wordEntries, 0, window, { buildRange }),
+    ).toBeNull();
   });
 });

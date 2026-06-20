@@ -350,6 +350,19 @@ body.pagetollm-rail-open {
   box-shadow: 0 1px 0 rgb(58 64 77 / 12%);
 }
 
+.pagetollm-rail-body.is-nested-scroll .pagetollm-rail-card.is-topic .pagetollm-rail-card-title {
+  --pagetollm-card-title-offset: max(
+    0px,
+    min(
+      calc(
+        var(--pagetollm-scroll-offset, 0px) + var(--pagetollm-rail-sticky-offset, 48px) -
+          var(--pagetollm-card-top, 0px)
+      ),
+      max(0px, calc(var(--pagetollm-card-height, 0px) - var(--pagetollm-rail-sticky-offset, 48px)))
+    )
+  );
+}
+
 .pagetollm-rail-card-meta {
   font-size: 10px;
   font-weight: 700;

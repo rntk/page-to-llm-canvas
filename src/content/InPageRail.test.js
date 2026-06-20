@@ -162,8 +162,11 @@ describe('InPageRail', () => {
     const firstCard = container.querySelector('.pagetollm-rail-card');
 
     expect(railBody.style.transform).toBe('translateY(-120px)');
+    expect(railBody.className).toContain('is-nested-scroll');
+    expect(railBody.style.getPropertyValue('--pagetollm-scroll-offset')).toBe('120px');
     expect(firstCard.className).toContain('is-topic');
-    expect(firstCard.style.getPropertyValue('--pagetollm-card-title-offset')).toBe('68px');
+    expect(firstCard.style.getPropertyValue('--pagetollm-card-top')).toBe('100px');
+    expect(firstCard.style.getPropertyValue('--pagetollm-card-height')).toBe('200px');
 
     unmount();
   });

@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { computeSummaryCursorState } from './summaryCursor.js';
 
 const SUMMARY_CURSOR_MIN_TOP = 112;
-const RAIL_STICKY_OFFSET = 48;
 
 const RAIL_MODE_OPTIONS = new Set(['topics', 'summaries', 'hierarchy', 'canvas']);
 
@@ -47,28 +46,13 @@ function LevelSwitcher({ maxLevel, selectedLevel, onSelectLevel }) {
   );
 }
 
-function getNestedStickyTitleOffset(card, scrollOffset, isNestedScroll, isSummary) {
-  if (!isNestedScroll || isSummary) return 0;
-  const rawOffset = scrollOffset + RAIL_STICKY_OFFSET - card.box.top;
-  const maxOffset = Math.max(0, card.box.height - RAIL_STICKY_OFFSET);
-  return Math.min(Math.max(0, rawOffset), maxOffset);
-}
-
-function RailCard({
-  card,
-  isSummary,
-  isFront,
-  stickyTitleOffset,
-  onEnter,
-  onLeave,
-  onFocus,
-  onOpen,
-}) {
+function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen }) {
   const style = {
     top: `${card.box.top}px`,
     borderColor: card.accent,
     '--pagetollm-card-accent': card.accent,
-    '--pagetollm-card-title-offset': `${stickyTitleOffset}px`,
+    '--pagetollm-card-top': `${card.box.top}px`,
+    '--pagetollm-card-height': `${card.box.height}px`,
   };
   if (isSummary) {
     style.height = `${card.box.height}px`;
@@ -312,6 +296,7 @@ export default function InPageRail({
   const bodyStyle = {
     height: normalizedHeight,
     transform: isNestedScroll && !isSummary ? `translateY(${-scrollOffset}px)` : undefined,
+    '--pagetollm-scroll-offset': `${scrollOffset}px`,
   };
 
   return (
@@ -327,7 +312,13 @@ export default function InPageRail({
           ×
         </button>
       </div>
-      <div className="pagetollm-rail-body" ref={bodyRef} style={bodyStyle}>
+      <div
+        className={['pagetollm-rail-body', isNestedScroll ? 'is-nested-scroll' : '']
+          .filter(Boolean)
+          .join(' ')}
+        ref={bodyRef}
+        style={bodyStyle}
+      >
         {isSummary ? (
           <SummaryCursorView
             cards={cards}
@@ -344,12 +335,6 @@ export default function InPageRail({
               card={card}
               isSummary={isSummary}
               isFront={frontCardId === card.id}
-              stickyTitleOffset={getNestedStickyTitleOffset(
-                card,
-                scrollOffset,
-                isNestedScroll,
-                isSummary,
-              )}
               onEnter={handleCardEnter}
               onLeave={handleCardLeave}
               onFocus={bringForward}

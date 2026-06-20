@@ -12,9 +12,7 @@ export function getScrollTop(scrollContainer, win = window) {
 }
 
 export function getRailOriginTop(bodyRect, scrollContainer, win = window) {
-  return scrollContainer && scrollContainer !== win
-    ? bodyRect.top
-    : bodyRect.top + win.scrollY;
+  return scrollContainer && scrollContainer !== win ? bodyRect.top : bodyRect.top + win.scrollY;
 }
 
 export function getScrollableAncestor(

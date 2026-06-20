@@ -107,8 +107,12 @@ describe('collectWordEntries and buildSentenceDomRange', () => {
 describe('buildSentenceWordRanges (anchoring logic)', () => {
   it('maps sentences to index ranges using word entries', () => {
     const entries = [
-      { word: 'Hello' }, { word: 'world' },
-      { word: 'this' }, { word: 'is' }, { word: 'a' }, { word: 'test' },
+      { word: 'Hello' },
+      { word: 'world' },
+      { word: 'this' },
+      { word: 'is' },
+      { word: 'a' },
+      { word: 'test' },
     ];
     const sentences = ['Hello world', 'this is a test'];
     const ranges = buildSentenceWordRanges(sentences, entries);

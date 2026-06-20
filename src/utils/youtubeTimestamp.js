@@ -9,8 +9,7 @@
 // A timestamp token (M:SS or H:MM:SS) anchored on the trailing human-readable
 // duration the transcript always emits ("1 second", "2 minutes, 51 seconds").
 // The anchor prevents matching ratios (16:9) or clock times (3:30 PM).
-const TIMESTAMP_RE =
-  /(\d{1,2}):([0-5]\d)(?::([0-5]\d))?(?=\s+\d+\s+(?:second|minute|hour))/i;
+const TIMESTAMP_RE = /(\d{1,2}):([0-5]\d)(?::([0-5]\d))?(?=\s+\d+\s+(?:second|minute|hour))/i;
 
 /**
  * Extract the YouTube video id from a watch/short/embed/youtu.be URL.

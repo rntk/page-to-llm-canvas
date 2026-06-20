@@ -38,7 +38,7 @@ describe('getYouTubeVideoId', () => {
 
 describe('parseTimestampSeconds', () => {
   it('parses M:SS anchored on the readable duration', () => {
-    expect(parseTimestampSeconds('0:01 1 second Yeah, I don\'t know.')).toBe(1);
+    expect(parseTimestampSeconds("0:01 1 second Yeah, I don't know.")).toBe(1);
     expect(parseTimestampSeconds('2:51 2 minutes, 51 seconds I had issues')).toBe(171);
     expect(parseTimestampSeconds('1:09 1 minute, 9 seconds Sapphire Rapids')).toBe(69);
   });
@@ -62,7 +62,7 @@ describe('getTimestampForSentences', () => {
   const sentences = [
     "0:01 1 second Yeah, I don't know.", // index 0 -> sentence 1
     "That's why we're here.", // index 1 -> sentence 2
-    'And uh it\'s going to be fun.', // index 2 -> sentence 3
+    "And uh it's going to be fun.", // index 2 -> sentence 3
     '0:26 26 seconds Blackwell is not just a card.', // index 3 -> sentence 4
   ];
 
@@ -118,7 +118,11 @@ describe('getYouTubeTimestampLink', () => {
         sentences,
         sourceSentences: [3],
       }),
-    ).toEqual({ url: 'https://www.youtube.com/watch?v=WUw9XUOAFaY&t=26s', seconds: 26, label: '0:26' });
+    ).toEqual({
+      url: 'https://www.youtube.com/watch?v=WUw9XUOAFaY&t=26s',
+      seconds: 26,
+      label: '0:26',
+    });
   });
 
   it('returns null for non-YouTube records', () => {

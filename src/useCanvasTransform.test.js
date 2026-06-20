@@ -348,7 +348,13 @@ describe('useCanvasTransform', () => {
 
   it('navigateCanvas bottom/prev/next adjust y using viewport and content rects', () => {
     const content = document.createElement('div');
-    content.getBoundingClientRect = () => ({ left: 0, top: 0, bottom: 800, width: 100, height: 800 });
+    content.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      bottom: 800,
+      width: 100,
+      height: 800,
+    });
     const contentRef = { current: content };
 
     const wrap = document.createElement('div');
@@ -388,7 +394,12 @@ describe('useCanvasTransform', () => {
     });
 
     // Dispatch a wheel "out" (deltaY > 0) which should zoom out (apply WHEEL_OUT)
-    const wheelOut = new WheelEvent('wheel', { deltaY: 120, clientX: 100, clientY: 100, bubbles: true });
+    const wheelOut = new WheelEvent('wheel', {
+      deltaY: 120,
+      clientX: 100,
+      clientY: 100,
+      bubbles: true,
+    });
     act(() => {
       wrap.dispatchEvent(wheelOut);
     });
@@ -400,7 +411,12 @@ describe('useCanvasTransform', () => {
     expect(result.current.scale).toBeLessThan(1);
 
     // Dispatch a wheel "in"
-    const wheelIn = new WheelEvent('wheel', { deltaY: -120, clientX: 100, clientY: 100, bubbles: true });
+    const wheelIn = new WheelEvent('wheel', {
+      deltaY: -120,
+      clientX: 100,
+      clientY: 100,
+      bubbles: true,
+    });
     act(() => {
       wrap.dispatchEvent(wheelIn);
     });
