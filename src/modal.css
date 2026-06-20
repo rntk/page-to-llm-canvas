@@ -1000,7 +1000,10 @@ body.canvas-global-dragging * {
 }
 
 .canvas-summary-view__summary-tooltip {
-  display: block;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
   margin-top: 10px;
 }
 

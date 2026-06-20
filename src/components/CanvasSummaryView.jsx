@@ -452,6 +452,11 @@ function CanvasSummaryView({
             const isActive = summaryViewActivePath === card.path;
             const hasSummaryContent = Boolean(card.text);
             const canShowSourceSentences = card.sourceSentences.length > 0;
+            const cardYouTubeLink = getYouTubeTimestampLink({
+              sourceUrl,
+              sentences,
+              sourceSentences: card.sourceSentences,
+            });
             const isPreviewActive = previewCardKey === (card.key || card.path);
             return (
               <article
@@ -504,19 +509,22 @@ function CanvasSummaryView({
                 {hasSummaryContent && (
                   <div className="canvas-summary-view__summary-tooltip-wrap">
                     {card.text && <p className="canvas-summary-view__card-text">{card.text}</p>}
-                    {canShowSourceSentences && (
+                    {(canShowSourceSentences || cardYouTubeLink) && (
                       <div className="canvas-summary-view__summary-tooltip" role="tooltip">
-                        <button
-                          type="button"
-                          className="canvas-summary-view__summary-tooltip-button"
-                          onMouseDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onShowSourceSentences(card);
-                          }}
-                        >
-                          Show source sentences
-                        </button>
+                        {canShowSourceSentences && (
+                          <button
+                            type="button"
+                            className="canvas-summary-view__summary-tooltip-button"
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onShowSourceSentences(card);
+                            }}
+                          >
+                            Show source sentences
+                          </button>
+                        )}
+                        <YouTubeTimestampButton link={cardYouTubeLink} />
                       </div>
                     )}
                   </div>
