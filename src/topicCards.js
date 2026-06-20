@@ -143,6 +143,38 @@ export function getTopicSentenceNumbers(topic) {
 }
 
 /**
+ * Builds a lookup from canonical topic path ("A > B > C") to the sentence
+ * numbers covered by that path and all of its descendants.
+ *
+ * @param {Array<{name: string}>} topics
+ * @returns {Map<string, Set<number>>}
+ */
+export function buildTopicSentenceIndex(topics) {
+  /** @type {Map<string, Set<number>>} */
+  const index = new Map();
+  if (!Array.isArray(topics) || topics.length === 0) return index;
+
+  for (const topic of topics) {
+    const parts = splitTopicPath(topic?.name);
+    if (parts.length === 0) continue;
+
+    const sentenceNumbers = getTopicSentenceNumbers(topic);
+    if (sentenceNumbers.length === 0) continue;
+
+    for (let depth = 1; depth <= parts.length; depth += 1) {
+      const path = parts.slice(0, depth).join(' > ');
+      const pathSentences = index.get(path) || new Set();
+      for (const sentenceNumber of sentenceNumbers) {
+        pathSentences.add(sentenceNumber);
+      }
+      index.set(path, pathSentences);
+    }
+  }
+
+  return index;
+}
+
+/**
  * @param {number[]} sentenceNumbers
  * @returns {number[][]}
  */

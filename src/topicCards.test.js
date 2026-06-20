@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   splitTopicPath,
+  buildTopicSentenceIndex,
   getMaxTopicLevel,
   getTopicSentenceNumbers,
   splitSentenceRuns,
@@ -125,6 +126,33 @@ describe('getTopicSentenceNumbers', () => {
   it('returns empty array for empty ranges', () => {
     const topic = { ranges: [] };
     expect(getTopicSentenceNumbers(topic)).toEqual([]);
+  });
+});
+
+describe('buildTopicSentenceIndex', () => {
+  it('indexes each topic path with descendant sentence aggregation', () => {
+    const index = buildTopicSentenceIndex([
+      { name: 'Tech', sentences: [1] },
+      { name: 'Tech>AI', sentences: [2, 3] },
+      { name: 'Tech > AI > Models', sentences: [3, 4] },
+      { name: 'Science', sentences: [9] },
+    ]);
+
+    expect([...index.get('Tech')].sort((left, right) => left - right)).toEqual([1, 2, 3, 4]);
+    expect([...index.get('Tech > AI')].sort((left, right) => left - right)).toEqual([2, 3, 4]);
+    expect([...index.get('Tech > AI > Models')]).toEqual([3, 4]);
+    expect([...index.get('Science')]).toEqual([9]);
+  });
+
+  it('skips topics without a path or sentence numbers', () => {
+    const index = buildTopicSentenceIndex([
+      { name: '', sentences: [1] },
+      { name: 'Tech', sentences: [] },
+      { name: 'Science', ranges: [{ sentence_start: 2, sentence_end: 3 }] },
+    ]);
+
+    expect(index.has('Tech')).toBe(false);
+    expect([...index.get('Science')]).toEqual([2, 3]);
   });
 });
 

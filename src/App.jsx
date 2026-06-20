@@ -1,22 +1,16 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useRecord } from './useRecord.js';
 import {
+  buildTopicSentenceIndex,
   buildTopicCards,
   getMaxTopicLevel,
-  getTopicSentenceNumbers,
   getTopicTitleFontSize,
   getZoomAdjustedCardWidth,
   getZoomAdjustedSummaryCardWidth,
   patchTopicCardsFromSummaryMetrics,
-  splitTopicPath,
   COLUMN_GAP,
   RAIL_PADDING,
 } from './topicCards.js';
-
-/** Normalize a raw topic.name ("A>B>C") to the rail's canonical form ("A > B > C"). */
-function normalizeTopicPath(name) {
-  return splitTopicPath(name).join(' > ');
-}
 import { buildSummaryCards, filterSummaryCardsByLevel } from './summaryCards.js';
 import {
   HIGHLIGHT_NAME,
@@ -104,6 +98,7 @@ export default function App({ initialKey }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [topicsJson],
   );
+  const topicSentenceIndex = useMemo(() => buildTopicSentenceIndex(topics), [topics]);
 
   // Keep a referentially-stable `sentences` array across record writes that
   // don't actually change the sentences. The orchestrator rewrites the record
@@ -407,14 +402,7 @@ export default function App({ initialKey }) {
 
     const sentencesForKey = (key) => {
       if (!key) return [];
-      const set = new Set();
-      for (const t of topics) {
-        const path = normalizeTopicPath(t.name);
-        if (path === key || path.startsWith(key + ' > ')) {
-          for (const idx of getTopicSentenceNumbers(t)) set.add(idx);
-        }
-      }
-      return Array.from(set);
+      return Array.from(topicSentenceIndex.get(key) || []);
     };
 
     const setHighlight = (name, nums) => {
@@ -450,7 +438,7 @@ export default function App({ initialKey }) {
   }, [
     isDone,
     showSummaryMode,
-    topics,
+    topicSentenceIndex,
     selectedTopicKey,
     hoveredTopicKey,
     articleHtml,
@@ -704,7 +692,6 @@ export default function App({ initialKey }) {
                     currentTopicSummary={currentTopicSummary}
                     sentences={sentences}
                     sourceUrl={record?.sourceUrl}
-                    scale={scale}
                   />
                 </div>
               </div>
