@@ -62,6 +62,7 @@ describe('CanvasSummaryView', () => {
   });
 
   it('renders summary cards and triggers callbacks', () => {
+    vi.useFakeTimers();
     const setHoveredTopicKey = vi.fn();
     const onShowSourceSentences = vi.fn();
     const summaryCardRefs = { current: {} };
@@ -89,10 +90,15 @@ describe('CanvasSummaryView', () => {
     expect(articles[0].className).toContain('is-active');
     expect(articles[1].className).not.toContain('is-active');
 
-    // test hover trigger
+    // test hover trigger — the hovered-topic key is now deferred through the same
+    // settle delay as the preview, so it fires after the debounce, not on enter.
     const mouseOverEvent = new MouseEvent('mouseover', { bubbles: true });
     act(() => {
       articles[0].dispatchEvent(mouseOverEvent);
+    });
+    expect(setHoveredTopicKey).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(120);
     });
     expect(setHoveredTopicKey).toHaveBeenCalledWith('Topic A > Subtopic B');
 
@@ -128,9 +134,11 @@ describe('CanvasSummaryView', () => {
     unmount();
     // refs should be deleted on unmount
     expect(summaryCardRefs.current).toEqual({});
+    vi.useRealTimers();
   });
 
   it('renders a floating source preview with highlighted original sentences on hover', () => {
+    vi.useFakeTimers();
     const summaryCardRefs = { current: {} };
     const articleTextRef = React.createRef();
     const cards = [
@@ -162,6 +170,11 @@ describe('CanvasSummaryView', () => {
         .querySelector('.canvas-summary-view__card')
         .dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
     });
+    // The preview opens after a short hover-settle delay (debounced to avoid
+    // rebuilding it for every card crossed during a fast sweep).
+    act(() => {
+      vi.advanceTimersByTime(120);
+    });
 
     const preview = container.querySelector('.canvas-summary-source-preview');
     expect(preview).not.toBeNull();
@@ -182,6 +195,7 @@ describe('CanvasSummaryView', () => {
     expect(parentWheelHandler).not.toHaveBeenCalled();
 
     unmount();
+    vi.useRealTimers();
   });
 
   it('renders neighboring topic sentences while highlighting only the active topic', () => {
@@ -229,6 +243,7 @@ describe('CanvasSummaryView', () => {
   });
 
   it('includes previous and next summary topics as unhighlighted preview context', () => {
+    vi.useFakeTimers();
     const summaryCardRefs = { current: {} };
     const articleTextRef = React.createRef();
     const cards = [
@@ -281,6 +296,10 @@ describe('CanvasSummaryView', () => {
         .querySelectorAll('.canvas-summary-view__card')[1]
         .dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
     });
+    // The preview opens after a short hover-settle delay.
+    act(() => {
+      vi.advanceTimersByTime(120);
+    });
 
     const preview = container.querySelector('.canvas-summary-source-preview');
     expect(preview).not.toBeNull();
@@ -293,6 +312,7 @@ describe('CanvasSummaryView', () => {
     expect(highlights[0].textContent).toBe('Beta sentence.');
 
     unmount();
+    vi.useRealTimers();
   });
 
   it('updates the preview from topic hover even when another summary was clicked', () => {

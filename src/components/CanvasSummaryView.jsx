@@ -8,6 +8,10 @@ import { getYouTubeTimestampLink } from '../utils/youtubeTimestamp.js';
 import YouTubeTimestampButton from './YouTubeTimestampButton.jsx';
 
 const SENTENCE_PREVIEW_HIDE_DELAY_MS = 120;
+// Small delay before a hovered card opens its source preview. Without it, sweeping
+// the cursor across the column rebuilds the (expensive) preview HTML for every card
+// crossed; the delay collapses a fast sweep into a single build once hover settles.
+const SENTENCE_PREVIEW_SHOW_DELAY_MS = 90;
 
 function mergeIntervals(intervals) {
   const sorted = intervals
@@ -232,6 +236,7 @@ function CanvasSummaryView({
   const previewScrollRef = React.useRef(null);
   const summaryViewRef = React.useRef(null);
   const hidePreviewTimerRef = React.useRef(0);
+  const showPreviewTimerRef = React.useRef(0);
   const summaryCardByKey = React.useMemo(() => {
     const map = new Map();
     summaryViewCards.forEach((card) => {
@@ -304,17 +309,20 @@ function CanvasSummaryView({
     [articleHtml, sentences, previewCard, previewSentenceNumbers],
   );
   const previewTop = summaryCardRefs.current[previewCardKey]?.offsetTop || 0;
-  const previewYouTubeLink = React.useMemo(
-    () =>
-      previewCard
-        ? getYouTubeTimestampLink({
-            sourceUrl,
-            sentences,
-            sourceSentences: previewCard.sourceSentences,
-          })
-        : null,
-    [previewCard, sourceUrl, sentences],
-  );
+  // Resolving a YouTube deep-link scans the sentence array; doing it per card
+  // inside the render map re-ran it for every card on every hover/zoom. Compute
+  // the whole set once and reuse it for both the cards and the preview header.
+  const youTubeLinkByKey = React.useMemo(() => {
+    const map = new Map();
+    summaryViewCards.forEach((card) => {
+      map.set(
+        card.key || card.path,
+        getYouTubeTimestampLink({ sourceUrl, sentences, sourceSentences: card.sourceSentences }),
+      );
+    });
+    return map;
+  }, [summaryViewCards, sourceUrl, sentences]);
+  const previewYouTubeLink = previewCardKey ? youTubeLinkByKey.get(previewCardKey) || null : null;
 
   const setSummaryViewRefs = React.useCallback(
     (el) => {
@@ -368,30 +376,54 @@ function CanvasSummaryView({
     hidePreviewTimerRef.current = 0;
   }, []);
 
+  const clearShowPreviewTimer = React.useCallback(() => {
+    window.clearTimeout(showPreviewTimerRef.current);
+    showPreviewTimerRef.current = 0;
+  }, []);
+
   const showPreviewForCard = React.useCallback(
-    (card) => {
+    (card, { immediate = false } = {}) => {
       clearHidePreviewTimer();
-      if (card.sourceSentences.length > 0) {
-        setHoveredSummaryKey(card.key || card.path);
+      clearShowPreviewTimer();
+      const key = card.key || card.path;
+      const hasSource = card.sourceSentences.length > 0;
+      // Defer BOTH the parent hovered-topic key and the local preview key. The
+      // topic key must go through the same timer rather than being set eagerly in
+      // onMouseEnter: activePreviewCard prioritizes summaryViewHoveredPath (driven
+      // by that parent key), so setting it immediately would rebuild the expensive
+      // preview HTML before this debounce fires — defeating it for every card
+      // crossed during a fast sweep. Rail hovers still set the topic key directly
+      // in the parent, so that path stays immediate.
+      const apply = () => {
+        setHoveredTopicKey(card.path);
+        if (hasSource) setHoveredSummaryKey(key);
+      };
+      if (immediate) {
+        apply();
+        return;
       }
+      showPreviewTimerRef.current = window.setTimeout(apply, SENTENCE_PREVIEW_SHOW_DELAY_MS);
     },
-    [clearHidePreviewTimer],
+    [clearHidePreviewTimer, clearShowPreviewTimer, setHoveredTopicKey],
   );
 
   const schedulePreviewHide = React.useCallback(
     (card) => {
+      // A pending open should not survive the cursor leaving the card.
+      clearShowPreviewTimer();
       if (lockedPreviewKey === (card.key || card.path)) return;
       clearHidePreviewTimer();
       hidePreviewTimerRef.current = window.setTimeout(() => {
         setHoveredSummaryKey((current) => (current === (card.key || card.path) ? null : current));
       }, SENTENCE_PREVIEW_HIDE_DELAY_MS);
     },
-    [clearHidePreviewTimer, lockedPreviewKey],
+    [clearHidePreviewTimer, clearShowPreviewTimer, lockedPreviewKey],
   );
 
   React.useEffect(
     () => () => {
       window.clearTimeout(hidePreviewTimerRef.current);
+      window.clearTimeout(showPreviewTimerRef.current);
     },
     [],
   );
@@ -452,11 +484,7 @@ function CanvasSummaryView({
             const isActive = summaryViewActivePath === card.path;
             const hasSummaryContent = Boolean(card.text);
             const canShowSourceSentences = card.sourceSentences.length > 0;
-            const cardYouTubeLink = getYouTubeTimestampLink({
-              sourceUrl,
-              sentences,
-              sourceSentences: card.sourceSentences,
-            });
+            const cardYouTubeLink = youTubeLinkByKey.get(card.key || card.path) || null;
             const isPreviewActive = previewCardKey === (card.key || card.path);
             return (
               <article
@@ -466,10 +494,7 @@ function CanvasSummaryView({
                   else delete summaryCardRefs.current[card.key || card.path];
                 }}
                 className={`canvas-summary-view__card${isActive ? ' is-active' : ''}${isPreviewActive ? ' is-source-preview-active' : ''}`}
-                onMouseEnter={() => {
-                  setHoveredTopicKey(card.path);
-                  showPreviewForCard(card);
-                }}
+                onMouseEnter={() => showPreviewForCard(card)}
                 onMouseLeave={() => {
                   setHoveredTopicKey((current) => (current === card.path ? null : current));
                   schedulePreviewHide(card);
@@ -482,7 +507,7 @@ function CanvasSummaryView({
                       setHoveredSummaryKey(null);
                       return null;
                     }
-                    showPreviewForCard(card);
+                    showPreviewForCard(card, { immediate: true });
                     return key;
                   });
                 }}

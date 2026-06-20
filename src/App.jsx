@@ -177,6 +177,10 @@ export default function App({ initialKey }) {
     [selectedLevel, cardWidth],
   );
 
+  // Only `titleFontSize` and `right` are zoom-dependent here; `top`/`height` come
+  // straight from the (scale-independent) sentence layout. The rail relies on
+  // that: it memoizes its heavy collision pass on the stable geometry and only
+  // re-applies these two fields on zoom.
   const zoomAdjustedTopicCards = useMemo(
     () =>
       topicCards.map((card) => ({
