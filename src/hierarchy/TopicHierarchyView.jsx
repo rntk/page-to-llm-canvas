@@ -6,6 +6,8 @@ import {
 } from '../utils/topicColorUtils.js';
 import { spacedTopicPath, getSummaryText, buildSummaryLookup } from './topicViewUtils.js';
 
+const hierarchyColorCache = new Map();
+
 function getSentenceCount(topic) {
   return Array.isArray(topic?.sentences) ? topic.sentences.length : 0;
 }
@@ -21,12 +23,29 @@ function getLeafSummary(node, summaryLookup) {
   );
 }
 
-function HierarchyNode({ entry, summaryLookup, selectedTopicPath, onTopicClick }) {
+function getCachedHierarchyColors(fullPath, depth) {
+  const key = `${fullPath}|${depth}`;
+  let colors = hierarchyColorCache.get(key);
+  if (!colors) {
+    colors = {
+      highlightColor: getHierarchyTopicHighlightColor(fullPath, depth),
+      accentColor: getHierarchyTopicAccentColor(fullPath, depth),
+    };
+    hierarchyColorCache.set(key, colors);
+  }
+  return colors;
+}
+
+const HierarchyNode = React.memo(function HierarchyNode({
+  entry,
+  summaryLookup,
+  selectedTopicPath,
+  onTopicClick,
+}) {
   const { node } = entry;
   const children = Array.from(entry.children.values());
   const isLeaf = children.length === 0;
-  const highlightColor = getHierarchyTopicHighlightColor(node.fullPath, node.depth);
-  const accentColor = getHierarchyTopicAccentColor(node.fullPath, node.depth);
+  const { highlightColor, accentColor } = getCachedHierarchyColors(node.fullPath, node.depth);
   const isSelected = selectedTopicPath === node.fullPath;
 
   if (isLeaf) {
@@ -57,7 +76,7 @@ function HierarchyNode({ entry, summaryLookup, selectedTopicPath, onTopicClick }
   }
 
   return (
-    <div className="th-node" style={{ '--th-row-span': countLeafDescendants(entry) }}>
+    <div className="th-node" style={{ '--th-row-span': entry.leafCount ?? countLeafDescendants(entry) }}>
       <div
         className={`th-node__label ${isSelected ? 'is-selected' : ''}`}
         style={{
@@ -86,7 +105,7 @@ function HierarchyNode({ entry, summaryLookup, selectedTopicPath, onTopicClick }
       </div>
     </div>
   );
-}
+});
 
 export default function TopicHierarchyView({
   topics,

@@ -280,6 +280,21 @@ export function resolveColumnOverlaps(cards) {
   });
 }
 
+function getPathPrefixes(path) {
+  const parts = splitTopicPath(path);
+  const prefixes = [];
+  for (let depth = 1; depth <= parts.length; depth += 1) {
+    prefixes.push(parts.slice(0, depth).join(' > '));
+  }
+  return prefixes;
+}
+
+function addMetricEntry(index, path, entry) {
+  const entries = index.get(path) || [];
+  entries.push(entry);
+  index.set(path, entries);
+}
+
 /**
  * Patches topic card positions from measured summary-card bounding rects,
  * then re-runs overlap resolution so the no-overlap column invariant holds.
@@ -304,6 +319,35 @@ export function patchTopicCardsFromSummaryMetrics(cards, allSummaryCards, summar
   }
 
   const summaryCardMap = new Map(allSummaryCards.map((c) => [c.key, c]));
+  const exactMetricsByPath = new Map();
+  const metricsByAncestorPath = new Map();
+
+  for (const [key, metric] of summaryMetrics) {
+    const path = key.split('#')[0];
+    const entry = { key, metric, summaryCard: summaryCardMap.get(key) };
+    addMetricEntry(exactMetricsByPath, path, entry);
+
+    for (const prefix of getPathPrefixes(path)) {
+      addMetricEntry(metricsByAncestorPath, prefix, entry);
+    }
+  }
+
+  function getCandidateMetrics(card) {
+    const candidatesByKey = new Map();
+
+    for (const entry of metricsByAncestorPath.get(card.fullPath) || []) {
+      candidatesByKey.set(entry.key, entry);
+    }
+
+    const ancestorPaths = getPathPrefixes(card.fullPath);
+    for (let index = 0; index < ancestorPaths.length - 1; index += 1) {
+      for (const entry of exactMetricsByPath.get(ancestorPaths[index]) || []) {
+        candidatesByKey.set(entry.key, entry);
+      }
+    }
+
+    return candidatesByKey.values();
+  }
 
   const patchedCards = cards.map((card) => {
     // Exact key match takes priority.
@@ -314,26 +358,18 @@ export function patchTopicCardsFromSummaryMetrics(cards, allSummaryCards, summar
 
     let top = Infinity;
     let bottom = -Infinity;
-    for (const [key, m] of summaryMetrics) {
-      const path = key.split('#')[0];
-      if (
-        path === card.fullPath ||
-        path.startsWith(card.fullPath + ' > ') ||
-        card.fullPath.startsWith(path + ' > ')
-      ) {
-        const summaryCard = summaryCardMap.get(key);
-        if (summaryCard) {
-          const start = summaryCard.startSentence;
-          const hasOverlap =
-            (start >= card.startSentence && start <= card.endSentence) ||
-            (card.startSentence === 0 && card.endSentence === 0);
-          if (!hasOverlap) {
-            continue;
-          }
+    for (const { metric, summaryCard } of getCandidateMetrics(card)) {
+      if (summaryCard) {
+        const start = summaryCard.startSentence;
+        const hasOverlap =
+          (start >= card.startSentence && start <= card.endSentence) ||
+          (card.startSentence === 0 && card.endSentence === 0);
+        if (!hasOverlap) {
+          continue;
         }
-        if (m.top < top) top = m.top;
-        if (m.top + m.height > bottom) bottom = m.top + m.height;
       }
+      if (metric.top < top) top = metric.top;
+      if (metric.top + metric.height > bottom) bottom = metric.top + metric.height;
     }
     if (Number.isFinite(top) && Number.isFinite(bottom)) {
       return { ...card, top, height: Math.max(72, bottom - top) };
@@ -393,6 +429,7 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
   for (const topic of topics) {
     const parts = splitTopicPath(topic.name);
     const limit = Math.min(parts.length, level + 1);
+    const sentences = getTopicSentenceNumbers(topic);
 
     let curr = rootNode;
     for (let i = 0; i < limit; i += 1) {
@@ -404,7 +441,6 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
       }
 
       const child = curr.children.get(segment);
-      const sentences = getTopicSentenceNumbers(topic);
       for (const s of sentences) {
         if (Number.isInteger(s)) {
           child.sentences.add(s);

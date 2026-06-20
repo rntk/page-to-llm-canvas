@@ -2,7 +2,7 @@
  * Build a nested tree from a flat list of topics whose `name` encodes a
  * hierarchy path ("A > B > C"). Returns an array of root tree entries.
  *
- * Each entry: { node, children: Map<string, entry>, parent }
+ * Each entry: { node, children: Map<string, entry>, parent, leafCount }
  * node: { name, fullPath, uid, depth, topic }
  * `fullPath` joins parts with ">" (no spaces) so it matches the convention
  * used by isAncestorPath / the color helpers.
@@ -42,7 +42,20 @@ export function buildTopicTree(topics, startDepth = 0) {
     }
   }
 
-  return Array.from(roots.values());
+  const rootEntries = Array.from(roots.values());
+  rootEntries.forEach(computeLeafCount);
+  return rootEntries;
+}
+
+function computeLeafCount(entry) {
+  const children = Array.from(entry.children.values());
+  if (children.length === 0) {
+    entry.leafCount = 1;
+    return entry.leafCount;
+  }
+
+  entry.leafCount = children.reduce((total, child) => total + computeLeafCount(child), 0);
+  return entry.leafCount;
 }
 
 /**
@@ -53,6 +66,7 @@ export function buildTopicTree(topics, startDepth = 0) {
  * @returns {number}
  */
 export function countLeafDescendants(entry) {
+  if (Number.isFinite(entry?.leafCount)) return entry.leafCount;
   const children = Array.from(entry.children.values());
   if (children.length === 0) return 1;
   return children.reduce((total, child) => total + countLeafDescendants(child), 0);

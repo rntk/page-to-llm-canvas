@@ -80,6 +80,22 @@ describe('buildTopicTree', () => {
     expect(childNames).toEqual(['AI', 'Web']);
   });
 
+  it('precomputes leaf counts for each tree entry', () => {
+    const topics = [
+      { name: 'Tech > AI', sentences: [0, 1] },
+      { name: 'Tech > Web', sentences: [2, 3] },
+      { name: 'Science', sentences: [4] },
+    ];
+    const tree = buildTopicTree(topics);
+    const tech = tree.find((entry) => entry.node.name === 'Tech');
+    const science = tree.find((entry) => entry.node.name === 'Science');
+    const techChildren = Array.from(tech.children.values());
+
+    expect(tech.leafCount).toBe(2);
+    expect(techChildren.every((entry) => entry.leafCount === 1)).toBe(true);
+    expect(science.leafCount).toBe(1);
+  });
+
   it('assigns the topic only to the deepest node', () => {
     const topics = [{ name: 'A > B > C', sentences: [5] }];
     const tree = buildTopicTree(topics);

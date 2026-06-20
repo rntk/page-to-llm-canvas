@@ -230,6 +230,8 @@ function buildHighlightedSentencePreviewHtml(sourceModel, contextSentences, high
   return container.innerHTML;
 }
 
+const previewHtmlCache = new Map();
+
 function CanvasSummaryView({
   summaryViewCards,
   summaryViewActivePath,
@@ -270,8 +272,7 @@ function CanvasSummaryView({
       if (summaryCardByPath.has(path)) return summaryCardByPath.get(path);
       return (
         summaryViewCards.find(
-          (card) =>
-            card.path.startsWith(`${path} > `) || path.startsWith(`${card.path} > `),
+          (card) => card.path.startsWith(`${path} > `) || path.startsWith(`${card.path} > `),
         ) || null
       );
     },
@@ -313,7 +314,9 @@ function CanvasSummaryView({
     () => buildPreviewSourceModel(articleHtml, sentences),
     [articleHtml, sentences],
   );
-  const previewHtmlCache = React.useMemo(() => new Map(), [previewSourceModel, summaryViewCards]);
+  React.useEffect(() => {
+    previewHtmlCache.clear();
+  }, [previewSourceModel, summaryViewCards]);
   const previewHtml = React.useMemo(() => {
     if (!previewCard || !previewSourceModel) return '';
     const cacheKey = [
@@ -331,7 +334,7 @@ function CanvasSummaryView({
     );
     previewHtmlCache.set(cacheKey, html);
     return html;
-  }, [previewCard, previewCardKey, previewSentenceNumbers, previewHtmlCache, previewSourceModel]);
+  }, [previewCard, previewCardKey, previewSentenceNumbers, previewSourceModel]);
   const previewTop = summaryCardRefs.current[previewCardKey]?.offsetTop || 0;
   // Resolving a YouTube deep-link scans the sentence array; doing it per card
   // inside the render map re-ran it for every card on every hover/zoom. Compute
