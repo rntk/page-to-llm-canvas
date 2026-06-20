@@ -22,6 +22,9 @@ import { summarizeTopicTree } from './topicTreeMerge.js';
 const MAX_TAGGED_CHARS = 60000;
 const SUMMARY_CONCURRENCY = 4;
 const TOPIC_RANGE_CONCURRENCY = 4;
+const INLINE_SUMMARY_MAX_SENTENCES = 3;
+const INLINE_SUMMARY_MAX_WORDS = 35;
+const INLINE_SUMMARY_MAX_CHARS = 280;
 // The topic-ranges and resplit calls demand a strict line format; a low
 // temperature cuts malformed output (and the expensive parse-retry loop it
 // triggers). Summaries and merges are prose and keep their own temperature.
@@ -101,15 +104,43 @@ export function classifyLlmError(e) {
 }
 
 export function parseSummaryResponse(raw) {
-  if (!raw) return '';
-  let s = raw.trim();
+  return parseSummaryResult(raw).text;
+}
+
+function parseSummaryResult(raw) {
+  if (!raw) return { text: '', noSummary: false };
+  let s = String(raw).trim();
 
   s = s
     .replace(/^```[a-z0-9_-]*\s*/i, '')
     .replace(/```\s*$/i, '')
     .trim();
-  if (/^NO_SUMMARY\.?$/i.test(s)) return '';
-  return s;
+  if (/^NO_SUMMARY\.?$/i.test(s)) return { text: '', noSummary: true };
+  return { text: s, noSummary: false };
+}
+
+function wordCount(text) {
+  return (String(text || '').match(/\S+/g) || []).length;
+}
+
+function topicSourceText(topic, sentenceTexts) {
+  const sentenceIds = Array.isArray(topic.sentences) ? topic.sentences : [];
+  return sentenceIds
+    .map((oneIdx) => sentenceTexts[oneIdx - 1])
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+}
+
+export function shouldInlineTopicSummary(topic, sourceText) {
+  const text = String(sourceText || '').trim();
+  if (!text) return true;
+  const sentenceCount = Array.isArray(topic.sentences) ? topic.sentences.length : 0;
+  return (
+    sentenceCount <= INLINE_SUMMARY_MAX_SENTENCES &&
+    wordCount(text) <= INLINE_SUMMARY_MAX_WORDS &&
+    text.length <= INLINE_SUMMARY_MAX_CHARS
+  );
 }
 
 export function buildTopicTree(topics) {
@@ -603,8 +634,10 @@ async function parkForReview(key, summaryErrors, phase, { done, total }) {
  * Per-topic leaf summaries followed by the topic-tree merge. Summaries that
  * already succeeded (present and not flagged with an error) are reused so a
  * resumed run only re-queries the LLM for the topics that are still missing or
- * previously failed — failed leaves are stored with `error: true` so a legit
- * NO_SUMMARY (empty text, no error) is not retried forever.
+ * previously failed — failed leaves are stored with `error: true`, while any
+ * existing empty summary without that flag is treated as completed work. New
+ * NO_SUMMARY responses fall back to source text before storage so parent merges
+ * keep the topic's facts.
  *
  * @param {string} key
  * @param {Array<object>} topics
@@ -640,35 +673,61 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries, force
     });
   }
 
+  const pendingForLlm = [];
+  let inlineCount = 0;
+  for (const topic of pending) {
+    const sourceText = topicSourceText(topic, sentenceTexts);
+    if (shouldInlineTopicSummary(topic, sourceText)) {
+      topic_summaries[topic.name] = {
+        text: sourceText,
+        source_sentences: topic.sentences,
+      };
+      done++;
+      inlineCount++;
+    } else {
+      pendingForLlm.push({ topic, sourceText });
+    }
+  }
+  if (inlineCount > 0) {
+    await updateRecord(key, {
+      topic_summaries: { ...topic_summaries },
+      progress: { stage: 'summarizing_topics', done, total },
+    });
+    await logPipeline(key, 'topic_summaries_inlined', {
+      inlineCount,
+      pendingCount: pendingForLlm.length,
+      maxSentences: INLINE_SUMMARY_MAX_SENTENCES,
+      maxWords: INLINE_SUMMARY_MAX_WORDS,
+      maxChars: INLINE_SUMMARY_MAX_CHARS,
+    });
+  }
+
   // Warm the provider's prompt/KV cache before the concurrent burst: every
   // summary prompt shares the same long instruction prefix, so running one
   // request to completion first lets a caching provider commit that prefix and
   // the rest reuse it instead of each re-prefilling it from cold. On a provider
   // without prefix caching it just costs one request of serial latency up front.
-  if (pendingCount > 1) {
+  if (pendingForLlm.length > 1) {
     await logPipeline(key, 'topic_summaries_warmup', {
-      pendingCount,
+      pendingCount: pendingForLlm.length,
       concurrency: SUMMARY_CONCURRENCY,
     });
   }
   await parallelMap(
-    pending,
+    pendingForLlm,
     SUMMARY_CONCURRENCY,
-    async (topic) => {
+    async ({ topic, sourceText }) => {
       await logPipeline(key, 'topic_summary_llm_request', {
         topic: topic.name,
         sentenceCount: topic.sentences.length,
       });
-      const sourceText = topic.sentences
-        .map((oneIdx) => sentenceTexts[oneIdx - 1])
-        .filter(Boolean)
-        .join(' ');
       const prompt = buildArticleSummaryPrompt(sourceText);
       let summaryText = '';
       let failure = null;
       try {
         const resp = await callLLMWithRetry({ prompt, temperature: 0.8 });
-        summaryText = parseSummaryResponse(resp);
+        const parsed = parseSummaryResult(resp);
+        summaryText = parsed.text || (parsed.noSummary ? sourceText : '');
         await logPipeline(key, 'topic_summary_llm_response', {
           topic: topic.name,
           responseLength: resp.length,
@@ -689,8 +748,8 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries, force
         text: summaryText,
         source_sentences: topic.sentences,
         // Mark failures so a later resume retries only this topic, and carry a
-        // helpful reason for the confirm popup. Successful empty results
-        // (NO_SUMMARY) are stored without the flag and kept.
+        // helpful reason for the confirm popup. NO_SUMMARY responses fall back
+        // to source text so parent merges still see the topic's facts.
         ...(failure ? { error: true, ...failure } : {}),
       };
       done++;

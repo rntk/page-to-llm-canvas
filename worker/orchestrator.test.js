@@ -8,6 +8,7 @@ import {
   mapTextOffsetToHtml,
   parseSummaryResponse,
   classifyLlmError,
+  shouldInlineTopicSummary,
 } from './orchestrator.js';
 import * as storage from './storage.js';
 import * as html from './html.js';
@@ -55,6 +56,9 @@ function makeRecord(key, htmlContent) {
     processingLog: [],
   };
 }
+
+const LONG_SUMMARY_TEXT =
+  'Acme reported revenue growth across three regions while executives said supply costs eased, customer renewals improved, new enterprise contracts expanded, hiring remained selective, product upgrades should support margins through the next fiscal quarter, and overseas demand is recovering steadily.';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -127,6 +131,27 @@ describe('chunkTaggedText', () => {
     const tagged = 'verylonglinewithoutnewlines';
     const result = chunkTaggedText(tagged, 10);
     expect(result).toEqual([tagged]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shouldInlineTopicSummary
+// ---------------------------------------------------------------------------
+
+describe('shouldInlineTopicSummary', () => {
+  it('inlines short topic ranges so their source facts can feed parent merges', () => {
+    expect(
+      shouldInlineTopicSummary(
+        { name: 'Tech>AI', sentences: [1, 2] },
+        'AI chip launched. It costs $5.',
+      ),
+    ).toBe(true);
+  });
+
+  it('keeps longer topic ranges on the LLM summary path', () => {
+    expect(
+      shouldInlineTopicSummary({ name: 'Business>Acme', sentences: [1] }, LONG_SUMMARY_TEXT),
+    ).toBe(false);
   });
 });
 
@@ -318,8 +343,13 @@ describe('runPipeline', () => {
     const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
     expect(doneCall).toBeDefined();
     const final = doneCall[1];
-    expect(final.topic_summaries['Tech>All'].text).toBe('Summary text.');
-    expect(final.topic_summary_index['Tech>All'].text).toBe('Summary text.');
+    expect(final.topic_summaries['Tech>All'].text).toBe(plainText);
+    expect(final.topic_summary_index['Tech>All'].text).toBe(plainText);
+    expect(
+      llm.callLLMWithRetry.mock.calls.some(([opts]) =>
+        opts.prompt.includes('Summarize the article text'),
+      ),
+    ).toBe(false);
 
     const topicCall = storage.updateRecord.mock.calls.find(
       (call) => call[1].topics && call[1].topics.length > 0,
@@ -397,22 +427,24 @@ describe('runPipeline', () => {
   });
 
   it('merges child summaries for hierarchical topics', async () => {
-    const plainText = 'A. B. C. D.';
+    const plainText = 'AI chip launched. It costs $5. Robot ships Tuesday. It weighs 2kg.';
     const mapping = makeMapping(plainText);
-    storage.readRecord.mockResolvedValue(makeRecord('key5', '<p>A. B. C. D.</p>'));
+    storage.readRecord.mockResolvedValue(makeRecord('key5', `<p>${plainText}</p>`));
     html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
     sentenceSplitter.splitSentences.mockReturnValue([
-      { text: 'A.', start: 0, end: 2 },
-      { text: 'B.', start: 3, end: 5 },
-      { text: 'C.', start: 6, end: 8 },
-      { text: 'D.', start: 9, end: 11 },
+      { text: 'AI chip launched.', start: 0, end: 17 },
+      { text: 'It costs $5.', start: 18, end: 30 },
+      { text: 'Robot ships Tuesday.', start: 31, end: 52 },
+      { text: 'It weighs 2kg.', start: 53, end: 67 },
     ]);
 
+    let mergePrompt = '';
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) {
         return 'Tech>AI: 0-1\nTech>Hardware: 2-3';
       }
       if (prompt.includes('Merge the chunk summaries')) {
+        mergePrompt = prompt;
         return 'Merged tech summary.';
       }
       return 'Topic summary.';
@@ -424,20 +456,26 @@ describe('runPipeline', () => {
     expect(lastCall[1].status).toBe('done');
     expect(lastCall[1].topic_summary_index).toBeDefined();
     expect(lastCall[1].topic_summary_index['Tech'].text).toBe('Merged tech summary.');
+    expect(mergePrompt).toContain('AI chip launched. It costs $5.');
+    expect(mergePrompt).toContain('Robot ships Tuesday. It weighs 2kg.');
+    expect(
+      llm.callLLMWithRetry.mock.calls.some(([opts]) =>
+        opts.prompt.includes('Summarize the article text'),
+      ),
+    ).toBe(false);
   });
 
   it('parks for review with a helpful error when a topic summary keeps failing', async () => {
-    const plainText = 'A. B.';
+    const plainText = LONG_SUMMARY_TEXT;
     const mapping = makeMapping(plainText);
-    storage.readRecord.mockResolvedValue(makeRecord('key6', '<p>A. B.</p>'));
+    storage.readRecord.mockResolvedValue(makeRecord('key6', `<p>${plainText}</p>`));
     html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
     sentenceSplitter.splitSentences.mockReturnValue([
-      { text: 'A.', start: 0, end: 2 },
-      { text: 'B.', start: 3, end: 5 },
+      { text: plainText, start: 0, end: plainText.length },
     ]);
 
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
-      if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
+      if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
       if (prompt.includes('Summarize the article text')) {
         throw new Error('LLM request timed out after 120000ms');
       }
@@ -456,6 +494,30 @@ describe('runPipeline', () => {
     expect(parkCall[1].summaryErrors[0].topic).toBe('Tech>All');
     expect(parkCall[1].summaryErrors[0].error_kind).toBe('timeout');
     expect(parkCall[1].summaryErrors[0].error_message).toMatch(/did not respond/i);
+  });
+
+  it('uses source text when the summary model returns NO_SUMMARY', async () => {
+    const plainText = LONG_SUMMARY_TEXT;
+    storage.readRecord.mockResolvedValue(makeRecord('nosummary', `<p>${plainText}</p>`));
+    html.stripTagsKeepOffsets.mockReturnValue({
+      text: plainText,
+      mapping: makeMapping(plainText),
+    });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: plainText, start: 0, end: plainText.length },
+    ]);
+
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
+      if (prompt.includes('Summarize the article text')) return 'NO_SUMMARY';
+      return '';
+    });
+
+    await runPipeline('nosummary');
+
+    const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
+    expect(doneCall[1].topic_summaries['Tech>All'].text).toBe(plainText);
+    expect(doneCall[1].topic_summary_index['Tech>All'].text).toBe(plainText);
   });
 
   it('chunks tagged text when it exceeds MAX_TAGGED_CHARS', async () => {
@@ -667,7 +729,7 @@ describe('runPipeline', () => {
       key: 'resume1',
       html: '<p>ignored on resume</p>',
       status: 'summarizing',
-      sentences: ['Alpha.', 'Beta.'],
+      sentences: ['Alpha.', LONG_SUMMARY_TEXT],
       topics: [
         { name: 'A', sentences: [1], sentence_spans: [], ranges: [] },
         { name: 'B', sentences: [2], sentence_spans: [], ranges: [] },
@@ -701,7 +763,7 @@ describe('runPipeline', () => {
 
     // Only the missing topic (B) should be summarized; A is reused.
     expect(summaryPrompts).toHaveLength(1);
-    expect(summaryPrompts[0]).toContain('Beta.');
+    expect(summaryPrompts[0]).toContain(LONG_SUMMARY_TEXT);
 
     const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
     expect(doneCall).toBeDefined();
@@ -714,7 +776,7 @@ describe('runPipeline', () => {
       key: 'resume2',
       html: '<p>ignored</p>',
       status: 'summarizing',
-      sentences: ['Alpha.', 'Beta.', 'Gamma.'],
+      sentences: ['Alpha.', 'Beta.', LONG_SUMMARY_TEXT],
       topics: [
         { name: 'A', sentences: [1], sentence_spans: [], ranges: [] },
         { name: 'B', sentences: [2], sentence_spans: [], ranges: [] },
@@ -741,7 +803,7 @@ describe('runPipeline', () => {
 
     // Only the errored topic C is re-queried.
     expect(summaryPrompts).toHaveLength(1);
-    expect(summaryPrompts[0]).toContain('Gamma.');
+    expect(summaryPrompts[0]).toContain(LONG_SUMMARY_TEXT);
 
     const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
     expect(doneCall[1].topic_summaries.A.text).toBe('Good A.');
@@ -751,17 +813,16 @@ describe('runPipeline', () => {
   });
 
   it('flags a failed summary with error:true while summarizing, then parks instead of finishing', async () => {
-    storage.readRecord.mockResolvedValue(makeRecord('failmark', '<p>One. Two.</p>'));
+    storage.readRecord.mockResolvedValue(makeRecord('failmark', `<p>${LONG_SUMMARY_TEXT}</p>`));
     html.stripTagsKeepOffsets.mockReturnValue({
-      text: 'One. Two.',
-      mapping: makeMapping('One. Two.'),
+      text: LONG_SUMMARY_TEXT,
+      mapping: makeMapping(LONG_SUMMARY_TEXT),
     });
     sentenceSplitter.splitSentences.mockReturnValue([
-      { text: 'One.', start: 0, end: 4 },
-      { text: 'Two.', start: 5, end: 9 },
+      { text: LONG_SUMMARY_TEXT, start: 0, end: LONG_SUMMARY_TEXT.length },
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
-      if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
+      if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
       if (prompt.includes('Summarize the article text')) throw new Error('LLM down');
       return '';
     });
@@ -891,7 +952,7 @@ describe('runPipeline', () => {
   it('clears stale topics and summaries on a fresh run (non-resume path)', async () => {
     storage.readRecord.mockResolvedValue({
       key: 'fresh1',
-      html: '<p>One. Two.</p>',
+      html: `<p>${LONG_SUMMARY_TEXT}</p>`,
       status: 'pending',
       topics: [{ name: 'StaleTopic', sentences: [1], sentence_spans: [], ranges: [] }],
       topic_summaries: {
@@ -901,15 +962,14 @@ describe('runPipeline', () => {
     });
 
     html.stripTagsKeepOffsets.mockReturnValue({
-      text: 'One. Two.',
-      mapping: makeMapping('One. Two.'),
+      text: LONG_SUMMARY_TEXT,
+      mapping: makeMapping(LONG_SUMMARY_TEXT),
     });
     sentenceSplitter.splitSentences.mockReturnValue([
-      { text: 'One.', start: 0, end: 4 },
-      { text: 'Two.', start: 5, end: 9 },
+      { text: LONG_SUMMARY_TEXT, start: 0, end: LONG_SUMMARY_TEXT.length },
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
-      if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
+      if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
       if (prompt.includes('Summarize the article text')) return 'Fresh summary.';
       return '';
     });

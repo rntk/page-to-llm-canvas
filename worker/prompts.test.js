@@ -63,6 +63,12 @@ describe('buildArticleSummaryPrompt', () => {
     const prompt = buildArticleSummaryPrompt('My article text');
     expect(prompt).toContain('Begin with the substance itself');
   });
+
+  it('asks for a single concise sentence without bullets', () => {
+    const prompt = buildArticleSummaryPrompt('My article text');
+    expect(prompt).toContain('one concise sentence');
+    expect(prompt).toContain('no bullets');
+  });
 });
 
 describe('buildArticleSummaryMergePrompt', () => {
