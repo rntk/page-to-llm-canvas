@@ -1,9 +1,5 @@
 import React from 'react';
-import {
-  collectWordEntries,
-  buildSentenceDomRange,
-  buildSentenceWordRanges,
-} from '../sentenceHighlight.js';
+import { collectWordEntries, buildSentenceWordRanges } from '../sentenceHighlight.js';
 import { getYouTubeTimestampLink } from '../utils/youtubeTimestamp.js';
 import YouTubeTimestampButton from './YouTubeTimestampButton.jsx';
 
@@ -77,10 +73,57 @@ function normalizeSentenceNumbers(sourceSentences, sentenceOffset) {
   return sourceSentences.map((sentenceNumber) => sentenceNumber + sentenceOffset);
 }
 
-function buildDomRangesForSentences(sentenceRanges, wordEntries, sourceSentences, sentenceOffset) {
-  return normalizeSentenceNumbers(sourceSentences, sentenceOffset)
-    .map((sentenceNumber) => buildSentenceDomRange(sentenceRanges, wordEntries, sentenceNumber))
-    .filter(Boolean);
+function collectTextNodes(root) {
+  const textNodes = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let textNode;
+  while ((textNode = walker.nextNode())) {
+    textNodes.push(textNode);
+  }
+  return textNodes;
+}
+
+function buildPreviewSourceModel(articleHtml, sentences) {
+  if (!articleHtml || !Array.isArray(sentences) || sentences.length === 0) {
+    return null;
+  }
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  const container = document.createElement('div');
+  container.innerHTML = articleHtml;
+  const wordEntries = collectWordEntries([container]);
+  const sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
+  const textNodes = collectTextNodes(container);
+  const textNodeIndexByNode = new Map(textNodes.map((node, index) => [node, index]));
+  const sentenceIntervalsByNumber = new Map();
+
+  for (const [sentenceNumber, wordRange] of sentenceRanges) {
+    const startEntry = wordEntries[wordRange.startIdx];
+    const endEntry = wordEntries[wordRange.endIdx];
+    if (!startEntry || !endEntry) continue;
+
+    const startNodeIndex = textNodeIndexByNode.get(startEntry.node);
+    const endNodeIndex = textNodeIndexByNode.get(endEntry.node);
+    if (startNodeIndex === undefined || endNodeIndex === undefined) continue;
+
+    const intervals = [];
+    for (let nodeIndex = startNodeIndex; nodeIndex <= endNodeIndex; nodeIndex += 1) {
+      const node = textNodes[nodeIndex];
+      intervals.push({
+        nodeIndex,
+        start: nodeIndex === startNodeIndex ? startEntry.start : 0,
+        end: nodeIndex === endNodeIndex ? endEntry.end : node.nodeValue.length,
+      });
+    }
+    sentenceIntervalsByNumber.set(sentenceNumber, intervals);
+  }
+
+  return {
+    container,
+    sentenceIntervalsByNumber,
+  };
 }
 
 function splitPreviewIntervals(contextIntervals, highlightIntervals) {
@@ -115,86 +158,57 @@ function splitPreviewIntervals(contextIntervals, highlightIntervals) {
   return splitIntervals;
 }
 
-function buildHighlightedSentencePreviewHtml(
-  articleHtml,
-  sentences,
-  contextSentences,
-  highlightSentences,
-) {
-  if (
-    !articleHtml ||
-    !Array.isArray(sentences) ||
-    !Array.isArray(contextSentences) ||
-    !Array.isArray(highlightSentences)
-  ) {
+function getPreviewIntervals(sourceModel, sourceSentences, sentenceOffset) {
+  return normalizeSentenceNumbers(sourceSentences, sentenceOffset).flatMap(
+    (sentenceNumber) => sourceModel.sentenceIntervalsByNumber.get(sentenceNumber) || [],
+  );
+}
+
+function buildHighlightedSentencePreviewHtml(sourceModel, contextSentences, highlightSentences) {
+  if (!sourceModel || !Array.isArray(contextSentences) || !Array.isArray(highlightSentences)) {
     return '';
   }
-  if (sentences.length === 0 || contextSentences.length === 0 || typeof document === 'undefined') {
+  if (contextSentences.length === 0 || typeof document === 'undefined') {
     return '';
   }
 
-  const container = document.createElement('div');
-  container.innerHTML = articleHtml;
-  const wordEntries = collectWordEntries([container]);
-  const sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
   const sentenceOffset = [...contextSentences, ...highlightSentences].some(
     (sentenceNumber) => sentenceNumber === 0,
   )
     ? 1
     : 0;
-  const contextDomRanges = buildDomRangesForSentences(
-    sentenceRanges,
-    wordEntries,
-    contextSentences,
-    sentenceOffset,
-  );
-  const highlightDomRanges = buildDomRangesForSentences(
-    sentenceRanges,
-    wordEntries,
-    highlightSentences,
-    sentenceOffset,
-  );
 
-  if (contextDomRanges.length === 0) return '';
+  const contextIntervalsByNode = new Map();
+  const highlightIntervalsByNode = new Map();
+  getPreviewIntervals(sourceModel, contextSentences, sentenceOffset).forEach((interval) => {
+    const nodeIntervals = contextIntervalsByNode.get(interval.nodeIndex) || [];
+    nodeIntervals.push(interval);
+    contextIntervalsByNode.set(interval.nodeIndex, nodeIntervals);
+  });
+  if (contextIntervalsByNode.size === 0) return '';
 
-  const textNodes = [];
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-  let textNode;
-  while ((textNode = walker.nextNode())) {
-    textNodes.push(textNode);
-  }
+  getPreviewIntervals(sourceModel, highlightSentences, sentenceOffset).forEach((interval) => {
+    const nodeIntervals = highlightIntervalsByNode.get(interval.nodeIndex) || [];
+    nodeIntervals.push(interval);
+    highlightIntervalsByNode.set(interval.nodeIndex, nodeIntervals);
+  });
 
-  for (const node of textNodes) {
-    const contextIntervals = [];
-    const highlightIntervals = [];
-    for (const range of contextDomRanges) {
-      if (!range.intersectsNode(node)) continue;
-      contextIntervals.push({
-        start: range.startContainer === node ? range.startOffset : 0,
-        end: range.endContainer === node ? range.endOffset : node.nodeValue.length,
-      });
-    }
+  const container = sourceModel.container.cloneNode(true);
+  const textNodes = collectTextNodes(container);
 
+  textNodes.forEach((node, nodeIndex) => {
     const mergedContextIntervals = preserveWhitespaceGaps(
-      mergeIntervals(contextIntervals),
+      mergeIntervals(contextIntervalsByNode.get(nodeIndex) || []),
       node.nodeValue,
     );
     if (mergedContextIntervals.length === 0) {
       node.remove();
-      continue;
-    }
-
-    for (const range of highlightDomRanges) {
-      if (!range.intersectsNode(node)) continue;
-      highlightIntervals.push({
-        start: range.startContainer === node ? range.startOffset : 0,
-        end: range.endContainer === node ? range.endOffset : node.nodeValue.length,
-      });
+      return;
     }
 
     const splitIntervals = splitPreviewIntervals(
       mergedContextIntervals,
-      mergeIntervals(highlightIntervals),
+      mergeIntervals(highlightIntervalsByNode.get(nodeIndex) || []),
     );
     const fragment = document.createDocumentFragment();
     for (const interval of splitIntervals) {
@@ -210,7 +224,7 @@ function buildHighlightedSentencePreviewHtml(
       fragment.appendChild(mark);
     }
     node.replaceWith(fragment);
-  }
+  });
 
   pruneEmptyElements(container);
   return container.innerHTML;
@@ -296,18 +310,29 @@ function CanvasSummaryView({
     ].filter((card) => Array.isArray(card?.sourceSentences) && card.sourceSentences.length > 0);
     return Array.from(new Set(contextCards.flatMap((card) => card.sourceSentences)));
   }, [previewCard, previewCardKey, summaryViewCards]);
-  const previewHtml = React.useMemo(
-    () =>
-      previewCard
-        ? buildHighlightedSentencePreviewHtml(
-            articleHtml,
-            sentences,
-            previewSentenceNumbers,
-            previewCard.sourceSentences,
-          )
-        : '',
-    [articleHtml, sentences, previewCard, previewSentenceNumbers],
+  const previewSourceModel = React.useMemo(
+    () => buildPreviewSourceModel(articleHtml, sentences),
+    [articleHtml, sentences],
   );
+  const previewHtmlCache = React.useMemo(() => new Map(), [previewSourceModel, summaryViewCards]);
+  const previewHtml = React.useMemo(() => {
+    if (!previewCard || !previewSourceModel) return '';
+    const cacheKey = [
+      previewCardKey,
+      previewSentenceNumbers.join(','),
+      previewCard.sourceSentences.join(','),
+    ].join('|');
+    const cachedHtml = previewHtmlCache.get(cacheKey);
+    if (cachedHtml !== undefined) return cachedHtml;
+
+    const html = buildHighlightedSentencePreviewHtml(
+      previewSourceModel,
+      previewSentenceNumbers,
+      previewCard.sourceSentences,
+    );
+    previewHtmlCache.set(cacheKey, html);
+    return html;
+  }, [previewCard, previewCardKey, previewSentenceNumbers, previewHtmlCache, previewSourceModel]);
   const previewTop = summaryCardRefs.current[previewCardKey]?.offsetTop || 0;
   // Resolving a YouTube deep-link scans the sentence array; doing it per card
   // inside the render map re-ran it for every card on every hover/zoom. Compute
