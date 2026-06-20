@@ -54,6 +54,26 @@ describe('createClient dispatch', () => {
     expect(() => createClient(null)).toThrow(/required/);
   });
 
+  it('refuses token transport to invalid provider URLs', async () => {
+    const client = createClient({
+      type: 'openai_comp',
+      model: 'm',
+      token: 'sk-1',
+      url: 'not-a-valid-url',
+    });
+    await expect(client.complete({ prompt: 'p' })).rejects.toThrow(/valid URL/);
+  });
+
+  it('refuses token transport to non-HTTPS remote endpoints', async () => {
+    const client = createClient({
+      type: 'openai_comp',
+      model: 'm',
+      token: 'sk-1',
+      url: 'http://remote.example.com/v1',
+    });
+    await expect(client.complete({ prompt: 'p' })).rejects.toThrow(/non-HTTPS/);
+  });
+
   it('openai client posts to api.openai.com with bearer token and cache key, no cache_prompt', async () => {
     vi.mocked(fetch).mockResolvedValue(
       okJson({

@@ -53,6 +53,25 @@ describe('callLLMDirect', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('returns an error when provider lookup throws', async () => {
+    vi.stubGlobal('chrome', {
+      runtime: { lastError: undefined },
+      storage: {
+        local: {
+          get: (_keys, cb) => {
+            chrome.runtime.lastError = { message: 'storage unavailable' };
+            cb({});
+          },
+        },
+      },
+    });
+    const { callLLMDirect } = await getLLM();
+    const res = await callLLMDirect({ prompt: 'hello' });
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe('storage unavailable');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('calls the active provider endpoint and strips <think> tags', async () => {
     const { callLLMDirect } = await getLLM();
     vi.mocked(fetch).mockResolvedValue({

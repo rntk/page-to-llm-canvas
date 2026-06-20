@@ -106,4 +106,20 @@ describe('stripTagsKeepOffsets', () => {
     const result = stripTagsKeepOffsets('<a href="http://example.com">link</a>');
     expect(result.text).toBe('link');
   });
+
+  it('leaves invalid numeric entities unchanged when they cannot be decoded', () => {
+    const result = stripTagsKeepOffsets('&#x110000; valid');
+    expect(result.text).toBe('&#x110000; valid');
+  });
+
+  it('stops at unclosed script tags without a closing tag', () => {
+    const result = stripTagsKeepOffsets('<p>before</p><script>alert(1)');
+    expect(result.text).toBe('before');
+    expect(result.text).not.toContain('alert');
+  });
+
+  it('stops at unclosed style tags without a closing tag', () => {
+    const result = stripTagsKeepOffsets('<style>body{color:red}<p>after</p>');
+    expect(result.text).toBe('');
+  });
 });

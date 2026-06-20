@@ -223,6 +223,45 @@ describe('useCanvasAlignment runtime', () => {
     ctx.cleanup();
   });
 
+  it('drops a stale anchor capture when the effect re-runs without a deps change', () => {
+    const ctx = setup({
+      wrapRect: { left: 0, top: 0, width: WRAP, height: 800 },
+      anchorRect: { left: 300, top: 40, width: COL, height: 600 },
+    });
+    ctx.render(1);
+    act(() => ctx.apiRef.current.captureAnchor(false));
+    // Force a layout-effect re-run with the same deps (align identity changes on
+    // re-render) but no real switch — the stale capture must not pan later.
+    ctx.render(1);
+    ctx.rects.anchor = { left: 100, top: 40, width: COL, height: 600 };
+    ctx.render(1);
+    expect(ctx.setTransformNow).not.toHaveBeenCalled();
+    ctx.cleanup();
+  });
+
+  it('cancels a pending animated move when skipNextAlignment runs before the switch', () => {
+    const ctx = setup({
+      wrapRect: { left: 0, top: 0, width: WRAP, height: 800 },
+      anchorRect: { left: 300, top: 40, width: COL, height: 600 },
+      autoRaf: false,
+    });
+    ctx.render(1);
+
+    act(() => ctx.apiRef.current.captureAnchor(true));
+    ctx.rects.anchor = { left: 300, top: 300, width: COL, height: 600 };
+    ctx.render(2);
+    expect(ctx.setTransformNow).not.toHaveBeenCalled();
+
+    act(() => ctx.apiRef.current.skipNextAlignment());
+    ctx.rects.anchor = { left: 700, top: 50, width: COL, height: 600 };
+    ctx.render(3);
+    ctx.flushRafs();
+
+    expect(ctx.setTransformNow).not.toHaveBeenCalled();
+    expect(ctx.flashFocus).not.toHaveBeenCalled();
+    ctx.cleanup();
+  });
+
   it('cancels a stale deferred move when a newer switch has no animated move', () => {
     const ctx = setup({
       wrapRect: { left: 0, top: 0, width: WRAP, height: 800 },

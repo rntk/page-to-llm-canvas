@@ -7,6 +7,7 @@ import {
   listRecords,
   deleteRecord,
   deleteAll,
+  findRecordByUrl,
   buildRecordSnippet,
   recordStorageKey,
   INDEX_KEY,
@@ -506,5 +507,32 @@ describe('concurrent writeRecord / deleteRecord do not lose index entries', () =
     const stored = await readRecord('race1');
     // updateRecord runs after writeRecord (queued on same key), so status wins.
     expect(stored.status).toBe('splitting');
+  });
+});
+
+describe('findRecordByUrl', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    _resetUpdateQueues();
+  });
+
+  it('returns null for falsy URLs and when no records exist', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    expect(await findRecordByUrl('')).toBeNull();
+    expect(await findRecordByUrl('https://example.com')).toBeNull();
+  });
+
+  it('returns the first record with a matching sourceUrl', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    seedRecord(mock, makeRecord('k1', { sourceUrl: 'https://example.com/a' }));
+    seedRecord(mock, makeRecord('k2', { sourceUrl: 'https://example.com/b' }));
+
+    const found = await findRecordByUrl('https://example.com/b');
+    expect(found).not.toBeNull();
+    expect(found.key).toBe('k2');
   });
 });

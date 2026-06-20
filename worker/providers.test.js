@@ -60,6 +60,10 @@ describe('normalizeProvider', () => {
     );
   });
 
+  it('rejects non-object input', () => {
+    expect(() => normalizeProvider(null)).toThrow(/object/);
+  });
+
   it('requires name and model', () => {
     expect(() => normalizeProvider({ type: 'openai', model: 'm' })).toThrow(/name/);
     expect(() => normalizeProvider({ type: 'openai', name: 'n' })).toThrow(/model/);
@@ -239,6 +243,62 @@ describe('provider storage', () => {
     const state = await mod.deleteProvider(a.id);
     expect(state.providers).toHaveLength(0);
     expect(state.activeId).toBeNull();
+  });
+
+  it('listProviders returns the stored provider list', async () => {
+    const mod = await freshProviders();
+    await mod.saveProvider({ type: 'openai', name: 'A', model: 'gpt-4o' });
+    const providers = await mod.listProviders();
+    expect(providers).toHaveLength(1);
+    expect(providers[0].name).toBe('A');
+  });
+
+  it('rejects storage read failures from chrome.runtime.lastError', async () => {
+    vi.stubGlobal('chrome', {
+      runtime: { lastError: undefined },
+      storage: {
+        local: {
+          get: (_keys, cb) => {
+            chrome.runtime.lastError = { message: 'read failed' };
+            cb({});
+          },
+          set: (_items, cb) => cb(),
+        },
+      },
+    });
+    const mod = await freshProviders();
+    await expect(mod.getProvidersState()).rejects.toThrow('read failed');
+  });
+
+  it('rejects storage write failures from chrome.runtime.lastError', async () => {
+    vi.stubGlobal('chrome', {
+      runtime: { lastError: undefined },
+      storage: {
+        local: {
+          get: (keys, cb) => {
+            const key = Array.isArray(keys) ? keys[0] : keys;
+            cb({ [key]: undefined });
+          },
+          set: (_items, cb) => {
+            chrome.runtime.lastError = { message: 'write failed' };
+            cb();
+          },
+        },
+      },
+    });
+    const mod = await freshProviders();
+    await expect(
+      mod.saveProvider({ type: 'openai', name: 'A', model: 'gpt-4o' }),
+    ).rejects.toThrow('write failed');
+  });
+
+  it('generates ids without crypto.randomUUID', async () => {
+    const originalCrypto = globalThis.crypto;
+    vi.stubGlobal('crypto', undefined);
+    const mod = await freshProviders();
+    const saved = await mod.saveProvider({ type: 'openai', name: 'A', model: 'gpt-4o' });
+    expect(saved.id).toMatch(/^prov_/);
+    vi.stubGlobal('crypto', originalCrypto);
   });
 
   it('drops corrupt stored entries and dangling active ids', async () => {

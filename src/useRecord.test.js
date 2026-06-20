@@ -179,6 +179,19 @@ describe('useRecord', () => {
     expect(result.current.record.status).toBe('pending');
   });
 
+  it('sets error when sendMessage throws synchronously', async () => {
+    chrome.runtime.sendMessage.mockImplementation(() => {
+      throw new Error('sendMessage blew up');
+    });
+
+    const { result } = renderHook(() => useRecord('test'));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.error).toBe('sendMessage blew up');
+    expect(result.current.record).toBeNull();
+  });
+
   it('removes onChanged listener on unmount', () => {
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
       cb({ ok: true, record: { key: 'test', status: 'pending' } });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { splitError, retryRecord } from './errorUtils.js';
+import { splitError, retryRecord, resolveSummaryErrors } from './errorUtils.js';
 
 describe('errorUtils', () => {
   afterEach(() => {
@@ -74,6 +74,54 @@ describe('errorUtils', () => {
       vi.stubGlobal('chrome', { runtime: { sendMessage: sendMessageMock } });
 
       await expect(retryRecord('key1', 'Test')).rejects.toThrow('some backend error');
+    });
+
+    it('rejects with a fallback message when response has no error field', async () => {
+      const sendMessageMock = vi.fn((msg, cb) => cb({ ok: false }));
+      vi.stubGlobal('chrome', { runtime: { sendMessage: sendMessageMock } });
+
+      await expect(retryRecord('key1', 'Test')).rejects.toThrow('Retry failed');
+    });
+  });
+
+  describe('resolveSummaryErrors', () => {
+    it('resolves on successful runtime response', async () => {
+      const sendMessageMock = vi.fn((msg, cb) => cb({ ok: true }));
+      vi.stubGlobal('chrome', { runtime: { sendMessage: sendMessageMock } });
+
+      const res = await resolveSummaryErrors('key1', 'retry', 'Hierarchy');
+      expect(res).toEqual({ ok: true });
+      expect(sendMessageMock).toHaveBeenCalledWith(
+        { type: 'resolveSummaryErrors', key: 'key1', action: 'retry' },
+        expect.any(Function),
+      );
+    });
+
+    it('rejects on runtime.lastError', async () => {
+      const sendMessageMock = vi.fn((msg, cb) => {
+        chrome.runtime.lastError = { message: 'resolve runtime error' };
+        cb(null);
+        delete chrome.runtime.lastError;
+      });
+      vi.stubGlobal('chrome', { runtime: { sendMessage: sendMessageMock } });
+
+      await expect(resolveSummaryErrors('key1', 'skip', 'Hierarchy')).rejects.toThrow(
+        'resolve runtime error',
+      );
+    });
+
+    it('rejects on response failure (ok: false)', async () => {
+      const sendMessageMock = vi.fn((msg, cb) => cb({ ok: false, error: 'resolve backend error' }));
+      vi.stubGlobal('chrome', { runtime: { sendMessage: sendMessageMock } });
+
+      await expect(resolveSummaryErrors('key1', 'skip')).rejects.toThrow('resolve backend error');
+    });
+
+    it('rejects with a fallback message when response has no error field', async () => {
+      const sendMessageMock = vi.fn((msg, cb) => cb({ ok: false }));
+      vi.stubGlobal('chrome', { runtime: { sendMessage: sendMessageMock } });
+
+      await expect(resolveSummaryErrors('key1', 'retry')).rejects.toThrow('Resolve failed');
     });
   });
 });

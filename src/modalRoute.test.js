@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { parseModalRoute } from './modalRoute.js';
 
 describe('parseModalRoute', () => {
@@ -26,5 +26,13 @@ describe('parseModalRoute', () => {
 
   it('returns empty strings for keys with no value', () => {
     expect(parseModalRoute('?key&view')).toEqual({ key: '', view: '' });
+  });
+
+  it('returns empty strings when URLSearchParams throws', () => {
+    const spy = vi.spyOn(globalThis, 'URLSearchParams').mockImplementation(() => {
+      throw new Error('bad query');
+    });
+    expect(parseModalRoute('?key=abc')).toEqual({ key: '', view: '' });
+    spy.mockRestore();
   });
 });

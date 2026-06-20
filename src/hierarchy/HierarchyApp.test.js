@@ -123,6 +123,22 @@ describe('HierarchyApp', () => {
     unmount();
   });
 
+  it('renders needs_attention state with a pluralized summary error count', () => {
+    useRecord.mockReturnValue({
+      record: {
+        status: 'needs_attention',
+        summaryErrors: [{ topic: 'A' }, { topic: 'B' }],
+      },
+      error: null,
+    });
+    const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
+
+    expect(container.textContent).toContain('2 topics need attention');
+    expect(container.textContent).toContain('Open the canvas view to retry');
+
+    unmount();
+  });
+
   it('renders pipeline error state and triggers retry', () => {
     const sendMessageMock = vi.fn();
     vi.stubGlobal('chrome', {

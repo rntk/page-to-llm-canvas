@@ -102,6 +102,16 @@ describe('collectWordEntries and buildSentenceDomRange', () => {
     const range = buildSentenceDomRange(sentenceRanges, entries, 1);
     expect(range).toBeNull();
   });
+
+  it('skips whitespace-only text nodes when collecting words', () => {
+    const whitespace = document.createTextNode('   \n\t  ');
+    const real = document.createTextNode('hello');
+    container.appendChild(whitespace);
+    container.appendChild(real);
+    const entries = collectWordEntries([container]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].word).toBe('hello');
+  });
 });
 
 describe('buildSentenceWordRanges (anchoring logic)', () => {
@@ -124,5 +134,12 @@ describe('buildSentenceWordRanges (anchoring logic)', () => {
     const entries = [{ word: 'x' }];
     const ranges = buildSentenceWordRanges(['   '], entries);
     expect(ranges.size).toBe(0);
+  });
+
+  it('anchors single-token sentences to one word index', () => {
+    const entries = [{ word: 'Hello' }, { word: 'world' }, { word: 'test' }];
+    const ranges = buildSentenceWordRanges(['Hello', 'world test'], entries);
+    expect(ranges.get(1)).toEqual({ startIdx: 0, endIdx: 0 });
+    expect(ranges.get(2)).toEqual({ startIdx: 1, endIdx: 2 });
   });
 });

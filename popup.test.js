@@ -436,3 +436,113 @@ describe('buildRecordDisplayData', () => {
     expect(viewActions.map((a) => a.mode)).toEqual(['canvas']);
   });
 });
+
+describe('popup UI integration', () => {
+  beforeAll(async () => {
+    await import('./popup.js');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  const sampleRecord = {
+    key: 'rec1',
+    sourceUrl: 'https://example.com/article',
+    createdAt: 1_700_000_000_000,
+    status: 'done',
+    snippet: 'A short snippet',
+  };
+
+  async function waitForRecord() {
+    let record = null;
+    for (let i = 0; i < 50; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      record = document.querySelector('#records .record');
+      if (record) break;
+    }
+    return record;
+  }
+
+  function stubListResponses(items = [sampleRecord]) {
+    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') {
+        cb({ ok: true, items });
+      } else if (msg.type === 'listProviders') {
+        cb({
+          ok: true,
+          providers: [
+            { id: 'p1', name: 'OpenAI', type: 'openai', model: 'gpt-4o', hasToken: true },
+          ],
+          activeId: 'p1',
+        });
+      } else {
+        cb({ ok: true });
+      }
+    });
+    chrome.tabs.query.mockResolvedValue([{ id: 42, url: 'https://example.com/article' }]);
+  }
+
+  it('renders matching records with snippets and action buttons on refresh', async () => {
+    stubListResponses();
+    document.getElementById('error').textContent = '';
+    document.getElementById('refresh-btn').click();
+
+    const record = await waitForRecord();
+    expect(record).not.toBeNull();
+    expect(record.querySelector('.snippet').textContent).toBe('A short snippet');
+    expect(record.querySelectorAll('.action').length).toBeGreaterThan(1);
+    expect(document.getElementById('empty').hidden).toBe(true);
+    expect(document.getElementById('record-count').textContent).toBe('1');
+  });
+
+  it('shows an error when listRecords returns a failed response', async () => {
+    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') cb({ ok: false, error: 'backend down' });
+      else cb({ ok: true });
+    });
+    chrome.tabs.query.mockResolvedValue([{ id: 42, url: 'https://example.com/article' }]);
+
+    document.getElementById('refresh-btn').click();
+    let message = '';
+    for (let i = 0; i < 50; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      message = document.getElementById('error').textContent;
+      if (message.includes('backend down')) break;
+    }
+
+    expect(message).toContain('backend down');
+    expect(document.getElementById('records').children.length).toBe(0);
+  });
+
+  it('starts selection when pick is clicked and a provider is ready', async () => {
+    stubListResponses([]);
+    document.getElementById('refresh-btn').click();
+    await waitForRecord().catch(() => null);
+    chrome.tabs.sendMessage.mockClear();
+
+    document.getElementById('pick-btn').disabled = false;
+    document.getElementById('pick-btn').click();
+
+    let called = false;
+    for (let i = 0; i < 50; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      if (chrome.tabs.sendMessage.mock.calls.length > 0) {
+        called = true;
+        break;
+      }
+    }
+
+    expect(called).toBe(true);
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      42,
+      { action: 'startSelection' },
+      expect.any(Function),
+    );
+  });
+
+  it('opens the options page from the options link', () => {
+    chrome.runtime.openOptionsPage.mockClear();
+    document.getElementById('open-options').dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+    expect(chrome.runtime.openOptionsPage).toHaveBeenCalled();
+  });
+});

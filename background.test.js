@@ -51,6 +51,11 @@ function makeChromeMock() {
       get: vi.fn((_name, cb) => cb(undefined)),
       onAlarm: { addListener: vi.fn() },
     },
+    action: {
+      setBadgeText: vi.fn(),
+      setBadgeBackgroundColor: vi.fn(),
+      setIcon: vi.fn(),
+    },
   };
 }
 
@@ -145,6 +150,51 @@ describe('background pipeline lifecycle', () => {
     expect(state.active).toBe(true);
     expect(state.count).toBe(2);
     expect(state.ratio).toBeCloseTo(0.5);
+  });
+
+  it('updates the toolbar badge and progress icon for in-flight records', async () => {
+    const chromeMock = makeChromeMock();
+    seedRecord(
+      chromeMock,
+      makeRecord('busy1', {
+        status: 'summarizing',
+        progress: { stage: 'summarizing_topics', done: 1, total: 2 },
+      }),
+    );
+    vi.stubGlobal('chrome', chromeMock);
+    vi.stubGlobal(
+      'OffscreenCanvas',
+      class {
+        constructor(w, h) {
+          this.width = w;
+          this.height = h;
+        }
+        getContext() {
+          return {
+            drawImage: vi.fn(),
+            fillStyle: '',
+            beginPath: vi.fn(),
+            roundRect: vi.fn(),
+            fill: vi.fn(),
+            getImageData: () => ({ data: new Uint8ClampedArray(4) }),
+          };
+        }
+      },
+    );
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({})));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        blob: async () => new Blob(),
+      })),
+    );
+
+    await import('./background.js');
+    await vi.waitFor(() => chromeMock.action.setBadgeText.mock.calls.length > 0);
+
+    expect(chromeMock.action.setBadgeBackgroundColor).toHaveBeenCalled();
+    expect(chromeMock.action.setBadgeText).toHaveBeenCalledWith({ text: '...' });
+    vi.unstubAllGlobals();
   });
 
   it('submit starts a new job for a fresh record', async () => {
@@ -377,6 +427,33 @@ describe('background pipeline lifecycle', () => {
 
     const { runPipeline } = await import('./worker/orchestrator.js');
     expect(runPipeline).not.toHaveBeenCalled();
+  });
+
+  it('reuses an existing record matched by sourceUrl on submit', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    const { handleSubmit, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    seedRecord(
+      chromeMock,
+      makeRecord('url-key', {
+        sourceUrl: 'https://example.com/article',
+        status: 'pending',
+      }),
+    );
+
+    const result = await handleSubmit({
+      html: '<p>updated body</p>',
+      sourceUrl: 'https://example.com/article',
+      selectors: ['main'],
+    });
+
+    expect(result).toEqual({ ok: true, key: 'url-key' });
+    const stored = chromeMock.storage.local._store.get('pagetollm:rec:url-key');
+    expect(stored.html).toBe('<p>updated body</p>');
+    expect(stored.selectors).toEqual(['main']);
+    expect(stored.status).toBe('pending');
   });
 
   it('does not start a job for error records', async () => {
@@ -683,5 +760,54 @@ describe('dispatchMessage unit tests', () => {
     const res = await dispatchMessage({ type: 'listRecords' }, {});
     expect(res.ok).toBe(true);
     expect(Array.isArray(res.items)).toBe(true);
+  });
+
+  it('handles retryRecord, reprocessRecord, getRecord, deleteRecord, and deleteAll', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+    seedRecord(chromeMock, makeRecord('rec1', { status: 'error' }));
+
+    expect((await dispatchMessage({ type: 'retryRecord' })).error).toBe('missing key');
+    expect((await dispatchMessage({ type: 'retryRecord', key: 'missing' })).error).toBe(
+      'record not found',
+    );
+
+    const retry = await dispatchMessage({ type: 'retryRecord', key: 'rec1' });
+    expect(retry.ok).toBe(true);
+
+    const reprocess = await dispatchMessage({ type: 'reprocessRecord', key: 'rec1' });
+    expect(reprocess.ok).toBe(true);
+    const reprocessed = chromeMock.storage.local._store.get('pagetollm:rec:rec1');
+    expect(reprocessed.topics).toEqual([]);
+    expect(reprocessed.sentences).toEqual([]);
+
+    const got = await dispatchMessage({ type: 'getRecord', key: 'rec1' });
+    expect(got.ok).toBe(true);
+    expect(got.record.key).toBe('rec1');
+
+    const missing = await dispatchMessage({ type: 'getRecord', key: 'nope' });
+    expect(missing.ok).toBe(false);
+
+    const deleted = await dispatchMessage({ type: 'deleteRecord', key: 'rec1' });
+    expect(deleted.ok).toBe(true);
+    expect(chromeMock.storage.local._store.has('pagetollm:rec:rec1')).toBe(false);
+
+    seedRecord(chromeMock, makeRecord('rec2'));
+    seedRecord(chromeMock, makeRecord('rec3'));
+    const cleared = await dispatchMessage({ type: 'deleteAll' });
+    expect(cleared.ok).toBe(true);
+    const index = chromeMock.storage.local._store.get('pagetollm:index');
+    expect(index == null || index.keys?.length === 0).toBe(true);
+  });
+
+  it('validates ensurePipeline and llmChatCompletion inputs', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+
+    expect((await dispatchMessage({ type: 'ensurePipeline' })).error).toBe('missing key');
+
+    const llm = await dispatchMessage({ type: 'llmChatCompletion', prompt: '' });
+    expect(llm.ok).toBe(false);
+    expect(llm.error).toBe('missing prompt');
   });
 });

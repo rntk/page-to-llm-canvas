@@ -110,4 +110,26 @@ describe('splitSentences', () => {
     });
     expect(result.length).toBeGreaterThan(1);
   });
+
+  it('finishes a long span when remaining words drop below the anchor window', () => {
+    const words = Array.from({ length: 25 }, (_, i) => `word${i}`).join(' ');
+    const result = splitSentences(`${words}.`, {
+      anchorEveryWords: 10,
+      longSentenceWordThreshold: 20,
+      minSentenceWords: 15,
+    });
+    expect(result.length).toBeGreaterThanOrEqual(1);
+    expect(result[0].text).toContain('word0');
+  });
+
+  it('falls back to the full tail when no whitespace cut is found', () => {
+    const head = Array.from({ length: 22 }, (_, i) => `w${i}`).join(' ');
+    const tail = Array.from({ length: 8 }, (_, i) => `t${i}`).join('');
+    const result = splitSentences(`${head} ${tail}.`, {
+      anchorEveryWords: 10,
+      longSentenceWordThreshold: 20,
+      minSentenceWords: 2,
+    });
+    expect(result.some((s) => s.text.includes('t0t1'))).toBe(true);
+  });
 });
