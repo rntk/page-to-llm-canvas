@@ -314,8 +314,8 @@ body.pagetollm-rail-open {
 .pagetollm-rail-card:focus,
 .pagetollm-rail-card.is-front {
   transform: translateX(-2px);
-  border: 2px solid var(--ink);
-  border-left: 4px solid var(--pagetollm-card-accent, var(--ink));
+  border-color: var(--ink);
+  border-left-color: var(--pagetollm-card-accent, var(--ink));
 }
 
 .pagetollm-rail-card:focus {

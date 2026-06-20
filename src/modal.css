@@ -753,8 +753,8 @@ body.canvas-global-dragging * {
 .canvas-topic-hierarchy__card:hover,
 .canvas-topic-hierarchy__card.is-active,
 .canvas-topic-hierarchy__card.is-selected {
-  border: 2px solid var(--ink);
-  border-left: 4px solid var(--topic-accent-color);
+  border-color: var(--ink);
+  border-left-color: var(--topic-accent-color);
 }
 
 .canvas-topic-hierarchy__card--child {
@@ -867,6 +867,7 @@ body.canvas-global-dragging * {
 }
 
 .canvas-summary-view__card {
+  box-sizing: border-box;
   background: var(--surface);
   border: 1px solid var(--ink);
   border-radius: 0;
@@ -874,7 +875,8 @@ body.canvas-global-dragging * {
   cursor: pointer;
   transition:
     border-color 0.15s,
-    background 0.15s;
+    background 0.15s,
+    box-shadow 0.15s;
 }
 
 /* Gentle entrance for the summary-mode cards when summary mode is opened (the
@@ -890,12 +892,18 @@ body.canvas-global-dragging * {
 }
 
 .canvas-summary-view__card.is-active {
-  border: 2px solid var(--ink);
   background: var(--surface-low);
+  box-shadow: 0 0 0 1px var(--ink);
 }
 
 .canvas-summary-view__card.is-source-preview-active {
   box-shadow: -4px 0 0 var(--ink);
+}
+
+.canvas-summary-view__card.is-active.is-source-preview-active {
+  box-shadow:
+    -4px 0 0 var(--ink),
+    0 0 0 1px var(--ink);
 }
 
 .canvas-summary-view__card-header {
