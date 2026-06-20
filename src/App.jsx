@@ -676,6 +676,7 @@ export default function App({ initialKey }) {
                       onShowSourceSentences={handleShowSourceSentences}
                       articleHtml={articleHtml}
                       sentences={sentences}
+                      sourceUrl={record?.sourceUrl}
                       previewWidth={currentSummaryWidth}
                     />
                   ) : (
@@ -697,6 +698,8 @@ export default function App({ initialKey }) {
                     readTopics={null}
                     onToggleRead={null}
                     currentTopicSummary={currentTopicSummary}
+                    sentences={sentences}
+                    sourceUrl={record?.sourceUrl}
                     scale={scale}
                   />
                 </div>

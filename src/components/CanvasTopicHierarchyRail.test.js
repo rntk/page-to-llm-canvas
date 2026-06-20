@@ -388,4 +388,44 @@ describe('CanvasTopicHierarchyRail', () => {
     expect(button.style.getPropertyValue('--topic-card-title-font-size')).toContain('34');
     unmount();
   });
+
+  it('renders a YouTube timestamp link on the summary card for YouTube records', () => {
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        currentTopicSummary: {
+          path: 'Topic A',
+          text: 'A summary.',
+          sourceSentences: [4],
+        },
+        sentences: ['a', 'b', 'c', '0:26 26 seconds Blackwell is a card.'],
+        sourceUrl: 'https://www.youtube.com/watch?v=abc',
+      }),
+    );
+
+    const link = container.querySelector('a.canvas-youtube-timestamp');
+    expect(link).not.toBeNull();
+    expect(link.getAttribute('href')).toContain('v=abc');
+    expect(link.getAttribute('href')).toContain('&t=26s');
+    expect(link.textContent).toContain('0:26');
+    unmount();
+  });
+
+  it('does not render a YouTube link for non-YouTube records', () => {
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        currentTopicSummary: {
+          path: 'Topic A',
+          text: 'A summary.',
+          sourceSentences: [4],
+        },
+        sentences: ['a', 'b', 'c', '0:26 26 seconds Blackwell is a card.'],
+        sourceUrl: 'https://example.com/post',
+      }),
+    );
+
+    expect(container.querySelector('a.canvas-youtube-timestamp')).toBeNull();
+    unmount();
+  });
 });

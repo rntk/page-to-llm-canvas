@@ -4,6 +4,8 @@ import {
   buildSentenceDomRange,
   buildSentenceWordRanges,
 } from '../sentenceHighlight.js';
+import { getYouTubeTimestampLink } from '../utils/youtubeTimestamp.js';
+import YouTubeTimestampButton from './YouTubeTimestampButton.jsx';
 
 const SENTENCE_PREVIEW_HIDE_DELAY_MS = 120;
 
@@ -220,6 +222,7 @@ function CanvasSummaryView({
   onShowSourceSentences,
   articleHtml,
   sentences,
+  sourceUrl,
   previewWidth,
 }) {
   const [lockedPreviewKey, setLockedPreviewKey] = React.useState(null);
@@ -301,6 +304,17 @@ function CanvasSummaryView({
     [articleHtml, sentences, previewCard, previewSentenceNumbers],
   );
   const previewTop = summaryCardRefs.current[previewCardKey]?.offsetTop || 0;
+  const previewYouTubeLink = React.useMemo(
+    () =>
+      previewCard
+        ? getYouTubeTimestampLink({
+            sourceUrl,
+            sentences,
+            sourceSentences: previewCard.sourceSentences,
+          })
+        : null,
+    [previewCard, sourceUrl, sentences],
+  );
 
   const setSummaryViewRefs = React.useCallback(
     (el) => {
@@ -423,6 +437,7 @@ function CanvasSummaryView({
                 <span className="canvas-summary-view__card-kicker">Source</span>
                 <span className="canvas-summary-view__card-path">{previewCard.path}</span>
               </div>
+              <YouTubeTimestampButton link={previewYouTubeLink} />
             </header>
             <div
               className="canvas-summary-source-preview__article pagetollm-article-html"

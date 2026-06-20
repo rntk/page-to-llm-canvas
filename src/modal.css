@@ -917,6 +917,49 @@ body.canvas-global-dragging * {
   min-width: 0;
 }
 
+.canvas-youtube-timestamp {
+  display: inline-flex;
+  align-items: center;
+  /* All inner metrics are em-based so a single font-size drives the whole
+     element. This lets the button track the card's zoom counter-scaling (see
+     the scoped --current-summary-youtube-font-size override below). */
+  gap: 0.45em;
+  flex: 0 0 auto;
+  padding: 0.27em 0.73em;
+  border-radius: 999px;
+  background: rgba(255, 0, 0, 0.1);
+  color: #ff0000;
+  font-family: var(--font-data);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.canvas-youtube-timestamp:hover,
+.canvas-youtube-timestamp:focus-visible {
+  background: #ff0000;
+  color: #fff;
+}
+
+.canvas-youtube-timestamp__icon {
+  width: 1.27em;
+  height: 1.27em;
+  flex: 0 0 auto;
+}
+
+/* The rail summary card counter-scales its text on zoom-out (getSummaryFontSizes
+   grows fonts by 1/scale so they stay legible while the canvas shrinks). Tie the
+   YouTube button to the same multiplier so it scales with the card, not the raw
+   canvas zoom. */
+.canvas-topic-current-summary .canvas-youtube-timestamp {
+  font-size: var(--current-summary-youtube-font-size, 11px);
+}
+
 .canvas-summary-view__card-kicker {
   font-size: 10px;
   font-weight: 700;

@@ -8,6 +8,8 @@ import {
   getSummaryFontSizes,
   getTitleLineBudget,
 } from '../utils/denseCardLayout.js';
+import { getYouTubeTimestampLink } from '../utils/youtubeTimestamp.js';
+import YouTubeTimestampButton from './YouTubeTimestampButton.jsx';
 
 /**
  * @typedef {Object} CanvasTopicCard
@@ -56,7 +58,10 @@ import {
  *   currentTopicSummary: {
  *     path: string,
  *     text: string,
+ *     sourceSentences?: number[],
  *   } | null,
+ *   sentences?: string[],
+ *   sourceUrl?: string,
  * }} props
  */
 function CanvasTopicHierarchyRail({
@@ -74,6 +79,8 @@ function CanvasTopicHierarchyRail({
   readTopics,
   onToggleRead,
   currentTopicSummary,
+  sentences,
+  sourceUrl,
 }) {
   const safeReadTopics = readTopics instanceof Set ? readTopics : new Set(readTopics || []);
   const hierarchyCards = React.useMemo(
@@ -98,6 +105,17 @@ function CanvasTopicHierarchyRail({
   const hasCurrentTopicSummary = Boolean(currentTopicSummary);
   const summaryTop = summaryAnchorCard ? summaryAnchorCard.top : 0;
   const summaryFontSizes = getSummaryFontSizes(summaryAnchorCard);
+  const summaryYouTubeLink = React.useMemo(
+    () =>
+      currentTopicSummary
+        ? getYouTubeTimestampLink({
+            sourceUrl,
+            sentences,
+            sourceSentences: currentTopicSummary.sourceSentences,
+          })
+        : null,
+    [currentTopicSummary, sourceUrl, sentences],
+  );
 
   // Publish the rendered height of the current-topic summary card so the sticky
   // CSS can clamp its bottom edge to the visible viewport (see modal.css). The
@@ -146,6 +164,7 @@ function CanvasTopicHierarchyRail({
             '--current-summary-kicker-font-size': `${summaryFontSizes.kicker}px`,
             '--current-summary-title-font-size': `${summaryFontSizes.title}px`,
             '--current-summary-text-font-size': `${summaryFontSizes.text}px`,
+            '--current-summary-youtube-font-size': `${summaryFontSizes.youtube}px`,
           }}
         >
           <article className="canvas-summary-view__card is-active">
@@ -156,6 +175,7 @@ function CanvasTopicHierarchyRail({
                   {currentTopicSummary.path}
                 </span>
               </div>
+              <YouTubeTimestampButton link={summaryYouTubeLink} />
             </header>
             {currentTopicSummary.text && (
               <p key={currentTopicSummary.path} className="canvas-summary-view__card-text">

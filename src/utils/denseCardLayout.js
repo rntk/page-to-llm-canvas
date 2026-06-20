@@ -21,6 +21,7 @@ export const BASE_TOPIC_TITLE_FONT_SIZE = 12;
 export const SUMMARY_KICKER_FONT_SIZE = 10;
 export const SUMMARY_TITLE_FONT_SIZE = 16;
 export const SUMMARY_TEXT_FONT_SIZE = 14;
+export const SUMMARY_YOUTUBE_FONT_SIZE = 11;
 
 /**
  * Returns `value` if it is a finite number, otherwise `fallback`.
@@ -236,5 +237,6 @@ export function getSummaryFontSizes(anchorCard) {
     kicker: SUMMARY_KICKER_FONT_SIZE * zoomMultiplier,
     title: SUMMARY_TITLE_FONT_SIZE * zoomMultiplier,
     text: SUMMARY_TEXT_FONT_SIZE * zoomMultiplier,
+    youtube: SUMMARY_YOUTUBE_FONT_SIZE * zoomMultiplier,
   };
 }

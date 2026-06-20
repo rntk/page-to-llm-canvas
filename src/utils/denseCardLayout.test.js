@@ -473,6 +473,12 @@ describe('getSummaryFontSizes', () => {
     expect(sizes.kicker).toBe(20);
     expect(sizes.title).toBe(32);
     expect(sizes.text).toBe(28);
+    expect(sizes.youtube).toBe(22);
+  });
+
+  it('scales the youtube size with the same zoom multiplier', () => {
+    expect(getSummaryFontSizes(null).youtube).toBe(11);
+    expect(getSummaryFontSizes({ titleFontSize: BASE_TOPIC_TITLE_FONT_SIZE / 2 }).youtube).toBe(11);
   });
 
   it('does NOT scale down when titleFontSize is smaller than base (multiplier clamped to 1)', () => {
