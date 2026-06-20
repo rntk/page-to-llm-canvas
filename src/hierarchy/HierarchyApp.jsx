@@ -43,7 +43,9 @@ export default function HierarchyApp({ initialKey }) {
     retryRecord(initialKey, 'Hierarchy').catch(() => {});
   }, [initialKey]);
 
-  const topics = useMemo(() => (Array.isArray(record?.topics) ? record.topics : []), [record]);
+  const topicsJson = JSON.stringify(record?.topics || null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const topics = useMemo(() => (Array.isArray(record?.topics) ? record.topics : []), [topicsJson]);
   const isDone = record?.status === 'done';
   const isRecordError = record?.status === 'error';
   const isNeedsAttention = record?.status === 'needs_attention';

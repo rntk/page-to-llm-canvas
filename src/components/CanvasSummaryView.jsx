@@ -258,43 +258,42 @@ function CanvasSummaryView({
     });
     return map;
   }, [summaryViewCards]);
-  const activePreviewCard = React.useMemo(() => {
-    if (summaryViewHoveredPath) {
+  const summaryCardByPath = React.useMemo(() => {
+    const map = new Map();
+    summaryViewCards.forEach((card) => {
+      map.set(card.path, card);
+    });
+    return map;
+  }, [summaryViewCards]);
+  const findCardByPath = React.useCallback(
+    (path) => {
+      if (summaryCardByPath.has(path)) return summaryCardByPath.get(path);
       return (
-        summaryViewCards.find((card) => card.path === summaryViewHoveredPath) ||
         summaryViewCards.find(
           (card) =>
-            card.path.startsWith(`${summaryViewHoveredPath} > `) ||
-            summaryViewHoveredPath.startsWith(`${card.path} > `),
-        ) ||
-        null
+            card.path.startsWith(`${path} > `) || path.startsWith(`${card.path} > `),
+        ) || null
       );
-    }
+    },
+    [summaryCardByPath, summaryViewCards],
+  );
+  const activePreviewCard = React.useMemo(() => {
+    if (summaryViewHoveredPath) return findCardByPath(summaryViewHoveredPath);
     if (hoveredSummaryKey && summaryCardByKey.has(hoveredSummaryKey)) {
       return summaryCardByKey.get(hoveredSummaryKey);
     }
     if (lockedPreviewKey && summaryCardByKey.has(lockedPreviewKey)) {
       return summaryCardByKey.get(lockedPreviewKey);
     }
-    if (summaryViewActivePath) {
-      return (
-        summaryViewCards.find((card) => card.path === summaryViewActivePath) ||
-        summaryViewCards.find(
-          (card) =>
-            card.path.startsWith(`${summaryViewActivePath} > `) ||
-            summaryViewActivePath.startsWith(`${card.path} > `),
-        ) ||
-        null
-      );
-    }
+    if (summaryViewActivePath) return findCardByPath(summaryViewActivePath);
     return null;
   }, [
+    findCardByPath,
     hoveredSummaryKey,
     lockedPreviewKey,
     summaryCardByKey,
     summaryViewActivePath,
     summaryViewHoveredPath,
-    summaryViewCards,
   ]);
   const previewCard = activePreviewCard?.sourceSentences?.length ? activePreviewCard : null;
   const previewCardKey = previewCard?.key || previewCard?.path || null;
