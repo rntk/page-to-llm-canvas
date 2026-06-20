@@ -110,7 +110,13 @@ export default function App({ initialKey }) {
     [handleMouseDown, canvasWrapElRef],
   );
 
-  const topicsJson = JSON.stringify(record?.topics || null);
+  // Serialize once per record change, not once per render. `record` is referentially
+  // stable across UI interactions (hover/zoom/level — only storage writes mint a new
+  // object), so keying on `record?.topics` skips the stringify on the ~60fps render
+  // storm that pan/zoom drives through `setScale`/`setTranslate`. Storage writes still
+  // produce a fresh object, so content-dedup across pipeline rewrites is preserved by
+  // the downstream memos keying on the resulting string.
+  const topicsJson = useMemo(() => JSON.stringify(record?.topics || null), [record?.topics]);
   const topics = useMemo(
     () => (Array.isArray(record?.topics) ? record.topics : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -146,8 +152,14 @@ export default function App({ initialKey }) {
   }, [record?.html, sentences]);
 
   const maxLevel = useMemo(() => getMaxTopicLevel(topics), [topics]);
-  const summariesJson = JSON.stringify(record?.topic_summaries || null);
-  const summaryIndexJson = JSON.stringify(record?.topic_summary_index || null);
+  const summariesJson = useMemo(
+    () => JSON.stringify(record?.topic_summaries || null),
+    [record?.topic_summaries],
+  );
+  const summaryIndexJson = useMemo(
+    () => JSON.stringify(record?.topic_summary_index || null),
+    [record?.topic_summary_index],
+  );
   const allSummaryCards = useMemo(
     () => buildSummaryCards(topics, record?.topic_summaries, record?.topic_summary_index),
     // eslint-disable-next-line react-hooks/exhaustive-deps

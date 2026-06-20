@@ -43,7 +43,11 @@ export default function HierarchyApp({ initialKey }) {
     retryRecord(initialKey, 'Hierarchy').catch(() => {});
   }, [initialKey]);
 
-  const topicsJson = JSON.stringify(record?.topics || null);
+  // Serialize once per record change, not once per render: `record` is stable across
+  // UI renders (only storage writes mint a new object), so keying on the reference
+  // avoids re-stringifying topics on every unrelated re-render while still re-running
+  // on real record updates. The downstream `topics` memo keeps content-dedup via the string.
+  const topicsJson = useMemo(() => JSON.stringify(record?.topics || null), [record?.topics]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const topics = useMemo(() => (Array.isArray(record?.topics) ? record.topics : []), [topicsJson]);
   const isDone = record?.status === 'done';
