@@ -34,6 +34,23 @@ import { retryRecord, resolveSummaryErrors } from './utils/errorUtils.js';
 /** Second CSS Custom Highlight name, used for the hovered (not selected) topic. */
 const HIGHLIGHT_HOVER = 'pagetollm-sentence-hover';
 
+function areSentenceMetricsEqual(prevMetrics, nextMetrics) {
+  if (prevMetrics === nextMetrics) return true;
+  if (!(prevMetrics instanceof Map) || !(nextMetrics instanceof Map)) return false;
+  if (prevMetrics.size !== nextMetrics.size) return false;
+  for (const [sentenceNumber, nextMetric] of nextMetrics) {
+    const prevMetric = prevMetrics.get(sentenceNumber);
+    if (
+      !prevMetric ||
+      !Object.is(prevMetric.top, nextMetric.top) ||
+      !Object.is(prevMetric.bottom, nextMetric.bottom)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * @param {{ initialKey: string }} props
  * @returns {import("react").JSX.Element}
@@ -46,6 +63,7 @@ export default function App({ initialKey }) {
   const [hoveredTopicKey, setHoveredTopicKey] = useState(null);
   const [selectedLevel, setSelectedLevel] = useState(0);
   const [sentenceMetrics, setSentenceMetrics] = useState(() => new Map());
+  const sentenceMetricsRef = useRef(sentenceMetrics);
   const pendingZoomSentenceRef = useRef(null);
 
   const articleTextRef = useRef(null);
@@ -273,7 +291,10 @@ export default function App({ initialKey }) {
       nextMetrics.set(n, { top, bottom });
     }
     if (nextMetrics.size > 0) {
-      setSentenceMetrics(nextMetrics);
+      if (!areSentenceMetricsEqual(sentenceMetricsRef.current, nextMetrics)) {
+        sentenceMetricsRef.current = nextMetrics;
+        setSentenceMetrics(nextMetrics);
+      }
     }
   }, [scaleRef, showSummaryMode, isFocusingHighlight, refreshSentenceRanges]);
 

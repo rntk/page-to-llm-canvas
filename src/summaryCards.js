@@ -30,10 +30,18 @@ function summaryText(summary) {
 export function filterSummaryCardsByLevel(allSummaryCards, selectedLevel) {
   const eligible = allSummaryCards.filter((card) => card.levelIndex <= selectedLevel);
   const paths = new Set(eligible.map((c) => c.path));
+  // A card is an ancestor if any other path extends it with ' > …'.
+  // Build the ancestor set in O(n·d) where d = average path depth, not O(n²).
+  const hasDescendant = new Set();
+  for (const p of paths) {
+    let sep = p.indexOf(' > ');
+    while (sep !== -1) {
+      hasDescendant.add(p.slice(0, sep));
+      sep = p.indexOf(' > ', sep + 3);
+    }
+  }
   return eligible
-    .filter(
-      (card) => !Array.from(paths).some((p) => p !== card.path && p.startsWith(card.path + ' > ')),
-    )
+    .filter((card) => !hasDescendant.has(card.path))
     .sort((a, b) => a.startSentence - b.startSentence || a.path.localeCompare(b.path));
 }
 
