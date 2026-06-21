@@ -9,7 +9,7 @@ import {
   getSummaryFontSizes,
   getTitleLineBudget,
 } from '../utils/denseCardLayout.js';
-import { getYouTubeTimestampLink } from '../utils/youtubeTimestamp.js';
+import { getYouTubeTimestampLink, getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
 import YouTubeTimestampButton from './YouTubeTimestampButton.jsx';
 
 // Accent colors are a pure function of (fullPath, depth) and never change once a
@@ -238,16 +238,17 @@ function CanvasTopicHierarchyRail({
   const hasCurrentTopicSummary = Boolean(currentTopicSummary);
   const summaryTop = summaryAnchorCard ? summaryAnchorCard.top : 0;
   const summaryFontSizes = getSummaryFontSizes(summaryAnchorCard);
+  const isYouTube = React.useMemo(() => Boolean(getYouTubeVideoId(sourceUrl)), [sourceUrl]);
   const summaryYouTubeLink = React.useMemo(
     () =>
-      currentTopicSummary
+      isYouTube && currentTopicSummary
         ? getYouTubeTimestampLink({
             sourceUrl,
             sentences,
             sourceSentences: currentTopicSummary.sourceSentences,
           })
         : null,
-    [currentTopicSummary, sourceUrl, sentences],
+    [isYouTube, currentTopicSummary, sourceUrl, sentences],
   );
 
   // Publish the rendered height of the current-topic summary card so the sticky

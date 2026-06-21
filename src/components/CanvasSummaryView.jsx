@@ -1,6 +1,6 @@
 import React from 'react';
 import { collectWordEntries, buildSentenceWordRanges } from '../sentenceHighlight.js';
-import { getYouTubeTimestampLink } from '../utils/youtubeTimestamp.js';
+import { getYouTubeTimestampLink, getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
 import YouTubeTimestampButton from './YouTubeTimestampButton.jsx';
 
 const SENTENCE_PREVIEW_HIDE_DELAY_MS = 120;
@@ -389,11 +389,13 @@ function CanvasSummaryView({
     return html;
   }, [previewCard, previewCardKey, previewSentenceNumbers, previewSourceModel]);
   const previewTop = summaryCardRefs.current[previewCardKey]?.offsetTop || 0;
+  const isYouTube = React.useMemo(() => Boolean(getYouTubeVideoId(sourceUrl)), [sourceUrl]);
   // Resolving a YouTube deep-link scans the sentence array; doing it per card
   // inside the render map re-ran it for every card on every hover/zoom. Compute
   // the whole set once and reuse it for both the cards and the preview header.
   const youTubeLinkByKey = React.useMemo(() => {
     const map = new Map();
+    if (!isYouTube) return map;
     summaryViewCards.forEach((card) => {
       map.set(
         card.key || card.path,
@@ -401,7 +403,7 @@ function CanvasSummaryView({
       );
     });
     return map;
-  }, [summaryViewCards, sourceUrl, sentences]);
+  }, [isYouTube, summaryViewCards, sourceUrl, sentences]);
   const previewYouTubeLink = previewCardKey ? youTubeLinkByKey.get(previewCardKey) || null : null;
 
   const setSummaryViewRefs = React.useCallback(
