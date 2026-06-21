@@ -117,11 +117,17 @@ export async function writeRecord(rec) {
   });
 }
 
-export async function updateRecord(key, patch) {
+export async function updateRecord(key, patch, options = {}) {
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
     return queuedUpdate(key, async () => {
       const current = await readRecord(key);
       if (!current) return null;
+      if (
+        Object.prototype.hasOwnProperty.call(options, 'expectedPipelineRunId') &&
+        current.pipelineRunId !== options.expectedPipelineRunId
+      ) {
+        return null;
+      }
       const merged = { ...current, ...patch, updatedAt: Date.now() };
       const sKey = recordStorageKey(key);
       await setLocal({ [sKey]: merged });
@@ -136,11 +142,17 @@ export async function updateRecord(key, patch) {
  * @param {Record<string, unknown>} [details]
  * @returns {Promise<object | null>}
  */
-export async function appendProcessingLog(key, stage, details = {}) {
+export async function appendProcessingLog(key, stage, details = {}, options = {}) {
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
     return queuedUpdate(key, async () => {
       const current = await readRecord(key);
       if (!current) return null;
+      if (
+        Object.prototype.hasOwnProperty.call(options, 'expectedPipelineRunId') &&
+        current.pipelineRunId !== options.expectedPipelineRunId
+      ) {
+        return null;
+      }
       const entry = {
         at: new Date().toISOString(),
         stage,

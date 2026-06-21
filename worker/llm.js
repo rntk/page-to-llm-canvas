@@ -13,11 +13,11 @@ import { createClient } from './llm_clients.js';
  * The `model` argument is accepted for backwards-compatibility but ignored; the
  * model is taken from the active provider configured on the options page.
  *
- * @param {{prompt: string, temperature?: number, model?: string}} options
+ * @param {{prompt: string, temperature?: number, model?: string, signal?: AbortSignal}} options
  * @returns {Promise<{ok: boolean, content?: string, error?: string}>}
  */
 export async function callLLMDirect(options) {
-  const { prompt, temperature = 0.8 } = options;
+  const { prompt, temperature = 0.8, signal } = options;
   let provider;
   try {
     provider = await getActiveProvider();
@@ -40,6 +40,7 @@ export async function callLLMDirect(options) {
 
   const startedAt = Date.now();
   const timeoutSignal = createRequestTimeoutSignal(LLM_REQUEST_TIMEOUT_MS);
+  const requestSignal = mergeAbortSignals(signal, timeoutSignal.signal);
   console.info('PageToLLM Canvas LLM request:', {
     provider: provider.name,
     type: provider.type,
@@ -52,7 +53,7 @@ export async function callLLMDirect(options) {
     const { content, endpoint } = await client.complete({
       prompt,
       temperature,
-      signal: timeoutSignal.signal,
+      signal: requestSignal,
     });
     console.info('PageToLLM Canvas LLM response:', {
       endpoint,
@@ -61,6 +62,9 @@ export async function callLLMDirect(options) {
     });
     return { ok: true, content };
   } catch (e) {
+    if (signal?.aborted) {
+      throw makeAbortError('LLM request aborted');
+    }
     const message =
       e && (e.name === 'AbortError' || e.name === 'TimeoutError')
         ? `LLM request timed out after ${LLM_REQUEST_TIMEOUT_MS}ms`
@@ -70,6 +74,32 @@ export async function callLLMDirect(options) {
   } finally {
     timeoutSignal.dispose();
   }
+}
+
+function makeAbortError(message) {
+  const error = new Error(message);
+  error.name = 'AbortError';
+  return error;
+}
+
+function mergeAbortSignals(...signals) {
+  const activeSignals = signals.filter(Boolean);
+  if (activeSignals.length === 0) return undefined;
+  if (activeSignals.length === 1) return activeSignals[0];
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
+    return AbortSignal.any(activeSignals);
+  }
+
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  for (const signal of activeSignals) {
+    if (signal.aborted) {
+      abort();
+      break;
+    }
+    signal.addEventListener('abort', abort, { once: true });
+  }
+  return controller.signal;
 }
 
 function createRequestTimeoutSignal(ms) {
@@ -91,7 +121,7 @@ function createRequestTimeoutSignal(ms) {
 }
 
 /**
- * @param {{prompt: string, temperature?: number, model?: string}} options
+ * @param {{prompt: string, temperature?: number, model?: string, signal?: AbortSignal}} options
  * @returns {Promise<string>}
  */
 export async function callLLM(options) {
@@ -104,17 +134,21 @@ export async function callLLM(options) {
 }
 
 /**
- * @param {{prompt: string, temperature?: number, model?: string}} opts
+ * @param {{prompt: string, temperature?: number, model?: string, signal?: AbortSignal}} opts
  * @param {number} [maxRetries]
  * @returns {Promise<string>}
  */
 export async function callLLMWithRetry(opts, maxRetries = 3) {
   let lastErr;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
+    if (opts.signal?.aborted) {
+      throw makeAbortError('LLM request aborted');
+    }
     try {
       return await callLLM(opts);
     } catch (e) {
       lastErr = e;
+      if (opts.signal?.aborted || e?.name === 'AbortError') break;
       console.warn('PageToLLM Canvas LLM attempt failed:', {
         attempt: attempt + 1,
         maxRetries,
@@ -122,10 +156,30 @@ export async function callLLMWithRetry(opts, maxRetries = 3) {
       });
       if (attempt === maxRetries - 1) break;
       const delay = 1000 * Math.pow(2, attempt);
-      await new Promise((r) => setTimeout(r, delay));
+      await sleepWithAbort(delay, opts.signal);
     }
   }
   throw lastErr;
+}
+
+function sleepWithAbort(ms, signal) {
+  if (!signal) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+  if (signal.aborted) {
+    return Promise.reject(makeAbortError('LLM request aborted'));
+  }
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timeoutId);
+      reject(makeAbortError('LLM request aborted'));
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 /**

@@ -261,15 +261,34 @@ try {
 /**
  * In-memory job registry to prevent duplicate pipeline runs while the
  * service worker is alive. Keyed by record key; value is the run promise.
- * @type {Map<string, Promise<void>>}
+ * @type {Map<string, {promise: Promise<void>, controller: AbortController, pipelineRunId?: string}>}
  */
 const _jobRegistry = new Map();
 const _starting = new Set();
 
 /** Clears the in-memory job registry. Exposed for testing only. */
 export function _resetJobRegistry() {
+  for (const job of _jobRegistry.values()) {
+    job.controller.abort();
+  }
   _jobRegistry.clear();
   _starting.clear();
+}
+
+function createPipelineRunId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function cancelActivePipeline(key) {
+  const job = _jobRegistry.get(key);
+  if (!job) return false;
+  job.controller.abort();
+  _jobRegistry.delete(key);
+  clearKeepAliveIfIdle();
+  return true;
 }
 
 /**
@@ -319,21 +338,29 @@ export async function startPipeline(key) {
     // Skip if a healthy (non-stale) job is already in the registry.
     if (_jobRegistry.has(key) && !isStaleRecord(rec)) return;
 
-    // Evict any hung/stale promise before starting fresh.
-    _jobRegistry.delete(key);
+    // Evict and abort any hung/stale promise before starting fresh.
+    cancelActivePipeline(key);
 
     scheduleKeepAlive();
 
-    const promise = runPipeline(key)
+    const controller = new AbortController();
+    const pipelineRunId = rec.pipelineRunId;
+    const promise = runPipeline(key, {
+      pipelineRunId,
+      signal: controller.signal,
+    })
       .catch((err) => {
         console.error('PageToLLM Canvas background pipeline failed for', key, err);
       })
       .finally(() => {
-        _jobRegistry.delete(key);
+        const current = _jobRegistry.get(key);
+        if (current?.promise === promise) {
+          _jobRegistry.delete(key);
+        }
         clearKeepAliveIfIdle();
       });
 
-    _jobRegistry.set(key, promise);
+    _jobRegistry.set(key, { promise, controller, pipelineRunId });
     return promise;
   } finally {
     _starting.delete(key);
@@ -372,6 +399,7 @@ export async function handleSubmit(submission) {
   }
 
   const now = Date.now();
+  const pipelineRunId = createPipelineRunId();
   const rec = existing || {
     key,
     sourceUrl: sourceUrl || '',
@@ -386,10 +414,12 @@ export async function handleSubmit(submission) {
     topic_summary_index: {},
     processingLog: [],
     selectors: Array.isArray(selectors) ? selectors : [],
+    pipelineRunId,
     createdAt: now,
     updatedAt: now,
   };
   if (existing) {
+    rec.pipelineRunId = pipelineRunId;
     rec.status = 'pending';
     rec.error = null;
     rec.progress = { stage: 'queued', done: 0, total: 0 };
@@ -449,7 +479,9 @@ export const MESSAGE_HANDLERS = {
       return msg.key ? null : 'missing key';
     },
     async handle(msg) {
+      cancelActivePipeline(msg.key);
       const updated = await updateRecord(msg.key, {
+        pipelineRunId: createPipelineRunId(),
         status: 'pending',
         error: null,
         progress: { stage: 'queued', done: 0, total: 0 },
@@ -474,7 +506,9 @@ export const MESSAGE_HANDLERS = {
       if (!rec) {
         return { ok: false, error: 'record not found' };
       }
+      cancelActivePipeline(msg.key);
       await updateRecord(msg.key, {
+        pipelineRunId: createPipelineRunId(),
         status: 'pending',
         error: null,
         progress: { stage: 'queued', done: 0, total: 0 },
@@ -487,6 +521,30 @@ export const MESSAGE_HANDLERS = {
       });
       startPipeline(msg.key).catch((err) => {
         console.error('PageToLLM Canvas reprocessRecord startPipeline failed:', err);
+      });
+      return { ok: true };
+    },
+  },
+
+  cancelRecordProcessing: {
+    requiresExtensionPage: false,
+    validate(msg) {
+      return msg.key ? null : 'missing key';
+    },
+    async handle(msg) {
+      const rec = await readRecord(msg.key);
+      if (!rec) {
+        return { ok: false, error: 'record not found' };
+      }
+      cancelActivePipeline(msg.key);
+      if (!IN_FLIGHT_STATUSES.has(rec.status)) {
+        return { ok: true, stale: true };
+      }
+      await updateRecord(msg.key, {
+        pipelineRunId: createPipelineRunId(),
+        status: 'cancelled',
+        error: 'Processing stopped.',
+        progress: { stage: 'cancelled', done: 0, total: 0 },
       });
       return { ok: true };
     },
@@ -509,7 +567,9 @@ export const MESSAGE_HANDLERS = {
         return { ok: true, stale: true };
       }
 
+      cancelActivePipeline(msg.key);
       const patch = {
+        pipelineRunId: createPipelineRunId(),
         status: 'summarizing',
         error: null,
         summaryErrors: [],
@@ -555,6 +615,7 @@ export const MESSAGE_HANDLERS = {
     requiresExtensionPage: false,
     validate: () => null,
     async handle(msg) {
+      cancelActivePipeline(msg.key);
       await deleteRecord(msg.key);
       return { ok: true };
     },
@@ -564,6 +625,9 @@ export const MESSAGE_HANDLERS = {
     requiresExtensionPage: false,
     validate: () => null,
     async handle() {
+      for (const key of Array.from(_jobRegistry.keys())) {
+        cancelActivePipeline(key);
+      }
       await deleteAll();
       return { ok: true };
     },

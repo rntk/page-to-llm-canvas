@@ -76,7 +76,7 @@ export function assessRecordForRail(record) {
   if (!record) {
     return { kind: 'not_found' };
   }
-  if (record.status === 'error') {
+  if (record.status === 'error' || record.status === 'cancelled') {
     return { kind: 'error', record };
   }
   // Parked awaiting a user retry/skip decision. This is deliberately not an

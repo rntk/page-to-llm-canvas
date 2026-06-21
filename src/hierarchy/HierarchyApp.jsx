@@ -51,7 +51,7 @@ export default function HierarchyApp({ initialKey }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const topics = useMemo(() => (Array.isArray(record?.topics) ? record.topics : []), [topicsJson]);
   const isDone = record?.status === 'done';
-  const isRecordError = record?.status === 'error';
+  const isRecordError = record?.status === 'error' || record?.status === 'cancelled';
   const isNeedsAttention = record?.status === 'needs_attention';
 
   let body;

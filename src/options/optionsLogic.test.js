@@ -70,6 +70,10 @@ describe('actionToMessageType', () => {
     expect(actionToMessageType('reprocess')).toBe('reprocessRecord');
   });
 
+  it('maps stop to cancelRecordProcessing', () => {
+    expect(actionToMessageType('stop')).toBe('cancelRecordProcessing');
+  });
+
   it('maps exportMetadata to getRecord', () => {
     expect(actionToMessageType('exportMetadata')).toBe('getRecord');
   });
@@ -101,6 +105,12 @@ describe('actionConfirmPrompt', () => {
     expect(prompt).toContain('overwritten');
   });
 
+  it('returns a confirm string for stop', () => {
+    const prompt = actionConfirmPrompt('stop');
+    expect(typeof prompt).toBe('string');
+    expect(prompt).toContain('Stop processing');
+  });
+
   it('returns null for open (no confirmation needed)', () => {
     expect(actionConfirmPrompt('open')).toBeNull();
   });
@@ -125,6 +135,10 @@ describe('actionErrorMessage', () => {
 
   it('returns appropriate message for reprocess', () => {
     expect(actionErrorMessage('reprocess')).toContain('reprocess');
+  });
+
+  it('returns appropriate message for stop', () => {
+    expect(actionErrorMessage('stop')).toContain('stop');
   });
 
   it('returns appropriate message for exportMetadata', () => {

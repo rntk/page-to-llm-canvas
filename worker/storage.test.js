@@ -188,6 +188,21 @@ describe('updateRecord basic correctness', () => {
     expect(result).toBeNull();
   });
 
+  it('skips updates when the expected pipeline run id is stale', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    seedRecord(mock, makeRecord('r1', { pipelineRunId: 'run-current', status: 'pending' }));
+
+    const result = await updateRecord(
+      'r1',
+      { status: 'done' },
+      { expectedPipelineRunId: 'run-old' },
+    );
+
+    expect(result).toBeNull();
+    expect((await readRecord('r1')).status).toBe('pending');
+  });
+
   it('updates updatedAt timestamp', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
@@ -471,6 +486,34 @@ describe('_updateQueues pruning', () => {
 // ---------------------------------------------------------------------------
 
 describe('concurrent writeRecord / deleteRecord do not lose index entries', () => {
+  it('does not mix fields when different records are updated concurrently', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    seedRecord(mock, makeRecord('page-a', { html: '<p>A</p>', sourceUrl: 'https://a.test' }));
+    seedRecord(mock, makeRecord('page-b', { html: '<p>B</p>', sourceUrl: 'https://b.test' }));
+
+    await Promise.all([
+      updateRecord('page-a', {
+        status: 'summarizing',
+        topic_summaries: { 'Topic>A': { text: 'summary A' } },
+      }),
+      updateRecord('page-b', {
+        status: 'splitting',
+        topic_summaries: { 'Topic>B': { text: 'summary B' } },
+      }),
+    ]);
+
+    const storedA = await readRecord('page-a');
+    const storedB = await readRecord('page-b');
+    expect(storedA.status).toBe('summarizing');
+    expect(storedB.status).toBe('splitting');
+    expect(storedA.topic_summaries).toEqual({ 'Topic>A': { text: 'summary A' } });
+    expect(storedB.topic_summaries).toEqual({ 'Topic>B': { text: 'summary B' } });
+    expect(storedA.sourceUrl).toBe('https://a.test');
+    expect(storedB.sourceUrl).toBe('https://b.test');
+  });
+
   it('preserves all keys after concurrent writeRecord calls', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);

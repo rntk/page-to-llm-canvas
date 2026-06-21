@@ -214,7 +214,51 @@ describe('background pipeline lifecycle', () => {
 
     const { runPipeline } = await import('./worker/orchestrator.js');
     expect(runPipeline).toHaveBeenCalledTimes(1);
-    expect(runPipeline).toHaveBeenCalledWith(result.key);
+    expect(runPipeline).toHaveBeenCalledWith(
+      result.key,
+      expect.objectContaining({ signal: expect.any(Object) }),
+    );
+  });
+
+  it('starts independent pipelines for different pages concurrently', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    const { handleSubmit, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const [resultA, resultB] = await Promise.all([
+      handleSubmit({
+        html: '<p>page A unique content</p>',
+        sourceUrl: 'https://example.com/page-a',
+      }),
+      handleSubmit({
+        html: '<p>page B unique content</p>',
+        sourceUrl: 'https://example.com/page-b',
+      }),
+    ]);
+
+    expect(resultA.ok).toBe(true);
+    expect(resultB.ok).toBe(true);
+    expect(resultA.key).not.toBe(resultB.key);
+
+    const { runPipeline } = await import('./worker/orchestrator.js');
+    expect(runPipeline).toHaveBeenCalledTimes(2);
+    expect(runPipeline).toHaveBeenCalledWith(
+      resultA.key,
+      expect.objectContaining({ signal: expect.any(Object) }),
+    );
+    expect(runPipeline).toHaveBeenCalledWith(
+      resultB.key,
+      expect.objectContaining({ signal: expect.any(Object) }),
+    );
+
+    const storedA = chromeMock.storage.local._store.get(`pagetollm:rec:${resultA.key}`);
+    const storedB = chromeMock.storage.local._store.get(`pagetollm:rec:${resultB.key}`);
+    expect(storedA.html).toBe('<p>page A unique content</p>');
+    expect(storedB.html).toBe('<p>page B unique content</p>');
+    expect(storedA.sourceUrl).toBe('https://example.com/page-a');
+    expect(storedB.sourceUrl).toBe('https://example.com/page-b');
   });
 
   it('does not start duplicate jobs for the same key', async () => {
@@ -294,7 +338,10 @@ describe('background pipeline lifecycle', () => {
 
     await new Promise((r) => setTimeout(r, 30));
     const { runPipeline } = await import('./worker/orchestrator.js');
-    expect(runPipeline).toHaveBeenCalledWith('park1');
+    expect(runPipeline).toHaveBeenCalledWith(
+      'park1',
+      expect.objectContaining({ signal: expect.any(Object) }),
+    );
   });
 
   it('resolveSummaryErrors skip clears leaf error flags and forces finalize', async () => {
@@ -389,7 +436,55 @@ describe('background pipeline lifecycle', () => {
 
     const { runPipeline } = await import('./worker/orchestrator.js');
     expect(runPipeline).toHaveBeenCalledTimes(1);
-    expect(runPipeline).toHaveBeenCalledWith('stale1');
+    expect(runPipeline).toHaveBeenCalledWith(
+      'stale1',
+      expect.objectContaining({ signal: expect.any(Object) }),
+    );
+  });
+
+  it('aborts a stale registered job before restarting it', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    seedRecord(
+      chromeMock,
+      makeRecord('stale-running', {
+        status: 'summarizing',
+        pipelineRunId: 'run-same',
+        updatedAt: Date.now(),
+      }),
+    );
+
+    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    const { runPipeline } = await import('./worker/orchestrator.js');
+    _resetJobRegistry();
+
+    let resolvePipeline;
+    runPipeline.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePipeline = resolve;
+        }),
+    );
+
+    const first = startPipeline('stale-running');
+    await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(1));
+    const oldOptions = runPipeline.mock.calls[0][1];
+
+    const stored = chromeMock.storage.local._store.get('pagetollm:rec:stale-running');
+    chromeMock.storage.local._store.set('pagetollm:rec:stale-running', {
+      ...stored,
+      updatedAt: Date.now() - STALE_MS - 1000,
+    });
+
+    await startPipeline('stale-running');
+
+    expect(oldOptions.signal.aborted).toBe(true);
+    expect(runPipeline).toHaveBeenCalledTimes(2);
+    expect(runPipeline.mock.calls[1][1].pipelineRunId).toBe('run-same');
+
+    resolvePipeline();
+    await first;
   });
 
   it('does not duplicate an already-running job', async () => {
@@ -411,6 +506,90 @@ describe('background pipeline lifecycle', () => {
 
     const { runPipeline } = await import('./worker/orchestrator.js');
     expect(runPipeline).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancelRecordProcessing aborts the active job and marks the record cancelled', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    const rec = makeRecord('cancel1', {
+      status: 'summarizing',
+      pipelineRunId: 'run-old',
+    });
+    seedRecord(chromeMock, rec);
+
+    const { startPipeline, dispatchMessage, _resetJobRegistry } = await import('./background.js');
+    const { runPipeline } = await import('./worker/orchestrator.js');
+    _resetJobRegistry();
+
+    let resolvePipeline;
+    runPipeline.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePipeline = resolve;
+        }),
+    );
+
+    const running = startPipeline('cancel1');
+    await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(1));
+    const oldOptions = runPipeline.mock.calls[0][1];
+
+    const res = await dispatchMessage({ type: 'cancelRecordProcessing', key: 'cancel1' }, {});
+    expect(res.ok).toBe(true);
+    expect(oldOptions.signal.aborted).toBe(true);
+
+    const stored = chromeMock.storage.local._store.get('pagetollm:rec:cancel1');
+    expect(stored.status).toBe('cancelled');
+    expect(stored.pipelineRunId).not.toBe('run-old');
+
+    resolvePipeline();
+    await running;
+  });
+
+  it('reprocessRecord aborts stale work and starts a fresh run id', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    seedRecord(
+      chromeMock,
+      makeRecord('reprocess1', {
+        status: 'summarizing',
+        pipelineRunId: 'run-old',
+        topics: [{ name: 'Old', sentences: [1] }],
+        sentences: ['old'],
+      }),
+    );
+
+    const { startPipeline, dispatchMessage, _resetJobRegistry } = await import('./background.js');
+    const { runPipeline } = await import('./worker/orchestrator.js');
+    _resetJobRegistry();
+
+    let resolvePipeline;
+    runPipeline.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePipeline = resolve;
+        }),
+    );
+
+    const running = startPipeline('reprocess1');
+    await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(1));
+    const oldOptions = runPipeline.mock.calls[0][1];
+
+    const res = await dispatchMessage({ type: 'reprocessRecord', key: 'reprocess1' }, {});
+    expect(res.ok).toBe(true);
+    expect(oldOptions.signal.aborted).toBe(true);
+
+    await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(2));
+    const stored = chromeMock.storage.local._store.get('pagetollm:rec:reprocess1');
+    expect(stored.status).toBe('pending');
+    expect(stored.pipelineRunId).not.toBe('run-old');
+    expect(stored.topics).toEqual([]);
+    expect(stored.sentences).toEqual([]);
+    expect(runPipeline.mock.calls[1][1].pipelineRunId).toBe(stored.pipelineRunId);
+
+    resolvePipeline();
+    await running;
   });
 
   it('does not start a job for done records', async () => {

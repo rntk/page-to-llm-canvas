@@ -40,16 +40,40 @@ const TOPIC_RANGE_MAX_SENTENCES = 40;
 const TOPIC_RANGE_RESPLIT_MAX_DEPTH = 2;
 
 /**
- * @param {string} key
+ * @param {{key: string, pipelineRunId?: string, signal?: AbortSignal}} context
  * @param {string} stage
  * @param {Record<string, unknown>} [details]
  * @returns {Promise<void>}
  */
-async function logPipeline(key, stage, details = {}) {
+async function logPipeline(context, stage, details = {}) {
   console.info('PageToLLM Canvas pipeline:', stage, details);
-  await appendProcessingLog(key, stage, details).catch((err) => {
+  assertPipelineActive(context);
+  await appendProcessingLog(context.key, stage, details, {
+    expectedPipelineRunId: context.pipelineRunId,
+  }).catch((err) => {
     console.warn('PageToLLM Canvas pipeline log failed:', err);
   });
+}
+
+function assertPipelineActive(context) {
+  if (context?.signal?.aborted) {
+    const err = new Error('Pipeline run was cancelled');
+    err.name = 'AbortError';
+    throw err;
+  }
+}
+
+async function updatePipelineRecord(context, patch) {
+  assertPipelineActive(context);
+  const updated = await updateRecord(context.key, patch, {
+    expectedPipelineRunId: context.pipelineRunId,
+  });
+  if (!updated) {
+    const err = new Error('Pipeline run is no longer current');
+    err.name = 'AbortError';
+    throw err;
+  }
+  return updated;
 }
 
 export function chunkTaggedText(tagged, maxChars) {
@@ -191,9 +215,9 @@ export function buildTopicTree(topics) {
   return { root, nodes };
 }
 
-async function mergeChildSummaries(childRecords) {
+async function mergeChildSummaries(childRecords, signal) {
   const prompt = buildArticleSummaryMergePrompt(formatChunkSummariesForMerge(childRecords));
-  const resp = await callLLMWithRetry({ prompt, temperature: 0.8 });
+  const resp = await callLLMWithRetry({ prompt, temperature: 0.8, signal });
   return { text: parseSummaryResponse(resp) };
 }
 
@@ -251,20 +275,20 @@ export function groupsToTopics(groups, sentenceObjs, mapping) {
  * Returns null when the re-split made no real progress (LLM/parse failure, or the
  * slice came back as a single topic) so the caller keeps the original range.
  *
- * @param {string} key
+ * @param {{key: string, pipelineRunId?: string, signal?: AbortSignal}} context
  * @param {{label: string[], start: number, end: number}} seg
  * @param {string[]} sentenceTexts
  * @param {number} depth
  * @returns {Promise<Array<{label: string[], start: number, end: number}> | null>}
  */
-async function resplitSegment(key, seg, sentenceTexts, depth) {
+async function resplitSegment(context, seg, sentenceTexts, depth) {
   const span = seg.end - seg.start + 1;
   const sliceTexts = sentenceTexts.slice(seg.start, seg.end + 1);
   const tagged = buildTaggedText(sliceTexts);
   const chunks =
     tagged.length > MAX_TAGGED_CHARS ? chunkTaggedText(tagged, MAX_TAGGED_CHARS) : [tagged];
 
-  await logPipeline(key, 'topic_ranges_resplit_request', {
+  await logPipeline(context, 'topic_ranges_resplit_request', {
     start: seg.start,
     end: seg.end,
     span,
@@ -283,6 +307,7 @@ async function resplitSegment(key, seg, sentenceTexts, depth) {
           callLLMWithRetry({
             prompt: buildTopicRangesPrompt(chunk),
             temperature: TOPIC_RANGE_TEMPERATURE,
+            signal: context.signal,
           }),
         );
         return responses.join('\n');
@@ -290,7 +315,7 @@ async function resplitSegment(key, seg, sentenceTexts, depth) {
       parse: (raw) => parseTopicRanges(raw, sliceTexts.length),
     });
   } catch (e) {
-    await logPipeline(key, 'topic_ranges_resplit_error', {
+    await logPipeline(context, 'topic_ranges_resplit_error', {
       start: seg.start,
       end: seg.end,
       depth,
@@ -311,7 +336,7 @@ async function resplitSegment(key, seg, sentenceTexts, depth) {
 
   if (subSegments.length <= 1) {
     // The LLM still considers the slice one topic — keep the original range.
-    await logPipeline(key, 'topic_ranges_resplit_no_progress', {
+    await logPipeline(context, 'topic_ranges_resplit_no_progress', {
       start: seg.start,
       end: seg.end,
       span,
@@ -320,7 +345,7 @@ async function resplitSegment(key, seg, sentenceTexts, depth) {
     return null;
   }
 
-  await logPipeline(key, 'topic_ranges_resplit_response', {
+  await logPipeline(context, 'topic_ranges_resplit_response', {
     start: seg.start,
     end: seg.end,
     span,
@@ -332,7 +357,7 @@ async function resplitSegment(key, seg, sentenceTexts, depth) {
   if (depth + 1 < TOPIC_RANGE_RESPLIT_MAX_DEPTH) {
     const expanded = await parallelMap(subSegments, TOPIC_RANGE_CONCURRENCY, async (s) => {
       if (s.end - s.start + 1 > TOPIC_RANGE_MAX_SENTENCES) {
-        const deeper = await resplitSegment(key, s, sentenceTexts, depth + 1);
+        const deeper = await resplitSegment(context, s, sentenceTexts, depth + 1);
         if (deeper) return deeper;
       }
       return [s];
@@ -350,12 +375,12 @@ async function resplitSegment(key, seg, sentenceTexts, depth) {
  * names). Returns the original groups unchanged on any failure or when nothing
  * needed refining.
  *
- * @param {string} key
+ * @param {{key: string, pipelineRunId?: string, signal?: AbortSignal}} context
  * @param {Array<{label: string[], ranges: Array<{start: number, end: number}>}>} groups
  * @param {string[]} sentenceTexts
  * @returns {Promise<Array<{label: string[], ranges: Array<{start: number, end: number}>}>>}
  */
-async function refineOversizedRanges(key, groups, sentenceTexts) {
+async function refineOversizedRanges(context, groups, sentenceTexts) {
   const segments = [];
   for (const g of groups) {
     for (const r of g.ranges) {
@@ -367,7 +392,7 @@ async function refineOversizedRanges(key, groups, sentenceTexts) {
   const oversized = segments.filter((s) => s.end - s.start + 1 > TOPIC_RANGE_MAX_SENTENCES);
   if (!oversized.length) return groups;
 
-  await logPipeline(key, 'topic_ranges_oversize_detected', {
+  await logPipeline(context, 'topic_ranges_oversize_detected', {
     oversizeCount: oversized.length,
     maxSentences: TOPIC_RANGE_MAX_SENTENCES,
     spans: oversized.map((s) => s.end - s.start + 1),
@@ -377,7 +402,7 @@ async function refineOversizedRanges(key, groups, sentenceTexts) {
   // Re-split oversized segments concurrently; parallelMap keeps document order.
   const refinedParts = await parallelMap(segments, TOPIC_RANGE_CONCURRENCY, async (seg) => {
     if (seg.end - seg.start + 1 > TOPIC_RANGE_MAX_SENTENCES) {
-      const subSegments = await resplitSegment(key, seg, sentenceTexts, 0);
+      const subSegments = await resplitSegment(context, seg, sentenceTexts, 0);
       if (subSegments && subSegments.length > 1) {
         changed = true;
         return subSegments;
@@ -390,16 +415,21 @@ async function refineOversizedRanges(key, groups, sentenceTexts) {
   if (!changed) return groups;
 
   const regrouped = groupsFromSegments(refined, sentenceTexts.length);
-  await logPipeline(key, 'topic_ranges_oversize_refined', {
+  await logPipeline(context, 'topic_ranges_oversize_refined', {
     groupCountBefore: groups.length,
     groupCountAfter: regrouped.length,
   });
   return regrouped;
 }
 
-export async function runPipeline(key) {
+export async function runPipeline(key, options = {}) {
+  const context = {
+    key,
+    pipelineRunId: options.pipelineRunId,
+    signal: options.signal,
+  };
   try {
-    await logPipeline(key, 'pipeline_start');
+    await logPipeline(context, 'pipeline_start');
     const rec = await readRecord(key);
     if (!rec) throw new Error(`record not found: ${key}`);
 
@@ -421,14 +451,14 @@ export async function runPipeline(key) {
       sentenceTexts = Array.isArray(rec.sentences) ? rec.sentences : [];
       const existingSummaries =
         rec.topic_summaries && typeof rec.topic_summaries === 'object' ? rec.topic_summaries : {};
-      await logPipeline(key, 'pipeline_resume', {
+      await logPipeline(context, 'pipeline_resume', {
         stage: 'summarizing',
         topicCount: topics.length,
         existingSummaryCount: Object.keys(existingSummaries).length,
       });
-      await updateRecord(key, { status: 'summarizing', error: null });
+      await updatePipelineRecord(context, { status: 'summarizing', error: null });
     } else {
-      ({ topics, sentenceTexts } = await computeTopics(key, rec));
+      ({ topics, sentenceTexts } = await computeTopics(context, rec));
       if (!topics) return; // no sentences — pipeline already marked done.
     }
 
@@ -443,12 +473,15 @@ export async function runPipeline(key) {
     // record: it tells runSummaries to finish to `done` accepting empty summaries
     // for the failed topics instead of parking again. Only honored on a resume.
     const forceFinalize = resuming && rec.forceFinalize === true;
-    await runSummaries(key, topics, sentenceTexts, previousSummaries, forceFinalize);
+    await runSummaries(context, topics, sentenceTexts, previousSummaries, forceFinalize);
   } catch (e) {
-    await logPipeline(key, 'pipeline_error', {
+    if (e?.name === 'AbortError') {
+      return;
+    }
+    await logPipeline(context, 'pipeline_error', {
       error: String(e && e.stack ? e.stack : e),
     });
-    await updateRecord(key, {
+    await updatePipelineRecord(context, {
       status: 'error',
       error: String(e && e.stack ? e.stack : e),
     }).catch((writeErr) => {
@@ -463,12 +496,12 @@ export async function runPipeline(key) {
  * Returns `{ topics, sentenceTexts }`, or `{ topics: null }` when the page had
  * no sentences (in which case the record is already marked done).
  *
- * @param {string} key
+ * @param {{key: string, pipelineRunId?: string, signal?: AbortSignal}} context
  * @param {object} rec
  * @returns {Promise<{topics: Array<object>|null, sentenceTexts: string[]}>}
  */
-async function computeTopics(key, rec) {
-  await updateRecord(key, {
+async function computeTopics(context, rec) {
+  await updatePipelineRecord(context, {
     status: 'splitting',
     progress: { stage: 'cleaning_html', done: 0, total: 0 },
     error: null,
@@ -476,35 +509,35 @@ async function computeTopics(key, rec) {
     topic_summaries: {},
     topic_summary_index: {},
   });
-  await logPipeline(key, 'cleaning_html_start', {
+  await logPipeline(context, 'cleaning_html_start', {
     htmlLength: String(rec.html || '').length,
   });
 
   const { text, mapping } = stripTagsKeepOffsets(rec.html || '');
-  await logPipeline(key, 'cleaning_html_done', {
+  await logPipeline(context, 'cleaning_html_done', {
     textLength: text.length,
     mappingLength: mapping.length,
   });
 
-  await updateRecord(key, {
+  await updatePipelineRecord(context, {
     text,
     progress: { stage: 'splitting_sentences', done: 0, total: 0 },
   });
-  await logPipeline(key, 'splitting_sentences_start');
+  await logPipeline(context, 'splitting_sentences_start');
 
   const sentenceObjs = splitSentences(text);
   const sentenceTexts = sentenceObjs.map((s) => s.text);
-  await logPipeline(key, 'splitting_sentences_done', {
+  await logPipeline(context, 'splitting_sentences_done', {
     sentenceCount: sentenceTexts.length,
   });
 
-  await updateRecord(key, {
+  await updatePipelineRecord(context, {
     sentences: sentenceTexts,
     progress: { stage: 'topic_ranges', done: 0, total: sentenceTexts.length },
   });
 
   if (sentenceTexts.length === 0) {
-    await updateRecord(key, {
+    await updatePipelineRecord(context, {
       status: 'done',
       topics: [],
       topic_summaries: {},
@@ -516,7 +549,7 @@ async function computeTopics(key, rec) {
   const tagged = buildTaggedText(sentenceTexts);
   const chunks =
     tagged.length > MAX_TAGGED_CHARS ? chunkTaggedText(tagged, MAX_TAGGED_CHARS) : [tagged];
-  await logPipeline(key, 'topic_ranges_start', {
+  await logPipeline(context, 'topic_ranges_start', {
     taggedLength: tagged.length,
     chunkCount: chunks.length,
   });
@@ -533,13 +566,17 @@ async function computeTopics(key, rec) {
         TOPIC_RANGE_CONCURRENCY,
         async (chunk, chunkIndex) => {
           const prompt = buildTopicRangesPrompt(chunk);
-          await logPipeline(key, 'topic_ranges_llm_request', {
+          await logPipeline(context, 'topic_ranges_llm_request', {
             chunkIndex,
             promptLength: prompt.length,
             attempt: attemptIndex + 1,
           });
-          const resp = await callLLMWithRetry({ prompt, temperature: TOPIC_RANGE_TEMPERATURE });
-          await logPipeline(key, 'topic_ranges_llm_response', {
+          const resp = await callLLMWithRetry({
+            prompt,
+            temperature: TOPIC_RANGE_TEMPERATURE,
+            signal: context.signal,
+          });
+          await logPipeline(context, 'topic_ranges_llm_response', {
             chunkIndex,
             responseLength: resp.length,
             attempt: attemptIndex + 1,
@@ -551,7 +588,7 @@ async function computeTopics(key, rec) {
     },
     parse: (combined) => parseTopicRanges(combined, sentenceTexts.length),
     onParseRetry: ({ attemptNumber, maxRetries, error }) =>
-      logPipeline(key, 'topic_ranges_parse_retry', {
+      logPipeline(context, 'topic_ranges_parse_retry', {
         attempt: attemptNumber,
         maxRetries,
         error: error.message,
@@ -559,21 +596,21 @@ async function computeTopics(key, rec) {
   });
 
   try {
-    groups = await refineOversizedRanges(key, groups, sentenceTexts);
+    groups = await refineOversizedRanges(context, groups, sentenceTexts);
   } catch (e) {
     // Refinement is best-effort; never fail the pipeline over an oversized range.
-    await logPipeline(key, 'topic_ranges_oversize_error', {
+    await logPipeline(context, 'topic_ranges_oversize_error', {
       error: (e && e.message) || String(e),
     });
   }
 
-  await logPipeline(key, 'topic_ranges_done', {
+  await logPipeline(context, 'topic_ranges_done', {
     groupCount: groups.length,
   });
 
   const topics = groupsToTopics(groups, sentenceObjs, mapping);
 
-  await updateRecord(key, {
+  await updatePipelineRecord(context, {
     topics,
     status: 'summarizing',
     progress: { stage: 'summarizing_topics', done: 0, total: topics.length },
@@ -610,20 +647,20 @@ function collectSummaryErrors(topicSummaries) {
  * a "retry"/"skip" resume can pick up exactly where it stopped. `needs_attention`
  * is deliberately not an in-flight status, so the keepalive alarm won't auto-resume.
  *
- * @param {string} key
+ * @param {{key: string, pipelineRunId?: string, signal?: AbortSignal}} context
  * @param {Array<object>} summaryErrors
  * @param {'leaf'|'merge'} phase
  * @param {{done: number, total: number}} progress
  * @returns {Promise<void>}
  */
-async function parkForReview(key, summaryErrors, phase, { done, total }) {
-  await updateRecord(key, {
+async function parkForReview(context, summaryErrors, phase, { done, total }) {
+  await updatePipelineRecord(context, {
     status: 'needs_attention',
     summaryErrors,
     forceFinalize: false,
     progress: { stage: 'needs_attention', done, total },
   });
-  await logPipeline(key, 'topic_summaries_needs_attention', {
+  await logPipeline(context, 'topic_summaries_needs_attention', {
     phase,
     errorCount: summaryErrors.length,
     topics: summaryErrors.map((e) => e.topic),
@@ -639,7 +676,7 @@ async function parkForReview(key, summaryErrors, phase, { done, total }) {
  * NO_SUMMARY responses fall back to source text before storage so parent merges
  * keep the topic's facts.
  *
- * @param {string} key
+ * @param {{key: string, pipelineRunId?: string, signal?: AbortSignal}} context
  * @param {Array<object>} topics
  * @param {string[]} sentenceTexts
  * When any leaf (or, later, any tree merge) is still failing after the built-in
@@ -653,7 +690,7 @@ async function parkForReview(key, summaryErrors, phase, { done, total }) {
  * @param {boolean} [forceFinalize]
  * @returns {Promise<void>}
  */
-async function runSummaries(key, topics, sentenceTexts, previousSummaries, forceFinalize = false) {
+async function runSummaries(context, topics, sentenceTexts, previousSummaries, forceFinalize = false) {
   // Plan: which topics reuse a stored summary vs. still need an LLM call.
   const { reused, pending, reusedCount, pendingCount, total } = planSummaryWork(
     topics,
@@ -662,11 +699,11 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries, force
   const topic_summaries = { ...reused };
 
   let done = reusedCount;
-  await updateRecord(key, {
+  await updatePipelineRecord(context, {
     progress: { stage: 'summarizing_topics', done, total },
   });
   if (pendingCount < total) {
-    await logPipeline(key, 'topic_summaries_reused', {
+    await logPipeline(context, 'topic_summaries_reused', {
       reusedCount,
       pendingCount,
       total,
@@ -689,11 +726,11 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries, force
     }
   }
   if (inlineCount > 0) {
-    await updateRecord(key, {
+    await updatePipelineRecord(context, {
       topic_summaries: { ...topic_summaries },
       progress: { stage: 'summarizing_topics', done, total },
     });
-    await logPipeline(key, 'topic_summaries_inlined', {
+    await logPipeline(context, 'topic_summaries_inlined', {
       inlineCount,
       pendingCount: pendingForLlm.length,
       maxSentences: INLINE_SUMMARY_MAX_SENTENCES,
@@ -708,7 +745,7 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries, force
   // the rest reuse it instead of each re-prefilling it from cold. On a provider
   // without prefix caching it just costs one request of serial latency up front.
   if (pendingForLlm.length > 1) {
-    await logPipeline(key, 'topic_summaries_warmup', {
+    await logPipeline(context, 'topic_summaries_warmup', {
       pendingCount: pendingForLlm.length,
       concurrency: SUMMARY_CONCURRENCY,
     });
@@ -717,7 +754,7 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries, force
     pendingForLlm,
     SUMMARY_CONCURRENCY,
     async ({ topic, sourceText }) => {
-      await logPipeline(key, 'topic_summary_llm_request', {
+      await logPipeline(context, 'topic_summary_llm_request', {
         topic: topic.name,
         sentenceCount: topic.sentences.length,
       });
@@ -725,10 +762,14 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries, force
       let summaryText = '';
       let failure = null;
       try {
-        const resp = await callLLMWithRetry({ prompt, temperature: 0.8 });
+        const resp = await callLLMWithRetry({
+          prompt,
+          temperature: 0.8,
+          signal: context.signal,
+        });
         const parsed = parseSummaryResult(resp);
         summaryText = parsed.text || (parsed.noSummary ? sourceText : '');
-        await logPipeline(key, 'topic_summary_llm_response', {
+        await logPipeline(context, 'topic_summary_llm_response', {
           topic: topic.name,
           responseLength: resp.length,
           summaryLength: summaryText.length,
@@ -736,7 +777,7 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries, force
       } catch (e) {
         const { kind, message } = classifyLlmError(e);
         const detail = (e && e.message) || String(e);
-        await logPipeline(key, 'topic_summary_llm_error', {
+        await logPipeline(context, 'topic_summary_llm_error', {
           topic: topic.name,
           error_kind: kind,
           error: message,
@@ -753,7 +794,7 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries, force
         ...(failure ? { error: true, ...failure } : {}),
       };
       done++;
-      await updateRecord(key, {
+      await updatePipelineRecord(context, {
         topic_summaries: { ...topic_summaries },
         progress: { stage: 'summarizing_topics', done, total },
       });
@@ -767,11 +808,11 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries, force
   // before the merge.
   const leafErrors = collectSummaryErrors(topic_summaries);
   if (leafErrors.length && !forceFinalize) {
-    await parkForReview(key, leafErrors, 'leaf', { done, total });
+    await parkForReview(context, leafErrors, 'leaf', { done, total });
     return;
   }
 
-  await logPipeline(key, 'topic_tree_merge_start', {
+  await logPipeline(context, 'topic_tree_merge_start', {
     leafCount: total,
   });
   const { root, nodes } = buildTopicTree(topics);
@@ -782,7 +823,9 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries, force
   // in-flight merge calls while leaving the traversal unbounded.
   const limitMerge = createLimiter(SUMMARY_CONCURRENCY);
   const mergeErrors = [];
-  const merge = forceFinalize ? async () => ({ text: '' }) : mergeChildSummaries;
+  const merge = forceFinalize
+    ? async () => ({ text: '' })
+    : (childRecords) => mergeChildSummaries(childRecords, context.signal);
   const topic_summary_index = await summarizeTopicTree({
     root,
     nodes,
@@ -797,10 +840,10 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries, force
         error_message: message,
         error_detail: String(error),
       });
-      return logPipeline(key, 'topic_tree_merge_error', { path, error_kind: kind, error: message });
+      return logPipeline(context, 'topic_tree_merge_error', { path, error_kind: kind, error: message });
     },
   });
-  await logPipeline(key, 'topic_tree_merge_done', {
+  await logPipeline(context, 'topic_tree_merge_done', {
     nodeCount: Object.keys(topic_summary_index).length,
   });
 
@@ -808,7 +851,7 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries, force
   // (same confirm popup) rather than silently shipping an empty topic. A "skip"
   // resume bypasses this and accepts the empty merge.
   if (mergeErrors.length && !forceFinalize) {
-    await parkForReview(key, mergeErrors, 'merge', { done: total, total });
+    await parkForReview(context, mergeErrors, 'merge', { done: total, total });
     return;
   }
 
@@ -825,7 +868,7 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries, force
     };
   }
 
-  await updateRecord(key, {
+  await updatePipelineRecord(context, {
     status: 'done',
     topic_summaries: finalizedSummaries,
     topic_summary_index,
@@ -834,7 +877,7 @@ async function runSummaries(key, topics, sentenceTexts, previousSummaries, force
     summaryErrors: [],
     forceFinalize: false,
   });
-  await logPipeline(key, 'pipeline_done', {
+  await logPipeline(context, 'pipeline_done', {
     topicCount: total,
     summaryNodeCount: Object.keys(topic_summary_index).length,
   });

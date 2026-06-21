@@ -187,6 +187,13 @@ describe('assessRecordForRail', () => {
     expect(result.record).toBe(record);
   });
 
+  it('returns error for status=cancelled', () => {
+    const record = { key: 'k', status: 'cancelled', error: 'Processing stopped.' };
+    const result = assessRecordForRail(record);
+    expect(result.kind).toBe('error');
+    expect(result.record).toBe(record);
+  });
+
   it('returns needs_attention for a parked record (not in_progress)', () => {
     const record = {
       key: 'k',

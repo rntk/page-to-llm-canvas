@@ -69,6 +69,8 @@ function statusClass(status) {
   return `status ${status || ''}`.trim();
 }
 
+const IN_FLIGHT_STATUSES = new Set(['pending', 'splitting', 'summarizing']);
+
 const EMPTY_FORM = {
   id: '',
   name: '',
@@ -407,7 +409,7 @@ export function OptionsApp() {
       return;
     }
 
-    if (action === 'delete' || action === 'reprocess') {
+    if (action === 'delete' || action === 'reprocess' || action === 'stop') {
       const resp = await sendMessage({ type: actionToMessageType(action), key });
       if (!resp || !resp.ok) {
         setError((resp && resp.error) || actionErrorMessage(action));
@@ -487,6 +489,13 @@ export function OptionsApp() {
                       <button type="button" onClick={() => runAction('reprocess', item.key)}>
                         Reprocess
                       </button>{' '}
+                      {IN_FLIGHT_STATUSES.has(item.status) ? (
+                        <>
+                          <button type="button" onClick={() => runAction('stop', item.key)}>
+                            Stop
+                          </button>{' '}
+                        </>
+                      ) : null}
                       <button type="button" onClick={() => runAction('exportMetadata', item.key)}>
                         Export metadata
                       </button>{' '}

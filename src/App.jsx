@@ -254,7 +254,7 @@ export default function App({ initialKey }) {
   });
 
   const isNeedsAttention = record?.status === 'needs_attention';
-  const isRecordError = record?.status === 'error';
+  const isRecordError = record?.status === 'error' || record?.status === 'cancelled';
   const isMissing = !record && error === 'record not found';
   const isDeleted = !record && error === 'record deleted';
   const stage = record?.progress?.stage || record?.status || 'loading';

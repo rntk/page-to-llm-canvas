@@ -25,13 +25,14 @@ export function shouldWarnTokenWipe(editingProvider, form) {
  * Maps a record action string to the corresponding runtime message type.
  * Returns null for actions that do not send a runtime message.
  *
- * @param {'delete'|'reprocess'|'open'|'exportMetadata'|string} action
+ * @param {'delete'|'reprocess'|'stop'|'open'|'exportMetadata'|string} action
  * @returns {string|null}
  */
 export function actionToMessageType(action) {
   const map = {
     delete: 'deleteRecord',
     reprocess: 'reprocessRecord',
+    stop: 'cancelRecordProcessing',
     exportMetadata: 'getRecord',
   };
   return map[action] ?? null;
@@ -41,13 +42,14 @@ export function actionToMessageType(action) {
  * Returns the confirm-dialog prompt for a given action, or null if the action
  * does not require a confirm dialog.
  *
- * @param {'delete'|'reprocess'|'open'|'exportMetadata'|string} action
+ * @param {'delete'|'reprocess'|'stop'|'open'|'exportMetadata'|string} action
  * @returns {string|null}
  */
 export function actionConfirmPrompt(action) {
   const map = {
     delete: 'Delete this record?',
     reprocess: 'Reprocess this record? Existing results will be overwritten.',
+    stop: 'Stop processing this record? Current queued work for this page will be cancelled.',
   };
   return map[action] ?? null;
 }
@@ -55,13 +57,14 @@ export function actionConfirmPrompt(action) {
 /**
  * Returns the fallback error message for a failed action response.
  *
- * @param {'delete'|'reprocess'|'open'|'exportMetadata'|string} action
+ * @param {'delete'|'reprocess'|'stop'|'open'|'exportMetadata'|string} action
  * @returns {string}
  */
 export function actionErrorMessage(action) {
   const map = {
     delete: 'Failed to delete record',
     reprocess: 'Failed to reprocess record',
+    stop: 'Failed to stop processing record',
     exportMetadata: 'Failed to export record metadata',
   };
   return map[action] ?? 'Action failed';

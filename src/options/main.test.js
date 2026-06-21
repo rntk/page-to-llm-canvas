@@ -104,6 +104,43 @@ describe('options main.jsx', () => {
     );
   });
 
+  it('shows a stop action for in-flight records', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') {
+        cb({
+          ok: true,
+          items: [
+            {
+              key: 'rec1',
+              sourceUrl: 'https://example.com',
+              createdAt: 1716972000000,
+              status: 'summarizing',
+            },
+          ],
+        });
+      } else if (msg.type === 'cancelRecordProcessing') {
+        cb({ ok: true });
+      }
+    });
+
+    await import('./main.jsx');
+    await waitFor(() => {
+      expect(document.querySelector('tbody tr')).not.toBeNull();
+    });
+
+    const stopBtn = Array.from(document.querySelectorAll('tbody tr button')).find(
+      (button) => button.textContent === 'Stop',
+    );
+    expect(stopBtn).not.toBeUndefined();
+
+    stopBtn.click();
+    expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('Stop processing'));
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      { type: 'cancelRecordProcessing', key: 'rec1' },
+      expect.any(Function),
+    );
+  });
+
   it('exports a stored record metadata JSON file without raw content fields', async () => {
     const createObjectURLMock = vi.fn(() => 'blob:metadata-json');
     const revokeObjectURLMock = vi.fn();
