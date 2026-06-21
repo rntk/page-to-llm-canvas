@@ -6,10 +6,11 @@
 // nearest preceding timestamp for a card's source sentences, and build a
 // deep-link like https://www.youtube.com/watch?v=ID&t=171s.
 
-// A timestamp token (M:SS or H:MM:SS) anchored on the trailing human-readable
-// duration the transcript always emits ("1 second", "2 minutes, 51 seconds").
-// The anchor prevents matching ratios (16:9) or clock times (3:30 PM).
-const TIMESTAMP_RE = /(\d{1,2}):([0-5]\d)(?::([0-5]\d))?(?=\s+\d+\s+(?:second|minute|hour))/i;
+// A timestamp token (M:SS or H:MM:SS) anchored either on the trailing human-readable
+// duration the transcript sometimes emits ("1 second", "2 minutes, 51 seconds") or
+// as a standalone timestamp (e.g. "0:00", "19:37", "1:03:06").
+// The anchor or boundary constraints prevent matching ratios (16:9) or clock times (3:30 PM).
+const TIMESTAMP_RE = /(?:^|\b)(\d{1,2}):([0-5]\d)(?::([0-5]\d))?(?=\s+\d+\s+(?:second|minute|hour)|(?:\s|$|\b)(?!\s*(?:[ap]\.?m\.?)))/i;
 
 /**
  * Extract the YouTube video id from a watch/short/embed/youtu.be URL.
