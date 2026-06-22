@@ -1,5 +1,8 @@
+import { createThemeController, themeIcon, themeLabel } from './theme.js';
+
 const pickBtn = document.getElementById('pick-btn');
 const refreshBtn = document.getElementById('refresh-btn');
+const themeBtn = document.getElementById('theme-btn');
 const optionsLink = document.getElementById('open-options');
 const hostEl = document.getElementById('active-host');
 const recordsEl = document.getElementById('records');
@@ -417,5 +420,22 @@ try {
 } catch (_) {
   /* noop */
 }
+
+export function setupThemeToggle(controller = createThemeController()) {
+  if (!themeBtn) return controller;
+  controller.subscribe((state) => {
+    themeBtn.textContent = themeIcon(state.preference);
+    const label = `Theme: ${themeLabel(state.preference)}`;
+    themeBtn.title = `${label} (click to change)`;
+    themeBtn.setAttribute('aria-label', label);
+  });
+  themeBtn.addEventListener('click', () => {
+    void controller.cycle();
+  });
+  void controller.init();
+  return controller;
+}
+
+setupThemeToggle();
 
 void refreshRecords();

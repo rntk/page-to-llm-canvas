@@ -13,6 +13,7 @@ const STATIC_FILES = [
   'content.css',
   'popup.html',
   'popup.js',
+  'theme.js',
   'options.html',
   'modal.html',
 ];

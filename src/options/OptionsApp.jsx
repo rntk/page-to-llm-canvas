@@ -10,6 +10,34 @@ import {
   actionConfirmPrompt,
   actionErrorMessage,
 } from './optionsLogic.js';
+import { createThemeController, themeCycle, themeIcon, themeLabel } from '../../theme.js';
+
+export function ThemeToggle() {
+  const [controller] = useState(() => createThemeController());
+  const [state, setState] = useState(() => controller.current());
+
+  useEffect(() => {
+    const unsubscribe = controller.subscribe(setState);
+    void controller.init();
+    return unsubscribe;
+  }, [controller]);
+
+  return (
+    <div className="theme-toggle" role="group" aria-label="Color theme">
+      {themeCycle(state.allowSystem).map((option) => (
+        <button
+          key={option}
+          type="button"
+          className={`theme-option${state.preference === option ? ' active' : ''}`}
+          aria-pressed={state.preference === option}
+          onClick={() => controller.setPreference(option)}
+        >
+          {themeIcon(option)} {themeLabel(option)}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function fmtDate(ts) {
   if (!ts) return '';
@@ -432,7 +460,10 @@ export function OptionsApp() {
 
   return (
     <>
-      <h1>PageToLLM Canvas - Settings</h1>
+      <div className="page-header">
+        <h1>PageToLLM Canvas - Settings</h1>
+        <ThemeToggle />
+      </div>
 
       <ProvidersSection />
 

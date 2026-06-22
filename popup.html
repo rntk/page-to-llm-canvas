@@ -19,6 +19,34 @@
         font-family: var(--font-data);
       }
 
+      /* Dark palette. Applied when `data-theme="dark"` is set, or when no
+         explicit preference is set ("system") and the OS prefers dark. */
+      :root[data-theme='dark'] {
+        color-scheme: dark;
+        --ink: #f4f5f7;
+        --accent: #aab2c0;
+        --surface: #1b1d22;
+        --surface-low: #141519;
+        --surface-highest: #24272e;
+        --on-surface: #ececec;
+        --on-surface-muted: #a0a6af;
+        --ghost: rgba(255, 255, 255, 0.22);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme='light']):not([data-theme='dark']) {
+          color-scheme: dark;
+          --ink: #f4f5f7;
+          --accent: #aab2c0;
+          --surface: #1b1d22;
+          --surface-low: #141519;
+          --surface-highest: #24272e;
+          --on-surface: #ececec;
+          --on-surface-muted: #a0a6af;
+          --ghost: rgba(255, 255, 255, 0.22);
+        }
+      }
+
       body {
         width: 420px;
         margin: 0;
@@ -59,6 +87,12 @@
         white-space: nowrap;
         color: var(--on-surface-muted);
         font-size: 12px;
+      }
+
+      .header-actions {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
       }
 
       .icon-btn {
@@ -311,15 +345,26 @@
           <h1>PageToLLM Canvas</h1>
           <div class="host" id="active-host">Loading page...</div>
         </div>
-        <button
-          class="icon-btn"
-          id="refresh-btn"
-          type="button"
-          title="Reload saved analyses for the current page."
-          aria-label="Reload saved analyses for the current page"
-        >
-          ↻
-        </button>
+        <div class="header-actions">
+          <button
+            class="icon-btn"
+            id="theme-btn"
+            type="button"
+            title="Theme"
+            aria-label="Theme"
+          >
+            ◐
+          </button>
+          <button
+            class="icon-btn"
+            id="refresh-btn"
+            type="button"
+            title="Reload saved analyses for the current page."
+            aria-label="Reload saved analyses for the current page"
+          >
+            ↻
+          </button>
+        </div>
       </header>
 
       <button

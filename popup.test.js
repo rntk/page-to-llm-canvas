@@ -5,6 +5,7 @@ beforeAll(() => {
   for (const id of [
     'pick-btn',
     'refresh-btn',
+    'theme-btn',
     'open-options',
     'active-host',
     'records',
@@ -33,6 +34,10 @@ beforeAll(() => {
       query: vi.fn(() => Promise.resolve([])),
     },
     storage: {
+      local: {
+        get: vi.fn((keys, cb) => cb({})),
+        set: vi.fn((items, cb) => cb && cb()),
+      },
       onChanged: {
         addListener: vi.fn(),
         removeListener: vi.fn(),
@@ -241,6 +246,47 @@ describe('popup pure functions', () => {
     expect(popup.responseErrorMessage({ ok: true }, 'fb')).toBe('fb');
     expect(popup.responseErrorMessage(null, 'fb')).toBe('fb');
     expect(popup.responseErrorMessage(undefined, 'def')).toBe('def');
+  });
+});
+
+describe('setupThemeToggle', () => {
+  let popup;
+
+  beforeAll(async () => {
+    popup = await import('./popup.js');
+  });
+
+  function fakeController() {
+    let subscriber = null;
+    return {
+      preference: 'system',
+      cycled: 0,
+      subscribe(fn) {
+        subscriber = fn;
+        fn({ preference: this.preference, allowSystem: true });
+        return () => {};
+      },
+      cycle() {
+        this.cycled += 1;
+        this.preference = 'light';
+        if (subscriber) subscriber({ preference: this.preference, allowSystem: true });
+        return Promise.resolve();
+      },
+      init: vi.fn().mockResolvedValue(undefined),
+    };
+  }
+
+  it('renders the current preference and cycles on click', () => {
+    const themeBtn = document.getElementById('theme-btn');
+    const controller = fakeController();
+    popup.setupThemeToggle(controller);
+
+    expect(controller.init).toHaveBeenCalled();
+    expect(themeBtn.getAttribute('aria-label')).toContain('System');
+
+    themeBtn.click();
+    expect(controller.cycled).toBe(1);
+    expect(themeBtn.getAttribute('aria-label')).toContain('Light');
   });
 });
 
@@ -540,9 +586,9 @@ describe('popup UI integration', () => {
 
   it('opens the options page from the options link', () => {
     chrome.runtime.openOptionsPage.mockClear();
-    document.getElementById('open-options').dispatchEvent(
-      new MouseEvent('click', { bubbles: true, cancelable: true }),
-    );
+    document
+      .getElementById('open-options')
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     expect(chrome.runtime.openOptionsPage).toHaveBeenCalled();
   });
 });
