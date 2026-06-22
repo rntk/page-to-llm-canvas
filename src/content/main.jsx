@@ -34,6 +34,57 @@ import {
   assessRecordForRail,
   createLoadToken,
 } from './recordFetch.js';
+import {
+  THEME_KEY,
+  THEME_SYSTEM,
+  getStoredTheme,
+  systemThemeSupported,
+  normalizeTheme,
+  applyThemeToElement,
+} from '../../theme.js';
+
+// The injected toolbar/rail tokens are scoped to their host elements (not the
+// host page's :root), so we tag those elements with the saved preference and
+// let content.css flip the palette. The "system" case is handled by CSS, so a
+// failed/missing read just falls back to system. Cached at injection so the
+// elements can be tagged synchronously on creation (no flash).
+let cachedThemePreference = THEME_SYSTEM;
+
+function setCachedThemePreference(stored) {
+  cachedThemePreference = normalizeTheme(stored, systemThemeSupported());
+}
+
+void getStoredTheme().then((stored) => {
+  setCachedThemePreference(stored);
+  // A surface opened before this async read resolved was tagged with the
+  // default; re-tag it now that the real preference is known.
+  refreshMountedContentTheme();
+});
+
+function applyContentTheme(el) {
+  applyThemeToElement(el, cachedThemePreference);
+}
+
+// Re-tag any already-mounted surfaces. The content script caches the preference
+// at injection, so a theme change from the popup/options after the page loaded
+// would otherwise be ignored until reload. (OS-level "system" changes are
+// handled live by the CSS media query and need no JS.)
+function refreshMountedContentTheme() {
+  if (selectionToolbar) applyContentTheme(selectionToolbar);
+  if (inPageRailController && inPageRailController.railEl) {
+    applyContentTheme(inPageRailController.railEl);
+  }
+}
+
+try {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local' || !changes[THEME_KEY]) return;
+    setCachedThemePreference(changes[THEME_KEY].newValue);
+    refreshMountedContentTheme();
+  });
+} catch (_) {
+  /* noop */
+}
 
 let selectionToolbar = null;
 let selectionToolbarRoot = null;
@@ -264,6 +315,7 @@ function showSelectionToolbar() {
 
   selectionToolbar = document.createElement('div');
   selectionToolbar.id = 'pagetollm-selection-toolbar';
+  applyContentTheme(selectionToolbar);
   selectionToolbarShadowRoot = selectionToolbar.attachShadow({ mode: 'closed' });
   const style = document.createElement('style');
   style.textContent = TOOLBAR_SHADOW_STYLES;
@@ -648,6 +700,7 @@ async function openInPageRail(rec, initialMode, options = {}) {
   const railEl = document.createElement('aside');
   railEl.id = 'pagetollm-in-page-rail';
   railEl.dataset.mode = state.mode;
+  applyContentTheme(railEl);
   const railRoot = createRoot(railEl);
   let railClosed = false;
 

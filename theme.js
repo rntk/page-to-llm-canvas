@@ -71,17 +71,25 @@ export function themeIcon(preference) {
  * Applies a preference to the document. Explicit light/dark set `data-theme`;
  * "system" removes it so the `prefers-color-scheme` media query takes over.
  */
+export function applyThemeToElement(el, preference) {
+  if (!el || typeof el.setAttribute !== 'function') return;
+  if (preference === THEME_LIGHT || preference === THEME_DARK) {
+    el.setAttribute('data-theme', preference);
+  } else if (typeof el.removeAttribute === 'function') {
+    el.removeAttribute('data-theme');
+  }
+}
+
+/**
+ * Applies a preference to the document root. Explicit light/dark set
+ * `data-theme`; "system" removes it so the `prefers-color-scheme` media query
+ * takes over.
+ */
 export function applyTheme(
   preference,
   doc = typeof document !== 'undefined' ? document : undefined,
 ) {
-  const root = doc && doc.documentElement;
-  if (!root) return;
-  if (preference === THEME_LIGHT || preference === THEME_DARK) {
-    root.setAttribute('data-theme', preference);
-  } else {
-    root.removeAttribute('data-theme');
-  }
+  applyThemeToElement(doc && doc.documentElement, preference);
 }
 
 export function getStoredTheme() {
@@ -158,5 +166,27 @@ export function createThemeController({
     return () => listeners.delete(fn);
   }
 
-  return { init, setPreference, cycle, current, subscribe, allowSystem };
+  // Keep this document in sync when the preference is changed elsewhere (e.g.
+  // the popup/options page) while this view is open. Returns an unsubscribe.
+  function watch() {
+    const handler = (changes, areaName) => {
+      if (areaName !== 'local' || !changes || !changes[THEME_KEY]) return;
+      preference = normalizeTheme(changes[THEME_KEY].newValue, allowSystem);
+      render();
+    };
+    try {
+      chrome.storage.onChanged.addListener(handler);
+    } catch (_) {
+      return () => {};
+    }
+    return () => {
+      try {
+        chrome.storage.onChanged.removeListener(handler);
+      } catch (_) {
+        /* noop */
+      }
+    };
+  }
+
+  return { init, setPreference, cycle, current, subscribe, watch, allowSystem };
 }

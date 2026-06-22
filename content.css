@@ -11,12 +11,49 @@
   --on-surface: #141414;
   --on-surface-muted: #5f646b;
   --ghost: rgb(0 0 0 / 20%);
+  --surface-frost: rgb(255 255 255 / 82%); /* frosted-glass chrome (toolbar/rail) */
   --font-voice: 'Newsreader', georgia, 'Times New Roman', serif;
   --font-data: 'Work Sans', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-serif;
 
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizelegibility;
+}
+
+/* Dark palette. The content script sets `data-theme` on the injected hosts;
+   tokens are inherited into the toolbar's shadow tree. "system" leaves the
+   attribute off and lets the prefers-color-scheme media query decide. The
+   shadow toolbar only consumes these tokens, so it needs no extra styles. */
+#pagetollm-selection-toolbar[data-theme='dark'],
+#pagetollm-in-page-rail[data-theme='dark'] {
+  color-scheme: dark;
+
+  --ink: #f4f5f7;
+  --accent: #aab2c0;
+  --surface: #1b1d22;
+  --surface-low: #141519;
+  --surface-highest: #24272e;
+  --on-surface: #ececec;
+  --on-surface-muted: #a0a6af;
+  --ghost: rgb(255 255 255 / 22%);
+  --surface-frost: rgb(27 29 34 / 82%);
+}
+
+@media (prefers-color-scheme: dark) {
+  #pagetollm-selection-toolbar:not([data-theme='light'], [data-theme='dark']),
+  #pagetollm-in-page-rail:not([data-theme='light'], [data-theme='dark']) {
+    color-scheme: dark;
+
+    --ink: #f4f5f7;
+    --accent: #aab2c0;
+    --surface: #1b1d22;
+    --surface-low: #141519;
+    --surface-highest: #24272e;
+    --on-surface: #ececec;
+    --on-surface-muted: #a0a6af;
+    --ghost: rgb(255 255 255 / 22%);
+    --surface-frost: rgb(27 29 34 / 82%);
+  }
 }
 
 /* Selection toolbar: floating frosted vellum. */
@@ -26,7 +63,7 @@
   left: 50%;
   transform: translateX(-50%);
   z-index: 999999;
-  background: rgb(255 255 255 / 82%);
+  background: var(--surface-frost);
   backdrop-filter: blur(16px);
   color: var(--on-surface);
   padding: 12px 14px;
@@ -227,7 +264,7 @@ body.pagetollm-rail-open {
   justify-content: space-between;
   gap: 6px;
   padding: 5px;
-  background: rgb(255 255 255 / 85%);
+  background: var(--surface-frost);
   backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--ink);
   z-index: 3000;

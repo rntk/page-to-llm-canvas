@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   getHierarchyTopicAccentColor,
   getHierarchyTopicHighlightColor,
+  getHierarchyTopicHighlightColorDark,
   getTopicAccentColor,
 } from './topicColorUtils.js';
 
@@ -66,6 +67,36 @@ describe('getHierarchyTopicHighlightColor', () => {
     const shallow = getHierarchyTopicHighlightColor('Tech', 0);
     const deep = getHierarchyTopicHighlightColor('Tech', 5);
     expect(shallow).not.toBe(deep);
+  });
+});
+
+describe('getHierarchyTopicHighlightColorDark', () => {
+  it('returns an hsl() color string', () => {
+    const result = getHierarchyTopicHighlightColorDark('Tech');
+    expect(result).toMatch(/^hsl\(\d+, \d+%, \d+%\)$/);
+  });
+
+  it('shares hue with the light highlight color for the same root', () => {
+    const light = getHierarchyTopicHighlightColor('Tech', 0);
+    const dark = getHierarchyTopicHighlightColorDark('Tech', 0);
+    expect(dark.match(/hsl\((\d+)/)[1]).toBe(light.match(/hsl\((\d+)/)[1]);
+  });
+
+  it('is much darker than the light highlight color', () => {
+    const light = Number(getHierarchyTopicHighlightColor('Tech', 0).match(/, (\d+)%\)$/)[1]);
+    const dark = Number(getHierarchyTopicHighlightColorDark('Tech', 0).match(/, (\d+)%\)$/)[1]);
+    expect(dark).toBeLessThan(light);
+    expect(dark).toBeLessThanOrEqual(28);
+  });
+
+  it('adjusts based on explicit depth parameter', () => {
+    const shallow = getHierarchyTopicHighlightColorDark('Tech', 0);
+    const deep = getHierarchyTopicHighlightColorDark('Tech', 5);
+    expect(shallow).not.toBe(deep);
+  });
+
+  it('handles null topic name', () => {
+    expect(getHierarchyTopicHighlightColorDark(null)).toMatch(/^hsl\(\d+, \d+%, \d+%\)$/);
   });
 });
 

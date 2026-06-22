@@ -46,6 +46,20 @@ export function getHierarchyTopicHighlightColor(topicName, depth) {
   return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 }
 
+/**
+ * Dark-mode variant of the topic card fill. Keeps the same per-root hue for
+ * identity but uses a low lightness so the cards read as tinted dark surfaces
+ * instead of the bright pastels used in light mode.
+ */
+export function getHierarchyTopicHighlightColorDark(topicName, depth) {
+  const rootName = getRootTopicName(topicName);
+  const hue = hashString(rootName) % 360;
+  const d = depth !== undefined ? depth : getTopicDepth(topicName);
+  const saturation = Math.max(20, 42 - d * 4);
+  const lightness = Math.min(28, 17 + d * 3);
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+}
+
 export function getTopicAccentColor(topicName) {
   const hue = hashString(topicName) % 360;
   return `hsl(${hue}, 42%, 46%)`;

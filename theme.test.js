@@ -12,6 +12,7 @@ import {
   themeLabel,
   themeIcon,
   applyTheme,
+  applyThemeToElement,
   getStoredTheme,
   setStoredTheme,
   createThemeController,
@@ -125,6 +126,41 @@ describe('applyTheme', () => {
 
   it('no-ops without a document', () => {
     expect(() => applyTheme(THEME_DARK, undefined)).not.toThrow();
+  });
+});
+
+describe('applyThemeToElement', () => {
+  function makeEl() {
+    const attrs = {};
+    return {
+      setAttribute: (name, value) => {
+        attrs[name] = value;
+      },
+      removeAttribute: (name) => {
+        delete attrs[name];
+      },
+      getAttribute: (name) => (name in attrs ? attrs[name] : null),
+    };
+  }
+
+  it('sets data-theme for explicit preferences', () => {
+    const el = makeEl();
+    applyThemeToElement(el, THEME_DARK);
+    expect(el.getAttribute('data-theme')).toBe('dark');
+    applyThemeToElement(el, THEME_LIGHT);
+    expect(el.getAttribute('data-theme')).toBe('light');
+  });
+
+  it('removes data-theme for system', () => {
+    const el = makeEl();
+    applyThemeToElement(el, THEME_DARK);
+    applyThemeToElement(el, THEME_SYSTEM);
+    expect(el.getAttribute('data-theme')).toBe(null);
+  });
+
+  it('no-ops on a missing or non-element value', () => {
+    expect(() => applyThemeToElement(null, THEME_DARK)).not.toThrow();
+    expect(() => applyThemeToElement({}, THEME_DARK)).not.toThrow();
   });
 });
 
@@ -243,5 +279,51 @@ describe('createThemeController', () => {
     unsubscribe();
     await controller.setPreference(THEME_DARK);
     expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('watch re-applies the theme on external storage changes', () => {
+    let handler = null;
+    vi.stubGlobal('chrome', {
+      storage: {
+        onChanged: {
+          addListener: (fn) => {
+            handler = fn;
+          },
+          removeListener: vi.fn(),
+        },
+      },
+    });
+    const doc = makeDoc();
+    const controller = createThemeController({
+      doc,
+      win: winWithDark(false),
+      getStored: () => Promise.resolve(THEME_LIGHT),
+      setStored: vi.fn().mockResolvedValue(undefined),
+    });
+    const unwatch = controller.watch();
+    expect(typeof handler).toBe('function');
+
+    handler({ [THEME_KEY]: { newValue: THEME_DARK } }, 'local');
+    expect(doc.documentElement.getAttribute('data-theme')).toBe('dark');
+
+    // Ignores unrelated keys and non-local areas.
+    handler({ 'pagetollm:other': { newValue: 'x' } }, 'local');
+    handler({ [THEME_KEY]: { newValue: THEME_LIGHT } }, 'sync');
+    expect(doc.documentElement.getAttribute('data-theme')).toBe('dark');
+
+    unwatch();
+    vi.unstubAllGlobals();
+  });
+
+  it('watch returns a noop when storage is unavailable', () => {
+    vi.stubGlobal('chrome', undefined);
+    const controller = createThemeController({
+      doc: makeDoc(),
+      win: winWithDark(false),
+      getStored: () => Promise.resolve(THEME_LIGHT),
+      setStored: vi.fn().mockResolvedValue(undefined),
+    });
+    expect(() => controller.watch()()).not.toThrow();
+    vi.unstubAllGlobals();
   });
 });

@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { buildTopicTree, countLeafDescendants } from '../utils/topicTree.js';
 import {
   getHierarchyTopicHighlightColor,
+  getHierarchyTopicHighlightColorDark,
   getHierarchyTopicAccentColor,
 } from '../utils/topicColorUtils.js';
 import { spacedTopicPath, getSummaryText, buildSummaryLookup } from './topicViewUtils.js';
@@ -29,6 +30,7 @@ function getCachedHierarchyColors(fullPath, depth) {
   if (!colors) {
     colors = {
       highlightColor: getHierarchyTopicHighlightColor(fullPath, depth),
+      highlightColorDark: getHierarchyTopicHighlightColorDark(fullPath, depth),
       accentColor: getHierarchyTopicAccentColor(fullPath, depth),
     };
     hierarchyColorCache.set(key, colors);
@@ -45,7 +47,10 @@ const HierarchyNode = React.memo(function HierarchyNode({
   const { node } = entry;
   const children = Array.from(entry.children.values());
   const isLeaf = children.length === 0;
-  const { highlightColor, accentColor } = getCachedHierarchyColors(node.fullPath, node.depth);
+  const { highlightColor, highlightColorDark, accentColor } = getCachedHierarchyColors(
+    node.fullPath,
+    node.depth,
+  );
   const isSelected = selectedTopicPath === node.fullPath;
 
   if (isLeaf) {
@@ -56,9 +61,10 @@ const HierarchyNode = React.memo(function HierarchyNode({
         <div
           className={`th-leaf ${isSelected ? 'is-selected' : ''}`}
           style={{
-            backgroundColor: highlightColor,
             borderLeftColor: accentColor,
             '--th-accent-color': accentColor,
+            '--th-card-bg': highlightColor,
+            '--th-card-bg-dark': highlightColorDark,
           }}
           title={`${node.fullPath.replace(/>/g, ' ')} (${sentenceCount} sentences)`}
           onClick={() => onTopicClick?.(entry)}
@@ -76,13 +82,17 @@ const HierarchyNode = React.memo(function HierarchyNode({
   }
 
   return (
-    <div className="th-node" style={{ '--th-row-span': entry.leafCount ?? countLeafDescendants(entry) }}>
+    <div
+      className="th-node"
+      style={{ '--th-row-span': entry.leafCount ?? countLeafDescendants(entry) }}
+    >
       <div
         className={`th-node__label ${isSelected ? 'is-selected' : ''}`}
         style={{
-          backgroundColor: highlightColor,
           borderLeftColor: accentColor,
           '--th-accent-color': accentColor,
+          '--th-card-bg': highlightColor,
+          '--th-card-bg-dark': highlightColorDark,
         }}
         title={node.fullPath.replace(/>/g, ' ')}
         onClick={() => onTopicClick?.(entry)}
