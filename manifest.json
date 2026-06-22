@@ -3,7 +3,7 @@
   "name": "PageToLLMCanvas",
   "version": "0.1.0",
   "description": "Pick blocks on any page, summarize and explore topics in an in-page canvas.",
-  "permissions": ["storage", "activeTab", "scripting", "alarms"],
+  "permissions": ["storage", "unlimitedStorage", "activeTab", "scripting", "alarms"],
   "host_permissions": [
     "http://192.168.0.147/*",
     "http://192.168.0.147:8989/*",
