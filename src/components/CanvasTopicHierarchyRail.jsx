@@ -69,7 +69,6 @@ const TopicCard = React.memo(function TopicCard({
         '--topic-card-label-height': `${getCardLabelHeight(card)}px`,
         '--topic-card-right': `${card.right}px`,
         '--topic-accent-color': accentColor,
-        '--topic-card-highlight-color': 'var(--pagetollm-highlight-color)',
         zIndex: isSelected ? 60 : isActive ? 50 : card.zIndex,
       }}
       onMouseEnter={() => onTopicEnter(card.fullPath)}

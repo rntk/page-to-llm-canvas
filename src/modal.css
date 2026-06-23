@@ -14,8 +14,9 @@
   --ghost: rgb(0 0 0 / 20%); /* outline-variant @ 20% */
   --surface-frost: rgb(255 255 255 / 82%); /* frosted-glass canvas controls */
   --pagetollm-highlight-base-color: #3a404d;
-  --pagetollm-highlight-color: rgb(58 64 77 / 0.12);
-  --pagetollm-highlight-hover-color: rgb(58 64 77 / 0.08);
+  --pagetollm-highlight-color: rgb(58 64 77 / 12%);
+  --pagetollm-highlight-hover-color: rgb(58 64 77 / 8%);
+  --pagetollm-highlight-active-color: rgb(58 64 77 / 20%);
 
   /* Voice (serif) vs Data (sans) */
   --font-voice: 'Newsreader', georgia, 'Times New Roman', serif;
@@ -638,8 +639,10 @@ body.canvas-global-dragging * {
   line-height: 1.7;
 }
 
+/* Hover must read as stronger than the resting highlight below, so it uses the
+   active (higher-alpha) tint rather than the lighter hover tint. */
 ::highlight(pagetollm-sentence-hover) {
-  background-color: var(--pagetollm-highlight-hover-color);
+  background-color: var(--pagetollm-highlight-active-color);
 }
 
 ::highlight(pagetollm-sentence) {
@@ -793,7 +796,7 @@ body.canvas-global-dragging * {
 .canvas-topic-hierarchy__card.is-selected {
   border-color: var(--ink);
   border-left-color: var(--topic-accent-color);
-  background: var(--topic-card-highlight-color, var(--pagetollm-highlight-color));
+  background: var(--pagetollm-highlight-color);
 }
 
 .canvas-topic-hierarchy__card--child {
@@ -927,11 +930,11 @@ body.canvas-global-dragging * {
 
 .canvas-summary-view__card:hover {
   border-color: var(--ink);
-  background: var(--summary-card-hover-highlight-color, var(--pagetollm-highlight-hover-color));
+  background: var(--pagetollm-highlight-hover-color);
 }
 
 .canvas-summary-view__card.is-active {
-  background: var(--summary-card-highlight-color, var(--pagetollm-highlight-color));
+  background: var(--pagetollm-highlight-color);
   box-shadow: 0 0 0 1px var(--ink);
 }
 
@@ -1136,7 +1139,7 @@ body.canvas-global-dragging * {
 .canvas-summary-source-preview__highlight {
   padding: 0 2px;
   background: transparent;
-  background-color: var(--summary-source-preview-highlight-color, var(--pagetollm-highlight-color));
+  background-color: var(--pagetollm-highlight-color);
   color: inherit;
 }
 

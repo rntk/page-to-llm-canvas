@@ -532,7 +532,6 @@ function CanvasSummaryView({
             top: previewTop,
             '--summary-source-preview-left': `${previewLeft}px`,
             '--summary-source-preview-top': `${previewTop}px`,
-            '--summary-source-preview-highlight-color': 'var(--pagetollm-highlight-color)',
           }}
           onMouseDown={(event) => event.stopPropagation()}
           onMouseEnter={clearHidePreviewTimer}
@@ -605,10 +604,6 @@ function CanvasSummaryView({
                 aria-expanded={canShowSourceSentences ? isPreviewActive : undefined}
                 aria-controls={isPreviewActive ? 'canvas-summary-source-preview' : undefined}
                 title={card.path}
-                style={{
-                  '--summary-card-highlight-color': 'var(--pagetollm-highlight-color)',
-                  '--summary-card-hover-highlight-color': 'var(--pagetollm-highlight-hover-color)',
-                }}
               >
                 <header className="canvas-summary-view__card-header">
                   <span className="canvas-summary-view__card-path">{card.path}</span>

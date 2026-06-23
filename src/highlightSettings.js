@@ -2,6 +2,9 @@ export const HIGHLIGHT_COLOR_KEY = 'pagetollm-highlight-color';
 export const DEFAULT_HIGHLIGHT_COLOR = '#3a404d';
 export const HIGHLIGHT_BACKGROUND_ALPHA = 0.12;
 export const HIGHLIGHT_HOVER_BACKGROUND_ALPHA = 0.08;
+// Stronger tint for the "active"/hovered sentence highlight, which must read as
+// more prominent than the resting highlight (HIGHLIGHT_BACKGROUND_ALPHA).
+export const HIGHLIGHT_ACTIVE_BACKGROUND_ALPHA = 0.2;
 
 const HEX_COLOR_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
@@ -37,6 +40,7 @@ export function applyHighlightColorToElement(
   {
     backgroundAlpha = HIGHLIGHT_BACKGROUND_ALPHA,
     hoverBackgroundAlpha = HIGHLIGHT_HOVER_BACKGROUND_ALPHA,
+    activeBackgroundAlpha = HIGHLIGHT_ACTIVE_BACKGROUND_ALPHA,
   } = {},
 ) {
   if (!el || !el.style || typeof el.style.setProperty !== 'function') return;
@@ -49,6 +53,10 @@ export function applyHighlightColorToElement(
   el.style.setProperty(
     '--pagetollm-highlight-hover-color',
     highlightColorWithAlpha(normalized, hoverBackgroundAlpha),
+  );
+  el.style.setProperty(
+    '--pagetollm-highlight-active-color',
+    highlightColorWithAlpha(normalized, activeBackgroundAlpha),
   );
 }
 
@@ -70,11 +78,17 @@ export function getStoredHighlightColor() {
 
 export function setStoredHighlightColor(color) {
   const normalized = normalizeHighlightColor(color);
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     try {
-      chrome.storage.local.set({ [HIGHLIGHT_COLOR_KEY]: normalized }, () => resolve(normalized));
-    } catch (_) {
-      resolve(normalized);
+      chrome.storage.local.set({ [HIGHLIGHT_COLOR_KEY]: normalized }, () => {
+        if (chrome.runtime && chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message || 'storage.set failed'));
+          return;
+        }
+        resolve(normalized);
+      });
+    } catch (err) {
+      reject(err instanceof Error ? err : new Error(String(err)));
     }
   });
 }

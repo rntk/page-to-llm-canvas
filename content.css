@@ -3,8 +3,8 @@
 
 :root {
   --pagetollm-highlight-base-color: #3a404d;
-  --pagetollm-highlight-color: rgb(58 64 77 / 0.12);
-  --pagetollm-highlight-hover-color: rgb(58 64 77 / 0.08);
+  --pagetollm-highlight-color: rgb(58 64 77 / 12%);
+  --pagetollm-highlight-hover-color: rgb(58 64 77 / 8%);
 }
 
 #pagetollm-selection-toolbar,
@@ -18,9 +18,8 @@
   --on-surface-muted: #5f646b;
   --ghost: rgb(0 0 0 / 20%);
   --surface-frost: rgb(255 255 255 / 82%); /* frosted-glass chrome (toolbar/rail) */
-  --pagetollm-highlight-base-color: #3a404d;
-  --pagetollm-highlight-color: rgb(58 64 77 / 0.12);
-  --pagetollm-highlight-hover-color: rgb(58 64 77 / 0.08);
+
+  /* highlight tokens inherit from :root (set above / overridden inline by JS) */
   --font-voice: 'Newsreader', georgia, 'Times New Roman', serif;
   --font-data: 'Work Sans', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-serif;
 
@@ -532,7 +531,7 @@ body.pagetollm-rail-open {
 }
 
 ::highlight(pagetollm-sentence) {
-  background-color: rgb(58 64 77 / 12%);
+  background-color: var(--pagetollm-highlight-color);
 }
 
 /* Level Switcher in Rail Header */

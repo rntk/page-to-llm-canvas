@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   PROVIDER_DEFINITIONS,
   SERVICE_TIER_DEFINITIONS,
@@ -47,8 +47,47 @@ export function ThemeToggle() {
   );
 }
 
+const HIGHLIGHT_PERSIST_DEBOUNCE_MS = 150;
+
 export function HighlightColorSection() {
   const [color, setColor] = useState(DEFAULT_HIGHLIGHT_COLOR);
+  // Pending debounced write: the timer and the value waiting to be persisted.
+  const persistTimer = useRef(null);
+  const pendingColor = useRef(null);
+
+  // Update local state + the live DOM preview without touching storage.
+  const previewColor = useCallback((nextColor) => {
+    const normalized = normalizeHighlightColor(nextColor);
+    setColor(normalized);
+    applyHighlightColorToElement(document.documentElement, normalized);
+    return normalized;
+  }, []);
+
+  // Write to storage; if the write fails, resync the UI to what is actually
+  // persisted instead of leaving it showing an unsaved value.
+  const persistColor = useCallback(
+    async (normalized) => {
+      try {
+        await setStoredHighlightColor(normalized);
+      } catch (_) {
+        const stored = await getStoredHighlightColor();
+        previewColor(stored);
+      }
+    },
+    [previewColor],
+  );
+
+  const flushPendingPersist = useCallback(() => {
+    if (persistTimer.current) {
+      clearTimeout(persistTimer.current);
+      persistTimer.current = null;
+    }
+    if (pendingColor.current != null) {
+      const next = pendingColor.current;
+      pendingColor.current = null;
+      void persistColor(next);
+    }
+  }, [persistColor]);
 
   useEffect(() => {
     let isCurrent = true;
@@ -56,16 +95,13 @@ export function HighlightColorSection() {
     async function loadHighlightColor() {
       const stored = await getStoredHighlightColor();
       if (!isCurrent) return;
-      setColor(stored);
-      applyHighlightColorToElement(document.documentElement, stored);
+      previewColor(stored);
     }
 
     void loadHighlightColor();
     const handleStorageChange = (changes, areaName) => {
       if (areaName !== 'local' || !changes || !changes[HIGHLIGHT_COLOR_KEY]) return;
-      const nextColor = normalizeHighlightColor(changes[HIGHLIGHT_COLOR_KEY].newValue);
-      setColor(nextColor);
-      applyHighlightColorToElement(document.documentElement, nextColor);
+      previewColor(changes[HIGHLIGHT_COLOR_KEY].newValue);
     };
     try {
       chrome.storage.onChanged.addListener(handleStorageChange);
@@ -79,15 +115,37 @@ export function HighlightColorSection() {
       } catch (_) {
         /* noop */
       }
+      // Don't lose a write still sitting in the debounce window.
+      flushPendingPersist();
     };
-  }, []);
+  }, [previewColor, flushPendingPersist]);
 
-  const saveColor = useCallback(async (nextColor) => {
-    const normalized = normalizeHighlightColor(nextColor);
-    setColor(normalized);
-    applyHighlightColorToElement(document.documentElement, normalized);
-    await setStoredHighlightColor(normalized);
-  }, []);
+  // Live preview fires on every drag tick; the storage write is debounced so a
+  // single drag does not flood every tab with storage.onChanged broadcasts.
+  const handleColorInput = useCallback(
+    (nextColor) => {
+      const normalized = previewColor(nextColor);
+      pendingColor.current = normalized;
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+      persistTimer.current = setTimeout(() => {
+        persistTimer.current = null;
+        const next = pendingColor.current;
+        pendingColor.current = null;
+        if (next != null) void persistColor(next);
+      }, HIGHLIGHT_PERSIST_DEBOUNCE_MS);
+    },
+    [previewColor, persistColor],
+  );
+
+  const resetColor = useCallback(() => {
+    if (persistTimer.current) {
+      clearTimeout(persistTimer.current);
+      persistTimer.current = null;
+    }
+    pendingColor.current = null;
+    const normalized = previewColor(DEFAULT_HIGHLIGHT_COLOR);
+    void persistColor(normalized);
+  }, [previewColor, persistColor]);
 
   return (
     <section className="section">
@@ -99,11 +157,11 @@ export function HighlightColorSection() {
             id="highlight-color"
             type="color"
             value={color}
-            onChange={(event) => saveColor(event.target.value)}
+            onChange={(event) => handleColorInput(event.target.value)}
           />
           <span className="highlight-color-swatch" aria-hidden="true" />
           <span className="mono">{color}</span>
-          <button type="button" onClick={() => saveColor(DEFAULT_HIGHLIGHT_COLOR)}>
+          <button type="button" onClick={resetColor}>
             Reset
           </button>
         </div>
