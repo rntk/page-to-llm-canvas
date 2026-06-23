@@ -299,7 +299,6 @@ function CanvasTopicHierarchyRail({
             '--current-summary-title-font-size': `${summaryFontSizes.title}px`,
             '--current-summary-text-font-size': `${summaryFontSizes.text}px`,
             '--current-summary-youtube-font-size': `${summaryFontSizes.youtube}px`,
-            '--current-summary-highlight-color': 'var(--pagetollm-highlight-color)',
           }}
         >
           <article className="canvas-summary-view__card is-active">

@@ -205,11 +205,13 @@ body.canvas-global-dragging * {
   transform: translateY(clamp(var(--_stick-top), 0px, var(--_stick-bot)));
 }
 
-/* Shadow keeps the selected summary readable against the canvas while the
-   background follows the user's highlight color. */
+/* Solid surface + shadow so the floating current-topic summary card reads
+   clearly against the canvas. This card shows a single piece of data and is not
+   a selectable highlight target, so it keeps the normal surface background
+   rather than the user's highlight tint. */
 .canvas-topic-current-summary .canvas-summary-view__card,
 .canvas-topic-current-summary .canvas-summary-view__card.is-active {
-  background: var(--current-summary-highlight-color, var(--surface));
+  background: var(--surface);
   box-shadow: 0 4px 16px rgb(0 0 0 / 14%);
   animation: summary-card-appear 0.32s cubic-bezier(0.25, 1, 0.5, 1) both;
 }
