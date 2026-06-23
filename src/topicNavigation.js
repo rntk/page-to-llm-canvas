@@ -12,8 +12,20 @@ export function buildTopicNavigationList({
   const cards = topicCards;
   if (!Array.isArray(cards)) return [];
 
-  return cards
-    .filter((card) => card.levelIndex === selectedLevel)
+  const eligible = cards.filter((card) => card.levelIndex <= selectedLevel);
+  const paths = new Set(eligible.map((card) => card.fullPath).filter(Boolean));
+  const hasDescendant = new Set();
+
+  for (const path of paths) {
+    let sep = path.indexOf(' > ');
+    while (sep !== -1) {
+      hasDescendant.add(path.slice(0, sep));
+      sep = path.indexOf(' > ', sep + 3);
+    }
+  }
+
+  return eligible
+    .filter((card) => !hasDescendant.has(card.fullPath))
     .slice()
     .sort((a, b) => {
       const leftPath = a.fullPath;

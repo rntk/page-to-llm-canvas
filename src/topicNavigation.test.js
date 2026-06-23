@@ -8,7 +8,7 @@ import {
 } from './topicNavigation.js';
 
 describe('topic navigation helpers', () => {
-  it('keeps only cards from the currently selected topic level', () => {
+  it('keeps visible leaf cards for the selected topic depth', () => {
     const topicCards = [
       { fullPath: 'A', startSentence: 1, levelIndex: 0, top: 10 },
       { fullPath: 'A > B', startSentence: 2, levelIndex: 1, top: 20 },
@@ -33,6 +33,26 @@ describe('topic navigation helpers', () => {
         selectedLevel: 1,
       }).map((card) => card.fullPath),
     ).toEqual(['A > B', 'C > D']);
+  });
+
+  it('includes shallow leaf and deep leaf topic cards when both are visible at selectedLevel', () => {
+    const topicCards = [
+      { fullPath: 'Science', startSentence: 1, levelIndex: 0, top: 10 },
+      { fullPath: 'Tech', startSentence: 2, levelIndex: 0, top: 20 },
+      { fullPath: 'Tech > AI', startSentence: 4, levelIndex: 1, top: 40 },
+      { fullPath: 'Tech > AI > Models', startSentence: 10, levelIndex: 2, top: 100 },
+      { fullPath: 'Culture', startSentence: 12, levelIndex: 0, top: 120 },
+      { fullPath: 'Culture > Film', startSentence: 14, levelIndex: 1, top: 140 },
+    ];
+
+    const result = buildTopicNavigationList({
+      showSummaryMode: false,
+      summaryCards: [],
+      topicCards,
+      selectedLevel: 2,
+    }).map((card) => card.fullPath);
+
+    expect(result).toEqual(['Science', 'Tech > AI > Models', 'Culture > Film']);
   });
 
   it('uses the closest card when the current selection is not in the selected level', () => {
