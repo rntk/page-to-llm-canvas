@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildTopicNavigationList, findTopicNavigationTarget } from './topicNavigation.js';
+import {
+  buildTopicNavigationList,
+  findTopicNavigationTarget,
+  getTopicNavigationCardTop,
+} from './topicNavigation.js';
 
 describe('topic navigation helpers', () => {
   it('keeps only cards from the currently selected topic level', () => {
@@ -80,5 +84,17 @@ describe('topic navigation helpers', () => {
         selectedLevel: 0,
       }).map((card) => card.path),
     ).toEqual(['A', 'C']);
+  });
+
+  it('resolves summary card top from measured summary metrics', () => {
+    const metrics = new Map([
+      ['A#0#0', { top: 120 }],
+      ['A', { top: 90 }],
+    ]);
+
+    expect(getTopicNavigationCardTop({ key: 'A#0#0', path: 'A', top: 10 }, true, metrics)).toBe(
+      120,
+    );
+    expect(getTopicNavigationCardTop({ fullPath: 'A', top: 10 }, false, metrics)).toBe(10);
   });
 });

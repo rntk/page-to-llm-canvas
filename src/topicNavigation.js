@@ -17,7 +17,7 @@ export function buildTopicNavigationList({
     });
 }
 
-function getTopicNavigationCardTop(card, showSummaryMode, summaryMetricsState) {
+export function getTopicNavigationCardTop(card, showSummaryMode, summaryMetricsState) {
   if (!showSummaryMode) return card.top ?? 0;
   return summaryMetricsState.get(card.key)?.top ?? summaryMetricsState.get(card.path)?.top ?? 0;
 }

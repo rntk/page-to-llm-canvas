@@ -30,7 +30,11 @@ import { closeModal } from './closeModal.js';
 import { useCanvasTransform, clampScale } from './useCanvasTransform.js';
 import { useCanvasAlignment } from './useCanvasAlignment.js';
 import { retryRecord, resolveSummaryErrors } from './utils/errorUtils.js';
-import { buildTopicNavigationList, findTopicNavigationTarget } from './topicNavigation.js';
+import {
+  buildTopicNavigationList,
+  findTopicNavigationTarget,
+  getTopicNavigationCardTop,
+} from './topicNavigation.js';
 
 /** Second CSS Custom Highlight name, used for the hovered (not selected) topic. */
 const HIGHLIGHT_HOVER = 'pagetollm-sentence-hover';
@@ -641,6 +645,30 @@ export default function App({ initialKey }) {
     setTransformNow(1, { x: 40, y: 40 });
   }, [setTransformNow]);
 
+  const panToTopic = useCallback(
+    (card) => {
+      const wrap = canvasWrapElRef.current;
+      if (!wrap || !card) return;
+      const currentScale = scaleRef.current || 1;
+      const currentTranslate = translateRef.current;
+      const cardTop = getTopicNavigationCardTop(card, showSummaryMode, summaryMetricsState);
+      setTransformNow(currentScale, {
+        ...currentTranslate,
+        y: wrap.clientHeight * 0.2 - cardTop * currentScale,
+      });
+      flashFocus();
+    },
+    [
+      canvasWrapElRef,
+      flashFocus,
+      scaleRef,
+      setTransformNow,
+      showSummaryMode,
+      summaryMetricsState,
+      translateRef,
+    ],
+  );
+
   const handleToggleSummaryMode = useCallback(() => {
     // Content swaps wholesale (article ⇄ summary cards), so reset the vertical
     // position to the top margin; horizontal stays continuous.
@@ -691,7 +719,7 @@ export default function App({ initialKey }) {
         if (!targetCard) return;
         const targetKey = showSummaryMode ? targetCard.path : targetCard.fullPath;
         setSelectedTopicKey(targetKey);
-        zoomToTopic(targetKey, targetCard);
+        panToTopic(targetCard);
       } else {
         navigateCanvas(pos);
       }
@@ -705,7 +733,7 @@ export default function App({ initialKey }) {
       translateRef,
       scaleRef,
       summaryMetricsState,
-      zoomToTopic,
+      panToTopic,
       navigateCanvas,
     ],
   );
