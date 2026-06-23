@@ -30,6 +30,7 @@ import { closeModal } from './closeModal.js';
 import { useCanvasTransform, clampScale } from './useCanvasTransform.js';
 import { useCanvasAlignment } from './useCanvasAlignment.js';
 import { retryRecord, resolveSummaryErrors } from './utils/errorUtils.js';
+import { buildTopicNavigationList, findTopicNavigationTarget } from './topicNavigation.js';
 
 /** Second CSS Custom Highlight name, used for the hovered (not selected) topic. */
 const HIGHLIGHT_HOVER = 'pagetollm-sentence-hover';
@@ -671,95 +672,26 @@ export default function App({ initialKey }) {
     (pos) => {
       if (pos === 'prev-topic' || pos === 'next-topic') {
         const direction = pos === 'next-topic' ? 'next' : 'prev';
-        const list = showSummaryMode
-          ? summaryCards
-          : [...zoomAdjustedTopicCards]
-              .filter((card) => card.levelIndex <= selectedLevel)
-              .sort(
-                (a, b) =>
-                  a.startSentence - b.startSentence ||
-                  a.levelIndex - b.levelIndex ||
-                  a.fullPath.localeCompare(b.fullPath),
-              );
+        const list = buildTopicNavigationList({
+          showSummaryMode,
+          summaryCards,
+          topicCards: zoomAdjustedTopicCards,
+          selectedLevel,
+        });
+        const currentY = -translateRef.current.y / (scaleRef.current || 1);
+        const targetCard = findTopicNavigationTarget({
+          list,
+          selectedTopicKey,
+          direction,
+          currentY,
+          showSummaryMode,
+          summaryMetricsState,
+        });
 
-        if (!list || list.length === 0) return;
-
-        let targetIndex = -1;
-        if (selectedTopicKey) {
-          const matchingIndices = [];
-          list.forEach((card, idx) => {
-            if ((showSummaryMode ? card.path : card.fullPath) === selectedTopicKey) {
-              matchingIndices.push(idx);
-            }
-          });
-
-          if (matchingIndices.length === 1) {
-            const curIndex = matchingIndices[0];
-            if (direction === 'next') {
-              targetIndex = Math.min(list.length - 1, curIndex + 1);
-            } else {
-              targetIndex = Math.max(0, curIndex - 1);
-            }
-          } else if (matchingIndices.length > 1) {
-            // Find the matching card closest to the current viewport position
-            const currentY = -translateRef.current.y / (scaleRef.current || 1);
-            let minDiff = Infinity;
-            let curIndex = matchingIndices[0];
-            matchingIndices.forEach((idx) => {
-              const card = list[idx];
-              let cardTop = 0;
-              if (showSummaryMode) {
-                cardTop =
-                  summaryMetricsState.get(card.key)?.top ||
-                  summaryMetricsState.get(card.path)?.top ||
-                  0;
-              } else {
-                cardTop = card.top;
-              }
-              const diff = Math.abs(cardTop - currentY);
-              if (diff < minDiff) {
-                minDiff = diff;
-                curIndex = idx;
-              }
-            });
-            if (direction === 'next') {
-              targetIndex = Math.min(list.length - 1, curIndex + 1);
-            } else {
-              targetIndex = Math.max(0, curIndex - 1);
-            }
-          }
-        }
-
-        if (targetIndex === -1) {
-          // Find closest by top coordinate
-          const currentY = -translateRef.current.y / (scaleRef.current || 1);
-          let minDiff = Infinity;
-          let closestIndex = 0;
-          list.forEach((card, idx) => {
-            let cardTop = 0;
-            if (showSummaryMode) {
-              cardTop =
-                summaryMetricsState.get(card.key)?.top ||
-                summaryMetricsState.get(card.path)?.top ||
-                0;
-            } else {
-              cardTop = card.top;
-            }
-            const diff = Math.abs(cardTop - currentY);
-            if (diff < minDiff) {
-              minDiff = diff;
-              closestIndex = idx;
-            }
-          });
-          targetIndex = closestIndex;
-        }
-
-        if (targetIndex >= 0 && targetIndex < list.length) {
-          const targetCard = list[targetIndex];
-          const targetKey = showSummaryMode ? targetCard.path : targetCard.fullPath;
-          setSelectedTopicKey(targetKey);
-          zoomToTopic(targetKey, targetCard);
-        }
+        if (!targetCard) return;
+        const targetKey = showSummaryMode ? targetCard.path : targetCard.fullPath;
+        setSelectedTopicKey(targetKey);
+        zoomToTopic(targetKey, targetCard);
       } else {
         navigateCanvas(pos);
       }

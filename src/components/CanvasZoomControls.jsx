@@ -5,7 +5,7 @@ import TopicLevelSwitcher from './TopicLevelSwitcher.jsx';
  * Floating zoom & view-mode controls for the canvas, mirroring the main app.
  *
  * @param {{
- *   onNavigate: (pos: "top" | "bottom" | "prev" | "next") => void,
+ *   onNavigate: (pos: "top" | "bottom" | "prev" | "next" | "prev-topic" | "next-topic") => void,
  *   onZoomIn: () => void,
  *   onZoomOut: () => void,
  *   onReset: () => void,
@@ -71,54 +71,58 @@ function CanvasZoomControls({
       </div>
       {!isFolded && (
         <div className="canvas-controls-body">
-          <button
-            type="button"
-            className="canvas-zoom-btn"
-            onClick={() => onNavigate('top')}
-            title="Scroll to top"
-          >
-            ⇈
-          </button>
-          <button
-            type="button"
-            className="canvas-zoom-btn"
-            onClick={() => onNavigate('prev')}
-            title="Previous page"
-          >
-            ↑
-          </button>
-          <button
-            type="button"
-            className="canvas-zoom-btn"
-            onClick={() => onNavigate('prev-topic')}
-            title="Previous topic"
-          >
-            ▲
-          </button>
-          <button
-            type="button"
-            className="canvas-zoom-btn"
-            onClick={() => onNavigate('next-topic')}
-            title="Next topic"
-          >
-            ▼
-          </button>
-          <button
-            type="button"
-            className="canvas-zoom-btn"
-            onClick={() => onNavigate('next')}
-            title="Next page"
-          >
-            ↓
-          </button>
-          <button
-            type="button"
-            className="canvas-zoom-btn"
-            onClick={() => onNavigate('bottom')}
-            title="Scroll to bottom"
-          >
-            ⇊
-          </button>
+          <div className="canvas-navigation-grid">
+            <div className="canvas-navigation-grid__slot" />
+            <button
+              type="button"
+              className="canvas-zoom-btn"
+              onClick={() => onNavigate('top')}
+              title="Scroll to top"
+            >
+              ⇈
+            </button>
+            <button
+              type="button"
+              className="canvas-zoom-btn"
+              onClick={() => onNavigate('prev-topic')}
+              title="Previous topic"
+            >
+              ▲
+            </button>
+            <button
+              type="button"
+              className="canvas-zoom-btn"
+              onClick={() => onNavigate('prev')}
+              title="Previous page"
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              className="canvas-zoom-btn"
+              onClick={() => onNavigate('next-topic')}
+              title="Next topic"
+            >
+              ▼
+            </button>
+            <button
+              type="button"
+              className="canvas-zoom-btn"
+              onClick={() => onNavigate('next')}
+              title="Next page"
+            >
+              ↓
+            </button>
+            <div className="canvas-navigation-grid__slot" />
+            <button
+              type="button"
+              className="canvas-zoom-btn"
+              onClick={() => onNavigate('bottom')}
+              title="Scroll to bottom"
+            >
+              ⇊
+            </button>
+          </div>
           <div className="canvas-spacer" />
           <button type="button" className="canvas-zoom-btn" onClick={onZoomIn} title="Zoom in">
             +

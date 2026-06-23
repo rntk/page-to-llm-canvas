@@ -382,6 +382,24 @@ body.canvas-global-dragging * {
   display: none;
 }
 
+.canvas-navigation-grid {
+  display: grid;
+  grid-template-columns: 32px 32px;
+  gap: 4px;
+  justify-content: end;
+}
+
+.canvas-navigation-grid__slot {
+  width: 32px;
+  height: 32px;
+}
+
+.canvas-controls.is-horizontal .canvas-navigation-grid {
+  grid-template-columns: repeat(4, 32px);
+  grid-auto-flow: column;
+  grid-template-rows: 32px 32px;
+}
+
 .canvas-zoom-btn {
   width: 32px;
   height: 32px;

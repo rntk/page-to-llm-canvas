@@ -117,16 +117,29 @@ describe('CanvasZoomControls', () => {
     );
 
     const bodyBtns = container.querySelectorAll('.canvas-controls-body button');
+    const navigationGrid = container.querySelector('.canvas-navigation-grid');
+    expect(navigationGrid).not.toBeNull();
+
+    const navigationBtns = navigationGrid.querySelectorAll('button');
+    expect(Array.from(navigationBtns).map((button) => button.title)).toEqual([
+      'Scroll to top',
+      'Previous topic',
+      'Previous page',
+      'Next topic',
+      'Next page',
+      'Scroll to bottom',
+    ]);
+
     // Scroll to top
     act(() => bodyBtns[0].click());
     expect(onNavigate).toHaveBeenCalledWith('top');
 
     // Scroll to prev
-    act(() => bodyBtns[1].click());
+    act(() => bodyBtns[2].click());
     expect(onNavigate).toHaveBeenCalledWith('prev');
 
     // Previous topic
-    act(() => bodyBtns[2].click());
+    act(() => bodyBtns[1].click());
     expect(onNavigate).toHaveBeenCalledWith('prev-topic');
 
     // Next topic
