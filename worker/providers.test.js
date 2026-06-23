@@ -287,9 +287,9 @@ describe('provider storage', () => {
       },
     });
     const mod = await freshProviders();
-    await expect(
-      mod.saveProvider({ type: 'openai', name: 'A', model: 'gpt-4o' }),
-    ).rejects.toThrow('write failed');
+    await expect(mod.saveProvider({ type: 'openai', name: 'A', model: 'gpt-4o' })).rejects.toThrow(
+      'write failed',
+    );
   });
 
   it('generates ids without crypto.randomUUID', async () => {

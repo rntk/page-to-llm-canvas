@@ -372,6 +372,7 @@ describe('runPipeline', () => {
         topic_summaries: {},
         progress: { stage: 'done', done: 0, total: 0 },
       }),
+      expect.anything(),
     );
   });
 
@@ -423,6 +424,7 @@ describe('runPipeline', () => {
         status: 'error',
         error: expect.stringContaining('HTML parse failed'),
       }),
+      expect.anything(),
     );
   });
 
@@ -550,6 +552,7 @@ describe('runPipeline', () => {
     expect(storage.updateRecord).toHaveBeenCalledWith(
       'key7',
       expect.objectContaining({ status: 'done' }),
+      expect.anything(),
     );
   });
 

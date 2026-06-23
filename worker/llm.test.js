@@ -192,18 +192,16 @@ describe('callLLMDirect', () => {
   it('throws AbortError when the caller signal aborts an in-flight request', async () => {
     const { callLLMDirect } = await getLLM();
     const controller = new AbortController();
-    vi.mocked(fetch).mockImplementation(
-      (_url, init) => {
-        if (init.signal.aborted) {
-          return Promise.reject({ name: 'AbortError', message: 'The operation was aborted.' });
-        }
-        return new Promise((_resolve, reject) => {
-          init.signal.addEventListener('abort', () => {
-            reject({ name: 'AbortError', message: 'The operation was aborted.' });
-          });
+    vi.mocked(fetch).mockImplementation((_url, init) => {
+      if (init.signal.aborted) {
+        return Promise.reject({ name: 'AbortError', message: 'The operation was aborted.' });
+      }
+      return new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => {
+          reject({ name: 'AbortError', message: 'The operation was aborted.' });
         });
-      },
-    );
+      });
+    });
 
     const request = callLLMDirect({ prompt: 'hello', signal: controller.signal });
     await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
@@ -215,18 +213,16 @@ describe('callLLMDirect', () => {
   it('callLLM preserves AbortError from a caller signal', async () => {
     const { callLLM } = await getLLM();
     const controller = new AbortController();
-    vi.mocked(fetch).mockImplementation(
-      (_url, init) => {
-        if (init.signal.aborted) {
-          return Promise.reject({ name: 'AbortError', message: 'The operation was aborted.' });
-        }
-        return new Promise((_resolve, reject) => {
-          init.signal.addEventListener('abort', () => {
-            reject({ name: 'AbortError', message: 'The operation was aborted.' });
-          });
+    vi.mocked(fetch).mockImplementation((_url, init) => {
+      if (init.signal.aborted) {
+        return Promise.reject({ name: 'AbortError', message: 'The operation was aborted.' });
+      }
+      return new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => {
+          reject({ name: 'AbortError', message: 'The operation was aborted.' });
         });
-      },
-    );
+      });
+    });
 
     const request = callLLM({ prompt: 'hello', signal: controller.signal });
     await vi.waitFor(() => expect(fetch).toHaveBeenCalled());

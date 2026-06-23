@@ -690,7 +690,13 @@ async function parkForReview(context, summaryErrors, phase, { done, total }) {
  * @param {boolean} [forceFinalize]
  * @returns {Promise<void>}
  */
-async function runSummaries(context, topics, sentenceTexts, previousSummaries, forceFinalize = false) {
+async function runSummaries(
+  context,
+  topics,
+  sentenceTexts,
+  previousSummaries,
+  forceFinalize = false,
+) {
   // Plan: which topics reuse a stored summary vs. still need an LLM call.
   const { reused, pending, reusedCount, pendingCount, total } = planSummaryWork(
     topics,
@@ -840,7 +846,11 @@ async function runSummaries(context, topics, sentenceTexts, previousSummaries, f
         error_message: message,
         error_detail: String(error),
       });
-      return logPipeline(context, 'topic_tree_merge_error', { path, error_kind: kind, error: message });
+      return logPipeline(context, 'topic_tree_merge_error', {
+        path,
+        error_kind: kind,
+        error: message,
+      });
     },
   });
   await logPipeline(context, 'topic_tree_merge_done', {

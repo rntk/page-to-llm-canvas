@@ -38,20 +38,24 @@ describe('getYouTubeVideoId', () => {
 
 describe('parseTimestampSeconds', () => {
   it('parses M:SS anchored on the readable duration', () => {
-    expect(parseTimestampSeconds("0:01 1 second This is a sample sentence.")).toBe(1);
+    expect(parseTimestampSeconds('0:01 1 second This is a sample sentence.')).toBe(1);
     expect(parseTimestampSeconds('2:51 2 minutes, 51 seconds Hello world')).toBe(171);
     expect(parseTimestampSeconds('1:09 1 minute, 9 seconds First topic details')).toBe(69);
   });
 
   it('parses H:MM:SS', () => {
-    expect(parseTimestampSeconds('1:02:03 1 hour, 2 minutes, 3 seconds sample description')).toBe(3723);
+    expect(parseTimestampSeconds('1:02:03 1 hour, 2 minutes, 3 seconds sample description')).toBe(
+      3723,
+    );
   });
 
   it('parses standalone timestamps (new format)', () => {
-    expect(parseTimestampSeconds("0:00 Introduction to the presentation")).toBe(0);
-    expect(parseTimestampSeconds("19:37 Discussing the second alternative option")).toBe(1177);
-    expect(parseTimestampSeconds("1:03:06 Let us move on to the final part")).toBe(3786);
-    expect(parseTimestampSeconds("Some leading text here,   0:09 and a timestamp inside the sentence")).toBe(9);
+    expect(parseTimestampSeconds('0:00 Introduction to the presentation')).toBe(0);
+    expect(parseTimestampSeconds('19:37 Discussing the second alternative option')).toBe(1177);
+    expect(parseTimestampSeconds('1:03:06 Let us move on to the final part')).toBe(3786);
+    expect(
+      parseTimestampSeconds('Some leading text here,   0:09 and a timestamp inside the sentence'),
+    ).toBe(9);
   });
 
   it('ignores ratios and clock times lacking a duration anchor', () => {
@@ -60,16 +64,18 @@ describe('parseTimestampSeconds', () => {
   });
 
   it('returns null when no timestamp is present', () => {
-    expect(parseTimestampSeconds("This is a simple text sentence without any time info.")).toBeNull();
+    expect(
+      parseTimestampSeconds('This is a simple text sentence without any time info.'),
+    ).toBeNull();
     expect(parseTimestampSeconds('')).toBeNull();
   });
 });
 
 describe('getTimestampForSentences', () => {
   const sentences = [
-    "0:01 1 second Welcome to the overview.", // index 0 -> sentence 1
-    "This is the first section.", // index 1 -> sentence 2
-    "Let us continue to the next part.", // index 2 -> sentence 3
+    '0:01 1 second Welcome to the overview.', // index 0 -> sentence 1
+    'This is the first section.', // index 1 -> sentence 2
+    'Let us continue to the next part.', // index 2 -> sentence 3
     '0:26 26 seconds Next key concept details.', // index 3 -> sentence 4
   ];
 

@@ -57,9 +57,7 @@ function findClosestCardIndex(indices, list, showSummaryMode, summaryMetricsStat
     const idx = indices[i];
     const top = getTopicNavigationCardTop(list[idx], showSummaryMode, summaryMetricsState);
     if (!Number.isFinite(top)) continue;
-    const diff = Math.abs(
-      top - currentY,
-    );
+    const diff = Math.abs(top - currentY);
     if (diff < minDiff) {
       minDiff = diff;
       bestIdx = idx;

@@ -181,7 +181,10 @@ describe('background pipeline lifecycle', () => {
         }
       },
     );
-    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({})));
+    vi.stubGlobal(
+      'createImageBitmap',
+      vi.fn(async () => ({})),
+    );
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({
