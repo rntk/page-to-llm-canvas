@@ -42,6 +42,13 @@ import {
   normalizeTheme,
   applyThemeToElement,
 } from '../../theme.js';
+import {
+  HIGHLIGHT_COLOR_KEY,
+  DEFAULT_HIGHLIGHT_COLOR,
+  getStoredHighlightColor,
+  normalizeHighlightColor,
+  applyHighlightColorToElement,
+} from '../highlightSettings.js';
 
 // The injected toolbar/rail tokens are scoped to their host elements (not the
 // host page's :root), so we tag those elements with the saved preference and
@@ -49,6 +56,7 @@ import {
 // failed/missing read just falls back to system. Cached at injection so the
 // elements can be tagged synchronously on creation (no flash).
 let cachedThemePreference = THEME_SYSTEM;
+let cachedHighlightColor = DEFAULT_HIGHLIGHT_COLOR;
 
 function setCachedThemePreference(stored) {
   cachedThemePreference = normalizeTheme(stored, systemThemeSupported());
@@ -65,6 +73,19 @@ function applyContentTheme(el) {
   applyThemeToElement(el, cachedThemePreference);
 }
 
+function setCachedHighlightColor(stored) {
+  cachedHighlightColor = normalizeHighlightColor(stored);
+}
+
+void getStoredHighlightColor().then((stored) => {
+  setCachedHighlightColor(stored);
+  refreshMountedHighlightColor();
+});
+
+function applyContentHighlightColor(el) {
+  applyHighlightColorToElement(el, cachedHighlightColor);
+}
+
 // Re-tag any already-mounted surfaces. The content script caches the preference
 // at injection, so a theme change from the popup/options after the page loaded
 // would otherwise be ignored until reload. (OS-level "system" changes are
@@ -76,11 +97,25 @@ function refreshMountedContentTheme() {
   }
 }
 
+function refreshMountedHighlightColor() {
+  applyHighlightColorToElement(document.documentElement, cachedHighlightColor);
+  if (selectionToolbar) applyContentHighlightColor(selectionToolbar);
+  if (inPageRailController && inPageRailController.railEl) {
+    applyContentHighlightColor(inPageRailController.railEl);
+  }
+}
+
 try {
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== 'local' || !changes[THEME_KEY]) return;
-    setCachedThemePreference(changes[THEME_KEY].newValue);
-    refreshMountedContentTheme();
+    if (areaName !== 'local') return;
+    if (changes[THEME_KEY]) {
+      setCachedThemePreference(changes[THEME_KEY].newValue);
+      refreshMountedContentTheme();
+    }
+    if (changes[HIGHLIGHT_COLOR_KEY]) {
+      setCachedHighlightColor(changes[HIGHLIGHT_COLOR_KEY].newValue);
+      refreshMountedHighlightColor();
+    }
   });
 } catch (_) {
   /* noop */
@@ -316,6 +351,7 @@ function showSelectionToolbar() {
   selectionToolbar = document.createElement('div');
   selectionToolbar.id = 'pagetollm-selection-toolbar';
   applyContentTheme(selectionToolbar);
+  applyContentHighlightColor(selectionToolbar);
   selectionToolbarShadowRoot = selectionToolbar.attachShadow({ mode: 'closed' });
   const style = document.createElement('style');
   style.textContent = TOOLBAR_SHADOW_STYLES;
@@ -701,6 +737,7 @@ async function openInPageRail(rec, initialMode, options = {}) {
   railEl.id = 'pagetollm-in-page-rail';
   railEl.dataset.mode = state.mode;
   applyContentTheme(railEl);
+  applyContentHighlightColor(railEl);
   const railRoot = createRoot(railEl);
   let railClosed = false;
 

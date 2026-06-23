@@ -13,6 +13,9 @@
   --on-surface-muted: #5f646b;
   --ghost: rgb(0 0 0 / 20%); /* outline-variant @ 20% */
   --surface-frost: rgb(255 255 255 / 82%); /* frosted-glass canvas controls */
+  --pagetollm-highlight-base-color: #3a404d;
+  --pagetollm-highlight-color: rgb(58 64 77 / 0.12);
+  --pagetollm-highlight-hover-color: rgb(58 64 77 / 0.08);
 
   /* Voice (serif) vs Data (sans) */
   --font-voice: 'Newsreader', georgia, 'Times New Roman', serif;
@@ -201,11 +204,11 @@ body.canvas-global-dragging * {
   transform: translateY(clamp(var(--_stick-top), 0px, var(--_stick-bot)));
 }
 
-/* Solid surface + shadow so the card reads clearly against the canvas, whose
-   own background is --surface-low (same as the card's default is-active fill). */
+/* Shadow keeps the selected summary readable against the canvas while the
+   background follows the user's highlight color. */
 .canvas-topic-current-summary .canvas-summary-view__card,
 .canvas-topic-current-summary .canvas-summary-view__card.is-active {
-  background: var(--surface);
+  background: var(--current-summary-highlight-color, var(--surface));
   box-shadow: 0 4px 16px rgb(0 0 0 / 14%);
   animation: summary-card-appear 0.32s cubic-bezier(0.25, 1, 0.5, 1) both;
 }
@@ -636,11 +639,11 @@ body.canvas-global-dragging * {
 }
 
 ::highlight(pagetollm-sentence-hover) {
-  background-color: var(--surface-highest);
+  background-color: var(--pagetollm-highlight-hover-color);
 }
 
 ::highlight(pagetollm-sentence) {
-  background-color: rgb(58 64 77 / 12%);
+  background-color: var(--pagetollm-highlight-color);
 }
 
 /* ── TopicLevelSwitcher ────────────────────────────────────────────────── */
@@ -790,6 +793,7 @@ body.canvas-global-dragging * {
 .canvas-topic-hierarchy__card.is-selected {
   border-color: var(--ink);
   border-left-color: var(--topic-accent-color);
+  background: var(--topic-card-highlight-color, var(--pagetollm-highlight-color));
 }
 
 .canvas-topic-hierarchy__card--child {
@@ -923,11 +927,11 @@ body.canvas-global-dragging * {
 
 .canvas-summary-view__card:hover {
   border-color: var(--ink);
-  background: var(--surface-low);
+  background: var(--summary-card-hover-highlight-color, var(--pagetollm-highlight-hover-color));
 }
 
 .canvas-summary-view__card.is-active {
-  background: var(--surface-low);
+  background: var(--summary-card-highlight-color, var(--pagetollm-highlight-color));
   box-shadow: 0 0 0 1px var(--ink);
 }
 
@@ -1132,7 +1136,7 @@ body.canvas-global-dragging * {
 .canvas-summary-source-preview__highlight {
   padding: 0 2px;
   background: transparent;
-  background-color: rgb(58 64 77 / 12%);
+  background-color: var(--summary-source-preview-highlight-color, var(--pagetollm-highlight-color));
   color: inherit;
 }
 

@@ -11,6 +11,14 @@ import {
   actionErrorMessage,
 } from './optionsLogic.js';
 import { createThemeController, themeCycle, themeIcon, themeLabel } from '../../theme.js';
+import {
+  HIGHLIGHT_COLOR_KEY,
+  DEFAULT_HIGHLIGHT_COLOR,
+  getStoredHighlightColor,
+  setStoredHighlightColor,
+  normalizeHighlightColor,
+  applyHighlightColorToElement,
+} from '../highlightSettings.js';
 
 export function ThemeToggle() {
   const [controller] = useState(() => createThemeController());
@@ -36,6 +44,74 @@ export function ThemeToggle() {
         </button>
       ))}
     </div>
+  );
+}
+
+export function HighlightColorSection() {
+  const [color, setColor] = useState(DEFAULT_HIGHLIGHT_COLOR);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadHighlightColor() {
+      const stored = await getStoredHighlightColor();
+      if (!isCurrent) return;
+      setColor(stored);
+      applyHighlightColorToElement(document.documentElement, stored);
+    }
+
+    void loadHighlightColor();
+    const handleStorageChange = (changes, areaName) => {
+      if (areaName !== 'local' || !changes || !changes[HIGHLIGHT_COLOR_KEY]) return;
+      const nextColor = normalizeHighlightColor(changes[HIGHLIGHT_COLOR_KEY].newValue);
+      setColor(nextColor);
+      applyHighlightColorToElement(document.documentElement, nextColor);
+    };
+    try {
+      chrome.storage.onChanged.addListener(handleStorageChange);
+    } catch (_) {
+      /* noop */
+    }
+    return () => {
+      isCurrent = false;
+      try {
+        chrome.storage.onChanged.removeListener(handleStorageChange);
+      } catch (_) {
+        /* noop */
+      }
+    };
+  }, []);
+
+  const saveColor = useCallback(async (nextColor) => {
+    const normalized = normalizeHighlightColor(nextColor);
+    setColor(normalized);
+    applyHighlightColorToElement(document.documentElement, normalized);
+    await setStoredHighlightColor(normalized);
+  }, []);
+
+  return (
+    <section className="section">
+      <h2>Highlight Color</h2>
+      <div className="highlight-color-control">
+        <label htmlFor="highlight-color">Text and picked block highlight</label>
+        <div className="highlight-color-row">
+          <input
+            id="highlight-color"
+            type="color"
+            value={color}
+            onChange={(event) => saveColor(event.target.value)}
+          />
+          <span className="highlight-color-swatch" aria-hidden="true" />
+          <span className="mono">{color}</span>
+          <button type="button" onClick={() => saveColor(DEFAULT_HIGHLIGHT_COLOR)}>
+            Reset
+          </button>
+        </div>
+        <div className="note">
+          Used for sentence highlights, source preview highlights, and picked block backgrounds.
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -466,6 +542,8 @@ export function OptionsApp() {
       </div>
 
       <ProvidersSection />
+
+      <HighlightColorSection />
 
       <section className="section">
         <h2>Stored Records</h2>

@@ -69,6 +69,7 @@ const TopicCard = React.memo(function TopicCard({
         '--topic-card-label-height': `${getCardLabelHeight(card)}px`,
         '--topic-card-right': `${card.right}px`,
         '--topic-accent-color': accentColor,
+        '--topic-card-highlight-color': 'var(--pagetollm-highlight-color)',
         zIndex: isSelected ? 60 : isActive ? 50 : card.zIndex,
       }}
       onMouseEnter={() => onTopicEnter(card.fullPath)}
@@ -299,6 +300,7 @@ function CanvasTopicHierarchyRail({
             '--current-summary-title-font-size': `${summaryFontSizes.title}px`,
             '--current-summary-text-font-size': `${summaryFontSizes.text}px`,
             '--current-summary-youtube-font-size': `${summaryFontSizes.youtube}px`,
+            '--current-summary-highlight-color': 'var(--pagetollm-highlight-color)',
           }}
         >
           <article className="canvas-summary-view__card is-active">

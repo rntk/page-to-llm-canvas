@@ -1,6 +1,12 @@
 /* Content-script styles — "The Editorial Absolute" design system.
  * Injected into arbitrary host pages, so all tokens are scoped to our IDs. */
 
+:root {
+  --pagetollm-highlight-base-color: #3a404d;
+  --pagetollm-highlight-color: rgb(58 64 77 / 0.12);
+  --pagetollm-highlight-hover-color: rgb(58 64 77 / 0.08);
+}
+
 #pagetollm-selection-toolbar,
 #pagetollm-in-page-rail {
   --ink: #000;
@@ -12,6 +18,9 @@
   --on-surface-muted: #5f646b;
   --ghost: rgb(0 0 0 / 20%);
   --surface-frost: rgb(255 255 255 / 82%); /* frosted-glass chrome (toolbar/rail) */
+  --pagetollm-highlight-base-color: #3a404d;
+  --pagetollm-highlight-color: rgb(58 64 77 / 0.12);
+  --pagetollm-highlight-hover-color: rgb(58 64 77 / 0.08);
   --font-voice: 'Newsreader', georgia, 'Times New Roman', serif;
   --font-data: 'Work Sans', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-serif;
 
@@ -220,18 +229,16 @@
 }
 
 .pagetollm-element-highlight {
-  outline: 2px solid var(--ink) !important;
+  outline: 2px solid var(--pagetollm-highlight-base-color) !important;
   outline-offset: 2px;
-  background: rgb(0 0 0 / 6%) !important;
+  background: var(--pagetollm-highlight-hover-color) !important;
   cursor: pointer !important;
 }
 
 .pagetollm-selected {
-  --accent: #3a404d;
-
-  outline: 3px solid var(--accent) !important;
+  outline: 3px solid var(--pagetollm-highlight-base-color) !important;
   outline-offset: 2px;
-  background: rgb(58 64 77 / 12%) !important;
+  background: var(--pagetollm-highlight-color) !important;
 }
 
 /* ── In-page rail (topics / summaries view) ────────────────────────────── */
