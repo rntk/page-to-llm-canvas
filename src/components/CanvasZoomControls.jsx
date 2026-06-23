@@ -5,7 +5,7 @@ import TopicLevelSwitcher from './TopicLevelSwitcher.jsx';
  * Floating zoom & view-mode controls for the canvas, mirroring the main app.
  *
  * @param {{
- *   onNavigate: (pos: "top" | "bottom" | "prev" | "next" | "prev-topic" | "next-topic") => void,
+ *   onNavigate: (pos: "top" | "bottom" | "prev" | "next" | "first-topic" | "prev-topic" | "next-topic" | "last-topic") => void,
  *   onZoomIn: () => void,
  *   onZoomOut: () => void,
  *   onReset: () => void,
@@ -72,7 +72,14 @@ function CanvasZoomControls({
       {!isFolded && (
         <div className="canvas-controls-body">
           <div className="canvas-navigation-grid">
-            <div className="canvas-navigation-grid__slot" />
+            <button
+              type="button"
+              className="canvas-zoom-btn"
+              onClick={() => onNavigate('first-topic')}
+              title="First topic"
+            >
+              ⇞
+            </button>
             <button
               type="button"
               className="canvas-zoom-btn"
@@ -113,7 +120,14 @@ function CanvasZoomControls({
             >
               ↓
             </button>
-            <div className="canvas-navigation-grid__slot" />
+            <button
+              type="button"
+              className="canvas-zoom-btn"
+              onClick={() => onNavigate('last-topic')}
+              title="Last topic"
+            >
+              ⇟
+            </button>
             <button
               type="button"
               className="canvas-zoom-btn"

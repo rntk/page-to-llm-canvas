@@ -69,6 +69,34 @@ describe('topic navigation helpers', () => {
     ).toBe('E > F');
   });
 
+  it('jumps directly to the first or last card', () => {
+    const list = [
+      { fullPath: 'A > B', top: 100 },
+      { fullPath: 'C > D', top: 250 },
+      { fullPath: 'E > F', top: 700 },
+    ];
+
+    expect(
+      findTopicNavigationTarget({
+        list,
+        selectedTopicKey: 'C > D',
+        direction: 'first',
+        currentY: 230,
+        showSummaryMode: false,
+      }).fullPath,
+    ).toBe('A > B');
+
+    expect(
+      findTopicNavigationTarget({
+        list,
+        selectedTopicKey: 'C > D',
+        direction: 'last',
+        currentY: 230,
+        showSummaryMode: false,
+      }).fullPath,
+    ).toBe('E > F');
+  });
+
   it('filters summary mode navigation to the selected summary depth', () => {
     const summaryCards = [
       { path: 'A', startSentence: 1, levelIndex: 0 },

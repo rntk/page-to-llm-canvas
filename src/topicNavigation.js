@@ -31,6 +31,8 @@ export function findTopicNavigationTarget({
   summaryMetricsState = new Map(),
 }) {
   if (!Array.isArray(list) || list.length === 0) return null;
+  if (direction === 'first') return list[0];
+  if (direction === 'last') return list[list.length - 1];
 
   let targetIndex = -1;
   if (selectedTopicKey) {

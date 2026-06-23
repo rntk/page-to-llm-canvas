@@ -122,52 +122,62 @@ describe('CanvasZoomControls', () => {
 
     const navigationBtns = navigationGrid.querySelectorAll('button');
     expect(Array.from(navigationBtns).map((button) => button.title)).toEqual([
+      'First topic',
       'Scroll to top',
       'Previous topic',
       'Previous page',
       'Next topic',
       'Next page',
+      'Last topic',
       'Scroll to bottom',
     ]);
 
-    // Scroll to top
+    // First topic
     act(() => bodyBtns[0].click());
+    expect(onNavigate).toHaveBeenCalledWith('first-topic');
+
+    // Scroll to top
+    act(() => bodyBtns[1].click());
     expect(onNavigate).toHaveBeenCalledWith('top');
 
     // Scroll to prev
-    act(() => bodyBtns[2].click());
+    act(() => bodyBtns[3].click());
     expect(onNavigate).toHaveBeenCalledWith('prev');
 
     // Previous topic
-    act(() => bodyBtns[1].click());
+    act(() => bodyBtns[2].click());
     expect(onNavigate).toHaveBeenCalledWith('prev-topic');
 
     // Next topic
-    act(() => bodyBtns[3].click());
+    act(() => bodyBtns[4].click());
     expect(onNavigate).toHaveBeenCalledWith('next-topic');
 
     // Scroll to next
-    act(() => bodyBtns[4].click());
+    act(() => bodyBtns[5].click());
     expect(onNavigate).toHaveBeenCalledWith('next');
 
+    // Last topic
+    act(() => bodyBtns[6].click());
+    expect(onNavigate).toHaveBeenCalledWith('last-topic');
+
     // Scroll to bottom
-    act(() => bodyBtns[5].click());
+    act(() => bodyBtns[7].click());
     expect(onNavigate).toHaveBeenCalledWith('bottom');
 
     // Zoom in
-    act(() => bodyBtns[6].click());
+    act(() => bodyBtns[8].click());
     expect(onZoomIn).toHaveBeenCalled();
 
     // Zoom out
-    act(() => bodyBtns[7].click());
+    act(() => bodyBtns[9].click());
     expect(onZoomOut).toHaveBeenCalled();
 
     // Reset zoom
-    act(() => bodyBtns[8].click());
+    act(() => bodyBtns[10].click());
     expect(onReset).toHaveBeenCalled();
 
     // Toggle summary mode
-    act(() => bodyBtns[9].click());
+    act(() => bodyBtns[11].click());
     expect(onToggleSummaryMode).toHaveBeenCalled();
 
     unmount();

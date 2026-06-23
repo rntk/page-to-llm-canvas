@@ -698,8 +698,18 @@ export default function App({ initialKey }) {
 
   const handleNavigate = useCallback(
     (pos) => {
-      if (pos === 'prev-topic' || pos === 'next-topic') {
-        const direction = pos === 'next-topic' ? 'next' : 'prev';
+      if (
+        pos === 'first-topic' ||
+        pos === 'prev-topic' ||
+        pos === 'next-topic' ||
+        pos === 'last-topic'
+      ) {
+        const directionByPosition = {
+          'first-topic': 'first',
+          'prev-topic': 'prev',
+          'next-topic': 'next',
+          'last-topic': 'last',
+        };
         const list = buildTopicNavigationList({
           showSummaryMode,
           summaryCards,
@@ -710,7 +720,7 @@ export default function App({ initialKey }) {
         const targetCard = findTopicNavigationTarget({
           list,
           selectedTopicKey,
-          direction,
+          direction: directionByPosition[pos],
           currentY,
           showSummaryMode,
           summaryMetricsState,
