@@ -90,6 +90,22 @@ function CanvasZoomControls({
           <button
             type="button"
             className="canvas-zoom-btn"
+            onClick={() => onNavigate('prev-topic')}
+            title="Previous topic"
+          >
+            ▲
+          </button>
+          <button
+            type="button"
+            className="canvas-zoom-btn"
+            onClick={() => onNavigate('next-topic')}
+            title="Next topic"
+          >
+            ▼
+          </button>
+          <button
+            type="button"
+            className="canvas-zoom-btn"
             onClick={() => onNavigate('next')}
             title="Next page"
           >

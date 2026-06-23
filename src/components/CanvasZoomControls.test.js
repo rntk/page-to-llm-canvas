@@ -125,28 +125,36 @@ describe('CanvasZoomControls', () => {
     act(() => bodyBtns[1].click());
     expect(onNavigate).toHaveBeenCalledWith('prev');
 
-    // Scroll to next
+    // Previous topic
     act(() => bodyBtns[2].click());
+    expect(onNavigate).toHaveBeenCalledWith('prev-topic');
+
+    // Next topic
+    act(() => bodyBtns[3].click());
+    expect(onNavigate).toHaveBeenCalledWith('next-topic');
+
+    // Scroll to next
+    act(() => bodyBtns[4].click());
     expect(onNavigate).toHaveBeenCalledWith('next');
 
     // Scroll to bottom
-    act(() => bodyBtns[3].click());
+    act(() => bodyBtns[5].click());
     expect(onNavigate).toHaveBeenCalledWith('bottom');
 
     // Zoom in
-    act(() => bodyBtns[4].click());
+    act(() => bodyBtns[6].click());
     expect(onZoomIn).toHaveBeenCalled();
 
     // Zoom out
-    act(() => bodyBtns[5].click());
+    act(() => bodyBtns[7].click());
     expect(onZoomOut).toHaveBeenCalled();
 
     // Reset zoom
-    act(() => bodyBtns[6].click());
+    act(() => bodyBtns[8].click());
     expect(onReset).toHaveBeenCalled();
 
     // Toggle summary mode
-    act(() => bodyBtns[7].click());
+    act(() => bodyBtns[9].click());
     expect(onToggleSummaryMode).toHaveBeenCalled();
 
     unmount();
