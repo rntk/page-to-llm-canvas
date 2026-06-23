@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildTopicNavigationList,
   findTopicNavigationTarget,
+  getTopicNavigationCardKey,
   getTopicNavigationCardTop,
+  getTopicNavigationTopicKey,
 } from './topicNavigation.js';
 
 describe('topic navigation helpers', () => {
@@ -69,6 +71,25 @@ describe('topic navigation helpers', () => {
     ).toBe('E > F');
   });
 
+  it('prefers selected navigation key when a topic has multiple rendered cards', () => {
+    const list = [
+      { key: 'A#0#0', fullPath: 'A', top: 100 },
+      { key: 'A#0#1', fullPath: 'A', top: 400 },
+      { key: 'B#0#0', fullPath: 'B', top: 700 },
+    ];
+
+    expect(
+      findTopicNavigationTarget({
+        list,
+        selectedNavigationKey: 'A#0#1',
+        selectedTopicKey: 'A',
+        direction: 'prev',
+        currentY: 390,
+        showSummaryMode: false,
+      }).key,
+    ).toBe('A#0#0');
+  });
+
   it('jumps directly to the first or last card', () => {
     const list = [
       { fullPath: 'A > B', top: 100 },
@@ -131,7 +152,7 @@ describe('topic navigation helpers', () => {
     expect(result).toEqual(['Science', 'Tech > AI > Models']);
   });
 
-  it('resolves summary card top from measured summary metrics', () => {
+  it('resolves summary card top from measured summary metrics and returns null until measured', () => {
     const metrics = new Map([
       ['A#0#0', { top: 120 }],
       ['A', { top: 90 }],
@@ -141,5 +162,15 @@ describe('topic navigation helpers', () => {
       120,
     );
     expect(getTopicNavigationCardTop({ fullPath: 'A', top: 10 }, false, metrics)).toBe(10);
+    expect(getTopicNavigationCardTop({ key: 'B#0#0', path: 'B', top: 10 }, true, metrics)).toBe(
+      null,
+    );
+  });
+
+  it('normalizes navigation card identity by mode', () => {
+    expect(getTopicNavigationCardKey({ key: 'A#0#0', path: 'A' }, true)).toBe('A#0#0');
+    expect(getTopicNavigationTopicKey({ key: 'A#0#0', path: 'A' }, true)).toBe('A');
+    expect(getTopicNavigationCardKey({ key: 'A#0#0', fullPath: 'A' }, false)).toBe('A#0#0');
+    expect(getTopicNavigationTopicKey({ key: 'A#0#0', fullPath: 'A' }, false)).toBe('A');
   });
 });

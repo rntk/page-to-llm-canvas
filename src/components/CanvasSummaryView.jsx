@@ -245,9 +245,12 @@ function getOrBuildPreviewSourceModel(articleHtml, sentences) {
 function CanvasSummaryView({
   summaryViewCards,
   summaryViewActivePath,
+  summaryViewActiveCardKey,
   summaryViewHoveredPath,
+  summaryViewHoveredCardKey,
   summaryCardRefs,
   setHoveredTopicKey,
+  setHoveredTopicCardKey,
   articleTextRef,
   onShowSourceSentences,
   articleHtml,
@@ -277,6 +280,9 @@ function CanvasSummaryView({
     });
     return map;
   }, [summaryViewCards]);
+  const hasActiveSummaryCardKey = Boolean(
+    summaryViewActiveCardKey && summaryCardByKey.has(summaryViewActiveCardKey),
+  );
   const findCardByPath = React.useCallback(
     (path) => {
       if (summaryCardByPath.has(path)) return summaryCardByPath.get(path);
@@ -289,12 +295,18 @@ function CanvasSummaryView({
     [summaryCardByPath, summaryViewCards],
   );
   const activePreviewCard = React.useMemo(() => {
+    if (summaryViewHoveredCardKey && summaryCardByKey.has(summaryViewHoveredCardKey)) {
+      return summaryCardByKey.get(summaryViewHoveredCardKey);
+    }
     if (summaryViewHoveredPath) return findCardByPath(summaryViewHoveredPath);
     if (hoveredSummaryKey && summaryCardByKey.has(hoveredSummaryKey)) {
       return summaryCardByKey.get(hoveredSummaryKey);
     }
     if (lockedPreviewKey && summaryCardByKey.has(lockedPreviewKey)) {
       return summaryCardByKey.get(lockedPreviewKey);
+    }
+    if (summaryViewActiveCardKey && summaryCardByKey.has(summaryViewActiveCardKey)) {
+      return summaryCardByKey.get(summaryViewActiveCardKey);
     }
     if (summaryViewActivePath) return findCardByPath(summaryViewActivePath);
     return null;
@@ -303,7 +315,9 @@ function CanvasSummaryView({
     hoveredSummaryKey,
     lockedPreviewKey,
     summaryCardByKey,
+    summaryViewActiveCardKey,
     summaryViewActivePath,
+    summaryViewHoveredCardKey,
     summaryViewHoveredPath,
   ]);
   const previewCard = activePreviewCard?.sourceSentences?.length ? activePreviewCard : null;
@@ -478,6 +492,7 @@ function CanvasSummaryView({
       // in the parent, so that path stays immediate.
       const apply = () => {
         setHoveredTopicKey(card.path);
+        setHoveredTopicCardKey?.(key);
         if (hasSource) setHoveredSummaryKey(key);
       };
       if (immediate) {
@@ -486,7 +501,7 @@ function CanvasSummaryView({
       }
       showPreviewTimerRef.current = window.setTimeout(apply, SENTENCE_PREVIEW_SHOW_DELAY_MS);
     },
-    [clearHidePreviewTimer, clearShowPreviewTimer, setHoveredTopicKey],
+    [clearHidePreviewTimer, clearShowPreviewTimer, setHoveredTopicCardKey, setHoveredTopicKey],
   );
 
   const schedulePreviewHide = React.useCallback(
@@ -564,33 +579,37 @@ function CanvasSummaryView({
         <div className="canvas-summary-view__cards">
           {summaryViewCards.map((card) => {
             const isActive = summaryViewActivePath === card.path;
+            const cardKey = card.key || card.path;
+            const isCardActive = hasActiveSummaryCardKey
+              ? summaryViewActiveCardKey === cardKey
+              : isActive;
             const hasSummaryContent = Boolean(card.text);
             const canShowSourceSentences = card.sourceSentences.length > 0;
-            const cardYouTubeLink = youTubeLinkByKey.get(card.key || card.path) || null;
-            const isPreviewActive = previewCardKey === (card.key || card.path);
+            const cardYouTubeLink = youTubeLinkByKey.get(cardKey) || null;
+            const isPreviewActive = previewCardKey === cardKey;
             return (
               <article
-                key={card.key || card.path}
+                key={cardKey}
                 ref={(el) => {
-                  if (el) summaryCardRefs.current[card.key || card.path] = el;
-                  else delete summaryCardRefs.current[card.key || card.path];
+                  if (el) summaryCardRefs.current[cardKey] = el;
+                  else delete summaryCardRefs.current[cardKey];
                 }}
-                className={`canvas-summary-view__card${isActive ? ' is-active' : ''}${isPreviewActive ? ' is-source-preview-active' : ''}`}
+                className={`canvas-summary-view__card${isCardActive ? ' is-active' : ''}${isPreviewActive ? ' is-source-preview-active' : ''}`}
                 onMouseEnter={() => showPreviewForCard(card)}
                 onMouseLeave={() => {
                   setHoveredTopicKey((current) => (current === card.path ? null : current));
+                  setHoveredTopicCardKey?.((current) => (current === cardKey ? null : current));
                   schedulePreviewHide(card);
                 }}
                 onClick={() => {
                   if (!canShowSourceSentences) return;
                   setLockedPreviewKey((current) => {
-                    const key = card.key || card.path;
-                    if (current === key) {
+                    if (current === cardKey) {
                       setHoveredSummaryKey(null);
                       return null;
                     }
                     showPreviewForCard(card, { immediate: true });
-                    return key;
+                    return cardKey;
                   });
                 }}
                 onKeyDown={(event) => {

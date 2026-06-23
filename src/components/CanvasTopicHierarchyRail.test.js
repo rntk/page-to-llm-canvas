@@ -59,7 +59,9 @@ describe('CanvasTopicHierarchyRail', () => {
     railWidth: 200,
     cardWidth: 180,
     activeTopicKey: null,
+    activeTopicCardKey: null,
     selectedTopicKey: null,
+    selectedTopicCardKey: null,
     onTopicEnter: vi.fn(),
     onTopicLeave: vi.fn(),
     onTopicClick: vi.fn(),
@@ -136,14 +138,14 @@ describe('CanvasTopicHierarchyRail', () => {
     act(() => {
       buttons[1].dispatchEvent(mouseOverEvent);
     });
-    expect(onTopicEnter).toHaveBeenCalledWith('Topic A > Sub B');
+    expect(onTopicEnter).toHaveBeenCalledWith('Topic A > Sub B', 'card2');
 
     // leave card2
     const mouseOutEvent = new MouseEvent('mouseout', { bubbles: true });
     act(() => {
       buttons[1].dispatchEvent(mouseOutEvent);
     });
-    expect(onTopicLeave).toHaveBeenCalledWith('Topic A > Sub B');
+    expect(onTopicLeave).toHaveBeenCalledWith('Topic A > Sub B', 'card2');
 
     // click card2
     act(() => {
@@ -165,6 +167,43 @@ describe('CanvasTopicHierarchyRail', () => {
     expect(contextMenuEvent.preventDefault).toHaveBeenCalled();
     expect(onToggleRead).toHaveBeenCalledWith('Topic A > Sub B');
 
+    unmount();
+  });
+
+  it('uses card keys for active and selected styling when duplicate path cards exist', () => {
+    const duplicatePathCards = [
+      {
+        ...defaultProps.topicCards[1],
+        key: 'sub-b-run-1',
+        top: 80,
+        startSentence: 6,
+        endSentence: 8,
+      },
+      {
+        ...defaultProps.topicCards[1],
+        key: 'sub-b-run-2',
+        top: 180,
+        startSentence: 15,
+        endSentence: 17,
+      },
+    ];
+
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        topicCards: duplicatePathCards,
+        activeTopicKey: 'Topic A > Sub B',
+        activeTopicCardKey: 'sub-b-run-2',
+        selectedTopicKey: 'Topic A > Sub B',
+        selectedTopicCardKey: 'sub-b-run-2',
+      }),
+    );
+
+    const buttons = container.querySelectorAll('.canvas-topic-hierarchy__card');
+    expect(buttons[0].className).not.toContain('is-active');
+    expect(buttons[0].className).not.toContain('is-selected');
+    expect(buttons[1].className).toContain('is-active');
+    expect(buttons[1].className).toContain('is-selected');
     unmount();
   });
 

@@ -33,7 +33,9 @@ import { retryRecord, resolveSummaryErrors } from './utils/errorUtils.js';
 import {
   buildTopicNavigationList,
   findTopicNavigationTarget,
+  getTopicNavigationCardKey,
   getTopicNavigationCardTop,
+  getTopicNavigationTopicKey,
 } from './topicNavigation.js';
 
 /** Second CSS Custom Highlight name, used for the hovered (not selected) topic. */
@@ -82,7 +84,15 @@ export default function App({ initialKey }) {
   const [showSummaryMode, setShowSummaryMode] = useState(false);
   const [showTopicHierarchy, setShowTopicHierarchy] = useState(true);
   const [selectedTopicKey, setSelectedTopicKey] = useState(null);
+  const [selectedTopicCardKey, setSelectedTopicCardKey] = useState(null);
+  // Mirrored in a ref so callbacks can read the current selection without taking
+  // it as a dependency (keeps their identity stable across selection changes).
+  const selectedTopicCardKeyRef = useRef(selectedTopicCardKey);
+  useEffect(() => {
+    selectedTopicCardKeyRef.current = selectedTopicCardKey;
+  }, [selectedTopicCardKey]);
   const [hoveredTopicKey, setHoveredTopicKey] = useState(null);
+  const [hoveredTopicCardKey, setHoveredTopicCardKey] = useState(null);
   const [selectedLevel, setSelectedLevel] = useState(0);
   const [sentenceMetrics, setSentenceMetrics] = useState(() => new Map());
   const sentenceMetricsRef = useRef(sentenceMetrics);
@@ -265,6 +275,7 @@ export default function App({ initialKey }) {
   const stage = record?.progress?.stage || record?.status || 'loading';
 
   const activeTopicKey = hoveredTopicKey || selectedTopicKey;
+  const activeTopicCardKey = hoveredTopicCardKey || selectedTopicCardKey;
 
   // The single summary card shown to the left of the article for whichever topic
   // is currently hovered or selected in the rail. Suppressed in summary mode,
@@ -601,17 +612,22 @@ export default function App({ initialKey }) {
     [initialKey],
   );
 
-  const handleTopicEnter = useCallback((k) => {
+  const handleTopicEnter = useCallback((k, cardKey = null) => {
     setHoveredTopicKey(k);
+    setHoveredTopicCardKey(cardKey);
   }, []);
 
-  const handleTopicLeave = useCallback((k) => {
+  const handleTopicLeave = useCallback((k, cardKey = null) => {
     setHoveredTopicKey((cur) => (cur === k ? null : cur));
+    setHoveredTopicCardKey((cur) => (!cardKey || cur === cardKey ? null : cur));
   }, []);
 
   const handleTopicClick = useCallback(
     (k, card) => {
-      setSelectedTopicKey((cur) => (cur === k ? null : k));
+      const cardKey = card?.key || k;
+      const shouldDeselect = selectedTopicCardKeyRef.current === cardKey;
+      setSelectedTopicKey(shouldDeselect ? null : k);
+      setSelectedTopicCardKey(shouldDeselect ? null : cardKey);
       zoomToTopic(k, card);
     },
     [zoomToTopic],
@@ -619,7 +635,9 @@ export default function App({ initialKey }) {
 
   const handleCancelTopicSelection = useCallback(() => {
     setSelectedTopicKey(null);
+    setSelectedTopicCardKey(null);
     setHoveredTopicKey(null);
+    setHoveredTopicCardKey(null);
   }, []);
 
   const handleShowSourceSentences = useCallback(
@@ -629,6 +647,7 @@ export default function App({ initialKey }) {
       skipNextAlignment();
       pendingZoomSentenceRef.current = card.startSentence;
       setSelectedTopicKey(card.path);
+      setSelectedTopicCardKey(card.key || card.path);
       setShowSummaryMode(false);
     },
     [skipNextAlignment],
@@ -652,6 +671,7 @@ export default function App({ initialKey }) {
       const currentScale = scaleRef.current || 1;
       const currentTranslate = translateRef.current;
       const cardTop = getTopicNavigationCardTop(card, showSummaryMode, summaryMetricsState);
+      if (!Number.isFinite(cardTop)) return;
       setTransformNow(currentScale, {
         ...currentTranslate,
         y: wrap.clientHeight * 0.2 - cardTop * currentScale,
@@ -691,7 +711,9 @@ export default function App({ initialKey }) {
       captureAnchor(false);
       setSelectedLevel(level);
       setHoveredTopicKey(null);
+      setHoveredTopicCardKey(null);
       setSelectedTopicKey(null);
+      setSelectedTopicCardKey(null);
     },
     [captureAnchor, selectedLevel],
   );
@@ -719,6 +741,7 @@ export default function App({ initialKey }) {
         const currentY = -translateRef.current.y / (scaleRef.current || 1);
         const targetCard = findTopicNavigationTarget({
           list,
+          selectedNavigationKey: selectedTopicCardKey,
           selectedTopicKey,
           direction: directionByPosition[pos],
           currentY,
@@ -727,8 +750,10 @@ export default function App({ initialKey }) {
         });
 
         if (!targetCard) return;
-        const targetKey = showSummaryMode ? targetCard.path : targetCard.fullPath;
+        const targetKey = getTopicNavigationTopicKey(targetCard, showSummaryMode);
+        const targetCardKey = getTopicNavigationCardKey(targetCard, showSummaryMode);
         setSelectedTopicKey(targetKey);
+        setSelectedTopicCardKey(targetCardKey);
         panToTopic(targetCard);
       } else {
         navigateCanvas(pos);
@@ -740,6 +765,7 @@ export default function App({ initialKey }) {
       zoomAdjustedTopicCards,
       selectedLevel,
       selectedTopicKey,
+      selectedTopicCardKey,
       translateRef,
       scaleRef,
       summaryMetricsState,
@@ -797,9 +823,12 @@ export default function App({ initialKey }) {
                     <CanvasSummaryView
                       summaryViewCards={summaryCards}
                       summaryViewActivePath={activeTopicKey}
+                      summaryViewActiveCardKey={activeTopicCardKey}
                       summaryViewHoveredPath={hoveredTopicKey}
+                      summaryViewHoveredCardKey={hoveredTopicCardKey}
                       summaryCardRefs={summaryCardRefs}
                       setHoveredTopicKey={setHoveredTopicKey}
+                      setHoveredTopicCardKey={setHoveredTopicCardKey}
                       articleTextRef={articleTextRef}
                       onShowSourceSentences={handleShowSourceSentences}
                       articleHtml={articleHtml}
@@ -818,7 +847,9 @@ export default function App({ initialKey }) {
                     railWidth={railWidth}
                     cardWidth={cardWidth}
                     activeTopicKey={activeTopicKey}
+                    activeTopicCardKey={activeTopicCardKey}
                     selectedTopicKey={selectedTopicKey}
+                    selectedTopicCardKey={selectedTopicCardKey}
                     onTopicEnter={handleTopicEnter}
                     onTopicLeave={handleTopicLeave}
                     onTopicClick={handleTopicClick}

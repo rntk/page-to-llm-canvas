@@ -71,8 +71,8 @@ const TopicCard = React.memo(function TopicCard({
         '--topic-accent-color': accentColor,
         zIndex: isSelected ? 60 : isActive ? 50 : card.zIndex,
       }}
-      onMouseEnter={() => onTopicEnter(card.fullPath)}
-      onMouseLeave={() => onTopicLeave(card.fullPath)}
+      onMouseEnter={() => onTopicEnter(card.fullPath, sourceCard.key)}
+      onMouseLeave={() => onTopicLeave(card.fullPath, sourceCard.key)}
       onClick={() => {
         onTopicClick(card.fullPath, sourceCard);
         if (onToggleRead) {
@@ -132,9 +132,11 @@ const TopicCard = React.memo(function TopicCard({
  *   railWidth: number,
  *   cardWidth: number,
  *   activeTopicKey: string | null,
+ *   activeTopicCardKey?: string | null,
  *   selectedTopicKey: string | null,
- *   onTopicEnter: (topicKey: string) => void,
- *   onTopicLeave: (topicKey: string) => void,
+ *   selectedTopicCardKey?: string | null,
+ *   onTopicEnter: (topicKey: string, cardKey?: string) => void,
+ *   onTopicLeave: (topicKey: string, cardKey?: string) => void,
  *   onTopicClick: (topicKey: string, card: CanvasTopicCard) => void,
  *   onCancelTopicSelection: (() => void) | null,
  *   readTopics: Set<string> | string[] | null,
@@ -155,7 +157,9 @@ function CanvasTopicHierarchyRail({
   railWidth,
   cardWidth,
   activeTopicKey,
+  activeTopicCardKey,
   selectedTopicKey,
+  selectedTopicCardKey,
   onTopicEnter,
   onTopicLeave,
   onTopicClick,
@@ -204,6 +208,12 @@ function CanvasTopicHierarchyRail({
     hierarchyCards.forEach((card) => map.set(card.key, card));
     return map;
   }, [hierarchyCards]);
+  const hasActiveTopicCardKey = Boolean(
+    activeTopicCardKey && hierarchyCardsByKey.has(activeTopicCardKey),
+  );
+  const hasSelectedTopicCardKey = Boolean(
+    selectedTopicCardKey && hierarchyCardsByKey.has(selectedTopicCardKey),
+  );
   // Re-apply the zoom-dependent fields onto the cached geometry. `titleFontSize`
   // is the parent's already zoom-scaled base, re-capped to the final (possibly
   // compacted) card height — identical to running the full pipeline, minus the
@@ -341,8 +351,16 @@ function CanvasTopicHierarchyRail({
                 <TopicCard
                   key={card.key}
                   card={card}
-                  isActive={activeTopicKey === card.fullPath}
-                  isSelected={selectedTopicKey === card.fullPath}
+                  isActive={
+                    hasActiveTopicCardKey
+                      ? activeTopicCardKey === card.key
+                      : activeTopicKey === card.fullPath
+                  }
+                  isSelected={
+                    hasSelectedTopicCardKey
+                      ? selectedTopicCardKey === card.key
+                      : selectedTopicKey === card.fullPath
+                  }
                   isRead={isTopicRead(card.fullPath, safeReadTopics)}
                   accentColor={getCachedAccentColor(card.fullPath, card.depth)}
                   onTopicEnter={onTopicEnter}
