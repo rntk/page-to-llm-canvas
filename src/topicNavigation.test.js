@@ -97,10 +97,9 @@ describe('topic navigation helpers', () => {
     ).toBe('E > F');
   });
 
-  it('filters summary mode navigation to the selected summary depth', () => {
+  it('trusts already-filtered summaryCards in summary mode (no level re-filtering)', () => {
     const summaryCards = [
       { path: 'A', startSentence: 1, levelIndex: 0 },
-      { path: 'A > B', startSentence: 2, levelIndex: 1 },
       { path: 'C', startSentence: 3, levelIndex: 0 },
     ];
 
@@ -112,6 +111,24 @@ describe('topic navigation helpers', () => {
         selectedLevel: 0,
       }).map((card) => card.path),
     ).toEqual(['A', 'C']);
+  });
+
+  it('includes shallow leaf and deep leaf summary cards when both are visible at selectedLevel', () => {
+    // filterSummaryCardsByLevel keeps shallow leaves (Science at 0) when no deeper
+    // cards exist for that branch, even if selectedLevel is deeper (2).
+    const summaryCards = [
+      { path: 'Science', startSentence: 1, levelIndex: 0 },
+      { path: 'Tech > AI > Models', startSentence: 10, levelIndex: 2 },
+    ];
+
+    const result = buildTopicNavigationList({
+      showSummaryMode: true,
+      summaryCards,
+      topicCards: [],
+      selectedLevel: 2,
+    }).map((card) => card.path);
+
+    expect(result).toEqual(['Science', 'Tech > AI > Models']);
   });
 
   it('resolves summary card top from measured summary metrics', () => {

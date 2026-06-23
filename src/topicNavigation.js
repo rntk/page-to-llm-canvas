@@ -4,15 +4,22 @@ export function buildTopicNavigationList({
   topicCards,
   selectedLevel,
 }) {
-  const cards = showSummaryMode ? summaryCards : topicCards;
+  if (showSummaryMode) {
+    if (!Array.isArray(summaryCards)) return [];
+    return [...summaryCards].sort(
+      (a, b) => a.startSentence - b.startSentence || a.path.localeCompare(b.path),
+    );
+  }
+
+  const cards = topicCards;
   if (!Array.isArray(cards)) return [];
 
   return cards
     .filter((card) => card.levelIndex === selectedLevel)
     .slice()
     .sort((a, b) => {
-      const leftPath = showSummaryMode ? a.path : a.fullPath;
-      const rightPath = showSummaryMode ? b.path : b.fullPath;
+      const leftPath = a.fullPath;
+      const rightPath = b.fullPath;
       return a.startSentence - b.startSentence || leftPath.localeCompare(rightPath);
     });
 }
@@ -20,6 +27,25 @@ export function buildTopicNavigationList({
 export function getTopicNavigationCardTop(card, showSummaryMode, summaryMetricsState) {
   if (!showSummaryMode) return card.top ?? 0;
   return summaryMetricsState.get(card.key)?.top ?? summaryMetricsState.get(card.path)?.top ?? 0;
+}
+
+function findClosestCardIndex(indices, list, showSummaryMode, summaryMetricsState, currentY) {
+  if (!Array.isArray(indices) || indices.length === 0) return -1;
+  let bestIdx = indices[0];
+  let minDiff = Math.abs(
+    getTopicNavigationCardTop(list[bestIdx], showSummaryMode, summaryMetricsState) - currentY,
+  );
+  for (let i = 1; i < indices.length; i++) {
+    const idx = indices[i];
+    const diff = Math.abs(
+      getTopicNavigationCardTop(list[idx], showSummaryMode, summaryMetricsState) - currentY,
+    );
+    if (diff < minDiff) {
+      minDiff = diff;
+      bestIdx = idx;
+    }
+  }
+  return bestIdx;
 }
 
 export function findTopicNavigationTarget({
@@ -44,19 +70,16 @@ export function findTopicNavigationTarget({
     });
 
     if (matchingIndices.length > 0) {
-      let currentIndex = matchingIndices[0];
-      if (matchingIndices.length > 1) {
-        let minDiff = Infinity;
-        matchingIndices.forEach((idx) => {
-          const diff = Math.abs(
-            getTopicNavigationCardTop(list[idx], showSummaryMode, summaryMetricsState) - currentY,
-          );
-          if (diff < minDiff) {
-            minDiff = diff;
-            currentIndex = idx;
-          }
-        });
-      }
+      const currentIndex =
+        matchingIndices.length === 1
+          ? matchingIndices[0]
+          : findClosestCardIndex(
+              matchingIndices,
+              list,
+              showSummaryMode,
+              summaryMetricsState,
+              currentY,
+            );
 
       targetIndex =
         direction === 'next'
@@ -66,16 +89,14 @@ export function findTopicNavigationTarget({
   }
 
   if (targetIndex === -1) {
-    let minDiff = Infinity;
-    list.forEach((card, idx) => {
-      const diff = Math.abs(
-        getTopicNavigationCardTop(card, showSummaryMode, summaryMetricsState) - currentY,
-      );
-      if (diff < minDiff) {
-        minDiff = diff;
-        targetIndex = idx;
-      }
-    });
+    const allIndices = list.map((_, idx) => idx);
+    targetIndex = findClosestCardIndex(
+      allIndices,
+      list,
+      showSummaryMode,
+      summaryMetricsState,
+      currentY,
+    );
   }
 
   return list[targetIndex] || null;
