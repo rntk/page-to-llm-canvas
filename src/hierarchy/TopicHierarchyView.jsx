@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { buildTopicTree, countLeafDescendants } from '../utils/topicTree.js';
 import {
   getHierarchyTopicHighlightColor,
@@ -13,7 +13,7 @@ function getSentenceCount(topic) {
   return Array.isArray(topic?.sentences) ? topic.sentences.length : 0;
 }
 
-function getLeafSummary(node, summaryLookup) {
+function getNodeSummary(node, summaryLookup) {
   return (
     getSummaryText(node.topic?.summary) ||
     getSummaryText(node.topic?.topic_summary) ||
@@ -22,6 +22,28 @@ function getLeafSummary(node, summaryLookup) {
     summaryLookup.get(spacedTopicPath(node.fullPath)) ||
     ''
   );
+}
+
+/**
+ * Effective vertical span (in leaf-rows) for each node given the current
+ * collapsed set. A collapsed branch shrinks to a single row, so its ancestors
+ * shrink too; without this the parent's reserved row-span would leave a gap.
+ * Returns a Map keyed by node.uid.
+ */
+function buildSpanMap(roots, collapsedPaths) {
+  const map = new Map();
+  const compute = (entry) => {
+    const children = Array.from(entry.children.values());
+    if (children.length === 0 || collapsedPaths.has(entry.node.fullPath)) {
+      map.set(entry.node.uid, 1);
+      return 1;
+    }
+    const span = children.reduce((total, child) => total + compute(child), 0);
+    map.set(entry.node.uid, span);
+    return span;
+  };
+  roots.forEach(compute);
+  return map;
 }
 
 function getCachedHierarchyColors(fullPath, depth) {
@@ -42,6 +64,9 @@ const HierarchyNode = React.memo(function HierarchyNode({
   entry,
   summaryLookup,
   selectedTopicPath,
+  collapsedPaths,
+  spanMap,
+  onToggleCollapse,
   onTopicClick,
 }) {
   const { node } = entry;
@@ -55,7 +80,7 @@ const HierarchyNode = React.memo(function HierarchyNode({
 
   if (isLeaf) {
     const sentenceCount = getSentenceCount(node.topic);
-    const summary = getLeafSummary(node, summaryLookup);
+    const summary = getNodeSummary(node, summaryLookup);
     return (
       <div className="th-leaf-row">
         <div
@@ -81,23 +106,70 @@ const HierarchyNode = React.memo(function HierarchyNode({
     );
   }
 
-  return (
-    <div
-      className="th-node"
-      style={{ '--th-row-span': entry.leafCount ?? countLeafDescendants(entry) }}
+  const isCollapsed = collapsedPaths.has(node.fullPath);
+  const cardStyle = {
+    borderLeftColor: accentColor,
+    '--th-accent-color': accentColor,
+    '--th-card-bg': highlightColor,
+    '--th-card-bg-dark': highlightColorDark,
+  };
+
+  const handleToggle = (event) => {
+    // Keep the fold toggle separate from the card's scroll-to-sentences click so
+    // the (large) button cannot accidentally trigger a navigation redirect.
+    event.stopPropagation();
+    onToggleCollapse?.(node.fullPath);
+  };
+
+  const toggleButton = (
+    <button
+      type="button"
+      className="th-node__toggle"
+      onClick={handleToggle}
+      aria-expanded={!isCollapsed}
+      aria-label={isCollapsed ? `Expand ${node.name}` : `Collapse ${node.name}`}
+      title={isCollapsed ? 'Show sub-topics' : 'Collapse sub-topics'}
     >
+      <span aria-hidden="true">{isCollapsed ? '›' : '‹'}</span>
+    </button>
+  );
+
+  if (isCollapsed) {
+    const summary = getNodeSummary(node, summaryLookup);
+    return (
+      <div className="th-node th-node--collapsed" style={{ '--th-row-span': 1 }}>
+        <div
+          className={`th-node__label ${isSelected ? 'is-selected' : ''}`}
+          style={cardStyle}
+          title={node.fullPath.replace(/>/g, ' ')}
+          onClick={() => onTopicClick?.(entry)}
+        >
+          <span className="th-node__label-content">
+            {toggleButton}
+            <span className="th-node__label-text">{node.name}</span>
+          </span>
+        </div>
+        {summary && (
+          <div className="th-node__summary" title={summary}>
+            {summary}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const rowSpan = spanMap.get(node.uid) ?? entry.leafCount ?? countLeafDescendants(entry);
+
+  return (
+    <div className="th-node" style={{ '--th-row-span': rowSpan }}>
       <div
         className={`th-node__label ${isSelected ? 'is-selected' : ''}`}
-        style={{
-          borderLeftColor: accentColor,
-          '--th-accent-color': accentColor,
-          '--th-card-bg': highlightColor,
-          '--th-card-bg-dark': highlightColorDark,
-        }}
+        style={cardStyle}
         title={node.fullPath.replace(/>/g, ' ')}
         onClick={() => onTopicClick?.(entry)}
       >
         <span className="th-node__label-content">
+          {toggleButton}
           <span className="th-node__label-text">{node.name}</span>
           <span className="th-node__drill" aria-hidden="true"></span>
         </span>
@@ -109,6 +181,9 @@ const HierarchyNode = React.memo(function HierarchyNode({
             entry={child}
             summaryLookup={summaryLookup}
             selectedTopicPath={selectedTopicPath}
+            collapsedPaths={collapsedPaths}
+            spanMap={spanMap}
+            onToggleCollapse={onToggleCollapse}
             onTopicClick={onTopicClick}
           />
         ))}
@@ -130,6 +205,21 @@ export default function TopicHierarchyView({
     [topicSummaries, topicSummaryIndex],
   );
 
+  const [collapsedPaths, setCollapsedPaths] = useState(() => new Set());
+  const handleToggleCollapse = useCallback((fullPath) => {
+    setCollapsedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(fullPath)) {
+        next.delete(fullPath);
+      } else {
+        next.add(fullPath);
+      }
+      return next;
+    });
+  }, []);
+
+  const spanMap = useMemo(() => buildSpanMap(roots, collapsedPaths), [roots, collapsedPaths]);
+
   if (roots.length === 0) {
     return <div className="th-empty">No topics available.</div>;
   }
@@ -142,6 +232,9 @@ export default function TopicHierarchyView({
           entry={root}
           summaryLookup={summaryLookup}
           selectedTopicPath={selectedTopicPath}
+          collapsedPaths={collapsedPaths}
+          spanMap={spanMap}
+          onToggleCollapse={handleToggleCollapse}
           onTopicClick={onTopicClick}
         />
       ))}

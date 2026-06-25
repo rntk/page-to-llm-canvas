@@ -198,6 +198,9 @@
       ((var(--th-row-span, 1) - 1) * var(--th-row-gap))
   );
   gap: var(--th-row-gap);
+  /* Smoothly resize (and reflow siblings) when a branch folds/unfolds rather
+     than snapping. Only min-height changes on toggle, so this stays cheap. */
+  transition: min-height 0.2s ease;
 }
 
 .th-node__label {
@@ -259,12 +262,76 @@
   opacity: 0.7;
 }
 
+/* Fold/collapse toggle. Sits flush against the card's left edge as a flat
+   segment, divided from the title so it reads as a distinct control and can't
+   be mistaken for the card's scroll-to-sentences click. Inherits the card fill
+   and matches the flat, square card styling (no radius); the divider uses
+   --th-border, which is already theme-aware. */
+.th-node__toggle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  width: 36px;
+  margin: -6px 8px -6px -10px;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid var(--th-border);
+  background: transparent;
+  color: inherit;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+.th-node__toggle:hover {
+  opacity: 1;
+}
+
+.th-node__toggle:focus-visible {
+  outline: 2px solid var(--th-accent-color, var(--th-accent));
+  outline-offset: -2px;
+}
+
+/* Collapsed branch: a single row showing the topic's own summary in place of
+   its hidden sub-topics. */
+.th-node--collapsed .th-node__label {
+  align-items: center;
+}
+
+.th-node--collapsed .th-node__label-content {
+  position: static;
+  top: auto;
+}
+
+.th-node__summary {
+  flex: 1 1 auto;
+  align-self: center;
+  min-width: 0;
+  padding-left: 8px;
+  color: var(--th-summary);
+  font-size: 20px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: text;
+  /* Eases the summary in when a branch is folded. */
+  animation: thFoldSummaryIn 0.2s ease-out;
+}
+
 .th-node__children {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   min-width: 0;
   gap: var(--th-row-gap);
+  /* Eases sub-topics in when a branch is unfolded. Opacity only: a transform
+     here would briefly break the sticky positioning of descendant labels. */
+  animation: thFadeIn 0.2s ease-out;
 }
 
 .th-leaf-row {
@@ -380,6 +447,40 @@
   to {
     transform: translateX(0);
     opacity: 1;
+  }
+}
+
+/* Fold/unfold easing for topic branches (see .th-node__children / __summary). */
+@keyframes thFadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes thFoldSummaryIn {
+  from {
+    transform: translateX(-6px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .th-node {
+    transition: none;
+  }
+
+  .th-node__children,
+  .th-node__summary {
+    animation: none;
   }
 }
 

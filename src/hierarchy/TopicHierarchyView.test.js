@@ -118,4 +118,53 @@ describe('TopicHierarchyView', () => {
 
     unmount();
   });
+
+  it('folds a non-leaf topic via its toggle without triggering navigation, showing its own summary', () => {
+    const onTopicClick = vi.fn();
+    const mockTopics = [
+      { name: 'Fruit > Apple', sentences: [1, 2] },
+      { name: 'Fruit > Banana', sentences: [3] },
+      { name: 'Veggie', sentences: [10] },
+    ];
+    const mockSummaries = {
+      Fruit: { text: 'Fruit overview summary' },
+    };
+
+    const { container, unmount } = render(
+      createElement(TopicHierarchyView, {
+        topics: mockTopics,
+        topicSummaries: mockSummaries,
+        topicSummaryIndex: {},
+        selectedTopicPath: null,
+        onTopicClick,
+      }),
+    );
+
+    // Leaf topics have no toggle; only the non-leaf "Fruit" node does.
+    const toggles = container.querySelectorAll('.th-node__toggle');
+    expect(toggles.length).toBe(1);
+
+    // Expanded by default: Apple + Banana leaf rows are visible.
+    expect(container.textContent).toContain('Apple');
+    expect(container.textContent).toContain('Banana');
+    expect(container.querySelector('.th-node--collapsed')).toBeNull();
+
+    // Clicking the toggle folds the branch and must NOT redirect to sentences.
+    act(() => toggles[0].click());
+    expect(onTopicClick).not.toHaveBeenCalled();
+
+    const collapsed = container.querySelector('.th-node--collapsed');
+    expect(collapsed).not.toBeNull();
+    // Children are hidden, the node's own summary is shown instead.
+    expect(container.textContent).not.toContain('Apple');
+    expect(container.textContent).not.toContain('Banana');
+    expect(collapsed.textContent).toContain('Fruit overview summary');
+
+    // Clicking again expands it back.
+    act(() => container.querySelector('.th-node__toggle').click());
+    expect(container.querySelector('.th-node--collapsed')).toBeNull();
+    expect(container.textContent).toContain('Apple');
+
+    unmount();
+  });
 });
