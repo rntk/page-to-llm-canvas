@@ -722,25 +722,27 @@
   align-items: center;
   gap: 0.45em;
   flex: 0 0 auto;
-  padding: 0.27em 0.73em;
-  border-radius: 999px;
-  background: rgb(255 0 0 / 10%);
-  color: #f00;
+  padding: 0.3em 0.4em;
+  background: transparent;
+  color: #9c3a33;
   font-family: var(--font-data);
   font-size: 11px;
   font-weight: 700;
+  letter-spacing: 0.02em;
   line-height: 1;
   text-decoration: none;
   white-space: nowrap;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease;
+  transition: color 0.15s ease;
 }
 
 .canvas-youtube-timestamp:hover,
 .canvas-youtube-timestamp:focus-visible {
-  background: #f00;
-  color: #fff;
+  color: #7c2d28;
+}
+
+.canvas-youtube-timestamp:hover .canvas-youtube-timestamp__label,
+.canvas-youtube-timestamp:focus-visible .canvas-youtube-timestamp__label {
+  text-decoration: underline;
 }
 
 .canvas-youtube-timestamp__icon {
