@@ -117,6 +117,35 @@
   cursor: not-allowed;
 }
 
+/* Re-theme the shared TopicLevelSwitcher to the hierarchy's paper/ink chrome so
+   it matches the neighbouring Fold/Unfold action buttons (its base layout comes
+   from modal.css; only the colors/sizing are overridden here). */
+.th-page__level-switcher .topic-level-switcher__label {
+  color: var(--th-muted);
+}
+
+.th-page__level-switcher .topic-level-switcher__button {
+  height: 32px;
+  padding: 0 10px;
+  border-color: var(--th-border-strong);
+  background: var(--th-surface);
+  color: var(--th-accent);
+  font-size: 12px;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.th-page__level-switcher .topic-level-switcher__button:hover {
+  background: var(--th-accent);
+  border-color: var(--th-accent);
+  color: var(--th-surface);
+}
+
+.th-page__level-switcher .topic-level-switcher__button.active {
+  background: var(--th-strong-bg);
+  border-color: var(--th-strong-bg);
+  color: var(--th-strong-fg);
+}
+
 .th-page__body {
   flex: 1 1 auto;
   min-height: 0;

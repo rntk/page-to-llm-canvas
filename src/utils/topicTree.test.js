@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildTopicTree, countLeafDescendants } from './topicTree.js';
+import { buildTopicTree, collectNonLeafPaths, countLeafDescendants } from './topicTree.js';
 
 describe('buildTopicTree', () => {
   it('returns empty array for null input', () => {
@@ -140,6 +140,34 @@ describe('buildTopicTree', () => {
     expect(root.parent).toBeNull();
     const child = Array.from(root.children.values())[0];
     expect(child.parent).toBe(root);
+  });
+});
+
+describe('collectNonLeafPaths', () => {
+  const topics = [
+    { name: 'Fruit > Citrus > Orange' },
+    { name: 'Fruit > Citrus > Lemon' },
+    { name: 'Fruit > Berry' },
+    { name: 'Veggie' },
+  ];
+
+  it('returns every branch path in pre-order with no minDepth', () => {
+    const roots = buildTopicTree(topics, 0);
+    expect(collectNonLeafPaths(roots)).toEqual(['Fruit', 'Fruit>Citrus']);
+  });
+
+  it('restricts to branches at or below minDepth', () => {
+    const roots = buildTopicTree(topics, 0);
+    expect(collectNonLeafPaths(roots, { minDepth: 1 })).toEqual(['Fruit>Citrus']);
+  });
+
+  it('returns no paths when minDepth is deeper than any branch', () => {
+    const roots = buildTopicTree(topics, 0);
+    expect(collectNonLeafPaths(roots, { minDepth: 2 })).toEqual([]);
+  });
+
+  it('handles a nullish roots argument', () => {
+    expect(collectNonLeafPaths(null)).toEqual([]);
   });
 });
 

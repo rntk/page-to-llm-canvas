@@ -5,7 +5,9 @@ import { getSentencesForNode } from './hierarchyUtils.js';
 import { closeModal } from '../closeModal.js';
 import { splitError, retryRecord } from '../utils/errorUtils.js';
 import ErrorDetails from '../components/ErrorDetails.jsx';
-import { buildTopicTree } from '../utils/topicTree.js';
+import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
+import { buildTopicTree, collectNonLeafPaths } from '../utils/topicTree.js';
+import { getMaxTopicLevel } from '../topicCards.js';
 import './hierarchy.css';
 
 export default function HierarchyApp({ initialKey }) {
@@ -57,26 +59,32 @@ export default function HierarchyApp({ initialKey }) {
 
   const [prevInitialKey, setPrevInitialKey] = useState(initialKey);
   const [collapsedPaths, setCollapsedPaths] = useState(() => new Set());
+  // `null` means "follow the deepest level" so the view starts fully unfolded
+  // (leaf level selected) and tracks maxLevel until the user picks a level —
+  // important because `topics` (and thus maxLevel) load asynchronously.
+  const [selectedLevel, setSelectedLevel] = useState(null);
 
   if (initialKey !== prevInitialKey) {
     setPrevInitialKey(initialKey);
     setCollapsedPaths(new Set());
+    setSelectedLevel(null);
   }
 
   const roots = useMemo(() => buildTopicTree(topics, 0), [topics]);
+  const maxLevel = useMemo(() => getMaxTopicLevel(topics), [topics]);
+  const effectiveLevel = selectedLevel === null ? maxLevel : selectedLevel;
 
-  const allNonLeafPaths = useMemo(() => {
-    const paths = [];
-    const traverse = (entry) => {
-      const children = Array.from(entry.children.values());
-      if (children.length > 0) {
-        paths.push(entry.node.fullPath);
-        children.forEach(traverse);
-      }
-    };
-    roots.forEach(traverse);
-    return paths;
-  }, [roots]);
+  const allNonLeafPaths = useMemo(() => collectNonLeafPaths(roots), [roots]);
+
+  // Fold the tree down to `level`: collapse every branch at that depth or deeper
+  // so only levels 0..level stay visible, mirroring the canvas rail's level pick.
+  const handleSelectLevel = useCallback(
+    (level) => {
+      setSelectedLevel(level);
+      setCollapsedPaths(new Set(collectNonLeafPaths(roots, { minDepth: level })));
+    },
+    [roots],
+  );
 
   const handleToggleCollapse = useCallback((fullPath) => {
     setCollapsedPaths((prev) => {
@@ -172,10 +180,21 @@ export default function HierarchyApp({ initialKey }) {
       <header className="th-page__bar">
         <h1 className="th-page__title">Topic Hierarchy and Summaries</h1>
         <div className="th-page__actions">
+          {isDone && topics.length > 0 && maxLevel > 0 && (
+            <TopicLevelSwitcher
+              className="th-page__level-switcher"
+              selectedLevel={effectiveLevel}
+              maxLevel={maxLevel}
+              onChange={handleSelectLevel}
+            />
+          )}
           <button
             type="button"
             className="th-page__action-btn"
-            onClick={() => setCollapsedPaths(new Set(allNonLeafPaths))}
+            onClick={() => {
+              setSelectedLevel(0);
+              setCollapsedPaths(new Set(allNonLeafPaths));
+            }}
             disabled={!isDone || topics.length === 0}
             title="Fold all topics"
           >
@@ -184,7 +203,10 @@ export default function HierarchyApp({ initialKey }) {
           <button
             type="button"
             className="th-page__action-btn"
-            onClick={() => setCollapsedPaths(new Set())}
+            onClick={() => {
+              setSelectedLevel(maxLevel);
+              setCollapsedPaths(new Set());
+            }}
             disabled={!isDone || topics.length === 0}
             title="Unfold all topics"
           >

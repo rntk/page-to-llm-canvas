@@ -141,6 +141,46 @@ describe('HierarchyApp', () => {
     unmount();
   });
 
+  it('folds the tree to a chosen level via the level switcher', () => {
+    const mockRecord = {
+      status: 'done',
+      topics: [
+        { name: 'Fruit > Citrus > Orange', sentences: [1] },
+        { name: 'Fruit > Citrus > Lemon', sentences: [2] },
+        { name: 'Veggie', sentences: [3] },
+      ],
+      topic_summaries: {},
+      topic_summary_index: {},
+    };
+    useRecord.mockReturnValue({ record: mockRecord, error: null });
+
+    const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
+
+    // Starts fully unfolded with the deepest (leaf) level selected.
+    const levelButtons = Array.from(
+      container.querySelectorAll('.th-page__level-switcher .topic-level-switcher__button'),
+    );
+    expect(levelButtons.map((b) => b.textContent)).toEqual(['L0', 'L1', 'L2']);
+    expect(levelButtons[2].classList.contains('active')).toBe(true);
+    expect(container.textContent).toContain('Orange');
+    expect(container.textContent).toContain('Lemon');
+
+    // Pick level 1: branches at depth >= 1 collapse, so Citrus folds and hides
+    // its leaves while the level-0 "Fruit"/"Veggie" stay visible.
+    act(() => levelButtons[1].click());
+    expect(container.textContent).toContain('Citrus');
+    expect(container.textContent).not.toContain('Orange');
+    expect(container.textContent).not.toContain('Lemon');
+    expect(container.querySelector('.th-node--collapsed')).not.toBeNull();
+
+    const activeAfter = container.querySelector(
+      '.th-page__level-switcher .topic-level-switcher__button.active',
+    );
+    expect(activeAfter.textContent).toBe('L1');
+
+    unmount();
+  });
+
   it('pulls focus into the iframe and scrollable body on mount', () => {
     const focusSpy = vi.spyOn(window, 'focus').mockImplementation(() => {});
     const mockRecord = {

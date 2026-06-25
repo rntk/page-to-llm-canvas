@@ -59,6 +59,31 @@ function computeLeafCount(entry) {
 }
 
 /**
+ * Collect the `fullPath` of every non-leaf (branch) node in a topic tree, in
+ * pre-order. Optionally restrict to nodes at or below a minimum depth so callers
+ * can fold the tree down to a chosen level: collapsing every branch with
+ * `depth >= minDepth` hides everything deeper while leaving levels above intact
+ * (the fold-tree analogue of the canvas rail's `levelIndex <= selectedLevel`).
+ *
+ * @param {Array<{node: {fullPath: string, depth: number}, children: Map<string, any>}>} roots
+ * @param {{minDepth?: number}} [options]
+ * @returns {string[]}
+ */
+export function collectNonLeafPaths(roots, { minDepth = 0 } = {}) {
+  const paths = [];
+  const traverse = (entry) => {
+    const children = Array.from(entry.children.values());
+    if (children.length === 0) return;
+    if (entry.node.depth >= minDepth) {
+      paths.push(entry.node.fullPath);
+    }
+    children.forEach(traverse);
+  };
+  (Array.isArray(roots) ? roots : []).forEach(traverse);
+  return paths;
+}
+
+/**
  * Number of leaf descendants under an entry (1 for a leaf). Used to size a
  * branch row so its children column lines up vertically.
  *
