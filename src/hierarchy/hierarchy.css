@@ -1,27 +1,26 @@
 .th-page {
-  /* Light palette (defaults). The dark overrides at the end of this file remap
-     these variables; light defaults are byte-identical to the original colors,
-     so light mode renders exactly as before. */
-  --th-page-bg: #f8fafc;
-  --th-fg: #1f2933;
-  --th-surface: #fff;
-  --th-surface-2: #f1f5f9;
-  --th-hover: #e2e8f0;
-  --th-border: #d1d5db;
-  --th-border-strong: #cbd5e1;
-  --th-border-hover: #94a3b8;
-  --th-muted: #6b7280;
-  --th-text-secondary: #334155;
-  --th-text-tertiary: #4b5563;
-  --th-summary: #475569;
-  --th-title: #0f172a;
-  --th-subtitle: #64748b;
-  --th-paragraph: #1e293b;
+  /* Mirrors modal.css' Editorial Absolute tokens so the standalone hierarchy
+     route keeps the same paper/ink chrome as the canvas view. */
+  --th-page-bg: var(--surface-low, #f2f3f5);
+  --th-fg: var(--on-surface, #141414);
+  --th-surface: var(--surface, #fff);
+  --th-surface-2: var(--surface-low, #f2f3f5);
+  --th-hover: var(--pagetollm-highlight-hover-color, rgb(58 64 77 / 8%));
+  --th-border: var(--ghost, rgb(0 0 0 / 20%));
+  --th-border-strong: var(--ink, #000);
+  --th-border-hover: var(--ink, #000);
+  --th-muted: var(--on-surface-muted, #5f646b);
+  --th-text-secondary: var(--accent, #3a404d);
+  --th-text-tertiary: var(--on-surface-muted, #5f646b);
+  --th-summary: var(--on-surface-muted, #5f646b);
+  --th-title: var(--ink, #000);
+  --th-subtitle: var(--on-surface-muted, #5f646b);
+  --th-paragraph: var(--on-surface, #141414);
   --th-error-fg: #dc2626;
-  --th-error-border: #fee2e2;
-  --th-accent: #3b82f6;
-  --th-strong-bg: #1f2933;
-  --th-strong-fg: #fff;
+  --th-error-border: var(--ink, #000);
+  --th-accent: var(--accent, #3a404d);
+  --th-strong-bg: var(--ink, #000);
+  --th-strong-fg: var(--surface, #fff);
 
   display: flex;
   flex-direction: column;
@@ -29,7 +28,17 @@
   margin: 0;
   background: var(--th-page-bg);
   color: var(--th-fg);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(
+    --font-data,
+    'Work Sans',
+    -apple-system,
+    blinkmacsystemfont,
+    'Segoe UI',
+    roboto,
+    oxygen,
+    ubuntu,
+    sans-serif
+  );
   box-sizing: border-box;
 }
 
@@ -38,15 +47,16 @@
   align-items: center;
   justify-content: space-between;
   flex: 0 0 auto;
-  gap: 6px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--th-border);
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--th-border-strong);
   background: var(--th-surface);
 }
 
 .th-page__title {
   margin: 0;
-  font-size: 18px;
+  color: var(--th-title);
+  font-size: 16px;
   font-weight: 700;
 }
 
@@ -57,16 +67,19 @@
   width: 32px;
   height: 32px;
   border: 1px solid var(--th-border-strong);
-  border-radius: 6px;
+  border-radius: 0;
   background: var(--th-surface);
-  color: var(--th-text-secondary);
+  color: var(--th-accent);
   cursor: pointer;
   font-size: 20px;
+  font-weight: 700;
   line-height: 1;
 }
 
 .th-page__close:hover {
-  background: var(--th-hover);
+  background: var(--th-accent);
+  border-color: var(--th-accent);
+  color: var(--th-surface);
 }
 
 .th-page__body {
@@ -90,10 +103,7 @@
   padding: 32px;
   background: var(--th-surface);
   border: 1px solid var(--th-error-border);
-  border-radius: 8px;
-  box-shadow:
-    0 4px 6px -1px rgb(0 0 0 / 5%),
-    0 2px 4px -1px rgb(0 0 0 / 5%);
+  border-radius: 0;
   text-align: center;
 }
 
@@ -154,8 +164,7 @@
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  border-radius: 6px;
-  transition: all 0.2s ease;
+  border-radius: 0;
 }
 
 .th-page__retry-btn:hover {
@@ -167,16 +176,15 @@
   padding: 8px 18px;
   background: var(--th-surface);
   color: var(--th-fg);
-  border: 1px solid var(--th-border);
+  border: 1px solid var(--th-border-strong);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  border-radius: 6px;
-  transition: all 0.2s ease;
+  border-radius: 0;
 }
 
 .th-page__close-btn:hover {
-  background: var(--th-hover);
+  background: var(--th-surface-2);
 }
 
 .th-root {
@@ -198,6 +206,7 @@
       ((var(--th-row-span, 1) - 1) * var(--th-row-gap))
   );
   gap: var(--th-row-gap);
+
   /* Smoothly resize (and reflow siblings) when a branch folds/unfolds rather
      than snapping. Only min-height changes on toggle, so this stays cheap. */
   transition: min-height 0.2s ease;
@@ -212,6 +221,7 @@
   font-weight: 600;
   color: var(--th-fg);
   background-color: var(--th-card-bg);
+  border: 1px solid var(--th-border);
   border-left: 3px solid transparent;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -222,15 +232,12 @@
 
 .th-node__label:hover {
   filter: brightness(0.96);
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 5%);
+  border-color: var(--th-border-strong);
 }
 
 .th-node__label.is-selected {
   outline: 2px solid var(--th-accent-color, var(--th-accent));
   outline-offset: -2px;
-  box-shadow:
-    0 4px 6px -1px rgb(0 0 0 / 10%),
-    0 2px 4px -1px rgb(0 0 0 / 6%);
   font-weight: 700;
 }
 
@@ -319,6 +326,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   user-select: text;
+
   /* Eases the summary in when a branch is folded. */
   animation: thFoldSummaryIn 0.2s ease-out;
 }
@@ -329,6 +337,7 @@
   flex-direction: column;
   min-width: 0;
   gap: var(--th-row-gap);
+
   /* Eases sub-topics in when a branch is unfolded. Opacity only: a transform
      here would briefly break the sticky positioning of descendant labels. */
   animation: thFadeIn 0.2s ease-out;
@@ -358,6 +367,7 @@
   font-size: 16px;
   color: var(--th-fg);
   background-color: var(--th-card-bg);
+  border: 1px solid var(--th-border);
   border-left: 3px solid transparent;
   overflow: hidden;
   user-select: none;
@@ -367,15 +377,12 @@
 
 .th-leaf:hover {
   filter: brightness(0.96);
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 5%);
+  border-color: var(--th-border-strong);
 }
 
 .th-leaf.is-selected {
   outline: 2px solid var(--th-accent-color, var(--th-accent));
   outline-offset: -2px;
-  box-shadow:
-    0 4px 6px -1px rgb(0 0 0 / 10%),
-    0 2px 4px -1px rgb(0 0 0 / 6%);
   font-weight: 700;
 }
 
@@ -526,7 +533,7 @@
   width: 28px;
   height: 28px;
   border: 1px solid var(--th-border-strong);
-  border-radius: 6px;
+  border-radius: 0;
   background: var(--th-surface);
   color: var(--th-text-secondary);
   cursor: pointer;
@@ -583,50 +590,50 @@
    root, or when no explicit preference is set ("system") and the OS prefers
    dark. Only the variables above are remapped; layout rules are untouched. */
 :root[data-theme='dark'] .th-page {
-  --th-page-bg: #16181d;
-  --th-fg: #e6e8ec;
-  --th-surface: #1f232b;
-  --th-surface-2: #2a2f38;
-  --th-hover: #2f343d;
-  --th-border: #3a4049;
-  --th-border-strong: #454c57;
-  --th-border-hover: #6b7480;
-  --th-muted: #9aa3af;
-  --th-text-secondary: #c3c9d2;
-  --th-text-tertiary: #aeb6c0;
-  --th-summary: #b3bcc8;
-  --th-title: #f1f3f6;
-  --th-subtitle: #94a0b0;
-  --th-paragraph: #d7dbe2;
+  --th-page-bg: var(--surface-low, #141519);
+  --th-fg: var(--on-surface, #ececec);
+  --th-surface: var(--surface, #1b1d22);
+  --th-surface-2: var(--surface-highest, #24272e);
+  --th-hover: var(--pagetollm-highlight-hover-color, rgb(58 64 77 / 8%));
+  --th-border: var(--ghost, rgb(255 255 255 / 22%));
+  --th-border-strong: var(--ink, #f4f5f7);
+  --th-border-hover: var(--ink, #f4f5f7);
+  --th-muted: var(--on-surface-muted, #a0a6af);
+  --th-text-secondary: var(--accent, #aab2c0);
+  --th-text-tertiary: var(--on-surface-muted, #a0a6af);
+  --th-summary: var(--on-surface-muted, #a0a6af);
+  --th-title: var(--ink, #f4f5f7);
+  --th-subtitle: var(--on-surface-muted, #a0a6af);
+  --th-paragraph: var(--on-surface, #ececec);
   --th-error-fg: #f87171;
-  --th-error-border: #5a2a2e;
-  --th-accent: #60a5fa;
-  --th-strong-bg: #e6e8ec;
-  --th-strong-fg: #16181d;
+  --th-error-border: var(--ink, #f4f5f7);
+  --th-accent: var(--accent, #aab2c0);
+  --th-strong-bg: var(--ink, #f4f5f7);
+  --th-strong-fg: var(--surface, #1b1d22);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light'], [data-theme='dark']) .th-page {
-    --th-page-bg: #16181d;
-    --th-fg: #e6e8ec;
-    --th-surface: #1f232b;
-    --th-surface-2: #2a2f38;
-    --th-hover: #2f343d;
-    --th-border: #3a4049;
-    --th-border-strong: #454c57;
-    --th-border-hover: #6b7480;
-    --th-muted: #9aa3af;
-    --th-text-secondary: #c3c9d2;
-    --th-text-tertiary: #aeb6c0;
-    --th-summary: #b3bcc8;
-    --th-title: #f1f3f6;
-    --th-subtitle: #94a0b0;
-    --th-paragraph: #d7dbe2;
+    --th-page-bg: var(--surface-low, #141519);
+    --th-fg: var(--on-surface, #ececec);
+    --th-surface: var(--surface, #1b1d22);
+    --th-surface-2: var(--surface-highest, #24272e);
+    --th-hover: var(--pagetollm-highlight-hover-color, rgb(58 64 77 / 8%));
+    --th-border: var(--ghost, rgb(255 255 255 / 22%));
+    --th-border-strong: var(--ink, #f4f5f7);
+    --th-border-hover: var(--ink, #f4f5f7);
+    --th-muted: var(--on-surface-muted, #a0a6af);
+    --th-text-secondary: var(--accent, #aab2c0);
+    --th-text-tertiary: var(--on-surface-muted, #a0a6af);
+    --th-summary: var(--on-surface-muted, #a0a6af);
+    --th-title: var(--ink, #f4f5f7);
+    --th-subtitle: var(--on-surface-muted, #a0a6af);
+    --th-paragraph: var(--on-surface, #ececec);
     --th-error-fg: #f87171;
-    --th-error-border: #5a2a2e;
-    --th-accent: #60a5fa;
-    --th-strong-bg: #e6e8ec;
-    --th-strong-fg: #16181d;
+    --th-error-border: var(--ink, #f4f5f7);
+    --th-accent: var(--accent, #aab2c0);
+    --th-strong-bg: var(--ink, #f4f5f7);
+    --th-strong-fg: var(--surface, #1b1d22);
   }
 }
 
