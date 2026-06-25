@@ -154,6 +154,8 @@ export default function HierarchyApp({ initialKey }) {
         topicSummaryIndex={record?.topic_summary_index}
         collapsedPaths={collapsedPaths}
         onToggleCollapse={handleToggleCollapse}
+        sourceUrl={record?.sourceUrl}
+        sentences={record?.sentences}
         onTopicClick={(entry) => {
           const sentenceNumbers = getSentencesForNode(entry);
           try {

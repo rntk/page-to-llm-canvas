@@ -167,4 +167,74 @@ describe('TopicHierarchyView', () => {
 
     unmount();
   });
+
+  it('renders youtube icon and timestamp links when isYouTube is true', () => {
+    const mockTopics = [
+      {
+        name: 'Fruit > Apple',
+        sentences: [1, 2],
+      },
+    ];
+
+    const { container, unmount } = render(
+      createElement(TopicHierarchyView, {
+        topics: mockTopics,
+        topicSummaries: {},
+        topicSummaryIndex: {},
+        selectedTopicPath: null,
+        onTopicClick: vi.fn(),
+        sourceUrl: 'https://www.youtube.com/watch?v=abc',
+        sentences: [
+          '0:10 Intro to apple',
+          '0:20 Details about apple',
+        ],
+      }),
+    );
+
+    const youtubeButtons = container.querySelectorAll('.canvas-youtube-timestamp');
+    expect(youtubeButtons.length).toBe(2);
+
+    expect(youtubeButtons[0].getAttribute('href')).toContain('t=10s');
+    expect(youtubeButtons[0].textContent).toBe('0:10');
+
+    expect(youtubeButtons[1].getAttribute('href')).toContain('t=10s');
+    expect(youtubeButtons[1].textContent).toBe('0:10');
+
+    unmount();
+  });
+
+  it('renders youtube icon and timestamp links when isYouTube is true and sentence IDs are zero-based', () => {
+    const mockTopics = [
+      {
+        name: 'Fruit > Apple',
+        sentences: [0, 1],
+      },
+    ];
+
+    const { container, unmount } = render(
+      createElement(TopicHierarchyView, {
+        topics: mockTopics,
+        topicSummaries: {},
+        topicSummaryIndex: {},
+        selectedTopicPath: null,
+        onTopicClick: vi.fn(),
+        sourceUrl: 'https://www.youtube.com/watch?v=abc',
+        sentences: [
+          '0:10 Intro to apple',
+          '0:20 Details about apple',
+        ],
+      }),
+    );
+
+    const youtubeButtons = container.querySelectorAll('.canvas-youtube-timestamp');
+    expect(youtubeButtons.length).toBe(2);
+
+    expect(youtubeButtons[0].getAttribute('href')).toContain('t=10s');
+    expect(youtubeButtons[0].textContent).toBe('0:10');
+
+    expect(youtubeButtons[1].getAttribute('href')).toContain('t=10s');
+    expect(youtubeButtons[1].textContent).toBe('0:10');
+
+    unmount();
+  });
 });

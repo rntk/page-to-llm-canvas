@@ -113,4 +113,10 @@ describe('getSentencesForNode', () => {
     const branch = makeBranch('Tech', [leaf1, leaf2]);
     expect(getSentencesForNode(branch)).toEqual([1, 3, 7, 9]);
   });
+
+  it('filters out 0 by default but preserves 0 when preserveZero is true', () => {
+    const entry = makeLeaf('Tech>A', [0, 1, 2]);
+    expect(getSentencesForNode(entry)).toEqual([1, 2]);
+    expect(getSentencesForNode(entry, { preserveZero: true })).toEqual([0, 1, 2]);
+  });
 });

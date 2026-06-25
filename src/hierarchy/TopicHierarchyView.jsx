@@ -6,6 +6,9 @@ import {
   getHierarchyTopicAccentColor,
 } from '../utils/topicColorUtils.js';
 import { spacedTopicPath, getSummaryText, buildSummaryLookup } from './topicViewUtils.js';
+import { getYouTubeTimestampLink, getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
+import YouTubeTimestampButton from '../components/YouTubeTimestampButton.jsx';
+import { getSentencesForNode } from './hierarchyUtils.js';
 
 const hierarchyColorCache = new Map();
 
@@ -68,6 +71,9 @@ const HierarchyNode = React.memo(function HierarchyNode({
   spanMap,
   onToggleCollapse,
   onTopicClick,
+  sourceUrl,
+  sentences,
+  isYouTube,
 }) {
   const { node } = entry;
   const children = Array.from(entry.children.values());
@@ -77,6 +83,12 @@ const HierarchyNode = React.memo(function HierarchyNode({
     node.depth,
   );
   const isSelected = selectedTopicPath === node.fullPath;
+
+  const youtubeLink = useMemo(() => {
+    if (!isYouTube) return null;
+    const sourceSentences = getSentencesForNode(entry, { preserveZero: true });
+    return getYouTubeTimestampLink({ sourceUrl, sentences, sourceSentences });
+  }, [isYouTube, entry, sourceUrl, sentences]);
 
   if (isLeaf) {
     const sentenceCount = getSentenceCount(node.topic);
@@ -95,6 +107,7 @@ const HierarchyNode = React.memo(function HierarchyNode({
           onClick={() => onTopicClick?.(entry)}
         >
           <span className="th-leaf__label">{node.name}</span>
+          <YouTubeTimestampButton link={youtubeLink} />
           {sentenceCount > 0 && <span className="th-leaf__count">{sentenceCount}</span>}
         </div>
         {summary && (
@@ -147,6 +160,7 @@ const HierarchyNode = React.memo(function HierarchyNode({
           <span className="th-node__label-content">
             {toggleButton}
             <span className="th-node__label-text">{node.name}</span>
+            <YouTubeTimestampButton link={youtubeLink} />
           </span>
         </div>
         {summary && (
@@ -171,6 +185,7 @@ const HierarchyNode = React.memo(function HierarchyNode({
         <span className="th-node__label-content">
           {toggleButton}
           <span className="th-node__label-text">{node.name}</span>
+          <YouTubeTimestampButton link={youtubeLink} />
           <span className="th-node__drill" aria-hidden="true"></span>
         </span>
       </div>
@@ -185,6 +200,9 @@ const HierarchyNode = React.memo(function HierarchyNode({
             spanMap={spanMap}
             onToggleCollapse={onToggleCollapse}
             onTopicClick={onTopicClick}
+            sourceUrl={sourceUrl}
+            sentences={sentences}
+            isYouTube={isYouTube}
           />
         ))}
       </div>
@@ -200,6 +218,8 @@ export default function TopicHierarchyView({
   onTopicClick,
   collapsedPaths: controlledCollapsedPaths,
   onToggleCollapse: controlledToggleCollapse,
+  sourceUrl,
+  sentences,
 }) {
   const roots = useMemo(() => buildTopicTree(topics, 0), [topics]);
   const summaryLookup = useMemo(
@@ -232,6 +252,7 @@ export default function TopicHierarchyView({
   );
 
   const spanMap = useMemo(() => buildSpanMap(roots, collapsedPaths), [roots, collapsedPaths]);
+  const isYouTube = useMemo(() => Boolean(getYouTubeVideoId(sourceUrl)), [sourceUrl]);
 
   if (roots.length === 0) {
     return <div className="th-empty">No topics available.</div>;
@@ -249,6 +270,9 @@ export default function TopicHierarchyView({
           spanMap={spanMap}
           onToggleCollapse={handleToggleCollapse}
           onTopicClick={onTopicClick}
+          sourceUrl={sourceUrl}
+          sentences={sentences}
+          isYouTube={isYouTube}
         />
       ))}
     </div>

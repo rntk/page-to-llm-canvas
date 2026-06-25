@@ -715,3 +715,36 @@
     background-color: var(--th-card-bg-dark);
   }
 }
+
+/* YouTube Timestamp Button Styling (adapted from modal.css) */
+.canvas-youtube-timestamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  flex: 0 0 auto;
+  padding: 0.27em 0.73em;
+  border-radius: 999px;
+  background: rgb(255 0 0 / 10%);
+  color: #f00;
+  font-family: var(--font-data);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.canvas-youtube-timestamp:hover,
+.canvas-youtube-timestamp:focus-visible {
+  background: #f00;
+  color: #fff;
+}
+
+.canvas-youtube-timestamp__icon {
+  width: 1.27em;
+  height: 1.27em;
+  flex: 0 0 auto;
+}
