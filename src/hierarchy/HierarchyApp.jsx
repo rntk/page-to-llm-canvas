@@ -1,10 +1,11 @@
-import React, { useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { useRecord } from '../useRecord.js';
 import TopicHierarchyView from './TopicHierarchyView.jsx';
 import { getSentencesForNode } from './hierarchyUtils.js';
 import { closeModal } from '../closeModal.js';
 import { splitError, retryRecord } from '../utils/errorUtils.js';
 import ErrorDetails from '../components/ErrorDetails.jsx';
+import { buildTopicTree } from '../utils/topicTree.js';
 import './hierarchy.css';
 
 export default function HierarchyApp({ initialKey }) {
@@ -53,6 +54,41 @@ export default function HierarchyApp({ initialKey }) {
   const isDone = record?.status === 'done';
   const isRecordError = record?.status === 'error' || record?.status === 'cancelled';
   const isNeedsAttention = record?.status === 'needs_attention';
+
+  const [prevInitialKey, setPrevInitialKey] = useState(initialKey);
+  const [collapsedPaths, setCollapsedPaths] = useState(() => new Set());
+
+  if (initialKey !== prevInitialKey) {
+    setPrevInitialKey(initialKey);
+    setCollapsedPaths(new Set());
+  }
+
+  const roots = useMemo(() => buildTopicTree(topics, 0), [topics]);
+
+  const allNonLeafPaths = useMemo(() => {
+    const paths = [];
+    const traverse = (entry) => {
+      const children = Array.from(entry.children.values());
+      if (children.length > 0) {
+        paths.push(entry.node.fullPath);
+        children.forEach(traverse);
+      }
+    };
+    roots.forEach(traverse);
+    return paths;
+  }, [roots]);
+
+  const handleToggleCollapse = useCallback((fullPath) => {
+    setCollapsedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(fullPath)) {
+        next.delete(fullPath);
+      } else {
+        next.add(fullPath);
+      }
+      return next;
+    });
+  }, []);
 
   let body;
   if (error && !record) {
@@ -108,6 +144,8 @@ export default function HierarchyApp({ initialKey }) {
         topics={topics}
         topicSummaries={record?.topic_summaries}
         topicSummaryIndex={record?.topic_summary_index}
+        collapsedPaths={collapsedPaths}
+        onToggleCollapse={handleToggleCollapse}
         onTopicClick={(entry) => {
           const sentenceNumbers = getSentencesForNode(entry);
           try {
@@ -133,6 +171,26 @@ export default function HierarchyApp({ initialKey }) {
     <div className="th-page">
       <header className="th-page__bar">
         <h1 className="th-page__title">Topic Hierarchy and Summaries</h1>
+        <div className="th-page__actions">
+          <button
+            type="button"
+            className="th-page__action-btn"
+            onClick={() => setCollapsedPaths(new Set(allNonLeafPaths))}
+            disabled={!isDone || topics.length === 0}
+            title="Fold all topics"
+          >
+            Fold All
+          </button>
+          <button
+            type="button"
+            className="th-page__action-btn"
+            onClick={() => setCollapsedPaths(new Set())}
+            disabled={!isDone || topics.length === 0}
+            title="Unfold all topics"
+          >
+            Unfold All
+          </button>
+        </div>
         <button
           type="button"
           className="th-page__close"

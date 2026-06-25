@@ -198,6 +198,8 @@ export default function TopicHierarchyView({
   topicSummaryIndex,
   selectedTopicPath,
   onTopicClick,
+  collapsedPaths: controlledCollapsedPaths,
+  onToggleCollapse: controlledToggleCollapse,
 }) {
   const roots = useMemo(() => buildTopicTree(topics, 0), [topics]);
   const summaryLookup = useMemo(
@@ -205,18 +207,29 @@ export default function TopicHierarchyView({
     [topicSummaries, topicSummaryIndex],
   );
 
-  const [collapsedPaths, setCollapsedPaths] = useState(() => new Set());
-  const handleToggleCollapse = useCallback((fullPath) => {
-    setCollapsedPaths((prev) => {
-      const next = new Set(prev);
-      if (next.has(fullPath)) {
-        next.delete(fullPath);
+  const [localCollapsedPaths, setLocalCollapsedPaths] = useState(() => new Set());
+
+  const collapsedPaths =
+    controlledCollapsedPaths !== undefined ? controlledCollapsedPaths : localCollapsedPaths;
+
+  const handleToggleCollapse = useCallback(
+    (fullPath) => {
+      if (controlledToggleCollapse) {
+        controlledToggleCollapse(fullPath);
       } else {
-        next.add(fullPath);
+        setLocalCollapsedPaths((prev) => {
+          const next = new Set(prev);
+          if (next.has(fullPath)) {
+            next.delete(fullPath);
+          } else {
+            next.add(fullPath);
+          }
+          return next;
+        });
       }
-      return next;
-    });
-  }, []);
+    },
+    [controlledToggleCollapse],
+  );
 
   const spanMap = useMemo(() => buildSpanMap(roots, collapsedPaths), [roots, collapsedPaths]);
 
