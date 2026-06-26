@@ -119,6 +119,19 @@ describe('formatTimestampLabel', () => {
     expect(formatTimestampLabel(171)).toBe('2:51');
     expect(formatTimestampLabel(3723)).toBe('1:02:03');
   });
+
+  it('pads minutes to two digits with padMinutes (uniform-width labels)', () => {
+    expect(formatTimestampLabel(171, { padMinutes: true })).toBe('02:51');
+    expect(formatTimestampLabel(1177, { padMinutes: true })).toBe('19:37');
+    // Hours already pad minutes regardless of the option.
+    expect(formatTimestampLabel(3723, { padMinutes: true })).toBe('1:02:03');
+  });
+
+  it('always shows the hours field with forceHours', () => {
+    expect(formatTimestampLabel(171, { forceHours: true })).toBe('0:02:51');
+    expect(formatTimestampLabel(171, { padMinutes: true, forceHours: true })).toBe('0:02:51');
+    expect(formatTimestampLabel(3723, { forceHours: true })).toBe('1:02:03');
+  });
 });
 
 describe('getYouTubeTimestampLink', () => {

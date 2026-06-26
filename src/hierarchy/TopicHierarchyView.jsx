@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useLayoutEffect, useRef } from 'react';
 import { buildTopicTree, countLeafDescendants } from '../utils/topicTree.js';
 import {
   getHierarchyTopicHighlightColor,
@@ -12,9 +12,16 @@ import { getSentencesForNode } from './hierarchyUtils.js';
 
 const hierarchyColorCache = new Map();
 
-function getSentenceCount(topic) {
-  return Array.isArray(topic?.sentences) ? topic.sentences.length : 0;
-}
+// Always render hierarchy timestamps as h:mm:ss (e.g. 0:58:59, 1:27:35) so every
+// label occupies the same three columns and the links never shift left/right.
+const HIERARCHY_LABEL_OPTIONS = { forceHours: true };
+
+// Card-width measurement bounds. Every card is stretched to the widest card's
+// natural width so the columns line up and titles never get truncated; these
+// just keep one pathological heading from blowing the whole column out (cap) or
+// collapsing it to nothing on a near-empty tree (floor).
+const MIN_CARD_WIDTH = 180;
+const CARD_WIDTH_CAP_INSET = 24;
 
 function getNodeSummary(node, summaryLookup) {
   return (
@@ -87,11 +94,16 @@ const HierarchyNode = React.memo(function HierarchyNode({
   const youtubeLink = useMemo(() => {
     if (!isYouTube) return null;
     const sourceSentences = getSentencesForNode(entry, { preserveZero: true });
-    return getYouTubeTimestampLink({ sourceUrl, sentences, sourceSentences });
+    // h:mm:ss for every label so the links stay in a straight, fixed-width column.
+    return getYouTubeTimestampLink({
+      sourceUrl,
+      sentences,
+      sourceSentences,
+      labelOptions: HIERARCHY_LABEL_OPTIONS,
+    });
   }, [isYouTube, entry, sourceUrl, sentences]);
 
   if (isLeaf) {
-    const sentenceCount = getSentenceCount(node.topic);
     const summary = getNodeSummary(node, summaryLookup);
     return (
       <div className="th-leaf-row">
@@ -103,12 +115,12 @@ const HierarchyNode = React.memo(function HierarchyNode({
             '--th-card-bg': highlightColor,
             '--th-card-bg-dark': highlightColorDark,
           }}
-          title={`${node.fullPath.replace(/>/g, ' ')} (${sentenceCount} sentences)`}
+          title={node.fullPath.replace(/>/g, ' ')}
           onClick={() => onTopicClick?.(entry)}
         >
+          <span className="th-leaf__spacer" aria-hidden="true" />
           <span className="th-leaf__label">{node.name}</span>
           <YouTubeTimestampButton link={youtubeLink} />
-          {sentenceCount > 0 && <span className="th-leaf__count">{sentenceCount}</span>}
         </div>
         {summary && (
           <div className="th-leaf-summary" title={summary}>
@@ -254,12 +266,51 @@ export default function TopicHierarchyView({
   const spanMap = useMemo(() => buildSpanMap(roots, collapsedPaths), [roots, collapsedPaths]);
   const isYouTube = useMemo(() => Boolean(getYouTubeVideoId(sourceUrl)), [sourceUrl]);
 
+  const rootRef = useRef(null);
+  const measuredCardWidthRef = useRef(0);
+  const measurementContentRef = useRef({ roots: null, isYouTube: null });
+
+  // Stretch every card to the widest card's natural width so columns align and
+  // titles are never truncated. Measure at `max-content`, then lock the shared
+  // `--th-card-width`. Fold/unfold changes can reveal previously hidden wider
+  // cards, so remeasure them; keep the fold/unfold width monotonic so collapsing
+  // a branch does not make the column jump narrower.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const contentChanged =
+      measurementContentRef.current.roots !== roots ||
+      measurementContentRef.current.isYouTube !== isYouTube;
+    if (contentChanged) {
+      measuredCardWidthRef.current = 0;
+      measurementContentRef.current = { roots, isYouTube };
+    }
+
+    root.style.setProperty('--th-card-width', 'max-content');
+    let widest = 0;
+    root.querySelectorAll('.th-node__label, .th-leaf').forEach((el) => {
+      widest = Math.max(widest, el.offsetWidth);
+    });
+    if (widest <= 0) {
+      // No layout yet (e.g. jsdom): keep the CSS default (max-content).
+      root.style.removeProperty('--th-card-width');
+      return;
+    }
+    const cap = Math.max(MIN_CARD_WIDTH, root.clientWidth - CARD_WIDTH_CAP_INSET);
+    const width = Math.max(MIN_CARD_WIDTH, Math.min(Math.ceil(widest), cap));
+    measuredCardWidthRef.current = Math.min(cap, Math.max(measuredCardWidthRef.current, width));
+    root.style.setProperty('--th-card-width', `${measuredCardWidthRef.current}px`);
+    // Summaries live in a separate column
+    // and don't change card width, so they're intentionally excluded — re-firing
+    // on async summary load could re-measure while branches are folded.
+  }, [roots, isYouTube, collapsedPaths]);
+
   if (roots.length === 0) {
     return <div className="th-empty">No topics available.</div>;
   }
 
   return (
-    <div className="th-root">
+    <div className="th-root" ref={rootRef}>
       {roots.map((root) => (
         <HierarchyNode
           key={root.node.uid}

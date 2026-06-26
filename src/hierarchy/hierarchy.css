@@ -255,6 +255,23 @@
   --th-row-gap: 8px;
   --th-row-height: 40px;
 
+  /* Every card in the tree shares one width so columns line up cleanly instead
+     of each card shrink-wrapping its own text (which reads as visual noise).
+     TopicHierarchyView measures the widest card and locks this to that pixel
+     width (capped to the pane) so titles align without being truncated. The
+     `max-content` default is the pre-measurement / no-JS fallback. */
+  --th-card-width: max-content;
+
+  /* Fold-toggle gutter. Shared by the real toggle (foldable nodes) and the
+     invisible spacer on leaves, so a leaf's title starts at the same offset as a
+     node's title and the column of titles stays straight. The title offset is
+     toggle-width + toggle-gap + the row's flex gap, independent of each card's
+     own horizontal padding (each card cancels its own padding with a matching
+     negative margin on the gutter). */
+  --th-toggle-width: 36px;
+  --th-toggle-gap: 8px;
+  --th-leaf-pad-x: 16px;
+
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -277,7 +294,7 @@
 }
 
 .th-node__label {
-  flex: 0 0 300px;
+  flex: 0 0 var(--th-card-width);
   display: flex;
   align-items: flex-start;
   box-sizing: border-box;
@@ -300,9 +317,10 @@
 }
 
 .th-node__label.is-selected {
+  /* Signal selection with the outline only — a font-weight bump would change the
+     title's width and shift the whole measured column. */
   outline: 2px solid var(--th-accent-color, var(--th-accent));
   outline-offset: -2px;
-  font-weight: 700;
 }
 
 .th-node__label-content {
@@ -344,8 +362,8 @@
   align-items: center;
   justify-content: center;
   align-self: stretch;
-  width: 36px;
-  margin: -6px 8px -6px -10px;
+  width: var(--th-toggle-width);
+  margin: -6px var(--th-toggle-gap) -6px -10px;
   padding: 0;
   border: 0;
   border-right: 1px solid var(--th-border);
@@ -410,7 +428,7 @@
 .th-leaf-row {
   flex: 0 0 var(--th-row-height);
   display: grid;
-  grid-template-columns: max-content max-content;
+  grid-template-columns: var(--th-card-width) max-content;
   align-items: center;
   column-gap: 8px;
   box-sizing: border-box;
@@ -425,9 +443,9 @@
   justify-content: space-between;
   gap: 8px;
   box-sizing: border-box;
-  padding: 8px 16px;
+  padding: 8px var(--th-leaf-pad-x);
   height: var(--th-row-height);
-  max-width: fit-content;
+  width: var(--th-card-width);
   font-size: 16px;
   color: var(--th-fg);
   background-color: var(--th-card-bg);
@@ -447,7 +465,17 @@
 .th-leaf.is-selected {
   outline: 2px solid var(--th-accent-color, var(--th-accent));
   outline-offset: -2px;
-  font-weight: 700;
+}
+
+/* Empty gutter mirroring .th-node__toggle's footprint. Leaves never fold, but
+   reserving the same space keeps their title aligned with foldable siblings'
+   titles so the column of titles doesn't shift left/right. No divider/chevron —
+   it's spacing only. The negative left margin cancels the leaf's own padding so
+   the gutter sits flush at the card edge, exactly like the toggle does. */
+.th-leaf__spacer {
+  flex: 0 0 var(--th-toggle-width);
+  margin-left: calc(-1 * var(--th-leaf-pad-x));
+  margin-right: var(--th-toggle-gap);
 }
 
 .th-leaf__label {
@@ -749,4 +777,10 @@
   width: 1.27em;
   height: 1.27em;
   flex: 0 0 auto;
+}
+
+/* Tabular figures so timestamps of the same format render at the exact same
+   width (paired with the uniform label format from formatTimestampLabel). */
+.canvas-youtube-timestamp__label {
+  font-variant-numeric: tabular-nums;
 }

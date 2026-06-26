@@ -94,17 +94,28 @@ export function buildYouTubeTimestampUrl(videoId, seconds) {
 
 /**
  * Format seconds as a compact transcript label (m:ss or h:mm:ss).
+ *
+ * Options let a caller render every label in a view at a uniform width so the
+ * links don't shift left/right (e.g. the hierarchy view): `padMinutes` forces
+ * two-digit minutes (`02:51` instead of `2:51`) and `forceHours` always shows
+ * the hours field (`0:02:51`) even for sub-hour timestamps. Both default off, so
+ * the bare call is unchanged for existing callers (canvas views).
+ *
  * @param {number} seconds
+ * @param {{ padMinutes?: boolean, forceHours?: boolean }} [options]
  * @returns {string}
  */
-export function formatTimestampLabel(seconds) {
+export function formatTimestampLabel(seconds, options = {}) {
   if (seconds == null || !Number.isFinite(seconds)) return '';
+  const { padMinutes = false, forceHours = false } = options;
   const total = Math.max(0, Math.floor(seconds));
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
   const secs = total % 60;
   const pad = (n) => String(n).padStart(2, '0');
-  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(secs)}` : `${minutes}:${pad(secs)}`;
+  const showHours = hours > 0 || forceHours;
+  const minStr = showHours || padMinutes ? pad(minutes) : String(minutes);
+  return showHours ? `${hours}:${minStr}:${pad(secs)}` : `${minStr}:${pad(secs)}`;
 }
 
 /**
@@ -112,15 +123,16 @@ export function formatTimestampLabel(seconds) {
  * isn't a YouTube transcript or no timestamp can be found, so callers can render
  * the button conditionally.
  *
- * @param {{ sourceUrl?: string, sentences?: string[], sourceSentences?: number[] }} params
+ * @param {{ sourceUrl?: string, sentences?: string[], sourceSentences?: number[],
+ *   labelOptions?: { padMinutes?: boolean, forceHours?: boolean } }} params
  * @returns {{ url: string, seconds: number, label: string } | null}
  */
-export function getYouTubeTimestampLink({ sourceUrl, sentences, sourceSentences }) {
+export function getYouTubeTimestampLink({ sourceUrl, sentences, sourceSentences, labelOptions }) {
   const videoId = getYouTubeVideoId(sourceUrl);
   if (!videoId) return null;
   const seconds = getTimestampForSentences(sentences, sourceSentences);
   if (seconds == null) return null;
   const url = buildYouTubeTimestampUrl(videoId, seconds);
   if (!url) return null;
-  return { url, seconds, label: formatTimestampLabel(seconds) };
+  return { url, seconds, label: formatTimestampLabel(seconds, labelOptions) };
 }
