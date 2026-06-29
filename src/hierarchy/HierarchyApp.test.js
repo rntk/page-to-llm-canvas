@@ -89,7 +89,7 @@ describe('HierarchyApp', () => {
     unmount();
   });
 
-  it('handles fold all and unfold all button clicks to collapse/expand nested topics', () => {
+  it('does not render redundant fold all or unfold all buttons', () => {
     const mockRecord = {
       status: 'done',
       topics: [
@@ -97,46 +97,18 @@ describe('HierarchyApp', () => {
         { name: 'Fruit > Banana', sentences: [2] },
         { name: 'Veggie', sentences: [3] },
       ],
-      topic_summaries: {
-        Fruit: { text: 'Fruit summary' },
-      },
+      topic_summaries: {},
       topic_summary_index: {},
     };
     useRecord.mockReturnValue({ record: mockRecord, error: null });
 
     const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
 
-    // Verify tree starts expanded (leaves visible, no th-node--collapsed class)
+    expect(container.textContent).not.toContain('Fold All');
+    expect(container.textContent).not.toContain('Unfold All');
     expect(container.textContent).toContain('Apple');
     expect(container.textContent).toContain('Banana');
     expect(container.querySelector('.th-node--collapsed')).toBeNull();
-
-    // Click "Fold All" button
-    const foldAllBtn = Array.from(container.querySelectorAll('.th-page__action-btn')).find(
-      (btn) => btn.textContent === 'Fold All',
-    );
-    expect(foldAllBtn).not.toBeUndefined();
-
-    act(() => foldAllBtn.click());
-
-    // Fruit should be collapsed now; Apple and Banana should not be visible
-    expect(container.querySelector('.th-node--collapsed')).not.toBeNull();
-    expect(container.textContent).not.toContain('Apple');
-    expect(container.textContent).not.toContain('Banana');
-    expect(container.textContent).toContain('Fruit summary');
-
-    // Click "Unfold All" button
-    const unfoldAllBtn = Array.from(container.querySelectorAll('.th-page__action-btn')).find(
-      (btn) => btn.textContent === 'Unfold All',
-    );
-    expect(unfoldAllBtn).not.toBeUndefined();
-
-    act(() => unfoldAllBtn.click());
-
-    // Apple and Banana should be visible again
-    expect(container.querySelector('.th-node--collapsed')).toBeNull();
-    expect(container.textContent).toContain('Apple');
-    expect(container.textContent).toContain('Banana');
 
     unmount();
   });

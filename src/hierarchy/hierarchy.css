@@ -89,37 +89,9 @@
   margin-right: 8px;
 }
 
-.th-page__action-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--th-border-strong);
-  border-radius: 0;
-  background: var(--th-surface);
-  color: var(--th-accent);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
-}
-
-.th-page__action-btn:hover:not(:disabled) {
-  background: var(--th-accent);
-  border-color: var(--th-accent);
-  color: var(--th-surface);
-}
-
-.th-page__action-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 /* Re-theme the shared TopicLevelSwitcher to the hierarchy's paper/ink chrome so
-   it matches the neighbouring Fold/Unfold action buttons (its base layout comes
-   from modal.css; only the colors/sizing are overridden here). */
+   it fits the hierarchy header chrome (its base layout comes from modal.css;
+   only the colors/sizing are overridden here). */
 .th-page__level-switcher .topic-level-switcher__label {
   color: var(--th-muted);
 }
@@ -274,7 +246,8 @@
 
   display: flex;
   flex-direction: column;
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   gap: var(--th-row-gap);
 }
 
@@ -397,16 +370,13 @@
 }
 
 .th-node__summary {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   align-self: center;
-  min-width: 0;
   padding-left: 8px;
   color: var(--th-summary);
   font-size: 20px;
   line-height: 1.35;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   user-select: text;
 
   /* Eases the summary in when a branch is folded. */
