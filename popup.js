@@ -59,6 +59,27 @@ export function hostnameFromUrl(url) {
   }
 }
 
+// Mirror getYouTubeVideoId's host handling (src/utils/youtubeTimestamp.js) so the
+// YouTube sync button appears on exactly the URLs that rail can sync. popup.js is
+// a static (non-bundled) script, so the logic is duplicated here rather than
+// imported from src/.
+export function isYouTubeUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (_) {
+    return false;
+  }
+  const host = parsed.hostname.replace(/^www\./, '');
+  if (host === 'youtu.be') return parsed.pathname.length > 1;
+  if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'music.youtube.com') {
+    if (parsed.pathname === '/watch') return Boolean(parsed.searchParams.get('v'));
+    return /^\/(?:shorts|embed|v|live)\/[^/?#]+/.test(parsed.pathname);
+  }
+  return false;
+}
+
 export function normalizePageUrl(url) {
   if (!url) return '';
   try {
@@ -158,6 +179,14 @@ export function getRecordActions(record) {
         description: 'View the content structure and relationships.',
       },
     );
+    if (isYouTubeUrl(record && record.sourceUrl)) {
+      viewActions.push({
+        label: 'YT Sync',
+        mode: 'youtube',
+        description:
+          'Open a sidebar that follows the video, showing the topic/summary for the current moment.',
+      });
+    }
   }
   return [
     ...viewActions.map((action) => ({ kind: 'view', ...action })),

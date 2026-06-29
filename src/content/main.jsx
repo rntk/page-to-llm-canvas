@@ -3,6 +3,8 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import SelectionToolbar from './SelectionToolbar.jsx';
 import InPageRail from './InPageRail.jsx';
+import YouTubeRail from './YouTubeRail.jsx';
+import { buildYouTubeRailCards } from './youtubeRailSync.js';
 import { guardTrustedUserEvent } from './eventSecurity.js';
 import { splitError, retryRecord } from '../utils/errorUtils.js';
 import { resolveColumnOverlaps } from '../topicCards.js';
@@ -335,6 +337,10 @@ async function handleRecordViewRequest(rec, mode) {
   }
   if (mode === 'hierarchy') {
     openHierarchyIframe(rec.key);
+    return;
+  }
+  if (mode === 'youtube') {
+    await openYouTubeRail(rec);
     return;
   }
   await openInPageRail(rec, mode);
@@ -952,6 +958,156 @@ async function openInPageRail(rec, initialMode, options = {}) {
       scrollToFirst(options.sentenceNumbers);
     });
   }
+}
+
+// ── YouTube-synced rail ────────────────────────────────────────────────────
+
+// Prefer YouTube's main player element so we don't accidentally bind to a
+// hover-preview thumbnail or an ad's <video>. Falls back to any <video> for
+// non-standard embeds.
+function getYouTubeVideoElement() {
+  return document.querySelector('.html5-main-video') || document.querySelector('video');
+}
+
+async function openYouTubeRail(rec) {
+  closeInPageRail();
+  removeCanvasIframe();
+
+  const guard = createLoadToken(railLoadingTokenHolder);
+  const record = await fetchRecord(rec.key);
+  if (guard.isStale()) return;
+
+  if (!record) {
+    alert('PageToLLM: Analysis record not found.');
+    return;
+  }
+  // The YouTube rail never touches the page article DOM, so the scroll rail's
+  // selector/element gating does not apply — gate only on what the sync needs:
+  // a finished analysis with transcript sentences and at least one topic/summary.
+  if (record.status !== 'done') {
+    alert(
+      `PageToLLM: Analysis is not ready yet (status: ${record.status || 'queued'}). Please wait a moment and try again.`,
+    );
+    return;
+  }
+  const sentences = Array.isArray(record.sentences) ? record.sentences : [];
+  const hasTopics = Array.isArray(record.topics) && record.topics.length > 0;
+  const hasSummaries = record.topic_summary_index && typeof record.topic_summary_index === 'object';
+  if (sentences.length === 0 || (!hasTopics && !hasSummaries)) {
+    alert('PageToLLM: This analysis has no transcript topics to sync with the video.');
+    return;
+  }
+
+  const state = { mode: 'topics', selectedLevel: 0 };
+
+  let maxLevel = 0;
+  for (const t of record.topics || []) {
+    const depth = splitPath(t.name).length - 1;
+    if (depth > maxLevel) maxLevel = depth;
+  }
+  const index = record.topic_summary_index;
+  if (index && typeof index === 'object') {
+    for (const [rawPath, entry] of Object.entries(index)) {
+      if (!rawPath) continue;
+      const level = typeof entry.level === 'number' ? entry.level : splitPath(rawPath).length - 1;
+      if (level > maxLevel) maxLevel = level;
+    }
+  }
+
+  const railEl = document.createElement('aside');
+  railEl.id = 'pagetollm-in-page-rail';
+  railEl.dataset.mode = state.mode;
+  railEl.dataset.youtube = 'true';
+  applyContentTheme(railEl);
+  applyContentHighlightColor(railEl);
+  const railRoot = createRoot(railEl);
+  let railClosed = false;
+
+  const setRailWidthForMode = () => {
+    if (railClosed) return;
+    const railWidth = IN_PAGE_RAIL_WIDTHS[state.mode] || IN_PAGE_RAIL_WIDTHS.topics;
+    railEl.style.width = `${railWidth}px`;
+    document.documentElement.style.setProperty(
+      '--pagetollm-rail-reserve',
+      `${railWidth + IN_PAGE_RAIL_RESERVE_GAP}px`,
+    );
+    document.documentElement.style.setProperty('--pagetollm-rail-width', `${railWidth}px`);
+  };
+
+  document.documentElement.appendChild(railEl);
+  inPageRailController = {
+    railEl,
+    teardown() {
+      railClosed = true;
+      railRoot.unmount();
+      railEl.remove();
+      document.body.classList.remove('pagetollm-rail-open');
+      document.documentElement.style.removeProperty('--pagetollm-rail-reserve');
+      document.documentElement.style.removeProperty('--pagetollm-rail-width');
+    },
+  };
+
+  setRailWidthForMode();
+  document.body.classList.add('pagetollm-rail-open');
+
+  const getCurrentTime = () => {
+    const video = getYouTubeVideoElement();
+    if (!video) return null;
+    const time = video.currentTime;
+    return Number.isFinite(time) ? time : null;
+  };
+
+  const seekTo = (seconds) => {
+    const video = getYouTubeVideoElement();
+    if (!video || !Number.isFinite(seconds)) return;
+    try {
+      video.currentTime = Math.max(0, seconds);
+      if (typeof video.play === 'function') void video.play().catch(() => {});
+    } catch (_) {
+      /* seeking can throw on a not-yet-ready media element — ignore */
+    }
+  };
+
+  const handleSelectMode = (mode) => {
+    if (railClosed) return;
+    const next = mode === 'summaries' ? 'summaries' : 'topics';
+    if (state.mode === next) return;
+    state.mode = next;
+    railEl.dataset.mode = state.mode;
+    setRailWidthForMode();
+    renderRail();
+  };
+
+  const handleSelectLevel = (level) => {
+    if (railClosed) return;
+    if (state.selectedLevel === level) return;
+    state.selectedLevel = level;
+    renderRail();
+  };
+
+  function renderRail() {
+    if (railClosed || guard.isStale()) return;
+    const cards = buildYouTubeRailCards({
+      record,
+      mode: state.mode,
+      selectedLevel: state.selectedLevel,
+    });
+    railRoot.render(
+      <YouTubeRail
+        mode={state.mode}
+        maxLevel={maxLevel}
+        selectedLevel={state.selectedLevel}
+        cards={cards}
+        onSelectMode={handleSelectMode}
+        onSelectLevel={handleSelectLevel}
+        onClose={closeInPageRail}
+        getCurrentTime={getCurrentTime}
+        onSeek={seekTo}
+      />,
+    );
+  }
+
+  renderRail();
 }
 
 function closeInPageRail() {

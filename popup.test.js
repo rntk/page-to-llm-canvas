@@ -179,6 +179,50 @@ describe('popup pure functions', () => {
     ]);
   });
 
+  it('getRecordActions adds a YT Sync view for done YouTube records', () => {
+    const labels = popup
+      .getRecordActions({ status: 'done', sourceUrl: 'https://www.youtube.com/watch?v=abc123' })
+      .map((action) => action.label);
+    expect(labels).toEqual([
+      'Canvas',
+      'Topics',
+      'Summaries',
+      'Hierarchy',
+      'YT Sync',
+      'Reprocess',
+      'Delete',
+    ]);
+    expect(
+      popup
+        .getRecordActions({ status: 'done', sourceUrl: 'https://www.youtube.com/watch?v=abc123' })
+        .find((action) => action.label === 'YT Sync'),
+    ).toEqual(expect.objectContaining({ kind: 'view', mode: 'youtube' }));
+  });
+
+  it('getRecordActions omits YT Sync for non-YouTube or unfinished records', () => {
+    expect(
+      popup
+        .getRecordActions({ status: 'done', sourceUrl: 'https://example.com/page' })
+        .map((a) => a.label),
+    ).not.toContain('YT Sync');
+    expect(
+      popup
+        .getRecordActions({ status: 'summarizing', sourceUrl: 'https://youtu.be/abc123' })
+        .map((a) => a.label),
+    ).not.toContain('YT Sync');
+  });
+
+  it('isYouTubeUrl recognizes watch, youtu.be, shorts and rejects others', () => {
+    expect(popup.isYouTubeUrl('https://www.youtube.com/watch?v=abc123')).toBe(true);
+    expect(popup.isYouTubeUrl('https://youtu.be/abc123')).toBe(true);
+    expect(popup.isYouTubeUrl('https://m.youtube.com/shorts/xyz')).toBe(true);
+    expect(popup.isYouTubeUrl('https://music.youtube.com/watch?v=abc')).toBe(true);
+    expect(popup.isYouTubeUrl('https://www.youtube.com/watch')).toBe(false);
+    expect(popup.isYouTubeUrl('https://example.com/watch?v=abc')).toBe(false);
+    expect(popup.isYouTubeUrl('not-a-url')).toBe(false);
+    expect(popup.isYouTubeUrl('')).toBe(false);
+  });
+
   it('filterRecordsForActivePage matches hash-normalized source URLs', () => {
     const records = [
       { key: 'a', sourceUrl: 'https://example.com/page#one' },

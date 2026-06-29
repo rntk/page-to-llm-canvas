@@ -607,3 +607,105 @@ body.pagetollm-rail-open {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
+
+/* ── YouTube-synced rail ───────────────────────────────────────────────────
+   A normal-flow, scrollable list (no absolute card geometry like the scroll
+   rail); the active card is the one matching the player's current time. */
+
+.pagetollm-yt-rail-body {
+  position: relative;
+  z-index: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  max-height: calc(100vh - 44px);
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+
+.pagetollm-yt-rail-empty {
+  padding: 24px 8px;
+  color: var(--on-surface-muted);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.pagetollm-yt-rail-card {
+  box-sizing: border-box;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--ghost);
+  border-left: 4px solid var(--pagetollm-card-accent, var(--ink));
+  border-radius: 0;
+  padding: 8px 10px;
+  color: var(--on-surface);
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  opacity: 0.74;
+  transition:
+    opacity 0.15s ease,
+    transform 0.1s ease,
+    border-color 0.15s ease;
+}
+
+.pagetollm-yt-rail-card:hover,
+.pagetollm-yt-rail-card:focus {
+  opacity: 1;
+  transform: translateX(-2px);
+  border-color: var(--ink);
+  border-left-color: var(--pagetollm-card-accent, var(--ink));
+}
+
+.pagetollm-yt-rail-card:focus {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.pagetollm-yt-rail-card.is-active {
+  opacity: 1;
+  border-color: var(--ink);
+  border-left-color: var(--pagetollm-card-accent, var(--ink));
+  background: var(--surface-low);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+.pagetollm-yt-rail-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.pagetollm-yt-rail-card-time {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--pagetollm-card-accent, var(--on-surface-muted));
+}
+
+.pagetollm-yt-rail-card-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.pagetollm-yt-rail-card-body {
+  margin-top: 2px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--on-surface-muted);
+  overflow-wrap: anywhere;
+}
+
+.pagetollm-yt-rail-card.is-active .pagetollm-yt-rail-card-body {
+  color: var(--on-surface);
+}
