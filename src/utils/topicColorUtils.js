@@ -28,21 +28,24 @@ function getTopicDepth(topicName) {
   return Math.max(0, parts.length - 1);
 }
 
-export function getHierarchyTopicAccentColor(topicName, depth) {
+function getHierarchyTopicHue(topicName) {
   const rootName = getRootTopicName(topicName);
-  const hue = hashString(rootName) % 360;
+  return (hashString(rootName) + 170) % 360;
+}
+
+export function getHierarchyTopicAccentColor(topicName, depth) {
+  const hue = getHierarchyTopicHue(topicName);
   const d = depth !== undefined ? depth : getTopicDepth(topicName);
-  const saturation = Math.max(30, 60 - d * 6);
-  const lightness = Math.min(62, 38 + d * 6);
+  const saturation = Math.max(24, 52 - d * 5);
+  const lightness = Math.min(66, 42 + d * 5);
   return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 }
 
 export function getHierarchyTopicHighlightColor(topicName, depth) {
-  const rootName = getRootTopicName(topicName);
-  const hue = hashString(rootName) % 360;
+  const hue = getHierarchyTopicHue(topicName);
   const d = depth !== undefined ? depth : getTopicDepth(topicName);
-  const saturation = Math.max(18, 46 - d * 5);
-  const lightness = Math.min(96, 92 - d * 3);
+  const saturation = Math.max(14, 36 - d * 4);
+  const lightness = Math.min(97, 94 - d * 2);
   return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 }
 
@@ -52,11 +55,10 @@ export function getHierarchyTopicHighlightColor(topicName, depth) {
  * instead of the bright pastels used in light mode.
  */
 export function getHierarchyTopicHighlightColorDark(topicName, depth) {
-  const rootName = getRootTopicName(topicName);
-  const hue = hashString(rootName) % 360;
+  const hue = getHierarchyTopicHue(topicName);
   const d = depth !== undefined ? depth : getTopicDepth(topicName);
-  const saturation = Math.max(20, 42 - d * 4);
-  const lightness = Math.min(28, 17 + d * 3);
+  const saturation = Math.max(16, 34 - d * 3);
+  const lightness = Math.min(30, 19 + d * 3);
   return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 }
 
