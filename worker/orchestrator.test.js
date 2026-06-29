@@ -9,6 +9,7 @@ import {
   parseSummaryResponse,
   classifyLlmError,
   shouldInlineTopicSummary,
+  chunkSourceSentences,
 } from './orchestrator.js';
 import * as storage from './storage.js';
 import * as html from './html.js';
@@ -131,6 +132,44 @@ describe('chunkTaggedText', () => {
     const tagged = 'verylonglinewithoutnewlines';
     const result = chunkTaggedText(tagged, 10);
     expect(result).toEqual([tagged]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// chunkSourceSentences
+// ---------------------------------------------------------------------------
+
+describe('chunkSourceSentences', () => {
+  // sentenceTexts is 0-based; ids are global 1-based indices into it.
+  const sentenceTexts = ['aaaa', 'bbbb', 'cccc', 'dddd'];
+
+  it('keeps all sentences in one chunk when they fit the budget', () => {
+    const chunks = chunkSourceSentences([1, 2, 3, 4], sentenceTexts, 1000);
+    expect(chunks).toEqual([{ start: 1, end: 4, text: 'aaaa bbbb cccc dddd' }]);
+  });
+
+  it('splits at sentence boundaries and tracks each chunk start/end id', () => {
+    // Budget 10: "aaaa"(5) + "bbbb"(5) = 10 fits; adding "cccc" overflows.
+    const chunks = chunkSourceSentences([1, 2, 3, 4], sentenceTexts, 10);
+    expect(chunks).toEqual([
+      { start: 1, end: 2, text: 'aaaa bbbb' },
+      { start: 3, end: 4, text: 'cccc dddd' },
+    ]);
+  });
+
+  it('emits a single oversized sentence as its own chunk rather than dropping it', () => {
+    const texts = ['short', 'x'.repeat(50), 'tail'];
+    const chunks = chunkSourceSentences([1, 2, 3], texts, 10);
+    expect(chunks).toEqual([
+      { start: 1, end: 1, text: 'short' },
+      { start: 2, end: 2, text: 'x'.repeat(50) },
+      { start: 3, end: 3, text: 'tail' },
+    ]);
+  });
+
+  it('skips ids with no backing sentence text', () => {
+    const chunks = chunkSourceSentences([1, 9, 2], sentenceTexts, 1000);
+    expect(chunks).toEqual([{ start: 1, end: 2, text: 'aaaa bbbb' }]);
   });
 });
 
@@ -428,7 +467,7 @@ describe('runPipeline', () => {
     );
   });
 
-  it('merges child summaries for hierarchical topics', async () => {
+  it('summarizes a parent topic from its own source text, not by merging child summaries', async () => {
     const plainText = 'AI chip launched. It costs $5. Robot ships Tuesday. It weighs 2kg.';
     const mapping = makeMapping(plainText);
     storage.readRecord.mockResolvedValue(makeRecord('key5', `<p>${plainText}</p>`));
@@ -440,16 +479,19 @@ describe('runPipeline', () => {
       { text: 'It weighs 2kg.', start: 53, end: 67 },
     ]);
 
-    let mergePrompt = '';
+    let sourcePrompt = '';
+    const parentSummary = 'AI chip and robot news.\n- AI chip costs $5\n- Robot weighs 2kg';
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) {
         return 'Tech>AI: 0-1\nTech>Hardware: 2-3';
       }
-      if (prompt.includes('Merge the chunk summaries')) {
-        mergePrompt = prompt;
-        return 'Merged tech summary.';
+      // The parent topic is summarized from its full source text.
+      if (prompt.includes('Summarize the source text')) {
+        sourcePrompt = prompt;
+        return parentSummary;
       }
-      return 'Topic summary.';
+      // Leaf per-topic summaries.
+      return 'Leaf summary.';
     });
 
     await runPipeline('key5');
@@ -457,12 +499,16 @@ describe('runPipeline', () => {
     const lastCall = storage.updateRecord.mock.calls[storage.updateRecord.mock.calls.length - 1];
     expect(lastCall[1].status).toBe('done');
     expect(lastCall[1].topic_summary_index).toBeDefined();
-    expect(lastCall[1].topic_summary_index['Tech'].text).toBe('Merged tech summary.');
-    expect(mergePrompt).toContain('AI chip launched. It costs $5.');
-    expect(mergePrompt).toContain('Robot ships Tuesday. It weighs 2kg.');
+    expect(lastCall[1].topic_summary_index['Tech'].text).toBe(parentSummary);
+    // The parent summary is generated from the full source text of both
+    // children, not from their brief leaf summaries.
+    expect(sourcePrompt).toContain('AI chip launched. It costs $5.');
+    expect(sourcePrompt).toContain('Robot ships Tuesday. It weighs 2kg.');
+    expect(sourcePrompt).not.toContain('Leaf summary.');
+    // The source fits the budget, so no chunk-merge call is made.
     expect(
       llm.callLLMWithRetry.mock.calls.some(([opts]) =>
-        opts.prompt.includes('Summarize the article text'),
+        opts.prompt.includes('Merge the summaries below'),
       ),
     ).toBe(false);
   });
@@ -894,9 +940,9 @@ describe('runPipeline', () => {
       { text: 'D.', start: 9, end: 11 },
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
-      // Two sibling topics under "Tech" → a real merge call is made for the parent.
+      // Two sibling topics under "Tech" → the parent is summarized from source.
       if (prompt.includes('Partition the markers')) return 'Tech>AI: 0-1\nTech>Hardware: 2-3';
-      if (prompt.includes('Merge the chunk summaries')) {
+      if (prompt.includes('Summarize the source text')) {
         throw new Error('LLM HTTP 429: too many requests');
       }
       return 'Leaf summary.';
@@ -904,7 +950,7 @@ describe('runPipeline', () => {
 
     await runPipeline('mergefail');
 
-    // Leaves all succeeded, so the park is triggered by the merge, not a leaf.
+    // Leaves all succeeded, so the park is triggered by the parent summary, not a leaf.
     expect(storage.updateRecord.mock.calls.some((c) => c[1].status === 'done')).toBe(false);
     const parkCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'needs_attention');
     expect(parkCall).toBeDefined();
@@ -950,6 +996,153 @@ describe('runPipeline', () => {
     expect(doneCall[1].topic_summaries['Tech>AI'].text).toBe('AI summary.');
     expect(doneCall[1].summaryErrors).toEqual([]);
     expect(doneCall[1].forceFinalize).toBe(false);
+  });
+
+  it('chunks an oversized parent source into per-chunk summaries, then merges them', async () => {
+    // 200 sentences of ~400 chars => ~80k chars of source for the parent "Tech"
+    // node, over SOURCE_SUMMARY_MAX_CHARS (60000). Tech has two children so it is
+    // summarized from its own aggregated source (not delegated): it must split
+    // into chunks, summarize each chunk from source, and merge those chunk
+    // summaries — rather than summarizing the whole thing in one call. Uses the
+    // resume path so the oversized source never passes through topic-ranges.
+    const ids = Array.from({ length: 200 }, (_, i) => i + 1);
+    const sentences = ids.map((i) => `Sentence ${i} ` + 'x'.repeat(390));
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('overflow', '<p>x</p>'),
+      status: 'summarizing',
+      topics: [
+        { name: 'Tech>A', sentences: ids.slice(0, 100), sentence_spans: [], ranges: [] },
+        { name: 'Tech>B', sentences: ids.slice(100), sentence_spans: [], ranges: [] },
+      ],
+      sentences,
+      topic_summaries: {},
+    });
+
+    let sourceCalls = 0;
+    let mergeCalls = 0;
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Summarize the source text')) {
+        sourceCalls++;
+        return 'Chunk summary.';
+      }
+      if (prompt.includes('Merge the summaries below')) {
+        mergeCalls++;
+        return 'Merged overflow summary.';
+      }
+      // Leaf per-topic summaries for Tech>A and Tech>B.
+      return 'Leaf.';
+    });
+
+    await runPipeline('overflow');
+
+    // The parent source exceeded the budget: more than one chunk was summarized,
+    // then exactly one merge combined those chunk summaries.
+    expect(sourceCalls).toBeGreaterThan(1);
+    expect(mergeCalls).toBe(1);
+    const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
+    expect(doneCall).toBeDefined();
+    expect(doneCall[1].topic_summary_index['Tech'].text).toBe('Merged overflow summary.');
+    expect(doneCall[1].topic_summary_index['Tech>A'].text).toBe('Leaf.');
+  });
+
+  it('falls back to chunk summaries when the overflow merge returns NO_SUMMARY', async () => {
+    // Same oversized-parent setup, but the merge collapses to NO_SUMMARY despite
+    // the chunk summaries succeeding. Internal nodes have no NO_SUMMARY escape,
+    // so the parent must not finish empty — it falls back to the chunk summaries.
+    const ids = Array.from({ length: 200 }, (_, i) => i + 1);
+    const sentences = ids.map((i) => `Sentence ${i} ` + 'x'.repeat(390));
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('overflow-nosummary', '<p>x</p>'),
+      status: 'summarizing',
+      topics: [
+        { name: 'Tech>A', sentences: ids.slice(0, 100), sentence_spans: [], ranges: [] },
+        { name: 'Tech>B', sentences: ids.slice(100), sentence_spans: [], ranges: [] },
+      ],
+      sentences,
+      topic_summaries: {},
+    });
+
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Summarize the source text')) return 'Chunk summary.';
+      if (prompt.includes('Merge the summaries below')) return 'NO_SUMMARY';
+      return 'Leaf.';
+    });
+
+    await runPipeline('overflow-nosummary');
+
+    const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
+    expect(doneCall).toBeDefined();
+    const parentText = doneCall[1].topic_summary_index['Tech'].text;
+    expect(parentText).not.toBe('');
+    expect(parentText).toContain('Chunk summary.');
+  });
+
+  it('falls back to source text when the single-call parent summary returns NO_SUMMARY', async () => {
+    // A parent whose source fits in one request: the source prompt offers no
+    // NO_SUMMARY escape, but a stray NO_SUMMARY reply must not finish the run
+    // with a silently empty internal topic — it falls back to the source text.
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('parent-nosummary', '<p>x</p>'),
+      status: 'summarizing',
+      topics: [
+        { name: 'Tech>A', sentences: [1], sentence_spans: [], ranges: [] },
+        { name: 'Tech>B', sentences: [2], sentence_spans: [], ranges: [] },
+      ],
+      sentences: ['Alpha fact stated here.', 'Beta fact stated here.'],
+      topic_summaries: {},
+    });
+
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Summarize the source text')) return 'NO_SUMMARY';
+      return 'Leaf.';
+    });
+
+    await runPipeline('parent-nosummary');
+
+    const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
+    expect(doneCall).toBeDefined();
+    expect(doneCall[1].status).toBe('done');
+    const parentText = doneCall[1].topic_summary_index['Tech'].text;
+    expect(parentText).not.toBe('');
+    // Falls back to the parent's own aggregated source sentences.
+    expect(parentText).toContain('Alpha fact stated here.');
+    expect(parentText).toContain('Beta fact stated here.');
+  });
+
+  it('falls back to chunk source text when an overflow chunk summary returns NO_SUMMARY', async () => {
+    // Oversized parent whose per-chunk source summaries AND the merge both return
+    // NO_SUMMARY. The fallback lives in the shared summarizeText, so each chunk
+    // returns its raw source, and the overflow merge-fallback then joins those —
+    // the parent ends non-empty (carrying source) rather than silently empty.
+    const ids = Array.from({ length: 200 }, (_, i) => i + 1);
+    const sentences = ids.map((i) => `Sentence ${i} ` + 'x'.repeat(390));
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('overflow-chunk-nosummary', '<p>x</p>'),
+      status: 'summarizing',
+      topics: [
+        { name: 'Tech>A', sentences: ids.slice(0, 100), sentence_spans: [], ranges: [] },
+        { name: 'Tech>B', sentences: ids.slice(100), sentence_spans: [], ranges: [] },
+      ],
+      sentences,
+      topic_summaries: {},
+    });
+
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Summarize the source text')) return 'NO_SUMMARY';
+      if (prompt.includes('Merge the summaries below')) return 'NO_SUMMARY';
+      return 'Leaf.';
+    });
+
+    await runPipeline('overflow-chunk-nosummary');
+
+    const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
+    expect(doneCall).toBeDefined();
+    expect(doneCall[1].status).toBe('done');
+    const parentText = doneCall[1].topic_summary_index['Tech'].text;
+    expect(parentText).not.toBe('');
+    // Carries the raw source from the chunks (first and last sentences present).
+    expect(parentText).toContain('Sentence 1 ');
+    expect(parentText).toContain('Sentence 200 ');
   });
 
   it('clears stale topics and summaries on a fresh run (non-resume path)', async () => {

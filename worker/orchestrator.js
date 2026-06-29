@@ -11,6 +11,7 @@ import {
   buildTopicRangesPrompt,
   buildArticleSummaryPrompt,
   buildArticleSummaryMergePrompt,
+  buildTopicSummaryFromSourcePrompt,
   formatChunkSummariesForMerge,
 } from './prompts.js';
 import { parseTopicRanges, groupsFromSegments, TopicParseError } from './topic_parser.js';
@@ -20,6 +21,10 @@ import { planSummaryWork } from './summaryPlanning.js';
 import { summarizeTopicTree } from './topicTreeMerge.js';
 
 const MAX_TAGGED_CHARS = 60000;
+// Budget for an internal topic node's own source text before we summarize it in
+// one call vs. split it into chunks and merge. Mirrors MAX_TAGGED_CHARS but
+// applies to raw source text (no {N} markers), so it is named separately.
+const SOURCE_SUMMARY_MAX_CHARS = MAX_TAGGED_CHARS;
 const SUMMARY_CONCURRENCY = 4;
 const TOPIC_RANGE_CONCURRENCY = 4;
 const INLINE_SUMMARY_MAX_SENTENCES = 3;
@@ -215,10 +220,115 @@ export function buildTopicTree(topics) {
   return { root, nodes };
 }
 
-async function mergeChildSummaries(childRecords, signal) {
-  const prompt = buildArticleSummaryMergePrompt(formatChunkSummariesForMerge(childRecords));
-  const resp = await callLLMWithRetry({ prompt, temperature: 0.8, signal });
-  return { text: parseSummaryResponse(resp) };
+/**
+ * Splits a node's source sentences into char-bounded chunks at sentence
+ * boundaries (so the overflow path never cuts a sentence mid-way). Each chunk
+ * carries its global 1-based sentence range for the merge prompt's labels.
+ *
+ * @param {number[]} sourceSentenceIds  sorted 1-based sentence indices
+ * @param {string[]} sentenceTexts
+ * @param {number} maxChars
+ * @returns {Array<{start: number, end: number, text: string}>}
+ */
+export function chunkSourceSentences(sourceSentenceIds, sentenceTexts, maxChars) {
+  const chunks = [];
+  let cur = [];
+  let curLen = 0;
+  const flush = () => {
+    if (!cur.length) return;
+    chunks.push({
+      start: cur[0],
+      end: cur[cur.length - 1],
+      text: cur
+        .map((id) => sentenceTexts[id - 1])
+        .filter(Boolean)
+        .join(' '),
+    });
+    cur = [];
+    curLen = 0;
+  };
+  for (const id of sourceSentenceIds) {
+    const text = sentenceTexts[id - 1];
+    if (!text) continue;
+    const addLen = text.length + 1;
+    if (curLen + addLen > maxChars && cur.length) flush();
+    cur.push(id);
+    curLen += addLen;
+  }
+  flush();
+  return chunks;
+}
+
+/**
+ * Builds the `summarizeSource` function the topic-tree builder injects for every
+ * internal node. It generates a FRESH summary from the node's own source
+ * sentences instead of merging the children's already-brief summaries (a
+ * summary-of-summaries loses facts level by level). When the source fits
+ * SOURCE_SUMMARY_MAX_CHARS it is summarized in one call; otherwise it is split
+ * into char-bounded chunks, each chunk is summarized from source, and those
+ * chunk summaries are merged. Every LLM call goes through `limit` so concurrent
+ * node summaries stay within the provider's rate budget (a 429 degrades a
+ * summary to empty).
+ *
+ * @param {string[]} sentenceTexts
+ * @param {<T>(fn: () => Promise<T>) => Promise<T>} limit
+ * @param {AbortSignal|undefined} signal
+ * @returns {(sourceSentenceIds: number[]) => Promise<{text: string}>}
+ */
+function makeSourceSummarizer(sentenceTexts, limit, signal) {
+  const summarizeText = async (text) => {
+    const resp = await limit(() =>
+      callLLMWithRetry({
+        prompt: buildTopicSummaryFromSourcePrompt(text),
+        temperature: 0.8,
+        signal,
+      }),
+    );
+    // The source prompt offers no NO_SUMMARY escape, so an empty/NO_SUMMARY reply
+    // is a stray model output rather than a real "nothing to summarize". Mirror
+    // the leaf path's NO_SUMMARY→source fallback and return the source text so an
+    // internal topic (or any of its chunks) is never silently empty. `text` is
+    // bounded by SOURCE_SUMMARY_MAX_CHARS at both call sites.
+    return parseSummaryResponse(resp) || text;
+  };
+  return async (sourceSentenceIds) => {
+    const ids = Array.isArray(sourceSentenceIds) ? sourceSentenceIds : [];
+    const joined = ids
+      .map((id) => sentenceTexts[id - 1])
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+    if (!joined) return { text: '' };
+    if (joined.length <= SOURCE_SUMMARY_MAX_CHARS) {
+      return { text: await summarizeText(joined) };
+    }
+    const chunks = chunkSourceSentences(ids, sentenceTexts, SOURCE_SUMMARY_MAX_CHARS);
+    const records = await parallelMap(chunks, SUMMARY_CONCURRENCY, async (chunk) => ({
+      start_sentence: chunk.start,
+      end_sentence: chunk.end,
+      summary: { text: await summarizeText(chunk.text) },
+    }));
+    const mergeResp = await limit(() =>
+      callLLMWithRetry({
+        prompt: buildArticleSummaryMergePrompt(formatChunkSummariesForMerge(records)),
+        temperature: 0.8,
+        signal,
+      }),
+    );
+    const merged = parseSummaryResponse(mergeResp);
+    if (merged) return { text: merged };
+    // The merge collapsed to empty (e.g. a stray NO_SUMMARY) even though the
+    // chunk summaries succeeded. Internal nodes have no NO_SUMMARY escape, so
+    // rather than silently shipping an empty parent topic we fall back to the
+    // chunk summaries themselves — losing the cross-chunk dedupe but keeping the
+    // facts. (Empty only if every chunk was itself empty, i.e. genuinely no
+    // content.)
+    const fallback = records
+      .map((r) => r.summary.text)
+      .filter(Boolean)
+      .join('\n');
+    return { text: fallback };
+  };
 }
 
 export function rangesToSentenceList(ranges) {
@@ -821,26 +931,26 @@ async function runSummaries(
   await logPipeline(context, 'topic_tree_merge_start', {
     leafCount: total,
   });
-  const { root, nodes } = buildTopicTree(topics);
+  const { nodes } = buildTopicTree(topics);
 
-  // Sibling subtrees are traversed concurrently, so a wide hierarchy could
-  // otherwise fire every merge LLM call at once and trip provider rate limits
-  // (merge failures degrade to empty summaries). The limiter bounds the
-  // in-flight merge calls while leaving the traversal unbounded.
-  const limitMerge = createLimiter(SUMMARY_CONCURRENCY);
-  const mergeErrors = [];
-  const merge = forceFinalize
+  // Internal-node summaries are generated from each node's own source text and
+  // are independent of one another, so the topic-tree builder fans them out
+  // concurrently. The limiter bounds the in-flight LLM calls a wide hierarchy
+  // would otherwise fire at once and trip provider rate limits on (a 429
+  // degrades a summary to empty). A "skip" finalize resolves every internal
+  // node to empty without any LLM call.
+  const limitSummary = createLimiter(SUMMARY_CONCURRENCY);
+  const summaryErrors = [];
+  const summarizeSource = forceFinalize
     ? async () => ({ text: '' })
-    : (childRecords) => mergeChildSummaries(childRecords, context.signal);
+    : makeSourceSummarizer(sentenceTexts, limitSummary, context.signal);
   const topic_summary_index = await summarizeTopicTree({
-    root,
     nodes,
     leafSummaries: topic_summaries,
-    merge,
-    limit: limitMerge,
-    onMergeError: ({ path, error }) => {
+    summarizeSource,
+    onError: ({ path, error }) => {
       const { kind, message } = classifyLlmError(error);
-      mergeErrors.push({
+      summaryErrors.push({
         topic: path,
         error_kind: kind,
         error_message: message,
@@ -860,8 +970,8 @@ async function runSummaries(
   // A merge that failed after retries left an empty parent summary; park the run
   // (same confirm popup) rather than silently shipping an empty topic. A "skip"
   // resume bypasses this and accepts the empty merge.
-  if (mergeErrors.length && !forceFinalize) {
-    await parkForReview(context, mergeErrors, 'merge', { done: total, total });
+  if (summaryErrors.length && !forceFinalize) {
+    await parkForReview(context, summaryErrors, 'merge', { done: total, total });
     return;
   }
 

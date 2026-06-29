@@ -2,172 +2,200 @@ import { describe, it, expect, vi } from 'vitest';
 import { summarizeTopicTree } from './topicTreeMerge.js';
 import { buildTopicTree } from './orchestrator.js';
 
-// A passthrough limiter that just runs the task (the real createLimiter caps
-// concurrency; here we instrument it where a test needs to assert the cap).
-const passthroughLimit = (fn) => fn();
-
 describe('summarizeTopicTree', () => {
-  it('produces an index from a single-leaf tree without calling merge', async () => {
-    // One top-level topic: root has a single child and inherits its summary, so
-    // no merge LLM call is made.
+  it('uses the leaf summary for a leaf node without calling summarizeSource', async () => {
+    // One top-level topic with no children: its precomputed per-topic summary is
+    // used as-is; no source-based summary is generated.
     const topics = [{ name: 'A', sentences: [1, 2] }];
-    const { root, nodes } = buildTopicTree(topics);
-    const merge = vi.fn();
+    const { nodes } = buildTopicTree(topics);
+    const summarizeSource = vi.fn();
 
     const index = await summarizeTopicTree({
-      root,
       nodes,
       leafSummaries: { A: { text: 'Summary A' } },
-      merge,
-      limit: passthroughLimit,
+      summarizeSource,
     });
 
-    expect(merge).not.toHaveBeenCalled();
+    expect(summarizeSource).not.toHaveBeenCalled();
     expect(index.A).toEqual({ text: 'Summary A', level: 0, source_sentences: [1, 2] });
     // The empty root path is excluded.
     expect(Object.keys(index)).toEqual(['A']);
   });
 
-  it('merges children before parents (bottom-up) and records the parent summary', async () => {
+  it('summarizes an internal node from its own source sentences, not its children', async () => {
     const topics = [
       { name: 'Tech>AI', sentences: [1, 2] },
       { name: 'Tech>HW', sentences: [3, 4] },
     ];
-    const { root, nodes } = buildTopicTree(topics);
+    const { nodes } = buildTopicTree(topics);
 
-    const mergeOrder = [];
-    const merge = vi.fn(async (records) => {
-      mergeOrder.push(records.map((r) => r.summary.text));
-      return { text: 'Merged Tech' };
+    const calls = [];
+    const summarizeSource = vi.fn(async (sourceSentenceIds, info) => {
+      calls.push({ ids: sourceSentenceIds, path: info.path });
+      return { text: 'Tech from source' };
     });
 
     const index = await summarizeTopicTree({
-      root,
       nodes,
       leafSummaries: {
         'Tech>AI': { text: 'AI leaf' },
         'Tech>HW': { text: 'HW leaf' },
       },
-      merge,
-      limit: passthroughLimit,
+      summarizeSource,
     });
 
-    // Exactly one merge: the two leaves into Tech. (Tech is Tech's single child
-    // of root, so root inherits Tech's summary without a second merge.)
-    expect(merge).toHaveBeenCalledTimes(1);
-    expect(mergeOrder).toEqual([['AI leaf', 'HW leaf']]);
-    expect(index['Tech'].text).toBe('Merged Tech');
-    expect(index['Tech'].level).toBe(0);
-    expect(index['Tech>AI'].text).toBe('AI leaf');
-    expect(index['Tech>AI'].level).toBe(1);
-    expect(index['Tech'].source_sentences).toEqual([1, 2, 3, 4]);
+    // Only the internal node (Tech) is summarized from source; the leaves reuse
+    // their per-topic summaries. (Root is skipped — Tech is its single child.)
+    expect(calls).toEqual([{ ids: [1, 2, 3, 4], path: 'Tech' }]);
+    expect(index['Tech']).toEqual({
+      text: 'Tech from source',
+      level: 0,
+      source_sentences: [1, 2, 3, 4],
+    });
+    expect(index['Tech>AI']).toEqual({ text: 'AI leaf', level: 1, source_sentences: [1, 2] });
+    expect(index['Tech>HW']).toEqual({ text: 'HW leaf', level: 1, source_sentences: [3, 4] });
   });
 
-  it('passes child sentence bounds into the merge records', async () => {
-    const topics = [
-      { name: 'T>X', sentences: [2, 5] },
-      { name: 'T>Y', sentences: [7, 9] },
-    ];
-    const { root, nodes } = buildTopicTree(topics);
-    let captured;
-    const merge = vi.fn(async (records) => {
-      captured = records;
-      return { text: 'M' };
-    });
-
-    await summarizeTopicTree({
-      root,
-      nodes,
-      leafSummaries: { 'T>X': { text: 'x' }, 'T>Y': { text: 'y' } },
-      merge,
-      limit: passthroughLimit,
-    });
-
-    expect(captured).toEqual([
-      { start_sentence: 2, end_sentence: 5, summary: { text: 'x' } },
-      { start_sentence: 7, end_sentence: 9, summary: { text: 'y' } },
-    ]);
-  });
-
-  it('on merge failure calls onMergeError and falls back to empty text', async () => {
-    const topics = [
-      { name: 'Tech>AI', sentences: [1] },
-      { name: 'Tech>HW', sentences: [2] },
-    ];
-    const { root, nodes } = buildTopicTree(topics);
-    const onMergeError = vi.fn();
-    const merge = vi.fn(async () => {
-      throw new Error('merge boom');
-    });
-
-    const index = await summarizeTopicTree({
-      root,
-      nodes,
-      leafSummaries: { 'Tech>AI': { text: 'a' }, 'Tech>HW': { text: 'b' } },
-      merge,
-      limit: passthroughLimit,
-      onMergeError,
-    });
-
-    expect(onMergeError).toHaveBeenCalledTimes(1);
-    expect(onMergeError).toHaveBeenCalledWith({ path: 'Tech', error: 'merge boom' });
-    expect(index['Tech'].text).toBe('');
-  });
-
-  it('routes every merge through the limiter and respects the concurrency cap', async () => {
-    // Two parents (Tech, Sci) each with two leaves, plus the root which now has
-    // two children (Tech, Sci) => three merges total. The Tech/Sci merges would
-    // otherwise launch concurrently; a cap-1 limiter must serialize all of them.
+  it('never summarizes the empty root path, even with multiple top-level domains', async () => {
+    // Each domain has two children so it is a genuine summarize-from-source
+    // anchor (not a delegating single-child node); this keeps the root-skip
+    // assertion independent of the passthrough path.
     const topics = [
       { name: 'Tech>AI', sentences: [1] },
       { name: 'Tech>HW', sentences: [2] },
       { name: 'Sci>Bio', sentences: [3] },
-      { name: 'Sci>Chem', sentences: [4] },
+      { name: 'Sci>Phys', sentences: [4] },
     ];
-    const { root, nodes } = buildTopicTree(topics);
+    const { nodes } = buildTopicTree(topics);
 
-    let inFlight = 0;
-    let maxInFlight = 0;
-    const CAP = 1;
-    const limit = (fn) => {
-      // Minimal cap-1 limiter for the assertion below.
-      return queue(fn);
-    };
-    let chain = Promise.resolve();
-    function queue(fn) {
-      const run = chain.then(() => fn());
-      // keep the chain going only after run settles
-      chain = run.then(
-        () => {},
-        () => {},
-      );
-      return run;
-    }
-
-    const merge = vi.fn(async () => {
-      inFlight++;
-      maxInFlight = Math.max(maxInFlight, inFlight);
-      await new Promise((r) => setTimeout(r, 5));
-      inFlight--;
-      return { text: 'merged' };
+    const seenPaths = [];
+    const summarizeSource = vi.fn(async (ids, info) => {
+      seenPaths.push(info.path);
+      return { text: `src ${info.path}` };
     });
 
     const index = await summarizeTopicTree({
-      root,
       nodes,
       leafSummaries: {
-        'Tech>AI': { text: '' },
-        'Tech>HW': { text: '' },
-        'Sci>Bio': { text: '' },
-        'Sci>Chem': { text: '' },
+        'Tech>AI': { text: 'ai' },
+        'Tech>HW': { text: 'hw' },
+        'Sci>Bio': { text: 'bio' },
+        'Sci>Phys': { text: 'phys' },
       },
-      merge,
-      limit,
+      summarizeSource,
     });
 
-    expect(merge).toHaveBeenCalledTimes(3);
-    expect(maxInFlight).toBeLessThanOrEqual(CAP);
-    expect(index['Tech'].text).toBe('merged');
-    expect(index['Sci'].text).toBe('merged');
+    // Tech and Sci are summarized from source; the root, which would re-summarize
+    // the whole document, is never touched.
+    expect(seenPaths.sort()).toEqual(['Sci', 'Tech']);
+    expect(index['Tech'].text).toBe('src Tech');
+    expect(index['Sci'].text).toBe('src Sci');
+    expect(index['']).toBeUndefined();
+  });
+
+  it('delegates a single-child node to its child summary instead of regenerating', async () => {
+    // root>Tech>AI, AI a leaf. Tech has one child whose source is identical, so
+    // Tech reuses AI's per-topic summary rather than calling summarizeSource.
+    const topics = [{ name: 'Tech>AI', sentences: [1, 2] }];
+    const { nodes } = buildTopicTree(topics);
+    const summarizeSource = vi.fn();
+
+    const index = await summarizeTopicTree({
+      nodes,
+      leafSummaries: { 'Tech>AI': { text: 'AI leaf' } },
+      summarizeSource,
+    });
+
+    expect(summarizeSource).not.toHaveBeenCalled();
+    expect(index['Tech'].text).toBe('AI leaf');
+    expect(index['Tech>AI'].text).toBe('AI leaf');
+  });
+
+  it('delegates down a multi-level single-child chain to the deepest leaf anchor', async () => {
+    // Tech>AI>LLM with LLM the only leaf: AI and Tech both cover exactly LLM's
+    // sentences, so both delegate down to LLM's stored summary; no LLM call.
+    const topics = [{ name: 'Tech>AI>LLM', sentences: [1, 2] }];
+    const { nodes } = buildTopicTree(topics);
+    const summarizeSource = vi.fn();
+
+    const index = await summarizeTopicTree({
+      nodes,
+      leafSummaries: { 'Tech>AI>LLM': { text: 'llm leaf' } },
+      summarizeSource,
+    });
+
+    expect(summarizeSource).not.toHaveBeenCalled();
+    expect(index['Tech'].text).toBe('llm leaf');
+    expect(index['Tech>AI'].text).toBe('llm leaf');
+    expect(index['Tech>AI>LLM'].text).toBe('llm leaf');
+  });
+
+  it('summarizes a single-child node from source when it owns sentences beyond its child', async () => {
+    // Tech>AI is assigned its own sentence [5] AND has a child Tech>AI>LLM ([1,2]).
+    // AI's source ([1,2,5]) is a superset of LLM's, so AI must NOT delegate — it
+    // is summarized from source. Tech (one child, identical source to AI) still
+    // delegates to AI's generated summary.
+    const topics = [
+      { name: 'Tech>AI', sentences: [5] },
+      { name: 'Tech>AI>LLM', sentences: [1, 2] },
+    ];
+    const { nodes } = buildTopicTree(topics);
+
+    const calls = [];
+    const summarizeSource = vi.fn(async (ids, info) => {
+      calls.push({ ids, path: info.path });
+      return { text: 'AI from source' };
+    });
+
+    const index = await summarizeTopicTree({
+      nodes,
+      leafSummaries: { 'Tech>AI>LLM': { text: 'llm leaf' } },
+      summarizeSource,
+    });
+
+    // summarizeSource runs once, for AI, over AI's full aggregated source.
+    expect(calls).toEqual([{ ids: [1, 2, 5], path: 'Tech>AI' }]);
+    expect(index['Tech>AI'].text).toBe('AI from source');
+    expect(index['Tech'].text).toBe('AI from source');
+    expect(index['Tech>AI>LLM'].text).toBe('llm leaf');
+  });
+
+  it('on summarizeSource failure calls onError and falls back to empty text', async () => {
+    const topics = [
+      { name: 'Tech>AI', sentences: [1] },
+      { name: 'Tech>HW', sentences: [2] },
+    ];
+    const { nodes } = buildTopicTree(topics);
+    const onError = vi.fn();
+    const boom = new Error('summary boom');
+    const summarizeSource = vi.fn(async () => {
+      throw boom;
+    });
+
+    const index = await summarizeTopicTree({
+      nodes,
+      leafSummaries: { 'Tech>AI': { text: 'a' }, 'Tech>HW': { text: 'b' } },
+      summarizeSource,
+      onError,
+    });
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith({ path: 'Tech', error: boom });
+    expect(index['Tech'].text).toBe('');
+    // Leaves are unaffected by the internal-node failure.
+    expect(index['Tech>AI'].text).toBe('a');
+  });
+
+  it('falls back to empty text for a leaf with no stored summary', async () => {
+    const topics = [{ name: 'A', sentences: [1] }];
+    const { nodes } = buildTopicTree(topics);
+
+    const index = await summarizeTopicTree({
+      nodes,
+      leafSummaries: {},
+      summarizeSource: vi.fn(),
+    });
+
+    expect(index.A).toEqual({ text: '', level: 0, source_sentences: [1] });
   });
 });
