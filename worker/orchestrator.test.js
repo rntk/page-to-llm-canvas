@@ -373,7 +373,7 @@ describe('runPipeline', () => {
 
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
-      if (prompt.includes('Summarize the article text')) return 'Summary text.';
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary text.';
       return '';
     });
 
@@ -386,7 +386,7 @@ describe('runPipeline', () => {
     expect(final.topic_summary_index['Tech>All'].text).toBe(plainText);
     expect(
       llm.callLLMWithRetry.mock.calls.some(([opts]) =>
-        opts.prompt.includes('Summarize the article text'),
+        opts.prompt.includes('Summarize the text within the <text> tags'),
       ),
     ).toBe(false);
 
@@ -433,7 +433,7 @@ describe('runPipeline', () => {
         if (attempt === 1) return 'Invalid response';
         return 'Tech>All: 0-2';
       }
-      if (prompt.includes('Summarize the article text')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
       return '';
     });
 
@@ -524,7 +524,7 @@ describe('runPipeline', () => {
 
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
-      if (prompt.includes('Summarize the article text')) {
+      if (prompt.includes('Summarize the text within the <text> tags')) {
         throw new Error('LLM request timed out after 120000ms');
       }
       return '';
@@ -557,7 +557,7 @@ describe('runPipeline', () => {
 
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
-      if (prompt.includes('Summarize the article text')) return 'NO_SUMMARY';
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'NO_SUMMARY';
       return '';
     });
 
@@ -589,7 +589,7 @@ describe('runPipeline', () => {
         chunkCount++;
         return `Tech>All: 0-${sentences.length - 1}`;
       }
-      if (prompt.includes('Summarize the article text')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
       return '';
     });
 
@@ -623,7 +623,7 @@ describe('runPipeline', () => {
         if (partitionCalls === 1) return `Tech>All: 0-${n - 1}`;
         return 'Tech>FirstHalf: 0-29\nTech>SecondHalf: 30-59';
       }
-      if (prompt.includes('Summarize the article text')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
       return '';
     });
 
@@ -658,7 +658,7 @@ describe('runPipeline', () => {
         partitionCalls++;
         return `Tech>All: 0-${n - 1}`;
       }
-      if (prompt.includes('Summarize the article text')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
       return '';
     });
 
@@ -699,7 +699,7 @@ describe('runPipeline', () => {
         // Second-level re-split of the 60-sentence tail slice (local 0-59).
         return 'Tech>TailA: 0-29\nTech>TailB: 30-59';
       }
-      if (prompt.includes('Summarize the article text')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
       return '';
     });
 
@@ -734,7 +734,7 @@ describe('runPipeline', () => {
       if (prompt.includes('Partition the markers')) {
         throw new TypeError('Unexpected');
       }
-      if (prompt.includes('Summarize the article text')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
       return '';
     });
 
@@ -753,7 +753,7 @@ describe('runPipeline', () => {
 
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
-      if (prompt.includes('Summarize the article text')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
       return '';
     });
 
@@ -792,7 +792,7 @@ describe('runPipeline', () => {
     const summaryPrompts = [];
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'SHOULD_NOT_BE_CALLED: 0-1';
-      if (prompt.includes('Summarize the article text')) {
+      if (prompt.includes('Summarize the text within the <text> tags')) {
         summaryPrompts.push(prompt);
         return 'Fresh B summary.';
       }
@@ -841,7 +841,7 @@ describe('runPipeline', () => {
 
     const summaryPrompts = [];
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
-      if (prompt.includes('Summarize the article text')) {
+      if (prompt.includes('Summarize the text within the <text> tags')) {
         summaryPrompts.push(prompt);
         return 'Recovered C.';
       }
@@ -872,7 +872,7 @@ describe('runPipeline', () => {
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
-      if (prompt.includes('Summarize the article text')) throw new Error('LLM down');
+      if (prompt.includes('Summarize the text within the <text> tags')) throw new Error('LLM down');
       return '';
     });
 
@@ -923,7 +923,7 @@ describe('runPipeline', () => {
     // No new summary LLM call happened — skip reuses the empty leaf as-is.
     expect(
       llm.callLLMWithRetry.mock.calls.some(([opts]) =>
-        opts.prompt.includes('Summarize the article text'),
+        opts.prompt.includes('Summarize the text within the <text> tags'),
       ),
     ).toBe(false);
   });
@@ -1166,7 +1166,7 @@ describe('runPipeline', () => {
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
-      if (prompt.includes('Summarize the article text')) return 'Fresh summary.';
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Fresh summary.';
       return '';
     });
 
