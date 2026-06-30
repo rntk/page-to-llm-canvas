@@ -9,6 +9,11 @@ import {
 
 const DEFAULT_POLL_MS = 1000;
 
+function clampRailScrollTop(body, scrollTop) {
+  const maxScrollTop = Math.max(0, body.scrollHeight - body.clientHeight);
+  return Math.max(0, Math.min(maxScrollTop, scrollTop));
+}
+
 function ModeDropdown({ mode, onSelectMode }) {
   const activeMode = mode === 'summaries' ? 'summaries' : 'topics';
   return (
@@ -65,6 +70,7 @@ export default function YouTubeRail({
 }) {
   const isSummary = mode === 'summaries';
   const [activeId, setActiveId] = useState(null);
+  const bodyRef = useRef(null);
   const cardRefs = useRef(new Map());
 
   const normalizedCards = useMemo(() => normalizeYouTubeRailCards(cards), [cards]);
@@ -83,10 +89,49 @@ export default function YouTubeRail({
 
   const scrollToCard = useCallback((id) => {
     if (!id) return;
+    const body = bodyRef.current;
     const el = cardRefs.current.get(id);
-    if (el && typeof el.scrollIntoView === 'function') {
-      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    }
+    if (!body || !el || typeof body.scrollTo !== 'function') return;
+
+    const bodyRect = body.getBoundingClientRect();
+    const cardRect = el.getBoundingClientRect();
+    const nextTop =
+      body.scrollTop + cardRect.top - bodyRect.top - body.clientHeight / 2 + cardRect.height / 2;
+
+    body.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' });
+  }, []);
+
+  const handleBodyWheel = useCallback((event) => {
+    const body = bodyRef.current;
+    if (!body) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const pageDelta = body.clientHeight || window.innerHeight || 0;
+    const deltaMultiplier = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? pageDelta : 1;
+    body.scrollTop = clampRailScrollTop(body, body.scrollTop + event.deltaY * deltaMultiplier);
+  }, []);
+
+  const handleBodyKeyDown = useCallback((event) => {
+    const body = bodyRef.current;
+    if (!body) return;
+
+    const pageStep = Math.max(1, Math.floor(body.clientHeight * 0.85));
+    const keyScrollDeltas = {
+      ArrowDown: 40,
+      ArrowUp: -40,
+      PageDown: pageStep,
+      PageUp: -pageStep,
+      Home: -body.scrollTop,
+      End: body.scrollHeight - body.clientHeight - body.scrollTop,
+    };
+    const delta = keyScrollDeltas[event.key];
+    if (delta == null) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    body.scrollTop = clampRailScrollTop(body, body.scrollTop + delta);
   }, []);
 
   useEffect(() => {
@@ -147,7 +192,13 @@ export default function YouTubeRail({
           ×
         </button>
       </div>
-      <div className="pagetollm-yt-rail-body">
+      <div
+        ref={bodyRef}
+        className="pagetollm-yt-rail-body"
+        tabIndex={0}
+        onWheel={handleBodyWheel}
+        onKeyDown={handleBodyKeyDown}
+      >
         {normalizedCards.length === 0 ? (
           <div className="pagetollm-yt-rail-empty">
             No timestamped {isSummary ? 'summaries' : 'topics'} for this video.

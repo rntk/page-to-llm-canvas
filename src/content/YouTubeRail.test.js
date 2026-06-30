@@ -65,6 +65,9 @@ describe('YouTubeRail', () => {
     });
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
     Element.prototype.scrollIntoView = vi.fn();
+    Element.prototype.scrollTo = vi.fn(function scrollTo(options) {
+      if (typeof options?.top === 'number') this.scrollTop = options.top;
+    });
   });
 
   afterEach(() => {
@@ -137,6 +140,53 @@ describe('YouTubeRail', () => {
     expect(railCards[0].className).not.toContain('is-active');
     expect(railCards[1].className).toContain('is-active');
 
+    unmount();
+  });
+
+  it('scrolls the active card inside the rail body instead of the page', () => {
+    let currentTime = 0;
+    const getCurrentTime = vi.fn(() => currentTime);
+    const { container, unmount } = render(
+      createElement(YouTubeRail, { ...defaultProps, getCurrentTime }),
+    );
+
+    const body = container.querySelector('.pagetollm-yt-rail-body');
+    const railCards = container.querySelectorAll('.pagetollm-yt-rail-card');
+    const scrollTo = vi.spyOn(body, 'scrollTo');
+    Object.defineProperty(body, 'clientHeight', { value: 200, configurable: true });
+    Object.defineProperty(body, 'scrollHeight', { value: 800, configurable: true });
+    body.getBoundingClientRect = () => ({ top: 0, height: 200 });
+    railCards[1].getBoundingClientRect = () => ({ top: 420, height: 80 });
+
+    currentTime = 45;
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 360, behavior: 'smooth' });
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+
+    unmount();
+  });
+
+  it('keeps wheel scrolling inside the rail body', () => {
+    const pageWheel = vi.fn();
+    document.body.addEventListener('wheel', pageWheel);
+    const { container, unmount } = render(createElement(YouTubeRail, defaultProps));
+
+    const body = container.querySelector('.pagetollm-yt-rail-body');
+    Object.defineProperty(body, 'clientHeight', { value: 100, configurable: true });
+    Object.defineProperty(body, 'scrollHeight', { value: 500, configurable: true });
+    body.scrollTop = 50;
+
+    act(() => {
+      body.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 60 }));
+    });
+
+    expect(body.scrollTop).toBe(110);
+    expect(pageWheel).not.toHaveBeenCalled();
+
+    document.body.removeEventListener('wheel', pageWheel);
     unmount();
   });
 
