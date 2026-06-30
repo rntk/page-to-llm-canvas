@@ -28,6 +28,10 @@ export function getYouTubeRailCardSeconds(cards) {
 
 export function getYouTubeRailActiveCardId(cards, currentTime) {
   const normalizedCards = normalizeYouTubeRailCards(cards);
+  return getYouTubeRailActiveCardIdFromNormalized(normalizedCards, currentTime);
+}
+
+export function getYouTubeRailActiveCardIdFromNormalized(normalizedCards, currentTime) {
   const starts = normalizedCards.map((card) => card.seconds);
   const index = findActiveCardIndex(starts, currentTime);
   return index >= 0 ? (normalizedCards[index]?.id ?? null) : null;
@@ -38,7 +42,15 @@ export function getYouTubeRailNextActiveId(cards, currentTime, previousActiveId)
   return nextActiveId === previousActiveId ? previousActiveId : nextActiveId;
 }
 
-export function getYouTubeRailCardBodyText(card, isSummary) {
-  if (!isSummary) return '';
+export function getYouTubeRailNextActiveIdFromNormalized(
+  normalizedCards,
+  currentTime,
+  previousActiveId,
+) {
+  const nextActiveId = getYouTubeRailActiveCardIdFromNormalized(normalizedCards, currentTime);
+  return nextActiveId === previousActiveId ? previousActiveId : nextActiveId;
+}
+
+export function getYouTubeRailCardBodyText(card) {
   return card && typeof card.text === 'string' && card.text ? card.text : '(no summary)';
 }

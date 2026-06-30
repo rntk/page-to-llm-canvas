@@ -76,5 +76,8 @@ describe('contentViewLogic', () => {
     expect(buildRecordViewIframeSrc(getUrl, 'record key', 'hierarchy')).toBe(
       'chrome-extension://test/modal.html?key=record%20key&view=hierarchy',
     );
+    expect(buildRecordViewIframeSrc(getUrl, 'record key', 'canvas')).toBe(
+      'chrome-extension://test/modal.html?key=record%20key',
+    );
   });
 });

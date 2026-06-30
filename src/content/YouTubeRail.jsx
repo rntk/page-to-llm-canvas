@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { formatTimestampLabel } from '../utils/youtubeTimestamp.js';
 import {
-  getYouTubeRailActiveCardId,
   getYouTubeRailCardBodyText,
-  getYouTubeRailNextActiveId,
+  getYouTubeRailActiveCardIdFromNormalized,
+  getYouTubeRailNextActiveIdFromNormalized,
   normalizeYouTubeRailCards,
 } from './youtubeRailViewModel.js';
 
@@ -95,7 +95,7 @@ export default function YouTubeRail({
       if (cancelled) return;
       const time = getCurrentTimeRef.current ? getCurrentTimeRef.current() : null;
       if (time == null) return;
-      setActiveId((prev) => getYouTubeRailNextActiveId(cardsRef.current, time, prev));
+      setActiveId((prev) => getYouTubeRailNextActiveIdFromNormalized(cardsRef.current, time, prev));
     };
     const id = window.setInterval(tick, pollIntervalMs);
     return () => {
@@ -117,7 +117,10 @@ export default function YouTubeRail({
   // mount and register their refs before we scroll.
   useEffect(() => {
     const time = getCurrentTimeRef.current ? getCurrentTimeRef.current() : null;
-    const next = getYouTubeRailActiveCardId(normalizedCards, time == null ? NaN : time);
+    const next = getYouTubeRailActiveCardIdFromNormalized(
+      normalizedCards,
+      time == null ? NaN : time,
+    );
     setActiveId(next);
     const raf = window.requestAnimationFrame(() => scrollToCard(next));
     return () => window.cancelAnimationFrame(raf);
@@ -178,7 +181,7 @@ export default function YouTubeRail({
                 </div>
                 {isSummary && (
                   <div className="pagetollm-yt-rail-card-body">
-                    {getYouTubeRailCardBodyText(card, isSummary)}
+                    {getYouTubeRailCardBodyText(card)}
                   </div>
                 )}
               </button>

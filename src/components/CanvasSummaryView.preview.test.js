@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   buildHighlightedSentencePreviewHtml,
   buildPreviewSourceModel,
@@ -66,9 +66,21 @@ describe('CanvasSummaryView preview helpers', () => {
       { nodeIndex: 1, start: 0, end: 4 },
       { nodeIndex: 2, start: 0, end: 7 },
     ]);
-    expect(model.sentenceIntervalsByNumber.get(2)).toEqual([
-      { nodeIndex: 2, start: 8, end: 22 },
-    ]);
+    expect(model.sentenceIntervalsByNumber.get(2)).toEqual([{ nodeIndex: 2, start: 8, end: 22 }]);
+  });
+
+  it('returns null when source model inputs or document are unavailable', () => {
+    expect(buildPreviewSourceModel('', ['Alpha.'])).toBeNull();
+    expect(buildPreviewSourceModel('<p>Alpha.</p>', [])).toBeNull();
+    expect(buildPreviewSourceModel('<p>Alpha.</p>', null)).toBeNull();
+
+    const originalDocument = globalThis.document;
+    try {
+      vi.stubGlobal('document', undefined);
+      expect(buildPreviewSourceModel('<p>Alpha.</p>', ['Alpha.'])).toBeNull();
+    } finally {
+      vi.stubGlobal('document', originalDocument);
+    }
   });
 
   it('renders highlighted preview HTML from context and active sentences', () => {
@@ -88,5 +100,40 @@ describe('CanvasSummaryView preview helpers', () => {
     expect(preview.querySelector('.canvas-summary-source-preview__highlight').textContent).toBe(
       'Delta epsilon.',
     );
+  });
+
+  it('renders previews when sentence numbers are already one-based', () => {
+    const model = buildPreviewSourceModel(
+      '<article><p>Alpha beta gamma. Delta epsilon.</p></article>',
+      ['Alpha beta gamma.', 'Delta epsilon.'],
+    );
+
+    const html = buildHighlightedSentencePreviewHtml(model, [1], [1]);
+    expect(html).not.toBe('');
+
+    const preview = parsePreviewHtml(html);
+    expect(preview.textContent).toContain('Alpha beta gamma.');
+    expect(preview.textContent).not.toContain('Delta epsilon.');
+    expect(preview.querySelector('.canvas-summary-source-preview__highlight').textContent).toBe(
+      'Alpha beta gamma.',
+    );
+  });
+
+  it('returns an empty preview for invalid or empty highlight inputs', () => {
+    const model = buildPreviewSourceModel('<article><p>Alpha beta.</p></article>', ['Alpha beta.']);
+
+    expect(buildHighlightedSentencePreviewHtml(null, [1], [1])).toBe('');
+    expect(buildHighlightedSentencePreviewHtml(model, null, [1])).toBe('');
+    expect(buildHighlightedSentencePreviewHtml(model, [1], null)).toBe('');
+    expect(buildHighlightedSentencePreviewHtml(model, [], [1])).toBe('');
+    expect(buildHighlightedSentencePreviewHtml(model, [99], [99])).toBe('');
+
+    const originalDocument = globalThis.document;
+    try {
+      vi.stubGlobal('document', undefined);
+      expect(buildHighlightedSentencePreviewHtml(model, [1], [1])).toBe('');
+    } finally {
+      vi.stubGlobal('document', originalDocument);
+    }
   });
 });

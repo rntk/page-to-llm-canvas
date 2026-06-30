@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   getYouTubeRailActiveCardId,
+  getYouTubeRailActiveCardIdFromNormalized,
   getYouTubeRailCardBodyText,
   getYouTubeRailCardSeconds,
   getYouTubeRailNextActiveId,
+  getYouTubeRailNextActiveIdFromNormalized,
   normalizeYouTubeRailCard,
   normalizeYouTubeRailCards,
 } from './youtubeRailViewModel.js';
@@ -80,6 +82,12 @@ describe('getYouTubeRailActiveCardId', () => {
   it('returns null when there are no valid cards', () => {
     expect(getYouTubeRailActiveCardId([], 100)).toBeNull();
   });
+
+  it('resolves active ids from already normalized cards without cloning them again', () => {
+    const normalizedCards = normalizeYouTubeRailCards(cards);
+    expect(getYouTubeRailActiveCardIdFromNormalized(normalizedCards, 45)).toBe('middle');
+    expect(normalizedCards.map((card) => card.id)).toEqual(['intro', 'middle', 'outro']);
+  });
 });
 
 describe('getYouTubeRailNextActiveId', () => {
@@ -96,12 +104,17 @@ describe('getYouTubeRailNextActiveId', () => {
   it('returns the next resolved id when playback crosses a timestamp', () => {
     expect(getYouTubeRailNextActiveId(cards, 45, 'intro')).toBe('middle');
   });
+
+  it('resolves next active ids from already normalized cards', () => {
+    const normalizedCards = normalizeYouTubeRailCards(cards);
+    expect(getYouTubeRailNextActiveIdFromNormalized(normalizedCards, 45, 'intro')).toBe('middle');
+    expect(getYouTubeRailNextActiveIdFromNormalized(normalizedCards, 45, 'middle')).toBe('middle');
+  });
 });
 
 describe('getYouTubeRailCardBodyText', () => {
-  it('uses the summary fallback only in summary mode', () => {
-    expect(getYouTubeRailCardBodyText({ text: '' }, true)).toBe('(no summary)');
-    expect(getYouTubeRailCardBodyText({ text: 'details' }, true)).toBe('details');
-    expect(getYouTubeRailCardBodyText({ text: 'details' }, false)).toBe('');
+  it('returns summary text or a fallback', () => {
+    expect(getYouTubeRailCardBodyText({ text: '' })).toBe('(no summary)');
+    expect(getYouTubeRailCardBodyText({ text: 'details' })).toBe('details');
   });
 });

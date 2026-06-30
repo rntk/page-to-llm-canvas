@@ -2,6 +2,8 @@
 import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest';
 import { act } from 'react';
 
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
 let messageListener = null;
 let postMessageListener = null;
 
@@ -250,9 +252,7 @@ describe('content script main.jsx', () => {
         new CustomEvent('dragover', { bubbles: true, cancelable: true }),
       );
     });
-    expect(toolbarQueryAll('.pagetollm-block-item')[1].className).toContain(
-      'pagetollm-drag-over',
-    );
+    expect(toolbarQueryAll('.pagetollm-block-item')[1].className).toContain('pagetollm-drag-over');
 
     await act(async () => {
       toolbarQueryAll('.pagetollm-block-item')[1].dispatchEvent(
@@ -281,6 +281,69 @@ describe('content script main.jsx', () => {
     expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
     parent.remove();
     sibling.remove();
+  });
+
+  it('submits only the parent selector when stepping a child up into an already picked parent', async () => {
+    chrome.runtime.sendMessage.mockResolvedValueOnce({ ok: true, key: 'dedup-submit-key' });
+
+    const sendResponse = vi.fn();
+    await act(async () => {
+      messageListener({ action: 'startSelection' }, {}, sendResponse);
+    });
+
+    const pickBtn = toolbarQuery('#pagetollm-pick-btn');
+    expect(pickBtn).not.toBeNull();
+
+    const parent = document.createElement('article');
+    parent.id = 'dedup-parent';
+    parent.textContent = 'Parent text. ';
+    const child = document.createElement('p');
+    child.id = 'dedup-child';
+    child.textContent = 'Child text.';
+    parent.appendChild(child);
+    document.body.appendChild(parent);
+
+    await act(async () => {
+      pickBtn.click();
+    });
+    await act(async () => {
+      parent.click();
+    });
+    await act(async () => {
+      pickBtn.click();
+    });
+    await act(async () => {
+      child.click();
+    });
+
+    let listItems = toolbarQueryAll('.pagetollm-block-item');
+    expect(listItems).toHaveLength(2);
+
+    const stepUpBtn = listItems[1].querySelector('.pagetollm-stepup-btn');
+    await act(async () => {
+      stepUpBtn.click();
+    });
+
+    listItems = toolbarQueryAll('.pagetollm-block-item');
+    expect(listItems).toHaveLength(1);
+    expect(listItems[0].textContent).toContain('Block 1');
+
+    const submitBtn = toolbarQuery('#pagetollm-submit-btn');
+    await act(async () => {
+      submitBtn.click();
+      await Promise.resolve();
+    });
+
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'submit',
+        selectors: ['article#dedup-parent'],
+      }),
+    );
+    expect(chrome.runtime.sendMessage.mock.calls.at(-1)[0].selectors).toHaveLength(1);
+    expect(child.classList.contains('pagetollm-selected')).toBe(false);
+    expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
+    parent.remove();
   });
 
   it('submits selected blocks without immediately opening the canvas', async () => {
@@ -478,7 +541,11 @@ describe('content script main.jsx', () => {
 
     const sendResponse = vi.fn();
     await act(async () => {
-      messageListener({ action: 'openRecordView', key: 'youtube-key', mode: 'youtube' }, {}, sendResponse);
+      messageListener(
+        { action: 'openRecordView', key: 'youtube-key', mode: 'youtube' },
+        {},
+        sendResponse,
+      );
       await Promise.resolve();
     });
     await new Promise((resolve) => setTimeout(resolve, 0));

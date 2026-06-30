@@ -1,8 +1,15 @@
-export function renumberSelectedEntries(entries) {
-  entries.forEach((entry, index) => {
-    entry.originalNumber = index + 1;
-  });
-  return entries;
+export function renumberSelectedEntries(entries, options = {}) {
+  const mutate = options.mutate !== false;
+  if (mutate) {
+    entries.forEach((entry, index) => {
+      entry.originalNumber = index + 1;
+    });
+    return entries;
+  }
+  return entries.map((entry, index) => ({
+    ...entry,
+    originalNumber: index + 1,
+  }));
 }
 
 export function removeSelectedEntry(entries, index) {

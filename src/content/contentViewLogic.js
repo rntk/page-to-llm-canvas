@@ -1,15 +1,10 @@
+import { renumberSelectedEntries } from './selectionState.js';
+
 export function canStepUpElement(el, boundaries = {}) {
   const parent = el && el.parentElement;
   const body = boundaries.body ?? document.body;
   const documentElement = boundaries.documentElement ?? document.documentElement;
   return Boolean(parent && parent !== body && parent !== documentElement);
-}
-
-function renumberSelectedEntries(entries) {
-  return entries.map((entry, index) => ({
-    ...entry,
-    originalNumber: index + 1,
-  }));
 }
 
 export function stepUpSelectedEntry(entries, index, boundaries = {}) {
@@ -38,7 +33,7 @@ export function stepUpSelectedEntry(entries, index, boundaries = {}) {
   if (parentIndex >= 0) {
     const next = entries.filter((_, currentIndex) => currentIndex !== index);
     return {
-      entries: renumberSelectedEntries(next),
+      entries: renumberSelectedEntries(next, { mutate: false }),
       oldElement: entry.el,
       newElement: parent,
     };
@@ -48,7 +43,7 @@ export function stepUpSelectedEntry(entries, index, boundaries = {}) {
     currentIndex === index ? { ...currentEntry, el: parent } : currentEntry,
   );
   return {
-    entries: renumberSelectedEntries(next),
+    entries: renumberSelectedEntries(next, { mutate: false }),
     oldElement: entry.el,
     newElement: parent,
   };

@@ -88,17 +88,17 @@ describe('provider form helpers', () => {
   });
 
   it('seeds the default model when the current form model is blank', () => {
-    expect(updateProviderFormType(createEmptyProviderForm(), 'anthropic', 'claude-haiku-4-5')).toEqual(
-      {
-        id: '',
-        name: '',
-        type: 'anthropic',
-        model: 'claude-haiku-4-5',
-        token: '',
-        url: '',
-        serviceTier: '',
-      },
-    );
+    expect(
+      updateProviderFormType(createEmptyProviderForm(), 'anthropic', 'claude-haiku-4-5'),
+    ).toEqual({
+      id: '',
+      name: '',
+      type: 'anthropic',
+      model: 'claude-haiku-4-5',
+      token: '',
+      url: '',
+      serviceTier: '',
+    });
   });
 });
 
@@ -284,23 +284,22 @@ describe('actionConfirmPrompt', () => {
 
 describe('actionErrorMessage', () => {
   it('returns appropriate message for delete', () => {
-    expect(actionErrorMessage('delete')).toContain('delete');
+    expect(actionErrorMessage('delete')).toBe('Failed to delete record');
   });
 
   it('returns appropriate message for reprocess', () => {
-    expect(actionErrorMessage('reprocess')).toContain('reprocess');
+    expect(actionErrorMessage('reprocess')).toBe('Failed to reprocess record');
   });
 
   it('returns appropriate message for stop', () => {
-    expect(actionErrorMessage('stop')).toContain('stop');
+    expect(actionErrorMessage('stop')).toBe('Failed to stop processing record');
   });
 
   it('returns appropriate message for exportMetadata', () => {
-    expect(actionErrorMessage('exportMetadata')).toContain('export');
+    expect(actionErrorMessage('exportMetadata')).toBe('Failed to export record metadata');
   });
 
   it('returns a generic fallback for unknown actions', () => {
-    expect(typeof actionErrorMessage('unknownAction')).toBe('string');
-    expect(actionErrorMessage('unknownAction').length).toBeGreaterThan(0);
+    expect(actionErrorMessage('unknownAction')).toBe('Action failed');
   });
 });
