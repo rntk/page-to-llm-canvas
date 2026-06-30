@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { getSentencesForNode } from './hierarchyUtils.js';
+import { getSentencesForNode, getTopicSentenceNumbersRaw } from './hierarchyUtils.js';
 import { getTopicSentenceNumbers } from '../topicCards.js';
 
 vi.mock('../topicCards.js', async (importOriginal) => {
@@ -118,5 +118,38 @@ describe('getSentencesForNode', () => {
     const entry = makeLeaf('Tech>A', [0, 1, 2]);
     expect(getSentencesForNode(entry)).toEqual([1, 2]);
     expect(getSentencesForNode(entry, { preserveZero: true })).toEqual([0, 1, 2]);
+  });
+});
+
+describe('getTopicSentenceNumbersRaw', () => {
+  it('uses explicit sentenceIndices before sentence ranges, preserving zero and duplicates', () => {
+    expect(
+      getTopicSentenceNumbersRaw({
+        sentenceIndices: [3, 0, 2, -1, 2, 1.5],
+        ranges: [{ sentence_start: 10, sentence_end: 12 }],
+      }),
+    ).toEqual([0, 2, 2, 3]);
+  });
+
+  it('falls back to sentences when sentenceIndices are absent', () => {
+    expect(getTopicSentenceNumbersRaw({ sentences: [4, 1, 0, 'x'] })).toEqual([0, 1, 4]);
+  });
+
+  it('expands valid ranges, handles reversed ranges, and ignores invalid ranges', () => {
+    expect(
+      getTopicSentenceNumbersRaw({
+        ranges: [
+          { sentence_start: 3, sentence_end: 5 },
+          { sentence_start: 8, sentence_end: 6 },
+          { sentence_start: -2, sentence_end: 1 },
+          { sentence_start: 'bad', sentence_end: 10 },
+        ],
+      }),
+    ).toEqual([0, 1, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it('returns an empty array when no usable sentence data exists', () => {
+    expect(getTopicSentenceNumbersRaw(null)).toEqual([]);
+    expect(getTopicSentenceNumbersRaw({ sentenceIndices: [], ranges: null })).toEqual([]);
   });
 });

@@ -14,6 +14,11 @@ import {
   selectedBlocksForToolbar,
 } from './selectionState.js';
 import {
+  buildRecordViewIframeSrc,
+  canStepUpElement,
+  stepUpSelectedEntry,
+} from './contentViewLogic.js';
+import {
   HIGHLIGHT_NAME,
   supportsHighlightApi,
   collectWordEntries,
@@ -438,7 +443,7 @@ function selectElement(event) {
 
 function renderSelectionToolbar() {
   if (!selectionToolbarRoot) return;
-  const selectedBlocks = selectedBlocksForToolbar(selectedElements, canStepUp);
+  const selectedBlocks = selectedBlocksForToolbar(selectedElements, canStepUpElement);
 
   selectionToolbarRoot.render(
     <SelectionToolbar
@@ -472,22 +477,15 @@ function removeBlock(event, index) {
   updateSubmitState();
 }
 
-function canStepUp(el) {
-  const parent = el && el.parentElement;
-  return Boolean(parent && parent !== document.body && parent !== document.documentElement);
-}
-
 function stepUpBlock(event, index) {
   if (!guardTrustedUserEvent(event)) return;
-  const entry = selectedElements[index];
-  if (!entry || !canStepUp(entry.el)) return;
+  const result = stepUpSelectedEntry(selectedElements, index);
+  if (result.oldElement === null || result.newElement === null) return;
 
-  const parent = entry.el.parentElement;
-  // Avoid double-selecting if the parent is already a picked block; collapse the
-  // child entry into the parent so the same element is never captured twice.
-  entry.el.classList.remove('pagetollm-selected');
-  parent.classList.add('pagetollm-selected');
-  entry.el = parent;
+  result.oldElement.classList.remove('pagetollm-selected');
+  result.newElement.classList.add('pagetollm-selected');
+  selectedElements = result.entries;
+  pickCounter = selectedElements.length;
 
   // The .pagetollm-selected outline now follows the parent on the page, so the
   // user can see exactly which (larger) block will be captured.
@@ -585,7 +583,7 @@ function openCanvasIframe(key) {
   closeInPageRail();
   const iframe = document.createElement('iframe');
   iframe.id = 'pagetollm-canvas-iframe';
-  iframe.src = chrome.runtime.getURL('modal.html') + '?key=' + encodeURIComponent(key);
+  iframe.src = buildRecordViewIframeSrc((path) => chrome.runtime.getURL(path), key);
   iframe.style.cssText =
     'position:fixed;inset:0;width:100vw;min-width:100vw;height:100vh;min-height:100vh;border:0;z-index:2147483647;';
   document.documentElement.appendChild(iframe);
@@ -597,8 +595,7 @@ function openHierarchyIframe(key) {
   closeInPageRail();
   const iframe = document.createElement('iframe');
   iframe.id = 'pagetollm-canvas-iframe';
-  iframe.src =
-    chrome.runtime.getURL('modal.html') + '?key=' + encodeURIComponent(key) + '&view=hierarchy';
+  iframe.src = buildRecordViewIframeSrc((path) => chrome.runtime.getURL(path), key, 'hierarchy');
   iframe.style.cssText =
     'position:fixed;inset:0;width:100vw;min-width:100vw;height:100vh;min-height:100vh;border:0;z-index:2147483647;';
   document.documentElement.appendChild(iframe);
