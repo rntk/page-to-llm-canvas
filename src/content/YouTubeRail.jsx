@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { findActiveCardIndex } from './youtubeRailSync.js';
 import { formatTimestampLabel } from '../utils/youtubeTimestamp.js';
+import {
+  getYouTubeRailActiveCardId,
+  getYouTubeRailCardBodyText,
+  getYouTubeRailNextActiveId,
+  normalizeYouTubeRailCards,
+} from './youtubeRailViewModel.js';
 
 const DEFAULT_POLL_MS = 1000;
 
@@ -62,17 +67,15 @@ export default function YouTubeRail({
   const [activeId, setActiveId] = useState(null);
   const cardRefs = useRef(new Map());
 
-  const starts = useMemo(() => cards.map((card) => card.seconds), [cards]);
+  const normalizedCards = useMemo(() => normalizeYouTubeRailCards(cards), [cards]);
 
   // Poll the player position and resolve the active card. Reading time and
   // resolving the index are cheap; we only re-render when the active card
   // actually changes (the setState bails on an equal value).
-  const startsRef = useRef(starts);
-  const cardsRef = useRef(cards);
+  const cardsRef = useRef(normalizedCards);
   useEffect(() => {
-    startsRef.current = starts;
-    cardsRef.current = cards;
-  }, [starts, cards]);
+    cardsRef.current = normalizedCards;
+  }, [normalizedCards]);
   const getCurrentTimeRef = useRef(getCurrentTime);
   useEffect(() => {
     getCurrentTimeRef.current = getCurrentTime;
@@ -92,9 +95,7 @@ export default function YouTubeRail({
       if (cancelled) return;
       const time = getCurrentTimeRef.current ? getCurrentTimeRef.current() : null;
       if (time == null) return;
-      const index = findActiveCardIndex(startsRef.current, time);
-      const next = index >= 0 ? (cardsRef.current[index]?.id ?? null) : null;
-      setActiveId((prev) => (prev === next ? prev : next));
+      setActiveId((prev) => getYouTubeRailNextActiveId(cardsRef.current, time, prev));
     };
     const id = window.setInterval(tick, pollIntervalMs);
     return () => {
@@ -116,12 +117,11 @@ export default function YouTubeRail({
   // mount and register their refs before we scroll.
   useEffect(() => {
     const time = getCurrentTimeRef.current ? getCurrentTimeRef.current() : null;
-    const index = findActiveCardIndex(starts, time == null ? NaN : time);
-    const next = index >= 0 ? (cards[index]?.id ?? null) : null;
+    const next = getYouTubeRailActiveCardId(normalizedCards, time == null ? NaN : time);
     setActiveId(next);
     const raf = window.requestAnimationFrame(() => scrollToCard(next));
     return () => window.cancelAnimationFrame(raf);
-  }, [cards, starts, scrollToCard]);
+  }, [normalizedCards, scrollToCard]);
 
   const setCardRef = useCallback(
     (id) => (el) => {
@@ -145,12 +145,12 @@ export default function YouTubeRail({
         </button>
       </div>
       <div className="pagetollm-yt-rail-body">
-        {cards.length === 0 ? (
+        {normalizedCards.length === 0 ? (
           <div className="pagetollm-yt-rail-empty">
             No timestamped {isSummary ? 'summaries' : 'topics'} for this video.
           </div>
         ) : (
-          cards.map((card) => {
+          normalizedCards.map((card) => {
             const isActive = card.id === activeId;
             return (
               <button
@@ -177,7 +177,9 @@ export default function YouTubeRail({
                   </span>
                 </div>
                 {isSummary && (
-                  <div className="pagetollm-yt-rail-card-body">{card.text || '(no summary)'}</div>
+                  <div className="pagetollm-yt-rail-card-body">
+                    {getYouTubeRailCardBodyText(card, isSummary)}
+                  </div>
                 )}
               </button>
             );
