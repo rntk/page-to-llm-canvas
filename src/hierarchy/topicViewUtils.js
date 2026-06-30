@@ -19,6 +19,15 @@ export function getSummaryText(summary) {
   if (typeof summary === 'string') return summary.trim();
   if (typeof summary !== 'object') return '';
 
+  // Per-run summaries: the hierarchy shows one node per topic, so concatenate the
+  // runs (one per non-adjacent occurrence) into a single block of text.
+  if (Array.isArray(summary.runs)) {
+    return summary.runs
+      .map((run) => (run && typeof run.text === 'string' ? run.text.trim() : ''))
+      .filter(Boolean)
+      .join(' ');
+  }
+
   const text = typeof summary.text === 'string' ? summary.text.trim() : '';
   const bullets = Array.isArray(summary.bullets)
     ? summary.bullets.map((bullet) => (typeof bullet === 'string' ? bullet.trim() : ''))

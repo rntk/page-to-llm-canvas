@@ -75,6 +75,20 @@ function areSummaryMetricsEqual(prevMetrics, nextMetrics) {
   return true;
 }
 
+export function selectCurrentTopicSummary({
+  showSummaryMode,
+  activeTopicKey,
+  activeTopicCardKey,
+  allSummaryCards,
+}) {
+  if (showSummaryMode || !activeTopicKey) return null;
+  const cards = Array.isArray(allSummaryCards) ? allSummaryCards : [];
+  const card =
+    (activeTopicCardKey && cards.find((c) => c.key === activeTopicCardKey)) ||
+    cards.find((c) => c.path === activeTopicKey);
+  return card && card.text ? card : null;
+}
+
 /**
  * @param {{ initialKey: string }} props
  * @returns {import("react").JSX.Element}
@@ -281,10 +295,13 @@ export default function App({ initialKey }) {
   // is currently hovered or selected in the rail. Suppressed in summary mode,
   // where every summary is already shown in the center column.
   const currentTopicSummary = useMemo(() => {
-    if (showSummaryMode || !activeTopicKey) return null;
-    const card = allSummaryCards.find((c) => c.path === activeTopicKey);
-    return card && card.text ? card : null;
-  }, [showSummaryMode, activeTopicKey, allSummaryCards]);
+    return selectCurrentTopicSummary({
+      showSummaryMode,
+      activeTopicKey,
+      activeTopicCardKey,
+      allSummaryCards,
+    });
+  }, [showSummaryMode, activeTopicKey, activeTopicCardKey, allSummaryCards]);
 
   // Rebuild word entries + sentence ranges from the *current* article DOM.
   // The Highlight API and measurement hold live Ranges into text nodes; if those

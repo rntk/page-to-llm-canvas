@@ -126,12 +126,12 @@ describe('topicAccentColor', () => {
 
 describe('buildSummaryEntries', () => {
   describe('topic_summary_index path (preferred)', () => {
-    it('builds entries from topic_summary_index', () => {
+    it('builds one entry per run from topic_summary_index', () => {
       const record = {
         topic_summary_index: {
           'Science > Physics': {
             level: 1,
-            text: 'Physics summary',
+            runs: [{ sentences: [2, 0, 1], text: 'Physics summary' }],
             source_sentences: [2, 0, 1],
           },
         },
@@ -146,10 +146,36 @@ describe('buildSummaryEntries', () => {
       expect(e.level).toBe(1);
     });
 
+    it('emits a separate entry for each non-adjacent run, each with its own text', () => {
+      const record = {
+        topic_summary_index: {
+          Tech: {
+            level: 0,
+            runs: [
+              { sentences: [1, 2], text: 'first occurrence' },
+              { sentences: [9, 10], text: 'second occurrence' },
+            ],
+            source_sentences: [1, 2, 9, 10],
+          },
+        },
+      };
+      const { entries } = buildSummaryEntries(record);
+      expect(entries).toEqual([
+        { path: 'Tech', name: 'Tech', text: 'first occurrence', sourceSentences: [1, 2], level: 0 },
+        {
+          path: 'Tech',
+          name: 'Tech',
+          text: 'second occurrence',
+          sourceSentences: [9, 10],
+          level: 0,
+        },
+      ]);
+    });
+
     it('infers level from path depth when entry.level is not a number', () => {
       const record = {
         topic_summary_index: {
-          'A > B > C': { text: 'deep', source_sentences: [] },
+          'A > B > C': { runs: [{ sentences: [], text: 'deep' }], source_sentences: [] },
         },
       };
       const { entries } = buildSummaryEntries(record);
@@ -159,8 +185,8 @@ describe('buildSummaryEntries', () => {
     it('skips empty-key entries', () => {
       const record = {
         topic_summary_index: {
-          '': { text: 'ignored', source_sentences: [0] },
-          Topic: { level: 0, text: 'kept', source_sentences: [1] },
+          '': { runs: [{ sentences: [0], text: 'ignored' }], source_sentences: [0] },
+          Topic: { level: 0, runs: [{ sentences: [1], text: 'kept' }], source_sentences: [1] },
         },
       };
       const { entries } = buildSummaryEntries(record);
@@ -168,20 +194,23 @@ describe('buildSummaryEntries', () => {
       expect(entries[0].name).toBe('Topic');
     });
 
-    it('uses empty sourceSentences when source_sentences is not an array', () => {
+    it('falls back to positioned empty entries when an index entry has no runs', () => {
       const record = {
         topic_summary_index: {
-          Topic: { level: 0, text: 'x' },
+          Topic: { level: 0, source_sentences: [1, 2, 7] },
         },
       };
       const { entries } = buildSummaryEntries(record);
-      expect(entries[0].sourceSentences).toEqual([]);
+      expect(entries.map((e) => ({ text: e.text, sourceSentences: e.sourceSentences }))).toEqual([
+        { text: '', sourceSentences: [1, 2] },
+        { text: '', sourceSentences: [7] },
+      ]);
     });
 
-    it('populates sentenceNumbersByPath map', () => {
+    it('populates sentenceNumbersByPath map with the full aggregated source', () => {
       const record = {
         topic_summary_index: {
-          Topic: { level: 0, text: 'x', source_sentences: [3, 1] },
+          Topic: { level: 0, runs: [{ sentences: [3, 1], text: 'x' }], source_sentences: [3, 1] },
         },
       };
       const { sentenceNumbersByPath } = buildSummaryEntries(record);
@@ -194,7 +223,7 @@ describe('buildSummaryEntries', () => {
       const record = {
         topics: [{ name: 'Tech', sentences: [0, 1] }],
         topic_summaries: {
-          Tech: { text: 'Tech summary', source_sentences: [1, 0] },
+          Tech: { runs: [{ sentences: [1, 0], text: 'Tech summary' }], source_sentences: [1, 0] },
         },
       };
       const { entries } = buildSummaryEntries(record);
@@ -214,19 +243,12 @@ describe('buildSummaryEntries', () => {
       expect(entries[0].name).toBe('A');
     });
 
-    it('uses getTopicSentenceNumbers when topic_summaries has no source_sentences', () => {
-      const record = {
-        topics: [{ name: 'A', sentences: [2, 4] }],
-        topic_summaries: { A: { text: 'A text' } },
-      };
-      const { entries } = buildSummaryEntries(record);
-      expect(entries[0].sourceSentences).toEqual([2, 4]);
-    });
-
     it('falls back to path key lookup in topic_summaries', () => {
       const record = {
         topics: [{ name: 'A > B', sentences: [1] }],
-        topic_summaries: { 'A > B': { text: 'path lookup', source_sentences: [1] } },
+        topic_summaries: {
+          'A > B': { runs: [{ sentences: [1], text: 'path lookup' }], source_sentences: [1] },
+        },
       };
       const { entries } = buildSummaryEntries(record);
       expect(entries[0].text).toBe('path lookup');

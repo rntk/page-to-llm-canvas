@@ -1,20 +1,25 @@
 import { splitTopicPath, splitSentenceRuns } from './topicCards.js';
 
 /**
- * Formats a summary object into a single plain-text string (with bullet prefixing).
- * @param {object} summary - The summary object containing optional text and bullets.
- * @returns {string} The formatted plain text.
+ * Normalizes a summary entry's per-run list into render-ready runs. Each summary
+ * carries one run per contiguous occurrence of the topic ({sentences, text}). A
+ * summary with no runs (an errored/skipped topic) falls back to positioned but
+ * empty runs derived from its aggregated sentences, so the topic still occupies
+ * its place on the rail instead of vanishing.
+ *
+ * @param {Array<{sentences?: number[], text?: string}>} runs
+ * @param {number[]} sourceSentences
+ * @returns {Array<{sentences: number[], text: string}>}
  */
-function summaryText(summary) {
-  if (!summary || typeof summary !== 'object') return '';
-  const text = typeof summary.text === 'string' ? summary.text.trim() : '';
-  const bullets = Array.isArray(summary.bullets)
-    ? summary.bullets
-        .filter((bullet) => typeof bullet === 'string' && bullet.trim())
-        .map((bullet) => `- ${bullet.trim()}`)
-    : [];
-
-  return [text, ...bullets].filter(Boolean).join('\n');
+function runsForRender(runs, sourceSentences) {
+  if (Array.isArray(runs) && runs.length > 0) {
+    return runs.map((run) => ({
+      sentences: Array.isArray(run.sentences) ? run.sentences.slice().sort((a, b) => a - b) : [],
+      text: typeof run.text === 'string' ? run.text.trim() : '',
+    }));
+  }
+  const fallback = splitSentenceRuns(sourceSentences).map((run) => ({ sentences: run, text: '' }));
+  return fallback.length > 0 ? fallback : [{ sentences: [], text: '' }];
 }
 
 /**
@@ -69,17 +74,15 @@ export function buildSummaryCards(topics, topicSummaries, topicSummaryIndex) {
       const sourceSentences = Array.isArray(entry.source_sentences) ? entry.source_sentences : [];
       const levelIndex = typeof entry.level === 'number' ? entry.level : parts.length - 1;
 
-      const runs = splitSentenceRuns(sourceSentences);
-      const runsToProcess = runs.length > 0 ? runs : [[]];
-
-      runsToProcess.forEach((run, runIndex) => {
-        const startSentence = run.length ? Math.min(...run) : 0;
+      const runs = runsForRender(entry.runs, sourceSentences);
+      runs.forEach((run, runIndex) => {
+        const startSentence = run.sentences.length ? Math.min(...run.sentences) : 0;
         cards.push({
           key: `${path}#${levelIndex}#${runIndex}`,
           path,
           name,
-          text: summaryText(entry),
-          sourceSentences: run,
+          text: run.text,
+          sourceSentences: run.sentences,
           startSentence,
           levelIndex,
         });
@@ -111,17 +114,15 @@ export function buildSummaryCards(topics, topicSummaries, topicSummaryIndex) {
         : [];
     const levelIndex = parts.length - 1;
 
-    const runs = splitSentenceRuns(sourceSentences);
-    const runsToProcess = runs.length > 0 ? runs : [[]];
-
-    runsToProcess.forEach((run, runIndex) => {
-      const startSentence = run.length ? Math.min(...run) : 0;
+    const runs = runsForRender(summary.runs, sourceSentences);
+    runs.forEach((run, runIndex) => {
+      const startSentence = run.sentences.length ? Math.min(...run.sentences) : 0;
       cards.push({
         key: `${path}#${levelIndex}#${runIndex}`,
         path,
         name,
-        text: summaryText(summary),
-        sourceSentences: run,
+        text: run.text,
+        sourceSentences: run.sentences,
         startSentence,
         levelIndex,
       });

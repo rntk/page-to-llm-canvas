@@ -28,13 +28,34 @@ export function splitPath(name) {
 export { getHierarchyTopicAccentColor as topicAccentColor };
 
 /**
- * Build summary cards from record: one card per node in topic_summary_index
- * (preferred) or fall back to leaf topic_summaries.
+ * Build summary entries from record: ONE entry per contiguous run of each node in
+ * topic_summary_index (preferred) or leaf topic_summaries. A topic that recurs at
+ * non-adjacent places yields one entry per occurrence, each carrying that run's
+ * own summary text and its own sentences, so rails position location-specific
+ * summaries instead of repeating one blob. `sentenceNumbersByPath` keeps the full
+ * aggregated sentence set per path.
  */
 export function buildSummaryEntries(record) {
   const out = [];
   const index = record.topic_summary_index;
   const sentenceNumbersByPath = new Map();
+
+  // Emit one entry per run; fall back to positioned empty runs (split from the
+  // aggregated sentences) so an errored/skipped topic still appears on the rail.
+  const pushRuns = ({ path, name, level, runs, sourceSentences }) => {
+    const rendered =
+      Array.isArray(runs) && runs.length > 0
+        ? runs.map((run) => ({
+            sentences: Array.isArray(run.sentences)
+              ? run.sentences.slice().sort((a, b) => a - b)
+              : [],
+            text: typeof run.text === 'string' ? run.text.trim() : '',
+          }))
+        : splitIntoContiguousRuns(sourceSentences).map((run) => ({ sentences: run, text: '' }));
+    for (const run of rendered) {
+      out.push({ path, name, text: run.text, sourceSentences: run.sentences, level });
+    }
+  };
 
   if (index && typeof index === 'object' && Object.keys(index).length > 0) {
     for (const [rawPath, entry] of Object.entries(index)) {
@@ -46,12 +67,12 @@ export function buildSummaryEntries(record) {
         : [];
       const level = typeof entry.level === 'number' ? entry.level : parts.length - 1;
       sentenceNumbersByPath.set(path, sourceSentences);
-      out.push({
+      pushRuns({
         path,
         name: parts[parts.length - 1] || path,
-        text: (entry.text || '').trim(),
-        sourceSentences,
         level,
+        runs: entry.runs,
+        sourceSentences,
       });
     }
   } else {
@@ -69,12 +90,12 @@ export function buildSummaryEntries(record) {
         .slice()
         .sort((a, b) => a - b);
       sentenceNumbersByPath.set(path, sourceSentences);
-      out.push({
+      pushRuns({
         path,
         name: parts[parts.length - 1] || path,
-        text: (summary.text || '').trim(),
-        sourceSentences,
         level: parts.length - 1,
+        runs: summary.runs,
+        sourceSentences,
       });
     }
   }

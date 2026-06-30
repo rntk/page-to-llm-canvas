@@ -17,8 +17,8 @@ const record = {
     { name: 'Second', sentences: [4] },
   ],
   topic_summary_index: {
-    First: { text: 'about first', source_sentences: [2, 3], level: 0 },
-    Second: { text: 'about second', source_sentences: [4], level: 0 },
+    First: { runs: [{ sentences: [2, 3], text: 'about first' }], source_sentences: [2, 3], level: 0 },
+    Second: { runs: [{ sentences: [4], text: 'about second' }], source_sentences: [4], level: 0 },
   },
 };
 
@@ -44,8 +44,12 @@ describe('buildYouTubeRailCards', () => {
     const leveled = {
       sentences,
       topic_summary_index: {
-        First: { text: 'top level', source_sentences: [2], level: 0 },
-        'First > Detail': { text: 'child level', source_sentences: [4], level: 1 },
+        First: { runs: [{ sentences: [2], text: 'top level' }], source_sentences: [2], level: 0 },
+        'First > Detail': {
+          runs: [{ sentences: [4], text: 'child level' }],
+          source_sentences: [4],
+          level: 1,
+        },
       },
     };
     expect(

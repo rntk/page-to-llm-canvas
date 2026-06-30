@@ -12,9 +12,9 @@
 
 /**
  * @param {Array<{name: string, sentences: number[]}>} topics
- * @param {Record<string, {text?: string, error?: boolean}>} previousSummaries
+ * @param {Record<string, {runs?: Array<{sentences: number[], text: string}>, error?: boolean}>} previousSummaries
  * @returns {{
- *   reused: Record<string, {text: string, source_sentences: number[]}>,
+ *   reused: Record<string, {runs: Array<{sentences: number[], text: string}>, source_sentences: number[]}>,
  *   pending: Array<object>,
  *   reusedCount: number,
  *   pendingCount: number,
@@ -28,7 +28,7 @@ export function planSummaryWork(topics, previousSummaries = {}) {
     const prev = previousSummaries[topic.name];
     if (prev && !prev.error) {
       reused[topic.name] = {
-        text: prev.text || '',
+        runs: Array.isArray(prev.runs) ? prev.runs : [],
         source_sentences: topic.sentences,
       };
     } else {

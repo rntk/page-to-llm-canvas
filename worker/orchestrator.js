@@ -153,19 +153,52 @@ function wordCount(text) {
   return (String(text || '').match(/\S+/g) || []).length;
 }
 
-function topicSourceText(topic, sentenceTexts) {
-  const sentenceIds = Array.isArray(topic.sentences) ? topic.sentences : [];
-  return sentenceIds
+/**
+ * Splits a sorted set of 1-based sentence ids into contiguous runs. A topic that
+ * appears at several non-adjacent places in the article yields one run per
+ * occurrence; each run is summarized separately so the same topic shows
+ * location-specific text instead of one global summary repeated everywhere.
+ *
+ * @param {number[]} sentenceIds
+ * @returns {number[][]} ordered runs of consecutive ids
+ */
+export function splitContiguousRuns(sentenceIds) {
+  const sorted = Array.isArray(sentenceIds) ? sentenceIds.slice().sort((a, b) => a - b) : [];
+  const runs = [];
+  let cur = [];
+  for (const id of sorted) {
+    if (cur.length === 0 || id === cur[cur.length - 1] + 1) {
+      cur.push(id);
+    } else {
+      runs.push(cur);
+      cur = [id];
+    }
+  }
+  if (cur.length) runs.push(cur);
+  return runs;
+}
+
+function runSourceText(runIds, sentenceTexts) {
+  return runIds
     .map((oneIdx) => sentenceTexts[oneIdx - 1])
     .filter(Boolean)
     .join(' ')
     .trim();
 }
 
-export function shouldInlineTopicSummary(topic, sourceText) {
+/**
+ * A single contiguous run short enough to show verbatim instead of paying for an
+ * LLM summary. Mirrors the old per-topic inline check but scoped to one run, so a
+ * fragmented topic inlines its small fragments and only summarizes the large ones.
+ *
+ * @param {number[]} runSentences
+ * @param {string} sourceText
+ * @returns {boolean}
+ */
+export function shouldInlineRun(runSentences, sourceText) {
   const text = String(sourceText || '').trim();
   if (!text) return true;
-  const sentenceCount = Array.isArray(topic.sentences) ? topic.sentences.length : 0;
+  const sentenceCount = Array.isArray(runSentences) ? runSentences.length : 0;
   return (
     sentenceCount <= INLINE_SUMMARY_MAX_SENTENCES &&
     wordCount(text) <= INLINE_SUMMARY_MAX_WORDS &&
@@ -262,19 +295,21 @@ export function chunkSourceSentences(sourceSentenceIds, sentenceTexts, maxChars)
 
 /**
  * Builds the `summarizeSource` function the topic-tree builder injects for every
- * internal node. It generates a FRESH summary from the node's own source
+ * internal node. It generates FRESH summaries from the node's own source
  * sentences instead of merging the children's already-brief summaries (a
- * summary-of-summaries loses facts level by level). When the source fits
- * SOURCE_SUMMARY_MAX_CHARS it is summarized in one call; otherwise it is split
- * into char-bounded chunks, each chunk is summarized from source, and those
- * chunk summaries are merged. Every LLM call goes through `limit` so concurrent
- * node summaries stay within the provider's rate budget (a 429 degrades a
- * summary to empty).
+ * summary-of-summaries loses facts level by level). The node's sentences are
+ * split into contiguous runs (one per non-adjacent occurrence of the topic) and
+ * each run is summarized on its own, so a topic scattered through the article
+ * gets location-specific text rather than one global summary repeated at every
+ * occurrence. A run short enough is inlined verbatim; a run within
+ * SOURCE_SUMMARY_MAX_CHARS is one call; a larger run is char-chunked and merged.
+ * Every LLM call goes through `limit` so concurrent node summaries stay within
+ * the provider's rate budget (a 429 degrades a run to empty).
  *
  * @param {string[]} sentenceTexts
  * @param {<T>(fn: () => Promise<T>) => Promise<T>} limit
  * @param {AbortSignal|undefined} signal
- * @returns {(sourceSentenceIds: number[]) => Promise<{text: string}>}
+ * @returns {(sourceSentenceIds: number[]) => Promise<{runs: Array<{sentences: number[], text: string}>}>}
  */
 function makeSourceSummarizer(sentenceTexts, limit, signal, preferContentLanguage = false) {
   const summarizeText = async (text) => {
@@ -292,18 +327,13 @@ function makeSourceSummarizer(sentenceTexts, limit, signal, preferContentLanguag
     // bounded by SOURCE_SUMMARY_MAX_CHARS at both call sites.
     return parseSummaryResponse(resp) || text;
   };
-  return async (sourceSentenceIds) => {
-    const ids = Array.isArray(sourceSentenceIds) ? sourceSentenceIds : [];
-    const joined = ids
-      .map((id) => sentenceTexts[id - 1])
-      .filter(Boolean)
-      .join(' ')
-      .trim();
-    if (!joined) return { text: '' };
-    if (joined.length <= SOURCE_SUMMARY_MAX_CHARS) {
-      return { text: await summarizeText(joined) };
+  // Summarize one contiguous run's source text, splitting+merging only when the
+  // single run itself overflows the char budget.
+  const summarizeRun = async (runIds, text) => {
+    if (text.length <= SOURCE_SUMMARY_MAX_CHARS) {
+      return await summarizeText(text);
     }
-    const chunks = chunkSourceSentences(ids, sentenceTexts, SOURCE_SUMMARY_MAX_CHARS);
+    const chunks = chunkSourceSentences(runIds, sentenceTexts, SOURCE_SUMMARY_MAX_CHARS);
     const records = await parallelMap(chunks, SUMMARY_CONCURRENCY, async (chunk) => ({
       start_sentence: chunk.start,
       end_sentence: chunk.end,
@@ -319,18 +349,26 @@ function makeSourceSummarizer(sentenceTexts, limit, signal, preferContentLanguag
       }),
     );
     const merged = parseSummaryResponse(mergeResp);
-    if (merged) return { text: merged };
+    if (merged) return merged;
     // The merge collapsed to empty (e.g. a stray NO_SUMMARY) even though the
     // chunk summaries succeeded. Internal nodes have no NO_SUMMARY escape, so
-    // rather than silently shipping an empty parent topic we fall back to the
-    // chunk summaries themselves — losing the cross-chunk dedupe but keeping the
-    // facts. (Empty only if every chunk was itself empty, i.e. genuinely no
-    // content.)
-    const fallback = records
+    // rather than silently shipping an empty run we fall back to the chunk
+    // summaries themselves — losing the cross-chunk dedupe but keeping the facts.
+    return records
       .map((r) => r.summary.text)
       .filter(Boolean)
       .join('\n');
-    return { text: fallback };
+  };
+  return async (sourceSentenceIds) => {
+    const ids = Array.isArray(sourceSentenceIds) ? sourceSentenceIds : [];
+    const runs = splitContiguousRuns(ids);
+    const summarized = await parallelMap(runs, SUMMARY_CONCURRENCY, async (runIds) => {
+      const text = runSourceText(runIds, sentenceTexts);
+      if (!text) return { sentences: runIds, text: '' };
+      if (shouldInlineRun(runIds, text)) return { sentences: runIds, text };
+      return { sentences: runIds, text: await summarizeRun(runIds, text) };
+    });
+    return { runs: summarized };
   };
 }
 
@@ -836,92 +874,85 @@ async function runSummaries(
     });
   }
 
-  const pendingForLlm = [];
-  let inlineCount = 0;
-  for (const topic of pending) {
-    const sourceText = topicSourceText(topic, sentenceTexts);
-    if (shouldInlineTopicSummary(topic, sourceText)) {
-      topic_summaries[topic.name] = {
-        text: sourceText,
-        source_sentences: topic.sentences,
-      };
-      done++;
-      inlineCount++;
-    } else {
-      pendingForLlm.push({ topic, sourceText });
-    }
-  }
-  if (inlineCount > 0) {
-    await updatePipelineRecord(context, {
-      topic_summaries: { ...topic_summaries },
-      progress: { stage: 'summarizing_topics', done, total },
-    });
-    await logPipeline(context, 'topic_summaries_inlined', {
-      inlineCount,
-      pendingCount: pendingForLlm.length,
-      maxSentences: INLINE_SUMMARY_MAX_SENTENCES,
-      maxWords: INLINE_SUMMARY_MAX_WORDS,
-      maxChars: INLINE_SUMMARY_MAX_CHARS,
-    });
-  }
-
-  // Warm the provider's prompt/KV cache before the concurrent burst: every
-  // summary prompt shares the same long instruction prefix, so running one
-  // request to completion first lets a caching provider commit that prefix and
-  // the rest reuse it instead of each re-prefilling it from cold. On a provider
-  // without prefix caching it just costs one request of serial latency up front.
-  if (pendingForLlm.length > 1) {
+  // Warm the provider's prompt/KV cache before the concurrent topic burst. Each
+  // topic may contain several run-level summary calls, and those prompts share a
+  // long instruction prefix; completing one pending topic first gives caching
+  // providers a chance to commit that prefix before the rest fan out. On a
+  // provider without prefix caching it just costs one topic of serial latency up
+  // front.
+  if (pending.length > 1) {
     await logPipeline(context, 'topic_summaries_warmup', {
-      pendingCount: pendingForLlm.length,
+      pendingCount: pending.length,
       concurrency: SUMMARY_CONCURRENCY,
     });
   }
   await parallelMap(
-    pendingForLlm,
+    pending,
     SUMMARY_CONCURRENCY,
-    async ({ topic, sourceText }) => {
+    async (topic) => {
       await logPipeline(context, 'topic_summary_llm_request', {
         topic: topic.name,
         sentenceCount: topic.sentences.length,
       });
-      const prompt = buildArticleSummaryPrompt(sourceText, {
-        preferContentLanguage: context.preferContentLanguage,
-      });
-      let summaryText = '';
+      // One summary per contiguous run (non-adjacent occurrence) so a topic that
+      // recurs through the article shows location-specific text. Small runs are
+      // inlined verbatim; the rest are summarized. Runs are summarized in order
+      // so the first run primes the prompt cache for the others (see warmup note).
+      const runs = splitContiguousRuns(topic.sentences);
+      const runResults = [];
       let failure = null;
-      try {
-        const resp = await callLLMWithRetry({
-          prompt,
-          temperature: 0.8,
-          signal: context.signal,
-        });
-        const parsed = parseSummaryResult(resp);
-        summaryText = parsed.text || (parsed.noSummary ? sourceText : '');
-        await logPipeline(context, 'topic_summary_llm_response', {
-          topic: topic.name,
-          responseLength: resp.length,
-          summaryLength: summaryText.length,
-        });
-      } catch (e) {
-        const { kind, message } = classifyLlmError(e);
-        const detail = (e && e.message) || String(e);
-        await logPipeline(context, 'topic_summary_llm_error', {
-          topic: topic.name,
-          error_kind: kind,
-          error: message,
-          detail,
-        });
-        failure = { error_kind: kind, error_message: message, error_detail: detail };
+      for (const runIds of runs) {
+        const sourceText = runSourceText(runIds, sentenceTexts);
+        if (!sourceText) {
+          runResults.push({ sentences: runIds, text: '' });
+          continue;
+        }
+        if (shouldInlineRun(runIds, sourceText)) {
+          runResults.push({ sentences: runIds, text: sourceText });
+          continue;
+        }
+        try {
+          const resp = await callLLMWithRetry({
+            prompt: buildArticleSummaryPrompt(sourceText, {
+              preferContentLanguage: context.preferContentLanguage,
+            }),
+            temperature: 0.8,
+            signal: context.signal,
+          });
+          const parsed = parseSummaryResult(resp);
+          // NO_SUMMARY falls back to source text so parent merges still see the
+          // run's facts.
+          runResults.push({
+            sentences: runIds,
+            text: parsed.text || (parsed.noSummary ? sourceText : ''),
+          });
+        } catch (e) {
+          const { kind, message } = classifyLlmError(e);
+          const detail = (e && e.message) || String(e);
+          await logPipeline(context, 'topic_summary_llm_error', {
+            topic: topic.name,
+            error_kind: kind,
+            error: message,
+            detail,
+          });
+          // First failing run flags the whole topic; a resume re-summarizes all
+          // of its runs (re-doing the ones that succeeded — acceptable).
+          failure = failure || { error_kind: kind, error_message: message, error_detail: detail };
+          runResults.push({ sentences: runIds, text: '' });
+        }
       }
       topic_summaries[topic.name] = {
-        text: summaryText,
+        runs: runResults,
         source_sentences: topic.sentences,
-        // Mark failures so a later resume retries only this topic, and carry a
-        // helpful reason for the confirm popup. NO_SUMMARY responses fall back
-        // to source text so parent merges still see the topic's facts.
+        // Mark failures so a later resume retries this topic, and carry a helpful
+        // reason for the confirm popup.
         ...(failure ? { error: true, ...failure } : {}),
       };
       done++;
+      await logPipeline(context, 'topic_summary_llm_response', {
+        topic: topic.name,
+        runCount: runResults.length,
+      });
       await updatePipelineRecord(context, {
         topic_summaries: { ...topic_summaries },
         progress: { stage: 'summarizing_topics', done, total },
@@ -954,7 +985,7 @@ async function runSummaries(
   const limitSummary = createLimiter(SUMMARY_CONCURRENCY);
   const summaryErrors = [];
   const summarizeSource = forceFinalize
-    ? async () => ({ text: '' })
+    ? async () => ({ runs: [] })
     : makeSourceSummarizer(
         sentenceTexts,
         limitSummary,
@@ -1000,7 +1031,7 @@ async function runSummaries(
   const finalizedSummaries = {};
   for (const [name, summary] of Object.entries(topic_summaries)) {
     finalizedSummaries[name] = {
-      text: summary.text || '',
+      runs: Array.isArray(summary.runs) ? summary.runs : [],
       source_sentences: summary.source_sentences,
     };
   }

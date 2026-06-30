@@ -234,7 +234,10 @@ describe('concurrent updateRecord writes do not lose data', () => {
     // Each task accumulates into the SAME shared object (mirrors orchestrator.js).
     const topic_summaries = {};
     const tasks = ['T1', 'T2', 'T3', 'T4'].map(async (name) => {
-      topic_summaries[name] = { text: `summary of ${name}`, bullets: [], source_sentences: [] };
+      topic_summaries[name] = {
+        runs: [{ sentences: [], text: `summary of ${name}` }],
+        source_sentences: [],
+      };
       await updateRecord('r1', {
         topic_summaries: { ...topic_summaries },
         progress: {

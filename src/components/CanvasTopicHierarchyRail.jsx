@@ -142,6 +142,7 @@ const TopicCard = React.memo(function TopicCard({
  *   readTopics: Set<string> | string[] | null,
  *   onToggleRead: ((topicKey: string) => void) | null,
  *   currentTopicSummary: {
+ *     key?: string,
  *     path: string,
  *     text: string,
  *     sourceSentences?: number[],
@@ -243,7 +244,8 @@ function CanvasTopicHierarchyRail({
     [geometryCards],
   );
   const summaryAnchorCard = currentTopicSummary
-    ? adjustedHierarchyCards.find((card) => card.fullPath === currentTopicSummary.path)
+    ? adjustedHierarchyCards.find((card) => card.key === currentTopicSummary.key) ||
+      adjustedHierarchyCards.find((card) => card.fullPath === currentTopicSummary.path)
     : null;
   const hasCurrentTopicSummary = Boolean(currentTopicSummary);
   const summaryTop = summaryAnchorCard ? summaryAnchorCard.top : 0;
@@ -315,14 +317,20 @@ function CanvasTopicHierarchyRail({
             <header className="canvas-summary-view__card-header canvas-summary-view__card-header--stacked">
               <div className="canvas-summary-view__card-title-block">
                 <span className="canvas-summary-view__card-kicker">Summary</span>
-                <span key={currentTopicSummary.path} className="canvas-summary-view__card-path">
+                <span
+                  key={currentTopicSummary.key || currentTopicSummary.path}
+                  className="canvas-summary-view__card-path"
+                >
                   {currentTopicSummary.path}
                 </span>
               </div>
               <YouTubeTimestampButton link={summaryYouTubeLink} />
             </header>
             {currentTopicSummary.text && (
-              <p key={currentTopicSummary.path} className="canvas-summary-view__card-text">
+              <p
+                key={currentTopicSummary.key || currentTopicSummary.path}
+                className="canvas-summary-view__card-text"
+              >
                 {currentTopicSummary.text}
               </p>
             )}

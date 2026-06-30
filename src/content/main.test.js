@@ -450,7 +450,7 @@ describe('content script main.jsx', () => {
             topic_summary_index: {
               'Topic A': {
                 level: 0,
-                text: 'Summary A',
+                runs: [{ sentences: [0, 1], text: 'Summary A' }],
                 source_sentences: [0, 1],
               },
             },
@@ -523,12 +523,12 @@ describe('content script main.jsx', () => {
             topic_summary_index: {
               Intro: {
                 level: 0,
-                text: 'Intro summary',
+                runs: [{ sentences: [0], text: 'Intro summary' }],
                 source_sentences: [0],
               },
               Middle: {
                 level: 0,
-                text: '',
+                runs: [],
                 source_sentences: [1],
               },
             },

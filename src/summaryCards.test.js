@@ -104,11 +104,13 @@ describe('filterSummaryCardsByLevel', () => {
 });
 
 describe('buildSummaryCards', () => {
-  it('splits hierarchical index entry with discontinuous sentences into multiple cards', () => {
+  it('makes one card per run of a hierarchical index entry, each with its own text', () => {
     const topicSummaryIndex = {
       'A > B': {
-        text: 'Summary of B',
-        bullets: ['Point 1', 'Point 2'],
+        runs: [
+          { sentences: [1, 2, 3], text: 'First B occurrence' },
+          { sentences: [10, 11, 12], text: 'Second B occurrence' },
+        ],
         source_sentences: [1, 2, 3, 10, 11, 12],
         level: 1,
       },
@@ -122,7 +124,7 @@ describe('buildSummaryCards', () => {
       key: 'A > B#1#0',
       path: 'A > B',
       name: 'B',
-      text: 'Summary of B\n- Point 1\n- Point 2',
+      text: 'First B occurrence',
       sourceSentences: [1, 2, 3],
       startSentence: 1,
       levelIndex: 1,
@@ -132,14 +134,14 @@ describe('buildSummaryCards', () => {
       key: 'A > B#1#1',
       path: 'A > B',
       name: 'B',
-      text: 'Summary of B\n- Point 1\n- Point 2',
+      text: 'Second B occurrence',
       sourceSentences: [10, 11, 12],
       startSentence: 10,
       levelIndex: 1,
     });
   });
 
-  it('splits legacy topics entry with discontinuous sentences into multiple cards', () => {
+  it('makes one card per run of a legacy topics entry, each with its own text', () => {
     const topics = [
       {
         name: 'A > C',
@@ -148,7 +150,10 @@ describe('buildSummaryCards', () => {
     ];
     const topicSummaries = {
       'A > C': {
-        text: 'Summary of C',
+        runs: [
+          { sentences: [5, 6], text: 'First C occurrence' },
+          { sentences: [20, 21], text: 'Second C occurrence' },
+        ],
         source_sentences: [5, 6, 20, 21],
       },
     };
@@ -161,7 +166,7 @@ describe('buildSummaryCards', () => {
       key: 'A > C#1#0',
       path: 'A > C',
       name: 'C',
-      text: 'Summary of C',
+      text: 'First C occurrence',
       sourceSentences: [5, 6],
       startSentence: 5,
       levelIndex: 1,
@@ -171,10 +176,25 @@ describe('buildSummaryCards', () => {
       key: 'A > C#1#1',
       path: 'A > C',
       name: 'C',
-      text: 'Summary of C',
+      text: 'Second C occurrence',
       sourceSentences: [20, 21],
       startSentence: 20,
       levelIndex: 1,
     });
+  });
+
+  it('falls back to positioned empty cards when an entry has no runs', () => {
+    // An errored/skipped topic carries no runs; it should still occupy its place
+    // on the rail (one empty card per contiguous occurrence) rather than vanish.
+    const topicSummaryIndex = {
+      'A > B': { runs: [], source_sentences: [1, 2, 7, 8], level: 1 },
+    };
+
+    const cards = buildSummaryCards([], null, topicSummaryIndex);
+
+    expect(cards.map((c) => ({ text: c.text, sourceSentences: c.sourceSentences }))).toEqual([
+      { text: '', sourceSentences: [1, 2] },
+      { text: '', sourceSentences: [7, 8] },
+    ]);
   });
 });

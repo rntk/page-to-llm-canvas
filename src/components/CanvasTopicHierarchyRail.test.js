@@ -272,6 +272,47 @@ describe('CanvasTopicHierarchyRail', () => {
     unmount();
   });
 
+  it('aligns the current-topic summary to the matching repeated topic card key', () => {
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        topicCards: [
+          {
+            ...defaultProps.topicCards[0],
+            key: 'Technology#0#0',
+            fullPath: 'Technology',
+            displayName: 'Technology',
+            startSentence: 1,
+            endSentence: 2,
+            top: 20,
+          },
+          {
+            ...defaultProps.topicCards[0],
+            key: 'Technology#0#1',
+            fullPath: 'Technology',
+            displayName: 'Technology',
+            startSentence: 20,
+            endSentence: 21,
+            top: 140,
+          },
+        ],
+        currentTopicSummary: {
+          key: 'Technology#0#1',
+          path: 'Technology',
+          text: 'Second technology occurrence.',
+        },
+      }),
+    );
+
+    const summary = container.querySelector('.canvas-topic-current-summary');
+    expect(summary).not.toBeNull();
+    expect(summary.style.getPropertyValue('--current-summary-top')).toBe('140px');
+    expect(summary.querySelector('.canvas-summary-view__card-text').textContent).toBe(
+      'Second technology occurrence.',
+    );
+    unmount();
+  });
+
   it('scales the current-topic summary card fonts from the matched rail title size', () => {
     const { container, unmount } = render(
       createElement(CanvasTopicHierarchyRail, {

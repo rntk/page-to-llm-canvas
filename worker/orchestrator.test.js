@@ -8,7 +8,8 @@ import {
   mapTextOffsetToHtml,
   parseSummaryResponse,
   classifyLlmError,
-  shouldInlineTopicSummary,
+  shouldInlineRun,
+  splitContiguousRuns,
   chunkSourceSentences,
 } from './orchestrator.js';
 import * as storage from './storage.js';
@@ -174,23 +175,39 @@ describe('chunkSourceSentences', () => {
 });
 
 // ---------------------------------------------------------------------------
-// shouldInlineTopicSummary
+// splitContiguousRuns
 // ---------------------------------------------------------------------------
 
-describe('shouldInlineTopicSummary', () => {
-  it('inlines short topic ranges so their source facts can feed parent merges', () => {
-    expect(
-      shouldInlineTopicSummary(
-        { name: 'Tech>AI', sentences: [1, 2] },
-        'AI chip launched. It costs $5.',
-      ),
-    ).toBe(true);
+describe('splitContiguousRuns', () => {
+  it('splits non-adjacent sentence ids into one run per occurrence', () => {
+    expect(splitContiguousRuns([1, 2, 5, 6, 10])).toEqual([[1, 2], [5, 6], [10]]);
   });
 
-  it('keeps longer topic ranges on the LLM summary path', () => {
-    expect(
-      shouldInlineTopicSummary({ name: 'Business>Acme', sentences: [1] }, LONG_SUMMARY_TEXT),
-    ).toBe(false);
+  it('sorts ids before grouping', () => {
+    expect(splitContiguousRuns([6, 1, 5, 2])).toEqual([[1, 2], [5, 6]]);
+  });
+
+  it('returns a single run for fully contiguous ids', () => {
+    expect(splitContiguousRuns([1, 2, 3])).toEqual([[1, 2, 3]]);
+  });
+
+  it('handles empty input', () => {
+    expect(splitContiguousRuns([])).toEqual([]);
+    expect(splitContiguousRuns(undefined)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shouldInlineRun
+// ---------------------------------------------------------------------------
+
+describe('shouldInlineRun', () => {
+  it('inlines short runs so their source facts can feed parent merges', () => {
+    expect(shouldInlineRun([1, 2], 'AI chip launched. It costs $5.')).toBe(true);
+  });
+
+  it('keeps longer runs on the LLM summary path', () => {
+    expect(shouldInlineRun([1], LONG_SUMMARY_TEXT)).toBe(false);
   });
 });
 
@@ -382,8 +399,8 @@ describe('runPipeline', () => {
     const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
     expect(doneCall).toBeDefined();
     const final = doneCall[1];
-    expect(final.topic_summaries['Tech>All'].text).toBe(plainText);
-    expect(final.topic_summary_index['Tech>All'].text).toBe(plainText);
+    expect(final.topic_summaries['Tech>All'].runs[0].text).toBe(plainText);
+    expect(final.topic_summary_index['Tech>All'].runs[0].text).toBe(plainText);
     expect(
       llm.callLLMWithRetry.mock.calls.some(([opts]) =>
         opts.prompt.includes('Summarize the text within the <text> tags'),
@@ -499,7 +516,7 @@ describe('runPipeline', () => {
     const lastCall = storage.updateRecord.mock.calls[storage.updateRecord.mock.calls.length - 1];
     expect(lastCall[1].status).toBe('done');
     expect(lastCall[1].topic_summary_index).toBeDefined();
-    expect(lastCall[1].topic_summary_index['Tech'].text).toBe(parentSummary);
+    expect(lastCall[1].topic_summary_index['Tech'].runs[0].text).toBe(parentSummary);
     // The parent summary is generated from the full source text of both
     // children, not from their brief leaf summaries.
     expect(sourcePrompt).toContain('AI chip launched. It costs $5.');
@@ -564,8 +581,8 @@ describe('runPipeline', () => {
     await runPipeline('nosummary');
 
     const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
-    expect(doneCall[1].topic_summaries['Tech>All'].text).toBe(plainText);
-    expect(doneCall[1].topic_summary_index['Tech>All'].text).toBe(plainText);
+    expect(doneCall[1].topic_summaries['Tech>All'].runs[0].text).toBe(plainText);
+    expect(doneCall[1].topic_summary_index['Tech>All'].runs[0].text).toBe(plainText);
   });
 
   it('chunks tagged text when it exceeds MAX_TAGGED_CHARS', async () => {
@@ -784,7 +801,7 @@ describe('runPipeline', () => {
         { name: 'B', sentences: [2], sentence_spans: [], ranges: [] },
       ],
       topic_summaries: {
-        A: { text: 'Existing A summary.', source_sentences: [1] },
+        A: { runs: [{ sentences: [1], text: 'Existing A summary.' }], source_sentences: [1] },
       },
       topic_summary_index: {},
     });
@@ -816,8 +833,91 @@ describe('runPipeline', () => {
 
     const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
     expect(doneCall).toBeDefined();
-    expect(doneCall[1].topic_summaries.A.text).toBe('Existing A summary.');
-    expect(doneCall[1].topic_summaries.B.text).toBe('Fresh B summary.');
+    expect(doneCall[1].topic_summaries.A.runs[0].text).toBe('Existing A summary.');
+    expect(doneCall[1].topic_summaries.B.runs[0].text).toBe('Fresh B summary.');
+  });
+
+  it('summarizes each non-adjacent run of a topic separately on resume', async () => {
+    // A topic that recurs at two non-adjacent places ([1,2] and [5,6]) must yield
+    // one summary run per occurrence, each carrying its own location's source.
+    storage.readRecord.mockResolvedValue({
+      key: 'runs1',
+      html: '<p>ignored on resume</p>',
+      status: 'summarizing',
+      sentences: ['One.', 'Two.', 'Skip three.', 'Skip four.', 'Five.', 'Six.'],
+      topics: [{ name: 'A', sentences: [1, 2, 5, 6], sentence_spans: [], ranges: [] }],
+      topic_summaries: {},
+      topic_summary_index: {},
+    });
+
+    await runPipeline('runs1');
+
+    // Both runs are short enough to inline verbatim, so no summary LLM call fires
+    // and each run keeps its own source text and sentences.
+    expect(
+      llm.callLLMWithRetry.mock.calls.some(([opts]) =>
+        opts.prompt.includes('Summarize the text within the <text> tags'),
+      ),
+    ).toBe(false);
+
+    const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
+    expect(doneCall[1].topic_summaries.A.runs).toEqual([
+      { sentences: [1, 2], text: 'One. Two.' },
+      { sentences: [5, 6], text: 'Five. Six.' },
+    ]);
+    expect(doneCall[1].topic_summary_index.A.runs).toEqual([
+      { sentences: [1, 2], text: 'One. Two.' },
+      { sentences: [5, 6], text: 'Five. Six.' },
+    ]);
+  });
+
+  it('reuses each child summary for a non-adjacent top-level node instead of regenerating', async () => {
+    // The headline case: "Tech" aggregates two non-adjacent occurrences, each
+    // wholly one child — [1,2] is Tech>A, [10,11] is Tech>B. Neither run mixes
+    // subtopics, so the parent reuses each child's leaf summary (location-specific
+    // text per occurrence) and never issues a source-summary LLM call for Tech.
+    const long =
+      'with plenty of additional descriptive words written out here to comfortably exceed the inline summary threshold for this internal node run path so the summarizer actually issues an llm call';
+    const sentences = Array.from({ length: 11 }, (_, i) => `filler ${i + 1}.`);
+    sentences[0] = `ALPHA occurrence one ${long}.`;
+    sentences[1] = `ALPHA occurrence continues ${long}.`;
+    sentences[9] = `OMEGA occurrence one ${long}.`;
+    sentences[10] = `OMEGA occurrence continues ${long}.`;
+
+    storage.readRecord.mockResolvedValue({
+      key: 'multiRunParent',
+      html: '<p>ignored on resume</p>',
+      status: 'summarizing',
+      sentences,
+      topics: [
+        { name: 'Tech>A', sentences: [1, 2], sentence_spans: [], ranges: [] },
+        { name: 'Tech>B', sentences: [10, 11], sentence_spans: [], ranges: [] },
+      ],
+      topic_summaries: {},
+      topic_summary_index: {},
+    });
+
+    let sourceSummaryCalls = 0;
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      // The parent would use the source-summary prompt; under per-run delegation it
+      // must never be reached for Tech.
+      if (prompt.includes('Summarize the source text')) {
+        sourceSummaryCalls++;
+        return 'should not be used';
+      }
+      // Leaf per-topic summaries, keyed by which occurrence's text they carry.
+      return prompt.includes('ALPHA') ? 'first occurrence summary' : 'second occurrence summary';
+    });
+
+    await runPipeline('multiRunParent');
+
+    expect(sourceSummaryCalls).toBe(0);
+    const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
+    expect(doneCall).toBeDefined();
+    expect(doneCall[1].topic_summary_index['Tech'].runs).toEqual([
+      { sentences: [1, 2], text: 'first occurrence summary' },
+      { sentences: [10, 11], text: 'second occurrence summary' },
+    ]);
   });
 
   it('retries only summaries flagged with an error, keeping legit empty (NO_SUMMARY) results', async () => {
@@ -832,9 +932,9 @@ describe('runPipeline', () => {
         { name: 'C', sentences: [3], sentence_spans: [], ranges: [] },
       ],
       topic_summaries: {
-        A: { text: 'Good A.', source_sentences: [1] },
-        B: { text: '', source_sentences: [2] }, // legit NO_SUMMARY — keep
-        C: { text: '', source_sentences: [3], error: true }, // failed — retry
+        A: { runs: [{ sentences: [1], text: 'Good A.' }], source_sentences: [1] },
+        B: { runs: [], source_sentences: [2] }, // legit empty — keep
+        C: { runs: [], source_sentences: [3], error: true }, // failed — retry
       },
       topic_summary_index: {},
     });
@@ -855,9 +955,9 @@ describe('runPipeline', () => {
     expect(summaryPrompts[0]).toContain(LONG_SUMMARY_TEXT);
 
     const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
-    expect(doneCall[1].topic_summaries.A.text).toBe('Good A.');
-    expect(doneCall[1].topic_summaries.B.text).toBe('');
-    expect(doneCall[1].topic_summaries.C.text).toBe('Recovered C.');
+    expect(doneCall[1].topic_summaries.A.runs[0].text).toBe('Good A.');
+    expect(doneCall[1].topic_summaries.B.runs).toEqual([]);
+    expect(doneCall[1].topic_summaries.C.runs[0].text).toBe('Recovered C.');
     expect(doneCall[1].topic_summaries.C.error).toBeUndefined();
   });
 
@@ -904,7 +1004,7 @@ describe('runPipeline', () => {
       forceFinalize: true,
       topics: [{ name: 'Tech>All', sentences: [1, 2], sentence_spans: [], ranges: [] }],
       sentences: ['One.', 'Two.'],
-      topic_summaries: { 'Tech>All': { text: '', source_sentences: [1, 2] } },
+      topic_summaries: { 'Tech>All': { runs: [], source_sentences: [1, 2] } },
     });
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Merge the chunk summaries')) return 'Merged.';
@@ -915,7 +1015,7 @@ describe('runPipeline', () => {
 
     const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
     expect(doneCall).toBeDefined();
-    expect(doneCall[1].topic_summaries['Tech>All'].text).toBe('');
+    expect(doneCall[1].topic_summaries['Tech>All'].runs).toEqual([]);
     expect(doneCall[1].topic_summaries['Tech>All'].error).toBeUndefined();
     // Park state is cleared on finalize.
     expect(doneCall[1].summaryErrors).toEqual([]);
@@ -969,8 +1069,11 @@ describe('runPipeline', () => {
       ],
       sentences: ['A.', 'B.', 'C.', 'D.'],
       topic_summaries: {
-        'Tech>AI': { text: 'AI summary.', source_sentences: [1, 2] },
-        'Tech>Hardware': { text: 'HW summary.', source_sentences: [3, 4] },
+        'Tech>AI': { runs: [{ sentences: [1, 2], text: 'AI summary.' }], source_sentences: [1, 2] },
+        'Tech>Hardware': {
+          runs: [{ sentences: [3, 4], text: 'HW summary.' }],
+          source_sentences: [3, 4],
+        },
       },
     });
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
@@ -991,9 +1094,12 @@ describe('runPipeline', () => {
     ).toBe(false);
     const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
     expect(doneCall).toBeDefined();
-    // The failed parent merge degrades to empty text; the leaves are kept.
-    expect(doneCall[1].topic_summary_index['Tech'].text).toBe('');
-    expect(doneCall[1].topic_summaries['Tech>AI'].text).toBe('AI summary.');
+    // Tech's children are adjacent ([1,2]+[3,4]) so they form one mixed run; the
+    // skip stub degrades that generated run to empty text. The leaves are kept.
+    expect(doneCall[1].topic_summary_index['Tech'].runs).toEqual([
+      { sentences: [1, 2, 3, 4], text: '' },
+    ]);
+    expect(doneCall[1].topic_summaries['Tech>AI'].runs[0].text).toBe('AI summary.');
     expect(doneCall[1].summaryErrors).toEqual([]);
     expect(doneCall[1].forceFinalize).toBe(false);
   });
@@ -1041,8 +1147,8 @@ describe('runPipeline', () => {
     expect(mergeCalls).toBe(1);
     const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
     expect(doneCall).toBeDefined();
-    expect(doneCall[1].topic_summary_index['Tech'].text).toBe('Merged overflow summary.');
-    expect(doneCall[1].topic_summary_index['Tech>A'].text).toBe('Leaf.');
+    expect(doneCall[1].topic_summary_index['Tech'].runs[0].text).toBe('Merged overflow summary.');
+    expect(doneCall[1].topic_summary_index['Tech>A'].runs[0].text).toBe('Leaf.');
   });
 
   it('falls back to chunk summaries when the overflow merge returns NO_SUMMARY', async () => {
@@ -1072,7 +1178,7 @@ describe('runPipeline', () => {
 
     const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
     expect(doneCall).toBeDefined();
-    const parentText = doneCall[1].topic_summary_index['Tech'].text;
+    const parentText = doneCall[1].topic_summary_index['Tech'].runs[0].text;
     expect(parentText).not.toBe('');
     expect(parentText).toContain('Chunk summary.');
   });
@@ -1088,7 +1194,13 @@ describe('runPipeline', () => {
         { name: 'Tech>A', sentences: [1], sentence_spans: [], ranges: [] },
         { name: 'Tech>B', sentences: [2], sentence_spans: [], ranges: [] },
       ],
-      sentences: ['Alpha fact stated here.', 'Beta fact stated here.'],
+      // Each sentence is long enough that the parent's combined run exceeds the
+      // inline thresholds, forcing the single-call source-summary path (where the
+      // NO_SUMMARY fallback under test lives) instead of being inlined verbatim.
+      sentences: [
+        'Alpha fact stated here with plenty of additional descriptive words written out to comfortably exceed the inline summary threshold for this node.',
+        'Beta fact stated here with plenty of additional descriptive words written out to comfortably exceed the inline summary threshold for this node.',
+      ],
       topic_summaries: {},
     });
 
@@ -1102,11 +1214,11 @@ describe('runPipeline', () => {
     const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
     expect(doneCall).toBeDefined();
     expect(doneCall[1].status).toBe('done');
-    const parentText = doneCall[1].topic_summary_index['Tech'].text;
+    const parentText = doneCall[1].topic_summary_index['Tech'].runs[0].text;
     expect(parentText).not.toBe('');
     // Falls back to the parent's own aggregated source sentences.
-    expect(parentText).toContain('Alpha fact stated here.');
-    expect(parentText).toContain('Beta fact stated here.');
+    expect(parentText).toContain('Alpha fact stated here');
+    expect(parentText).toContain('Beta fact stated here');
   });
 
   it('falls back to chunk source text when an overflow chunk summary returns NO_SUMMARY', async () => {
@@ -1138,7 +1250,7 @@ describe('runPipeline', () => {
     const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
     expect(doneCall).toBeDefined();
     expect(doneCall[1].status).toBe('done');
-    const parentText = doneCall[1].topic_summary_index['Tech'].text;
+    const parentText = doneCall[1].topic_summary_index['Tech'].runs[0].text;
     expect(parentText).not.toBe('');
     // Carries the raw source from the chunks (first and last sentences present).
     expect(parentText).toContain('Sentence 1 ');
@@ -1186,7 +1298,7 @@ describe('runPipeline', () => {
     // The final result has only the fresh summaries.
     const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
     expect(doneCall[1].topic_summaries.StaleTopic).toBeUndefined();
-    expect(doneCall[1].topic_summaries['Tech>All'].text).toBe('Fresh summary.');
+    expect(doneCall[1].topic_summaries['Tech>All'].runs[0].text).toBe('Fresh summary.');
   });
 });
 

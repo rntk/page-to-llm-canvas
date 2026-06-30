@@ -117,6 +117,28 @@ describe('getSummaryText', () => {
     const summary = { bullets: ['  Point A  '] };
     expect(getSummaryText(summary)).toBe('Point A');
   });
+
+  it('concatenates per-run text for a runs summary', () => {
+    const summary = {
+      runs: [
+        { sentences: [1, 2], text: 'First occurrence.' },
+        { sentences: [9], text: 'Second occurrence.' },
+      ],
+    };
+    expect(getSummaryText(summary)).toBe('First occurrence. Second occurrence.');
+  });
+
+  it('skips blank and non-string run text when concatenating', () => {
+    const summary = {
+      runs: [{ text: '  ' }, { text: 'Kept.' }, { text: 42 }, {}],
+    };
+    expect(getSummaryText(summary)).toBe('Kept.');
+  });
+
+  it('returns empty string for a summary whose runs are all empty', () => {
+    expect(getSummaryText({ runs: [] })).toBe('');
+    expect(getSummaryText({ runs: [{ text: '' }] })).toBe('');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -149,6 +171,15 @@ describe('buildSummaryLookup', () => {
     const index = { 'Sci>Bio': 'Biology notes' };
     const lookup = buildSummaryLookup(null, index);
     expect(lookup.get('Sci>Bio')).toBe('Biology notes');
+  });
+
+  it('concatenates per-run text from a runs-shaped index entry', () => {
+    const index = {
+      'Sci>Bio': { runs: [{ text: 'Cells.' }, { text: 'Genes.' }] },
+    };
+    const lookup = buildSummaryLookup(null, index);
+    expect(lookup.get('Sci>Bio')).toBe('Cells. Genes.');
+    expect(lookup.get('Sci > Bio')).toBe('Cells. Genes.');
   });
 
   it('merges both sources; topicSummaryIndex entries overwrite topicSummaries for same path', () => {

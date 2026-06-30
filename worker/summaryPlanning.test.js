@@ -25,10 +25,10 @@ describe('planSummaryWork', () => {
 
   it('reuses completed summaries and leaves the rest pending', () => {
     const plan = planSummaryWork(topics, {
-      A: { text: 'Done A', source_sentences: [99] },
+      A: { runs: [{ sentences: [99], text: 'Done A' }], source_sentences: [99] },
     });
     expect(plan.reused).toEqual({
-      A: { text: 'Done A', source_sentences: [1] },
+      A: { runs: [{ sentences: [99], text: 'Done A' }], source_sentences: [1] },
     });
     expect(plan.pending.map((t) => t.name)).toEqual(['B', 'C']);
     expect(plan.reusedCount).toBe(1);
@@ -37,24 +37,24 @@ describe('planSummaryWork', () => {
 
   it('reuses a legit empty (NO_SUMMARY) result but retries error-flagged ones', () => {
     const plan = planSummaryWork(topics, {
-      A: { text: 'Good A' },
-      B: { text: '' }, // legit NO_SUMMARY — reuse
-      C: { text: '', error: true }, // failed — retry
+      A: { runs: [{ sentences: [1], text: 'Good A' }] },
+      B: { runs: [] }, // legit empty — reuse
+      C: { runs: [], error: true }, // failed — retry
     });
     expect(Object.keys(plan.reused).sort()).toEqual(['A', 'B']);
-    expect(plan.reused.B).toEqual({ text: '', source_sentences: [2] });
+    expect(plan.reused.B).toEqual({ runs: [], source_sentences: [2] });
     expect(plan.pending.map((t) => t.name)).toEqual(['C']);
     expect(plan.reusedCount).toBe(2);
     expect(plan.pendingCount).toBe(1);
   });
 
-  it('normalizes a missing text field to empty string when reusing', () => {
+  it('normalizes a missing runs field to an empty array when reusing', () => {
     const plan = planSummaryWork([{ name: 'A', sentences: [1] }], { A: {} });
-    expect(plan.reused.A).toEqual({ text: '', source_sentences: [1] });
+    expect(plan.reused.A).toEqual({ runs: [], source_sentences: [1] });
   });
 
   it('handles empty topics', () => {
-    const plan = planSummaryWork([], { A: { text: 'x' } });
+    const plan = planSummaryWork([], { A: { runs: [{ sentences: [1], text: 'x' }] } });
     expect(plan.pending).toEqual([]);
     expect(plan.reused).toEqual({});
     expect(plan.total).toBe(0);
