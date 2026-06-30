@@ -190,6 +190,44 @@ describe('YouTubeRail', () => {
     unmount();
   });
 
+  it('cleans up interval poll timer when unmounted', () => {
+    const getCurrentTime = vi.fn(() => 0);
+    const { unmount } = render(
+      createElement(YouTubeRail, { ...defaultProps, getCurrentTime }),
+    );
+
+    // Initial render might call getCurrentTime, clear mocks
+    getCurrentTime.mockClear();
+
+    // Advance timer and verify it ticks/polls
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(getCurrentTime).toHaveBeenCalled();
+
+    getCurrentTime.mockClear();
+
+    // Unmount the component
+    unmount();
+
+    // Advance timer again and verify it is NOT called
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(getCurrentTime).not.toHaveBeenCalled();
+  });
+
+  it('cleans up scheduled animation frames when unmounted', () => {
+    const cancelSpy = vi.spyOn(window, 'cancelAnimationFrame');
+    const { unmount } = render(
+      createElement(YouTubeRail, defaultProps),
+    );
+
+    unmount();
+    expect(cancelSpy).toHaveBeenCalledWith(1);
+  });
+
+
   it('renders summaries with body fallback and empty state for invalid cards', () => {
     const { container, rerender, unmount } = render(
       createElement(YouTubeRail, { ...defaultProps, mode: 'summaries' }),
