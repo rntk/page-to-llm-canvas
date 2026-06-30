@@ -6,9 +6,16 @@ import {
 } from '../../worker/providers.js';
 import {
   shouldWarnTokenWipe,
-  actionToMessageType,
   actionConfirmPrompt,
-  actionErrorMessage,
+  createEmptyProviderForm,
+  normalizeProvidersResponse,
+  providerToForm,
+  updateProviderFormField,
+  updateProviderFormType,
+  buildRecordMetadata,
+  safeFilenamePart,
+  actionResponseError,
+  recordActionRouting,
 } from './optionsLogic.js';
 import { createThemeController, themeCycle, themeIcon, themeLabel } from '../../theme.js';
 import {
@@ -187,30 +194,12 @@ function sendMessage(msg) {
 
 async function listProviders() {
   const resp = await sendMessage({ type: 'listProviders' });
-  if (!resp || !resp.ok) return null;
-  return {
-    providers: resp.providers || [],
-    activeId: resp.activeId || null,
-  };
+  return normalizeProvidersResponse(resp);
 }
 
 async function listRecords() {
   const resp = await sendMessage({ type: 'listRecords' });
   return (resp && resp.ok && resp.items) || [];
-}
-
-function buildRecordMetadata(record) {
-  if (!record || typeof record !== 'object') return {};
-  const { html: _html, text: _text, ...metadata } = record;
-  return metadata;
-}
-
-function safeFilenamePart(value) {
-  const cleaned = String(value || 'record')
-    .replace(/[^a-z0-9._-]+/gi, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80);
-  return cleaned || 'record';
 }
 
 function downloadJsonFile(filename, value) {
@@ -233,16 +222,6 @@ function statusClass(status) {
 
 const IN_FLIGHT_STATUSES = new Set(['pending', 'splitting', 'summarizing']);
 
-const EMPTY_FORM = {
-  id: '',
-  name: '',
-  type: 'openai',
-  model: '',
-  token: '',
-  url: '',
-  serviceTier: '',
-};
-
 function providerTypeLabel(type) {
   return getProviderDefinition(type)?.displayName || type;
 }
@@ -250,7 +229,7 @@ function providerTypeLabel(type) {
 export function ProvidersSection() {
   const [providers, setProviders] = useState([]);
   const [activeId, setActiveId] = useState(null);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(() => createEmptyProviderForm());
   const [error, setError] = useState('');
 
   const applyProviders = useCallback((next) => {
@@ -285,17 +264,12 @@ export function ProvidersSection() {
 
   const onTypeChange = (type) => {
     const nextDef = getProviderDefinition(type);
-    setForm((f) => ({
-      ...f,
-      type,
-      model: f.model || nextDef?.defaultModel || '',
-      serviceTier: '',
-    }));
+    setForm((f) => updateProviderFormType(f, type, nextDef?.defaultModel || ''));
   };
 
   const setField = (key) => (e) => {
     const value = e.target.value;
-    setForm((f) => ({ ...f, [key]: value }));
+    setForm((f) => updateProviderFormField(f, key, value));
   };
 
   const submit = async (e) => {
@@ -314,25 +288,17 @@ export function ProvidersSection() {
       setError((resp && resp.error) || 'Failed to save provider');
       return;
     }
-    setForm(EMPTY_FORM);
+    setForm(createEmptyProviderForm());
     await load();
   };
 
   const edit = (p) => {
     setError('');
-    setForm({
-      id: p.id,
-      name: p.name,
-      type: p.type,
-      model: p.model,
-      token: '',
-      url: p.url || '',
-      serviceTier: p.serviceTier || '',
-    });
+    setForm(providerToForm(p));
   };
 
   const cancel = () => {
-    setForm(EMPTY_FORM);
+    setForm(createEmptyProviderForm());
     setError('');
   };
 
@@ -556,6 +522,7 @@ export function OptionsApp() {
 
     const confirmPrompt = actionConfirmPrompt(action);
     if (confirmPrompt !== null && !confirm(confirmPrompt)) return;
+    const { messageType } = recordActionRouting(action);
 
     if (action === 'open') {
       if (
@@ -572,9 +539,9 @@ export function OptionsApp() {
     }
 
     if (action === 'delete' || action === 'reprocess' || action === 'stop') {
-      const resp = await sendMessage({ type: actionToMessageType(action), key });
+      const resp = await sendMessage({ type: messageType, key });
       if (!resp || !resp.ok) {
-        setError((resp && resp.error) || actionErrorMessage(action));
+        setError(actionResponseError(resp, action));
         return;
       }
       await loadRecords();
@@ -582,9 +549,9 @@ export function OptionsApp() {
     }
 
     if (action === 'exportMetadata') {
-      const resp = await sendMessage({ type: actionToMessageType(action), key });
+      const resp = await sendMessage({ type: messageType, key });
       if (!resp || !resp.ok || !resp.record) {
-        setError((resp && resp.error) || actionErrorMessage(action));
+        setError(actionResponseError(resp, action));
         return;
       }
       const metadata = buildRecordMetadata(resp.record);

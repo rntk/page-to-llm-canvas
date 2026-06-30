@@ -1,10 +1,164 @@
 import { describe, it, expect } from 'vitest';
 import {
+  createEmptyProviderForm,
+  normalizeProvidersResponse,
+  providerToForm,
+  updateProviderFormField,
+  updateProviderFormType,
+  buildRecordMetadata,
+  safeFilenamePart,
+  recordActionRouting,
+  actionResponseError,
   shouldWarnTokenWipe,
   actionToMessageType,
   actionConfirmPrompt,
   actionErrorMessage,
 } from './optionsLogic.js';
+
+// ---------------------------------------------------------------------------
+// provider form helpers
+// ---------------------------------------------------------------------------
+
+describe('provider form helpers', () => {
+  it('creates a blank provider form with the expected defaults', () => {
+    expect(createEmptyProviderForm()).toEqual({
+      id: '',
+      name: '',
+      type: 'openai',
+      model: '',
+      token: '',
+      url: '',
+      serviceTier: '',
+    });
+  });
+
+  it('normalizes a provider response into a safe list shape', () => {
+    expect(normalizeProvidersResponse(null)).toBeNull();
+    expect(normalizeProvidersResponse({ ok: false })).toBeNull();
+    expect(normalizeProvidersResponse({ ok: true })).toEqual({ providers: [], activeId: null });
+    expect(
+      normalizeProvidersResponse({ ok: true, providers: [{ id: 'p1' }], activeId: 'p1' }),
+    ).toEqual({ providers: [{ id: 'p1' }], activeId: 'p1' });
+  });
+
+  it('builds an edit form without exposing the stored token', () => {
+    expect(
+      providerToForm({
+        id: 'p1',
+        name: 'OpenAI',
+        type: 'openai',
+        model: 'gpt-5.4-nano',
+        token: 'secret',
+        url: '',
+        serviceTier: 'auto',
+      }),
+    ).toEqual({
+      id: 'p1',
+      name: 'OpenAI',
+      type: 'openai',
+      model: 'gpt-5.4-nano',
+      token: '',
+      url: '',
+      serviceTier: 'auto',
+    });
+  });
+
+  it('updates a single provider field without mutating the original form', () => {
+    const form = createEmptyProviderForm();
+    const next = updateProviderFormField(form, 'name', 'My Provider');
+    expect(next).toEqual({ ...form, name: 'My Provider' });
+    expect(form).toEqual(createEmptyProviderForm());
+  });
+
+  it('preserves the model when switching provider type and clears service tier', () => {
+    const next = updateProviderFormType(
+      { ...createEmptyProviderForm(), model: 'custom-model', serviceTier: 'priority' },
+      'anthropic',
+      'claude-haiku-4-5',
+    );
+    expect(next).toEqual({
+      id: '',
+      name: '',
+      type: 'anthropic',
+      model: 'custom-model',
+      token: '',
+      url: '',
+      serviceTier: '',
+    });
+  });
+
+  it('seeds the default model when the current form model is blank', () => {
+    expect(updateProviderFormType(createEmptyProviderForm(), 'anthropic', 'claude-haiku-4-5')).toEqual(
+      {
+        id: '',
+        name: '',
+        type: 'anthropic',
+        model: 'claude-haiku-4-5',
+        token: '',
+        url: '',
+        serviceTier: '',
+      },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// record helpers
+// ---------------------------------------------------------------------------
+
+describe('record helpers', () => {
+  it('strips html and text from record metadata', () => {
+    expect(
+      buildRecordMetadata({
+        key: 'k1',
+        html: '<div>ignore</div>',
+        text: 'ignore',
+        sourceUrl: 'https://example.com',
+        createdAt: 123,
+      }),
+    ).toEqual({ key: 'k1', sourceUrl: 'https://example.com', createdAt: 123 });
+  });
+
+  it('returns an empty object for non-object records', () => {
+    expect(buildRecordMetadata(null)).toEqual({});
+    expect(buildRecordMetadata('nope')).toEqual({});
+  });
+
+  it('generates a safe filename part from arbitrary values', () => {
+    expect(safeFilenamePart('page:one/two?three')).toBe('page-one-two-three');
+    expect(safeFilenamePart('   ')).toBe('record');
+    expect(safeFilenamePart(0)).toBe('record');
+  });
+
+  it('truncates long filename parts to 80 characters', () => {
+    expect(safeFilenamePart('a'.repeat(200))).toHaveLength(80);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// record action routing
+// ---------------------------------------------------------------------------
+
+describe('record action routing', () => {
+  it('returns the runtime message type and default error string for delete', () => {
+    expect(recordActionRouting('delete')).toEqual({
+      messageType: 'deleteRecord',
+      errorMessage: 'Failed to delete record',
+    });
+  });
+
+  it('returns null message type for open while keeping the fallback error message', () => {
+    expect(recordActionRouting('open')).toEqual({
+      messageType: null,
+      errorMessage: 'Action failed',
+    });
+  });
+
+  it('returns the runtime fallback error for message-based actions with custom response text', () => {
+    expect(actionResponseError({ error: 'nope' }, 'reprocess')).toBe('nope');
+    expect(actionResponseError(null, 'exportMetadata')).toBe('Failed to export record metadata');
+  });
+});
 
 // ---------------------------------------------------------------------------
 // shouldWarnTokenWipe
