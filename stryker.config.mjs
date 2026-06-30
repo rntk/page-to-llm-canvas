@@ -11,7 +11,7 @@ export default {
   // and components below are currently exercised only by `?raw` source-string
   // tests (or not at all), so mutating them would produce NoCoverage noise and
   // a long, meaningless run. Add them back here as they gain real tests.
-  mutate: ['src/**/*.{js,jsx,mjs}', 'worker/**/*.js', 'background.js', 'popup.js', '!src/App.jsx'],
+  mutate: ['src/**/*.{js,jsx,mjs}', 'worker/**/*.js', 'background.js', 'popup.js', 'theme.js', '!src/App.jsx'],
   ignorePatterns: [
     'dist',
     'node_modules',
