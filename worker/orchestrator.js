@@ -19,6 +19,7 @@ import { callLLMWithRetry, createLimiter, parallelMap } from './llm.js';
 import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
 import { planSummaryWork } from './summaryPlanning.js';
 import { summarizeTopicTree } from './topicTreeMerge.js';
+import { getStoredPreferContentLanguage } from './languageSettings.js';
 
 const MAX_TAGGED_CHARS = 60000;
 // Budget for an internal topic node's own source text before we summarize it in
@@ -275,11 +276,11 @@ export function chunkSourceSentences(sourceSentenceIds, sentenceTexts, maxChars)
  * @param {AbortSignal|undefined} signal
  * @returns {(sourceSentenceIds: number[]) => Promise<{text: string}>}
  */
-function makeSourceSummarizer(sentenceTexts, limit, signal) {
+function makeSourceSummarizer(sentenceTexts, limit, signal, preferContentLanguage = false) {
   const summarizeText = async (text) => {
     const resp = await limit(() =>
       callLLMWithRetry({
-        prompt: buildTopicSummaryFromSourcePrompt(text),
+        prompt: buildTopicSummaryFromSourcePrompt(text, { preferContentLanguage }),
         temperature: 0.8,
         signal,
       }),
@@ -310,7 +311,9 @@ function makeSourceSummarizer(sentenceTexts, limit, signal) {
     }));
     const mergeResp = await limit(() =>
       callLLMWithRetry({
-        prompt: buildArticleSummaryMergePrompt(formatChunkSummariesForMerge(records)),
+        prompt: buildArticleSummaryMergePrompt(formatChunkSummariesForMerge(records), {
+          preferContentLanguage,
+        }),
         temperature: 0.8,
         signal,
       }),
@@ -415,7 +418,9 @@ async function resplitSegment(context, seg, sentenceTexts, depth) {
       callLLM: async () => {
         const responses = await parallelMap(chunks, TOPIC_RANGE_CONCURRENCY, (chunk) =>
           callLLMWithRetry({
-            prompt: buildTopicRangesPrompt(chunk),
+            prompt: buildTopicRangesPrompt(chunk, {
+              preferContentLanguage: context.preferContentLanguage,
+            }),
             temperature: TOPIC_RANGE_TEMPERATURE,
             signal: context.signal,
           }),
@@ -537,6 +542,9 @@ export async function runPipeline(key, options = {}) {
     key,
     pipelineRunId: options.pipelineRunId,
     signal: options.signal,
+    // Read once per run so every prompt in this run uses a consistent setting,
+    // even if the user toggles it mid-pipeline. Defaults to off on any failure.
+    preferContentLanguage: await getStoredPreferContentLanguage(),
   };
   try {
     await logPipeline(context, 'pipeline_start');
@@ -675,7 +683,9 @@ async function computeTopics(context, rec) {
         chunks,
         TOPIC_RANGE_CONCURRENCY,
         async (chunk, chunkIndex) => {
-          const prompt = buildTopicRangesPrompt(chunk);
+          const prompt = buildTopicRangesPrompt(chunk, {
+            preferContentLanguage: context.preferContentLanguage,
+          });
           await logPipeline(context, 'topic_ranges_llm_request', {
             chunkIndex,
             promptLength: prompt.length,
@@ -874,7 +884,9 @@ async function runSummaries(
         topic: topic.name,
         sentenceCount: topic.sentences.length,
       });
-      const prompt = buildArticleSummaryPrompt(sourceText);
+      const prompt = buildArticleSummaryPrompt(sourceText, {
+        preferContentLanguage: context.preferContentLanguage,
+      });
       let summaryText = '';
       let failure = null;
       try {
@@ -943,7 +955,12 @@ async function runSummaries(
   const summaryErrors = [];
   const summarizeSource = forceFinalize
     ? async () => ({ text: '' })
-    : makeSourceSummarizer(sentenceTexts, limitSummary, context.signal);
+    : makeSourceSummarizer(
+        sentenceTexts,
+        limitSummary,
+        context.signal,
+        context.preferContentLanguage,
+      );
   const topic_summary_index = await summarizeTopicTree({
     nodes,
     leafSummaries: topic_summaries,

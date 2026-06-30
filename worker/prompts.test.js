@@ -5,8 +5,10 @@ import {
   buildArticleSummaryPrompt,
   buildArticleSummaryMergePrompt,
   buildSentenceSummaryPrompt,
+  buildTopicSummaryFromSourcePrompt,
   buildTaggedText,
   formatChunkSummariesForMerge,
+  LANGUAGE_INSTRUCTION,
   SENTENCE_SUMMARY_PROMPT_TEMPLATE,
   ARTICLE_SUMMARY_PROMPT_TEMPLATE,
   ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE,
@@ -138,6 +140,71 @@ describe('formatChunkSummariesForMerge', () => {
     const records = [{ start_sentence: 0, end_sentence: 3 }];
     const result = formatChunkSummariesForMerge(records);
     expect(result).toContain('Chunk 1 (sentences 0-3)');
+  });
+});
+
+describe('preferContentLanguage option', () => {
+  const builders = [
+    ['buildTopicRangesPrompt', (opts) => buildTopicRangesPrompt('{0} hola', opts)],
+    ['buildArticleSummaryPrompt', (opts) => buildArticleSummaryPrompt('texto', opts)],
+    ['buildArticleSummaryMergePrompt', (opts) => buildArticleSummaryMergePrompt('resumen', opts)],
+    ['buildTopicSummaryFromSourcePrompt', (opts) => buildTopicSummaryFromSourcePrompt('fuente', opts)],
+    ['buildSentenceSummaryPrompt', (opts) => buildSentenceSummaryPrompt('una frase.', opts)],
+  ];
+
+  for (const [name, build] of builders) {
+    describe(name, () => {
+      it('omits the language instruction by default', () => {
+        expect(build(undefined)).not.toContain('LANGUAGE:');
+        expect(build({})).not.toContain('LANGUAGE:');
+        expect(build({ preferContentLanguage: false })).not.toContain('LANGUAGE:');
+      });
+
+      it('includes the language instruction when preferContentLanguage is true', () => {
+        const prompt = build({ preferContentLanguage: true });
+        expect(prompt).toContain('LANGUAGE:');
+        expect(prompt).toContain('dominant language of the content');
+      });
+
+      it('carves out literal tokens so parsing/format stay intact', () => {
+        const prompt = build({ preferContentLanguage: true });
+        // The carve-out must protect the exact tokens downstream code matches.
+        expect(prompt).toContain('NO_SUMMARY');
+        expect(prompt).toContain('match the content language');
+      });
+    });
+  }
+
+  it('LANGUAGE_INSTRUCTION protects the NO_SUMMARY sentinel and marker IDs', () => {
+    expect(LANGUAGE_INSTRUCTION).toContain('NO_SUMMARY');
+    expect(LANGUAGE_INSTRUCTION).toContain('{0}');
+  });
+
+  it('preserves the strict topic-ranges content block when enabled', () => {
+    const prompt = buildTopicRangesPrompt('{0} hola mundo', { preferContentLanguage: true });
+    expect(prompt).toContain('<content>\n{0} hola mundo\n</content>');
+    expect(prompt).toContain('OUTPUT FORMAT');
+  });
+
+  it('requires both category and lower-level labels in the content language', () => {
+    const prompt = buildTopicRangesPrompt('{0} hola mundo', { preferContentLanguage: true });
+    // The fix: the instruction must explicitly cover the top-level category, not
+    // just the leaf tag, and neutralize the English example categories.
+    expect(prompt).toContain('top-level category');
+    expect(prompt).toContain('never emit English category names');
+  });
+
+  it('places the language block right before the content for topic ranges', () => {
+    const prompt = buildTopicRangesPrompt('{0} hola', { preferContentLanguage: true });
+    // Closest-to-generation placement beats the English example categories above.
+    const languageIdx = prompt.indexOf('LANGUAGE:');
+    const formatIdx = prompt.indexOf('OUTPUT FORMAT');
+    // The SYSTEM_PROMPT mentions "<content>" in its SECURITY section, so target
+    // the actual content block (the last occurrence) rather than that mention.
+    const contentIdx = prompt.lastIndexOf('<content>');
+    expect(formatIdx).toBeGreaterThanOrEqual(0);
+    expect(languageIdx).toBeGreaterThan(formatIdx);
+    expect(contentIdx).toBeGreaterThan(languageIdx);
   });
 });
 

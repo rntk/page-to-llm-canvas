@@ -48,11 +48,38 @@ ASSIGNMENT RULES:
 Respond as fast as possible with ONLY the formatted output. Minimal preamble, reasoning, or explanation.
 `;
 
+// Added (when the "prefer the language of the content" option is on) to every
+// pipeline prompt. It tells the model to write human-readable output in the
+// content's dominant language while carving out the tokens the parsing code
+// matches as exact English: NO_SUMMARY (parseSummaryResponse), the {N} sentence
+// markers, the strict topic-ranges line format, and canonical proper nouns.
+// Without these carve-outs a translated NO_SUMMARY would silently break short-text
+// detection and a translated marker/format would break topic parsing.
+//
+// The topic-ranges system prompt lists English example categories (Technology,
+// Business, Science…) and a "canonical names" rule, which otherwise anchor the
+// model to English labels — so the instruction must explicitly cover BOTH the
+// top-level category and the lower-level tag and neutralize those examples.
+export const LANGUAGE_INSTRUCTION =
+  'LANGUAGE:\n' +
+  '- Detect the dominant language of the content and write EVERY human-readable part of your output in that language: both the broad top-level category and the specific lower-level topic labels, plus any summary text.\n' +
+  '- The category words used as examples elsewhere in these instructions (Technology, Business, Science, Politics, etc.) only illustrate the KIND of category expected — translate them into the content language; never emit English category names when the content is in another language.\n' +
+  '- If the content is not in English, do NOT translate, restate, or default your output to English; match the content language.\n' +
+  '- Do NOT translate or alter any of: the literal token NO_SUMMARY, the sentence marker IDs like {0}, the required output format (the ">" separators and the ":" before marker ranges), or canonical product, company, person, and technology names.\n';
+
+function withLanguageInstruction(prompt, preferContentLanguage) {
+  return preferContentLanguage ? `${LANGUAGE_INSTRUCTION}\n${prompt}` : prompt;
+}
+
 export function buildSystemPrompt() {
   return SYSTEM_PROMPT;
 }
 
-export function buildTopicRangesPrompt(taggedText) {
+export function buildTopicRangesPrompt(taggedText, { preferContentLanguage = false } = {}) {
+  // For topic ranges the language block sits right before <content> rather than
+  // at the top: the system prompt's English example categories would otherwise be
+  // the last thing the model reads before generating, anchoring it to English.
+  const languageBlock = preferContentLanguage ? `${LANGUAGE_INSTRUCTION}\n` : '';
   return `${SYSTEM_PROMPT}
 
 OUTPUT FORMAT:
@@ -63,7 +90,7 @@ OUTPUT FORMAT:
 - MarkerRanges: 12-18 | 12-18, 33-36 | 12, 15, 18 | 12-18, 21, 24-27
 - No bullets, numbering, commentary, markdown fences, or explanations.
 
-<content>
+${languageBlock}<content>
 ${taggedText}
 </content>
 `;
@@ -157,16 +184,25 @@ export const TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE =
   '- Do not return JSON, markdown fences, headings, labels, or commentary.\n\n' +
   'Source:\n<source>{source}</source>\n';
 
-export function buildArticleSummaryPrompt(text) {
-  return ARTICLE_SUMMARY_PROMPT_TEMPLATE.replace('{text}', () => text);
+export function buildArticleSummaryPrompt(text, { preferContentLanguage = false } = {}) {
+  return withLanguageInstruction(
+    ARTICLE_SUMMARY_PROMPT_TEMPLATE.replace('{text}', () => text),
+    preferContentLanguage,
+  );
 }
 
-export function buildTopicSummaryFromSourcePrompt(source) {
-  return TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE.replace('{source}', () => source);
+export function buildTopicSummaryFromSourcePrompt(source, { preferContentLanguage = false } = {}) {
+  return withLanguageInstruction(
+    TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE.replace('{source}', () => source),
+    preferContentLanguage,
+  );
 }
 
-export function buildArticleSummaryMergePrompt(chunkSummaries) {
-  return ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE.replace('{chunk_summaries}', () => chunkSummaries);
+export function buildArticleSummaryMergePrompt(chunkSummaries, { preferContentLanguage = false } = {}) {
+  return withLanguageInstruction(
+    ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE.replace('{chunk_summaries}', () => chunkSummaries),
+    preferContentLanguage,
+  );
 }
 
 export function formatChunkSummariesForMerge(records) {
@@ -181,8 +217,11 @@ export function formatChunkSummariesForMerge(records) {
     .join('\n\n');
 }
 
-export function buildSentenceSummaryPrompt(sentence) {
-  return SENTENCE_SUMMARY_PROMPT_TEMPLATE.replace('{sentence}', () => sentence);
+export function buildSentenceSummaryPrompt(sentence, { preferContentLanguage = false } = {}) {
+  return withLanguageInstruction(
+    SENTENCE_SUMMARY_PROMPT_TEMPLATE.replace('{sentence}', () => sentence),
+    preferContentLanguage,
+  );
 }
 
 // BracketMarker port: prefixes each sentence with {N}.

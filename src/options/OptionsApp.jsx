@@ -26,6 +26,13 @@ import {
   normalizeHighlightColor,
   applyHighlightColorToElement,
 } from '../highlightSettings.js';
+import {
+  PREFER_CONTENT_LANGUAGE_KEY,
+  DEFAULT_PREFER_CONTENT_LANGUAGE,
+  getStoredPreferContentLanguage,
+  setStoredPreferContentLanguage,
+  normalizePreferContentLanguage,
+} from '../../worker/languageSettings.js';
 
 export function ThemeToggle() {
   const [controller] = useState(() => createThemeController());
@@ -174,6 +181,74 @@ export function HighlightColorSection() {
         </div>
         <div className="note">
           Used for sentence highlights, source preview highlights, and picked block backgrounds.
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function ContentLanguageSection() {
+  const [preferContentLanguage, setPreferContentLanguage] = useState(
+    DEFAULT_PREFER_CONTENT_LANGUAGE,
+  );
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadPreference() {
+      const stored = await getStoredPreferContentLanguage();
+      if (isCurrent) setPreferContentLanguage(stored);
+    }
+
+    void loadPreference();
+    const handleStorageChange = (changes, areaName) => {
+      if (areaName !== 'local' || !changes || !changes[PREFER_CONTENT_LANGUAGE_KEY]) return;
+      setPreferContentLanguage(
+        normalizePreferContentLanguage(changes[PREFER_CONTENT_LANGUAGE_KEY].newValue),
+      );
+    };
+    try {
+      chrome.storage.onChanged.addListener(handleStorageChange);
+    } catch (_) {
+      /* noop */
+    }
+    return () => {
+      isCurrent = false;
+      try {
+        chrome.storage.onChanged.removeListener(handleStorageChange);
+      } catch (_) {
+        /* noop */
+      }
+    };
+  }, []);
+
+  const handleToggle = useCallback(async (next) => {
+    // Optimistic update; on a write failure resync to what is actually stored.
+    setPreferContentLanguage(next);
+    try {
+      await setStoredPreferContentLanguage(next);
+    } catch (_) {
+      const stored = await getStoredPreferContentLanguage();
+      setPreferContentLanguage(stored);
+    }
+  }, []);
+
+  return (
+    <section className="section">
+      <h2>Language</h2>
+      <div className="field">
+        <label htmlFor="prefer-content-language">
+          <input
+            id="prefer-content-language"
+            type="checkbox"
+            checked={preferContentLanguage}
+            onChange={(event) => handleToggle(event.target.checked)}
+          />{' '}
+          Prefer the language of the content
+        </label>
+        <div className="note">
+          When enabled, topic labels and summaries are written in the dominant language of the
+          analyzed content instead of always defaulting to English.
         </div>
       </div>
     </section>
@@ -567,6 +642,8 @@ export function OptionsApp() {
       </div>
 
       <ProvidersSection />
+
+      <ContentLanguageSection />
 
       <HighlightColorSection />
 
