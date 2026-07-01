@@ -10,8 +10,6 @@ import {
   deleteAll,
   findRecordByUrl,
   buildRecordSnippet,
-  recordStorageKey,
-  INDEX_KEY,
   _resetUpdateQueues,
 } from './storage.js';
 
@@ -27,13 +25,17 @@ import {
  *            failSetOnCall?: number }} [opts]
  */
 function makeChromeMock(opts = {}) {
-  const {
-    lastErrorOnSet = false,
-    lastErrorOnGet = false,
-    lastErrorOnRemove = false,
-    setDelay = 0,
-    failSetOnCall = 0,
-  } = opts;
+  // Kept as a live (mutable) object, rather than destructured consts, so
+  // tests can seed data first and flip a failure flag on afterwards (e.g.
+  // "seed successfully, then make the next set() call fail").
+  const state = {
+    lastErrorOnSet: false,
+    lastErrorOnGet: false,
+    lastErrorOnRemove: false,
+    setDelay: 0,
+    failSetOnCall: 0,
+    ...opts,
+  };
   const store = new Map();
   const runtime = { lastError: null };
   let setCalls = 0;
@@ -41,7 +43,7 @@ function makeChromeMock(opts = {}) {
   const chromeLocal = {
     _store: store,
     get: vi.fn((keys, cb) => {
-      if (lastErrorOnGet) {
+      if (state.lastErrorOnGet) {
         runtime.lastError = { message: 'get failed' };
         cb({});
         runtime.lastError = null;
@@ -58,7 +60,7 @@ function makeChromeMock(opts = {}) {
     set: vi.fn((items, cb) => {
       const doSet = () => {
         setCalls += 1;
-        if (lastErrorOnSet || setCalls === failSetOnCall) {
+        if (state.lastErrorOnSet || setCalls === state.failSetOnCall) {
           runtime.lastError = { message: 'QuotaExceededError' };
           cb();
           runtime.lastError = null;
@@ -68,11 +70,11 @@ function makeChromeMock(opts = {}) {
         for (const [k, v] of Object.entries(items)) store.set(k, v);
         cb();
       };
-      if (setDelay > 0) setTimeout(doSet, setDelay);
+      if (state.setDelay > 0) setTimeout(doSet, state.setDelay);
       else doSet();
     }),
     remove: vi.fn((keys, cb) => {
-      if (lastErrorOnRemove) {
+      if (state.lastErrorOnRemove) {
         runtime.lastError = { message: 'remove failed' };
         cb();
         runtime.lastError = null;
@@ -85,15 +87,12 @@ function makeChromeMock(opts = {}) {
     }),
   };
 
-  return { storage: { local: chromeLocal }, runtime };
+  return { storage: { local: chromeLocal }, runtime, _state: state };
 }
 
-/** Seeds a record directly into the mock store so tests start with known data. */
-function seedRecord(chromeMock, rec) {
-  chromeMock.storage.local._store.set(recordStorageKey(rec.key), rec);
-  const idx = chromeMock.storage.local._store.get(INDEX_KEY) || { keys: [] };
-  if (!idx.keys.includes(rec.key)) idx.keys.unshift(rec.key);
-  chromeMock.storage.local._store.set(INDEX_KEY, idx);
+/** Seeds a record into the mock store (via writeRecord) so tests start with known data. */
+async function seedRecord(chromeMock, rec) {
+  await writeRecord(rec);
 }
 
 function makeRecord(key, overrides = {}) {
@@ -135,10 +134,11 @@ describe('chrome.runtime.lastError propagation', () => {
   });
 
   it('setLocal rejects when chrome.runtime.lastError is set on set', async () => {
-    const mock = makeChromeMock({ lastErrorOnSet: true });
+    const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
     const rec = makeRecord('r1');
-    seedRecord(mock, rec);
+    await seedRecord(mock, rec);
+    mock._state.lastErrorOnSet = true;
     await expect(updateRecord('r1', { status: 'splitting' })).rejects.toThrow('QuotaExceededError');
   });
 
@@ -146,7 +146,7 @@ describe('chrome.runtime.lastError propagation', () => {
     const mock = makeChromeMock({ lastErrorOnRemove: true });
     vi.stubGlobal('chrome', mock);
     const rec = makeRecord('r1');
-    seedRecord(mock, rec);
+    await seedRecord(mock, rec);
     await expect(deleteRecord('r1')).rejects.toThrow('remove failed');
   });
 
@@ -176,7 +176,7 @@ describe('updateRecord basic correctness', () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
     const rec = makeRecord('r1');
-    seedRecord(mock, rec);
+    await seedRecord(mock, rec);
 
     const result = await updateRecord('r1', { status: 'splitting' });
     expect(result.status).toBe('splitting');
@@ -192,7 +192,7 @@ describe('updateRecord basic correctness', () => {
   it('skips updates when the expected pipeline run id is stale', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
-    seedRecord(mock, makeRecord('r1', { pipelineRunId: 'run-current', status: 'pending' }));
+    await seedRecord(mock, makeRecord('r1', { pipelineRunId: 'run-current', status: 'pending' }));
 
     const result = await updateRecord(
       'r1',
@@ -208,7 +208,7 @@ describe('updateRecord basic correctness', () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
     const rec = makeRecord('r1', { updatedAt: 1000 });
-    seedRecord(mock, rec);
+    await seedRecord(mock, rec);
 
     const before = Date.now();
     const result = await updateRecord('r1', { status: 'done' });
@@ -216,6 +216,66 @@ describe('updateRecord basic correctness', () => {
 
     expect(result.updatedAt).toBeGreaterThanOrEqual(before);
     expect(result.updatedAt).toBeLessThanOrEqual(after);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// meta/content/summaries split — hot-path doc isolation
+// ---------------------------------------------------------------------------
+
+describe('record storage split (meta/content/summaries)', () => {
+  it('writeRecord splits a record across meta/content/summaries docs', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(makeRecord('r1', { html: '<p>hi</p>', text: 'hi' }));
+
+    const store = mock.storage.local._store;
+    expect(store.has('pagetollm:rec:r1:meta')).toBe(true);
+    expect(store.has('pagetollm:rec:r1:content')).toBe(true);
+    expect(store.has('pagetollm:rec:r1:summaries')).toBe(true);
+    expect(store.get('pagetollm:rec:r1:content').html).toBe('<p>hi</p>');
+
+    // readRecord reassembles the full logical record transparently.
+    const rec = await readRecord('r1');
+    expect(rec.status).toBe('pending');
+    expect(rec.html).toBe('<p>hi</p>');
+  });
+
+  it('a status/progress-only update on an already-written record never touches the content or summaries docs', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(makeRecord('r1', { html: '<p>hi</p>', text: 'hi' }));
+    mock.storage.local.set.mockClear();
+    mock.storage.local.get.mockClear();
+
+    await updateRecord('r1', {
+      status: 'summarizing',
+      progress: { stage: 'x', done: 1, total: 2 },
+    });
+
+    const touchedKeys = mock.storage.local.set.mock.calls.flatMap(([items]) => Object.keys(items));
+    expect(touchedKeys).not.toContain('pagetollm:rec:r1:content');
+    expect(touchedKeys).not.toContain('pagetollm:rec:r1:summaries');
+    const readKeys = mock.storage.local.get.mock.calls.flatMap(([keys]) =>
+      Array.isArray(keys) ? keys : [keys],
+    );
+    expect(readKeys).not.toContain('pagetollm:rec:r1:content');
+    expect(readKeys).not.toContain('pagetollm:rec:r1:summaries');
+  });
+
+  it('a processingLog flush on an already-written record never touches the content or summaries docs', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(makeRecord('r1', { html: '<p>hi</p>', text: 'hi' }));
+    mock.storage.local.set.mockClear();
+    mock.storage.local.get.mockClear();
+
+    await appendProcessingLog('r1', 'some_stage', {});
+    await flushProcessingLog('r1');
+
+    const touchedKeys = mock.storage.local.set.mock.calls.flatMap(([items]) => Object.keys(items));
+    expect(touchedKeys).not.toContain('pagetollm:rec:r1:content');
+    expect(touchedKeys).not.toContain('pagetollm:rec:r1:summaries');
   });
 });
 
@@ -229,7 +289,7 @@ describe('concurrent updateRecord writes do not lose data', () => {
     vi.stubGlobal('chrome', mock);
 
     const rec = makeRecord('r1', { topic_summaries: {} });
-    seedRecord(mock, rec);
+    await seedRecord(mock, rec);
 
     // Simulate SUMMARY_CONCURRENCY=4 tasks all updating topic_summaries simultaneously.
     // Each task accumulates into the SAME shared object (mirrors orchestrator.js).
@@ -261,7 +321,7 @@ describe('concurrent updateRecord writes do not lose data', () => {
     vi.stubGlobal('chrome', mock);
 
     const rec = makeRecord('r1');
-    seedRecord(mock, rec);
+    await seedRecord(mock, rec);
 
     // Two updates: one sets sentences, one sets status — should both survive.
     await Promise.all([
@@ -279,7 +339,7 @@ describe('concurrent updateRecord writes do not lose data', () => {
     vi.stubGlobal('chrome', mock);
 
     const rec = makeRecord('r1', { counter: 0 });
-    seedRecord(mock, rec);
+    await seedRecord(mock, rec);
 
     const N = 20;
     // Each update increments a counter, reading the previous value from storage.
@@ -303,7 +363,7 @@ describe('appendProcessingLog atomicity', () => {
     vi.stubGlobal('chrome', mock);
 
     const rec = makeRecord('r1');
-    seedRecord(mock, rec);
+    await seedRecord(mock, rec);
 
     const stages = ['stage_a', 'stage_b', 'stage_c', 'stage_d', 'stage_e'];
     await Promise.all(stages.map((stage) => appendProcessingLog('r1', stage, {})));
@@ -318,7 +378,7 @@ describe('appendProcessingLog atomicity', () => {
     vi.stubGlobal('chrome', mock);
 
     const rec = makeRecord('r1');
-    seedRecord(mock, rec);
+    await seedRecord(mock, rec);
 
     // Fire both concurrently: one appends a log, the other updates status.
     await Promise.all([
@@ -333,11 +393,12 @@ describe('appendProcessingLog atomicity', () => {
   });
 
   it('rejects (and logPipeline can catch) when storage set fails', async () => {
-    const mock = makeChromeMock({ lastErrorOnSet: true });
+    const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
 
     const rec = makeRecord('r1');
-    seedRecord(mock, rec);
+    await seedRecord(mock, rec);
+    mock._state.lastErrorOnSet = true;
 
     await expect(appendProcessingLog('r1', 'any_stage', {})).rejects.toThrow('QuotaExceededError');
   });
@@ -346,7 +407,7 @@ describe('appendProcessingLog atomicity', () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
 
-    seedRecord(mock, makeRecord('r1', { pipelineRunId: 'runA' }));
+    await seedRecord(mock, makeRecord('r1', { pipelineRunId: 'runA' }));
 
     // Run A logs a stage but never flushes before it's superseded by a retry.
     appendProcessingLog('r1', 'stage_from_runA', {}, { expectedPipelineRunId: 'runA' });
@@ -378,8 +439,8 @@ describe('listRecords', () => {
 
     const a = makeRecord('a');
     const b = makeRecord('b', { status: 'done' });
-    seedRecord(mock, a);
-    seedRecord(mock, b);
+    await seedRecord(mock, a);
+    await seedRecord(mock, b);
 
     const items = await listRecords();
     expect(items.length).toBe(2);
@@ -399,7 +460,7 @@ describe('listRecords', () => {
     vi.stubGlobal('chrome', mock);
 
     const longText = `  ${'word '.repeat(140)}  `;
-    seedRecord(mock, makeRecord('r1', { text: `First line\n\n${longText}` }));
+    await seedRecord(mock, makeRecord('r1', { text: `First line\n\n${longText}` }));
 
     const [item] = await listRecords();
     expect(item.snippet).toMatch(/^First line word word/);
@@ -421,7 +482,7 @@ describe('deleteRecord', () => {
     vi.stubGlobal('chrome', mock);
 
     const rec = makeRecord('r1');
-    seedRecord(mock, rec);
+    await seedRecord(mock, rec);
 
     await deleteRecord('r1');
 
@@ -435,7 +496,7 @@ describe('deleteRecord', () => {
   it('restores the index when record removal fails', async () => {
     const mock = makeChromeMock({ lastErrorOnRemove: true });
     vi.stubGlobal('chrome', mock);
-    seedRecord(mock, makeRecord('r1'));
+    await seedRecord(mock, makeRecord('r1'));
 
     await expect(deleteRecord('r1')).rejects.toThrow('remove failed');
 
@@ -449,8 +510,8 @@ describe('deleteAll', () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
 
-    seedRecord(mock, makeRecord('r1'));
-    seedRecord(mock, makeRecord('r2'));
+    await seedRecord(mock, makeRecord('r1'));
+    await seedRecord(mock, makeRecord('r2'));
 
     await deleteAll();
 
@@ -473,7 +534,7 @@ describe('deleteAll', () => {
   it('prevents an in-flight updateRecord from rewriting a wiped record', async () => {
     const mock = makeChromeMock({ setDelay: 5 });
     vi.stubGlobal('chrome', mock);
-    seedRecord(mock, makeRecord('r1'));
+    await seedRecord(mock, makeRecord('r1'));
 
     await Promise.all([updateRecord('r1', { status: 'done' }), deleteAll()]);
 
@@ -496,7 +557,7 @@ describe('_updateQueues pruning', () => {
     vi.stubGlobal('chrome', mock);
 
     const rec = makeRecord('prune1');
-    seedRecord(mock, rec);
+    await seedRecord(mock, rec);
 
     await updateRecord('prune1', { status: 'splitting' });
 
@@ -518,8 +579,8 @@ describe('concurrent writeRecord / deleteRecord do not lose index entries', () =
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
 
-    seedRecord(mock, makeRecord('page-a', { html: '<p>A</p>', sourceUrl: 'https://a.test' }));
-    seedRecord(mock, makeRecord('page-b', { html: '<p>B</p>', sourceUrl: 'https://b.test' }));
+    await seedRecord(mock, makeRecord('page-a', { html: '<p>A</p>', sourceUrl: 'https://a.test' }));
+    await seedRecord(mock, makeRecord('page-b', { html: '<p>B</p>', sourceUrl: 'https://b.test' }));
 
     await Promise.all([
       updateRecord('page-a', {
@@ -559,7 +620,7 @@ describe('concurrent writeRecord / deleteRecord do not lose index entries', () =
     vi.stubGlobal('chrome', mock);
 
     const records = ['k1', 'k2', 'k3', 'k4'].map((k) => makeRecord(k));
-    for (const r of records) seedRecord(mock, r);
+    await Promise.all(records.map((r) => seedRecord(mock, r)));
 
     await Promise.all(['k2', 'k4'].map((k) => deleteRecord(k)));
 
@@ -599,8 +660,8 @@ describe('findRecordByUrl', () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
 
-    seedRecord(mock, makeRecord('k1', { sourceUrl: 'https://example.com/a' }));
-    seedRecord(mock, makeRecord('k2', { sourceUrl: 'https://example.com/b' }));
+    await seedRecord(mock, makeRecord('k1', { sourceUrl: 'https://example.com/a' }));
+    await seedRecord(mock, makeRecord('k2', { sourceUrl: 'https://example.com/b' }));
 
     const found = await findRecordByUrl('https://example.com/b');
     expect(found).not.toBeNull();

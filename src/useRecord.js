@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
 
 /**
- * Subscribes to the record stored at `pagetollm:rec:${key}`.
- * Initial fetch goes through the service worker (getRecord message),
- * then we listen to chrome.storage.onChanged for live updates.
+ * Subscribes to the record identified by `key`. The record is physically
+ * split across `pagetollm:rec:${key}:meta` / `:content` / `:summaries` docs
+ * (see worker/storage.js), so a single storage key's `onChanged` payload is
+ * not the full record. Initial fetch and every live update go through the
+ * service worker's `getRecord` message, which reassembles the full record
+ * from the split docs; the storage listener here is only a refetch trigger,
+ * not a source of record data itself.
  *
  * @param {string} key - The unique storage key for the record.
  * @returns {{ record: object | null, error: string | null }}
@@ -23,55 +27,75 @@ export function useRecord(key) {
     if (!key) return undefined;
 
     let cancelled = false;
-    const storageKey = `pagetollm:rec:${key}`;
+    const metaKey = `pagetollm:rec:${key}:meta`;
+    const contentKey = `pagetollm:rec:${key}:content`;
+    const summariesKey = `pagetollm:rec:${key}:summaries`;
+    const docKeys = [metaKey, contentKey, summariesKey];
 
-    // 1) initial load via SW
-    try {
-      chrome.runtime.sendMessage({ type: 'getRecord', key }, (resp) => {
+    const fetchViaServiceWorker = () =>
+      new Promise((resolve, reject) => {
+        try {
+          chrome.runtime.sendMessage({ type: 'getRecord', key }, (resp) => {
+            if (chrome.runtime.lastError) {
+              reject(new Error(String(chrome.runtime.lastError.message || 'runtime error')));
+              return;
+            }
+            resolve(resp && resp.ok && resp.record ? resp.record : null);
+          });
+        } catch (e) {
+          reject(e);
+        }
+      });
+
+    // 1) initial load via SW, falling back to a direct (one-off) multi-doc
+    // read in case the SW hasn't registered a message listener yet.
+    fetchViaServiceWorker()
+      .then((rec) => {
         if (cancelled) return;
-        if (chrome.runtime.lastError) {
-          setError(String(chrome.runtime.lastError.message || 'runtime error'));
+        if (rec) {
+          setRecord(rec);
+          setError(null);
           return;
         }
-        if (resp && resp.ok && resp.record) {
-          setRecord(resp.record);
-          setError(null);
-        } else {
-          // Fallback: read directly from storage in case SW hasn't registered yet.
-          chrome.storage.local.get(storageKey, (items) => {
-            if (cancelled) return;
-            const rec = items && items[storageKey];
-            if (rec) {
-              setRecord(rec);
-              setError(null);
-            } else {
-              setError('record not found');
-            }
-          });
-        }
+        chrome.storage.local.get(docKeys, (items) => {
+          if (cancelled) return;
+          const merged = {
+            ...(items[contentKey] || {}),
+            ...(items[summariesKey] || {}),
+            ...(items[metaKey] || {}),
+          };
+          if (items[contentKey] || items[summariesKey] || items[metaKey]) {
+            setRecord(merged);
+            setError(null);
+          } else {
+            setError('record not found');
+          }
+        });
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e && e.message ? e.message : e));
       });
-    } catch (e) {
-      const msg = String(e && e.message ? e.message : e);
-      Promise.resolve().then(() => {
-        if (!cancelled) {
-          setError(msg);
-        }
-      });
-    }
 
-    // 2) live updates
+    // 2) live updates: any change to this record's docs re-fetches the full,
+    // freshly-reassembled record through the same SW path used for the
+    // initial load, instead of trying to merge partial doc changes locally.
     const onChanged = (changes, areaName) => {
       if (areaName !== 'local') return;
-      const change = changes[storageKey];
-      if (!change) return;
-      if (change.newValue) {
-        setRecord(change.newValue);
-        setError(null);
-      } else if (change.oldValue) {
-        // Record was deleted from storage.
-        setRecord(null);
-        setError('record deleted');
-      }
+      if (!docKeys.some((k) => hasOwn(changes, k))) return;
+      fetchViaServiceWorker()
+        .then((rec) => {
+          if (cancelled) return;
+          if (rec) {
+            setRecord(rec);
+            setError(null);
+          } else {
+            setRecord(null);
+            setError('record deleted');
+          }
+        })
+        .catch((e) => {
+          if (!cancelled) setError(String(e && e.message ? e.message : e));
+        });
     };
     try {
       chrome.storage.onChanged.addListener(onChanged);
@@ -90,4 +114,8 @@ export function useRecord(key) {
   }, [key]);
 
   return { record, error };
+}
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key);
 }

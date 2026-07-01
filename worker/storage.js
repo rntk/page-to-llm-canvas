@@ -2,8 +2,58 @@ export const INDEX_KEY = 'pagetollm:index';
 const MAX_PROCESSING_LOG_ENTRIES = 80;
 const RECORD_SNIPPET_MAX_CHARS = 500;
 
-export function recordStorageKey(key) {
-  return `pagetollm:rec:${key}`;
+// A record is physically split across three storage keys so that the
+// high-frequency writes (status/progress/log ticks) never have to
+// re-serialize the large, rarely-changing payload (html/text/sentences/
+// topics) or the moderately-changing per-topic summaries:
+//   - meta: everything else — the hot path, written on nearly every pipeline
+//     step.
+//   - content: html/text/sentences/topics — written a handful of times per
+//     run (essentially write-once).
+//   - summaries: topic_summaries/topic_summary_index — written once per
+//     completed topic.
+const CONTENT_FIELDS = ['html', 'text', 'sentences', 'topics'];
+const SUMMARY_FIELDS = ['topic_summaries', 'topic_summary_index'];
+
+function metaStorageKey(key) {
+  return `pagetollm:rec:${key}:meta`;
+}
+
+function contentStorageKey(key) {
+  return `pagetollm:rec:${key}:content`;
+}
+
+function summariesStorageKey(key) {
+  return `pagetollm:rec:${key}:summaries`;
+}
+
+function hasOwn(obj, field) {
+  return Object.prototype.hasOwnProperty.call(obj, field);
+}
+
+function pickFields(obj, fields) {
+  const out = {};
+  for (const f of fields) {
+    if (hasOwn(obj, f)) out[f] = obj[f];
+  }
+  return out;
+}
+
+function pickContentFields(obj) {
+  return pickFields(obj, CONTENT_FIELDS);
+}
+
+function pickSummaryFields(obj) {
+  return pickFields(obj, SUMMARY_FIELDS);
+}
+
+/** Everything that isn't explicitly content or summaries lives in meta. */
+function pickMetaFields(obj) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (!CONTENT_FIELDS.includes(k) && !SUMMARY_FIELDS.includes(k)) out[k] = v;
+  }
+  return out;
 }
 
 async function getLocal(keys) {
@@ -114,19 +164,33 @@ function buildRecordMeta(rec) {
 const INDEX_META_FIELDS = ['status', 'progress', 'error', 'text', 'sourceUrl'];
 
 /**
- * Best-effort refresh of a record's cached index projection. Skipped entirely
- * when `patch` touches none of the fields the projection exposes, so the
- * (much more frequent) processingLog-only writes never touch the index.
- * A failure here only makes the cached listing momentarily stale — it never
- * threatens the record write that already succeeded — so it is swallowed.
+ * Best-effort, incremental refresh of a record's cached index projection.
+ * Only reads/writes the small `patch` fields the projection cares about (plus
+ * whatever was already cached) — never the full record — so a status/progress
+ * tick never has to pull in the (possibly large) content doc just to keep the
+ * snippet around. The snippet itself is only recomputed when `patch.text` is
+ * actually present (i.e. when the content doc changes), not on every sync.
+ * Skipped entirely when `patch` touches none of the fields the projection
+ * exposes, so the (much more frequent) processingLog-only writes never touch
+ * the index. A failure here only makes the cached listing momentarily stale —
+ * it never threatens the record write that already succeeded — so it is
+ * swallowed.
  */
-async function syncIndexMeta(key, patch, merged) {
-  if (!INDEX_META_FIELDS.some((f) => Object.prototype.hasOwnProperty.call(patch, f))) return;
+async function syncIndexMeta(key, patch, fallbackMeta) {
+  if (!INDEX_META_FIELDS.some((f) => hasOwn(patch, f))) return;
   try {
     await queuedUpdate(INDEX_KEY, async () => {
       const idx = await readIndex();
       if (!idx.keys.includes(key)) return; // record was deleted concurrently
-      idx.meta[key] = buildRecordMeta(merged);
+      const prev = idx.meta[key] || {};
+      const next = { ...prev };
+      if (hasOwn(patch, 'status')) next.status = patch.status;
+      if (hasOwn(patch, 'progress')) next.progress = patch.progress;
+      if (hasOwn(patch, 'error')) next.error = patch.error;
+      if (hasOwn(patch, 'sourceUrl')) next.sourceUrl = patch.sourceUrl;
+      if (hasOwn(patch, 'text')) next.snippet = buildRecordSnippet({ text: patch.text });
+      if (next.createdAt === undefined) next.createdAt = fallbackMeta && fallbackMeta.createdAt;
+      idx.meta[key] = next;
       await writeIndex(idx);
     });
   } catch (err) {
@@ -134,18 +198,34 @@ async function syncIndexMeta(key, patch, merged) {
   }
 }
 
+/**
+ * Reads and reassembles the full logical record from its three physical docs.
+ * Returns `null` if none of them hold anything.
+ */
 export async function readRecord(key) {
-  const sKey = recordStorageKey(key);
-  const items = await getLocal(sKey);
-  return items[sKey] || null;
+  const metaKey = metaStorageKey(key);
+  const contentKey = contentStorageKey(key);
+  const summariesKey = summariesStorageKey(key);
+  const items = await getLocal([metaKey, contentKey, summariesKey]);
+  const meta = items[metaKey];
+  const content = items[contentKey];
+  const summaries = items[summariesKey];
+  if (!meta && !content && !summaries) return null;
+  return { ...(content || {}), ...(summaries || {}), ...(meta || {}) };
 }
 
 export async function writeRecord(rec) {
   if (!rec || !rec.key) throw new Error('writeRecord: record.key required');
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
     return queuedUpdate(rec.key, async () => {
-      const sKey = recordStorageKey(rec.key);
-      await setLocal({ [sKey]: rec });
+      const metaKey = metaStorageKey(rec.key);
+      const contentKey = contentStorageKey(rec.key);
+      const summariesKey = summariesStorageKey(rec.key);
+      await setLocal({
+        [metaKey]: pickMetaFields(rec),
+        [contentKey]: pickContentFields(rec),
+        [summariesKey]: pickSummaryFields(rec),
+      });
 
       try {
         await queuedUpdate(INDEX_KEY, async () => {
@@ -157,29 +237,65 @@ export async function writeRecord(rec) {
           await writeIndex(idx);
         });
       } catch (err) {
-        await removeLocal(sKey).catch(() => {});
+        await removeLocal([metaKey, contentKey, summariesKey]).catch(() => {});
         throw err;
       }
     });
   });
 }
 
+/**
+ * Loads a record's meta doc for a write path (updateRecord / log flush).
+ * Only reads the small meta doc — the whole point of the split, since this
+ * runs on nearly every pipeline step. Returns `null` if the record does not
+ * exist.
+ */
+async function loadMetaForWrite(key) {
+  const metaKey = metaStorageKey(key);
+  const items = await getLocal(metaKey);
+  return items[metaKey] || null;
+}
+
+function isStaleRun(meta, options) {
+  return (
+    hasOwn(options, 'expectedPipelineRunId') && meta.pipelineRunId !== options.expectedPipelineRunId
+  );
+}
+
 export async function updateRecord(key, patch, options = {}) {
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
     return queuedUpdate(key, async () => {
-      const current = await readRecord(key);
-      if (!current) return null;
-      if (
-        Object.prototype.hasOwnProperty.call(options, 'expectedPipelineRunId') &&
-        current.pipelineRunId !== options.expectedPipelineRunId
-      ) {
-        return null;
+      const meta = await loadMetaForWrite(key);
+      if (!meta) return null;
+      if (isStaleRun(meta, options)) return null;
+
+      const touchesContent = CONTENT_FIELDS.some((f) => hasOwn(patch, f));
+      const touchesSummaries = SUMMARY_FIELDS.some((f) => hasOwn(patch, f));
+
+      const writes = {};
+      let mergedContent;
+      let mergedSummaries;
+
+      if (touchesContent) {
+        const contentKey = contentStorageKey(key);
+        const currentContent = (await getLocal(contentKey))[contentKey] || {};
+        mergedContent = { ...currentContent, ...pickContentFields(patch) };
+        writes[contentKey] = mergedContent;
       }
-      const merged = { ...current, ...patch, updatedAt: Date.now() };
-      const sKey = recordStorageKey(key);
-      await setLocal({ [sKey]: merged });
-      await syncIndexMeta(key, patch, merged);
-      return merged;
+      if (touchesSummaries) {
+        const summariesKey = summariesStorageKey(key);
+        const currentSummaries = (await getLocal(summariesKey))[summariesKey] || {};
+        mergedSummaries = { ...currentSummaries, ...pickSummaryFields(patch) };
+        writes[summariesKey] = mergedSummaries;
+      }
+
+      const mergedMeta = { ...meta, ...pickMetaFields(patch), updatedAt: Date.now() };
+      writes[metaStorageKey(key)] = mergedMeta;
+
+      await setLocal(writes);
+      await syncIndexMeta(key, patch, mergedMeta);
+
+      return { ...mergedMeta, ...(mergedContent || {}), ...(mergedSummaries || {}) };
     });
   });
 }
@@ -213,19 +329,18 @@ async function doFlushProcessingLog(key) {
   try {
     const result = await queuedUpdate(MUTATION_QUEUE_KEY, () =>
       queuedUpdate(key, async () => {
-        const current = await readRecord(key);
-        if (!current) return null;
-        if (
-          Object.prototype.hasOwnProperty.call(options, 'expectedPipelineRunId') &&
-          current.pipelineRunId !== options.expectedPipelineRunId
-        ) {
-          return null;
-        }
-        const existing = Array.isArray(current.processingLog) ? current.processingLog : [];
+        // processingLog lives in the meta doc, so a flush — the hottest write
+        // path in the pipeline — only ever touches the small meta doc.
+        const meta = await loadMetaForWrite(key);
+        if (!meta) return null;
+        if (isStaleRun(meta, options)) return null;
+
+        const existing = Array.isArray(meta.processingLog) ? meta.processingLog : [];
         const processingLog = [...existing, ...entries].slice(-MAX_PROCESSING_LOG_ENTRIES);
-        const merged = { ...current, processingLog, updatedAt: Date.now() };
-        await setLocal({ [recordStorageKey(key)]: merged });
-        return merged;
+        const mergedMeta = { ...meta, processingLog, updatedAt: Date.now() };
+
+        await setLocal({ [metaStorageKey(key)]: mergedMeta });
+        return mergedMeta;
       }),
     );
     deferred.resolve(result);
@@ -288,28 +403,8 @@ export function appendProcessingLog(key, stage, details = {}, options = {}) {
 
 export async function listRecords() {
   const idx = await readIndex();
-  if (!idx.keys.length) return [];
-  // Steady state: every key already has a cached projection (kept in sync by
-  // writeRecord/updateRecord), so this never touches the full records.
-  // Records written before this cache existed fall back to a one-time full
-  // read that backfills the cache for next time.
-  const missingKeys = idx.keys.filter((k) => !idx.meta[k]);
-  if (missingKeys.length) {
-    const items = await getLocal(missingKeys.map(recordStorageKey));
-    const backfilled = {};
-    for (const k of missingKeys) {
-      const rec = items[recordStorageKey(k)];
-      if (rec) backfilled[k] = buildRecordMeta(rec);
-    }
-    if (Object.keys(backfilled).length) {
-      await queuedUpdate(INDEX_KEY, async () => {
-        const freshIdx = await readIndex();
-        freshIdx.meta = { ...freshIdx.meta, ...backfilled };
-        await writeIndex(freshIdx);
-      }).catch(() => {});
-      Object.assign(idx.meta, backfilled);
-    }
-  }
+  // Every key's projection is kept in sync by writeRecord/updateRecord, so
+  // this never touches the full records.
   const out = [];
   for (const k of idx.keys) {
     const meta = idx.meta[k];
@@ -336,7 +431,11 @@ export async function deleteRecord(key) {
         const nextIdx = { keys: idx.keys.filter((k) => k !== key), meta: nextMeta };
         await writeIndex(nextIdx);
         try {
-          await removeLocal(recordStorageKey(key));
+          await removeLocal([
+            metaStorageKey(key),
+            contentStorageKey(key),
+            summariesStorageKey(key),
+          ]);
         } catch (err) {
           await writeIndex(idx).catch(() => {});
           throw err;
@@ -350,7 +449,11 @@ export async function deleteAll() {
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
     return queuedUpdate(INDEX_KEY, async () => {
       const idx = await readIndex();
-      const sKeys = idx.keys.map(recordStorageKey);
+      const sKeys = idx.keys.flatMap((k) => [
+        metaStorageKey(k),
+        contentStorageKey(k),
+        summariesStorageKey(k),
+      ]);
       if (sKeys.length) await removeLocal(sKeys);
       await removeLocal(INDEX_KEY);
     });
@@ -358,7 +461,10 @@ export async function deleteAll() {
 }
 
 /**
- * Finds a record in storage by its source URL.
+ * Finds a record in storage by its source URL. Only reads the small meta doc
+ * for each indexed key — never the content/summaries docs — since
+ * `sourceUrl` never lives there; the full record is only read once, for the
+ * actual match.
  * @param {string} url - The URL of the source page to match.
  * @returns {Promise<object | null>} The matching record, or null if not found.
  */
@@ -366,12 +472,11 @@ export async function findRecordByUrl(url) {
   if (!url) return null;
   const idx = await readIndex();
   if (!idx.keys.length) return null;
-  const sKeys = idx.keys.map(recordStorageKey);
-  const items = await getLocal(sKeys);
+  const items = await getLocal(idx.keys.map(metaStorageKey));
   for (const k of idx.keys) {
-    const rec = items[recordStorageKey(k)];
-    if (rec && rec.sourceUrl === url) {
-      return rec;
+    const meta = items[metaStorageKey(k)];
+    if (meta && meta.sourceUrl === url) {
+      return readRecord(k);
     }
   }
   return null;

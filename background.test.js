@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { readRecord, writeRecord } from './worker/storage.js';
 
 vi.mock('./worker/orchestrator.js', () => ({
   runPipeline: vi.fn(() => new Promise((resolve) => setTimeout(resolve, 10))),
@@ -59,12 +60,13 @@ function makeChromeMock() {
   };
 }
 
-function seedRecord(chromeMock, rec) {
-  const sKey = `pagetollm:rec:${rec.key}`;
-  chromeMock.storage.local._store.set(sKey, rec);
-  const idx = chromeMock.storage.local._store.get('pagetollm:index') || { keys: [] };
-  if (!idx.keys.includes(rec.key)) idx.keys.unshift(rec.key);
-  chromeMock.storage.local._store.set('pagetollm:index', idx);
+// Records are physically split across `:meta`/`:content`/`:summaries` docs
+// (see worker/storage.js); seeding/reading a record for a test goes through
+// the same writeRecord/readRecord functions background.js itself uses,
+// rather than poking the mock store directly. Requires `chrome` to already
+// be stubbed to `chromeMock` (writeRecord/readRecord read the global).
+async function seedRecord(chromeMock, rec) {
+  await writeRecord(rec);
 }
 
 function makeRecord(key, overrides = {}) {
@@ -154,14 +156,14 @@ describe('background pipeline lifecycle', () => {
 
   it('updates the toolbar badge and progress icon for in-flight records', async () => {
     const chromeMock = makeChromeMock();
-    seedRecord(
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(
       chromeMock,
       makeRecord('busy1', {
         status: 'summarizing',
         progress: { stage: 'summarizing_topics', done: 1, total: 2 },
       }),
     );
-    vi.stubGlobal('chrome', chromeMock);
     vi.stubGlobal(
       'OffscreenCanvas',
       class {
@@ -263,8 +265,8 @@ describe('background pipeline lifecycle', () => {
       expect.objectContaining({ signal: expect.any(Object) }),
     );
 
-    const storedA = chromeMock.storage.local._store.get(`pagetollm:rec:${resultA.key}`);
-    const storedB = chromeMock.storage.local._store.get(`pagetollm:rec:${resultB.key}`);
+    const storedA = await readRecord(resultA.key);
+    const storedB = await readRecord(resultB.key);
     expect(storedA.html).toBe('<p>page A unique content</p>');
     expect(storedB.html).toBe('<p>page B unique content</p>');
     expect(storedA.sourceUrl).toBe('https://example.com/page-a');
@@ -298,7 +300,7 @@ describe('background pipeline lifecycle', () => {
     vi.stubGlobal('chrome', chromeMock);
 
     const rec = makeRecord('done1', { status: 'done', updatedAt: Date.now() });
-    seedRecord(chromeMock, rec);
+    await seedRecord(chromeMock, rec);
 
     const { handleSubmit, _resetJobRegistry } = await import('./background.js');
     _resetJobRegistry();
@@ -319,7 +321,7 @@ describe('background pipeline lifecycle', () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);
 
-    seedRecord(
+    await seedRecord(
       chromeMock,
       makeRecord('park1', {
         status: 'needs_attention',
@@ -339,7 +341,7 @@ describe('background pipeline lifecycle', () => {
     );
     expect(res.ok).toBe(true);
 
-    const updated = chromeMock.storage.local._store.get('pagetollm:rec:park1');
+    const updated = await readRecord('park1');
     expect(updated.status).toBe('summarizing');
     expect(updated.forceFinalize).toBe(false);
     expect(updated.summaryErrors).toEqual([]);
@@ -358,7 +360,7 @@ describe('background pipeline lifecycle', () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);
 
-    seedRecord(
+    await seedRecord(
       chromeMock,
       makeRecord('park2', {
         status: 'needs_attention',
@@ -384,7 +386,7 @@ describe('background pipeline lifecycle', () => {
     );
     expect(res.ok).toBe(true);
 
-    const updated = chromeMock.storage.local._store.get('pagetollm:rec:park2');
+    const updated = await readRecord('park2');
     expect(updated.status).toBe('summarizing');
     expect(updated.forceFinalize).toBe(true);
     const leaf = updated.topic_summaries['Tech>All'];
@@ -399,7 +401,7 @@ describe('background pipeline lifecycle', () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);
 
-    seedRecord(chromeMock, makeRecord('notparked', { status: 'done' }));
+    await seedRecord(chromeMock, makeRecord('notparked', { status: 'done' }));
 
     const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
     _resetJobRegistry();
@@ -437,7 +439,7 @@ describe('background pipeline lifecycle', () => {
       status: 'splitting',
       updatedAt: Date.now() - STALE_MS - 1000,
     });
-    seedRecord(chromeMock, rec);
+    await seedRecord(chromeMock, rec);
 
     const { startPipeline, _resetJobRegistry } = await import('./background.js');
     _resetJobRegistry();
@@ -456,7 +458,7 @@ describe('background pipeline lifecycle', () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);
 
-    seedRecord(
+    await seedRecord(
       chromeMock,
       makeRecord('stale-running', {
         status: 'summarizing',
@@ -481,9 +483,10 @@ describe('background pipeline lifecycle', () => {
     await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(1));
     const oldOptions = runPipeline.mock.calls[0][1];
 
-    const stored = chromeMock.storage.local._store.get('pagetollm:rec:stale-running');
-    chromeMock.storage.local._store.set('pagetollm:rec:stale-running', {
-      ...stored,
+    const metaKey = 'pagetollm:rec:stale-running:meta';
+    const meta = chromeMock.storage.local._store.get(metaKey);
+    chromeMock.storage.local._store.set(metaKey, {
+      ...meta,
       updatedAt: Date.now() - STALE_MS - 1000,
     });
 
@@ -502,7 +505,7 @@ describe('background pipeline lifecycle', () => {
     vi.stubGlobal('chrome', chromeMock);
 
     const rec = makeRecord('running1', { status: 'pending' });
-    seedRecord(chromeMock, rec);
+    await seedRecord(chromeMock, rec);
 
     const { startPipeline, _resetJobRegistry } = await import('./background.js');
     _resetJobRegistry();
@@ -526,7 +529,7 @@ describe('background pipeline lifecycle', () => {
       status: 'summarizing',
       pipelineRunId: 'run-old',
     });
-    seedRecord(chromeMock, rec);
+    await seedRecord(chromeMock, rec);
 
     const { startPipeline, dispatchMessage, _resetJobRegistry } = await import('./background.js');
     const { runPipeline } = await import('./worker/orchestrator.js');
@@ -548,7 +551,7 @@ describe('background pipeline lifecycle', () => {
     expect(res.ok).toBe(true);
     expect(oldOptions.signal.aborted).toBe(true);
 
-    const stored = chromeMock.storage.local._store.get('pagetollm:rec:cancel1');
+    const stored = await readRecord('cancel1');
     expect(stored.status).toBe('cancelled');
     expect(stored.pipelineRunId).not.toBe('run-old');
 
@@ -560,7 +563,7 @@ describe('background pipeline lifecycle', () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);
 
-    seedRecord(
+    await seedRecord(
       chromeMock,
       makeRecord('reprocess1', {
         status: 'summarizing',
@@ -591,7 +594,7 @@ describe('background pipeline lifecycle', () => {
     expect(oldOptions.signal.aborted).toBe(true);
 
     await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(2));
-    const stored = chromeMock.storage.local._store.get('pagetollm:rec:reprocess1');
+    const stored = await readRecord('reprocess1');
     expect(stored.status).toBe('pending');
     expect(stored.pipelineRunId).not.toBe('run-old');
     expect(stored.topics).toEqual([]);
@@ -607,7 +610,7 @@ describe('background pipeline lifecycle', () => {
     vi.stubGlobal('chrome', chromeMock);
 
     const rec = makeRecord('done2', { status: 'done' });
-    seedRecord(chromeMock, rec);
+    await seedRecord(chromeMock, rec);
 
     const { startPipeline, _resetJobRegistry } = await import('./background.js');
     _resetJobRegistry();
@@ -624,7 +627,7 @@ describe('background pipeline lifecycle', () => {
     const { handleSubmit, _resetJobRegistry } = await import('./background.js');
     _resetJobRegistry();
 
-    seedRecord(
+    await seedRecord(
       chromeMock,
       makeRecord('url-key', {
         sourceUrl: 'https://example.com/article',
@@ -639,7 +642,7 @@ describe('background pipeline lifecycle', () => {
     });
 
     expect(result).toEqual({ ok: true, key: 'url-key' });
-    const stored = chromeMock.storage.local._store.get('pagetollm:rec:url-key');
+    const stored = await readRecord('url-key');
     expect(stored.html).toBe('<p>updated body</p>');
     expect(stored.selectors).toEqual(['main']);
     expect(stored.status).toBe('pending');
@@ -650,7 +653,7 @@ describe('background pipeline lifecycle', () => {
     vi.stubGlobal('chrome', chromeMock);
 
     const rec = makeRecord('err1', { status: 'error', error: 'boom' });
-    seedRecord(chromeMock, rec);
+    await seedRecord(chromeMock, rec);
 
     const { startPipeline, _resetJobRegistry } = await import('./background.js');
     _resetJobRegistry();
@@ -954,7 +957,7 @@ describe('dispatchMessage unit tests', () => {
   it('handles retryRecord, reprocessRecord, getRecord, deleteRecord, and deleteAll', async () => {
     const chromeMock = makeChromeMock();
     const dispatchMessage = await loadDispatchMessage(chromeMock);
-    seedRecord(chromeMock, makeRecord('rec1', { status: 'error' }));
+    await seedRecord(chromeMock, makeRecord('rec1', { status: 'error' }));
 
     expect((await dispatchMessage({ type: 'retryRecord' })).error).toBe('missing key');
     expect((await dispatchMessage({ type: 'retryRecord', key: 'missing' })).error).toBe(
@@ -966,7 +969,7 @@ describe('dispatchMessage unit tests', () => {
 
     const reprocess = await dispatchMessage({ type: 'reprocessRecord', key: 'rec1' });
     expect(reprocess.ok).toBe(true);
-    const reprocessed = chromeMock.storage.local._store.get('pagetollm:rec:rec1');
+    const reprocessed = await readRecord('rec1');
     expect(reprocessed.topics).toEqual([]);
     expect(reprocessed.sentences).toEqual([]);
 
@@ -979,10 +982,10 @@ describe('dispatchMessage unit tests', () => {
 
     const deleted = await dispatchMessage({ type: 'deleteRecord', key: 'rec1' });
     expect(deleted.ok).toBe(true);
-    expect(chromeMock.storage.local._store.has('pagetollm:rec:rec1')).toBe(false);
+    expect(await readRecord('rec1')).toBeNull();
 
-    seedRecord(chromeMock, makeRecord('rec2'));
-    seedRecord(chromeMock, makeRecord('rec3'));
+    await seedRecord(chromeMock, makeRecord('rec2'));
+    await seedRecord(chromeMock, makeRecord('rec3'));
     const cleared = await dispatchMessage({ type: 'deleteAll' });
     expect(cleared.ok).toBe(true);
     const index = chromeMock.storage.local._store.get('pagetollm:index');
