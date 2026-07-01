@@ -90,13 +90,10 @@ export function buildSentenceDomRange(sentenceRanges, wordEntries, sNum) {
 /**
  * Map each sentence (1-based) to a [wordStartIndex, wordEndIndex] (inclusive).
  *
- * Both ends are anchored to actually-matched DOM words rather than trusting a
- * 1:1 token count, because the record's tokenization can drift from the DOM's
- * (punctuation splits, em-dashes, an interleaved caption word, etc.). The start
- * matches the first token within a forward window; the end matches the last
- * token within a window around the *expected* end. Anchoring the end matters
- * for continuous-range highlighting: an overshoot no longer paints a solid
- * block into the next paragraph, it just lands on the real final word.
+ * Both ends are anchored to actual DOM words instead of trusting a 1:1 token
+ * count to handle tokenization drift (e.g. punctuation, em-dashes). Start matches
+ * the first token in a forward window; end matches the last token in a window near
+ * the expected end. Anchoring the end prevents highlights from overshooting.
  */
 export function buildSentenceWordRanges(sentences, wordEntries) {
   const ranges = new Map();

@@ -14,14 +14,12 @@ const EDGE_MARGIN = 24;
 const MIN_DELTA = 0.5;
 
 /**
- * Decide where the reading column's left edge should sit, in wrap-local px.
+ * Decide where the reading column's left edge should sit in wrap-local px.
  *
- * Keep the column inside a dead-zone around the viewport center, moving by the
- * *minimum* delta to re-enter the zone (not snapping to dead center) and always
- * keeping both edges within `EDGE_MARGIN`. The dead-zone is what makes this
- * "don't move when it isn't necessary": a column already near center is left
- * untouched. This only ever runs on a deliberate mode/level/rail switch (see
- * `align`), never during free pan/zoom, so it does not fight manual panning.
+ * Keeps the column in a dead-zone around the viewport center, moving by the
+ * minimum delta to re-enter the zone and keeping both edges within `EDGE_MARGIN`.
+ * A column already near center is untouched. Runs only on deliberate switches,
+ * so it does not fight manual panning.
  */
 export function computeComfortLeft(currentLeft, columnWidth, wrapWidth) {
   // Column wider than the comfortable viewport: centering is meaningless, so we
@@ -48,31 +46,17 @@ export function computeComfortLeft(currentLeft, columnWidth, wrapWidth) {
 }
 
 /**
- * Unified canvas alignment ("don't jump, stay roughly centered").
+ * Unified canvas alignment to prevent layout-affecting changes from jumping.
  *
- * The reading column (`anchorRef` — the article body or summary cards) is the
- * single anchor. Layout-affecting changes (summary-mode toggle, topic level,
- * rail visibility) rearrange the side cards and rail around it, which used to
- * make the canvas snap to a freshly recomputed center every time. Instead:
+ * It uses the reading column (`anchorRef`) as the single anchor. Changes like toggles,
+ * levels, or rails switch layout around it:
+ *  - Continuity: captures the column's on-screen position before the change via
+ *    `captureAnchor()`, then pans instantly so it lands in the same place (FLIP).
+ *  - Comfort: if the column drifts out of the dead-zone, nudges it back smoothly
+ *    by the minimum amount one frame later (using `flashFocus` for transition).
  *
- *  - Continuity (default): callers capture the column's on-screen position
- *    *before* the change via `captureAnchor()`; afterwards we pan so it lands
- *    in the same place (FLIP). A mode switch produces no perceived jump.
- *  - Comfort: only then, and only if the column drifted out of the dead-zone,
- *    do we nudge it back by the minimum amount (see `computeComfortLeft`).
- *
- * Animation: the continuity correction is applied *instantly* (it cancels the
- * reflow, so animating it would re-introduce the very jump it removes). Any
- * remaining intentional move — the comfort nudge, or the top-margin reset on a
- * content swap — is applied one frame later *with* a transition (via
- * `flashFocus`), so it slides smoothly from the jump-free position. The initial
- * center is instant (no lurch on open).
- *
- * This runs only on a deliberate switch (the `deps` change) or the initial
- * center — never during free pan/zoom — so it never fights manual panning.
- *
- * The first time content is ready we have nothing to preserve, so we center the
- * column and pin it to the top margin.
+ * Runs only on deliberate changes (from `deps`) or the initial load (which centering
+ * pins to the top margin), never during manual panning/zooming.
  *
  * @param {{
  *   enabled: boolean,

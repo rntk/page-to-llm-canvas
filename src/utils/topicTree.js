@@ -4,8 +4,7 @@
  *
  * Each entry: { node, children: Map<string, entry>, parent, leafCount }
  * node: { name, fullPath, uid, depth, topic }
- * `fullPath` joins parts with ">" (no spaces) so it matches the convention
- * used by isAncestorPath / the color helpers.
+ * `fullPath` joins parts with ">" (no spaces) to match color helpers.
  *
  * @param {Array<{name: string, sentences?: number[]}>} topics
  * @param {number} [startDepth]

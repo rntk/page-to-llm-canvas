@@ -27,13 +27,6 @@ const CARD_META_LINE_HEIGHT_PX = 12;
 const CARD_CONTENT_GAP_PX = 3;
 
 /**
- * Per-card title font size that grows on zoom-out (1/scale, capped at 1) and
- * shrinks if the card is too short to fit two lines.
- *
- * @param {{scale: number, height: number}} params
- * @returns {number}
- */
-/**
  * Card width that grows on zoom-out (1/scale, capped at 1) so titles have
  * enough room to render the larger zoom-adjusted font without hyphenation.
  *
@@ -54,6 +47,13 @@ function getTitleLineBudget(height) {
     : CARD_TITLE_MAX_LINES;
 }
 
+/**
+ * Per-card title font size that grows on zoom-out (1/scale, capped at 1) and
+ * shrinks if the card is too short to fit two lines.
+ *
+ * @param {{scale: number, height: number}} params
+ * @returns {number}
+ */
 export function getTopicTitleFontSize({ scale, height }) {
   const zoomAdjusted = CARD_TITLE_FONT_SIZE * Math.max(1, 1.25 / clampScale(scale) - 0.25);
   const safeHeight = Number.isFinite(height) ? height : CARD_HEIGHT;
