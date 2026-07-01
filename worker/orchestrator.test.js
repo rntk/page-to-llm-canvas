@@ -21,6 +21,7 @@ vi.mock('./storage.js', () => ({
   readRecord: vi.fn(),
   updateRecord: vi.fn(),
   appendProcessingLog: vi.fn(),
+  flushProcessingLog: vi.fn(),
 }));
 
 vi.mock('./html.js', () => ({
@@ -75,6 +76,7 @@ beforeEach(() => {
     updatedAt: Date.now(),
   }));
   storage.appendProcessingLog.mockResolvedValue(undefined);
+  storage.flushProcessingLog.mockResolvedValue(undefined);
   html.stripTagsKeepOffsets.mockReturnValue({ text: '', mapping: [0] });
   sentenceSplitter.splitSentences.mockReturnValue([]);
   llm.callLLMWithRetry.mockResolvedValue('');

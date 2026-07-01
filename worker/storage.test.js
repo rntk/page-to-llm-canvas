@@ -4,6 +4,7 @@ import {
   writeRecord,
   updateRecord,
   appendProcessingLog,
+  flushProcessingLog,
   listRecords,
   deleteRecord,
   deleteAll,
@@ -339,6 +340,30 @@ describe('appendProcessingLog atomicity', () => {
     seedRecord(mock, rec);
 
     await expect(appendProcessingLog('r1', 'any_stage', {})).rejects.toThrow('QuotaExceededError');
+  });
+
+  it('does not let a stale run entry ride along into a new run when a retry starts mid-buffer', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    seedRecord(mock, makeRecord('r1', { pipelineRunId: 'runA' }));
+
+    // Run A logs a stage but never flushes before it's superseded by a retry.
+    appendProcessingLog('r1', 'stage_from_runA', {}, { expectedPipelineRunId: 'runA' });
+
+    // The retry/reprocess flow updates the record to a new run id...
+    await updateRecord('r1', { pipelineRunId: 'runB', status: 'pending' });
+    // ...then run B starts logging under the new id while the old buffer is
+    // still pending. This must flush (and drop) run A's stale entry rather
+    // than let it piggyback on run B's stale-run check.
+    appendProcessingLog('r1', 'stage_from_runB', {}, { expectedPipelineRunId: 'runB' });
+    // Forces run B's buffer to flush; per-key queue ordering guarantees the
+    // stale run A flush (triggered above) has already settled by then.
+    await flushProcessingLog('r1');
+
+    const stored = await readRecord('r1');
+    const stages = stored.processingLog.map((e) => e.stage);
+    expect(stages).toEqual(['stage_from_runB']);
   });
 });
 

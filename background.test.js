@@ -193,7 +193,14 @@ describe('background pipeline lifecycle', () => {
     );
 
     await import('./background.js');
-    await vi.waitFor(() => chromeMock.action.setBadgeText.mock.calls.length > 0);
+    // vi.waitFor only retries while its callback throws — a callback that
+    // merely returns a boolean (the previous form here) resolves on its very
+    // first tick regardless of the value, so it never actually waited for the
+    // async badge update. Assert (which throws on failure) so it genuinely
+    // polls until the badge call lands.
+    await vi.waitFor(() => {
+      expect(chromeMock.action.setBadgeText.mock.calls.length).toBeGreaterThan(0);
+    });
 
     expect(chromeMock.action.setBadgeBackgroundColor).toHaveBeenCalled();
     expect(chromeMock.action.setBadgeText).toHaveBeenCalledWith({ text: '...' });

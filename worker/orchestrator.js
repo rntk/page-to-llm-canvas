@@ -3,7 +3,7 @@
 // inside the modal iframe. It is kept in the worker/ directory for historical
 // reasons, but it is no longer bundled into the modal UI.
 
-import { appendProcessingLog, readRecord, updateRecord } from './storage.js';
+import { appendProcessingLog, flushProcessingLog, readRecord, updateRecord } from './storage.js';
 import { stripTagsKeepOffsets } from './html.js';
 import { splitSentences } from './sentence_splitter.js';
 import {
@@ -54,7 +54,10 @@ const TOPIC_RANGE_RESPLIT_MAX_DEPTH = 2;
 async function logPipeline(context, stage, details = {}) {
   console.info('PageToLLM Canvas pipeline:', stage, details);
   assertPipelineActive(context);
-  await appendProcessingLog(context.key, stage, details, {
+  // Entries are buffered and flushed in a batch (see storage.js), so this is
+  // intentionally not awaited: log persistence must never serialize pipeline
+  // progress behind it. Failures still surface via the attached catch.
+  appendProcessingLog(context.key, stage, details, {
     expectedPipelineRunId: context.pipelineRunId,
   }).catch((err) => {
     console.warn('PageToLLM Canvas pipeline log failed:', err);
@@ -644,6 +647,10 @@ export async function runPipeline(key, options = {}) {
       console.error('PageToLLM Canvas: failed to persist error status to storage:', writeErr);
     });
     throw e;
+  } finally {
+    // Ensure the final batch of diagnostic log entries is persisted before
+    // this run's context (and possibly the service worker) goes away.
+    await flushProcessingLog(context.key).catch(() => {});
   }
 }
 
