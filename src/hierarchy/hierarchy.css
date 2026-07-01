@@ -813,6 +813,7 @@
   align-items: flex-start;
   gap: 8px;
   margin-bottom: 12px;
+  padding-right: 24px;
 }
 
 .th-summary-modal__card-title-block {
