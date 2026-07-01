@@ -141,7 +141,7 @@ describe('options main.jsx', () => {
     );
   });
 
-  it('exports a stored record metadata JSON file without raw content fields', async () => {
+  it('exports a stored record metadata JSON file without split storage payload fields', async () => {
     const createObjectURLMock = vi.fn(() => 'blob:metadata-json');
     const revokeObjectURLMock = vi.fn();
     const originalCreateObjectURL = URL.createObjectURL;
@@ -162,9 +162,12 @@ describe('options main.jsx', () => {
         sourceUrl: 'https://example.com/post',
         html: '<p>raw html</p>',
         text: 'raw text',
+        sentences: [{ text: 'raw sentence' }],
         status: 'done',
         selectors: ['main article'],
         topics: [{ name: 'Topic', sentences: [1] }],
+        topic_summaries: { Topic: { text: 'raw summary' } },
+        topic_summary_index: ['Topic'],
         processingLog: [{ stage: 'pipeline_start' }],
         createdAt: 1716972000000,
       };
@@ -213,12 +216,15 @@ describe('options main.jsx', () => {
         sourceUrl: 'https://example.com/post',
         status: 'done',
         selectors: ['main article'],
-        topics: [{ name: 'Topic', sentences: [1] }],
         processingLog: [{ stage: 'pipeline_start' }],
         createdAt: 1716972000000,
       });
       expect(exported).not.toHaveProperty('html');
       expect(exported).not.toHaveProperty('text');
+      expect(exported).not.toHaveProperty('sentences');
+      expect(exported).not.toHaveProperty('topics');
+      expect(exported).not.toHaveProperty('topic_summaries');
+      expect(exported).not.toHaveProperty('topic_summary_index');
       expect(clickMock).toHaveBeenCalledTimes(1);
       expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:metadata-json');
     } finally {

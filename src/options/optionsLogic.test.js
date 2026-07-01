@@ -107,12 +107,16 @@ describe('provider form helpers', () => {
 // ---------------------------------------------------------------------------
 
 describe('record helpers', () => {
-  it('strips html and text from record metadata', () => {
+  it('strips content and summary payload fields from record metadata', () => {
     expect(
       buildRecordMetadata({
         key: 'k1',
         html: '<div>ignore</div>',
         text: 'ignore',
+        sentences: [{ text: 'ignore' }],
+        topics: [{ name: 'ignore' }],
+        topic_summaries: { T: { text: 'ignore' } },
+        topic_summary_index: ['T'],
         sourceUrl: 'https://example.com',
         createdAt: 123,
       }),

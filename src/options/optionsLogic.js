@@ -80,7 +80,15 @@ export function updateProviderFormType(form, type, defaultModel = '') {
  */
 export function buildRecordMetadata(record) {
   if (!record || typeof record !== 'object') return {};
-  const { html: _html, text: _text, ...metadata } = record;
+  const {
+    html: _html,
+    text: _text,
+    sentences: _sentences,
+    topics: _topics,
+    topic_summaries: _topicSummaries,
+    topic_summary_index: _topicSummaryIndex,
+    ...metadata
+  } = record;
   return metadata;
 }
 
