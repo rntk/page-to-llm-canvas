@@ -754,3 +754,169 @@
 .canvas-youtube-timestamp__label {
   font-variant-numeric: tabular-nums;
 }
+
+/* Clickable summaries */
+.th-leaf-summary,
+.th-node__summary {
+  cursor: pointer;
+  transition: color 0.15s ease, text-decoration 0.15s ease;
+}
+
+.th-leaf-summary:hover,
+.th-node__summary:hover {
+  text-decoration: underline;
+  color: var(--th-accent-color, var(--th-accent));
+}
+
+/* Summary Modal Styles */
+.th-summary-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgb(0 0 0 / 40%);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: thFadeIn 0.2s ease-out;
+}
+
+.th-summary-modal {
+  position: relative;
+  background: var(--th-surface);
+  border: 1px solid var(--th-border-strong);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 18%);
+  width: 90%;
+  max-width: 480px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  animation: thModalScaleIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.th-summary-modal__card {
+  box-sizing: border-box;
+  background: var(--th-surface);
+  border: none;
+  border-radius: 0;
+  padding: 24px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.th-summary-modal__card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.th-summary-modal__card-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.th-summary-modal__card-kicker {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-transform: uppercase;
+  color: var(--th-muted);
+}
+
+.th-summary-modal__card-path {
+  font-family: var(
+    --font-data,
+    'Work Sans',
+    -apple-system,
+    blinkmacsystemfont,
+    'Segoe UI',
+    roboto,
+    oxygen,
+    ubuntu,
+    sans-serif
+  );
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--th-fg);
+  overflow-wrap: break-word;
+}
+
+.th-summary-modal__text-container {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  margin-top: 16px;
+  padding-right: 8px;
+}
+
+.th-summary-modal__card-text {
+  margin: 0;
+  font-size: 14px;
+  color: var(--th-fg);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* Custom scrollbar for premium look */
+.th-summary-modal__text-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.th-summary-modal__text-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.th-summary-modal__text-container::-webkit-scrollbar-thumb {
+  background: var(--th-border);
+  border-radius: 3px;
+}
+
+.th-summary-modal__text-container::-webkit-scrollbar-thumb:hover {
+  background: var(--th-border-strong);
+}
+
+.th-summary-modal__close-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--th-muted);
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  transition: color 0.15s, transform 0.15s;
+}
+
+.th-summary-modal__close-btn:hover {
+  color: var(--th-fg);
+  transform: scale(1.1);
+}
+
+@keyframes thModalScaleIn {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+

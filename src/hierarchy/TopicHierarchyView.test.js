@@ -344,4 +344,54 @@ describe('TopicHierarchyView', () => {
       },
     );
   });
+
+  it('triggers onSummaryClick when a leaf summary is clicked or activated by key', () => {
+    const onSummaryClick = vi.fn();
+    const mockTopics = [
+      {
+        name: 'Fruit > Apple',
+        sentences: [1],
+        summary: 'Delicious red apple',
+      },
+    ];
+
+    const { container, unmount } = render(
+      createElement(TopicHierarchyView, {
+        topics: mockTopics,
+        topicSummaries: {},
+        topicSummaryIndex: {},
+        selectedTopicPath: null,
+        onTopicClick: vi.fn(),
+        onSummaryClick,
+      }),
+    );
+
+    const summaryEl = container.querySelector('.th-leaf-summary');
+    expect(summaryEl).not.toBeNull();
+
+    // Click summary
+    act(() => {
+      summaryEl.click();
+    });
+    expect(onSummaryClick).toHaveBeenCalledWith({
+      path: 'Fruit > Apple',
+      text: 'Delicious red apple',
+      sourceSentences: [1],
+    });
+
+    onSummaryClick.mockClear();
+
+    // Keydown Enter
+    const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
+    act(() => {
+      summaryEl.dispatchEvent(enterEvent);
+    });
+    expect(onSummaryClick).toHaveBeenCalledWith({
+      path: 'Fruit > Apple',
+      text: 'Delicious red apple',
+      sourceSentences: [1],
+    });
+
+    unmount();
+  });
 });

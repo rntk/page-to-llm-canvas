@@ -78,6 +78,7 @@ const HierarchyNode = React.memo(function HierarchyNode({
   spanMap,
   onToggleCollapse,
   onTopicClick,
+  onSummaryClick,
   sourceUrl,
   sentences,
   isYouTube,
@@ -105,6 +106,20 @@ const HierarchyNode = React.memo(function HierarchyNode({
 
   if (isLeaf) {
     const summary = getNodeSummary(node, summaryLookup);
+    const handleSummaryClick = (e) => {
+      e.stopPropagation();
+      onSummaryClick?.({
+        path: spacedTopicPath(node.fullPath),
+        text: summary,
+        sourceSentences: getSentencesForNode(entry, { preserveZero: true }),
+      });
+    };
+    const handleSummaryKeyDown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleSummaryClick(e);
+      }
+    };
     return (
       <div className="th-leaf-row">
         <div
@@ -123,7 +138,14 @@ const HierarchyNode = React.memo(function HierarchyNode({
           <YouTubeTimestampButton link={youtubeLink} />
         </div>
         {summary && (
-          <div className="th-leaf-summary" title={summary}>
+          <div
+            className="th-leaf-summary"
+            role="button"
+            tabIndex={0}
+            title="Click to view full summary"
+            onClick={handleSummaryClick}
+            onKeyDown={handleSummaryKeyDown}
+          >
             {summary}
           </div>
         )}
@@ -161,6 +183,20 @@ const HierarchyNode = React.memo(function HierarchyNode({
 
   if (isCollapsed) {
     const summary = getNodeSummary(node, summaryLookup);
+    const handleSummaryClick = (e) => {
+      e.stopPropagation();
+      onSummaryClick?.({
+        path: spacedTopicPath(node.fullPath),
+        text: summary,
+        sourceSentences: getSentencesForNode(entry, { preserveZero: true }),
+      });
+    };
+    const handleSummaryKeyDown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleSummaryClick(e);
+      }
+    };
     return (
       <div className="th-node th-node--collapsed" style={{ '--th-row-span': 1 }}>
         <div
@@ -176,7 +212,14 @@ const HierarchyNode = React.memo(function HierarchyNode({
           </span>
         </div>
         {summary && (
-          <div className="th-node__summary" title={summary}>
+          <div
+            className="th-node__summary"
+            role="button"
+            tabIndex={0}
+            title="Click to view full summary"
+            onClick={handleSummaryClick}
+            onKeyDown={handleSummaryKeyDown}
+          >
             {summary}
           </div>
         )}
@@ -212,6 +255,7 @@ const HierarchyNode = React.memo(function HierarchyNode({
             spanMap={spanMap}
             onToggleCollapse={onToggleCollapse}
             onTopicClick={onTopicClick}
+            onSummaryClick={onSummaryClick}
             sourceUrl={sourceUrl}
             sentences={sentences}
             isYouTube={isYouTube}
@@ -228,6 +272,7 @@ export default function TopicHierarchyView({
   topicSummaryIndex,
   selectedTopicPath,
   onTopicClick,
+  onSummaryClick,
   collapsedPaths: controlledCollapsedPaths,
   onToggleCollapse: controlledToggleCollapse,
   sourceUrl,
@@ -321,6 +366,7 @@ export default function TopicHierarchyView({
           spanMap={spanMap}
           onToggleCollapse={handleToggleCollapse}
           onTopicClick={onTopicClick}
+          onSummaryClick={onSummaryClick}
           sourceUrl={sourceUrl}
           sentences={sentences}
           isYouTube={isYouTube}

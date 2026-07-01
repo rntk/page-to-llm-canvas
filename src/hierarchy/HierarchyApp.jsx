@@ -2,6 +2,8 @@ import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { useRecord } from '../useRecord.js';
 import TopicHierarchyView from './TopicHierarchyView.jsx';
 import { getSentencesForNode } from './hierarchyUtils.js';
+import { getYouTubeTimestampLink, getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
+import YouTubeTimestampButton from '../components/YouTubeTimestampButton.jsx';
 import { closeModal } from '../closeModal.js';
 import { splitError, retryRecord } from '../utils/errorUtils.js';
 import ErrorDetails from '../components/ErrorDetails.jsx';
@@ -13,6 +15,14 @@ import './hierarchy.css';
 export default function HierarchyApp({ initialKey }) {
   const { record, error } = useRecord(initialKey);
   const bodyRef = useRef(null);
+
+  const [prevInitialKey, setPrevInitialKey] = useState(initialKey);
+  const [collapsedPaths, setCollapsedPaths] = useState(() => new Set());
+  // `null` means "follow the deepest level" so the view starts fully unfolded
+  // (leaf level selected) and tracks maxLevel until the user picks a level —
+  // important because `topics` (and thus maxLevel) load asynchronously.
+  const [selectedLevel, setSelectedLevel] = useState(null);
+  const [activeSummary, setActiveSummary] = useState(null);
 
   useEffect(() => {
     // The hierarchy runs inside an iframe. Pull focus into the iframe and onto
@@ -32,14 +42,19 @@ export default function HierarchyApp({ initialKey }) {
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
-        closeModal();
+        if (activeSummary) {
+          event.preventDefault();
+          setActiveSummary(null);
+        } else {
+          closeModal();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, []);
+  }, [activeSummary]);
 
   const handleRetry = useCallback(() => {
     if (!initialKey) return;
@@ -57,17 +72,28 @@ export default function HierarchyApp({ initialKey }) {
   const isRecordError = record?.status === 'error' || record?.status === 'cancelled';
   const isNeedsAttention = record?.status === 'needs_attention';
 
-  const [prevInitialKey, setPrevInitialKey] = useState(initialKey);
-  const [collapsedPaths, setCollapsedPaths] = useState(() => new Set());
-  // `null` means "follow the deepest level" so the view starts fully unfolded
-  // (leaf level selected) and tracks maxLevel until the user picks a level —
-  // important because `topics` (and thus maxLevel) load asynchronously.
-  const [selectedLevel, setSelectedLevel] = useState(null);
+  const handleSummaryClick = useCallback((summaryData) => {
+    setActiveSummary(summaryData);
+  }, []);
+
+  const isYouTube = useMemo(() => Boolean(getYouTubeVideoId(record?.sourceUrl)), [record?.sourceUrl]);
+  const activeSummaryYouTubeLink = useMemo(
+    () =>
+      isYouTube && activeSummary
+        ? getYouTubeTimestampLink({
+            sourceUrl: record?.sourceUrl,
+            sentences: record?.sentences,
+            sourceSentences: activeSummary.sourceSentences,
+          })
+        : null,
+    [isYouTube, activeSummary, record?.sourceUrl, record?.sentences],
+  );
 
   if (initialKey !== prevInitialKey) {
     setPrevInitialKey(initialKey);
     setCollapsedPaths(new Set());
     setSelectedLevel(null);
+    setActiveSummary(null);
   }
 
   const roots = useMemo(() => buildTopicTree(topics, 0), [topics]);
@@ -171,6 +197,7 @@ export default function HierarchyApp({ initialKey }) {
             /* noop */
           }
         }}
+        onSummaryClick={handleSummaryClick}
       />
     );
   }
@@ -206,6 +233,49 @@ export default function HierarchyApp({ initialKey }) {
           </div>
         </div>
       </div>
+      {activeSummary && (
+        <div className="th-summary-modal-overlay" onClick={() => setActiveSummary(null)}>
+          <div
+            className="th-summary-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="th-summary-modal-title"
+          >
+            <button
+              type="button"
+              className="th-summary-modal__close-btn"
+              onClick={() => setActiveSummary(null)}
+              aria-label="Close summary modal"
+            >
+              ×
+            </button>
+            <article className="th-summary-modal__card">
+              <header className="th-summary-modal__card-header">
+                <div className="th-summary-modal__card-title-block">
+                  <span className="th-summary-modal__card-kicker">Summary</span>
+                  <span
+                    id="th-summary-modal-title"
+                    className="th-summary-modal__card-path"
+                  >
+                    {activeSummary.path}
+                  </span>
+                </div>
+                {activeSummaryYouTubeLink && (
+                  <YouTubeTimestampButton link={activeSummaryYouTubeLink} />
+                )}
+              </header>
+              {activeSummary.text && (
+                <div className="th-summary-modal__text-container">
+                  <p className="th-summary-modal__card-text">
+                    {activeSummary.text}
+                  </p>
+                </div>
+              )}
+            </article>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
