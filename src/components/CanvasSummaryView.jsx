@@ -11,22 +11,113 @@ const SENTENCE_PREVIEW_HIDE_DELAY_MS = 120;
 // the cursor across the column rebuilds the (expensive) preview HTML for every card
 // crossed; the delay collapses a fast sweep into a single build once hover settles.
 const SENTENCE_PREVIEW_SHOW_DELAY_MS = 90;
+const PREVIEW_HTML_CACHE_LIMIT = 80;
 
-const previewHtmlCache = new Map();
+// Per-instance caches, keyed by a Symbol minted in state (see
+// `previewCacheInstanceKey` below) rather than a `useRef`: this project's lint
+// config (react-hooks/refs, aligned with the React Compiler) disallows reading
+// `.current` during render through anything but a direct, un-passed access, so a
+// mutable cache that's read/written from inside a `useMemo` can't be ref-backed.
+// Keying a module-level Map by an instance id gets the same per-instance
+// isolation (no cross-instance cache thrashing) without touching a ref during
+// render; the entry is deleted on unmount below so it doesn't leak.
+const previewHtmlCacheByInstance = new Map();
+const sourceModelCacheByInstance = new Map();
 
-// The source model is keyed on its inputs so the per-render memo below returns a
-// stable identity across hover toggles (which flip the memo's `hasActivePreview`
-// dep without changing the content). Without this, every cursor enter/leave would
-// rebuild the whole article index and wipe previewHtmlCache.
-let sourceModelCache = { articleHtml: null, sentences: null, model: null };
-function getOrBuildPreviewSourceModel(articleHtml, sentences) {
-  if (sourceModelCache.articleHtml === articleHtml && sourceModelCache.sentences === sentences) {
-    return sourceModelCache.model;
+function getOrBuildPreviewSourceModel(instanceKey, articleHtml, sentences) {
+  const cached = sourceModelCacheByInstance.get(instanceKey);
+  if (cached?.articleHtml === articleHtml && cached.sentences === sentences) {
+    return cached.model;
   }
   const model = buildPreviewSourceModel(articleHtml, sentences);
-  sourceModelCache = { articleHtml, sentences, model };
+  sourceModelCacheByInstance.set(instanceKey, { articleHtml, sentences, model });
   return model;
 }
+
+function getPreviewHtmlCache(instanceKey, previewSourceModel, summaryViewCards) {
+  const cached = previewHtmlCacheByInstance.get(instanceKey);
+  if (cached?.sourceModel === previewSourceModel && cached.summaryViewCards === summaryViewCards) {
+    return cached.cache;
+  }
+  const next = { sourceModel: previewSourceModel, summaryViewCards, cache: new Map() };
+  previewHtmlCacheByInstance.set(instanceKey, next);
+  return next.cache;
+}
+
+function setSummaryCardRef(summaryCardRefs, cardKey, el) {
+  if (el) summaryCardRefs.current[cardKey] = el;
+  else delete summaryCardRefs.current[cardKey];
+}
+
+const SummaryCard = React.memo(function SummaryCard({
+  card,
+  cardKey,
+  registerSummaryCardRef,
+  isCardActive,
+  isPreviewActive,
+  cardYouTubeLink,
+  onCardEnter,
+  onCardLeave,
+  onCardClick,
+  onCardKeyDown,
+  onShowSourceSentences,
+}) {
+  const hasSummaryContent = Boolean(card.text);
+  const canShowSourceSentences = card.sourceSentences.length > 0;
+  const cardRef = React.useCallback(
+    (el) => {
+      registerSummaryCardRef(cardKey, el);
+    },
+    [cardKey, registerSummaryCardRef],
+  );
+
+  return (
+    <article
+      ref={cardRef}
+      className={`canvas-summary-view__card${isCardActive ? ' is-active' : ''}${isPreviewActive ? ' is-source-preview-active' : ''}`}
+      onMouseEnter={() => onCardEnter(card)}
+      onMouseLeave={() => onCardLeave(card)}
+      onClick={() => onCardClick(card)}
+      onKeyDown={onCardKeyDown}
+      tabIndex={0}
+      aria-expanded={canShowSourceSentences ? isPreviewActive : undefined}
+      aria-controls={isPreviewActive ? 'canvas-summary-source-preview' : undefined}
+      title={card.path}
+    >
+      <header className="canvas-summary-view__card-header">
+        <span className="canvas-summary-view__card-path">{card.path}</span>
+        {card.sourceSentences.length > 0 && (
+          <span className="canvas-summary-view__card-meta">
+            sentences {card.startSentence} ({card.sourceSentences.length})
+          </span>
+        )}
+      </header>
+      {hasSummaryContent && (
+        <div className="canvas-summary-view__summary-tooltip-wrap">
+          {card.text && <p className="canvas-summary-view__card-text">{card.text}</p>}
+          {(canShowSourceSentences || cardYouTubeLink) && (
+            <div className="canvas-summary-view__summary-tooltip" role="tooltip">
+              {canShowSourceSentences && (
+                <button
+                  type="button"
+                  className="canvas-summary-view__summary-tooltip-button"
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onShowSourceSentences(card);
+                  }}
+                >
+                  Show source sentences
+                </button>
+              )}
+              <YouTubeTimestampButton link={cardYouTubeLink} />
+            </div>
+          )}
+        </div>
+      )}
+    </article>
+  );
+});
 
 function CanvasSummaryView({
   summaryViewCards,
@@ -52,10 +143,29 @@ function CanvasSummaryView({
   const summaryViewRef = React.useRef(null);
   const hidePreviewTimerRef = React.useRef(0);
   const showPreviewTimerRef = React.useRef(0);
+  const lockedPreviewKeyRef = React.useRef(null);
+  const [previewCacheInstanceKey] = React.useState(() => Symbol('CanvasSummaryView'));
+  React.useLayoutEffect(() => {
+    lockedPreviewKeyRef.current = lockedPreviewKey;
+  }, [lockedPreviewKey]);
+  React.useEffect(
+    () => () => {
+      previewHtmlCacheByInstance.delete(previewCacheInstanceKey);
+      sourceModelCacheByInstance.delete(previewCacheInstanceKey);
+    },
+    [previewCacheInstanceKey],
+  );
   const summaryCardByKey = React.useMemo(() => {
     const map = new Map();
     summaryViewCards.forEach((card) => {
       map.set(card.key || card.path, card);
+    });
+    return map;
+  }, [summaryViewCards]);
+  const summaryCardIndexByKey = React.useMemo(() => {
+    const map = new Map();
+    summaryViewCards.forEach((card, index) => {
+      map.set(card.key || card.path, index);
     });
     return map;
   }, [summaryViewCards]);
@@ -110,16 +220,14 @@ function CanvasSummaryView({
   const previewCardKey = previewCard?.key || previewCard?.path || null;
   const previewSentenceNumbers = React.useMemo(() => {
     if (!previewCard) return [];
-    const previewCardIndex = summaryViewCards.findIndex(
-      (card) => (card.key || card.path) === previewCardKey,
-    );
+    const previewCardIndex = summaryCardIndexByKey.get(previewCardKey) ?? -1;
     const contextCards = [
       summaryViewCards[previewCardIndex - 1],
       previewCard,
       summaryViewCards[previewCardIndex + 1],
     ].filter((card) => Array.isArray(card?.sourceSentences) && card.sourceSentences.length > 0);
     return Array.from(new Set(contextCards.flatMap((card) => card.sourceSentences)));
-  }, [previewCard, previewCardKey, summaryViewCards]);
+  }, [previewCard, previewCardKey, summaryCardIndexByKey, summaryViewCards]);
   // Indexing the whole article (clone + word/sentence ranges) is the heaviest
   // step in this view and is needed only once a source preview is shown. Gate
   // the build behind `previewModelReady` so summary-mode entry isn't blocked by
@@ -161,33 +269,48 @@ function CanvasSummaryView({
       articleHtml &&
       Array.isArray(sentences) &&
       sentences.length > 0
-        ? getOrBuildPreviewSourceModel(articleHtml, sentences)
+        ? getOrBuildPreviewSourceModel(previewCacheInstanceKey, articleHtml, sentences)
         : null,
-    [previewModelReady, hasActivePreview, articleHtml, sentences],
+    [previewModelReady, hasActivePreview, articleHtml, sentences, previewCacheInstanceKey],
   );
-  // The per-preview HTML cache is invalidated when the source model or the card
-  // set changes.
-  React.useEffect(() => {
-    previewHtmlCache.clear();
-  }, [previewSourceModel, summaryViewCards]);
   const previewHtml = React.useMemo(() => {
     if (!previewCard || !previewSourceModel) return '';
+    const cache = getPreviewHtmlCache(
+      previewCacheInstanceKey,
+      previewSourceModel,
+      summaryViewCards,
+    );
     const cacheKey = [
       previewCardKey,
       previewSentenceNumbers.join(','),
       previewCard.sourceSentences.join(','),
     ].join('|');
-    const cachedHtml = previewHtmlCache.get(cacheKey);
-    if (cachedHtml !== undefined) return cachedHtml;
+    const cachedHtml = cache.get(cacheKey);
+    if (cachedHtml !== undefined) {
+      cache.delete(cacheKey);
+      cache.set(cacheKey, cachedHtml);
+      return cachedHtml;
+    }
 
     const html = buildHighlightedSentencePreviewHtml(
       previewSourceModel,
       previewSentenceNumbers,
       previewCard.sourceSentences,
     );
-    previewHtmlCache.set(cacheKey, html);
+    if (cache.size >= PREVIEW_HTML_CACHE_LIMIT) {
+      const oldestKey = cache.keys().next().value;
+      cache.delete(oldestKey);
+    }
+    cache.set(cacheKey, html);
     return html;
-  }, [previewCard, previewCardKey, previewSentenceNumbers, previewSourceModel]);
+  }, [
+    previewCacheInstanceKey,
+    previewCard,
+    previewCardKey,
+    previewSentenceNumbers,
+    previewSourceModel,
+    summaryViewCards,
+  ]);
   const previewTop = summaryCardRefs.current[previewCardKey]?.offsetTop || 0;
   const isYouTube = React.useMemo(() => Boolean(getYouTubeVideoId(sourceUrl)), [sourceUrl]);
   // Resolving a YouTube deep-link scans the sentence array; doing it per card
@@ -216,6 +339,12 @@ function CanvasSummaryView({
       }
     },
     [articleTextRef],
+  );
+  const registerSummaryCardRef = React.useCallback(
+    (cardKey, el) => {
+      setSummaryCardRef(summaryCardRefs, cardKey, el);
+    },
+    [summaryCardRefs],
   );
 
   React.useLayoutEffect(() => {
@@ -294,14 +423,48 @@ function CanvasSummaryView({
     (card) => {
       // A pending open should not survive the cursor leaving the card.
       clearShowPreviewTimer();
-      if (lockedPreviewKey === (card.key || card.path)) return;
+      if (lockedPreviewKeyRef.current === (card.key || card.path)) return;
       clearHidePreviewTimer();
       hidePreviewTimerRef.current = window.setTimeout(() => {
         setHoveredSummaryKey((current) => (current === (card.key || card.path) ? null : current));
       }, SENTENCE_PREVIEW_HIDE_DELAY_MS);
     },
-    [clearHidePreviewTimer, clearShowPreviewTimer, lockedPreviewKey],
+    [clearHidePreviewTimer, clearShowPreviewTimer],
   );
+
+  const handleSummaryCardLeave = React.useCallback(
+    (card) => {
+      const cardKey = card.key || card.path;
+      setHoveredTopicKey((current) => (current === card.path ? null : current));
+      setHoveredTopicCardKey?.((current) => (current === cardKey ? null : current));
+      schedulePreviewHide(card);
+    },
+    [schedulePreviewHide, setHoveredTopicCardKey, setHoveredTopicKey],
+  );
+
+  const handleSummaryCardClick = React.useCallback(
+    (card) => {
+      if (card.sourceSentences.length === 0) return;
+      const cardKey = card.key || card.path;
+      setLockedPreviewKey((current) => {
+        if (current === cardKey) {
+          setHoveredSummaryKey(null);
+          return null;
+        }
+        showPreviewForCard(card, { immediate: true });
+        return cardKey;
+      });
+    },
+    [showPreviewForCard],
+  );
+
+  const handleSummaryCardKeyDown = React.useCallback((event) => {
+    if (event.key === 'Escape' && lockedPreviewKeyRef.current) {
+      event.stopPropagation();
+      setLockedPreviewKey(null);
+      setHoveredSummaryKey(null);
+    }
+  }, []);
 
   React.useEffect(
     () => () => {
@@ -369,79 +532,23 @@ function CanvasSummaryView({
             const isCardActive = hasActiveSummaryCardKey
               ? summaryViewActiveCardKey === cardKey
               : isActive;
-            const hasSummaryContent = Boolean(card.text);
-            const canShowSourceSentences = card.sourceSentences.length > 0;
             const cardYouTubeLink = youTubeLinkByKey.get(cardKey) || null;
             const isPreviewActive = previewCardKey === cardKey;
             return (
-              <article
+              <SummaryCard
                 key={cardKey}
-                ref={(el) => {
-                  if (el) summaryCardRefs.current[cardKey] = el;
-                  else delete summaryCardRefs.current[cardKey];
-                }}
-                className={`canvas-summary-view__card${isCardActive ? ' is-active' : ''}${isPreviewActive ? ' is-source-preview-active' : ''}`}
-                onMouseEnter={() => showPreviewForCard(card)}
-                onMouseLeave={() => {
-                  setHoveredTopicKey((current) => (current === card.path ? null : current));
-                  setHoveredTopicCardKey?.((current) => (current === cardKey ? null : current));
-                  schedulePreviewHide(card);
-                }}
-                onClick={() => {
-                  if (!canShowSourceSentences) return;
-                  setLockedPreviewKey((current) => {
-                    if (current === cardKey) {
-                      setHoveredSummaryKey(null);
-                      return null;
-                    }
-                    showPreviewForCard(card, { immediate: true });
-                    return cardKey;
-                  });
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape' && lockedPreviewKey) {
-                    event.stopPropagation();
-                    setLockedPreviewKey(null);
-                    setHoveredSummaryKey(null);
-                  }
-                }}
-                tabIndex={0}
-                aria-expanded={canShowSourceSentences ? isPreviewActive : undefined}
-                aria-controls={isPreviewActive ? 'canvas-summary-source-preview' : undefined}
-                title={card.path}
-              >
-                <header className="canvas-summary-view__card-header">
-                  <span className="canvas-summary-view__card-path">{card.path}</span>
-                  {card.sourceSentences.length > 0 && (
-                    <span className="canvas-summary-view__card-meta">
-                      sentences {card.startSentence} ({card.sourceSentences.length})
-                    </span>
-                  )}
-                </header>
-                {hasSummaryContent && (
-                  <div className="canvas-summary-view__summary-tooltip-wrap">
-                    {card.text && <p className="canvas-summary-view__card-text">{card.text}</p>}
-                    {(canShowSourceSentences || cardYouTubeLink) && (
-                      <div className="canvas-summary-view__summary-tooltip" role="tooltip">
-                        {canShowSourceSentences && (
-                          <button
-                            type="button"
-                            className="canvas-summary-view__summary-tooltip-button"
-                            onMouseDown={(event) => event.stopPropagation()}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onShowSourceSentences(card);
-                            }}
-                          >
-                            Show source sentences
-                          </button>
-                        )}
-                        <YouTubeTimestampButton link={cardYouTubeLink} />
-                      </div>
-                    )}
-                  </div>
-                )}
-              </article>
+                card={card}
+                cardKey={cardKey}
+                registerSummaryCardRef={registerSummaryCardRef}
+                isCardActive={isCardActive}
+                isPreviewActive={isPreviewActive}
+                cardYouTubeLink={cardYouTubeLink}
+                onCardEnter={showPreviewForCard}
+                onCardLeave={handleSummaryCardLeave}
+                onCardClick={handleSummaryCardClick}
+                onCardKeyDown={handleSummaryCardKeyDown}
+                onShowSourceSentences={onShowSourceSentences}
+              />
             );
           })}
         </div>

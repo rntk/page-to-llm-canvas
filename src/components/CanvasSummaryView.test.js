@@ -376,6 +376,54 @@ describe('CanvasSummaryView', () => {
     unmount();
   });
 
+  it('does not reuse cached preview HTML after the source article changes', () => {
+    const summaryCardRefs = { current: {} };
+    const articleTextRef = React.createRef();
+    const cards = [
+      {
+        key: 'card1',
+        path: 'Topic A',
+        text: 'Summary',
+        sourceSentences: [0],
+        startSentence: 0,
+      },
+    ];
+    const props = {
+      summaryViewCards: cards,
+      summaryViewActivePath: 'Topic A',
+      summaryCardRefs,
+      setHoveredTopicKey: vi.fn(),
+      articleTextRef,
+      onShowSourceSentences: vi.fn(),
+      sentences: ['Original sentence.'],
+    };
+
+    const { container, rerender, unmount } = render(
+      createElement(CanvasSummaryView, {
+        ...props,
+        articleHtml: '<p>Original sentence.</p>',
+      }),
+    );
+
+    expect(container.querySelector('.canvas-summary-source-preview').textContent).toContain(
+      'Original sentence.',
+    );
+
+    rerender(
+      createElement(CanvasSummaryView, {
+        ...props,
+        articleHtml: '<p>Updated sentence.</p>',
+        sentences: ['Updated sentence.'],
+      }),
+    );
+
+    const preview = container.querySelector('.canvas-summary-source-preview');
+    expect(preview.textContent).toContain('Updated sentence.');
+    expect(preview.textContent).not.toContain('Original sentence.');
+
+    unmount();
+  });
+
   it('renders a YouTube timestamp link on summary cards for YouTube records', () => {
     const summaryCardRefs = { current: {} };
     const articleTextRef = React.createRef();

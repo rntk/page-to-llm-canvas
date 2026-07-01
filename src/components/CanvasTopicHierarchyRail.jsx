@@ -191,10 +191,16 @@ function CanvasTopicHierarchyRail({
   // the layout, and its geometry — top/height/zIndex — depends only on the cards'
   // sentence positions and the selected level, NOT on zoom. Zoom merely changes
   // each card's `titleFontSize`/`right`, which produces a fresh `hierarchyCards`
-  // array every zoom step. Key the collision on a signature of the geometry
-  // fields alone so it is skipped while only the zoom-dependent fields change.
+  // array every zoom step. Keep this signature in sync with every input field
+  // read by getAdjustedHierarchyCards/adjustCrowdedLevelCards in denseCardLayout
+  // (including sentenceCount, which getDenseCardZIndex reads to pick a card's
+  // z-index — omitting it would serve a stale z-index after a sentence-count-only
+  // change).
   const geometrySignature = React.useMemo(
-    () => hierarchyCards.map((c) => `${c.key}:${c.top}:${c.height}:${c.levelIndex}`).join('|'),
+    () =>
+      hierarchyCards
+        .map((c) => `${c.key}:${c.top}:${c.height}:${c.levelIndex}:${c.sentenceCount}`)
+        .join('|'),
     [hierarchyCards],
   );
   const geometryCards = React.useMemo(
@@ -239,17 +245,24 @@ function CanvasTopicHierarchyRail({
   const bodyHeight = React.useMemo(
     () =>
       geometryCards.length
-        ? `${Math.max(...geometryCards.map((c) => c.top + c.height)) + 20}px`
+        ? `${geometryCards.reduce((max, c) => Math.max(max, c.top + c.height), -Infinity) + 20}px`
         : 'auto',
     [geometryCards],
   );
-  const summaryAnchorCard = currentTopicSummary
-    ? adjustedHierarchyCards.find((card) => card.key === currentTopicSummary.key) ||
-      adjustedHierarchyCards.find((card) => card.fullPath === currentTopicSummary.path)
-    : null;
+  const summaryAnchorCard = React.useMemo(
+    () =>
+      currentTopicSummary
+        ? adjustedHierarchyCards.find((card) => card.key === currentTopicSummary.key) ||
+          adjustedHierarchyCards.find((card) => card.fullPath === currentTopicSummary.path)
+        : null,
+    [currentTopicSummary, adjustedHierarchyCards],
+  );
   const hasCurrentTopicSummary = Boolean(currentTopicSummary);
   const summaryTop = summaryAnchorCard ? summaryAnchorCard.top : 0;
-  const summaryFontSizes = getSummaryFontSizes(summaryAnchorCard);
+  const summaryFontSizes = React.useMemo(
+    () => getSummaryFontSizes(summaryAnchorCard),
+    [summaryAnchorCard],
+  );
   const isYouTube = React.useMemo(() => Boolean(getYouTubeVideoId(sourceUrl)), [sourceUrl]);
   const summaryYouTubeLink = React.useMemo(
     () =>
