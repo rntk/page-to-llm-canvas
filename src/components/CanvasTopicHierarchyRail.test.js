@@ -508,4 +508,86 @@ describe('CanvasTopicHierarchyRail', () => {
     expect(container.querySelector('a.canvas-youtube-timestamp')).toBeNull();
     unmount();
   });
+
+  it('renders a per-card YouTube timestamp link next to the sentence count on YouTube records', () => {
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        sentences: ['0:05 5 seconds Intro.', 'b', 'c', 'd'],
+        sourceUrl: 'https://www.youtube.com/watch?v=abc',
+      }),
+    );
+
+    const card1 = Array.from(container.querySelectorAll('.canvas-topic-hierarchy__card')).find(
+      (el) => el.textContent.includes('A'),
+    );
+    const link = card1.querySelector('a.canvas-youtube-timestamp');
+    expect(link).not.toBeNull();
+    expect(link.getAttribute('href')).toContain('v=abc');
+    expect(link.getAttribute('href')).toContain('&t=5s');
+    // Lives in the meta row, next to the sentence count text.
+    expect(link.closest('.canvas-topic-hierarchy__card-meta-row').textContent).toContain(
+      '5 sent.',
+    );
+    unmount();
+  });
+
+  it('scales the per-card YouTube link font with the card title font size (zoom)', () => {
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        topicCards: defaultProps.topicCards.map((card) =>
+          card.key === 'card1' ? { ...card, titleFontSize: 18 } : card,
+        ),
+        sentences: ['0:05 5 seconds Intro.', 'b', 'c', 'd'],
+        sourceUrl: 'https://www.youtube.com/watch?v=abc',
+      }),
+    );
+
+    const card1 = Array.from(container.querySelectorAll('.canvas-topic-hierarchy__card')).find(
+      (el) => el.textContent.includes('A'),
+    );
+    // titleFontSize 18 vs. the 12px base is a 1.5x zoom multiplier, so the
+    // link (11px base, same as the summary card's) scales to 16.5px instead
+    // of staying at a flat size that would shrink into illegibility on the
+    // canvas's zoom-out transform.
+    expect(card1.style.getPropertyValue('--topic-card-youtube-font-size')).toBe('16.5px');
+    unmount();
+  });
+
+  it('does not render a per-card YouTube link for non-YouTube records', () => {
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        sentences: ['0:05 5 seconds Intro.', 'b', 'c', 'd'],
+        sourceUrl: 'https://example.com/post',
+      }),
+    );
+
+    expect(container.querySelector('a.canvas-youtube-timestamp')).toBeNull();
+    unmount();
+  });
+
+  it('clicking the per-card YouTube link does not trigger the card click (no zoom-in)', () => {
+    const onTopicClick = vi.fn();
+    const onToggleRead = vi.fn();
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        onTopicClick,
+        onToggleRead,
+        sentences: ['0:05 5 seconds Intro.', 'b', 'c', 'd'],
+        sourceUrl: 'https://www.youtube.com/watch?v=abc',
+      }),
+    );
+
+    const link = container.querySelector('a.canvas-youtube-timestamp');
+    act(() => {
+      link.click();
+    });
+
+    expect(onTopicClick).not.toHaveBeenCalled();
+    expect(onToggleRead).not.toHaveBeenCalled();
+    unmount();
+  });
 });

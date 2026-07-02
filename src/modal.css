@@ -879,12 +879,57 @@ body.canvas-global-dragging * {
   -webkit-line-clamp: var(--topic-card-title-line-clamp, 2);
 }
 
+.canvas-topic-hierarchy__card-meta-row {
+  position: relative;
+
+  /* Without this, flex stretch (the column parent's default align-items)
+     would make the row as wide as the card, so `left: 100%` on the link
+     below would resolve against the card's right edge instead of the end
+     of the "N sent." text and get clipped by the card's overflow: hidden. */
+  align-self: flex-start;
+}
+
 .canvas-topic-hierarchy__card-meta {
   color: var(--on-surface-muted);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+/* The per-card jump-to-video link stays invisible (but present, for keyboard
+   focus) until the card is hovered, focused, or selected — showing it at all
+   times would clutter every card in the rail. It's positioned out of normal
+   flow (left: 100% of the meta text) so its box — sized for an easy target
+   instead of pixel-hunting — never grows the meta row past the fixed height
+   denseCardLayout.js budgets for it, even while invisible.
+   --topic-card-youtube-font-size rides the same titleFontSize-driven
+   zoom counter-scale as the title, so the link stays legible on zoom-out
+   instead of shrinking with the flat canvas transform (see TopicCard). It's
+   anchored to the row's top plus a small em-based margin (scales with the
+   link's own font-size, so the gap stays proportional at every zoom level)
+   rather than vertically centered, so a large link on zoom-out grows
+   downward, away from the title, instead of creeping up into it. */
+.canvas-topic-hierarchy__card-meta-row .canvas-youtube-timestamp {
+  position: absolute;
+  left: 100%;
+  top: 0;
+  margin-left: 6px;
+  margin-top: 0.3em;
+  padding: 0.2em 0.35em;
+  font-size: var(--topic-card-youtube-font-size, 13px);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.canvas-topic-hierarchy__card:hover .canvas-youtube-timestamp,
+.canvas-topic-hierarchy__card:focus-within .canvas-youtube-timestamp,
+.canvas-topic-hierarchy__card.is-active .canvas-youtube-timestamp,
+.canvas-topic-hierarchy__card.is-selected .canvas-youtube-timestamp {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .canvas-topic-hierarchy__card.is-read::after {

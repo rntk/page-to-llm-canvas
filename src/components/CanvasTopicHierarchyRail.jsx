@@ -37,12 +37,36 @@ const TopicCard = React.memo(function TopicCard({
   isSelected,
   isRead,
   accentColor,
+  isYouTube,
+  sourceUrl,
+  sentences,
   onTopicEnter,
   onTopicLeave,
   onTopicClick,
   onToggleRead,
 }) {
   const titleLineBudget = getTitleLineBudget(card.height);
+  // Scoped to startSentence (not the whole card object, which gets a fresh
+  // reference every zoom step) so the backward timestamp scan only reruns
+  // when the card or transcript actually changes.
+  const youtubeLink = React.useMemo(
+    () =>
+      isYouTube
+        ? getYouTubeTimestampLink({
+            sourceUrl,
+            sentences,
+            sourceSentences: [card.startSentence],
+          })
+        : null,
+    [isYouTube, sourceUrl, sentences, card.startSentence],
+  );
+  // A flat px font-size shrinks with the canvas transform on zoom-out and
+  // becomes unreadable, unlike the title, which counter-scales via
+  // card.titleFontSize. Reuse the same titleFontSize-driven multiplier
+  // (see getSummaryFontSizes) so the link scales the same way.
+  const youtubeFontSize = youtubeLink
+    ? getSummaryFontSizes({ titleFontSize: card.titleFontSize }).youtube
+    : null;
   const classes = [
     'canvas-topic-hierarchy__card',
     card.levelIndex === 0
@@ -69,6 +93,9 @@ const TopicCard = React.memo(function TopicCard({
         '--topic-card-label-height': `${getCardLabelHeight(card)}px`,
         '--topic-card-right': `${card.right}px`,
         '--topic-accent-color': accentColor,
+        ...(youtubeFontSize != null && {
+          '--topic-card-youtube-font-size': `${youtubeFontSize}px`,
+        }),
         zIndex: isSelected ? 60 : isActive ? 50 : card.zIndex,
       }}
       onMouseEnter={() => onTopicEnter(card.fullPath, sourceCard.key)}
@@ -89,7 +116,10 @@ const TopicCard = React.memo(function TopicCard({
     >
       <div className="canvas-topic-hierarchy__card-content">
         <span className="canvas-topic-hierarchy__card-name">{card.displayName}</span>
-        <span className="canvas-topic-hierarchy__card-meta">{card.sentenceCount} sent.</span>
+        <span className="canvas-topic-hierarchy__card-meta-row">
+          <span className="canvas-topic-hierarchy__card-meta">{card.sentenceCount} sent.</span>
+          {youtubeLink && <YouTubeTimestampButton link={youtubeLink} />}
+        </span>
       </div>
     </button>
   );
@@ -384,6 +414,9 @@ function CanvasTopicHierarchyRail({
                   }
                   isRead={isTopicRead(card.fullPath, safeReadTopics)}
                   accentColor={getCachedAccentColor(card.fullPath, card.depth)}
+                  isYouTube={isYouTube}
+                  sourceUrl={sourceUrl}
+                  sentences={sentences}
                   onTopicEnter={onTopicEnter}
                   onTopicLeave={onTopicLeave}
                   onTopicClick={onTopicClick}
