@@ -172,6 +172,11 @@ export function getRecordActions(record) {
   if (record && record.status === 'done') {
     viewActions.push(
       {
+        label: 'Hierarchy',
+        mode: 'hierarchy',
+        description: 'View the content structure and relationships.',
+      },
+      {
         label: 'Topics',
         mode: 'topics',
         description: 'View extracted topics from this analysis.',
@@ -180,11 +185,6 @@ export function getRecordActions(record) {
         label: 'Summaries',
         mode: 'summaries',
         description: 'View generated summaries for selected content.',
-      },
-      {
-        label: 'Hierarchy',
-        mode: 'hierarchy',
-        description: 'View the content structure and relationships.',
       },
     );
     if (isYouTubeUrl(record && record.sourceUrl)) {
@@ -274,9 +274,9 @@ function addActionHint(button, label, description) {
   button.setAttribute('aria-label', `${label}: ${description}`);
 }
 
-function makeAction(label, key, mode, description) {
+function makeAction(label, key, mode, description, isPrimary = false) {
   const button = document.createElement('button');
-  button.className = 'action';
+  button.className = isPrimary ? 'action primary-action' : 'action';
   button.type = 'button';
   button.textContent = label;
   addActionHint(button, label, description);
@@ -375,13 +375,27 @@ function renderRecords(records) {
 
     const actions = document.createElement('div');
     actions.className = 'actions';
+
+    const viewGroup = document.createElement('div');
+    viewGroup.className = 'action-group view';
+    const manageGroup = document.createElement('div');
+    manageGroup.className = 'action-group manage';
+
+    let primaryAssigned = false;
     display.actions.forEach((action) => {
-      actions.appendChild(
-        action.kind === 'view'
-          ? makeAction(action.label, display.key, action.mode, action.description)
-          : makeMessageAction(action, display.key),
-      );
+      if (action.kind === 'view') {
+        const isPrimary = !primaryAssigned;
+        primaryAssigned = true;
+        viewGroup.appendChild(
+          makeAction(action.label, display.key, action.mode, action.description, isPrimary),
+        );
+      } else {
+        manageGroup.appendChild(makeMessageAction(action, display.key));
+      }
     });
+
+    actions.appendChild(viewGroup);
+    if (manageGroup.childElementCount > 0) actions.appendChild(manageGroup);
 
     item.appendChild(copy);
     item.appendChild(badge);

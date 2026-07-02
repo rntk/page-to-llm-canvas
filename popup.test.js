@@ -153,9 +153,9 @@ describe('popup pure functions', () => {
   it('getRecordActions returns all view actions only for done records', () => {
     expect(popup.getRecordActions({ status: 'done' }).map((action) => action.label)).toEqual([
       'Canvas',
+      'Hierarchy',
       'Topics',
       'Summaries',
-      'Hierarchy',
       'Reprocess',
       'Delete',
     ]);
@@ -167,9 +167,9 @@ describe('popup pure functions', () => {
   it('getRecordActions keeps stable modes and message types', () => {
     expect(popup.getRecordActions({ status: 'done' })).toEqual([
       expect.objectContaining({ kind: 'view', label: 'Canvas', mode: 'canvas' }),
+      expect.objectContaining({ kind: 'view', label: 'Hierarchy', mode: 'hierarchy' }),
       expect.objectContaining({ kind: 'view', label: 'Topics', mode: 'topics' }),
       expect.objectContaining({ kind: 'view', label: 'Summaries', mode: 'summaries' }),
-      expect.objectContaining({ kind: 'view', label: 'Hierarchy', mode: 'hierarchy' }),
       expect.objectContaining({
         kind: 'message',
         label: 'Reprocess',
@@ -185,9 +185,9 @@ describe('popup pure functions', () => {
       .map((action) => action.label);
     expect(labels).toEqual([
       'Canvas',
+      'Hierarchy',
       'Topics',
       'Summaries',
-      'Hierarchy',
       'YT Sync',
       'Reprocess',
       'Delete',
@@ -561,7 +561,7 @@ describe('buildRecordDisplayData', () => {
     const records = [{ key: 'r4', sourceUrl: 'https://x.com/', createdAt: 0, status: 'done' }];
     const result = popup.buildRecordDisplayData(records);
     const viewActions = result.records[0].actions.filter((a) => a.kind === 'view');
-    expect(viewActions.map((a) => a.mode)).toEqual(['canvas', 'topics', 'summaries', 'hierarchy']);
+    expect(viewActions.map((a) => a.mode)).toEqual(['canvas', 'hierarchy', 'topics', 'summaries']);
   });
 
   it('includes only canvas view action for non-done records', () => {
