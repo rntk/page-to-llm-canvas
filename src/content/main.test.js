@@ -6,6 +6,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 let messageListener = null;
 let postMessageListener = null;
+let storageChangeListener = null;
 
 function toolbarRoot() {
   return window.__pagetollmTestSelectionToolbarRoot;
@@ -29,6 +30,19 @@ beforeAll(() => {
       },
       sendMessage: vi.fn(),
       getURL: vi.fn((p) => 'about:blank#' + p),
+    },
+    storage: {
+      local: {
+        get: vi.fn((_key, cb) => cb({})),
+      },
+      onChanged: {
+        addListener: vi.fn((fn) => {
+          storageChangeListener = fn;
+        }),
+        removeListener: vi.fn((fn) => {
+          if (storageChangeListener === fn) storageChangeListener = null;
+        }),
+      },
     },
   });
 
@@ -62,6 +76,57 @@ describe('content script main.jsx', () => {
     expect(chrome.runtime.onMessage.addListener).toHaveBeenCalled();
     expect(messageListener).not.toBeNull();
     expect(postMessageListener).not.toBeNull();
+    expect(chrome.storage.onChanged.addListener).not.toHaveBeenCalled();
+  });
+
+  it('listens for preference storage changes only while content UI is mounted', async () => {
+    const sendResponse = vi.fn();
+    await act(async () => {
+      messageListener({ action: 'startSelection' }, {}, sendResponse);
+      await Promise.resolve();
+    });
+
+    const toolbar = document.getElementById('pagetollm-selection-toolbar');
+    expect(toolbar).not.toBeNull();
+    expect(chrome.storage.onChanged.addListener).toHaveBeenCalledTimes(1);
+    expect(storageChangeListener).not.toBeNull();
+
+    storageChangeListener({ 'pagetollm:rec:test:meta': { newValue: { status: 'done' } } }, 'local');
+    expect(toolbar.hasAttribute('data-theme')).toBe(false);
+
+    storageChangeListener({ 'pagetollm-theme': { newValue: 'dark' } }, 'local');
+    expect(toolbar.getAttribute('data-theme')).toBe('dark');
+
+    storageChangeListener({ 'pagetollm-theme': { newValue: 'light' } }, 'local');
+    expect(toolbar.getAttribute('data-theme')).toBe('light');
+
+    const cancelBtn = toolbarQuery('#pagetollm-cancel-btn');
+    await act(async () => {
+      cancelBtn.click();
+    });
+
+    expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
+    expect(chrome.storage.onChanged.removeListener).toHaveBeenCalledTimes(1);
+    expect(storageChangeListener).toBeNull();
+
+    chrome.storage.local.get.mockImplementation((key, cb) => {
+      if (key === 'pagetollm-theme') cb({ 'pagetollm-theme': 'dark' });
+      else cb({});
+    });
+
+    await act(async () => {
+      messageListener({ action: 'startSelection' }, {}, vi.fn());
+      await Promise.resolve();
+    });
+
+    const remountedToolbar = document.getElementById('pagetollm-selection-toolbar');
+    expect(remountedToolbar.getAttribute('data-theme')).toBe('dark');
+    expect(chrome.storage.onChanged.addListener).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      toolbarQuery('#pagetollm-cancel-btn').click();
+    });
+    chrome.storage.local.get.mockImplementation((_key, cb) => cb({}));
   });
 
   it('handles startSelection message', async () => {

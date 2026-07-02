@@ -64,6 +64,9 @@ import {
 // elements can be tagged synchronously on creation (no flash).
 let cachedThemePreference = THEME_SYSTEM;
 let cachedHighlightColor = DEFAULT_HIGHLIGHT_COLOR;
+let storagePreferenceListenerAttached = false;
+let mountedContentSurfaceCount = 0;
+let preferenceStorageSyncId = 0;
 
 function setCachedThemePreference(stored) {
   cachedThemePreference = normalizeTheme(stored, systemThemeSupported());
@@ -112,20 +115,66 @@ function refreshMountedHighlightColor() {
   }
 }
 
-try {
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== 'local') return;
-    if (changes[THEME_KEY]) {
-      setCachedThemePreference(changes[THEME_KEY].newValue);
-      refreshMountedContentTheme();
-    }
-    if (changes[HIGHLIGHT_COLOR_KEY]) {
-      setCachedHighlightColor(changes[HIGHLIGHT_COLOR_KEY].newValue);
-      refreshMountedHighlightColor();
-    }
+function syncPreferenceCacheFromStorage() {
+  const syncId = ++preferenceStorageSyncId;
+  void getStoredTheme().then((stored) => {
+    if (syncId !== preferenceStorageSyncId) return;
+    setCachedThemePreference(stored);
+    refreshMountedContentTheme();
   });
-} catch (_) {
-  /* noop */
+  void getStoredHighlightColor().then((stored) => {
+    if (syncId !== preferenceStorageSyncId) return;
+    setCachedHighlightColor(stored);
+    refreshMountedHighlightColor();
+  });
+}
+
+function handlePreferenceStorageChange(changes, areaName) {
+  if (areaName !== 'local' || !changes) return;
+  const themeChange = changes[THEME_KEY];
+  const highlightColorChange = changes[HIGHLIGHT_COLOR_KEY];
+  if (!themeChange && !highlightColorChange) return;
+  preferenceStorageSyncId += 1;
+  if (themeChange) {
+    setCachedThemePreference(themeChange.newValue);
+    refreshMountedContentTheme();
+  }
+  if (highlightColorChange) {
+    setCachedHighlightColor(highlightColorChange.newValue);
+    refreshMountedHighlightColor();
+  }
+}
+
+function attachPreferenceStorageListener() {
+  if (storagePreferenceListenerAttached) return;
+  try {
+    chrome.storage.onChanged.addListener(handlePreferenceStorageChange);
+    storagePreferenceListenerAttached = true;
+    syncPreferenceCacheFromStorage();
+  } catch (_) {
+    /* noop */
+  }
+}
+
+function detachPreferenceStorageListener() {
+  if (!storagePreferenceListenerAttached) return;
+  try {
+    chrome.storage.onChanged.removeListener(handlePreferenceStorageChange);
+  } catch (_) {
+    /* noop */
+  } finally {
+    storagePreferenceListenerAttached = false;
+  }
+}
+
+function trackMountedContentSurface() {
+  mountedContentSurfaceCount += 1;
+  attachPreferenceStorageListener();
+}
+
+function untrackMountedContentSurface() {
+  mountedContentSurfaceCount = Math.max(0, mountedContentSurfaceCount - 1);
+  if (mountedContentSurfaceCount === 0) detachPreferenceStorageListener();
 }
 
 let selectionToolbar = null;
@@ -354,6 +403,7 @@ async function handleRecordViewRequest(rec, mode) {
 // ── Selection toolbar ─────────────────────────────────────────────────────
 
 function showSelectionToolbar() {
+  const replacingToolbar = Boolean(selectionToolbar);
   if (selectionToolbar) {
     selectionToolbarRoot && selectionToolbarRoot.unmount();
     selectionToolbar.remove();
@@ -374,6 +424,7 @@ function showSelectionToolbar() {
   if (import.meta.env.MODE === 'test') {
     window.__pagetollmTestSelectionToolbarRoot = selectionToolbarShadowRoot;
   }
+  if (!replacingToolbar) trackMountedContentSurface();
   renderSelectionToolbar();
 }
 
@@ -619,6 +670,7 @@ function cleanupSelection(event) {
     selectionToolbar.remove();
     selectionToolbar = null;
     selectionToolbarShadowRoot = null;
+    untrackMountedContentSurface();
     if (import.meta.env.MODE === 'test') {
       window.__pagetollmTestSelectionToolbarRoot = null;
     }
@@ -743,6 +795,7 @@ async function openInPageRail(rec, initialMode, options = {}) {
   applyContentHighlightColor(railEl);
   const railRoot = createRoot(railEl);
   let railClosed = false;
+  let railSurfaceTracked = false;
 
   const setRailWidthForMode = () => {
     if (railClosed) return;
@@ -755,12 +808,18 @@ async function openInPageRail(rec, initialMode, options = {}) {
     document.documentElement.style.setProperty('--pagetollm-rail-width', `${railWidth}px`);
   };
   document.documentElement.appendChild(railEl);
+  trackMountedContentSurface();
+  railSurfaceTracked = true;
   inPageRailController = {
     railEl,
     teardown() {
       railClosed = true;
       railRoot.unmount();
       railEl.remove();
+      if (railSurfaceTracked) {
+        railSurfaceTracked = false;
+        untrackMountedContentSurface();
+      }
       if (supportsHighlightApi()) CSS.highlights.delete(HIGHLIGHT_NAME);
       document.body.classList.remove('pagetollm-rail-open');
       document.documentElement.style.removeProperty('--pagetollm-rail-reserve');
@@ -1019,6 +1078,7 @@ async function openYouTubeRail(rec) {
   applyContentHighlightColor(railEl);
   const railRoot = createRoot(railEl);
   let railClosed = false;
+  let railSurfaceTracked = false;
 
   const setRailWidthForMode = () => {
     if (railClosed) return;
@@ -1032,12 +1092,18 @@ async function openYouTubeRail(rec) {
   };
 
   document.documentElement.appendChild(railEl);
+  trackMountedContentSurface();
+  railSurfaceTracked = true;
   inPageRailController = {
     railEl,
     teardown() {
       railClosed = true;
       railRoot.unmount();
       railEl.remove();
+      if (railSurfaceTracked) {
+        railSurfaceTracked = false;
+        untrackMountedContentSurface();
+      }
       document.body.classList.remove('pagetollm-rail-open');
       document.documentElement.style.removeProperty('--pagetollm-rail-reserve');
       document.documentElement.style.removeProperty('--pagetollm-rail-width');
