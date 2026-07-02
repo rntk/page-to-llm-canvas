@@ -59,25 +59,33 @@ export function hostnameFromUrl(url) {
   }
 }
 
-// Mirror getYouTubeVideoId's host handling (src/utils/youtubeTimestamp.js) so the
-// YouTube sync button appears on exactly the URLs that rail can sync. popup.js is
-// a static (non-bundled) script, so the logic is duplicated here rather than
-// imported from src/.
-export function isYouTubeUrl(url) {
-  if (!url || typeof url !== 'string') return false;
+// Mirror getYouTubeVideoId's host handling (src/utils/youtubeTimestamp.js) so
+// popup matching and the YouTube sync button recognize exactly the URLs that
+// the rail can sync. popup.js is a static (non-bundled) script, so the logic is
+// duplicated here rather than imported from src/.
+export function getYouTubeVideoId(url) {
+  if (!url || typeof url !== 'string') return null;
   let parsed;
   try {
     parsed = new URL(url);
   } catch (_) {
-    return false;
+    return null;
   }
   const host = parsed.hostname.replace(/^www\./, '');
-  if (host === 'youtu.be') return parsed.pathname.length > 1;
-  if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'music.youtube.com') {
-    if (parsed.pathname === '/watch') return Boolean(parsed.searchParams.get('v'));
-    return /^\/(?:shorts|embed|v|live)\/[^/?#]+/.test(parsed.pathname);
+  if (host === 'youtu.be') {
+    const id = parsed.pathname.slice(1).split('/')[0];
+    return id || null;
   }
-  return false;
+  if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'music.youtube.com') {
+    if (parsed.pathname === '/watch') return parsed.searchParams.get('v') || null;
+    const pathMatch = parsed.pathname.match(/^\/(?:shorts|embed|v|live)\/([^/?#]+)/);
+    if (pathMatch) return pathMatch[1];
+  }
+  return null;
+}
+
+export function isYouTubeUrl(url) {
+  return Boolean(getYouTubeVideoId(url));
 }
 
 export function normalizePageUrl(url) {
@@ -214,7 +222,19 @@ export function getRecordActions(record) {
 export function filterRecordsForActivePage(records, activePageUrl) {
   const items = Array.isArray(records) ? records : [];
   if (!activePageUrl) return items;
-  return items.filter((record) => normalizePageUrl(record && record.sourceUrl) === activePageUrl);
+  return items.filter((record) => urlsMatchActivePage(record && record.sourceUrl, activePageUrl));
+}
+
+export function urlsMatchActivePage(sourceUrl, activePageUrl) {
+  const normalizedSourceUrl = normalizePageUrl(sourceUrl);
+  const normalizedActivePageUrl = normalizePageUrl(activePageUrl);
+  if (!normalizedSourceUrl || !normalizedActivePageUrl) return false;
+
+  const sourceYouTubeId = getYouTubeVideoId(normalizedSourceUrl);
+  const activeYouTubeId = getYouTubeVideoId(normalizedActivePageUrl);
+  if (sourceYouTubeId && activeYouTubeId) return sourceYouTubeId === activeYouTubeId;
+
+  return normalizedSourceUrl === normalizedActivePageUrl;
 }
 
 export function responseErrorMessage(response, fallback) {

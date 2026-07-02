@@ -223,6 +223,20 @@ describe('popup pure functions', () => {
     expect(popup.isYouTubeUrl('')).toBe(false);
   });
 
+  it('getYouTubeVideoId extracts ids without depending on unrelated params', () => {
+    expect(popup.getYouTubeVideoId('https://www.youtube.com/watch?v=VZTmS4B840k&t=420s')).toBe(
+      'VZTmS4B840k',
+    );
+    expect(popup.getYouTubeVideoId('https://www.youtube.com/watch?t=420s&v=VZTmS4B840k')).toBe(
+      'VZTmS4B840k',
+    );
+    expect(
+      popup.getYouTubeVideoId('https://www.youtube.com/watch?v=VZTmS4B840k&list=playlist-id'),
+    ).toBe('VZTmS4B840k');
+    expect(popup.getYouTubeVideoId('https://youtu.be/VZTmS4B840k?t=420')).toBe('VZTmS4B840k');
+    expect(popup.getYouTubeVideoId('https://example.com/watch?v=VZTmS4B840k')).toBeNull();
+  });
+
   it('filterRecordsForActivePage matches hash-normalized source URLs', () => {
     const records = [
       { key: 'a', sourceUrl: 'https://example.com/page#one' },
@@ -237,6 +251,39 @@ describe('popup pure functions', () => {
       'b',
       'c',
     ]);
+  });
+
+  it('filterRecordsForActivePage matches YouTube records by video id', () => {
+    const records = [
+      { key: 'watch', sourceUrl: 'https://www.youtube.com/watch?v=VZTmS4B840k' },
+      { key: 'timestamp', sourceUrl: 'https://www.youtube.com/watch?v=VZTmS4B840k&t=420s' },
+      { key: 'playlist', sourceUrl: 'https://www.youtube.com/watch?v=VZTmS4B840k&list=list-id' },
+      { key: 'short', sourceUrl: 'https://youtu.be/VZTmS4B840k?si=share-id' },
+      { key: 'other', sourceUrl: 'https://www.youtube.com/watch?v=other' },
+      { key: 'non-youtube', sourceUrl: 'https://example.com/watch?v=VZTmS4B840k' },
+    ];
+
+    expect(
+      popup
+        .filterRecordsForActivePage(
+          records,
+          'https://www.youtube.com/watch?v=VZTmS4B840k&t=999s&list=another-list',
+        )
+        .map((r) => r.key),
+    ).toEqual(['watch', 'timestamp', 'playlist', 'short']);
+  });
+
+  it('filterRecordsForActivePage keeps exact query matching for non-YouTube URLs', () => {
+    const records = [
+      { key: 'same', sourceUrl: 'https://example.com/watch?v=abc&t=420s' },
+      { key: 'different-query', sourceUrl: 'https://example.com/watch?v=abc' },
+    ];
+
+    expect(
+      popup
+        .filterRecordsForActivePage(records, 'https://example.com/watch?v=abc&t=420s')
+        .map((r) => r.key),
+    ).toEqual(['same']);
   });
 
   it('getActiveTab returns first active tab', async () => {
