@@ -30,6 +30,7 @@ import { closeModal } from './closeModal.js';
 import { useCanvasTransform, clampScale } from './useCanvasTransform.js';
 import { useCanvasAlignment } from './useCanvasAlignment.js';
 import { retryRecord, resolveSummaryErrors } from './utils/errorUtils.js';
+import { selectCurrentTopicSummary } from './utils/currentTopicSummary.js';
 import {
   buildTopicNavigationList,
   findTopicNavigationTarget,
@@ -73,20 +74,6 @@ function areSummaryMetricsEqual(prevMetrics, nextMetrics) {
     }
   }
   return true;
-}
-
-export function selectCurrentTopicSummary({
-  showSummaryMode,
-  activeTopicKey,
-  activeTopicCardKey,
-  allSummaryCards,
-}) {
-  if (showSummaryMode || !activeTopicKey) return null;
-  const cards = Array.isArray(allSummaryCards) ? allSummaryCards : [];
-  const card =
-    (activeTopicCardKey && cards.find((c) => c.key === activeTopicCardKey)) ||
-    cards.find((c) => c.path === activeTopicKey);
-  return card && card.text ? card : null;
 }
 
 /**

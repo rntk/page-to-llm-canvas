@@ -371,6 +371,10 @@ export function flushProcessingLog(key) {
  * @param {string} key
  * @param {string} stage
  * @param {Record<string, unknown>} [details]
+ * @param {{expectedPipelineRunId?: unknown}} [options]  Identifies the pipeline
+ *   run this entry belongs to; a buffer whose entries were queued under a
+ *   different run id is treated as stale and flushed before this entry starts
+ *   a new buffer under `options`.
  * @returns {Promise<object | null>}
  */
 export function appendProcessingLog(key, stage, details = {}, options = {}) {
@@ -382,7 +386,7 @@ export function appendProcessingLog(key, stage, details = {}, options = {}) {
     // under its own run id, instead of letting its entries ride along on this
     // call's options — otherwise they'd bypass the stale-run guard in
     // doFlushProcessingLog and get written in under the new run's identity.
-    flushProcessingLog(key);
+    void flushProcessingLog(key);
   }
   let buf = _logBuffers.get(key);
   if (!buf) {
@@ -394,7 +398,7 @@ export function appendProcessingLog(key, stage, details = {}, options = {}) {
   if (!_logFlushTimers.has(key)) {
     const timer = setTimeout(() => {
       _logFlushTimers.delete(key);
-      doFlushProcessingLog(key);
+      void doFlushProcessingLog(key);
     }, LOG_FLUSH_DELAY_MS);
     _logFlushTimers.set(key, timer);
   }

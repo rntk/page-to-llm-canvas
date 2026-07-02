@@ -312,6 +312,7 @@ export function chunkSourceSentences(sourceSentenceIds, sentenceTexts, maxChars)
  * @param {string[]} sentenceTexts
  * @param {<T>(fn: () => Promise<T>) => Promise<T>} limit
  * @param {AbortSignal|undefined} signal
+ * @param {boolean} [preferContentLanguage=false]  Whether the summary prompts should prefer the source content's language over the UI/default language.
  * @returns {(sourceSentenceIds: number[]) => Promise<{runs: Array<{sentences: number[], text: string}>}>}
  */
 function makeSourceSummarizer(sentenceTexts, limit, signal, preferContentLanguage = false) {

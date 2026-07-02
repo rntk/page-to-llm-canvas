@@ -226,7 +226,7 @@ function scheduleActionProgressIconRefresh() {
   if (_actionIconRefreshTimer) clearTimeout(_actionIconRefreshTimer);
   _actionIconRefreshTimer = setTimeout(() => {
     _actionIconRefreshTimer = null;
-    refreshActionProgressIcon();
+    void refreshActionProgressIcon();
   }, ACTION_ICON_REFRESH_DEBOUNCE_MS);
 }
 
@@ -784,4 +784,4 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
-refreshActionProgressIcon();
+void refreshActionProgressIcon();

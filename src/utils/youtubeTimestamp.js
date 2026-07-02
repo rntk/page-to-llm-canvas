@@ -11,7 +11,7 @@
 // as a standalone timestamp (e.g. "0:00", "19:37", "1:03:06").
 // The anchor or boundary constraints prevent matching ratios (16:9) or clock times (3:30 PM).
 const TIMESTAMP_RE =
-  /(?:^|\b)(\d{1,2}):([0-5]\d)(?::([0-5]\d))?(?=\s+\d+\s+(?:second|minute|hour)|(?:\s|$|\b)(?!\s*(?:[ap]\.?m\.?)))/i;
+  /(?:^|\b)(\d{1,2}):([0-5]\d)(?::([0-5]\d))?(?=\s+\d+\s+(?:second|minute|hour)|(?:\s|$|\b)(?!\s*[ap]\.?m\.?))/i;
 
 /**
  * Extract the YouTube video id from a watch/short/embed/youtu.be URL.

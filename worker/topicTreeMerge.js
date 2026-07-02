@@ -42,21 +42,14 @@
 // (LLM calls, logging) are injected, so this module performs no storage I/O and
 // is unit-testable with fakes.
 
-/**
- * Each summary is a list of per-run entries ({sentences, text}), one per
- * contiguous occurrence of the topic, rather than a single text blob.
- *
- * @param {object} params
- * @param {Map<string, {path: string, level: number, children: object[], sourceSentences: number[], summary?: object}>} params.nodes
- * @param {Record<string, {runs?: Array<{sentences: number[], text: string}>}>} params.leafSummaries  keyed by topic path
- * @param {(sourceSentenceIds: number[], info: {path: string}) => Promise<{runs: Array<{sentences: number[], text: string}>}>} params.summarizeSource
- * @param {(info: {path: string, error: unknown}) => (void | Promise<void>)} [params.onError]
- * @returns {Promise<Record<string, {runs: Array<{sentences: number[], text: string}>, level: number, source_sentences: number[]}>>}
- */
 // Splits a sorted set of 1-based sentence ids into contiguous runs (one per
 // non-adjacent occurrence). Duplicated from orchestrator.js intentionally — both
 // modules need it and importing it here would create a circular dependency
 // (orchestrator imports summarizeTopicTree from this module).
+/**
+ * @param {number[]} sentenceIds  1-based sentence ids (need not be pre-sorted).
+ * @returns {number[][]} The ids grouped into contiguous runs, each run sorted ascending.
+ */
 function splitContiguousRuns(sentenceIds) {
   const sorted = Array.isArray(sentenceIds) ? sentenceIds.slice().sort((a, b) => a - b) : [];
   const runs = [];
@@ -73,6 +66,17 @@ function splitContiguousRuns(sentenceIds) {
   return runs;
 }
 
+/**
+ * Each summary is a list of per-run entries ({sentences, text}), one per
+ * contiguous occurrence of the topic, rather than a single text blob.
+ *
+ * @param {object} params
+ * @param {Map<string, {path: string, level: number, children: object[], sourceSentences: number[], summary?: object}>} params.nodes
+ * @param {Record<string, {runs?: Array<{sentences: number[], text: string}>}>} params.leafSummaries  keyed by topic path
+ * @param {(sourceSentenceIds: number[], info: {path: string}) => Promise<{runs: Array<{sentences: number[], text: string}>}>} params.summarizeSource
+ * @param {(info: {path: string, error: unknown}) => (void | Promise<void>)} [params.onError]
+ * @returns {Promise<Record<string, {runs: Array<{sentences: number[], text: string}>, level: number, source_sentences: number[]}>>}
+ */
 export async function summarizeTopicTree({ nodes, leafSummaries, summarizeSource, onError }) {
   const summarizable = [...nodes.values()].filter((node) => node.path);
 
