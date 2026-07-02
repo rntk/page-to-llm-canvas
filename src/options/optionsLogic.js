@@ -74,22 +74,102 @@ export function updateProviderFormType(form, type, defaultModel = '') {
   };
 }
 
+
+
+const IMPORT_RECORD_ARRAY_KEYS = ['records', 'items'];
+const IMPORT_IN_FLIGHT_STATUSES = new Set(['pending', 'splitting', 'summarizing']);
+
+function createImportedRecordKey(index = 0) {
+  const suffix = index > 0 ? `-${index + 1}` : '';
+  return `imported-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${suffix}`;
+}
+
+/**
+ * Extracts record objects from an imported JSON payload. Supports a single
+ * record, `{ record }`, `{ records }`, or `{ items }` so older/export-wrapper
+ * shapes are accepted without another UI path.
+ *
+ * @param {unknown} payload
+ * @returns {Array<object>}
+ */
+export function extractImportedRecords(payload) {
+  if (Array.isArray(payload)) return payload.filter((item) => item && typeof item === 'object');
+  if (!payload || typeof payload !== 'object') return [];
+  if (payload.record && typeof payload.record === 'object') return [payload.record];
+  for (const key of IMPORT_RECORD_ARRAY_KEYS) {
+    if (!Array.isArray(payload[key])) continue;
+    const records = payload[key].filter((item) => item && typeof item === 'object');
+    if (records.length > 0) return records;
+  }
+  return [payload];
+}
+
 /**
  * @param {object|null|undefined} record
- * @returns {object}
+ * @returns {boolean}
  */
-export function buildRecordMetadata(record) {
-  if (!record || typeof record !== 'object') return {};
-  const {
-    html: _html,
-    text: _text,
-    sentences: _sentences,
-    topics: _topics,
-    topic_summaries: _topicSummaries,
-    topic_summary_index: _topicSummaryIndex,
-    ...metadata
-  } = record;
-  return metadata;
+export function isImportableRecord(record) {
+  return (
+    !!record &&
+    typeof record === 'object' &&
+    typeof record.key === 'string' &&
+    !!record.key.trim() &&
+    (typeof record.html === 'string' ||
+      typeof record.text === 'string' ||
+      Array.isArray(record.sentences) ||
+      Array.isArray(record.topics) ||
+      !!record.topic_summaries)
+  );
+}
+
+/**
+ * Deduplicates records by key. Later entries win because they are the values
+ * that would overwrite earlier entries in storage anyway.
+ *
+ * @param {Array<object>} records
+ * @returns {Array<object>}
+ */
+export function dedupeImportedRecords(records) {
+  const byKey = new Map();
+  for (const record of Array.isArray(records) ? records : []) {
+    if (isImportableRecord(record)) byKey.set(record.key.trim(), record);
+  }
+  return Array.from(byKey.values());
+}
+
+/**
+ * Normalizes imported records into storage-ready records that are immediately
+ * viewable and cannot resume the LLM pipeline.
+ *
+ * @param {unknown} payload
+ * @returns {Array<object>}
+ */
+export function normalizeImportedRecords(payload) {
+  const records = extractImportedRecords(payload);
+  return records
+    .map((record, index) => {
+      const key =
+        typeof record.key === 'string' && record.key.trim()
+          ? record.key.trim()
+          : createImportedRecordKey(index);
+      const status = IMPORT_IN_FLIGHT_STATUSES.has(record.status)
+        ? 'done'
+        : record.status || 'done';
+      return {
+        ...record,
+        key,
+        status,
+        error: status === 'done' ? null : record.error || null,
+        progress: {
+          ...(record.progress && typeof record.progress === 'object' ? record.progress : {}),
+          stage: 'imported',
+          done: 1,
+          total: 1,
+        },
+        importedAt: Date.now(),
+      };
+    })
+    .filter(isImportableRecord);
 }
 
 /**
@@ -106,7 +186,7 @@ export function safeFilenamePart(value) {
 
 /**
  * Returns the runtime message type and error fallback for a record action.
- * @param {'delete'|'reprocess'|'stop'|'open'|'exportMetadata'|string} action
+ * @param {'delete'|'reprocess'|'stop'|'open'|'exportData'|string} action
  * @returns {{messageType: string|null, errorMessage: string}}
  */
 export function recordActionRouting(action) {
@@ -119,7 +199,7 @@ export function recordActionRouting(action) {
 /**
  * Returns the error string to surface after a failed record action response.
  * @param {object|null|undefined} resp
- * @param {'delete'|'reprocess'|'stop'|'open'|'exportMetadata'|string} action
+ * @param {'delete'|'reprocess'|'stop'|'open'|'exportData'|string} action
  * @returns {string}
  */
 export function actionResponseError(resp, action) {
@@ -148,7 +228,7 @@ export function shouldWarnTokenWipe(editingProvider, form) {
  * Maps a record action string to the corresponding runtime message type.
  * Returns null for actions that do not send a runtime message.
  *
- * @param {'delete'|'reprocess'|'stop'|'open'|'exportMetadata'|string} action
+ * @param {'delete'|'reprocess'|'stop'|'open'|'exportData'|string} action
  * @returns {string|null}
  */
 export function actionToMessageType(action) {
@@ -156,7 +236,7 @@ export function actionToMessageType(action) {
     delete: 'deleteRecord',
     reprocess: 'reprocessRecord',
     stop: 'cancelRecordProcessing',
-    exportMetadata: 'getRecord',
+    exportData: 'getRecord',
   };
   return map[action] ?? null;
 }
@@ -165,7 +245,7 @@ export function actionToMessageType(action) {
  * Returns the confirm-dialog prompt for a given action, or null if the action
  * does not require a confirm dialog.
  *
- * @param {'delete'|'reprocess'|'stop'|'open'|'exportMetadata'|string} action
+ * @param {'delete'|'reprocess'|'stop'|'open'|'exportData'|string} action
  * @returns {string|null}
  */
 export function actionConfirmPrompt(action) {
@@ -180,7 +260,7 @@ export function actionConfirmPrompt(action) {
 /**
  * Returns the fallback error message for a failed action response.
  *
- * @param {'delete'|'reprocess'|'stop'|'open'|'exportMetadata'|string} action
+ * @param {'delete'|'reprocess'|'stop'|'open'|'exportData'|string} action
  * @returns {string}
  */
 export function actionErrorMessage(action) {
@@ -188,7 +268,7 @@ export function actionErrorMessage(action) {
     delete: 'Failed to delete record',
     reprocess: 'Failed to reprocess record',
     stop: 'Failed to stop processing record',
-    exportMetadata: 'Failed to export record metadata',
+    exportData: 'Failed to export record data',
   };
   return map[action] ?? 'Action failed';
 }

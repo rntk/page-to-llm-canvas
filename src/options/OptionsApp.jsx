@@ -12,10 +12,11 @@ import {
   providerToForm,
   updateProviderFormField,
   updateProviderFormType,
-  buildRecordMetadata,
   safeFilenamePart,
   actionResponseError,
   recordActionRouting,
+  normalizeImportedRecords,
+  dedupeImportedRecords,
 } from './optionsLogic.js';
 import { createThemeController, themeCycle, themeIcon, themeLabel } from '../../theme.js';
 import {
@@ -275,6 +276,11 @@ async function listProviders() {
 async function listRecords() {
   const resp = await sendMessage({ type: 'listRecords' });
   return (resp && resp.ok && resp.items) || [];
+}
+
+function readJsonFile(file) {
+  if (!file) return Promise.reject(new Error('No file selected'));
+  return file.text().then((text) => JSON.parse(text));
 }
 
 function downloadJsonFile(filename, value) {
@@ -556,6 +562,9 @@ export function OptionsApp() {
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [importMessage, setImportMessage] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+  const importInputRef = useRef(null);
 
   const applyRecords = useCallback((nextItems) => {
     setItems(nextItems);
@@ -583,6 +592,7 @@ export function OptionsApp() {
 
   const deleteAll = async () => {
     setError('');
+    setImportMessage('');
     if (!confirm('Delete ALL records?')) return;
     const resp = await sendMessage({ type: 'deleteAll' });
     if (!resp || !resp.ok) {
@@ -594,6 +604,7 @@ export function OptionsApp() {
 
   const runAction = async (action, key) => {
     setError('');
+    setImportMessage('');
 
     const confirmPrompt = actionConfirmPrompt(action);
     if (confirmPrompt !== null && !confirm(confirmPrompt)) return;
@@ -623,14 +634,63 @@ export function OptionsApp() {
       return;
     }
 
-    if (action === 'exportMetadata') {
+    if (action === 'exportData') {
       const resp = await sendMessage({ type: messageType, key });
       if (!resp || !resp.ok || !resp.record) {
         setError(actionResponseError(resp, action));
         return;
       }
-      const metadata = buildRecordMetadata(resp.record);
-      downloadJsonFile(`pagetollm-metadata-${safeFilenamePart(key)}.json`, metadata);
+      downloadJsonFile(`pagetollm-data-${safeFilenamePart(key)}.json`, resp.record);
+    }
+  };
+
+  const chooseImportFile = () => {
+    setError('');
+    setImportMessage('');
+    importInputRef.current?.click();
+  };
+
+  const importFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setError('');
+    setImportMessage('');
+    setIsImporting(true);
+    try {
+      const payload = await readJsonFile(file);
+      const records = dedupeImportedRecords(normalizeImportedRecords(payload));
+      if (records.length === 0) {
+        setError('No importable records found in that file');
+        return;
+      }
+      const existingKeys = new Set(items.map((item) => item.key));
+      const collisions = records.filter((record) => existingKeys.has(record.key));
+      if (
+        collisions.length > 0 &&
+        !confirm(
+          `Importing will overwrite ${collisions.length} existing ${
+            collisions.length === 1 ? 'record' : 'records'
+          }. Continue?`,
+        )
+      ) {
+        return;
+      }
+      const resp = await sendMessage({ type: 'importRecords', records });
+      if (!resp || !resp.ok) {
+        setError((resp && resp.error) || 'Failed to import records');
+        return;
+      }
+      const count = resp.count || records.length;
+      setImportMessage(`Imported ${count} ${count === 1 ? 'record' : 'records'}.`);
+      await loadRecords();
+    } catch (err) {
+      setError(
+        err instanceof SyntaxError ? 'Import file is not valid JSON' : 'Failed to import records',
+      );
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -651,14 +711,32 @@ export function OptionsApp() {
         <h2>Stored Records</h2>
         <div className="toolbar">
           <div className="note">Open dynamically inside a standalone tab.</div>
-          <button className="danger" type="button" onClick={deleteAll}>
-            Delete all
-          </button>
+          <div>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="application/json,.json"
+              onChange={importFile}
+              style={{ display: 'none' }}
+              aria-label="Import records JSON"
+            />
+            <button type="button" onClick={chooseImportFile} disabled={isImporting}>
+              {isImporting ? 'Importing...' : 'Import data'}
+            </button>{' '}
+            <button className="danger" type="button" onClick={deleteAll}>
+              Delete all
+            </button>
+          </div>
         </div>
         <div id="content">
           {error ? (
             <div className="form-error" style={{ marginBottom: '12px' }}>
               {error}
+            </div>
+          ) : null}
+          {importMessage ? (
+            <div className="note" style={{ marginBottom: '12px' }}>
+              {importMessage}
             </div>
           ) : null}
           {isLoading ? (
@@ -707,8 +785,8 @@ export function OptionsApp() {
                           </button>{' '}
                         </>
                       ) : null}
-                      <button type="button" onClick={() => runAction('exportMetadata', item.key)}>
-                        Export metadata
+                      <button type="button" onClick={() => runAction('exportData', item.key)}>
+                        Export data
                       </button>{' '}
                       <button
                         className="danger"

@@ -5,7 +5,10 @@ import {
   providerToForm,
   updateProviderFormField,
   updateProviderFormType,
-  buildRecordMetadata,
+  dedupeImportedRecords,
+  extractImportedRecords,
+  isImportableRecord,
+  normalizeImportedRecords,
   safeFilenamePart,
   recordActionRouting,
   actionResponseError,
@@ -107,26 +110,7 @@ describe('provider form helpers', () => {
 // ---------------------------------------------------------------------------
 
 describe('record helpers', () => {
-  it('strips content and summary payload fields from record metadata', () => {
-    expect(
-      buildRecordMetadata({
-        key: 'k1',
-        html: '<div>ignore</div>',
-        text: 'ignore',
-        sentences: [{ text: 'ignore' }],
-        topics: [{ name: 'ignore' }],
-        topic_summaries: { T: { text: 'ignore' } },
-        topic_summary_index: ['T'],
-        sourceUrl: 'https://example.com',
-        createdAt: 123,
-      }),
-    ).toEqual({ key: 'k1', sourceUrl: 'https://example.com', createdAt: 123 });
-  });
 
-  it('returns an empty object for non-object records', () => {
-    expect(buildRecordMetadata(null)).toEqual({});
-    expect(buildRecordMetadata('nope')).toEqual({});
-  });
 
   it('generates a safe filename part from arbitrary values', () => {
     expect(safeFilenamePart('page:one/two?three')).toBe('page-one-two-three');
@@ -136,6 +120,70 @@ describe('record helpers', () => {
 
   it('truncates long filename parts to 80 characters', () => {
     expect(safeFilenamePart('a'.repeat(200))).toHaveLength(80);
+  });
+
+  it('extracts imported records from supported JSON wrapper shapes', () => {
+    const record = { key: 'r1', text: 'hello' };
+    expect(extractImportedRecords(record)).toEqual([record]);
+    expect(extractImportedRecords({ record })).toEqual([record]);
+    expect(extractImportedRecords({ records: [record, null, 'bad'] })).toEqual([record]);
+    expect(extractImportedRecords({ items: [record] })).toEqual([record]);
+    expect(extractImportedRecords({ records: [], items: [record] })).toEqual([record]);
+    expect(extractImportedRecords(null)).toEqual([]);
+  });
+
+  it('checks whether an imported record has enough data to open', () => {
+    expect(isImportableRecord({ key: 'r1', html: '<p>hello</p>' })).toBe(true);
+    expect(isImportableRecord({ key: 'r1', text: 'hello' })).toBe(true);
+    expect(isImportableRecord({ key: 'r1', topics: [] })).toBe(true);
+    expect(isImportableRecord({ key: 'r1', topic_summaries: {} })).toBe(true);
+    expect(isImportableRecord({ key: 'r1', sourceUrl: 'https://example.com' })).toBe(false);
+    expect(isImportableRecord({ key: '   ', text: 'hello' })).toBe(false);
+  });
+
+  it('deduplicates imported records by key with later entries winning', () => {
+    expect(
+      dedupeImportedRecords([
+        { key: 'r1', text: 'old' },
+        { key: 'r2', text: 'other' },
+        { key: 'r1', text: 'new' },
+        { key: 'metadata-only', sourceUrl: 'https://example.com' },
+      ]),
+    ).toEqual([
+      { key: 'r1', text: 'new' },
+      { key: 'r2', text: 'other' },
+    ]);
+  });
+
+  it('normalizes imported records into viewable non-pipeline records', () => {
+    const [record] = normalizeImportedRecords({
+      key: ' rec1 ',
+      text: 'raw text',
+      topics: [{ name: 'Topic', sentences: [1] }],
+      topic_summaries: { Topic: { text: 'summary' } },
+      status: 'summarizing',
+      error: 'still running',
+      progress: { stage: 'summarizing_topics', done: 0, total: 4 },
+    });
+
+    expect(record).toEqual(
+      expect.objectContaining({
+        key: 'rec1',
+        status: 'done',
+        error: null,
+        text: 'raw text',
+        topics: [{ name: 'Topic', sentences: [1] }],
+        topic_summaries: { Topic: { text: 'summary' } },
+        progress: { stage: 'imported', done: 1, total: 1 },
+      }),
+    );
+    expect(record.importedAt).toEqual(expect.any(Number));
+  });
+
+  it('rejects JSON payloads that do not include record content, topics, or summaries', () => {
+    expect(
+      normalizeImportedRecords({ key: 'metadata-only', sourceUrl: 'https://example.com' }),
+    ).toEqual([]);
   });
 });
 
@@ -160,7 +208,6 @@ describe('record action routing', () => {
 
   it('returns the runtime fallback error for message-based actions with custom response text', () => {
     expect(actionResponseError({ error: 'nope' }, 'reprocess')).toBe('nope');
-    expect(actionResponseError(null, 'exportMetadata')).toBe('Failed to export record metadata');
   });
 });
 
@@ -232,8 +279,8 @@ describe('actionToMessageType', () => {
     expect(actionToMessageType('stop')).toBe('cancelRecordProcessing');
   });
 
-  it('maps exportMetadata to getRecord', () => {
-    expect(actionToMessageType('exportMetadata')).toBe('getRecord');
+  it('maps exportData to getRecord', () => {
+    expect(actionToMessageType('exportData')).toBe('getRecord');
   });
 
   it('returns null for open (no message type)', () => {
@@ -273,10 +320,6 @@ describe('actionConfirmPrompt', () => {
     expect(actionConfirmPrompt('open')).toBeNull();
   });
 
-  it('returns null for exportMetadata (no confirmation needed)', () => {
-    expect(actionConfirmPrompt('exportMetadata')).toBeNull();
-  });
-
   it('returns null for unknown actions', () => {
     expect(actionConfirmPrompt('unknownAction')).toBeNull();
   });
@@ -299,8 +342,8 @@ describe('actionErrorMessage', () => {
     expect(actionErrorMessage('stop')).toBe('Failed to stop processing record');
   });
 
-  it('returns appropriate message for exportMetadata', () => {
-    expect(actionErrorMessage('exportMetadata')).toBe('Failed to export record metadata');
+  it('returns appropriate message for exportData', () => {
+    expect(actionErrorMessage('exportData')).toBe('Failed to export record data');
   });
 
   it('returns a generic fallback for unknown actions', () => {

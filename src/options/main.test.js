@@ -95,7 +95,9 @@ describe('options main.jsx', () => {
       expect.any(Function),
     );
 
-    const deleteBtn = rows[0].querySelectorAll('button')[3];
+    const deleteBtn = Array.from(rows[0].querySelectorAll('button')).find(
+      (button) => button.textContent === 'Delete',
+    );
     deleteBtn.click();
     expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('Delete this record'));
     expect(sendMessageMock).toHaveBeenCalledWith(
@@ -141,8 +143,8 @@ describe('options main.jsx', () => {
     );
   });
 
-  it('exports a stored record metadata JSON file without split storage payload fields', async () => {
-    const createObjectURLMock = vi.fn(() => 'blob:metadata-json');
+  it('exports a full stored record data JSON file', async () => {
+    const createObjectURLMock = vi.fn(() => 'blob:data-json');
     const revokeObjectURLMock = vi.fn();
     const originalCreateObjectURL = URL.createObjectURL;
     const originalRevokeObjectURL = URL.revokeObjectURL;
@@ -164,11 +166,9 @@ describe('options main.jsx', () => {
         text: 'raw text',
         sentences: [{ text: 'raw sentence' }],
         status: 'done',
-        selectors: ['main article'],
         topics: [{ name: 'Topic', sentences: [1] }],
         topic_summaries: { Topic: { text: 'raw summary' } },
         topic_summary_index: ['Topic'],
-        processingLog: [{ stage: 'pipeline_start' }],
         createdAt: 1716972000000,
       };
 
@@ -199,7 +199,7 @@ describe('options main.jsx', () => {
 
       const row = document.querySelector('tbody tr');
       const exportBtn = Array.from(row.querySelectorAll('button')).find(
-        (button) => button.textContent === 'Export metadata',
+        (button) => button.textContent === 'Export data',
       );
       exportBtn.click();
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -208,25 +208,10 @@ describe('options main.jsx', () => {
         { type: 'getRecord', key: 'rec1' },
         expect.any(Function),
       );
-      expect(createObjectURLMock).toHaveBeenCalledWith(expect.any(Blob));
-      const blob = createObjectURLMock.mock.calls[0][0];
-      const exported = JSON.parse(await blob.text());
-      expect(exported).toEqual({
-        key: 'rec1',
-        sourceUrl: 'https://example.com/post',
-        status: 'done',
-        selectors: ['main article'],
-        processingLog: [{ stage: 'pipeline_start' }],
-        createdAt: 1716972000000,
-      });
-      expect(exported).not.toHaveProperty('html');
-      expect(exported).not.toHaveProperty('text');
-      expect(exported).not.toHaveProperty('sentences');
-      expect(exported).not.toHaveProperty('topics');
-      expect(exported).not.toHaveProperty('topic_summaries');
-      expect(exported).not.toHaveProperty('topic_summary_index');
+      const exported = JSON.parse(await createObjectURLMock.mock.calls[0][0].text());
+      expect(exported).toEqual(record);
       expect(clickMock).toHaveBeenCalledTimes(1);
-      expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:metadata-json');
+      expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:data-json');
     } finally {
       clickMock.mockRestore();
       Object.defineProperty(URL, 'createObjectURL', {
@@ -238,6 +223,126 @@ describe('options main.jsx', () => {
         value: originalRevokeObjectURL,
       });
     }
+  });
+
+  it('imports a full record data JSON file without preserving in-flight status', async () => {
+    const record = {
+      key: 'rec1',
+      sourceUrl: 'https://example.com/post',
+      html: '<p>raw html</p>',
+      text: 'raw text',
+      sentences: [{ text: 'raw sentence' }],
+      status: 'summarizing',
+      topics: [{ name: 'Topic', sentences: [1] }],
+      topic_summaries: { Topic: { text: 'raw summary' } },
+      topic_summary_index: ['Topic'],
+      createdAt: 1716972000000,
+    };
+
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') {
+        cb({ ok: true, items: [] });
+      } else if (msg.type === 'importRecords') {
+        cb({ ok: true, count: msg.records.length });
+      } else if (msg.type === 'listProviders') {
+        cb({ ok: true, providers: [], activeId: null });
+      }
+    });
+
+    await import('./main.jsx');
+    await waitFor(() => {
+      expect(document.querySelector('input[type="file"]')).not.toBeNull();
+    });
+
+    const file = new File([JSON.stringify(record)], 'pagetollm-data-rec1.json', {
+      type: 'application/json',
+    });
+    const input = document.querySelector('input[type="file"]');
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [file],
+    });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'importRecords' }),
+        expect.any(Function),
+      );
+    });
+
+    const importMessage = sendMessageMock.mock.calls.find(
+      ([msg]) => msg.type === 'importRecords',
+    )[0];
+    expect(importMessage.records).toHaveLength(1);
+    expect(importMessage.records[0]).toEqual(
+      expect.objectContaining({
+        key: 'rec1',
+        status: 'done',
+        error: null,
+        html: '<p>raw html</p>',
+        topics: [{ name: 'Topic', sentences: [1] }],
+        topic_summaries: { Topic: { text: 'raw summary' } },
+        progress: { stage: 'imported', done: 1, total: 1 },
+      }),
+    );
+    expect(document.body.textContent).toContain('Imported 1 record.');
+  });
+
+  it('asks before an imported record overwrites an existing key', async () => {
+    confirmMock.mockReturnValueOnce(false);
+    const record = {
+      key: 'rec1',
+      sourceUrl: 'https://example.com/post',
+      html: '<p>raw html</p>',
+      text: 'raw text',
+      status: 'done',
+      topics: [{ name: 'Topic', sentences: [1] }],
+      topic_summaries: { Topic: { text: 'raw summary' } },
+    };
+
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') {
+        cb({
+          ok: true,
+          items: [
+            {
+              key: 'rec1',
+              sourceUrl: 'https://example.com/existing',
+              createdAt: 1716972000000,
+              status: 'done',
+            },
+          ],
+        });
+      } else if (msg.type === 'importRecords') {
+        cb({ ok: true, count: msg.records.length });
+      } else if (msg.type === 'listProviders') {
+        cb({ ok: true, providers: [], activeId: null });
+      }
+    });
+
+    await import('./main.jsx');
+    await waitFor(() => {
+      expect(document.querySelector('input[type="file"]')).not.toBeNull();
+      expect(document.querySelector('tbody tr')).not.toBeNull();
+    });
+
+    const file = new File([JSON.stringify(record)], 'pagetollm-data-rec1.json', {
+      type: 'application/json',
+    });
+    const input = document.querySelector('input[type="file"]');
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [file],
+    });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(confirmMock).toHaveBeenCalledWith(
+      expect.stringContaining('overwrite 1 existing record'),
+    );
+    expect(sendMessageMock.mock.calls.some(([msg]) => msg.type === 'importRecords')).toBe(false);
   });
 
   it('handles empty record list', async () => {

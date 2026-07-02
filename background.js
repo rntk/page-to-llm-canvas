@@ -52,6 +52,20 @@ function isInFlightRecord(record) {
   return !!record && IN_FLIGHT_STATUSES.has(record.status);
 }
 
+function isImportableRecord(record) {
+  return (
+    !!record &&
+    typeof record === 'object' &&
+    typeof record.key === 'string' &&
+    !!record.key.trim() &&
+    (typeof record.html === 'string' ||
+      typeof record.text === 'string' ||
+      Array.isArray(record.sentences) ||
+      Array.isArray(record.topics) ||
+      !!record.topic_summaries)
+  );
+}
+
 /**
  * Returns a copy of the topic-summaries map with every in-flight error marker
  * (the `error` flag and its reason fields) removed, so the failed leaves are
@@ -608,6 +622,45 @@ export const MESSAGE_HANDLERS = {
     async handle() {
       const items = await listRecords();
       return { ok: true, items };
+    },
+  },
+
+  importRecords: {
+    requiresExtensionPage: true,
+    validate: () => null,
+    async handle(msg) {
+      const records = Array.isArray(msg.records) ? msg.records : [];
+      if (records.length === 0) return { ok: false, error: 'no records to import' };
+
+      let count = 0;
+      const recordsByKey = new Map();
+      for (const record of records) {
+        if (!isImportableRecord(record)) continue;
+        recordsByKey.set(record.key.trim(), record);
+      }
+
+      for (const record of recordsByKey.values()) {
+        const key = record.key.trim();
+        const status = IN_FLIGHT_STATUSES.has(record.status) ? 'done' : record.status || 'done';
+        cancelActivePipeline(key);
+        await writeRecord({
+          ...record,
+          key,
+          pipelineRunId: createPipelineRunId(),
+          status,
+          error: status === 'done' ? null : record.error || null,
+          progress: {
+            ...(record.progress && typeof record.progress === 'object' ? record.progress : {}),
+            stage: 'imported',
+            done: 1,
+            total: 1,
+          },
+        });
+        count += 1;
+      }
+
+      if (count === 0) return { ok: false, error: 'no valid records to import' };
+      return { ok: true, count };
     },
   },
 

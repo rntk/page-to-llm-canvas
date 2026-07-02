@@ -992,6 +992,79 @@ describe('dispatchMessage unit tests', () => {
     expect(index == null || index.keys?.length === 0).toBe(true);
   });
 
+  it('imports only valid records, dedupes duplicate keys, and reports the stored count', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+    const sender = { url: 'chrome-extension://test-id/options.html' };
+
+    const res = await dispatchMessage(
+      {
+        type: 'importRecords',
+        records: [
+          { key: 'dup', text: 'old' },
+          { key: 'metadata-only', sourceUrl: 'https://example.com' },
+          { key: 'dup', text: 'new' },
+        ],
+      },
+      sender,
+    );
+
+    expect(res).toEqual({ ok: true, count: 1 });
+    const stored = await readRecord('dup');
+    expect(stored.text).toBe('new');
+    expect(await readRecord('metadata-only')).toBeNull();
+  });
+
+  it('rejects import batches with no importable records', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+    const sender = { url: 'chrome-extension://test-id/options.html' };
+
+    const res = await dispatchMessage(
+      { type: 'importRecords', records: [{ key: 'empty', sourceUrl: 'https://example.com' }] },
+      sender,
+    );
+
+    expect(res).toEqual({ ok: false, error: 'no valid records to import' });
+    expect(await readRecord('empty')).toBeNull();
+  });
+
+  it('imports records with a fresh pipelineRunId so stale pipeline writes cannot match', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+    const sender = { url: 'chrome-extension://test-id/options.html' };
+
+    await seedRecord(
+      chromeMock,
+      makeRecord('imported', {
+        status: 'summarizing',
+        pipelineRunId: 'run-old',
+      }),
+    );
+
+    const res = await dispatchMessage(
+      {
+        type: 'importRecords',
+        records: [
+          {
+            key: 'imported',
+            text: 'imported text',
+            status: 'summarizing',
+            pipelineRunId: 'run-old',
+          },
+        ],
+      },
+      sender,
+    );
+
+    expect(res).toEqual({ ok: true, count: 1 });
+    const stored = await readRecord('imported');
+    expect(stored.status).toBe('done');
+    expect(stored.text).toBe('imported text');
+    expect(stored.pipelineRunId).not.toBe('run-old');
+    expect(stored.progress).toEqual({ stage: 'imported', done: 1, total: 1 });
+  });
+
   it('validates ensurePipeline and llmChatCompletion inputs', async () => {
     const chromeMock = makeChromeMock();
     const dispatchMessage = await loadDispatchMessage(chromeMock);
