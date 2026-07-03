@@ -103,7 +103,10 @@
   background: var(--th-surface);
   color: var(--th-accent);
   font-size: 12px;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    color 0.15s;
 }
 
 .th-page__level-switcher .topic-level-switcher__button:hover {
@@ -281,7 +284,10 @@
   text-overflow: ellipsis;
   user-select: none;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    filter 0.2s ease;
 }
 
 .th-node__label:hover {
@@ -424,7 +430,10 @@
   overflow: hidden;
   user-select: none;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    filter 0.2s ease;
 }
 
 .th-leaf:hover {
@@ -601,7 +610,10 @@
   cursor: pointer;
   font-size: 18px;
   line-height: 1;
-  transition: all 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
 }
 
 .th-text-pane__close:hover {
@@ -759,7 +771,9 @@
 .th-leaf-summary,
 .th-node__summary {
   cursor: pointer;
-  transition: color 0.15s ease, text-decoration 0.15s ease;
+  transition:
+    color 0.15s ease,
+    text-decoration 0.15s ease;
 }
 
 .th-leaf-summary:hover,
@@ -901,7 +915,9 @@
   justify-content: center;
   cursor: pointer;
   z-index: 10;
-  transition: color 0.15s, transform 0.15s;
+  transition:
+    color 0.15s,
+    transform 0.15s;
 }
 
 .th-summary-modal__close-btn:hover {
@@ -920,4 +936,3 @@
     opacity: 1;
   }
 }
-

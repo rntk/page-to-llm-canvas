@@ -538,7 +538,7 @@ body.canvas-global-dragging * {
   cursor: pointer;
   outline: none;
   font-size: 12px;
-  color: var(--ink-low);
+  color: var(--on-surface-muted);
   user-select: none;
 }
 
@@ -546,7 +546,7 @@ body.canvas-global-dragging * {
   margin-top: 6px;
   padding: 8px;
   background: var(--surface-low);
-  border: 1px solid var(--surface-border);
+  border: 1px solid var(--ghost);
   max-height: 150px;
   overflow: auto;
   font-size: 11px;
@@ -580,13 +580,15 @@ body.canvas-global-dragging * {
 }
 
 /* Secondary: outlined (same chrome as close, distinct from primary retry) */
-.pagetollm-spinner-skip-btn {
+.pagetollm-spinner-skip-btn,
+.pagetollm-spinner-close-btn {
   background: var(--surface);
   color: var(--ink);
   border: 1px solid var(--ink);
 }
 
-.pagetollm-spinner-skip-btn:hover:not(:disabled) {
+.pagetollm-spinner-skip-btn:hover:not(:disabled),
+.pagetollm-spinner-close-btn:hover:not(:disabled) {
   background: var(--surface-low);
 }
 
@@ -605,7 +607,7 @@ body.canvas-global-dragging * {
   flex-direction: column;
   gap: 2px;
   padding: 6px 8px;
-  border: 1px solid var(--surface-border);
+  border: 1px solid var(--ghost);
   background: var(--surface-low);
   margin-bottom: 6px;
 }
@@ -618,7 +620,7 @@ body.canvas-global-dragging * {
 
 .pagetollm-summary-errors-reason {
   font-size: 11px;
-  color: var(--ink-low);
+  color: var(--on-surface-muted);
 }
 
 /* Primary: ink fill */
@@ -631,17 +633,6 @@ body.canvas-global-dragging * {
 .pagetollm-spinner-retry-btn:hover {
   background: var(--surface);
   color: var(--ink);
-}
-
-/* Secondary: outlined */
-.pagetollm-spinner-close-btn {
-  background: var(--surface);
-  color: var(--ink);
-  border: 1px solid var(--ink);
-}
-
-.pagetollm-spinner-close-btn:hover {
-  background: var(--surface-low);
 }
 
 /* ── Normal view (sentence list) ───────────────────────────────────────── */
