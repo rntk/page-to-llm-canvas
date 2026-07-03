@@ -579,6 +579,23 @@ async function refineOversizedRanges(context, groups, sentenceTexts) {
   return regrouped;
 }
 
+/**
+ * Formats an error for storage/display, always leading with the human-readable
+ * message. Chrome's `Error#stack` starts with `"Name: message"`, but Firefox's
+ * omits that header entirely and is just raw stack frames — relying on `stack`
+ * alone silently drops the message there, leaving only unreadable frame lines.
+ *
+ * @param {unknown} e
+ * @returns {string}
+ */
+function formatPipelineError(e) {
+  if (e == null) return 'Unknown error';
+  const message = (e && e.message) || String(e);
+  const stack = typeof e?.stack === 'string' ? e.stack : '';
+  if (!stack) return message;
+  return stack.includes(message) ? stack : `${message}\n${stack}`;
+}
+
 export async function runPipeline(key, options = {}) {
   const context = {
     key,
@@ -638,12 +655,13 @@ export async function runPipeline(key, options = {}) {
     if (e?.name === 'AbortError') {
       return;
     }
+    const formattedError = formatPipelineError(e);
     await logPipeline(context, 'pipeline_error', {
-      error: String(e && e.stack ? e.stack : e),
+      error: formattedError,
     });
     await updatePipelineRecord(context, {
       status: 'error',
-      error: String(e && e.stack ? e.stack : e),
+      error: formattedError,
     }).catch((writeErr) => {
       console.error('PageToLLM Canvas: failed to persist error status to storage:', writeErr);
     });
