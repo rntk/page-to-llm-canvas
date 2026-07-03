@@ -729,16 +729,8 @@ export function OptionsApp() {
           </div>
         </div>
         <div id="content">
-          {error ? (
-            <div className="form-error" style={{ marginBottom: '12px' }}>
-              {error}
-            </div>
-          ) : null}
-          {importMessage ? (
-            <div className="note" style={{ marginBottom: '12px' }}>
-              {importMessage}
-            </div>
-          ) : null}
+          {error ? <div className="form-error form-error--stacked">{error}</div> : null}
+          {importMessage ? <div className="note note--stacked">{importMessage}</div> : null}
           {isLoading ? (
             <div className="empty">Loading records...</div>
           ) : items.length === 0 ? (

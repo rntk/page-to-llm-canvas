@@ -60,7 +60,7 @@ html,
 body {
   margin: 0;
   padding: 0;
-  width: 100vw;
+  width: 100%;
   height: 100%;
   min-height: 100vh;
   background: var(--surface);
@@ -74,7 +74,7 @@ body {
 
 #pagetollm-root,
 .pagetollm-modal-root {
-  width: 100vw;
+  width: 100%;
   height: 100%;
   min-height: 100vh;
   display: flex;
@@ -265,10 +265,6 @@ body.canvas-global-dragging * {
   color: var(--on-surface);
 }
 
-.pagetollm-article-text .pagetollm-text-block {
-  margin: 0;
-}
-
 /* Re-rendered original article markup. Keep the source structure but constrain
    media and reset a few things so it reads well on the canvas sheet. */
 .pagetollm-article-html {
@@ -387,11 +383,6 @@ body.canvas-global-dragging * {
   grid-template-columns: 32px 32px;
   gap: 4px;
   justify-content: end;
-}
-
-.canvas-navigation-grid__slot {
-  width: 32px;
-  height: 32px;
 }
 
 .canvas-controls.is-horizontal .canvas-navigation-grid {
@@ -635,20 +626,7 @@ body.canvas-global-dragging * {
   color: var(--ink);
 }
 
-/* ── Normal view (sentence list) ───────────────────────────────────────── */
-
-.pagetollm-normal-view {
-  max-width: 800px;
-  margin: 0 auto;
-  line-height: 1.55;
-  font-size: 15px;
-  color: var(--on-surface);
-}
-
-.pagetollm-text-block {
-  margin: 0;
-  line-height: 1.7;
-}
+/* ── Sentence highlights (normal view) ─────────────────────────────────── */
 
 /* Hover must read as stronger than the resting highlight below, so it uses the
    active (higher-alpha) tint rather than the lighter hover tint. */
@@ -1059,6 +1037,12 @@ body.canvas-global-dragging * {
   width: 1.27em;
   height: 1.27em;
   flex: 0 0 auto;
+}
+
+/* Tabular figures so timestamps of the same format render at the exact same
+   width (paired with the uniform label format from formatTimestampLabel). */
+.canvas-youtube-timestamp__label {
+  font-variant-numeric: tabular-nums;
 }
 
 /* The rail summary card counter-scales its text on zoom-out (getSummaryFontSizes
