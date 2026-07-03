@@ -665,16 +665,19 @@ export default function App({ initialKey }) {
     [skipNextAlignment],
   );
   const handleZoomIn = useCallback(() => {
+    userMovedCanvasRef.current = true;
     setTransformNow(clampScale((scaleRef.current || 1) * 1.2), translateRef.current);
-  }, [setTransformNow, scaleRef, translateRef]);
+  }, [setTransformNow, scaleRef, translateRef, userMovedCanvasRef]);
 
   const handleZoomOut = useCallback(() => {
+    userMovedCanvasRef.current = true;
     setTransformNow(clampScale((scaleRef.current || 1) / 1.2), translateRef.current);
-  }, [setTransformNow, scaleRef, translateRef]);
+  }, [setTransformNow, scaleRef, translateRef, userMovedCanvasRef]);
 
   const handleReset = useCallback(() => {
+    userMovedCanvasRef.current = true;
     setTransformNow(1, { x: 40, y: 40 });
-  }, [setTransformNow]);
+  }, [setTransformNow, userMovedCanvasRef]);
 
   const panToTopic = useCallback(
     (card) => {
