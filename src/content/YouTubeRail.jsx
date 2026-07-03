@@ -218,7 +218,7 @@ export default function YouTubeRail({
                 ]
                   .filter(Boolean)
                   .join(' ')}
-                style={{ borderColor: card.accent, '--pagetollm-card-accent': card.accent }}
+                style={{ '--pagetollm-card-accent': card.accent }}
                 onClick={() => onSeek(card.seconds)}
                 title={`Jump to ${formatTimestampLabel(card.seconds)}`}
               >

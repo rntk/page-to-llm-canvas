@@ -515,7 +515,7 @@ body.pagetollm-rail-open {
   box-sizing: border-box;
   width: 100%;
   background: var(--surface);
-  border: 1px solid var(--ghost);
+  border: 1px solid transparent;
   border-left: 4px solid var(--pagetollm-card-accent, var(--ink));
   border-radius: 0;
   padding: 8px 10px;
