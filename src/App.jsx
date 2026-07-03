@@ -95,6 +95,13 @@ export default function App({ initialKey }) {
   const [hoveredTopicKey, setHoveredTopicKey] = useState(null);
   const [hoveredTopicCardKey, setHoveredTopicCardKey] = useState(null);
   const [selectedLevel, setSelectedLevel] = useState(0);
+  // Drives the one-time "opening view" setup below: leaf-level rail, zoomed out
+  // enough to see a few levels of cards at once, first topic's summary shown.
+  // Split into phases (rather than one effect) because each step depends on
+  // state set by the previous one having actually committed and re-rendered
+  // (e.g. the topic cards for the leaf level only exist after `selectedLevel`
+  // itself has updated) — a single effect closure would read stale values.
+  const [initialViewPhase, setInitialViewPhase] = useState('pending');
   const [sentenceMetrics, setSentenceMetrics] = useState(() => new Map());
   const sentenceMetricsRef = useRef(sentenceMetrics);
   const pendingZoomSentenceRef = useRef(null);
@@ -119,6 +126,7 @@ export default function App({ initialKey }) {
     canvasWrapElRef,
     scaleRef,
     translateRef,
+    userMovedCanvasRef,
     handleMouseDown,
     setTransformNow,
     navigateCanvas,
@@ -780,6 +788,68 @@ export default function App({ initialKey }) {
 
   // Canvas alignment (centering + anti-jump continuity) is owned by
   // useCanvasAlignment above.
+
+  // ── Opening view: leaf level, zoomed out ~3 clicks, first topic's summary ──
+  // Phase 1: once the article and its topic hierarchy are measured, jump the
+  // level switcher straight to the leaf level (mirrors clicking it manually).
+  useEffect(() => {
+    if (initialViewPhase !== 'pending') return;
+    if (!isDone || topics.length === 0 || sentenceMetrics.size === 0) return;
+    // The user already touched the canvas (panned/zoomed/switched level) while
+    // this settled — don't yank their view out from under them.
+    if (userMovedCanvasRef.current || selectedLevel !== 0) {
+      setInitialViewPhase('done');
+      return;
+    }
+    if (maxLevel > 0) {
+      setSelectedLevel(maxLevel);
+    }
+    setInitialViewPhase('level-set');
+  }, [initialViewPhase, isDone, topics, sentenceMetrics, maxLevel, selectedLevel, userMovedCanvasRef]);
+
+  // Phase 2: once the leaf level has actually committed, zoom out the
+  // equivalent of 3 "-" clicks so a few levels of cards fit on screen.
+  useEffect(() => {
+    if (initialViewPhase !== 'level-set') return;
+    if (maxLevel > 0 && selectedLevel !== maxLevel) return;
+    setTransformNow(clampScale((scaleRef.current || 1) / 1.2 ** 3), translateRef.current);
+    setInitialViewPhase('zoomed');
+  }, [initialViewPhase, selectedLevel, maxLevel, setTransformNow, scaleRef, translateRef]);
+
+  // Phase 3: with the leaf-level cards and zoom settled, select the first
+  // topic — same as clicking "First topic" once — so its summary is visible.
+  useEffect(() => {
+    if (initialViewPhase !== 'zoomed') return;
+    const list = buildTopicNavigationList({
+      showSummaryMode,
+      summaryCards,
+      topicCards: zoomAdjustedTopicCards,
+      selectedLevel,
+    });
+    const targetCard = findTopicNavigationTarget({
+      list,
+      selectedNavigationKey: null,
+      selectedTopicKey: null,
+      direction: 'first',
+      currentY: 0,
+      showSummaryMode,
+      summaryMetricsState,
+    });
+    if (targetCard) {
+      setSelectedTopicKey(getTopicNavigationTopicKey(targetCard, showSummaryMode));
+      setSelectedTopicCardKey(getTopicNavigationCardKey(targetCard, showSummaryMode));
+      panToTopic(targetCard);
+    }
+    setInitialViewPhase('done');
+  }, [
+    initialViewPhase,
+    showSummaryMode,
+    summaryCards,
+    zoomAdjustedTopicCards,
+    selectedLevel,
+    summaryMetricsState,
+    panToTopic,
+  ]);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
