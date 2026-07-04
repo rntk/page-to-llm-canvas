@@ -47,8 +47,8 @@
   align-items: center;
   justify-content: space-between;
   flex: 0 0 auto;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 6px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--th-border-strong);
   background: var(--th-surface);
 }
@@ -56,7 +56,7 @@
 .th-page__title {
   margin: 0;
   color: var(--th-title);
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -64,14 +64,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 27px;
+  height: 27px;
   border: 1px solid var(--th-border-strong);
   border-radius: 0;
   background: var(--th-surface);
   color: var(--th-accent);
   cursor: pointer;
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 700;
   line-height: 1;
 }
@@ -84,9 +84,9 @@
 
 .th-page__actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   margin-left: auto;
-  margin-right: 8px;
+  margin-right: 6px;
 }
 
 /* Re-theme the shared TopicLevelSwitcher to the hierarchy's paper/ink chrome so
@@ -94,15 +94,16 @@
    only the colors/sizing are overridden here). */
 .th-page__level-switcher .topic-level-switcher__label {
   color: var(--th-muted);
+  font-size: 10px;
 }
 
 .th-page__level-switcher .topic-level-switcher__button {
-  height: 32px;
-  padding: 0 10px;
+  height: 27px;
+  padding: 0 8px;
   border-color: var(--th-border-strong);
   background: var(--th-surface);
   color: var(--th-accent);
-  font-size: 12px;
+  font-size: 10px;
   transition:
     background-color 0.15s,
     border-color 0.15s,
@@ -125,7 +126,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 16px;
+  padding: 6px;
 }
 
 .th-page__state {
