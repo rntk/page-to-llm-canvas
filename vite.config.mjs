@@ -7,6 +7,7 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   test: {
     exclude: ['**/node_modules/**', '**/dist/**', '**/.{git,cache,output,temp}/**'],
+    setupFiles: ['test/setup.fast-check.mjs'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'json-summary'],

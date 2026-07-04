@@ -15,44 +15,38 @@ describe('youtubeTimestamp properties', () => {
       fc.assert(
         fc.property(fc.string(), (urlStr) => {
           expect(() => getYouTubeVideoId(urlStr)).not.toThrow();
-        }),
-        { numRuns: 300 }
+        })
       );
+    });
+
+    // YouTube IDs are typically 11 chars; minLength 1 guarantees every run asserts.
+    const videoIdArb = fc.string({
+      unit: fc.constantFrom('a', 'b', 'c', '1', '2', '3', '-', '_'),
+      minLength: 1,
+      maxLength: 11,
     });
 
     it('extracts ID for valid youtube.com watch URLs', () => {
       fc.assert(
-        fc.property(
-          fc.string({ unit: fc.constantFrom('a', 'b', 'c', '1', '2', '3', '-', '_') }),
-          (id) => {
-            const cleanId = id.slice(0, 11); // YouTube IDs are typically 11 chars
-            if (cleanId.length === 0) return;
-            const watchUrl = `https://www.youtube.com/watch?v=${cleanId}`;
-            expect(getYouTubeVideoId(watchUrl)).toBe(cleanId);
+        fc.property(videoIdArb, (id) => {
+          const watchUrl = `https://www.youtube.com/watch?v=${id}`;
+          expect(getYouTubeVideoId(watchUrl)).toBe(id);
 
-            const mobileUrl = `https://m.youtube.com/watch?v=${cleanId}`;
-            expect(getYouTubeVideoId(mobileUrl)).toBe(cleanId);
+          const mobileUrl = `https://m.youtube.com/watch?v=${id}`;
+          expect(getYouTubeVideoId(mobileUrl)).toBe(id);
 
-            const musicUrl = `https://music.youtube.com/watch?v=${cleanId}`;
-            expect(getYouTubeVideoId(musicUrl)).toBe(cleanId);
-          }
-        ),
-        { numRuns: 200 }
+          const musicUrl = `https://music.youtube.com/watch?v=${id}`;
+          expect(getYouTubeVideoId(musicUrl)).toBe(id);
+        })
       );
     });
 
     it('extracts ID for valid youtu.be short URLs', () => {
       fc.assert(
-        fc.property(
-          fc.string({ unit: fc.constantFrom('a', 'b', 'c', '1', '2', '3', '-', '_') }),
-          (id) => {
-            const cleanId = id.slice(0, 11);
-            if (cleanId.length === 0) return;
-            const shortUrl = `https://youtu.be/${cleanId}`;
-            expect(getYouTubeVideoId(shortUrl)).toBe(cleanId);
-          }
-        ),
-        { numRuns: 200 }
+        fc.property(videoIdArb, (id) => {
+          const shortUrl = `https://youtu.be/${id}`;
+          expect(getYouTubeVideoId(shortUrl)).toBe(id);
+        })
       );
     });
   });
@@ -65,8 +59,7 @@ describe('youtubeTimestamp properties', () => {
           const label = formatTimestampLabel(seconds);
           const parsed = parseTimestampSeconds(label);
           expect(parsed).toBe(seconds);
-        }),
-        { numRuns: 500 }
+        })
       );
     });
 
@@ -81,8 +74,7 @@ describe('youtubeTimestamp properties', () => {
             const parsed = parseTimestampSeconds(label);
             expect(parsed).toBe(seconds);
           }
-        ),
-        { numRuns: 500 }
+        )
       );
     });
 
@@ -90,8 +82,7 @@ describe('youtubeTimestamp properties', () => {
       fc.assert(
         fc.property(fc.string(), (text) => {
           expect(() => parseTimestampSeconds(text)).not.toThrow();
-        }),
-        { numRuns: 300 }
+        })
       );
     });
   });
@@ -111,8 +102,7 @@ describe('youtubeTimestamp properties', () => {
               expect(result).toContain(`t=${Math.max(0, Math.floor(seconds))}s`);
             }
           }
-        ),
-        { numRuns: 300 }
+        )
       );
     });
   });
@@ -130,8 +120,7 @@ describe('youtubeTimestamp properties', () => {
               expect(result).toBeGreaterThanOrEqual(0);
             }
           }
-        ),
-        { numRuns: 300 }
+        )
       );
     });
   });
@@ -163,8 +152,7 @@ describe('youtubeTimestamp properties', () => {
               expect(typeof result.label).toBe('string');
             }
           }
-        ),
-        { numRuns: 300 }
+        )
       );
     });
   });

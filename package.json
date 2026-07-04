@@ -34,7 +34,7 @@
     "coverage:report": "node scripts/check-coverage.mjs",
     "test:property": "vitest run property.test",
     "test:mutation": "stryker run",
-    "test:mutation:since": "stryker run --incremental",
+    "test:mutation:full": "stryker run --incremental false",
     "test:advanced": "npm run test:property && npm run test:mutation",
     "lint": "eslint . && stylelint '**/*.css'",
     "lint:fix": "eslint . --fix && stylelint '**/*.css' --fix",

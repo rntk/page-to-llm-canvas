@@ -21,8 +21,7 @@ describe('buildTaggedText properties', () => {
           const lines = result.split('\n');
           expect(lines.length).toBe(sentences.length);
         }
-      }),
-      { numRuns: 500 },
+      })
     );
   });
 
@@ -35,8 +34,7 @@ describe('buildTaggedText properties', () => {
         for (let i = 0; i < lines.length; i++) {
           expect(lines[i]).toMatch(new RegExp(`^\\{${i}\\} `));
         }
-      }),
-      { numRuns: 500 },
+      })
     );
   });
 
@@ -46,8 +44,7 @@ describe('buildTaggedText properties', () => {
         const stringResult = buildTaggedText(sentences);
         const objectResult = buildTaggedText(sentences.map((s) => ({ text: s })));
         expect(objectResult).toBe(stringResult);
-      }),
-      { numRuns: 500 },
+      })
     );
   });
 });
@@ -60,8 +57,7 @@ describe('buildSystemPrompt properties', () => {
         const b = buildSystemPrompt();
         expect(a).toBe(b);
         expect(a.length).toBeGreaterThan(0);
-      }),
-      { numRuns: 100 },
+      })
     );
   });
 });
@@ -75,8 +71,7 @@ describe('buildTopicRangesPrompt properties', () => {
         expect(prompt).toContain(taggedText);
         expect(prompt).toContain('<content>');
         expect(prompt).toContain('</content>');
-      }),
-      { numRuns: 300 },
+      })
     );
   });
 });
@@ -89,8 +84,7 @@ describe('buildArticleSummaryPrompt properties', () => {
         expect(prompt).not.toContain('{text}');
         // Template wraps text inside <text> tags, so verify presence there.
         expect(prompt).toContain(`<text>${text}</text>`);
-      }),
-      { numRuns: 300 },
+      })
     );
   });
 });
@@ -102,8 +96,7 @@ describe('buildArticleSummaryMergePrompt properties', () => {
         const prompt = buildArticleSummaryMergePrompt(summaries);
         expect(prompt).not.toContain('{chunk_summaries}');
         expect(prompt).toContain(`<chunk_summaries>${summaries}</chunk_summaries>`);
-      }),
-      { numRuns: 300 },
+      })
     );
   });
 });
@@ -115,8 +108,7 @@ describe('buildSentenceSummaryPrompt properties', () => {
         const prompt = buildSentenceSummaryPrompt(sentence);
         expect(prompt).not.toContain('{sentence}');
         expect(prompt).toContain(`<text>${sentence}</text>`);
-      }),
-      { numRuns: 300 },
+      })
     );
   });
 });
@@ -138,8 +130,7 @@ describe('formatChunkSummariesForMerge properties', () => {
             expect(result).toContain(`Chunk ${i + 1}`);
           }
         },
-      ),
-      { numRuns: 200 },
+      )
     );
   });
 
@@ -163,8 +154,7 @@ describe('formatChunkSummariesForMerge properties', () => {
           const truncated = formatChunkSummariesForMerge(records.slice(0, -1));
           expect(full.length).toBeGreaterThan(truncated.length);
         },
-      ),
-      { numRuns: 200 },
+      )
     );
   });
 });
