@@ -49,7 +49,6 @@ function LevelSwitcher({ maxLevel, selectedLevel, onSelectLevel }) {
 function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen }) {
   const style = {
     top: `${card.box.top}px`,
-    borderColor: card.accent,
     '--pagetollm-card-accent': card.accent,
     '--pagetollm-card-top': `${card.box.top}px`,
     '--pagetollm-card-height': `${card.box.height}px`,

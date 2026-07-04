@@ -180,15 +180,17 @@ body.pagetollm-rail-open {
 }
 
 .pagetollm-rail-card {
+  appearance: none !important;
+  -webkit-appearance: none !important;
   position: absolute;
   left: 12px;
   right: 12px;
   z-index: 1;
   box-sizing: border-box;
   background: var(--surface);
-  border: 1px solid var(--ghost);
-  border-left: 4px solid var(--pagetollm-card-accent, var(--ink));
-  border-radius: 0;
+  border: 1px solid var(--ghost) !important;
+  border-left: 4px solid var(--pagetollm-card-accent, var(--ink)) !important;
+  border-radius: 0 !important;
   padding: 8px 10px;
   color: var(--on-surface);
   text-align: left;
@@ -231,8 +233,8 @@ body.pagetollm-rail-open {
 .pagetollm-rail-card:focus,
 .pagetollm-rail-card.is-front {
   transform: translateX(-2px);
-  border-color: var(--ink);
-  border-left-color: var(--pagetollm-card-accent, var(--ink));
+  border-color: var(--ink) !important;
+  border-left-color: var(--pagetollm-card-accent, var(--ink)) !important;
 }
 
 .pagetollm-rail-card:focus {
@@ -342,6 +344,8 @@ body.pagetollm-rail-open {
 }
 
 .pagetollm-summary-active-card {
+  appearance: none !important;
+  -webkit-appearance: none !important;
   position: fixed;
   top: calc(var(--pagetollm-summary-cursor-top, 38vh) + 14px);
   right: 12px;
@@ -351,9 +355,9 @@ body.pagetollm-rail-open {
   box-sizing: border-box;
   padding: 10px 12px 12px;
   background: var(--surface);
-  border: 1px solid var(--ink);
-  border-left: 4px solid var(--pagetollm-card-accent, var(--ink));
-  border-radius: 0;
+  border: 1px solid var(--ink) !important;
+  border-left: 4px solid var(--pagetollm-card-accent, var(--ink)) !important;
+  border-radius: 0 !important;
   color: var(--on-surface);
   text-align: left;
   cursor: pointer;
