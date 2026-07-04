@@ -3,17 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Extension Canvas — Turn web pages into clear, explorable canvases</title>
+    <title>Extension Canvas — A browser extension for page topics and summaries</title>
     <meta
       name="description"
-      content="Extension Canvas uses configured LLMs to find topics and subtopics, generate summaries, and show page metadata in inline, hierarchy, and canvas views."
+      content="Extension Canvas is a browser extension that uses a configured LLM to find topics and subtopics in a page, write summaries, and show them in inline, hierarchy, canvas, and YouTube sync views."
     />
 
     <!-- SEO & Social Meta Tags -->
     <meta property="og:title" content="Extension Canvas — Page to LLM Canvas View" />
     <meta
       property="og:description"
-      content="Transform long web articles into clear visual maps of topics and AI-generated summaries. Explore, search, and jump back to the source text seamlessly."
+      content="A browser extension that extracts topics and summaries from web pages using an LLM you configure, and shows them as inline tags, a topic hierarchy, or a pan/zoom canvas."
     />
     <meta property="og:type" content="website" />
 
@@ -58,11 +58,10 @@
     <!-- Hero Section -->
     <section class="hero" id="hero">
       <div class="hero-content">
-        <h1 class="hero-title">Turn dense web pages into a clear, explorable canvas</h1>
+        <h1 class="hero-title">A browser extension for page topics and summaries</h1>
         <p class="hero-subtitle">
           Pick a block of any page and an LLM you configure finds its topics and subtopics, writes a
-          summary for each, and lays everything out in inline, hierarchy, and canvas views — so you
-          can grasp a long article at a glance.
+          summary for each, and lays the results out in inline, hierarchy, and canvas views.
         </p>
         <div class="hero-actions">
           <a href="#quickstart" class="btn btn-primary" id="btn-hero-get-started">
@@ -90,10 +89,7 @@
       <div class="container">
         <div class="section-header">
           <h2 class="section-title">Quickstart Guide</h2>
-          <p class="section-desc">
-            Six steps from cloning the repo to exploring your first canvas — install once, then it's
-            just pick, process, explore.
-          </p>
+          <p class="section-desc">Six steps from cloning the repo to viewing your first canvas.</p>
         </div>
 
         <div class="prereq-bar">
@@ -101,7 +97,7 @@
             ><i class="fa-solid fa-circle-check"></i> Before you start</span
           >
           <ul class="prereq-list">
-            <li><i class="fa-brands fa-chrome"></i> Chrome or any Chromium browser</li>
+            <li><i class="fa-brands fa-chrome"></i> Firefox or any Chromium browser</li>
             <li>
               <i class="fa-brands fa-node-js"></i> Node.js 20+ <span>(or skip it with Docker)</span>
             </li>
@@ -223,9 +219,8 @@ npm run build</code></pre>
             <div class="step-num">05</div>
             <h3>Watch It Process</h3>
             <p>
-              The toolbar icon shows live status while the LLM splits, summarizes, and maps topics.
-              A small activity marker means it's still working; the icon returns to its ready state
-              when your canvas is done.
+              While the LLM splits, summarizes, and maps topics, the toolbar icon shows a progress
+              bar and a badge count. The icon returns to its ready state when processing is done.
             </p>
             <div class="icon-status-grid in-step">
               <figure>
@@ -249,14 +244,16 @@ npm run build</code></pre>
           <div class="step-card">
             <div class="step-num">06</div>
             <h3>Explore Your Canvas</h3>
-            <p>
-              Once it's done, dig into the results three ways — each is a different lens on the same
-              topics and summaries.
-            </p>
+            <p>Once processing is done, you can view the results in a few ways.</p>
             <ul class="step-list">
-              <li><strong>Inline:</strong> topic tags layered onto the source page.</li>
+              <li><strong>Inline topics:</strong> topic tags layered onto the source page.</li>
+              <li><strong>Inline summaries:</strong> summaries layered onto the source page.</li>
               <li><strong>Hierarchy:</strong> nested topics and subtopics in the sidebar.</li>
               <li><strong>Canvas:</strong> pan and zoom through the summary cards.</li>
+              <li>
+                <strong>YouTube sync:</strong> on YouTube pages, a sidebar that follows video
+                playback and shows the topic/summary for the current timestamp.
+              </li>
             </ul>
             <div class="step-image-wrapper">
               <img
@@ -269,8 +266,7 @@ npm run build</code></pre>
         </div>
 
         <p class="quickstart-footnote">
-          Prefer to see it first? <a href="#screencasts">Watch the demos</a> for a walkthrough of
-          each view.
+          <a href="#screencasts">Watch the demos</a> for a walkthrough of each view.
         </p>
       </div>
     </section>
@@ -279,10 +275,10 @@ npm run build</code></pre>
     <section class="section screencasts-section" id="screencasts">
       <div class="container">
         <div class="section-header">
-          <h2 class="section-title">Interactive Demos & Screencasts</h2>
+          <h2 class="section-title">Demos & Screencasts</h2>
           <p class="section-desc">
-            Watch Extension Canvas in action. Learn how to extract pages, configure structures, and
-            explore the generated canvas.
+            Short recordings showing how to select page content, run the pipeline, and view the
+            generated topics and summaries.
           </p>
         </div>
 
@@ -309,7 +305,7 @@ npm run build</code></pre>
               <span class="tab-icon"><i class="fa-solid fa-list-check"></i></span>
               <div class="tab-info">
                 <h4>Page Summaries</h4>
-                <p>Extract and summarize selected articles instantly.</p>
+                <p>Extract and summarize selected articles.</p>
               </div>
             </button>
 
@@ -321,7 +317,7 @@ npm run build</code></pre>
               <span class="tab-icon"><i class="fa-solid fa-diagram-project"></i></span>
               <div class="tab-info">
                 <h4>Canvas Topics Exploration</h4>
-                <p>Navigate the generated topics dynamically on canvas.</p>
+                <p>Navigate the generated topics on the canvas.</p>
               </div>
             </button>
 
@@ -423,6 +419,21 @@ npm run build</code></pre>
                 inside your browser profile with <code>chrome.storage.local</code>. No content is
                 sent to third-party tracking services; page content is only sent to the LLM provider
                 you configure and mark as active.
+              </p>
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" onclick="toggleFaq(this)">
+              <span>Can I back up or move my saved analyses?</span>
+              <span class="faq-icon"><i class="fa-solid fa-chevron-down"></i></span>
+            </button>
+            <div class="faq-answer">
+              <p>
+                Yes. On the <strong>Options</strong> page, each saved record has an
+                <strong>Export</strong> button that downloads it as a JSON file. Use
+                <strong>Import</strong> to load a JSON file back in; if a record with the same key
+                already exists, you'll be asked to confirm before it's overwritten.
               </p>
             </div>
           </div>

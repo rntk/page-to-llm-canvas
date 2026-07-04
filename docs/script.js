@@ -7,27 +7,27 @@ const screencastsData = {
   'how-pick-block': {
     title: 'Picking a Page Block',
     src: 'media/screencasts/how-pick-block.webm',
-    desc: 'Start pick mode from the extension popup, choose the content block on the page, and click the "Submit" button to send only that selected area into the summarization pipeline.',
+    desc: 'Start pick mode from the extension popup, choose the content block on the page, and click "Submit" to send that area into the pipeline.',
   },
   'page-summaries': {
     title: 'Generating Page Summaries',
     src: 'media/screencasts/page-summaries.webm',
-    desc: 'Select key portions of standard articles, trigger processing, and view custom summaries compiled block-by-block. The system keeps you updated with status indicators like splitting and summarizing.',
+    desc: 'Select portions of an article, run processing, and view the summaries generated for each block, with status indicators for splitting and summarizing along the way.',
   },
   'canvas-topics': {
     title: 'Canvas Topics Exploration',
     src: 'media/screencasts/canvas-topics.webm',
-    desc: 'Open the canvas dashboard to explore concepts in a structured, hierarchical map. Easily pan, zoom, and select specific summary nodes to view full, clean content without distractions.',
+    desc: 'Open the canvas view to see topics laid out as cards. Pan and zoom, and select a card to read its full summary.',
   },
   'page-topics-hierarchy': {
     title: 'Topics Hierarchy Sidebar',
     src: 'media/screencasts/page-topics-hierarchy.webm',
-    desc: 'The hierarchy sidebar maps complex articles into nested levels: parent topics, primary sections, and minor subheadings. Clicking nodes in the sidebar automatically highlights and centers matching blocks on the canvas.',
+    desc: 'The hierarchy sidebar lists topics and subtopics in nested levels. Clicking a node in the sidebar highlights and centers the matching block on the canvas.',
   },
   'page-topics': {
     title: 'Page Topics & Inline Tags',
     src: 'media/screencasts/page-topics.webm',
-    desc: 'Topics are mapped inline directly on your source page. View relevant extracted tags attached to block headers, facilitating fast scanning of information before reading.',
+    desc: 'Topics are shown inline on the source page as tags attached to block headers, so you can see what each section is about before reading it.',
   },
 };
 

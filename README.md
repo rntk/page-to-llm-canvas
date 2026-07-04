@@ -1,30 +1,35 @@
 # Extension Canvas
 
-Extension Canvas is a Chrome extension for turning parts of a web page into a clearer, easier-to-explore view.
+Extension Canvas is a Chrome extension that picks a block of a web page, sends it to an LLM you configure, and shows the resulting topics and summaries in a few different views.
 
-🚀 **[View the Interactive Documentation & Help Manual](https://rntk.github.io/page-to-llm-canvas/)** for visual walkthroughs, screenshots, interactive demos, and troubleshooting guides.
+A documentation site with screenshots and screencasts is available at https://rntk.github.io/page-to-llm-canvas/.
 
-Pick content from any page, open it in a focused canvas, and use summaries and topic hints to understand the page faster. It is meant for reading, reviewing, and making sense of long or complex web content without losing the connection to the original text.
+Select content from any page, then review its topics, summaries, and highlighted sentences without losing the connection to the original text.
 
-## What it helps with
+## What it does
 
-- Focus on the important parts of a page
-- Get a quick summary of selected content
-- Explore the main topics in a visual canvas
-- Jump between highlighted ideas and the original text
-- Reduce clutter while reading online
+- Extracts topics and subtopics from selected page content
+- Writes a summary for each topic
+- Shows the results as inline tags, a topic hierarchy, or a pan/zoom canvas
+- For YouTube videos, opens a sidebar that follows video playback and shows the topic/summary for the current timestamp
+- Lets you reprocess or delete a saved analysis from the popup, or stop an in-progress one from the Options page; topics whose summaries keep failing get a "needs attention" state with a retry/skip option in the canvas view
+- Shows processing progress on the toolbar icon (progress bar and badge count)
+- Supports keyboard navigation on the canvas (arrow keys pan, Home/End/PageUp/PageDown jump between cards)
+- Has light, dark, and system themes for the popup and options page
 
 ## How to use it
 
 1. Install the extension in Chrome.
-2. Open a web page you want to explore.
-3. Select the content you care about.
-4. Open the canvas view.
-5. Review the summary, topics, and highlighted text.
+2. On the Options page, add an LLM provider and mark it as active (processing will not run without one).
+3. Open a web page you want to analyze.
+4. Use "Pick Blocks" in the popup to select the content you care about, then submit it.
+5. Wait for processing to finish (the toolbar icon shows progress).
+6. Open one of the views (inline topics, inline summaries, hierarchy, canvas, or YouTube sync).
+7. Review the summary, topics, and highlighted text.
 
 ## Who it is for
 
-Extension Canvas is useful for readers, researchers, students, and anyone who wants to quickly understand web articles, documents, or dense pages.
+Extension Canvas is useful for readers, researchers, students, and anyone who wants to understand web articles, documents, or dense pages more quickly.
 
 ## Status
 
@@ -41,7 +46,7 @@ Source entrypoints:
 - `src/options/main.jsx` -> `dist/options.js`
 - `src/main.jsx` -> `dist/modal.js`
 
-From the repository root, build with Docker Compose:
+From the repository root, build with Docker (no local Node.js install needed):
 
 ```bash
 docker run --rm --user "${UID:-1000}:${GID:-1000}" --workdir /app -v "$PWD:/app" node:24-alpine sh -lc "npm ci && npm run build"
@@ -78,3 +83,12 @@ Provider cache support is API-specific: OpenAI prompt caching is automatic and u
 Provider service tier support is also API-specific. OpenAI and OpenRouter providers can request `flex` or `priority` service tiers when the selected upstream model supports them. Anthropic does not expose OpenAI-style `flex`; its service tier control maps Priority when available to `service_tier: "auto"` and Standard only to `service_tier: "standard_only"`.
 
 The pipeline uses the designated **active** provider and will not run until at least one provider has been configured and selected as active.
+
+## Options page
+
+Besides LLM providers, the Options page also lets you:
+
+- Export a saved analysis to a JSON file, and import analyses back in (importing asks for confirmation before overwriting an existing record)
+- Turn on "Prefer the language of the content" so topic labels and summaries are written in the content's dominant language instead of English
+- Pick the highlight color used for picked blocks and highlighted sentences
+- Choose a light, dark, or system theme
