@@ -749,7 +749,15 @@ export function OptionsApp() {
                 {items.map((item) => (
                   <tr key={item.key}>
                     <td className="url">
-                      <div className="record-url">{item.sourceUrl || '(no url)'}</div>
+                      <div className="record-url">
+                        {item.sourceUrl ? (
+                          <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer">
+                            {item.sourceUrl}
+                          </a>
+                        ) : (
+                          '(no url)'
+                        )}
+                      </div>
                       {item.snippet ? (
                         <div className="record-snippet" title={item.snippet}>
                           {item.snippet}
