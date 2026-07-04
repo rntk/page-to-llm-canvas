@@ -1,0 +1,28 @@
+# WebM optimizer runner for this repository.
+#
+# Build:
+#   docker build -t pagetollm-webm-optimizer -f Dockerfile.optimize-webm .
+#
+# Run against the working tree:
+#   docker run --rm -it \
+#     -v "$(pwd):/app" \
+#     pagetollm-webm-optimizer \
+#     --replace docs/media/screencasts/page-topics-hierarchy.webm
+#
+# Safer non-overwrite run:
+#   docker run --rm -it \
+#     -v "$(pwd):/app" \
+#     pagetollm-webm-optimizer \
+#     docs/media/screencasts/page-topics-hierarchy.webm
+
+FROM node:24-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+ENTRYPOINT ["bash", "scripts/optimize-webm.sh"]

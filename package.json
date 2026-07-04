@@ -29,6 +29,7 @@
   "scripts": {
     "build": "node scripts/build-extension.mjs",
     "dev": "node scripts/build-extension.mjs --watch",
+    "optimize:webm": "scripts/optimize-webm.sh",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "coverage:report": "node scripts/check-coverage.mjs",
