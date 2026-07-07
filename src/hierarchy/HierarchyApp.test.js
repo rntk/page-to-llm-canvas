@@ -258,7 +258,9 @@ describe('HierarchyApp', () => {
     let modalOverlay = container.querySelector('.th-summary-modal-overlay');
     expect(modalOverlay).not.toBeNull();
     expect(container.querySelector('.th-summary-modal__card-path').textContent).toBe('Fruit');
-    expect(container.querySelector('.th-summary-modal__card-text').textContent).toBe('A delicious collection of fruits.');
+    expect(container.querySelector('.th-summary-modal__card-text').textContent).toBe(
+      'A delicious collection of fruits.',
+    );
 
     // Escape closes summary modal instead of entire page modal
     const escapeEvent = new KeyboardEvent('keydown', { key: 'Escape' });

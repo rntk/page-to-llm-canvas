@@ -181,7 +181,6 @@ body.pagetollm-rail-open {
 
 .pagetollm-rail-card {
   appearance: none !important;
-  -webkit-appearance: none !important;
   position: absolute;
   left: 12px;
   right: 12px;
@@ -345,7 +344,6 @@ body.pagetollm-rail-open {
 
 .pagetollm-summary-active-card {
   appearance: none !important;
-  -webkit-appearance: none !important;
   position: fixed;
   top: calc(var(--pagetollm-summary-cursor-top, 38vh) + 14px);
   right: 12px;

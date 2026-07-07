@@ -17,6 +17,7 @@ import {
   deleteProvider,
   setActiveProvider,
 } from './worker/providers.js';
+import { MSG } from './messages.js';
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 const ACTION_ICON_PATHS = Object.freeze({
@@ -468,7 +469,7 @@ export async function handleSubmit(submission) {
  * }>}
  */
 export const MESSAGE_HANDLERS = {
-  submit: {
+  [MSG.submit]: {
     requiresExtensionPage: false,
     validate: () => null,
     async handle(msg) {
@@ -476,7 +477,7 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
-  ensurePipeline: {
+  [MSG.ensurePipeline]: {
     requiresExtensionPage: false,
     validate(msg) {
       return msg.key ? null : 'missing key';
@@ -487,7 +488,7 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
-  retryRecord: {
+  [MSG.retryRecord]: {
     requiresExtensionPage: false,
     validate(msg) {
       return msg.key ? null : 'missing key';
@@ -510,7 +511,7 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
-  reprocessRecord: {
+  [MSG.reprocessRecord]: {
     requiresExtensionPage: false,
     validate(msg) {
       return msg.key ? null : 'missing key';
@@ -540,7 +541,7 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
-  cancelRecordProcessing: {
+  [MSG.cancelRecordProcessing]: {
     requiresExtensionPage: false,
     validate(msg) {
       return msg.key ? null : 'missing key';
@@ -564,7 +565,7 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
-  resolveSummaryErrors: {
+  [MSG.resolveSummaryErrors]: {
     requiresExtensionPage: false,
     validate(msg) {
       if (!msg.key) return 'missing key';
@@ -606,7 +607,7 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
-  getRecord: {
+  [MSG.getRecord]: {
     requiresExtensionPage: false,
     validate: () => null,
     async handle(msg) {
@@ -616,7 +617,7 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
-  listRecords: {
+  [MSG.listRecords]: {
     requiresExtensionPage: false,
     validate: () => null,
     async handle() {
@@ -625,7 +626,7 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
-  importRecords: {
+  [MSG.importRecords]: {
     requiresExtensionPage: true,
     validate: () => null,
     async handle(msg) {
@@ -664,7 +665,7 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
-  deleteRecord: {
+  [MSG.deleteRecord]: {
     requiresExtensionPage: false,
     validate: () => null,
     async handle(msg) {
@@ -674,7 +675,7 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
-  deleteAll: {
+  [MSG.deleteAll]: {
     requiresExtensionPage: false,
     validate: () => null,
     async handle() {
@@ -686,7 +687,7 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
-  llmChatCompletion: {
+  [MSG.llmChatCompletion]: {
     requiresExtensionPage: false,
     validate: () => null,
     async handle(msg) {
@@ -696,7 +697,7 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
-  listProviders: {
+  [MSG.listProviders]: {
     requiresExtensionPage: true,
     validate: () => null,
     async handle() {
@@ -705,7 +706,7 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
-  saveProvider: {
+  [MSG.saveProvider]: {
     requiresExtensionPage: true,
     validate: () => null,
     async handle(msg) {
@@ -715,7 +716,7 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
-  deleteProvider: {
+  [MSG.deleteProvider]: {
     requiresExtensionPage: true,
     validate(msg) {
       return msg.id ? null : 'missing id';
@@ -726,7 +727,7 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
-  setActiveProvider: {
+  [MSG.setActiveProvider]: {
     requiresExtensionPage: true,
     validate(msg) {
       return msg.id ? null : 'missing id';

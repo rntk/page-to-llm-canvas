@@ -526,9 +526,7 @@ describe('CanvasTopicHierarchyRail', () => {
     expect(link.getAttribute('href')).toContain('v=abc');
     expect(link.getAttribute('href')).toContain('&t=5s');
     // Lives in the meta row, next to the sentence count text.
-    expect(link.closest('.canvas-topic-hierarchy__card-meta-row').textContent).toContain(
-      '5 sent.',
-    );
+    expect(link.closest('.canvas-topic-hierarchy__card-meta-row').textContent).toContain('5 sent.');
     unmount();
   });
 

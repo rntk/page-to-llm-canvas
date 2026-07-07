@@ -151,7 +151,11 @@ export function buildPreviewSourceModel(articleHtml, sentences) {
   };
 }
 
-export function buildHighlightedSentencePreviewHtml(sourceModel, contextSentences, highlightSentences) {
+export function buildHighlightedSentencePreviewHtml(
+  sourceModel,
+  contextSentences,
+  highlightSentences,
+) {
   if (!sourceModel || !Array.isArray(contextSentences) || !Array.isArray(highlightSentences)) {
     return '';
   }
@@ -217,7 +221,4 @@ export function buildHighlightedSentencePreviewHtml(sourceModel, contextSentence
   return container.innerHTML;
 }
 
-export {
-  mergeIntervals,
-  preserveWhitespaceGaps,
-};
+export { mergeIntervals, preserveWhitespaceGaps };

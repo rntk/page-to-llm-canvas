@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { MSG } from '../messages.js';
 
 /**
  * Subscribes to the record identified by `key`. The record is physically
@@ -35,7 +36,7 @@ export function useRecord(key) {
     const fetchViaServiceWorker = () =>
       new Promise((resolve, reject) => {
         try {
-          chrome.runtime.sendMessage({ type: 'getRecord', key }, (resp) => {
+          chrome.runtime.sendMessage({ type: MSG.getRecord, key }, (resp) => {
             if (chrome.runtime.lastError) {
               reject(new Error(String(chrome.runtime.lastError.message || 'runtime error')));
               return;

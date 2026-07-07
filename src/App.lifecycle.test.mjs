@@ -11,7 +11,7 @@ describe('App.jsx pipeline ownership', () => {
   });
 
   it('sends ensurePipeline on mount', () => {
-    expect(appSource).toContain("'ensurePipeline'");
+    expect(appSource).toContain('MSG.ensurePipeline');
   });
 });
 

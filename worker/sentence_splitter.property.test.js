@@ -18,7 +18,7 @@ const optsArb = fc.option(
     longSentenceWordThreshold: fc.integer({ min: 1, max: 100 }),
     minSentenceWords: fc.integer({ min: 1, max: 100 }),
   }),
-  { nil: undefined }
+  { nil: undefined },
 );
 
 describe('splitSentences properties', () => {
@@ -48,7 +48,7 @@ describe('splitSentences properties', () => {
           expect(s.start).toBeGreaterThanOrEqual(lastEnd);
           lastEnd = s.end;
         }
-      })
+      }),
     );
   });
 
@@ -56,7 +56,7 @@ describe('splitSentences properties', () => {
     fc.assert(
       fc.property(fc.string({ unit: fc.constantFrom(' ', '\t', '\n', '\r') }), (wsOnly) => {
         expect(splitSentences(wsOnly)).toEqual([]);
-      })
+      }),
     );
     expect(splitSentences('')).toEqual([]);
     expect(splitSentences(null)).toEqual([]);
@@ -71,7 +71,7 @@ describe('splitSentences properties', () => {
         const outputTokens = result.flatMap((s) => s.text.match(/\S+/g) || []);
         // Concatenating the spans' tokens reconstructs the input's tokens exactly.
         expect(outputTokens).toEqual(inputTokens);
-      })
+      }),
     );
   });
 
@@ -92,8 +92,8 @@ describe('splitSentences properties', () => {
           });
           expect(result).toHaveLength(1);
           expect(result[0].text).toBe(text);
-        }
-      )
+        },
+      ),
     );
   });
 
@@ -115,8 +115,8 @@ describe('splitSentences properties', () => {
             const bound = i < result.length - 1 ? anchorEveryWords : longSentenceWordThreshold;
             expect(wc).toBeLessThanOrEqual(bound);
           }
-        }
-      )
+        },
+      ),
     );
   });
 
@@ -137,8 +137,8 @@ describe('splitSentences properties', () => {
           for (const s of result) {
             expect(countWords(s.text)).toBeGreaterThanOrEqual(minSentenceWords);
           }
-        }
-      )
+        },
+      ),
     );
   });
 
@@ -162,8 +162,8 @@ describe('splitSentences properties', () => {
           expect(result).toHaveLength(2);
           expect(result[0].text).toBe(`${first}.`);
           expect(result[1].text).toBe(second);
-        }
-      )
+        },
+      ),
     );
   });
 });

@@ -76,7 +76,10 @@ export default function HierarchyApp({ initialKey }) {
     setActiveSummary(summaryData);
   }, []);
 
-  const isYouTube = useMemo(() => Boolean(getYouTubeVideoId(record?.sourceUrl)), [record?.sourceUrl]);
+  const isYouTube = useMemo(
+    () => Boolean(getYouTubeVideoId(record?.sourceUrl)),
+    [record?.sourceUrl],
+  );
   const activeSummaryYouTubeLink = useMemo(
     () =>
       isYouTube && activeSummary
@@ -254,10 +257,7 @@ export default function HierarchyApp({ initialKey }) {
               <header className="th-summary-modal__card-header">
                 <div className="th-summary-modal__card-title-block">
                   <span className="th-summary-modal__card-kicker">Summary</span>
-                  <span
-                    id="th-summary-modal-title"
-                    className="th-summary-modal__card-path"
-                  >
+                  <span id="th-summary-modal-title" className="th-summary-modal__card-path">
                     {activeSummary.path}
                   </span>
                 </div>
@@ -267,9 +267,7 @@ export default function HierarchyApp({ initialKey }) {
               </header>
               {activeSummary.text && (
                 <div className="th-summary-modal__text-container">
-                  <p className="th-summary-modal__card-text">
-                    {activeSummary.text}
-                  </p>
+                  <p className="th-summary-modal__card-text">{activeSummary.text}</p>
                 </div>
               )}
             </article>

@@ -10,10 +10,9 @@ const watch = process.argv.includes('--watch');
 const STATIC_FILES = [
   'manifest.json',
   'background.js',
+  'messages.js',
   'content.css',
   'popup.html',
-  'popup.js',
-  'theme.js',
   'options.html',
   'modal.html',
 ];
@@ -100,6 +99,11 @@ const entries = [
   {
     name: 'options',
     input: path.join(root, 'src/options/main.jsx'),
+    emptyOutDir: false,
+  },
+  {
+    name: 'popup',
+    input: path.join(root, 'popup.js'),
     emptyOutDir: false,
   },
 ];

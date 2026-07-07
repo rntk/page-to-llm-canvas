@@ -148,7 +148,10 @@ describe('preferContentLanguage option', () => {
     ['buildTopicRangesPrompt', (opts) => buildTopicRangesPrompt('{0} hola', opts)],
     ['buildArticleSummaryPrompt', (opts) => buildArticleSummaryPrompt('texto', opts)],
     ['buildArticleSummaryMergePrompt', (opts) => buildArticleSummaryMergePrompt('resumen', opts)],
-    ['buildTopicSummaryFromSourcePrompt', (opts) => buildTopicSummaryFromSourcePrompt('fuente', opts)],
+    [
+      'buildTopicSummaryFromSourcePrompt',
+      (opts) => buildTopicSummaryFromSourcePrompt('fuente', opts),
+    ],
     ['buildSentenceSummaryPrompt', (opts) => buildSentenceSummaryPrompt('una frase.', opts)],
   ];
 

@@ -110,8 +110,6 @@ describe('provider form helpers', () => {
 // ---------------------------------------------------------------------------
 
 describe('record helpers', () => {
-
-
   it('generates a safe filename part from arbitrary values', () => {
     expect(safeFilenamePart('page:one/two?three')).toBe('page-one-two-three');
     expect(safeFilenamePart('   ')).toBe('record');

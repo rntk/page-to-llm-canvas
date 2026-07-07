@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRecord } from './useRecord.js';
+import { MSG } from '../messages.js';
 import {
   buildTopicSentenceIndex,
   buildTopicCards,
@@ -12,13 +13,7 @@ import {
   RAIL_PADDING,
 } from './topicCards.js';
 import { buildSummaryCards, filterSummaryCardsByLevel } from './summaryCards.js';
-import {
-  HIGHLIGHT_NAME,
-  supportsHighlightApi,
-  collectWordEntries,
-  buildSentenceDomRange,
-  buildSentenceWordRanges,
-} from './sentenceHighlight.js';
+import { buildSentenceDomRange } from './sentenceHighlight.js';
 import { sanitizeArticleHtml, escapeHtml } from './articleHtml.js';
 import CanvasTopicHierarchyRail from './components/CanvasTopicHierarchyRail.jsx';
 import CanvasSummaryView from './components/CanvasSummaryView.jsx';
@@ -29,6 +24,9 @@ import ArticleHtml from './components/ArticleHtml.jsx';
 import { closeModal } from './closeModal.js';
 import { useCanvasTransform, clampScale } from './useCanvasTransform.js';
 import { useCanvasAlignment } from './useCanvasAlignment.js';
+import { useSentenceMetrics } from './useSentenceMetrics.js';
+import { useSentenceHighlights } from './useSentenceHighlights.js';
+import { useInitialView } from './useInitialView.js';
 import { retryRecord, resolveSummaryErrors } from './utils/errorUtils.js';
 import { selectCurrentTopicSummary } from './utils/currentTopicSummary.js';
 import {
@@ -38,43 +36,6 @@ import {
   getTopicNavigationCardTop,
   getTopicNavigationTopicKey,
 } from './topicNavigation.js';
-
-/** Second CSS Custom Highlight name, used for the hovered (not selected) topic. */
-const HIGHLIGHT_HOVER = 'pagetollm-sentence-hover';
-
-function areSentenceMetricsEqual(prevMetrics, nextMetrics) {
-  if (prevMetrics === nextMetrics) return true;
-  if (!(prevMetrics instanceof Map) || !(nextMetrics instanceof Map)) return false;
-  if (prevMetrics.size !== nextMetrics.size) return false;
-  for (const [sentenceNumber, nextMetric] of nextMetrics) {
-    const prevMetric = prevMetrics.get(sentenceNumber);
-    if (
-      !prevMetric ||
-      !Object.is(prevMetric.top, nextMetric.top) ||
-      !Object.is(prevMetric.bottom, nextMetric.bottom)
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function areSummaryMetricsEqual(prevMetrics, nextMetrics) {
-  if (prevMetrics === nextMetrics) return true;
-  if (!(prevMetrics instanceof Map) || !(nextMetrics instanceof Map)) return false;
-  if (prevMetrics.size !== nextMetrics.size) return false;
-  for (const [path, nextMetric] of nextMetrics) {
-    const prevMetric = prevMetrics.get(path);
-    if (
-      !prevMetric ||
-      !Object.is(prevMetric.top, nextMetric.top) ||
-      !Object.is(prevMetric.height, nextMetric.height)
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
 
 /**
  * @param {{ initialKey: string }} props
@@ -95,26 +56,11 @@ export default function App({ initialKey }) {
   const [hoveredTopicKey, setHoveredTopicKey] = useState(null);
   const [hoveredTopicCardKey, setHoveredTopicCardKey] = useState(null);
   const [selectedLevel, setSelectedLevel] = useState(0);
-  // Drives the one-time "opening view" setup below: leaf-level rail, zoomed out
-  // enough to see a few levels of cards at once, first topic's summary shown.
-  // Split into phases (rather than one effect) because each step depends on
-  // state set by the previous one having actually committed and re-rendered
-  // (e.g. the topic cards for the leaf level only exist after `selectedLevel`
-  // itself has updated) — a single effect closure would read stale values.
-  const [initialViewPhase, setInitialViewPhase] = useState('pending');
-  const [sentenceMetrics, setSentenceMetrics] = useState(() => new Map());
-  const sentenceMetricsRef = useRef(sentenceMetrics);
   const pendingZoomSentenceRef = useRef(null);
 
   const articleTextRef = useRef(null);
   const summaryWrapRef = useRef(null);
   const summaryCardRefs = useRef({});
-
-  // Live DOM Ranges over the rendered article HTML, keyed by sentence number.
-  // Built in a layout effect after the HTML mounts; the measurement and highlight
-  // effects re-run once layout changes.
-  const wordEntriesRef = useRef([]);
-  const sentenceRangesRef = useRef(new Map());
 
   const {
     scale,
@@ -212,9 +158,25 @@ export default function App({ initialKey }) {
     [allSummaryCards, selectedLevel],
   );
 
-  // Topic-card positions in summary mode are derived from the rendered
-  // summary cards' bounding rects (measured by an effect below).
-  const [summaryMetricsState, setSummaryMetricsState] = useState(() => new Map());
+  const isDone = record?.status === 'done';
+
+  // Measurement engine: live sentence Ranges plus measured sentence/summary
+  // geometry that drives the topic-hierarchy rail. `summaryMetricsState` holds
+  // topic-card positions in summary mode, derived from the rendered summary
+  // cards' bounding rects; `refreshSentenceRanges` is shared with the highlight
+  // hook and the zoom-to-sentence handlers below.
+  const { sentenceMetrics, summaryMetricsState, refreshSentenceRanges } = useSentenceMetrics({
+    articleTextRef,
+    summaryWrapRef,
+    summaryCardRefs,
+    scaleRef,
+    isDone,
+    showSummaryMode,
+    isZoomingToTarget,
+    sentences,
+    summaryCards,
+    articleHtml,
+  });
 
   const topicCards = useMemo(() => {
     if (showSummaryMode) {
@@ -258,8 +220,6 @@ export default function App({ initialKey }) {
     [scale, cardWidth, topicCards],
   );
 
-  const isDone = record?.status === 'done';
-
   // Unified canvas alignment: keeps the reading column steady across mode/level
   // changes (no jump) and only gently re-centers it when it drifts out of the
   // comfort dead-zone. `captureAnchor()` is called by the toggle handlers below
@@ -298,227 +258,9 @@ export default function App({ initialKey }) {
     });
   }, [showSummaryMode, activeTopicKey, activeTopicCardKey, allSummaryCards]);
 
-  // Rebuild word entries + sentence ranges from the *current* article DOM.
-  // The Highlight API and measurement hold live Ranges into text nodes; if those
-  // nodes are ever replaced by a re-render, the stale Ranges resolve to nothing
-  // (getClientRects() returns empty). Rebuilding on demand keeps them pinned to
-  // the live, laid-out nodes. Collecting ~1k words is cheap.
-  const refreshSentenceRanges = useCallback(() => {
-    const articleEl = articleTextRef.current;
-    if (!articleEl)
-      return { wordEntries: wordEntriesRef.current, sentenceRanges: sentenceRangesRef.current };
-    const wordEntries = collectWordEntries([articleEl]);
-    const sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
-    wordEntriesRef.current = wordEntries;
-    sentenceRangesRef.current = sentenceRanges;
-    return { wordEntries, sentenceRanges };
-  }, [sentences]);
-
-  // Re-build word entries and sentence ranges synchronously before paint whenever layout changes.
-  useLayoutEffect(() => {
-    if (!isDone || showSummaryMode) return;
-    refreshSentenceRanges();
-  }, [isDone, showSummaryMode, articleHtml, refreshSentenceRanges]);
-
-  const measureSentencePositions = useCallback(() => {
-    const wrap = summaryWrapRef.current;
-    // While a zoom-to-sentence animation is in flight (e.g. after "Show source
-    // sentences" exits summary mode), the canvas transform is mid-transition but
-    // `scaleRef` already holds the *target* scale. Measuring now divides settled-
-    // scale into animating rects, yielding wrong (tiny, top-pinned) sentence
-    // positions that pin the rail cards to a small stacked layout. Skip until the
-    // transform settles; `isZoomingToTarget` is in the deps so flipping it back
-    // to false re-runs the measurement effects with the final layout. (Ordinary
-    // pan only flashes the focus glow and never sets this flag, so pan no longer
-    // recreates this callback or reschedules the remeasure.)
-    if (!wrap || showSummaryMode || isZoomingToTarget) return;
-    const { wordEntries, sentenceRanges } = refreshSentenceRanges();
-    if (!sentenceRanges.size) return;
-
-    const wrapRect = wrap.getBoundingClientRect();
-    const s = scaleRef.current || 1;
-    const isLaidOut = (r) => r && (r.width > 0 || r.height > 0);
-    const nextMetrics = new Map();
-    for (const n of sentenceRanges.keys()) {
-      const domRange = buildSentenceDomRange(sentenceRanges, wordEntries, n);
-      if (!domRange) continue;
-      // One rect per line box gives a tighter measurement than the corners and
-      // skips collapsed (display:none) fragments that would pin `top` to 0.
-      const rects = Array.from(domRange.getClientRects()).filter(isLaidOut);
-      if (rects.length === 0) continue;
-      const top = (Math.min(...rects.map((r) => r.top)) - wrapRect.top) / s;
-      const bottom = (Math.max(...rects.map((r) => r.bottom)) - wrapRect.top) / s;
-      nextMetrics.set(n, { top, bottom });
-    }
-    if (nextMetrics.size > 0) {
-      if (!areSentenceMetricsEqual(sentenceMetricsRef.current, nextMetrics)) {
-        sentenceMetricsRef.current = nextMetrics;
-        setSentenceMetrics(nextMetrics);
-      }
-    }
-  }, [scaleRef, showSummaryMode, isZoomingToTarget, refreshSentenceRanges]);
-
-  const measureSummaryPositions = useCallback(() => {
-    const wrap = summaryWrapRef.current;
-    if (!wrap || !showSummaryMode) return;
-    const wrapRect = wrap.getBoundingClientRect();
-    const s = scaleRef.current || 1;
-    const next = new Map();
-    Object.entries(summaryCardRefs.current).forEach(([path, el]) => {
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      next.set(path, {
-        top: (r.top - wrapRect.top) / s,
-        height: r.height / s,
-      });
-    });
-    // The triple-rAF measurement schedule calls this up to 3x per layout pass;
-    // bail the render when geometry is unchanged so we don't thrash the rail.
-    setSummaryMetricsState((prev) => (areSummaryMetricsEqual(prev, next) ? prev : next));
-  }, [scaleRef, showSummaryMode]);
-
-  // When leaving summary mode (e.g. via "Show source sentences"), ensure we
-  // (re)measure sentence positions against the freshly mounted article DOM so
-  // that topic cards in the rail are built from real measured layouts (tall,
-  // article-aligned) rather than falling back to the synthetic small stacked
-  // layout near the top.
-  const prevShowSummaryRef = useRef(showSummaryMode);
-  useLayoutEffect(() => {
-    const wasInSummary = prevShowSummaryRef.current;
-    prevShowSummaryRef.current = showSummaryMode;
-    if (wasInSummary && !showSummaryMode) {
-      // Schedule after paint so getClientRects on the article sentences are valid.
-      const raf = window.requestAnimationFrame(() => {
-        measureSentencePositions();
-      });
-      return () => window.cancelAnimationFrame(raf);
-    }
-  }, [showSummaryMode, measureSentencePositions]);
-
-  useLayoutEffect(() => {
-    if (!isDone) return undefined;
-    let raf1 = 0;
-    let raf2 = 0;
-    let raf3 = 0;
-    const measure = () => {
-      measureSentencePositions();
-      measureSummaryPositions();
-    };
-    // Triple rAF on layout changes (incl. summary<->article switches): gives the
-    // injected article (or summary cards) time to lay out before we sample
-    // sentence/summary rects for rail card positioning. Extra attempts guard
-    // against races where early passes see no client rects and would otherwise
-    // leave topic cards stuck in the small synthetic fallback layout.
-    // Track and cancel the third rAF callback: when the effect is cleaned up
-    // after the second animation frame has scheduled this third measurement,
-    // cleanup must cancel it too. Otherwise it can still run after a mode switch
-    // or unmount, using stale showSummaryMode / measure* closures and writing
-    // metrics for the wrong DOM.
-    const schedule = () => {
-      window.cancelAnimationFrame(raf1);
-      window.cancelAnimationFrame(raf2);
-      window.cancelAnimationFrame(raf3);
-      raf1 = window.requestAnimationFrame(() => {
-        measure();
-        raf2 = window.requestAnimationFrame(() => {
-          measure();
-          raf3 = window.requestAnimationFrame(measure);
-        });
-      });
-    };
-    schedule();
-    window.addEventListener('resize', schedule);
-
-    let resizeObserver = null;
-    if (typeof window.ResizeObserver !== 'undefined') {
-      resizeObserver = new window.ResizeObserver(schedule);
-      if (summaryWrapRef.current) resizeObserver.observe(summaryWrapRef.current);
-      if (articleTextRef.current) resizeObserver.observe(articleTextRef.current);
-    }
-
-    // Images and web fonts in the re-rendered article finish loading *after*
-    // the first measurement and shift every sentence below them. Re-measure as
-    // each settles so the rail doesn't stay pinned to the pre-load layout.
-    const articleEl = articleTextRef.current;
-    const images = articleEl ? Array.from(articleEl.querySelectorAll('img')) : [];
-    const pending = images.filter((img) => !img.complete);
-    pending.forEach((img) => {
-      img.addEventListener('load', schedule);
-      img.addEventListener('error', schedule);
-    });
-    let fontsCancelled = false;
-    if (document.fonts && typeof document.fonts.ready?.then === 'function') {
-      document.fonts.ready.then(() => {
-        if (!fontsCancelled) schedule();
-      });
-    }
-
-    return () => {
-      window.cancelAnimationFrame(raf1);
-      window.cancelAnimationFrame(raf2);
-      window.cancelAnimationFrame(raf3);
-      window.removeEventListener('resize', schedule);
-      if (resizeObserver) resizeObserver.disconnect();
-      pending.forEach((img) => {
-        img.removeEventListener('load', schedule);
-        img.removeEventListener('error', schedule);
-      });
-      fontsCancelled = true;
-    };
-  }, [
-    isDone,
-    showSummaryMode,
-    sentences,
-    summaryCards,
-    articleHtml,
-    measureSentencePositions,
-    measureSummaryPositions,
-  ]);
-
-  // ── Sentence highlighting (native CSS Custom Highlight API) ───────────────
-  // A single live Range per sentence paints continuously across whitespace and
-  // inline tags. The selected topic and the hovered topic get separate named
-  // highlights so they can be styled distinctly via ::highlight() in modal.css.
-  useEffect(() => {
-    if (!isDone || showSummaryMode || !supportsHighlightApi()) return undefined;
-    const { wordEntries, sentenceRanges } = refreshSentenceRanges();
-
-    const sentencesForKey = (key) => {
-      if (!key) return [];
-      return Array.from(topicSentenceIndex.get(key) || []);
-    };
-
-    const setHighlight = (name, nums) => {
-      if (!nums.length) {
-        CSS.highlights.delete(name);
-        return;
-      }
-      const highlight = new Highlight();
-      let any = false;
-      for (const n of nums) {
-        const domRange = buildSentenceDomRange(sentenceRanges, wordEntries, n);
-        if (domRange) {
-          highlight.add(domRange);
-          any = true;
-        }
-      }
-      if (any) CSS.highlights.set(name, highlight);
-      else CSS.highlights.delete(name);
-    };
-
-    const selectedNums = sentencesForKey(selectedTopicKey);
-    const selectedSet = new Set(selectedNums);
-    // Don't double-paint sentences that are already in the selected highlight.
-    const hoverNums = sentencesForKey(hoveredTopicKey).filter((n) => !selectedSet.has(n));
-
-    setHighlight(HIGHLIGHT_NAME, selectedNums);
-    setHighlight(HIGHLIGHT_HOVER, hoverNums);
-
-    return () => {
-      CSS.highlights.delete(HIGHLIGHT_NAME);
-      CSS.highlights.delete(HIGHLIGHT_HOVER);
-    };
-  }, [
+  // Paint the selected/hovered topic's source sentences via the native CSS
+  // Custom Highlight API; shares the measurement engine's live sentence Ranges.
+  useSentenceHighlights({
     isDone,
     showSummaryMode,
     topicSentenceIndex,
@@ -526,7 +268,7 @@ export default function App({ initialKey }) {
     hoveredTopicKey,
     articleHtml,
     refreshSentenceRanges,
-  ]);
+  });
 
   // ── Topic interaction ────────────────────────────────────────────────────
 
@@ -601,7 +343,7 @@ export default function App({ initialKey }) {
 
   useEffect(() => {
     if (!initialKey) return;
-    chrome.runtime.sendMessage({ type: 'ensurePipeline', key: initialKey }, (resp) => {
+    chrome.runtime.sendMessage({ type: MSG.ensurePipeline, key: initialKey }, (resp) => {
       if (chrome.runtime.lastError) {
         console.warn('PageToLLM Canvas ensurePipeline error:', chrome.runtime.lastError.message);
       } else if (resp && !resp.ok) {
@@ -793,66 +535,28 @@ export default function App({ initialKey }) {
   // useCanvasAlignment above.
 
   // ── Opening view: leaf level, zoomed out ~3 clicks, first topic's summary ──
-  // Phase 1: once the article and its topic hierarchy are measured, jump the
-  // level switcher straight to the leaf level (mirrors clicking it manually).
-  useEffect(() => {
-    if (initialViewPhase !== 'pending') return;
-    if (!isDone || topics.length === 0 || sentenceMetrics.size === 0) return;
-    // The user already touched the canvas (panned/zoomed/switched level) while
-    // this settled — don't yank their view out from under them.
-    if (userMovedCanvasRef.current || selectedLevel !== 0) {
-      setInitialViewPhase('done');
-      return;
-    }
-    if (maxLevel > 0) {
-      setSelectedLevel(maxLevel);
-    }
-    setInitialViewPhase('level-set');
-  }, [initialViewPhase, isDone, topics, sentenceMetrics, maxLevel, selectedLevel, userMovedCanvasRef]);
-
-  // Phase 2: once the leaf level has actually committed, zoom out the
-  // equivalent of 3 "-" clicks so a few levels of cards fit on screen.
-  useEffect(() => {
-    if (initialViewPhase !== 'level-set') return;
-    if (maxLevel > 0 && selectedLevel !== maxLevel) return;
-    setTransformNow(clampScale((scaleRef.current || 1) / 1.2 ** 3), translateRef.current);
-    setInitialViewPhase('zoomed');
-  }, [initialViewPhase, selectedLevel, maxLevel, setTransformNow, scaleRef, translateRef]);
-
-  // Phase 3: with the leaf-level cards and zoom settled, select the first
-  // topic — same as clicking "First topic" once — so its summary is visible.
-  useEffect(() => {
-    if (initialViewPhase !== 'zoomed') return;
-    const list = buildTopicNavigationList({
-      showSummaryMode,
-      summaryCards,
-      topicCards: zoomAdjustedTopicCards,
-      selectedLevel,
-    });
-    const targetCard = findTopicNavigationTarget({
-      list,
-      selectedNavigationKey: null,
-      selectedTopicKey: null,
-      direction: 'first',
-      currentY: 0,
-      showSummaryMode,
-      summaryMetricsState,
-    });
-    if (targetCard) {
-      setSelectedTopicKey(getTopicNavigationTopicKey(targetCard, showSummaryMode));
-      setSelectedTopicCardKey(getTopicNavigationCardKey(targetCard, showSummaryMode));
-      panToTopic(targetCard);
-    }
-    setInitialViewPhase('done');
-  }, [
-    initialViewPhase,
+  // Owned by useInitialView: a one-time three-phase state machine that runs once
+  // the article and topic hierarchy are measured. See the hook for why the steps
+  // are split across separate committed renders.
+  useInitialView({
+    isDone,
+    topics,
+    sentenceMetrics,
+    maxLevel,
+    selectedLevel,
+    setSelectedLevel,
+    userMovedCanvasRef,
+    setTransformNow,
+    scaleRef,
+    translateRef,
     showSummaryMode,
     summaryCards,
     zoomAdjustedTopicCards,
-    selectedLevel,
     summaryMetricsState,
     panToTopic,
-  ]);
+    setSelectedTopicKey,
+    setSelectedTopicCardKey,
+  });
 
   // ── Render ───────────────────────────────────────────────────────────────
 

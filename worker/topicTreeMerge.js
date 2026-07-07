@@ -42,15 +42,21 @@
 // (LLM calls, logging) are injected, so this module performs no storage I/O and
 // is unit-testable with fakes.
 
-// Splits a sorted set of 1-based sentence ids into contiguous runs (one per
-// non-adjacent occurrence). Duplicated from orchestrator.js intentionally — both
-// modules need it and importing it here would create a circular dependency
-// (orchestrator imports summarizeTopicTree from this module).
 /**
- * @param {number[]} sentenceIds  1-based sentence ids (need not be pre-sorted).
- * @returns {number[][]} The ids grouped into contiguous runs, each run sorted ascending.
+ * Splits a sorted set of 1-based sentence ids into contiguous runs. A topic that
+ * appears at several non-adjacent places in the article yields one run per
+ * occurrence; each run is summarized separately so the same topic shows
+ * location-specific text instead of one global summary repeated everywhere.
+ *
+ * Lives here (rather than in orchestrator.js) because both modules need it and
+ * orchestrator already imports summarizeTopicTree from this module, so importing
+ * it the other way would create a cycle. orchestrator.js re-exports it as part of
+ * its tested public surface.
+ *
+ * @param {number[]} sentenceIds
+ * @returns {number[][]} ordered runs of consecutive ids
  */
-function splitContiguousRuns(sentenceIds) {
+export function splitContiguousRuns(sentenceIds) {
   const sorted = Array.isArray(sentenceIds) ? sentenceIds.slice().sort((a, b) => a - b) : [];
   const runs = [];
   let cur = [];

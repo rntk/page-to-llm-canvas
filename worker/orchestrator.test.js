@@ -186,7 +186,10 @@ describe('splitContiguousRuns', () => {
   });
 
   it('sorts ids before grouping', () => {
-    expect(splitContiguousRuns([6, 1, 5, 2])).toEqual([[1, 2], [5, 6]]);
+    expect(splitContiguousRuns([6, 1, 5, 2])).toEqual([
+      [1, 2],
+      [5, 6],
+    ]);
   });
 
   it('returns a single run for fully contiguous ids', () => {

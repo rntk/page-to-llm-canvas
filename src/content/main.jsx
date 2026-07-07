@@ -7,6 +7,7 @@ import YouTubeRail from './YouTubeRail.jsx';
 import { buildYouTubeRailCards } from './youtubeRailSync.js';
 import { guardTrustedUserEvent } from './eventSecurity.js';
 import { splitError, retryRecord } from '../utils/errorUtils.js';
+import { MSG } from '../../messages.js';
 import { resolveColumnOverlaps } from '../topicCards.js';
 import {
   moveSelectedEntry,
@@ -26,11 +27,11 @@ import {
   buildSentenceWordRanges,
 } from '../sentenceHighlight.js';
 import {
-  splitPath,
   topicAccentColor,
   buildSummaryEntries,
   buildHierarchicalTopicEntries,
   splitIntoContiguousRuns,
+  computeMaxTopicLevel,
 } from './recordTransform.js';
 import { buildCssPath } from './cssPath.js';
 import { buildHtml } from './selectionHtml.js';
@@ -611,7 +612,7 @@ async function submitSelection(event) {
 
   try {
     const response = await chrome.runtime.sendMessage({
-      type: 'submit',
+      type: MSG.submit,
       html,
       sourceUrl,
       selectors,
@@ -629,28 +630,24 @@ async function submitSelection(event) {
   }
 }
 
-function openCanvasIframe(key) {
+function openRecordIframe(key, view) {
   removeCanvasIframe();
   closeInPageRail();
   const iframe = document.createElement('iframe');
   iframe.id = 'pagetollm-canvas-iframe';
-  iframe.src = buildRecordViewIframeSrc((path) => chrome.runtime.getURL(path), key);
+  iframe.src = buildRecordViewIframeSrc((path) => chrome.runtime.getURL(path), key, view);
   iframe.style.cssText =
     'position:fixed;inset:0;width:100vw;min-width:100vw;height:100vh;min-height:100vh;border:0;z-index:2147483647;';
   document.documentElement.appendChild(iframe);
   canvasIframe = iframe;
 }
 
+function openCanvasIframe(key) {
+  openRecordIframe(key);
+}
+
 function openHierarchyIframe(key) {
-  removeCanvasIframe();
-  closeInPageRail();
-  const iframe = document.createElement('iframe');
-  iframe.id = 'pagetollm-canvas-iframe';
-  iframe.src = buildRecordViewIframeSrc((path) => chrome.runtime.getURL(path), key, 'hierarchy');
-  iframe.style.cssText =
-    'position:fixed;inset:0;width:100vw;min-width:100vw;height:100vh;min-height:100vh;border:0;z-index:2147483647;';
-  document.documentElement.appendChild(iframe);
-  canvasIframe = iframe;
+  openRecordIframe(key, 'hierarchy');
 }
 
 function removeCanvasIframe() {
@@ -684,6 +681,69 @@ function cleanupSelection(event) {
 
   selectionMode = false;
   disableSelection();
+}
+
+// ── Shared rail surface ───────────────────────────────────────────────────
+
+/**
+ * Create the shared in-page rail surface used by both the scroll-synced rail
+ * and the YouTube rail: the `<aside>` host, its themed React root, the mount
+ * bookkeeping, and the `inPageRailController` teardown. The two rails differ
+ * only in a couple of options captured here.
+ *
+ * @param {object} opts
+ * @param {{ mode: string }} opts.state - Live rail state; `setRailWidthForMode` reads `state.mode`.
+ * @param {boolean} [opts.youtube] - Tag the host with `data-youtube` (YouTube rail only).
+ * @param {() => void} [opts.onTeardown] - Extra teardown step (e.g. clearing CSS highlights).
+ * @returns {{ railEl: HTMLElement, railRoot: import('react-dom/client').Root, setRailWidthForMode: () => void, isClosed: () => boolean }}
+ */
+function createRailSurface({ state, youtube = false, onTeardown } = {}) {
+  const railEl = document.createElement('aside');
+  railEl.id = 'pagetollm-in-page-rail';
+  railEl.dataset.mode = state.mode;
+  if (youtube) railEl.dataset.youtube = 'true';
+  applyContentTheme(railEl);
+  applyContentHighlightColor(railEl);
+  const railRoot = createRoot(railEl);
+  let railClosed = false;
+  let railSurfaceTracked = false;
+
+  const setRailWidthForMode = () => {
+    if (railClosed) return;
+    const railWidth = IN_PAGE_RAIL_WIDTHS[state.mode] || IN_PAGE_RAIL_WIDTHS.topics;
+    railEl.style.width = `${railWidth}px`;
+    document.documentElement.style.setProperty(
+      '--pagetollm-rail-reserve',
+      `${railWidth + IN_PAGE_RAIL_RESERVE_GAP}px`,
+    );
+    document.documentElement.style.setProperty('--pagetollm-rail-width', `${railWidth}px`);
+  };
+
+  document.documentElement.appendChild(railEl);
+  trackMountedContentSurface();
+  railSurfaceTracked = true;
+  inPageRailController = {
+    railEl,
+    teardown() {
+      railClosed = true;
+      railRoot.unmount();
+      railEl.remove();
+      if (railSurfaceTracked) {
+        railSurfaceTracked = false;
+        untrackMountedContentSurface();
+      }
+      if (onTeardown) onTeardown();
+      document.body.classList.remove('pagetollm-rail-open');
+      document.documentElement.style.removeProperty('--pagetollm-rail-reserve');
+      document.documentElement.style.removeProperty('--pagetollm-rail-width');
+    },
+  };
+
+  // Reserve space on the right side of the page so the rail does not overlap text.
+  setRailWidthForMode();
+  document.body.classList.add('pagetollm-rail-open');
+
+  return { railEl, railRoot, setRailWidthForMode, isClosed: () => railClosed };
 }
 
 // ── In-page rail view ─────────────────────────────────────────────────────
@@ -771,65 +831,14 @@ async function openInPageRail(rec, initialMode, options = {}) {
     selectedLevel: options && typeof options.level === 'number' ? options.level : 0,
   };
 
-  // Calculate maxLevel
-  let maxLevel = 0;
-  const topics = Array.isArray(record.topics) ? record.topics : [];
-  for (const t of topics) {
-    const depth = splitPath(t.name).length - 1;
-    if (depth > maxLevel) maxLevel = depth;
-  }
-  const index = record.topic_summary_index;
-  if (index && typeof index === 'object') {
-    for (const [rawPath, entry] of Object.entries(index)) {
-      if (!rawPath) continue;
-      const parts = splitPath(rawPath);
-      const level = typeof entry.level === 'number' ? entry.level : parts.length - 1;
-      if (level > maxLevel) maxLevel = level;
-    }
-  }
+  const maxLevel = computeMaxTopicLevel(record);
 
-  const railEl = document.createElement('aside');
-  railEl.id = 'pagetollm-in-page-rail';
-  railEl.dataset.mode = state.mode;
-  applyContentTheme(railEl);
-  applyContentHighlightColor(railEl);
-  const railRoot = createRoot(railEl);
-  let railClosed = false;
-  let railSurfaceTracked = false;
-
-  const setRailWidthForMode = () => {
-    if (railClosed) return;
-    const railWidth = IN_PAGE_RAIL_WIDTHS[state.mode] || IN_PAGE_RAIL_WIDTHS.topics;
-    railEl.style.width = `${railWidth}px`;
-    document.documentElement.style.setProperty(
-      '--pagetollm-rail-reserve',
-      `${railWidth + IN_PAGE_RAIL_RESERVE_GAP}px`,
-    );
-    document.documentElement.style.setProperty('--pagetollm-rail-width', `${railWidth}px`);
-  };
-  document.documentElement.appendChild(railEl);
-  trackMountedContentSurface();
-  railSurfaceTracked = true;
-  inPageRailController = {
-    railEl,
-    teardown() {
-      railClosed = true;
-      railRoot.unmount();
-      railEl.remove();
-      if (railSurfaceTracked) {
-        railSurfaceTracked = false;
-        untrackMountedContentSurface();
-      }
+  const { railEl, railRoot, setRailWidthForMode, isClosed } = createRailSurface({
+    state,
+    onTeardown: () => {
       if (supportsHighlightApi()) CSS.highlights.delete(HIGHLIGHT_NAME);
-      document.body.classList.remove('pagetollm-rail-open');
-      document.documentElement.style.removeProperty('--pagetollm-rail-reserve');
-      document.documentElement.style.removeProperty('--pagetollm-rail-width');
     },
-  };
-
-  // Reserve space on the right side of the page so the rail does not overlap text.
-  setRailWidthForMode();
-  document.body.classList.add('pagetollm-rail-open');
+  });
 
   let railOriginTop = 0;
 
@@ -942,7 +951,7 @@ async function openInPageRail(rec, initialMode, options = {}) {
   }
 
   const handleSelectMode = (mode) => {
-    if (railClosed) return;
+    if (isClosed()) return;
     if (mode === 'canvas') {
       closeInPageRail();
       openCanvasIframe(record.key);
@@ -962,7 +971,7 @@ async function openInPageRail(rec, initialMode, options = {}) {
   };
 
   const handleSelectLevel = (level) => {
-    if (railClosed) return;
+    if (isClosed()) return;
     if (state.selectedLevel === level) return;
     state.selectedLevel = level;
     clearAllHighlights();
@@ -980,7 +989,7 @@ async function openInPageRail(rec, initialMode, options = {}) {
   };
 
   function renderRail({ measureOnly = false } = {}) {
-    if (railClosed || guard.isStale()) return;
+    if (isClosed() || guard.isStale()) return;
     const { cards, bodyHeight } = railOriginTop ? buildRailCards() : { cards: [], bodyHeight: 200 };
     flushSync(() => {
       railRoot.render(
@@ -1002,14 +1011,14 @@ async function openInPageRail(rec, initialMode, options = {}) {
   }
 
   renderRail({ measureOnly: true });
-  if (railClosed || guard.isStale()) return;
+  if (isClosed() || guard.isStale()) return;
   const bodyRect = railEl.querySelector('.pagetollm-rail-body').getBoundingClientRect();
   railOriginTop = getRailOriginTop(bodyRect, scrollContainer);
   renderRail();
 
   if (options && options.sentenceNumbers && options.sentenceNumbers.length > 0) {
     requestAnimationFrame(() => {
-      if (railClosed || guard.isStale()) return;
+      if (isClosed() || guard.isStale()) return;
       highlightTopic(options.sentenceNumbers, true);
       scrollToFirst(options.sentenceNumbers);
     });
@@ -1056,62 +1065,12 @@ async function openYouTubeRail(rec) {
 
   const state = { mode: 'topics', selectedLevel: 0 };
 
-  let maxLevel = 0;
-  for (const t of record.topics || []) {
-    const depth = splitPath(t.name).length - 1;
-    if (depth > maxLevel) maxLevel = depth;
-  }
-  const index = record.topic_summary_index;
-  if (index && typeof index === 'object') {
-    for (const [rawPath, entry] of Object.entries(index)) {
-      if (!rawPath) continue;
-      const level = typeof entry.level === 'number' ? entry.level : splitPath(rawPath).length - 1;
-      if (level > maxLevel) maxLevel = level;
-    }
-  }
+  const maxLevel = computeMaxTopicLevel(record);
 
-  const railEl = document.createElement('aside');
-  railEl.id = 'pagetollm-in-page-rail';
-  railEl.dataset.mode = state.mode;
-  railEl.dataset.youtube = 'true';
-  applyContentTheme(railEl);
-  applyContentHighlightColor(railEl);
-  const railRoot = createRoot(railEl);
-  let railClosed = false;
-  let railSurfaceTracked = false;
-
-  const setRailWidthForMode = () => {
-    if (railClosed) return;
-    const railWidth = IN_PAGE_RAIL_WIDTHS[state.mode] || IN_PAGE_RAIL_WIDTHS.topics;
-    railEl.style.width = `${railWidth}px`;
-    document.documentElement.style.setProperty(
-      '--pagetollm-rail-reserve',
-      `${railWidth + IN_PAGE_RAIL_RESERVE_GAP}px`,
-    );
-    document.documentElement.style.setProperty('--pagetollm-rail-width', `${railWidth}px`);
-  };
-
-  document.documentElement.appendChild(railEl);
-  trackMountedContentSurface();
-  railSurfaceTracked = true;
-  inPageRailController = {
-    railEl,
-    teardown() {
-      railClosed = true;
-      railRoot.unmount();
-      railEl.remove();
-      if (railSurfaceTracked) {
-        railSurfaceTracked = false;
-        untrackMountedContentSurface();
-      }
-      document.body.classList.remove('pagetollm-rail-open');
-      document.documentElement.style.removeProperty('--pagetollm-rail-reserve');
-      document.documentElement.style.removeProperty('--pagetollm-rail-width');
-    },
-  };
-
-  setRailWidthForMode();
-  document.body.classList.add('pagetollm-rail-open');
+  const { railEl, railRoot, setRailWidthForMode, isClosed } = createRailSurface({
+    state,
+    youtube: true,
+  });
 
   const getCurrentTime = () => {
     const video = getYouTubeVideoElement();
@@ -1132,7 +1091,7 @@ async function openYouTubeRail(rec) {
   };
 
   const handleSelectMode = (mode) => {
-    if (railClosed) return;
+    if (isClosed()) return;
     const next = mode === 'summaries' ? 'summaries' : 'topics';
     if (state.mode === next) return;
     state.mode = next;
@@ -1142,14 +1101,14 @@ async function openYouTubeRail(rec) {
   };
 
   const handleSelectLevel = (level) => {
-    if (railClosed) return;
+    if (isClosed()) return;
     if (state.selectedLevel === level) return;
     state.selectedLevel = level;
     renderRail();
   };
 
   function renderRail() {
-    if (railClosed || guard.isStale()) return;
+    if (isClosed() || guard.isStale()) return;
     const cards = buildYouTubeRailCards({
       record,
       mode: state.mode,

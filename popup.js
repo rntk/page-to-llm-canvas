@@ -1,4 +1,9 @@
 import { createThemeController, themeIcon, themeLabel } from './theme.js';
+import { getYouTubeVideoId } from './src/utils/youtubeTimestamp.js';
+import { MSG } from './messages.js';
+
+// Re-exported so popup.test.js (and other importers) keep resolving it from here.
+export { getYouTubeVideoId };
 
 const pickBtn = document.getElementById('pick-btn');
 const refreshBtn = document.getElementById('refresh-btn');
@@ -57,31 +62,6 @@ export function hostnameFromUrl(url) {
   } catch (_) {
     return '';
   }
-}
-
-// Mirror getYouTubeVideoId's host handling (src/utils/youtubeTimestamp.js) so
-// popup matching and the YouTube sync button recognize exactly the URLs that
-// the rail can sync. popup.js is a static (non-bundled) script, so the logic is
-// duplicated here rather than imported from src/.
-export function getYouTubeVideoId(url) {
-  if (!url || typeof url !== 'string') return null;
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch (_) {
-    return null;
-  }
-  const host = parsed.hostname.replace(/^www\./, '');
-  if (host === 'youtu.be') {
-    const id = parsed.pathname.slice(1).split('/')[0];
-    return id || null;
-  }
-  if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'music.youtube.com') {
-    if (parsed.pathname === '/watch') return parsed.searchParams.get('v') || null;
-    const pathMatch = parsed.pathname.match(/^\/(?:shorts|embed|v|live)\/([^/?#]+)/);
-    if (pathMatch) return pathMatch[1];
-  }
-  return null;
 }
 
 export function isYouTubeUrl(url) {
@@ -202,7 +182,7 @@ export function getRecordActions(record) {
       kind: 'message',
       label: 'Reprocess',
       className: 'warning',
-      messageType: 'reprocessRecord',
+      messageType: MSG.reprocessRecord,
       confirmMessage: 'Reprocess this analysis? Existing results will be overwritten.',
       failureMessage: 'Reprocess failed',
       description: 'Run this analysis again and overwrite existing results.',
@@ -211,7 +191,7 @@ export function getRecordActions(record) {
       kind: 'message',
       label: 'Delete',
       className: 'danger',
-      messageType: 'deleteRecord',
+      messageType: MSG.deleteRecord,
       confirmMessage: 'Delete this record?',
       failureMessage: 'Delete failed',
       description: 'Remove this saved analysis from the extension.',
@@ -406,7 +386,7 @@ function renderRecords(records) {
 
 async function refreshProviderReadiness() {
   try {
-    const response = await runtimeMessage({ type: 'listProviders' });
+    const response = await runtimeMessage({ type: MSG.listProviders });
     const state = providerReadinessState(response);
     providerReady = state.ready;
     pickBtn.disabled = state.disabled;
@@ -428,7 +408,7 @@ async function refreshRecords() {
   hostEl.title = activeTab && activeTab.url ? activeTab.url : '';
 
   try {
-    const response = await runtimeMessage({ type: 'listRecords' });
+    const response = await runtimeMessage({ type: MSG.listRecords });
     if (!response || !response.ok || !Array.isArray(response.items)) {
       recordsEl.replaceChildren();
       emptyEl.hidden = true;

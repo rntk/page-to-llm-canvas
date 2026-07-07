@@ -1,3 +1,5 @@
+import { MSG } from '../../messages.js';
+
 /**
  * Utility function to split a pipeline error stack trace or message.
  * Extracts the first line as the clean error message, and the rest as details.
@@ -30,7 +32,7 @@ export function splitError(recordError) {
  */
 export function retryRecord(key, serviceName = 'Canvas') {
   return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({ type: 'retryRecord', key }, (resp) => {
+    chrome.runtime.sendMessage({ type: MSG.retryRecord, key }, (resp) => {
       if (chrome.runtime.lastError) {
         console.warn(`PageToLLM ${serviceName} retry error:`, chrome.runtime.lastError.message);
         reject(new Error(chrome.runtime.lastError.message));
@@ -55,7 +57,7 @@ export function retryRecord(key, serviceName = 'Canvas') {
  */
 export function resolveSummaryErrors(key, action, serviceName = 'Canvas') {
   return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({ type: 'resolveSummaryErrors', key, action }, (resp) => {
+    chrome.runtime.sendMessage({ type: MSG.resolveSummaryErrors, key, action }, (resp) => {
       if (chrome.runtime.lastError) {
         console.warn(`PageToLLM ${serviceName} resolve error:`, chrome.runtime.lastError.message);
         reject(new Error(chrome.runtime.lastError.message));

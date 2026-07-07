@@ -8,6 +8,8 @@
  *   - createLoadToken   race-condition guard factory
  */
 
+import { MSG } from '../../messages.js';
+
 /**
  * Fetch a record from the background via chrome.runtime.sendMessage.
  * Resolves null on any error (lastError, exception, bad response).
@@ -18,7 +20,7 @@
 export function fetchRecord(key) {
   return new Promise((resolve) => {
     try {
-      globalThis.chrome.runtime.sendMessage({ type: 'getRecord', key }, (resp) => {
+      globalThis.chrome.runtime.sendMessage({ type: MSG.getRecord, key }, (resp) => {
         if (globalThis.chrome.runtime.lastError) {
           resolve(null);
           return;

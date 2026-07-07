@@ -192,9 +192,7 @@ describe('YouTubeRail', () => {
 
   it('cleans up interval poll timer when unmounted', () => {
     const getCurrentTime = vi.fn(() => 0);
-    const { unmount } = render(
-      createElement(YouTubeRail, { ...defaultProps, getCurrentTime }),
-    );
+    const { unmount } = render(createElement(YouTubeRail, { ...defaultProps, getCurrentTime }));
 
     // Initial render might call getCurrentTime, clear mocks
     getCurrentTime.mockClear();
@@ -219,14 +217,11 @@ describe('YouTubeRail', () => {
 
   it('cleans up scheduled animation frames when unmounted', () => {
     const cancelSpy = vi.spyOn(window, 'cancelAnimationFrame');
-    const { unmount } = render(
-      createElement(YouTubeRail, defaultProps),
-    );
+    const { unmount } = render(createElement(YouTubeRail, defaultProps));
 
     unmount();
     expect(cancelSpy).toHaveBeenCalledWith(1);
   });
-
 
   it('renders summaries with body fallback and empty state for invalid cards', () => {
     const { container, rerender, unmount } = render(

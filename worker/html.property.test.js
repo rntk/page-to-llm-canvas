@@ -10,7 +10,7 @@ describe('stripTagsKeepOffsets properties', () => {
         expect(typeof result.text).toBe('string');
         expect(Array.isArray(result.mapping)).toBe(true);
         expect(result.mapping.length).toBe(result.text.length + 1);
-      })
+      }),
     );
   });
 
@@ -22,7 +22,7 @@ describe('stripTagsKeepOffsets properties', () => {
           expect(result.mapping[i]).toBeGreaterThanOrEqual(0);
           expect(result.mapping[i]).toBeLessThanOrEqual(html.length);
         }
-      })
+      }),
     );
   });
 
@@ -33,7 +33,7 @@ describe('stripTagsKeepOffsets properties', () => {
         for (let i = 1; i < result.mapping.length; i++) {
           expect(result.mapping[i]).toBeGreaterThanOrEqual(result.mapping[i - 1]);
         }
-      })
+      }),
     );
   });
 
@@ -59,7 +59,7 @@ describe('stripTagsKeepOffsets properties', () => {
             expect(normalized).toContain(normalize(after));
           }
         },
-      )
+      ),
     );
   });
 
@@ -69,7 +69,7 @@ describe('stripTagsKeepOffsets properties', () => {
         const result = stripTagsKeepOffsets(html);
         const sentinel = result.mapping[result.mapping.length - 1];
         expect(sentinel).toBe(html.length);
-      })
+      }),
     );
   });
 
@@ -85,7 +85,7 @@ describe('stripTagsKeepOffsets properties', () => {
             expect(html[origIdx]).toBe(result.text[i]);
           }
         }
-      })
+      }),
     );
   });
 });

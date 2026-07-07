@@ -1,5 +1,5 @@
 /**
- * Interactive Script for Extension Canvas Documentation Page
+ * Interactive Script for PageToLLM Canvas Documentation Page
  */
 
 // 1. Screencast Video Player Controller
@@ -123,7 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       lightbox.style.display = 'flex';
       lightboxImg.src = img.src;
-      lightboxCaption.textContent = img.alt || 'Extension Canvas Preview';
+      lightboxCaption.textContent = img.alt || 'PageToLLM Canvas Preview';
     });
   });
 });

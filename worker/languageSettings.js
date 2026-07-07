@@ -21,7 +21,9 @@ export function getStoredPreferContentLanguage() {
           resolve(DEFAULT_PREFER_CONTENT_LANGUAGE);
           return;
         }
-        resolve(normalizePreferContentLanguage(items ? items[PREFER_CONTENT_LANGUAGE_KEY] : undefined));
+        resolve(
+          normalizePreferContentLanguage(items ? items[PREFER_CONTENT_LANGUAGE_KEY] : undefined),
+        );
       });
     } catch (_) {
       resolve(DEFAULT_PREFER_CONTENT_LANGUAGE);

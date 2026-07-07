@@ -187,10 +187,7 @@ describe('TopicHierarchyView', () => {
         selectedTopicPath: null,
         onTopicClick: vi.fn(),
         sourceUrl: 'https://www.youtube.com/watch?v=abc',
-        sentences: [
-          '0:10 Intro to apple',
-          '0:20 Details about apple',
-        ],
+        sentences: ['0:10 Intro to apple', '0:20 Details about apple'],
       }),
     );
 
@@ -222,10 +219,7 @@ describe('TopicHierarchyView', () => {
         selectedTopicPath: null,
         onTopicClick: vi.fn(),
         sourceUrl: 'https://www.youtube.com/watch?v=abc',
-        sentences: [
-          '0:10 Intro to apple',
-          '0:20 Details about apple',
-        ],
+        sentences: ['0:10 Intro to apple', '0:20 Details about apple'],
       }),
     );
 

@@ -17,7 +17,11 @@ const record = {
     { name: 'Second', sentences: [4] },
   ],
   topic_summary_index: {
-    First: { runs: [{ sentences: [2, 3], text: 'about first' }], source_sentences: [2, 3], level: 0 },
+    First: {
+      runs: [{ sentences: [2, 3], text: 'about first' }],
+      source_sentences: [2, 3],
+      level: 0,
+    },
     Second: { runs: [{ sentences: [4], text: 'about second' }], source_sentences: [4], level: 0 },
   },
 };

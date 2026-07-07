@@ -24,11 +24,7 @@ export default {
     // copying and would strip the test files Stryker needs to run).
     '!**/*.test.{js,jsx,mjs}',
   ],
-  ignorePatterns: [
-    'dist',
-    'coverage',
-    '.antigravitycli',
-  ],
+  ignorePatterns: ['dist', 'coverage', '.antigravitycli'],
   coverageAnalysis: 'perTest',
   timeoutMS: 10000,
   ignoreStatic: true,

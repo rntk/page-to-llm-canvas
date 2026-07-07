@@ -198,7 +198,10 @@ export function buildTopicSummaryFromSourcePrompt(source, { preferContentLanguag
   );
 }
 
-export function buildArticleSummaryMergePrompt(chunkSummaries, { preferContentLanguage = false } = {}) {
+export function buildArticleSummaryMergePrompt(
+  chunkSummaries,
+  { preferContentLanguage = false } = {},
+) {
   return withLanguageInstruction(
     ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE.replace('{chunk_summaries}', () => chunkSummaries),
     preferContentLanguage,

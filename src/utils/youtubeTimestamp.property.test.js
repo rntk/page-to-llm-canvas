@@ -15,7 +15,7 @@ describe('youtubeTimestamp properties', () => {
       fc.assert(
         fc.property(fc.string(), (urlStr) => {
           expect(() => getYouTubeVideoId(urlStr)).not.toThrow();
-        })
+        }),
       );
     });
 
@@ -37,7 +37,7 @@ describe('youtubeTimestamp properties', () => {
 
           const musicUrl = `https://music.youtube.com/watch?v=${id}`;
           expect(getYouTubeVideoId(musicUrl)).toBe(id);
-        })
+        }),
       );
     });
 
@@ -46,7 +46,7 @@ describe('youtubeTimestamp properties', () => {
         fc.property(videoIdArb, (id) => {
           const shortUrl = `https://youtu.be/${id}`;
           expect(getYouTubeVideoId(shortUrl)).toBe(id);
-        })
+        }),
       );
     });
   });
@@ -59,7 +59,7 @@ describe('youtubeTimestamp properties', () => {
           const label = formatTimestampLabel(seconds);
           const parsed = parseTimestampSeconds(label);
           expect(parsed).toBe(seconds);
-        })
+        }),
       );
     });
 
@@ -73,8 +73,8 @@ describe('youtubeTimestamp properties', () => {
             const label = formatTimestampLabel(seconds, { padMinutes, forceHours });
             const parsed = parseTimestampSeconds(label);
             expect(parsed).toBe(seconds);
-          }
-        )
+          },
+        ),
       );
     });
 
@@ -82,7 +82,7 @@ describe('youtubeTimestamp properties', () => {
       fc.assert(
         fc.property(fc.string(), (text) => {
           expect(() => parseTimestampSeconds(text)).not.toThrow();
-        })
+        }),
       );
     });
   });
@@ -101,8 +101,8 @@ describe('youtubeTimestamp properties', () => {
               expect(result).toContain(videoId);
               expect(result).toContain(`t=${Math.max(0, Math.floor(seconds))}s`);
             }
-          }
-        )
+          },
+        ),
       );
     });
   });
@@ -110,17 +110,13 @@ describe('youtubeTimestamp properties', () => {
   describe('getTimestampForSentences', () => {
     it('never throws and returns null or integer', () => {
       fc.assert(
-        fc.property(
-          fc.array(fc.string()),
-          fc.array(fc.integer()),
-          (sentences, sourceSentences) => {
-            const result = getTimestampForSentences(sentences, sourceSentences);
-            if (result !== null) {
-              expect(Number.isInteger(result)).toBe(true);
-              expect(result).toBeGreaterThanOrEqual(0);
-            }
+        fc.property(fc.array(fc.string()), fc.array(fc.integer()), (sentences, sourceSentences) => {
+          const result = getTimestampForSentences(sentences, sourceSentences);
+          if (result !== null) {
+            expect(Number.isInteger(result)).toBe(true);
+            expect(result).toBeGreaterThanOrEqual(0);
           }
-        )
+        }),
       );
     });
   });
@@ -138,7 +134,7 @@ describe('youtubeTimestamp properties', () => {
                 padMinutes: fc.boolean(),
                 forceHours: fc.boolean(),
               }),
-              { nil: undefined }
+              { nil: undefined },
             ),
           }),
           (params) => {
@@ -151,8 +147,8 @@ describe('youtubeTimestamp properties', () => {
               expect(typeof result.seconds).toBe('number');
               expect(typeof result.label).toBe('string');
             }
-          }
-        )
+          },
+        ),
       );
     });
   });

@@ -18,7 +18,7 @@ import { parseTopicRanges, groupsFromSegments, TopicParseError } from './topic_p
 import { callLLMWithRetry, createLimiter, parallelMap } from './llm.js';
 import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
 import { planSummaryWork } from './summaryPlanning.js';
-import { summarizeTopicTree } from './topicTreeMerge.js';
+import { summarizeTopicTree, splitContiguousRuns } from './topicTreeMerge.js';
 import { getStoredPreferContentLanguage } from './languageSettings.js';
 
 const MAX_TAGGED_CHARS = 60000;
@@ -156,30 +156,9 @@ function wordCount(text) {
   return (String(text || '').match(/\S+/g) || []).length;
 }
 
-/**
- * Splits a sorted set of 1-based sentence ids into contiguous runs. A topic that
- * appears at several non-adjacent places in the article yields one run per
- * occurrence; each run is summarized separately so the same topic shows
- * location-specific text instead of one global summary repeated everywhere.
- *
- * @param {number[]} sentenceIds
- * @returns {number[][]} ordered runs of consecutive ids
- */
-export function splitContiguousRuns(sentenceIds) {
-  const sorted = Array.isArray(sentenceIds) ? sentenceIds.slice().sort((a, b) => a - b) : [];
-  const runs = [];
-  let cur = [];
-  for (const id of sorted) {
-    if (cur.length === 0 || id === cur[cur.length - 1] + 1) {
-      cur.push(id);
-    } else {
-      runs.push(cur);
-      cur = [id];
-    }
-  }
-  if (cur.length) runs.push(cur);
-  return runs;
-}
+// Re-exported from topicTreeMerge.js (its canonical home) so orchestrator's
+// tested public surface is unchanged for importers.
+export { splitContiguousRuns };
 
 function runSourceText(runIds, sentenceTexts) {
   return runIds

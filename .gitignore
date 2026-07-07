@@ -4,3 +4,4 @@ coverage/
 # Stryker mutation testing
 .stryker-tmp
 reports/mutation
+

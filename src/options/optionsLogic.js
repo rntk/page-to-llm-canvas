@@ -3,6 +3,8 @@
  * No DOM, no chrome, no window/confirm/alert references.
  */
 
+import { MSG } from '../../messages.js';
+
 /**
  * @returns {{id: string, name: string, type: string, model: string, token: string, url: string, serviceTier: string}}
  */
@@ -73,8 +75,6 @@ export function updateProviderFormType(form, type, defaultModel = '') {
     serviceTier: '',
   };
 }
-
-
 
 const IMPORT_RECORD_ARRAY_KEYS = ['records', 'items'];
 const IMPORT_IN_FLIGHT_STATUSES = new Set(['pending', 'splitting', 'summarizing']);
@@ -233,10 +233,10 @@ export function shouldWarnTokenWipe(editingProvider, form) {
  */
 export function actionToMessageType(action) {
   const map = {
-    delete: 'deleteRecord',
-    reprocess: 'reprocessRecord',
-    stop: 'cancelRecordProcessing',
-    exportData: 'getRecord',
+    delete: MSG.deleteRecord,
+    reprocess: MSG.reprocessRecord,
+    stop: MSG.cancelRecordProcessing,
+    exportData: MSG.getRecord,
   };
   return map[action] ?? null;
 }

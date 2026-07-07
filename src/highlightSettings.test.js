@@ -38,9 +38,7 @@ describe('highlight settings', () => {
     });
 
     expect(el.style.getPropertyValue('--pagetollm-highlight-base-color')).toBe('#aabbcc');
-    expect(el.style.getPropertyValue('--pagetollm-highlight-color')).toBe(
-      'rgb(170 187 204 / 0.1)',
-    );
+    expect(el.style.getPropertyValue('--pagetollm-highlight-color')).toBe('rgb(170 187 204 / 0.1)');
     expect(el.style.getPropertyValue('--pagetollm-highlight-hover-color')).toBe(
       'rgb(170 187 204 / 0.2)',
     );

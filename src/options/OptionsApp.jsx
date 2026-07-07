@@ -19,6 +19,7 @@ import {
   dedupeImportedRecords,
 } from './optionsLogic.js';
 import { createThemeController, themeCycle, themeIcon, themeLabel } from '../../theme.js';
+import { MSG } from '../../messages.js';
 import {
   HIGHLIGHT_COLOR_KEY,
   DEFAULT_HIGHLIGHT_COLOR,
@@ -269,12 +270,12 @@ function sendMessage(msg) {
 }
 
 async function listProviders() {
-  const resp = await sendMessage({ type: 'listProviders' });
+  const resp = await sendMessage({ type: MSG.listProviders });
   return normalizeProvidersResponse(resp);
 }
 
 async function listRecords() {
-  const resp = await sendMessage({ type: 'listRecords' });
+  const resp = await sendMessage({ type: MSG.listRecords });
   return (resp && resp.ok && resp.items) || [];
 }
 
@@ -364,7 +365,7 @@ export function ProvidersSection() {
     ) {
       return;
     }
-    const resp = await sendMessage({ type: 'saveProvider', provider: { ...form } });
+    const resp = await sendMessage({ type: MSG.saveProvider, provider: { ...form } });
     if (!resp || !resp.ok) {
       setError((resp && resp.error) || 'Failed to save provider');
       return;
@@ -385,13 +386,13 @@ export function ProvidersSection() {
 
   const remove = async (id) => {
     if (!confirm('Delete this provider?')) return;
-    await sendMessage({ type: 'deleteProvider', id });
+    await sendMessage({ type: MSG.deleteProvider, id });
     if (form.id === id) cancel();
     await load();
   };
 
   const activate = async (id) => {
-    await sendMessage({ type: 'setActiveProvider', id });
+    await sendMessage({ type: MSG.setActiveProvider, id });
     await load();
   };
 
@@ -594,7 +595,7 @@ export function OptionsApp() {
     setError('');
     setImportMessage('');
     if (!confirm('Delete ALL records?')) return;
-    const resp = await sendMessage({ type: 'deleteAll' });
+    const resp = await sendMessage({ type: MSG.deleteAll });
     if (!resp || !resp.ok) {
       setError((resp && resp.error) || 'Failed to delete all records');
       return;
@@ -677,7 +678,7 @@ export function OptionsApp() {
       ) {
         return;
       }
-      const resp = await sendMessage({ type: 'importRecords', records });
+      const resp = await sendMessage({ type: MSG.importRecords, records });
       if (!resp || !resp.ok) {
         setError((resp && resp.error) || 'Failed to import records');
         return;

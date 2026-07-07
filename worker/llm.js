@@ -183,21 +183,6 @@ function sleepWithAbort(ms, signal) {
 }
 
 /**
- * @template T,U
- * @param {T[]} items
- * @param {number} limit
- * @param {(item: T, index: number) => Promise<U>} fn
- * @param {{warmupFirst?: boolean}} [options] When `warmupFirst` is set, the first
- *   item runs to completion before the concurrent burst is released. Every
- *   request in a burst shares the same long prompt prefix, so completing one
- *   first lets the provider commit that prefix to its prompt/KV cache and the
- *   rest reuse it instead of each re-prefilling it from cold. Skipped when there
- *   is fewer than one item to follow, so at least one item always remains for
- *   the parallel phase. A throwing `fn` rejects before the burst starts, just as
- *   it would inside the burst.
- * @returns {Promise<U[]>}
- */
-/**
  * Returns a function that runs async tasks with at most `limit` in flight.
  * Tasks beyond the limit queue in FIFO order. Unlike parallelMap this gates
  * individually submitted tasks, so it suits recursive traversals where the
@@ -232,6 +217,21 @@ export function createLimiter(limit) {
   };
 }
 
+/**
+ * @template T,U
+ * @param {T[]} items
+ * @param {number} limit
+ * @param {(item: T, index: number) => Promise<U>} fn
+ * @param {{warmupFirst?: boolean}} [options] When `warmupFirst` is set, the first
+ *   item runs to completion before the concurrent burst is released. Every
+ *   request in a burst shares the same long prompt prefix, so completing one
+ *   first lets the provider commit that prefix to its prompt/KV cache and the
+ *   rest reuse it instead of each re-prefilling it from cold. Skipped when there
+ *   is fewer than one item to follow, so at least one item always remains for
+ *   the parallel phase. A throwing `fn` rejects before the burst starts, just as
+ *   it would inside the burst.
+ * @returns {Promise<U[]>}
+ */
 export async function parallelMap(items, limit, fn, { warmupFirst = false } = {}) {
   const results = new Array(items.length);
   let next = 0;

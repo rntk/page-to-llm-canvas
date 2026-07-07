@@ -25,6 +25,35 @@ export function splitPath(name) {
     .filter(Boolean);
 }
 
+/**
+ * Compute the deepest topic level present in a record, considering both the
+ * topic list (depth from `name` path) and the `topic_summary_index` (each
+ * entry's explicit `level`, or its path depth when absent). Drives the rail's
+ * level selector, so summary-only levels count even when no topic reaches them.
+ *
+ * @param {{topics?: Array<{name?: string}>, topic_summary_index?: Record<string, {level?: number}>}} record
+ * @returns {number} The maximum 0-based level.
+ */
+export function computeMaxTopicLevel(record) {
+  let maxLevel = 0;
+  const topics = Array.isArray(record.topics) ? record.topics : [];
+  for (const t of topics) {
+    const depth = splitPath(t.name).length - 1;
+    if (depth > maxLevel) maxLevel = depth;
+  }
+  const index = record.topic_summary_index;
+  if (index && typeof index === 'object') {
+    for (const [rawPath, entry] of Object.entries(index)) {
+      if (!rawPath) continue;
+      const parts = splitPath(rawPath);
+      const indexEntry = entry && typeof entry === 'object' ? entry : {};
+      const level = typeof indexEntry.level === 'number' ? indexEntry.level : parts.length - 1;
+      if (level > maxLevel) maxLevel = level;
+    }
+  }
+  return maxLevel;
+}
+
 export { getHierarchyTopicAccentColor as topicAccentColor };
 
 /**
@@ -60,18 +89,19 @@ export function buildSummaryEntries(record) {
   if (index && typeof index === 'object' && Object.keys(index).length > 0) {
     for (const [rawPath, entry] of Object.entries(index)) {
       if (!rawPath) continue;
+      const indexEntry = entry && typeof entry === 'object' ? entry : {};
       const parts = splitPath(rawPath);
       const path = parts.join(' > ');
-      const sourceSentences = Array.isArray(entry.source_sentences)
-        ? entry.source_sentences.slice().sort((a, b) => a - b)
+      const sourceSentences = Array.isArray(indexEntry.source_sentences)
+        ? indexEntry.source_sentences.slice().sort((a, b) => a - b)
         : [];
-      const level = typeof entry.level === 'number' ? entry.level : parts.length - 1;
+      const level = typeof indexEntry.level === 'number' ? indexEntry.level : parts.length - 1;
       sentenceNumbersByPath.set(path, sourceSentences);
       pushRuns({
         path,
         name: parts[parts.length - 1] || path,
         level,
-        runs: entry.runs,
+        runs: indexEntry.runs,
         sourceSentences,
       });
     }

@@ -1,6 +1,6 @@
-# Extension Canvas
+# PageToLLM Canvas
 
-Extension Canvas is a Chrome extension that picks a block of a web page, sends it to an LLM you configure, and shows the resulting topics and summaries in a few different views.
+PageToLLM Canvas is a Chrome extension that picks a block of a web page, sends it to an LLM you configure, and shows the resulting topics and summaries in a few different views.
 
 A documentation site with screenshots and screencasts is available at https://rntk.github.io/page-to-llm-canvas/.
 
@@ -29,11 +29,11 @@ Select content from any page, then review its topics, summaries, and highlighted
 
 ## Who it is for
 
-Extension Canvas is useful for readers, researchers, students, and anyone who wants to understand web articles, documents, or dense pages more quickly.
+PageToLLM Canvas is useful for readers, researchers, students, and anyone who wants to understand web articles, documents, or dense pages more quickly.
 
 ## Status
 
-This project is currently a proof of concept. Some features may still be experimental or require manual setup.
+This project is a release candidate: the extension is feature-complete and is being stabilized for release. You must still configure an LLM provider manually in Options before using it.
 
 Build is owned by `scripts/build-extension.mjs`, which runs Vite once per React entrypoint so extension scripts stay self-contained browser files. Produces a `dist/` directory containing:
 
