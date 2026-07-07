@@ -19,6 +19,8 @@ import {
   dedupeImportedRecords,
 } from './optionsLogic.js';
 import { createThemeController, themeCycle, themeIcon, themeLabel } from '../../theme.js';
+import { retryRecord } from '../utils/errorUtils.js';
+import RecordErrorDialog from './RecordErrorDialog.jsx';
 import { MSG } from '../../messages.js';
 import {
   HIGHLIGHT_COLOR_KEY,
@@ -565,6 +567,8 @@ export function OptionsApp() {
   const [error, setError] = useState('');
   const [importMessage, setImportMessage] = useState('');
   const [isImporting, setIsImporting] = useState(false);
+  // Key of the record whose error dialog is open, or null when none is shown.
+  const [errorDialogKey, setErrorDialogKey] = useState(null);
   const importInputRef = useRef(null);
 
   const applyRecords = useCallback((nextItems) => {
@@ -645,6 +649,16 @@ export function OptionsApp() {
     }
   };
 
+  // Retry from the error dialog: kicks off a fresh pipeline run for the record,
+  // then reloads the list and closes the dialog. Rejects propagate to the
+  // dialog so a failed send just re-enables its buttons.
+  const retryFromErrorDialog = async () => {
+    if (!errorDialogKey) return;
+    await retryRecord(errorDialogKey, 'Options');
+    setErrorDialogKey(null);
+    await loadRecords();
+  };
+
   const chooseImportFile = () => {
     setError('');
     setImportMessage('');
@@ -694,6 +708,12 @@ export function OptionsApp() {
       setIsImporting(false);
     }
   };
+
+  // Resolve the open dialog against the live list so it auto-closes if the
+  // record is reloaded away from `error` (e.g. after a successful retry).
+  const errorDialogItem = errorDialogKey
+    ? items.find((item) => item.key === errorDialogKey && item.status === 'error')
+    : null;
 
   return (
     <>
@@ -767,10 +787,23 @@ export function OptionsApp() {
                     </td>
                     <td>{fmtDate(item.createdAt)}</td>
                     <td>
-                      <span className={statusClass(item.status)} title={item.error || undefined}>
-                        {item.status || 'unknown'}
-                        {item.status === 'error' && item.error ? ' ⚠️' : ''}
-                      </span>
+                      {item.status === 'error' ? (
+                        <button
+                          type="button"
+                          className={`${statusClass(item.status)} status-button`}
+                          title="View error details and retry"
+                          onClick={() => setErrorDialogKey(item.key)}
+                        >
+                          {item.status} ⚠️
+                        </button>
+                      ) : (
+                        <span
+                          className={statusClass(item.status)}
+                          title={item.error || undefined}
+                        >
+                          {item.status || 'unknown'}
+                        </span>
+                      )}
                     </td>
                     <td>
                       <button type="button" onClick={() => runAction('open', item.key)}>
@@ -804,6 +837,15 @@ export function OptionsApp() {
           )}
         </div>
       </section>
+
+      {errorDialogItem ? (
+        <RecordErrorDialog
+          sourceUrl={errorDialogItem.sourceUrl}
+          errorText={errorDialogItem.error}
+          onRetry={retryFromErrorDialog}
+          onClose={() => setErrorDialogKey(null)}
+        />
+      ) : null}
     </>
   );
 }

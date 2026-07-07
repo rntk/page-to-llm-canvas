@@ -338,6 +338,106 @@
         background: var(--ink);
         color: var(--surface);
       }
+
+      /* Clickable `error` status chip in the records table. */
+      .status-button {
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .status.error.status-button:hover {
+        background: var(--ink);
+        color: var(--surface);
+        border-color: var(--ink);
+      }
+
+      /* Record error dialog (mirrors the canvas "Processing Failed" overlay,
+         but page-level fixed rather than iframe-absolute). */
+      .pagetollm-options-error-overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: rgb(0 0 0 / 45%);
+        z-index: 100;
+      }
+      .pagetollm-spinner-box {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        padding: 28px 32px;
+        background: var(--surface);
+        border: 2px solid var(--ink);
+        min-width: 280px;
+        max-width: 560px;
+        text-align: center;
+      }
+      .pagetollm-spinner-error-title {
+        color: var(--accent);
+        font-family: var(--font-voice);
+        font-weight: 800;
+        font-size: 20px;
+        letter-spacing: -0.01em;
+      }
+      .pagetollm-options-error-source {
+        font-size: 12px;
+        color: var(--on-surface-muted);
+        word-break: break-all;
+      }
+      .pagetollm-spinner-error-body {
+        width: 100%;
+        color: var(--on-surface);
+        font-size: 13px;
+      }
+      .pagetollm-spinner-error-msg {
+        margin-bottom: 8px;
+        word-break: break-word;
+      }
+      .pagetollm-spinner-error-details {
+        margin-top: 8px;
+        text-align: left;
+      }
+      .pagetollm-spinner-error-details summary {
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--on-surface-muted);
+        text-transform: none;
+        letter-spacing: normal;
+      }
+      .pagetollm-spinner-error-details pre {
+        margin-top: 6px;
+        padding: 8px;
+        background: var(--surface-low);
+        border: 1px solid var(--ghost);
+        max-height: 200px;
+        overflow: auto;
+        font-size: 11px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre-wrap;
+        color: var(--ink);
+      }
+      .pagetollm-spinner-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      .pagetollm-spinner-retry-btn {
+        background: var(--ink);
+        color: var(--surface);
+        border: 2px solid var(--ink);
+      }
+      .pagetollm-spinner-retry-btn:hover:not(:disabled) {
+        background: var(--surface);
+        color: var(--ink);
+      }
+      .pagetollm-spinner-retry-btn:disabled,
+      .pagetollm-spinner-close-btn:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
     </style>
   </head>
   <body>
