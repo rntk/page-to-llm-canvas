@@ -15,6 +15,8 @@ const emptyEl = document.getElementById('empty');
 const errorEl = document.getElementById('error');
 const countEl = document.getElementById('record-count');
 
+const STORAGE_REFRESH_DEBOUNCE_MS = 300;
+
 export const NO_LLM_PROVIDER_MESSAGE =
   'No LLM provider configured. Add one in Options before picking blocks so PageToLLM can process the selected data.';
 
@@ -25,6 +27,9 @@ let activeTab = null;
 let activeHostname = '';
 let activePageUrl = '';
 let providerReady = false;
+let refreshRequestId = 0;
+let storageRefreshTimer = null;
+let lastRenderedRecordsSignature = '';
 
 export function runtimeMessage(message) {
   return new Promise((resolve, reject) => {
@@ -230,6 +235,7 @@ function setLoading() {
   recordsEl.replaceChildren();
   emptyEl.hidden = true;
   countEl.textContent = '';
+  lastRenderedRecordsSignature = '';
   setError('');
 }
 
@@ -317,8 +323,15 @@ export function buildRecordDisplayData(records) {
   };
 }
 
-function renderRecords(records) {
+export function recordDisplaySignature(records) {
+  return JSON.stringify(buildRecordDisplayData(records));
+}
+
+function renderRecords(records, { force = false } = {}) {
   const data = buildRecordDisplayData(records);
+  const signature = JSON.stringify(data);
+  if (!force && signature === lastRenderedRecordsSignature) return false;
+
   recordsEl.replaceChildren();
   countEl.textContent = data.count ? String(data.count) : '';
   emptyEl.hidden = !data.isEmpty;
@@ -382,26 +395,42 @@ function renderRecords(records) {
     item.appendChild(actions);
     recordsEl.appendChild(item);
   });
+  lastRenderedRecordsSignature = signature;
+  return true;
 }
 
 async function refreshProviderReadiness() {
   try {
     const response = await runtimeMessage({ type: MSG.listProviders });
     const state = providerReadinessState(response);
-    providerReady = state.ready;
-    pickBtn.disabled = state.disabled;
-    setError(state.error);
+    applyProviderReadinessState(state);
   } catch (err) {
     const state = providerReadinessState(null, err);
-    providerReady = state.ready;
-    pickBtn.disabled = state.disabled;
-    setError(state.error);
+    applyProviderReadinessState(state);
   }
 }
 
-async function refreshRecords() {
-  setLoading();
+function applyProviderReadinessState(state) {
+  providerReady = state.ready;
+  pickBtn.disabled = state.disabled;
+  setError(state.error);
+}
+
+async function loadProviderReadinessState() {
+  try {
+    return providerReadinessState(await runtimeMessage({ type: MSG.listProviders }));
+  } catch (err) {
+    return providerReadinessState(null, err);
+  }
+}
+
+async function refreshRecords({ showLoading = false, forceRender = false } = {}) {
+  const requestId = ++refreshRequestId;
+  if (showLoading) setLoading();
+
   activeTab = await getActiveTab();
+  if (requestId !== refreshRequestId) return;
+
   activePageUrl = normalizePageUrl(activeTab && activeTab.url);
   activeHostname = hostnameFromUrl(activeTab && activeTab.url);
   hostEl.textContent = activeHostname || 'Current page';
@@ -409,18 +438,29 @@ async function refreshRecords() {
 
   try {
     const response = await runtimeMessage({ type: MSG.listRecords });
+    if (requestId !== refreshRequestId) return;
+
     if (!response || !response.ok || !Array.isArray(response.items)) {
-      recordsEl.replaceChildren();
-      emptyEl.hidden = true;
+      if (showLoading) {
+        recordsEl.replaceChildren();
+        emptyEl.hidden = true;
+        lastRenderedRecordsSignature = '';
+      }
       setError(responseErrorMessage(response, 'Unable to load saved analyses'));
       return;
     }
     const matching = filterRecordsForActivePage(response.items, activePageUrl);
-    renderRecords(matching);
-    await refreshProviderReadiness();
+    renderRecords(matching, { force: forceRender });
+    const providerState = await loadProviderReadinessState();
+    if (requestId !== refreshRequestId) return;
+    applyProviderReadinessState(providerState);
   } catch (err) {
-    recordsEl.replaceChildren();
-    emptyEl.hidden = true;
+    if (requestId !== refreshRequestId) return;
+    if (showLoading) {
+      recordsEl.replaceChildren();
+      emptyEl.hidden = true;
+      lastRenderedRecordsSignature = '';
+    }
     setError(err.message || String(err));
   }
 }
@@ -442,7 +482,9 @@ pickBtn.addEventListener('click', async () => {
   }
 });
 
-refreshBtn.addEventListener('click', refreshRecords);
+refreshBtn.addEventListener('click', () =>
+  refreshRecords({ showLoading: true, forceRender: true }),
+);
 
 optionsLink.addEventListener('click', (e) => {
   e.preventDefault();
@@ -457,7 +499,11 @@ try {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local') return;
     if (Object.keys(changes).some((key) => key.startsWith('pagetollm:'))) {
-      void refreshRecords();
+      if (storageRefreshTimer) clearTimeout(storageRefreshTimer);
+      storageRefreshTimer = setTimeout(() => {
+        storageRefreshTimer = null;
+        void refreshRecords();
+      }, STORAGE_REFRESH_DEBOUNCE_MS);
     }
   });
 } catch (_) {
@@ -481,4 +527,4 @@ export function setupThemeToggle(controller = createThemeController()) {
 
 setupThemeToggle();
 
-void refreshRecords();
+void refreshRecords({ showLoading: true, forceRender: true });
