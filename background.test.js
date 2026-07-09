@@ -431,6 +431,115 @@ describe('background pipeline lifecycle', () => {
     expect(res.error).toBe('invalid action');
   });
 
+  it('generateRecordSummaries resumes the summarizing stage with summaries forced on', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    // Even with the global toggle still on, the explicit action must win.
+    chromeMock.storage.local._store.set('pagetollm-summaries-disabled', true);
+
+    await seedRecord(
+      chromeMock,
+      makeRecord('gen1', {
+        status: 'done',
+        skipSummaries: true,
+        summariesDisabled: true,
+        sentences: ['Alpha.', 'Beta.'],
+        topics: [{ name: 'Tech>All', sentences: [1, 2], sentence_spans: [], ranges: [] }],
+        pipelineRunId: 'old-run',
+      }),
+    );
+
+    const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const res = await dispatchMessage({ type: 'generateRecordSummaries', key: 'gen1' }, {});
+    expect(res.ok).toBe(true);
+
+    const updated = await readRecord('gen1');
+    expect(updated.status).toBe('summarizing');
+    expect(updated.skipSummaries).toBe(false);
+    expect(updated.pipelineRunId).not.toBe('old-run');
+    expect(updated.forceFinalize).toBe(false);
+    expect(updated.summaryErrors).toEqual([]);
+    // Topics and sentences are kept so the pipeline resumes instead of reprocessing.
+    expect(updated.topics).toHaveLength(1);
+    expect(updated.sentences).toEqual(['Alpha.', 'Beta.']);
+
+    await new Promise((r) => setTimeout(r, 30));
+    const { runPipeline } = await import('./worker/orchestrator.js');
+    expect(runPipeline).toHaveBeenCalledWith(
+      'gen1',
+      expect.objectContaining({ signal: expect.any(Object) }),
+    );
+  });
+
+  it('generateRecordSummaries rejects a record without stored topics', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    await seedRecord(chromeMock, makeRecord('gen2', { status: 'done', topics: [] }));
+
+    const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const res = await dispatchMessage({ type: 'generateRecordSummaries', key: 'gen2' }, {});
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/no topics/i);
+
+    await new Promise((r) => setTimeout(r, 30));
+    const { runPipeline } = await import('./worker/orchestrator.js');
+    expect(runPipeline).not.toHaveBeenCalled();
+  });
+
+  it('backfills old index projections at service-worker startup', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    await seedRecord(chromeMock, makeRecord('old1', { status: 'done', summariesDisabled: true }));
+    // Simulate a projection cached by a version predating `summariesDisabled`.
+    delete chromeMock.storage.local._store.get('pagetollm:index').meta['old1'].summariesDisabled;
+
+    await import('./background.js');
+    await new Promise((r) => setTimeout(r, 30));
+
+    const { listRecords } = await import('./worker/storage.js');
+    const items = await listRecords();
+    expect(items.find((i) => i.key === 'old1').summariesDisabled).toBe(true);
+  });
+
+  it('captures the global disable-summaries toggle as the run directive on submit', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    chromeMock.storage.local._store.set('pagetollm-summaries-disabled', true);
+
+    const { handleSubmit } = await import('./background.js');
+    const result = await handleSubmit({
+      html: '<p>fresh page</p>',
+      sourceUrl: 'https://example.com/toggle',
+    });
+    expect(result.ok).toBe(true);
+
+    const rec = await readRecord(result.key);
+    expect(rec.skipSummaries).toBe(true);
+  });
+
+  it('re-captures the toggle on reprocess so the next run honors the current setting', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    // Record originally ran with summaries disabled; toggle has since been
+    // turned back off, so a reprocess should generate summaries again.
+    await seedRecord(chromeMock, makeRecord('reproc-toggle', { status: 'done', skipSummaries: true }));
+
+    const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const res = await dispatchMessage({ type: 'reprocessRecord', key: 'reproc-toggle' }, {});
+    expect(res.ok).toBe(true);
+
+    const updated = await readRecord('reproc-toggle');
+    expect(updated.skipSummaries).toBe(false);
+  });
+
   it('resumes a stale in-flight record', async () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);

@@ -1,4 +1,10 @@
 export const INDEX_KEY = 'pagetollm:index';
+// Version stamp for the cached index projections (see buildRecordMeta). Bump it
+// whenever a field is added to the projection, and teach migrateIndexMeta to
+// backfill that field, so records written by an older version still expose it
+// to listRecords without ever reading full records on the listing path.
+export const INDEX_SCHEMA_KEY = 'pagetollm:index-schema';
+export const INDEX_SCHEMA_VERSION = 1;
 const MAX_PROCESSING_LOG_ENTRIES = 80;
 const RECORD_SNIPPET_MAX_CHARS = 500;
 
@@ -158,10 +164,13 @@ function buildRecordMeta(rec) {
     status: rec.status,
     progress: rec.progress,
     error: rec.error,
+    // Outcome flag ("finished intentionally without summaries"), not the run
+    // directive — listings use it to offer summary generation for the record.
+    summariesDisabled: rec.summariesDisabled === true,
   };
 }
 
-const INDEX_META_FIELDS = ['status', 'progress', 'error', 'text', 'sourceUrl'];
+const INDEX_META_FIELDS = ['status', 'progress', 'error', 'text', 'sourceUrl', 'summariesDisabled'];
 
 /**
  * Best-effort, incremental refresh of a record's cached index projection.
@@ -188,6 +197,8 @@ async function syncIndexMeta(key, patch, fallbackMeta) {
       if (hasOwn(patch, 'progress')) next.progress = patch.progress;
       if (hasOwn(patch, 'error')) next.error = patch.error;
       if (hasOwn(patch, 'sourceUrl')) next.sourceUrl = patch.sourceUrl;
+      if (hasOwn(patch, 'summariesDisabled'))
+        next.summariesDisabled = patch.summariesDisabled === true;
       if (hasOwn(patch, 'text')) next.snippet = buildRecordSnippet({ text: patch.text });
       if (next.createdAt === undefined) next.createdAt = fallbackMeta && fallbackMeta.createdAt;
       idx.meta[key] = next;
@@ -195,6 +206,46 @@ async function syncIndexMeta(key, patch, fallbackMeta) {
     });
   } catch (err) {
     console.warn('PageToLLM Canvas: failed to sync index meta for', key, err);
+  }
+}
+
+/**
+ * One-time backfill of index projections written by an older extension version,
+ * so fields added to buildRecordMeta later (currently: `summariesDisabled`)
+ * appear in listRecords for pre-existing records too. Reads only the small meta
+ * docs of the entries actually missing a field, then stamps INDEX_SCHEMA_KEY so
+ * subsequent startups are a single storage read. Runs at service-worker startup
+ * (background.js) rather than lazily in listRecords, which must stay write-free:
+ * it is invoked from the storage.onChanged listener, and a repair write there
+ * would re-trigger it.
+ *
+ * Failures are swallowed (a stale projection only hides per-record actions in
+ * listings); the schema stamp is written last, so a failed attempt retries on
+ * the next startup.
+ *
+ * @returns {Promise<void>}
+ */
+export async function migrateIndexMeta() {
+  try {
+    const stamped = (await getLocal(INDEX_SCHEMA_KEY))[INDEX_SCHEMA_KEY];
+    if (stamped === INDEX_SCHEMA_VERSION) return;
+    await queuedUpdate(INDEX_KEY, async () => {
+      const idx = await readIndex();
+      const missing = idx.keys.filter(
+        (k) => idx.meta[k] && !hasOwn(idx.meta[k], 'summariesDisabled'),
+      );
+      if (missing.length) {
+        const metas = await getLocal(missing.map(metaStorageKey));
+        for (const k of missing) {
+          const meta = metas[metaStorageKey(k)];
+          idx.meta[k].summariesDisabled = !!meta && meta.summariesDisabled === true;
+        }
+        await writeIndex(idx);
+      }
+    });
+    await setLocal({ [INDEX_SCHEMA_KEY]: INDEX_SCHEMA_VERSION });
+  } catch (err) {
+    console.warn('PageToLLM Canvas: index meta migration failed:', err);
   }
 }
 

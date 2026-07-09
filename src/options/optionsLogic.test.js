@@ -273,6 +273,10 @@ describe('actionToMessageType', () => {
     expect(actionToMessageType('reprocess')).toBe('reprocessRecord');
   });
 
+  it('maps generateSummaries to generateRecordSummaries', () => {
+    expect(actionToMessageType('generateSummaries')).toBe('generateRecordSummaries');
+  });
+
   it('maps stop to cancelRecordProcessing', () => {
     expect(actionToMessageType('stop')).toBe('cancelRecordProcessing');
   });
@@ -318,6 +322,10 @@ describe('actionConfirmPrompt', () => {
     expect(actionConfirmPrompt('open')).toBeNull();
   });
 
+  it('returns null for generateSummaries (additive, nothing overwritten)', () => {
+    expect(actionConfirmPrompt('generateSummaries')).toBeNull();
+  });
+
   it('returns null for unknown actions', () => {
     expect(actionConfirmPrompt('unknownAction')).toBeNull();
   });
@@ -334,6 +342,10 @@ describe('actionErrorMessage', () => {
 
   it('returns appropriate message for reprocess', () => {
     expect(actionErrorMessage('reprocess')).toBe('Failed to reprocess record');
+  });
+
+  it('returns appropriate message for generateSummaries', () => {
+    expect(actionErrorMessage('generateSummaries')).toBe('Failed to generate summaries');
   });
 
   it('returns appropriate message for stop', () => {

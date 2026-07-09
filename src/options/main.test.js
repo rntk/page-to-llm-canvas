@@ -143,6 +143,57 @@ describe('options main.jsx', () => {
     );
   });
 
+  it('shows a generate-summaries action only for done records without summaries', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') {
+        cb({
+          ok: true,
+          items: [
+            {
+              key: 'nosum',
+              sourceUrl: 'https://example.com/nosum',
+              createdAt: 1716972000000,
+              status: 'done',
+              summariesDisabled: true,
+            },
+            {
+              key: 'withsum',
+              sourceUrl: 'https://example.com/withsum',
+              createdAt: 1716972000000,
+              status: 'done',
+              summariesDisabled: false,
+            },
+          ],
+        });
+      } else if (msg.type === 'generateRecordSummaries') {
+        cb({ ok: true });
+      }
+    });
+
+    await import('./main.jsx');
+    await waitFor(() => {
+      expect(document.querySelectorAll('tbody tr')).toHaveLength(2);
+    });
+
+    const rows = document.querySelectorAll('tbody tr');
+    const generateBtnIn = (row) =>
+      Array.from(row.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Generate summaries',
+      );
+
+    expect(generateBtnIn(rows[1])).toBeUndefined();
+
+    const generateBtn = generateBtnIn(rows[0]);
+    expect(generateBtn).not.toBeUndefined();
+    generateBtn.click();
+    // Additive action: no confirm dialog, straight to the runtime message.
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      { type: 'generateRecordSummaries', key: 'nosum' },
+      expect.any(Function),
+    );
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
   it('exports a full stored record data JSON file', async () => {
     const createObjectURLMock = vi.fn(() => 'blob:data-json');
     const revokeObjectURLMock = vi.fn();

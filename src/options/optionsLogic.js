@@ -235,6 +235,7 @@ export function actionToMessageType(action) {
   const map = {
     delete: MSG.deleteRecord,
     reprocess: MSG.reprocessRecord,
+    generateSummaries: MSG.generateRecordSummaries,
     stop: MSG.cancelRecordProcessing,
     exportData: MSG.getRecord,
   };
@@ -267,6 +268,7 @@ export function actionErrorMessage(action) {
   const map = {
     delete: 'Failed to delete record',
     reprocess: 'Failed to reprocess record',
+    generateSummaries: 'Failed to generate summaries',
     stop: 'Failed to stop processing record',
     exportData: 'Failed to export record data',
   };

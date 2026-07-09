@@ -21,7 +21,6 @@ import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
 import { planSummaryWork } from './summaryPlanning.js';
 import { summarizeTopicTree, splitContiguousRuns } from './topicTreeMerge.js';
 import { getStoredPreferContentLanguage } from './languageSettings.js';
-import { getStoredSummariesDisabled } from './summarySettings.js';
 
 // Isolated LLM duration metrics — delete llmMetrics.js + wrap import/line to remove.
 const callLLMWithRetry = wrapCallLLMWithRetry(callLLMWithRetryRaw);
@@ -588,14 +587,20 @@ export async function runPipeline(key, options = {}) {
     // Read once per run so every prompt in this run uses a consistent setting,
     // even if the user toggles it mid-pipeline. Defaults to off on any failure.
     preferContentLanguage: await getStoredPreferContentLanguage(),
-    // Read once per run so a mid-run toggle never leaves half the topics
-    // summarized and half not. Defaults to off (summaries enabled) on any failure.
-    summariesDisabled: await getStoredSummariesDisabled(),
+    // Filled in from the record below (`rec.skipSummaries`). Whether a run
+    // generates summaries is a per-run directive persisted at kickoff (like
+    // pipelineRunId/forceFinalize) by whoever starts the run — background.js
+    // captures the global "disable summaries" toggle there. Reading the record
+    // instead of the live setting keeps a run consistent across mid-run toggles
+    // AND across service-worker restarts (the keepalive resume re-enters here),
+    // and lets an explicit "generate summaries" run override the toggle.
+    summariesDisabled: false,
   };
   try {
     await logPipeline(context, 'pipeline_start');
     const rec = await readRecord(key);
     if (!rec) throw new Error(`record not found: ${key}`);
+    context.summariesDisabled = rec.skipSummaries === true;
 
     // Resume path. A record left in 'summarizing' means topic ranges were
     // already computed for the *current* html (status is set to 'summarizing'
@@ -626,11 +631,12 @@ export async function runPipeline(key, options = {}) {
       if (!topics) return; // no sentences — pipeline already marked done.
     }
 
-    // Summaries are opt-out: when the toggle is on we still want the topic
-    // ranges (the UI still shows the topic tree), but every summary LLM call is
-    // skipped and the record finalizes immediately with empty summaries. This
-    // applies whether topics were just computed (fresh path) or reused
-    // (resume path), so it is checked once here rather than duplicated above.
+    // Summaries are opt-out: when the run's skipSummaries directive is set we
+    // still want the topic ranges (the UI still shows the topic tree), but every
+    // summary LLM call is skipped and the record finalizes immediately with
+    // empty summaries. This applies whether topics were just computed (fresh
+    // path) or reused (resume path), so it is checked once here rather than
+    // duplicated above.
     if (context.summariesDisabled) {
       await finalizeSummariesDisabled(context, topics);
       return;

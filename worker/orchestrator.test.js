@@ -16,14 +16,6 @@ import * as storage from './storage.js';
 import * as html from './html.js';
 import * as sentenceSplitter from './sentence_splitter.js';
 import * as llm from './llm.js';
-import * as summarySettings from './summarySettings.js';
-
-// Mocked (rather than relying on the languageSettings-style "no chrome global
-// falls back to default" behavior) so individual tests can flip the toggle on
-// without stubbing a global `chrome` that nothing else in this file needs.
-vi.mock('./summarySettings.js', () => ({
-  getStoredSummariesDisabled: vi.fn(),
-}));
 
 vi.mock('./storage.js', () => ({
   readRecord: vi.fn(),
@@ -88,7 +80,6 @@ beforeEach(() => {
   html.stripTagsKeepOffsets.mockReturnValue({ text: '', mapping: [0] });
   sentenceSplitter.splitSentences.mockReturnValue([]);
   llm.callLLMWithRetry.mockResolvedValue('');
-  summarySettings.getStoredSummariesDisabled.mockResolvedValue(false);
 });
 
 // ---------------------------------------------------------------------------
@@ -1317,17 +1308,16 @@ describe('runPipeline', () => {
   });
 
   // -------------------------------------------------------------------------
-  // summariesDisabled toggle
+  // skipSummaries run directive (persisted on the record at kickoff)
   // -------------------------------------------------------------------------
 
-  it('skips all summary work and finalizes to done when summaries are disabled (fresh path)', async () => {
-    summarySettings.getStoredSummariesDisabled.mockResolvedValue(true);
-
+  it('skips all summary work and finalizes to done when the run skips summaries (fresh path)', async () => {
     const plainText = 'Sentence one. Sentence two.';
     const mapping = makeMapping(plainText);
-    storage.readRecord.mockResolvedValue(
-      makeRecord('disabled1', '<p>Sentence one. Sentence two.</p>'),
-    );
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('disabled1', '<p>Sentence one. Sentence two.</p>'),
+      skipSummaries: true,
+    });
     html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'Sentence one.', start: 0, end: 13 },
@@ -1359,13 +1349,12 @@ describe('runPipeline', () => {
     expect(doneCall[1].progress).toEqual({ stage: 'done', done: 1, total: 1 });
   });
 
-  it('skips all summary work when summaries are disabled and the record is resuming', async () => {
-    summarySettings.getStoredSummariesDisabled.mockResolvedValue(true);
-
+  it('skips all summary work when the run skips summaries and the record is resuming', async () => {
     storage.readRecord.mockResolvedValue({
       key: 'disabled2',
       html: '<p>ignored on resume</p>',
       status: 'summarizing',
+      skipSummaries: true,
       sentences: ['Alpha.', 'Beta.'],
       topics: [{ name: 'A', sentences: [1, 2], sentence_spans: [], ranges: [] }],
       topic_summaries: {},
@@ -1387,9 +1376,7 @@ describe('runPipeline', () => {
     expect(doneCall[1].summariesDisabled).toBe(true);
   });
 
-  it('finalizes with summariesDisabled: false when summaries are enabled (default)', async () => {
-    summarySettings.getStoredSummariesDisabled.mockResolvedValue(false);
-
+  it('finalizes with summariesDisabled: false when the record has no skipSummaries directive (default)', async () => {
     const plainText = 'Sentence one. Sentence two.';
     const mapping = makeMapping(plainText);
     storage.readRecord.mockResolvedValue(
@@ -1412,6 +1399,43 @@ describe('runPipeline', () => {
     expect(doneCall).toBeDefined();
     expect(doneCall[1].summariesDisabled).toBe(false);
     expect(doneCall[1].topic_summaries['Tech>All'].runs[0].text).toBe(plainText);
+  });
+
+  it('generates summaries via the resume path for a record that finished without them', async () => {
+    // Shape produced by the generateRecordSummaries handler: topics/sentences
+    // kept from the original run, summaries empty, skipSummaries overridden to
+    // false, status set back to 'summarizing'.
+    storage.readRecord.mockResolvedValue({
+      key: 'gen1',
+      html: '<p>ignored on resume</p>',
+      status: 'summarizing',
+      skipSummaries: false,
+      summariesDisabled: true,
+      sentences: [LONG_SUMMARY_TEXT],
+      topics: [{ name: 'Tech>All', sentences: [1], sentence_spans: [], ranges: [] }],
+      topic_summaries: {},
+      topic_summary_index: {},
+    });
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Generated summary.';
+      return '';
+    });
+
+    await runPipeline('gen1');
+
+    // No reprocessing: HTML cleaning, sentence splitting, and topic ranges are
+    // all reused from the stored record.
+    expect(html.stripTagsKeepOffsets).not.toHaveBeenCalled();
+    expect(sentenceSplitter.splitSentences).not.toHaveBeenCalled();
+    expect(
+      llm.callLLMWithRetry.mock.calls.some(([opts]) => opts.prompt.includes('Partition the markers')),
+    ).toBe(false);
+
+    const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
+    expect(doneCall).toBeDefined();
+    expect(doneCall[1].topic_summaries['Tech>All'].runs[0].text).toBe('Generated summary.');
+    // The "intentionally no summaries" outcome flag is cleared on finalize.
+    expect(doneCall[1].summariesDisabled).toBe(false);
   });
 });
 

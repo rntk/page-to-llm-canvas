@@ -12,6 +12,7 @@ export const MSG = Object.freeze({
   ensurePipeline: 'ensurePipeline',
   retryRecord: 'retryRecord',
   reprocessRecord: 'reprocessRecord',
+  generateRecordSummaries: 'generateRecordSummaries',
   cancelRecordProcessing: 'cancelRecordProcessing',
   resolveSummaryErrors: 'resolveSummaryErrors',
   getRecord: 'getRecord',

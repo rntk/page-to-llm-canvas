@@ -453,7 +453,9 @@ export function SummaryGenerationSection() {
         <div className="note">
           When enabled, processing stops after topic detection: topic labels and article structure
           are still computed, but no summaries are generated. Existing records keep their summaries
-          until reprocessed.
+          until reprocessed. Records processed without summaries get a &quot;Generate
+          summaries&quot; action below, which fills in the summaries from the already-computed
+          topics without reprocessing the page.
         </div>
       </div>
     </section>
@@ -830,7 +832,12 @@ export function OptionsApp() {
       return;
     }
 
-    if (action === 'delete' || action === 'reprocess' || action === 'stop') {
+    if (
+      action === 'delete' ||
+      action === 'reprocess' ||
+      action === 'generateSummaries' ||
+      action === 'stop'
+    ) {
       const resp = await sendMessage({ type: messageType, key });
       if (!resp || !resp.ok) {
         setError(actionResponseError(resp, action));
@@ -1014,6 +1021,17 @@ export function OptionsApp() {
                       <button type="button" onClick={() => runAction('reprocess', item.key)}>
                         Reprocess
                       </button>{' '}
+                      {item.status === 'done' && item.summariesDisabled ? (
+                        <>
+                          <button
+                            type="button"
+                            title="Generate summaries from the already-computed topics, without reprocessing the page"
+                            onClick={() => runAction('generateSummaries', item.key)}
+                          >
+                            Generate summaries
+                          </button>{' '}
+                        </>
+                      ) : null}
                       {IN_FLIGHT_STATUSES.has(item.status) ? (
                         <>
                           <button type="button" onClick={() => runAction('stop', item.key)}>

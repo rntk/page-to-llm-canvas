@@ -6,9 +6,11 @@ import {
   deleteRecord,
   deleteAll,
   findRecordByUrl,
+  migrateIndexMeta,
 } from './worker/storage.js';
 import { runPipeline } from './worker/orchestrator.js';
 import { callLLMDirect } from './worker/llm.js';
+import { getStoredSummariesDisabled } from './worker/summarySettings.js';
 import {
   getProvidersState,
   sanitizeProvider,
@@ -415,6 +417,11 @@ export async function handleSubmit(submission) {
 
   const now = Date.now();
   const pipelineRunId = createPipelineRunId();
+  // Whether this run generates summaries is decided here, at kickoff, from the
+  // global toggle, and persisted on the record as a run directive. The
+  // orchestrator only ever reads the record, so the decision survives mid-run
+  // toggle flips and service-worker restarts (see runPipeline).
+  const skipSummaries = await getStoredSummariesDisabled();
   const rec = existing || {
     key,
     sourceUrl: sourceUrl || '',
@@ -430,6 +437,7 @@ export async function handleSubmit(submission) {
     processingLog: [],
     selectors: Array.isArray(selectors) ? selectors : [],
     pipelineRunId,
+    skipSummaries,
     createdAt: now,
     updatedAt: now,
   };
@@ -442,6 +450,7 @@ export async function handleSubmit(submission) {
     rec.sourceUrl = sourceUrl || rec.sourceUrl;
     rec.html = html;
     rec.processingLog = [];
+    rec.skipSummaries = skipSummaries;
     if (Array.isArray(selectors)) rec.selectors = selectors;
   }
   await writeRecord(rec);
@@ -500,6 +509,7 @@ export const MESSAGE_HANDLERS = {
         status: 'pending',
         error: null,
         progress: { stage: 'queued', done: 0, total: 0 },
+        skipSummaries: await getStoredSummariesDisabled(),
       });
       if (!updated) {
         return { ok: false, error: 'record not found' };
@@ -533,9 +543,55 @@ export const MESSAGE_HANDLERS = {
         sentences: [],
         text: '',
         processingLog: [],
+        skipSummaries: await getStoredSummariesDisabled(),
       });
       startPipeline(msg.key).catch((err) => {
         console.error('PageToLLM Canvas reprocessRecord startPipeline failed:', err);
+      });
+      return { ok: true };
+    },
+  },
+
+  // Generates (or completes) summaries for an already-processed record without
+  // redoing the clean/split/topic-ranges stages. Not a new pipeline mode: the
+  // record is put back into the 'summarizing' stage with an explicit
+  // "summaries on" run directive, and the orchestrator's existing resume path
+  // reuses the stored topics/sentences, keeps summaries that already succeeded,
+  // and only queries the LLM for the ones still missing or failed.
+  [MSG.generateRecordSummaries]: {
+    requiresExtensionPage: false,
+    validate(msg) {
+      return msg.key ? null : 'missing key';
+    },
+    async handle(msg) {
+      const rec = await readRecord(msg.key);
+      if (!rec) {
+        return { ok: false, error: 'record not found' };
+      }
+      // The resume path needs the topics and their source sentences; without
+      // them there is nothing to summarize against — that's a full reprocess.
+      if (
+        !Array.isArray(rec.topics) ||
+        rec.topics.length === 0 ||
+        !Array.isArray(rec.sentences) ||
+        rec.sentences.length === 0
+      ) {
+        return { ok: false, error: 'record has no topics yet — reprocess it instead' };
+      }
+      cancelActivePipeline(msg.key);
+      await updateRecord(msg.key, {
+        pipelineRunId: createPipelineRunId(),
+        status: 'summarizing',
+        error: null,
+        // Explicit intent: this run generates summaries even while the global
+        // "disable summaries" toggle is on.
+        skipSummaries: false,
+        summaryErrors: [],
+        forceFinalize: false,
+        progress: { stage: 'summarizing_topics', done: 0, total: rec.topics.length },
+      });
+      startPipeline(msg.key).catch((err) => {
+        console.error('PageToLLM Canvas generateRecordSummaries startPipeline failed:', err);
       });
       return { ok: true };
     },
@@ -784,5 +840,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   return true;
 });
+
+// Backfill index projections from older versions (never throws) before the
+// options page can list records missing newer projection fields.
+void migrateIndexMeta();
 
 void refreshActionProgressIcon();

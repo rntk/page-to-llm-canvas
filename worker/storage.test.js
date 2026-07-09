@@ -10,6 +10,10 @@ import {
   deleteAll,
   findRecordByUrl,
   buildRecordSnippet,
+  migrateIndexMeta,
+  INDEX_KEY,
+  INDEX_SCHEMA_KEY,
+  INDEX_SCHEMA_VERSION,
   _resetUpdateQueues,
 } from './storage.js';
 
@@ -455,6 +459,20 @@ describe('listRecords', () => {
     }
   });
 
+  it('exposes the summariesDisabled outcome flag and keeps it in sync on update', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    await seedRecord(mock, makeRecord('r1', { summariesDisabled: true }));
+    let [item] = await listRecords();
+    expect(item.summariesDisabled).toBe(true);
+
+    // Mirrors the pipeline finalize patch after summaries are generated.
+    await updateRecord('r1', { status: 'done', summariesDisabled: false });
+    [item] = await listRecords();
+    expect(item.summariesDisabled).toBe(false);
+  });
+
   it('includes a normalized bounded text snippet', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
@@ -466,6 +484,67 @@ describe('listRecords', () => {
     expect(item.snippet).toMatch(/^First line word word/);
     expect(item.snippet.length).toBeLessThanOrEqual(503);
     expect(item.snippet.endsWith('...')).toBe(true);
+  });
+});
+
+describe('migrateIndexMeta', () => {
+  /** Simulates a projection cached by a version predating `summariesDisabled`. */
+  function stripProjectionField(mock, key) {
+    delete mock.storage.local._store.get(INDEX_KEY).meta[key].summariesDisabled;
+  }
+
+  it('backfills summariesDisabled from the meta doc for old projections', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    await seedRecord(mock, makeRecord('old-nosum', { status: 'done', summariesDisabled: true }));
+    await seedRecord(mock, makeRecord('old-sum', { status: 'done' }));
+    stripProjectionField(mock, 'old-nosum');
+    stripProjectionField(mock, 'old-sum');
+
+    await migrateIndexMeta();
+
+    const items = await listRecords();
+    expect(items.find((i) => i.key === 'old-nosum').summariesDisabled).toBe(true);
+    expect(items.find((i) => i.key === 'old-sum').summariesDisabled).toBe(false);
+    expect(mock.storage.local._store.get(INDEX_SCHEMA_KEY)).toBe(INDEX_SCHEMA_VERSION);
+  });
+
+  it('is a stamped no-op on subsequent runs', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    await seedRecord(mock, makeRecord('r1', { status: 'done', summariesDisabled: true }));
+    await migrateIndexMeta();
+
+    // Strip the field again: a stamped migration must not scan or repair —
+    // startups after the first stay a single storage read.
+    stripProjectionField(mock, 'r1');
+    await migrateIndexMeta();
+    expect(
+      mock.storage.local._store.get(INDEX_KEY).meta['r1'].summariesDisabled,
+    ).toBeUndefined();
+  });
+
+  it('does not stamp on failure, so the next startup retries', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await seedRecord(mock, makeRecord('r1', { status: 'done', summariesDisabled: true }));
+    stripProjectionField(mock, 'r1');
+
+    mock._state.lastErrorOnGet = true;
+    await migrateIndexMeta();
+    mock._state.lastErrorOnGet = false;
+    expect(mock.storage.local._store.get(INDEX_SCHEMA_KEY)).toBeUndefined();
+
+    await migrateIndexMeta();
+    const [item] = await listRecords();
+    expect(item.summariesDisabled).toBe(true);
+    expect(mock.storage.local._store.get(INDEX_SCHEMA_KEY)).toBe(INDEX_SCHEMA_VERSION);
+
+    warnSpy.mockRestore();
   });
 });
 
