@@ -15,12 +15,16 @@ import {
   formatChunkSummariesForMerge,
 } from './prompts.js';
 import { parseTopicRanges, groupsFromSegments, TopicParseError } from './topic_parser.js';
-import { callLLMWithRetry, createLimiter, parallelMap } from './llm.js';
+import { callLLMWithRetry as callLLMWithRetryRaw, createLimiter, parallelMap } from './llm.js';
+import { wrapCallLLMWithRetry } from './llmMetrics.js';
 import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
 import { planSummaryWork } from './summaryPlanning.js';
 import { summarizeTopicTree, splitContiguousRuns } from './topicTreeMerge.js';
 import { getStoredPreferContentLanguage } from './languageSettings.js';
 import { getStoredSummariesDisabled } from './summarySettings.js';
+
+// Isolated LLM duration metrics — delete llmMetrics.js + wrap import/line to remove.
+const callLLMWithRetry = wrapCallLLMWithRetry(callLLMWithRetryRaw);
 
 const MAX_TAGGED_CHARS = 60000;
 // Budget for an internal topic node's own source text before we summarize it in

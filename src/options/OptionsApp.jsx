@@ -44,6 +44,16 @@ import {
   setStoredSummariesDisabled,
   normalizeSummariesDisabled,
 } from '../../worker/summarySettings.js';
+// Isolated LLM duration metrics — delete with worker/llmMetrics.js to remove.
+import {
+  LLM_METRICS_KEY,
+  emptyLlmMetrics,
+  getLlmMetrics,
+  clearLlmMetrics,
+  averageDurationMs,
+  formatDurationMs,
+  normalizeLlmMetrics,
+} from '../../worker/llmMetrics.js';
 
 export function ThemeToggle() {
   const [controller] = useState(() => createThemeController());
@@ -262,6 +272,125 @@ export function ContentLanguageSection() {
           analyzed content instead of always defaulting to English.
         </div>
       </div>
+    </section>
+  );
+}
+
+export function LlmMetricsSection() {
+  const [metrics, setMetrics] = useState(() => emptyLlmMetrics());
+  const [isClearing, setIsClearing] = useState(false);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadMetrics() {
+      const stored = await getLlmMetrics();
+      if (isCurrent) setMetrics(stored);
+    }
+
+    void loadMetrics();
+    const handleStorageChange = (changes, areaName) => {
+      if (areaName !== 'local' || !changes || !changes[LLM_METRICS_KEY]) return;
+      setMetrics(normalizeLlmMetrics(changes[LLM_METRICS_KEY].newValue));
+    };
+    try {
+      chrome.storage.onChanged.addListener(handleStorageChange);
+    } catch (_) {
+      /* noop */
+    }
+    return () => {
+      isCurrent = false;
+      try {
+        chrome.storage.onChanged.removeListener(handleStorageChange);
+      } catch (_) {
+        /* noop */
+      }
+    };
+  }, []);
+
+  const handleClear = useCallback(async () => {
+    setIsClearing(true);
+    try {
+      await clearLlmMetrics();
+      setMetrics(emptyLlmMetrics());
+    } catch (_) {
+      const stored = await getLlmMetrics();
+      setMetrics(stored);
+    } finally {
+      setIsClearing(false);
+    }
+  }, []);
+
+  const avg = averageDurationMs(metrics);
+
+  return (
+    <section className="section">
+      <h2>LLM Request Metrics</h2>
+      <div className="toolbar">
+        <div className="note">
+          Duration of model requests made while processing pages (includes retries).
+        </div>
+        <div>
+          <button type="button" onClick={handleClear} disabled={isClearing || metrics.totalCount === 0}>
+            {isClearing ? 'Clearing...' : 'Clear metrics'}
+          </button>
+        </div>
+      </div>
+      {metrics.totalCount === 0 ? (
+        <div className="empty">No LLM requests recorded yet.</div>
+      ) : (
+        <>
+          <div className="field">
+            <table>
+              <tbody>
+                <tr>
+                  <th scope="row">Total requests</th>
+                  <td className="mono">{metrics.totalCount}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Succeeded / failed</th>
+                  <td className="mono">
+                    {metrics.successCount} / {metrics.failureCount}
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Average</th>
+                  <td className="mono">{formatDurationMs(avg)}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Min / max</th>
+                  <td className="mono">
+                    {formatDurationMs(metrics.minDurationMs)} / {formatDurationMs(metrics.maxDurationMs)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {metrics.recent.length > 0 ? (
+            <div className="field">
+              <div className="note note--stacked">Recent requests (newest first)</div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>When</th>
+                    <th>Duration</th>
+                    <th>Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {metrics.recent.map((entry, index) => (
+                    <tr key={`${entry.at}-${index}`}>
+                      <td>{fmtDate(entry.at)}</td>
+                      <td className="mono">{formatDurationMs(entry.durationMs)}</td>
+                      <td title={entry.error || undefined}>{entry.ok ? 'ok' : 'error'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </>
+      )}
     </section>
   );
 }
@@ -799,6 +928,8 @@ export function OptionsApp() {
       <ContentLanguageSection />
 
       <SummaryGenerationSection />
+
+      <LlmMetricsSection />
 
       <HighlightColorSection />
 
