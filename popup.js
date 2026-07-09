@@ -181,8 +181,7 @@ export function getRecordActions(record) {
       });
     }
   }
-  return [
-    ...viewActions.map((action) => ({ kind: 'view', ...action })),
+  const manageActions = [
     {
       kind: 'message',
       label: 'Reprocess',
@@ -192,16 +191,33 @@ export function getRecordActions(record) {
       failureMessage: 'Reprocess failed',
       description: 'Run this analysis again and overwrite existing results.',
     },
-    {
-      kind: 'message',
-      label: 'Delete',
-      className: 'danger',
-      messageType: MSG.deleteRecord,
-      confirmMessage: 'Delete this record?',
-      failureMessage: 'Delete failed',
-      description: 'Remove this saved analysis from the extension.',
-    },
   ];
+
+  // Records finished intentionally without summaries (global toggle was on at
+  // process time) get a one-shot action that fills summaries from stored topics
+  // without redoing clean/split/topic-ranges — same path as Options.
+  if (record && record.status === 'done' && record.summariesDisabled) {
+    manageActions.push({
+      kind: 'message',
+      label: 'Generate summaries',
+      messageType: MSG.generateRecordSummaries,
+      failureMessage: 'Generate summaries failed',
+      description:
+        'Generate summaries from the already-computed topics, without reprocessing the page.',
+    });
+  }
+
+  manageActions.push({
+    kind: 'message',
+    label: 'Delete',
+    className: 'danger',
+    messageType: MSG.deleteRecord,
+    confirmMessage: 'Delete this record?',
+    failureMessage: 'Delete failed',
+    description: 'Remove this saved analysis from the extension.',
+  });
+
+  return [...viewActions.map((action) => ({ kind: 'view', ...action })), ...manageActions];
 }
 
 export function filterRecordsForActivePage(records, activePageUrl) {
@@ -275,7 +291,9 @@ export async function handleMessageAction(
   key,
   { confirm, runtimeMessage, onSuccess, onError },
 ) {
-  if (!confirm(action.confirmMessage)) return;
+  // Destructive manage actions supply confirmMessage; additive ones (e.g.
+  // Generate summaries) skip the dialog, matching the Options page UX.
+  if (action.confirmMessage && !confirm(action.confirmMessage)) return;
   try {
     const response = await runtimeMessage({ type: action.messageType, key });
     if (!response || !response.ok) {

@@ -179,6 +179,43 @@ describe('popup pure functions', () => {
     ]);
   });
 
+  it('getRecordActions offers Generate summaries only for done records without summaries', () => {
+    expect(
+      popup
+        .getRecordActions({ status: 'done', summariesDisabled: true })
+        .map((action) => action.label),
+    ).toEqual([
+      'Canvas',
+      'Hierarchy',
+      'Topics',
+      'Summaries',
+      'Reprocess',
+      'Generate summaries',
+      'Delete',
+    ]);
+    expect(
+      popup
+        .getRecordActions({ status: 'done', summariesDisabled: true })
+        .find((action) => action.label === 'Generate summaries'),
+    ).toEqual(
+      expect.objectContaining({
+        kind: 'message',
+        messageType: 'generateRecordSummaries',
+      }),
+    );
+    // Not offered when summaries already ran, or while still processing.
+    expect(
+      popup
+        .getRecordActions({ status: 'done', summariesDisabled: false })
+        .map((a) => a.label),
+    ).not.toContain('Generate summaries');
+    expect(
+      popup
+        .getRecordActions({ status: 'summarizing', summariesDisabled: true })
+        .map((a) => a.label),
+    ).not.toContain('Generate summaries');
+  });
+
   it('getRecordActions adds a YT Sync view for done YouTube records', () => {
     const labels = popup
       .getRecordActions({ status: 'done', sourceUrl: 'https://www.youtube.com/watch?v=abc123' })
@@ -408,6 +445,21 @@ describe('handleMessageAction', () => {
     expect(runtimeMessage).not.toHaveBeenCalled();
     expect(onSuccess).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('skips confirm when action has no confirmMessage', async () => {
+    const confirm = vi.fn();
+    const runtimeMessage = vi.fn().mockResolvedValue({ ok: true });
+    const onSuccess = vi.fn();
+    await popup.handleMessageAction(makeAction({ confirmMessage: undefined }), 'k1', {
+      confirm,
+      runtimeMessage,
+      onSuccess,
+      onError: vi.fn(),
+    });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(runtimeMessage).toHaveBeenCalledWith({ type: 'doSomething', key: 'k1' });
+    expect(onSuccess).toHaveBeenCalledTimes(1);
   });
 
   it('calls onSuccess when response is ok', async () => {
