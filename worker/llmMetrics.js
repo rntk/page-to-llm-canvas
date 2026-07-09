@@ -11,7 +11,71 @@ export const LLM_METRICS_KEY = 'pagetollm-llm-metrics';
 export const LLM_METRICS_EPOCH_KEY = 'pagetollm-llm-metrics-epoch';
 export const LLM_METRICS_MAX_RECENT = 40;
 
-/** @typedef {{ at: number, durationMs: number, ok: boolean, error?: string }} LlmMetricEntry */
+/** Stable task-type ids used when recording / displaying metrics. */
+export const LLM_TASK_TYPES = Object.freeze({
+  TOPIC_RANGES: 'topic_ranges',
+  ARTICLE_SUMMARY: 'article_summary',
+  TOPIC_SUMMARY_FROM_SOURCE: 'topic_summary_from_source',
+  ARTICLE_SUMMARY_MERGE: 'article_summary_merge',
+  UNKNOWN: 'unknown',
+});
+
+/** Human-readable labels for known task types (UI). */
+export const LLM_TASK_TYPE_LABELS = Object.freeze({
+  [LLM_TASK_TYPES.TOPIC_RANGES]: 'Topic ranges',
+  [LLM_TASK_TYPES.ARTICLE_SUMMARY]: 'Article summary',
+  [LLM_TASK_TYPES.TOPIC_SUMMARY_FROM_SOURCE]: 'Topic summary (from source)',
+  [LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE]: 'Summary merge',
+  [LLM_TASK_TYPES.UNKNOWN]: 'Unknown',
+});
+
+const KNOWN_TASK_TYPES = new Set(Object.values(LLM_TASK_TYPES));
+
+/**
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function normalizeTaskType(value) {
+  if (typeof value !== 'string') return LLM_TASK_TYPES.UNKNOWN;
+  const trimmed = value.trim();
+  if (!trimmed) return LLM_TASK_TYPES.UNKNOWN;
+  // Keep known ids as-is; allow future custom ids without crashing UI/storage.
+  if (KNOWN_TASK_TYPES.has(trimmed)) return trimmed;
+  // Sanitize free-form labels to a short stable key.
+  const sanitized = trimmed
+    .toLowerCase()
+    .replace(/[^a-z0-9_:-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 64);
+  return sanitized || LLM_TASK_TYPES.UNKNOWN;
+}
+
+/**
+ * @param {string} taskType
+ * @returns {string}
+ */
+export function formatTaskTypeLabel(taskType) {
+  const key = normalizeTaskType(taskType);
+  if (LLM_TASK_TYPE_LABELS[key]) return LLM_TASK_TYPE_LABELS[key];
+  // Title-case unknown/custom keys for display.
+  return key
+    .split(/[_:-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+/** @typedef {{ at: number, durationMs: number, ok: boolean, taskType: string, error?: string }} LlmMetricEntry */
+/**
+ * @typedef {{
+ *   totalCount: number,
+ *   successCount: number,
+ *   failureCount: number,
+ *   totalDurationMs: number,
+ *   minDurationMs: number | null,
+ *   maxDurationMs: number | null,
+ * }} LlmMetricTotals
+ */
 /**
  * @typedef {{
  *   epoch: number,
@@ -22,21 +86,102 @@ export const LLM_METRICS_MAX_RECENT = 40;
  *   minDurationMs: number | null,
  *   maxDurationMs: number | null,
  *   recent: LlmMetricEntry[],
+ *   byTaskType: Record<string, LlmMetricTotals>,
  * }} LlmMetrics
  */
 
-/** @param {number} [epoch]
- * @returns {LlmMetrics} */
-export function emptyLlmMetrics(epoch = 0) {
+/** @returns {LlmMetricTotals} */
+export function emptyLlmMetricTotals() {
   return {
-    epoch,
     totalCount: 0,
     successCount: 0,
     failureCount: 0,
     totalDurationMs: 0,
     minDurationMs: null,
     maxDurationMs: null,
+  };
+}
+
+/** @param {number} [epoch]
+ * @returns {LlmMetrics} */
+export function emptyLlmMetrics(epoch = 0) {
+  return {
+    epoch,
+    ...emptyLlmMetricTotals(),
     recent: [],
+    byTaskType: {},
+  };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {LlmMetricTotals}
+ */
+function normalizeTotals(value) {
+  if (!value || typeof value !== 'object') return emptyLlmMetricTotals();
+  const v = /** @type {Record<string, unknown>} */ (value);
+  const minRaw = v.minDurationMs;
+  const maxRaw = v.maxDurationMs;
+  return {
+    totalCount: Math.max(0, Number(v.totalCount) || 0),
+    successCount: Math.max(0, Number(v.successCount) || 0),
+    failureCount: Math.max(0, Number(v.failureCount) || 0),
+    totalDurationMs: Math.max(0, Number(v.totalDurationMs) || 0),
+    minDurationMs:
+      minRaw == null || minRaw === '' ? null : Math.max(0, Number(minRaw) || 0),
+    maxDurationMs:
+      maxRaw == null || maxRaw === '' ? null : Math.max(0, Number(maxRaw) || 0),
+  };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {Record<string, LlmMetricTotals>}
+ */
+function normalizeByTaskType(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  /** @type {Record<string, LlmMetricTotals>} */
+  const out = {};
+  for (const [rawKey, rawBucket] of Object.entries(
+    /** @type {Record<string, unknown>} */ (value),
+  )) {
+    const key = normalizeTaskType(rawKey);
+    const bucket = normalizeTotals(rawBucket);
+    if (!bucket.totalCount && !bucket.successCount && !bucket.failureCount) continue;
+    // If the same key appears twice after normalize (e.g. "Topic Ranges" + topic_ranges), merge.
+    const prev = out[key];
+    out[key] = prev ? mergeTotals(prev, bucket) : bucket;
+  }
+  return out;
+}
+
+/**
+ * @param {LlmMetricTotals} a
+ * @param {LlmMetricTotals} b
+ * @returns {LlmMetricTotals}
+ */
+function mergeTotals(a, b) {
+  const totalCount = a.totalCount + b.totalCount;
+  const successCount = a.successCount + b.successCount;
+  const failureCount = a.failureCount + b.failureCount;
+  const totalDurationMs = a.totalDurationMs + b.totalDurationMs;
+  let minDurationMs = a.minDurationMs;
+  if (b.minDurationMs != null) {
+    minDurationMs =
+      minDurationMs == null ? b.minDurationMs : Math.min(minDurationMs, b.minDurationMs);
+  }
+  let maxDurationMs = a.maxDurationMs;
+  if (b.maxDurationMs != null) {
+    maxDurationMs =
+      maxDurationMs == null ? b.maxDurationMs : Math.max(maxDurationMs, b.maxDurationMs);
+  }
+  return {
+    totalCount,
+    successCount,
+    failureCount,
+    totalDurationMs,
+    minDurationMs,
+    maxDurationMs,
   };
 }
 
@@ -57,40 +202,45 @@ export function normalizeLlmMetrics(value) {
             at: Number(entry.at) || 0,
             durationMs: Math.max(0, Number(entry.durationMs) || 0),
             ok: entry.ok !== false,
+            taskType: normalizeTaskType(entry.taskType),
           };
           if (typeof entry.error === 'string' && entry.error) out.error = entry.error;
           return out;
         })
         .slice(0, LLM_METRICS_MAX_RECENT)
     : [];
-  const totalCount = Math.max(0, Number(v.totalCount) || 0);
-  const successCount = Math.max(0, Number(v.successCount) || 0);
-  const failureCount = Math.max(0, Number(v.failureCount) || 0);
-  const totalDurationMs = Math.max(0, Number(v.totalDurationMs) || 0);
-  const minRaw = v.minDurationMs;
-  const maxRaw = v.maxDurationMs;
+  const totals = normalizeTotals(v);
   return {
     epoch: Math.max(0, Number(v.epoch) || 0),
-    totalCount,
-    successCount,
-    failureCount,
-    totalDurationMs,
-    minDurationMs:
-      minRaw == null || minRaw === '' ? null : Math.max(0, Number(minRaw) || 0),
-    maxDurationMs:
-      maxRaw == null || maxRaw === '' ? null : Math.max(0, Number(maxRaw) || 0),
+    ...totals,
     recent,
+    byTaskType: normalizeByTaskType(v.byTaskType),
   };
 }
 
 /**
  * Average duration in ms, or null when there are no samples.
- * @param {LlmMetrics} metrics
+ * Works for overall metrics or a single task-type bucket.
+ * @param {{ totalCount?: number, totalDurationMs?: number } | null | undefined} metrics
  * @returns {number | null}
  */
 export function averageDurationMs(metrics) {
   if (!metrics || !metrics.totalCount) return null;
   return metrics.totalDurationMs / metrics.totalCount;
+}
+
+/**
+ * Task-type keys present in metrics, ordered by totalCount desc then name.
+ * @param {LlmMetrics} metrics
+ * @returns {string[]}
+ */
+export function listTaskTypes(metrics) {
+  const byTaskType = metrics?.byTaskType || {};
+  return Object.keys(byTaskType).sort((a, b) => {
+    const countDiff = (byTaskType[b]?.totalCount || 0) - (byTaskType[a]?.totalCount || 0);
+    if (countDiff !== 0) return countDiff;
+    return a.localeCompare(b);
+  });
 }
 
 /**
@@ -111,6 +261,9 @@ export function formatDurationMs(ms) {
  * Wraps `callLLMWithRetry` so every orchestrator LLM call records duration.
  * Failures while recording never affect the LLM call itself.
  *
+ * Pass `taskType` on the options object to separate metrics by pipeline stage
+ * (e.g. `LLM_TASK_TYPES.TOPIC_RANGES`). Unknown / missing values become "unknown".
+ *
  * @template {(...args: any[]) => Promise<any>} F
  * @param {F} callLLMWithRetry
  * @returns {F}
@@ -118,18 +271,21 @@ export function formatDurationMs(ms) {
 export function wrapCallLLMWithRetry(callLLMWithRetry) {
   return /** @type {F} */ (
     async function timedCallLLMWithRetry(opts, maxRetries) {
+      const taskType = normalizeTaskType(opts?.taskType);
       const startedAt = Date.now();
       try {
         const result = await callLLMWithRetry(opts, maxRetries);
         void recordLlmMetric({
           durationMs: Date.now() - startedAt,
           ok: true,
+          taskType,
         });
         return result;
       } catch (err) {
         void recordLlmMetric({
           durationMs: Date.now() - startedAt,
           ok: false,
+          taskType,
           error: (err && err.message) || String(err),
         });
         throw err;
@@ -153,14 +309,12 @@ function enqueueWrite(fn) {
 }
 
 /**
- * @param {LlmMetrics} current
- * @param {LlmMetricEntry} entry
- * @returns {LlmMetrics}
+ * @param {LlmMetricTotals} current
+ * @param {{ durationMs: number, ok: boolean }} entry
+ * @returns {LlmMetricTotals}
  */
-function applyMetric(current, entry) {
-  const recent = [entry, ...current.recent].slice(0, LLM_METRICS_MAX_RECENT);
+function applyTotals(current, entry) {
   return {
-    epoch: current.epoch || 0,
     totalCount: current.totalCount + 1,
     successCount: current.successCount + (entry.ok ? 1 : 0),
     failureCount: current.failureCount + (entry.ok ? 0 : 1),
@@ -173,23 +327,44 @@ function applyMetric(current, entry) {
       current.maxDurationMs == null
         ? entry.durationMs
         : Math.max(current.maxDurationMs, entry.durationMs),
-    recent,
   };
 }
 
 /**
- * @param {{ durationMs: number, ok: boolean, error?: string }} entry
+ * @param {LlmMetrics} current
+ * @param {LlmMetricEntry} entry
+ * @returns {LlmMetrics}
+ */
+function applyMetric(current, entry) {
+  const recent = [entry, ...current.recent].slice(0, LLM_METRICS_MAX_RECENT);
+  const taskType = normalizeTaskType(entry.taskType);
+  const prevBucket = current.byTaskType?.[taskType] || emptyLlmMetricTotals();
+  const nextTotals = applyTotals(current, entry);
+  return {
+    epoch: current.epoch || 0,
+    ...nextTotals,
+    recent,
+    byTaskType: {
+      ...(current.byTaskType || {}),
+      [taskType]: applyTotals(prevBucket, entry),
+    },
+  };
+}
+
+/**
+ * @param {{ durationMs: number, ok: boolean, taskType?: string, error?: string }} entry
  * @returns {Promise<void>}
  */
 export function recordLlmMetric(entry) {
   const durationMs = Math.max(0, Number(entry?.durationMs) || 0);
   const ok = entry?.ok !== false;
+  const taskType = normalizeTaskType(entry?.taskType);
   const error =
     !ok && typeof entry?.error === 'string' && entry.error ? entry.error : undefined;
   const at = Date.now();
 
   /** @type {LlmMetricEntry} */
-  const nextEntry = { at, durationMs, ok };
+  const nextEntry = { at, durationMs, ok, taskType };
   if (error) nextEntry.error = error;
 
   return enqueueWrite(async () => {

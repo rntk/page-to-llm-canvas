@@ -16,7 +16,7 @@ import {
 } from './prompts.js';
 import { parseTopicRanges, groupsFromSegments, TopicParseError } from './topic_parser.js';
 import { callLLMWithRetry as callLLMWithRetryRaw, createLimiter, parallelMap } from './llm.js';
-import { wrapCallLLMWithRetry } from './llmMetrics.js';
+import { wrapCallLLMWithRetry, LLM_TASK_TYPES } from './llmMetrics.js';
 import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
 import { planSummaryWork } from './summaryPlanning.js';
 import { summarizeTopicTree, splitContiguousRuns } from './topicTreeMerge.js';
@@ -305,6 +305,7 @@ function makeSourceSummarizer(sentenceTexts, limit, signal, preferContentLanguag
         prompt: buildTopicSummaryFromSourcePrompt(text, { preferContentLanguage }),
         temperature: 0.8,
         signal,
+        taskType: LLM_TASK_TYPES.TOPIC_SUMMARY_FROM_SOURCE,
       }),
     );
     // The source prompt offers no NO_SUMMARY escape, so an empty/NO_SUMMARY reply
@@ -333,6 +334,7 @@ function makeSourceSummarizer(sentenceTexts, limit, signal, preferContentLanguag
         }),
         temperature: 0.8,
         signal,
+        taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE,
       }),
     );
     const merged = parseSummaryResponse(mergeResp);
@@ -448,6 +450,7 @@ async function resplitSegment(context, seg, sentenceTexts, depth) {
             }),
             temperature: TOPIC_RANGE_TEMPERATURE,
             signal: context.signal,
+            taskType: LLM_TASK_TYPES.TOPIC_RANGES,
           }),
         );
         return responses.join('\n');
@@ -764,6 +767,7 @@ async function computeTopics(context, rec) {
             prompt,
             temperature: TOPIC_RANGE_TEMPERATURE,
             signal: context.signal,
+            taskType: LLM_TASK_TYPES.TOPIC_RANGES,
           });
           await logPipeline(context, 'topic_ranges_llm_response', {
             chunkIndex,
@@ -978,6 +982,7 @@ async function runSummaries(
             }),
             temperature: 0.8,
             signal: context.signal,
+            taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY,
           });
           const parsed = parseSummaryResult(resp);
           // NO_SUMMARY falls back to source text so parent merges still see the

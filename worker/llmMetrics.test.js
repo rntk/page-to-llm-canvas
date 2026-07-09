@@ -4,10 +4,15 @@ import {
   LLM_METRICS_KEY,
   LLM_METRICS_EPOCH_KEY,
   LLM_METRICS_MAX_RECENT,
+  LLM_TASK_TYPES,
   emptyLlmMetrics,
+  emptyLlmMetricTotals,
   normalizeLlmMetrics,
+  normalizeTaskType,
   averageDurationMs,
   formatDurationMs,
+  formatTaskTypeLabel,
+  listTaskTypes,
   wrapCallLLMWithRetry,
   recordLlmMetric,
   getLlmMetrics,
@@ -56,7 +61,7 @@ describe('normalizeLlmMetrics / helpers', () => {
     expect(normalizeLlmMetrics('nope')).toEqual(emptyLlmMetrics());
   });
 
-  it('normalizes counts, durations, and recent entries', () => {
+  it('normalizes counts, durations, task types, and recent entries', () => {
     const normalized = normalizeLlmMetrics({
       epoch: 7,
       totalCount: 3,
@@ -66,12 +71,30 @@ describe('normalizeLlmMetrics / helpers', () => {
       minDurationMs: 100,
       maxDurationMs: 900,
       recent: [
-        { at: 10, durationMs: 100, ok: true },
-        { at: 20, durationMs: 900, ok: false, error: 'boom' },
+        { at: 10, durationMs: 100, ok: true, taskType: LLM_TASK_TYPES.TOPIC_RANGES },
+        { at: 20, durationMs: 900, ok: false, error: 'boom', taskType: 'article_summary' },
         { at: 30, durationMs: -5, ok: true },
         null,
         'skip',
       ],
+      byTaskType: {
+        topic_ranges: {
+          totalCount: 2,
+          successCount: 2,
+          failureCount: 0,
+          totalDurationMs: 600,
+          minDurationMs: 100,
+          maxDurationMs: 500,
+        },
+        article_summary: {
+          totalCount: 1,
+          successCount: 0,
+          failureCount: 1,
+          totalDurationMs: 900,
+          minDurationMs: 900,
+          maxDurationMs: 900,
+        },
+      },
     });
     expect(normalized.epoch).toBe(7);
     expect(normalized.totalCount).toBe(3);
@@ -81,19 +104,61 @@ describe('normalizeLlmMetrics / helpers', () => {
     expect(normalized.minDurationMs).toBe(100);
     expect(normalized.maxDurationMs).toBe(900);
     expect(normalized.recent).toHaveLength(3);
+    expect(normalized.recent[0].taskType).toBe(LLM_TASK_TYPES.TOPIC_RANGES);
     expect(normalized.recent[1]).toEqual({
       at: 20,
       durationMs: 900,
       ok: false,
       error: 'boom',
+      taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY,
     });
     expect(normalized.recent[2].durationMs).toBe(0);
+    expect(normalized.recent[2].taskType).toBe(LLM_TASK_TYPES.UNKNOWN);
+    expect(normalized.byTaskType.topic_ranges.totalCount).toBe(2);
+    expect(normalized.byTaskType.article_summary.failureCount).toBe(1);
+  });
+
+  it('defaults missing byTaskType and taskType on legacy payloads', () => {
+    const normalized = normalizeLlmMetrics({
+      totalCount: 1,
+      successCount: 1,
+      failureCount: 0,
+      totalDurationMs: 10,
+      minDurationMs: 10,
+      maxDurationMs: 10,
+      recent: [{ at: 1, durationMs: 10, ok: true }],
+    });
+    expect(normalized.byTaskType).toEqual({});
+    expect(normalized.recent[0].taskType).toBe(LLM_TASK_TYPES.UNKNOWN);
+  });
+
+  it('normalizes and labels task types', () => {
+    expect(normalizeTaskType(undefined)).toBe(LLM_TASK_TYPES.UNKNOWN);
+    expect(normalizeTaskType('')).toBe(LLM_TASK_TYPES.UNKNOWN);
+    expect(normalizeTaskType(LLM_TASK_TYPES.TOPIC_RANGES)).toBe(LLM_TASK_TYPES.TOPIC_RANGES);
+    expect(normalizeTaskType('  Custom Task!  ')).toBe('custom_task');
+    expect(formatTaskTypeLabel(LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE)).toBe('Summary merge');
+    expect(formatTaskTypeLabel('custom_task')).toBe('Custom Task');
+  });
+
+  it('lists task types by count descending', () => {
+    const metrics = {
+      ...emptyLlmMetrics(),
+      byTaskType: {
+        article_summary: { ...emptyLlmMetricTotals(), totalCount: 1 },
+        topic_ranges: { ...emptyLlmMetricTotals(), totalCount: 5 },
+      },
+    };
+    expect(listTaskTypes(metrics)).toEqual(['topic_ranges', 'article_summary']);
   });
 
   it('computes average duration and formats durations', () => {
     expect(averageDurationMs(emptyLlmMetrics())).toBeNull();
     expect(averageDurationMs({ ...emptyLlmMetrics(), totalCount: 2, totalDurationMs: 500 })).toBe(
       250,
+    );
+    expect(averageDurationMs({ ...emptyLlmMetricTotals(), totalCount: 4, totalDurationMs: 400 })).toBe(
+      100,
     );
     expect(formatDurationMs(null)).toBe('—');
     expect(formatDurationMs(420)).toBe('420 ms');
@@ -117,8 +182,10 @@ describe('wrapCallLLMWithRetry', () => {
       return 'hello';
     });
     const wrapped = wrapCallLLMWithRetry(raw);
-    await expect(wrapped({ prompt: 'x' }, 2)).resolves.toBe('hello');
-    expect(raw).toHaveBeenCalledWith({ prompt: 'x' }, 2);
+    await expect(
+      wrapped({ prompt: 'x', taskType: LLM_TASK_TYPES.TOPIC_RANGES }, 2),
+    ).resolves.toBe('hello');
+    expect(raw).toHaveBeenCalledWith({ prompt: 'x', taskType: LLM_TASK_TYPES.TOPIC_RANGES }, 2);
 
     await vi.waitFor(async () => {
       const metrics = await getLlmMetrics();
@@ -129,6 +196,9 @@ describe('wrapCallLLMWithRetry', () => {
     expect(metrics.failureCount).toBe(0);
     expect(metrics.recent[0].ok).toBe(true);
     expect(metrics.recent[0].durationMs).toBe(250);
+    expect(metrics.recent[0].taskType).toBe(LLM_TASK_TYPES.TOPIC_RANGES);
+    expect(metrics.byTaskType.topic_ranges.totalCount).toBe(1);
+    expect(metrics.byTaskType.topic_ranges.totalDurationMs).toBe(250);
   });
 
   it('records failure duration and rethrows', async () => {
@@ -139,7 +209,9 @@ describe('wrapCallLLMWithRetry', () => {
       throw new Error('rate limited');
     });
     const wrapped = wrapCallLLMWithRetry(raw);
-    await expect(wrapped({ prompt: 'x' })).rejects.toThrow('rate limited');
+    await expect(
+      wrapped({ prompt: 'x', taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY }),
+    ).rejects.toThrow('rate limited');
 
     await vi.waitFor(async () => {
       const metrics = await getLlmMetrics();
@@ -151,7 +223,22 @@ describe('wrapCallLLMWithRetry', () => {
       ok: false,
       durationMs: 80,
       error: 'rate limited',
+      taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY,
     });
+    expect(metrics.byTaskType.article_summary.failureCount).toBe(1);
+  });
+
+  it('defaults missing taskType to unknown', async () => {
+    stubChromeStore();
+    const wrapped = wrapCallLLMWithRetry(async () => 'ok');
+    await wrapped({ prompt: 'x' });
+    await vi.waitFor(async () => {
+      const metrics = await getLlmMetrics();
+      expect(metrics.totalCount).toBe(1);
+    });
+    const metrics = await getLlmMetrics();
+    expect(metrics.recent[0].taskType).toBe(LLM_TASK_TYPES.UNKNOWN);
+    expect(metrics.byTaskType.unknown.totalCount).toBe(1);
   });
 });
 
@@ -172,7 +259,17 @@ describe('storage accessors', () => {
         totalDurationMs: 10,
         minDurationMs: 10,
         maxDurationMs: 10,
-        recent: [{ at: 1, durationMs: 10, ok: true }],
+        recent: [{ at: 1, durationMs: 10, ok: true, taskType: LLM_TASK_TYPES.TOPIC_RANGES }],
+        byTaskType: {
+          topic_ranges: {
+            totalCount: 1,
+            successCount: 1,
+            failureCount: 0,
+            totalDurationMs: 10,
+            minDurationMs: 10,
+            maxDurationMs: 10,
+          },
+        },
       },
     });
 
@@ -194,7 +291,17 @@ describe('storage accessors', () => {
       totalDurationMs: 500,
       minDurationMs: 100,
       maxDurationMs: 100,
-      recent: [{ at: 1, durationMs: 100, ok: true }],
+      recent: [{ at: 1, durationMs: 100, ok: true, taskType: LLM_TASK_TYPES.TOPIC_RANGES }],
+      byTaskType: {
+        topic_ranges: {
+          totalCount: 5,
+          successCount: 5,
+          failureCount: 0,
+          totalDurationMs: 500,
+          minDurationMs: 100,
+          maxDurationMs: 100,
+        },
+      },
     };
     const store = stubChromeStore({
       [LLM_METRICS_KEY]: preClearMetrics,
@@ -237,7 +344,11 @@ describe('storage accessors', () => {
       respond();
     });
 
-    const recordPromise = recordLlmMetric({ durationMs: 42, ok: true });
+    const recordPromise = recordLlmMetric({
+      durationMs: 42,
+      ok: true,
+      taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY,
+    });
     // Allow the record job to start and hit the gated get.
     await Promise.resolve();
     await Promise.resolve();
@@ -254,6 +365,7 @@ describe('storage accessors', () => {
     const metrics = await getLlmMetrics();
     expect(metrics.totalCount).toBe(0);
     expect(metrics.recent).toEqual([]);
+    expect(metrics.byTaskType).toEqual({});
     expect(store[LLM_METRICS_EPOCH_KEY]).toBe(clearEpoch);
   });
 
@@ -268,7 +380,17 @@ describe('storage accessors', () => {
         totalDurationMs: 900,
         minDurationMs: 100,
         maxDurationMs: 100,
-        recent: [{ at: 1, durationMs: 100, ok: true }],
+        recent: [{ at: 1, durationMs: 100, ok: true, taskType: LLM_TASK_TYPES.TOPIC_RANGES }],
+        byTaskType: {
+          topic_ranges: {
+            totalCount: 9,
+            successCount: 9,
+            failureCount: 0,
+            totalDurationMs: 900,
+            minDurationMs: 100,
+            maxDurationMs: 100,
+          },
+        },
       },
     });
     await expect(getLlmMetrics()).resolves.toEqual(emptyLlmMetrics(100));
@@ -278,12 +400,72 @@ describe('storage accessors', () => {
     stubChromeStore();
 
     for (let i = 0; i < LLM_METRICS_MAX_RECENT + 5; i++) {
-      await recordLlmMetric({ durationMs: i, ok: true });
+      await recordLlmMetric({ durationMs: i, ok: true, taskType: LLM_TASK_TYPES.TOPIC_RANGES });
     }
     const metrics = await getLlmMetrics();
     expect(metrics.totalCount).toBe(LLM_METRICS_MAX_RECENT + 5);
     expect(metrics.recent).toHaveLength(LLM_METRICS_MAX_RECENT);
     // Newest first.
     expect(metrics.recent[0].durationMs).toBe(LLM_METRICS_MAX_RECENT + 4);
+    expect(metrics.byTaskType.topic_ranges.totalCount).toBe(LLM_METRICS_MAX_RECENT + 5);
+  });
+
+  it('separates aggregates by task type', async () => {
+    stubChromeStore();
+
+    await recordLlmMetric({
+      durationMs: 100,
+      ok: true,
+      taskType: LLM_TASK_TYPES.TOPIC_RANGES,
+    });
+    await recordLlmMetric({
+      durationMs: 200,
+      ok: true,
+      taskType: LLM_TASK_TYPES.TOPIC_RANGES,
+    });
+    await recordLlmMetric({
+      durationMs: 400,
+      ok: false,
+      error: 'nope',
+      taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY,
+    });
+    await recordLlmMetric({
+      durationMs: 50,
+      ok: true,
+      taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE,
+    });
+
+    const metrics = await getLlmMetrics();
+    expect(metrics.totalCount).toBe(4);
+    expect(metrics.successCount).toBe(3);
+    expect(metrics.failureCount).toBe(1);
+    expect(metrics.totalDurationMs).toBe(750);
+
+    expect(metrics.byTaskType.topic_ranges).toMatchObject({
+      totalCount: 2,
+      successCount: 2,
+      failureCount: 0,
+      totalDurationMs: 300,
+      minDurationMs: 100,
+      maxDurationMs: 200,
+    });
+    expect(metrics.byTaskType.article_summary).toMatchObject({
+      totalCount: 1,
+      successCount: 0,
+      failureCount: 1,
+      totalDurationMs: 400,
+    });
+    expect(metrics.byTaskType.article_summary_merge.totalCount).toBe(1);
+    expect(listTaskTypes(metrics)).toEqual([
+      LLM_TASK_TYPES.TOPIC_RANGES,
+      LLM_TASK_TYPES.ARTICLE_SUMMARY,
+      LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE,
+    ]);
+    expect(metrics.recent.map((e) => e.taskType)).toEqual([
+      LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE,
+      LLM_TASK_TYPES.ARTICLE_SUMMARY,
+      LLM_TASK_TYPES.TOPIC_RANGES,
+      LLM_TASK_TYPES.TOPIC_RANGES,
+    ]);
   });
 });

@@ -52,6 +52,8 @@ import {
   clearLlmMetrics,
   averageDurationMs,
   formatDurationMs,
+  formatTaskTypeLabel,
+  listTaskTypes,
   normalizeLlmMetrics,
 } from '../../worker/llmMetrics.js';
 
@@ -322,13 +324,15 @@ export function LlmMetricsSection() {
   }, []);
 
   const avg = averageDurationMs(metrics);
+  const taskTypes = listTaskTypes(metrics);
 
   return (
     <section className="section">
       <h2>LLM Request Metrics</h2>
       <div className="toolbar">
         <div className="note">
-          Duration of model requests made while processing pages (includes retries).
+          Duration of model requests made while processing pages (includes retries), separated by
+          pipeline task type.
         </div>
         <div>
           <button type="button" onClick={handleClear} disabled={isClearing || metrics.totalCount === 0}>
@@ -366,6 +370,41 @@ export function LlmMetricsSection() {
               </tbody>
             </table>
           </div>
+          {taskTypes.length > 0 ? (
+            <div className="field">
+              <div className="note note--stacked">By task type</div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Task</th>
+                    <th>Requests</th>
+                    <th>Ok / err</th>
+                    <th>Average</th>
+                    <th>Min / max</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {taskTypes.map((taskType) => {
+                    const bucket = metrics.byTaskType[taskType] || emptyLlmMetrics();
+                    return (
+                      <tr key={taskType}>
+                        <td>{formatTaskTypeLabel(taskType)}</td>
+                        <td className="mono">{bucket.totalCount}</td>
+                        <td className="mono">
+                          {bucket.successCount} / {bucket.failureCount}
+                        </td>
+                        <td className="mono">{formatDurationMs(averageDurationMs(bucket))}</td>
+                        <td className="mono">
+                          {formatDurationMs(bucket.minDurationMs)} /{' '}
+                          {formatDurationMs(bucket.maxDurationMs)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
           {metrics.recent.length > 0 ? (
             <div className="field">
               <div className="note note--stacked">Recent requests (newest first)</div>
@@ -373,6 +412,7 @@ export function LlmMetricsSection() {
                 <thead>
                   <tr>
                     <th>When</th>
+                    <th>Task</th>
                     <th>Duration</th>
                     <th>Result</th>
                   </tr>
@@ -381,6 +421,7 @@ export function LlmMetricsSection() {
                   {metrics.recent.map((entry, index) => (
                     <tr key={`${entry.at}-${index}`}>
                       <td>{fmtDate(entry.at)}</td>
+                      <td>{formatTaskTypeLabel(entry.taskType)}</td>
                       <td className="mono">{formatDurationMs(entry.durationMs)}</td>
                       <td title={entry.error || undefined}>{entry.ok ? 'ok' : 'error'}</td>
                     </tr>
