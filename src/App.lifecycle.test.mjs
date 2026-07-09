@@ -52,3 +52,25 @@ describe('App.jsx record error states', () => {
     expect(appSource).toContain('resolveSummaryErrors');
   });
 });
+
+describe('App.jsx optional-summary handling (record.summariesDisabled)', () => {
+  it('derives summariesDisabled from the record', () => {
+    expect(appSource).toContain('record?.summariesDisabled === true');
+  });
+
+  it('guards the summary-mode toggle so it is a no-op when summaries are disabled', () => {
+    expect(appSource).toContain('if (summariesDisabled) return;');
+  });
+
+  it('forces summary mode off when summaries are disabled (derived, not effect-reset)', () => {
+    expect(appSource).toContain('showSummaryModeRaw && !summariesDisabled');
+  });
+
+  it('suppresses the floating current-topic summary card when summaries are disabled', () => {
+    expect(appSource).toContain('if (summariesDisabled) return null;');
+  });
+
+  it('tells CanvasZoomControls whether summary mode is available', () => {
+    expect(appSource).toContain('summaryModeAvailable={!summariesDisabled}');
+  });
+});

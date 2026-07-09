@@ -20,6 +20,7 @@ import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
 import { planSummaryWork } from './summaryPlanning.js';
 import { summarizeTopicTree, splitContiguousRuns } from './topicTreeMerge.js';
 import { getStoredPreferContentLanguage } from './languageSettings.js';
+import { getStoredSummariesDisabled } from './summarySettings.js';
 
 const MAX_TAGGED_CHARS = 60000;
 // Budget for an internal topic node's own source text before we summarize it in
@@ -583,6 +584,9 @@ export async function runPipeline(key, options = {}) {
     // Read once per run so every prompt in this run uses a consistent setting,
     // even if the user toggles it mid-pipeline. Defaults to off on any failure.
     preferContentLanguage: await getStoredPreferContentLanguage(),
+    // Read once per run so a mid-run toggle never leaves half the topics
+    // summarized and half not. Defaults to off (summaries enabled) on any failure.
+    summariesDisabled: await getStoredSummariesDisabled(),
   };
   try {
     await logPipeline(context, 'pipeline_start');
@@ -616,6 +620,16 @@ export async function runPipeline(key, options = {}) {
     } else {
       ({ topics, sentenceTexts } = await computeTopics(context, rec));
       if (!topics) return; // no sentences — pipeline already marked done.
+    }
+
+    // Summaries are opt-out: when the toggle is on we still want the topic
+    // ranges (the UI still shows the topic tree), but every summary LLM call is
+    // skipped and the record finalizes immediately with empty summaries. This
+    // applies whether topics were just computed (fresh path) or reused
+    // (resume path), so it is checked once here rather than duplicated above.
+    if (context.summariesDisabled) {
+      await finalizeSummariesDisabled(context, topics);
+      return;
     }
 
     // Reuse already-computed summaries only when resuming: those were produced
@@ -669,6 +683,7 @@ async function computeTopics(context, rec) {
     topics: [],
     topic_summaries: {},
     topic_summary_index: {},
+    summariesDisabled: false,
   });
   await logPipeline(context, 'cleaning_html_start', {
     htmlLength: String(rec.html || '').length,
@@ -702,6 +717,7 @@ async function computeTopics(context, rec) {
       status: 'done',
       topics: [],
       topic_summaries: {},
+      summariesDisabled: context.summariesDisabled,
       progress: { stage: 'done', done: 0, total: 0 },
     });
     return { topics: null, sentenceTexts };
@@ -827,6 +843,35 @@ async function parkForReview(context, summaryErrors, phase, { done, total }) {
     phase,
     errorCount: summaryErrors.length,
     topics: summaryErrors.map((e) => e.topic),
+  });
+}
+
+/**
+ * Finalizes a run straight to `done` with empty summaries when the
+ * "disable summaries" toggle is on. Skips runSummaries entirely — no leaf or
+ * merge LLM calls — but keeps the topics (already computed/reused) so the UI
+ * still renders the topic tree. `summariesDisabled: true` on the record lets
+ * the UI distinguish "intentionally skipped" from "summary of everything is
+ * empty".
+ *
+ * @param {{key: string, pipelineRunId?: string, signal?: AbortSignal}} context
+ * @param {Array<object>} topics
+ * @returns {Promise<void>}
+ */
+async function finalizeSummariesDisabled(context, topics) {
+  await logPipeline(context, 'summaries_disabled_skip', { topicCount: topics.length });
+  await updatePipelineRecord(context, {
+    status: 'done',
+    topic_summaries: {},
+    topic_summary_index: {},
+    summariesDisabled: true,
+    progress: { stage: 'done', done: topics.length, total: topics.length },
+    summaryErrors: [],
+    forceFinalize: false,
+  });
+  await logPipeline(context, 'pipeline_done', {
+    topicCount: topics.length,
+    summaryNodeCount: 0,
   });
 }
 
@@ -1045,6 +1090,9 @@ async function runSummaries(
     status: 'done',
     topic_summaries: finalizedSummaries,
     topic_summary_index,
+    // Clears a stale flag from a previous run where summaries were disabled, so
+    // a reprocess with the toggle back on shows real summaries again.
+    summariesDisabled: false,
     progress: { stage: 'done', done: total, total },
     // Clear any parked-review state now that the run has finalized.
     summaryErrors: [],

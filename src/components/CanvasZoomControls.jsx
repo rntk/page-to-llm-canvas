@@ -11,6 +11,7 @@ import TopicLevelSwitcher from './TopicLevelSwitcher.jsx';
  *   onReset: () => void,
  *   showSummaryMode: boolean,
  *   onToggleSummaryMode: () => void,
+ *   summaryModeAvailable?: boolean,
  *   showTopicHierarchy: boolean,
  *   onToggleTopicHierarchy: () => void,
  *   onClose: () => void,
@@ -27,6 +28,7 @@ function CanvasZoomControls({
   onReset,
   showSummaryMode,
   onToggleSummaryMode,
+  summaryModeAvailable = true,
   showTopicHierarchy,
   onToggleTopicHierarchy,
   onClose,
@@ -148,14 +150,16 @@ function CanvasZoomControls({
             ⊙
           </button>
           <div className="canvas-spacer" />
-          <button
-            type="button"
-            className={`canvas-read-toggle${showSummaryMode ? ' is-active' : ''}`}
-            onClick={onToggleSummaryMode}
-            title={showSummaryMode ? 'Show article text' : 'Show summary view (per topic level)'}
-          >
-            S
-          </button>
+          {summaryModeAvailable && (
+            <button
+              type="button"
+              className={`canvas-read-toggle${showSummaryMode ? ' is-active' : ''}`}
+              onClick={onToggleSummaryMode}
+              title={showSummaryMode ? 'Show article text' : 'Show summary view (per topic level)'}
+            >
+              S
+            </button>
+          )}
           <div className="canvas-control-hierarchy-group">
             {(showTopicHierarchy || showSummaryMode) && (
               <TopicLevelSwitcher

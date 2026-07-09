@@ -239,11 +239,13 @@ export default function InPageRail({
   onHighlightCard,
   onScrollToCard,
   scrollContainer,
+  summariesDisabled = false,
 }) {
   const [frontCardId, setFrontCardId] = useState(null);
   const [scrollOffset, setScrollOffset] = useState(() => getScrollContainerTop(scrollContainer));
   const bodyRef = useRef(null);
   const isSummary = mode === 'summaries';
+  const showSummariesDisabledNotice = isSummary && summariesDisabled;
   const normalizedHeight = useMemo(() => `${bodyHeight}px`, [bodyHeight]);
   const isNestedScroll = scrollContainer && scrollContainer !== window;
 
@@ -318,7 +320,12 @@ export default function InPageRail({
         ref={bodyRef}
         style={bodyStyle}
       >
-        {isSummary ? (
+        {showSummariesDisabledNotice ? (
+          <div className="pagetollm-rail-empty">
+            Summaries are disabled. Enable them in the extension settings and reprocess this page
+            to see them here.
+          </div>
+        ) : isSummary ? (
           <SummaryCursorView
             cards={cards}
             bodyRef={bodyRef}

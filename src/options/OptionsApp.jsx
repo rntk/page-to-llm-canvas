@@ -37,6 +37,13 @@ import {
   setStoredPreferContentLanguage,
   normalizePreferContentLanguage,
 } from '../../worker/languageSettings.js';
+import {
+  SUMMARIES_DISABLED_KEY,
+  DEFAULT_SUMMARIES_DISABLED,
+  getStoredSummariesDisabled,
+  setStoredSummariesDisabled,
+  normalizeSummariesDisabled,
+} from '../../worker/summarySettings.js';
 
 export function ThemeToggle() {
   const [controller] = useState(() => createThemeController());
@@ -253,6 +260,71 @@ export function ContentLanguageSection() {
         <div className="note">
           When enabled, topic labels and summaries are written in the dominant language of the
           analyzed content instead of always defaulting to English.
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function SummaryGenerationSection() {
+  const [summariesDisabled, setSummariesDisabled] = useState(DEFAULT_SUMMARIES_DISABLED);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadSummariesDisabled() {
+      const stored = await getStoredSummariesDisabled();
+      if (isCurrent) setSummariesDisabled(stored);
+    }
+
+    void loadSummariesDisabled();
+    const handleStorageChange = (changes, areaName) => {
+      if (areaName !== 'local' || !changes || !changes[SUMMARIES_DISABLED_KEY]) return;
+      setSummariesDisabled(normalizeSummariesDisabled(changes[SUMMARIES_DISABLED_KEY].newValue));
+    };
+    try {
+      chrome.storage.onChanged.addListener(handleStorageChange);
+    } catch (_) {
+      /* noop */
+    }
+    return () => {
+      isCurrent = false;
+      try {
+        chrome.storage.onChanged.removeListener(handleStorageChange);
+      } catch (_) {
+        /* noop */
+      }
+    };
+  }, []);
+
+  const handleToggle = useCallback(async (next) => {
+    // Optimistic update; on a write failure resync to what is actually stored.
+    setSummariesDisabled(next);
+    try {
+      await setStoredSummariesDisabled(next);
+    } catch (_) {
+      const stored = await getStoredSummariesDisabled();
+      setSummariesDisabled(stored);
+    }
+  }, []);
+
+  return (
+    <section className="section">
+      <h2>Summaries</h2>
+      <div className="field">
+        <label htmlFor="disable-summaries">
+          <input
+            id="disable-summaries"
+            type="checkbox"
+            checked={summariesDisabled}
+            onChange={(event) => handleToggle(event.target.checked)}
+          />{' '}
+          Disable summary generation
+        </label>
+        <div className="note">
+          When enabled, processing stops after topic detection: topic labels and article structure
+          are still computed, but no summaries are generated. Existing records keep their summaries
+          until reprocessed.
         </div>
       </div>
     </section>
@@ -726,6 +798,8 @@ export function OptionsApp() {
 
       <ContentLanguageSection />
 
+      <SummaryGenerationSection />
+
       <HighlightColorSection />
 
       <section className="section">
@@ -797,10 +871,7 @@ export function OptionsApp() {
                           {item.status} ⚠️
                         </button>
                       ) : (
-                        <span
-                          className={statusClass(item.status)}
-                          title={item.error || undefined}
-                        >
+                        <span className={statusClass(item.status)} title={item.error || undefined}>
                           {item.status || 'unknown'}
                         </span>
                       )}

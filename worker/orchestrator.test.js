@@ -16,6 +16,14 @@ import * as storage from './storage.js';
 import * as html from './html.js';
 import * as sentenceSplitter from './sentence_splitter.js';
 import * as llm from './llm.js';
+import * as summarySettings from './summarySettings.js';
+
+// Mocked (rather than relying on the languageSettings-style "no chrome global
+// falls back to default" behavior) so individual tests can flip the toggle on
+// without stubbing a global `chrome` that nothing else in this file needs.
+vi.mock('./summarySettings.js', () => ({
+  getStoredSummariesDisabled: vi.fn(),
+}));
 
 vi.mock('./storage.js', () => ({
   readRecord: vi.fn(),
@@ -80,6 +88,7 @@ beforeEach(() => {
   html.stripTagsKeepOffsets.mockReturnValue({ text: '', mapping: [0] });
   sentenceSplitter.splitSentences.mockReturnValue([]);
   llm.callLLMWithRetry.mockResolvedValue('');
+  summarySettings.getStoredSummariesDisabled.mockResolvedValue(false);
 });
 
 // ---------------------------------------------------------------------------
@@ -1298,12 +1307,111 @@ describe('runPipeline', () => {
       topics: [],
       topic_summaries: {},
       topic_summary_index: {},
+      summariesDisabled: false,
     });
 
     // The final result has only the fresh summaries.
     const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
     expect(doneCall[1].topic_summaries.StaleTopic).toBeUndefined();
     expect(doneCall[1].topic_summaries['Tech>All'].runs[0].text).toBe('Fresh summary.');
+  });
+
+  // -------------------------------------------------------------------------
+  // summariesDisabled toggle
+  // -------------------------------------------------------------------------
+
+  it('skips all summary work and finalizes to done when summaries are disabled (fresh path)', async () => {
+    summarySettings.getStoredSummariesDisabled.mockResolvedValue(true);
+
+    const plainText = 'Sentence one. Sentence two.';
+    const mapping = makeMapping(plainText);
+    storage.readRecord.mockResolvedValue(
+      makeRecord('disabled1', '<p>Sentence one. Sentence two.</p>'),
+    );
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'Sentence one.', start: 0, end: 13 },
+      { text: 'Sentence two.', start: 14, end: 27 },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
+      // Any summary-shaped call would be a bug when summaries are disabled.
+      return 'SHOULD_NOT_BE_CALLED';
+    });
+
+    await runPipeline('disabled1');
+
+    // Topic ranges still run (the topic tree is still shown), but no summary
+    // call of any kind fires.
+    expect(
+      llm.callLLMWithRetry.mock.calls.some(
+        ([opts]) =>
+          opts.prompt.includes('Summarize the text within the <text> tags') ||
+          opts.prompt.includes('Summarize the source text'),
+      ),
+    ).toBe(false);
+
+    const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
+    expect(doneCall).toBeDefined();
+    expect(doneCall[1].topic_summaries).toEqual({});
+    expect(doneCall[1].topic_summary_index).toEqual({});
+    expect(doneCall[1].summariesDisabled).toBe(true);
+    expect(doneCall[1].progress).toEqual({ stage: 'done', done: 1, total: 1 });
+  });
+
+  it('skips all summary work when summaries are disabled and the record is resuming', async () => {
+    summarySettings.getStoredSummariesDisabled.mockResolvedValue(true);
+
+    storage.readRecord.mockResolvedValue({
+      key: 'disabled2',
+      html: '<p>ignored on resume</p>',
+      status: 'summarizing',
+      sentences: ['Alpha.', 'Beta.'],
+      topics: [{ name: 'A', sentences: [1, 2], sentence_spans: [], ranges: [] }],
+      topic_summaries: {},
+      topic_summary_index: {},
+    });
+    llm.callLLMWithRetry.mockResolvedValue('SHOULD_NOT_BE_CALLED');
+
+    await runPipeline('disabled2');
+
+    expect(llm.callLLMWithRetry).not.toHaveBeenCalled();
+    // The resume path must not redo HTML cleaning / sentence splitting either.
+    expect(html.stripTagsKeepOffsets).not.toHaveBeenCalled();
+    expect(sentenceSplitter.splitSentences).not.toHaveBeenCalled();
+
+    const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
+    expect(doneCall).toBeDefined();
+    expect(doneCall[1].topic_summaries).toEqual({});
+    expect(doneCall[1].topic_summary_index).toEqual({});
+    expect(doneCall[1].summariesDisabled).toBe(true);
+  });
+
+  it('finalizes with summariesDisabled: false when summaries are enabled (default)', async () => {
+    summarySettings.getStoredSummariesDisabled.mockResolvedValue(false);
+
+    const plainText = 'Sentence one. Sentence two.';
+    const mapping = makeMapping(plainText);
+    storage.readRecord.mockResolvedValue(
+      makeRecord('enabled1', '<p>Sentence one. Sentence two.</p>'),
+    );
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'Sentence one.', start: 0, end: 13 },
+      { text: 'Sentence two.', start: 14, end: 27 },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary text.';
+      return '';
+    });
+
+    await runPipeline('enabled1');
+
+    const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
+    expect(doneCall).toBeDefined();
+    expect(doneCall[1].summariesDisabled).toBe(false);
+    expect(doneCall[1].topic_summaries['Tech>All'].runs[0].text).toBe(plainText);
   });
 });
 

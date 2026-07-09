@@ -43,7 +43,7 @@ import {
  */
 export default function App({ initialKey }) {
   const { record, error } = useRecord(initialKey);
-  const [showSummaryMode, setShowSummaryMode] = useState(false);
+  const [showSummaryModeRaw, setShowSummaryMode] = useState(false);
   const [showTopicHierarchy, setShowTopicHierarchy] = useState(true);
   const [selectedTopicKey, setSelectedTopicKey] = useState(null);
   const [selectedTopicCardKey, setSelectedTopicCardKey] = useState(null);
@@ -159,6 +159,15 @@ export default function App({ initialKey }) {
   );
 
   const isDone = record?.status === 'done';
+  // Summaries are optional: a pipeline run with them disabled still finishes
+  // 'done' with topics/sentences/html intact, but empty topic_summaries/
+  // topic_summary_index. Summary mode (which renders summary cards instead of
+  // the article) has nothing to show in that case.
+  const summariesDisabled = record?.summariesDisabled === true;
+  // Derived (not reset via an effect) so a live record update that flips
+  // summariesDisabled on — reprocess with the toggle enabled — exits summary
+  // mode immediately instead of rendering an empty card column for a frame.
+  const showSummaryMode = showSummaryModeRaw && !summariesDisabled;
 
   // Measurement engine: live sentence Ranges plus measured sentence/summary
   // geometry that drives the topic-hierarchy rail. `summaryMetricsState` holds
@@ -250,13 +259,14 @@ export default function App({ initialKey }) {
   // is currently hovered or selected in the rail. Suppressed in summary mode,
   // where every summary is already shown in the center column.
   const currentTopicSummary = useMemo(() => {
+    if (summariesDisabled) return null;
     return selectCurrentTopicSummary({
       showSummaryMode,
       activeTopicKey,
       activeTopicCardKey,
       allSummaryCards,
     });
-  }, [showSummaryMode, activeTopicKey, activeTopicCardKey, allSummaryCards]);
+  }, [summariesDisabled, showSummaryMode, activeTopicKey, activeTopicCardKey, allSummaryCards]);
 
   // Paint the selected/hovered topic's source sentences via the native CSS
   // Custom Highlight API; shares the measurement engine's live sentence Ranges.
@@ -447,11 +457,13 @@ export default function App({ initialKey }) {
   );
 
   const handleToggleSummaryMode = useCallback(() => {
+    // No summaries to show a-la-carte when the pipeline skipped them.
+    if (summariesDisabled) return;
     // Content swaps wholesale (article ⇄ summary cards), so reset the vertical
     // position to the top margin; horizontal stays continuous.
     captureAnchor(true);
     setShowSummaryMode((v) => !v);
-  }, [captureAnchor]);
+  }, [captureAnchor, summariesDisabled]);
 
   const handleToggleTopicHierarchy = useCallback(() => {
     // Same content, only the rail's reserved width changes — preserve both axes.
@@ -653,6 +665,7 @@ export default function App({ initialKey }) {
               onReset={handleReset}
               showSummaryMode={showSummaryMode}
               onToggleSummaryMode={handleToggleSummaryMode}
+              summaryModeAvailable={!summariesDisabled}
               showTopicHierarchy={showTopicHierarchy}
               onToggleTopicHierarchy={handleToggleTopicHierarchy}
               selectedLevel={selectedLevel}

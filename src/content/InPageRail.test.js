@@ -249,4 +249,36 @@ describe('InPageRail', () => {
 
     unmount();
   });
+
+  it('shows a notice instead of an empty summary rail when summaries are disabled', () => {
+    const { container, unmount } = render(
+      createElement(InPageRail, {
+        ...defaultProps,
+        mode: 'summaries',
+        cards: [],
+        summariesDisabled: true,
+      }),
+    );
+
+    const notice = container.querySelector('.pagetollm-rail-empty');
+    expect(notice).not.toBeNull();
+    expect(notice.textContent).toContain('Summaries are disabled');
+    expect(container.querySelector('.pagetollm-summary-cursor-line')).toBeNull();
+
+    unmount();
+  });
+
+  it('does not show the disabled notice in topics mode even if summariesDisabled is true', () => {
+    const { container, unmount } = render(
+      createElement(InPageRail, {
+        ...defaultProps,
+        summariesDisabled: true,
+      }),
+    );
+
+    expect(container.querySelector('.pagetollm-rail-empty')).toBeNull();
+    expect(container.querySelectorAll('.pagetollm-rail-card')).toHaveLength(2);
+
+    unmount();
+  });
 });

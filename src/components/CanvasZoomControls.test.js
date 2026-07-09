@@ -213,4 +213,28 @@ describe('CanvasZoomControls', () => {
 
     unmount();
   });
+
+  it('shows the summary-mode toggle by default', () => {
+    const { container, unmount } = render(createElement(CanvasZoomControls, defaultProps));
+    expect(container.querySelector('.canvas-read-toggle')).not.toBeNull();
+    unmount();
+  });
+
+  it('hides the summary-mode toggle when summaryModeAvailable is false', () => {
+    const onToggleSummaryMode = vi.fn();
+    const { container, unmount } = render(
+      createElement(CanvasZoomControls, {
+        ...defaultProps,
+        summaryModeAvailable: false,
+        onToggleSummaryMode,
+      }),
+    );
+
+    // Only the hierarchy toggle ("H") remains; the summary ("S") toggle is gone.
+    const readToggles = container.querySelectorAll('.canvas-read-toggle');
+    expect(readToggles).toHaveLength(1);
+    expect(readToggles[0].textContent).toBe('H');
+
+    unmount();
+  });
 });

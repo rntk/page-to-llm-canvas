@@ -1005,6 +1005,7 @@ async function openInPageRail(rec, initialMode, options = {}) {
           onHighlightCard={handleHighlightCard}
           onScrollToCard={handleScrollToCard}
           scrollContainer={scrollContainer}
+          summariesDisabled={record.summariesDisabled === true}
         />,
       );
     });
