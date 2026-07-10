@@ -2,16 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   runPipeline,
   chunkTaggedText,
-  buildTopicTree,
   groupsToTopics,
   rangesToSentenceList,
   mapTextOffsetToHtml,
   parseSummaryResponse,
   classifyLlmError,
   shouldInlineRun,
-  splitContiguousRuns,
   chunkSourceSentences,
 } from './orchestrator.js';
+import { buildTopicTree, splitContiguousRuns } from './topicTreeMerge.js';
 import * as storage from './storage.js';
 import * as html from './html.js';
 import * as sentenceSplitter from './sentence_splitter.js';

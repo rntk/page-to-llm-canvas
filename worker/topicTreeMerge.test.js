@@ -1,11 +1,22 @@
 import { describe, it, expect, vi } from 'vitest';
-import { summarizeTopicTree } from './topicTreeMerge.js';
-import { buildTopicTree } from './orchestrator.js';
+import { buildTopicTree, summarizeTopicTree } from './topicTreeMerge.js';
 
 // Summaries are per contiguous run: { runs: [{ sentences, text }] }. A leaf with a
 // single run is the common case; internal nodes return whatever runs
 // summarizeSource produces.
 const oneRun = (sentences, text) => ({ runs: [{ sentences, text }] });
+
+describe('buildTopicTree', () => {
+  it('merges sentences from duplicate topic paths', () => {
+    const { nodes } = buildTopicTree([
+      { name: 'A>B', sentences: [1, 2] },
+      { name: 'A>B', sentences: [4, 2] },
+    ]);
+
+    expect(nodes.get('A>B').sourceSentences).toEqual([1, 2, 4]);
+    expect(nodes.get('A').sourceSentences).toEqual([1, 2, 4]);
+  });
+});
 
 describe('summarizeTopicTree', () => {
   it('uses the leaf summary for a leaf node without calling summarizeSource', async () => {

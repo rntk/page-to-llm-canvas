@@ -10,7 +10,7 @@
 // into contiguous runs (one per non-adjacent occurrence); each run is resolved
 // on its own:
 //
-//   - leaf node (no children): its precomputed per-topic leafSummary runs (or [])
+//   - leaf node (no children): its precomputed leafSummaries entry (or [])
 //   - internal node, run owned by a single child: the run DELEGATES to that
 //     child's matching run summary instead of generating its own. buildTopicTree
 //     aggregates every descendant sentence onto each node, so when a run's
@@ -43,15 +43,65 @@
 // is unit-testable with fakes.
 
 /**
+ * Builds the worker's summary tree from flat hierarchical topic paths and
+ * aggregates descendant sentence ids onto every parent node.
+ *
+ * @param {Array<{name?: string, sentences?: number[]}>} topics
+ * @returns {{root: object, nodes: Map<string, object>}}
+ */
+export function buildTopicTree(topics) {
+  const root = {
+    path: '',
+    name: '',
+    level: 0,
+    children: [],
+    sourceSentences: [],
+  };
+  const nodes = new Map([['', root]]);
+
+  function getOrCreate(path) {
+    if (nodes.has(path)) return nodes.get(path);
+    const parts = path.split('>');
+    const parentPath = parts.slice(0, -1).join('>');
+    const parent = getOrCreate(parentPath);
+    const node = {
+      path,
+      name: parts[parts.length - 1],
+      level: parts.length,
+      children: [],
+      sourceSentences: [],
+    };
+    parent.children.push(node);
+    nodes.set(path, node);
+    return node;
+  }
+
+  for (const topic of topics) {
+    if (!topic.name || topic.name === 'no_topic') continue;
+    const node = getOrCreate(topic.name);
+    if (Array.isArray(topic.sentences)) {
+      node.sourceSentences.push(...topic.sentences);
+    }
+  }
+
+  function aggregate(node) {
+    const aggregated = new Set(node.sourceSentences);
+    for (const child of node.children) {
+      for (const sentence of aggregate(child)) aggregated.add(sentence);
+    }
+    node.sourceSentences = Array.from(aggregated).sort((a, b) => a - b);
+    return node.sourceSentences;
+  }
+  aggregate(root);
+
+  return { root, nodes };
+}
+
+/**
  * Splits a sorted set of 1-based sentence ids into contiguous runs. A topic that
  * appears at several non-adjacent places in the article yields one run per
  * occurrence; each run is summarized separately so the same topic shows
  * location-specific text instead of one global summary repeated everywhere.
- *
- * Lives here (rather than in orchestrator.js) because both modules need it and
- * orchestrator already imports summarizeTopicTree from this module, so importing
- * it the other way would create a cycle. orchestrator.js re-exports it as part of
- * its tested public surface.
  *
  * @param {number[]} sentenceIds
  * @returns {number[][]} ordered runs of consecutive ids
