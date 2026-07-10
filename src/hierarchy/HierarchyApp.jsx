@@ -4,7 +4,7 @@ import TopicHierarchyView from './TopicHierarchyView.jsx';
 import { getSentencesForNode } from './hierarchyUtils.js';
 import { getYouTubeTimestampLink, getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
 import YouTubeTimestampButton from '../components/YouTubeTimestampButton.jsx';
-import { closeModal } from '../closeModal.js';
+import { closeModal, postMessageToParent } from '../closeModal.js';
 import { splitError, retryRecord } from '../utils/errorUtils.js';
 import ErrorDetails from '../components/ErrorDetails.jsx';
 import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
@@ -186,16 +186,13 @@ export default function HierarchyApp({ initialKey }) {
         onTopicClick={(entry) => {
           const sentenceNumbers = getSentencesForNode(entry);
           try {
-            window.parent.postMessage(
-              {
-                type: 'pagetollm-scroll-to-topic-sentences',
-                key: initialKey,
-                sentenceNumbers,
-                level: entry.node.depth,
-                topicPath: entry.node.fullPath,
-              },
-              '*',
-            );
+            postMessageToParent({
+              type: 'pagetollm-scroll-to-topic-sentences',
+              key: initialKey,
+              sentenceNumbers,
+              level: entry.node.depth,
+              topicPath: entry.node.fullPath,
+            });
           } catch (_) {
             /* noop */
           }

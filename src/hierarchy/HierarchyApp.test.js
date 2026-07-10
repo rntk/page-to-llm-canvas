@@ -30,6 +30,10 @@ describe('HierarchyApp', () => {
     vi.stubGlobal('parent', {
       postMessage: vi.fn(),
     });
+    Object.defineProperty(window.location, 'ancestorOrigins', {
+      value: ['https://host.example'],
+      configurable: true,
+    });
   });
 
   it('renders loading state when record is null and no error', () => {
@@ -70,7 +74,10 @@ describe('HierarchyApp', () => {
     // Header close button
     const closeBtn = container.querySelector('.th-page__close');
     act(() => closeBtn.click());
-    expect(window.parent.postMessage).toHaveBeenCalledWith({ type: 'pagetollm-close' }, '*');
+    expect(window.parent.postMessage).toHaveBeenCalledWith(
+      { type: 'pagetollm-close' },
+      'https://host.example',
+    );
 
     // Topic click
     const topicLeaf = container.querySelector('.th-leaf');
@@ -83,7 +90,7 @@ describe('HierarchyApp', () => {
         level: 0,
         topicPath: 'Fruit',
       },
-      '*',
+      'https://host.example',
     );
 
     unmount();
@@ -183,7 +190,10 @@ describe('HierarchyApp', () => {
       window.dispatchEvent(event);
     });
 
-    expect(window.parent.postMessage).toHaveBeenCalledWith({ type: 'pagetollm-close' }, '*');
+    expect(window.parent.postMessage).toHaveBeenCalledWith(
+      { type: 'pagetollm-close' },
+      'https://host.example',
+    );
     unmount();
   });
 
@@ -271,7 +281,10 @@ describe('HierarchyApp', () => {
     modalOverlay = container.querySelector('.th-summary-modal-overlay');
     expect(modalOverlay).toBeNull();
     // Verify postMessage for closing entire page was NOT called
-    expect(window.parent.postMessage).not.toHaveBeenCalledWith({ type: 'pagetollm-close' }, '*');
+    expect(window.parent.postMessage).not.toHaveBeenCalledWith(
+      { type: 'pagetollm-close' },
+      'https://host.example',
+    );
 
     // Click again to reopen
     act(() => {

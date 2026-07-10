@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { closeModal } from './closeModal.js';
+import { closeModal, getParentOrigin } from './closeModal.js';
 
 describe('closeModal', () => {
   let originalParent;
@@ -10,6 +10,10 @@ describe('closeModal', () => {
     originalParent = window.parent;
     originalClose = window.close;
     window.close = vi.fn();
+    Object.defineProperty(window.location, 'ancestorOrigins', {
+      value: ['https://host.example'],
+      configurable: true,
+    });
   });
 
   afterEach(() => {
@@ -20,6 +24,7 @@ describe('closeModal', () => {
       configurable: true,
     });
     window.close = originalClose;
+    delete window.location.ancestorOrigins;
   });
 
   it('calls window.close when window.parent === window', () => {
@@ -49,7 +54,22 @@ describe('closeModal', () => {
     closeModal();
 
     expect(window.close).not.toHaveBeenCalled();
-    expect(postMessageMock).toHaveBeenCalledWith({ type: 'pagetollm-close' }, '*');
+    expect(postMessageMock).toHaveBeenCalledWith(
+      { type: 'pagetollm-close' },
+      'https://host.example',
+    );
+  });
+
+  it('falls back to the referrer origin when ancestorOrigins is unavailable', () => {
+    delete window.location.ancestorOrigins;
+    Object.defineProperty(document, 'referrer', {
+      value: 'https://referrer.example/article',
+      configurable: true,
+    });
+
+    expect(getParentOrigin()).toBe('https://referrer.example');
+
+    delete document.referrer;
   });
 
   it('safely catches and noops on any thrown exceptions', () => {

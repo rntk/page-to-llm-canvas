@@ -367,7 +367,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+const extensionOrigin = new URL(chrome.runtime.getURL('')).origin;
+
 window.addEventListener('message', (event) => {
+  if (
+    !canvasIframe ||
+    event.source !== canvasIframe.contentWindow ||
+    event.origin !== extensionOrigin
+  ) {
+    return;
+  }
+
   const data = event.data;
   if (data && data.type === 'pagetollm-close') {
     removeCanvasIframe();

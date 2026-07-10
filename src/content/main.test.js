@@ -187,11 +187,51 @@ describe('content script main.jsx', () => {
     messageListener({ action: 'openRecordView', key: 'test-key', mode: 'canvas' }, {}, vi.fn());
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(document.getElementById('pagetollm-canvas-iframe')).not.toBeNull();
+    const iframe = document.getElementById('pagetollm-canvas-iframe');
+    expect(iframe).not.toBeNull();
 
-    postMessageListener({ data: { type: 'pagetollm-close' } });
+    postMessageListener({
+      data: { type: 'pagetollm-close' },
+      source: iframe.contentWindow,
+      origin: new URL(chrome.runtime.getURL('')).origin,
+    });
 
     expect(document.getElementById('pagetollm-canvas-iframe')).toBeNull();
+  });
+
+  it('ignores forged iframe commands from the host page', async () => {
+    messageListener({ action: 'openRecordView', key: 'test-key', mode: 'canvas' }, {}, vi.fn());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const iframe = document.getElementById('pagetollm-canvas-iframe');
+    postMessageListener({
+      data: { type: 'pagetollm-close' },
+      source: window,
+      origin: new URL(chrome.runtime.getURL('')).origin,
+    });
+
+    expect(document.getElementById('pagetollm-canvas-iframe')).toBe(iframe);
+  });
+
+  it('ignores forged iframe commands from a non-extension origin', async () => {
+    messageListener({ action: 'openRecordView', key: 'test-key', mode: 'hierarchy' }, {}, vi.fn());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const iframe = document.getElementById('pagetollm-canvas-iframe');
+    postMessageListener({
+      data: {
+        type: 'pagetollm-scroll-to-topic-sentences',
+        key: 'forged-key',
+        sentenceNumbers: [0],
+        level: 0,
+        topicPath: 'Forged',
+      },
+      source: iframe.contentWindow,
+      origin: 'https://attacker.example',
+    });
+
+    expect(document.getElementById('pagetollm-canvas-iframe')).toBe(iframe);
+    expect(document.getElementById('pagetollm-in-page-rail')).toBeNull();
   });
 
   it('resets block numbers and counter properly on removal', async () => {
