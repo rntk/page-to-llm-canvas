@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import appSource from './App.jsx?raw';
+import viewModelSource from './useCanvasRecordViewModel.js?raw';
+
+const canvasSource = `${appSource}\n${viewModelSource}`;
 
 describe('App.jsx pipeline ownership', () => {
   it('does not import runPipeline directly', () => {
@@ -17,7 +20,7 @@ describe('App.jsx pipeline ownership', () => {
 
 describe('App.jsx record error states', () => {
   it("treats record.status === 'error' as a terminal state (isRecordError)", () => {
-    expect(appSource).toContain("record?.status === 'error'");
+    expect(canvasSource).toContain("record?.status === 'error'");
   });
 
   it('passes recordError prop for pipeline errors (not hook errors)', () => {
@@ -29,11 +32,11 @@ describe('App.jsx record error states', () => {
   });
 
   it('handles missing record as a distinct state', () => {
-    expect(appSource).toContain("error === 'record not found'");
+    expect(canvasSource).toContain("error === 'record not found'");
   });
 
   it('handles deleted record as a distinct state', () => {
-    expect(appSource).toContain("error === 'record deleted'");
+    expect(canvasSource).toContain("error === 'record deleted'");
   });
 
   it('sends retryRecord message on retry', () => {
@@ -55,7 +58,7 @@ describe('App.jsx record error states', () => {
 
 describe('App.jsx optional-summary handling (record.summariesDisabled)', () => {
   it('derives summariesDisabled from the record', () => {
-    expect(appSource).toContain('record?.summariesDisabled === true');
+    expect(canvasSource).toContain('record?.summariesDisabled === true');
   });
 
   it('guards the summary-mode toggle so it is a no-op when summaries are disabled', () => {
@@ -63,7 +66,7 @@ describe('App.jsx optional-summary handling (record.summariesDisabled)', () => {
   });
 
   it('forces summary mode off when summaries are disabled (derived, not effect-reset)', () => {
-    expect(appSource).toContain('showSummaryModeRaw && !summariesDisabled');
+    expect(canvasSource).toContain('showSummaryModeRaw && !summariesDisabled');
   });
 
   it('suppresses the floating current-topic summary card when summaries are disabled', () => {

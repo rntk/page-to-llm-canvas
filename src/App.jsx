@@ -10,10 +10,6 @@ import {
   COLUMN_GAP,
   RAIL_PADDING,
 } from './topicCards.js';
-import { buildTopicSentenceIndex, getMaxTopicLevel } from './topicDomain.js';
-import { buildSummaryCards, filterSummaryCardsByLevel } from './summaryCards.js';
-import { buildSentenceDomRange } from './sentenceHighlight.js';
-import { sanitizeArticleHtml, escapeHtml } from './articleHtml.js';
 import CanvasTopicHierarchyRail from './components/CanvasTopicHierarchyRail.jsx';
 import CanvasSummaryView from './components/CanvasSummaryView.jsx';
 import CanvasZoomControls from './components/CanvasZoomControls.jsx';
@@ -27,15 +23,11 @@ import { useCanvasAlignment } from './useCanvasAlignment.js';
 import { useSentenceMetrics } from './useSentenceMetrics.js';
 import { useSentenceHighlights } from './useSentenceHighlights.js';
 import { useInitialView } from './useInitialView.js';
+import { useCanvasRecordViewModel } from './useCanvasRecordViewModel.js';
+import { useCanvasTopicNavigation } from './useCanvasTopicNavigation.js';
+import { useTopicSelection } from './useTopicSelection.js';
 import { retryRecord, resolveSummaryErrors } from './utils/errorUtils.js';
 import { selectCurrentTopicSummary } from './utils/currentTopicSummary.js';
-import {
-  buildTopicNavigationList,
-  findTopicNavigationTarget,
-  getTopicNavigationCardKey,
-  getTopicNavigationCardTop,
-  getTopicNavigationTopicKey,
-} from './topicNavigation.js';
 
 /**
  * @param {{ initialKey: string }} props
@@ -45,18 +37,24 @@ export default function App({ initialKey }) {
   const { record, error } = useRecord(initialKey);
   const [showSummaryModeRaw, setShowSummaryMode] = useState(false);
   const [showTopicHierarchy, setShowTopicHierarchy] = useState(true);
-  const [selectedTopicKey, setSelectedTopicKey] = useState(null);
-  const [selectedTopicCardKey, setSelectedTopicCardKey] = useState(null);
-  // Mirrored in a ref so callbacks can read the current selection without taking
-  // it as a dependency (keeps their identity stable across selection changes).
-  const selectedTopicCardKeyRef = useRef(selectedTopicCardKey);
-  useEffect(() => {
-    selectedTopicCardKeyRef.current = selectedTopicCardKey;
-  }, [selectedTopicCardKey]);
-  const [hoveredTopicKey, setHoveredTopicKey] = useState(null);
-  const [hoveredTopicCardKey, setHoveredTopicCardKey] = useState(null);
-  const [selectedLevel, setSelectedLevel] = useState(0);
-  const pendingZoomSentenceRef = useRef(null);
+  const {
+    selectedTopicKey,
+    selectedTopicCardKey,
+    hoveredTopicKey,
+    hoveredTopicCardKey,
+    selectedLevel,
+    activeTopicKey,
+    activeTopicCardKey,
+    setSelectedTopicKey,
+    setSelectedTopicCardKey,
+    setHoveredTopicKey,
+    setHoveredTopicCardKey,
+    setSelectedLevel,
+    handleTopicEnter,
+    handleTopicLeave,
+    toggleTopicSelection,
+    clearTopicSelection,
+  } = useTopicSelection();
 
   const articleTextRef = useRef(null);
   const summaryWrapRef = useRef(null);
@@ -98,76 +96,23 @@ export default function App({ initialKey }) {
     [handleMouseDown, canvasWrapElRef],
   );
 
-  // Serialize once per record change, not once per render. `record` is referentially
-  // stable across UI interactions (hover/zoom/level — only storage writes mint a new
-  // object), so keying on `record?.topics` skips the stringify on the ~60fps render
-  // storm that pan/zoom drives through `setScale`/`setTranslate`. Storage writes still
-  // produce a fresh object, so content-dedup across pipeline rewrites is preserved by
-  // the downstream memos keying on the resulting string.
-  const topicsJson = useMemo(() => JSON.stringify(record?.topics || null), [record?.topics]);
-  const topics = useMemo(
-    () => (Array.isArray(record?.topics) ? record.topics : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [topicsJson],
-  );
-  const topicSentenceIndex = useMemo(() => buildTopicSentenceIndex(topics), [topics]);
-
-  // Keep a referentially-stable `sentences` array across record writes that
-  // don't actually change the sentences. The orchestrator rewrites the record
-  // several times after `status: done` (e.g. the `pipeline_done` processing-log
-  // entry, `updatedAt` bumps). Each write hands `useRecord` a brand-new object,
-  // so a naive `[record]` memo would yield a new array every time and thrash
-  // every downstream effect (range rebuild, measurement, highlight repaint).
-  // Sentences are immutable once extracted, so their count is a cheap, stable
-  // identity key — the memo only produces a new array when the count changes.
-  const sentenceCount = Array.isArray(record?.sentences) ? record.sentences.length : 0;
-  const sentences = useMemo(
-    () => (Array.isArray(record?.sentences) ? record.sentences : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sentenceCount],
-  );
-
-  // Prefer the original article markup for readability; fall back to a plain
-  // paragraph of sentences when a record predates HTML capture. Keyed on the raw
-  // HTML (not the whole record) so unrelated record writes never recompute it,
-  // keeping the string identity — and thus the rendered subtree and the live
-  // highlight Ranges that point into it — stable.
-  const articleHtml = useMemo(() => {
-    const html = record?.html;
-    if (html) return sanitizeArticleHtml(html);
-    if (sentences.length) return `<p>${sentences.map(escapeHtml).join(' ')}</p>`;
-    return '';
-  }, [record?.html, sentences]);
-
-  const maxLevel = useMemo(() => getMaxTopicLevel(topics), [topics]);
-  const summariesJson = useMemo(
-    () => JSON.stringify(record?.topic_summaries || null),
-    [record?.topic_summaries],
-  );
-  const summaryIndexJson = useMemo(
-    () => JSON.stringify(record?.topic_summary_index || null),
-    [record?.topic_summary_index],
-  );
-  const allSummaryCards = useMemo(
-    () => buildSummaryCards(topics, record?.topic_summaries, record?.topic_summary_index),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [topics, summariesJson, summaryIndexJson],
-  );
-  const summaryCards = useMemo(
-    () => filterSummaryCardsByLevel(allSummaryCards, selectedLevel),
-    [allSummaryCards, selectedLevel],
-  );
-
-  const isDone = record?.status === 'done';
-  // Summaries are optional: a pipeline run with them disabled still finishes
-  // 'done' with topics/sentences/html intact, but empty topic_summaries/
-  // topic_summary_index. Summary mode (which renders summary cards instead of
-  // the article) has nothing to show in that case.
-  const summariesDisabled = record?.summariesDisabled === true;
-  // Derived (not reset via an effect) so a live record update that flips
-  // summariesDisabled on — reprocess with the toggle enabled — exits summary
-  // mode immediately instead of rendering an empty card column for a frame.
-  const showSummaryMode = showSummaryModeRaw && !summariesDisabled;
+  const {
+    topics,
+    topicSentenceIndex,
+    sentences,
+    articleHtml,
+    maxLevel,
+    allSummaryCards,
+    summaryCards,
+    isDone,
+    summariesDisabled,
+    showSummaryMode,
+    isNeedsAttention,
+    isRecordError,
+    isMissing,
+    isDeleted,
+    stage,
+  } = useCanvasRecordViewModel({ record, error, selectedLevel, showSummaryModeRaw });
 
   // Measurement engine: live sentence Ranges plus measured sentence/summary
   // geometry that drives the topic-hierarchy rail. `summaryMetricsState` holds
@@ -246,15 +191,6 @@ export default function App({ initialKey }) {
     deps: [showSummaryMode, selectedLevel, showTopicHierarchy],
   });
 
-  const isNeedsAttention = record?.status === 'needs_attention';
-  const isRecordError = record?.status === 'error' || record?.status === 'cancelled';
-  const isMissing = !record && error === 'record not found';
-  const isDeleted = !record && error === 'record deleted';
-  const stage = record?.progress?.stage || record?.status || 'loading';
-
-  const activeTopicKey = hoveredTopicKey || selectedTopicKey;
-  const activeTopicCardKey = hoveredTopicCardKey || selectedTopicCardKey;
-
   // The single summary card shown to the left of the article for whichever topic
   // is currently hovered or selected in the rail. Suppressed in summary mode,
   // where every summary is already shown in the center column.
@@ -282,49 +218,37 @@ export default function App({ initialKey }) {
 
   // ── Topic interaction ────────────────────────────────────────────────────
 
-  const zoomToTopic = useCallback(
-    (topicKey, card) => {
-      if (!topicKey) return;
-      if (showSummaryMode) {
-        const summaryEl =
-          (card && summaryCardRefs.current[card.key]) ||
-          summaryCardRefs.current[topicKey] ||
-          Object.entries(summaryCardRefs.current).find(([key]) => {
-            const path = key.split('#')[0];
-            return path === topicKey || path.startsWith(topicKey + ' > ');
-          })?.[1];
-        if (summaryEl) {
-          zoomToTarget(summaryEl.getBoundingClientRect());
-        }
-        return;
-      }
-      const sentenceNumber = Number(card?.startSentence);
-      const { wordEntries, sentenceRanges } = refreshSentenceRanges();
-      const domRange =
-        Number.isInteger(sentenceNumber) && sentenceNumber > 0
-          ? buildSentenceDomRange(sentenceRanges, wordEntries, sentenceNumber)
-          : null;
-      if (domRange) {
-        zoomToTarget(domRange.getBoundingClientRect());
-      }
-    },
-    [showSummaryMode, zoomToTarget, refreshSentenceRanges],
-  );
+  const { zoomToTopic, panToTopic, handleNavigate, handleShowSourceSentences } =
+    useCanvasTopicNavigation({
+      showSummaryMode,
+      setShowSummaryMode,
+      summaryCardRefs,
+      summaryCards,
+      summaryMetricsState,
+      zoomAdjustedTopicCards,
+      selectedLevel,
+      selectedTopicKey,
+      selectedTopicCardKey,
+      setSelectedTopicKey,
+      setSelectedTopicCardKey,
+      refreshSentenceRanges,
+      zoomToTarget,
+      canvasWrapElRef,
+      scaleRef,
+      translateRef,
+      setTransformNow,
+      flashFocus,
+      navigateCanvas,
+      skipNextAlignment,
+    });
 
-  useEffect(() => {
-    // Wait until we're in article mode (the article DOM must be mounted) before
-    // resolving the queued sentence to a live range and zooming to it.
-    if (showSummaryMode || pendingZoomSentenceRef.current === null) return;
-    const sentenceNumber = Number(pendingZoomSentenceRef.current);
-    pendingZoomSentenceRef.current = null;
-    if (Number.isInteger(sentenceNumber) && sentenceNumber > 0) {
-      const { wordEntries, sentenceRanges } = refreshSentenceRanges();
-      const domRange = buildSentenceDomRange(sentenceRanges, wordEntries, sentenceNumber);
-      if (domRange) {
-        zoomToTarget(domRange.getBoundingClientRect());
-      }
-    }
-  }, [showSummaryMode, zoomToTarget, refreshSentenceRanges]);
+  const handleTopicClick = useCallback(
+    (topicKey, card) => {
+      toggleTopicSelection(topicKey, card);
+      zoomToTopic(topicKey, card);
+    },
+    [toggleTopicSelection, zoomToTopic],
+  );
 
   // ── Focus & Keyboard Shortcuts ──────────────────────────────────────────
   // The modal runs inside an iframe. Keyboard listeners on the iframe's
@@ -376,46 +300,6 @@ export default function App({ initialKey }) {
     [initialKey],
   );
 
-  const handleTopicEnter = useCallback((k, cardKey = null) => {
-    setHoveredTopicKey(k);
-    setHoveredTopicCardKey(cardKey);
-  }, []);
-
-  const handleTopicLeave = useCallback((k, cardKey = null) => {
-    setHoveredTopicKey((cur) => (cur === k ? null : cur));
-    setHoveredTopicCardKey((cur) => (!cardKey || cur === cardKey ? null : cur));
-  }, []);
-
-  const handleTopicClick = useCallback(
-    (k, card) => {
-      const cardKey = card?.key || k;
-      const shouldDeselect = selectedTopicCardKeyRef.current === cardKey;
-      setSelectedTopicKey(shouldDeselect ? null : k);
-      setSelectedTopicCardKey(shouldDeselect ? null : cardKey);
-      zoomToTopic(k, card);
-    },
-    [zoomToTopic],
-  );
-
-  const handleCancelTopicSelection = useCallback(() => {
-    setSelectedTopicKey(null);
-    setSelectedTopicCardKey(null);
-    setHoveredTopicKey(null);
-    setHoveredTopicCardKey(null);
-  }, []);
-
-  const handleShowSourceSentences = useCallback(
-    (card) => {
-      // Leaving summary mode here hands positioning to the pending zoom-to-
-      // sentence effect, so suppress alignment to avoid a glide-then-yank.
-      skipNextAlignment();
-      pendingZoomSentenceRef.current = card.startSentence;
-      setSelectedTopicKey(card.path);
-      setSelectedTopicCardKey(card.key || card.path);
-      setShowSummaryMode(false);
-    },
-    [skipNextAlignment],
-  );
   const handleZoomIn = useCallback(() => {
     userMovedCanvasRef.current = true;
     setTransformNow(clampScale((scaleRef.current || 1) * 1.2), translateRef.current);
@@ -430,31 +314,6 @@ export default function App({ initialKey }) {
     userMovedCanvasRef.current = true;
     setTransformNow(1, { x: 40, y: 40 });
   }, [setTransformNow, userMovedCanvasRef]);
-
-  const panToTopic = useCallback(
-    (card) => {
-      const wrap = canvasWrapElRef.current;
-      if (!wrap || !card) return;
-      const currentScale = scaleRef.current || 1;
-      const currentTranslate = translateRef.current;
-      const cardTop = getTopicNavigationCardTop(card, showSummaryMode, summaryMetricsState);
-      if (!Number.isFinite(cardTop)) return;
-      setTransformNow(currentScale, {
-        ...currentTranslate,
-        y: wrap.clientHeight * 0.2 - cardTop * currentScale,
-      });
-      flashFocus();
-    },
-    [
-      canvasWrapElRef,
-      flashFocus,
-      scaleRef,
-      setTransformNow,
-      showSummaryMode,
-      summaryMetricsState,
-      translateRef,
-    ],
-  );
 
   const handleToggleSummaryMode = useCallback(() => {
     // No summaries to show a-la-carte when the pipeline skipped them.
@@ -479,68 +338,9 @@ export default function App({ initialKey }) {
       // Same content, denser/sparser rail — preserve both axes.
       captureAnchor(false);
       setSelectedLevel(level);
-      setHoveredTopicKey(null);
-      setHoveredTopicCardKey(null);
-      setSelectedTopicKey(null);
-      setSelectedTopicCardKey(null);
+      clearTopicSelection();
     },
-    [captureAnchor, selectedLevel],
-  );
-
-  const handleNavigate = useCallback(
-    (pos) => {
-      if (
-        pos === 'first-topic' ||
-        pos === 'prev-topic' ||
-        pos === 'next-topic' ||
-        pos === 'last-topic'
-      ) {
-        const directionByPosition = {
-          'first-topic': 'first',
-          'prev-topic': 'prev',
-          'next-topic': 'next',
-          'last-topic': 'last',
-        };
-        const list = buildTopicNavigationList({
-          showSummaryMode,
-          summaryCards,
-          topicCards: zoomAdjustedTopicCards,
-          selectedLevel,
-        });
-        const currentY = -translateRef.current.y / (scaleRef.current || 1);
-        const targetCard = findTopicNavigationTarget({
-          list,
-          selectedNavigationKey: selectedTopicCardKey,
-          selectedTopicKey,
-          direction: directionByPosition[pos],
-          currentY,
-          showSummaryMode,
-          summaryMetricsState,
-        });
-
-        if (!targetCard) return;
-        const targetKey = getTopicNavigationTopicKey(targetCard, showSummaryMode);
-        const targetCardKey = getTopicNavigationCardKey(targetCard, showSummaryMode);
-        setSelectedTopicKey(targetKey);
-        setSelectedTopicCardKey(targetCardKey);
-        panToTopic(targetCard);
-      } else {
-        navigateCanvas(pos);
-      }
-    },
-    [
-      showSummaryMode,
-      summaryCards,
-      zoomAdjustedTopicCards,
-      selectedLevel,
-      selectedTopicKey,
-      selectedTopicCardKey,
-      translateRef,
-      scaleRef,
-      summaryMetricsState,
-      panToTopic,
-      navigateCanvas,
-    ],
+    [captureAnchor, clearTopicSelection, selectedLevel, setSelectedLevel],
   );
 
   // Canvas alignment (centering + anti-jump continuity) is owned by
@@ -646,7 +446,7 @@ export default function App({ initialKey }) {
                     onTopicEnter={handleTopicEnter}
                     onTopicLeave={handleTopicLeave}
                     onTopicClick={handleTopicClick}
-                    onCancelTopicSelection={handleCancelTopicSelection}
+                    onCancelTopicSelection={clearTopicSelection}
                     readTopics={null}
                     onToggleRead={null}
                     currentTopicSummary={currentTopicSummary}
