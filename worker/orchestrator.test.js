@@ -507,7 +507,9 @@ describe('runPipeline', () => {
     const plainText = 'Sentence one. Sentence two.';
     const mapping = makeMapping(plainText);
 
-    storage.readRecord.mockResolvedValue(makeRecord('key-quiet', '<p>Sentence one. Sentence two.</p>'));
+    storage.readRecord.mockResolvedValue(
+      makeRecord('key-quiet', '<p>Sentence one. Sentence two.</p>'),
+    );
     html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'Sentence one.', start: 0, end: 13 },
@@ -535,7 +537,9 @@ describe('runPipeline', () => {
     const plainText = 'Sentence one. Sentence two.';
     const mapping = makeMapping(plainText);
 
-    storage.readRecord.mockResolvedValue(makeRecord('key-verbose', '<p>Sentence one. Sentence two.</p>'));
+    storage.readRecord.mockResolvedValue(
+      makeRecord('key-verbose', '<p>Sentence one. Sentence two.</p>'),
+    );
     html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'Sentence one.', start: 0, end: 13 },
@@ -1497,7 +1501,9 @@ describe('runPipeline', () => {
     expect(html.stripTagsKeepOffsets).not.toHaveBeenCalled();
     expect(sentenceSplitter.splitSentences).not.toHaveBeenCalled();
     expect(
-      llm.callLLMWithRetry.mock.calls.some(([opts]) => opts.prompt.includes('Partition the markers')),
+      llm.callLLMWithRetry.mock.calls.some(([opts]) =>
+        opts.prompt.includes('Partition the markers'),
+      ),
     ).toBe(false);
 
     const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');

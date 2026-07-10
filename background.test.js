@@ -528,7 +528,10 @@ describe('background pipeline lifecycle', () => {
     vi.stubGlobal('chrome', chromeMock);
     // Record originally ran with summaries disabled; toggle has since been
     // turned back off, so a reprocess should generate summaries again.
-    await seedRecord(chromeMock, makeRecord('reproc-toggle', { status: 'done', skipSummaries: true }));
+    await seedRecord(
+      chromeMock,
+      makeRecord('reproc-toggle', { status: 'done', skipSummaries: true }),
+    );
 
     const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
     _resetJobRegistry();

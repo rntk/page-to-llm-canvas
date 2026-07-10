@@ -322,8 +322,8 @@ export default function InPageRail({
       >
         {showSummariesDisabledNotice ? (
           <div className="pagetollm-rail-empty">
-            Summaries are disabled. Enable them in the extension settings and reprocess this page
-            to see them here.
+            Summaries are disabled. Enable them in the extension settings and reprocess this page to
+            see them here.
           </div>
         ) : isSummary ? (
           <SummaryCursorView

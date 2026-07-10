@@ -521,9 +521,7 @@ describe('migrateIndexMeta', () => {
     // startups after the first stay a single storage read.
     stripProjectionField(mock, 'r1');
     await migrateIndexMeta();
-    expect(
-      mock.storage.local._store.get(INDEX_KEY).meta['r1'].summariesDisabled,
-    ).toBeUndefined();
+    expect(mock.storage.local._store.get(INDEX_KEY).meta['r1'].summariesDisabled).toBeUndefined();
   });
 
   it('does not stamp on failure, so the next startup retries', async () => {

@@ -18,9 +18,7 @@ import { splitError } from '../utils/errorUtils.js';
 export default function RecordErrorDialog({ sourceUrl, errorText, onRetry, onClose }) {
   const [busy, setBusy] = useState(false);
   const hasMessage = errorText != null && String(errorText) !== '';
-  const { message, details } = hasMessage
-    ? splitError(errorText)
-    : { message: '', details: '' };
+  const { message, details } = hasMessage ? splitError(errorText) : { message: '', details: '' };
 
   const handleRetry = async () => {
     if (busy) return;

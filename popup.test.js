@@ -205,9 +205,7 @@ describe('popup pure functions', () => {
     );
     // Not offered when summaries already ran, or while still processing.
     expect(
-      popup
-        .getRecordActions({ status: 'done', summariesDisabled: false })
-        .map((a) => a.label),
+      popup.getRecordActions({ status: 'done', summariesDisabled: false }).map((a) => a.label),
     ).not.toContain('Generate summaries');
     expect(
       popup
