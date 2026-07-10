@@ -8,9 +8,13 @@ import {
   emptyLlmMetrics,
   emptyLlmMetricTotals,
   normalizeLlmMetrics,
+  normalizeLlmUsage,
   normalizeTaskType,
   averageDurationMs,
+  cacheHitRate,
   formatDurationMs,
+  formatMetricCount,
+  formatMetricPercent,
   formatTaskTypeLabel,
   listTaskTypes,
   wrapCallLLMWithRetry,
@@ -157,14 +161,42 @@ describe('normalizeLlmMetrics / helpers', () => {
     expect(averageDurationMs({ ...emptyLlmMetrics(), totalCount: 2, totalDurationMs: 500 })).toBe(
       250,
     );
-    expect(averageDurationMs({ ...emptyLlmMetricTotals(), totalCount: 4, totalDurationMs: 400 })).toBe(
-      100,
-    );
+    expect(
+      averageDurationMs({ ...emptyLlmMetricTotals(), totalCount: 4, totalDurationMs: 400 }),
+    ).toBe(100);
     expect(formatDurationMs(null)).toBe('—');
     expect(formatDurationMs(420)).toBe('420 ms');
     expect(formatDurationMs(1500)).toBe('1.50 s');
     expect(formatDurationMs(12500)).toBe('12.5 s');
     expect(formatDurationMs(125000)).toBe('2m 5s');
+  });
+
+  it('normalizes and formats token and cache metrics', () => {
+    expect(
+      normalizeLlmUsage({
+        inputTokens: '1200',
+        outputTokens: 20,
+        cacheReadTokens: 900,
+        cacheWriteTokens: -5,
+        ignored: 99,
+      }),
+    ).toEqual({
+      inputTokens: 1200,
+      outputTokens: 20,
+      cacheReadTokens: 900,
+      cacheWriteTokens: 0,
+    });
+    expect(
+      cacheHitRate({
+        totalCacheReadTokens: 900,
+        totalCacheWriteTokens: 100,
+        totalCacheMissTokens: 200,
+      }),
+    ).toBe(0.75);
+    expect(cacheHitRate(emptyLlmMetrics())).toBeNull();
+    expect(formatMetricCount(12345.4)).toBe('12,345');
+    expect(formatMetricCount(null)).toBe('—');
+    expect(formatMetricPercent(0.7534)).toBe('75.3%');
   });
 });
 
@@ -182,10 +214,17 @@ describe('wrapCallLLMWithRetry', () => {
       return 'hello';
     });
     const wrapped = wrapCallLLMWithRetry(raw);
-    await expect(
-      wrapped({ prompt: 'x', taskType: LLM_TASK_TYPES.TOPIC_RANGES }, 2),
-    ).resolves.toBe('hello');
-    expect(raw).toHaveBeenCalledWith({ prompt: 'x', taskType: LLM_TASK_TYPES.TOPIC_RANGES }, 2);
+    await expect(wrapped({ prompt: 'x', taskType: LLM_TASK_TYPES.TOPIC_RANGES }, 2)).resolves.toBe(
+      'hello',
+    );
+    expect(raw).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: 'x',
+        taskType: LLM_TASK_TYPES.TOPIC_RANGES,
+        metricsCollector: expect.any(Function),
+      }),
+      2,
+    );
 
     await vi.waitFor(async () => {
       const metrics = await getLlmMetrics();
@@ -239,6 +278,59 @@ describe('wrapCallLLMWithRetry', () => {
     const metrics = await getLlmMetrics();
     expect(metrics.recent[0].taskType).toBe(LLM_TASK_TYPES.UNKNOWN);
     expect(metrics.byTaskType.unknown.totalCount).toBe(1);
+  });
+
+  it('records collected provider usage and response sizes', async () => {
+    stubChromeStore();
+    const wrapped = wrapCallLLMWithRetry(async (opts) => {
+      opts.metricsCollector({
+        provider: 'openai',
+        model: 'gpt-5-mini',
+        requestChars: 4000,
+        responseChars: 200,
+        usage: {
+          inputTokens: 1000,
+          outputTokens: 50,
+          totalTokens: 1050,
+          reasoningTokens: 20,
+          cacheReadTokens: 750,
+          cacheMissTokens: 250,
+        },
+      });
+      return 'ok';
+    });
+
+    await wrapped({ prompt: 'x', taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY });
+    await vi.waitFor(async () => {
+      const metrics = await getLlmMetrics();
+      expect(metrics.usageSampleCount).toBe(1);
+    });
+    const metrics = await getLlmMetrics();
+    expect(metrics).toMatchObject({
+      cacheSampleCount: 1,
+      totalInputTokens: 1000,
+      totalOutputTokens: 50,
+      totalTokens: 1050,
+      totalReasoningTokens: 20,
+      totalCacheReadTokens: 750,
+      totalCacheMissTokens: 250,
+      totalRequestChars: 4000,
+      totalResponseChars: 200,
+    });
+    expect(metrics.byTaskType.article_summary).toMatchObject({
+      usageSampleCount: 1,
+      cacheSampleCount: 1,
+      totalInputTokens: 1000,
+      totalOutputTokens: 50,
+      totalCacheReadTokens: 750,
+    });
+    expect(metrics.recent[0]).toMatchObject({
+      provider: 'openai',
+      model: 'gpt-5-mini',
+      requestChars: 4000,
+      responseChars: 200,
+      usage: { inputTokens: 1000, outputTokens: 50, cacheReadTokens: 750 },
+    });
   });
 });
 

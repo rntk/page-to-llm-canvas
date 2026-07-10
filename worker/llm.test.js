@@ -106,6 +106,42 @@ describe('callLLMDirect', () => {
     );
   });
 
+  it('reports normalized provider usage to the metrics collector', async () => {
+    const { callLLMDirect } = await getLLM();
+    const metricsCollector = vi.fn();
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: 'result' } }],
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 10,
+          total_tokens: 110,
+          prompt_tokens_details: { cached_tokens: 75 },
+        },
+      }),
+    });
+
+    await expect(callLLMDirect({ prompt: 'hello', metricsCollector })).resolves.toEqual({
+      ok: true,
+      content: 'result',
+    });
+    expect(metricsCollector).toHaveBeenCalledWith({
+      provider: 'openai-compatible',
+      model: 'gpt-oss-20B',
+      requestChars: 5,
+      responseChars: 6,
+      usage: {
+        inputTokens: 100,
+        outputTokens: 10,
+        totalTokens: 110,
+        cacheReadTokens: 75,
+        cacheMissTokens: 25,
+      },
+    });
+  });
+
   it('strips various forms of <think> tags', async () => {
     const { callLLMDirect } = await getLLM();
     const variations = [

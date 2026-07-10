@@ -23,7 +23,7 @@ import { summarizeTopicTree, splitContiguousRuns } from './topicTreeMerge.js';
 import { getStoredPreferContentLanguage } from './languageSettings.js';
 import { getStoredVerboseLogs } from './verboseLogSettings.js';
 
-// Isolated LLM duration metrics — delete llmMetrics.js + wrap import/line to remove.
+// Isolated LLM request metrics — delete llmMetrics.js + wrap import/line to remove.
 const callLLMWithRetry = wrapCallLLMWithRetry(callLLMWithRetryRaw);
 
 const MAX_TAGGED_CHARS = 60000;

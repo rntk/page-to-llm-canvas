@@ -18,7 +18,13 @@ import { getStoredVerboseLogs } from './verboseLogSettings.js';
  * llm_clients.js) only fire when the "verbose pipeline logs" setting is on.
  * Failures still always warn.
  *
- * @param {{prompt: string, temperature?: number, model?: string, signal?: AbortSignal}} options
+ * @param {{
+ *   prompt: string,
+ *   temperature?: number,
+ *   model?: string,
+ *   signal?: AbortSignal,
+ *   metricsCollector?: (sample: Record<string, unknown>) => void,
+ * }} options
  * @returns {Promise<{ok: boolean, content?: string, error?: string}>}
  */
 export async function callLLMDirect(options) {
@@ -59,12 +65,29 @@ export async function callLLMDirect(options) {
   }
 
   try {
-    const { content, endpoint } = await client.complete({
+    const {
+      content,
+      endpoint,
+      model,
+      provider: clientProvider,
+      usage,
+    } = await client.complete({
       prompt,
       temperature,
       signal: requestSignal,
       verboseLogs,
     });
+    try {
+      options.metricsCollector?.({
+        provider: clientProvider || provider.type,
+        model: model || provider.model,
+        requestChars: prompt.length,
+        responseChars: content.length,
+        usage,
+      });
+    } catch (_) {
+      // Diagnostics must never turn a successful model response into a failure.
+    }
     if (verboseLogs) {
       console.info('PageToLLM Canvas LLM response:', {
         endpoint,
@@ -133,7 +156,7 @@ function createRequestTimeoutSignal(ms) {
 }
 
 /**
- * @param {{prompt: string, temperature?: number, model?: string, signal?: AbortSignal}} options
+ * @param {{prompt: string, temperature?: number, model?: string, signal?: AbortSignal, metricsCollector?: (sample: Record<string, unknown>) => void}} options
  * @returns {Promise<string>}
  */
 export async function callLLM(options) {
@@ -146,7 +169,7 @@ export async function callLLM(options) {
 }
 
 /**
- * @param {{prompt: string, temperature?: number, model?: string, signal?: AbortSignal}} opts
+ * @param {{prompt: string, temperature?: number, model?: string, signal?: AbortSignal, metricsCollector?: (sample: Record<string, unknown>) => void}} opts
  * @param {number} [maxRetries]
  * @returns {Promise<string>}
  */

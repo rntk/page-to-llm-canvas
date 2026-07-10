@@ -51,14 +51,17 @@ import {
   setStoredVerboseLogs,
   normalizeVerboseLogs,
 } from '../../worker/verboseLogSettings.js';
-// Isolated LLM duration metrics — delete with worker/llmMetrics.js to remove.
+// Isolated LLM request metrics — delete with worker/llmMetrics.js to remove.
 import {
   LLM_METRICS_KEY,
   emptyLlmMetrics,
   getLlmMetrics,
   clearLlmMetrics,
   averageDurationMs,
+  cacheHitRate,
   formatDurationMs,
+  formatMetricCount,
+  formatMetricPercent,
   formatTaskTypeLabel,
   listTaskTypes,
   normalizeLlmMetrics,
@@ -332,14 +335,17 @@ export function LlmMetricsSection() {
 
   const avg = averageDurationMs(metrics);
   const taskTypes = listTaskTypes(metrics);
+  const hasUsage = metrics.usageSampleCount > 0;
+  const hasCacheUsage = metrics.cacheSampleCount > 0;
 
   return (
     <section className="section">
       <h2>LLM Request Metrics</h2>
       <div className="toolbar">
         <div className="note">
-          Duration of model requests made while processing pages (includes retries), separated by
-          pipeline task type.
+          Duration, token usage, prompt-cache reuse, and response sizes for model requests made
+          while processing pages. Durations include retries; provider usage is recorded when the API
+          reports it.
         </div>
         <div>
           <button
@@ -377,6 +383,51 @@ export function LlmMetricsSection() {
                   <td className="mono">
                     {formatDurationMs(metrics.minDurationMs)} /{' '}
                     {formatDurationMs(metrics.maxDurationMs)}
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Input / output tokens</th>
+                  <td className="mono">
+                    {formatMetricCount(hasUsage ? metrics.totalInputTokens : null)} /{' '}
+                    {formatMetricCount(hasUsage ? metrics.totalOutputTokens : null)}
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Total tokens</th>
+                  <td className="mono">
+                    {formatMetricCount(hasUsage ? metrics.totalTokens : null)}
+                  </td>
+                </tr>
+                {metrics.totalReasoningTokens > 0 ? (
+                  <tr>
+                    <th scope="row">Reasoning tokens</th>
+                    <td className="mono">{formatMetricCount(metrics.totalReasoningTokens)}</td>
+                  </tr>
+                ) : null}
+                <tr>
+                  <th scope="row">Cache read / write / uncached</th>
+                  <td className="mono">
+                    {formatMetricCount(hasCacheUsage ? metrics.totalCacheReadTokens : null)} /{' '}
+                    {formatMetricCount(hasCacheUsage ? metrics.totalCacheWriteTokens : null)} /{' '}
+                    {formatMetricCount(hasCacheUsage ? metrics.totalCacheMissTokens : null)}
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Cache hit rate</th>
+                  <td className="mono">{formatMetricPercent(cacheHitRate(metrics))}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Prompt / response characters</th>
+                  <td className="mono">
+                    {formatMetricCount(metrics.totalRequestChars)} /{' '}
+                    {formatMetricCount(metrics.totalResponseChars)}
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Responses with token usage</th>
+                  <td className="mono">
+                    {formatMetricCount(metrics.usageSampleCount)} /{' '}
+                    {formatMetricCount(metrics.successCount)}
                   </td>
                 </tr>
               </tbody>
@@ -417,6 +468,66 @@ export function LlmMetricsSection() {
               </table>
             </div>
           ) : null}
+          {taskTypes.some((taskType) => metrics.byTaskType[taskType]?.usageSampleCount > 0) ? (
+            <div className="field">
+              <div className="note note--stacked">Token and cache usage by task type</div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Task</th>
+                    <th>Reported</th>
+                    <th>Input</th>
+                    <th>Output</th>
+                    <th>Total</th>
+                    <th>Cache read</th>
+                    <th>Cache write</th>
+                    <th>Uncached</th>
+                    <th>Hit rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {taskTypes.map((taskType) => {
+                    const bucket = metrics.byTaskType[taskType] || emptyLlmMetrics();
+                    return (
+                      <tr key={taskType}>
+                        <td>{formatTaskTypeLabel(taskType)}</td>
+                        <td className="mono">{formatMetricCount(bucket.usageSampleCount)}</td>
+                        <td className="mono">
+                          {formatMetricCount(
+                            bucket.usageSampleCount ? bucket.totalInputTokens : null,
+                          )}
+                        </td>
+                        <td className="mono">
+                          {formatMetricCount(
+                            bucket.usageSampleCount ? bucket.totalOutputTokens : null,
+                          )}
+                        </td>
+                        <td className="mono">
+                          {formatMetricCount(bucket.usageSampleCount ? bucket.totalTokens : null)}
+                        </td>
+                        <td className="mono">
+                          {formatMetricCount(
+                            bucket.cacheSampleCount ? bucket.totalCacheReadTokens : null,
+                          )}
+                        </td>
+                        <td className="mono">
+                          {formatMetricCount(
+                            bucket.cacheSampleCount ? bucket.totalCacheWriteTokens : null,
+                          )}
+                        </td>
+                        <td className="mono">
+                          {formatMetricCount(
+                            bucket.cacheSampleCount ? bucket.totalCacheMissTokens : null,
+                          )}
+                        </td>
+                        <td className="mono">{formatMetricPercent(cacheHitRate(bucket))}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
           {metrics.recent.length > 0 ? (
             <div className="field">
               <div className="note note--stacked">Recent requests (newest first)</div>
@@ -425,7 +536,10 @@ export function LlmMetricsSection() {
                   <tr>
                     <th>When</th>
                     <th>Task</th>
+                    <th>Provider / model</th>
                     <th>Duration</th>
+                    <th>Input / output</th>
+                    <th>Cache read</th>
                     <th>Result</th>
                   </tr>
                 </thead>
@@ -434,7 +548,22 @@ export function LlmMetricsSection() {
                     <tr key={`${entry.at}-${index}`}>
                       <td>{fmtDate(entry.at)}</td>
                       <td>{formatTaskTypeLabel(entry.taskType)}</td>
+                      <td>
+                        {entry.provider || entry.model ? (
+                          <>
+                            {entry.provider || 'Unknown'}
+                            {entry.model ? <div className="mono">{entry.model}</div> : null}
+                          </>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
                       <td className="mono">{formatDurationMs(entry.durationMs)}</td>
+                      <td className="mono">
+                        {formatMetricCount(entry.usage?.inputTokens)} /{' '}
+                        {formatMetricCount(entry.usage?.outputTokens)}
+                      </td>
+                      <td className="mono">{formatMetricCount(entry.usage?.cacheReadTokens)}</td>
                       <td title={entry.error || undefined}>{entry.ok ? 'ok' : 'error'}</td>
                     </tr>
                   ))}

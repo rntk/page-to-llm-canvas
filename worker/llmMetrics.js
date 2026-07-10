@@ -1,4 +1,4 @@
-// Isolated LLM request duration metrics.
+// Isolated LLM request duration, token, and prompt-cache metrics.
 //
 // TO REMOVE ENTIRELY:
 //   1. Delete this file (and llmMetrics.test.js)
@@ -65,26 +65,55 @@ export function formatTaskTypeLabel(taskType) {
     .join(' ');
 }
 
-/** @typedef {{ at: number, durationMs: number, ok: boolean, taskType: string, error?: string }} LlmMetricEntry */
 /**
  * @typedef {{
- *   totalCount: number,
- *   successCount: number,
- *   failureCount: number,
- *   totalDurationMs: number,
- *   minDurationMs: number | null,
- *   maxDurationMs: number | null,
- * }} LlmMetricTotals
+ *   inputTokens?: number,
+ *   outputTokens?: number,
+ *   totalTokens?: number,
+ *   reasoningTokens?: number,
+ *   cacheReadTokens?: number,
+ *   cacheWriteTokens?: number,
+ *   cacheMissTokens?: number,
+ * }} LlmUsage
  */
 /**
  * @typedef {{
- *   epoch: number,
+ *   at: number,
+ *   durationMs: number,
+ *   ok: boolean,
+ *   taskType: string,
+ *   error?: string,
+ *   provider?: string,
+ *   model?: string,
+ *   requestChars?: number,
+ *   responseChars?: number,
+ *   usage?: LlmUsage,
+ * }} LlmMetricEntry
+ */
+/**
+ * @typedef {{
  *   totalCount: number,
  *   successCount: number,
  *   failureCount: number,
  *   totalDurationMs: number,
  *   minDurationMs: number | null,
  *   maxDurationMs: number | null,
+ *   usageSampleCount: number,
+ *   cacheSampleCount: number,
+ *   totalInputTokens: number,
+ *   totalOutputTokens: number,
+ *   totalTokens: number,
+ *   totalReasoningTokens: number,
+ *   totalCacheReadTokens: number,
+ *   totalCacheWriteTokens: number,
+ *   totalCacheMissTokens: number,
+ *   totalRequestChars: number,
+ *   totalResponseChars: number,
+ * }} LlmMetricTotals
+ */
+/**
+ * @typedef {LlmMetricTotals & {
+ *   epoch: number,
  *   recent: LlmMetricEntry[],
  *   byTaskType: Record<string, LlmMetricTotals>,
  * }} LlmMetrics
@@ -99,6 +128,17 @@ export function emptyLlmMetricTotals() {
     totalDurationMs: 0,
     minDurationMs: null,
     maxDurationMs: null,
+    usageSampleCount: 0,
+    cacheSampleCount: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalTokens: 0,
+    totalReasoningTokens: 0,
+    totalCacheReadTokens: 0,
+    totalCacheWriteTokens: 0,
+    totalCacheMissTokens: 0,
+    totalRequestChars: 0,
+    totalResponseChars: 0,
   };
 }
 
@@ -127,11 +167,43 @@ function normalizeTotals(value) {
     successCount: Math.max(0, Number(v.successCount) || 0),
     failureCount: Math.max(0, Number(v.failureCount) || 0),
     totalDurationMs: Math.max(0, Number(v.totalDurationMs) || 0),
-    minDurationMs:
-      minRaw == null || minRaw === '' ? null : Math.max(0, Number(minRaw) || 0),
-    maxDurationMs:
-      maxRaw == null || maxRaw === '' ? null : Math.max(0, Number(maxRaw) || 0),
+    minDurationMs: minRaw == null || minRaw === '' ? null : Math.max(0, Number(minRaw) || 0),
+    maxDurationMs: maxRaw == null || maxRaw === '' ? null : Math.max(0, Number(maxRaw) || 0),
+    usageSampleCount: Math.max(0, Number(v.usageSampleCount) || 0),
+    cacheSampleCount: Math.max(0, Number(v.cacheSampleCount) || 0),
+    totalInputTokens: Math.max(0, Number(v.totalInputTokens) || 0),
+    totalOutputTokens: Math.max(0, Number(v.totalOutputTokens) || 0),
+    totalTokens: Math.max(0, Number(v.totalTokens) || 0),
+    totalReasoningTokens: Math.max(0, Number(v.totalReasoningTokens) || 0),
+    totalCacheReadTokens: Math.max(0, Number(v.totalCacheReadTokens) || 0),
+    totalCacheWriteTokens: Math.max(0, Number(v.totalCacheWriteTokens) || 0),
+    totalCacheMissTokens: Math.max(0, Number(v.totalCacheMissTokens) || 0),
+    totalRequestChars: Math.max(0, Number(v.totalRequestChars) || 0),
+    totalResponseChars: Math.max(0, Number(v.totalResponseChars) || 0),
   };
+}
+
+/** @param {unknown} value
+ * @returns {LlmUsage | undefined} */
+export function normalizeLlmUsage(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const raw = /** @type {Record<string, unknown>} */ (value);
+  /** @type {LlmUsage} */
+  const usage = {};
+  for (const key of [
+    'inputTokens',
+    'outputTokens',
+    'totalTokens',
+    'reasoningTokens',
+    'cacheReadTokens',
+    'cacheWriteTokens',
+    'cacheMissTokens',
+  ]) {
+    if (raw[key] == null || raw[key] === '') continue;
+    const number = Number(raw[key]);
+    if (Number.isFinite(number)) usage[key] = Math.max(0, number);
+  }
+  return Object.keys(usage).length ? usage : undefined;
 }
 
 /**
@@ -182,6 +254,17 @@ function mergeTotals(a, b) {
     totalDurationMs,
     minDurationMs,
     maxDurationMs,
+    usageSampleCount: a.usageSampleCount + b.usageSampleCount,
+    cacheSampleCount: a.cacheSampleCount + b.cacheSampleCount,
+    totalInputTokens: a.totalInputTokens + b.totalInputTokens,
+    totalOutputTokens: a.totalOutputTokens + b.totalOutputTokens,
+    totalTokens: a.totalTokens + b.totalTokens,
+    totalReasoningTokens: a.totalReasoningTokens + b.totalReasoningTokens,
+    totalCacheReadTokens: a.totalCacheReadTokens + b.totalCacheReadTokens,
+    totalCacheWriteTokens: a.totalCacheWriteTokens + b.totalCacheWriteTokens,
+    totalCacheMissTokens: a.totalCacheMissTokens + b.totalCacheMissTokens,
+    totalRequestChars: a.totalRequestChars + b.totalRequestChars,
+    totalResponseChars: a.totalResponseChars + b.totalResponseChars,
   };
 }
 
@@ -205,6 +288,20 @@ export function normalizeLlmMetrics(value) {
             taskType: normalizeTaskType(entry.taskType),
           };
           if (typeof entry.error === 'string' && entry.error) out.error = entry.error;
+          if (typeof entry.provider === 'string' && entry.provider.trim()) {
+            out.provider = entry.provider.trim().slice(0, 80);
+          }
+          if (typeof entry.model === 'string' && entry.model.trim()) {
+            out.model = entry.model.trim().slice(0, 160);
+          }
+          if (entry.requestChars != null && Number.isFinite(Number(entry.requestChars))) {
+            out.requestChars = Math.max(0, Number(entry.requestChars));
+          }
+          if (entry.responseChars != null && Number.isFinite(Number(entry.responseChars))) {
+            out.responseChars = Math.max(0, Number(entry.responseChars));
+          }
+          const usage = normalizeLlmUsage(entry.usage);
+          if (usage) out.usage = usage;
           return out;
         })
         .slice(0, LLM_METRICS_MAX_RECENT)
@@ -227,6 +324,35 @@ export function normalizeLlmMetrics(value) {
 export function averageDurationMs(metrics) {
   if (!metrics || !metrics.totalCount) return null;
   return metrics.totalDurationMs / metrics.totalCount;
+}
+
+/**
+ * Cache-read percentage across requests that reported cache usage.
+ * Cache writes count as misses because they did not reuse an existing prefix.
+ * @param {Partial<LlmMetricTotals> | null | undefined} metrics
+ * @returns {number | null}
+ */
+export function cacheHitRate(metrics) {
+  if (!metrics) return null;
+  const read = Math.max(0, Number(metrics.totalCacheReadTokens) || 0);
+  const write = Math.max(0, Number(metrics.totalCacheWriteTokens) || 0);
+  const miss = Math.max(0, Number(metrics.totalCacheMissTokens) || 0);
+  const total = read + write + miss;
+  return total > 0 ? read / total : null;
+}
+
+/** @param {number | null | undefined} value
+ * @returns {string} */
+export function formatMetricCount(value) {
+  if (value == null || !Number.isFinite(value)) return '—';
+  return Math.round(value).toLocaleString('en-US');
+}
+
+/** @param {number | null | undefined} value
+ * @returns {string} */
+export function formatMetricPercent(value) {
+  if (value == null || !Number.isFinite(value)) return '—';
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 /**
@@ -273,12 +399,20 @@ export function wrapCallLLMWithRetry(callLLMWithRetry) {
     async function timedCallLLMWithRetry(opts, maxRetries) {
       const taskType = normalizeTaskType(opts?.taskType);
       const startedAt = Date.now();
+      let responseMetric;
+      const upstreamCollector = opts?.metricsCollector;
+      const metricsCollector = (sample) => {
+        if (sample && typeof sample === 'object') responseMetric = sample;
+        if (typeof upstreamCollector === 'function') upstreamCollector(sample);
+      };
+      const measuredOpts = opts && typeof opts === 'object' ? { ...opts, metricsCollector } : opts;
       try {
-        const result = await callLLMWithRetry(opts, maxRetries);
+        const result = await callLLMWithRetry(measuredOpts, maxRetries);
         void recordLlmMetric({
           durationMs: Date.now() - startedAt,
           ok: true,
           taskType,
+          ...responseMetric,
         });
         return result;
       } catch (err) {
@@ -310,10 +444,11 @@ function enqueueWrite(fn) {
 
 /**
  * @param {LlmMetricTotals} current
- * @param {{ durationMs: number, ok: boolean }} entry
+ * @param {LlmMetricEntry} entry
  * @returns {LlmMetricTotals}
  */
 function applyTotals(current, entry) {
+  const usage = entry.usage || {};
   return {
     totalCount: current.totalCount + 1,
     successCount: current.successCount + (entry.ok ? 1 : 0),
@@ -327,6 +462,24 @@ function applyTotals(current, entry) {
       current.maxDurationMs == null
         ? entry.durationMs
         : Math.max(current.maxDurationMs, entry.durationMs),
+    usageSampleCount: current.usageSampleCount + (entry.usage ? 1 : 0),
+    cacheSampleCount:
+      current.cacheSampleCount +
+      (entry.usage &&
+      ['cacheReadTokens', 'cacheWriteTokens', 'cacheMissTokens'].some(
+        (key) => entry.usage[key] !== undefined,
+      )
+        ? 1
+        : 0),
+    totalInputTokens: current.totalInputTokens + (usage.inputTokens || 0),
+    totalOutputTokens: current.totalOutputTokens + (usage.outputTokens || 0),
+    totalTokens: current.totalTokens + (usage.totalTokens || 0),
+    totalReasoningTokens: current.totalReasoningTokens + (usage.reasoningTokens || 0),
+    totalCacheReadTokens: current.totalCacheReadTokens + (usage.cacheReadTokens || 0),
+    totalCacheWriteTokens: current.totalCacheWriteTokens + (usage.cacheWriteTokens || 0),
+    totalCacheMissTokens: current.totalCacheMissTokens + (usage.cacheMissTokens || 0),
+    totalRequestChars: current.totalRequestChars + (entry.requestChars || 0),
+    totalResponseChars: current.totalResponseChars + (entry.responseChars || 0),
   };
 }
 
@@ -352,20 +505,43 @@ function applyMetric(current, entry) {
 }
 
 /**
- * @param {{ durationMs: number, ok: boolean, taskType?: string, error?: string }} entry
+ * @param {{
+ *   durationMs: number,
+ *   ok: boolean,
+ *   taskType?: string,
+ *   error?: string,
+ *   provider?: string,
+ *   model?: string,
+ *   requestChars?: number,
+ *   responseChars?: number,
+ *   usage?: LlmUsage,
+ * }} entry
  * @returns {Promise<void>}
  */
 export function recordLlmMetric(entry) {
   const durationMs = Math.max(0, Number(entry?.durationMs) || 0);
   const ok = entry?.ok !== false;
   const taskType = normalizeTaskType(entry?.taskType);
-  const error =
-    !ok && typeof entry?.error === 'string' && entry.error ? entry.error : undefined;
+  const error = !ok && typeof entry?.error === 'string' && entry.error ? entry.error : undefined;
   const at = Date.now();
 
   /** @type {LlmMetricEntry} */
   const nextEntry = { at, durationMs, ok, taskType };
   if (error) nextEntry.error = error;
+  if (typeof entry?.provider === 'string' && entry.provider.trim()) {
+    nextEntry.provider = entry.provider.trim().slice(0, 80);
+  }
+  if (typeof entry?.model === 'string' && entry.model.trim()) {
+    nextEntry.model = entry.model.trim().slice(0, 160);
+  }
+  if (entry?.requestChars != null && Number.isFinite(Number(entry.requestChars))) {
+    nextEntry.requestChars = Math.max(0, Number(entry.requestChars));
+  }
+  if (entry?.responseChars != null && Number.isFinite(Number(entry.responseChars))) {
+    nextEntry.responseChars = Math.max(0, Number(entry.responseChars));
+  }
+  const usage = normalizeLlmUsage(entry?.usage);
+  if (usage) nextEntry.usage = usage;
 
   return enqueueWrite(async () => {
     try {
@@ -379,8 +555,7 @@ export function recordLlmMetric(entry) {
 
         const stored = await readLlmMetricsRaw();
         // Ignore payload from an older epoch (e.g. stale overwrite after clear).
-        const current =
-          (stored.epoch || 0) === epoch ? stored : emptyLlmMetrics(epoch);
+        const current = (stored.epoch || 0) === epoch ? stored : emptyLlmMetrics(epoch);
 
         const next = applyMetric(current, nextEntry);
         next.epoch = epoch;

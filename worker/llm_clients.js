@@ -6,7 +6,8 @@
 // reference implementation are intentionally omitted.
 //
 // Every client exposes the same shape:
-//   complete({ prompt, temperature?, signal?, verboseLogs? }) -> Promise<{ content, endpoint, model }>
+//   complete({ prompt, temperature?, signal?, verboseLogs? }) ->
+//     Promise<{ content, endpoint, model, provider, usage? }>
 // and throws an Error (message reused verbatim in callLLMDirect) on failure.
 // Raw prompt/request/response dumps and cache-usage stats only log when
 // `verboseLogs` is true (set from the options "verbose pipeline logs" toggle).
@@ -77,52 +78,133 @@ function roundedPercent(part, total) {
   return Math.round((part / total) * 1000) / 10;
 }
 
-function logCacheUsage(provider, data, verboseLogs) {
-  if (!verboseLogs) return;
-  const usage = data?.usage || {};
-  const promptTokens = finiteNumber(usage.prompt_tokens ?? usage.input_tokens);
-  const openAiCachedTokens = finiteNumber(usage.prompt_tokens_details?.cached_tokens);
+/**
+ * Normalizes the usage fields returned by OpenAI-compatible APIs, DeepSeek,
+ * Anthropic, and llama.cpp. Missing fields stay absent so callers can
+ * distinguish an actual zero from a provider that did not report a metric.
+ *
+ * `inputTokens` includes cached and cache-creation tokens. Anthropic reports
+ * those separately, while OpenAI-compatible APIs include them in
+ * `prompt_tokens` already.
+ *
+ * @param {string} provider
+ * @param {unknown} data
+ * @returns {{
+ *   inputTokens?: number,
+ *   outputTokens?: number,
+ *   totalTokens?: number,
+ *   reasoningTokens?: number,
+ *   cacheReadTokens?: number,
+ *   cacheWriteTokens?: number,
+ *   cacheMissTokens?: number,
+ * } | undefined}
+ */
+export function extractLlmUsage(provider, data) {
+  const response = data && typeof data === 'object' ? data : {};
+  const usage = response?.usage && typeof response.usage === 'object' ? response.usage : {};
+  const promptTokens = finiteNumber(usage.prompt_tokens);
+  const anthropicInputTokens = finiteNumber(usage.input_tokens);
+  const outputTokens = finiteNumber(usage.completion_tokens ?? usage.output_tokens);
+  const reportedTotalTokens = finiteNumber(usage.total_tokens);
+  const reasoningTokens = finiteNumber(
+    usage.completion_tokens_details?.reasoning_tokens ??
+      usage.output_tokens_details?.reasoning_tokens ??
+      usage.output_tokens_details?.thinking_tokens,
+  );
+  const openAiCachedTokens = finiteNumber(
+    usage.prompt_tokens_details?.cached_tokens ?? usage.input_tokens_details?.cached_tokens,
+  );
+  const openAiCacheWriteTokens = finiteNumber(
+    usage.prompt_tokens_details?.cache_write_tokens ??
+      usage.input_tokens_details?.cache_write_tokens,
+  );
   const deepSeekHitTokens = finiteNumber(usage.prompt_cache_hit_tokens);
   const deepSeekMissTokens = finiteNumber(usage.prompt_cache_miss_tokens);
   const anthropicCacheReadTokens = finiteNumber(usage.cache_read_input_tokens);
   const anthropicCacheCreationTokens = finiteNumber(usage.cache_creation_input_tokens);
-  const anthropicInputTokens = finiteNumber(usage.input_tokens);
-  const llamaCacheTokens = finiteNumber(data?.timings?.cache_n);
-  const llamaPromptEvalTokens = finiteNumber(data?.timings?.prompt_n);
+  const llamaCacheTokens = finiteNumber(response?.timings?.cache_n);
+  const llamaPromptEvalTokens = finiteNumber(response?.timings?.prompt_n);
+  const llamaOutputTokens = finiteNumber(response?.timings?.predicted_n);
 
-  let cacheHitTokens;
+  let inputTokens = promptTokens ?? anthropicInputTokens;
+  const normalizedOutputTokens = outputTokens ?? llamaOutputTokens;
+  let cacheReadTokens;
+  let cacheWriteTokens;
   let cacheMissTokens;
-  let totalCacheLookupTokens;
 
   if (deepSeekHitTokens !== undefined || deepSeekMissTokens !== undefined) {
-    cacheHitTokens = deepSeekHitTokens;
+    cacheReadTokens = deepSeekHitTokens;
     cacheMissTokens = deepSeekMissTokens;
-    totalCacheLookupTokens = (deepSeekHitTokens ?? 0) + (deepSeekMissTokens ?? 0);
+    inputTokens ??= (deepSeekHitTokens ?? 0) + (deepSeekMissTokens ?? 0);
   } else if (provider === 'anthropic') {
-    cacheHitTokens = anthropicCacheReadTokens;
+    cacheReadTokens = anthropicCacheReadTokens;
+    cacheWriteTokens = anthropicCacheCreationTokens;
     cacheMissTokens = anthropicInputTokens;
-    totalCacheLookupTokens =
-      (anthropicCacheReadTokens ?? 0) +
-      (anthropicCacheCreationTokens ?? 0) +
-      (anthropicInputTokens ?? 0);
+    if (
+      anthropicInputTokens !== undefined ||
+      anthropicCacheReadTokens !== undefined ||
+      anthropicCacheCreationTokens !== undefined
+    ) {
+      inputTokens =
+        (anthropicInputTokens ?? 0) +
+        (anthropicCacheReadTokens ?? 0) +
+        (anthropicCacheCreationTokens ?? 0);
+    }
   } else if (llamaCacheTokens !== undefined || llamaPromptEvalTokens !== undefined) {
-    cacheHitTokens = llamaCacheTokens;
+    cacheReadTokens = llamaCacheTokens;
     cacheMissTokens = llamaPromptEvalTokens;
-    totalCacheLookupTokens = (llamaCacheTokens ?? 0) + (llamaPromptEvalTokens ?? 0);
+    inputTokens ??= (llamaCacheTokens ?? 0) + (llamaPromptEvalTokens ?? 0);
   } else if (openAiCachedTokens !== undefined) {
-    cacheHitTokens = openAiCachedTokens;
+    cacheReadTokens = openAiCachedTokens;
+    cacheWriteTokens = openAiCacheWriteTokens;
     cacheMissTokens =
-      promptTokens !== undefined ? Math.max(promptTokens - openAiCachedTokens, 0) : undefined;
-    totalCacheLookupTokens = promptTokens;
+      promptTokens !== undefined
+        ? Math.max(promptTokens - openAiCachedTokens - (openAiCacheWriteTokens ?? 0), 0)
+        : undefined;
+  } else if (openAiCacheWriteTokens !== undefined) {
+    cacheWriteTokens = openAiCacheWriteTokens;
+    cacheMissTokens =
+      promptTokens !== undefined ? Math.max(promptTokens - openAiCacheWriteTokens, 0) : undefined;
   }
+
+  const totalTokens =
+    reportedTotalTokens ??
+    (inputTokens !== undefined || normalizedOutputTokens !== undefined
+      ? (inputTokens ?? 0) + (normalizedOutputTokens ?? 0)
+      : undefined);
+  const normalized = {
+    inputTokens,
+    outputTokens: normalizedOutputTokens,
+    totalTokens,
+    reasoningTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    cacheMissTokens,
+  };
+  if (Object.values(normalized).every((value) => value === undefined)) return undefined;
+  return Object.fromEntries(Object.entries(normalized).filter(([, value]) => value !== undefined));
+}
+
+function logCacheUsage(provider, data, verboseLogs) {
+  if (!verboseLogs) return;
+  const usage = data?.usage || {};
+  const normalized = extractLlmUsage(provider, data) || {};
+  const totalCacheLookupTokens =
+    normalized.cacheReadTokens !== undefined ||
+    normalized.cacheWriteTokens !== undefined ||
+    normalized.cacheMissTokens !== undefined
+      ? (normalized.cacheReadTokens ?? 0) +
+        (normalized.cacheWriteTokens ?? 0) +
+        (normalized.cacheMissTokens ?? 0)
+      : undefined;
 
   console.log('LLM cache usage:', {
     provider,
-    cache_hit_tokens: cacheHitTokens,
-    cache_miss_tokens: cacheMissTokens,
-    cache_hit_rate_percent: roundedPercent(cacheHitTokens, totalCacheLookupTokens),
-    prompt_tokens: promptTokens,
-    cache_creation_tokens: anthropicCacheCreationTokens,
+    cache_hit_tokens: normalized.cacheReadTokens,
+    cache_miss_tokens: normalized.cacheMissTokens,
+    cache_hit_rate_percent: roundedPercent(normalized.cacheReadTokens, totalCacheLookupTokens),
+    prompt_tokens: normalized.inputTokens,
+    cache_creation_tokens: normalized.cacheWriteTokens,
     raw_usage: usage,
     llama_timings: data?.timings,
   });
@@ -185,7 +267,13 @@ function openAICompatibleClient({
       const content = data?.choices?.[0]?.message?.content;
       const cleaned = typeof content === 'string' ? stripThink(content) : '';
       if (!cleaned) throw new Error('Empty LLM response');
-      return { content: cleaned, endpoint, model };
+      return {
+        content: cleaned,
+        endpoint,
+        model,
+        provider: providerLabel,
+        usage: extractLlmUsage(providerLabel, data),
+      };
     },
   };
 }
@@ -252,7 +340,13 @@ function anthropicClient({ apiKey, model, serviceTier }) {
         .join('\n')
         .trim();
       if (!content) throw new Error('Empty LLM response');
-      return { content, endpoint, model };
+      return {
+        content,
+        endpoint,
+        model,
+        provider: 'anthropic',
+        usage: extractLlmUsage('anthropic', data),
+      };
     },
   };
 }
@@ -266,7 +360,7 @@ function toAnthropicServiceTier(serviceTier) {
 /**
  * Creates a completion client for a stored provider entry.
  * @param {{type: string, model: string, token?: string, url?: string}} provider
- * @returns {{complete: (opts: {prompt: string, temperature?: number, signal?: AbortSignal, verboseLogs?: boolean}) => Promise<{content: string, endpoint: string, model: string}>}}
+ * @returns {{complete: (opts: {prompt: string, temperature?: number, signal?: AbortSignal, verboseLogs?: boolean}) => Promise<{content: string, endpoint: string, model: string, provider: string, usage?: Record<string, number>}>}}
  */
 export function createClient(provider) {
   if (!provider || typeof provider !== 'object') {

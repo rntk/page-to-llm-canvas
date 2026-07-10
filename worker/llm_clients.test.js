@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createClient, buildChatCompletionsUrl, stripThink } from './llm_clients.js';
+import {
+  createClient,
+  buildChatCompletionsUrl,
+  extractLlmUsage,
+  stripThink,
+} from './llm_clients.js';
 
 function okJson(json) {
   return { ok: true, status: 200, json: async () => json };
@@ -33,6 +38,85 @@ describe('buildChatCompletionsUrl', () => {
 describe('stripThink', () => {
   it('removes think blocks and trims', () => {
     expect(stripThink('<think>x</think> hi ')).toBe('hi');
+  });
+});
+
+describe('extractLlmUsage', () => {
+  it('normalizes OpenAI token and prompt-cache usage', () => {
+    expect(
+      extractLlmUsage('openai', {
+        usage: {
+          prompt_tokens: 1200,
+          completion_tokens: 100,
+          total_tokens: 1300,
+          prompt_tokens_details: { cached_tokens: 900 },
+          completion_tokens_details: { reasoning_tokens: 40 },
+        },
+      }),
+    ).toEqual({
+      inputTokens: 1200,
+      outputTokens: 100,
+      totalTokens: 1300,
+      reasoningTokens: 40,
+      cacheReadTokens: 900,
+      cacheMissTokens: 300,
+    });
+  });
+
+  it('separates OpenRouter cache writes from uncached prompt tokens', () => {
+    expect(
+      extractLlmUsage('openrouter', {
+        usage: {
+          prompt_tokens: 1200,
+          completion_tokens: 100,
+          total_tokens: 1300,
+          prompt_tokens_details: { cached_tokens: 900, cache_write_tokens: 100 },
+        },
+      }),
+    ).toEqual({
+      inputTokens: 1200,
+      outputTokens: 100,
+      totalTokens: 1300,
+      cacheReadTokens: 900,
+      cacheWriteTokens: 100,
+      cacheMissTokens: 200,
+    });
+  });
+
+  it('includes Anthropic cache reads and writes in normalized input', () => {
+    expect(
+      extractLlmUsage('anthropic', {
+        usage: {
+          input_tokens: 50,
+          output_tokens: 15,
+          output_tokens_details: { thinking_tokens: 10 },
+          cache_creation_input_tokens: 1000,
+          cache_read_input_tokens: 3000,
+        },
+      }),
+    ).toEqual({
+      inputTokens: 4050,
+      outputTokens: 15,
+      reasoningTokens: 10,
+      totalTokens: 4065,
+      cacheReadTokens: 3000,
+      cacheWriteTokens: 1000,
+      cacheMissTokens: 50,
+    });
+  });
+
+  it('uses llama.cpp timing counts when standard usage is absent', () => {
+    expect(
+      extractLlmUsage('openai-compatible', {
+        timings: { cache_n: 80, prompt_n: 20, predicted_n: 12 },
+      }),
+    ).toEqual({
+      inputTokens: 100,
+      outputTokens: 12,
+      totalTokens: 112,
+      cacheReadTokens: 80,
+      cacheMissTokens: 20,
+    });
   });
 });
 
