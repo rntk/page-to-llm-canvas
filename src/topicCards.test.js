@@ -5,6 +5,8 @@ import {
   getMaxTopicLevel,
   getTopicSentenceNumbers,
   splitSentenceRuns,
+} from './topicDomain.js';
+import {
   getZoomAdjustedCardWidth,
   getZoomAdjustedSummaryCardWidth,
   getTopicTitleFontSize,

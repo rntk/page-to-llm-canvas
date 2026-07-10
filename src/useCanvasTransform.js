@@ -1,24 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { clampScale, cursorAnchoredTranslate } from './utils/canvasMath.js';
 
-const MIN_SCALE = 0.3;
-const MAX_SCALE = 3;
 const WHEEL_IN = 1.1;
 const WHEEL_OUT = 1 / 1.1;
 const ARROW_STEP = 80;
 
-export function clampScale(value) {
-  const safe = Number.isFinite(value) ? value : 1;
-  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, safe));
-}
-
-export function cursorAnchoredTranslate({ cursor, translate, currentScale, nextScale }) {
-  const cx = (cursor.x - translate.x) / currentScale;
-  const cy = (cursor.y - translate.y) / currentScale;
-  return {
-    x: cursor.x - cx * nextScale,
-    y: cursor.y - cy * nextScale,
-  };
-}
+export { clampScale, cursorAnchoredTranslate } from './utils/canvasMath.js';
 
 /**
  * Simplified canvas transform hook: pan, wheel zoom, programmatic zoom,

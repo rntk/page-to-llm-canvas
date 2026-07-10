@@ -4,7 +4,7 @@ import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { useInitialView } from './useInitialView.js';
-import { clampScale } from './useCanvasTransform.js';
+import { clampScale } from './utils/canvasMath.js';
 
 // The hook returns void; its behaviour is observed through the callbacks and
 // refs it drives across the three phases (level-set → zoomed → first topic).

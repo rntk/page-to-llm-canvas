@@ -2,9 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRecord } from './useRecord.js';
 import { MSG } from '../messages.js';
 import {
-  buildTopicSentenceIndex,
   buildTopicCards,
-  getMaxTopicLevel,
   getTopicTitleFontSize,
   getZoomAdjustedCardWidth,
   getZoomAdjustedSummaryCardWidth,
@@ -12,6 +10,7 @@ import {
   COLUMN_GAP,
   RAIL_PADDING,
 } from './topicCards.js';
+import { buildTopicSentenceIndex, getMaxTopicLevel } from './topicDomain.js';
 import { buildSummaryCards, filterSummaryCardsByLevel } from './summaryCards.js';
 import { buildSentenceDomRange } from './sentenceHighlight.js';
 import { sanitizeArticleHtml, escapeHtml } from './articleHtml.js';
@@ -22,7 +21,8 @@ import SpinnerOverlay from './components/SpinnerOverlay.jsx';
 import SummaryErrorsOverlay from './components/SummaryErrorsOverlay.jsx';
 import ArticleHtml from './components/ArticleHtml.jsx';
 import { closeModal } from './closeModal.js';
-import { useCanvasTransform, clampScale } from './useCanvasTransform.js';
+import { useCanvasTransform } from './useCanvasTransform.js';
+import { clampScale } from './utils/canvasMath.js';
 import { useCanvasAlignment } from './useCanvasAlignment.js';
 import { useSentenceMetrics } from './useSentenceMetrics.js';
 import { useSentenceHighlights } from './useSentenceHighlights.js';

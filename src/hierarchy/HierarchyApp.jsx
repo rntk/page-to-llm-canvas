@@ -9,7 +9,7 @@ import { splitError, retryRecord } from '../utils/errorUtils.js';
 import ErrorDetails from '../components/ErrorDetails.jsx';
 import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
 import { buildTopicTree, collectNonLeafPaths } from '../utils/topicTree.js';
-import { getMaxTopicLevel } from '../topicCards.js';
+import { getMaxTopicLevel } from '../topicDomain.js';
 import './hierarchy.css';
 
 export default function HierarchyApp({ initialKey }) {

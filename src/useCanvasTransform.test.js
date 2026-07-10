@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import { useCanvasTransform, clampScale, cursorAnchoredTranslate } from './useCanvasTransform.js';
+import { useCanvasTransform } from './useCanvasTransform.js';
+import { clampScale, cursorAnchoredTranslate } from './utils/canvasMath.js';
 
 function renderHook(callback) {
   const container = document.createElement('div');

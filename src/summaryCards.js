@@ -1,4 +1,4 @@
-import { splitTopicPath, splitSentenceRuns } from './topicCards.js';
+import { splitSentenceRuns, splitTopicPath } from './topicDomain.js';
 
 /**
  * Normalizes a summary entry's per-run list into render-ready runs. Each summary

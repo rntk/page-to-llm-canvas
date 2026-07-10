@@ -1,5 +1,5 @@
 import { useEffect, useReducer } from 'react';
-import { clampScale } from './useCanvasTransform.js';
+import { clampScale } from './utils/canvasMath.js';
 import {
   buildTopicNavigationList,
   findTopicNavigationTarget,
