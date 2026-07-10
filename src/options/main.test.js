@@ -25,6 +25,7 @@ describe('options main.jsx', () => {
 
   beforeEach(() => {
     vi.resetModules();
+    window.history.replaceState(null, '', window.location.pathname);
 
     const rootEl = document.createElement('div');
     rootEl.id = 'options-root';
@@ -50,6 +51,71 @@ describe('options main.jsx', () => {
 
   afterAll(() => {
     vi.unstubAllGlobals();
+  });
+
+  it('organizes settings into accessible, hash-persisted tabs', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') cb({ ok: true, items: [] });
+      if (msg.type === 'listProviders') cb({ ok: true, providers: [], activeId: null });
+    });
+
+    await import('./main.jsx');
+
+    await waitFor(() => {
+      expect(document.querySelectorAll('[role="tab"]')).toHaveLength(4);
+    });
+
+    const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+    const generalPanel = document.getElementById('options-panel-general');
+    const recordsPanel = document.getElementById('options-panel-records');
+
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    expect(generalPanel.hidden).toBe(false);
+    expect(recordsPanel.hidden).toBe(true);
+
+    tabs[2].click();
+    await waitFor(() => {
+      expect(tabs[2].getAttribute('aria-selected')).toBe('true');
+      expect(window.location.hash).toBe('#records');
+      expect(generalPanel.hidden).toBe(true);
+      expect(recordsPanel.hidden).toBe(false);
+    });
+
+    tabs[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    await waitFor(() => {
+      expect(tabs[3].getAttribute('aria-selected')).toBe('true');
+      expect(document.activeElement).toBe(tabs[3]);
+      expect(window.location.hash).toBe('#diagnostics');
+    });
+  });
+
+  it('reveals the provider form only while adding a provider', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') cb({ ok: true, items: [] });
+      if (msg.type === 'listProviders') cb({ ok: true, providers: [], activeId: null });
+    });
+
+    await import('./main.jsx');
+    await waitFor(() => {
+      expect(document.querySelector('[role="tab"]')).not.toBeNull();
+    });
+
+    expect(document.querySelector('.provider-form')).toBeNull();
+    const addButton = Array.from(document.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Add provider',
+    );
+    addButton.click();
+    await waitFor(() => {
+      expect(document.querySelector('.provider-form')).not.toBeNull();
+    });
+
+    const cancelButton = Array.from(document.querySelectorAll('.provider-form button')).find(
+      (button) => button.textContent === 'Cancel',
+    );
+    cancelButton.click();
+    await waitFor(() => {
+      expect(document.querySelector('.provider-form')).toBeNull();
+    });
   });
 
   it('renders loading state then list of records', async () => {
@@ -482,6 +548,16 @@ describe('options main.jsx', () => {
     });
 
     await import('./main.jsx');
+    await waitFor(() => {
+      const addButton = Array.from(document.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Add provider',
+      );
+      expect(addButton).not.toBeUndefined();
+    });
+    const addButton = Array.from(document.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Add provider',
+    );
+    addButton.click();
     await waitFor(() => {
       expect(document.getElementById('provider-name')).not.toBeNull();
     });

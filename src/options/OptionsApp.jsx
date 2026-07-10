@@ -185,8 +185,8 @@ export function HighlightColorSection() {
   }, [previewColor, persistColor]);
 
   return (
-    <section className="section">
-      <h2>Highlight Color</h2>
+    <div className="settings-group">
+      <h3>Highlight color</h3>
       <div className="highlight-color-control">
         <label htmlFor="highlight-color">Text and picked block highlight</label>
         <div className="highlight-color-row">
@@ -206,7 +206,7 @@ export function HighlightColorSection() {
           Used for sentence highlights, source preview highlights, and picked block backgrounds.
         </div>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -257,8 +257,8 @@ export function ContentLanguageSection() {
   }, []);
 
   return (
-    <section className="section">
-      <h2>Language</h2>
+    <div className="settings-group">
+      <h3>Language</h3>
       <div className="field">
         <label htmlFor="prefer-content-language">
           <input
@@ -274,7 +274,7 @@ export function ContentLanguageSection() {
           analyzed content instead of always defaulting to English.
         </div>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -335,7 +335,11 @@ export function LlmMetricsSection() {
           pipeline task type.
         </div>
         <div>
-          <button type="button" onClick={handleClear} disabled={isClearing || metrics.totalCount === 0}>
+          <button
+            type="button"
+            onClick={handleClear}
+            disabled={isClearing || metrics.totalCount === 0}
+          >
             {isClearing ? 'Clearing...' : 'Clear metrics'}
           </button>
         </div>
@@ -364,7 +368,8 @@ export function LlmMetricsSection() {
                 <tr>
                   <th scope="row">Min / max</th>
                   <td className="mono">
-                    {formatDurationMs(metrics.minDurationMs)} / {formatDurationMs(metrics.maxDurationMs)}
+                    {formatDurationMs(metrics.minDurationMs)} /{' '}
+                    {formatDurationMs(metrics.maxDurationMs)}
                   </td>
                 </tr>
               </tbody>
@@ -479,8 +484,8 @@ export function SummaryGenerationSection() {
   }, []);
 
   return (
-    <section className="section">
-      <h2>Summaries</h2>
+    <div className="settings-group">
+      <h3>Summaries</h3>
       <div className="field">
         <label htmlFor="disable-summaries">
           <input
@@ -499,7 +504,7 @@ export function SummaryGenerationSection() {
           topics without reprocessing the page.
         </div>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -559,6 +564,7 @@ export function ProvidersSection() {
   const [activeId, setActiveId] = useState(null);
   const [form, setForm] = useState(() => createEmptyProviderForm());
   const [error, setError] = useState('');
+  const [isFormOpen, setIsFormOpen] = useState(false);
 
   const applyProviders = useCallback((next) => {
     if (!next) return;
@@ -617,17 +623,26 @@ export function ProvidersSection() {
       return;
     }
     setForm(createEmptyProviderForm());
+    setIsFormOpen(false);
     await load();
   };
 
   const edit = (p) => {
     setError('');
     setForm(providerToForm(p));
+    setIsFormOpen(true);
+  };
+
+  const add = () => {
+    setError('');
+    setForm(createEmptyProviderForm());
+    setIsFormOpen(true);
   };
 
   const cancel = () => {
     setForm(createEmptyProviderForm());
     setError('');
+    setIsFormOpen(false);
   };
 
   const remove = async (id) => {
@@ -644,14 +659,21 @@ export function ProvidersSection() {
 
   return (
     <section className="section">
-      <h2>LLM Providers</h2>
-      <div className="note">
-        The pipeline uses the <strong>active</strong> provider. It will not run until one is
-        configured.
+      <div className="section-heading">
+        <div>
+          <h2>LLM Providers</h2>
+          <div className="note">
+            The pipeline uses the <strong>active</strong> provider. It will not run until one is
+            configured.
+          </div>
+        </div>
+        <button type="button" onClick={add} disabled={isFormOpen && !isEditing}>
+          Add provider
+        </button>
       </div>
 
       {providers.length === 0 ? (
-        <div className="empty">No providers configured yet. Add one below.</div>
+        <div className="empty">No providers configured yet.</div>
       ) : (
         <table>
           <thead>
@@ -697,115 +719,129 @@ export function ProvidersSection() {
         </table>
       )}
 
-      <form className="provider-form" onSubmit={submit}>
-        <div className="field">
-          <label htmlFor="provider-name">Name</label>
-          <input
-            id="provider-name"
-            type="text"
-            value={form.name}
-            onChange={setField('name')}
-            placeholder="My OpenAI key"
-          />
-        </div>
-
-        <div className="field">
-          <label htmlFor="provider-type">Type</label>
-          <select
-            id="provider-type"
-            value={form.type}
-            onChange={(e) => onTypeChange(e.target.value)}
-          >
-            {PROVIDER_DEFINITIONS.map((d) => (
-              <option key={d.type} value={d.type}>
-                {d.displayName}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="field">
-          <label htmlFor="provider-model">Model</label>
-          <input
-            id="provider-model"
-            type="text"
-            list="provider-model-options"
-            value={form.model}
-            onChange={setField('model')}
-            placeholder={def?.defaultModel || 'model id'}
-          />
-          <datalist id="provider-model-options">
-            {(def?.models || []).map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
-        </div>
-
-        <div className="field">
-          <label htmlFor="provider-token">API key / token</label>
-          <input
-            id="provider-token"
-            type="password"
-            value={form.token}
-            onChange={setField('token')}
-            placeholder={requiresUrl ? 'optional' : 'sk-...'}
-            aria-describedby="provider-token-note"
-            autoComplete="off"
-          />
-          {editingProvider?.hasToken ? (
-            <div id="provider-token-note" className="note">
-              Leave blank to keep the stored token.
-            </div>
-          ) : null}
-        </div>
-
-        {requiresUrl ? (
-          <div className="field full">
-            <label htmlFor="provider-url">Base URL</label>
+      {isFormOpen ? (
+        <form className="provider-form" onSubmit={submit}>
+          <div className="field">
+            <label htmlFor="provider-name">Name</label>
             <input
-              id="provider-url"
+              id="provider-name"
               type="text"
-              value={form.url}
-              onChange={setField('url')}
-              placeholder="http://localhost:8989"
+              value={form.name}
+              onChange={setField('name')}
+              placeholder="My OpenAI key"
             />
           </div>
-        ) : null}
 
-        {serviceTiers.length ? (
           <div className="field">
-            <label htmlFor="provider-service-tier">Service tier</label>
+            <label htmlFor="provider-type">Type</label>
             <select
-              id="provider-service-tier"
-              value={form.serviceTier}
-              onChange={setField('serviceTier')}
+              id="provider-type"
+              value={form.type}
+              onChange={(e) => onTypeChange(e.target.value)}
             >
-              <option value="">Provider default</option>
-              {serviceTiers.map((tier) => (
-                <option key={tier.value} value={tier.value}>
-                  {tier.label}
+              {PROVIDER_DEFINITIONS.map((d) => (
+                <option key={d.type} value={d.type}>
+                  {d.displayName}
                 </option>
               ))}
             </select>
           </div>
-        ) : null}
 
-        {error ? <div className="form-error">{error}</div> : null}
+          <div className="field">
+            <label htmlFor="provider-model">Model</label>
+            <input
+              id="provider-model"
+              type="text"
+              list="provider-model-options"
+              value={form.model}
+              onChange={setField('model')}
+              placeholder={def?.defaultModel || 'model id'}
+            />
+            <datalist id="provider-model-options">
+              {(def?.models || []).map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+          </div>
 
-        <div className="form-actions">
-          <button type="submit">{isEditing ? 'Save changes' : 'Add provider'}</button>
-          {isEditing ? (
-            <button type="button" className="danger" onClick={cancel}>
+          <div className="field">
+            <label htmlFor="provider-token">API key / token</label>
+            <input
+              id="provider-token"
+              type="password"
+              value={form.token}
+              onChange={setField('token')}
+              placeholder={requiresUrl ? 'optional' : 'sk-...'}
+              aria-describedby="provider-token-note"
+              autoComplete="off"
+            />
+            {editingProvider?.hasToken ? (
+              <div id="provider-token-note" className="note">
+                Leave blank to keep the stored token.
+              </div>
+            ) : null}
+          </div>
+
+          {requiresUrl ? (
+            <div className="field full">
+              <label htmlFor="provider-url">Base URL</label>
+              <input
+                id="provider-url"
+                type="text"
+                value={form.url}
+                onChange={setField('url')}
+                placeholder="http://localhost:8989"
+              />
+            </div>
+          ) : null}
+
+          {serviceTiers.length ? (
+            <div className="field">
+              <label htmlFor="provider-service-tier">Service tier</label>
+              <select
+                id="provider-service-tier"
+                value={form.serviceTier}
+                onChange={setField('serviceTier')}
+              >
+                <option value="">Provider default</option>
+                {serviceTiers.map((tier) => (
+                  <option key={tier.value} value={tier.value}>
+                    {tier.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
+          {error ? <div className="form-error">{error}</div> : null}
+
+          <div className="form-actions">
+            <button type="submit">{isEditing ? 'Save changes' : 'Add provider'}</button>
+            <button type="button" onClick={cancel}>
               Cancel
             </button>
-          ) : null}
-        </div>
-      </form>
+          </div>
+        </form>
+      ) : null}
     </section>
   );
 }
 
+const OPTION_TABS = [
+  { id: 'general', label: 'General' },
+  { id: 'providers', label: 'Providers' },
+  { id: 'records', label: 'Records' },
+  { id: 'diagnostics', label: 'Diagnostics' },
+];
+
+function tabFromHash() {
+  if (typeof window === 'undefined') return OPTION_TABS[0].id;
+  const candidate = window.location.hash.slice(1);
+  return OPTION_TABS.some((tab) => tab.id === candidate) ? candidate : OPTION_TABS[0].id;
+}
+
 export function OptionsApp() {
+  const [activeTab, setActiveTab] = useState(tabFromHash);
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -814,6 +850,33 @@ export function OptionsApp() {
   // Key of the record whose error dialog is open, or null when none is shown.
   const [errorDialogKey, setErrorDialogKey] = useState(null);
   const importInputRef = useRef(null);
+
+  const selectTab = useCallback((tabId, { focus = false } = {}) => {
+    setActiveTab(tabId);
+    if (typeof window !== 'undefined' && window.location.hash !== `#${tabId}`) {
+      window.history.replaceState(null, '', `#${tabId}`);
+    }
+    if (focus) document.getElementById(`options-tab-${tabId}`)?.focus();
+  }, []);
+
+  useEffect(() => {
+    const handleHashChange = () => setActiveTab(tabFromHash());
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  const handleTabKeyDown = (event) => {
+    const currentIndex = OPTION_TABS.findIndex((tab) => tab.id === activeTab);
+    let nextIndex = currentIndex;
+    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % OPTION_TABS.length;
+    else if (event.key === 'ArrowLeft') {
+      nextIndex = (currentIndex - 1 + OPTION_TABS.length) % OPTION_TABS.length;
+    } else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = OPTION_TABS.length - 1;
+    else return;
+    event.preventDefault();
+    selectTab(OPTION_TABS[nextIndex].id, { focus: true });
+  };
 
   const applyRecords = useCallback((nextItems) => {
     setItems(nextItems);
@@ -965,23 +1028,73 @@ export function OptionsApp() {
     : null;
 
   return (
-    <>
+    <main className="options-shell">
       <div className="page-header">
-        <h1>PageToLLM Canvas - Settings</h1>
-        <ThemeToggle />
+        <div>
+          <h1>PageToLLM Canvas</h1>
+          <div className="page-kicker">Settings</div>
+        </div>
       </div>
 
-      <ProvidersSection />
+      <div className="options-tabs" role="tablist" aria-label="Settings sections">
+        {OPTION_TABS.map((tab) => (
+          <button
+            id={`options-tab-${tab.id}`}
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            aria-controls={`options-panel-${tab.id}`}
+            tabIndex={activeTab === tab.id ? 0 : -1}
+            onClick={() => selectTab(tab.id)}
+            onKeyDown={handleTabKeyDown}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-      <ContentLanguageSection />
+      <section
+        id="options-panel-general"
+        className="tab-panel"
+        role="tabpanel"
+        aria-labelledby="options-tab-general"
+        hidden={activeTab !== 'general'}
+      >
+        <h2>General</h2>
+        <div className="settings-list">
+          <div className="settings-group">
+            <h3>Theme</h3>
+            <div>
+              <ThemeToggle />
+              <div className="note">
+                Choose how the settings and canvas interface are displayed.
+              </div>
+            </div>
+          </div>
+          <ContentLanguageSection />
+          <SummaryGenerationSection />
+          <HighlightColorSection />
+        </div>
+      </section>
 
-      <SummaryGenerationSection />
+      <div
+        id="options-panel-providers"
+        className="tab-panel"
+        role="tabpanel"
+        aria-labelledby="options-tab-providers"
+        hidden={activeTab !== 'providers'}
+      >
+        <ProvidersSection />
+      </div>
 
-      <LlmMetricsSection />
-
-      <HighlightColorSection />
-
-      <section className="section">
+      <section
+        id="options-panel-records"
+        className="tab-panel section"
+        role="tabpanel"
+        aria-labelledby="options-tab-records"
+        hidden={activeTab !== 'records'}
+      >
         <h2>Stored Records</h2>
         <div className="toolbar">
           <div className="note">Open dynamically inside a standalone tab.</div>
@@ -1099,6 +1212,16 @@ export function OptionsApp() {
         </div>
       </section>
 
+      <div
+        id="options-panel-diagnostics"
+        className="tab-panel"
+        role="tabpanel"
+        aria-labelledby="options-tab-diagnostics"
+        hidden={activeTab !== 'diagnostics'}
+      >
+        <LlmMetricsSection />
+      </div>
+
       {errorDialogItem ? (
         <RecordErrorDialog
           sourceUrl={errorDialogItem.sourceUrl}
@@ -1107,6 +1230,6 @@ export function OptionsApp() {
           onClose={() => setErrorDialogKey(null)}
         />
       ) : null}
-    </>
+    </main>
   );
 }
