@@ -54,6 +54,34 @@ describe('createClient dispatch', () => {
     expect(() => createClient(null)).toThrow(/required/);
   });
 
+  it('skips raw request/response dumps unless verboseLogs is enabled', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      okJson({
+        choices: [{ message: { content: 'hi' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 1, total_tokens: 11 },
+      }),
+    );
+    const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'sk-1' });
+
+    await client.complete({ prompt: 'quiet' });
+    expect(consoleLogSpy).not.toHaveBeenCalled();
+
+    await client.complete({ prompt: 'loud', verboseLogs: true });
+    expect(consoleLogSpy).toHaveBeenCalledWith('LLM client raw prompt:', 'loud');
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      'LLM client request:',
+      expect.objectContaining({ endpoint: 'https://api.openai.com/v1/chat/completions' }),
+    );
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      'LLM client raw response data:',
+      expect.objectContaining({ choices: expect.any(Array) }),
+    );
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      'LLM cache usage:',
+      expect.objectContaining({ provider: 'openai' }),
+    );
+  });
+
   it('refuses token transport to invalid provider URLs', async () => {
     const client = createClient({
       type: 'openai_comp',
@@ -87,7 +115,7 @@ describe('createClient dispatch', () => {
       }),
     );
     const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'sk-1' });
-    const out = await client.complete({ prompt: 'p', temperature: 0.3 });
+    const out = await client.complete({ prompt: 'p', temperature: 0.3, verboseLogs: true });
     expect(out.content).toBe('hi');
     expect(consoleLogSpy).toHaveBeenCalledWith('LLM cache usage:', {
       provider: 'openai',
@@ -189,7 +217,7 @@ describe('createClient dispatch', () => {
       }),
     );
     const client = createClient({ type: 'deepseek', model: 'deepseek-v4-flash', token: 'k' });
-    await client.complete({ prompt: 'p' });
+    await client.complete({ prompt: 'p', verboseLogs: true });
     expect(consoleLogSpy).toHaveBeenCalledWith(
       'LLM cache usage:',
       expect.objectContaining({
@@ -229,7 +257,7 @@ describe('createClient dispatch', () => {
       }),
     );
     const client = createClient({ type: 'openai_comp', model: 'm', url: 'http://host:8989' });
-    await client.complete({ prompt: 'p' });
+    await client.complete({ prompt: 'p', verboseLogs: true });
     expect(consoleLogSpy).toHaveBeenCalledWith(
       'LLM cache usage:',
       expect.objectContaining({
@@ -295,7 +323,7 @@ describe('createClient dispatch', () => {
       }),
     );
     const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'sk-ant' });
-    const out = await client.complete({ prompt: 'p', temperature: 0.5 });
+    const out = await client.complete({ prompt: 'p', temperature: 0.5, verboseLogs: true });
     expect(out.content).toBe('line1\nline2');
     expect(consoleLogSpy).toHaveBeenCalledWith(
       'LLM cache usage:',

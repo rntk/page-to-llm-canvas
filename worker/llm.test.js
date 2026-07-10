@@ -11,19 +11,23 @@ const OPENAI_COMP_PROVIDER = {
 
 const EXPECTED_ENDPOINT = 'http://192.168.0.147:8989/v1/chat/completions';
 
-function stubChrome(state) {
+function stubChrome(state, { verboseLogs = false } = {}) {
   vi.stubGlobal('chrome', {
     runtime: { lastError: undefined },
     storage: {
       local: {
-        get: (keys, cb) => cb({ 'pagetollm:llm:providers': state }),
+        get: (keys, cb) => {
+          const items = { 'pagetollm:llm:providers': state };
+          if (verboseLogs) items['pagetollm-verbose-logs'] = true;
+          cb(items);
+        },
       },
     },
   });
 }
 
-function stubActiveProvider(provider = OPENAI_COMP_PROVIDER) {
-  stubChrome({ providers: [provider], activeId: provider.id });
+function stubActiveProvider(provider = OPENAI_COMP_PROVIDER, options = {}) {
+  stubChrome({ providers: [provider], activeId: provider.id }, options);
 }
 
 async function getLLM() {
@@ -241,6 +245,46 @@ describe('callLLMDirect', () => {
     expect(console.warn).toHaveBeenCalledWith(
       'PageToLLM Canvas LLM request failed:',
       'Connection refused',
+    );
+  });
+
+  it('omits request/response console.info when verbose logs are off', async () => {
+    const { callLLMDirect } = await getLLM();
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
+    });
+
+    await callLLMDirect({ prompt: 'hello' });
+    expect(console.info).not.toHaveBeenCalled();
+  });
+
+  it('logs request/response console.info when verbose logs are on', async () => {
+    stubActiveProvider(OPENAI_COMP_PROVIDER, { verboseLogs: true });
+    const { callLLMDirect } = await getLLM();
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
+    });
+
+    await callLLMDirect({ prompt: 'hello' });
+    expect(console.info).toHaveBeenCalledWith(
+      'PageToLLM Canvas LLM request:',
+      expect.objectContaining({
+        provider: 'Local',
+        type: 'openai_comp',
+        model: 'gpt-oss-20B',
+        promptLength: 5,
+      }),
+    );
+    expect(console.info).toHaveBeenCalledWith(
+      'PageToLLM Canvas LLM response:',
+      expect.objectContaining({
+        endpoint: EXPECTED_ENDPOINT,
+        responseLength: 2,
+      }),
     );
   });
 

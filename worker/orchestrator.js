@@ -21,6 +21,7 @@ import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
 import { planSummaryWork } from './summaryPlanning.js';
 import { summarizeTopicTree, splitContiguousRuns } from './topicTreeMerge.js';
 import { getStoredPreferContentLanguage } from './languageSettings.js';
+import { getStoredVerboseLogs } from './verboseLogSettings.js';
 
 // Isolated LLM duration metrics — delete llmMetrics.js + wrap import/line to remove.
 const callLLMWithRetry = wrapCallLLMWithRetry(callLLMWithRetryRaw);
@@ -50,12 +51,20 @@ const TOPIC_RANGE_MAX_SENTENCES = 40;
 const TOPIC_RANGE_RESPLIT_MAX_DEPTH = 2;
 
 /**
- * @param {{key: string, pipelineRunId?: string, signal?: AbortSignal}} context
+ * Pipeline diagnostic logger. Lifecycle and error stages always record; stages
+ * marked `{ verbose: true }` only record when the "verbose pipeline logs"
+ * setting is on for this run (`context.verboseLogs`). That keeps the service
+ * worker console and the record's processingLog quiet by default while still
+ * letting a user opt into per-chunk / per-topic request detail.
+ *
+ * @param {{key: string, pipelineRunId?: string, signal?: AbortSignal, verboseLogs?: boolean}} context
  * @param {string} stage
  * @param {Record<string, unknown>} [details]
+ * @param {{verbose?: boolean}} [options]
  * @returns {Promise<void>}
  */
-async function logPipeline(context, stage, details = {}) {
+async function logPipeline(context, stage, details = {}, options = {}) {
+  if (options.verbose && !context.verboseLogs) return;
   console.info('PageToLLM Canvas pipeline:', stage, details);
   assertPipelineActive(context);
   // Entries are buffered and flushed in a batch (see storage.js), so this is
@@ -428,13 +437,18 @@ async function resplitSegment(context, seg, sentenceTexts, depth) {
   const chunks =
     tagged.length > MAX_TAGGED_CHARS ? chunkTaggedText(tagged, MAX_TAGGED_CHARS) : [tagged];
 
-  await logPipeline(context, 'topic_ranges_resplit_request', {
-    start: seg.start,
-    end: seg.end,
-    span,
-    depth,
-    chunkCount: chunks.length,
-  });
+  await logPipeline(
+    context,
+    'topic_ranges_resplit_request',
+    {
+      start: seg.start,
+      end: seg.end,
+      span,
+      depth,
+      chunkCount: chunks.length,
+    },
+    { verbose: true },
+  );
 
   let subGroups;
   try {
@@ -479,22 +493,32 @@ async function resplitSegment(context, seg, sentenceTexts, depth) {
 
   if (subSegments.length <= 1) {
     // The LLM still considers the slice one topic — keep the original range.
-    await logPipeline(context, 'topic_ranges_resplit_no_progress', {
+    await logPipeline(
+      context,
+      'topic_ranges_resplit_no_progress',
+      {
+        start: seg.start,
+        end: seg.end,
+        span,
+        depth,
+      },
+      { verbose: true },
+    );
+    return null;
+  }
+
+  await logPipeline(
+    context,
+    'topic_ranges_resplit_response',
+    {
       start: seg.start,
       end: seg.end,
       span,
       depth,
-    });
-    return null;
-  }
-
-  await logPipeline(context, 'topic_ranges_resplit_response', {
-    start: seg.start,
-    end: seg.end,
-    span,
-    depth,
-    subSegmentCount: subSegments.length,
-  });
+      subSegmentCount: subSegments.length,
+    },
+    { verbose: true },
+  );
 
   // Recurse into any sub-segment that is still oversized, up to the depth bound.
   if (depth + 1 < TOPIC_RANGE_RESPLIT_MAX_DEPTH) {
@@ -535,11 +559,16 @@ async function refineOversizedRanges(context, groups, sentenceTexts) {
   const oversized = segments.filter((s) => s.end - s.start + 1 > TOPIC_RANGE_MAX_SENTENCES);
   if (!oversized.length) return groups;
 
-  await logPipeline(context, 'topic_ranges_oversize_detected', {
-    oversizeCount: oversized.length,
-    maxSentences: TOPIC_RANGE_MAX_SENTENCES,
-    spans: oversized.map((s) => s.end - s.start + 1),
-  });
+  await logPipeline(
+    context,
+    'topic_ranges_oversize_detected',
+    {
+      oversizeCount: oversized.length,
+      maxSentences: TOPIC_RANGE_MAX_SENTENCES,
+      spans: oversized.map((s) => s.end - s.start + 1),
+    },
+    { verbose: true },
+  );
 
   let changed = false;
   // Re-split oversized segments concurrently; parallelMap keeps document order.
@@ -558,10 +587,15 @@ async function refineOversizedRanges(context, groups, sentenceTexts) {
   if (!changed) return groups;
 
   const regrouped = groupsFromSegments(refined, sentenceTexts.length);
-  await logPipeline(context, 'topic_ranges_oversize_refined', {
-    groupCountBefore: groups.length,
-    groupCountAfter: regrouped.length,
-  });
+  await logPipeline(
+    context,
+    'topic_ranges_oversize_refined',
+    {
+      groupCountBefore: groups.length,
+      groupCountAfter: regrouped.length,
+    },
+    { verbose: true },
+  );
   return regrouped;
 }
 
@@ -590,6 +624,9 @@ export async function runPipeline(key, options = {}) {
     // Read once per run so every prompt in this run uses a consistent setting,
     // even if the user toggles it mid-pipeline. Defaults to off on any failure.
     preferContentLanguage: await getStoredPreferContentLanguage(),
+    // Same snapshot pattern: mid-run toggles of "verbose logs" do not change
+    // which stages this run records.
+    verboseLogs: await getStoredVerboseLogs(),
     // Filled in from the record below (`rec.skipSummaries`). Whether a run
     // generates summaries is a per-run directive persisted at kickoff (like
     // pipelineRunId/forceFinalize) by whoever starts the run — background.js
@@ -698,27 +735,42 @@ async function computeTopics(context, rec) {
     topic_summary_index: {},
     summariesDisabled: false,
   });
-  await logPipeline(context, 'cleaning_html_start', {
-    htmlLength: String(rec.html || '').length,
-  });
+  await logPipeline(
+    context,
+    'cleaning_html_start',
+    {
+      htmlLength: String(rec.html || '').length,
+    },
+    { verbose: true },
+  );
 
   const { text, mapping } = stripTagsKeepOffsets(rec.html || '');
-  await logPipeline(context, 'cleaning_html_done', {
-    textLength: text.length,
-    mappingLength: mapping.length,
-  });
+  await logPipeline(
+    context,
+    'cleaning_html_done',
+    {
+      textLength: text.length,
+      mappingLength: mapping.length,
+    },
+    { verbose: true },
+  );
 
   await updatePipelineRecord(context, {
     text,
     progress: { stage: 'splitting_sentences', done: 0, total: 0 },
   });
-  await logPipeline(context, 'splitting_sentences_start');
+  await logPipeline(context, 'splitting_sentences_start', {}, { verbose: true });
 
   const sentenceObjs = splitSentences(text);
   const sentenceTexts = sentenceObjs.map((s) => s.text);
-  await logPipeline(context, 'splitting_sentences_done', {
-    sentenceCount: sentenceTexts.length,
-  });
+  await logPipeline(
+    context,
+    'splitting_sentences_done',
+    {
+      sentenceCount: sentenceTexts.length,
+    },
+    { verbose: true },
+  );
 
   await updatePipelineRecord(context, {
     sentences: sentenceTexts,
@@ -739,10 +791,15 @@ async function computeTopics(context, rec) {
   const tagged = buildTaggedText(sentenceTexts);
   const chunks =
     tagged.length > MAX_TAGGED_CHARS ? chunkTaggedText(tagged, MAX_TAGGED_CHARS) : [tagged];
-  await logPipeline(context, 'topic_ranges_start', {
-    taggedLength: tagged.length,
-    chunkCount: chunks.length,
-  });
+  await logPipeline(
+    context,
+    'topic_ranges_start',
+    {
+      taggedLength: tagged.length,
+      chunkCount: chunks.length,
+    },
+    { verbose: true },
+  );
 
   let groups = await queryTopicRangesWithRetry({
     maxRetries: TOPIC_RANGE_MAX_RETRIES,
@@ -758,22 +815,32 @@ async function computeTopics(context, rec) {
           const prompt = buildTopicRangesPrompt(chunk, {
             preferContentLanguage: context.preferContentLanguage,
           });
-          await logPipeline(context, 'topic_ranges_llm_request', {
-            chunkIndex,
-            promptLength: prompt.length,
-            attempt: attemptIndex + 1,
-          });
+          await logPipeline(
+            context,
+            'topic_ranges_llm_request',
+            {
+              chunkIndex,
+              promptLength: prompt.length,
+              attempt: attemptIndex + 1,
+            },
+            { verbose: true },
+          );
           const resp = await callLLMWithRetry({
             prompt,
             temperature: TOPIC_RANGE_TEMPERATURE,
             signal: context.signal,
             taskType: LLM_TASK_TYPES.TOPIC_RANGES,
           });
-          await logPipeline(context, 'topic_ranges_llm_response', {
-            chunkIndex,
-            responseLength: resp.length,
-            attempt: attemptIndex + 1,
-          });
+          await logPipeline(
+            context,
+            'topic_ranges_llm_response',
+            {
+              chunkIndex,
+              responseLength: resp.length,
+              attempt: attemptIndex + 1,
+            },
+            { verbose: true },
+          );
           return resp;
         },
       );
@@ -797,9 +864,14 @@ async function computeTopics(context, rec) {
     });
   }
 
-  await logPipeline(context, 'topic_ranges_done', {
-    groupCount: groups.length,
-  });
+  await logPipeline(
+    context,
+    'topic_ranges_done',
+    {
+      groupCount: groups.length,
+    },
+    { verbose: true },
+  );
 
   const topics = groupsToTopics(groups, sentenceObjs, mapping);
 
@@ -931,11 +1003,16 @@ async function runSummaries(
     progress: { stage: 'summarizing_topics', done, total },
   });
   if (pendingCount < total) {
-    await logPipeline(context, 'topic_summaries_reused', {
-      reusedCount,
-      pendingCount,
-      total,
-    });
+    await logPipeline(
+      context,
+      'topic_summaries_reused',
+      {
+        reusedCount,
+        pendingCount,
+        total,
+      },
+      { verbose: true },
+    );
   }
 
   // Warm the provider's prompt/KV cache before the concurrent topic burst. Each
@@ -945,19 +1022,29 @@ async function runSummaries(
   // provider without prefix caching it just costs one topic of serial latency up
   // front.
   if (pending.length > 1) {
-    await logPipeline(context, 'topic_summaries_warmup', {
-      pendingCount: pending.length,
-      concurrency: SUMMARY_CONCURRENCY,
-    });
+    await logPipeline(
+      context,
+      'topic_summaries_warmup',
+      {
+        pendingCount: pending.length,
+        concurrency: SUMMARY_CONCURRENCY,
+      },
+      { verbose: true },
+    );
   }
   await parallelMap(
     pending,
     SUMMARY_CONCURRENCY,
     async (topic) => {
-      await logPipeline(context, 'topic_summary_llm_request', {
-        topic: topic.name,
-        sentenceCount: topic.sentences.length,
-      });
+      await logPipeline(
+        context,
+        'topic_summary_llm_request',
+        {
+          topic: topic.name,
+          sentenceCount: topic.sentences.length,
+        },
+        { verbose: true },
+      );
       // One summary per contiguous run (non-adjacent occurrence) so a topic that
       // recurs through the article shows location-specific text. Small runs are
       // inlined verbatim; the rest are summarized. Runs are summarized in order
@@ -1014,10 +1101,15 @@ async function runSummaries(
         ...(failure ? { error: true, ...failure } : {}),
       };
       done++;
-      await logPipeline(context, 'topic_summary_llm_response', {
-        topic: topic.name,
-        runCount: runResults.length,
-      });
+      await logPipeline(
+        context,
+        'topic_summary_llm_response',
+        {
+          topic: topic.name,
+          runCount: runResults.length,
+        },
+        { verbose: true },
+      );
       await updatePipelineRecord(context, {
         topic_summaries: { ...topic_summaries },
         progress: { stage: 'summarizing_topics', done, total },
@@ -1036,9 +1128,14 @@ async function runSummaries(
     return;
   }
 
-  await logPipeline(context, 'topic_tree_merge_start', {
-    leafCount: total,
-  });
+  await logPipeline(
+    context,
+    'topic_tree_merge_start',
+    {
+      leafCount: total,
+    },
+    { verbose: true },
+  );
   const { nodes } = buildTopicTree(topics);
 
   // Internal-node summaries are generated from each node's own source text and
@@ -1076,9 +1173,14 @@ async function runSummaries(
       });
     },
   });
-  await logPipeline(context, 'topic_tree_merge_done', {
-    nodeCount: Object.keys(topic_summary_index).length,
-  });
+  await logPipeline(
+    context,
+    'topic_tree_merge_done',
+    {
+      nodeCount: Object.keys(topic_summary_index).length,
+    },
+    { verbose: true },
+  );
 
   // A merge that failed after retries left an empty parent summary; park the run
   // (same confirm popup) rather than silently shipping an empty topic. A "skip"

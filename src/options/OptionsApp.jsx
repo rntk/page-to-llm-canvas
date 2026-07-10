@@ -44,6 +44,13 @@ import {
   setStoredSummariesDisabled,
   normalizeSummariesDisabled,
 } from '../../worker/summarySettings.js';
+import {
+  VERBOSE_LOGS_KEY,
+  DEFAULT_VERBOSE_LOGS,
+  getStoredVerboseLogs,
+  setStoredVerboseLogs,
+  normalizeVerboseLogs,
+} from '../../worker/verboseLogSettings.js';
 // Isolated LLM duration metrics — delete with worker/llmMetrics.js to remove.
 import {
   LLM_METRICS_KEY,
@@ -502,6 +509,72 @@ export function SummaryGenerationSection() {
           until reprocessed. Records processed without summaries get a &quot;Generate
           summaries&quot; action below, which fills in the summaries from the already-computed
           topics without reprocessing the page.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function VerboseLogsSection() {
+  const [verboseLogs, setVerboseLogs] = useState(DEFAULT_VERBOSE_LOGS);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadVerboseLogs() {
+      const stored = await getStoredVerboseLogs();
+      if (isCurrent) setVerboseLogs(stored);
+    }
+
+    void loadVerboseLogs();
+    const handleStorageChange = (changes, areaName) => {
+      if (areaName !== 'local' || !changes || !changes[VERBOSE_LOGS_KEY]) return;
+      setVerboseLogs(normalizeVerboseLogs(changes[VERBOSE_LOGS_KEY].newValue));
+    };
+    try {
+      chrome.storage.onChanged.addListener(handleStorageChange);
+    } catch (_) {
+      /* noop */
+    }
+    return () => {
+      isCurrent = false;
+      try {
+        chrome.storage.onChanged.removeListener(handleStorageChange);
+      } catch (_) {
+        /* noop */
+      }
+    };
+  }, []);
+
+  const handleToggle = useCallback(async (next) => {
+    // Optimistic update; on a write failure resync to what is actually stored.
+    setVerboseLogs(next);
+    try {
+      await setStoredVerboseLogs(next);
+    } catch (_) {
+      const stored = await getStoredVerboseLogs();
+      setVerboseLogs(stored);
+    }
+  }, []);
+
+  return (
+    <div className="settings-group">
+      <h3>Diagnostics</h3>
+      <div className="field">
+        <label htmlFor="verbose-logs">
+          <input
+            id="verbose-logs"
+            type="checkbox"
+            checked={verboseLogs}
+            onChange={(event) => handleToggle(event.target.checked)}
+          />{' '}
+          Verbose pipeline logs
+        </label>
+        <div className="note">
+          When enabled, each pipeline stage — including every per-chunk and per-topic LLM request
+          and response — is written to the service worker console and to the record&apos;s
+          processing log. Leave off for quieter runs; only lifecycle and error events are recorded
+          then. Applies to the next pipeline run after the toggle changes.
         </div>
       </div>
     </div>
@@ -1074,6 +1147,7 @@ export function OptionsApp() {
           </div>
           <ContentLanguageSection />
           <SummaryGenerationSection />
+          <VerboseLogsSection />
           <HighlightColorSection />
         </div>
       </section>

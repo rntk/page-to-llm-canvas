@@ -4,6 +4,7 @@
 export const LLM_REQUEST_TIMEOUT_MS = 120_000;
 import { getActiveProvider } from './providers.js';
 import { createClient } from './llm_clients.js';
+import { getStoredVerboseLogs } from './verboseLogSettings.js';
 
 /**
  * Makes a single completion call to the active provider.
@@ -12,6 +13,10 @@ import { createClient } from './llm_clients.js';
  *
  * The `model` argument is accepted for backwards-compatibility but ignored; the
  * model is taken from the active provider configured on the options page.
+ *
+ * Request/response console detail (and the raw client dumps inside
+ * llm_clients.js) only fire when the "verbose pipeline logs" setting is on.
+ * Failures still always warn.
  *
  * @param {{prompt: string, temperature?: number, model?: string, signal?: AbortSignal}} options
  * @returns {Promise<{ok: boolean, content?: string, error?: string}>}
@@ -41,25 +46,32 @@ export async function callLLMDirect(options) {
   const startedAt = Date.now();
   const timeoutSignal = createRequestTimeoutSignal(LLM_REQUEST_TIMEOUT_MS);
   const requestSignal = mergeAbortSignals(signal, timeoutSignal.signal);
-  console.info('PageToLLM Canvas LLM request:', {
-    provider: provider.name,
-    type: provider.type,
-    model: provider.model,
-    promptLength: prompt.length,
-    temperature,
-  });
+  // Snapshot per call so a mid-flight options toggle cannot half-apply.
+  const verboseLogs = await getStoredVerboseLogs();
+  if (verboseLogs) {
+    console.info('PageToLLM Canvas LLM request:', {
+      provider: provider.name,
+      type: provider.type,
+      model: provider.model,
+      promptLength: prompt.length,
+      temperature,
+    });
+  }
 
   try {
     const { content, endpoint } = await client.complete({
       prompt,
       temperature,
       signal: requestSignal,
+      verboseLogs,
     });
-    console.info('PageToLLM Canvas LLM response:', {
-      endpoint,
-      durationMs: Date.now() - startedAt,
-      responseLength: content.length,
-    });
+    if (verboseLogs) {
+      console.info('PageToLLM Canvas LLM response:', {
+        endpoint,
+        durationMs: Date.now() - startedAt,
+        responseLength: content.length,
+      });
+    }
     return { ok: true, content };
   } catch (e) {
     if (signal?.aborted) {

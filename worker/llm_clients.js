@@ -6,8 +6,10 @@
 // reference implementation are intentionally omitted.
 //
 // Every client exposes the same shape:
-//   complete({ prompt, temperature?, signal? }) -> Promise<{ content, endpoint, model }>
+//   complete({ prompt, temperature?, signal?, verboseLogs? }) -> Promise<{ content, endpoint, model }>
 // and throws an Error (message reused verbatim in callLLMDirect) on failure.
+// Raw prompt/request/response dumps and cache-usage stats only log when
+// `verboseLogs` is true (set from the options "verbose pipeline logs" toggle).
 
 import { ProviderType, ServiceTier } from './providers.js';
 
@@ -75,7 +77,8 @@ function roundedPercent(part, total) {
   return Math.round((part / total) * 1000) / 10;
 }
 
-function logCacheUsage(provider, data) {
+function logCacheUsage(provider, data, verboseLogs) {
+  if (!verboseLogs) return;
   const usage = data?.usage || {};
   const promptTokens = finiteNumber(usage.prompt_tokens ?? usage.input_tokens);
   const openAiCachedTokens = finiteNumber(usage.prompt_tokens_details?.cached_tokens);
@@ -125,6 +128,12 @@ function logCacheUsage(provider, data) {
   });
 }
 
+/** @param {boolean} [verboseLogs] */
+function logClientVerbose(verboseLogs, ...args) {
+  if (!verboseLogs) return;
+  console.log(...args);
+}
+
 /**
  * OpenAI-compatible `/chat/completions` client. Covers openai, openrouter and
  * openai_comp (custom URL). `cachePrompt` adds the llama.cpp-specific
@@ -143,7 +152,7 @@ function openAICompatibleClient({
   providerLabel = 'openai-compatible',
 }) {
   return {
-    async complete({ prompt, temperature = 0.8, signal }) {
+    async complete({ prompt, temperature = 0.8, signal, verboseLogs = false }) {
       const endpoint = buildChatCompletionsUrl(baseUrl);
       assertSafeTokenTransport(endpoint, apiKey);
       const headers = { 'Content-Type': 'application/json' };
@@ -159,8 +168,8 @@ function openAICompatibleClient({
       if (promptCacheKey) body.prompt_cache_key = promptCacheKey;
       if (cachePrompt) body.cache_prompt = true;
 
-      console.log('LLM client raw prompt:', prompt);
-      console.log('LLM client request:', { endpoint, body });
+      logClientVerbose(verboseLogs, 'LLM client raw prompt:', prompt);
+      logClientVerbose(verboseLogs, 'LLM client request:', { endpoint, body });
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -171,8 +180,8 @@ function openAICompatibleClient({
       if (!res.ok) throw new Error(await readErrorText(res));
 
       const data = await res.json();
-      console.log('LLM client raw response data:', data);
-      logCacheUsage(providerLabel, data);
+      logClientVerbose(verboseLogs, 'LLM client raw response data:', data);
+      logCacheUsage(providerLabel, data, verboseLogs);
       const content = data?.choices?.[0]?.message?.content;
       const cleaned = typeof content === 'string' ? stripThink(content) : '';
       if (!cleaned) throw new Error('Empty LLM response');
@@ -199,7 +208,7 @@ function anthropicCacheableContent(prompt) {
 /** Anthropic Messages API client. */
 function anthropicClient({ apiKey, model, serviceTier }) {
   return {
-    async complete({ prompt, temperature, signal }) {
+    async complete({ prompt, temperature, signal, verboseLogs = false }) {
       const endpoint = 'https://api.anthropic.com/v1/messages';
       const headers = {
         'Content-Type': 'application/json',
@@ -222,8 +231,8 @@ function anthropicClient({ apiKey, model, serviceTier }) {
       if (anthropicServiceTier) body.service_tier = anthropicServiceTier;
       if (typeof temperature === 'number') body.temperature = temperature;
 
-      console.log('LLM client raw prompt:', prompt);
-      console.log('LLM client request:', { endpoint, body });
+      logClientVerbose(verboseLogs, 'LLM client raw prompt:', prompt);
+      logClientVerbose(verboseLogs, 'LLM client request:', { endpoint, body });
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -234,8 +243,8 @@ function anthropicClient({ apiKey, model, serviceTier }) {
       if (!res.ok) throw new Error(await readErrorText(res));
 
       const data = await res.json();
-      console.log('LLM client raw response data:', data);
-      logCacheUsage('anthropic', data);
+      logClientVerbose(verboseLogs, 'LLM client raw response data:', data);
+      logCacheUsage('anthropic', data, verboseLogs);
       const blocks = Array.isArray(data?.content) ? data.content : [];
       const content = blocks
         .filter((b) => b?.type === 'text' && typeof b.text === 'string')
@@ -257,7 +266,7 @@ function toAnthropicServiceTier(serviceTier) {
 /**
  * Creates a completion client for a stored provider entry.
  * @param {{type: string, model: string, token?: string, url?: string}} provider
- * @returns {{complete: (opts: {prompt: string, temperature?: number, signal?: AbortSignal}) => Promise<{content: string, endpoint: string, model: string}>}}
+ * @returns {{complete: (opts: {prompt: string, temperature?: number, signal?: AbortSignal, verboseLogs?: boolean}) => Promise<{content: string, endpoint: string, model: string}>}}
  */
 export function createClient(provider) {
   if (!provider || typeof provider !== 'object') {

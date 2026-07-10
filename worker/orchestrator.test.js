@@ -16,6 +16,7 @@ import * as storage from './storage.js';
 import * as html from './html.js';
 import * as sentenceSplitter from './sentence_splitter.js';
 import * as llm from './llm.js';
+import { getStoredVerboseLogs } from './verboseLogSettings.js';
 
 vi.mock('./storage.js', () => ({
   readRecord: vi.fn(),
@@ -42,6 +43,14 @@ vi.mock('./llm.js', () => ({
     }
     return results;
   }),
+}));
+
+vi.mock('./verboseLogSettings.js', () => ({
+  getStoredVerboseLogs: vi.fn(async () => false),
+}));
+
+vi.mock('./languageSettings.js', () => ({
+  getStoredPreferContentLanguage: vi.fn(async () => false),
 }));
 
 function makeMapping(text) {
@@ -487,6 +496,66 @@ describe('runPipeline', () => {
       }),
       expect.anything(),
     );
+  });
+
+  function loggedStages() {
+    return storage.appendProcessingLog.mock.calls.map((call) => call[1]);
+  }
+
+  it('skips verbose processing-log stages when the setting is off', async () => {
+    getStoredVerboseLogs.mockResolvedValue(false);
+    const plainText = 'Sentence one. Sentence two.';
+    const mapping = makeMapping(plainText);
+
+    storage.readRecord.mockResolvedValue(makeRecord('key-quiet', '<p>Sentence one. Sentence two.</p>'));
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'Sentence one.', start: 0, end: 13 },
+      { text: 'Sentence two.', start: 14, end: 27 },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary text.';
+      return '';
+    });
+
+    await runPipeline('key-quiet');
+
+    const stages = loggedStages();
+    expect(stages).toContain('pipeline_start');
+    expect(stages).toContain('pipeline_done');
+    expect(stages).not.toContain('cleaning_html_start');
+    expect(stages).not.toContain('topic_ranges_llm_request');
+    expect(stages).not.toContain('topic_summary_llm_request');
+    expect(stages).not.toContain('topic_tree_merge_start');
+  });
+
+  it('records verbose processing-log stages when the setting is on', async () => {
+    getStoredVerboseLogs.mockResolvedValue(true);
+    const plainText = 'Sentence one. Sentence two.';
+    const mapping = makeMapping(plainText);
+
+    storage.readRecord.mockResolvedValue(makeRecord('key-verbose', '<p>Sentence one. Sentence two.</p>'));
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'Sentence one.', start: 0, end: 13 },
+      { text: 'Sentence two.', start: 14, end: 27 },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary text.';
+      return '';
+    });
+
+    await runPipeline('key-verbose');
+
+    const stages = loggedStages();
+    expect(stages).toContain('pipeline_start');
+    expect(stages).toContain('cleaning_html_start');
+    expect(stages).toContain('topic_ranges_llm_request');
+    expect(stages).toContain('topic_summary_llm_request');
+    expect(stages).toContain('topic_tree_merge_start');
+    expect(stages).toContain('pipeline_done');
   });
 
   it('summarizes a parent topic from its own source text, not by merging child summaries', async () => {
