@@ -50,7 +50,7 @@ describe('buildTopicRangesPrompt', () => {
   it('includes output format instructions', () => {
     const prompt = buildTopicRangesPrompt('text');
     expect(prompt).toContain('OUTPUT FORMAT');
-    expect(prompt).toContain('Category>Subcategory>SpecificTopic: MarkerRanges');
+    expect(prompt).toContain('Broad Category>Subcategory>Specific Topic: marker ranges');
   });
 });
 
