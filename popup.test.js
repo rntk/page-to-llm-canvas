@@ -157,10 +157,11 @@ describe('popup pure functions', () => {
       'Topics',
       'Summaries',
       'Reprocess',
+      'Export data',
       'Delete',
     ]);
     expect(popup.getRecordActions({ status: 'summarizing' }).map((action) => action.label)).toEqual(
-      ['Canvas', 'Reprocess', 'Delete'],
+      ['Canvas', 'Reprocess', 'Export data', 'Delete'],
     );
   });
 
@@ -175,6 +176,7 @@ describe('popup pure functions', () => {
         label: 'Reprocess',
         messageType: 'reprocessRecord',
       }),
+      expect.objectContaining({ kind: 'export', label: 'Export data', messageType: 'getRecord' }),
       expect.objectContaining({ kind: 'message', label: 'Delete', messageType: 'deleteRecord' }),
     ]);
   });
@@ -191,6 +193,7 @@ describe('popup pure functions', () => {
       'Summaries',
       'Reprocess',
       'Generate summaries',
+      'Export data',
       'Delete',
     ]);
     expect(
@@ -225,6 +228,7 @@ describe('popup pure functions', () => {
       'Summaries',
       'YT Sync',
       'Reprocess',
+      'Export data',
       'Delete',
     ]);
     expect(

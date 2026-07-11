@@ -208,6 +208,14 @@ export function getRecordActions(record) {
   }
 
   manageActions.push({
+    kind: 'export',
+    label: 'Export data',
+    messageType: MSG.getRecord,
+    failureMessage: 'Export failed',
+    description: 'Download this saved analysis as a JSON file.',
+  });
+
+  manageActions.push({
     kind: 'message',
     label: 'Delete',
     className: 'danger',
@@ -286,6 +294,41 @@ function makeAction(label, key, mode, description, isPrimary = false) {
   return button;
 }
 
+export function safeFilenamePart(value) {
+  const cleaned = String(value || 'record')
+    .replace(/[^a-z0-9._-]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return cleaned || 'record';
+}
+
+function downloadJsonFile(filename, value) {
+  const blob = new Blob([JSON.stringify(value, null, 2) + '\n'], {
+    type: 'application/json',
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+export async function handleExportAction(action, key, { runtimeMessage, onError }) {
+  try {
+    const response = await runtimeMessage({ type: action.messageType, key });
+    if (!response || !response.ok || !response.record) {
+      onError(responseErrorMessage(response, action.failureMessage));
+      return;
+    }
+    downloadJsonFile(`pagetollm-data-${safeFilenamePart(key)}.json`, response.record);
+  } catch (err) {
+    onError(err.message || String(err));
+  }
+}
+
 export async function handleMessageAction(
   action,
   key,
@@ -304,6 +347,18 @@ export async function handleMessageAction(
   } catch (err) {
     onError(err.message || String(err));
   }
+}
+
+function makeExportAction(action, key) {
+  const button = document.createElement('button');
+  button.className = 'action';
+  button.type = 'button';
+  button.textContent = action.label;
+  addActionHint(button, action.label, action.description);
+  button.addEventListener('click', () =>
+    handleExportAction(action, key, { runtimeMessage, onError: setError }),
+  );
+  return button;
 }
 
 function makeMessageAction(action, key) {
@@ -400,6 +455,8 @@ function renderRecords(records, { force = false } = {}) {
         viewGroup.appendChild(
           makeAction(action.label, display.key, action.mode, action.description, isPrimary),
         );
+      } else if (action.kind === 'export') {
+        manageGroup.appendChild(makeExportAction(action, display.key));
       } else {
         manageGroup.appendChild(makeMessageAction(action, display.key));
       }
