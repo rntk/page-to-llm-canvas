@@ -80,7 +80,13 @@ export async function runPipeline(key, options = {}) {
       callLLMWithRetry,
     });
   } catch (error) {
-    if (error?.name === 'AbortError') return;
+    if (error?.name === 'AbortError') {
+      // A superseded run id or an external cancel lands here. We intentionally
+      // leave the record's status alone (a newer run owns it), but log so these
+      // exits are not completely invisible when diagnosing a stuck record.
+      console.info('PageToLLM Canvas pipeline aborted:', key, (error && error.message) || error);
+      return;
+    }
 
     const formattedError = formatPipelineError(error);
     await runtime.log('pipeline_error', { error: formattedError });

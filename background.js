@@ -241,12 +241,6 @@ function scheduleKeepAlive() {
   });
 }
 
-function clearKeepAliveIfIdle() {
-  if (_jobRegistry.size === 0 && _starting.size === 0) {
-    chrome.alarms.clear(KEEPALIVE_ALARM);
-  }
-}
-
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== KEEPALIVE_ALARM) return;
   // Resume any in-flight records that lost their SW context (e.g. after SW termination).
@@ -304,7 +298,11 @@ function cancelActivePipeline(key) {
   if (!job) return false;
   job.controller.abort();
   _jobRegistry.delete(key);
-  clearKeepAliveIfIdle();
+  // Intentionally do NOT clear the keepalive alarm here: the in-memory registry
+  // is not the source of truth for whether work remains. A record can still be
+  // in an in-flight status in storage (e.g. an aborted run that left its status
+  // untouched). The onAlarm handler is the only place allowed to clear the
+  // alarm, and it does so from storage after confirming nothing is in-flight.
   return true;
 }
 
@@ -374,7 +372,10 @@ export async function startPipeline(key) {
         if (current?.promise === promise) {
           _jobRegistry.delete(key);
         }
-        clearKeepAliveIfIdle();
+        // Do not clear the keepalive alarm from here. If this run finished by
+        // being aborted, the record may still be in an in-flight status in
+        // storage; clearing the alarm would orphan it with nothing left to
+        // resume it. The onAlarm handler clears the alarm from storage truth.
       });
 
     _jobRegistry.set(key, { promise, controller, pipelineRunId });
@@ -840,6 +841,48 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   return true;
 });
+
+/**
+ * Reconciles storage against the in-memory job registry: any record still in an
+ * in-flight status is (re)started and the keepalive alarm is (re)armed. The
+ * job registry does not survive service-worker termination, and the keepalive
+ * alarm can be lost across a browser restart or extension update, so this scan
+ * is what repairs records that would otherwise be orphaned mid-pipeline (see
+ * onStartup/onInstalled below). startPipeline dedupes against the registry, so
+ * calling this when jobs are already healthy is a no-op.
+ */
+async function resumeInFlightRecords() {
+  let items;
+  try {
+    items = await listRecords();
+  } catch (err) {
+    console.warn('PageToLLM Canvas resume scan failed:', err);
+    return;
+  }
+  const inFlight = (Array.isArray(items) ? items : []).filter(isInFlightRecord);
+  if (inFlight.length === 0) return;
+  scheduleKeepAlive();
+  for (const rec of inFlight) {
+    startPipeline(rec.key).catch((err) => {
+      console.error('PageToLLM Canvas resume failed for', rec.key, err);
+    });
+  }
+}
+
+// Resume orphaned in-flight records when the browser starts or the extension is
+// installed/updated — the two events that can drop the keepalive alarm the
+// running-pipeline resume otherwise depends on. Guarded because not every
+// runtime (or test harness) exposes these events.
+if (chrome.runtime?.onStartup?.addListener) {
+  chrome.runtime.onStartup.addListener(() => {
+    void resumeInFlightRecords();
+  });
+}
+if (chrome.runtime?.onInstalled?.addListener) {
+  chrome.runtime.onInstalled.addListener(() => {
+    void resumeInFlightRecords();
+  });
+}
 
 // Backfill index projections from older versions (never throws) before the
 // options page can list records missing newer projection fields.
