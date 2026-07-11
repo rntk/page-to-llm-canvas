@@ -1,5 +1,6 @@
 import { createThemeController, themeIcon, themeLabel } from './theme.js';
 import { getYouTubeVideoId } from './src/utils/youtubeTimestamp.js';
+import { sendRuntimeMessage, sendTabMessage } from './src/utils/runtimeMessages.js';
 import { MSG } from './messages.js';
 
 // Re-exported so popup.test.js (and other importers) keep resolving it from here.
@@ -31,28 +32,15 @@ let refreshRequestId = 0;
 let storageRefreshTimer = null;
 let lastRenderedRecordsSignature = '';
 
+// Thin re-exports so popup.test.js (and other importers) keep resolving
+// these names from popup.js; the actual promise/lastError plumbing lives in
+// the shared src/utils/runtimeMessages.js helper.
 export function runtimeMessage(message) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve(response);
-    });
-  });
+  return sendRuntimeMessage(message);
 }
 
 export function tabMessage(tabId, message) {
-  return new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(tabId, message, (response) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve(response);
-    });
-  });
+  return sendTabMessage(tabId, message);
 }
 
 export async function getActiveTab() {

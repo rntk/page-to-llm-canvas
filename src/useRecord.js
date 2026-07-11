@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { MSG } from '../messages.js';
+import { sendRuntimeMessage } from './utils/runtimeMessages.js';
 
 /**
  * Subscribes to the record identified by `key`. The record is physically
@@ -33,20 +34,10 @@ export function useRecord(key) {
     const summariesKey = `pagetollm:rec:${key}:summaries`;
     const docKeys = [metaKey, contentKey, summariesKey];
 
-    const fetchViaServiceWorker = () =>
-      new Promise((resolve, reject) => {
-        try {
-          chrome.runtime.sendMessage({ type: MSG.getRecord, key }, (resp) => {
-            if (chrome.runtime.lastError) {
-              reject(new Error(String(chrome.runtime.lastError.message || 'runtime error')));
-              return;
-            }
-            resolve(resp && resp.ok && resp.record ? resp.record : null);
-          });
-        } catch (e) {
-          reject(e);
-        }
-      });
+    const fetchViaServiceWorker = async () => {
+      const resp = await sendRuntimeMessage({ type: MSG.getRecord, key });
+      return resp && resp.ok && resp.record ? resp.record : null;
+    };
 
     // 1) initial load via SW, falling back to a direct (one-off) multi-doc
     // read in case the SW hasn't registered a message listener yet.

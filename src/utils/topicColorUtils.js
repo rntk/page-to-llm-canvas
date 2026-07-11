@@ -2,6 +2,8 @@
  * Minimal deterministic topic color utilities (copied/trimmed from main frontend).
  */
 
+import { splitTopicPath } from '../topicDomain.js';
+
 function hashString(value) {
   let hash = 0;
   const input = String(value || '');
@@ -13,18 +15,12 @@ function hashString(value) {
 }
 
 function getRootTopicName(topicName) {
-  const parts = String(topicName || '')
-    .split('>')
-    .map((p) => p.trim())
-    .filter(Boolean);
+  const parts = splitTopicPath(topicName);
   return parts[0] || '';
 }
 
 function getTopicDepth(topicName) {
-  const parts = String(topicName || '')
-    .split('>')
-    .map((p) => p.trim())
-    .filter(Boolean);
+  const parts = splitTopicPath(topicName);
   return Math.max(0, parts.length - 1);
 }
 

@@ -6,22 +6,15 @@ import {
   LLM_METRICS_MAX_RECENT,
   LLM_TASK_TYPES,
   emptyLlmMetrics,
-  emptyLlmMetricTotals,
   normalizeLlmMetrics,
   normalizeLlmUsage,
   normalizeTaskType,
-  averageDurationMs,
-  cacheHitRate,
-  formatDurationMs,
-  formatMetricCount,
-  formatMetricPercent,
-  formatTaskTypeLabel,
-  listTaskTypes,
   wrapCallLLMWithRetry,
   recordLlmMetric,
   getLlmMetrics,
   clearLlmMetrics,
 } from './llmMetrics.js';
+import { listTaskTypes } from './llmMetricsFormat.js';
 
 function stubChromeStore(initial = {}) {
   const store = { ...initial };
@@ -136,42 +129,14 @@ describe('normalizeLlmMetrics / helpers', () => {
     expect(normalized.recent[0].taskType).toBe(LLM_TASK_TYPES.UNKNOWN);
   });
 
-  it('normalizes and labels task types', () => {
+  it('normalizes task types', () => {
     expect(normalizeTaskType(undefined)).toBe(LLM_TASK_TYPES.UNKNOWN);
     expect(normalizeTaskType('')).toBe(LLM_TASK_TYPES.UNKNOWN);
     expect(normalizeTaskType(LLM_TASK_TYPES.TOPIC_RANGES)).toBe(LLM_TASK_TYPES.TOPIC_RANGES);
     expect(normalizeTaskType('  Custom Task!  ')).toBe('custom_task');
-    expect(formatTaskTypeLabel(LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE)).toBe('Summary merge');
-    expect(formatTaskTypeLabel('custom_task')).toBe('Custom Task');
   });
 
-  it('lists task types by count descending', () => {
-    const metrics = {
-      ...emptyLlmMetrics(),
-      byTaskType: {
-        article_summary: { ...emptyLlmMetricTotals(), totalCount: 1 },
-        topic_ranges: { ...emptyLlmMetricTotals(), totalCount: 5 },
-      },
-    };
-    expect(listTaskTypes(metrics)).toEqual(['topic_ranges', 'article_summary']);
-  });
-
-  it('computes average duration and formats durations', () => {
-    expect(averageDurationMs(emptyLlmMetrics())).toBeNull();
-    expect(averageDurationMs({ ...emptyLlmMetrics(), totalCount: 2, totalDurationMs: 500 })).toBe(
-      250,
-    );
-    expect(
-      averageDurationMs({ ...emptyLlmMetricTotals(), totalCount: 4, totalDurationMs: 400 }),
-    ).toBe(100);
-    expect(formatDurationMs(null)).toBe('—');
-    expect(formatDurationMs(420)).toBe('420 ms');
-    expect(formatDurationMs(1500)).toBe('1.50 s');
-    expect(formatDurationMs(12500)).toBe('12.5 s');
-    expect(formatDurationMs(125000)).toBe('2m 5s');
-  });
-
-  it('normalizes and formats token and cache metrics', () => {
+  it('normalizes token and cache usage', () => {
     expect(
       normalizeLlmUsage({
         inputTokens: '1200',
@@ -186,17 +151,6 @@ describe('normalizeLlmMetrics / helpers', () => {
       cacheReadTokens: 900,
       cacheWriteTokens: 0,
     });
-    expect(
-      cacheHitRate({
-        totalCacheReadTokens: 900,
-        totalCacheWriteTokens: 100,
-        totalCacheMissTokens: 200,
-      }),
-    ).toBe(0.75);
-    expect(cacheHitRate(emptyLlmMetrics())).toBeNull();
-    expect(formatMetricCount(12345.4)).toBe('12,345');
-    expect(formatMetricCount(null)).toBe('—');
-    expect(formatMetricPercent(0.7534)).toBe('75.3%');
   });
 });
 

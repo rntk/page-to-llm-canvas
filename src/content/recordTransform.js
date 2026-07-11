@@ -1,28 +1,33 @@
 import { getHierarchyTopicAccentColor } from '../utils/topicColorUtils.js';
+import {
+  splitTopicPath,
+  getTopicSentenceNumbersRaw,
+  computeMaxTopicLevelForRecord,
+} from '../topicDomain.js';
 
+/**
+ * Extract sentence numbers from a topic, preserving zero-based indices (the
+ * content pipeline's `record.sentences` array is zero-indexed, unlike the
+ * hierarchy view's one-based numbering). Delegates to
+ * ../topicDomain.js#getTopicSentenceNumbersRaw, which also honors
+ * `topic.sentenceIndices` and filters out non-integer/negative values.
+ *
+ * @param {{sentences?: number[], sentenceIndices?: number[], ranges?: Array<{sentence_start?: number, sentence_end?: number}>}} topic
+ * @returns {number[]}
+ */
 export function getTopicSentenceNumbers(topic) {
-  if (Array.isArray(topic.sentences) && topic.sentences.length) {
-    return topic.sentences.slice().sort((a, b) => a - b);
-  }
-  const set = new Set();
-  (topic.ranges || []).forEach((r) => {
-    const s = Number(r.sentence_start);
-    const rawEnd =
-      r.sentence_end === null || r.sentence_end === undefined || r.sentence_end === ''
-        ? r.sentence_start
-        : r.sentence_end;
-    const e = Number(rawEnd);
-    if (!Number.isInteger(s) || !Number.isInteger(e)) return;
-    for (let i = Math.min(s, e); i <= Math.max(s, e); i++) set.add(i);
-  });
-  return Array.from(set).sort((a, b) => a - b);
+  return getTopicSentenceNumbersRaw(topic);
 }
 
+/**
+ * Split a hierarchical topic path into normalized path segments. Delegates to
+ * ../topicDomain.js.
+ *
+ * @param {string} name
+ * @returns {string[]}
+ */
 export function splitPath(name) {
-  return String(name || '')
-    .split('>')
-    .map((p) => p.trim())
-    .filter(Boolean);
+  return splitTopicPath(name);
 }
 
 /**
@@ -30,28 +35,13 @@ export function splitPath(name) {
  * topic list (depth from `name` path) and the `topic_summary_index` (each
  * entry's explicit `level`, or its path depth when absent). Drives the rail's
  * level selector, so summary-only levels count even when no topic reaches them.
+ * Delegates to ../topicDomain.js.
  *
  * @param {{topics?: Array<{name?: string}>, topic_summary_index?: Record<string, {level?: number}>}} record
  * @returns {number} The maximum 0-based level.
  */
 export function computeMaxTopicLevel(record) {
-  let maxLevel = 0;
-  const topics = Array.isArray(record.topics) ? record.topics : [];
-  for (const t of topics) {
-    const depth = splitPath(t.name).length - 1;
-    if (depth > maxLevel) maxLevel = depth;
-  }
-  const index = record.topic_summary_index;
-  if (index && typeof index === 'object') {
-    for (const [rawPath, entry] of Object.entries(index)) {
-      if (!rawPath) continue;
-      const parts = splitPath(rawPath);
-      const indexEntry = entry && typeof entry === 'object' ? entry : {};
-      const level = typeof indexEntry.level === 'number' ? indexEntry.level : parts.length - 1;
-      if (level > maxLevel) maxLevel = level;
-    }
-  }
-  return maxLevel;
+  return computeMaxTopicLevelForRecord(record);
 }
 
 export { getHierarchyTopicAccentColor as topicAccentColor };

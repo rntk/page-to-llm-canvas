@@ -18,6 +18,20 @@ export function splitTopicPath(name) {
 }
 
 /**
+ * Resolve a range's raw end value, falling back to its start when the end is
+ * missing (`null`/`undefined`/`''`). Empty string is common in serialized
+ * records, and `Number('')` coerces to `0`, so it must be treated as absent
+ * rather than passed straight to `Number()`.
+ *
+ * @param {{sentence_start?: number, sentence_end?: number}} range
+ * @returns {number}
+ */
+function resolveRangeEnd(range) {
+  const rawEnd = range?.sentence_end;
+  return rawEnd === null || rawEnd === undefined || rawEnd === '' ? range?.sentence_start : rawEnd;
+}
+
+/**
  * Calculate the deepest zero-based level among the supplied topics.
  *
  * @param {Array<{name: string}>} topics
@@ -31,6 +45,35 @@ export function getMaxTopicLevel(topics) {
     if (depth > max) max = depth;
   }
   return max;
+}
+
+/**
+ * Compute the deepest topic level present in a record, considering both the
+ * topic list (depth from `name` path) and the `topic_summary_index` (each
+ * entry's explicit `level`, or its path depth when absent). Drives the rail's
+ * level selector, so summary-only levels count even when no topic reaches them.
+ *
+ * @param {{topics?: Array<{name?: string}>, topic_summary_index?: Record<string, {level?: number}>}} record
+ * @returns {number} The maximum 0-based level.
+ */
+export function computeMaxTopicLevelForRecord(record) {
+  let maxLevel = 0;
+  const topics = Array.isArray(record?.topics) ? record.topics : [];
+  for (const topic of topics) {
+    const depth = splitTopicPath(topic.name).length - 1;
+    if (depth > maxLevel) maxLevel = depth;
+  }
+  const index = record?.topic_summary_index;
+  if (index && typeof index === 'object') {
+    for (const [rawPath, entry] of Object.entries(index)) {
+      if (!rawPath) continue;
+      const parts = splitTopicPath(rawPath);
+      const indexEntry = entry && typeof entry === 'object' ? entry : {};
+      const level = typeof indexEntry.level === 'number' ? indexEntry.level : parts.length - 1;
+      if (level > maxLevel) maxLevel = level;
+    }
+  }
+  return maxLevel;
 }
 
 /**
@@ -55,7 +98,7 @@ export function getTopicSentenceNumbers(topic) {
   const sentenceNumbers = new Set();
   topic.ranges.forEach((range) => {
     const start = Number(range?.sentence_start);
-    const end = Number(range?.sentence_end ?? range?.sentence_start);
+    const end = Number(resolveRangeEnd(range));
     if (!Number.isInteger(start) || !Number.isInteger(end)) return;
     const min = Math.max(1, Math.min(start, end));
     const max = Math.max(start, end);
@@ -89,7 +132,7 @@ export function getTopicSentenceNumbersRaw(topic) {
   const sentenceNumbers = new Set();
   topic.ranges.forEach((range) => {
     const start = Number(range?.sentence_start);
-    const end = Number(range?.sentence_end ?? range?.sentence_start);
+    const end = Number(resolveRangeEnd(range));
     if (!Number.isInteger(start) || !Number.isInteger(end)) return;
     const min = Math.max(0, Math.min(start, end));
     const max = Math.max(start, end);

@@ -9,6 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import mainSource from '../content/main.jsx?raw';
+import inPageRailControllerSource from '../content/inPageRailController.jsx?raw';
 
 describe('pagetollm-scroll-to-topic-sentences message handler', () => {
   it('handles the pagetollm-scroll-to-topic-sentences message type', () => {
@@ -49,29 +50,31 @@ describe('pagetollm-scroll-to-topic-sentences message handler', () => {
 
 describe('openInPageRail options handling', () => {
   it('accepts a third options parameter with a default of {}', () => {
-    expect(mainSource).toContain('options = {}');
+    expect(inPageRailControllerSource).toContain('options = {}');
   });
 
   it('reads options.level to set selectedLevel', () => {
-    expect(mainSource).toContain('options.level');
-    expect(mainSource).toContain('selectedLevel');
+    expect(inPageRailControllerSource).toContain('options.level');
+    expect(inPageRailControllerSource).toContain('selectedLevel');
   });
 
   it('defaults selectedLevel to 0 when options.level is not a number', () => {
-    expect(mainSource).toContain("typeof options.level === 'number'");
+    expect(inPageRailControllerSource).toContain("typeof options.level === 'number'");
   });
 
   it('calls highlightTopic with sentenceNumbers when provided', () => {
-    expect(mainSource).toContain('highlightTopic(options.sentenceNumbers');
+    expect(inPageRailControllerSource).toContain('highlightTopic(options.sentenceNumbers');
   });
 
   it('calls scrollToFirst with sentenceNumbers after highlighting', () => {
-    expect(mainSource).toContain('scrollToFirst(options.sentenceNumbers)');
+    expect(inPageRailControllerSource).toContain('scrollToFirst(options.sentenceNumbers)');
   });
 
   it('defers highlight and scroll into a requestAnimationFrame callback', () => {
-    expect(mainSource).toContain('requestAnimationFrame');
-    const rafBlock = mainSource.slice(mainSource.indexOf('requestAnimationFrame'));
+    expect(inPageRailControllerSource).toContain('requestAnimationFrame');
+    const rafBlock = inPageRailControllerSource.slice(
+      inPageRailControllerSource.indexOf('requestAnimationFrame'),
+    );
     expect(rafBlock).toContain('highlightTopic');
     expect(rafBlock).toContain('scrollToFirst');
   });

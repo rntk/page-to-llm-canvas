@@ -4,6 +4,9 @@ import {
   emptyLlmMetrics,
   getLlmMetrics,
   clearLlmMetrics,
+  normalizeLlmMetrics,
+} from '../../worker/llmMetrics.js';
+import {
   averageDurationMs,
   cacheHitRate,
   formatDurationMs,
@@ -11,8 +14,7 @@ import {
   formatMetricPercent,
   formatTaskTypeLabel,
   listTaskTypes,
-  normalizeLlmMetrics,
-} from '../../worker/llmMetrics.js';
+} from '../../worker/llmMetricsFormat.js';
 
 function formatDate(timestamp) {
   if (!timestamp) return '';

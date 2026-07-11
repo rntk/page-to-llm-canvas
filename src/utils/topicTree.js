@@ -1,3 +1,5 @@
+import { splitTopicPath } from '../topicDomain.js';
+
 /**
  * Build a nested tree from a flat list of topics whose `name` encodes a
  * hierarchy path ("A > B > C"). Returns an array of root tree entries.
@@ -6,6 +8,12 @@
  * node: { name, fullPath, uid, depth, topic }
  * `fullPath` joins parts with ">" (no spaces) to match color helpers.
  *
+ * This builds the UI's navigation tree (topic hierarchy for browsing/expanding
+ * in the rail/hierarchy views). See ../../worker/topicTreeMerge.js for the
+ * worker's separate tree builder, which merges topic summaries during
+ * extraction and has different structural requirements — the two are not
+ * merged on purpose.
+ *
  * @param {Array<{name: string, sentences?: number[]}>} topics
  * @param {number} [startDepth]
  */
@@ -13,10 +21,7 @@ export function buildTopicTree(topics, startDepth = 0) {
   const roots = new Map();
 
   for (const topic of Array.isArray(topics) ? topics : []) {
-    const parts = String(topic?.name || '')
-      .split('>')
-      .map((p) => p.trim())
-      .filter(Boolean);
+    const parts = splitTopicPath(topic?.name);
     if (parts.length <= startDepth) continue;
 
     let level = roots;

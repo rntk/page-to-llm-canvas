@@ -1,15 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { runPipeline } from './orchestrator.js';
 import {
-  runPipeline,
   chunkTaggedText,
   groupsToTopics,
   rangesToSentenceList,
   mapTextOffsetToHtml,
-  parseSummaryResponse,
-  classifyLlmError,
-  shouldInlineRun,
-  chunkSourceSentences,
-} from './orchestrator.js';
+} from './topicRangesStage.js';
+import { parseSummaryResponse, shouldInlineRun, chunkSourceSentences } from './sourceSummarizer.js';
+import { classifyLlmError } from './summaryStage.js';
 import { buildTopicTree, splitContiguousRuns } from './topicTreeMerge.js';
 import * as storage from './storage.js';
 import * as html from './html.js';

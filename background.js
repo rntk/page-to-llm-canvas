@@ -19,20 +19,15 @@ import {
   deleteProvider,
   setActiveProvider,
 } from './worker/providers.js';
+import {
+  refreshActionProgressIcon,
+  scheduleActionProgressIconRefresh,
+} from './worker/actionIcon.js';
+import { isInFlightRecord, isInFlightStatus } from './worker/pipelineStatus.js';
 import { MSG } from './messages.js';
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
-const ACTION_ICON_PATHS = Object.freeze({
-  16: 'icons/icon-16.png',
-  48: 'icons/icon-48.png',
-  96: 'icons/icon-96.png',
-});
 const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
-const ACTION_ICON_PROGRESS_COLOR = '#2563eb';
-const ACTION_ICON_TRACK_COLOR = 'rgba(15, 23, 42, 0.35)';
-const ACTION_ICON_MIN_DETERMINATE_RATIO = 0.08;
-const ACTION_ICON_INDETERMINATE_RATIO = 0.22;
-const ACTION_ICON_REFRESH_DEBOUNCE_MS = 200;
 
 function isExtensionPageSender(sender) {
   const extensionRoot =
@@ -40,20 +35,10 @@ function isExtensionPageSender(sender) {
   return !!sender?.url && !!extensionRoot && sender.url.startsWith(extensionRoot);
 }
 
-// Record statuses that mean a pipeline is (or should be) actively running.
-const IN_FLIGHT_STATUSES = new Set(['pending', 'splitting', 'summarizing']);
-
 // Alarm name used to keep the service worker alive while pipelines are running.
 const KEEPALIVE_ALARM = 'pipeline-keepalive';
 // Chrome MV3 enforces a minimum of 30 s (0.5 min) for alarm periods.
 const KEEPALIVE_PERIOD_MINUTES = 0.5;
-let _actionIconUpdateId = 0;
-let _actionIconRefreshTimer = null;
-const _actionIconBitmapCache = new Map();
-
-function isInFlightRecord(record) {
-  return !!record && IN_FLIGHT_STATUSES.has(record.status);
-}
 
 function isImportableRecord(record) {
   return (
@@ -92,147 +77,6 @@ export function clearSummaryErrorFlags(topicSummaries) {
   return out;
 }
 
-export function summarizeProcessingState(records) {
-  const inFlight = (Array.isArray(records) ? records : []).filter(isInFlightRecord);
-  if (inFlight.length === 0) {
-    return { active: false, count: 0, ratio: 0 };
-  }
-
-  let done = 0;
-  let total = 0;
-  for (const rec of inFlight) {
-    const progress = rec && rec.progress;
-    const recDone = Number(progress && progress.done);
-    const recTotal = Number(progress && progress.total);
-    // Queued records still count for the badge, but only determinate stages
-    // with a total contribute to the bar ratio.
-    if (Number.isFinite(recDone) && Number.isFinite(recTotal) && recTotal > 0) {
-      done += Math.max(0, Math.min(recDone, recTotal));
-      total += recTotal;
-    }
-  }
-
-  const ratio =
-    total > 0
-      ? Math.max(ACTION_ICON_MIN_DETERMINATE_RATIO, Math.min(done / total, 1))
-      : ACTION_ICON_INDETERMINATE_RATIO;
-
-  return { active: true, count: inFlight.length, ratio };
-}
-
-function hasActionIconApi() {
-  return !!chrome.action && typeof chrome.action.setIcon === 'function';
-}
-
-function hasActionBadgeApi() {
-  return (
-    !!chrome.action &&
-    typeof chrome.action.setBadgeText === 'function' &&
-    typeof chrome.action.setBadgeBackgroundColor === 'function'
-  );
-}
-
-function setActionBadge(state) {
-  if (!hasActionBadgeApi()) return;
-  if (!state.active) {
-    chrome.action.setBadgeText({ text: '' });
-    return;
-  }
-  chrome.action.setBadgeBackgroundColor({ color: ACTION_ICON_PROGRESS_COLOR });
-  chrome.action.setBadgeText({ text: state.count > 1 ? String(state.count) : '...' });
-}
-
-function resetActionIcon() {
-  if (!hasActionIconApi()) return;
-  chrome.action.setIcon({ path: ACTION_ICON_PATHS });
-}
-
-async function loadIconBitmap(size) {
-  if (_actionIconBitmapCache.has(size)) {
-    return _actionIconBitmapCache.get(size);
-  }
-
-  const url = chrome.runtime.getURL(ACTION_ICON_PATHS[size]);
-  const bitmapPromise = fetch(url)
-    .then((response) => response.blob())
-    .then((blob) => createImageBitmap(blob))
-    .catch((err) => {
-      _actionIconBitmapCache.delete(size);
-      throw err;
-    });
-  _actionIconBitmapCache.set(size, bitmapPromise);
-  return bitmapPromise;
-}
-
-async function renderProgressIcon(size, ratio) {
-  const canvas = new OffscreenCanvas(size, size);
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-  const bitmap = await loadIconBitmap(size);
-  ctx.drawImage(bitmap, 0, 0, size, size);
-
-  const barHeight = Math.max(3, Math.round(size * 0.18));
-  const radius = Math.max(1, Math.round(barHeight / 2));
-  const inset = Math.max(1, Math.round(size * 0.08));
-  const barWidth = size - inset * 2;
-  const y = size - barHeight - inset;
-  const fillWidth = Math.max(radius * 2, Math.round(barWidth * ratio));
-
-  ctx.fillStyle = ACTION_ICON_TRACK_COLOR;
-  ctx.beginPath();
-  ctx.roundRect(inset, y, barWidth, barHeight, radius);
-  ctx.fill();
-
-  ctx.fillStyle = ACTION_ICON_PROGRESS_COLOR;
-  ctx.beginPath();
-  ctx.roundRect(inset, y, Math.min(fillWidth, barWidth), barHeight, radius);
-  ctx.fill();
-
-  return ctx.getImageData(0, 0, size, size);
-}
-
-async function setActionProgressIcon(state, updateId) {
-  setActionBadge(state);
-  if (!hasActionIconApi()) return;
-  if (!state.active) {
-    resetActionIcon();
-    return;
-  }
-  if (typeof OffscreenCanvas !== 'function' || typeof createImageBitmap !== 'function') return;
-
-  const imageData = {};
-  for (const size of Object.keys(ACTION_ICON_PATHS).map(Number)) {
-    const rendered = await renderProgressIcon(size, state.ratio);
-    if (!rendered) return;
-    imageData[size] = rendered;
-  }
-  if (updateId !== _actionIconUpdateId) return;
-  chrome.action.setIcon({ imageData });
-}
-
-async function refreshActionProgressIcon() {
-  if (_actionIconRefreshTimer) {
-    clearTimeout(_actionIconRefreshTimer);
-    _actionIconRefreshTimer = null;
-  }
-  const updateId = ++_actionIconUpdateId;
-  try {
-    const records = await listRecords();
-    if (updateId !== _actionIconUpdateId) return;
-    await setActionProgressIcon(summarizeProcessingState(records), updateId);
-  } catch (err) {
-    console.warn('PageToLLM Canvas action icon update failed:', err);
-  }
-}
-
-function scheduleActionProgressIconRefresh() {
-  if (_actionIconRefreshTimer) clearTimeout(_actionIconRefreshTimer);
-  _actionIconRefreshTimer = setTimeout(() => {
-    _actionIconRefreshTimer = null;
-    void refreshActionProgressIcon();
-  }, ACTION_ICON_REFRESH_DEBOUNCE_MS);
-}
-
 function scheduleKeepAlive() {
   chrome.alarms.get(KEEPALIVE_ALARM, (existing) => {
     if (!existing) {
@@ -245,7 +89,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== KEEPALIVE_ALARM) return;
   // Resume any in-flight records that lost their SW context (e.g. after SW termination).
   listRecords().then((items) => {
-    const inFlight = items.filter((r) => IN_FLIGHT_STATUSES.has(r.status));
+    const inFlight = items.filter(isInFlightRecord);
     if (inFlight.length === 0) {
       chrome.alarms.clear(KEEPALIVE_ALARM);
       return;
@@ -312,7 +156,7 @@ function cancelActivePipeline(key) {
  */
 function isStaleRecord(rec) {
   if (!rec) return false;
-  if (!IN_FLIGHT_STATUSES.has(rec.status)) return false;
+  if (!isInFlightStatus(rec.status)) return false;
   const age = Date.now() - (rec.updatedAt || 0);
   return age > STALE_THRESHOLD_MS;
 }
@@ -348,7 +192,7 @@ export async function startPipeline(key) {
     const rec = await readRecord(key);
     if (!rec) return;
 
-    if (!IN_FLIGHT_STATUSES.has(rec.status)) return;
+    if (!isInFlightStatus(rec.status)) return;
 
     // Skip if a healthy (non-stale) job is already in the registry.
     if (_jobRegistry.has(key) && !isStaleRecord(rec)) return;
@@ -609,7 +453,7 @@ export const MESSAGE_HANDLERS = {
         return { ok: false, error: 'record not found' };
       }
       cancelActivePipeline(msg.key);
-      if (!IN_FLIGHT_STATUSES.has(rec.status)) {
+      if (!isInFlightStatus(rec.status)) {
         return { ok: true, stale: true };
       }
       await updateRecord(msg.key, {
@@ -699,7 +543,7 @@ export const MESSAGE_HANDLERS = {
 
       for (const record of recordsByKey.values()) {
         const key = record.key.trim();
-        const status = IN_FLIGHT_STATUSES.has(record.status) ? 'done' : record.status || 'done';
+        const status = isInFlightStatus(record.status) ? 'done' : record.status || 'done';
         cancelActivePipeline(key);
         await writeRecord({
           ...record,

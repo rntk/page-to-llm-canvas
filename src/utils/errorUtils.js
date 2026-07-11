@@ -1,4 +1,5 @@
 import { MSG } from '../../messages.js';
+import { sendRuntimeMessage } from './runtimeMessages.js';
 
 /**
  * Utility function to split a pipeline error stack trace or message.
@@ -30,20 +31,19 @@ export function splitError(recordError) {
  * @param {string} [serviceName] - The name of the calling service (for logs).
  * @returns {Promise<object>}
  */
-export function retryRecord(key, serviceName = 'Canvas') {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({ type: MSG.retryRecord, key }, (resp) => {
-      if (chrome.runtime.lastError) {
-        console.warn(`PageToLLM ${serviceName} retry error:`, chrome.runtime.lastError.message);
-        reject(new Error(chrome.runtime.lastError.message));
-      } else if (resp && !resp.ok) {
-        console.warn(`PageToLLM ${serviceName} retry failed:`, resp.error);
-        reject(new Error(resp.error || 'Retry failed'));
-      } else {
-        resolve(resp);
-      }
-    });
-  });
+export async function retryRecord(key, serviceName = 'Canvas') {
+  let resp;
+  try {
+    resp = await sendRuntimeMessage({ type: MSG.retryRecord, key });
+  } catch (e) {
+    console.warn(`PageToLLM ${serviceName} retry error:`, e.message);
+    throw e;
+  }
+  if (resp && !resp.ok) {
+    console.warn(`PageToLLM ${serviceName} retry failed:`, resp.error);
+    throw new Error(resp.error || 'Retry failed');
+  }
+  return resp;
 }
 
 /**
@@ -55,18 +55,17 @@ export function retryRecord(key, serviceName = 'Canvas') {
  * @param {string} [serviceName] - The name of the calling service (for logs).
  * @returns {Promise<object>}
  */
-export function resolveSummaryErrors(key, action, serviceName = 'Canvas') {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({ type: MSG.resolveSummaryErrors, key, action }, (resp) => {
-      if (chrome.runtime.lastError) {
-        console.warn(`PageToLLM ${serviceName} resolve error:`, chrome.runtime.lastError.message);
-        reject(new Error(chrome.runtime.lastError.message));
-      } else if (resp && !resp.ok) {
-        console.warn(`PageToLLM ${serviceName} resolve failed:`, resp.error);
-        reject(new Error(resp.error || 'Resolve failed'));
-      } else {
-        resolve(resp);
-      }
-    });
-  });
+export async function resolveSummaryErrors(key, action, serviceName = 'Canvas') {
+  let resp;
+  try {
+    resp = await sendRuntimeMessage({ type: MSG.resolveSummaryErrors, key, action });
+  } catch (e) {
+    console.warn(`PageToLLM ${serviceName} resolve error:`, e.message);
+    throw e;
+  }
+  if (resp && !resp.ok) {
+    console.warn(`PageToLLM ${serviceName} resolve failed:`, resp.error);
+    throw new Error(resp.error || 'Resolve failed');
+  }
+  return resp;
 }

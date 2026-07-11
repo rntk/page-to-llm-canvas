@@ -167,6 +167,35 @@ describe('getTopicSentenceNumbers', () => {
     // sentences is present but empty — falls through to ranges
     expect(getTopicSentenceNumbers(topic)).toEqual([0, 1]);
   });
+
+  it('prefers sentenceIndices over sentences', () => {
+    const topic = { sentenceIndices: [4, 0], sentences: [7, 8] };
+    expect(getTopicSentenceNumbers(topic)).toEqual([0, 4]);
+  });
+
+  it('falls through to ranges when sentenceIndices is empty, even if sentences is populated', () => {
+    const topic = {
+      sentenceIndices: [],
+      sentences: [7, 8],
+      ranges: [{ sentence_start: 1, sentence_end: 2 }],
+    };
+    expect(getTopicSentenceNumbers(topic)).toEqual([1, 2]);
+  });
+
+  it('filters non-integer and negative explicit values', () => {
+    const topic = { sentences: [3, '2', -1, 1.5, 0] };
+    expect(getTopicSentenceNumbers(topic)).toEqual([0, 3]);
+  });
+
+  it('returns empty array when all explicit values are filtered out, without falling back to ranges', () => {
+    const topic = { sentences: ['1', -2], ranges: [{ sentence_start: 5, sentence_end: 6 }] };
+    expect(getTopicSentenceNumbers(topic)).toEqual([]);
+  });
+
+  it('clamps negative range starts to zero', () => {
+    const topic = { ranges: [{ sentence_start: -2, sentence_end: 1 }] };
+    expect(getTopicSentenceNumbers(topic)).toEqual([0, 1]);
+  });
 });
 
 // ── topicAccentColor ───────────────────────────────────────────────────────

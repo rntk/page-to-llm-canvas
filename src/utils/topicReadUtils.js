@@ -1,3 +1,5 @@
+import { splitTopicPath } from '../topicDomain.js';
+
 export function toReadTopicsSet(readTopics) {
   if (readTopics instanceof Set) return readTopics;
   if (!readTopics) return new Set();
@@ -8,10 +10,7 @@ export function isTopicRead(topicName, readTopics) {
   if (!topicName) return false;
   const set = toReadTopicsSet(readTopics);
   if (set.size === 0) return false;
-  const parts = String(topicName)
-    .split('>')
-    .map((p) => p.trim())
-    .filter(Boolean);
+  const parts = splitTopicPath(topicName);
   let current = '';
   for (let i = 0; i < parts.length; i += 1) {
     current = i === 0 ? parts[i] : `${current}>${parts[i]}`;

@@ -98,15 +98,3 @@ export async function runPipeline(key, options = {}) {
     await runtime.flushLogs();
   }
 }
-
-// Compatibility façade. These helpers now live with their owning feature but
-// remain re-exported so existing consumers can migrate independently.
-export {
-  chunkTaggedText,
-  groupsToTopics,
-  mapTextOffsetToHtml,
-  rangesToSentenceList,
-} from './topicRangesStage.js';
-export { chunkSourceSentences, parseSummaryResponse, shouldInlineRun } from './sourceSummarizer.js';
-export { classifyLlmError } from './summaryStage.js';
-export { buildTopicTree, splitContiguousRuns } from './topicTreeMerge.js';

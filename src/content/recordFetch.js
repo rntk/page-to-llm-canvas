@@ -9,6 +9,7 @@
  */
 
 import { MSG } from '../../messages.js';
+import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 
 /**
  * Fetch a record from the background via chrome.runtime.sendMessage.
@@ -17,20 +18,13 @@ import { MSG } from '../../messages.js';
  * @param {string} key
  * @returns {Promise<object|null>}
  */
-export function fetchRecord(key) {
-  return new Promise((resolve) => {
-    try {
-      globalThis.chrome.runtime.sendMessage({ type: MSG.getRecord, key }, (resp) => {
-        if (globalThis.chrome.runtime.lastError) {
-          resolve(null);
-          return;
-        }
-        resolve(resp && resp.ok ? resp.record : null);
-      });
-    } catch (_) {
-      resolve(null);
-    }
-  });
+export async function fetchRecord(key) {
+  try {
+    const resp = await sendRuntimeMessage({ type: MSG.getRecord, key });
+    return resp && resp.ok ? resp.record : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 /**

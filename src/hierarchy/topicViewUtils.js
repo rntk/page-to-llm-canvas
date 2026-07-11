@@ -2,12 +2,10 @@
  * Pure path and summary utilities shared by TopicHierarchyView.
  */
 
+import { splitTopicPath } from '../topicDomain.js';
+
 export function normalizeTopicPath(path) {
-  return String(path || '')
-    .split('>')
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .join('>');
+  return splitTopicPath(path).join('>');
 }
 
 export function spacedTopicPath(path) {
