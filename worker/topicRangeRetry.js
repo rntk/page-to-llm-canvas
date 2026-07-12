@@ -39,7 +39,7 @@ export function computeBackoffDelay(attemptIndex, baseDelayMs = DEFAULT_RETRY_BA
  * @template T
  * @param {object} opts
  * @param {(attemptIndex: number) => Promise<string>} opts.callLLM
- * @param {(raw: string) => T} opts.parse
+ * @param {(raw: string) => (T | Promise<T>)} opts.parse
  * @param {number} [opts.maxRetries]              total retries after attempt 0
  * @param {number} [opts.baseDelayMs]
  * @param {(err: unknown) => boolean} [opts.isRetryable]
@@ -65,7 +65,7 @@ export async function queryTopicRangesWithRetry({
     const raw = await callLLM(attemptIndex);
 
     try {
-      return parse(raw);
+      return await parse(raw);
     } catch (err) {
       if (!isRetryable(err) || attemptIndex >= maxRetries) throw err;
       if (onParseRetry) {

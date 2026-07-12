@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { GeneralSettingsPanel } from './GeneralSettingsPanel.jsx';
 import { LlmMetricsSection } from './LlmMetricsSection.jsx';
+import { ParserMetricsSection } from './ParserMetricsSection.jsx';
 import { ProvidersSection } from './ProvidersSection.jsx';
 import { RecordsSection } from './RecordsSection.jsx';
 
@@ -121,6 +122,7 @@ export function OptionsApp() {
         aria-labelledby="options-tab-diagnostics"
         hidden={activeTab !== 'diagnostics'}
       >
+        <ParserMetricsSection />
         <LlmMetricsSection />
       </div>
     </main>

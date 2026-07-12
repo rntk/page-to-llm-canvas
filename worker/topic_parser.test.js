@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { parseTopicRanges, groupsFromSegments, TopicParseError } from './topic_parser.js';
+import {
+  parseTopicRanges,
+  parseTopicRangesDetailed,
+  groupsFromSegments,
+  TopicParseError,
+} from './topic_parser.js';
 
 // Helpers -------------------------------------------------------------------
 
@@ -213,6 +218,58 @@ describe('TopicParseError identity', () => {
     } catch (e) {
       expect(e).toBeInstanceOf(TopicParseError);
       expect(e.diagnostics).toBeDefined();
+    }
+  });
+});
+
+describe('parser quality diagnostics', () => {
+  it('reports a clean parse without quirks', () => {
+    const { diagnostics } = parseTopicRangesDetailed('Tech>A: 0-2', 3);
+    expect(diagnostics).toMatchObject({
+      sentenceCount: 3,
+      inputLineCount: 1,
+      parsedLineCount: 1,
+      ignoredLineCount: 0,
+      parsedRangeCount: 1,
+      invalidRangeTokens: 0,
+      reversedRanges: 0,
+      outOfRange: [],
+      duplicates: [],
+      missing: [],
+    });
+  });
+
+  it('reports every permissive repair and ignored output line', () => {
+    const { diagnostics } = parseTopicRangesDetailed(
+      'commentary without a range\nTech>A: 3-1, nope\nTech>B: 3-9',
+      5,
+    );
+    expect(diagnostics).toMatchObject({
+      inputLineCount: 3,
+      parsedLineCount: 2,
+      ignoredLineCount: 1,
+      parsedRangeCount: 2,
+      invalidRangeTokens: 1,
+      reversedRanges: 1,
+      outOfRange: [[3, 9]],
+      duplicates: [3],
+      missing: [0],
+    });
+  });
+
+  it('enriches hard parse errors with response-shape diagnostics', () => {
+    expect.assertions(2);
+    try {
+      parseTopicRangesDetailed('prose\nTech>A: nope', 4);
+    } catch (error) {
+      expect(error).toBeInstanceOf(TopicParseError);
+      expect(error.diagnostics).toMatchObject({
+        sentenceCount: 4,
+        inputLineCount: 2,
+        parsedLineCount: 0,
+        ignoredLineCount: 2,
+        invalidRangeTokens: 1,
+      });
     }
   });
 });

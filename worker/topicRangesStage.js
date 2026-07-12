@@ -1,7 +1,8 @@
 import { stripTagsKeepOffsets } from './html.js';
 import { splitSentences } from './sentence_splitter.js';
 import { buildTaggedText, buildTopicRangesPrompt } from './prompts.js';
-import { parseTopicRanges, groupsFromSegments, TopicParseError } from './topic_parser.js';
+import { parseTopicRangesDetailed, groupsFromSegments, TopicParseError } from './topic_parser.js';
+import { recordParserMetric } from './parserMetrics.js';
 import { parallelMap } from './llm.js';
 import { LLM_TASK_TYPES } from './llmMetrics.js';
 import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
@@ -117,7 +118,21 @@ async function resplitSegment(runtime, segment, sentenceTexts, depth, callLLMWit
         );
         return responses.join('\n');
       },
-      parse: (raw) => parseTopicRanges(raw, sliceTexts.length),
+      parse: async (raw) => {
+        try {
+          const parsed = parseTopicRangesDetailed(raw, sliceTexts.length);
+          await recordParserMetric({ ok: true, scope: 'resplit', diagnostics: parsed.diagnostics });
+          return parsed.groups;
+        } catch (error) {
+          await recordParserMetric({
+            ok: false,
+            scope: 'resplit',
+            diagnostics: { ...error?.diagnostics, sentenceCount: sliceTexts.length },
+            error: error?.message,
+          });
+          throw error;
+        }
+      },
     });
   } catch (error) {
     await runtime.log('topic_ranges_resplit_error', {
@@ -310,11 +325,13 @@ export async function computeTopics(runtime, record, callLLMWithRetry) {
     { verbose: true },
   );
 
+  let parseAttempt = 1;
   let groups = await queryTopicRangesWithRetry({
     maxRetries: TOPIC_RANGE_MAX_RETRIES,
     baseDelayMs: TOPIC_RANGE_RETRY_BASE_DELAY_MS,
     isRetryable: (error) => error instanceof TopicParseError,
     callLLM: async (attemptIndex) => {
+      parseAttempt = attemptIndex + 1;
       const responses = await parallelMap(
         chunks,
         TOPIC_RANGE_CONCURRENCY,
@@ -343,7 +360,28 @@ export async function computeTopics(runtime, record, callLLMWithRetry) {
       );
       return responses.join('\n');
     },
-    parse: (combined) => parseTopicRanges(combined, sentenceTexts.length),
+    parse: async (combined) => {
+      try {
+        const parsed = parseTopicRangesDetailed(combined, sentenceTexts.length);
+        await recordParserMetric({
+          ok: true,
+          scope: 'primary',
+          attempt: parseAttempt,
+          recoveredAfterRetry: parseAttempt > 1,
+          diagnostics: parsed.diagnostics,
+        });
+        return parsed.groups;
+      } catch (error) {
+        await recordParserMetric({
+          ok: false,
+          scope: 'primary',
+          attempt: parseAttempt,
+          diagnostics: { ...error?.diagnostics, sentenceCount: sentenceTexts.length },
+          error: error?.message,
+        });
+        throw error;
+      }
+    },
     onParseRetry: ({ attemptNumber, maxRetries, error }) =>
       runtime.log('topic_ranges_parse_retry', {
         attempt: attemptNumber,

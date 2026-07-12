@@ -245,7 +245,7 @@ function finalizeGroups(rawGroups, sentenceCount, invalidRangeTokens = 0) {
       joined.push({ label: g.label.slice(), ranges: g.ranges.slice() });
     }
   }
-  return joined;
+  return { groups: joined, diagnostics };
 }
 
 /**
@@ -285,11 +285,19 @@ export function groupsFromSegments(segments, sentenceCount) {
     });
   }
   const rawGroups = order.map((k) => grouped.get(k));
-  return finalizeGroups(rawGroups, sentenceCount);
+  return finalizeGroups(rawGroups, sentenceCount).groups;
 }
 
 // Returns Array<{ label: string[], ranges: Array<{start, end}> }> (inclusive 0-based).
 export function parseTopicRanges(response, sentenceCount) {
+  return parseTopicRangesDetailed(response, sentenceCount).groups;
+}
+
+/**
+ * Parse topic ranges and expose privacy-safe quality diagnostics describing any
+ * deterministic repair the permissive parser had to perform.
+ */
+export function parseTopicRangesDetailed(response, sentenceCount) {
   if (sentenceCount <= 0) throw new Error('sentenceCount must be positive');
   const maxIndex = sentenceCount - 1;
   const lines = response
@@ -303,6 +311,8 @@ export function parseTopicRanges(response, sentenceCount) {
   const keyToCanonical = new Map();
   let ordinal = 0;
   let invalidRangeTokens = 0;
+  let reversedRanges = 0;
+  let parsedLineCount = 0;
 
   for (const ln of lines) {
     let topicPath, rangesStr;
@@ -329,6 +339,7 @@ export function parseTopicRanges(response, sentenceCount) {
     invalidRangeTokens += parsed.invalidCount;
     const clamped = [];
     for (const [s, e] of parsed.ranges) {
+      if (s > e) reversedRanges++;
       // Clamp to bounds (matches Python TopicRangeParser); never reject.
       const r = clampRange(s, e, maxIndex);
       if (r !== null) {
@@ -336,6 +347,7 @@ export function parseTopicRanges(response, sentenceCount) {
       }
     }
     if (!clamped.length) continue;
+    parsedLineCount++;
 
     if (!grouped.has(key)) {
       grouped.set(key, { label, ranges: [] });
@@ -345,5 +357,33 @@ export function parseTopicRanges(response, sentenceCount) {
   }
 
   const rawGroups = order.map((key) => grouped.get(key));
-  return finalizeGroups(rawGroups, sentenceCount, invalidRangeTokens);
+  let result;
+  try {
+    result = finalizeGroups(rawGroups, sentenceCount, invalidRangeTokens);
+  } catch (error) {
+    if (error instanceof TopicParseError) {
+      error.diagnostics = {
+        ...error.diagnostics,
+        sentenceCount,
+        inputLineCount: lines.length,
+        parsedLineCount,
+        ignoredLineCount: lines.length - parsedLineCount,
+        parsedRangeCount: ordinal,
+        reversedRanges,
+      };
+    }
+    throw error;
+  }
+  return {
+    ...result,
+    diagnostics: {
+      ...result.diagnostics,
+      sentenceCount,
+      inputLineCount: lines.length,
+      parsedLineCount,
+      ignoredLineCount: lines.length - parsedLineCount,
+      parsedRangeCount: ordinal,
+      reversedRanges,
+    },
+  };
 }
