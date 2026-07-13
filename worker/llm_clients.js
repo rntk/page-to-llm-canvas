@@ -1,9 +1,10 @@
 // Provider client SDKs for the PageToLLM Canvas pipeline.
 //
-// JS port of the clients in `example/llm`, scoped down to what the extension
-// pipeline actually exercises: a single `{ prompt, temperature } -> text`
-// completion. Tool-calls, message history, and OpenAI's Responses API from the
-// reference implementation are intentionally omitted.
+// JS port of the clients in `example/llm`. The pipeline still uses the simple
+// `{ prompt, temperature } -> text` form, while article chat passes complete
+// message history and function tools. Tools use one internal shape everywhere
+// ({name, description, parameters} in, {id, name, arguments-object} out); each
+// client serializes to its provider's wire format.
 //
 // Every client exposes the same shape:
 //   complete({ prompt, temperature?, signal?, verboseLogs? }) ->
@@ -15,6 +16,7 @@
 import { ProviderType, ServiceTier } from './providers.js';
 
 const THINK_TAG_RE = /<think\b[^>]*>[\s\S]*?<\/think>/gi;
+const THINK_TAG_CAPTURE_RE = /<think\b[^>]*>([\s\S]*?)<\/think>/gi;
 const OPENAI_PROMPT_CACHE_KEY = 'pagetollm-canvas';
 const ANTHROPIC_CACHE_CONTROL = Object.freeze({ type: 'ephemeral' });
 const ANTHROPIC_CACHE_PREFIX_MARKERS = Object.freeze(['\n<content>\n', '\n<text>']);
@@ -22,6 +24,96 @@ const ANTHROPIC_CACHE_PREFIX_MARKERS = Object.freeze(['\n<content>\n', '\n<text>
 /** @param {string} text */
 export function stripThink(text) {
   return text.replace(THINK_TAG_RE, '').trim();
+}
+
+function parseToolArguments(value) {
+  if (value == null || value === '') return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string') {
+    throw new Error('Tool-call arguments must be a JSON object');
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch (error) {
+    throw new Error(`Invalid tool-call arguments JSON: ${error.message}`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Tool-call arguments must decode to a JSON object');
+  }
+  return parsed;
+}
+
+function normalizeToolCalls(rawToolCalls) {
+  if (!Array.isArray(rawToolCalls)) return [];
+  return rawToolCalls.map((rawCall) => {
+    const call = rawCall && typeof rawCall === 'object' ? rawCall : {};
+    const fn = call.function && typeof call.function === 'object' ? call.function : call;
+    return {
+      id:
+        typeof call.id === 'string'
+          ? call.id
+          : typeof call.call_id === 'string'
+            ? call.call_id
+            : null,
+      name: typeof fn.name === 'string' ? fn.name : '',
+      arguments: parseToolArguments(fn.arguments),
+    };
+  });
+}
+
+function responseTextAndReasoning(message) {
+  const rawContent = typeof message?.content === 'string' ? message.content : '';
+  const reasoningParts = [];
+  for (const key of ['reasoning', 'reasoning_content', 'thinking']) {
+    const value = message?.[key];
+    if (typeof value === 'string' && value.trim()) reasoningParts.push(value.trim());
+  }
+  for (const match of rawContent.matchAll(THINK_TAG_CAPTURE_RE)) {
+    if (match[1]?.trim()) reasoningParts.push(match[1].trim());
+  }
+  return {
+    content: stripThink(rawContent),
+    reasoning: reasoningParts.join('\n\n').trim() || undefined,
+  };
+}
+
+function toProviderTool(tool) {
+  if (tool?.type === 'function' && tool.function) return tool;
+  return {
+    type: 'function',
+    function: {
+      name: tool?.name || '',
+      description: tool?.description || '',
+      parameters: tool?.parameters || { type: 'object', properties: {} },
+    },
+  };
+}
+
+function toProviderMessage(message) {
+  const output = {
+    role: message?.role || 'user',
+    content: typeof message?.content === 'string' ? message.content : '',
+  };
+  const toolCallId = message?.toolCallId ?? message?.tool_call_id;
+  if (output.role === 'tool' && toolCallId) output.tool_call_id = toolCallId;
+  const reasoning = message?.reasoning ?? message?.reasoning_content;
+  if (typeof reasoning === 'string' && reasoning) output.reasoning_content = reasoning;
+  const toolCalls = message?.toolCalls ?? message?.tool_calls;
+  if (Array.isArray(toolCalls) && toolCalls.length) {
+    output.tool_calls = toolCalls.map((toolCall) => {
+      if (toolCall?.type === 'function' && toolCall.function) return toolCall;
+      return {
+        id: toolCall?.id || undefined,
+        type: 'function',
+        function: {
+          name: toolCall?.name || '',
+          arguments: JSON.stringify(toolCall?.arguments || {}),
+        },
+      };
+    });
+  }
+  return output;
 }
 
 /**
@@ -234,14 +326,26 @@ function openAICompatibleClient({
   providerLabel = 'openai-compatible',
 }) {
   return {
-    async complete({ prompt, temperature = 0.8, signal, verboseLogs = false }) {
+    async complete({
+      prompt = '',
+      messages,
+      tools,
+      toolChoice,
+      parallelToolCalls,
+      temperature = 0.8,
+      signal,
+      verboseLogs = false,
+    }) {
       const endpoint = buildChatCompletionsUrl(baseUrl);
       assertSafeTokenTransport(endpoint, apiKey);
       const headers = { 'Content-Type': 'application/json' };
       if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
       const body = {
         model,
-        messages: [{ role: 'user', content: prompt }],
+        messages:
+          Array.isArray(messages) && messages.length
+            ? messages.map(toProviderMessage)
+            : [{ role: 'user', content: prompt }],
       };
       if (!(guardTemperature && NO_TEMPERATURE_MODELS.has(model))) {
         body.temperature = temperature;
@@ -249,6 +353,12 @@ function openAICompatibleClient({
       if (serviceTier) body.service_tier = serviceTier;
       if (promptCacheKey) body.prompt_cache_key = promptCacheKey;
       if (cachePrompt) body.cache_prompt = true;
+      const hasTools = Array.isArray(tools) && tools.length > 0;
+      if (hasTools) body.tools = tools.map(toProviderTool);
+      if (hasTools && toolChoice !== undefined) body.tool_choice = toolChoice;
+      if (hasTools && parallelToolCalls !== undefined) {
+        body.parallel_tool_calls = parallelToolCalls;
+      }
 
       logClientVerbose(verboseLogs, 'LLM client raw prompt:', prompt);
       logClientVerbose(verboseLogs, 'LLM client request:', { endpoint, body });
@@ -264,11 +374,14 @@ function openAICompatibleClient({
       const data = await res.json();
       logClientVerbose(verboseLogs, 'LLM client raw response data:', data);
       logCacheUsage(providerLabel, data, verboseLogs);
-      const content = data?.choices?.[0]?.message?.content;
-      const cleaned = typeof content === 'string' ? stripThink(content) : '';
-      if (!cleaned) throw new Error('Empty LLM response');
+      const message = data?.choices?.[0]?.message;
+      const { content, reasoning } = responseTextAndReasoning(message);
+      const toolCalls = normalizeToolCalls(message?.tool_calls);
+      if (!content && toolCalls.length === 0) throw new Error('Empty LLM response');
       return {
-        content: cleaned,
+        content,
+        reasoning,
+        toolCalls,
         endpoint,
         model,
         provider: providerLabel,
@@ -293,10 +406,115 @@ function anthropicCacheableContent(prompt) {
   ];
 }
 
+/**
+ * Anthropic tool definitions use `input_schema` instead of OpenAI's
+ * `parameters` and have no `function` wrapper. Accepts both the internal
+ * `{name, description, parameters}` shape and an OpenAI-wrapped tool.
+ */
+function toAnthropicTool(tool) {
+  const fn = tool?.type === 'function' && tool.function ? tool.function : tool || {};
+  return {
+    name: fn.name || '',
+    description: fn.description || '',
+    input_schema: fn.parameters || fn.input_schema || { type: 'object', properties: {} },
+  };
+}
+
+/**
+ * Maps the OpenAI-style tool_choice values used internally onto Anthropic's
+ * object dialect ("required" -> {type:"any"}, forced function -> {type:"tool"}).
+ * Anthropic has no top-level parallel_tool_calls; `disable_parallel_tool_use`
+ * lives inside the tool_choice object, so `parallelToolCalls === false` forces
+ * a tool_choice even when the caller did not set one.
+ */
+function toAnthropicToolChoice(toolChoice, parallelToolCalls) {
+  let choice;
+  if (toolChoice === 'auto') choice = { type: 'auto' };
+  else if (toolChoice === 'none') choice = { type: 'none' };
+  else if (toolChoice === 'required') choice = { type: 'any' };
+  else if (toolChoice && typeof toolChoice === 'object') {
+    choice =
+      toolChoice.type === 'function' && toolChoice.function?.name
+        ? { type: 'tool', name: toolChoice.function.name }
+        : toolChoice;
+  }
+  if (parallelToolCalls === false) {
+    choice = { ...(choice || { type: 'auto' }) };
+    if (choice.type !== 'none') choice.disable_parallel_tool_use = true;
+  }
+  return choice;
+}
+
+/**
+ * Converts internal message history to Anthropic's format: system messages are
+ * hoisted to the top-level `system` field, assistant tool calls become
+ * `tool_use` content blocks, and consecutive `tool` messages are grouped into
+ * one user message of `tool_result` blocks (Anthropic requires all results for
+ * a turn in a single user message, tool_result blocks first).
+ */
+function toAnthropicMessages(messages) {
+  const systemParts = [];
+  const output = [];
+  for (const message of messages) {
+    const role = message?.role || 'user';
+    const text = typeof message?.content === 'string' ? message.content : '';
+    if (role === 'system') {
+      if (text) systemParts.push(text);
+      continue;
+    }
+    if (role === 'tool') {
+      const block = {
+        type: 'tool_result',
+        tool_use_id: String(message?.toolCallId ?? message?.tool_call_id ?? ''),
+        content: text,
+      };
+      const previous = output[output.length - 1];
+      if (
+        previous?.role === 'user' &&
+        Array.isArray(previous.content) &&
+        previous.content.every((oneBlock) => oneBlock.type === 'tool_result')
+      ) {
+        previous.content.push(block);
+      } else {
+        output.push({ role: 'user', content: [block] });
+      }
+      continue;
+    }
+    const toolCalls = message?.toolCalls ?? message?.tool_calls;
+    if (role === 'assistant' && Array.isArray(toolCalls) && toolCalls.length) {
+      const blocks = [];
+      if (text.trim()) blocks.push({ type: 'text', text });
+      toolCalls.forEach((toolCall, index) => {
+        const fn =
+          toolCall?.type === 'function' && toolCall.function ? toolCall.function : toolCall || {};
+        blocks.push({
+          type: 'tool_use',
+          id: toolCall?.id || `tool_${output.length}_${index}`,
+          name: fn.name || '',
+          input: parseToolArguments(fn.arguments),
+        });
+      });
+      output.push({ role: 'assistant', content: blocks });
+      continue;
+    }
+    output.push({ role, content: text });
+  }
+  return { system: systemParts.join('\n\n') || undefined, messages: output };
+}
+
 /** Anthropic Messages API client. */
 function anthropicClient({ apiKey, model, serviceTier }) {
   return {
-    async complete({ prompt, temperature, signal, verboseLogs = false }) {
+    async complete({
+      prompt = '',
+      messages,
+      tools,
+      toolChoice,
+      parallelToolCalls,
+      temperature,
+      signal,
+      verboseLogs = false,
+    }) {
       const endpoint = 'https://api.anthropic.com/v1/messages';
       const headers = {
         'Content-Type': 'application/json',
@@ -310,11 +528,23 @@ function anthropicClient({ apiKey, model, serviceTier }) {
       // second breakpoint on the *last* block (the dynamic suffix, or the whole
       // prompt when there's no marker), paying the cache-write premium on volatile
       // content that's never read back.
+      const hasMessages = Array.isArray(messages) && messages.length > 0;
+      const translated = hasMessages ? toAnthropicMessages(messages) : null;
       const body = {
         model,
         max_tokens: 4096,
-        messages: [{ role: 'user', content: anthropicCacheableContent(prompt) }],
+        messages: hasMessages
+          ? translated.messages
+          : [{ role: 'user', content: anthropicCacheableContent(prompt) }],
       };
+      if (translated?.system) body.system = translated.system;
+      const hasTools = Array.isArray(tools) && tools.length > 0;
+      if (hasTools) body.tools = tools.map(toAnthropicTool);
+      // tool_choice without tools is a 400 on the Messages API.
+      const anthropicToolChoice = hasTools
+        ? toAnthropicToolChoice(toolChoice, parallelToolCalls)
+        : undefined;
+      if (anthropicToolChoice) body.tool_choice = anthropicToolChoice;
       const anthropicServiceTier = toAnthropicServiceTier(serviceTier);
       if (anthropicServiceTier) body.service_tier = anthropicServiceTier;
       if (typeof temperature === 'number') body.temperature = temperature;
@@ -334,14 +564,33 @@ function anthropicClient({ apiKey, model, serviceTier }) {
       logClientVerbose(verboseLogs, 'LLM client raw response data:', data);
       logCacheUsage('anthropic', data, verboseLogs);
       const blocks = Array.isArray(data?.content) ? data.content : [];
-      const content = blocks
-        .filter((b) => b?.type === 'text' && typeof b.text === 'string')
-        .map((b) => b.text)
-        .join('\n')
-        .trim();
-      if (!content) throw new Error('Empty LLM response');
+      const textParts = [];
+      const reasoningParts = [];
+      const toolCalls = [];
+      for (const block of blocks) {
+        if (block?.type === 'text' && typeof block.text === 'string') {
+          textParts.push(block.text);
+        } else if (block?.type === 'thinking' && typeof block.thinking === 'string') {
+          reasoningParts.push(block.thinking);
+        } else if (block?.type === 'tool_use') {
+          // `input` arrives as an already-parsed object, unlike OpenAI's
+          // JSON-string `arguments`.
+          toolCalls.push({
+            id: typeof block.id === 'string' ? block.id : null,
+            name: typeof block.name === 'string' ? block.name : '',
+            arguments:
+              block.input && typeof block.input === 'object' && !Array.isArray(block.input)
+                ? block.input
+                : {},
+          });
+        }
+      }
+      const content = textParts.join('\n').trim();
+      if (!content && toolCalls.length === 0) throw new Error('Empty LLM response');
       return {
         content,
+        reasoning: reasoningParts.join('\n\n').trim() || undefined,
+        toolCalls,
         endpoint,
         model,
         provider: 'anthropic',
@@ -358,9 +607,29 @@ function toAnthropicServiceTier(serviceTier) {
 }
 
 /**
- * Creates a completion client for a stored provider entry.
+ * Creates a completion client for a stored provider entry. Every client
+ * accepts the same options — including message history and function tools —
+ * and returns tool calls in the normalized `{id, name, arguments}` shape with
+ * `arguments` as a parsed object.
  * @param {{type: string, model: string, token?: string, url?: string}} provider
- * @returns {{complete: (opts: {prompt: string, temperature?: number, signal?: AbortSignal, verboseLogs?: boolean}) => Promise<{content: string, endpoint: string, model: string, provider: string, usage?: Record<string, number>}>}}
+ * @returns {{complete: (opts: {
+ *   prompt?: string,
+ *   messages?: Array<Record<string, unknown>>,
+ *   tools?: Array<Record<string, unknown>>,
+ *   toolChoice?: unknown,
+ *   parallelToolCalls?: boolean,
+ *   temperature?: number,
+ *   signal?: AbortSignal,
+ *   verboseLogs?: boolean,
+ * }) => Promise<{
+ *   content: string,
+ *   reasoning?: string,
+ *   toolCalls?: Array<{id: string | null, name: string, arguments: Record<string, unknown>}>,
+ *   endpoint: string,
+ *   model: string,
+ *   provider: string,
+ *   usage?: Record<string, number>,
+ * }>}}
  */
 export function createClient(provider) {
   if (!provider || typeof provider !== 'object') {

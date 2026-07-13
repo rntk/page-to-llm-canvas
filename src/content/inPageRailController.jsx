@@ -125,10 +125,12 @@ export async function openInPageRail(rec, initialMode, options = {}) {
   // Ranges registered under HIGHLIGHT_NAME. Unlike per-word spans, a single
   // Range per sentence paints continuously across whitespace and inline tags,
   // so there are no gaps between words.
-  const activeSentences = new Set();
+  const activeTopicSentences = new Set();
+  const activeChatSentences = new Set();
 
   function rebuildHighlight() {
     if (!supportsHighlightApi()) return;
+    const activeSentences = new Set([...activeTopicSentences, ...activeChatSentences]);
     if (activeSentences.size === 0) {
       CSS.highlights.delete(HIGHLIGHT_NAME);
       return;
@@ -142,14 +144,14 @@ export async function openInPageRail(rec, initialMode, options = {}) {
   }
 
   function clearAllHighlights() {
-    activeSentences.clear();
+    activeTopicSentences.clear();
     rebuildHighlight();
   }
 
   function highlightTopic(sentenceList, on) {
     for (const sNum of sentenceList) {
-      if (on) activeSentences.add(sNum);
-      else activeSentences.delete(sNum);
+      if (on) activeTopicSentences.add(sNum);
+      else activeTopicSentences.delete(sNum);
     }
     rebuildHighlight();
   }
@@ -242,6 +244,9 @@ export async function openInPageRail(rec, initialMode, options = {}) {
       return;
     }
     if (state.mode === mode) return;
+    if (state.mode === 'chat') {
+      activeChatSentences.clear();
+    }
     state.mode = mode;
     railEl.dataset.mode = state.mode;
     setRailWidthForMode();
@@ -267,6 +272,19 @@ export async function openInPageRail(rec, initialMode, options = {}) {
     scrollToFirst(sentenceList);
   };
 
+  const handleChatHighlight = ({ startLine, endLine }) => {
+    for (let line = startLine; line <= endLine; line += 1) {
+      activeChatSentences.add(line);
+    }
+    rebuildHighlight();
+    scrollToFirst([startLine]);
+  };
+
+  const handleClearChatHighlights = () => {
+    activeChatSentences.clear();
+    rebuildHighlight();
+  };
+
   function renderRail({ measureOnly = false } = {}) {
     if (isClosed() || guard.isStale()) return;
     const { cards, bodyHeight } = railOriginTop ? buildRailCards() : { cards: [], bodyHeight: 200 };
@@ -285,6 +303,10 @@ export async function openInPageRail(rec, initialMode, options = {}) {
           onScrollToCard={handleScrollToCard}
           scrollContainer={scrollContainer}
           summariesDisabled={record.summariesDisabled === true}
+          sentences={sentences}
+          onChatHighlight={handleChatHighlight}
+          onClearChatHighlights={handleClearChatHighlights}
+          recordKey={record.key}
         />,
       );
     });

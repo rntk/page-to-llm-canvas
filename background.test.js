@@ -1033,6 +1033,45 @@ describe('dispatchMessage unit tests', () => {
     const missing = await dispatchMessage({ type: 'getRecord', key: 'nope' });
     expect(missing.ok).toBe(false);
 
+    const createdChat = await dispatchMessage({ type: 'createChat', key: 'rec1' });
+    expect(createdChat.ok).toBe(true);
+    const chatId = createdChat.chat.chatId;
+    expect(
+      (
+        await dispatchMessage({
+          type: 'appendChatMessage',
+          key: 'rec1',
+          chatId,
+          message: { role: 'user', content: 'Question' },
+        })
+      ).ok,
+    ).toBe(true);
+    const appendedEvent = await dispatchMessage({
+      type: 'appendChatEvent',
+      key: 'rec1',
+      chatId,
+      event: {
+        eventType: 'highlight_span',
+        data: { startLine: 1, endLine: 1 },
+      },
+    });
+    expect(appendedEvent.ok).toBe(true);
+    expect((await dispatchMessage({ type: 'listChats', key: 'rec1' })).chats).toHaveLength(1);
+    expect(
+      (await dispatchMessage({ type: 'getChat', key: 'rec1', chatId })).chat.events,
+    ).toHaveLength(1);
+    expect(
+      (
+        await dispatchMessage({
+          type: 'deleteChatEvent',
+          key: 'rec1',
+          chatId,
+          seq: appendedEvent.event.seq,
+        })
+      ).ok,
+    ).toBe(true);
+    expect((await dispatchMessage({ type: 'deleteChat', key: 'rec1', chatId })).ok).toBe(true);
+
     const deleted = await dispatchMessage({ type: 'deleteRecord', key: 'rec1' });
     expect(deleted.ok).toBe(true);
     expect(await readRecord('rec1')).toBeNull();
@@ -1126,6 +1165,6 @@ describe('dispatchMessage unit tests', () => {
 
     const llm = await dispatchMessage({ type: 'llmChatCompletion', prompt: '' });
     expect(llm.ok).toBe(false);
-    expect(llm.error).toBe('missing prompt');
+    expect(llm.error).toBe('missing prompt or messages');
   });
 });

@@ -28,6 +28,9 @@ import { useCanvasTopicNavigation } from './useCanvasTopicNavigation.js';
 import { useTopicSelection } from './useTopicSelection.js';
 import { retryRecord, resolveSummaryErrors } from './utils/errorUtils.js';
 import { selectCurrentTopicSummary } from './utils/currentTopicSummary.js';
+import ArticleChat from './chat/ArticleChat.jsx';
+import { useChatHighlights } from './chat/useChatHighlights.js';
+import { buildSentenceDomRange } from './sentenceHighlight.js';
 
 /**
  * @param {{ initialKey: string }} props
@@ -37,6 +40,8 @@ export default function App({ initialKey }) {
   const { record, error } = useRecord(initialKey);
   const [showSummaryModeRaw, setShowSummaryMode] = useState(false);
   const [showTopicHierarchy, setShowTopicHierarchy] = useState(true);
+  const [showChat, setShowChat] = useState(false);
+  const [chatSentenceNumbers, setChatSentenceNumbers] = useState([]);
   const {
     selectedTopicKey,
     selectedTopicCardKey,
@@ -59,6 +64,7 @@ export default function App({ initialKey }) {
   const articleTextRef = useRef(null);
   const summaryWrapRef = useRef(null);
   const summaryCardRefs = useRef({});
+  const pendingChatHighlightLineRef = useRef(null);
 
   const {
     scale,
@@ -215,6 +221,34 @@ export default function App({ initialKey }) {
     articleHtml,
     refreshSentenceRanges,
   });
+
+  useChatHighlights({
+    isDone,
+    showSummaryMode,
+    sentenceNumbers: chatSentenceNumbers,
+    articleHtml,
+    refreshSentenceRanges,
+  });
+
+  const handleChatHighlight = useCallback(({ startLine, endLine }) => {
+    pendingChatHighlightLineRef.current ??= startLine;
+    setShowSummaryMode(false);
+    setChatSentenceNumbers((current) => {
+      const next = new Set(current);
+      for (let line = startLine; line <= endLine; line += 1) next.add(line);
+      return Array.from(next).sort((a, b) => a - b);
+    });
+  }, []);
+  const handleClearChatHighlights = useCallback(() => setChatSentenceNumbers([]), []);
+
+  useEffect(() => {
+    if (showSummaryMode || pendingChatHighlightLineRef.current === null) return;
+    const sentenceNumber = pendingChatHighlightLineRef.current;
+    pendingChatHighlightLineRef.current = null;
+    const { wordEntries, sentenceRanges } = refreshSentenceRanges();
+    const range = buildSentenceDomRange(sentenceRanges, wordEntries, sentenceNumber);
+    if (range) zoomToTarget(range.getBoundingClientRect());
+  }, [chatSentenceNumbers, refreshSentenceRanges, showSummaryMode, zoomToTarget]);
 
   // ── Topic interaction ────────────────────────────────────────────────────
 
@@ -471,7 +505,20 @@ export default function App({ initialKey }) {
               selectedLevel={selectedLevel}
               maxLevel={maxLevel}
               onLevelChange={handleLevelChange}
+              showChat={showChat}
+              onToggleChat={() => setShowChat((value) => !value)}
             />
+            {showChat ? (
+              <div className="canvas-chat-panel">
+                <ArticleChat
+                  recordKey={initialKey}
+                  sentences={sentences}
+                  onHighlight={handleChatHighlight}
+                  onClearHighlights={handleClearChatHighlights}
+                  onClose={() => setShowChat(false)}
+                />
+              </div>
+            ) : null}
           </div>
         )}
       </main>

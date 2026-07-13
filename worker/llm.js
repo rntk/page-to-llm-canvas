@@ -19,16 +19,28 @@ import { getStoredVerboseLogs } from './verboseLogSettings.js';
  * Failures still always warn.
  *
  * @param {{
- *   prompt: string,
+ *   prompt?: string,
+ *   messages?: Array<Record<string, unknown>>,
+ *   tools?: Array<Record<string, unknown>>,
+ *   toolChoice?: unknown,
+ *   parallelToolCalls?: boolean,
  *   temperature?: number,
  *   model?: string,
  *   signal?: AbortSignal,
  *   metricsCollector?: (sample: Record<string, unknown>) => void,
  * }} options
- * @returns {Promise<{ok: boolean, content?: string, error?: string}>}
+ * @returns {Promise<{ok: boolean, content?: string, reasoning?: string, toolCalls?: Array<Record<string, unknown>>, error?: string}>}
  */
 export async function callLLMDirect(options) {
-  const { prompt, temperature = 0.8, signal } = options;
+  const {
+    prompt = '',
+    messages,
+    tools,
+    toolChoice,
+    parallelToolCalls,
+    temperature = 0.8,
+    signal,
+  } = options;
   let provider;
   try {
     provider = await getActiveProvider();
@@ -60,6 +72,8 @@ export async function callLLMDirect(options) {
       type: provider.type,
       model: provider.model,
       promptLength: prompt.length,
+      messageCount: Array.isArray(messages) ? messages.length : undefined,
+      toolCount: Array.isArray(tools) ? tools.length : undefined,
       temperature,
     });
   }
@@ -71,8 +85,14 @@ export async function callLLMDirect(options) {
       model,
       provider: clientProvider,
       usage,
+      reasoning,
+      toolCalls,
     } = await client.complete({
       prompt,
+      messages,
+      tools,
+      toolChoice,
+      parallelToolCalls,
       temperature,
       signal: requestSignal,
       verboseLogs,
@@ -81,7 +101,15 @@ export async function callLLMDirect(options) {
       options.metricsCollector?.({
         provider: clientProvider || provider.type,
         model: model || provider.model,
-        requestChars: prompt.length,
+        requestChars:
+          prompt.length +
+          (Array.isArray(messages)
+            ? messages.reduce(
+                (total, message) =>
+                  total + (typeof message?.content === 'string' ? message.content.length : 0),
+                0,
+              )
+            : 0),
         responseChars: content.length,
         usage,
       });
@@ -93,9 +121,15 @@ export async function callLLMDirect(options) {
         endpoint,
         durationMs: Date.now() - startedAt,
         responseLength: content.length,
+        toolCallCount: toolCalls?.length || 0,
       });
     }
-    return { ok: true, content };
+    return {
+      ok: true,
+      content,
+      ...(reasoning ? { reasoning } : {}),
+      ...(toolCalls?.length ? { toolCalls } : {}),
+    };
   } catch (e) {
     if (signal?.aborted) {
       throw makeAbortError('LLM request aborted');

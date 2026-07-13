@@ -10,6 +10,7 @@ import {
 const IN_PAGE_RAIL_WIDTHS = Object.freeze({
   topics: 260,
   summaries: 340,
+  chat: 380,
 });
 const IN_PAGE_RAIL_RESERVE_GAP = 16;
 

@@ -357,6 +357,134 @@ describe('createClient dispatch', () => {
     expect(JSON.parse(init.body).cache_prompt).toBe(true);
   });
 
+  it('openai_comp sends message history and tools and parses tool-only responses', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      okJson({
+        choices: [
+          {
+            message: {
+              content: null,
+              reasoning_content: 'I found the evidence.',
+              tool_calls: [
+                {
+                  id: 'call-1',
+                  type: 'function',
+                  function: {
+                    name: 'highlight_span',
+                    arguments: '{"start_line":2,"end_line":3}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+    const client = createClient({ type: 'openai_comp', model: 'm', url: 'http://localhost:8989' });
+    const result = await client.complete({
+      messages: [
+        { role: 'system', content: 'system' },
+        {
+          role: 'assistant',
+          content: '',
+          toolCalls: [
+            { id: 'prior', name: 'highlight_span', arguments: { start_line: 1, end_line: 1 } },
+          ],
+        },
+        { role: 'tool', content: 'Highlighted lines 1-1.', toolCallId: 'prior' },
+      ],
+      tools: [
+        {
+          name: 'highlight_span',
+          description: 'Highlight evidence',
+          parameters: { type: 'object', properties: {} },
+        },
+      ],
+      toolChoice: 'auto',
+      parallelToolCalls: true,
+    });
+
+    expect(result).toMatchObject({
+      content: '',
+      reasoning: 'I found the evidence.',
+      toolCalls: [
+        {
+          id: 'call-1',
+          name: 'highlight_span',
+          arguments: { start_line: 2, end_line: 3 },
+        },
+      ],
+    });
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+    expect(body.messages[1].tool_calls[0].function.arguments).toBe('{"start_line":1,"end_line":1}');
+    expect(body.messages[2].tool_call_id).toBe('prior');
+    expect(body.tools[0].function.name).toBe('highlight_span');
+    expect(body.tool_choice).toBe('auto');
+    expect(body.parallel_tool_calls).toBe(true);
+  });
+
+  it('openai client forwards tools and tool_choice and parses tool calls', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      okJson({
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: 'call-9',
+                  type: 'function',
+                  function: { name: 'highlight_span', arguments: '{"start_line":4,"end_line":5}' },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      }),
+    );
+    const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'k' });
+    const result = await client.complete({
+      messages: [{ role: 'user', content: 'q' }],
+      tools: [
+        {
+          name: 'highlight_span',
+          description: 'Highlight evidence',
+          parameters: { type: 'object', properties: {} },
+        },
+      ],
+      toolChoice: 'required',
+      parallelToolCalls: false,
+    });
+
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+    expect(body.tools).toEqual([
+      {
+        type: 'function',
+        function: {
+          name: 'highlight_span',
+          description: 'Highlight evidence',
+          parameters: { type: 'object', properties: {} },
+        },
+      },
+    ]);
+    expect(body.tool_choice).toBe('required');
+    expect(body.parallel_tool_calls).toBe(false);
+    expect(result.toolCalls).toEqual([
+      { id: 'call-9', name: 'highlight_span', arguments: { start_line: 4, end_line: 5 } },
+    ]);
+  });
+
+  it('omits tool_choice and parallel_tool_calls when no tools are sent', async () => {
+    vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'hi' } }] }));
+    const client = createClient({ type: 'openrouter', model: 'openai/gpt-4o-mini', token: 'k' });
+    await client.complete({ prompt: 'p', toolChoice: 'auto', parallelToolCalls: true });
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
+    expect(body.parallel_tool_calls).toBeUndefined();
+  });
+
   it('refuses to send bearer tokens to non-HTTPS non-local custom URLs', async () => {
     const client = createClient({
       type: 'openai_comp',
@@ -482,5 +610,110 @@ describe('createClient dispatch', () => {
     vi.mocked(fetch).mockResolvedValue(okJson({ content: [] }));
     const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'k' });
     await expect(client.complete({ prompt: 'p' })).rejects.toThrow('Empty LLM response');
+  });
+
+  it('anthropic client translates history, tools and tool_choice to the Messages API format', async () => {
+    vi.mocked(fetch).mockResolvedValue(okJson({ content: [{ type: 'text', text: 'done' }] }));
+    const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'k' });
+    await client.complete({
+      messages: [
+        { role: 'system', content: 'be brief' },
+        { role: 'user', content: 'q' },
+        {
+          role: 'assistant',
+          content: 'checking',
+          toolCalls: [
+            { id: 'toolu_1', name: 'highlight_span', arguments: { start_line: 1, end_line: 2 } },
+            { id: 'toolu_2', name: 'highlight_span', arguments: { start_line: 5, end_line: 5 } },
+          ],
+        },
+        { role: 'tool', content: 'Highlighted lines 1-2.', toolCallId: 'toolu_1' },
+        { role: 'tool', content: 'Highlighted lines 5-5.', toolCallId: 'toolu_2' },
+      ],
+      tools: [
+        {
+          name: 'highlight_span',
+          description: 'Highlight evidence',
+          parameters: { type: 'object', properties: {} },
+        },
+      ],
+      toolChoice: 'required',
+      parallelToolCalls: false,
+    });
+
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+    expect(body.system).toBe('be brief');
+    expect(body.tools).toEqual([
+      {
+        name: 'highlight_span',
+        description: 'Highlight evidence',
+        input_schema: { type: 'object', properties: {} },
+      },
+    ]);
+    expect(body.tool_choice).toEqual({ type: 'any', disable_parallel_tool_use: true });
+    expect(body.messages).toEqual([
+      { role: 'user', content: 'q' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'checking' },
+          {
+            type: 'tool_use',
+            id: 'toolu_1',
+            name: 'highlight_span',
+            input: { start_line: 1, end_line: 2 },
+          },
+          {
+            type: 'tool_use',
+            id: 'toolu_2',
+            name: 'highlight_span',
+            input: { start_line: 5, end_line: 5 },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'toolu_1', content: 'Highlighted lines 1-2.' },
+          { type: 'tool_result', tool_use_id: 'toolu_2', content: 'Highlighted lines 5-5.' },
+        ],
+      },
+    ]);
+  });
+
+  it('anthropic client parses tool_use blocks and accepts tool-only responses', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      okJson({
+        stop_reason: 'tool_use',
+        content: [
+          { type: 'thinking', thinking: 'find the span' },
+          {
+            type: 'tool_use',
+            id: 'toolu_9',
+            name: 'highlight_span',
+            input: { start_line: 3, end_line: 4 },
+          },
+        ],
+      }),
+    );
+    const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'k' });
+    const result = await client.complete({
+      messages: [{ role: 'user', content: 'q' }],
+      tools: [{ name: 'highlight_span', description: '', parameters: { type: 'object' } }],
+    });
+    expect(result.content).toBe('');
+    expect(result.reasoning).toBe('find the span');
+    expect(result.toolCalls).toEqual([
+      { id: 'toolu_9', name: 'highlight_span', arguments: { start_line: 3, end_line: 4 } },
+    ]);
+  });
+
+  it('anthropic client omits tool_choice when no tools are configured', async () => {
+    vi.mocked(fetch).mockResolvedValue(okJson({ content: [{ type: 'text', text: 'ok' }] }));
+    const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'k' });
+    await client.complete({ prompt: 'p', toolChoice: 'required', parallelToolCalls: false });
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
   });
 });

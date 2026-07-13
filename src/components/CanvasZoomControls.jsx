@@ -18,6 +18,8 @@ import TopicLevelSwitcher from './TopicLevelSwitcher.jsx';
  *   selectedLevel: number,
  *   maxLevel: number,
  *   onLevelChange: (level: number) => void,
+ *   showChat?: boolean,
+ *   onToggleChat?: () => void,
  * }} props
  * @returns {import("react").JSX.Element}
  */
@@ -35,6 +37,8 @@ function CanvasZoomControls({
   selectedLevel,
   maxLevel,
   onLevelChange,
+  showChat = false,
+  onToggleChat,
 }) {
   const [isFolded, setIsFolded] = useState(false);
   const [isHorizontal, setIsHorizontal] = useState(false);
@@ -150,6 +154,15 @@ function CanvasZoomControls({
             ⊙
           </button>
           <div className="canvas-spacer" />
+          <button
+            type="button"
+            className={`canvas-read-toggle${showChat ? ' is-active' : ''}`}
+            onClick={onToggleChat}
+            title={showChat ? 'Hide article chat' : 'Chat with the article'}
+            aria-pressed={showChat}
+          >
+            C
+          </button>
           {summaryModeAvailable && (
             <button
               type="button"

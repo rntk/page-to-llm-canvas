@@ -97,7 +97,7 @@ describe('InPageRail', () => {
     const select = container.querySelector('.pagetollm-rail-mode-select');
     expect(select).not.toBeNull();
     expect(select.value).toBe('topics');
-    expect(select.querySelectorAll('option')).toHaveLength(4);
+    expect(select.querySelectorAll('option')).toHaveLength(5);
 
     act(() => {
       select.value = 'summaries';

@@ -7,6 +7,7 @@ export const INDEX_SCHEMA_KEY = 'pagetollm:index-schema';
 export const INDEX_SCHEMA_VERSION = 1;
 const MAX_PROCESSING_LOG_ENTRIES = 80;
 const RECORD_SNIPPET_MAX_CHARS = 500;
+const CHAT_TITLE_MAX_CHARS = 60;
 
 // A record is physically split across three storage keys so that the
 // high-frequency writes (status/progress/log ticks) never have to
@@ -31,6 +32,22 @@ function contentStorageKey(key) {
 
 function summariesStorageKey(key) {
   return `pagetollm:rec:${key}:summaries`;
+}
+
+function chatIndexStorageKey(key) {
+  return `pagetollm:chats:${key}:index`;
+}
+
+function chatStorageKey(key, chatId) {
+  return `pagetollm:chats:${key}:${chatId}`;
+}
+
+function chatQueueKey(key) {
+  return `pagetollm:chats:${key}`;
+}
+
+function queuedChatUpdate(key, fn) {
+  return queuedUpdate(MUTATION_QUEUE_KEY, () => queuedUpdate(chatQueueKey(key), fn));
 }
 
 function hasOwn(obj, field) {
@@ -351,6 +368,153 @@ export async function updateRecord(key, patch, options = {}) {
   });
 }
 
+function createStorageId(prefix) {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) return `${prefix}_${uuid}`;
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+}
+
+async function readChatIndex(key) {
+  const storageKey = chatIndexStorageKey(key);
+  const value = (await getLocal(storageKey))[storageKey];
+  return value && Array.isArray(value.chats) ? value : { chats: [] };
+}
+
+async function writeChatIndex(key, index) {
+  await setLocal({ [chatIndexStorageKey(key)]: index });
+}
+
+function chatSummary(chat) {
+  return {
+    chatId: chat.chatId,
+    title: chat.title,
+    createdAt: chat.createdAt,
+    updatedAt: chat.updatedAt,
+    messageCount: chat.messages.filter((message) => !message.hidden).length,
+    eventCount: chat.events.length,
+  };
+}
+
+async function updateChatAndIndex(key, chat) {
+  const index = await readChatIndex(key);
+  const summary = chatSummary(chat);
+  index.chats = [summary, ...index.chats.filter((item) => item.chatId !== chat.chatId)].sort(
+    (a, b) => b.updatedAt - a.updatedAt,
+  );
+  await setLocal({
+    [chatStorageKey(key, chat.chatId)]: chat,
+    [chatIndexStorageKey(key)]: index,
+  });
+  return chat;
+}
+
+export async function listChats(key) {
+  return (await readChatIndex(key)).chats;
+}
+
+export async function readChat(key, chatId) {
+  if (!key || !chatId) return null;
+  const storageKey = chatStorageKey(key, chatId);
+  return (await getLocal(storageKey))[storageKey] || null;
+}
+
+export async function createChat(key) {
+  if (!key) throw new Error('createChat: record key required');
+  return queuedChatUpdate(key, async () => {
+    if (!(await loadMetaForWrite(key))) throw new Error('record not found');
+    const now = Date.now();
+    const chat = {
+      chatId: createStorageId('chat'),
+      title: 'New chat',
+      createdAt: now,
+      updatedAt: now,
+      messages: [],
+      events: [],
+      nextEventSeq: 1,
+    };
+    await updateChatAndIndex(key, chat);
+    return chat;
+  });
+}
+
+export async function appendChatMessage(key, chatId, message) {
+  return queuedChatUpdate(key, async () => {
+    const chat = await readChat(key, chatId);
+    if (!chat) throw new Error('chat not found');
+    const now = Date.now();
+    const normalized = {
+      id: createStorageId('message'),
+      role: ['user', 'assistant', 'tool'].includes(message?.role) ? message.role : 'user',
+      content: typeof message?.content === 'string' ? message.content : '',
+      createdAt: now,
+      ...(message?.hidden ? { hidden: true } : {}),
+      ...(typeof message?.reasoning === 'string' ? { reasoning: message.reasoning } : {}),
+      ...(typeof message?.toolCallId === 'string' ? { toolCallId: message.toolCallId } : {}),
+      ...(Array.isArray(message?.toolCalls) ? { toolCalls: message.toolCalls } : {}),
+    };
+    chat.messages = [...chat.messages, normalized];
+    chat.updatedAt = now;
+    if (normalized.role === 'user' && !normalized.hidden && chat.title === 'New chat') {
+      chat.title = normalized.content.trim().slice(0, CHAT_TITLE_MAX_CHARS) || chat.title;
+    }
+    await updateChatAndIndex(key, chat);
+    return normalized;
+  });
+}
+
+export async function appendChatEvent(key, chatId, event) {
+  return queuedChatUpdate(key, async () => {
+    const chat = await readChat(key, chatId);
+    if (!chat) throw new Error('chat not found');
+    const now = Date.now();
+    const normalized = {
+      seq: Number.isInteger(chat.nextEventSeq) ? chat.nextEventSeq : 1,
+      eventType: typeof event?.eventType === 'string' ? event.eventType : 'highlight_span',
+      data: event?.data && typeof event.data === 'object' ? event.data : {},
+      createdAt: now,
+    };
+    chat.events = [...chat.events, normalized];
+    chat.nextEventSeq = normalized.seq + 1;
+    chat.updatedAt = now;
+    await updateChatAndIndex(key, chat);
+    return normalized;
+  });
+}
+
+export async function deleteChatEvent(key, chatId, seq) {
+  return queuedChatUpdate(key, async () => {
+    const chat = await readChat(key, chatId);
+    if (!chat) throw new Error('chat not found');
+    const nextEvents = chat.events.filter((event) => event.seq !== seq);
+    if (nextEvents.length === chat.events.length) return false;
+    chat.events = nextEvents;
+    chat.updatedAt = Date.now();
+    await updateChatAndIndex(key, chat);
+    return true;
+  });
+}
+
+export async function deleteChatHistory(key, chatId) {
+  return queuedChatUpdate(key, async () => {
+    const index = await readChatIndex(key);
+    const existed = index.chats.some((chat) => chat.chatId === chatId);
+    if (!existed) return false;
+    index.chats = index.chats.filter((chat) => chat.chatId !== chatId);
+    await writeChatIndex(key, index);
+    await removeLocal(chatStorageKey(key, chatId));
+    return true;
+  });
+}
+
+async function deleteChatsForRecord(key) {
+  const index = await readChatIndex(key);
+  const keys = [
+    chatIndexStorageKey(key),
+    ...index.chats.map((chat) => chatStorageKey(key, chat.chatId)),
+  ];
+  await removeLocal(keys);
+}
+
 // Pipeline stages fire a processingLog entry on nearly every LLM request and
 // response (see orchestrator.js logPipeline), which used to mean one full
 // read-modify-write of the record per entry. Entries are instead buffered in
@@ -491,6 +655,7 @@ export async function deleteRecord(key) {
             contentStorageKey(key),
             summariesStorageKey(key),
           ]);
+          await deleteChatsForRecord(key);
         } catch (err) {
           await writeIndex(idx).catch(() => {});
           throw err;
@@ -509,6 +674,13 @@ export async function deleteAll() {
         contentStorageKey(k),
         summariesStorageKey(k),
       ]);
+      for (const key of idx.keys) {
+        const chatIndex = await readChatIndex(key);
+        sKeys.push(
+          chatIndexStorageKey(key),
+          ...chatIndex.chats.map((chat) => chatStorageKey(key, chat.chatId)),
+        );
+      }
       if (sKeys.length) await removeLocal(sKeys);
       await removeLocal(INDEX_KEY);
     });

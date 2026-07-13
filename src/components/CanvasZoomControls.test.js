@@ -113,6 +113,7 @@ describe('CanvasZoomControls', () => {
         onZoomOut,
         onReset,
         onToggleSummaryMode,
+        onToggleChat: vi.fn(),
       }),
     );
 
@@ -176,8 +177,8 @@ describe('CanvasZoomControls', () => {
     act(() => bodyBtns[10].click());
     expect(onReset).toHaveBeenCalled();
 
-    // Toggle summary mode
-    act(() => bodyBtns[11].click());
+    // Toggle summary mode (after the chat toggle)
+    act(() => bodyBtns[12].click());
     expect(onToggleSummaryMode).toHaveBeenCalled();
 
     unmount();
@@ -216,7 +217,11 @@ describe('CanvasZoomControls', () => {
 
   it('shows the summary-mode toggle by default', () => {
     const { container, unmount } = render(createElement(CanvasZoomControls, defaultProps));
-    expect(container.querySelector('.canvas-read-toggle')).not.toBeNull();
+    expect(
+      Array.from(container.querySelectorAll('.canvas-read-toggle')).some(
+        (button) => button.textContent === 'S',
+      ),
+    ).toBe(true);
     unmount();
   });
 
@@ -230,11 +235,24 @@ describe('CanvasZoomControls', () => {
       }),
     );
 
-    // Only the hierarchy toggle ("H") remains; the summary ("S") toggle is gone.
+    // Chat and hierarchy remain; the summary ("S") toggle is gone.
     const readToggles = container.querySelectorAll('.canvas-read-toggle');
-    expect(readToggles).toHaveLength(1);
-    expect(readToggles[0].textContent).toBe('H');
+    expect(Array.from(readToggles).map((button) => button.textContent)).toEqual(['C', 'H']);
 
+    unmount();
+  });
+
+  it('toggles article chat', () => {
+    const onToggleChat = vi.fn();
+    const { container, unmount } = render(
+      createElement(CanvasZoomControls, { ...defaultProps, onToggleChat, showChat: true }),
+    );
+    const chatButton = Array.from(container.querySelectorAll('.canvas-read-toggle')).find(
+      (button) => button.textContent === 'C',
+    );
+    expect(chatButton.className).toContain('is-active');
+    act(() => chatButton.click());
+    expect(onToggleChat).toHaveBeenCalledOnce();
     unmount();
   });
 });

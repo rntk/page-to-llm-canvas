@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { computeSummaryCursorState } from './summaryCursor.js';
+import ArticleChat from '../chat/ArticleChat.jsx';
 
 const SUMMARY_CURSOR_MIN_TOP = 112;
 
-const RAIL_MODE_OPTIONS = new Set(['topics', 'summaries', 'hierarchy', 'canvas']);
+const RAIL_MODE_OPTIONS = new Set(['topics', 'summaries', 'chat', 'hierarchy', 'canvas']);
 
 function ModeDropdown({ mode, onSelectMode }) {
   const activeMode = RAIL_MODE_OPTIONS.has(mode) ? mode : 'topics';
@@ -17,6 +18,7 @@ function ModeDropdown({ mode, onSelectMode }) {
     >
       <option value="topics">Topics</option>
       <option value="summaries">Summaries</option>
+      <option value="chat">Chat</option>
       <option value="hierarchy">Hierarchy view</option>
       <option value="canvas">Canvas view</option>
     </select>
@@ -240,11 +242,16 @@ export default function InPageRail({
   onScrollToCard,
   scrollContainer,
   summariesDisabled = false,
+  sentences = [],
+  onChatHighlight,
+  onClearChatHighlights,
+  recordKey,
 }) {
   const [frontCardId, setFrontCardId] = useState(null);
   const [scrollOffset, setScrollOffset] = useState(() => getScrollContainerTop(scrollContainer));
   const bodyRef = useRef(null);
   const isSummary = mode === 'summaries';
+  const isChat = mode === 'chat';
   const showSummariesDisabledNotice = isSummary && summariesDisabled;
   const normalizedHeight = useMemo(() => `${bodyHeight}px`, [bodyHeight]);
   const isNestedScroll = scrollContainer && scrollContainer !== window;
@@ -304,23 +311,36 @@ export default function InPageRail({
     <>
       <div className="pagetollm-rail-head">
         <ModeDropdown mode={mode} onSelectMode={onSelectMode} />
-        <LevelSwitcher
-          maxLevel={maxLevel}
-          selectedLevel={selectedLevel}
-          onSelectLevel={onSelectLevel}
-        />
+        {!isChat ? (
+          <LevelSwitcher
+            maxLevel={maxLevel}
+            selectedLevel={selectedLevel}
+            onSelectLevel={onSelectLevel}
+          />
+        ) : null}
         <button className="pagetollm-rail-close" type="button" title="Close rail" onClick={onClose}>
           ×
         </button>
       </div>
       <div
-        className={['pagetollm-rail-body', isNestedScroll ? 'is-nested-scroll' : '']
+        className={[
+          'pagetollm-rail-body',
+          isNestedScroll ? 'is-nested-scroll' : '',
+          isChat ? 'is-chat' : '',
+        ]
           .filter(Boolean)
           .join(' ')}
         ref={bodyRef}
         style={bodyStyle}
       >
-        {showSummariesDisabledNotice ? (
+        {isChat ? (
+          <ArticleChat
+            recordKey={recordKey}
+            sentences={sentences}
+            onHighlight={onChatHighlight}
+            onClearHighlights={onClearChatHighlights}
+          />
+        ) : showSummariesDisabledNotice ? (
           <div className="pagetollm-rail-empty">
             Summaries are disabled. Enable them in the extension settings and reprocess this page to
             see them here.

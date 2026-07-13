@@ -7,6 +7,13 @@ import {
   deleteAll,
   findRecordByUrl,
   migrateIndexMeta,
+  listChats,
+  readChat,
+  createChat,
+  appendChatMessage,
+  appendChatEvent,
+  deleteChatEvent,
+  deleteChatHistory,
 } from './worker/storage.js';
 import { runPipeline } from './worker/orchestrator.js';
 import { callLLMDirect } from './worker/llm.js';
@@ -592,9 +599,111 @@ export const MESSAGE_HANDLERS = {
     requiresExtensionPage: false,
     validate: () => null,
     async handle(msg) {
-      const { prompt, temperature = 0.8, model } = msg;
-      if (!prompt) return { ok: false, error: 'missing prompt' };
-      return callLLMDirect({ prompt, temperature, model });
+      const {
+        prompt = '',
+        messages,
+        tools,
+        toolChoice,
+        parallelToolCalls,
+        temperature = 0.8,
+        model,
+      } = msg;
+      if (!prompt && (!Array.isArray(messages) || messages.length === 0)) {
+        return { ok: false, error: 'missing prompt or messages' };
+      }
+      return callLLMDirect({
+        prompt,
+        messages,
+        tools,
+        toolChoice,
+        parallelToolCalls,
+        temperature,
+        model,
+      });
+    },
+  },
+
+  [MSG.listChats]: {
+    requiresExtensionPage: false,
+    validate(msg) {
+      return msg.key ? null : 'missing key';
+    },
+    async handle(msg) {
+      return { ok: true, chats: await listChats(msg.key) };
+    },
+  },
+
+  [MSG.getChat]: {
+    requiresExtensionPage: false,
+    validate(msg) {
+      if (!msg.key) return 'missing key';
+      return msg.chatId ? null : 'missing chatId';
+    },
+    async handle(msg) {
+      const chat = await readChat(msg.key, msg.chatId);
+      return chat ? { ok: true, chat } : { ok: false, error: 'chat not found' };
+    },
+  },
+
+  [MSG.createChat]: {
+    requiresExtensionPage: false,
+    validate(msg) {
+      return msg.key ? null : 'missing key';
+    },
+    async handle(msg) {
+      return { ok: true, chat: await createChat(msg.key) };
+    },
+  },
+
+  [MSG.appendChatMessage]: {
+    requiresExtensionPage: false,
+    validate(msg) {
+      if (!msg.key) return 'missing key';
+      if (!msg.chatId) return 'missing chatId';
+      return msg.message && typeof msg.message === 'object' ? null : 'missing message';
+    },
+    async handle(msg) {
+      return {
+        ok: true,
+        message: await appendChatMessage(msg.key, msg.chatId, msg.message),
+      };
+    },
+  },
+
+  [MSG.appendChatEvent]: {
+    requiresExtensionPage: false,
+    validate(msg) {
+      if (!msg.key) return 'missing key';
+      if (!msg.chatId) return 'missing chatId';
+      return msg.event && typeof msg.event === 'object' ? null : 'missing event';
+    },
+    async handle(msg) {
+      return { ok: true, event: await appendChatEvent(msg.key, msg.chatId, msg.event) };
+    },
+  },
+
+  [MSG.deleteChatEvent]: {
+    requiresExtensionPage: false,
+    validate(msg) {
+      if (!msg.key) return 'missing key';
+      if (!msg.chatId) return 'missing chatId';
+      return Number.isInteger(msg.seq) ? null : 'missing seq';
+    },
+    async handle(msg) {
+      const deleted = await deleteChatEvent(msg.key, msg.chatId, msg.seq);
+      return deleted ? { ok: true } : { ok: false, error: 'event not found' };
+    },
+  },
+
+  [MSG.deleteChat]: {
+    requiresExtensionPage: false,
+    validate(msg) {
+      if (!msg.key) return 'missing key';
+      return msg.chatId ? null : 'missing chatId';
+    },
+    async handle(msg) {
+      const deleted = await deleteChatHistory(msg.key, msg.chatId);
+      return deleted ? { ok: true } : { ok: false, error: 'chat not found' };
     },
   },
 

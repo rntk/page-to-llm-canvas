@@ -89,7 +89,11 @@ describe('callLLMDirect', () => {
     });
 
     const res = await callLLMDirect({ prompt: 'hello' });
-    expect(res).toEqual({ ok: true, content: 'This is the final response text.' });
+    expect(res).toEqual({
+      ok: true,
+      content: 'This is the final response text.',
+      reasoning: 'reason',
+    });
 
     expect(fetch).toHaveBeenCalledWith(
       EXPECTED_ENDPOINT,
@@ -104,6 +108,49 @@ describe('callLLMDirect', () => {
         }),
       }),
     );
+  });
+
+  it('returns llama.cpp tool calls without requiring text content', async () => {
+    const { callLLMDirect } = await getLLM();
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: '',
+              tool_calls: [
+                {
+                  id: 'c1',
+                  function: {
+                    name: 'highlight_span',
+                    arguments: '{"start_line":1,"end_line":2}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+
+    await expect(
+      callLLMDirect({
+        messages: [{ role: 'user', content: 'question' }],
+        tools: [{ name: 'highlight_span', parameters: { type: 'object' } }],
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      content: '',
+      toolCalls: [
+        {
+          id: 'c1',
+          name: 'highlight_span',
+          arguments: { start_line: 1, end_line: 2 },
+        },
+      ],
+    });
   });
 
   it('reports normalized provider usage to the metrics collector', async () => {
