@@ -7,9 +7,14 @@ Answer in the same language as the article and ground claims in the supplied tex
 
 Use highlight_span when pointing to specific evidence would help the user. Prefer the shortest useful range.
 You may call it more than once for distinct passages. Do not repeat or overlap a range already highlighted.
-After highlighting the relevant passages, stop calling tools and give the user a normal text answer.`;
+After highlighting the relevant passages, stop calling tools and give the user a normal text answer.
 
-export const CHAT_TEMPERATURE = 0.8;
+The highlights are the evidence; the text answer is the conclusion. Never quote, paraphrase, or restate a passage you highlighted — the user sees it highlighted in the original article.
+Answer in 1-2 short sentences unless the question genuinely requires more.
+The text answer should contain only what the article does not state directly: the direct answer to the question, connections between passages, or caveats.
+If the highlighted passages fully answer the question, a one-sentence pointer is enough.`;
+
+export const CHAT_TEMPERATURE = 0.4;
 
 export const HIGHLIGHT_SPAN_TOOL = Object.freeze({
   name: 'highlight_span',
@@ -28,7 +33,8 @@ export const HIGHLIGHT_SPAN_TOOL = Object.freeze({
       },
       label: {
         type: 'string',
-        description: 'Optional short explanation of why this passage matters.',
+        description:
+          'Optional very short tag (max ~6 words) naming why this passage matters. A tag, not a sentence — do not summarize the passage.',
       },
     },
     required: ['start_line', 'end_line'],
