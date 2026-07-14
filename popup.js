@@ -159,6 +159,11 @@ export function getRecordActions(record) {
         mode: 'summaries',
         description: 'View generated summaries for selected content.',
       },
+      {
+        label: 'Chat',
+        mode: 'chat',
+        description: 'Open chat mode to ask questions about this page.',
+      },
     );
     if (isYouTubeUrl(record && record.sourceUrl)) {
       viewActions.push({
