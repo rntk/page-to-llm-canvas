@@ -26,10 +26,11 @@ export default function ChatEventsList({ events, selectedEventSeq, onSelectEvent
             role="listitem"
           >
             <button type="button" onClick={() => onSelectEvent(event)}>
-              <strong>#{index + 1} Highlight</strong>
+              <strong>
+                #{index + 1} {range?.label || 'Highlight'}
+              </strong>
               <span>
-                Lines {range?.startLine ?? '?'}–{range?.endLine ?? '?'}
-                {range?.label ? ` · ${range.label}` : ''}
+                Highlight · Lines {range?.startLine ?? '?'}–{range?.endLine ?? '?'}
               </span>
             </button>
             <button
