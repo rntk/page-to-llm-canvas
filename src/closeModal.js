@@ -28,7 +28,17 @@ export function closeModal() {
       window.close();
       return;
     }
-    postMessageToParent({ type: 'pagetollm-close' });
+    const message = { type: 'pagetollm-close' };
+    const parentOrigin = getParentOrigin();
+    window.parent.postMessage(message, parentOrigin);
+
+    // `ancestorOrigins`/`document.referrer` can be unavailable or unreliable
+    // for extension iframes in some browsers. The content-script receiver
+    // authenticates this message by both `event.source` and `event.origin`, so
+    // a wildcard target is a safe delivery fallback for this close command.
+    if (parentOrigin !== '*') {
+      window.parent.postMessage(message, '*');
+    }
   } catch (_) {
     /* noop */
   }

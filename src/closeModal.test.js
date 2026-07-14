@@ -58,6 +58,7 @@ describe('closeModal', () => {
       { type: 'pagetollm-close' },
       'https://host.example',
     );
+    expect(postMessageMock).toHaveBeenCalledWith({ type: 'pagetollm-close' }, '*');
   });
 
   it('falls back to the referrer origin when ancestorOrigins is unavailable', () => {
