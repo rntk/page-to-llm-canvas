@@ -5,10 +5,12 @@ import { splitError, retryRecord } from '../utils/errorUtils.js';
 import { resolveColumnOverlaps } from '../topicCards.js';
 import {
   HIGHLIGHT_NAME,
+  CHAT_HIGHLIGHT_NAME,
   supportsHighlightApi,
   collectWordEntries,
   buildSentenceDomRange,
   buildSentenceWordRanges,
+  paintSentenceHighlight,
 } from '../sentenceHighlight.js';
 import {
   topicAccentColor,
@@ -115,36 +117,36 @@ export async function openInPageRail(rec, initialMode, options = {}) {
   const { railEl, railRoot, setRailWidthForMode, isClosed } = createRailSurface({
     state,
     onTeardown: () => {
-      if (supportsHighlightApi()) CSS.highlights.delete(HIGHLIGHT_NAME);
+      if (supportsHighlightApi()) {
+        CSS.highlights.delete(HIGHLIGHT_NAME);
+        CSS.highlights.delete(CHAT_HIGHLIGHT_NAME);
+      }
     },
   });
 
   let railOriginTop = 0;
 
-  // Native CSS Custom Highlight API: highlights are painted from a set of live
-  // Ranges registered under HIGHLIGHT_NAME. Unlike per-word spans, a single
-  // Range per sentence paints continuously across whitespace and inline tags,
-  // so there are no gaps between words.
+  // Native CSS Custom Highlight API: topic and chat sentences are painted as
+  // two separate named highlights (mirrors the canvas modal), so chat
+  // highlights stay visually distinct via ::highlight(pagetollm-chat-sentence)
+  // instead of being merged into the topic highlight. Unlike per-word spans, a
+  // single Range per sentence paints continuously across whitespace and inline
+  // tags, so there are no gaps between words.
   const activeTopicSentences = new Set();
   const activeChatSentences = new Set();
 
   function rebuildHighlight() {
     if (!supportsHighlightApi()) return;
-    const activeSentences = new Set([...activeTopicSentences, ...activeChatSentences]);
-    if (activeSentences.size === 0) {
-      CSS.highlights.delete(HIGHLIGHT_NAME);
-      return;
-    }
-    const highlight = new Highlight();
-    for (const sNum of activeSentences) {
-      const domRange = buildSentenceDomRange(sentenceRanges, wordEntries, sNum);
-      if (domRange) highlight.add(domRange);
-    }
-    CSS.highlights.set(HIGHLIGHT_NAME, highlight);
+    paintSentenceHighlight(HIGHLIGHT_NAME, activeTopicSentences, { wordEntries, sentenceRanges });
+    paintSentenceHighlight(CHAT_HIGHLIGHT_NAME, activeChatSentences, {
+      wordEntries,
+      sentenceRanges,
+    });
   }
 
   function clearAllHighlights() {
     activeTopicSentences.clear();
+    activeChatSentences.clear();
     rebuildHighlight();
   }
 
@@ -244,9 +246,8 @@ export async function openInPageRail(rec, initialMode, options = {}) {
       return;
     }
     if (state.mode === mode) return;
-    if (state.mode === 'chat') {
-      activeChatSentences.clear();
-    }
+    // clearAllHighlights() below already clears activeChatSentences along
+    // with the topic set, so no per-mode special-casing is needed here.
     state.mode = mode;
     railEl.dataset.mode = state.mode;
     setRailWidthForMode();

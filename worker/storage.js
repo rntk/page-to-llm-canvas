@@ -1,3 +1,13 @@
+import {
+  getLocal,
+  setLocal,
+  removeLocal,
+  queuedUpdate,
+  MUTATION_QUEUE_KEY,
+  resetUpdateQueues,
+} from './storagePrimitives.js';
+import { deleteChatsForRecord, chatStorageKeysForRecord } from './chatStorage.js';
+
 export const INDEX_KEY = 'pagetollm:index';
 // Version stamp for the cached index projections (see buildRecordMeta). Bump it
 // whenever a field is added to the projection, and teach migrateIndexMeta to
@@ -7,7 +17,6 @@ export const INDEX_SCHEMA_KEY = 'pagetollm:index-schema';
 export const INDEX_SCHEMA_VERSION = 1;
 const MAX_PROCESSING_LOG_ENTRIES = 80;
 const RECORD_SNIPPET_MAX_CHARS = 500;
-const CHAT_TITLE_MAX_CHARS = 60;
 
 // A record is physically split across three storage keys so that the
 // high-frequency writes (status/progress/log ticks) never have to
@@ -32,22 +41,6 @@ function contentStorageKey(key) {
 
 function summariesStorageKey(key) {
   return `pagetollm:rec:${key}:summaries`;
-}
-
-function chatIndexStorageKey(key) {
-  return `pagetollm:chats:${key}:index`;
-}
-
-function chatStorageKey(key, chatId) {
-  return `pagetollm:chats:${key}:${chatId}`;
-}
-
-function chatQueueKey(key) {
-  return `pagetollm:chats:${key}`;
-}
-
-function queuedChatUpdate(key, fn) {
-  return queuedUpdate(MUTATION_QUEUE_KEY, () => queuedUpdate(chatQueueKey(key), fn));
 }
 
 function hasOwn(obj, field) {
@@ -79,75 +72,9 @@ function pickMetaFields(obj) {
   return out;
 }
 
-async function getLocal(keys) {
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.get(keys, (items) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve(items || {});
-    });
-  });
-}
-
-async function setLocal(items) {
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.set(items, () => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve();
-    });
-  });
-}
-
-async function removeLocal(keys) {
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.remove(keys, () => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve();
-    });
-  });
-}
-
-/**
- * Per-key promise queue. Serializes all read-modify-write operations on the
- * same record so concurrent pipeline writes cannot clobber each other.
- * @type {Map<string, Promise<void>>}
- */
-const _updateQueues = new Map();
-const MUTATION_QUEUE_KEY = 'pagetollm:mutation-queue';
-
-/**
- * Runs `fn` after all previously-queued work for `key` has settled.
- * A failed prior task does not stall subsequent ones (swallowed internally).
- * The Map entry is pruned once the queue goes idle to avoid a memory leak.
- * @template T
- * @param {string} key - logical record key or INDEX_KEY
- * @param {() => Promise<T>} fn
- * @returns {Promise<T>}
- */
-function queuedUpdate(key, fn) {
-  const prev = _updateQueues.get(key) ?? Promise.resolve();
-  const next = prev.then(() => fn());
-  const swallowed = next.catch(() => {});
-  _updateQueues.set(key, swallowed);
-  swallowed.finally(() => {
-    if (_updateQueues.get(key) === swallowed) {
-      _updateQueues.delete(key);
-    }
-  });
-  return next;
-}
-
 /** Clears all per-key queues and buffered log state. Exposed for testing only. */
 export function _resetUpdateQueues() {
-  _updateQueues.clear();
+  resetUpdateQueues();
   for (const timer of _logFlushTimers.values()) clearTimeout(timer);
   _logFlushTimers.clear();
   _logBuffers.clear();
@@ -324,6 +251,17 @@ async function loadMetaForWrite(key) {
   return items[metaKey] || null;
 }
 
+/**
+ * Whether a record with this key exists in storage. Only reads the small meta
+ * doc. Exists so chatStorage.js can gate chat creation on record existence
+ * without depending on the record write internals.
+ * @param {string} key
+ * @returns {Promise<boolean>}
+ */
+export async function recordExists(key) {
+  return !!(await loadMetaForWrite(key));
+}
+
 function isStaleRun(meta, options) {
   return (
     hasOwn(options, 'expectedPipelineRunId') && meta.pipelineRunId !== options.expectedPipelineRunId
@@ -366,153 +304,6 @@ export async function updateRecord(key, patch, options = {}) {
       return { ...mergedMeta, ...(mergedContent || {}), ...(mergedSummaries || {}) };
     });
   });
-}
-
-function createStorageId(prefix) {
-  const uuid = globalThis.crypto?.randomUUID?.();
-  if (uuid) return `${prefix}_${uuid}`;
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
-}
-
-async function readChatIndex(key) {
-  const storageKey = chatIndexStorageKey(key);
-  const value = (await getLocal(storageKey))[storageKey];
-  return value && Array.isArray(value.chats) ? value : { chats: [] };
-}
-
-async function writeChatIndex(key, index) {
-  await setLocal({ [chatIndexStorageKey(key)]: index });
-}
-
-function chatSummary(chat) {
-  return {
-    chatId: chat.chatId,
-    title: chat.title,
-    createdAt: chat.createdAt,
-    updatedAt: chat.updatedAt,
-    messageCount: chat.messages.filter((message) => !message.hidden).length,
-    eventCount: chat.events.length,
-  };
-}
-
-async function updateChatAndIndex(key, chat) {
-  const index = await readChatIndex(key);
-  const summary = chatSummary(chat);
-  index.chats = [summary, ...index.chats.filter((item) => item.chatId !== chat.chatId)].sort(
-    (a, b) => b.updatedAt - a.updatedAt,
-  );
-  await setLocal({
-    [chatStorageKey(key, chat.chatId)]: chat,
-    [chatIndexStorageKey(key)]: index,
-  });
-  return chat;
-}
-
-export async function listChats(key) {
-  return (await readChatIndex(key)).chats;
-}
-
-export async function readChat(key, chatId) {
-  if (!key || !chatId) return null;
-  const storageKey = chatStorageKey(key, chatId);
-  return (await getLocal(storageKey))[storageKey] || null;
-}
-
-export async function createChat(key) {
-  if (!key) throw new Error('createChat: record key required');
-  return queuedChatUpdate(key, async () => {
-    if (!(await loadMetaForWrite(key))) throw new Error('record not found');
-    const now = Date.now();
-    const chat = {
-      chatId: createStorageId('chat'),
-      title: 'New chat',
-      createdAt: now,
-      updatedAt: now,
-      messages: [],
-      events: [],
-      nextEventSeq: 1,
-    };
-    await updateChatAndIndex(key, chat);
-    return chat;
-  });
-}
-
-export async function appendChatMessage(key, chatId, message) {
-  return queuedChatUpdate(key, async () => {
-    const chat = await readChat(key, chatId);
-    if (!chat) throw new Error('chat not found');
-    const now = Date.now();
-    const normalized = {
-      id: createStorageId('message'),
-      role: ['user', 'assistant', 'tool'].includes(message?.role) ? message.role : 'user',
-      content: typeof message?.content === 'string' ? message.content : '',
-      createdAt: now,
-      ...(message?.hidden ? { hidden: true } : {}),
-      ...(typeof message?.reasoning === 'string' ? { reasoning: message.reasoning } : {}),
-      ...(typeof message?.toolCallId === 'string' ? { toolCallId: message.toolCallId } : {}),
-      ...(Array.isArray(message?.toolCalls) ? { toolCalls: message.toolCalls } : {}),
-    };
-    chat.messages = [...chat.messages, normalized];
-    chat.updatedAt = now;
-    if (normalized.role === 'user' && !normalized.hidden && chat.title === 'New chat') {
-      chat.title = normalized.content.trim().slice(0, CHAT_TITLE_MAX_CHARS) || chat.title;
-    }
-    await updateChatAndIndex(key, chat);
-    return normalized;
-  });
-}
-
-export async function appendChatEvent(key, chatId, event) {
-  return queuedChatUpdate(key, async () => {
-    const chat = await readChat(key, chatId);
-    if (!chat) throw new Error('chat not found');
-    const now = Date.now();
-    const normalized = {
-      seq: Number.isInteger(chat.nextEventSeq) ? chat.nextEventSeq : 1,
-      eventType: typeof event?.eventType === 'string' ? event.eventType : 'highlight_span',
-      data: event?.data && typeof event.data === 'object' ? event.data : {},
-      createdAt: now,
-    };
-    chat.events = [...chat.events, normalized];
-    chat.nextEventSeq = normalized.seq + 1;
-    chat.updatedAt = now;
-    await updateChatAndIndex(key, chat);
-    return normalized;
-  });
-}
-
-export async function deleteChatEvent(key, chatId, seq) {
-  return queuedChatUpdate(key, async () => {
-    const chat = await readChat(key, chatId);
-    if (!chat) throw new Error('chat not found');
-    const nextEvents = chat.events.filter((event) => event.seq !== seq);
-    if (nextEvents.length === chat.events.length) return false;
-    chat.events = nextEvents;
-    chat.updatedAt = Date.now();
-    await updateChatAndIndex(key, chat);
-    return true;
-  });
-}
-
-export async function deleteChatHistory(key, chatId) {
-  return queuedChatUpdate(key, async () => {
-    const index = await readChatIndex(key);
-    const existed = index.chats.some((chat) => chat.chatId === chatId);
-    if (!existed) return false;
-    index.chats = index.chats.filter((chat) => chat.chatId !== chatId);
-    await writeChatIndex(key, index);
-    await removeLocal(chatStorageKey(key, chatId));
-    return true;
-  });
-}
-
-async function deleteChatsForRecord(key) {
-  const index = await readChatIndex(key);
-  const keys = [
-    chatIndexStorageKey(key),
-    ...index.chats.map((chat) => chatStorageKey(key, chat.chatId)),
-  ];
-  await removeLocal(keys);
 }
 
 // Pipeline stages fire a processingLog entry on nearly every LLM request and
@@ -669,17 +460,15 @@ export async function deleteAll() {
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
     return queuedUpdate(INDEX_KEY, async () => {
       const idx = await readIndex();
+      // Reads first: gather every doc key (record docs + all chat docs) before
+      // removing anything, so a read failure aborts with nothing deleted.
       const sKeys = idx.keys.flatMap((k) => [
         metaStorageKey(k),
         contentStorageKey(k),
         summariesStorageKey(k),
       ]);
       for (const key of idx.keys) {
-        const chatIndex = await readChatIndex(key);
-        sKeys.push(
-          chatIndexStorageKey(key),
-          ...chatIndex.chats.map((chat) => chatStorageKey(key, chat.chatId)),
-        );
+        sKeys.push(...(await chatStorageKeysForRecord(key)));
       }
       if (sKeys.length) await removeLocal(sKeys);
       await removeLocal(INDEX_KEY);

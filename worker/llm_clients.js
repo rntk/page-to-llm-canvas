@@ -2,9 +2,17 @@
 //
 // JS port of the clients in `example/llm`. The pipeline still uses the simple
 // `{ prompt, temperature } -> text` form, while article chat passes complete
-// message history and function tools. Tools use one internal shape everywhere
-// ({name, description, parameters} in, {id, name, arguments-object} out); each
-// client serializes to its provider's wire format.
+// message history and function tools. Tools and messages use one strict
+// internal shape everywhere ({name, description, parameters} in,
+// {id, name, arguments-object} out); each client serializes that internal
+// shape to its provider's wire format. The converters that do this
+// serialization (toProviderMessage, toProviderTool, toAnthropicMessages,
+// toAnthropicTool) accept ONLY the internal shape — they are an internal
+// seam whose sole producer is src/chat/articleChat.js, so they do not need to
+// tolerate (and must not silently accept) OpenAI/Anthropic wire shapes as
+// input. Tolerance for provider quirks is applied only at the external
+// boundary: parsing the HTTP responses that come back from each provider
+// (see parseToolArguments/normalizeToolCalls below).
 //
 // Every client exposes the same shape:
 //   complete({ prompt, temperature?, signal?, verboseLogs? }) ->
@@ -26,6 +34,9 @@ export function stripThink(text) {
   return text.replace(THINK_TAG_RE, '').trim();
 }
 
+// Inbound-only: parses tool-call arguments from a provider HTTP response.
+// OpenAI-compatible APIs return `arguments` as a JSON string; this is the
+// external boundary where tolerance belongs (see file header comment).
 function parseToolArguments(value) {
   if (value == null || value === '') return {};
   if (typeof value === 'object' && !Array.isArray(value)) return value;
@@ -44,6 +55,8 @@ function parseToolArguments(value) {
   return parsed;
 }
 
+// Inbound-only: normalizes tool calls from a provider HTTP response into the
+// internal `{id, name, arguments}` shape. See file header comment.
 function normalizeToolCalls(rawToolCalls) {
   if (!Array.isArray(rawToolCalls)) return [];
   return rawToolCalls.map((rawCall) => {
@@ -78,8 +91,10 @@ function responseTextAndReasoning(message) {
   };
 }
 
+// Wraps the internal `{name, description, parameters}` tool shape into
+// OpenAI's `{type: 'function', function: {...}}` wire format. Internal-input
+// only — see file header comment.
 function toProviderTool(tool) {
-  if (tool?.type === 'function' && tool.function) return tool;
   return {
     type: 'function',
     function: {
@@ -90,28 +105,27 @@ function toProviderTool(tool) {
   };
 }
 
+// Converts one internal message to OpenAI's wire format. Internal-input
+// only — see file header comment.
 function toProviderMessage(message) {
   const output = {
     role: message?.role || 'user',
     content: typeof message?.content === 'string' ? message.content : '',
   };
-  const toolCallId = message?.toolCallId ?? message?.tool_call_id;
+  const toolCallId = message?.toolCallId;
   if (output.role === 'tool' && toolCallId) output.tool_call_id = toolCallId;
-  const reasoning = message?.reasoning ?? message?.reasoning_content;
+  const reasoning = message?.reasoning;
   if (typeof reasoning === 'string' && reasoning) output.reasoning_content = reasoning;
-  const toolCalls = message?.toolCalls ?? message?.tool_calls;
+  const toolCalls = message?.toolCalls;
   if (Array.isArray(toolCalls) && toolCalls.length) {
-    output.tool_calls = toolCalls.map((toolCall) => {
-      if (toolCall?.type === 'function' && toolCall.function) return toolCall;
-      return {
-        id: toolCall?.id || undefined,
-        type: 'function',
-        function: {
-          name: toolCall?.name || '',
-          arguments: JSON.stringify(toolCall?.arguments || {}),
-        },
-      };
-    });
+    output.tool_calls = toolCalls.map((toolCall) => ({
+      id: toolCall?.id || undefined,
+      type: 'function',
+      function: {
+        name: toolCall?.name || '',
+        arguments: JSON.stringify(toolCall?.arguments || {}),
+      },
+    }));
   }
   return output;
 }
@@ -408,15 +422,14 @@ function anthropicCacheableContent(prompt) {
 
 /**
  * Anthropic tool definitions use `input_schema` instead of OpenAI's
- * `parameters` and have no `function` wrapper. Accepts both the internal
- * `{name, description, parameters}` shape and an OpenAI-wrapped tool.
+ * `parameters` and have no `function` wrapper. Builds from the internal
+ * `{name, description, parameters}` shape only — see file header comment.
  */
 function toAnthropicTool(tool) {
-  const fn = tool?.type === 'function' && tool.function ? tool.function : tool || {};
   return {
-    name: fn.name || '',
-    description: fn.description || '',
-    input_schema: fn.parameters || fn.input_schema || { type: 'object', properties: {} },
+    name: tool?.name || '',
+    description: tool?.description || '',
+    input_schema: tool?.parameters || { type: 'object', properties: {} },
   };
 }
 
@@ -450,7 +463,8 @@ function toAnthropicToolChoice(toolChoice, parallelToolCalls) {
  * hoisted to the top-level `system` field, assistant tool calls become
  * `tool_use` content blocks, and consecutive `tool` messages are grouped into
  * one user message of `tool_result` blocks (Anthropic requires all results for
- * a turn in a single user message, tool_result blocks first).
+ * a turn in a single user message, tool_result blocks first). Internal-input
+ * only — see file header comment.
  */
 function toAnthropicMessages(messages) {
   const systemParts = [];
@@ -465,7 +479,7 @@ function toAnthropicMessages(messages) {
     if (role === 'tool') {
       const block = {
         type: 'tool_result',
-        tool_use_id: String(message?.toolCallId ?? message?.tool_call_id ?? ''),
+        tool_use_id: String(message?.toolCallId ?? ''),
         content: text,
       };
       const previous = output[output.length - 1];
@@ -480,18 +494,17 @@ function toAnthropicMessages(messages) {
       }
       continue;
     }
-    const toolCalls = message?.toolCalls ?? message?.tool_calls;
+    const toolCalls = message?.toolCalls;
     if (role === 'assistant' && Array.isArray(toolCalls) && toolCalls.length) {
       const blocks = [];
       if (text.trim()) blocks.push({ type: 'text', text });
       toolCalls.forEach((toolCall, index) => {
-        const fn =
-          toolCall?.type === 'function' && toolCall.function ? toolCall.function : toolCall || {};
+        const args = toolCall?.arguments;
         blocks.push({
           type: 'tool_use',
           id: toolCall?.id || `tool_${output.length}_${index}`,
-          name: fn.name || '',
-          input: parseToolArguments(fn.arguments),
+          name: toolCall?.name || '',
+          input: args && typeof args === 'object' && !Array.isArray(args) ? args : {},
         });
       });
       output.push({ role: 'assistant', content: blocks });
@@ -611,11 +624,28 @@ function toAnthropicServiceTier(serviceTier) {
  * accepts the same options — including message history and function tools —
  * and returns tool calls in the normalized `{id, name, arguments}` shape with
  * `arguments` as a parsed object.
+ *
+ * `messages` and `tools` follow one strict internal contract; the client's
+ * converters accept ONLY this shape (see file header comment) — provider
+ * wire shapes (OpenAI's `tool_calls`/`tool_call_id`/`{type:'function',
+ * function:{...}}` wrappers, string-encoded `arguments`, Anthropic's
+ * `input_schema`) are never accepted as input. The sole producer of this
+ * shape is src/chat/articleChat.js.
+ *   - message: `{ role, content, reasoning?, toolCallId?, toolCalls? }`
+ *     where `toolCalls` items are `{ id, name, arguments }` and `arguments`
+ *     is always a plain object (never a JSON string).
+ *   - tool: `{ name, description, parameters }`.
+ *
+ * Tolerance for provider quirks (JSON-string arguments, `call_id` vs `id`,
+ * missing ids, `<think>` tags, `thinking` content blocks, ...) is applied
+ * only when parsing the HTTP response that comes back from the provider —
+ * that inbound boundary is where malformed/varying data actually
+ * originates, so that is the only place defensive parsing belongs.
  * @param {{type: string, model: string, token?: string, url?: string}} provider
  * @returns {{complete: (opts: {
  *   prompt?: string,
- *   messages?: Array<Record<string, unknown>>,
- *   tools?: Array<Record<string, unknown>>,
+ *   messages?: Array<{role: string, content: string, reasoning?: string, toolCallId?: string, toolCalls?: Array<{id: string, name: string, arguments: Record<string, unknown>}>}>,
+ *   tools?: Array<{name: string, description: string, parameters: Record<string, unknown>}>,
  *   toolChoice?: unknown,
  *   parallelToolCalls?: boolean,
  *   temperature?: number,

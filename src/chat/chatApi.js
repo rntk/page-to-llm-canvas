@@ -15,16 +15,9 @@ export async function getStoredChat(key, chatId) {
   return (await request({ type: MSG.getChat, key, chatId })).chat;
 }
 
-export async function createStoredChat(key) {
-  return (await request({ type: MSG.createChat, key })).chat;
-}
-
-export async function persistChatMessage(key, chatId, message) {
-  return (await request({ type: MSG.appendChatMessage, key, chatId, message })).message;
-}
-
-export async function persistChatEvent(key, chatId, event) {
-  return (await request({ type: MSG.appendChatEvent, key, chatId, event })).event;
+export async function persistChatTurn(key, chatId, turn) {
+  const response = await request({ type: MSG.appendChatTurn, key, chatId, turn });
+  return { chat: response.chat, messages: response.messages, events: response.events };
 }
 
 export async function removeStoredChatEvent(key, chatId, seq) {

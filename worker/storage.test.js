@@ -11,13 +11,7 @@ import {
   findRecordByUrl,
   buildRecordSnippet,
   migrateIndexMeta,
-  listChats,
-  readChat,
-  createChat,
-  appendChatMessage,
-  appendChatEvent,
-  deleteChatEvent,
-  deleteChatHistory,
+  recordExists,
   INDEX_KEY,
   INDEX_SCHEMA_KEY,
   INDEX_SCHEMA_VERSION,
@@ -560,78 +554,16 @@ describe('buildRecordSnippet', () => {
   });
 });
 
-describe('per-chat history and events', () => {
-  it('persists messages and events under one chat and updates its summary', async () => {
+describe('recordExists', () => {
+  it('reflects whether the meta doc is present in storage', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
-    await seedRecord(mock, makeRecord('article'));
 
-    const chat = await createChat('article');
-    await appendChatMessage('article', chat.chatId, { role: 'user', content: 'Where is it?' });
-    await appendChatMessage('article', chat.chatId, {
-      role: 'assistant',
-      content: '',
-      hidden: true,
-      toolCalls: [{ id: 'call-1', name: 'highlight_span', arguments: {} }],
-    });
-    const event = await appendChatEvent('article', chat.chatId, {
-      eventType: 'highlight_span',
-      data: { startLine: 2, endLine: 3, label: 'Evidence' },
-    });
-    await appendChatMessage('article', chat.chatId, {
-      role: 'assistant',
-      content: 'It is on lines 2–3.',
-    });
-
-    expect(event.seq).toBe(1);
-    const stored = await readChat('article', chat.chatId);
-    expect(stored.messages).toHaveLength(3);
-    expect(stored.events).toEqual([event]);
-    expect(await listChats('article')).toEqual([
-      expect.objectContaining({
-        chatId: chat.chatId,
-        title: 'Where is it?',
-        messageCount: 2,
-        eventCount: 1,
-      }),
-    ]);
-  });
-
-  it('isolates events by chat and supports event/chat deletion', async () => {
-    const mock = makeChromeMock();
-    vi.stubGlobal('chrome', mock);
-    await seedRecord(mock, makeRecord('article'));
-    const first = await createChat('article');
-    const second = await createChat('article');
-    const firstEvent = await appendChatEvent('article', first.chatId, {
-      eventType: 'highlight_span',
-      data: { startLine: 1, endLine: 1 },
-    });
-    await appendChatEvent('article', second.chatId, {
-      eventType: 'highlight_span',
-      data: { startLine: 4, endLine: 4 },
-    });
-
-    expect((await readChat('article', first.chatId)).events).toHaveLength(1);
-    expect((await readChat('article', second.chatId)).events).toHaveLength(1);
-    expect(await deleteChatEvent('article', first.chatId, firstEvent.seq)).toBe(true);
-    expect((await readChat('article', first.chatId)).events).toEqual([]);
-    expect((await readChat('article', second.chatId)).events).toHaveLength(1);
-    expect(await deleteChatHistory('article', second.chatId)).toBe(true);
-    expect(await readChat('article', second.chatId)).toBeNull();
-  });
-
-  it('removes all chat documents when the record is deleted', async () => {
-    const mock = makeChromeMock();
-    vi.stubGlobal('chrome', mock);
-    await seedRecord(mock, makeRecord('article'));
-    const chat = await createChat('article');
-    await appendChatMessage('article', chat.chatId, { role: 'user', content: 'Question' });
-
-    await deleteRecord('article');
-
-    expect(await listChats('article')).toEqual([]);
-    expect(await readChat('article', chat.chatId)).toBeNull();
+    expect(await recordExists('r1')).toBe(false);
+    await seedRecord(mock, makeRecord('r1'));
+    expect(await recordExists('r1')).toBe(true);
+    await deleteRecord('r1');
+    expect(await recordExists('r1')).toBe(false);
   });
 });
 

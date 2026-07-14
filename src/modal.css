@@ -423,7 +423,8 @@ body.canvas-global-dragging * {
   border-color: var(--accent);
 }
 
-.canvas-read-toggle {
+.canvas-read-toggle,
+.canvas-chat-toggle {
   width: 32px;
   height: 32px;
   background: var(--surface-frost);
@@ -442,7 +443,8 @@ body.canvas-global-dragging * {
     color 0.15s;
 }
 
-.canvas-read-toggle.is-active {
+.canvas-read-toggle.is-active,
+.canvas-chat-toggle.is-active {
   background: var(--ink);
   border-color: var(--ink);
   color: var(--surface);

@@ -1,7 +1,12 @@
 import { useEffect } from 'react';
-import { buildSentenceDomRange, supportsHighlightApi } from '../sentenceHighlight.js';
+import {
+  CHAT_HIGHLIGHT_NAME,
+  paintSentenceHighlight,
+  supportsHighlightApi,
+} from '../sentenceHighlight.js';
 
-export const CHAT_HIGHLIGHT_NAME = 'pagetollm-chat-sentence';
+// Re-exported for callers that still import the constant from this module.
+export { CHAT_HIGHLIGHT_NAME };
 
 export function useChatHighlights({
   isDone,
@@ -13,16 +18,7 @@ export function useChatHighlights({
   useEffect(() => {
     if (!isDone || showSummaryMode || !supportsHighlightApi()) return undefined;
     const { wordEntries, sentenceRanges } = refreshSentenceRanges();
-    const highlight = new Highlight();
-    let hasRanges = false;
-    for (const sentenceNumber of sentenceNumbers) {
-      const range = buildSentenceDomRange(sentenceRanges, wordEntries, sentenceNumber);
-      if (!range) continue;
-      highlight.add(range);
-      hasRanges = true;
-    }
-    if (hasRanges) CSS.highlights.set(CHAT_HIGHLIGHT_NAME, highlight);
-    else CSS.highlights.delete(CHAT_HIGHLIGHT_NAME);
+    paintSentenceHighlight(CHAT_HIGHLIGHT_NAME, sentenceNumbers, { wordEntries, sentenceRanges });
     return () => CSS.highlights.delete(CHAT_HIGHLIGHT_NAME);
   }, [articleHtml, isDone, refreshSentenceRanges, sentenceNumbers, showSummaryMode]);
 }

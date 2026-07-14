@@ -7,7 +7,19 @@ import {
   collectWordEntries,
   buildSentenceDomRange,
   buildSentenceWordRanges,
+  paintSentenceHighlight,
 } from './sentenceHighlight.js';
+
+// Minimal CSS Custom Highlight API polyfill (happy-dom ships neither Highlight
+// nor CSS.highlights). Highlight just records the live Ranges added to it.
+class FakeHighlight {
+  constructor() {
+    this.ranges = new Set();
+  }
+  add(range) {
+    this.ranges.add(range);
+  }
+}
 
 describe('sentenceHighlight pure helpers', () => {
   it('tokenizeText splits on whitespace and returns array', () => {
@@ -141,5 +153,68 @@ describe('buildSentenceWordRanges (anchoring logic)', () => {
     const ranges = buildSentenceWordRanges(['Hello', 'world test'], entries);
     expect(ranges.get(1)).toEqual({ startIdx: 0, endIdx: 0 });
     expect(ranges.get(2)).toEqual({ startIdx: 1, endIdx: 2 });
+  });
+});
+
+describe('paintSentenceHighlight', () => {
+  let container;
+
+  beforeEach(() => {
+    globalThis.Highlight = FakeHighlight;
+    globalThis.CSS = globalThis.CSS || {};
+    globalThis.CSS.highlights = new Map();
+    container = document.createElement('div');
+    container.textContent = 'One two three four five six';
+    document.body.appendChild(container);
+  });
+
+  afterEach(() => {
+    delete globalThis.Highlight;
+    delete globalThis.CSS.highlights;
+    container.remove();
+  });
+
+  function buildRanges() {
+    const wordEntries = collectWordEntries([container]);
+    const sentenceRanges = buildSentenceWordRanges(['One two three', 'four five six'], wordEntries);
+    return { wordEntries, sentenceRanges };
+  }
+
+  it('paints a resolved sentence range under the given highlight name', () => {
+    paintSentenceHighlight('test-highlight', [1], buildRanges());
+    expect(CSS.highlights.has('test-highlight')).toBe(true);
+    expect(CSS.highlights.get('test-highlight').ranges.size).toBe(1);
+  });
+
+  it('paints multiple sentence numbers into one highlight', () => {
+    paintSentenceHighlight('test-highlight', [1, 2], buildRanges());
+    expect(CSS.highlights.get('test-highlight').ranges.size).toBe(2);
+  });
+
+  it('accepts any iterable of sentence numbers, e.g. a Set', () => {
+    paintSentenceHighlight('test-highlight', new Set([1, 2]), buildRanges());
+    expect(CSS.highlights.get('test-highlight').ranges.size).toBe(2);
+  });
+
+  it('deletes the highlight when sentenceNumbers is empty', () => {
+    CSS.highlights.set('test-highlight', new FakeHighlight());
+    paintSentenceHighlight('test-highlight', [], buildRanges());
+    expect(CSS.highlights.has('test-highlight')).toBe(false);
+  });
+
+  it('deletes the highlight when sentenceNumbers is null or undefined', () => {
+    CSS.highlights.set('test-highlight', new FakeHighlight());
+    paintSentenceHighlight('test-highlight', null, buildRanges());
+    expect(CSS.highlights.has('test-highlight')).toBe(false);
+
+    CSS.highlights.set('test-highlight', new FakeHighlight());
+    paintSentenceHighlight('test-highlight', undefined, buildRanges());
+    expect(CSS.highlights.has('test-highlight')).toBe(false);
+  });
+
+  it('deletes the highlight when no sentence number resolves to a range', () => {
+    CSS.highlights.set('test-highlight', new FakeHighlight());
+    paintSentenceHighlight('test-highlight', [999], buildRanges());
+    expect(CSS.highlights.has('test-highlight')).toBe(false);
   });
 });

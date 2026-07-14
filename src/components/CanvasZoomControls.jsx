@@ -156,7 +156,7 @@ function CanvasZoomControls({
           <div className="canvas-spacer" />
           <button
             type="button"
-            className={`canvas-read-toggle${showChat ? ' is-active' : ''}`}
+            className={`canvas-chat-toggle${showChat ? ' is-active' : ''}`}
             onClick={onToggleChat}
             title={showChat ? 'Hide article chat' : 'Chat with the article'}
             aria-pressed={showChat}

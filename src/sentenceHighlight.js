@@ -5,6 +5,11 @@
 
 const WORD_TOKEN_RE = /\S+/g;
 export const HIGHLIGHT_NAME = 'pagetollm-sentence';
+/** CSS Custom Highlight name for chat-driven sentence highlights, shared by
+ * the canvas (src/chat/useChatHighlights.js) and the in-page rail
+ * (src/content/inPageRailController.jsx) so both surfaces render chat
+ * highlights identically via ::highlight(pagetollm-chat-sentence). */
+export const CHAT_HIGHLIGHT_NAME = 'pagetollm-chat-sentence';
 
 export function supportsHighlightApi() {
   return typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight !== 'undefined';
@@ -85,6 +90,38 @@ export function buildSentenceDomRange(sentenceRanges, wordEntries, sNum) {
   } catch (_) {
     return null;
   }
+}
+
+/**
+ * Build (or clear) a single named CSS Custom Highlight from a list of
+ * sentence numbers. Resolves one live Range per sentence via
+ * buildSentenceDomRange, adds every resolved range to a fresh Highlight, and
+ * registers it under `name`. Deletes the highlight when sentenceNumbers is
+ * empty/nullish or no range resolved. Callers are expected to have already
+ * checked supportsHighlightApi().
+ *
+ * @param {string} name
+ * @param {Iterable<number> | null | undefined} sentenceNumbers
+ * @param {{ wordEntries: Array<unknown>, sentenceRanges: Map<number, unknown> }} params
+ * @returns {void}
+ */
+export function paintSentenceHighlight(name, sentenceNumbers, { wordEntries, sentenceRanges }) {
+  const nums = sentenceNumbers ? Array.from(sentenceNumbers) : [];
+  if (!nums.length) {
+    CSS.highlights.delete(name);
+    return;
+  }
+  const highlight = new Highlight();
+  let any = false;
+  for (const n of nums) {
+    const domRange = buildSentenceDomRange(sentenceRanges, wordEntries, n);
+    if (domRange) {
+      highlight.add(domRange);
+      any = true;
+    }
+  }
+  if (any) CSS.highlights.set(name, highlight);
+  else CSS.highlights.delete(name);
 }
 
 /**

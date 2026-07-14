@@ -1,29 +1,27 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { runArticleChatTurn } from './articleChat.js';
-import {
-  createStoredChat,
-  getStoredChat,
-  listStoredChats,
-  persistChatEvent,
-  persistChatMessage,
-  removeStoredChat,
-  removeStoredChatEvent,
-} from './chatApi.js';
+import { persistChatTurn } from './chatApi.js';
+import { eventRange, useChatSessions } from './useChatSessions.js';
+import ChatComposer from './ChatComposer.jsx';
+import ChatEventsList from './ChatEventsList.jsx';
+import ChatHistoryPanel from './ChatHistoryPanel.jsx';
+import ChatMessageList from './ChatMessageList.jsx';
 
-function eventRange(event) {
-  if (event?.eventType !== 'highlight_span') return null;
-  const startLine = Number(event.data?.startLine);
-  const endLine = Number(event.data?.endLine);
-  if (!Number.isInteger(startLine) || !Number.isInteger(endLine)) return null;
-  return { startLine, endLine, label: event.data?.label || '' };
-}
-
-function formatDate(timestamp) {
-  if (!timestamp) return '';
-  const date = new Date(timestamp);
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
-}
-
+/**
+ * Article chat panel: composes the persisted-session hook with the
+ * presentational pieces and owns the send path. One LLM turn runs entirely
+ * in memory (highlights are live-painted as they stream in) and is then
+ * committed with a single persistChatTurn call, so a failure anywhere leaves
+ * storage exactly as it was.
+ *
+ * @param {{
+ *   recordKey: string,
+ *   sentences: string[],
+ *   onHighlight?: (range: object) => void,
+ *   onClearHighlights?: () => void,
+ *   onClose?: () => void,
+ * }} props
+ */
 export default function ArticleChat({
   recordKey,
   sentences,
@@ -31,25 +29,12 @@ export default function ArticleChat({
   onClearHighlights,
   onClose,
 }) {
-  const [chats, setChats] = useState([]);
-  const [activeChatId, setActiveChatId] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [events, setEvents] = useState([]);
-  const [selectedEventSeq, setSelectedEventSeq] = useState(null);
   const [input, setInput] = useState('');
   const [activeTab, setActiveTab] = useState('chat');
   const [showHistory, setShowHistory] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
-  const [error, setError] = useState('');
-  const highlightedRangesRef = useRef([]);
-  const endRef = useRef(null);
-
-  const visibleMessages = useMemo(() => messages.filter((message) => !message.hidden), [messages]);
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView?.({ behavior: 'smooth' });
-  }, [visibleMessages, isLoading]);
+  // Optimistic user bubble while the turn runs; nothing is persisted yet.
+  const [pendingQuestion, setPendingQuestion] = useState('');
 
   const applyEvent = useCallback(
     (event) => {
@@ -60,195 +45,136 @@ export default function ArticleChat({
     [onClearHighlights, onHighlight],
   );
 
-  const loadChat = useCallback(
+  const {
+    chats,
+    activeChatId,
+    messages,
+    events,
+    selectedEventSeq,
+    isLoadingHistory,
+    error,
+    setError,
+    loadChat,
+    refreshChats,
+    startNewChat,
+    selectEvent,
+    deleteEvent,
+    deleteChat,
+    adoptPersistedTurn,
+  } = useChatSessions({ recordKey, applyEvent });
+
+  // Single source of truth: ranges are always derived from the events state.
+  const highlightedRanges = useMemo(() => events.map(eventRange).filter(Boolean), [events]);
+
+  const visibleMessages = useMemo(() => {
+    const visible = messages.filter((message) => !message.hidden);
+    return pendingQuestion ? [...visible, { role: 'user', content: pendingQuestion }] : visible;
+  }, [messages, pendingQuestion]);
+
+  const handleSelectChat = useCallback(
     async (chatId) => {
-      if (!recordKey || !chatId) return;
-      setIsLoadingHistory(true);
-      setError('');
-      try {
-        const chat = await getStoredChat(recordKey, chatId);
-        const nextEvents = Array.isArray(chat?.events) ? chat.events : [];
-        setActiveChatId(chatId);
-        setMessages(Array.isArray(chat?.messages) ? chat.messages : []);
-        setEvents(nextEvents);
-        highlightedRangesRef.current = nextEvents.map(eventRange).filter(Boolean);
-        const latest = nextEvents.at(-1) || null;
-        setSelectedEventSeq(latest?.seq ?? null);
-        applyEvent(latest);
-        setShowHistory(false);
-      } catch (err) {
-        setError(err?.message || 'Failed to load chat history.');
-      } finally {
-        setIsLoadingHistory(false);
-      }
+      if (await loadChat(chatId)) setShowHistory(false);
     },
-    [applyEvent, recordKey],
+    [loadChat],
   );
 
-  const refreshChats = useCallback(async () => {
-    if (!recordKey) return [];
-    const nextChats = await listStoredChats(recordKey);
-    setChats(nextChats);
-    return nextChats;
-  }, [recordKey]);
-
-  useEffect(() => {
-    let cancelled = false;
-    listStoredChats(recordKey)
-      .then(async (nextChats) => {
-        if (cancelled) return;
-        setChats(nextChats);
-        if (nextChats.length) await loadChat(nextChats[0].chatId);
-        else onClearHighlights?.();
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err?.message || 'Failed to load chat history.');
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoadingHistory(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [loadChat, onClearHighlights, recordKey]);
-
-  const startNewChat = useCallback(() => {
+  const handleNewChat = useCallback(() => {
     if (isLoading) return;
-    setActiveChatId(null);
-    setMessages([]);
-    setEvents([]);
-    setSelectedEventSeq(null);
+    startNewChat();
     setInput('');
-    setError('');
     setShowHistory(false);
     setActiveTab('chat');
-    highlightedRangesRef.current = [];
-    onClearHighlights?.();
-  }, [isLoading, onClearHighlights]);
+  }, [isLoading, startNewChat]);
 
-  const selectEvent = useCallback(
-    (event) => {
-      setSelectedEventSeq(event.seq);
-      applyEvent(event);
+  const handleDeleteChat = useCallback(
+    (chatId) => {
+      if (isLoading) return;
+      void deleteChat(chatId);
     },
-    [applyEvent],
-  );
-
-  const deleteEvent = useCallback(
-    async (event) => {
-      if (!activeChatId) return;
-      setError('');
-      try {
-        await removeStoredChatEvent(recordKey, activeChatId, event.seq);
-        const nextEvents = events.filter((item) => item.seq !== event.seq);
-        setEvents(nextEvents);
-        highlightedRangesRef.current = nextEvents.map(eventRange).filter(Boolean);
-        const latest = nextEvents.at(-1) || null;
-        setSelectedEventSeq(latest?.seq ?? null);
-        applyEvent(latest);
-        await refreshChats();
-      } catch (err) {
-        setError(err?.message || 'Failed to delete event.');
-      }
-    },
-    [activeChatId, applyEvent, events, recordKey, refreshChats],
-  );
-
-  const deleteChat = useCallback(
-    async (chatId) => {
-      if (!chatId || isLoading) return;
-      setError('');
-      try {
-        await removeStoredChat(recordKey, chatId);
-        const nextChats = await refreshChats();
-        if (chatId === activeChatId) {
-          if (nextChats.length) await loadChat(nextChats[0].chatId);
-          else startNewChat();
-        }
-      } catch (err) {
-        setError(err?.message || 'Failed to delete chat.');
-      }
-    },
-    [activeChatId, isLoading, loadChat, recordKey, refreshChats, startNewChat],
+    [deleteChat, isLoading],
   );
 
   const send = useCallback(async () => {
     const question = input.trim();
     if (!question || isLoading || !recordKey) return;
-    const history = messages;
     setInput('');
     setError('');
     setIsLoading(true);
+    setPendingQuestion(question);
     try {
-      let chatId = activeChatId;
-      if (!chatId) {
-        const chat = await createStoredChat(recordKey);
-        chatId = chat.chatId;
-        setActiveChatId(chatId);
-      }
-      const userMessage = await persistChatMessage(recordKey, chatId, {
-        role: 'user',
-        content: question,
-      });
-      setMessages((current) => [...current, userMessage]);
-
-      const result = await runArticleChatTurn({
-        history,
-        question,
-        sentences,
-        highlightedRanges: highlightedRangesRef.current,
-        onTranscriptMessage: async (message) => {
-          const storedMessage = await persistChatMessage(recordKey, chatId, {
-            ...message,
-            hidden: true,
-          });
-          setMessages((current) => [...current, storedMessage]);
-        },
-        onHighlight: async (range) => {
-          const event = await persistChatEvent(recordKey, chatId, {
+      try {
+        // Run the whole turn first; onHighlight only live-paints the article.
+        const result = await runArticleChatTurn({
+          history: messages,
+          question,
+          sentences,
+          highlightedRanges,
+          onHighlight,
+        });
+        // Commit the turn as one atomic write. A falsy chatId creates the chat
+        // inline, so a failed first turn leaves no orphan chat behind.
+        const persisted = await persistChatTurn(recordKey, activeChatId ?? null, {
+          messages: [
+            { role: 'user', content: question },
+            ...result.transcriptMessages.map((message) => ({ ...message, hidden: true })),
+            { role: 'assistant', content: result.reply },
+          ],
+          events: result.highlightRanges.map((range) => ({
             eventType: 'highlight_span',
             data: range,
-          });
-          setEvents((current) => [...current, event]);
-          setSelectedEventSeq(event.seq);
-          onHighlight?.(range);
-        },
-      });
-      const assistantMessage = await persistChatMessage(recordKey, chatId, {
-        role: 'assistant',
-        content: result.reply,
-      });
-      setMessages((current) => [...current, assistantMessage]);
-      await refreshChats();
-    } catch (err) {
-      setError(err?.message || 'Failed to get a response.');
+          })),
+        });
+        adoptPersistedTurn(persisted);
+        setPendingQuestion('');
+      } catch (err) {
+        // Nothing was persisted: undo the live-painted highlights by repainting
+        // the stored selection, and give the question back to the composer.
+        setPendingQuestion('');
+        setInput(question);
+        applyEvent(events.find((event) => event.seq === selectedEventSeq) ?? null);
+        setError(err?.message || 'Failed to get a response.');
+        return;
+      }
+      // The turn is durably persisted and adopted; the chat-list refresh is a
+      // runtime round-trip whose only effect is cosmetic sidebar titles/counts.
+      // A failure here must neither roll back the turn nor surface an error.
+      try {
+        await refreshChats();
+      } catch {
+        // Stale sidebar titles/counts are acceptable; the turn is persisted.
+      }
     } finally {
       setIsLoading(false);
     }
-  }, [activeChatId, input, isLoading, messages, onHighlight, recordKey, refreshChats, sentences]);
-
-  const handleKeyDown = useCallback(
-    (event) => {
-      if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault();
-        void send();
-      }
-    },
-    [send],
-  );
+  }, [
+    activeChatId,
+    adoptPersistedTurn,
+    applyEvent,
+    events,
+    highlightedRanges,
+    input,
+    isLoading,
+    messages,
+    onHighlight,
+    recordKey,
+    refreshChats,
+    selectedEventSeq,
+    sentences,
+    setError,
+  ]);
 
   return (
     <section className="pagetollm-chat" onMouseDown={(event) => event.stopPropagation()}>
       <header className="pagetollm-chat-header">
         <div>
           <div className="pagetollm-chat-title">Article assistant</div>
-          <div className="pagetollm-chat-subtitle">llama.cpp</div>
+          <div className="pagetollm-chat-subtitle">Ask about this article</div>
         </div>
         <div className="pagetollm-chat-actions">
           <button type="button" onClick={() => setShowHistory((value) => !value)}>
             History
           </button>
-          <button type="button" onClick={startNewChat} disabled={isLoading}>
+          <button type="button" onClick={handleNewChat} disabled={isLoading}>
             New
           </button>
           {onClose ? (
@@ -260,30 +186,12 @@ export default function ArticleChat({
       </header>
 
       {showHistory ? (
-        <div className="pagetollm-chat-history-panel">
-          {chats.length === 0 ? <div className="pagetollm-chat-empty">No chats yet.</div> : null}
-          {chats.map((chat) => (
-            <div
-              key={chat.chatId}
-              className={`pagetollm-chat-history-item${chat.chatId === activeChatId ? ' is-active' : ''}`}
-            >
-              <button type="button" onClick={() => void loadChat(chat.chatId)}>
-                <strong>{chat.title || 'New chat'}</strong>
-                <span>
-                  {formatDate(chat.updatedAt)} · {chat.messageCount} msg · {chat.eventCount} ev
-                </span>
-              </button>
-              <button
-                type="button"
-                className="is-delete"
-                onClick={() => void deleteChat(chat.chatId)}
-                aria-label={`Delete ${chat.title || 'chat'}`}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
+        <ChatHistoryPanel
+          chats={chats}
+          activeChatId={activeChatId}
+          onSelectChat={(chatId) => void handleSelectChat(chatId)}
+          onDeleteChat={handleDeleteChat}
+        />
       ) : null}
 
       <div className="pagetollm-chat-tabs">
@@ -304,79 +212,25 @@ export default function ArticleChat({
       </div>
 
       {activeTab === 'events' ? (
-        <div className="pagetollm-chat-events" role="list">
-          {events.length === 0 ? (
-            <div className="pagetollm-chat-empty">No events in this chat.</div>
-          ) : null}
-          {events.map((event, index) => {
-            const range = eventRange(event);
-            return (
-              <div
-                key={event.seq}
-                className={`pagetollm-chat-event${event.seq === selectedEventSeq ? ' is-active' : ''}`}
-                role="listitem"
-              >
-                <button type="button" onClick={() => selectEvent(event)}>
-                  <strong>#{index + 1} Highlight</strong>
-                  <span>
-                    Lines {range?.startLine ?? '?'}–{range?.endLine ?? '?'}
-                    {range?.label ? ` · ${range.label}` : ''}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="is-delete"
-                  onClick={() => void deleteEvent(event)}
-                  aria-label={`Delete event ${index + 1}`}
-                >
-                  ×
-                </button>
-              </div>
-            );
-          })}
-        </div>
+        <ChatEventsList
+          events={events}
+          selectedEventSeq={selectedEventSeq}
+          onSelectEvent={selectEvent}
+          onDeleteEvent={(event) => void deleteEvent(event)}
+        />
       ) : (
         <>
-          <div className="pagetollm-chat-history" aria-live="polite">
-            {visibleMessages.length === 0 ? (
-              <div className="pagetollm-chat-empty">Ask a question about this article.</div>
-            ) : null}
-            {visibleMessages.map((message, index) => (
-              <div
-                key={message.id || `${message.role}-${index}`}
-                className={`pagetollm-chat-message is-${message.role}`}
-              >
-                <strong>{message.role === 'user' ? 'You' : 'Assistant'}</strong>
-                <span>{message.content}</span>
-              </div>
-            ))}
-            {isLoading || isLoadingHistory ? (
-              <div className="pagetollm-chat-message is-assistant is-loading">
-                <strong>Assistant</strong>
-                <span>{isLoading ? 'Thinking…' : 'Loading history…'}</span>
-              </div>
-            ) : null}
-            <div ref={endRef} />
-          </div>
-
-          <div className="pagetollm-chat-composer">
-            <textarea
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask about this article…"
-              rows={3}
-              disabled={isLoading || isLoadingHistory}
-              aria-label="Message"
-            />
-            <button
-              type="button"
-              onClick={() => void send()}
-              disabled={!input.trim() || isLoading || isLoadingHistory}
-            >
-              Send
-            </button>
-          </div>
+          <ChatMessageList
+            messages={visibleMessages}
+            isLoading={isLoading}
+            isLoadingHistory={isLoadingHistory}
+          />
+          <ChatComposer
+            value={input}
+            onChange={setInput}
+            onSend={() => void send()}
+            disabled={isLoading || isLoadingHistory}
+          />
         </>
       )}
 

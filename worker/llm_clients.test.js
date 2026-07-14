@@ -475,6 +475,56 @@ describe('createClient dispatch', () => {
     ]);
   });
 
+  it('openai-compatible client tolerates call_id and missing ids in inbound tool_calls', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      okJson({
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  call_id: 'call-legacy',
+                  type: 'function',
+                  function: { name: 'highlight_span', arguments: '{"start_line":1,"end_line":2}' },
+                },
+                {
+                  type: 'function',
+                  function: { name: 'highlight_span', arguments: '{}' },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+    const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'k' });
+    const result = await client.complete({ prompt: 'p' });
+    expect(result.toolCalls).toEqual([
+      { id: 'call-legacy', name: 'highlight_span', arguments: { start_line: 1, end_line: 2 } },
+      { id: null, name: 'highlight_span', arguments: {} },
+    ]);
+  });
+
+  it('openai-compatible client combines <think> tags and reasoning_content into reasoning', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      okJson({
+        choices: [
+          {
+            message: {
+              content: '<think>pondering</think>final answer',
+              reasoning_content: 'also considered this',
+            },
+          },
+        ],
+      }),
+    );
+    const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'k' });
+    const result = await client.complete({ prompt: 'p' });
+    expect(result.content).toBe('final answer');
+    expect(result.reasoning).toBe('also considered this\n\npondering');
+  });
+
   it('omits tool_choice and parallel_tool_calls when no tools are sent', async () => {
     vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'hi' } }] }));
     const client = createClient({ type: 'openrouter', model: 'openai/gpt-4o-mini', token: 'k' });

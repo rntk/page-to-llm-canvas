@@ -236,8 +236,9 @@ describe('CanvasZoomControls', () => {
     );
 
     // Chat and hierarchy remain; the summary ("S") toggle is gone.
+    expect(container.querySelector('.canvas-chat-toggle')).not.toBeNull();
     const readToggles = container.querySelectorAll('.canvas-read-toggle');
-    expect(Array.from(readToggles).map((button) => button.textContent)).toEqual(['C', 'H']);
+    expect(Array.from(readToggles).map((button) => button.textContent)).toEqual(['H']);
 
     unmount();
   });
@@ -247,9 +248,8 @@ describe('CanvasZoomControls', () => {
     const { container, unmount } = render(
       createElement(CanvasZoomControls, { ...defaultProps, onToggleChat, showChat: true }),
     );
-    const chatButton = Array.from(container.querySelectorAll('.canvas-read-toggle')).find(
-      (button) => button.textContent === 'C',
-    );
+    const chatButton = container.querySelector('.canvas-chat-toggle');
+    expect(chatButton.textContent).toBe('C');
     expect(chatButton.className).toContain('is-active');
     act(() => chatButton.click());
     expect(onToggleChat).toHaveBeenCalledOnce();

@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import {
   HIGHLIGHT_NAME,
   supportsHighlightApi,
-  buildSentenceDomRange,
+  paintSentenceHighlight,
 } from './sentenceHighlight.js';
 
 /** Second CSS Custom Highlight name, used for the hovered (not selected) topic. */
@@ -49,31 +49,13 @@ export function useSentenceHighlights({
       return Array.from(topicSentenceIndex.get(key) || []);
     };
 
-    const setHighlight = (name, nums) => {
-      if (!nums.length) {
-        CSS.highlights.delete(name);
-        return;
-      }
-      const highlight = new Highlight();
-      let any = false;
-      for (const n of nums) {
-        const domRange = buildSentenceDomRange(sentenceRanges, wordEntries, n);
-        if (domRange) {
-          highlight.add(domRange);
-          any = true;
-        }
-      }
-      if (any) CSS.highlights.set(name, highlight);
-      else CSS.highlights.delete(name);
-    };
-
     const selectedNums = sentencesForKey(selectedTopicKey);
     const selectedSet = new Set(selectedNums);
     // Don't double-paint sentences that are already in the selected highlight.
     const hoverNums = sentencesForKey(hoveredTopicKey).filter((n) => !selectedSet.has(n));
 
-    setHighlight(HIGHLIGHT_NAME, selectedNums);
-    setHighlight(HIGHLIGHT_HOVER, hoverNums);
+    paintSentenceHighlight(HIGHLIGHT_NAME, selectedNums, { wordEntries, sentenceRanges });
+    paintSentenceHighlight(HIGHLIGHT_HOVER, hoverNums, { wordEntries, sentenceRanges });
 
     return () => {
       CSS.highlights.delete(HIGHLIGHT_NAME);
