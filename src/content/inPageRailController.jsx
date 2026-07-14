@@ -286,6 +286,7 @@ export async function openInPageRail(rec, initialMode, options = {}) {
   };
 
   const handleChatHighlight = ({ startLine, endLine }, { focus = false } = {}) => {
+    if (isClosed() || guard.isStale()) return;
     for (let line = startLine; line <= endLine; line += 1) {
       activeChatSentences.add(line);
     }
@@ -294,6 +295,7 @@ export async function openInPageRail(rec, initialMode, options = {}) {
   };
 
   const handleClearChatHighlights = () => {
+    if (isClosed() || guard.isStale()) return;
     activeChatSentences.clear();
     rebuildHighlight();
   };

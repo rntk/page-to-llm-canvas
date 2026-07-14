@@ -118,6 +118,9 @@ export async function openYouTubeRail(rec) {
   const getChatEventTimestamp = ({ startLine }) => getTimestampForSentences(sentences, [startLine]);
 
   const handleChatHighlight = ({ startLine }, { focus = false } = {}) => {
+    if (isClosed() || guard.isStale()) {
+      return { ok: false, message: 'This chat view is no longer open.' };
+    }
     if (!focus) return;
     const seconds = getChatEventTimestamp({ startLine });
     if (seconds == null) {

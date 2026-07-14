@@ -13,19 +13,12 @@
 //   4. In src/chat/articleChat.js: remove the recordToolMetric plumbing
 //   5. In OptionsApp.jsx: remove ChatToolMetricsSection + its import + render
 
+import { CHAT_TOOL_OUTCOMES } from '../telemetry.js';
+
+export { CHAT_TOOL_OUTCOMES } from '../telemetry.js';
+
 export const CHAT_TOOL_METRICS_KEY = 'pagetollm-chat-tool-metrics';
 export const CHAT_TOOL_METRICS_MAX_RECENT = 60;
-
-/** Stable outcome codes for one highlight_span tool call. */
-export const CHAT_TOOL_OUTCOMES = Object.freeze({
-  HIGHLIGHTED: 'highlighted',
-  OVERLAP_SKIPPED: 'overlap_skipped',
-  UNKNOWN_TOOL: 'unknown_tool',
-  INVALID_ARGUMENTS: 'invalid_arguments',
-  OUT_OF_RANGE: 'out_of_range',
-  OUT_OF_CHUNK: 'out_of_chunk',
-  PAINT_FAILED: 'paint_failed',
-});
 
 /** Human-readable labels for the diagnostics UI. */
 export const CHAT_TOOL_OUTCOME_LABELS = Object.freeze({

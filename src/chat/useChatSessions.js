@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   getStoredChat,
   listStoredChats,
@@ -15,160 +15,292 @@ export function eventRange(event) {
   return { startLine, endLine, label: event.data?.label || '' };
 }
 
+function eventsForTurn(events, event) {
+  if (!event) return [];
+  return event.turnId ? events.filter((candidate) => candidate.turnId === event.turnId) : [event];
+}
+
+const USE_LATEST_EVENT = Symbol('use latest event');
+
 /**
- * Owns the persisted chat sessions of one record: the chats list, the active
- * chat's messages/events, and the load/delete operations against chatApi.
- * The send path stays with the caller; it hands its atomically persisted
- * result to `adoptPersistedTurn`.
+ * Owns the persisted chat sessions of one record. Loads are latest-wins and
+ * mutations are serialized so stale async completions cannot overwrite a
+ * newer selection. `applyEvents` paints the evidence belonging to the active
+ * turn; the complete `events` list remains historical/auditable data.
  *
- * `applyEvent(event | null, { focus?: boolean })` must repaint the article highlights for one
- * stored event (or clear them for null); it is invoked whenever the selected
- * event changes because of a load or delete.
- *
- * @param {{ recordKey: string, applyEvent: (event: object | null) => void }} options
+ * @param {{
+ *   recordKey: string,
+ *   applyEvents: (events: object[], options?: {focusEvent?: object}) => void,
+ * }} options
  */
-export function useChatSessions({ recordKey, applyEvent }) {
+export function useChatSessions({ recordKey, applyEvents }) {
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [events, setEvents] = useState([]);
+  const [paintedEvents, setPaintedEvents] = useState([]);
   const [selectedEventSeq, setSelectedEventSeq] = useState(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [isMutatingHistory, setIsMutatingHistory] = useState(false);
   const [error, setError] = useState('');
+
+  const mountedRef = useRef(true);
+  const recordKeyRef = useRef(recordKey);
+  const activeChatIdRef = useRef(activeChatId);
+  const loadGenerationRef = useRef(0);
+  const mutationQueueRef = useRef(Promise.resolve());
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      loadGenerationRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
+    recordKeyRef.current = recordKey;
+  }, [recordKey]);
+
+  const adoptChat = useCallback(
+    (chat, preferredEvent = USE_LATEST_EVENT) => {
+      const nextMessages = Array.isArray(chat?.messages) ? chat.messages : [];
+      const nextEvents = Array.isArray(chat?.events) ? chat.events : [];
+      const selected =
+        preferredEvent === USE_LATEST_EVENT ? nextEvents.at(-1) || null : preferredEvent;
+      const nextPaintedEvents = eventsForTurn(nextEvents, selected);
+      activeChatIdRef.current = chat?.chatId || null;
+      setActiveChatId(activeChatIdRef.current);
+      setMessages(nextMessages);
+      setEvents(nextEvents);
+      setPaintedEvents(nextPaintedEvents);
+      setSelectedEventSeq(selected?.seq ?? null);
+      applyEvents(nextPaintedEvents);
+    },
+    [applyEvents],
+  );
 
   const loadChat = useCallback(
     async (chatId) => {
       if (!recordKey || !chatId) return false;
+      const generation = loadGenerationRef.current + 1;
+      loadGenerationRef.current = generation;
+      const requestedRecordKey = recordKey;
       setIsLoadingHistory(true);
       setError('');
       try {
-        const chat = await getStoredChat(recordKey, chatId);
-        const nextEvents = Array.isArray(chat?.events) ? chat.events : [];
-        setActiveChatId(chatId);
-        setMessages(Array.isArray(chat?.messages) ? chat.messages : []);
-        setEvents(nextEvents);
-        const latest = nextEvents.at(-1) || null;
-        setSelectedEventSeq(latest?.seq ?? null);
-        applyEvent(latest);
+        const chat = await getStoredChat(requestedRecordKey, chatId);
+        if (
+          !mountedRef.current ||
+          generation !== loadGenerationRef.current ||
+          requestedRecordKey !== recordKeyRef.current
+        ) {
+          return false;
+        }
+        adoptChat(chat);
         return true;
       } catch (err) {
-        setError(err?.message || 'Failed to load chat history.');
+        if (mountedRef.current && generation === loadGenerationRef.current) {
+          setError(err?.message || 'Failed to load chat history.');
+        }
         return false;
       } finally {
-        setIsLoadingHistory(false);
+        if (mountedRef.current && generation === loadGenerationRef.current) {
+          setIsLoadingHistory(false);
+        }
       }
     },
-    [applyEvent, recordKey],
+    [adoptChat, recordKey],
   );
 
   const refreshChats = useCallback(async () => {
     if (!recordKey) return [];
-    const nextChats = await listStoredChats(recordKey);
-    setChats(nextChats);
+    const requestedRecordKey = recordKey;
+    const nextChats = await listStoredChats(requestedRecordKey);
+    if (mountedRef.current && requestedRecordKey === recordKeyRef.current) setChats(nextChats);
     return nextChats;
   }, [recordKey]);
 
   useEffect(() => {
     let cancelled = false;
+    const generation = loadGenerationRef.current + 1;
+    loadGenerationRef.current = generation;
+    Promise.resolve().then(() => {
+      if (!cancelled && generation === loadGenerationRef.current) {
+        setIsLoadingHistory(true);
+        setError('');
+      }
+    });
     listStoredChats(recordKey)
       .then(async (nextChats) => {
-        if (cancelled) return;
+        if (cancelled || generation !== loadGenerationRef.current) return;
         setChats(nextChats);
-        if (nextChats.length) await loadChat(nextChats[0].chatId);
-        else applyEvent(null);
+        if (nextChats.length) {
+          const chat = await getStoredChat(recordKey, nextChats[0].chatId);
+          if (cancelled || generation !== loadGenerationRef.current) return;
+          adoptChat(chat);
+        } else {
+          adoptChat(null);
+        }
       })
       .catch((err) => {
-        if (!cancelled) setError(err?.message || 'Failed to load chat history.');
+        if (!cancelled && generation === loadGenerationRef.current) {
+          setError(err?.message || 'Failed to load chat history.');
+        }
       })
       .finally(() => {
-        if (!cancelled) setIsLoadingHistory(false);
+        if (!cancelled && generation === loadGenerationRef.current) setIsLoadingHistory(false);
       });
     return () => {
       cancelled = true;
+      if (generation === loadGenerationRef.current) loadGenerationRef.current += 1;
     };
-  }, [applyEvent, loadChat, recordKey]);
+  }, [adoptChat, recordKey]);
 
   const startNewChat = useCallback(() => {
-    setActiveChatId(null);
-    setMessages([]);
-    setEvents([]);
-    setSelectedEventSeq(null);
+    loadGenerationRef.current += 1;
+    setIsLoadingHistory(false);
+    adoptChat(null);
     setError('');
-    applyEvent(null);
-  }, [applyEvent]);
+  }, [adoptChat]);
 
   const selectEvent = useCallback(
     (event) => {
+      const nextPaintedEvents = eventsForTurn(events, event);
       setSelectedEventSeq(event.seq);
-      applyEvent(event, { focus: true });
+      setPaintedEvents(nextPaintedEvents);
+      applyEvents(nextPaintedEvents, { focusEvent: event });
     },
-    [applyEvent],
+    [applyEvents, events],
   );
 
-  /** Deselect the current event and clear its painted highlight (e.g. on Esc). */
   const clearSelection = useCallback(() => {
     setSelectedEventSeq(null);
-    applyEvent(null);
-  }, [applyEvent]);
+    setPaintedEvents([]);
+    applyEvents([]);
+  }, [applyEvents]);
+
+  const enqueueMutation = useCallback((mutation) => {
+    const queued = mutationQueueRef.current.catch(() => {}).then(mutation);
+    mutationQueueRef.current = queued;
+    return queued;
+  }, []);
 
   const deleteEvent = useCallback(
-    async (event) => {
-      if (!activeChatId) return;
-      setError('');
-      try {
-        await removeStoredChatEvent(recordKey, activeChatId, event.seq);
-        const nextEvents = events.filter((item) => item.seq !== event.seq);
-        setEvents(nextEvents);
-        const latest = nextEvents.at(-1) || null;
-        setSelectedEventSeq(latest?.seq ?? null);
-        applyEvent(latest);
-        await refreshChats();
-      } catch (err) {
-        setError(err?.message || 'Failed to delete event.');
-      }
-    },
-    [activeChatId, applyEvent, events, recordKey, refreshChats],
+    (event) =>
+      enqueueMutation(async () => {
+        const chatId = activeChatIdRef.current;
+        const requestedRecordKey = recordKeyRef.current;
+        if (!chatId) return false;
+        if (mountedRef.current) {
+          setIsMutatingHistory(true);
+          setError('');
+        }
+        try {
+          const authoritative = await removeStoredChatEvent(requestedRecordKey, chatId, event.seq);
+          const chat = authoritative || (await getStoredChat(requestedRecordKey, chatId));
+          if (
+            mountedRef.current &&
+            requestedRecordKey === recordKeyRef.current &&
+            chatId === activeChatIdRef.current
+          ) {
+            const remainingEvents = Array.isArray(chat?.events) ? chat.events : [];
+            const latest = remainingEvents.at(-1) || null;
+            adoptChat(chat, latest);
+            void refreshChats().catch(() => {});
+          }
+          return true;
+        } catch (err) {
+          if (mountedRef.current) setError(err?.message || 'Failed to delete event.');
+          return false;
+        } finally {
+          if (mountedRef.current) setIsMutatingHistory(false);
+        }
+      }),
+    [adoptChat, enqueueMutation, refreshChats],
   );
 
   const deleteChat = useCallback(
-    async (chatId) => {
-      if (!chatId) return;
-      setError('');
-      try {
-        await removeStoredChat(recordKey, chatId);
-        const nextChats = await refreshChats();
-        if (chatId === activeChatId) {
-          if (nextChats.length) await loadChat(nextChats[0].chatId);
-          else startNewChat();
+    (chatId) =>
+      enqueueMutation(async () => {
+        if (!chatId) return false;
+        const requestedRecordKey = recordKeyRef.current;
+        if (mountedRef.current) {
+          setIsMutatingHistory(true);
+          setError('');
         }
-      } catch (err) {
-        setError(err?.message || 'Failed to delete chat.');
-      }
-    },
-    [activeChatId, loadChat, recordKey, refreshChats, startNewChat],
+        try {
+          await removeStoredChat(requestedRecordKey, chatId);
+          const nextChats = await listStoredChats(requestedRecordKey);
+          if (!mountedRef.current || requestedRecordKey !== recordKeyRef.current) return true;
+          setChats(nextChats);
+          if (chatId === activeChatIdRef.current) {
+            if (nextChats.length) await loadChat(nextChats[0].chatId);
+            else startNewChat();
+          }
+          return true;
+        } catch (err) {
+          if (mountedRef.current) setError(err?.message || 'Failed to delete chat.');
+          return false;
+        } finally {
+          if (mountedRef.current) setIsMutatingHistory(false);
+        }
+      }),
+    [enqueueMutation, loadChat, startNewChat],
   );
 
-  /**
-   * Adopt the normalized result of persistChatTurn: the returned chat doc is
-   * authoritative (a new chat contributes its chatId, the events array is the
-   * complete list with assigned seqs) and the returned messages carry their
-   * storage ids.
-   */
-  const adoptPersistedTurn = useCallback(({ chat, messages: newMessages, events: newEvents }) => {
-    setActiveChatId(chat.chatId);
-    setMessages((current) => [...current, ...(Array.isArray(newMessages) ? newMessages : [])]);
-    setEvents(Array.isArray(chat.events) ? chat.events : []);
-    const latest = Array.isArray(newEvents) ? newEvents.at(-1) : null;
-    if (latest) setSelectedEventSeq(latest.seq);
-  }, []);
+  /** Adopt a persist response only if the operation still targets this session. */
+  const adoptPersistedTurn = useCallback(
+    (persisted, { expectedChatId = null, turnId } = {}) => {
+      if (activeChatIdRef.current !== expectedChatId) return false;
+      const authoritativeChat = persisted?.chat;
+      if (!authoritativeChat?.chatId) return false;
+      const fallbackMessages = Array.isArray(persisted.messages) ? persisted.messages : [];
+      const fallbackEvents = Array.isArray(persisted.events) ? persisted.events : [];
+      const chat = {
+        ...authoritativeChat,
+        messages: Array.isArray(authoritativeChat.messages)
+          ? authoritativeChat.messages
+          : [...messages, ...fallbackMessages],
+        events: Array.isArray(authoritativeChat.events) ? authoritativeChat.events : events,
+      };
+      const fallbackEventSeqs = new Set(fallbackEvents.map((event) => event.seq));
+      const turnEvents = chat.events.filter(
+        (event) => (turnId && event.turnId === turnId) || fallbackEventSeqs.has(event.seq),
+      );
+      adoptChat(chat, turnEvents.at(-1) || null);
+      return true;
+    },
+    [adoptChat, events, messages],
+  );
+
+  /** Reconcile an append whose response may have been lost after storage committed. */
+  const reconcilePersistedTurn = useCallback(
+    async (chatId, turnId) => {
+      if (!chatId || !turnId) return false;
+      try {
+        const chat = await getStoredChat(recordKey, chatId);
+        if (!chat?.messages?.some((message) => message.turnId === turnId)) return false;
+        if (!mountedRef.current || activeChatIdRef.current !== chatId) return false;
+        const turnEvents = (chat.events || []).filter((event) => event.turnId === turnId);
+        adoptChat(chat, turnEvents.at(-1) || null);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [adoptChat, recordKey],
+  );
 
   return {
     chats,
     activeChatId,
     messages,
     events,
+    paintedEvents,
     selectedEventSeq,
     isLoadingHistory,
+    isMutatingHistory,
     error,
     setError,
     loadChat,
@@ -179,5 +311,6 @@ export function useChatSessions({ recordKey, applyEvent }) {
     deleteEvent,
     deleteChat,
     adoptPersistedTurn,
+    reconcilePersistedTurn,
   };
 }

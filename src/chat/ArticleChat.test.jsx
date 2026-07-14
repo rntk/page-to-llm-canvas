@@ -391,18 +391,13 @@ describe('ArticleChat persisted history', () => {
       endLine: 3,
       label: 'New evidence',
     });
-    // One atomic write: user + hidden transcript + reply + events.
+    // One atomic write: only replayable visible messages + events. Provider
+    // tool transcripts stay transient and are not retained in chat storage.
     expect(api.persistChatTurn).toHaveBeenCalledTimes(1);
     expect(api.persistChatTurn).toHaveBeenCalledWith('record-1', 'chat-1', {
+      turnId: expect.any(String),
       messages: [
         { role: 'user', content: 'What about line three?' },
-        {
-          role: 'assistant',
-          content: '',
-          toolCalls: [{ id: 'call-1', name: 'highlight_span', arguments: {} }],
-          hidden: true,
-        },
-        { role: 'tool', content: 'Highlighted lines 3-3.', toolCallId: 'call-1', hidden: true },
         { role: 'assistant', content: 'Line three answers it.' },
       ],
       events: [
@@ -486,7 +481,7 @@ describe('ArticleChat persisted history', () => {
     typeQuestion(container, 'Focus this');
     await clickSend(container);
 
-    expect(onHighlight).toHaveBeenLastCalledWith(
+    expect(onHighlight).toHaveBeenCalledWith(
       { startLine: 3, endLine: 3, label: 'Focused evidence' },
       { focus: true },
     );
@@ -591,5 +586,77 @@ describe('ArticleChat persisted history', () => {
     expect(container.textContent).toContain('Line three answers it.');
 
     unmount();
+  });
+
+  it('ignores a stale chat load that resolves after a newer selection', async () => {
+    let resolveSecond;
+    let resolveFirst;
+    api.getStoredChat.mockImplementation((_key, chatId) => {
+      if (api.getStoredChat.mock.calls.length === 1) {
+        return Promise.resolve({
+          chatId: 'chat-1',
+          messages: [],
+          events: [],
+        });
+      }
+      return new Promise((resolve) => {
+        if (chatId === 'chat-1') resolveFirst = resolve;
+        else resolveSecond = resolve;
+      });
+    });
+    const { container, unmount } = render(
+      <ArticleChat recordKey="record-1" sentences={['One']} onClearHighlights={vi.fn()} />,
+    );
+    await flushAsyncWork();
+
+    act(() => container.querySelector('.pagetollm-chat-actions button').click());
+    const buttons = container.querySelectorAll('.pagetollm-chat-history-item > button:first-child');
+    act(() => buttons[0].click());
+    act(() => buttons[1].click());
+    await act(async () => {
+      resolveSecond({
+        chatId: 'chat-2',
+        messages: [{ role: 'assistant', content: 'Newest selection' }],
+        events: [],
+      });
+    });
+    await act(async () => {
+      resolveFirst({
+        chatId: 'chat-1',
+        messages: [{ role: 'assistant', content: 'Stale selection' }],
+        events: [],
+      });
+    });
+    await flushAsyncWork();
+
+    expect(container.textContent).toContain('Newest selection');
+    expect(container.textContent).not.toContain('Stale selection');
+    unmount();
+  });
+
+  it('does not persist a turn that finishes after the panel unmounts', async () => {
+    let finishTurn;
+    turnLoop.runArticleChatTurn.mockReturnValue(
+      new Promise((resolve) => {
+        finishTurn = resolve;
+      }),
+    );
+    const { container, unmount } = render(
+      <ArticleChat recordKey="record-1" sentences={['One']} onClearHighlights={vi.fn()} />,
+    );
+    await flushAsyncWork();
+    typeQuestion(container, 'Will be closed');
+    await act(async () => container.querySelector('.pagetollm-chat-composer button').click());
+    const turnOptions = turnLoop.runArticleChatTurn.mock.calls[0][0];
+    expect(turnOptions.turnId).toEqual(expect.any(String));
+    expect(turnOptions.signal.aborted).toBe(false);
+    unmount();
+    expect(turnOptions.signal.aborted).toBe(true);
+    await act(async () => {
+      finishTurn({ reply: 'Too late', transcriptMessages: [], highlightRanges: [] });
+    });
+    await flushAsyncWork();
+
+    expect(api.persistChatTurn).not.toHaveBeenCalled();
   });
 });

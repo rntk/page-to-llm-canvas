@@ -37,6 +37,23 @@ import { MSG } from './messages.js';
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
+/** One turn can fan out into several provider requests. */
+const activeChatRequests = new Map();
+
+function registerChatRequest(turnId, controller) {
+  if (!turnId) return;
+  const controllers = activeChatRequests.get(turnId) || new Set();
+  controllers.add(controller);
+  activeChatRequests.set(turnId, controllers);
+}
+
+function unregisterChatRequest(turnId, controller) {
+  if (!turnId) return;
+  const controllers = activeChatRequests.get(turnId);
+  if (!controllers) return;
+  controllers.delete(controller);
+  if (controllers.size === 0) activeChatRequests.delete(turnId);
+}
 
 function isExtensionPageSender(sender) {
   const extensionRoot =
@@ -307,7 +324,7 @@ export async function handleSubmit(submission) {
     rec.skipSummaries = skipSummaries;
     if (Array.isArray(selectors)) rec.selectors = selectors;
   }
-  await writeRecord(rec);
+  await writeRecord(rec, { bumpContentRevision: !!existing });
 
   // Start the pipeline in the background; do not await.
   startPipeline(key).catch((err) => {
@@ -386,19 +403,23 @@ export const MESSAGE_HANDLERS = {
         return { ok: false, error: 'record not found' };
       }
       cancelActivePipeline(msg.key);
-      await updateRecord(msg.key, {
-        pipelineRunId: createPipelineRunId(),
-        status: 'pending',
-        error: null,
-        progress: { stage: 'queued', done: 0, total: 0 },
-        topics: [],
-        topic_summaries: {},
-        topic_summary_index: {},
-        sentences: [],
-        text: '',
-        processingLog: [],
-        skipSummaries: await getStoredSummariesDisabled(),
-      });
+      await updateRecord(
+        msg.key,
+        {
+          pipelineRunId: createPipelineRunId(),
+          status: 'pending',
+          error: null,
+          progress: { stage: 'queued', done: 0, total: 0 },
+          topics: [],
+          topic_summaries: {},
+          topic_summary_index: {},
+          sentences: [],
+          text: '',
+          processingLog: [],
+          skipSummaries: await getStoredSummariesDisabled(),
+        },
+        { bumpContentRevision: true },
+      );
       startPipeline(msg.key).catch((err) => {
         console.error('PageToLLM Canvas reprocessRecord startPipeline failed:', err);
       });
@@ -554,19 +575,22 @@ export const MESSAGE_HANDLERS = {
         const key = record.key.trim();
         const status = isInFlightStatus(record.status) ? 'done' : record.status || 'done';
         cancelActivePipeline(key);
-        await writeRecord({
-          ...record,
-          key,
-          pipelineRunId: createPipelineRunId(),
-          status,
-          error: status === 'done' ? null : record.error || null,
-          progress: {
-            ...(record.progress && typeof record.progress === 'object' ? record.progress : {}),
-            stage: 'imported',
-            done: 1,
-            total: 1,
+        await writeRecord(
+          {
+            ...record,
+            key,
+            pipelineRunId: createPipelineRunId(),
+            status,
+            error: status === 'done' ? null : record.error || null,
+            progress: {
+              ...(record.progress && typeof record.progress === 'object' ? record.progress : {}),
+              stage: 'imported',
+              done: 1,
+              total: 1,
+            },
           },
-        });
+          { bumpContentRevision: true },
+        );
         count += 1;
       }
 
@@ -610,6 +634,7 @@ export const MESSAGE_HANDLERS = {
         temperature = 0.8,
         model,
         taskType,
+        chatTurnId,
       } = msg;
       if (!prompt && (!Array.isArray(messages) || messages.length === 0)) {
         return { ok: false, error: 'missing prompt or messages' };
@@ -619,18 +644,26 @@ export const MESSAGE_HANDLERS = {
       // unmetered so pipeline calls are not double-counted here.
       const startedAt = Date.now();
       let sample;
-      const result = await callLLMDirect({
-        prompt,
-        messages,
-        tools,
-        toolChoice,
-        parallelToolCalls,
-        temperature,
-        model,
-        metricsCollector: (collected) => {
-          if (collected && typeof collected === 'object') sample = collected;
-        },
-      });
+      const controller = chatTurnId ? new AbortController() : null;
+      registerChatRequest(chatTurnId, controller);
+      let result;
+      try {
+        result = await callLLMDirect({
+          prompt,
+          messages,
+          tools,
+          toolChoice,
+          parallelToolCalls,
+          temperature,
+          model,
+          signal: controller?.signal,
+          metricsCollector: (collected) => {
+            if (collected && typeof collected === 'object') sample = collected;
+          },
+        });
+      } finally {
+        unregisterChatRequest(chatTurnId, controller);
+      }
       // Await (unlike the orchestrator's fire-and-forget): this handler is
       // terminal, so a void'd write could be dropped when the service worker
       // suspends right after the response is sent. recordLlmMetric swallows its
@@ -643,6 +676,21 @@ export const MESSAGE_HANDLERS = {
         ...sample,
       });
       return result;
+    },
+  },
+
+  [MSG.cancelChatTurn]: {
+    requiresExtensionPage: false,
+    validate(msg) {
+      return typeof msg.turnId === 'string' && msg.turnId ? null : 'missing turnId';
+    },
+    async handle(msg) {
+      const controllers = activeChatRequests.get(msg.turnId);
+      if (controllers) {
+        for (const controller of controllers) controller.abort();
+        activeChatRequests.delete(msg.turnId);
+      }
+      return { ok: true };
     },
   },
 
@@ -718,8 +766,8 @@ export const MESSAGE_HANDLERS = {
       return Number.isInteger(msg.seq) ? null : 'missing seq';
     },
     async handle(msg) {
-      const deleted = await deleteChatEvent(msg.key, msg.chatId, msg.seq);
-      return deleted ? { ok: true } : { ok: false, error: 'event not found' };
+      const chat = await deleteChatEvent(msg.key, msg.chatId, msg.seq);
+      return chat ? { ok: true, chat } : { ok: false, error: 'event not found' };
     },
   },
 

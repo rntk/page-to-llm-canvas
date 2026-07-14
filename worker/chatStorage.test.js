@@ -5,8 +5,16 @@ import {
   appendChatTurn,
   deleteChatEvent,
   deleteChatHistory,
+  MAX_CHAT_TURNS,
 } from './chatStorage.js';
-import { writeRecord, deleteRecord, deleteAll, INDEX_KEY, _resetUpdateQueues } from './storage.js';
+import {
+  writeRecord,
+  updateRecord,
+  deleteRecord,
+  deleteAll,
+  INDEX_KEY,
+  _resetUpdateQueues,
+} from './storage.js';
 
 // ---------------------------------------------------------------------------
 // Chrome mock helpers (mirrors worker/storage.test.js)
@@ -131,7 +139,10 @@ describe('per-chat history and events', () => {
 
     expect((await readChat('article', first.chatId)).events).toHaveLength(1);
     expect((await readChat('article', second.chatId)).events).toHaveLength(1);
-    expect(await deleteChatEvent('article', first.chatId, firstEvents[0].seq)).toBe(true);
+    expect(await deleteChatEvent('article', first.chatId, firstEvents[0].seq)).toMatchObject({
+      chatId: first.chatId,
+      events: [],
+    });
     expect((await readChat('article', first.chatId)).events).toEqual([]);
     expect((await readChat('article', second.chatId)).events).toHaveLength(1);
     expect(await deleteChatHistory('article', second.chatId)).toBe(true);
@@ -332,7 +343,8 @@ describe('appendChatTurn', () => {
       { id: 'call-1', name: 'highlight_span', arguments: {} },
     ]);
     expect(messages[2]).toMatchObject({ role: 'tool', toolCallId: 'call-1' });
-    expect(messages[3]).toMatchObject({ reasoning: 'looked at lines' });
+    // Provider reasoning is intentionally not retained in durable history.
+    expect(messages[3]).not.toHaveProperty('reasoning');
     expect(events[0]).toMatchObject({
       seq: 1,
       eventType: 'highlight_span',
@@ -388,6 +400,87 @@ describe('appendChatTurn', () => {
     const stored = await readChat('article', chat.chatId);
     expect(stored.events.map((event) => event.seq)).toEqual([1, 2, 3, 4]);
     expect(stored.nextEventSeq).toBe(5);
+  });
+
+  it('derives the next event seq from stored events when metadata is stale', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const { chat } = await appendChatTurn('article', null, {
+      events: [{ data: { startLine: 1, endLine: 1 } }],
+    });
+    const stored = mock.storage.local._store.get(`pagetollm:chats:article:${chat.chatId}`);
+    stored.events[0].seq = 8;
+    stored.nextEventSeq = 2;
+
+    const { events } = await appendChatTurn('article', chat.chatId, {
+      events: [{ data: { startLine: 2, endLine: 2 } }],
+    });
+    expect(events[0].seq).toBe(9);
+  });
+
+  it('is idempotent by turnId, including creation retries without a chatId', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const turn = {
+      turnId: 'turn-client-1',
+      messages: [{ role: 'user', content: 'Only once' }],
+      events: [{ data: { startLine: 1, endLine: 1 } }],
+    };
+
+    const first = await appendChatTurn('article', null, turn);
+    const retried = await appendChatTurn('article', null, turn);
+
+    expect(retried.duplicate).toBe(true);
+    expect(retried.chat.chatId).toBe(first.chat.chatId);
+    expect(retried.messages).toEqual(first.messages);
+    expect(retried.events).toEqual(first.events);
+    expect(retried.chat.messages).toHaveLength(1);
+    expect(retried.messages[0].turnId).toBe(turn.turnId);
+  });
+
+  it('hides chats after the record content revision changes', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const { chat } = await appendChatTurn('article', null, {
+      turnId: 'before-reprocess',
+      messages: [{ role: 'user', content: 'Old content question' }],
+    });
+
+    await updateRecord('article', { text: 'replacement' }, { bumpContentRevision: true });
+
+    expect(await listChats('article')).toEqual([]);
+    expect(await readChat('article', chat.chatId)).toBeNull();
+    await expect(
+      appendChatTurn('article', chat.chatId, {
+        turnId: 'after-reprocess',
+        messages: [{ role: 'user', content: 'New content question' }],
+      }),
+    ).rejects.toThrow('chat not found');
+  });
+
+  it('retains a bounded number of complete recent turns', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    let chatId = null;
+    for (let i = 0; i < MAX_CHAT_TURNS + 3; i += 1) {
+      const result = await appendChatTurn('article', chatId, {
+        turnId: `turn-${i}`,
+        messages: [
+          { role: 'user', content: `Question ${i}` },
+          { role: 'assistant', content: `Answer ${i}` },
+        ],
+      });
+      chatId = result.chat.chatId;
+    }
+
+    const stored = await readChat('article', chatId);
+    expect(stored.turnIds).toHaveLength(MAX_CHAT_TURNS);
+    expect(stored.messages).toHaveLength(MAX_CHAT_TURNS * 2);
+    expect(stored.messages[0].content).toBe('Question 3');
   });
 
   it('derives the title from the first visible user message in the batch', async () => {

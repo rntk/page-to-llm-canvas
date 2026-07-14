@@ -1,10 +1,6 @@
 // Per-article chat persistence. Split out of storage.js so the record and chat
-// aggregates stay separate concerns. Shares the low-level primitives (getLocal/
-// setLocal/removeLocal, queuedUpdate, MUTATION_QUEUE_KEY) with storage.js via
-// storagePrimitives.js, and reaches into storage.js only through the small
-// recordExists() gate. storage.js in turn imports deleteChatsForRecord from
-// here for its cascade-delete — one sanctioned runtime cycle, both crossings
-// used only inside function bodies.
+// aggregates stay separate concerns. It depends only on storage primitives and
+// realm-neutral key helpers; storage.js owns the one-way cascade dependency.
 import {
   getLocal,
   setLocal,
@@ -12,17 +8,22 @@ import {
   queuedUpdate,
   MUTATION_QUEUE_KEY,
 } from './storagePrimitives.js';
-import { recordExists } from './storage.js';
+import {
+  recordMetaStorageKey,
+  chatIndexStorageKey,
+  chatDocumentStorageKey,
+} from './storageKeys.js';
 
 const CHAT_TITLE_MAX_CHARS = 60;
-
-function chatIndexStorageKey(key) {
-  return `pagetollm:chats:${key}:index`;
-}
-
-function chatStorageKey(key, chatId) {
-  return `pagetollm:chats:${key}:${chatId}`;
-}
+export const MAX_CHAT_TURNS = 50;
+const MAX_TURN_MESSAGES = 40;
+// A model may emit several tool calls per round and the turn engine permits up
+// to 50 rounds. Keep a finite abuse guard without rejecting a valid bounded
+// engine result near the end of a long evidence-gathering turn.
+const MAX_TURN_EVENTS = 200;
+const MAX_LEGACY_MESSAGES = 400;
+const MAX_LEGACY_EVENTS = 200;
+const MAX_TURN_INDEX_ENTRIES = 200;
 
 // Every chat mutation serializes on the same global mutation queue as the
 // record writes, so a chat write and a cascade-delete of the same record can
@@ -41,7 +42,9 @@ function createStorageId(prefix) {
 async function readChatIndex(key) {
   const storageKey = chatIndexStorageKey(key);
   const value = (await getLocal(storageKey))[storageKey];
-  return value && Array.isArray(value.chats) ? value : { chats: [] };
+  return value && Array.isArray(value.chats)
+    ? { ...value, turns: Array.isArray(value.turns) ? value.turns : [] }
+    : { chats: [], turns: [] };
 }
 
 async function writeChatIndex(key, index) {
@@ -56,17 +59,18 @@ function chatSummary(chat) {
     updatedAt: chat.updatedAt,
     messageCount: chat.messages.filter((message) => !message.hidden).length,
     eventCount: chat.events.length,
+    contentRevision: chat.contentRevision,
   };
 }
 
-async function updateChatAndIndex(key, chat) {
-  const index = await readChatIndex(key);
+async function updateChatAndIndex(key, chat, currentIndex) {
+  const index = currentIndex || (await readChatIndex(key));
   const summary = chatSummary(chat);
   index.chats = [summary, ...index.chats.filter((item) => item.chatId !== chat.chatId)].sort(
     (a, b) => b.updatedAt - a.updatedAt,
   );
   await setLocal({
-    [chatStorageKey(key, chat.chatId)]: chat,
+    [chatDocumentStorageKey(key, chat.chatId)]: chat,
     [chatIndexStorageKey(key)]: index,
   });
   return chat;
@@ -74,7 +78,7 @@ async function updateChatAndIndex(key, chat) {
 
 /** A fresh empty chat. `titleIsDefault` marks the placeholder title as still
  * derivable from the first visible user message (see deriveChatTitle). */
-function newChat() {
+function newChat(contentRevision) {
   const now = Date.now();
   return {
     chatId: createStorageId('chat'),
@@ -82,31 +86,34 @@ function newChat() {
     titleIsDefault: true,
     createdAt: now,
     updatedAt: now,
+    contentRevision,
     messages: [],
     events: [],
+    turnIds: [],
     nextEventSeq: 1,
   };
 }
 
-function normalizeChatMessage(message, now) {
+function normalizeChatMessage(message, now, turnId) {
   return {
     id: createStorageId('message'),
     role: ['user', 'assistant', 'tool'].includes(message?.role) ? message.role : 'user',
     content: typeof message?.content === 'string' ? message.content : '',
     createdAt: now,
+    turnId,
     ...(message?.hidden ? { hidden: true } : {}),
-    ...(typeof message?.reasoning === 'string' ? { reasoning: message.reasoning } : {}),
     ...(typeof message?.toolCallId === 'string' ? { toolCallId: message.toolCallId } : {}),
     ...(Array.isArray(message?.toolCalls) ? { toolCalls: message.toolCalls } : {}),
   };
 }
 
-function normalizeChatEvent(event, seq, now) {
+function normalizeChatEvent(event, seq, now, turnId) {
   return {
     seq,
     eventType: typeof event?.eventType === 'string' ? event.eventType : 'highlight_span',
     data: event?.data && typeof event.data === 'object' ? event.data : {},
     createdAt: now,
+    turnId,
   };
 }
 
@@ -136,14 +143,86 @@ function deriveChatTitle(chat, message) {
   }
 }
 
+async function readRecordContentRevision(key) {
+  if (!key) return null;
+  const metaKey = recordMetaStorageKey(key);
+  const meta = (await getLocal(metaKey))[metaKey];
+  if (!meta) return null;
+  return typeof meta.contentRevision === 'string' && meta.contentRevision
+    ? meta.contentRevision
+    : 'legacy';
+}
+
+function normalizedChatRevision(chat) {
+  return typeof chat?.contentRevision === 'string' && chat.contentRevision
+    ? chat.contentRevision
+    : 'legacy';
+}
+
+function isCompatible(chat, contentRevision) {
+  return !!chat && normalizedChatRevision(chat) === contentRevision;
+}
+
+async function readStoredChat(key, chatId) {
+  const storageKey = chatDocumentStorageKey(key, chatId);
+  return (await getLocal(storageKey))[storageKey] || null;
+}
+
 export async function listChats(key) {
-  return (await readChatIndex(key)).chats;
+  const contentRevision = await readRecordContentRevision(key);
+  if (!contentRevision) return [];
+  return (await readChatIndex(key)).chats.filter(
+    (chat) => normalizedChatRevision(chat) === contentRevision,
+  );
 }
 
 export async function readChat(key, chatId) {
   if (!key || !chatId) return null;
-  const storageKey = chatStorageKey(key, chatId);
-  return (await getLocal(storageKey))[storageKey] || null;
+  const [chat, contentRevision] = await Promise.all([
+    readStoredChat(key, chatId),
+    readRecordContentRevision(key),
+  ]);
+  return isCompatible(chat, contentRevision) ? chat : null;
+}
+
+function applyRetention(chat) {
+  let messages = Array.isArray(chat.messages) ? chat.messages : [];
+  let events = Array.isArray(chat.events) ? chat.events : [];
+  const legacyTurnId = `legacy_${chat.chatId}`;
+  if (messages.some((item) => !item.turnId) || events.some((item) => !item.turnId)) {
+    const legacyMessages = messages
+      .filter((item) => !item.turnId)
+      .slice(-MAX_LEGACY_MESSAGES)
+      .map((item) => ({ ...item, turnId: legacyTurnId }));
+    const legacyEvents = events
+      .filter((item) => !item.turnId)
+      .slice(-MAX_LEGACY_EVENTS)
+      .map((item) => ({ ...item, turnId: legacyTurnId }));
+    messages = [...legacyMessages, ...messages.filter((item) => item.turnId)];
+    events = [...legacyEvents, ...events.filter((item) => item.turnId)];
+  }
+  const turnIds = Array.isArray(chat.turnIds) ? chat.turnIds : [];
+  if (
+    (messages.some((item) => item.turnId === legacyTurnId) ||
+      events.some((item) => item.turnId === legacyTurnId)) &&
+    !turnIds.includes(legacyTurnId)
+  ) {
+    turnIds.unshift(legacyTurnId);
+  }
+  const keptTurnIds = turnIds.slice(-MAX_CHAT_TURNS);
+  const kept = new Set(keptTurnIds);
+  chat.turnIds = keptTurnIds;
+  chat.messages = messages.filter((item) => kept.has(item.turnId));
+  chat.events = events.filter((item) => kept.has(item.turnId));
+}
+
+function duplicateResult(chat, turnId) {
+  return {
+    chat,
+    messages: chat.messages.filter((message) => message.turnId === turnId),
+    events: chat.events.filter((event) => event.turnId === turnId),
+    duplicate: true,
+  };
 }
 
 /**
@@ -159,8 +238,8 @@ export async function readChat(key, chatId) {
  *
  * @param {string} key
  * @param {string | null | undefined} chatId
- * @param {{messages?: object[], events?: object[]}} turn
- * @returns {Promise<{chat: object, messages: object[], events: object[]}>}
+ * @param {{turnId?: string, messages?: object[], events?: object[]}} turn
+ * @returns {Promise<{chat: object, messages: object[], events: object[], duplicate: boolean}>}
  */
 export async function appendChatTurn(key, chatId, turn = {}) {
   const inputMessages = Array.isArray(turn?.messages) ? turn.messages : [];
@@ -168,26 +247,62 @@ export async function appendChatTurn(key, chatId, turn = {}) {
   if (inputMessages.length === 0 && inputEvents.length === 0) {
     throw new Error('appendChatTurn: turn must include at least one message or event');
   }
+  if (inputMessages.length > MAX_TURN_MESSAGES || inputEvents.length > MAX_TURN_EVENTS) {
+    throw new Error('appendChatTurn: turn exceeds persistence limits');
+  }
   return queuedChatUpdate(key, async () => {
+    const contentRevision = await readRecordContentRevision(key);
+    if (!contentRevision) throw new Error('record not found');
+    const turnId =
+      typeof turn.turnId === 'string' && turn.turnId.trim()
+        ? turn.turnId.trim()
+        : createStorageId('turn');
+    const index = await readChatIndex(key);
+
+    // The index-level mapping reconciles a retry of a first turn whose storage
+    // commit succeeded but runtime response was lost (the client has no chatId).
+    const mapped = index.turns.find((item) => item.turnId === turnId);
+    if (mapped && chatId && mapped.chatId !== chatId) {
+      throw new Error('turn already belongs to another chat');
+    }
+    if (mapped && (!chatId || mapped.chatId === chatId)) {
+      const prior = await readStoredChat(key, mapped.chatId);
+      if (isCompatible(prior, contentRevision)) return duplicateResult(prior, turnId);
+    }
+
     let chat;
     if (chatId) {
-      const stored = await readChat(key, chatId);
-      if (!stored) throw new Error('chat not found');
+      const stored = await readStoredChat(key, chatId);
+      if (!isCompatible(stored, contentRevision)) throw new Error('chat not found');
+      if (
+        stored.messages?.some((message) => message.turnId === turnId) ||
+        stored.events?.some((event) => event.turnId === turnId)
+      ) {
+        return duplicateResult(stored, turnId);
+      }
       // Shallow copy so a failed write leaves no trace of the turn: every
       // mutation below reassigns properties/arrays, never touching `stored`.
       chat = { ...stored };
     } else {
-      if (!(await recordExists(key))) throw new Error('record not found');
-      chat = newChat();
+      chat = newChat(contentRevision);
     }
 
     const now = Date.now();
-    const messages = inputMessages.map((message) => normalizeChatMessage(message, now));
-    let seq = Number.isInteger(chat.nextEventSeq) ? chat.nextEventSeq : 1;
-    const events = inputEvents.map((event) => normalizeChatEvent(event, seq++, now));
+    const messages = inputMessages.map((message) => normalizeChatMessage(message, now, turnId));
+    const maxStoredSeq = (Array.isArray(chat.events) ? chat.events : []).reduce(
+      (max, event) => (Number.isInteger(event?.seq) ? Math.max(max, event.seq) : max),
+      0,
+    );
+    let seq = Math.max(
+      Number.isInteger(chat.nextEventSeq) ? chat.nextEventSeq : 1,
+      maxStoredSeq + 1,
+    );
+    const events = inputEvents.map((event) => normalizeChatEvent(event, seq++, now, turnId));
 
-    chat.messages = [...chat.messages, ...messages];
-    chat.events = [...chat.events, ...events];
+    chat.messages = [...(Array.isArray(chat.messages) ? chat.messages : []), ...messages];
+    chat.events = [...(Array.isArray(chat.events) ? chat.events : []), ...events];
+    chat.turnIds = [...(Array.isArray(chat.turnIds) ? chat.turnIds : []), turnId];
+    applyRetention(chat);
     if (events.length) chat.nextEventSeq = seq;
     chat.updatedAt = now;
     deriveChatTitle(
@@ -195,8 +310,12 @@ export async function appendChatTurn(key, chatId, turn = {}) {
       messages.find((message) => message.role === 'user' && !message.hidden),
     );
 
-    await updateChatAndIndex(key, chat);
-    return { chat, messages, events };
+    index.turns = [
+      ...index.turns.filter((item) => item.turnId !== turnId),
+      { turnId, chatId: chat.chatId },
+    ].slice(-MAX_TURN_INDEX_ENTRIES);
+    await updateChatAndIndex(key, chat, index);
+    return { chat, messages, events, duplicate: false };
   });
 }
 
@@ -205,11 +324,11 @@ export async function deleteChatEvent(key, chatId, seq) {
     const chat = await readChat(key, chatId);
     if (!chat) throw new Error('chat not found');
     const nextEvents = chat.events.filter((event) => event.seq !== seq);
-    if (nextEvents.length === chat.events.length) return false;
+    if (nextEvents.length === chat.events.length) return null;
     chat.events = nextEvents;
     chat.updatedAt = Date.now();
     await updateChatAndIndex(key, chat);
-    return true;
+    return chat;
   });
 }
 
@@ -219,8 +338,9 @@ export async function deleteChatHistory(key, chatId) {
     const existed = index.chats.some((chat) => chat.chatId === chatId);
     if (!existed) return false;
     index.chats = index.chats.filter((chat) => chat.chatId !== chatId);
+    index.turns = index.turns.filter((turn) => turn.chatId !== chatId);
     await writeChatIndex(key, index);
-    await removeLocal(chatStorageKey(key, chatId));
+    await removeLocal(chatDocumentStorageKey(key, chatId));
     return true;
   });
 }
@@ -232,14 +352,8 @@ export async function deleteChatHistory(key, chatId) {
  */
 export async function chatStorageKeysForRecord(key) {
   const index = await readChatIndex(key);
-  return [chatIndexStorageKey(key), ...index.chats.map((chat) => chatStorageKey(key, chat.chatId))];
-}
-
-/**
- * Removes every chat document for a record. Deliberately unqueued: it is only
- * ever called from storage.js's deleteRecord/deleteAll, which already hold the
- * global mutation queue, so wrapping it in queuedChatUpdate would self-deadlock.
- */
-export async function deleteChatsForRecord(key) {
-  await removeLocal(await chatStorageKeysForRecord(key));
+  return [
+    chatIndexStorageKey(key),
+    ...index.chats.map((chat) => chatDocumentStorageKey(key, chat.chatId)),
+  ];
 }

@@ -9,21 +9,14 @@
 //      send payloads in src/chat/articleChat.js)
 //   4. In OptionsApp.jsx: remove LlmMetricsSection + its import + render
 
+import { LLM_TASK_TYPES } from '../telemetry.js';
+
+export { LLM_TASK_TYPES } from '../telemetry.js';
+
 export const LLM_METRICS_KEY = 'pagetollm-llm-metrics';
 /** Bumped on clear so in-flight read-modify-writes can detect staleness across SW/options contexts. */
 export const LLM_METRICS_EPOCH_KEY = 'pagetollm-llm-metrics-epoch';
 export const LLM_METRICS_MAX_RECENT = 40;
-
-/** Stable task-type ids used when recording / displaying metrics. */
-export const LLM_TASK_TYPES = Object.freeze({
-  TOPIC_RANGES: 'topic_ranges',
-  ARTICLE_SUMMARY: 'article_summary',
-  TOPIC_SUMMARY_FROM_SOURCE: 'topic_summary_from_source',
-  ARTICLE_SUMMARY_MERGE: 'article_summary_merge',
-  CHAT_ANSWER: 'chat_answer',
-  CHAT_SYNTHESIS: 'chat_synthesis',
-  UNKNOWN: 'unknown',
-});
 
 /** Human-readable labels for known task types (UI). */
 export const LLM_TASK_TYPE_LABELS = Object.freeze({

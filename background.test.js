@@ -1153,6 +1153,30 @@ describe('dispatchMessage unit tests', () => {
     expect(await readRecord('metadata-only')).toBeNull();
   });
 
+  it('archives chat history when an import replaces record content', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+    const sender = { url: 'chrome-extension://test-id/options.html' };
+    await seedRecord(chromeMock, makeRecord('replace-me', { text: 'old content' }));
+    const created = await dispatchMessage({
+      type: 'appendChatTurn',
+      key: 'replace-me',
+      turn: { turnId: 'old-turn', messages: [{ role: 'user', content: 'Old question' }] },
+    });
+    expect(created.ok).toBe(true);
+
+    await dispatchMessage(
+      { type: 'importRecords', records: [{ key: 'replace-me', text: 'new content' }] },
+      sender,
+    );
+
+    expect((await dispatchMessage({ type: 'listChats', key: 'replace-me' })).chats).toEqual([]);
+    expect(
+      (await dispatchMessage({ type: 'getChat', key: 'replace-me', chatId: created.chat.chatId }))
+        .ok,
+    ).toBe(false);
+  });
+
   it('rejects import batches with no importable records', async () => {
     const chromeMock = makeChromeMock();
     const dispatchMessage = await loadDispatchMessage(chromeMock);
@@ -1236,6 +1260,59 @@ describe('dispatchMessage unit tests', () => {
     expect(metrics.failureCount).toBe(1);
     expect(metrics.byTaskType.chat_answer?.totalCount).toBe(1);
     expect(metrics.recent[0]).toMatchObject({ ok: false, taskType: 'chat_answer' });
+  });
+
+  it('cancels every in-flight provider request belonging to a chat turn', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+    const sender = { url: 'chrome-extension://test-id/options.html' };
+    await dispatchMessage(
+      {
+        type: 'saveProvider',
+        provider: { type: 'openai', name: 'OpenAI', model: 'gpt-4o-mini', token: 'secret' },
+      },
+      sender,
+    );
+    const abortedSignals = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url, init) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener(
+              'abort',
+              () => {
+                abortedSignals.push(init.signal);
+                const error = new Error('aborted');
+                error.name = 'AbortError';
+                reject(error);
+              },
+              { once: true },
+            );
+          }),
+      ),
+    );
+
+    const first = dispatchMessage({
+      type: 'llmChatCompletion',
+      prompt: 'first',
+      chatTurnId: 'turn-cancel',
+    });
+    const second = dispatchMessage({
+      type: 'llmChatCompletion',
+      prompt: 'second',
+      chatTurnId: 'turn-cancel',
+    });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+
+    expect(await dispatchMessage({ type: 'cancelChatTurn', turnId: 'turn-cancel' })).toEqual({
+      ok: true,
+    });
+    const results = await Promise.all([first, second]);
+    expect(results.every((result) => result.ok === false && /aborted/i.test(result.error))).toBe(
+      true,
+    );
+    expect(abortedSignals).toHaveLength(2);
   });
 
   it('records a chat tool-call outcome metric', async () => {

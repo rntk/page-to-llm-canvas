@@ -12,6 +12,7 @@ import { eventRange } from './useChatSessions.js';
  *   onDeleteEvent: (event: object) => void,
  *   subject?: 'article' | 'video',
  *   getEventTimestamp?: (range: object) => number | null,
+ *   disabled?: boolean,
  * }} props
  */
 export default function ChatEventsList({
@@ -21,6 +22,7 @@ export default function ChatEventsList({
   onDeleteEvent,
   subject = 'article',
   getEventTimestamp,
+  disabled = false,
 }) {
   const isVideo = subject === 'video';
 
@@ -47,7 +49,7 @@ export default function ChatEventsList({
             <button
               type="button"
               onClick={() => onSelectEvent(event)}
-              disabled={isUnavailable}
+              disabled={disabled || isUnavailable}
               title={
                 isUnavailable
                   ? 'This evidence has no transcript timestamp, so the video cannot jump to it.'
@@ -65,6 +67,7 @@ export default function ChatEventsList({
               type="button"
               className="is-delete"
               onClick={() => onDeleteEvent(event)}
+              disabled={disabled}
               aria-label={`Delete event ${index + 1}`}
             >
               ×

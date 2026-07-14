@@ -17,7 +17,7 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "css": ["content.css"],
+      "css": ["chat.css", "content.css"],
       "run_at": "document_idle"
     }
   ],
@@ -37,7 +37,7 @@
   "options_page": "options.html",
   "web_accessible_resources": [
     {
-      "resources": ["modal.html", "modal.js", "modal.css"],
+      "resources": ["modal.html", "modal.js", "chat.css", "modal.css"],
       "matches": ["<all_urls>"]
     }
   ]

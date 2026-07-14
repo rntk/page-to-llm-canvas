@@ -21,7 +21,8 @@ export async function persistChatTurn(key, chatId, turn) {
 }
 
 export async function removeStoredChatEvent(key, chatId, seq) {
-  await request({ type: MSG.deleteChatEvent, key, chatId, seq });
+  const response = await request({ type: MSG.deleteChatEvent, key, chatId, seq });
+  return response.chat || null;
 }
 
 export async function removeStoredChat(key, chatId) {

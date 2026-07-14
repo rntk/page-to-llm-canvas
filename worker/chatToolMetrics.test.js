@@ -31,7 +31,10 @@ describe('chat tool metrics', () => {
   it('counts ok and error outcomes and keeps a recent list', async () => {
     await recordChatToolMetric({ outcome: 'highlighted' });
     await recordChatToolMetric({ outcome: 'overlap_skipped' });
-    await recordChatToolMetric({ outcome: 'out_of_range', error: 'line range must be between 1 and 4' });
+    await recordChatToolMetric({
+      outcome: 'out_of_range',
+      error: 'line range must be between 1 and 4',
+    });
     await recordChatToolMetric({ outcome: 'unknown_tool', error: 'Unknown tool: frobnicate' });
     await recordChatToolMetric({ outcome: 'paint_failed', error: 'canvas gone' });
 
@@ -75,7 +78,11 @@ describe('chat tool metrics', () => {
 
   it('normalizes corrupt payloads and clears stored data', async () => {
     expect(normalizeChatToolMetrics(null)).toEqual(emptyChatToolMetrics());
-    stored[CHAT_TOOL_METRICS_KEY] = { totalCount: -3, recent: 'bad', byOutcome: { highlighted: -9 } };
+    stored[CHAT_TOOL_METRICS_KEY] = {
+      totalCount: -3,
+      recent: 'bad',
+      byOutcome: { highlighted: -9 },
+    };
     const normalized = normalizeChatToolMetrics(stored[CHAT_TOOL_METRICS_KEY]);
     expect(normalized.totalCount).toBe(0);
     expect(normalized.byOutcome.highlighted).toBe(0);

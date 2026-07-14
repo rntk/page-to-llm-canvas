@@ -6,7 +6,12 @@ import {
   MUTATION_QUEUE_KEY,
   resetUpdateQueues,
 } from './storagePrimitives.js';
-import { deleteChatsForRecord, chatStorageKeysForRecord } from './chatStorage.js';
+import { chatStorageKeysForRecord } from './chatStorage.js';
+import {
+  recordMetaStorageKey as metaStorageKey,
+  recordContentStorageKey as contentStorageKey,
+  recordSummariesStorageKey as summariesStorageKey,
+} from './storageKeys.js';
 
 export const INDEX_KEY = 'pagetollm:index';
 // Version stamp for the cached index projections (see buildRecordMeta). Bump it
@@ -30,18 +35,6 @@ const RECORD_SNIPPET_MAX_CHARS = 500;
 //     completed topic.
 const CONTENT_FIELDS = ['html', 'text', 'sentences', 'topics'];
 const SUMMARY_FIELDS = ['topic_summaries', 'topic_summary_index'];
-
-function metaStorageKey(key) {
-  return `pagetollm:rec:${key}:meta`;
-}
-
-function contentStorageKey(key) {
-  return `pagetollm:rec:${key}:content`;
-}
-
-function summariesStorageKey(key) {
-  return `pagetollm:rec:${key}:summaries`;
-}
 
 function hasOwn(obj, field) {
   return Object.prototype.hasOwnProperty.call(obj, field);
@@ -209,15 +202,22 @@ export async function readRecord(key) {
   return { ...(content || {}), ...(summaries || {}), ...(meta || {}) };
 }
 
-export async function writeRecord(rec) {
+export async function writeRecord(rec, options = {}) {
   if (!rec || !rec.key) throw new Error('writeRecord: record.key required');
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
     return queuedUpdate(rec.key, async () => {
       const metaKey = metaStorageKey(rec.key);
       const contentKey = contentStorageKey(rec.key);
       const summariesKey = summariesStorageKey(rec.key);
+      const existingMeta = await loadMetaForWrite(rec.key);
+      const contentRevision =
+        options.bumpContentRevision === true
+          ? createContentRevision()
+          : typeof rec.contentRevision === 'string' && rec.contentRevision
+            ? rec.contentRevision
+            : existingMeta?.contentRevision || createContentRevision();
       await setLocal({
-        [metaKey]: pickMetaFields(rec),
+        [metaKey]: { ...pickMetaFields(rec), contentRevision },
         [contentKey]: pickContentFields(rec),
         [summariesKey]: pickSummaryFields(rec),
       });
@@ -251,10 +251,16 @@ async function loadMetaForWrite(key) {
   return items[metaKey] || null;
 }
 
+function createContentRevision() {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  return uuid
+    ? `rev_${uuid}`
+    : `rev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+}
+
 /**
  * Whether a record with this key exists in storage. Only reads the small meta
- * doc. Exists so chatStorage.js can gate chat creation on record existence
- * without depending on the record write internals.
+ * document, so callers do not need to reassemble the full record.
  * @param {string} key
  * @returns {Promise<boolean>}
  */
@@ -296,6 +302,9 @@ export async function updateRecord(key, patch, options = {}) {
       }
 
       const mergedMeta = { ...meta, ...pickMetaFields(patch), updatedAt: Date.now() };
+      if (touchesContent && options.bumpContentRevision === true) {
+        mergedMeta.contentRevision = createContentRevision();
+      }
       writes[metaStorageKey(key)] = mergedMeta;
 
       await setLocal(writes);
@@ -439,16 +448,22 @@ export async function deleteRecord(key) {
         const nextMeta = { ...idx.meta };
         delete nextMeta[key];
         const nextIdx = { keys: idx.keys.filter((k) => k !== key), meta: nextMeta };
-        await writeIndex(nextIdx);
+        // Gather all keys before mutating anything. One remove call makes the
+        // cascade atomic from this repository's perspective: a failure cannot
+        // leave an indexed record whose documents were already removed.
+        const keys = [
+          metaStorageKey(key),
+          contentStorageKey(key),
+          summariesStorageKey(key),
+          ...(await chatStorageKeysForRecord(key)),
+        ];
+        await removeLocal(keys);
         try {
-          await removeLocal([
-            metaStorageKey(key),
-            contentStorageKey(key),
-            summariesStorageKey(key),
-          ]);
-          await deleteChatsForRecord(key);
+          await writeIndex(nextIdx);
         } catch (err) {
-          await writeIndex(idx).catch(() => {});
+          // Documents are gone but retaining an index entry would create a
+          // ghost record. Best-effort removal keeps listings authoritative.
+          await writeIndex(nextIdx).catch(() => {});
           throw err;
         }
       });

@@ -11,6 +11,9 @@ const STATIC_FILES = [
   'manifest.json',
   'background.js',
   'messages.js',
+  'telemetry.js',
+  'verboseLogSettings.js',
+  'chat.css',
   'content.css',
   'popup.html',
   'options.html',
@@ -29,6 +32,9 @@ function copyDirRecursive(src, dest) {
   if (!fs.existsSync(src)) return;
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    if (entry.name === '__tests__' || /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(entry.name)) {
+      continue;
+    }
     const s = path.join(src, entry.name);
     const d = path.join(dest, entry.name);
     if (entry.isDirectory()) {
@@ -70,7 +76,6 @@ function configForEntry({ name, input, emptyOutDir }) {
         input,
         output: {
           format: 'iife',
-          inlineDynamicImports: true,
           entryFileNames: `${name}.js`,
           chunkFileNames: '[name].js',
           assetFileNames: (assetInfo) => {

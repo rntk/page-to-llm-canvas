@@ -14,9 +14,18 @@ function formatDate(timestamp) {
  *   activeChatId: string | null,
  *   onSelectChat: (chatId: string) => void,
  *   onDeleteChat: (chatId: string) => void,
+ *   disabled?: boolean,
+ *   deleteDisabled?: boolean,
  * }} props
  */
-export default function ChatHistoryPanel({ chats, activeChatId, onSelectChat, onDeleteChat }) {
+export default function ChatHistoryPanel({
+  chats,
+  activeChatId,
+  onSelectChat,
+  onDeleteChat,
+  disabled = false,
+  deleteDisabled = disabled,
+}) {
   return (
     <div className="pagetollm-chat-history-panel">
       {chats.length === 0 ? <div className="pagetollm-chat-empty">No chats yet.</div> : null}
@@ -25,7 +34,7 @@ export default function ChatHistoryPanel({ chats, activeChatId, onSelectChat, on
           key={chat.chatId}
           className={`pagetollm-chat-history-item${chat.chatId === activeChatId ? ' is-active' : ''}`}
         >
-          <button type="button" onClick={() => onSelectChat(chat.chatId)}>
+          <button type="button" onClick={() => onSelectChat(chat.chatId)} disabled={disabled}>
             <strong>{chat.title || 'New chat'}</strong>
             <span>
               {formatDate(chat.updatedAt)} · {chat.messageCount} msg · {chat.eventCount} ev
@@ -35,6 +44,7 @@ export default function ChatHistoryPanel({ chats, activeChatId, onSelectChat, on
             type="button"
             className="is-delete"
             onClick={() => onDeleteChat(chat.chatId)}
+            disabled={deleteDisabled}
             aria-label={`Delete ${chat.title || 'chat'}`}
           >
             ×
