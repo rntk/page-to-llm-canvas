@@ -15,6 +15,7 @@ import {
   formatTaskTypeLabel,
   listTaskTypes,
 } from '../../worker/llmMetricsFormat.js';
+import { CollapsibleSection } from './CollapsibleSection.jsx';
 
 function formatDate(timestamp) {
   if (!timestamp) return '';
@@ -72,13 +73,12 @@ export function LlmMetricsSection() {
   const hasCacheUsage = metrics.cacheSampleCount > 0;
 
   return (
-    <section className="section">
-      <h2>LLM Request Metrics</h2>
+    <CollapsibleSection title="LLM Request Metrics">
       <div className="toolbar">
         <div className="note">
           Duration, token usage, prompt-cache reuse, and response sizes for model requests made
-          while processing pages. Durations include retries; provider usage is recorded when the API
-          reports it.
+          while processing pages and chatting about articles. Durations include retries; provider
+          usage is recorded when the API reports it.
         </div>
         <div>
           <button
@@ -167,8 +167,7 @@ export function LlmMetricsSection() {
             </table>
           </div>
           {taskTypes.length > 0 ? (
-            <div className="field">
-              <div className="note note--stacked">By task type</div>
+            <CollapsibleSection variant="field" title="By task type">
               <table>
                 <thead>
                   <tr>
@@ -199,11 +198,10 @@ export function LlmMetricsSection() {
                   })}
                 </tbody>
               </table>
-            </div>
+            </CollapsibleSection>
           ) : null}
           {taskTypes.some((taskType) => metrics.byTaskType[taskType]?.usageSampleCount > 0) ? (
-            <div className="field">
-              <div className="note note--stacked">Token and cache usage by task type</div>
+            <CollapsibleSection variant="field" title="Token and cache usage by task type">
               <table>
                 <thead>
                   <tr>
@@ -259,11 +257,10 @@ export function LlmMetricsSection() {
                   })}
                 </tbody>
               </table>
-            </div>
+            </CollapsibleSection>
           ) : null}
           {metrics.recent.length > 0 ? (
-            <div className="field">
-              <div className="note note--stacked">Recent requests (newest first)</div>
+            <CollapsibleSection variant="field" title="Recent requests (newest first)">
               <table>
                 <thead>
                   <tr>
@@ -302,10 +299,10 @@ export function LlmMetricsSection() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </CollapsibleSection>
           ) : null}
         </>
       )}
-    </section>
+    </CollapsibleSection>
   );
 }

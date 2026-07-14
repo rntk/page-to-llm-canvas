@@ -4,7 +4,10 @@
 //   1. Delete this file (and llmMetrics.test.js)
 //   2. In orchestrator.js: remove the llmMetrics import + wrap lines; restore
 //      a plain `callLLMWithRetry` import from ./llm.js
-//   3. In OptionsApp.jsx: remove LlmMetricsSection + its import + render
+//   3. In background.js: remove the recordLlmMetric import + the metrics wiring
+//      in the MSG.llmChatCompletion handler (and drop `taskType` from the chat
+//      send payloads in src/chat/articleChat.js)
+//   4. In OptionsApp.jsx: remove LlmMetricsSection + its import + render
 
 export const LLM_METRICS_KEY = 'pagetollm-llm-metrics';
 /** Bumped on clear so in-flight read-modify-writes can detect staleness across SW/options contexts. */
@@ -17,6 +20,8 @@ export const LLM_TASK_TYPES = Object.freeze({
   ARTICLE_SUMMARY: 'article_summary',
   TOPIC_SUMMARY_FROM_SOURCE: 'topic_summary_from_source',
   ARTICLE_SUMMARY_MERGE: 'article_summary_merge',
+  CHAT_ANSWER: 'chat_answer',
+  CHAT_SYNTHESIS: 'chat_synthesis',
   UNKNOWN: 'unknown',
 });
 
@@ -26,6 +31,8 @@ export const LLM_TASK_TYPE_LABELS = Object.freeze({
   [LLM_TASK_TYPES.ARTICLE_SUMMARY]: 'Article summary',
   [LLM_TASK_TYPES.TOPIC_SUMMARY_FROM_SOURCE]: 'Topic summary (from source)',
   [LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE]: 'Summary merge',
+  [LLM_TASK_TYPES.CHAT_ANSWER]: 'Chat answer',
+  [LLM_TASK_TYPES.CHAT_SYNTHESIS]: 'Chat synthesis',
   [LLM_TASK_TYPES.UNKNOWN]: 'Unknown',
 });
 

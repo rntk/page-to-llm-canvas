@@ -187,6 +187,50 @@
         margin-bottom: 12px;
       }
 
+      /* Foldable sections (native <details>/<summary>) */
+      details.collapsible {
+        margin: 0;
+      }
+      details.collapsible.section + details.collapsible.section {
+        margin-top: 24px;
+      }
+      details.collapsible.field {
+        margin-top: 16px;
+      }
+      .collapsible-summary {
+        list-style: none;
+        cursor: pointer;
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+      }
+      .collapsible-summary::-webkit-details-marker {
+        display: none;
+      }
+      .collapsible-summary::before {
+        content: '▸';
+        font-size: 11px;
+        line-height: 1;
+        color: var(--on-surface-muted);
+        transition: transform 0.12s ease;
+      }
+      details.collapsible[open] > .collapsible-summary::before {
+        transform: rotate(90deg);
+      }
+      .collapsible-summary:focus-visible {
+        outline: 2px solid var(--ink);
+        outline-offset: 2px;
+      }
+      .collapsible-summary .collapsible-title {
+        margin: 0;
+      }
+      details.collapsible[open].section > .collapsible-body {
+        margin-top: 14px;
+      }
+      details.collapsible[open].field > .collapsible-body {
+        margin-top: 12px;
+      }
+
       /* LLM Providers */
       .section {
         margin: 0;

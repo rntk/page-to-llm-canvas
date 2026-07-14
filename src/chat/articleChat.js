@@ -1,6 +1,21 @@
 import { MSG } from '../../messages.js';
+import { LLM_TASK_TYPES } from '../../worker/llmMetrics.js';
+import { CHAT_TOOL_OUTCOMES } from '../../worker/chatToolMetrics.js';
 import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 import { createChatLogger } from './chatLogger.js';
+
+/**
+ * Default transport for one tool-call outcome metric. Fire-and-forget: the
+ * turn must never fail or stall because diagnostics could not be recorded, and
+ * `chrome.runtime` may be absent (tests, non-extension contexts).
+ */
+function postToolMetric(sample) {
+  try {
+    void sendRuntimeMessage({ type: MSG.recordChatToolMetric, ...sample }).catch(() => {});
+  } catch (_) {
+    /* chrome.runtime unavailable — drop the metric silently. */
+  }
+}
 
 export const ARTICLE_CHAT_SYSTEM_PROMPT = `You are an intelligent assistant helping a user explore one article.
 The current article is supplied inside <article> tags. Each sentence is prefixed with its 1-based line number.
@@ -107,6 +122,16 @@ export function rangesOverlap(a, b) {
   return a.startLine <= b.endLine && b.startLine <= a.endLine;
 }
 
+/**
+ * A tool-call validation failure, tagged with a stable `code` so callers can
+ * classify the outcome without matching on the human-facing message text.
+ */
+function toolArgError(message, code) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
 function validateHighlightArgs(
   args,
   sentenceCount,
@@ -115,14 +140,18 @@ function validateHighlightArgs(
   const startLine = Number(args?.start_line);
   const endLine = Number(args?.end_line);
   if (!Number.isInteger(startLine) || !Number.isInteger(endLine)) {
-    throw new Error('start_line and end_line must be integers');
+    throw toolArgError('start_line and end_line must be integers', CHAT_TOOL_OUTCOMES.INVALID_ARGUMENTS);
   }
   if (startLine < 1 || endLine < startLine || endLine > sentenceCount) {
-    throw new Error(`line range must be between 1 and ${sentenceCount}`);
+    throw toolArgError(
+      `line range must be between 1 and ${sentenceCount}`,
+      CHAT_TOOL_OUTCOMES.OUT_OF_RANGE,
+    );
   }
   if (startLine < visibleStartLine || endLine > visibleEndLine) {
-    throw new Error(
+    throw toolArgError(
       `line range must stay within the supplied lines ${visibleStartLine}-${visibleEndLine}`,
+      CHAT_TOOL_OUTCOMES.OUT_OF_CHUNK,
     );
   }
   return {
@@ -218,6 +247,7 @@ async function runArticleChatChunk({
   maxToolRounds,
   send,
   log,
+  recordToolMetric,
 }) {
   const messages = [
     { role: 'system', content: buildChunkSystemPrompt(chunk) },
@@ -250,6 +280,7 @@ async function runArticleChatChunk({
       messages,
       tools: [HIGHLIGHT_SPAN_TOOL],
       temperature: CHAT_TEMPERATURE,
+      taskType: LLM_TASK_TYPES.CHAT_ANSWER,
     });
     if (!response?.ok) throw new Error(response?.error || 'LLM request failed');
 
@@ -289,23 +320,56 @@ async function runArticleChatChunk({
 
     for (const call of toolCalls) {
       let result;
+      // Every tool call resolves to exactly one outcome code; error outcomes
+      // also carry the short model-facing message for the diagnostics recent list.
+      let outcome;
+      let outcomeError;
       if (call.name !== HIGHLIGHT_SPAN_TOOL.name) {
+        outcome = CHAT_TOOL_OUTCOMES.UNKNOWN_TOOL;
+        // call.name is model-generated and may echo article-derived text, so it
+        // goes to the model (result) but is never persisted as a metric detail.
         result = `Unknown tool: ${call.name || '(missing name)'}`;
       } else {
+        let range;
         try {
-          const range = validateHighlightArgs(call.arguments, sentenceCount, chunk);
+          range = validateHighlightArgs(call.arguments, sentenceCount, chunk);
+        } catch (error) {
+          // `code` is set by validateHighlightArgs; fall back to invalid_arguments.
+          outcome = error.code || CHAT_TOOL_OUTCOMES.INVALID_ARGUMENTS;
+          result = `Error: ${error.message}`;
+          outcomeError = result;
+        }
+        if (range) {
           if (ranges.some((existing) => rangesOverlap(existing, range))) {
+            outcome = CHAT_TOOL_OUTCOMES.OVERLAP_SKIPPED;
             result = `Skipped lines ${range.startLine}-${range.endLine}: that passage is already highlighted.`;
           } else {
-            await onHighlight?.(range);
+            // Commit the range for persistence up front. onHighlight is a
+            // best-effort live paint (UI only); a paint failure must not drop
+            // the range or be reported to the model as a bad call — otherwise
+            // it re-issues the same valid range and can loop.
             ranges.push(range);
             newRanges.push(range);
             result = `Highlighted lines ${range.startLine}-${range.endLine}.`;
+            outcome = CHAT_TOOL_OUTCOMES.HIGHLIGHTED;
+            try {
+              await onHighlight?.(range);
+            } catch (paintError) {
+              outcome = CHAT_TOOL_OUTCOMES.PAINT_FAILED;
+              outcomeError = paintError?.message || String(paintError);
+              log(
+                'tool_paint_failed',
+                {
+                  lineRange: `${range.startLine}-${range.endLine}`,
+                  error: outcomeError,
+                },
+                { error: true },
+              );
+            }
           }
-        } catch (error) {
-          result = `Error: ${error.message}`;
         }
       }
+      recordToolMetric({ outcome, error: outcomeError });
       const toolResultMessage = { role: 'tool', content: result, toolCallId: call.id };
       messages.push(toolResultMessage);
       transcriptMessages.push(toolResultMessage);
@@ -315,6 +379,7 @@ async function runArticleChatChunk({
           lineRange: `${chunk.startLine}-${chunk.endLine}`,
           round: round + 1,
           tool: call.name || '(missing name)',
+          outcome,
           result,
         },
         { verbose: true },
@@ -353,6 +418,7 @@ export async function runArticleChatTurn({
   maxLlmRequests = MAX_TURN_LLM_REQUESTS,
   chunkConcurrency = ARTICLE_CHAT_CHUNK_CONCURRENCY,
   send = sendRuntimeMessage,
+  recordToolMetric = postToolMetric,
 }) {
   const log = createChatLogger();
   const startedAt = Date.now();
@@ -401,6 +467,7 @@ export async function runArticleChatTurn({
           maxToolRounds,
           send: sendChunkRequest,
           log,
+          recordToolMetric,
         });
         results[index] = {
           chunk,
@@ -437,6 +504,7 @@ export async function runArticleChatTurn({
       type: MSG.llmChatCompletion,
       messages: buildSynthesisMessages(question, chunkReplies),
       temperature: CHAT_TEMPERATURE,
+      taskType: LLM_TASK_TYPES.CHAT_SYNTHESIS,
     });
     if (!synthesis?.ok) throw new Error(synthesis?.error || 'LLM request failed');
     const reply = typeof synthesis.content === 'string' ? synthesis.content.trim() : '';

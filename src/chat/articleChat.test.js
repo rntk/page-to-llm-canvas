@@ -357,3 +357,126 @@ describe('article chat tool loop', () => {
     );
   });
 });
+
+describe('article chat tool-call outcome metrics', () => {
+  // Two-round send: first returns the given tool call, second ends the turn.
+  function sendWithToolCall(toolCall) {
+    return vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, content: '', toolCalls: [{ id: 'c1', ...toolCall }] })
+      .mockResolvedValueOnce({ ok: true, content: 'Done.' });
+  }
+
+  async function runWith({ toolCall, sentences = ['One.', 'Two.', 'Three.'], onHighlight }) {
+    const recordToolMetric = vi.fn();
+    const result = await runArticleChatTurn({
+      history: [],
+      question: 'Q',
+      sentences,
+      onHighlight,
+      send: sendWithToolCall(toolCall),
+      recordToolMetric,
+    });
+    return { recordToolMetric, result };
+  }
+
+  it('records an accepted highlight as "highlighted"', async () => {
+    const { recordToolMetric, result } = await runWith({
+      toolCall: { name: 'highlight_span', arguments: { start_line: 1, end_line: 1 } },
+    });
+    expect(recordToolMetric).toHaveBeenCalledWith({ outcome: 'highlighted', error: undefined });
+    expect(result.highlightRanges).toEqual([{ startLine: 1, endLine: 1, label: '' }]);
+  });
+
+  it('records an unknown tool as "unknown_tool" without persisting the model-supplied name', async () => {
+    const { recordToolMetric } = await runWith({
+      toolCall: { name: 'frobnicate', arguments: {} },
+    });
+    // The model-generated tool name may echo article text, so it must not be
+    // persisted as a metric detail (only the stable outcome is recorded).
+    expect(recordToolMetric).toHaveBeenCalledWith({ outcome: 'unknown_tool', error: undefined });
+  });
+
+  it('records non-integer arguments as "invalid_arguments"', async () => {
+    const { recordToolMetric } = await runWith({
+      toolCall: { name: 'highlight_span', arguments: { start_line: 'x', end_line: 2 } },
+    });
+    expect(recordToolMetric).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'invalid_arguments' }),
+    );
+  });
+
+  it('records a range past the article end as "out_of_range"', async () => {
+    const { recordToolMetric } = await runWith({
+      toolCall: { name: 'highlight_span', arguments: { start_line: 1, end_line: 99 } },
+    });
+    expect(recordToolMetric).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'out_of_range' }),
+    );
+  });
+
+  it('records a range outside the active chunk as "out_of_chunk"', async () => {
+    // Small chunks so line 3 falls outside the first chunk's visible lines
+    // (it is a valid article line, but not in the chunk the model was shown).
+    const recordToolMetric = vi.fn();
+    await runArticleChatTurn({
+      history: [],
+      question: 'Q',
+      sentences: ['First.', 'Second.', 'Third.'],
+      maxChunkChars: 10,
+      send: vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          content: '',
+          toolCalls: [
+            { id: 'c1', name: 'highlight_span', arguments: { start_line: 3, end_line: 3 } },
+          ],
+        })
+        .mockResolvedValue({ ok: true, content: 'Done.' }),
+      recordToolMetric,
+    });
+    expect(recordToolMetric).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'out_of_chunk' }),
+    );
+  });
+
+  it('records an already-highlighted range as "overlap_skipped"', async () => {
+    const recordToolMetric = vi.fn();
+    await runArticleChatTurn({
+      history: [],
+      question: 'Q',
+      sentences: ['One.', 'Two.', 'Three.'],
+      highlightedRanges: [{ startLine: 1, endLine: 1 }],
+      send: vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          content: '',
+          toolCalls: [{ id: 'c1', name: 'highlight_span', arguments: { start_line: 1, end_line: 1 } }],
+        })
+        .mockResolvedValueOnce({ ok: true, content: 'Done.' }),
+      recordToolMetric,
+    });
+    expect(recordToolMetric).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'overlap_skipped' }),
+    );
+  });
+
+  it('commits the range but records "paint_failed" when live painting throws', async () => {
+    const onHighlight = vi.fn().mockRejectedValue(new Error('canvas gone'));
+    const { recordToolMetric, result } = await runWith({
+      toolCall: { name: 'highlight_span', arguments: { start_line: 2, end_line: 2 } },
+      onHighlight,
+    });
+    // Paint failure must not drop the range or report an error to the model.
+    expect(result.highlightRanges).toEqual([{ startLine: 2, endLine: 2, label: '' }]);
+    expect(result.transcriptMessages.find((m) => m.role === 'tool')?.content).toBe(
+      'Highlighted lines 2-2.',
+    );
+    expect(recordToolMetric).toHaveBeenCalledWith({
+      outcome: 'paint_failed',
+      error: 'canvas gone',
+    });
+  });
+});

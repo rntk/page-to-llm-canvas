@@ -17,6 +17,8 @@ import {
 } from './worker/chatStorage.js';
 import { runPipeline } from './worker/orchestrator.js';
 import { callLLMDirect } from './worker/llm.js';
+import { recordLlmMetric } from './worker/llmMetrics.js';
+import { clearChatToolMetrics, recordChatToolMetric } from './worker/chatToolMetrics.js';
 import { getStoredSummariesDisabled } from './worker/summarySettings.js';
 import {
   getProvidersState,
@@ -607,11 +609,17 @@ export const MESSAGE_HANDLERS = {
         parallelToolCalls,
         temperature = 0.8,
         model,
+        taskType,
       } = msg;
       if (!prompt && (!Array.isArray(messages) || messages.length === 0)) {
         return { ok: false, error: 'missing prompt or messages' };
       }
-      return callLLMDirect({
+      // Record duration/token/cache metrics for chat calls. The orchestrator path
+      // is wrapped separately (wrapCallLLMWithRetry); callLLMDirect itself stays
+      // unmetered so pipeline calls are not double-counted here.
+      const startedAt = Date.now();
+      let sample;
+      const result = await callLLMDirect({
         prompt,
         messages,
         tools,
@@ -619,7 +627,47 @@ export const MESSAGE_HANDLERS = {
         parallelToolCalls,
         temperature,
         model,
+        metricsCollector: (collected) => {
+          if (collected && typeof collected === 'object') sample = collected;
+        },
       });
+      // Await (unlike the orchestrator's fire-and-forget): this handler is
+      // terminal, so a void'd write could be dropped when the service worker
+      // suspends right after the response is sent. recordLlmMetric swallows its
+      // own errors and returns void, so awaiting can't fail the response.
+      await recordLlmMetric({
+        durationMs: Date.now() - startedAt,
+        ok: result.ok,
+        taskType,
+        error: result.ok ? undefined : result.error,
+        ...sample,
+      });
+      return result;
+    },
+  },
+
+  // Records the outcome of one article-chat highlight_span tool call. The
+  // classification happens page-side (in articleChat.js) but chat mounts in
+  // content scripts too, so recording is centralized here in the worker.
+  // Terminal handler: await the write so it is not dropped on SW suspension.
+  [MSG.recordChatToolMetric]: {
+    requiresExtensionPage: false,
+    validate: () => null,
+    async handle(msg) {
+      await recordChatToolMetric({ outcome: msg.outcome, error: msg.error });
+      return { ok: true };
+    },
+  },
+
+  // Clearing runs in the worker (not the options realm) so it serializes on the
+  // same writeChain as recordChatToolMetric — otherwise an in-flight worker
+  // record could restore the pre-clear aggregate after an options-side clear.
+  [MSG.clearChatToolMetrics]: {
+    requiresExtensionPage: false,
+    validate: () => null,
+    async handle() {
+      await clearChatToolMetrics();
+      return { ok: true };
     },
   },
 

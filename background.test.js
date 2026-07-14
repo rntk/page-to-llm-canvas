@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readRecord, writeRecord } from './worker/storage.js';
+import { LLM_METRICS_KEY } from './worker/llmMetrics.js';
+import { CHAT_TOOL_METRICS_KEY } from './worker/chatToolMetrics.js';
 
 vi.mock('./worker/orchestrator.js', () => ({
   runPipeline: vi.fn(() => new Promise((resolve) => setTimeout(resolve, 10))),
@@ -1210,5 +1212,60 @@ describe('dispatchMessage unit tests', () => {
     const llm = await dispatchMessage({ type: 'llmChatCompletion', prompt: '' });
     expect(llm.ok).toBe(false);
     expect(llm.error).toBe('missing prompt or messages');
+  });
+
+  it('records an LLM metric for chat completions, tagged by task type', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+
+    // No provider is configured, so callLLMDirect returns a failure — but the
+    // handler must still record a metric so failed chat calls stay visible.
+    const res = await dispatchMessage({
+      type: 'llmChatCompletion',
+      prompt: 'hello',
+      taskType: 'chat_answer',
+    });
+    expect(res.ok).toBe(false);
+
+    // recordLlmMetric is fire-and-forget; wait for the store write to land.
+    await vi.waitFor(() => {
+      expect(chromeMock.storage.local._store.has(LLM_METRICS_KEY)).toBe(true);
+    });
+    const metrics = chromeMock.storage.local._store.get(LLM_METRICS_KEY);
+    expect(metrics.totalCount).toBe(1);
+    expect(metrics.failureCount).toBe(1);
+    expect(metrics.byTaskType.chat_answer?.totalCount).toBe(1);
+    expect(metrics.recent[0]).toMatchObject({ ok: false, taskType: 'chat_answer' });
+  });
+
+  it('records a chat tool-call outcome metric', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+
+    const res = await dispatchMessage({
+      type: 'recordChatToolMetric',
+      outcome: 'out_of_range',
+      error: 'line range must be between 1 and 4',
+    });
+    expect(res).toEqual({ ok: true });
+
+    // Handler awaits the write, so the store is populated by the time it returns.
+    const metrics = chromeMock.storage.local._store.get(CHAT_TOOL_METRICS_KEY);
+    expect(metrics.totalCount).toBe(1);
+    expect(metrics.errorCount).toBe(1);
+    expect(metrics.byOutcome.out_of_range).toBe(1);
+    expect(metrics.recent[0]).toMatchObject({ outcome: 'out_of_range' });
+  });
+
+  it('clears chat tool-call metrics through the worker', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+
+    await dispatchMessage({ type: 'recordChatToolMetric', outcome: 'highlighted' });
+    expect(chromeMock.storage.local._store.get(CHAT_TOOL_METRICS_KEY).totalCount).toBe(1);
+
+    const res = await dispatchMessage({ type: 'clearChatToolMetrics' });
+    expect(res).toEqual({ ok: true });
+    expect(chromeMock.storage.local._store.get(CHAT_TOOL_METRICS_KEY).totalCount).toBe(0);
   });
 });

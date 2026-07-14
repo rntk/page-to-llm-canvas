@@ -21,6 +21,8 @@ export const MSG = Object.freeze({
   deleteRecord: 'deleteRecord',
   deleteAll: 'deleteAll',
   llmChatCompletion: 'llmChatCompletion',
+  recordChatToolMetric: 'recordChatToolMetric',
+  clearChatToolMetrics: 'clearChatToolMetrics',
   listChats: 'listChats',
   getChat: 'getChat',
   appendChatTurn: 'appendChatTurn',

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { GeneralSettingsPanel } from './GeneralSettingsPanel.jsx';
 import { LlmMetricsSection } from './LlmMetricsSection.jsx';
+import { ChatToolMetricsSection } from './ChatToolMetricsSection.jsx';
 import { ParserMetricsSection } from './ParserMetricsSection.jsx';
 import { ProvidersSection } from './ProvidersSection.jsx';
 import { RecordsSection } from './RecordsSection.jsx';
@@ -124,6 +125,7 @@ export function OptionsApp() {
       >
         <ParserMetricsSection />
         <LlmMetricsSection />
+        <ChatToolMetricsSection />
       </div>
     </main>
   );

@@ -6,6 +6,7 @@ import {
   getParserMetrics,
   normalizeParserMetrics,
 } from '../../worker/parserMetrics.js';
+import { CollapsibleSection } from './CollapsibleSection.jsx';
 
 function formatDate(timestamp) {
   return timestamp ? new Date(timestamp).toLocaleString() : '—';
@@ -57,8 +58,7 @@ export function ParserMetricsSection() {
   }, []);
 
   return (
-    <section className="section">
-      <h2>Topic Parser Quality</h2>
+    <CollapsibleSection title="Topic Parser Quality">
       <div className="toolbar">
         <div className="note">
           Privacy-safe counts of malformed model output and deterministic parser repairs. No page
@@ -156,6 +156,6 @@ export function ParserMetricsSection() {
           </div>
         </>
       )}
-    </section>
+    </CollapsibleSection>
   );
 }
