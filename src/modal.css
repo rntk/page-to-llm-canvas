@@ -501,8 +501,14 @@ body.canvas-global-dragging * {
 .pagetollm-chat-tabs {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) auto;
   border-bottom: 1px solid var(--ink);
+}
+
+.pagetollm-chat-tab-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-width: 0;
 }
 
 .pagetollm-chat-tabs button {
@@ -519,15 +525,17 @@ body.canvas-global-dragging * {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
+  min-height: 28px;
 }
 
-.pagetollm-chat-tabs > button:last-child,
-.pagetollm-chat-events-tab {
-  border-right: 0;
+.pagetollm-chat-tab-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
 }
 
-.pagetollm-chat-tabs > button.is-active,
-.pagetollm-chat-events-tab.is-active {
+.pagetollm-chat-tabs button.is-active {
   background: var(--ink);
   color: var(--surface);
 }
@@ -541,7 +549,7 @@ body.canvas-global-dragging * {
 
 .pagetollm-chat-history-panel {
   position: absolute;
-  inset: 53px 0 0;
+  inset: var(--pagetollm-chat-header-height, 53px) 0 0;
   z-index: 5;
   overflow-y: auto;
   padding: 8px;
@@ -576,6 +584,13 @@ body.canvas-global-dragging * {
   font: inherit;
   text-align: left;
   cursor: pointer;
+  min-height: 28px;
+}
+
+.pagetollm-chat-history-item button:disabled,
+.pagetollm-chat-event button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .pagetollm-chat-history-item button:first-child,
@@ -619,36 +634,23 @@ body.canvas-global-dragging * {
   font-size: 17px;
 }
 
-.pagetollm-chat-events-tab {
-  display: flex;
-  align-items: stretch;
-  border-right: 1px solid var(--ghost);
-}
-
-.pagetollm-chat-events-tab > button {
-  flex: 1 1 auto;
-}
-
-.pagetollm-chat-events-tab.is-active > button {
-  background: var(--ink);
-  color: var(--surface);
-}
-
-.pagetollm-chat-events-tab > label {
+.pagetollm-chat-events-live {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 3px;
-  padding: 0 7px 0 3px;
-  color: inherit;
+  padding: 0 4px;
+  border-left: 1px solid var(--ghost);
+  color: var(--on-surface-muted);
   font-size: 9px;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   cursor: pointer;
+  min-height: 28px;
 }
 
-.pagetollm-chat-events-tab input {
+.pagetollm-chat-events-live input {
   margin: 0;
 }
 
@@ -698,6 +700,12 @@ body.canvas-global-dragging * {
   min-width: 32px;
   height: 28px;
   padding: 0 8px;
+}
+
+.pagetollm-chat button:focus-visible,
+.pagetollm-chat input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
 
 .pagetollm-chat-actions button:hover:not(:disabled),
@@ -788,6 +796,21 @@ body.canvas-global-dragging * {
   border-top: 1px solid var(--ink);
 }
 
+.pagetollm-chat-composer-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pagetollm-chat-composer-field label {
+  color: var(--on-surface-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .pagetollm-chat-composer textarea {
   box-sizing: border-box;
   width: 100%;
@@ -812,11 +835,32 @@ body.canvas-global-dragging * {
   align-self: stretch;
 }
 
+.pagetollm-chat-status {
+  flex: 0 0 auto;
+  margin: 0 6px 4px;
+  padding: 4px 5px;
+  border: 1px solid var(--ghost);
+  color: var(--on-surface-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.pagetollm-chat-status.is-success {
+  border-color: var(--ink);
+  color: var(--on-surface);
+}
+
+.pagetollm-chat-status.is-warning,
+.pagetollm-chat-status.is-error {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .pagetollm-rail-body.is-chat {
   position: sticky;
-  top: 43px;
+  top: var(--pagetollm-rail-header-height, 39px);
   box-sizing: border-box;
-  height: calc(100vh - 44px) !important;
+  height: calc(100vh - var(--pagetollm-rail-header-height, 39px)) !important;
   min-height: 420px;
   padding: 0;
   overflow: hidden;

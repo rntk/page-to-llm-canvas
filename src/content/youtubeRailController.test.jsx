@@ -98,9 +98,16 @@ function mountVideo() {
   return video;
 }
 
+async function flushAsyncWork() {
+  await act(async () => {
+    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+  });
+}
+
 describe('openYouTubeRail', () => {
   beforeEach(() => {
     vi.stubGlobal('alert', vi.fn());
+    globalThis.chrome.runtime.sendMessage.mockImplementation((_msg, cb) => cb({ ok: false }));
     fetchRecord.mockReset();
     buildYouTubeRailCards.mockReset();
     buildYouTubeRailCards.mockReturnValue(twoCards);
@@ -169,6 +176,101 @@ describe('openYouTubeRail', () => {
       expect(rail().dataset.mode).toBe('summaries');
       expect(buildYouTubeRailCards).toHaveBeenCalledWith(
         expect.objectContaining({ mode: 'summaries', selectedLevel: 0 }),
+      );
+    });
+
+    it('shows video chat with Live off and seeks when a stored event is clicked', async () => {
+      const video = mountVideo();
+      fetchRecord.mockResolvedValue(
+        baseRecord({
+          sentences: ['0:00 0 seconds Intro sentence.', '0:30 30 seconds Middle sentence.'],
+        }),
+      );
+      globalThis.chrome.runtime.sendMessage.mockImplementation((message, callback) => {
+        if (message.type === 'listChats') {
+          callback({
+            ok: true,
+            chats: [
+              {
+                chatId: 'chat-1',
+                title: 'Video question',
+                updatedAt: 1,
+                messageCount: 0,
+                eventCount: 1,
+              },
+            ],
+          });
+          return;
+        }
+        if (message.type === 'getChat') {
+          callback({
+            ok: true,
+            chat: {
+              chatId: 'chat-1',
+              messages: [],
+              events: [
+                {
+                  seq: 1,
+                  eventType: 'highlight_span',
+                  data: { startLine: 2, endLine: 2, label: 'Middle evidence' },
+                },
+              ],
+            },
+          });
+          return;
+        }
+        callback({ ok: false });
+      });
+
+      await act(async () => {
+        await openYouTubeRail({ key: 'yt-key' });
+      });
+      const select = rail().querySelector('.pagetollm-rail-mode-select');
+      await act(async () => {
+        select.value = 'chat';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      await flushAsyncWork();
+
+      expect(rail().dataset.mode).toBe('chat');
+      expect(rail().style.position).toBe('');
+      expect(rail().style.width).toBe('380px');
+      expect(rail().querySelector('.pagetollm-chat-title').textContent).toBe('Video assistant');
+      expect(document.activeElement).toBe(
+        rail().querySelector('.pagetollm-chat-composer textarea'),
+      );
+      expect(rail().querySelector('.pagetollm-rail-level-switcher')).toBeNull();
+
+      const eventsTab = Array.from(rail().querySelectorAll('.pagetollm-chat-tabs button')).find(
+        (button) => button.textContent.includes('Events'),
+      );
+      await act(async () => eventsTab.click());
+      const liveLabel = rail().querySelector('.pagetollm-chat-events-live');
+      const live = liveLabel.querySelector('input');
+      expect(live.checked).toBe(false);
+      expect(liveLabel.title).toContain('jump the video');
+      expect(eventsTab.getAttribute('role')).toBe('tab');
+      expect(eventsTab.getAttribute('aria-selected')).toBe('true');
+      expect(rail().querySelector('.pagetollm-rail-close').getAttribute('aria-label')).toBe(
+        'Close rail',
+      );
+      // Loading the selected event is passive; it must not jump until the user
+      // clicks it (or explicitly enables Live for future streamed events).
+      expect(video.currentTime).toBe(0);
+
+      const eventButton = rail().querySelector('.pagetollm-chat-event > button');
+      expect(eventButton.textContent).toContain('Jump to 0:30');
+      await act(async () => eventButton.click());
+      await flushAsyncWork();
+      expect(video.currentTime).toBe(30);
+      expect(video.play).toHaveBeenCalled();
+      expect(rail().querySelector('.pagetollm-chat-status').textContent).toBe('Jumped to 0:30.');
+
+      video.remove();
+      await act(async () => eventButton.click());
+      await flushAsyncWork();
+      expect(rail().querySelector('.pagetollm-chat-status.is-error').textContent).toContain(
+        'video player is not available',
       );
     });
 

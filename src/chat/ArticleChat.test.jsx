@@ -141,7 +141,7 @@ describe('ArticleChat persisted history', () => {
   it('clears the selected event highlight on Escape', async () => {
     const onHighlight = vi.fn();
     const onClearHighlights = vi.fn();
-    const { unmount } = render(
+    const { container, unmount } = render(
       <ArticleChat
         recordKey="record-1"
         sentences={['One', 'Two', 'Three']}
@@ -159,10 +159,18 @@ describe('ArticleChat persisted history', () => {
     onClearHighlights.mockClear();
     onHighlight.mockClear();
 
+    // Escape outside the panel is not intercepted (important on host pages
+    // such as YouTube, which have their own Escape behavior).
     act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
+    expect(onClearHighlights).not.toHaveBeenCalled();
 
+    act(() => {
+      container
+        .querySelector('.pagetollm-chat')
+        .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
     expect(onClearHighlights).toHaveBeenCalledTimes(1);
     expect(onHighlight).not.toHaveBeenCalled();
 
@@ -172,6 +180,100 @@ describe('ArticleChat persisted history', () => {
     });
     expect(onClearHighlights).not.toHaveBeenCalled();
 
+    unmount();
+  });
+
+  it('exposes accessible tabs, a visible composer label, and video-specific event states', async () => {
+    const { container, unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['One', 'Two', 'Three']}
+        onHighlight={vi.fn()}
+        onClearHighlights={vi.fn()}
+        subject="video"
+        getEventTimestamp={() => null}
+      />,
+    );
+    await flushAsyncWork();
+
+    const tabList = container.querySelector('[role="tablist"]');
+    const tabs = tabList.querySelectorAll('[role="tab"]');
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    expect(container.querySelector('[role="tabpanel"]').getAttribute('aria-labelledby')).toBe(
+      tabs[0].id,
+    );
+
+    const textarea = container.querySelector('.pagetollm-chat-composer textarea');
+    const label = container.querySelector('.pagetollm-chat-composer label');
+    expect(label.textContent).toBe('Message');
+    expect(label.htmlFor).toBe(textarea.id);
+
+    act(() => {
+      tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    });
+    expect(tabs[1].getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(tabs[1]);
+
+    const eventButton = container.querySelector('.pagetollm-chat-event > button');
+    expect(eventButton.disabled).toBe(true);
+    expect(eventButton.textContent).toContain('Timestamp unavailable');
+    expect(container.querySelector('.pagetollm-chat-events-live').title).toContain(
+      'jump the video',
+    );
+
+    unmount();
+  });
+
+  it('closes video chat with panel-scoped Escape but preserves a non-empty draft', async () => {
+    const onEscape = vi.fn();
+    const { container, unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['One', 'Two', 'Three']}
+        onHighlight={vi.fn()}
+        onClearHighlights={vi.fn()}
+        onEscape={onEscape}
+        subject="video"
+        getEventTimestamp={() => 30}
+      />,
+    );
+    await flushAsyncWork();
+
+    const textarea = container.querySelector('.pagetollm-chat-composer textarea');
+    act(() => {
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(onEscape).toHaveBeenCalledTimes(1);
+
+    onEscape.mockClear();
+    typeQuestion(container, 'Keep this draft');
+    act(() => {
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(onEscape).not.toHaveBeenCalled();
+    expect(container.querySelector('.pagetollm-chat-status.is-warning').textContent).toContain(
+      'Send or clear your draft',
+    );
+    expect(textarea.value).toBe('Keep this draft');
+
+    unmount();
+  });
+
+  it('moves focus into the composer when the chat panel becomes ready', async () => {
+    const { container, unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['One']}
+        onHighlight={vi.fn()}
+        onClearHighlights={vi.fn()}
+      />,
+    );
+    await flushAsyncWork();
+
+    expect(document.activeElement).toBe(
+      container.querySelector('.pagetollm-chat-composer textarea'),
+    );
     unmount();
   });
 
@@ -356,7 +458,7 @@ describe('ArticleChat persisted history', () => {
       (button) => button.textContent.includes('Events'),
     );
     act(() => eventsTab.click());
-    const autoFocus = container.querySelector('.pagetollm-chat-events-tab input');
+    const autoFocus = container.querySelector('.pagetollm-chat-events-live input');
     expect(autoFocus.checked).toBe(false);
     act(() => autoFocus.click());
 

@@ -339,6 +339,7 @@ export default function InPageRail({
             sentences={sentences}
             onHighlight={onChatHighlight}
             onClearHighlights={onClearChatHighlights}
+            onEscape={onClose}
           />
         ) : showSummariesDisabledNotice ? (
           <div className="pagetollm-rail-empty">

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { runArticleChatTurn } from './articleChat.js';
 import { persistChatTurn } from './chatApi.js';
 import { eventRange, useChatSessions } from './useChatSessions.js';
@@ -20,6 +20,9 @@ import ChatMessageList from './ChatMessageList.jsx';
  *   onHighlight?: (range: object) => void,
  *   onClearHighlights?: () => void,
  *   onClose?: () => void,
+ *   onEscape?: () => void,
+ *   subject?: 'article' | 'video',
+ *   getEventTimestamp?: (range: object) => number | null,
  * }} props
  */
 export default function ArticleChat({
@@ -28,25 +31,73 @@ export default function ArticleChat({
   onHighlight,
   onClearHighlights,
   onClose,
+  onEscape,
+  subject = 'article',
+  getEventTimestamp,
 }) {
+  const panelId = useId();
+  const subjectLabel = subject === 'video' ? 'video' : 'article';
+  const subjectTitle = `${subjectLabel[0].toUpperCase()}${subjectLabel.slice(1)}`;
   const [input, setInput] = useState('');
   const [activeTab, setActiveTab] = useState('chat');
   const [autoFocusEvents, setAutoFocusEvents] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [notice, setNotice] = useState(null);
+  const focusAttemptRef = useRef(0);
+  const panelRef = useRef(null);
+  const didFocusPanelRef = useRef(false);
+  const chatTabRef = useRef(null);
+  const eventsTabRef = useRef(null);
   // Optimistic user bubble while the turn runs; nothing is persisted yet.
   const [pendingQuestion, setPendingQuestion] = useState('');
+
+  const focusHighlight = useCallback(
+    async (range) => {
+      const attempt = focusAttemptRef.current + 1;
+      focusAttemptRef.current = attempt;
+      if (subjectLabel === 'video') {
+        setNotice({ tone: 'progress', message: 'Jumping to video evidence…' });
+      }
+      try {
+        const result = onHighlight
+          ? await onHighlight(range, { focus: true })
+          : subjectLabel === 'video'
+            ? { ok: false, message: 'Video jumping is not available in this view.' }
+            : undefined;
+        if (attempt !== focusAttemptRef.current || subjectLabel !== 'video') return result;
+        setNotice(
+          result?.message
+            ? {
+                tone: result.ok === false ? 'error' : result.tone || 'success',
+                message: result.message,
+              }
+            : { tone: 'success', message: 'Jumped to video evidence.' },
+        );
+        return result;
+      } catch (error) {
+        if (attempt === focusAttemptRef.current && subjectLabel === 'video') {
+          setNotice({
+            tone: 'error',
+            message: error?.message || 'Could not jump to this video evidence. Please try again.',
+          });
+        }
+        return undefined;
+      }
+    },
+    [onHighlight, subjectLabel],
+  );
 
   const applyEvent = useCallback(
     (event, { focus = false } = {}) => {
       onClearHighlights?.();
       const range = eventRange(event);
       if (range) {
-        if (focus) onHighlight?.(range, { focus: true });
+        if (focus) void focusHighlight(range);
         else onHighlight?.(range);
       }
     },
-    [onClearHighlights, onHighlight],
+    [focusHighlight, onClearHighlights, onHighlight],
   );
 
   const {
@@ -68,19 +119,6 @@ export default function ArticleChat({
     adoptPersistedTurn,
   } = useChatSessions({ recordKey, applyEvent });
 
-  // Esc clears the currently selected event's highlight instead of leaving it
-  // painted on the article with nothing selected in the events list.
-  useEffect(() => {
-    if (selectedEventSeq === null) return undefined;
-    const handleKeyDown = (event) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      clearSelection();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedEventSeq, clearSelection]);
-
   // Unmounting the panel (chat closed) must not leave a stale highlight
   // painted on the article behind it.
   const onClearHighlightsRef = useRef(onClearHighlights);
@@ -88,8 +126,19 @@ export default function ArticleChat({
     onClearHighlightsRef.current = onClearHighlights;
   }, [onClearHighlights]);
   useEffect(() => {
-    return () => onClearHighlightsRef.current?.();
+    return () => {
+      focusAttemptRef.current += 1;
+      onClearHighlightsRef.current?.();
+    };
   }, []);
+
+  useEffect(() => {
+    if (isLoadingHistory || didFocusPanelRef.current) return;
+    const textarea = panelRef.current?.querySelector('textarea:not(:disabled)');
+    if (!textarea) return;
+    didFocusPanelRef.current = true;
+    textarea.focus();
+  }, [isLoadingHistory]);
 
   // Single source of truth: ranges are always derived from the events state.
   const highlightedRanges = useMemo(() => events.map(eventRange).filter(Boolean), [events]);
@@ -112,7 +161,51 @@ export default function ArticleChat({
     setInput('');
     setShowHistory(false);
     setActiveTab('chat');
+    setNotice(null);
   }, [isLoading, startNewChat]);
+
+  const handlePanelKeyDown = useCallback(
+    (event) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      if (showHistory) {
+        event.preventDefault();
+        event.stopPropagation();
+        setShowHistory(false);
+        return;
+      }
+      if (selectedEventSeq !== null && (subjectLabel === 'article' || activeTab === 'events')) {
+        event.preventDefault();
+        event.stopPropagation();
+        clearSelection();
+        return;
+      }
+      const requestClose = onEscape || onClose;
+      if (!requestClose) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (input.trim() || isLoading) {
+        setNotice({
+          tone: 'warning',
+          message: isLoading
+            ? 'The assistant is still responding. Wait for it to finish before closing with Escape.'
+            : 'Send or clear your draft before closing with Escape.',
+        });
+        return;
+      }
+      requestClose();
+    },
+    [
+      activeTab,
+      clearSelection,
+      input,
+      isLoading,
+      onClose,
+      onEscape,
+      selectedEventSeq,
+      showHistory,
+      subjectLabel,
+    ],
+  );
 
   const handleDeleteChat = useCallback(
     (chatId) => {
@@ -121,6 +214,22 @@ export default function ArticleChat({
     },
     [deleteChat, isLoading],
   );
+
+  const handleTabKeyDown = useCallback((event) => {
+    const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+    if (!keys.includes(event.key)) return;
+    event.preventDefault();
+    const nextTab =
+      event.key === 'Home'
+        ? 'chat'
+        : event.key === 'End'
+          ? 'events'
+          : event.currentTarget === chatTabRef.current
+            ? 'events'
+            : 'chat';
+    setActiveTab(nextTab);
+    (nextTab === 'chat' ? chatTabRef.current : eventsTabRef.current)?.focus();
+  }, []);
 
   const send = useCallback(async () => {
     const question = input.trim();
@@ -138,7 +247,7 @@ export default function ArticleChat({
           sentences,
           highlightedRanges,
           onHighlight: (range) => {
-            if (autoFocusEvents) return onHighlight?.(range, { focus: true });
+            if (autoFocusEvents) return focusHighlight(range);
             return onHighlight?.(range);
           },
         });
@@ -183,6 +292,7 @@ export default function ArticleChat({
     applyEvent,
     autoFocusEvents,
     events,
+    focusHighlight,
     highlightedRanges,
     input,
     isLoading,
@@ -196,11 +306,20 @@ export default function ArticleChat({
   ]);
 
   return (
-    <section className="pagetollm-chat" onMouseDown={(event) => event.stopPropagation()}>
+    <section
+      ref={panelRef}
+      className="pagetollm-chat"
+      aria-labelledby={`${panelId}-title`}
+      aria-busy={isLoading || isLoadingHistory}
+      onMouseDown={(event) => event.stopPropagation()}
+      onKeyDown={handlePanelKeyDown}
+    >
       <header className="pagetollm-chat-header">
         <div>
-          <div className="pagetollm-chat-title">Article assistant</div>
-          <div className="pagetollm-chat-subtitle">Ask about this article</div>
+          <div id={`${panelId}-title`} className="pagetollm-chat-title">
+            {subjectTitle} assistant
+          </div>
+          <div className="pagetollm-chat-subtitle">Ask about this {subjectLabel}</div>
         </div>
         <div className="pagetollm-chat-actions">
           <button type="button" onClick={() => setShowHistory((value) => !value)}>
@@ -227,50 +346,100 @@ export default function ArticleChat({
       ) : null}
 
       <div className="pagetollm-chat-tabs">
-        <button
-          type="button"
-          className={activeTab === 'chat' ? 'is-active' : ''}
-          onClick={() => setActiveTab('chat')}
-        >
-          Chat
-        </button>
-        <div className={`pagetollm-chat-events-tab${activeTab === 'events' ? ' is-active' : ''}`}>
-          <button type="button" onClick={() => setActiveTab('events')}>
+        <div className="pagetollm-chat-tab-buttons" role="tablist" aria-label="Assistant views">
+          <button
+            ref={chatTabRef}
+            type="button"
+            role="tab"
+            id={`${panelId}-chat-tab`}
+            aria-controls={`${panelId}-chat-panel`}
+            aria-selected={activeTab === 'chat'}
+            className={activeTab === 'chat' ? 'is-active' : ''}
+            onClick={() => setActiveTab('chat')}
+            onKeyDown={handleTabKeyDown}
+          >
+            Chat
+          </button>
+          <button
+            ref={eventsTabRef}
+            type="button"
+            role="tab"
+            id={`${panelId}-events-tab`}
+            aria-controls={`${panelId}-events-panel`}
+            aria-selected={activeTab === 'events'}
+            className={activeTab === 'events' ? 'is-active' : ''}
+            onClick={() => setActiveTab('events')}
+            onKeyDown={handleTabKeyDown}
+          >
             Events <span>{events.length}</span>
           </button>
-          <label title="Automatically scroll/zoom to new events">
-            <input
-              type="checkbox"
-              checked={autoFocusEvents}
-              onChange={(event) => setAutoFocusEvents(event.target.checked)}
-            />
-            Live
-          </label>
         </div>
+        <label
+          className="pagetollm-chat-events-live"
+          title={
+            subjectLabel === 'video'
+              ? 'Automatically jump the video to new evidence'
+              : 'Automatically scroll or zoom to new events'
+          }
+        >
+          <input
+            type="checkbox"
+            aria-label={subjectLabel === 'video' ? 'Live video jumps' : 'Live event focus'}
+            checked={autoFocusEvents}
+            onChange={(event) => setAutoFocusEvents(event.target.checked)}
+          />
+          Live
+        </label>
       </div>
 
       {activeTab === 'events' ? (
-        <ChatEventsList
-          events={events}
-          selectedEventSeq={selectedEventSeq}
-          onSelectEvent={selectEvent}
-          onDeleteEvent={(event) => void deleteEvent(event)}
-        />
+        <div
+          id={`${panelId}-events-panel`}
+          className="pagetollm-chat-tab-panel"
+          role="tabpanel"
+          aria-labelledby={`${panelId}-events-tab`}
+        >
+          <ChatEventsList
+            events={events}
+            selectedEventSeq={selectedEventSeq}
+            onSelectEvent={selectEvent}
+            onDeleteEvent={(event) => void deleteEvent(event)}
+            subject={subjectLabel}
+            getEventTimestamp={getEventTimestamp}
+          />
+        </div>
       ) : (
-        <>
+        <div
+          id={`${panelId}-chat-panel`}
+          className="pagetollm-chat-tab-panel"
+          role="tabpanel"
+          aria-labelledby={`${panelId}-chat-tab`}
+        >
           <ChatMessageList
             messages={visibleMessages}
             isLoading={isLoading}
             isLoadingHistory={isLoadingHistory}
+            emptyPrompt={`Ask a question about this ${subjectLabel}.`}
           />
           <ChatComposer
             value={input}
             onChange={setInput}
             onSend={() => void send()}
             disabled={isLoading || isLoadingHistory}
+            placeholder={`Ask about this ${subjectLabel}…`}
           />
-        </>
+        </div>
       )}
+
+      {notice ? (
+        <div
+          className={`pagetollm-chat-status is-${notice.tone}`}
+          role={notice.tone === 'error' ? 'alert' : 'status'}
+          aria-live={notice.tone === 'error' ? 'assertive' : 'polite'}
+        >
+          {notice.message}
+        </div>
+      ) : null}
 
       {error ? (
         <div className="pagetollm-chat-error" role="alert">

@@ -1,9 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildNumberedArticle, rangesOverlap, runArticleChatTurn } from './articleChat.js';
+import {
+  buildNumberedArticle,
+  chunkNumberedArticle,
+  rangesOverlap,
+  runArticleChatTurn,
+} from './articleChat.js';
 
 describe('article chat tool loop', () => {
   it('numbers article sentences', () => {
     expect(buildNumberedArticle(['First.', 'Second.'])).toBe('1: First.\n2: Second.');
+  });
+
+  it('chunks at sentence boundaries while preserving global line numbers', () => {
+    expect(chunkNumberedArticle(['First.', '', 'Second.', 'A very long sentence.'], 19)).toEqual([
+      { startLine: 1, endLine: 1, text: '1: First.' },
+      { startLine: 3, endLine: 3, text: '3: Second.' },
+      { startLine: 4, endLine: 4, text: '4: A very long sentence.' },
+    ]);
   });
 
   it('detects overlapping ranges', () => {
@@ -57,7 +70,14 @@ describe('article chat tool loop', () => {
       toolCallId: 'call-1',
     });
     expect(secondMessages[0].role).toBe('system');
-    expect(secondMessages[2].content).toContain('<article>\n1: Intro.\n2: Evidence.\n</article>');
+    expect(secondMessages[0].content).toContain(
+      '<article lines="1-2">\n1: Intro.\n2: Evidence.\n</article>',
+    );
+    // The first request is an exact prefix of the tool-result follow-up, so
+    // providers can reuse the source prefill/KV cache within the tool loop.
+    expect(secondMessages.slice(0, send.mock.calls[0][0].messages.length)).toEqual(
+      send.mock.calls[0][0].messages,
+    );
   });
 
   it('skips an overlapping highlight instead of executing it again', async () => {
@@ -120,11 +140,189 @@ describe('article chat tool loop', () => {
     expect(result.highlightRanges).toEqual([{ startLine: 1, endLine: 1, label: '' }]);
   });
 
-  it('drops dangling tool calls and orphan tool results from history', async () => {
+  it('allows more than eight tool-call rounds for long articles by default', async () => {
+    const send = vi.fn();
+    for (let line = 1; line <= 9; line += 1) {
+      send.mockResolvedValueOnce({
+        ok: true,
+        content: '',
+        toolCalls: [
+          {
+            id: `call-${line}`,
+            name: 'highlight_span',
+            arguments: { start_line: line, end_line: line },
+          },
+        ],
+      });
+    }
+    send.mockResolvedValueOnce({ ok: true, content: 'Done.' });
+
+    const result = await runArticleChatTurn({
+      history: [],
+      question: 'Highlight the article',
+      sentences: Array.from({ length: 9 }, (_, index) => `Sentence ${index + 1}.`),
+      send,
+    });
+
+    expect(result.reply).toBe('Done.');
+    expect(result.highlightRanges).toHaveLength(9);
+    expect(send).toHaveBeenCalledTimes(10);
+  });
+
+  it('processes large articles concurrently and synthesizes their findings', async () => {
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, content: 'The opening establishes the premise.' })
+      .mockResolvedValueOnce({ ok: true, content: 'The ending provides the outcome.' })
+      .mockResolvedValueOnce({ ok: true, content: 'The premise leads to the stated outcome.' });
+
+    const result = await runArticleChatTurn({
+      history: [],
+      question: 'What happens?',
+      sentences: ['Opening premise.', 'Ending outcome.'],
+      maxChunkChars: 20,
+      send,
+    });
+
+    expect(result.reply).toBe('The premise leads to the stated outcome.');
+    expect(send).toHaveBeenCalledTimes(3);
+    expect(send.mock.calls[0][0].messages[0].content).toContain(
+      '<article lines="1-1">\n1: Opening premise.\n</article>',
+    );
+    expect(send.mock.calls[1][0].messages[0].content).toContain(
+      '<article lines="2-2">\n2: Ending outcome.\n</article>',
+    );
+    expect(send.mock.calls[2][0].tools).toBeUndefined();
+    expect(send.mock.calls[2][0].messages[1].content).toContain(
+      '<chunk_finding lines="1-1">\nThe opening establishes the premise.\n</chunk_finding>',
+    );
+  });
+
+  it('tolerates an empty chunk when another chunk has findings', async () => {
+    const send = vi.fn(async ({ messages, tools }) => {
+      if (!tools) return { ok: true, content: 'Only the ending answers the question.' };
+      const source = messages[0].content;
+      return source.includes('lines="1-1"')
+        ? { ok: true, content: '' }
+        : { ok: true, content: 'The ending contains the answer.' };
+    });
+
+    const result = await runArticleChatTurn({
+      history: [],
+      question: 'Where is the answer?',
+      sentences: ['Irrelevant opening.', 'Relevant ending.'],
+      maxChunkChars: 24,
+      send,
+    });
+
+    expect(result.reply).toBe('The ending contains the answer.');
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it('errors when every chunk response is empty', async () => {
+    const send = vi.fn().mockResolvedValue({ ok: true, content: '' });
+
+    await expect(
+      runArticleChatTurn({
+        history: [],
+        question: 'What happens?',
+        sentences: ['First.', 'Second.'],
+        maxChunkChars: 10,
+        send,
+      }),
+    ).rejects.toThrow('The LLM returned an empty response.');
+  });
+
+  it('starts independent chunks concurrently', async () => {
+    const resolvers = [];
+    const send = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    const turn = runArticleChatTurn({
+      history: [],
+      question: 'Compare them',
+      sentences: ['First.', 'Second.'],
+      maxChunkChars: 10,
+      send,
+    });
+    await Promise.resolve();
+
+    expect(send).toHaveBeenCalledTimes(2);
+    resolvers[0]({ ok: true, content: 'First finding.' });
+    resolvers[1]({ ok: true, content: 'Second finding.' });
+    for (let index = 0; index < 10 && send.mock.calls.length < 3; index += 1) {
+      await Promise.resolve();
+    }
+    expect(send).toHaveBeenCalledTimes(3);
+    resolvers[2]({ ok: true, content: 'Combined answer.' });
+    await expect(turn).resolves.toMatchObject({ reply: 'Combined answer.' });
+  });
+
+  it('caps LLM calls across all chunks in a turn', async () => {
+    const send = vi.fn().mockResolvedValue({
+      ok: true,
+      content: '',
+      toolCalls: [{ name: 'highlight_span', arguments: { start_line: 1, end_line: 1 } }],
+    });
+
+    await expect(
+      runArticleChatTurn({
+        history: [],
+        question: 'Highlight everything',
+        sentences: ['First.', 'Second.'],
+        maxChunkChars: 10,
+        maxLlmRequests: 3,
+        send,
+      }),
+    ).rejects.toThrow('turn-wide request limit');
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects a highlight outside the active chunk', async () => {
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        content: '',
+        toolCalls: [
+          {
+            id: 'out-of-chunk',
+            name: 'highlight_span',
+            arguments: { start_line: 2, end_line: 2 },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ ok: true, content: 'No evidence in this chunk.' })
+      .mockResolvedValueOnce({ ok: true, content: 'Evidence is in the later chunk.' })
+      .mockResolvedValueOnce({ ok: true, content: 'The later chunk has the evidence.' });
+
+    const onHighlight = vi.fn();
+    const result = await runArticleChatTurn({
+      history: [],
+      question: 'Where is it?',
+      sentences: ['First.', 'Second.'],
+      maxChunkChars: 10,
+      onHighlight,
+      send,
+    });
+
+    expect(onHighlight).not.toHaveBeenCalled();
+    expect(result.highlightRanges).toEqual([]);
+    const retryCall = send.mock.calls.find(([request]) =>
+      request.messages.at(-1)?.content?.includes('must stay within the supplied lines 1-1'),
+    );
+    expect(retryCall).toBeDefined();
+  });
+
+  it('keeps conversational history but omits prior tool transcripts', async () => {
     const send = vi.fn().mockResolvedValue({ ok: true, content: 'Answer.' });
     const history = [
       { role: 'user', content: 'Q1' },
-      // Well-formed pair: kept.
+      // Tool transcripts are persisted for auditability, but are not useful
+      // context for every source chunk on later turns.
       { role: 'assistant', content: '', toolCalls: [{ id: 'ok-1', name: 'highlight_span' }] },
       { role: 'tool', content: 'Highlighted lines 1-1.', toolCallId: 'ok-1' },
       { role: 'assistant', content: 'A1' },
@@ -144,16 +342,15 @@ describe('article chat tool loop', () => {
     });
 
     const sent = send.mock.calls[0][0].messages;
-    expect(sent.map((message) => [message.role, message.toolCallId ?? null])).toEqual([
-      ['system', null],
-      ['user', null],
-      ['assistant', null],
-      ['tool', 'ok-1'],
-      ['assistant', null],
-      ['user', null],
-      ['assistant', null],
-      ['user', null],
+    expect(sent.map((message) => message.role)).toEqual([
+      'system',
+      'user',
+      'assistant',
+      'user',
+      'assistant',
+      'user',
     ]);
+    expect(sent.some((message) => message.role === 'tool' || message.toolCalls)).toBe(false);
     expect(sent.some((message) => message.content === 'stray')).toBe(false);
     expect(sent.some((message) => message.toolCalls?.some((call) => call.id === 'lost-1'))).toBe(
       false,

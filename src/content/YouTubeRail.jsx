@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import ArticleChat from '../chat/ArticleChat.jsx';
 import { formatTimestampLabel } from '../utils/youtubeTimestamp.js';
 import {
   getYouTubeRailCardBodyText,
@@ -15,7 +16,7 @@ function clampRailScrollTop(body, scrollTop) {
 }
 
 function ModeDropdown({ mode, onSelectMode }) {
-  const activeMode = mode === 'summaries' ? 'summaries' : 'topics';
+  const activeMode = mode === 'summaries' || mode === 'chat' ? mode : 'topics';
   return (
     <select
       className="pagetollm-rail-mode-select pagetollm-rail-title"
@@ -25,6 +26,7 @@ function ModeDropdown({ mode, onSelectMode }) {
     >
       <option value="topics">Topics</option>
       <option value="summaries">Summaries</option>
+      <option value="chat">Chat</option>
     </select>
   );
 }
@@ -66,14 +68,23 @@ export default function YouTubeRail({
   onClose,
   getCurrentTime,
   onSeek,
+  sentences = [],
+  recordKey,
+  onChatHighlight,
+  onClearChatHighlights,
+  getChatEventTimestamp,
   pollIntervalMs = DEFAULT_POLL_MS,
 }) {
   const isSummary = mode === 'summaries';
+  const isChat = mode === 'chat';
   const [activeId, setActiveId] = useState(null);
   const bodyRef = useRef(null);
   const cardRefs = useRef(new Map());
 
-  const normalizedCards = useMemo(() => normalizeYouTubeRailCards(cards), [cards]);
+  const normalizedCards = useMemo(
+    () => (isChat ? [] : normalizeYouTubeRailCards(cards)),
+    [cards, isChat],
+  );
 
   // Poll the player position and resolve the active card. Reading time and
   // resolving the index are cheap; we only re-render when the active card
@@ -183,23 +194,41 @@ export default function YouTubeRail({
     <>
       <div className="pagetollm-rail-head">
         <ModeDropdown mode={mode} onSelectMode={onSelectMode} />
-        <LevelSwitcher
-          maxLevel={maxLevel}
-          selectedLevel={selectedLevel}
-          onSelectLevel={onSelectLevel}
-        />
-        <button className="pagetollm-rail-close" type="button" title="Close rail" onClick={onClose}>
+        {!isChat ? (
+          <LevelSwitcher
+            maxLevel={maxLevel}
+            selectedLevel={selectedLevel}
+            onSelectLevel={onSelectLevel}
+          />
+        ) : null}
+        <button
+          className="pagetollm-rail-close"
+          type="button"
+          aria-label="Close rail"
+          title="Close rail"
+          onClick={onClose}
+        >
           ×
         </button>
       </div>
       <div
         ref={bodyRef}
-        className="pagetollm-yt-rail-body"
-        tabIndex={0}
-        onWheel={handleBodyWheel}
-        onKeyDown={handleBodyKeyDown}
+        className={isChat ? 'pagetollm-rail-body is-chat' : 'pagetollm-yt-rail-body'}
+        tabIndex={isChat ? undefined : 0}
+        onWheel={isChat ? undefined : handleBodyWheel}
+        onKeyDown={isChat ? undefined : handleBodyKeyDown}
       >
-        {normalizedCards.length === 0 ? (
+        {isChat ? (
+          <ArticleChat
+            recordKey={recordKey}
+            sentences={sentences}
+            onHighlight={onChatHighlight}
+            onClearHighlights={onClearChatHighlights}
+            onEscape={onClose}
+            subject="video"
+            getEventTimestamp={getChatEventTimestamp}
+          />
+        ) : normalizedCards.length === 0 ? (
           <div className="pagetollm-yt-rail-empty">
             No timestamped {isSummary ? 'summaries' : 'topics'} for this video.
           </div>

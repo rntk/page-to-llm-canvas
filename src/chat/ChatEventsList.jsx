@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatTimestampLabel } from '../utils/youtubeTimestamp.js';
 import { eventRange } from './useChatSessions.js';
 
 /**
@@ -9,9 +10,20 @@ import { eventRange } from './useChatSessions.js';
  *   selectedEventSeq: number | null,
  *   onSelectEvent: (event: object) => void,
  *   onDeleteEvent: (event: object) => void,
+ *   subject?: 'article' | 'video',
+ *   getEventTimestamp?: (range: object) => number | null,
  * }} props
  */
-export default function ChatEventsList({ events, selectedEventSeq, onSelectEvent, onDeleteEvent }) {
+export default function ChatEventsList({
+  events,
+  selectedEventSeq,
+  onSelectEvent,
+  onDeleteEvent,
+  subject = 'article',
+  getEventTimestamp,
+}) {
+  const isVideo = subject === 'video';
+
   return (
     <div className="pagetollm-chat-events" role="list">
       {events.length === 0 ? (
@@ -19,19 +31,35 @@ export default function ChatEventsList({ events, selectedEventSeq, onSelectEvent
       ) : null}
       {events.map((event, index) => {
         const range = eventRange(event);
+        const seconds = isVideo && range ? getEventTimestamp?.(range) : null;
+        const hasTimestamp = Number.isFinite(seconds);
+        const isUnavailable = isVideo && !hasTimestamp;
+        const eventLabel = range?.label || (isVideo ? 'Video evidence' : 'Highlight');
+        const detail = isVideo
+          ? `${hasTimestamp ? `Jump to ${formatTimestampLabel(seconds)}` : 'Timestamp unavailable'} · Transcript lines ${range?.startLine ?? '?'}–${range?.endLine ?? '?'}`
+          : `Highlight · Lines ${range?.startLine ?? '?'}–${range?.endLine ?? '?'}`;
         return (
           <div
             key={event.seq}
             className={`pagetollm-chat-event${event.seq === selectedEventSeq ? ' is-active' : ''}`}
             role="listitem"
           >
-            <button type="button" onClick={() => onSelectEvent(event)}>
+            <button
+              type="button"
+              onClick={() => onSelectEvent(event)}
+              disabled={isUnavailable}
+              title={
+                isUnavailable
+                  ? 'This evidence has no transcript timestamp, so the video cannot jump to it.'
+                  : isVideo
+                    ? `Jump video to ${formatTimestampLabel(seconds)}`
+                    : undefined
+              }
+            >
               <strong>
-                #{index + 1} {range?.label || 'Highlight'}
+                #{index + 1} {eventLabel}
               </strong>
-              <span>
-                Highlight · Lines {range?.startLine ?? '?'}–{range?.endLine ?? '?'}
-              </span>
+              <span>{detail}</span>
             </button>
             <button
               type="button"

@@ -7,9 +7,15 @@ import React, { useEffect, useRef } from 'react';
  *   messages: object[],
  *   isLoading: boolean,
  *   isLoadingHistory: boolean,
+ *   emptyPrompt?: string,
  * }} props
  */
-export default function ChatMessageList({ messages, isLoading, isLoadingHistory }) {
+export default function ChatMessageList({
+  messages,
+  isLoading,
+  isLoadingHistory,
+  emptyPrompt = 'Ask a question about this article.',
+}) {
   const endRef = useRef(null);
 
   useEffect(() => {
@@ -18,9 +24,7 @@ export default function ChatMessageList({ messages, isLoading, isLoadingHistory 
 
   return (
     <div className="pagetollm-chat-history" aria-live="polite">
-      {messages.length === 0 ? (
-        <div className="pagetollm-chat-empty">Ask a question about this article.</div>
-      ) : null}
+      {messages.length === 0 ? <div className="pagetollm-chat-empty">{emptyPrompt}</div> : null}
       {messages.map((message, index) => (
         <div
           key={message.id || `${message.role}-${index}`}

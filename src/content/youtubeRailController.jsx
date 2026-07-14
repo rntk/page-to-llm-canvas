@@ -1,6 +1,7 @@
 import React from 'react';
 import YouTubeRail from './YouTubeRail.jsx';
 import { buildYouTubeRailCards } from './youtubeRailSync.js';
+import { formatTimestampLabel, getTimestampForSentences } from '../utils/youtubeTimestamp.js';
 import { computeMaxTopicLevel } from './recordTransform.js';
 import { fetchRecord, createLoadToken } from './recordFetch.js';
 import { createRailSurface, closeInPageRail, railLoadingTokenHolder } from './railSurface.js';
@@ -58,20 +59,44 @@ export async function openYouTubeRail(rec) {
     return Number.isFinite(time) ? time : null;
   };
 
-  const seekTo = (seconds) => {
+  const seekTo = async (seconds) => {
     const video = getYouTubeVideoElement();
-    if (!video || !Number.isFinite(seconds)) return;
-    try {
-      video.currentTime = Math.max(0, seconds);
-      if (typeof video.play === 'function') void video.play().catch(() => {});
-    } catch (_) {
-      /* seeking can throw on a not-yet-ready media element — ignore */
+    if (!Number.isFinite(seconds)) {
+      return { ok: false, message: 'This evidence has no usable video timestamp.' };
     }
+    if (!video) {
+      return {
+        ok: false,
+        message: 'The video player is not available yet. Wait for it to load, then try again.',
+      };
+    }
+    const target = Math.max(0, seconds);
+    const label = formatTimestampLabel(target);
+    try {
+      video.currentTime = target;
+    } catch (_) {
+      return {
+        ok: false,
+        message: 'The video cannot seek yet. Wait for it to finish loading, then try again.',
+      };
+    }
+    if (typeof video.play === 'function') {
+      try {
+        await video.play();
+      } catch (_) {
+        return {
+          ok: true,
+          tone: 'warning',
+          message: `Jumped to ${label}. Playback did not start; press Play in the video player.`,
+        };
+      }
+    }
+    return { ok: true, message: `Jumped to ${label}.` };
   };
 
   const handleSelectMode = (mode) => {
     if (isClosed()) return;
-    const next = mode === 'summaries' ? 'summaries' : 'topics';
+    const next = mode === 'summaries' || mode === 'chat' ? mode : 'topics';
     if (state.mode === next) return;
     state.mode = next;
     railEl.dataset.mode = state.mode;
@@ -86,13 +111,33 @@ export async function openYouTubeRail(rec) {
     renderRail();
   };
 
+  // Stored chat events use 1-based transcript line ranges. Deliberate event
+  // selection (and streamed events when Live is enabled) arrives with
+  // `focus: true`; resolve the first line to its nearest transcript timestamp
+  // and use the exact same seek path as a topic/summary card click.
+  const getChatEventTimestamp = ({ startLine }) => getTimestampForSentences(sentences, [startLine]);
+
+  const handleChatHighlight = ({ startLine }, { focus = false } = {}) => {
+    if (!focus) return;
+    const seconds = getChatEventTimestamp({ startLine });
+    if (seconds == null) {
+      return { ok: false, message: 'This evidence has no transcript timestamp.' };
+    }
+    return seekTo(seconds);
+  };
+
+  const handleClearChatHighlights = () => {};
+
   function renderRail() {
     if (isClosed() || guard.isStale()) return;
-    const cards = buildYouTubeRailCards({
-      record,
-      mode: state.mode,
-      selectedLevel: state.selectedLevel,
-    });
+    const cards =
+      state.mode === 'chat'
+        ? []
+        : buildYouTubeRailCards({
+            record,
+            mode: state.mode,
+            selectedLevel: state.selectedLevel,
+          });
     railRoot.render(
       <YouTubeRail
         mode={state.mode}
@@ -104,6 +149,11 @@ export async function openYouTubeRail(rec) {
         onClose={closeInPageRail}
         getCurrentTime={getCurrentTime}
         onSeek={seekTo}
+        sentences={sentences}
+        recordKey={record.key}
+        onChatHighlight={handleChatHighlight}
+        onClearChatHighlights={handleClearChatHighlights}
+        getChatEventTimestamp={getChatEventTimestamp}
       />,
     );
   }
