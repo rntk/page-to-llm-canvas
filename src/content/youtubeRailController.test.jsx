@@ -235,7 +235,9 @@ describe('openYouTubeRail', () => {
       expect(rail().dataset.mode).toBe('chat');
       expect(rail().style.position).toBe('');
       expect(rail().style.width).toBe('380px');
-      expect(rail().querySelector('.pagetollm-chat-title').textContent).toBe('Video assistant');
+      expect(rail().querySelector('.pagetollm-chat').getAttribute('aria-label')).toBe(
+        'Video assistant',
+      );
       expect(document.activeElement).toBe(
         rail().querySelector('.pagetollm-chat-composer textarea'),
       );

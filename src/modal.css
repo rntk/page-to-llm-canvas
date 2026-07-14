@@ -681,22 +681,6 @@ body.canvas-global-dragging * {
   padding: 10px;
 }
 
-.pagetollm-chat-title {
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.pagetollm-chat-subtitle {
-  margin-top: 2px;
-  color: var(--on-surface-muted);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .pagetollm-chat-actions {
   display: flex;
   gap: 4px;
@@ -719,6 +703,34 @@ body.canvas-global-dragging * {
   min-width: 32px;
   height: 28px;
   padding: 0 8px;
+}
+
+.pagetollm-chat-close {
+  appearance: none;
+  flex: 0 0 auto;
+  min-width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 0;
+  padding: 0 4px;
+  background: transparent;
+  color: var(--on-surface-muted);
+  font: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pagetollm-chat-close:hover {
+  color: var(--accent);
+}
+
+/* Match the rail close control: Canvas close is a bare icon, not a button tile. */
+.canvas-chat-panel .pagetollm-chat-close,
+.canvas-chat-panel .pagetollm-chat-close:hover {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .pagetollm-chat button:focus-visible,

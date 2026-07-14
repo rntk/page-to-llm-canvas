@@ -108,6 +108,20 @@ describe('InPageRail', () => {
     unmount();
   });
 
+  it('places chat History and New controls in the rail header', () => {
+    const { container, unmount } = render(
+      createElement(InPageRail, { ...defaultProps, mode: 'chat', recordKey: 'record-1' }),
+    );
+
+    const railHead = container.querySelector('.pagetollm-rail-head');
+    expect(railHead.querySelector('.pagetollm-chat-actions')).not.toBeNull();
+    expect(railHead.textContent).toContain('History');
+    expect(railHead.textContent).toContain('New');
+    expect(container.querySelector('.pagetollm-chat-header')).toBeNull();
+
+    unmount();
+  });
+
   it('renders RailCards and registers pointer, click, hover events in topics mode', () => {
     const onHighlightCard = vi.fn();
     const onScrollToCard = vi.fn();

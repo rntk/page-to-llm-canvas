@@ -90,6 +90,23 @@ describe('ArticleChat persisted history', () => {
     }));
   });
 
+  it('uses a compact Canvas header with actions on the left and close on the right', () => {
+    const onClose = vi.fn();
+    const { container, unmount } = render(
+      <ArticleChat recordKey="record-1" sentences={['One']} onClose={onClose} />,
+    );
+
+    const header = container.querySelector('.pagetollm-chat-header');
+    expect(container.querySelector('.pagetollm-chat-title')).toBeNull();
+    expect(container.querySelector('.pagetollm-chat-subtitle')).toBeNull();
+    expect(header.firstElementChild.className).toBe('pagetollm-chat-actions');
+    expect(header.lastElementChild.className).toBe('pagetollm-chat-close');
+    act(() => header.lastElementChild.click());
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    unmount();
+  });
+
   it('loads the latest chat and switches messages and events by chat id', async () => {
     const onHighlight = vi.fn();
     const onClearHighlights = vi.fn();

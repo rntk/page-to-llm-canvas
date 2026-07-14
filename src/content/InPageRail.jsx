@@ -248,6 +248,7 @@ export default function InPageRail({
   recordKey,
 }) {
   const [frontCardId, setFrontCardId] = useState(null);
+  const [chatActionsTarget, setChatActionsTarget] = useState(null);
   const [scrollOffset, setScrollOffset] = useState(() => getScrollContainerTop(scrollContainer));
   const bodyRef = useRef(null);
   const isSummary = mode === 'summaries';
@@ -311,13 +312,15 @@ export default function InPageRail({
     <>
       <div className="pagetollm-rail-head">
         <ModeDropdown mode={mode} onSelectMode={onSelectMode} />
-        {!isChat ? (
+        {isChat ? (
+          <div className="pagetollm-rail-chat-actions" ref={setChatActionsTarget} />
+        ) : (
           <LevelSwitcher
             maxLevel={maxLevel}
             selectedLevel={selectedLevel}
             onSelectLevel={onSelectLevel}
           />
-        ) : null}
+        )}
         <button className="pagetollm-rail-close" type="button" title="Close rail" onClick={onClose}>
           ×
         </button>
@@ -340,6 +343,7 @@ export default function InPageRail({
             onHighlight={onChatHighlight}
             onClearHighlights={onClearChatHighlights}
             onEscape={onClose}
+            headerActionsTarget={chatActionsTarget}
           />
         ) : showSummariesDisabledNotice ? (
           <div className="pagetollm-rail-empty">

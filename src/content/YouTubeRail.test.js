@@ -120,6 +120,20 @@ describe('YouTubeRail', () => {
     unmount();
   });
 
+  it('places chat History and New controls in the rail header', () => {
+    const { container, unmount } = render(
+      createElement(YouTubeRail, { ...defaultProps, mode: 'chat', recordKey: 'record-1' }),
+    );
+
+    const railHead = container.querySelector('.pagetollm-rail-head');
+    expect(railHead.querySelector('.pagetollm-chat-actions')).not.toBeNull();
+    expect(railHead.textContent).toContain('History');
+    expect(railHead.textContent).toContain('New');
+    expect(container.querySelector('.pagetollm-chat-header')).toBeNull();
+
+    unmount();
+  });
+
   it('marks the active card from current playback time and updates on polling', () => {
     let currentTime = 0;
     const getCurrentTime = vi.fn(() => currentTime);

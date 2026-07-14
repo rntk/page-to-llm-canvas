@@ -186,6 +186,10 @@ body.pagetollm-rail-open {
   color: var(--accent);
 }
 
+.pagetollm-rail-chat-actions {
+  flex: 0 0 auto;
+}
+
 .pagetollm-rail-close:focus-visible,
 .pagetollm-chat button:focus-visible,
 .pagetollm-chat input:focus-visible {
@@ -608,6 +612,10 @@ body.pagetollm-rail-open {
   border-top: 1px solid var(--ink);
 }
 
+.pagetollm-chat.has-external-header-actions .pagetollm-chat-history-panel {
+  inset: 0;
+}
+
 .pagetollm-chat-history-item,
 .pagetollm-chat-event {
   display: grid;
@@ -732,22 +740,6 @@ body.pagetollm-rail-open {
   padding: 10px;
 }
 
-.pagetollm-chat-title {
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.pagetollm-chat-subtitle {
-  margin-top: 2px;
-  color: var(--on-surface-muted);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .pagetollm-chat-actions {
   display: flex;
   gap: 4px;
@@ -770,6 +762,26 @@ body.pagetollm-rail-open {
   min-width: 32px;
   height: 28px;
   padding: 0 8px;
+}
+
+.pagetollm-chat-close {
+  appearance: none;
+  flex: 0 0 auto;
+  min-width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 0;
+  padding: 0 4px;
+  background: transparent;
+  color: var(--on-surface-muted);
+  font: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pagetollm-chat-close:hover {
+  color: var(--accent);
 }
 
 .pagetollm-chat-actions button:hover:not(:disabled),

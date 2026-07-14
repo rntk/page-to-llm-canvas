@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { runArticleChatTurn } from './articleChat.js';
 import { persistChatTurn } from './chatApi.js';
 import { eventRange, useChatSessions } from './useChatSessions.js';
@@ -21,6 +22,7 @@ import ChatMessageList from './ChatMessageList.jsx';
  *   onClearHighlights?: () => void,
  *   onClose?: () => void,
  *   onEscape?: () => void,
+ *   headerActionsTarget?: HTMLElement | null,
  *   subject?: 'article' | 'video',
  *   getEventTimestamp?: (range: object) => number | null,
  * }} props
@@ -32,6 +34,7 @@ export default function ArticleChat({
   onClearHighlights,
   onClose,
   onEscape,
+  headerActionsTarget,
   subject = 'article',
   getEventTimestamp,
 }) {
@@ -308,33 +311,47 @@ export default function ArticleChat({
   return (
     <section
       ref={panelRef}
-      className="pagetollm-chat"
-      aria-labelledby={`${panelId}-title`}
+      className={`pagetollm-chat${headerActionsTarget === undefined ? '' : ' has-external-header-actions'}`}
+      aria-label={`${subjectTitle} assistant`}
       aria-busy={isLoading || isLoadingHistory}
       onMouseDown={(event) => event.stopPropagation()}
       onKeyDown={handlePanelKeyDown}
     >
-      <header className="pagetollm-chat-header">
-        <div>
-          <div id={`${panelId}-title`} className="pagetollm-chat-title">
-            {subjectTitle} assistant
+      {headerActionsTarget === undefined ? (
+        <header className="pagetollm-chat-header">
+          <div className="pagetollm-chat-actions">
+            <button type="button" onClick={() => setShowHistory((value) => !value)}>
+              History
+            </button>
+            <button type="button" onClick={handleNewChat} disabled={isLoading}>
+              New
+            </button>
           </div>
-          <div className="pagetollm-chat-subtitle">Ask about this {subjectLabel}</div>
-        </div>
-        <div className="pagetollm-chat-actions">
-          <button type="button" onClick={() => setShowHistory((value) => !value)}>
-            History
-          </button>
-          <button type="button" onClick={handleNewChat} disabled={isLoading}>
-            New
-          </button>
           {onClose ? (
-            <button type="button" onClick={onClose} aria-label="Close chat" title="Close chat">
+            <button
+              className="pagetollm-chat-close"
+              type="button"
+              onClick={onClose}
+              aria-label="Close chat"
+              title="Close chat"
+            >
               ×
             </button>
           ) : null}
-        </div>
-      </header>
+        </header>
+      ) : headerActionsTarget ? (
+        createPortal(
+          <div className="pagetollm-chat-actions">
+            <button type="button" onClick={() => setShowHistory((value) => !value)}>
+              History
+            </button>
+            <button type="button" onClick={handleNewChat} disabled={isLoading}>
+              New
+            </button>
+          </div>,
+          headerActionsTarget,
+        )
+      ) : null}
 
       {showHistory ? (
         <ChatHistoryPanel

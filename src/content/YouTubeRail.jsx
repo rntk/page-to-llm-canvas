@@ -78,6 +78,7 @@ export default function YouTubeRail({
   const isSummary = mode === 'summaries';
   const isChat = mode === 'chat';
   const [activeId, setActiveId] = useState(null);
+  const [chatActionsTarget, setChatActionsTarget] = useState(null);
   const bodyRef = useRef(null);
   const cardRefs = useRef(new Map());
 
@@ -194,13 +195,15 @@ export default function YouTubeRail({
     <>
       <div className="pagetollm-rail-head">
         <ModeDropdown mode={mode} onSelectMode={onSelectMode} />
-        {!isChat ? (
+        {isChat ? (
+          <div className="pagetollm-rail-chat-actions" ref={setChatActionsTarget} />
+        ) : (
           <LevelSwitcher
             maxLevel={maxLevel}
             selectedLevel={selectedLevel}
             onSelectLevel={onSelectLevel}
           />
-        ) : null}
+        )}
         <button
           className="pagetollm-rail-close"
           type="button"
@@ -225,6 +228,7 @@ export default function YouTubeRail({
             onHighlight={onChatHighlight}
             onClearHighlights={onClearChatHighlights}
             onEscape={onClose}
+            headerActionsTarget={chatActionsTarget}
             subject="video"
             getEventTimestamp={getChatEventTimestamp}
           />
