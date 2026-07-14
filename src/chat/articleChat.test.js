@@ -435,6 +435,7 @@ describe('article chat tool loop', () => {
 
     expect(send).toHaveBeenCalledTimes(3);
     expect(send.mock.calls.every(([request]) => request.chatTurnId === 'turn-123')).toBe(true);
+    expect(send.mock.calls.every((args) => args.length === 1)).toBe(true);
   });
 
   it('cancels sibling workers after the first failure and suppresses late highlights', async () => {

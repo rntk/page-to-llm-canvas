@@ -8,6 +8,8 @@ import React, { useCallback, useId } from 'react';
  *   value: string,
  *   onChange: (value: string) => void,
  *   onSend: () => void,
+ *   onStop?: () => void,
+ *   isLoading?: boolean,
  *   disabled: boolean,
  *   placeholder?: string,
  * }} props
@@ -16,6 +18,8 @@ export default function ChatComposer({
   value,
   onChange,
   onSend,
+  onStop,
+  isLoading = false,
   disabled,
   placeholder = 'Ask about this article…',
 }) {
@@ -44,9 +48,15 @@ export default function ChatComposer({
           disabled={disabled}
         />
       </div>
-      <button type="button" onClick={onSend} disabled={!value.trim() || disabled}>
-        Send
-      </button>
+      {isLoading ? (
+        <button className="pagetollm-chat-stop" type="button" onClick={onStop}>
+          Stop
+        </button>
+      ) : (
+        <button type="button" onClick={onSend} disabled={!value.trim() || disabled}>
+          Send
+        </button>
+      )}
     </div>
   );
 }

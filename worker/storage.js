@@ -6,7 +6,7 @@ import {
   MUTATION_QUEUE_KEY,
   resetUpdateQueues,
 } from './storagePrimitives.js';
-import { chatStorageKeysForRecord } from './chatStorage.js';
+import { chatStorageKeysForRecord, pruneChatsForContentRevision } from './chatStorage.js';
 import {
   recordMetaStorageKey as metaStorageKey,
   recordContentStorageKey as contentStorageKey,
@@ -235,6 +235,11 @@ export async function writeRecord(rec, options = {}) {
         await removeLocal([metaKey, contentKey, summariesKey]).catch(() => {});
         throw err;
       }
+      if (existingMeta && options.bumpContentRevision === true) {
+        await pruneChatsForContentRevision(rec.key, contentRevision).catch((err) => {
+          console.warn('PageToLLM Canvas: stale chat cleanup failed:', err);
+        });
+      }
     });
   });
 }
@@ -309,6 +314,11 @@ export async function updateRecord(key, patch, options = {}) {
 
       await setLocal(writes);
       await syncIndexMeta(key, patch, mergedMeta);
+      if (touchesContent && options.bumpContentRevision === true) {
+        await pruneChatsForContentRevision(key, mergedMeta.contentRevision).catch((err) => {
+          console.warn('PageToLLM Canvas: stale chat cleanup failed:', err);
+        });
+      }
 
       return { ...mergedMeta, ...(mergedContent || {}), ...(mergedSummaries || {}) };
     });

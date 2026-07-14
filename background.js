@@ -37,7 +37,12 @@ import { MSG } from './messages.js';
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
-/** One turn can fan out into several provider requests. */
+/**
+ * One turn can fan out into several provider requests. This registry is
+ * deliberately best-effort: MV3 worker termination drops both these
+ * controllers and the fetches they own, so there is no resumable request state
+ * to persist for a later cancel message.
+ */
 const activeChatRequests = new Map();
 
 function registerChatRequest(turnId, controller) {

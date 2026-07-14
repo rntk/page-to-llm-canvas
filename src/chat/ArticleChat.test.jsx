@@ -24,6 +24,9 @@ function render(element) {
   act(() => root.render(element));
   return {
     container,
+    rerender(nextElement) {
+      act(() => root.render(nextElement));
+    },
     unmount() {
       act(() => root.unmount());
       container.remove();
@@ -658,5 +661,74 @@ describe('ArticleChat persisted history', () => {
     await flushAsyncWork();
 
     expect(api.persistChatTurn).not.toHaveBeenCalled();
+  });
+
+  it('offers a Stop action that aborts the turn and restores the question', async () => {
+    turnLoop.runArticleChatTurn.mockImplementation(
+      ({ signal }) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => {
+              const error = new Error('The chat turn was cancelled.');
+              error.name = 'AbortError';
+              reject(error);
+            },
+            { once: true },
+          );
+        }),
+    );
+    const { container, unmount } = render(
+      <ArticleChat recordKey="record-1" sentences={['One']} onClearHighlights={vi.fn()} />,
+    );
+    await flushAsyncWork();
+    typeQuestion(container, 'Please stop this');
+    await clickSend(container);
+    const turnOptions = turnLoop.runArticleChatTurn.mock.calls[0][0];
+    const stopButton = Array.from(
+      container.querySelectorAll('.pagetollm-chat-composer button'),
+    ).find((button) => button.textContent === 'Stop');
+
+    expect(stopButton).toBeDefined();
+    act(() => stopButton.click());
+    await flushAsyncWork();
+
+    expect(turnOptions.signal.aborted).toBe(true);
+    expect(api.persistChatTurn).not.toHaveBeenCalled();
+    expect(container.querySelector('.pagetollm-chat-composer textarea').value).toBe(
+      'Please stop this',
+    );
+    expect(container.querySelector('.pagetollm-chat-status.is-warning').textContent).toBe(
+      'Response stopped.',
+    );
+    expect(container.querySelector('.pagetollm-chat-error')).toBeNull();
+
+    await clickSend(container);
+    expect(turnLoop.runArticleChatTurn).toHaveBeenCalledTimes(2);
+    expect(turnLoop.runArticleChatTurn.mock.calls[1][0].turnId).not.toBe(turnOptions.turnId);
+    unmount();
+  });
+
+  it('resets loading after recordKey changes during a turn', async () => {
+    turnLoop.runArticleChatTurn.mockReturnValue(new Promise(() => {}));
+    const view = render(
+      <ArticleChat recordKey="record-1" sentences={['One']} onClearHighlights={vi.fn()} />,
+    );
+    await flushAsyncWork();
+    typeQuestion(view.container, 'Question for record one');
+    await clickSend(view.container);
+    const turnOptions = turnLoop.runArticleChatTurn.mock.calls[0][0];
+
+    view.rerender(
+      <ArticleChat recordKey="record-2" sentences={['Two']} onClearHighlights={vi.fn()} />,
+    );
+    await flushAsyncWork();
+
+    expect(turnOptions.signal.aborted).toBe(true);
+    expect(view.container.querySelector('.pagetollm-chat-composer textarea').disabled).toBe(false);
+    expect(view.container.querySelector('.pagetollm-chat-composer button').textContent).toBe(
+      'Send',
+    );
+    view.unmount();
   });
 });

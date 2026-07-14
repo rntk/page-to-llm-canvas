@@ -346,6 +346,26 @@ export async function deleteChatHistory(key, chatId) {
 }
 
 /**
+ * Removes chats grounded in superseded record content. Deliberately unqueued:
+ * callers in storage.js already hold the global mutation queue while changing
+ * the content revision, so queueing again here would self-deadlock.
+ */
+export async function pruneChatsForContentRevision(key, contentRevision) {
+  const index = await readChatIndex(key);
+  const staleChats = index.chats.filter((chat) => normalizedChatRevision(chat) !== contentRevision);
+  if (staleChats.length === 0) return 0;
+
+  const staleChatIds = new Set(staleChats.map((chat) => chat.chatId));
+  await removeLocal(staleChats.map((chat) => chatDocumentStorageKey(key, chat.chatId)));
+  await writeChatIndex(key, {
+    ...index,
+    chats: index.chats.filter((chat) => !staleChatIds.has(chat.chatId)),
+    turns: index.turns.filter((turn) => !staleChatIds.has(turn.chatId)),
+  });
+  return staleChats.length;
+}
+
+/**
  * Every storage key holding chat documents for a record: the chat index plus
  * one key per chat. Reading these before any removal lets deleteAll gather all
  * chat keys up front, so a read failure aborts the cascade with nothing deleted.

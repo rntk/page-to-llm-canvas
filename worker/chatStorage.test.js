@@ -440,7 +440,7 @@ describe('appendChatTurn', () => {
     expect(retried.messages[0].turnId).toBe(turn.turnId);
   });
 
-  it('hides chats after the record content revision changes', async () => {
+  it('deletes chats and their index entries after the record content revision changes', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
     await seedRecord(mock, makeRecord('article'));
@@ -453,12 +453,37 @@ describe('appendChatTurn', () => {
 
     expect(await listChats('article')).toEqual([]);
     expect(await readChat('article', chat.chatId)).toBeNull();
+    expect(mock.storage.local._store.has(`pagetollm:chats:article:${chat.chatId}`)).toBe(false);
+    expect(mock.storage.local._store.get('pagetollm:chats:article:index')).toEqual({
+      chats: [],
+      turns: [],
+    });
     await expect(
       appendChatTurn('article', chat.chatId, {
         turnId: 'after-reprocess',
         messages: [{ role: 'user', content: 'New content question' }],
       }),
     ).rejects.toThrow('chat not found');
+  });
+
+  it('deletes stale chats when writeRecord replaces an existing content revision', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const { chat } = await appendChatTurn('article', null, {
+      turnId: 'before-import',
+      messages: [{ role: 'user', content: 'Old imported content question' }],
+    });
+
+    await writeRecord(makeRecord('article', { text: 'imported replacement' }), {
+      bumpContentRevision: true,
+    });
+
+    expect(mock.storage.local._store.has(`pagetollm:chats:article:${chat.chatId}`)).toBe(false);
+    expect(mock.storage.local._store.get('pagetollm:chats:article:index')).toEqual({
+      chats: [],
+      turns: [],
+    });
   });
 
   it('retains a bounded number of complete recent turns', async () => {

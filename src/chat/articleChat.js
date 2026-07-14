@@ -537,10 +537,7 @@ export async function runArticleChatTurn({
     let chunkRequestCount = 0;
     const sendRequest = (payload) => {
       throwIfAborted(turnController.signal);
-      const pending = send(
-        { ...payload, chatTurnId: resolvedTurnId },
-        { signal: turnController.signal },
-      );
+      const pending = send({ ...payload, chatTurnId: resolvedTurnId });
       return awaitWithAbort(pending, turnController.signal);
     };
     const sendChunkRequest = (payload) => {

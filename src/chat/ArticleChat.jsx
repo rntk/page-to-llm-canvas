@@ -174,6 +174,9 @@ export default function ArticleChat({
     if (recordKeyRef.current !== recordKey) {
       operationRef.current?.controller.abort();
       operationRef.current = null;
+      setPendingQuestion('');
+      setIsLoading(false);
+      setNotice(null);
     }
     recordKeyRef.current = recordKey;
     retryTurnRef.current = null;
@@ -305,6 +308,13 @@ export default function ArticleChat({
     (nextTab === 'chat' ? chatTabRef.current : eventsTabRef.current)?.focus();
   }, []);
 
+  const stopActiveTurn = useCallback(() => {
+    const operation = operationRef.current;
+    if (!operation || !isCurrentOperation(operation) || operation.controller.signal.aborted) return;
+    operation.controller.abort();
+    setNotice({ tone: 'progress', message: 'Stopping response…' });
+  }, [isCurrentOperation]);
+
   const send = useCallback(async () => {
     const question = input.trim();
     if (!question || isLoading || isMutatingHistory || !recordKey) return;
@@ -319,6 +329,7 @@ export default function ArticleChat({
     operationRef.current = operation;
     setInput('');
     setError('');
+    setNotice(null);
     setIsLoading(true);
     setPendingQuestion(question);
     let turnResult;
@@ -377,6 +388,12 @@ export default function ArticleChat({
         setPendingQuestion('');
         setInput(question);
         applyEvents(paintedEvents);
+        if (err?.name === 'AbortError') {
+          retryTurnRef.current = null;
+          setError('');
+          setNotice({ tone: 'warning', message: 'Response stopped.' });
+          return;
+        }
         setError(err?.message || 'Failed to get a response.');
         return;
       }
@@ -569,6 +586,8 @@ export default function ArticleChat({
             value={input}
             onChange={handleInputChange}
             onSend={() => void send()}
+            onStop={stopActiveTurn}
+            isLoading={isLoading}
             disabled={isLoading || isLoadingHistory || isMutatingHistory}
             placeholder={`Ask about this ${subjectLabel}…`}
           />
