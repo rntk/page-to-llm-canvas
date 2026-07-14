@@ -1033,29 +1033,16 @@ describe('dispatchMessage unit tests', () => {
     const missing = await dispatchMessage({ type: 'getRecord', key: 'nope' });
     expect(missing.ok).toBe(false);
 
-    const createdChat = await dispatchMessage({ type: 'createChat', key: 'rec1' });
-    expect(createdChat.ok).toBe(true);
-    const chatId = createdChat.chat.chatId;
-    expect(
-      (
-        await dispatchMessage({
-          type: 'appendChatMessage',
-          key: 'rec1',
-          chatId,
-          message: { role: 'user', content: 'Question' },
-        })
-      ).ok,
-    ).toBe(true);
-    const appendedEvent = await dispatchMessage({
-      type: 'appendChatEvent',
+    const createdChat = await dispatchMessage({
+      type: 'appendChatTurn',
       key: 'rec1',
-      chatId,
-      event: {
-        eventType: 'highlight_span',
-        data: { startLine: 1, endLine: 1 },
+      turn: {
+        messages: [{ role: 'user', content: 'Question' }],
+        events: [{ eventType: 'highlight_span', data: { startLine: 1, endLine: 1 } }],
       },
     });
-    expect(appendedEvent.ok).toBe(true);
+    expect(createdChat.ok).toBe(true);
+    const chatId = createdChat.chat.chatId;
     expect((await dispatchMessage({ type: 'listChats', key: 'rec1' })).chats).toHaveLength(1);
     expect(
       (await dispatchMessage({ type: 'getChat', key: 'rec1', chatId })).chat.events,
@@ -1066,7 +1053,7 @@ describe('dispatchMessage unit tests', () => {
           type: 'deleteChatEvent',
           key: 'rec1',
           chatId,
-          seq: appendedEvent.event.seq,
+          seq: createdChat.events[0].seq,
         })
       ).ok,
     ).toBe(true);
@@ -1082,6 +1069,63 @@ describe('dispatchMessage unit tests', () => {
     expect(cleared.ok).toBe(true);
     const index = chromeMock.storage.local._store.get('pagetollm:index');
     expect(index == null || index.keys?.length === 0).toBe(true);
+  });
+
+  it('handles appendChatTurn: validates input, creates the chat inline, and returns the turn', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+    await seedRecord(chromeMock, makeRecord('rec1'));
+
+    expect((await dispatchMessage({ type: 'appendChatTurn' })).error).toBe('missing key');
+    expect((await dispatchMessage({ type: 'appendChatTurn', key: 'rec1' })).error).toBe(
+      'missing turn',
+    );
+    expect(
+      (
+        await dispatchMessage({
+          type: 'appendChatTurn',
+          key: 'rec1',
+          turn: { messages: [], events: [] },
+        })
+      ).error,
+    ).toBe('empty turn');
+
+    // chatId is optional: a falsy chatId creates the chat inline.
+    const first = await dispatchMessage({
+      type: 'appendChatTurn',
+      key: 'rec1',
+      turn: {
+        messages: [
+          { role: 'user', content: 'Where is it?' },
+          { role: 'assistant', content: 'On line 2.' },
+        ],
+        events: [{ eventType: 'highlight_span', data: { startLine: 2, endLine: 2 } }],
+      },
+    });
+    expect(first.ok).toBe(true);
+    expect(first.chat.chatId).toMatch(/^chat_/);
+    expect(first.chat.title).toBe('Where is it?');
+    expect(first.messages).toHaveLength(2);
+    expect(first.events).toHaveLength(1);
+    expect(first.events[0].seq).toBe(1);
+
+    const second = await dispatchMessage({
+      type: 'appendChatTurn',
+      key: 'rec1',
+      chatId: first.chat.chatId,
+      turn: { events: [{ eventType: 'highlight_span', data: { startLine: 3, endLine: 3 } }] },
+    });
+    expect(second.ok).toBe(true);
+    expect(second.events[0].seq).toBe(2);
+    expect(second.chat.messages).toHaveLength(2);
+
+    const missingChat = await dispatchMessage({
+      type: 'appendChatTurn',
+      key: 'rec1',
+      chatId: 'chat_missing',
+      turn: { messages: [{ role: 'user', content: 'hi' }] },
+    });
+    expect(missingChat).toEqual({ ok: false, error: 'chat not found' });
   });
 
   it('imports only valid records, dedupes duplicate keys, and reports the stored count', async () => {

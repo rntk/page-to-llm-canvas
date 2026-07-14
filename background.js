@@ -7,14 +7,14 @@ import {
   deleteAll,
   findRecordByUrl,
   migrateIndexMeta,
+} from './worker/storage.js';
+import {
   listChats,
   readChat,
-  createChat,
-  appendChatMessage,
-  appendChatEvent,
+  appendChatTurn,
   deleteChatEvent,
   deleteChatHistory,
-} from './worker/storage.js';
+} from './worker/chatStorage.js';
 import { runPipeline } from './worker/orchestrator.js';
 import { callLLMDirect } from './worker/llm.js';
 import { getStoredSummariesDisabled } from './worker/summarySettings.js';
@@ -645,40 +645,20 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
-  [MSG.createChat]: {
-    requiresExtensionPage: false,
-    validate(msg) {
-      return msg.key ? null : 'missing key';
-    },
-    async handle(msg) {
-      return { ok: true, chat: await createChat(msg.key) };
-    },
-  },
-
-  [MSG.appendChatMessage]: {
+  // Persists a whole LLM turn (messages + events) as one atomic write; a falsy
+  // chatId creates the chat inline so a failed first turn leaves no orphan chat.
+  [MSG.appendChatTurn]: {
     requiresExtensionPage: false,
     validate(msg) {
       if (!msg.key) return 'missing key';
-      if (!msg.chatId) return 'missing chatId';
-      return msg.message && typeof msg.message === 'object' ? null : 'missing message';
+      if (!msg.turn || typeof msg.turn !== 'object') return 'missing turn';
+      const hasMessages = Array.isArray(msg.turn.messages) && msg.turn.messages.length > 0;
+      const hasEvents = Array.isArray(msg.turn.events) && msg.turn.events.length > 0;
+      return hasMessages || hasEvents ? null : 'empty turn';
     },
     async handle(msg) {
-      return {
-        ok: true,
-        message: await appendChatMessage(msg.key, msg.chatId, msg.message),
-      };
-    },
-  },
-
-  [MSG.appendChatEvent]: {
-    requiresExtensionPage: false,
-    validate(msg) {
-      if (!msg.key) return 'missing key';
-      if (!msg.chatId) return 'missing chatId';
-      return msg.event && typeof msg.event === 'object' ? null : 'missing event';
-    },
-    async handle(msg) {
-      return { ok: true, event: await appendChatEvent(msg.key, msg.chatId, msg.event) };
+      const { chat, messages, events } = await appendChatTurn(msg.key, msg.chatId, msg.turn);
+      return { ok: true, chat, messages, events };
     },
   },
 

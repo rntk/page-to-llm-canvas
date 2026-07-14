@@ -21,7 +21,7 @@ export function eventRange(event) {
  * The send path stays with the caller; it hands its atomically persisted
  * result to `adoptPersistedTurn`.
  *
- * `applyEvent(event | null)` must repaint the article highlights for one
+ * `applyEvent(event | null, { focus?: boolean })` must repaint the article highlights for one
  * stored event (or clear them for null); it is invoked whenever the selected
  * event changes because of a load or delete.
  *
@@ -100,7 +100,7 @@ export function useChatSessions({ recordKey, applyEvent }) {
   const selectEvent = useCallback(
     (event) => {
       setSelectedEventSeq(event.seq);
-      applyEvent(event);
+      applyEvent(event, { focus: true });
     },
     [applyEvent],
   );

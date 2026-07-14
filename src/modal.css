@@ -521,11 +521,13 @@ body.canvas-global-dragging * {
   cursor: pointer;
 }
 
-.pagetollm-chat-tabs button:last-child {
+.pagetollm-chat-tabs > button:last-child,
+.pagetollm-chat-events-tab {
   border-right: 0;
 }
 
-.pagetollm-chat-tabs button.is-active {
+.pagetollm-chat-tabs > button.is-active,
+.pagetollm-chat-events-tab.is-active {
   background: var(--ink);
   color: var(--surface);
 }
@@ -615,6 +617,39 @@ body.canvas-global-dragging * {
   padding: 0;
   color: var(--accent);
   font-size: 17px;
+}
+
+.pagetollm-chat-events-tab {
+  display: flex;
+  align-items: stretch;
+  border-right: 1px solid var(--ghost);
+}
+
+.pagetollm-chat-events-tab > button {
+  flex: 1 1 auto;
+}
+
+.pagetollm-chat-events-tab.is-active > button {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.pagetollm-chat-events-tab > label {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 7px 0 3px;
+  color: inherit;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.pagetollm-chat-events-tab input {
+  margin: 0;
 }
 
 .pagetollm-chat-events {

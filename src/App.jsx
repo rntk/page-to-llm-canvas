@@ -230,8 +230,8 @@ export default function App({ initialKey }) {
     refreshSentenceRanges,
   });
 
-  const handleChatHighlight = useCallback(({ startLine, endLine }) => {
-    pendingChatHighlightLineRef.current ??= startLine;
+  const handleChatHighlight = useCallback(({ startLine, endLine }, { focus = false } = {}) => {
+    if (focus) pendingChatHighlightLineRef.current ??= startLine;
     setShowSummaryMode(false);
     setChatSentenceNumbers((current) => {
       const next = new Set(current);

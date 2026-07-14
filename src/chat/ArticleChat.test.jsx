@@ -139,17 +139,20 @@ describe('ArticleChat persisted history', () => {
   });
 
   it('persists the whole turn atomically and adopts the returned data', async () => {
-    turnLoop.runArticleChatTurn.mockResolvedValue({
-      reply: 'Line three answers it.',
-      transcriptMessages: [
-        {
-          role: 'assistant',
-          content: '',
-          toolCalls: [{ id: 'call-1', name: 'highlight_span', arguments: {} }],
-        },
-        { role: 'tool', content: 'Highlighted lines 3-3.', toolCallId: 'call-1' },
-      ],
-      highlightRanges: [{ startLine: 3, endLine: 3, label: 'New evidence' }],
+    turnLoop.runArticleChatTurn.mockImplementation(async ({ onHighlight: paintHighlight }) => {
+      await paintHighlight({ startLine: 3, endLine: 3, label: 'New evidence' });
+      return {
+        reply: 'Line three answers it.',
+        transcriptMessages: [
+          {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'call-1', name: 'highlight_span', arguments: {} }],
+          },
+          { role: 'tool', content: 'Highlighted lines 3-3.', toolCallId: 'call-1' },
+        ],
+        highlightRanges: [{ startLine: 3, endLine: 3, label: 'New evidence' }],
+      };
     });
     api.persistChatTurn.mockResolvedValue({
       chat: {
@@ -208,6 +211,11 @@ describe('ArticleChat persisted history', () => {
         highlightedRanges: [{ startLine: 1, endLine: 2, label: 'First evidence' }],
       }),
     );
+    expect(onHighlight).toHaveBeenLastCalledWith({
+      startLine: 3,
+      endLine: 3,
+      label: 'New evidence',
+    });
     // One atomic write: user + hidden transcript + reply + events.
     expect(api.persistChatTurn).toHaveBeenCalledTimes(1);
     expect(api.persistChatTurn).toHaveBeenCalledWith('record-1', 'chat-1', {
@@ -240,6 +248,72 @@ describe('ArticleChat persisted history', () => {
     expect(container.textContent).toContain('Lines 3–3');
     expect(container.querySelector('.pagetollm-chat-event.is-active').textContent).toContain(
       'New evidence',
+    );
+
+    unmount();
+  });
+
+  it('offers automatic event focus on the Events tab and leaves it disabled by default', async () => {
+    turnLoop.runArticleChatTurn.mockImplementation(async ({ onHighlight: paintHighlight }) => {
+      await paintHighlight({ startLine: 3, endLine: 3, label: 'Focused evidence' });
+      return {
+        reply: 'Focused answer.',
+        transcriptMessages: [],
+        highlightRanges: [{ startLine: 3, endLine: 3, label: 'Focused evidence' }],
+      };
+    });
+    api.persistChatTurn.mockResolvedValue({
+      chat: {
+        chatId: 'chat-1',
+        events: [
+          {
+            seq: 2,
+            eventType: 'highlight_span',
+            data: { startLine: 3, endLine: 3, label: 'Focused evidence' },
+          },
+        ],
+      },
+      messages: [
+        { id: 'm-3', role: 'user', content: 'Focus this' },
+        { id: 'm-4', role: 'assistant', content: 'Focused answer.' },
+      ],
+      events: [
+        {
+          seq: 2,
+          eventType: 'highlight_span',
+          data: { startLine: 3, endLine: 3, label: 'Focused evidence' },
+        },
+      ],
+    });
+    const onHighlight = vi.fn();
+    const { container, unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['One', 'Two', 'Three']}
+        onHighlight={onHighlight}
+        onClearHighlights={vi.fn()}
+      />,
+    );
+    await flushAsyncWork();
+
+    const eventsTab = Array.from(container.querySelectorAll('.pagetollm-chat-tabs button')).find(
+      (button) => button.textContent.includes('Events'),
+    );
+    act(() => eventsTab.click());
+    const autoFocus = container.querySelector('.pagetollm-chat-events-tab input');
+    expect(autoFocus.checked).toBe(false);
+    act(() => autoFocus.click());
+
+    const chatTab = Array.from(container.querySelectorAll('.pagetollm-chat-tabs button')).find(
+      (button) => button.textContent.includes('Chat'),
+    );
+    act(() => chatTab.click());
+    typeQuestion(container, 'Focus this');
+    await clickSend(container);
+
+    expect(onHighlight).toHaveBeenLastCalledWith(
+      { startLine: 3, endLine: 3, label: 'Focused evidence' },
+      { focus: true },
     );
 
     unmount();

@@ -273,12 +273,12 @@ export async function openInPageRail(rec, initialMode, options = {}) {
     scrollToFirst(sentenceList);
   };
 
-  const handleChatHighlight = ({ startLine, endLine }) => {
+  const handleChatHighlight = ({ startLine, endLine }, { focus = false } = {}) => {
     for (let line = startLine; line <= endLine; line += 1) {
       activeChatSentences.add(line);
     }
     rebuildHighlight();
-    scrollToFirst([startLine]);
+    if (focus) scrollToFirst([startLine]);
   };
 
   const handleClearChatHighlights = () => {

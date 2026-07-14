@@ -31,16 +31,20 @@ export default function ArticleChat({
 }) {
   const [input, setInput] = useState('');
   const [activeTab, setActiveTab] = useState('chat');
+  const [autoFocusEvents, setAutoFocusEvents] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   // Optimistic user bubble while the turn runs; nothing is persisted yet.
   const [pendingQuestion, setPendingQuestion] = useState('');
 
   const applyEvent = useCallback(
-    (event) => {
+    (event, { focus = false } = {}) => {
       onClearHighlights?.();
       const range = eventRange(event);
-      if (range) onHighlight?.(range);
+      if (range) {
+        if (focus) onHighlight?.(range, { focus: true });
+        else onHighlight?.(range);
+      }
     },
     [onClearHighlights, onHighlight],
   );
@@ -109,7 +113,10 @@ export default function ArticleChat({
           question,
           sentences,
           highlightedRanges,
-          onHighlight,
+          onHighlight: (range) => {
+            if (autoFocusEvents) return onHighlight?.(range, { focus: true });
+            return onHighlight?.(range);
+          },
         });
         // Commit the turn as one atomic write. A falsy chatId creates the chat
         // inline, so a failed first turn leaves no orphan chat behind.
@@ -150,6 +157,7 @@ export default function ArticleChat({
     activeChatId,
     adoptPersistedTurn,
     applyEvent,
+    autoFocusEvents,
     events,
     highlightedRanges,
     input,
@@ -202,13 +210,19 @@ export default function ArticleChat({
         >
           Chat
         </button>
-        <button
-          type="button"
-          className={activeTab === 'events' ? 'is-active' : ''}
-          onClick={() => setActiveTab('events')}
-        >
-          Events <span>{events.length}</span>
-        </button>
+        <div className={`pagetollm-chat-events-tab${activeTab === 'events' ? ' is-active' : ''}`}>
+          <button type="button" onClick={() => setActiveTab('events')}>
+            Events <span>{events.length}</span>
+          </button>
+          <label title="Automatically scroll/zoom to new events">
+            <input
+              type="checkbox"
+              checked={autoFocusEvents}
+              onChange={(event) => setAutoFocusEvents(event.target.checked)}
+            />
+            Live
+          </label>
+        </div>
       </div>
 
       {activeTab === 'events' ? (
