@@ -183,7 +183,7 @@ describe('ArticleChat persisted history', () => {
     unmount();
   });
 
-  it('exposes accessible tabs, a visible composer label, and video-specific event states', async () => {
+  it('exposes accessible tabs, an accessible composer name, and video-specific event states', async () => {
     const { container, unmount } = render(
       <ArticleChat
         recordKey="record-1"
@@ -206,8 +206,8 @@ describe('ArticleChat persisted history', () => {
 
     const textarea = container.querySelector('.pagetollm-chat-composer textarea');
     const label = container.querySelector('.pagetollm-chat-composer label');
-    expect(label.textContent).toBe('Message');
-    expect(label.htmlFor).toBe(textarea.id);
+    expect(label).toBeNull();
+    expect(textarea.getAttribute('aria-label')).toBe('Message');
 
     act(() => {
       tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));

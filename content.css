@@ -702,7 +702,26 @@ body.pagetollm-rail-open {
 }
 
 .pagetollm-chat-events-live input {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 12px !important;
+  height: 12px !important;
+  min-width: 12px !important;
+  min-height: 12px !important;
+  max-width: 12px !important;
+  max-height: 12px !important;
   margin: 0;
+  border: 1px solid currentcolor;
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--on-surface-muted);
+  cursor: pointer;
+}
+
+.pagetollm-chat-events-live input:checked {
+  border-color: var(--ink);
+  background: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--surface);
 }
 
 .pagetollm-chat-events {
@@ -846,14 +865,6 @@ body.pagetollm-rail-open {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-}
-
-.pagetollm-chat-composer-field label {
-  color: var(--on-surface-muted);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .pagetollm-chat-composer textarea {

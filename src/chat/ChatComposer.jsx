@@ -33,9 +33,9 @@ export default function ChatComposer({
   return (
     <div className="pagetollm-chat-composer">
       <div className="pagetollm-chat-composer-field">
-        <label htmlFor={messageId}>Message</label>
         <textarea
           id={messageId}
+          aria-label="Message"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKeyDown}
