@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { runArticleChatTurn } from './articleChat.js';
 import { persistChatTurn } from './chatApi.js';
 import { eventRange, useChatSessions } from './useChatSessions.js';
@@ -62,10 +62,34 @@ export default function ArticleChat({
     refreshChats,
     startNewChat,
     selectEvent,
+    clearSelection,
     deleteEvent,
     deleteChat,
     adoptPersistedTurn,
   } = useChatSessions({ recordKey, applyEvent });
+
+  // Esc clears the currently selected event's highlight instead of leaving it
+  // painted on the article with nothing selected in the events list.
+  useEffect(() => {
+    if (selectedEventSeq === null) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      clearSelection();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedEventSeq, clearSelection]);
+
+  // Unmounting the panel (chat closed) must not leave a stale highlight
+  // painted on the article behind it.
+  const onClearHighlightsRef = useRef(onClearHighlights);
+  useEffect(() => {
+    onClearHighlightsRef.current = onClearHighlights;
+  }, [onClearHighlights]);
+  useEffect(() => {
+    return () => onClearHighlightsRef.current?.();
+  }, []);
 
   // Single source of truth: ranges are always derived from the events state.
   const highlightedRanges = useMemo(() => events.map(eventRange).filter(Boolean), [events]);

@@ -105,6 +105,12 @@ export function useChatSessions({ recordKey, applyEvent }) {
     [applyEvent],
   );
 
+  /** Deselect the current event and clear its painted highlight (e.g. on Esc). */
+  const clearSelection = useCallback(() => {
+    setSelectedEventSeq(null);
+    applyEvent(null);
+  }, [applyEvent]);
+
   const deleteEvent = useCallback(
     async (event) => {
       if (!activeChatId) return;
@@ -169,6 +175,7 @@ export function useChatSessions({ recordKey, applyEvent }) {
     refreshChats,
     startNewChat,
     selectEvent,
+    clearSelection,
     deleteEvent,
     deleteChat,
     adoptPersistedTurn,

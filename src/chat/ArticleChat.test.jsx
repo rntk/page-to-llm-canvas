@@ -138,6 +138,62 @@ describe('ArticleChat persisted history', () => {
     unmount();
   });
 
+  it('clears the selected event highlight on Escape', async () => {
+    const onHighlight = vi.fn();
+    const onClearHighlights = vi.fn();
+    const { unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['One', 'Two', 'Three']}
+        onHighlight={onHighlight}
+        onClearHighlights={onClearHighlights}
+      />,
+    );
+    await flushAsyncWork();
+
+    expect(onHighlight).toHaveBeenLastCalledWith({
+      startLine: 1,
+      endLine: 2,
+      label: 'First evidence',
+    });
+    onClearHighlights.mockClear();
+    onHighlight.mockClear();
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+
+    expect(onClearHighlights).toHaveBeenCalledTimes(1);
+    expect(onHighlight).not.toHaveBeenCalled();
+
+    onClearHighlights.mockClear();
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(onClearHighlights).not.toHaveBeenCalled();
+
+    unmount();
+  });
+
+  it('clears highlights when the panel unmounts (chat closed)', async () => {
+    const onHighlight = vi.fn();
+    const onClearHighlights = vi.fn();
+    const { unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['One', 'Two', 'Three']}
+        onHighlight={onHighlight}
+        onClearHighlights={onClearHighlights}
+      />,
+    );
+    await flushAsyncWork();
+    onClearHighlights.mockClear();
+
+    unmount();
+
+    expect(onClearHighlights).toHaveBeenCalledTimes(1);
+  });
+
   it('persists the whole turn atomically and adopts the returned data', async () => {
     turnLoop.runArticleChatTurn.mockImplementation(async ({ onHighlight: paintHighlight }) => {
       await paintHighlight({ startLine: 3, endLine: 3, label: 'New evidence' });
