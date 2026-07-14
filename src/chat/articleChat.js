@@ -1,5 +1,6 @@
 import { MSG } from '../../messages.js';
 import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
+import { createChatLogger } from './chatLogger.js';
 
 export const ARTICLE_CHAT_SYSTEM_PROMPT = `You are an intelligent assistant helping a user explore one article.
 The current article is supplied inside <article> tags. Each sentence is prefixed with its 1-based line number.
@@ -216,6 +217,7 @@ async function runArticleChatChunk({
   onHighlight,
   maxToolRounds,
   send,
+  log,
 }) {
   const messages = [
     { role: 'system', content: buildChunkSystemPrompt(chunk) },
@@ -223,7 +225,26 @@ async function runArticleChatChunk({
     { role: 'user', content: `<question>${question}</question>` },
   ];
 
+  log(
+    'chunk_start',
+    {
+      lineRange: `${chunk.startLine}-${chunk.endLine}`,
+      sourceChars: chunk.text.length,
+      historyMessageCount: messages.length - 2,
+    },
+    { verbose: true },
+  );
+
   for (let round = 0; round < maxToolRounds; round += 1) {
+    log(
+      'chunk_llm_request',
+      {
+        lineRange: `${chunk.startLine}-${chunk.endLine}`,
+        round: round + 1,
+        messageCount: messages.length,
+      },
+      { verbose: true },
+    );
     const response = await send({
       type: MSG.llmChatCompletion,
       messages,
@@ -233,8 +254,23 @@ async function runArticleChatChunk({
     if (!response?.ok) throw new Error(response?.error || 'LLM request failed');
 
     const rawCalls = Array.isArray(response.toolCalls) ? response.toolCalls : [];
+    log(
+      'chunk_llm_response',
+      {
+        lineRange: `${chunk.startLine}-${chunk.endLine}`,
+        round: round + 1,
+        responseChars: typeof response.content === 'string' ? response.content.length : 0,
+        toolCallCount: rawCalls.length,
+      },
+      { verbose: true },
+    );
     if (rawCalls.length === 0) {
       const reply = typeof response.content === 'string' ? response.content.trim() : '';
+      log(
+        'chunk_done',
+        { lineRange: `${chunk.startLine}-${chunk.endLine}`, replyChars: reply.length },
+        { verbose: true },
+      );
       return reply;
     }
 
@@ -273,6 +309,16 @@ async function runArticleChatChunk({
       const toolResultMessage = { role: 'tool', content: result, toolCallId: call.id };
       messages.push(toolResultMessage);
       transcriptMessages.push(toolResultMessage);
+      log(
+        'tool_result',
+        {
+          lineRange: `${chunk.startLine}-${chunk.endLine}`,
+          round: round + 1,
+          tool: call.name || '(missing name)',
+          result,
+        },
+        { verbose: true },
+      );
     }
   }
 
@@ -308,69 +354,108 @@ export async function runArticleChatTurn({
   chunkConcurrency = ARTICLE_CHAT_CHUNK_CONCURRENCY,
   send = sendRuntimeMessage,
 }) {
-  const chunks = chunkNumberedArticle(sentences, maxChunkChars);
-  if (!chunks.length) throw new Error('This record has no article text to chat about.');
-  // Local copy: the input array aliases caller state and must stay untouched.
-  const requestLimit =
-    Number.isFinite(maxLlmRequests) && maxLlmRequests > 0
-      ? Math.floor(maxLlmRequests)
-      : MAX_TURN_LLM_REQUESTS;
-  const chunkRequestLimit = chunks.length > 1 ? requestLimit - 1 : requestLimit;
-  let chunkRequestCount = 0;
-  const sendChunkRequest = (payload) => {
-    if (chunkRequestCount >= chunkRequestLimit) {
-      throw new Error('The LLM exceeded the turn-wide request limit.');
-    }
-    chunkRequestCount += 1;
-    return send(payload);
-  };
-  const results = new Array(chunks.length);
-  let nextChunkIndex = 0;
-  const worker = async () => {
-    while (nextChunkIndex < chunks.length) {
-      const index = nextChunkIndex;
-      nextChunkIndex += 1;
-      const chunk = chunks[index];
-      const chunkRanges = [];
-      const chunkTranscript = [];
-      const reply = await runArticleChatChunk({
-        chunk,
-        history,
-        question,
-        sentenceCount: Array.isArray(sentences) ? sentences.length : 0,
-        ranges: [...highlightedRanges],
-        newRanges: chunkRanges,
-        transcriptMessages: chunkTranscript,
-        onHighlight,
-        maxToolRounds,
-        send: sendChunkRequest,
-      });
-      results[index] = {
-        chunk,
-        reply,
-        transcriptMessages: chunkTranscript,
-        highlightRanges: chunkRanges,
+  const log = createChatLogger();
+  const startedAt = Date.now();
+  try {
+    const chunks = chunkNumberedArticle(sentences, maxChunkChars);
+    if (!chunks.length) throw new Error('This record has no article text to chat about.');
+    log('turn_start', {
+      questionChars: String(question || '').length,
+      sentenceCount: Array.isArray(sentences) ? sentences.length : 0,
+      chunkCount: chunks.length,
+      historyMessageCount: Array.isArray(history) ? history.length : 0,
+      existingHighlightCount: Array.isArray(highlightedRanges) ? highlightedRanges.length : 0,
+    });
+    // Local copy: the input array aliases caller state and must stay untouched.
+    const requestLimit =
+      Number.isFinite(maxLlmRequests) && maxLlmRequests > 0
+        ? Math.floor(maxLlmRequests)
+        : MAX_TURN_LLM_REQUESTS;
+    const chunkRequestLimit = chunks.length > 1 ? requestLimit - 1 : requestLimit;
+    let chunkRequestCount = 0;
+    const sendChunkRequest = (payload) => {
+      if (chunkRequestCount >= chunkRequestLimit) {
+        throw new Error('The LLM exceeded the turn-wide request limit.');
+      }
+      chunkRequestCount += 1;
+      return send(payload);
+    };
+    const results = new Array(chunks.length);
+    let nextChunkIndex = 0;
+    const worker = async () => {
+      while (nextChunkIndex < chunks.length) {
+        const index = nextChunkIndex;
+        nextChunkIndex += 1;
+        const chunk = chunks[index];
+        const chunkRanges = [];
+        const chunkTranscript = [];
+        const reply = await runArticleChatChunk({
+          chunk,
+          history,
+          question,
+          sentenceCount: Array.isArray(sentences) ? sentences.length : 0,
+          ranges: [...highlightedRanges],
+          newRanges: chunkRanges,
+          transcriptMessages: chunkTranscript,
+          onHighlight,
+          maxToolRounds,
+          send: sendChunkRequest,
+          log,
+        });
+        results[index] = {
+          chunk,
+          reply,
+          transcriptMessages: chunkTranscript,
+          highlightRanges: chunkRanges,
+        };
+      }
+    };
+    const concurrency = Math.max(1, Math.min(chunks.length, Math.floor(chunkConcurrency) || 1));
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+
+    const transcriptMessages = results.flatMap((result) => result.transcriptMessages);
+    const newRanges = results.flatMap((result) => result.highlightRanges);
+    const chunkReplies = results.filter((result) => result.reply);
+    if (!chunkReplies.length) throw new Error('The LLM returned an empty response.');
+    if (chunkReplies.length === 1) {
+      const result = {
+        reply: chunkReplies[0].reply,
+        transcriptMessages,
+        highlightRanges: newRanges,
       };
+      log('turn_done', {
+        durationMs: Date.now() - startedAt,
+        requestCount: chunkRequestCount,
+        replyChars: result.reply.length,
+        newHighlightCount: newRanges.length,
+      });
+      return result;
     }
-  };
-  const concurrency = Math.max(1, Math.min(chunks.length, Math.floor(chunkConcurrency) || 1));
-  await Promise.all(Array.from({ length: concurrency }, () => worker()));
 
-  const transcriptMessages = results.flatMap((result) => result.transcriptMessages);
-  const newRanges = results.flatMap((result) => result.highlightRanges);
-  const chunkReplies = results.filter((result) => result.reply);
-  if (!chunkReplies.length) throw new Error('The LLM returned an empty response.');
-  if (chunkReplies.length === 1) {
-    return { reply: chunkReplies[0].reply, transcriptMessages, highlightRanges: newRanges };
+    log('synthesis_llm_request', { chunkReplyCount: chunkReplies.length }, { verbose: true });
+    const synthesis = await send({
+      type: MSG.llmChatCompletion,
+      messages: buildSynthesisMessages(question, chunkReplies),
+      temperature: CHAT_TEMPERATURE,
+    });
+    if (!synthesis?.ok) throw new Error(synthesis?.error || 'LLM request failed');
+    const reply = typeof synthesis.content === 'string' ? synthesis.content.trim() : '';
+    if (!reply) throw new Error('The LLM returned an empty response.');
+    log('turn_done', {
+      durationMs: Date.now() - startedAt,
+      requestCount: chunkRequestCount + 1,
+      replyChars: reply.length,
+      newHighlightCount: newRanges.length,
+    });
+    return { reply, transcriptMessages, highlightRanges: newRanges };
+  } catch (error) {
+    log(
+      'turn_error',
+      { durationMs: Date.now() - startedAt, error: error?.message || String(error) },
+      {
+        error: true,
+      },
+    );
+    throw error;
   }
-
-  const synthesis = await send({
-    type: MSG.llmChatCompletion,
-    messages: buildSynthesisMessages(question, chunkReplies),
-    temperature: CHAT_TEMPERATURE,
-  });
-  if (!synthesis?.ok) throw new Error(synthesis?.error || 'LLM request failed');
-  const reply = typeof synthesis.content === 'string' ? synthesis.content.trim() : '';
-  if (!reply) throw new Error('The LLM returned an empty response.');
-  return { reply, transcriptMessages, highlightRanges: newRanges };
 }

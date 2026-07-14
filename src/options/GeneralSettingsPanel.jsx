@@ -361,13 +361,14 @@ export function VerboseLogsSection() {
             checked={verboseLogs}
             onChange={(event) => handleToggle(event.target.checked)}
           />{' '}
-          Verbose pipeline logs
+          Verbose pipeline and chat logs
         </label>
         <div className="note">
-          When enabled, each pipeline stage — including every per-chunk and per-topic LLM request
-          and response — is written to the service worker console and to the record&apos;s
-          processing log. Leave off for quieter runs; only lifecycle and error events are recorded
-          then. Applies to the next pipeline run after the toggle changes.
+          When enabled, each pipeline stage and chat turn — including every per-chunk, per-topic,
+          and chat LLM request and response — is written to the relevant console. Pipeline events
+          are also written to the record&apos;s processing log. Leave off for quieter runs; only
+          lifecycle and error events are recorded then. Applies to the next pipeline or chat turn
+          after the toggle changes.
         </div>
       </div>
     </div>
