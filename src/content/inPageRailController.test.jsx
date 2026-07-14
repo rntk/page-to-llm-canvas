@@ -274,6 +274,30 @@ describe('openInPageRail', () => {
       });
       expect(rail()).not.toBeNull();
       expect(rail().dataset.mode).toBe('topics');
+      expect(rail().style.position).toBe('absolute');
+    });
+
+    it('keeps the chat rail fixed while switching between rail modes', async () => {
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'chat');
+      });
+      expect(rail().style.position).toBe('fixed');
+      expect(rail().style.bottom).toBe('0px');
+
+      const select = rail().querySelector('.pagetollm-rail-mode-select');
+      await act(async () => {
+        select.value = 'topics';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      expect(rail().style.position).toBe('absolute');
+      expect(rail().style.bottom).toBe('');
+
+      await act(async () => {
+        select.value = 'chat';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      expect(rail().style.position).toBe('fixed');
+      expect(rail().style.bottom).toBe('0px');
     });
 
     it('switching to canvas mode closes the rail and opens the canvas iframe', async () => {

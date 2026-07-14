@@ -124,6 +124,17 @@ export async function openInPageRail(rec, initialMode, options = {}) {
     },
   });
 
+  // The chat body is viewport-sticky. Keep its host fixed as well; otherwise
+  // the absolute rail's viewport-sized containing block bounds the sticky
+  // child and the whole chat scrolls away with the article.
+  const syncRailPosition = () => {
+    railEl.style.position = state.mode === 'chat' ? 'fixed' : 'absolute';
+    railEl.style.top = '0';
+    if (state.mode === 'chat') railEl.style.bottom = '0';
+    else railEl.style.removeProperty('bottom');
+  };
+  syncRailPosition();
+
   let railOriginTop = 0;
 
   // Native CSS Custom Highlight API: topic and chat sentences are painted as
@@ -250,6 +261,7 @@ export async function openInPageRail(rec, initialMode, options = {}) {
     // with the topic set, so no per-mode special-casing is needed here.
     state.mode = mode;
     railEl.dataset.mode = state.mode;
+    syncRailPosition();
     setRailWidthForMode();
     clearAllHighlights();
     renderRail();
