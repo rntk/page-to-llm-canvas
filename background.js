@@ -7,6 +7,7 @@ import {
   deleteAll,
   findRecordByUrl,
   migrateIndexMeta,
+  reconcileRecordStorage,
 } from './worker/storage.js';
 import {
   listChats,
@@ -17,8 +18,10 @@ import {
 } from './worker/chatStorage.js';
 import { runPipeline } from './worker/orchestrator.js';
 import { callLLMDirect } from './worker/llm.js';
-import { recordLlmMetric } from './worker/llmMetrics.js';
+import { clearLlmMetrics, recordLlmMetric } from './worker/llmMetrics.js';
 import { clearChatToolMetrics, recordChatToolMetric } from './worker/chatToolMetrics.js';
+import { clearParserMetrics } from './worker/parserMetrics.js';
+import { clearAllExtensionData, getStorageOverview } from './worker/dataManagement.js';
 import { getStoredSummariesDisabled } from './worker/summarySettings.js';
 import {
   getProvidersState,
@@ -44,6 +47,7 @@ const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
  * to persist for a later cancel message.
  */
 const activeChatRequests = new Map();
+const activeChatCompletionJobs = new Set();
 
 function registerChatRequest(turnId, controller) {
   if (!turnId) return;
@@ -630,61 +634,98 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
+  [MSG.getStorageOverview]: {
+    requiresExtensionPage: true,
+    validate: () => null,
+    async handle() {
+      return { ok: true, overview: await getStorageOverview() };
+    },
+  },
+
+  [MSG.deleteAllExtensionData]: {
+    requiresExtensionPage: true,
+    validate: () => null,
+    async handle() {
+      const pipelineJobs = Array.from(_jobRegistry.values(), (job) => job.promise);
+      for (const key of Array.from(_jobRegistry.keys())) cancelActivePipeline(key);
+      for (const controllers of activeChatRequests.values()) {
+        for (const controller of controllers) controller.abort();
+      }
+      activeChatRequests.clear();
+
+      // Let cancelled work reach its terminal metric/log writes, then drain
+      // each metrics queue before the authoritative storage clear. This keeps
+      // an old request from restoring data immediately after reset returns.
+      await Promise.allSettled([...pipelineJobs, ...activeChatCompletionJobs]);
+      await Promise.all([clearLlmMetrics(), clearParserMetrics(), clearChatToolMetrics()]);
+      await clearAllExtensionData();
+      return { ok: true };
+    },
+  },
+
   [MSG.llmChatCompletion]: {
     requiresExtensionPage: false,
     validate: () => null,
     async handle(msg) {
-      const {
-        prompt = '',
-        messages,
-        tools,
-        toolChoice,
-        parallelToolCalls,
-        temperature = 0.8,
-        model,
-        taskType,
-        chatTurnId,
-      } = msg;
-      if (!prompt && (!Array.isArray(messages) || messages.length === 0)) {
-        return { ok: false, error: 'missing prompt or messages' };
-      }
-      // Record duration/token/cache metrics for chat calls. The orchestrator path
-      // is wrapped separately (wrapCallLLMWithRetry); callLLMDirect itself stays
-      // unmetered so pipeline calls are not double-counted here.
-      const startedAt = Date.now();
-      let sample;
-      const controller = chatTurnId ? new AbortController() : null;
-      registerChatRequest(chatTurnId, controller);
-      let result;
-      try {
-        result = await callLLMDirect({
-          prompt,
+      const completionJob = (async () => {
+        const {
+          prompt = '',
           messages,
           tools,
           toolChoice,
           parallelToolCalls,
-          temperature,
+          temperature = 0.8,
           model,
-          signal: controller?.signal,
-          metricsCollector: (collected) => {
-            if (collected && typeof collected === 'object') sample = collected;
-          },
+          taskType,
+          chatTurnId,
+        } = msg;
+        if (!prompt && (!Array.isArray(messages) || messages.length === 0)) {
+          return { ok: false, error: 'missing prompt or messages' };
+        }
+        // Record duration/token/cache metrics for chat calls. The orchestrator path
+        // is wrapped separately (wrapCallLLMWithRetry); callLLMDirect itself stays
+        // unmetered so pipeline calls are not double-counted here.
+        const startedAt = Date.now();
+        let sample;
+        const controller = chatTurnId ? new AbortController() : null;
+        registerChatRequest(chatTurnId, controller);
+        let result;
+        try {
+          result = await callLLMDirect({
+            prompt,
+            messages,
+            tools,
+            toolChoice,
+            parallelToolCalls,
+            temperature,
+            model,
+            signal: controller?.signal,
+            metricsCollector: (collected) => {
+              if (collected && typeof collected === 'object') sample = collected;
+            },
+          });
+        } finally {
+          unregisterChatRequest(chatTurnId, controller);
+        }
+        // Await (unlike the orchestrator's fire-and-forget): this handler is
+        // terminal, so a void'd write could be dropped when the service worker
+        // suspends right after the response is sent. recordLlmMetric swallows its
+        // own errors and returns void, so awaiting can't fail the response.
+        await recordLlmMetric({
+          durationMs: Date.now() - startedAt,
+          ok: result.ok,
+          taskType,
+          error: result.ok ? undefined : result.error,
+          ...sample,
         });
+        return result;
+      })();
+      activeChatCompletionJobs.add(completionJob);
+      try {
+        return await completionJob;
       } finally {
-        unregisterChatRequest(chatTurnId, controller);
+        activeChatCompletionJobs.delete(completionJob);
       }
-      // Await (unlike the orchestrator's fire-and-forget): this handler is
-      // terminal, so a void'd write could be dropped when the service worker
-      // suspends right after the response is sent. recordLlmMetric swallows its
-      // own errors and returns void, so awaiting can't fail the response.
-      await recordLlmMetric({
-        durationMs: Date.now() - startedAt,
-        ok: result.ok,
-        taskType,
-        error: result.ok ? undefined : result.error,
-        ...sample,
-      });
-      return result;
     },
   },
 
@@ -912,16 +953,17 @@ if (chrome.runtime?.onInstalled?.addListener) {
   });
 }
 
-// Backfill index projections from older versions (never throws) before the
-// options page can list records missing newer projection fields.
-void migrateIndexMeta();
-
-// Repair interrupted chat mutations and retry stale-content cleanup whenever
-// the MV3 worker starts. The routine is idempotent and shares the global
-// mutation queue with record/chat writes, so startup races cannot resurrect or
-// discard data written by a newer operation.
-void reconcileChatStorage().catch((err) => {
-  console.warn('PageToLLM Canvas: chat storage reconciliation failed:', err);
-});
+// Repair interrupted page/index writes before reconciling their dependent
+// chats. Both routines are idempotent and share the global mutation queue with
+// normal writes, so startup races cannot resurrect deleted data.
+void (async () => {
+  try {
+    await reconcileRecordStorage();
+    await migrateIndexMeta();
+    await reconcileChatStorage();
+  } catch (err) {
+    console.warn('PageToLLM Canvas: storage reconciliation failed:', err);
+  }
+})();
 
 void refreshActionProgressIcon();

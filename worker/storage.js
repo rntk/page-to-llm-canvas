@@ -1,5 +1,6 @@
 import {
   getLocal,
+  getLocalByPrefix,
   setLocal,
   removeLocal,
   queuedUpdate,
@@ -26,6 +27,7 @@ export const INDEX_SCHEMA_KEY = 'pagetollm:index-schema';
 export const INDEX_SCHEMA_VERSION = 1;
 const MAX_PROCESSING_LOG_ENTRIES = 80;
 const RECORD_SNIPPET_MAX_CHARS = 500;
+export const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
 
 // A record is physically split across three storage keys so that the
 // high-frequency writes (status/progress/log ticks) never have to
@@ -154,9 +156,10 @@ async function syncIndexMeta(key, patch, fallbackMeta) {
  * One-time backfill of index projections written by an older extension version,
  * so fields added to buildRecordMeta later (currently: `summariesDisabled`)
  * appear in listRecords for pre-existing records too. Reads only the small meta
- * docs of the entries actually missing a field, then stamps INDEX_SCHEMA_KEY so
- * subsequent startups are a single storage read. Runs at service-worker startup
- * (background.js) rather than lazily in listRecords, which must stay write-free:
+ * docs of the entries actually missing a field, then stamps a non-empty
+ * repository with INDEX_SCHEMA_KEY so subsequent startups are a single storage
+ * read. Runs at service-worker startup (background.js) rather than lazily in
+ * listRecords, which must stay write-free:
  * it is invoked from the storage.onChanged listener, and a repair write there
  * would re-trigger it.
  *
@@ -170,8 +173,10 @@ export async function migrateIndexMeta() {
   try {
     const stamped = (await getLocal(INDEX_SCHEMA_KEY))[INDEX_SCHEMA_KEY];
     if (stamped === INDEX_SCHEMA_VERSION) return;
+    let hasRecords = false;
     await queuedUpdate(INDEX_KEY, async () => {
       const idx = await readIndex();
+      hasRecords = idx.keys.length > 0;
       const missing = idx.keys.filter(
         (k) => idx.meta[k] && !hasOwn(idx.meta[k], 'summariesDisabled'),
       );
@@ -184,7 +189,9 @@ export async function migrateIndexMeta() {
         await writeIndex(idx);
       }
     });
-    await setLocal({ [INDEX_SCHEMA_KEY]: INDEX_SCHEMA_VERSION });
+    // An empty repository needs no migration stamp. Avoid recreating storage
+    // merely because the worker restarted after the user deleted everything.
+    if (hasRecords) await setLocal({ [INDEX_SCHEMA_KEY]: INDEX_SCHEMA_VERSION });
   } catch (err) {
     console.warn('PageToLLM Canvas: index meta migration failed:', err);
   }
@@ -454,6 +461,11 @@ export function buildRecordSnippet(record) {
   return `${text.slice(0, RECORD_SNIPPET_MAX_CHARS).trimEnd()}...`;
 }
 
+/** Returns all physical page-record documents, including unindexed orphans. */
+export async function allRecordStorageKeys() {
+  return Object.keys(await getLocalByPrefix(RECORD_STORAGE_PREFIX));
+}
+
 export async function deleteRecord(key) {
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
     return queuedUpdate(key, () => {
@@ -471,7 +483,7 @@ export async function deleteRecord(key) {
           summariesStorageKey(key),
           ...(await chatStorageKeysForRecord(key)),
         ];
-        await removeLocal(keys);
+        await removeLocal([...new Set(keys)]);
         try {
           await writeIndex(nextIdx);
         } catch (err) {
@@ -488,26 +500,107 @@ export async function deleteRecord(key) {
 export async function deleteAll() {
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
     return queuedUpdate(INDEX_KEY, async () => {
-      const idx = await readIndex();
-      // Reads first: gather every doc key (record docs + all chat docs) before
-      // removing anything, so a read failure aborts with nothing deleted.
-      const sKeys = idx.keys.flatMap((k) => [
-        metaStorageKey(k),
-        contentStorageKey(k),
-        summariesStorageKey(k),
-      ]);
-      for (const key of idx.keys) {
-        sKeys.push(...(await chatStorageKeysForRecord(key)));
-      }
-      // The record index and per-record chat indexes are not trusted as the
-      // sole source of truth: interrupted older deletes may have left chat
-      // documents that neither index can name. A final namespace scan makes
-      // the user-facing wipe authoritative for all chat persistence.
-      sKeys.push(...(await allChatStorageKeys()));
-      if (sKeys.length) await removeLocal([...new Set(sKeys)]);
-      await removeLocal(INDEX_KEY);
+      // Neither index is a source of truth for cleanup: an interrupted write
+      // can leave a page or chat document that no index names. Scan both owned
+      // namespaces first, then remove everything in one call so hidden orphan
+      // data is covered by the same user-facing action as visible records.
+      const keys = [
+        ...(await allRecordStorageKeys()),
+        ...(await allChatStorageKeys()),
+        INDEX_KEY,
+        INDEX_SCHEMA_KEY,
+      ];
+      await removeLocal([...new Set(keys)]);
     });
   });
+}
+
+function recordKeyFromStorageDocument(storageKey, suffix) {
+  if (!storageKey.startsWith(RECORD_STORAGE_PREFIX) || !storageKey.endsWith(suffix)) return null;
+  const key = storageKey.slice(RECORD_STORAGE_PREFIX.length, -suffix.length);
+  return key || null;
+}
+
+/**
+ * Repairs page records after interrupted multi-key writes. Meta documents are
+ * authoritative: a meta document missing from the index is made visible again
+ * so the user can inspect/delete it, ghost index entries are removed, and
+ * content/summary documents without an owning meta document are deleted.
+ */
+export async function reconcileRecordStorage() {
+  return queuedUpdate(MUTATION_QUEUE_KEY, () =>
+    queuedUpdate(INDEX_KEY, async () => {
+      const documents = await getLocalByPrefix(RECORD_STORAGE_PREFIX);
+      const groups = new Map();
+      const invalidKeys = [];
+
+      const groupFor = (key) => {
+        let group = groups.get(key);
+        if (!group) {
+          group = {};
+          groups.set(key, group);
+        }
+        return group;
+      };
+
+      for (const [storageKey, value] of Object.entries(documents)) {
+        const metaKey = recordKeyFromStorageDocument(storageKey, ':meta');
+        if (metaKey && metaStorageKey(metaKey) === storageKey) {
+          groupFor(metaKey).meta = value;
+          groupFor(metaKey).metaStorageKey = storageKey;
+          continue;
+        }
+        const contentKey = recordKeyFromStorageDocument(storageKey, ':content');
+        if (contentKey && contentStorageKey(contentKey) === storageKey) {
+          groupFor(contentKey).content = value;
+          continue;
+        }
+        const summariesKey = recordKeyFromStorageDocument(storageKey, ':summaries');
+        if (summariesKey && summariesStorageKey(summariesKey) === storageKey) {
+          groupFor(summariesKey).summaries = value;
+          continue;
+        }
+        // Unknown record-namespace documents may belong to a newer extension
+        // version. Leave them for explicit per-page/all-page cleanup.
+      }
+
+      const current = await readIndex();
+      const next = { keys: [], meta: {} };
+      const seen = new Set();
+      const addRecord = (key, group) => {
+        if (
+          seen.has(key) ||
+          !group?.meta ||
+          typeof group.meta !== 'object' ||
+          Array.isArray(group.meta)
+        )
+          return;
+        seen.add(key);
+        next.keys.push(key);
+        next.meta[key] = buildRecordMeta({ ...(group.content || {}), ...group.meta, key });
+      };
+
+      // Preserve current ordering, then append records recovered from storage.
+      for (const key of current.keys) addRecord(key, groups.get(key));
+      for (const [key, group] of groups) addRecord(key, group);
+
+      for (const [key, group] of groups) {
+        if (group.meta && typeof group.meta === 'object' && !Array.isArray(group.meta)) continue;
+        if (group.metaStorageKey) invalidKeys.push(group.metaStorageKey);
+        if (group.content) invalidKeys.push(contentStorageKey(key));
+        if (group.summaries) invalidKeys.push(summariesStorageKey(key));
+      }
+
+      if (invalidKeys.length) await removeLocal(invalidKeys);
+      if (JSON.stringify(current) !== JSON.stringify(next)) await writeIndex(next);
+
+      return {
+        recordCount: next.keys.length,
+        recoveredCount: next.keys.filter((key) => !current.keys.includes(key)).length,
+        removedKeys: invalidKeys.length,
+      };
+    }),
+  );
 }
 
 /**

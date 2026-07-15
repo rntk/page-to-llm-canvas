@@ -15,10 +15,16 @@ function makeChromeMock() {
 
   const chromeLocal = {
     _store: store,
+    getKeys: vi.fn((cb) => cb([...store.keys()])),
     get: vi.fn((keys, cb) => {
       runtime.lastError = null;
       const result = {};
-      const keyList = Array.isArray(keys) ? keys : [keys];
+      const keyList =
+        keys === null || keys === undefined
+          ? [...store.keys()]
+          : Array.isArray(keys)
+            ? keys
+            : [keys];
       for (const k of keyList) {
         if (store.has(k)) result[k] = store.get(k);
       }
@@ -33,6 +39,11 @@ function makeChromeMock() {
       runtime.lastError = null;
       const keyList = Array.isArray(keys) ? keys : [keys];
       for (const k of keyList) store.delete(k);
+      cb();
+    }),
+    clear: vi.fn((cb) => {
+      runtime.lastError = null;
+      store.clear();
       cb();
     }),
   };
@@ -1063,6 +1074,30 @@ describe('dispatchMessage unit tests', () => {
     expect(cleared.ok).toBe(true);
     const index = chromeMock.storage.local._store.get('pagetollm:index');
     expect(index == null || index.keys?.length === 0).toBe(true);
+  });
+
+  it('reports storage categories and removes all extension data, including legacy keys', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+    await seedRecord(chromeMock, makeRecord('rec1', { status: 'done' }));
+    chromeMock.storage.local._store.set('pagetollm:llm:providers', {
+      providers: [{ id: 'provider', token: 'secret' }],
+      activeId: 'provider',
+    });
+    chromeMock.storage.local._store.set('legacy-unknown-key', { old: true });
+    const sender = { url: 'chrome-extension://test-id/options.html' };
+
+    const inspected = await dispatchMessage({ type: 'getStorageOverview' }, sender);
+    expect(inspected.ok).toBe(true);
+    expect(inspected.overview.categories.pageData.recordCount).toBe(1);
+    expect(inspected.overview.categories.providers.providerCount).toBe(1);
+    expect(inspected.overview.categories.other.keyCount).toBe(1);
+    expect(JSON.stringify(inspected)).not.toContain('secret');
+
+    const reset = await dispatchMessage({ type: 'deleteAllExtensionData' }, sender);
+    expect(reset.ok).toBe(true);
+    expect(chromeMock.storage.local.clear).toHaveBeenCalledTimes(1);
+    expect(chromeMock.storage.local._store.size).toBe(0);
   });
 
   it('handles appendChatTurn: validates input, creates the chat inline, and returns the turn', async () => {

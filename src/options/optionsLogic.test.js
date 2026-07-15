@@ -302,7 +302,7 @@ describe('actionConfirmPrompt', () => {
   it('returns a confirm string for delete', () => {
     const prompt = actionConfirmPrompt('delete');
     expect(typeof prompt).toBe('string');
-    expect(prompt).toContain('Delete this record');
+    expect(prompt).toContain('all related summaries');
   });
 
   it('returns a confirm string for reprocess containing overwrite warning', () => {

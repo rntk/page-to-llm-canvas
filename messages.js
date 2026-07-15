@@ -20,6 +20,8 @@ export const MSG = Object.freeze({
   importRecords: 'importRecords',
   deleteRecord: 'deleteRecord',
   deleteAll: 'deleteAll',
+  getStorageOverview: 'getStorageOverview',
+  deleteAllExtensionData: 'deleteAllExtensionData',
   llmChatCompletion: 'llmChatCompletion',
   cancelChatTurn: 'cancelChatTurn',
   recordChatToolMetric: 'recordChatToolMetric',

@@ -64,6 +64,19 @@ export async function removeLocal(keys) {
   });
 }
 
+/** Removes every value owned by the extension's local storage area. */
+export async function clearLocal() {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.clear(() => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
 /**
  * Per-key promise queue. Serializes all read-modify-write operations on the
  * same record so concurrent pipeline writes cannot clobber each other.

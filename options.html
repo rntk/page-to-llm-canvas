@@ -186,6 +186,25 @@
       .note--stacked {
         margin-bottom: 12px;
       }
+      .storage-total {
+        margin-top: 10px;
+        text-align: right;
+      }
+      .data-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 20px;
+        margin-top: 24px;
+      }
+      .data-actions > div {
+        padding: 18px;
+        border: 1px solid var(--ghost);
+        background: var(--surface-low);
+      }
+      .data-actions p {
+        min-height: 3em;
+        line-height: 1.5;
+      }
 
       /* Foldable sections (native <details>/<summary>) */
       details.collapsible {
@@ -478,6 +497,9 @@
           flex-direction: column;
         }
         .provider-form {
+          grid-template-columns: 1fr;
+        }
+        .data-actions {
           grid-template-columns: 1fr;
         }
         .provider-form .field.full {

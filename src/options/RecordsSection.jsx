@@ -78,7 +78,12 @@ export function RecordsSection() {
   const deleteAll = async () => {
     setError('');
     setImportMessage('');
-    if (!confirm('Delete ALL records?')) return;
+    if (
+      !confirm(
+        'Delete ALL page data? This removes selected content, sentences, topics, summaries, processing logs, and every related chat.',
+      )
+    )
+      return;
     const response = await sendMessage({ type: MSG.deleteAll });
     if (!response || !response.ok) {
       setError((response && response.error) || 'Failed to delete all records');
@@ -215,7 +220,7 @@ export function RecordsSection() {
             {isImporting ? 'Importing...' : 'Import data'}
           </button>{' '}
           <button className="danger" type="button" onClick={deleteAll}>
-            Delete all
+            Delete all page data
           </button>
         </div>
       </div>

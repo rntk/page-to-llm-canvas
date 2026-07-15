@@ -11,6 +11,7 @@ import {
   findRecordByUrl,
   buildRecordSnippet,
   migrateIndexMeta,
+  reconcileRecordStorage,
   recordExists,
   INDEX_KEY,
   INDEX_SCHEMA_KEY,
@@ -47,6 +48,7 @@ function makeChromeMock(opts = {}) {
 
   const chromeLocal = {
     _store: store,
+    getKeys: vi.fn((cb) => cb([...store.keys()])),
     get: vi.fn((keys, cb) => {
       if (state.lastErrorOnGet) {
         runtime.lastError = { message: 'get failed' };
@@ -56,7 +58,12 @@ function makeChromeMock(opts = {}) {
       }
       runtime.lastError = null;
       const result = {};
-      const keyList = Array.isArray(keys) ? keys : [keys];
+      const keyList =
+        keys === null || keys === undefined
+          ? [...store.keys()]
+          : Array.isArray(keys)
+            ? keys
+            : [keys];
       for (const k of keyList) {
         if (store.has(k)) result[k] = store.get(k);
       }
@@ -511,6 +518,16 @@ describe('migrateIndexMeta', () => {
     expect(mock.storage.local._store.get(INDEX_SCHEMA_KEY)).toBe(INDEX_SCHEMA_VERSION);
   });
 
+  it('does not recreate internal page storage when there are no records', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    await migrateIndexMeta();
+
+    expect(mock.storage.local._store.has(INDEX_SCHEMA_KEY)).toBe(false);
+    expect(mock.storage.local._store.has(INDEX_KEY)).toBe(false);
+  });
+
   it('is a stamped no-op on subsequent runs', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
@@ -612,6 +629,18 @@ describe('deleteAll', () => {
     expect(await readRecord('r2')).toBeNull();
   });
 
+  it('wipes unindexed page documents and the index schema stamp', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    mock.storage.local._store.set('pagetollm:rec:orphan:content', { text: 'hidden' });
+    mock.storage.local._store.set(INDEX_SCHEMA_KEY, INDEX_SCHEMA_VERSION);
+
+    await deleteAll();
+
+    expect(mock.storage.local._store.has('pagetollm:rec:orphan:content')).toBe(false);
+    expect(mock.storage.local._store.has(INDEX_SCHEMA_KEY)).toBe(false);
+  });
+
   it('is ordered after an in-flight writeRecord and leaves storage empty', async () => {
     const mock = makeChromeMock({ setDelay: 5 });
     vi.stubGlobal('chrome', mock);
@@ -631,6 +660,31 @@ describe('deleteAll', () => {
 
     expect(await listRecords()).toHaveLength(0);
     expect(await readRecord('r1')).toBeNull();
+  });
+});
+
+describe('reconcileRecordStorage', () => {
+  it('recovers unindexed meta records and removes ownerless payload documents', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    const record = makeRecord('recovered', { status: 'done', text: 'Recovered page text' });
+    await seedRecord(mock, record);
+
+    mock.storage.local._store.set(INDEX_KEY, { keys: ['ghost'], meta: { ghost: {} } });
+    mock.storage.local._store.set('pagetollm:rec:ownerless:content', { text: 'orphan' });
+    mock.storage.local._store.set('pagetollm:rec:ownerless:summaries', {
+      topic_summaries: { Hidden: { text: 'orphan' } },
+    });
+    mock.storage.local._store.set('pagetollm:rec:corrupt:meta', 'not a record');
+
+    const result = await reconcileRecordStorage();
+
+    expect(result).toMatchObject({ recordCount: 1, recoveredCount: 1, removedKeys: 3 });
+    expect((await listRecords()).map((item) => item.key)).toEqual(['recovered']);
+    expect((await listRecords())[0].snippet).toBe('Recovered page text');
+    expect(mock.storage.local._store.has('pagetollm:rec:ownerless:content')).toBe(false);
+    expect(mock.storage.local._store.has('pagetollm:rec:ownerless:summaries')).toBe(false);
+    expect(mock.storage.local._store.has('pagetollm:rec:corrupt:meta')).toBe(false);
   });
 });
 

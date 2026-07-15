@@ -5,6 +5,7 @@ import { ChatToolMetricsSection } from './ChatToolMetricsSection.jsx';
 import { ParserMetricsSection } from './ParserMetricsSection.jsx';
 import { ProvidersSection } from './ProvidersSection.jsx';
 import { RecordsSection } from './RecordsSection.jsx';
+import { DataManagementSection } from './DataManagementSection.jsx';
 
 export {
   ContentLanguageSection,
@@ -20,6 +21,7 @@ const OPTION_TABS = [
   { id: 'general', label: 'General' },
   { id: 'providers', label: 'Providers' },
   { id: 'records', label: 'Records' },
+  { id: 'data', label: 'Data' },
   { id: 'diagnostics', label: 'Diagnostics' },
 ];
 
@@ -31,6 +33,7 @@ function tabFromHash() {
 
 export function OptionsApp() {
   const [activeTab, setActiveTab] = useState(tabFromHash);
+  const [dataVersion, setDataVersion] = useState(0);
 
   const selectTab = useCallback((tabId, { focus = false } = {}) => {
     setActiveTab(tabId);
@@ -103,7 +106,7 @@ export function OptionsApp() {
         aria-labelledby="options-tab-providers"
         hidden={activeTab !== 'providers'}
       >
-        <ProvidersSection />
+        <ProvidersSection key={`providers-${dataVersion}`} />
       </div>
 
       <section
@@ -113,7 +116,17 @@ export function OptionsApp() {
         aria-labelledby="options-tab-records"
         hidden={activeTab !== 'records'}
       >
-        <RecordsSection />
+        <RecordsSection key={`records-${dataVersion}`} />
+      </section>
+
+      <section
+        id="options-panel-data"
+        className="tab-panel"
+        role="tabpanel"
+        aria-labelledby="options-tab-data"
+        hidden={activeTab !== 'data'}
+      >
+        <DataManagementSection onDataChanged={() => setDataVersion((version) => version + 1)} />
       </section>
 
       <div

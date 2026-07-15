@@ -251,7 +251,8 @@ export function actionToMessageType(action) {
  */
 export function actionConfirmPrompt(action) {
   const map = {
-    delete: 'Delete this record?',
+    delete:
+      'Delete this page record and all related summaries, topics, processing logs, and chats?',
     reprocess: 'Reprocess this record? Existing results will be overwritten.',
     stop: 'Stop processing this record? Current queued work for this page will be cancelled.',
   };

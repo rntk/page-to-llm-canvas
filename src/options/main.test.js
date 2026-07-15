@@ -62,7 +62,7 @@ describe('options main.jsx', () => {
     await import('./main.jsx');
 
     await waitFor(() => {
-      expect(document.querySelectorAll('[role="tab"]')).toHaveLength(4);
+      expect(document.querySelectorAll('[role="tab"]')).toHaveLength(5);
     });
 
     const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
@@ -81,10 +81,10 @@ describe('options main.jsx', () => {
       expect(recordsPanel.hidden).toBe(false);
     });
 
-    tabs[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    tabs[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
     await waitFor(() => {
-      expect(tabs[3].getAttribute('aria-selected')).toBe('true');
-      expect(document.activeElement).toBe(tabs[3]);
+      expect(tabs[4].getAttribute('aria-selected')).toBe('true');
+      expect(document.activeElement).toBe(tabs[4]);
       expect(window.location.hash).toBe('#diagnostics');
     });
   });
@@ -165,7 +165,7 @@ describe('options main.jsx', () => {
       (button) => button.textContent === 'Delete',
     );
     deleteBtn.click();
-    expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('Delete this record'));
+    expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('all related summaries'));
     expect(sendMessageMock).toHaveBeenCalledWith(
       { type: 'deleteRecord', key: 'rec1' },
       expect.any(Function),
@@ -497,15 +497,58 @@ describe('options main.jsx', () => {
     });
 
     await import('./main.jsx');
+    let deleteAllBtn;
     await waitFor(() => {
-      expect(document.querySelector('.danger')).not.toBeNull();
+      deleteAllBtn = Array.from(document.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Delete all page data',
+      );
+      expect(deleteAllBtn).not.toBeUndefined();
     });
 
-    const deleteAllBtn = document.querySelector('.danger');
-
     deleteAllBtn.click();
-    expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('Delete ALL records'));
+    expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('Delete ALL page data'));
     expect(sendMessageMock).toHaveBeenCalledWith({ type: 'deleteAll' }, expect.any(Function));
+  });
+
+  it('lists every storage category and can reset all extension data', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') cb({ ok: true, items: [] });
+      else if (msg.type === 'listProviders') cb({ ok: true, providers: [], activeId: null });
+      else if (msg.type === 'getStorageOverview') {
+        cb({
+          ok: true,
+          overview: {
+            totalBytes: 4096,
+            totalKeyCount: 8,
+            categories: {
+              pageData: { bytes: 3000, keyCount: 4, recordCount: 1, chatCount: 1 },
+              providers: { bytes: 500, keyCount: 1, providerCount: 1 },
+              settings: { bytes: 100, keyCount: 1 },
+              diagnostics: { bytes: 400, keyCount: 1 },
+              other: { bytes: 96, keyCount: 1 },
+            },
+          },
+        });
+      } else if (msg.type === 'deleteAllExtensionData') cb({ ok: true });
+    });
+
+    await import('./main.jsx');
+    await waitFor(() => {
+      expect(document.querySelector('[aria-label="Extension storage categories"]')).not.toBeNull();
+    });
+
+    const resetButton = Array.from(document.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Delete all extension data',
+    );
+    resetButton.click();
+
+    expect(confirmMock).toHaveBeenCalledWith(
+      expect.stringContaining('provider settings and API tokens'),
+    );
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      { type: 'deleteAllExtensionData' },
+      expect.any(Function),
+    );
   });
 
   it('renders configured providers and marks the active one', async () => {

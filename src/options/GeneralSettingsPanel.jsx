@@ -107,6 +107,11 @@ export function HighlightColorSection() {
     void loadHighlightColor();
     const handleStorageChange = (changes, areaName) => {
       if (areaName !== 'local' || !changes || !changes[HIGHLIGHT_COLOR_KEY]) return;
+      if (changes[HIGHLIGHT_COLOR_KEY].newValue === undefined) {
+        if (persistTimer.current) clearTimeout(persistTimer.current);
+        persistTimer.current = null;
+        pendingColor.current = null;
+      }
       previewColor(changes[HIGHLIGHT_COLOR_KEY].newValue);
     };
     try {
