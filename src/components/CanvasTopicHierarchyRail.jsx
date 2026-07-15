@@ -27,6 +27,10 @@ function getCachedAccentColor(fullPath, depth) {
   return color;
 }
 
+function isElementVerticallyInBounds(elementRect, boundsRect) {
+  return elementRect.bottom > boundsRect.top && elementRect.top < boundsRect.bottom;
+}
+
 // One rail card, memoized so a hover (which flips is-active/is-selected on at
 // most two cards) re-renders only those cards instead of the whole column.
 // `card`, the handlers, and `accentColor` are referentially stable across a
@@ -44,6 +48,7 @@ const TopicCard = React.memo(function TopicCard({
   onTopicLeave,
   onTopicClick,
   onToggleRead,
+  cardRef,
 }) {
   const titleLineBudget = getTitleLineBudget(card.height);
   // Scoped to startSentence (not the whole card object, which gets a fresh
@@ -83,6 +88,7 @@ const TopicCard = React.memo(function TopicCard({
 
   return (
     <button
+      ref={cardRef}
       type="button"
       className={classes}
       style={{
@@ -311,6 +317,63 @@ function CanvasTopicHierarchyRail({
   // card's height depends on its text and zoom-adjusted font size, so we
   // remeasure whenever either changes.
   const summaryRef = React.useRef(null);
+  const summaryAnchorCardRef = React.useRef(null);
+  const [isSummaryAnchorInView, setIsSummaryAnchorInView] = React.useState(true);
+  const setSummaryAnchorCardRef = React.useCallback((element) => {
+    summaryAnchorCardRef.current = element;
+  }, []);
+
+  // Canvas panning updates CSS custom properties directly, bypassing React
+  // renders. Watch the transformed canvas viewport's style and compare the
+  // matched rail card with the canvas bounds so an old summary is unmounted as
+  // soon as its topic/sentences leave view.
+  React.useLayoutEffect(() => {
+    const anchor = summaryAnchorCardRef.current;
+    const canvasArea = anchor?.closest('.canvas-area');
+    const canvasViewport = anchor?.closest('.canvas-viewport');
+    // A missing anchor can occur briefly while the card list is changing. Keep
+    // the existing summary visible until there is a real canvas/card pair to
+    // measure, rather than flashing it out on a transient render.
+    if (!show || !summaryAnchorCard || !anchor || !canvasArea) {
+      setIsSummaryAnchorInView(true);
+      return undefined;
+    }
+
+    let frame = 0;
+    const updateVisibility = () => {
+      frame = 0;
+      const anchorRect = anchor.getBoundingClientRect();
+      const canvasRect = canvasArea.getBoundingClientRect();
+      const isInView = isElementVerticallyInBounds(anchorRect, canvasRect);
+      setIsSummaryAnchorInView((wasInView) => (wasInView === isInView ? wasInView : isInView));
+    };
+    const scheduleVisibilityUpdate = () => {
+      if (!frame) frame = window.requestAnimationFrame(updateVisibility);
+    };
+
+    updateVisibility();
+    const styleObserver =
+      canvasViewport && typeof window.MutationObserver !== 'undefined'
+        ? new window.MutationObserver(scheduleVisibilityUpdate)
+        : null;
+    styleObserver?.observe(canvasViewport, { attributes: true, attributeFilter: ['style', 'class'] });
+
+    const resizeObserver =
+      typeof window.ResizeObserver !== 'undefined'
+        ? new window.ResizeObserver(scheduleVisibilityUpdate)
+        : null;
+    resizeObserver?.observe(canvasArea);
+    resizeObserver?.observe(anchor);
+    window.addEventListener('resize', scheduleVisibilityUpdate);
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      styleObserver?.disconnect();
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', scheduleVisibilityUpdate);
+    };
+  }, [show, summaryAnchorCard]);
+
   React.useLayoutEffect(() => {
     const el = summaryRef.current;
     if (!el) return;
@@ -336,7 +399,7 @@ function CanvasTopicHierarchyRail({
 
   return (
     <>
-      {currentTopicSummary && (
+      {currentTopicSummary && isSummaryAnchorInView && (
         <aside
           ref={summaryRef}
           className="canvas-topic-current-summary"
@@ -417,6 +480,7 @@ function CanvasTopicHierarchyRail({
                   isYouTube={isYouTube}
                   sourceUrl={sourceUrl}
                   sentences={sentences}
+                  cardRef={summaryAnchorCard?.key === card.key ? setSummaryAnchorCardRef : null}
                   onTopicEnter={onTopicEnter}
                   onTopicLeave={onTopicLeave}
                   onTopicClick={onTopicClick}
