@@ -20,11 +20,6 @@ export async function persistChatTurn(key, chatId, turn) {
   return { chat: response.chat, messages: response.messages, events: response.events };
 }
 
-export async function removeStoredChatEvent(key, chatId, seq) {
-  const response = await request({ type: MSG.deleteChatEvent, key, chatId, seq });
-  return response.chat || null;
-}
-
 export async function removeStoredChat(key, chatId) {
   await request({ type: MSG.deleteChat, key, chatId });
 }

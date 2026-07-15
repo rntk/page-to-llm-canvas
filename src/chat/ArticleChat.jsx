@@ -147,7 +147,6 @@ export default function ArticleChat({
     startNewChat,
     selectEvent,
     clearSelection,
-    deleteEvent,
     deleteChat,
     adoptPersistedTurn,
     reconcilePersistedTurn,
@@ -563,7 +562,6 @@ export default function ArticleChat({
             onSelectEvent={(event) => {
               if (!isLoading && !isLoadingHistory && !isMutatingHistory) selectEvent(event);
             }}
-            onDeleteEvent={(event) => void deleteEvent(event)}
             disabled={isLoading || isLoadingHistory || isMutatingHistory}
             subject={subjectLabel}
             getEventTimestamp={getEventTimestamp}

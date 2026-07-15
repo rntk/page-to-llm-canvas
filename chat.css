@@ -92,10 +92,17 @@
 .pagetollm-chat-history-item,
 .pagetollm-chat-event {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px;
   margin-bottom: 6px;
   border: 1px solid var(--ghost);
   background: var(--surface);
+}
+
+.pagetollm-chat-history-item {
+  grid-template-columns: minmax(0, 1fr) 30px;
+}
+
+.pagetollm-chat-event {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .pagetollm-chat-history-item.is-active,
@@ -155,8 +162,7 @@
   white-space: nowrap;
 }
 
-.pagetollm-chat-history-item button.is-delete,
-.pagetollm-chat-event button.is-delete {
+.pagetollm-chat-history-item button.is-delete {
   display: flex;
   align-items: center;
   justify-content: center;

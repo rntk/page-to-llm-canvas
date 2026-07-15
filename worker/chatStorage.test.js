@@ -3,8 +3,8 @@ import {
   listChats,
   readChat,
   appendChatTurn,
-  deleteChatEvent,
   deleteChatHistory,
+  reconcileChatStorage,
   MAX_CHAT_TURNS,
 } from './chatStorage.js';
 import {
@@ -40,6 +40,10 @@ function makeChromeMock(opts = {}) {
 
   const chromeLocal = {
     _store: store,
+    getKeys: vi.fn((cb) => {
+      runtime.lastError = null;
+      cb([...store.keys()]);
+    }),
     get: vi.fn((keys, cb) => {
       if (state.lastErrorOnGet) {
         runtime.lastError = { message: 'get failed' };
@@ -49,7 +53,12 @@ function makeChromeMock(opts = {}) {
       }
       runtime.lastError = null;
       const result = {};
-      const keyList = Array.isArray(keys) ? keys : [keys];
+      const keyList =
+        keys === null || keys === undefined
+          ? [...store.keys()]
+          : Array.isArray(keys)
+            ? keys
+            : [keys];
       for (const k of keyList) {
         if (store.has(k)) result[k] = store.get(k);
       }
@@ -126,7 +135,7 @@ describe('per-chat history and events', () => {
   // hidden messages excluded from messageCount, events included in
   // eventCount, title derived from the first visible user message).
 
-  it('isolates events by chat and supports event/chat deletion', async () => {
+  it('isolates read-only events by chat and removes them with chat deletion', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
     await seedRecord(mock, makeRecord('article'));
@@ -139,42 +148,120 @@ describe('per-chat history and events', () => {
 
     expect((await readChat('article', first.chatId)).events).toHaveLength(1);
     expect((await readChat('article', second.chatId)).events).toHaveLength(1);
-    expect(await deleteChatEvent('article', first.chatId, firstEvents[0].seq)).toMatchObject({
-      chatId: first.chatId,
-      events: [],
-    });
-    expect((await readChat('article', first.chatId)).events).toEqual([]);
+    expect(firstEvents[0].seq).toBe(1);
     expect((await readChat('article', second.chatId)).events).toHaveLength(1);
     expect(await deleteChatHistory('article', second.chatId)).toBe(true);
     expect(await readChat('article', second.chatId)).toBeNull();
   });
 
-  it('removes all chat documents when the record is deleted', async () => {
+  it('keeps a chat discoverable when document removal fails so deletion can be retried', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const { chat } = await appendChatTurn('article', null, {
+      turnId: 'delete-retry-turn',
+      messages: [{ role: 'user', content: 'Delete me' }],
+    });
+    const documentKey = `pagetollm:chats:article:${chat.chatId}`;
+
+    mock._state.lastErrorOnRemove = true;
+    await expect(deleteChatHistory('article', chat.chatId)).rejects.toThrow('remove failed');
+
+    mock._state.lastErrorOnRemove = false;
+    expect(mock.storage.local._store.has(documentKey)).toBe(true);
+    expect(await listChats('article')).toEqual([expect.objectContaining({ chatId: chat.chatId })]);
+
+    await expect(deleteChatHistory('article', chat.chatId)).resolves.toBe(true);
+    expect(mock.storage.local._store.has(documentKey)).toBe(false);
+    expect(await listChats('article')).toEqual([]);
+  });
+
+  it('treats deletion of an already-absent chat as an idempotent success', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const { chat } = await appendChatTurn('article', null, {
+      messages: [{ role: 'user', content: 'Delete me once' }],
+    });
+
+    await expect(deleteChatHistory('article', chat.chatId)).resolves.toBe(true);
+    await expect(deleteChatHistory('article', chat.chatId)).resolves.toBe(true);
+    await expect(deleteChatHistory('article', 'chat_never_existed')).resolves.toBe(true);
+  });
+
+  it('does not let a colon-delimited chat id address another record document', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('a'));
+    await seedRecord(mock, makeRecord('a:b'));
+    const { chat } = await appendChatTurn('a:b', null, {
+      messages: [{ role: 'user', content: 'Belongs to a:b' }],
+    });
+    const aliasedChatId = `b:${chat.chatId}`;
+
+    expect(await readChat('a', aliasedChatId)).toBeNull();
+    await expect(
+      appendChatTurn('a', aliasedChatId, {
+        messages: [{ role: 'user', content: 'Must not cross records' }],
+      }),
+    ).rejects.toThrow('chat not found');
+    await expect(deleteChatHistory('a', aliasedChatId)).resolves.toBe(true);
+
+    expect(await readChat('a:b', chat.chatId)).not.toBeNull();
+  });
+
+  it('removes the empty chat index after deleting the final chat', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const { chat } = await appendChatTurn('article', null, {
+      messages: [{ role: 'user', content: 'The only chat' }],
+    });
+    const indexKey = 'pagetollm:chats:article:index';
+
+    expect(mock.storage.local._store.has(indexKey)).toBe(true);
+    await deleteChatHistory('article', chat.chatId);
+    expect(mock.storage.local._store.has(indexKey)).toBe(false);
+  });
+
+  it('removes all chat documents when the record is deleted, including unindexed orphans', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
     await seedRecord(mock, makeRecord('article'));
     const { chat } = await appendChatTurn('article', null, {
       messages: [{ role: 'user', content: 'Question' }],
+    });
+    const documentKey = `pagetollm:chats:article:${chat.chatId}`;
+    mock.storage.local._store.set('pagetollm:chats:article:index', {
+      chats: [],
+      turns: [],
     });
 
     await deleteRecord('article');
 
     expect(await listChats('article')).toEqual([]);
     expect(await readChat('article', chat.chatId)).toBeNull();
+    expect(mock.storage.local._store.has(documentKey)).toBe(false);
   });
 
-  it('removes all chat documents when all records are deleted', async () => {
+  it('removes all chat documents when all records are deleted, including unindexed orphans', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
     await seedRecord(mock, makeRecord('article'));
     const { chat } = await appendChatTurn('article', null, {
       messages: [{ role: 'user', content: 'Question' }],
     });
+    const documentKey = `pagetollm:chats:article:${chat.chatId}`;
+    mock.storage.local._store.set('pagetollm:chats:article:index', {
+      chats: [],
+      turns: [],
+    });
 
     await deleteAll();
 
     expect(await listChats('article')).toEqual([]);
     expect(await readChat('article', chat.chatId)).toBeNull();
+    expect(mock.storage.local._store.has(documentKey)).toBe(false);
   });
 
   it('deletes nothing when a chat-index read fails during deleteAll', async () => {
@@ -212,6 +299,139 @@ describe('per-chat history and events', () => {
   // 'createChat refuses to create a chat for a missing record' is covered by
   // the appendChatTurn describe block's 'throws record not found when
   // creating a chat for a missing record'.
+});
+
+// ---------------------------------------------------------------------------
+// Durable cleanup and repair
+// ---------------------------------------------------------------------------
+
+describe('reconcileChatStorage', () => {
+  it('repairs valid orphan documents and removes stale or dangling storage', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const { chat } = await appendChatTurn('article', null, {
+      turnId: 'turn-indexed',
+      messages: [{ role: 'user', content: 'Indexed chat' }],
+    });
+
+    const store = mock.storage.local._store;
+    const indexKey = 'pagetollm:chats:article:index';
+    const contentRevision = store.get('pagetollm:rec:article:meta').contentRevision;
+    const orphan = {
+      ...chat,
+      chatId: 'chat_valid_orphan',
+      title: 'Recovered chat',
+      createdAt: chat.createdAt + 1,
+      updatedAt: chat.updatedAt + 1,
+      messages: [
+        {
+          ...chat.messages[0],
+          id: 'message_valid_orphan',
+          content: 'Recovered chat',
+          turnId: 'turn-valid-orphan',
+        },
+      ],
+      turnIds: ['turn-valid-orphan'],
+    };
+    const stale = {
+      ...orphan,
+      chatId: 'chat_stale_revision',
+      contentRevision: 'rev_superseded',
+    };
+    const recordless = {
+      ...orphan,
+      chatId: 'chat_recordless',
+      contentRevision,
+    };
+    store.set('pagetollm:chats:article:chat_valid_orphan', orphan);
+    store.set('pagetollm:chats:article:chat_stale_revision', stale);
+    store.set('pagetollm:chats:missing:chat_recordless', recordless);
+
+    const index = store.get(indexKey);
+    index.chats.push(
+      {
+        chatId: stale.chatId,
+        title: stale.title,
+        createdAt: stale.createdAt,
+        updatedAt: stale.updatedAt,
+        messageCount: 1,
+        eventCount: 0,
+        contentRevision: stale.contentRevision,
+      },
+      {
+        chatId: 'chat_missing_document',
+        title: 'Dangling summary',
+        createdAt: 1,
+        updatedAt: 1,
+        messageCount: 1,
+        eventCount: 0,
+        contentRevision,
+      },
+    );
+    index.turns.push(
+      { turnId: 'turn-stale', chatId: stale.chatId },
+      { turnId: 'turn-missing', chatId: 'chat_missing_document' },
+    );
+
+    await reconcileChatStorage();
+
+    expect(store.has('pagetollm:chats:article:chat_stale_revision')).toBe(false);
+    expect(store.has('pagetollm:chats:missing:chat_recordless')).toBe(false);
+    expect(store.get('pagetollm:chats:article:chat_valid_orphan')).toEqual(orphan);
+
+    const repaired = store.get(indexKey);
+    expect(repaired.chats.map((summary) => summary.chatId).sort()).toEqual(
+      [chat.chatId, orphan.chatId].sort(),
+    );
+    expect(repaired.chats).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          chatId: orphan.chatId,
+          title: orphan.title,
+          messageCount: 1,
+          eventCount: 0,
+          contentRevision,
+        }),
+      ]),
+    );
+    expect([...repaired.turns].sort((a, b) => a.turnId.localeCompare(b.turnId))).toEqual(
+      [
+        { turnId: 'turn-indexed', chatId: chat.chatId },
+        { turnId: 'turn-valid-orphan', chatId: orphan.chatId },
+      ].sort((a, b) => a.turnId.localeCompare(b.turnId)),
+    );
+  });
+
+  it('finishes stale-revision cleanup after the original prune remove fails', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const { chat } = await appendChatTurn('article', null, {
+      turnId: 'turn-before-revision',
+      messages: [{ role: 'user', content: 'Old revision' }],
+    });
+    const documentKey = `pagetollm:chats:article:${chat.chatId}`;
+    const indexKey = 'pagetollm:chats:article:index';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    mock._state.lastErrorOnRemove = true;
+    await updateRecord('article', { text: 'replacement' }, { bumpContentRevision: true });
+    mock._state.lastErrorOnRemove = false;
+
+    expect(warn).toHaveBeenCalledWith(
+      'PageToLLM Canvas: stale chat cleanup failed:',
+      expect.objectContaining({ message: 'remove failed' }),
+    );
+    expect(mock.storage.local._store.has(documentKey)).toBe(true);
+
+    await reconcileChatStorage();
+
+    expect(mock.storage.local._store.has(documentKey)).toBe(false);
+    expect(mock.storage.local._store.has(indexKey)).toBe(false);
+    expect(await listChats('article')).toEqual([]);
+    warn.mockRestore();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -454,10 +674,7 @@ describe('appendChatTurn', () => {
     expect(await listChats('article')).toEqual([]);
     expect(await readChat('article', chat.chatId)).toBeNull();
     expect(mock.storage.local._store.has(`pagetollm:chats:article:${chat.chatId}`)).toBe(false);
-    expect(mock.storage.local._store.get('pagetollm:chats:article:index')).toEqual({
-      chats: [],
-      turns: [],
-    });
+    expect(mock.storage.local._store.has('pagetollm:chats:article:index')).toBe(false);
     await expect(
       appendChatTurn('article', chat.chatId, {
         turnId: 'after-reprocess',
@@ -480,10 +697,7 @@ describe('appendChatTurn', () => {
     });
 
     expect(mock.storage.local._store.has(`pagetollm:chats:article:${chat.chatId}`)).toBe(false);
-    expect(mock.storage.local._store.get('pagetollm:chats:article:index')).toEqual({
-      chats: [],
-      turns: [],
-    });
+    expect(mock.storage.local._store.has('pagetollm:chats:article:index')).toBe(false);
   });
 
   it('retains a bounded number of complete recent turns', async () => {
@@ -506,6 +720,11 @@ describe('appendChatTurn', () => {
     expect(stored.turnIds).toHaveLength(MAX_CHAT_TURNS);
     expect(stored.messages).toHaveLength(MAX_CHAT_TURNS * 2);
     expect(stored.messages[0].content).toBe('Question 3');
+    const retryIndex = mock.storage.local._store.get('pagetollm:chats:article:index').turns;
+    expect(retryIndex).toHaveLength(MAX_CHAT_TURNS);
+    expect(retryIndex.map((item) => item.turnId)).toEqual(
+      Array.from({ length: MAX_CHAT_TURNS }, (_, i) => `turn-${i + 3}`),
+    );
   });
 
   it('derives the title from the first visible user message in the batch', async () => {

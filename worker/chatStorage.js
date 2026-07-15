@@ -3,6 +3,7 @@
 // realm-neutral key helpers; storage.js owns the one-way cascade dependency.
 import {
   getLocal,
+  getLocalByPrefix,
   setLocal,
   removeLocal,
   queuedUpdate,
@@ -24,6 +25,8 @@ const MAX_TURN_EVENTS = 200;
 const MAX_LEGACY_MESSAGES = 400;
 const MAX_LEGACY_EVENTS = 200;
 const MAX_TURN_INDEX_ENTRIES = 200;
+const CHAT_STORAGE_PREFIX = 'pagetollm:chats:';
+const CHAT_INDEX_SUFFIX = ':index';
 
 // Every chat mutation serializes on the same global mutation queue as the
 // record writes, so a chat write and a cascade-delete of the same record can
@@ -61,6 +64,75 @@ function chatSummary(chat) {
     eventCount: chat.events.length,
     contentRevision: chat.contentRevision,
   };
+}
+
+function isSafeChatId(value) {
+  return typeof value === 'string' && !!value && !value.includes(':');
+}
+
+function isStoredChatDocument(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    isSafeChatId(value.chatId) &&
+    Array.isArray(value.messages) &&
+    Array.isArray(value.events)
+  );
+}
+
+function recordKeyFromChatIndexStorageKey(storageKey) {
+  if (!storageKey.startsWith(CHAT_STORAGE_PREFIX) || !storageKey.endsWith(CHAT_INDEX_SUFFIX)) {
+    return null;
+  }
+  const key = storageKey.slice(CHAT_STORAGE_PREFIX.length, -CHAT_INDEX_SUFFIX.length);
+  return key || null;
+}
+
+function recordKeyFromChatDocumentStorageEntry(storageKey, chat) {
+  if (!isStoredChatDocument(chat) || !storageKey.startsWith(CHAT_STORAGE_PREFIX)) return null;
+  const suffix = `:${chat.chatId}`;
+  if (!storageKey.endsWith(suffix)) return null;
+  const key = storageKey.slice(CHAT_STORAGE_PREFIX.length, -suffix.length);
+  return key && chatDocumentStorageKey(key, chat.chatId) === storageKey ? key : null;
+}
+
+function chatTurnIds(chat) {
+  const ids = [];
+  const seen = new Set();
+  const add = (turnId) => {
+    if (typeof turnId !== 'string' || !turnId || seen.has(turnId)) return;
+    seen.add(turnId);
+    ids.push(turnId);
+  };
+  (Array.isArray(chat.turnIds) ? chat.turnIds : []).forEach(add);
+  (Array.isArray(chat.messages) ? chat.messages : []).forEach((message) => add(message?.turnId));
+  (Array.isArray(chat.events) ? chat.events : []).forEach((event) => add(event?.turnId));
+  return ids.slice(-MAX_CHAT_TURNS);
+}
+
+function chatTurnMappings(chat) {
+  const timestamps = new Map();
+  for (const item of [...chat.messages, ...chat.events]) {
+    if (typeof item?.turnId !== 'string' || !item.turnId) continue;
+    const at = Number.isFinite(item.createdAt) ? item.createdAt : chat.updatedAt;
+    timestamps.set(item.turnId, Math.max(timestamps.get(item.turnId) || 0, at || 0));
+  }
+  return chatTurnIds(chat).map((turnId, order) => ({
+    turnId,
+    chatId: chat.chatId,
+    at: timestamps.get(turnId) || chat.updatedAt || chat.createdAt || 0,
+    order,
+  }));
+}
+
+function normalizedStoredIndex(value) {
+  return value && Array.isArray(value.chats)
+    ? { chats: value.chats, turns: Array.isArray(value.turns) ? value.turns : [] }
+    : null;
+}
+
+function sameStoredValue(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 async function updateChatAndIndex(key, chat, currentIndex) {
@@ -164,6 +236,7 @@ function isCompatible(chat, contentRevision) {
 }
 
 async function readStoredChat(key, chatId) {
+  if (!isSafeChatId(chatId)) return null;
   const storageKey = chatDocumentStorageKey(key, chatId);
   return (await getLocal(storageKey))[storageKey] || null;
 }
@@ -172,12 +245,12 @@ export async function listChats(key) {
   const contentRevision = await readRecordContentRevision(key);
   if (!contentRevision) return [];
   return (await readChatIndex(key)).chats.filter(
-    (chat) => normalizedChatRevision(chat) === contentRevision,
+    (chat) => isSafeChatId(chat?.chatId) && normalizedChatRevision(chat) === contentRevision,
   );
 }
 
 export async function readChat(key, chatId) {
-  if (!key || !chatId) return null;
+  if (!key || !isSafeChatId(chatId)) return null;
   const [chat, contentRevision] = await Promise.all([
     readStoredChat(key, chatId),
     readRecordContentRevision(key),
@@ -201,7 +274,7 @@ function applyRetention(chat) {
     messages = [...legacyMessages, ...messages.filter((item) => item.turnId)];
     events = [...legacyEvents, ...events.filter((item) => item.turnId)];
   }
-  const turnIds = Array.isArray(chat.turnIds) ? chat.turnIds : [];
+  const turnIds = Array.isArray(chat.turnIds) ? [...chat.turnIds] : [];
   if (
     (messages.some((item) => item.turnId === legacyTurnId) ||
       events.some((item) => item.turnId === legacyTurnId)) &&
@@ -310,8 +383,13 @@ export async function appendChatTurn(key, chatId, turn = {}) {
       messages.find((message) => message.role === 'user' && !message.hidden),
     );
 
+    const retainedTurnIds = new Set(chat.turnIds);
     index.turns = [
-      ...index.turns.filter((item) => item.turnId !== turnId),
+      ...index.turns.filter(
+        (item) =>
+          item.turnId !== turnId &&
+          (item.chatId !== chat.chatId || retainedTurnIds.has(item.turnId)),
+      ),
       { turnId, chatId: chat.chatId },
     ].slice(-MAX_TURN_INDEX_ENTRIES);
     await updateChatAndIndex(key, chat, index);
@@ -319,28 +397,31 @@ export async function appendChatTurn(key, chatId, turn = {}) {
   });
 }
 
-export async function deleteChatEvent(key, chatId, seq) {
-  return queuedChatUpdate(key, async () => {
-    const chat = await readChat(key, chatId);
-    if (!chat) throw new Error('chat not found');
-    const nextEvents = chat.events.filter((event) => event.seq !== seq);
-    if (nextEvents.length === chat.events.length) return null;
-    chat.events = nextEvents;
-    chat.updatedAt = Date.now();
-    await updateChatAndIndex(key, chat);
-    return chat;
-  });
-}
-
 export async function deleteChatHistory(key, chatId) {
   return queuedChatUpdate(key, async () => {
     const index = await readChatIndex(key);
-    const existed = index.chats.some((chat) => chat.chatId === chatId);
-    if (!existed) return false;
-    index.chats = index.chats.filter((chat) => chat.chatId !== chatId);
-    index.turns = index.turns.filter((turn) => turn.chatId !== chatId);
-    await writeChatIndex(key, index);
-    await removeLocal(chatDocumentStorageKey(key, chatId));
+    const nextChats = index.chats.filter((chat) => chat.chatId !== chatId);
+    const nextTurns = index.turns.filter((turn) => turn.chatId !== chatId);
+
+    // The document is the space-heavy object and must be removed before its
+    // discoverability is dropped. If removal fails, the unchanged index keeps
+    // the chat visible and retryable instead of stranding an orphan forever.
+    // Chat ids are storage-key segments. Colons are never generated and would
+    // make `{ key: 'a', chatId: 'b:chat_x' }` alias record `a:b`'s document.
+    // Unsafe legacy/corrupt summaries can be dropped, but must never address a
+    // physical document.
+    if (isSafeChatId(chatId)) await removeLocal(chatDocumentStorageKey(key, chatId));
+
+    if (nextChats.length === 0) {
+      // No chat owns the retry mappings anymore; remove the empty aggregate
+      // instead of leaving one small tombstone key per record.
+      await removeLocal(chatIndexStorageKey(key));
+    } else if (nextChats.length !== index.chats.length || nextTurns.length !== index.turns.length) {
+      await writeChatIndex(key, { ...index, chats: nextChats, turns: nextTurns });
+    }
+
+    // Deletion is idempotent. A retry after a lost acknowledgement succeeds
+    // even when both the document and its index entry were already absent.
     return true;
   });
 }
@@ -352,17 +433,44 @@ export async function deleteChatHistory(key, chatId) {
  */
 export async function pruneChatsForContentRevision(key, contentRevision) {
   const index = await readChatIndex(key);
+  const allItems = await getLocalByPrefix(CHAT_STORAGE_PREFIX);
+  const staleDocumentKeys = Object.entries(allItems)
+    .filter(
+      ([storageKey, chat]) =>
+        recordKeyFromChatDocumentStorageEntry(storageKey, chat) === key &&
+        !isCompatible(chat, contentRevision),
+    )
+    .map(([storageKey]) => storageKey);
   const staleChats = index.chats.filter((chat) => normalizedChatRevision(chat) !== contentRevision);
-  if (staleChats.length === 0) return 0;
+  if (staleChats.length === 0 && staleDocumentKeys.length === 0) {
+    if (index.chats.length === 0) await removeLocal(chatIndexStorageKey(key));
+    return 0;
+  }
 
   const staleChatIds = new Set(staleChats.map((chat) => chat.chatId));
-  await removeLocal(staleChats.map((chat) => chatDocumentStorageKey(key, chat.chatId)));
-  await writeChatIndex(key, {
-    ...index,
-    chats: index.chats.filter((chat) => !staleChatIds.has(chat.chatId)),
-    turns: index.turns.filter((turn) => !staleChatIds.has(turn.chatId)),
-  });
-  return staleChats.length;
+  const documentKeys = [
+    ...new Set([
+      ...staleChats
+        .filter((chat) => isSafeChatId(chat?.chatId))
+        .map((chat) => chatDocumentStorageKey(key, chat.chatId)),
+      ...staleDocumentKeys,
+    ]),
+  ];
+  if (documentKeys.length) await removeLocal(documentKeys);
+  const chats = index.chats.filter((chat) => !staleChatIds.has(chat.chatId));
+  if (chats.length === 0) {
+    await removeLocal(chatIndexStorageKey(key));
+  } else {
+    await writeChatIndex(key, {
+      ...index,
+      chats,
+      turns: index.turns.filter((turn) => !staleChatIds.has(turn.chatId)),
+    });
+  }
+  return new Set([
+    ...staleChatIds,
+    ...staleDocumentKeys.map((storageKey) => allItems[storageKey]?.chatId).filter(Boolean),
+  ]).size;
 }
 
 /**
@@ -372,8 +480,129 @@ export async function pruneChatsForContentRevision(key, contentRevision) {
  */
 export async function chatStorageKeysForRecord(key) {
   const index = await readChatIndex(key);
+  const allItems = await getLocalByPrefix(CHAT_STORAGE_PREFIX);
+  const discoveredDocuments = Object.entries(allItems)
+    .filter(
+      ([storageKey, value]) => recordKeyFromChatDocumentStorageEntry(storageKey, value) === key,
+    )
+    .map(([storageKey]) => storageKey);
   return [
     chatIndexStorageKey(key),
-    ...index.chats.map((chat) => chatDocumentStorageKey(key, chat.chatId)),
+    ...index.chats
+      .filter((chat) => isSafeChatId(chat?.chatId))
+      .map((chat) => chatDocumentStorageKey(key, chat.chatId)),
+    ...discoveredDocuments,
   ];
+}
+
+/** Every key owned by chat persistence, including keys no record/chat index can
+ * currently discover. Used by deleteAll as the final defense against orphans. */
+export async function allChatStorageKeys() {
+  const allItems = await getLocalByPrefix(CHAT_STORAGE_PREFIX);
+  return Object.keys(allItems).filter((storageKey) => storageKey.startsWith(CHAT_STORAGE_PREFIX));
+}
+
+/**
+ * Rebuilds chat indexes from valid same-revision documents and removes data
+ * that no longer has a record owner or belongs to superseded record content.
+ * The scan is globally serialized with every record/chat mutation, so it can
+ * safely repair interrupted multi-key operations without racing new writes.
+ *
+ * Documents are authoritative for recovery: a valid unindexed document is
+ * re-listed so the user can see and delete it. Stale/recordless documents are
+ * removed before repaired indexes are written; if the index write then fails,
+ * the remaining documents are still discoverable by the next scan.
+ */
+export async function reconcileChatStorage() {
+  return queuedChatUpdate(MUTATION_QUEUE_KEY, async () => {
+    const allItems = await getLocalByPrefix(CHAT_STORAGE_PREFIX);
+    const groups = new Map();
+    const invalidKeys = [];
+
+    const groupFor = (key) => {
+      let group = groups.get(key);
+      if (!group) {
+        group = { indexKey: chatIndexStorageKey(key), documents: new Map() };
+        groups.set(key, group);
+      }
+      return group;
+    };
+
+    for (const [storageKey, value] of Object.entries(allItems)) {
+      if (!storageKey.startsWith(CHAT_STORAGE_PREFIX)) continue;
+      const indexRecordKey = recordKeyFromChatIndexStorageKey(storageKey);
+      if (indexRecordKey) {
+        groupFor(indexRecordKey).storedIndex = value;
+        continue;
+      }
+      const documentRecordKey = recordKeyFromChatDocumentStorageEntry(storageKey, value);
+      if (documentRecordKey) {
+        groupFor(documentRecordKey).documents.set(storageKey, value);
+      } else {
+        invalidKeys.push(storageKey);
+      }
+    }
+
+    const metaKeys = [...groups.keys()].map((key) => recordMetaStorageKey(key));
+    const recordMetas = metaKeys.length ? await getLocal(metaKeys) : {};
+
+    const removeKeys = new Set(invalidKeys);
+    const indexWrites = {};
+    let keptChats = 0;
+
+    for (const [key, group] of groups) {
+      const meta = recordMetas[recordMetaStorageKey(key)];
+      const contentRevision = meta
+        ? typeof meta.contentRevision === 'string' && meta.contentRevision
+          ? meta.contentRevision
+          : 'legacy'
+        : null;
+
+      if (!contentRevision) {
+        removeKeys.add(group.indexKey);
+        for (const storageKey of group.documents.keys()) removeKeys.add(storageKey);
+        continue;
+      }
+
+      const chats = [];
+      const mappings = [];
+      for (const [storageKey, chat] of group.documents) {
+        if (!isCompatible(chat, contentRevision)) {
+          removeKeys.add(storageKey);
+          continue;
+        }
+        chats.push(chatSummary(chat));
+        mappings.push(...chatTurnMappings(chat));
+      }
+
+      if (chats.length === 0) {
+        removeKeys.add(group.indexKey);
+        continue;
+      }
+
+      chats.sort((a, b) => b.updatedAt - a.updatedAt);
+      mappings.sort((a, b) => a.at - b.at || a.order - b.order);
+      const uniqueMappings = new Map();
+      for (const mapping of mappings) uniqueMappings.set(mapping.turnId, mapping);
+      const repairedIndex = {
+        chats,
+        turns: [...uniqueMappings.values()]
+          .slice(-MAX_TURN_INDEX_ENTRIES)
+          .map(({ turnId, chatId }) => ({ turnId, chatId })),
+      };
+      if (!sameStoredValue(normalizedStoredIndex(group.storedIndex), repairedIndex)) {
+        indexWrites[group.indexKey] = repairedIndex;
+      }
+      keptChats += chats.length;
+    }
+
+    if (removeKeys.size) await removeLocal([...removeKeys]);
+    if (Object.keys(indexWrites).length) await setLocal(indexWrites);
+
+    return {
+      records: groups.size,
+      keptChats,
+      removedKeys: removeKeys.size,
+    };
+  });
 }

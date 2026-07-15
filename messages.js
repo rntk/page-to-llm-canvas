@@ -27,7 +27,6 @@ export const MSG = Object.freeze({
   listChats: 'listChats',
   getChat: 'getChat',
   appendChatTurn: 'appendChatTurn',
-  deleteChatEvent: 'deleteChatEvent',
   deleteChat: 'deleteChat',
   listProviders: 'listProviders',
   saveProvider: 'saveProvider',

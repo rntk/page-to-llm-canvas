@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  getStoredChat,
-  listStoredChats,
-  removeStoredChat,
-  removeStoredChatEvent,
-} from './chatApi.js';
+import { getStoredChat, listStoredChats, removeStoredChat } from './chatApi.js';
 
 /** Map a stored highlight_span event to a paintable sentence range. */
 export function eventRange(event) {
@@ -186,40 +181,6 @@ export function useChatSessions({ recordKey, applyEvents }) {
     return queued;
   }, []);
 
-  const deleteEvent = useCallback(
-    (event) =>
-      enqueueMutation(async () => {
-        const chatId = activeChatIdRef.current;
-        const requestedRecordKey = recordKeyRef.current;
-        if (!chatId) return false;
-        if (mountedRef.current) {
-          setIsMutatingHistory(true);
-          setError('');
-        }
-        try {
-          const authoritative = await removeStoredChatEvent(requestedRecordKey, chatId, event.seq);
-          const chat = authoritative || (await getStoredChat(requestedRecordKey, chatId));
-          if (
-            mountedRef.current &&
-            requestedRecordKey === recordKeyRef.current &&
-            chatId === activeChatIdRef.current
-          ) {
-            const remainingEvents = Array.isArray(chat?.events) ? chat.events : [];
-            const latest = remainingEvents.at(-1) || null;
-            adoptChat(chat, latest);
-            void refreshChats().catch(() => {});
-          }
-          return true;
-        } catch (err) {
-          if (mountedRef.current) setError(err?.message || 'Failed to delete event.');
-          return false;
-        } finally {
-          if (mountedRef.current) setIsMutatingHistory(false);
-        }
-      }),
-    [adoptChat, enqueueMutation, refreshChats],
-  );
-
   const deleteChat = useCallback(
     (chatId) =>
       enqueueMutation(async () => {
@@ -308,7 +269,6 @@ export function useChatSessions({ recordKey, applyEvents }) {
     startNewChat,
     selectEvent,
     clearSelection,
-    deleteEvent,
     deleteChat,
     adoptPersistedTurn,
     reconcilePersistedTurn,

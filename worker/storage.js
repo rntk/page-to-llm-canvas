@@ -6,7 +6,11 @@ import {
   MUTATION_QUEUE_KEY,
   resetUpdateQueues,
 } from './storagePrimitives.js';
-import { chatStorageKeysForRecord, pruneChatsForContentRevision } from './chatStorage.js';
+import {
+  allChatStorageKeys,
+  chatStorageKeysForRecord,
+  pruneChatsForContentRevision,
+} from './chatStorage.js';
 import {
   recordMetaStorageKey as metaStorageKey,
   recordContentStorageKey as contentStorageKey,
@@ -495,7 +499,12 @@ export async function deleteAll() {
       for (const key of idx.keys) {
         sKeys.push(...(await chatStorageKeysForRecord(key)));
       }
-      if (sKeys.length) await removeLocal(sKeys);
+      // The record index and per-record chat indexes are not trusted as the
+      // sole source of truth: interrupted older deletes may have left chat
+      // documents that neither index can name. A final namespace scan makes
+      // the user-facing wipe authoritative for all chat persistence.
+      sKeys.push(...(await allChatStorageKeys()));
+      if (sKeys.length) await removeLocal([...new Set(sKeys)]);
       await removeLocal(INDEX_KEY);
     });
   });

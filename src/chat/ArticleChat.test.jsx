@@ -8,7 +8,6 @@ const api = vi.hoisted(() => ({
   getStoredChat: vi.fn(),
   persistChatTurn: vi.fn(),
   removeStoredChat: vi.fn(),
-  removeStoredChatEvent: vi.fn(),
 }));
 const turnLoop = vi.hoisted(() => ({ runArticleChatTurn: vi.fn() }));
 
@@ -238,6 +237,8 @@ describe('ArticleChat persisted history', () => {
     const eventButton = container.querySelector('.pagetollm-chat-event > button');
     expect(eventButton.disabled).toBe(true);
     expect(eventButton.textContent).toContain('Timestamp unavailable');
+    expect(container.querySelectorAll('.pagetollm-chat-event > button')).toHaveLength(1);
+    expect(container.querySelector('[aria-label^="Delete event"]')).toBeNull();
     expect(container.querySelector('.pagetollm-chat-events-live').title).toContain(
       'jump the video',
     );

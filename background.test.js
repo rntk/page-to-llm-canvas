@@ -1049,17 +1049,9 @@ describe('dispatchMessage unit tests', () => {
     expect(
       (await dispatchMessage({ type: 'getChat', key: 'rec1', chatId })).chat.events,
     ).toHaveLength(1);
-    expect(
-      (
-        await dispatchMessage({
-          type: 'deleteChatEvent',
-          key: 'rec1',
-          chatId,
-          seq: createdChat.events[0].seq,
-        })
-      ).ok,
-    ).toBe(true);
     expect((await dispatchMessage({ type: 'deleteChat', key: 'rec1', chatId })).ok).toBe(true);
+    // Event history is read-only and is removed only with its owning chat.
+    expect((await dispatchMessage({ type: 'getChat', key: 'rec1', chatId })).ok).toBe(false);
 
     const deleted = await dispatchMessage({ type: 'deleteRecord', key: 'rec1' });
     expect(deleted.ok).toBe(true);
@@ -1091,6 +1083,16 @@ describe('dispatchMessage unit tests', () => {
         })
       ).error,
     ).toBe('empty turn');
+    expect(
+      (
+        await dispatchMessage({
+          type: 'appendChatTurn',
+          key: 'rec1',
+          chatId: 'other:chat_alias',
+          turn: { messages: [{ role: 'user', content: 'unsafe' }] },
+        })
+      ).error,
+    ).toBe('invalid chatId');
 
     // chatId is optional: a falsy chatId creates the chat inline.
     const first = await dispatchMessage({

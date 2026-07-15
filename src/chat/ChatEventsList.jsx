@@ -3,13 +3,13 @@ import { formatTimestampLabel } from '../utils/youtubeTimestamp.js';
 import { eventRange } from './useChatSessions.js';
 
 /**
- * List of highlight events for the active chat, with select and delete.
+ * Read-only list of highlight events for the active chat. Events can be
+ * selected to revisit their evidence, but are retained for the chat's life.
  *
  * @param {{
  *   events: object[],
  *   selectedEventSeq: number | null,
  *   onSelectEvent: (event: object) => void,
- *   onDeleteEvent: (event: object) => void,
  *   subject?: 'article' | 'video',
  *   getEventTimestamp?: (range: object) => number | null,
  *   disabled?: boolean,
@@ -19,7 +19,6 @@ export default function ChatEventsList({
   events,
   selectedEventSeq,
   onSelectEvent,
-  onDeleteEvent,
   subject = 'article',
   getEventTimestamp,
   disabled = false,
@@ -62,15 +61,6 @@ export default function ChatEventsList({
                 #{index + 1} {eventLabel}
               </strong>
               <span>{detail}</span>
-            </button>
-            <button
-              type="button"
-              className="is-delete"
-              onClick={() => onDeleteEvent(event)}
-              disabled={disabled}
-              aria-label={`Delete event ${index + 1}`}
-            >
-              ×
             </button>
           </div>
         );

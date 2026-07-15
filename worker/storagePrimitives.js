@@ -16,6 +16,30 @@ export async function getLocal(keys) {
   });
 }
 
+/** Reads only keys under one namespace when StorageArea.getKeys is available
+ * (Chrome 130+), avoiding deserialization of unrelated large record payloads.
+ * Older browsers fall back to one full read and filter the result locally. */
+export async function getLocalByPrefix(prefix) {
+  if (typeof chrome.storage.local.getKeys !== 'function') {
+    const allItems = await getLocal(null);
+    return Object.fromEntries(
+      Object.entries(allItems).filter(([storageKey]) => storageKey.startsWith(prefix)),
+    );
+  }
+
+  const keys = await new Promise((resolve, reject) => {
+    chrome.storage.local.getKeys((storedKeys) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(Array.isArray(storedKeys) ? storedKeys : []);
+    });
+  });
+  const matchingKeys = keys.filter((storageKey) => storageKey.startsWith(prefix));
+  return matchingKeys.length ? getLocal(matchingKeys) : {};
+}
+
 export async function setLocal(items) {
   return new Promise((resolve, reject) => {
     chrome.storage.local.set(items, () => {

@@ -12,8 +12,8 @@ import {
   listChats,
   readChat,
   appendChatTurn,
-  deleteChatEvent,
   deleteChatHistory,
+  reconcileChatStorage,
 } from './worker/chatStorage.js';
 import { runPipeline } from './worker/orchestrator.js';
 import { callLLMDirect } from './worker/llm.js';
@@ -58,6 +58,10 @@ function unregisterChatRequest(turnId, controller) {
   if (!controllers) return;
   controllers.delete(controller);
   if (controllers.size === 0) activeChatRequests.delete(turnId);
+}
+
+function isSafeChatId(chatId) {
+  return typeof chatId === 'string' && !!chatId && !chatId.includes(':');
 }
 
 function isExtensionPageSender(sender) {
@@ -738,7 +742,8 @@ export const MESSAGE_HANDLERS = {
     requiresExtensionPage: false,
     validate(msg) {
       if (!msg.key) return 'missing key';
-      return msg.chatId ? null : 'missing chatId';
+      if (!msg.chatId) return 'missing chatId';
+      return isSafeChatId(msg.chatId) ? null : 'invalid chatId';
     },
     async handle(msg) {
       const chat = await readChat(msg.key, msg.chatId);
@@ -752,6 +757,7 @@ export const MESSAGE_HANDLERS = {
     requiresExtensionPage: false,
     validate(msg) {
       if (!msg.key) return 'missing key';
+      if (msg.chatId && !isSafeChatId(msg.chatId)) return 'invalid chatId';
       if (!msg.turn || typeof msg.turn !== 'object') return 'missing turn';
       const hasMessages = Array.isArray(msg.turn.messages) && msg.turn.messages.length > 0;
       const hasEvents = Array.isArray(msg.turn.events) && msg.turn.events.length > 0;
@@ -763,28 +769,16 @@ export const MESSAGE_HANDLERS = {
     },
   },
 
-  [MSG.deleteChatEvent]: {
-    requiresExtensionPage: false,
-    validate(msg) {
-      if (!msg.key) return 'missing key';
-      if (!msg.chatId) return 'missing chatId';
-      return Number.isInteger(msg.seq) ? null : 'missing seq';
-    },
-    async handle(msg) {
-      const chat = await deleteChatEvent(msg.key, msg.chatId, msg.seq);
-      return chat ? { ok: true, chat } : { ok: false, error: 'event not found' };
-    },
-  },
-
   [MSG.deleteChat]: {
     requiresExtensionPage: false,
     validate(msg) {
       if (!msg.key) return 'missing key';
-      return msg.chatId ? null : 'missing chatId';
+      if (!msg.chatId) return 'missing chatId';
+      return isSafeChatId(msg.chatId) ? null : 'invalid chatId';
     },
     async handle(msg) {
-      const deleted = await deleteChatHistory(msg.key, msg.chatId);
-      return deleted ? { ok: true } : { ok: false, error: 'chat not found' };
+      await deleteChatHistory(msg.key, msg.chatId);
+      return { ok: true };
     },
   },
 
@@ -921,5 +915,13 @@ if (chrome.runtime?.onInstalled?.addListener) {
 // Backfill index projections from older versions (never throws) before the
 // options page can list records missing newer projection fields.
 void migrateIndexMeta();
+
+// Repair interrupted chat mutations and retry stale-content cleanup whenever
+// the MV3 worker starts. The routine is idempotent and shares the global
+// mutation queue with record/chat writes, so startup races cannot resurrect or
+// discard data written by a newer operation.
+void reconcileChatStorage().catch((err) => {
+  console.warn('PageToLLM Canvas: chat storage reconciliation failed:', err);
+});
 
 void refreshActionProgressIcon();
