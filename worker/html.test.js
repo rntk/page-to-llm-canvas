@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stripTagsKeepOffsets } from './html.js';
+import { decodeEntities, stripTagsKeepOffsets } from './html.js';
 
 describe('stripTagsKeepOffsets', () => {
   it('returns empty text for empty string', () => {
@@ -121,5 +121,25 @@ describe('stripTagsKeepOffsets', () => {
   it('stops at unclosed style tags without a closing tag', () => {
     const result = stripTagsKeepOffsets('<style>body{color:red}<p>after</p>');
     expect(result.text).toBe('');
+  });
+});
+
+describe('decodeEntities', () => {
+  it('decodes named entities', () => {
+    expect(decodeEntities('Claude&nbsp;Tag &amp; more &lt;x&gt;')).toBe(
+      'Claude Tag & more <x>',
+    );
+  });
+
+  it('decodes numeric and hex entities', () => {
+    expect(decodeEntities('a&#160;b&#xa0;c')).toBe('a b c');
+  });
+
+  it('leaves unknown or malformed entities untouched', () => {
+    expect(decodeEntities('a&bogus;b & c &#x110000;')).toBe('a&bogus;b & c &#x110000;');
+  });
+
+  it('returns strings without ampersands unchanged', () => {
+    expect(decodeEntities('plain text')).toBe('plain text');
   });
 });

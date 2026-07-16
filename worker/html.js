@@ -40,6 +40,27 @@ function decodeEntityAt(html, i) {
   return null;
 }
 
+/**
+ * Decodes HTML entities anywhere in a plain string (no tag handling).
+ * Unrecognized or malformed entities are left as-is.
+ */
+export function decodeEntities(str) {
+  if (!str.includes('&')) return str;
+  let out = '';
+  let i = 0;
+  while (i < str.length) {
+    const decoded = decodeEntityAt(str, i);
+    if (decoded) {
+      out += decoded[0];
+      i += decoded[1];
+    } else {
+      out += str[i];
+      i++;
+    }
+  }
+  return out;
+}
+
 function isWhitespace(ch) {
   return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f' || ch === '\v';
 }

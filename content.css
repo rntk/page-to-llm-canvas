@@ -279,7 +279,7 @@ body.pagetollm-rail-open {
   flex: 0 0 auto;
   font-family: var(--font-data);
   font-size: 18px;
-  font-weight: 700;
+  font-weight: 500;
   line-height: 1.25;
   color: var(--on-surface);
   white-space: normal;

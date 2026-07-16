@@ -357,6 +357,29 @@ describe('label normalization', () => {
     const groups = parseTopicRanges('Tech>C++: 0-1\nTech>C#: 2-3', 4);
     expect(groups.map((g) => g.label.join('>'))).toEqual(['Tech>C++', 'Tech>C#']);
   });
+
+  it('canonicalizes segments with HTML entities and repeated whitespace', () => {
+    const groups = parseTopicRanges(
+      'Tech>Claude&nbsp;Tag>Intro: 0-1\nTech>Claude&nbsp;&nbsp;Tag>Features: 2-3\nTech>Claude   Tag>Demo: 4-5',
+      6,
+    );
+    expect(groups.map((g) => g.label.join('>'))).toEqual([
+      'Tech>Claude Tag>Intro',
+      'Tech>Claude Tag>Features',
+      'Tech>Claude Tag>Demo',
+    ]);
+  });
+
+  it('merges same-topic lines that differ only in entity/whitespace encoding', () => {
+    const groups = parseTopicRanges('Tech>Claude&nbsp;Tag: 0-1\nTech>Claude  Tag: 3-4', 5);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toEqual(['Tech', 'Claude Tag']);
+  });
+
+  it('collapses non-breaking-space characters inside segments', () => {
+    const groups = parseTopicRanges('Tech>Claude  Tag: 0-2', 3);
+    expect(groups[0].label).toEqual(['Tech', 'Claude Tag']);
+  });
 });
 
 describe('overlap ordering', () => {

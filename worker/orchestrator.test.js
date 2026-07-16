@@ -24,6 +24,9 @@ vi.mock('./storage.js', () => ({
 
 vi.mock('./html.js', () => ({
   stripTagsKeepOffsets: vi.fn(),
+  // topic_parser.js uses the real decodeEntities to canonicalize label
+  // segments; the passthrough keeps entity-free fixture labels intact.
+  decodeEntities: vi.fn((s) => s),
 }));
 
 vi.mock('./sentence_splitter.js', () => ({

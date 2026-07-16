@@ -10,6 +10,8 @@
 // remaining hard failure is a response with no parseable topic ranges at all,
 // which still raises TopicParseError so the orchestrator can retry.
 
+import { decodeEntities } from './html.js';
+
 const TOPIC_LINE_RE = /^(.+):\s*(\d[\d\s,-]*)\s*$/;
 const RANGE_TOKEN_RE = /^(\d+)\s*-\s*(\d+)$/;
 const SINGLE_TOKEN_RE = /^(\d+)$/;
@@ -32,10 +34,21 @@ export class TopicParseError extends Error {
   }
 }
 
+/**
+ * Canonicalizes one label segment for storage/display: decodes HTML entities
+ * the LLM may echo (e.g. "Claude&nbsp;Tag"), then collapses every Unicode
+ * whitespace run (NBSP included) to a single space and trims. Without this,
+ * "Claude&nbsp;Tag" / "Claude  Tag" / "Claude   Tag" persist as distinct tree
+ * branches even though the dedup key would treat them as equal.
+ */
+function normalizeSegment(raw) {
+  return decodeEntities(raw).replace(/\s+/gu, ' ').trim();
+}
+
 function normalizeLabelParts(parts) {
   const out = [];
   for (const raw of parts) {
-    const part = raw.trim();
+    const part = normalizeSegment(raw);
     if (!part) continue;
     for (const sub of part.split(':')) {
       const s = sub.trim();
