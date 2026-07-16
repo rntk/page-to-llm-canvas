@@ -48,6 +48,27 @@ function LevelSwitcher({ maxLevel, selectedLevel, onSelectLevel }) {
   );
 }
 
+function HierarchicalCardTitle({ name, path, className }) {
+  const parts =
+    typeof path === 'string'
+      ? path
+          .split(' > ')
+          .map((part) => part.trim())
+          .filter(Boolean)
+      : [];
+  const parentTopics = parts.slice(0, -1);
+  const currentTopic = name || parts.at(-1) || '';
+
+  return (
+    <div className={className} title={path || currentTopic} lang="en">
+      {parentTopics.length > 0 ? (
+        <span className="pagetollm-rail-card-parent-topics">{parentTopics.join(' › ')}</span>
+      ) : null}
+      <span className="pagetollm-rail-card-current-topic">{currentTopic}</span>
+    </div>
+  );
+}
+
 function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen }) {
   const style = {
     top: `${card.box.top}px`,
@@ -79,9 +100,11 @@ function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen 
       onClick={() => onOpen(card)}
     >
       <div className="pagetollm-rail-card-content">
-        <div className="pagetollm-rail-card-title" title={card.path} lang="en">
-          {card.name}
-        </div>
+        <HierarchicalCardTitle
+          className="pagetollm-rail-card-title"
+          name={card.name}
+          path={card.path}
+        />
         {isSummary ? (
           <div className="pagetollm-rail-card-body">{card.text || '(no summary)'}</div>
         ) : (
@@ -217,9 +240,11 @@ function SummaryCursorView({
           }}
           onClick={() => onScrollToCard(activeCard)}
         >
-          <div className="pagetollm-summary-active-card-title" title={activeCard.path} lang="en">
-            {activeCard.name}
-          </div>
+          <HierarchicalCardTitle
+            className="pagetollm-summary-active-card-title"
+            name={activeCard.name}
+            path={activeCard.path}
+          />
           <div className="pagetollm-summary-active-card-body">
             {activeCard.text || '(no summary)'}
           </div>

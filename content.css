@@ -287,6 +287,17 @@ body.pagetollm-rail-open {
   hyphens: auto;
 }
 
+.pagetollm-rail-card-parent-topics {
+  display: block;
+  color: var(--on-surface-muted);
+  font-size: 0.7em;
+  font-weight: 500;
+}
+
+.pagetollm-rail-card-current-topic {
+  display: block;
+}
+
 .pagetollm-rail-card.is-topic .pagetollm-rail-card-title {
   position: sticky;
   top: var(--pagetollm-rail-sticky-offset);
@@ -637,7 +648,7 @@ body.pagetollm-rail-open {
 .pagetollm-yt-rail-card-title {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 700;
   line-height: 1.3;
   overflow-wrap: anywhere;

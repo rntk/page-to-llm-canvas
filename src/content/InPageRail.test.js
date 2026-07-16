@@ -88,6 +88,28 @@ describe('InPageRail', () => {
     unmount();
   });
 
+  it('shows parent topics as a muted part of nested card titles', () => {
+    const nestedCard = {
+      ...mockCards[1],
+      name: 'Child topic',
+      path: 'Parent topic > Child topic',
+    };
+    const { container, unmount } = render(
+      createElement(InPageRail, { ...defaultProps, cards: [nestedCard] }),
+    );
+
+    const title = container.querySelector('.pagetollm-rail-card-title');
+    expect(title.textContent).toBe('Parent topicChild topic');
+    expect(title.querySelector('.pagetollm-rail-card-parent-topics').textContent).toBe(
+      'Parent topic',
+    );
+    expect(title.querySelector('.pagetollm-rail-card-current-topic').textContent).toBe(
+      'Child topic',
+    );
+
+    unmount();
+  });
+
   it('handles native mode switching', () => {
     const onSelectMode = vi.fn();
     const { container, unmount } = render(

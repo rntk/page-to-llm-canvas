@@ -52,6 +52,27 @@ function LevelSwitcher({ maxLevel, selectedLevel, onSelectLevel }) {
   );
 }
 
+function HierarchicalCardTitle({ name, path }) {
+  const parts =
+    typeof path === 'string'
+      ? path
+          .split(' > ')
+          .map((part) => part.trim())
+          .filter(Boolean)
+      : [];
+  const parentTopics = parts.slice(0, -1);
+  const currentTopic = name || parts.at(-1) || '';
+
+  return (
+    <span className="pagetollm-yt-rail-card-title" title={path || currentTopic} lang="en">
+      {parentTopics.length > 0 ? (
+        <span className="pagetollm-rail-card-parent-topics">{parentTopics.join(' › ')}</span>
+      ) : null}
+      <span className="pagetollm-rail-card-current-topic">{currentTopic}</span>
+    </span>
+  );
+}
+
 /**
  * A YouTube-synced rail: a list of topic/summary cards ordered by their
  * transcript timestamp. A poll loop reads the player's current time and marks
@@ -259,9 +280,7 @@ export default function YouTubeRail({
                   <span className="pagetollm-yt-rail-card-time">
                     {formatTimestampLabel(card.seconds)}
                   </span>
-                  <span className="pagetollm-yt-rail-card-title" title={card.path} lang="en">
-                    {card.name}
-                  </span>
+                  <HierarchicalCardTitle name={card.name} path={card.path} />
                 </div>
                 {isSummary && (
                   <div className="pagetollm-yt-rail-card-body">

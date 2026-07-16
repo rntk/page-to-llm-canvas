@@ -110,6 +110,9 @@ describe('YouTubeRail', () => {
     const railCards = container.querySelectorAll('.pagetollm-yt-rail-card');
     expect(railCards).toHaveLength(2);
     expect(railCards[0].textContent).toContain('Intro');
+    expect(railCards[1].querySelector('.pagetollm-rail-card-parent-topics').textContent).toBe(
+      'Intro',
+    );
     expect(railCards[1].getAttribute('title')).toContain('0:30');
     act(() => railCards[1].click());
     expect(onSeek).toHaveBeenCalledWith(30);
