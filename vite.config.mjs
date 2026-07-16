@@ -6,12 +6,26 @@ import { defineConfig } from 'vite';
 // convention; use `npm run build` for production extension output.
 export default defineConfig({
   test: {
-    exclude: ['**/node_modules/**', '**/dist/**', '**/.{git,cache,output,temp}/**'],
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/.stryker-tmp/**',
+      '**/.{git,cache,output,temp}/**',
+    ],
     setupFiles: ['test/setup.fast-check.mjs'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'json-summary'],
-      include: ['src/**/*.{js,jsx,ts,tsx,mjs}', 'worker/**/*.js', 'background.js', 'popup.js'],
+      include: [
+        'src/**/*.{js,jsx,ts,tsx,mjs}',
+        'worker/**/*.js',
+        'background.js',
+        'popup.js',
+        'theme.js',
+        'verboseLogSettings.js',
+        'messages.js',
+        'telemetry.js',
+      ],
       exclude: ['**/*.test.{js,jsx,ts,tsx,mjs}', '**/*.spec.{js,jsx,ts,tsx,mjs}', 'dist/**'],
       // Ratchet floors. `test:coverage` fails if global coverage drops below
       // these, preventing silent regressions. Raise them as coverage improves

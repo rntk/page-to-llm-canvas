@@ -126,9 +126,13 @@ export function stripTagsKeepOffsets(html) {
       const decoded = decodeEntityAt(html, i);
       if (decoded) {
         const [str, consumed] = decoded;
-        // Map each char of decoded string to the entity's start position.
-        for (const c of str) {
-          pushChar(c, i);
+        // The mapping contract uses JavaScript string offsets (UTF-16 code
+        // units), not Unicode code points. Iterating with `for...of` would push
+        // an astral character such as 😀 as one array entry even though it
+        // occupies two offsets in the joined output string. Push each code unit
+        // separately so mapping.length always remains text.length + 1.
+        for (let codeUnit = 0; codeUnit < str.length; codeUnit++) {
+          pushChar(str[codeUnit], i);
         }
         i += consumed;
         continue;

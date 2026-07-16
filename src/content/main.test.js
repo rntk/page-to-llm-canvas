@@ -234,6 +234,58 @@ describe('content script main.jsx', () => {
     expect(document.getElementById('pagetollm-in-page-rail')).toBeNull();
   });
 
+  it('routes a trusted topic-sentence command into the in-page rail', async () => {
+    const article = document.createElement('div');
+    article.id = 'trusted-article';
+    article.textContent = 'Alpha sentence. Beta sentence.';
+    document.body.appendChild(article);
+    chrome.runtime.sendMessage.mockImplementationOnce((_message, callback) =>
+      callback({
+        ok: true,
+        record: {
+          key: 'trusted-key',
+          status: 'done',
+          selectors: ['#trusted-article'],
+          sentences: ['Alpha sentence.', 'Beta sentence.'],
+          topics: [{ name: 'Parent > Child', sentences: [0, 1] }],
+          topic_summary_index: {
+            'Parent > Child': {
+              level: 1,
+              runs: [{ sentences: [0, 1], text: 'Summary text' }],
+              source_sentences: [0, 1],
+            },
+          },
+        },
+      }),
+    );
+
+    messageListener({ action: 'openRecordView', key: 'trusted-key', mode: 'canvas' }, {}, vi.fn());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const iframe = document.getElementById('pagetollm-canvas-iframe');
+
+    await act(async () => {
+      postMessageListener({
+        data: {
+          type: 'pagetollm-scroll-to-topic-sentences',
+          key: 'trusted-key',
+          sentenceNumbers: [1],
+          level: 1,
+          topicPath: 'Parent > Child',
+        },
+        source: iframe.contentWindow,
+        origin: new URL(chrome.runtime.getURL('')).origin,
+      });
+      await Promise.resolve();
+    });
+
+    expect(document.getElementById('pagetollm-canvas-iframe')).toBeNull();
+    const rail = document.getElementById('pagetollm-in-page-rail');
+    expect(rail).not.toBeNull();
+    expect(rail.dataset.mode).toBe('topics');
+    expect(rail.querySelector('[data-level="1"]').className).toContain('active');
+    article.remove();
+  });
+
   it('resets block numbers and counter properly on removal', async () => {
     const sendResponse = vi.fn();
     await act(async () => {

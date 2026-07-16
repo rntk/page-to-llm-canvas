@@ -2,6 +2,48 @@ import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import { stripTagsKeepOffsets } from './html.js';
 
+const HTML_WHITESPACE_RE = /[ \t\n\r\f\v]+/g;
+const normalizeHtmlText = (text) => text.replace(HTML_WHITESPACE_RE, ' ').trim();
+
+const asciiTextArb = fc.string({
+  unit: fc.constantFrom('a', 'b', 'c', 'X', 'Y', 'Z', '0', '1', ' ', '\t', '\n'),
+  maxLength: 30,
+});
+
+// No whitespace or markup characters: this lets the entity property assert
+// every output offset exactly, rather than merely checking broad bounds.
+const safeTokenArb = fc.string({
+  unit: fc.constantFrom('a', 'b', 'c', 'X', 'Y', 'Z', '0', '1'),
+  maxLength: 20,
+});
+
+const namedEntityArb = fc.constantFrom(
+  { source: '&amp;', decoded: '&' },
+  { source: '&AMP;', decoded: '&' },
+  { source: '&lt;', decoded: '<' },
+  { source: '&gt;', decoded: '>' },
+  { source: '&quot;', decoded: '"' },
+  { source: '&apos;', decoded: "'" },
+  { source: '&nbsp;', decoded: '\u00a0' },
+);
+
+const numericEntityArb = fc
+  .tuple(
+    fc
+      .integer({ min: 1, max: 0x10ffff })
+      .filter((codePoint) => ![9, 10, 11, 12, 13, 32].includes(codePoint)),
+    fc.boolean(),
+    fc.boolean(),
+  )
+  .map(([codePoint, hexadecimal, uppercaseX]) => ({
+    source: hexadecimal
+      ? `&#${uppercaseX ? 'X' : 'x'}${codePoint.toString(16)};`
+      : `&#${codePoint};`,
+    decoded: String.fromCodePoint(codePoint),
+  }));
+
+const entityArb = fc.oneof(namedEntityArb, numericEntityArb);
+
 describe('stripTagsKeepOffsets properties', () => {
   it('always returns a string for text and a valid mapping array', () => {
     fc.assert(
@@ -37,30 +79,67 @@ describe('stripTagsKeepOffsets properties', () => {
     );
   });
 
-  it('strips balanced tags and preserves surrounding text', () => {
+  it('strips generated balanced tags and normalizes their boundaries exactly', () => {
     fc.assert(
       fc.property(
-        fc.string({ unit: fc.constantFrom('a', 'b', 'c', ' ', '1', '2') }),
-        fc.string({ unit: fc.constantFrom('x', 'y', 'z', ' ', '3', '4') }),
-        fc.string({ unit: fc.constantFrom('d', 'e', 'f', ' ', '5', '6') }),
-        (before, inner, after) => {
-          const html = `${before}<tag>${inner}</tag>${after}`;
+        asciiTextArb,
+        asciiTextArb,
+        asciiTextArb,
+        fc.constantFrom('div', 'span', 'article', 'custom-element'),
+        (before, inner, after, tagName) => {
+          const html = `${before}<${tagName} data-kind="generated">${inner}</${tagName}>${after}`;
           const result = stripTagsKeepOffsets(html);
-          const normalize = (s) => s.replace(/\s+/g, ' ').trim();
-          const normalized = normalize(result.text);
-          // When surrounding text is non-empty after normalization, it should be preserved.
-          if (normalize(before).length > 0) {
-            expect(normalized).toContain(normalize(before));
-          }
-          if (normalize(inner).length > 0) {
-            expect(normalized).toContain(normalize(inner));
-          }
-          if (normalize(after).length > 0) {
-            expect(normalized).toContain(normalize(after));
-          }
+          expect(result.text).toBe(normalizeHtmlText(`${before} ${inner} ${after}`));
         },
       ),
     );
+  });
+
+  it('removes generated script and style blocks, including delimiter variants', () => {
+    fc.assert(
+      fc.property(
+        asciiTextArb,
+        asciiTextArb,
+        asciiTextArb,
+        fc.constantFrom('script', 'style'),
+        fc.constantFrom('>', ' data-kind="generated">', '\tdata-kind="generated">', '\n>'),
+        fc.boolean(),
+        (before, ignored, after, tagName, openingEnd, uppercase) => {
+          const renderedName = uppercase ? tagName.toUpperCase() : tagName;
+          const html = `${before}<${renderedName}${openingEnd}${ignored}</${renderedName}>${after}`;
+          const result = stripTagsKeepOffsets(html);
+          expect(result.text).toBe(normalizeHtmlText(`${before} ${after}`));
+        },
+      ),
+    );
+  });
+
+  it('decodes generated entities with exact UTF-16 offset mappings', () => {
+    fc.assert(
+      fc.property(safeTokenArb, entityArb, safeTokenArb, (before, entity, after) => {
+        const html = `${before}${entity.source}${after}`;
+        const result = stripTagsKeepOffsets(html);
+        const entityOffset = before.length;
+        const afterOffset = entityOffset + entity.source.length;
+
+        expect(result.text).toBe(`${before}${entity.decoded}${after}`);
+        expect(result.mapping).toEqual([
+          ...Array.from({ length: before.length }, (_, index) => index),
+          ...Array(entity.decoded.length).fill(entityOffset),
+          ...Array.from({ length: after.length }, (_, index) => afterOffset + index),
+          html.length,
+        ]);
+      }),
+    );
+  });
+
+  it('maps both UTF-16 code units of a decoded non-BMP entity', () => {
+    for (const html of ['&#x1F600;', '&#128512;']) {
+      expect(stripTagsKeepOffsets(html)).toEqual({
+        text: '😀',
+        mapping: [0, 0, html.length],
+      });
+    }
   });
 
   it('always produces mapping where sentinel equals original length', () => {

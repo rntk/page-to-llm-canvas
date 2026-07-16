@@ -1,3 +1,10 @@
+const TOPIC_DIRECTION_BY_POSITION = {
+  'first-topic': 'first',
+  'prev-topic': 'prev',
+  'next-topic': 'next',
+  'last-topic': 'last',
+};
+
 export function buildTopicNavigationList({
   showSummaryMode,
   summaryCards,
@@ -132,4 +139,70 @@ export function findTopicNavigationTarget({
 
   if (targetIndex === -1) return null;
   return list[targetIndex] || null;
+}
+
+/**
+ * Resolve a control position into the topic card and selection identities the
+ * hook should apply. Non-topic positions remain available to canvas navigation.
+ */
+export function resolveCanvasTopicNavigation({
+  position,
+  showSummaryMode,
+  summaryCards,
+  topicCards,
+  selectedLevel,
+  selectedNavigationKey,
+  selectedTopicKey,
+  currentY,
+  summaryMetricsState = new Map(),
+}) {
+  const direction = TOPIC_DIRECTION_BY_POSITION[position];
+  if (!direction) return { handled: false, targetCard: null };
+
+  const list = buildTopicNavigationList({
+    showSummaryMode,
+    summaryCards,
+    topicCards,
+    selectedLevel,
+  });
+  const targetCard = findTopicNavigationTarget({
+    list,
+    selectedNavigationKey,
+    selectedTopicKey,
+    direction,
+    currentY,
+    showSummaryMode,
+    summaryMetricsState,
+  });
+
+  if (!targetCard) return { handled: true, targetCard: null };
+  return {
+    handled: true,
+    targetCard,
+    topicKey: getTopicNavigationTopicKey(targetCard, showSummaryMode),
+    cardKey: getTopicNavigationCardKey(targetCard, showSummaryMode),
+  };
+}
+
+/** Build the transform needed to place a topic one fifth down the viewport. */
+export function buildCanvasTopicPan({
+  card,
+  showSummaryMode,
+  summaryMetricsState = new Map(),
+  viewportHeight,
+  scale,
+  translate,
+}) {
+  if (!card) return null;
+  const cardTop = getTopicNavigationCardTop(card, showSummaryMode, summaryMetricsState);
+  if (!Number.isFinite(cardTop)) return null;
+
+  const currentScale = scale || 1;
+  return {
+    scale: currentScale,
+    translate: {
+      ...translate,
+      y: viewportHeight * 0.2 - cardTop * currentScale,
+    },
+  };
 }

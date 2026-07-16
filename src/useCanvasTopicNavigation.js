@@ -1,19 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { buildSentenceDomRange } from './sentenceHighlight.js';
-import {
-  buildTopicNavigationList,
-  findTopicNavigationTarget,
-  getTopicNavigationCardKey,
-  getTopicNavigationCardTop,
-  getTopicNavigationTopicKey,
-} from './topicNavigation.js';
-
-const TOPIC_DIRECTION_BY_POSITION = {
-  'first-topic': 'first',
-  'prev-topic': 'prev',
-  'next-topic': 'next',
-  'last-topic': 'last',
-};
+import { buildCanvasTopicPan, resolveCanvasTopicNavigation } from './topicNavigation.js';
 
 /** Coordinates topic navigation with the canvas transform and live DOM ranges. */
 export function useCanvasTopicNavigation({
@@ -83,14 +70,16 @@ export function useCanvasTopicNavigation({
     (card) => {
       const wrap = canvasWrapElRef.current;
       if (!wrap || !card) return;
-      const currentScale = scaleRef.current || 1;
-      const currentTranslate = translateRef.current;
-      const cardTop = getTopicNavigationCardTop(card, showSummaryMode, summaryMetricsState);
-      if (!Number.isFinite(cardTop)) return;
-      setTransformNow(currentScale, {
-        ...currentTranslate,
-        y: wrap.clientHeight * 0.2 - cardTop * currentScale,
+      const pan = buildCanvasTopicPan({
+        card,
+        showSummaryMode,
+        summaryMetricsState,
+        viewportHeight: wrap.clientHeight,
+        scale: scaleRef.current,
+        translate: translateRef.current,
       });
+      if (!pan) return;
+      setTransformNow(pan.scale, pan.translate);
       flashFocus();
     },
     [
@@ -106,33 +95,25 @@ export function useCanvasTopicNavigation({
 
   const handleNavigate = useCallback(
     (position) => {
-      const direction = TOPIC_DIRECTION_BY_POSITION[position];
-      if (!direction) {
-        navigateCanvas(position);
-        return;
-      }
-
-      const list = buildTopicNavigationList({
+      const navigation = resolveCanvasTopicNavigation({
+        position,
         showSummaryMode,
         summaryCards,
         topicCards: zoomAdjustedTopicCards,
         selectedLevel,
-      });
-      const currentY = -translateRef.current.y / (scaleRef.current || 1);
-      const targetCard = findTopicNavigationTarget({
-        list,
         selectedNavigationKey: selectedTopicCardKey,
         selectedTopicKey,
-        direction,
-        currentY,
-        showSummaryMode,
+        currentY: -translateRef.current.y / (scaleRef.current || 1),
         summaryMetricsState,
       });
-
-      if (!targetCard) return;
-      setSelectedTopicKey(getTopicNavigationTopicKey(targetCard, showSummaryMode));
-      setSelectedTopicCardKey(getTopicNavigationCardKey(targetCard, showSummaryMode));
-      panToTopic(targetCard);
+      if (!navigation.handled) {
+        navigateCanvas(position);
+        return;
+      }
+      if (!navigation.targetCard) return;
+      setSelectedTopicKey(navigation.topicKey);
+      setSelectedTopicCardKey(navigation.cardKey);
+      panToTopic(navigation.targetCard);
     },
     [
       navigateCanvas,

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createThemeController, themeCycle, themeIcon, themeLabel } from '../../theme.js';
+import { useStoredPreference } from './useStoredPreference.js';
 import {
   HIGHLIGHT_COLOR_KEY,
   DEFAULT_HIGHLIGHT_COLOR,
@@ -182,49 +183,13 @@ export function HighlightColorSection() {
 }
 
 export function ContentLanguageSection() {
-  const [preferContentLanguage, setPreferContentLanguage] = useState(
-    DEFAULT_PREFER_CONTENT_LANGUAGE,
-  );
-
-  useEffect(() => {
-    let isCurrent = true;
-
-    async function loadPreference() {
-      const stored = await getStoredPreferContentLanguage();
-      if (isCurrent) setPreferContentLanguage(stored);
-    }
-
-    void loadPreference();
-    const handleStorageChange = (changes, areaName) => {
-      if (areaName !== 'local' || !changes || !changes[PREFER_CONTENT_LANGUAGE_KEY]) return;
-      setPreferContentLanguage(
-        normalizePreferContentLanguage(changes[PREFER_CONTENT_LANGUAGE_KEY].newValue),
-      );
-    };
-    try {
-      chrome.storage.onChanged.addListener(handleStorageChange);
-    } catch (_) {
-      /* noop */
-    }
-    return () => {
-      isCurrent = false;
-      try {
-        chrome.storage.onChanged.removeListener(handleStorageChange);
-      } catch (_) {
-        /* noop */
-      }
-    };
-  }, []);
-
-  const handleToggle = useCallback(async (next) => {
-    setPreferContentLanguage(next);
-    try {
-      await setStoredPreferContentLanguage(next);
-    } catch (_) {
-      const stored = await getStoredPreferContentLanguage();
-      setPreferContentLanguage(stored);
-    }
-  }, []);
+  const [preferContentLanguage, setPreferContentLanguage] = useStoredPreference({
+    storageKey: PREFER_CONTENT_LANGUAGE_KEY,
+    defaultValue: DEFAULT_PREFER_CONTENT_LANGUAGE,
+    readPreference: getStoredPreferContentLanguage,
+    writePreference: setStoredPreferContentLanguage,
+    normalize: normalizePreferContentLanguage,
+  });
 
   return (
     <div className="settings-group">
@@ -235,7 +200,7 @@ export function ContentLanguageSection() {
             id="prefer-content-language"
             type="checkbox"
             checked={preferContentLanguage}
-            onChange={(event) => handleToggle(event.target.checked)}
+            onChange={(event) => setPreferContentLanguage(event.target.checked)}
           />{' '}
           Prefer the language of the content
         </label>
@@ -249,45 +214,13 @@ export function ContentLanguageSection() {
 }
 
 export function SummaryGenerationSection() {
-  const [summariesDisabled, setSummariesDisabled] = useState(DEFAULT_SUMMARIES_DISABLED);
-
-  useEffect(() => {
-    let isCurrent = true;
-
-    async function loadSummariesDisabled() {
-      const stored = await getStoredSummariesDisabled();
-      if (isCurrent) setSummariesDisabled(stored);
-    }
-
-    void loadSummariesDisabled();
-    const handleStorageChange = (changes, areaName) => {
-      if (areaName !== 'local' || !changes || !changes[SUMMARIES_DISABLED_KEY]) return;
-      setSummariesDisabled(normalizeSummariesDisabled(changes[SUMMARIES_DISABLED_KEY].newValue));
-    };
-    try {
-      chrome.storage.onChanged.addListener(handleStorageChange);
-    } catch (_) {
-      /* noop */
-    }
-    return () => {
-      isCurrent = false;
-      try {
-        chrome.storage.onChanged.removeListener(handleStorageChange);
-      } catch (_) {
-        /* noop */
-      }
-    };
-  }, []);
-
-  const handleToggle = useCallback(async (next) => {
-    setSummariesDisabled(next);
-    try {
-      await setStoredSummariesDisabled(next);
-    } catch (_) {
-      const stored = await getStoredSummariesDisabled();
-      setSummariesDisabled(stored);
-    }
-  }, []);
+  const [summariesDisabled, setSummariesDisabled] = useStoredPreference({
+    storageKey: SUMMARIES_DISABLED_KEY,
+    defaultValue: DEFAULT_SUMMARIES_DISABLED,
+    readPreference: getStoredSummariesDisabled,
+    writePreference: setStoredSummariesDisabled,
+    normalize: normalizeSummariesDisabled,
+  });
 
   return (
     <div className="settings-group">
@@ -298,7 +231,7 @@ export function SummaryGenerationSection() {
             id="disable-summaries"
             type="checkbox"
             checked={summariesDisabled}
-            onChange={(event) => handleToggle(event.target.checked)}
+            onChange={(event) => setSummariesDisabled(event.target.checked)}
           />{' '}
           Disable summary generation
         </label>
@@ -315,45 +248,13 @@ export function SummaryGenerationSection() {
 }
 
 export function VerboseLogsSection() {
-  const [verboseLogs, setVerboseLogs] = useState(DEFAULT_VERBOSE_LOGS);
-
-  useEffect(() => {
-    let isCurrent = true;
-
-    async function loadVerboseLogs() {
-      const stored = await getStoredVerboseLogs();
-      if (isCurrent) setVerboseLogs(stored);
-    }
-
-    void loadVerboseLogs();
-    const handleStorageChange = (changes, areaName) => {
-      if (areaName !== 'local' || !changes || !changes[VERBOSE_LOGS_KEY]) return;
-      setVerboseLogs(normalizeVerboseLogs(changes[VERBOSE_LOGS_KEY].newValue));
-    };
-    try {
-      chrome.storage.onChanged.addListener(handleStorageChange);
-    } catch (_) {
-      /* noop */
-    }
-    return () => {
-      isCurrent = false;
-      try {
-        chrome.storage.onChanged.removeListener(handleStorageChange);
-      } catch (_) {
-        /* noop */
-      }
-    };
-  }, []);
-
-  const handleToggle = useCallback(async (next) => {
-    setVerboseLogs(next);
-    try {
-      await setStoredVerboseLogs(next);
-    } catch (_) {
-      const stored = await getStoredVerboseLogs();
-      setVerboseLogs(stored);
-    }
-  }, []);
+  const [verboseLogs, setVerboseLogs] = useStoredPreference({
+    storageKey: VERBOSE_LOGS_KEY,
+    defaultValue: DEFAULT_VERBOSE_LOGS,
+    readPreference: getStoredVerboseLogs,
+    writePreference: setStoredVerboseLogs,
+    normalize: normalizeVerboseLogs,
+  });
 
   return (
     <div className="settings-group">
@@ -364,7 +265,7 @@ export function VerboseLogsSection() {
             id="verbose-logs"
             type="checkbox"
             checked={verboseLogs}
-            onChange={(event) => handleToggle(event.target.checked)}
+            onChange={(event) => setVerboseLogs(event.target.checked)}
           />{' '}
           Verbose pipeline and chat logs
         </label>

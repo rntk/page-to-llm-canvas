@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildCanvasTopicPan,
   buildTopicNavigationList,
   findTopicNavigationTarget,
   getTopicNavigationCardKey,
   getTopicNavigationCardTop,
   getTopicNavigationTopicKey,
+  resolveCanvasTopicNavigation,
 } from './topicNavigation.js';
 
 describe('topic navigation helpers', () => {
@@ -192,5 +194,105 @@ describe('topic navigation helpers', () => {
     expect(getTopicNavigationTopicKey({ key: 'A#0#0', path: 'A' }, true)).toBe('A');
     expect(getTopicNavigationCardKey({ key: 'A#0#0', fullPath: 'A' }, false)).toBe('A#0#0');
     expect(getTopicNavigationTopicKey({ key: 'A#0#0', fullPath: 'A' }, false)).toBe('A');
+  });
+
+  it.each([
+    ['first-topic', 'A'],
+    ['prev-topic', 'A'],
+    ['next-topic', 'C'],
+    ['last-topic', 'D'],
+  ])('resolves %s through the pure navigation seam', (position, expectedPath) => {
+    const topicCards = [
+      { key: 'A#0', fullPath: 'A', startSentence: 1, levelIndex: 0, top: 10 },
+      { key: 'B#0', fullPath: 'B', startSentence: 2, levelIndex: 0, top: 20 },
+      { key: 'C#0', fullPath: 'C', startSentence: 3, levelIndex: 0, top: 30 },
+      { key: 'D#0', fullPath: 'D', startSentence: 4, levelIndex: 0, top: 40 },
+    ];
+
+    const result = resolveCanvasTopicNavigation({
+      position,
+      showSummaryMode: false,
+      summaryCards: [],
+      topicCards,
+      selectedLevel: 0,
+      selectedNavigationKey: 'B#0',
+      selectedTopicKey: 'B',
+      currentY: 20,
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.targetCard.fullPath).toBe(expectedPath);
+  });
+
+  it('distinguishes non-topic controls from a topic navigation with no target', () => {
+    expect(
+      resolveCanvasTopicNavigation({
+        position: 'left',
+        showSummaryMode: false,
+        topicCards: [],
+      }),
+    ).toEqual({ handled: false, targetCard: null });
+
+    expect(
+      resolveCanvasTopicNavigation({
+        position: 'next-topic',
+        showSummaryMode: false,
+        topicCards: [],
+      }),
+    ).toEqual({ handled: true, targetCard: null });
+  });
+
+  it('returns article and summary selection keys using their mode-specific identities', () => {
+    const article = resolveCanvasTopicNavigation({
+      position: 'first-topic',
+      showSummaryMode: false,
+      topicCards: [
+        { key: 'Article#0', fullPath: 'Article', startSentence: 1, levelIndex: 0, top: 10 },
+      ],
+      selectedLevel: 0,
+    });
+    expect(article).toMatchObject({ topicKey: 'Article', cardKey: 'Article#0' });
+
+    const summary = resolveCanvasTopicNavigation({
+      position: 'first-topic',
+      showSummaryMode: true,
+      summaryCards: [{ key: 'Summary#0', path: 'Summary', startSentence: 1 }],
+    });
+    expect(summary).toMatchObject({ topicKey: 'Summary', cardKey: 'Summary#0' });
+  });
+
+  it('returns no pan when the card top is invalid or not measured', () => {
+    expect(
+      buildCanvasTopicPan({
+        card: { top: Number.NaN },
+        showSummaryMode: false,
+        viewportHeight: 600,
+        scale: 2,
+        translate: { x: 10, y: 20 },
+      }),
+    ).toBeNull();
+
+    expect(
+      buildCanvasTopicPan({
+        card: { key: 'A#0', path: 'A' },
+        showSummaryMode: true,
+        summaryMetricsState: new Map(),
+        viewportHeight: 600,
+        scale: 2,
+        translate: { x: 10, y: 20 },
+      }),
+    ).toBeNull();
+  });
+
+  it('builds the translated pan while preserving horizontal transform state', () => {
+    expect(
+      buildCanvasTopicPan({
+        card: { top: 150 },
+        showSummaryMode: false,
+        viewportHeight: 600,
+        scale: 2,
+        translate: { x: 42, y: 999 },
+      }),
+    ).toEqual({ scale: 2, translate: { x: 42, y: -180 } });
   });
 });

@@ -6,7 +6,7 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'reports/**'],
+    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'reports/**', '.stryker-tmp/**'],
   },
   js.configs.recommended,
   react.configs.flat.recommended,
@@ -46,6 +46,24 @@ export default [
       globals: {
         ...globals.node,
       },
+    },
+  },
+  {
+    files: ['src/App.jsx'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '../worker/orchestrator.js',
+              importNames: ['runPipeline'],
+              message:
+                'The canvas observes pipeline state; only the background service worker owns runPipeline.',
+            },
+          ],
+        },
+      ],
     },
   },
 ];

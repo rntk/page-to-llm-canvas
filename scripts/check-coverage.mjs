@@ -36,33 +36,26 @@ for (const [file, data] of Object.entries(summary)) {
   if (file === 'total') continue;
   const relativePath = path.relative(process.cwd(), file);
 
-  // Find uncovered lines from coverage-final.json
+  // Find uncovered lines from coverage-final.json. Istanbul/V8 line coverage
+  // is based on each statement's starting line. Treating an entire multi-line
+  // statement as covered when any part executes makes partially covered JSX
+  // look fully covered and previously produced misleading "None" results.
   const uncoveredLines = [];
   if (final && final[file]) {
     const fileCoverage = final[file];
     const statementMap = fileCoverage.statementMap;
     const s = fileCoverage.s;
-    const linesState = {}; // line -> boolean
+    const linesState = {}; // line -> maximum hit count
 
-    // First, map all statements
     for (const [id, count] of Object.entries(s)) {
       const loc = statementMap[id];
       if (!loc) continue;
-      const startLine = loc.start.line;
-      const endLine = loc.end.line;
-      for (let l = startLine; l <= endLine; l++) {
-        if (linesState[l] === undefined) {
-          linesState[l] = false;
-        }
-        if (count > 0) {
-          linesState[l] = true;
-        }
-      }
+      const line = loc.start.line;
+      linesState[line] = Math.max(linesState[line] || 0, count);
     }
 
-    // Find lines where no statement was covered
-    for (const [line, covered] of Object.entries(linesState)) {
-      if (!covered) {
+    for (const [line, hits] of Object.entries(linesState)) {
+      if (hits === 0) {
         uncoveredLines.push(parseInt(line));
       }
     }
@@ -75,6 +68,7 @@ for (const [file, data] of Object.entries(summary)) {
     covered: data.lines.covered,
     total: data.lines.total,
     missingCount: data.lines.total - data.lines.covered,
+    hasExecutableLines: data.lines.total > 0,
     uncoveredLines,
   });
 }
@@ -110,6 +104,10 @@ function formatRanges(lines) {
 files.forEach((f) => {
   if (f.pct === 100) return;
   console.log(`\nFile: ${f.path}`);
+  if (!f.hasExecutableLines) {
+    console.log('  Coverage:      no executable lines recorded (check instrumentation/imports)');
+    return;
+  }
   console.log(`  Coverage:      ${f.pct}% (${f.covered}/${f.total} lines)`);
   console.log(`  Missing Lines: ${formatRanges(f.uncoveredLines)}`);
 });

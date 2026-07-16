@@ -5,15 +5,41 @@ import {
   buildTopicRangesPrompt,
   buildArticleSummaryPrompt,
   buildArticleSummaryMergePrompt,
+  buildTopicSummaryFromSourcePrompt,
   buildSentenceSummaryPrompt,
   formatChunkSummariesForMerge,
   buildTaggedText,
+  LANGUAGE_INSTRUCTION,
+  ARTICLE_SUMMARY_PROMPT_TEMPLATE,
+  ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE,
+  TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE,
+  SENTENCE_SUMMARY_PROMPT_TEMPLATE,
 } from './prompts.js';
 
+const singleLineTextArb = fc.string().map((text) => text.replace(/[\r\n]/g, ' '));
+const nonEmptySingleLineTextArb = fc
+  .string({ minLength: 1 })
+  .map((text) => text.replace(/[\r\n]/g, ' '));
+
+function interpolateOnce(template, marker, value) {
+  const markerIndex = template.indexOf(marker);
+  expect(markerIndex).toBeGreaterThanOrEqual(0);
+  return `${template.slice(0, markerIndex)}${value}${template.slice(markerIndex + marker.length)}`;
+}
+
+function promptContentArb(marker, closingTag) {
+  return fc.oneof(
+    fc.string(),
+    fc.constant(marker),
+    fc.constant(`${marker} embedded in user content`),
+    fc.constant(closingTag),
+  );
+}
+
 describe('buildTaggedText properties', () => {
-  it('output always contains the same number of lines as input sentences', () => {
+  it('emits exactly one marked output line per single-line sentence', () => {
     fc.assert(
-      fc.property(fc.array(fc.string()), (sentences) => {
+      fc.property(fc.array(singleLineTextArb), (sentences) => {
         const result = buildTaggedText(sentences);
         if (sentences.length === 0) {
           expect(result).toBe('');
@@ -27,7 +53,7 @@ describe('buildTaggedText properties', () => {
 
   it('each line starts with {N} marker where N is the index', () => {
     fc.assert(
-      fc.property(fc.array(fc.string({ minLength: 1 }), { minLength: 1 }), (sentences) => {
+      fc.property(fc.array(nonEmptySingleLineTextArb, { minLength: 1 }), (sentences) => {
         const result = buildTaggedText(sentences);
         const lines = result.split('\n');
         expect(lines.length).toBe(sentences.length);
@@ -51,110 +77,143 @@ describe('buildTaggedText properties', () => {
 
 describe('buildSystemPrompt properties', () => {
   it('always returns the same stable string', () => {
-    fc.assert(
-      fc.property(fc.nat(10), () => {
-        const a = buildSystemPrompt();
-        const b = buildSystemPrompt();
-        expect(a).toBe(b);
-        expect(a.length).toBeGreaterThan(0);
-      }),
-    );
+    const a = buildSystemPrompt();
+    const b = buildSystemPrompt();
+    expect(a).toBe(b);
+    expect(a.length).toBeGreaterThan(0);
   });
 });
 
 describe('buildTopicRangesPrompt properties', () => {
-  it('always includes the system prompt and the tagged text', () => {
+  it('preserves arbitrary tagged content as the final content block', () => {
     fc.assert(
-      fc.property(fc.string(), (taggedText) => {
+      fc.property(promptContentArb('{0}', '</content>'), (taggedText) => {
         const prompt = buildTopicRangesPrompt(taggedText);
-        expect(prompt).toContain(buildSystemPrompt());
-        expect(prompt).toContain(taggedText);
-        expect(prompt).toContain('<content>');
-        expect(prompt).toContain('</content>');
+        const languagePrompt = buildTopicRangesPrompt(taggedText, {
+          preferContentLanguage: true,
+        });
+        const contentBlock = `<content>\n${taggedText}\n</content>\n`;
+        const promptPrefix = prompt.slice(0, -contentBlock.length);
+        expect(prompt.startsWith(buildSystemPrompt())).toBe(true);
+        expect(prompt.endsWith(contentBlock)).toBe(true);
+        expect(languagePrompt).toBe(`${promptPrefix}${LANGUAGE_INSTRUCTION}\n${contentBlock}`);
       }),
     );
   });
 });
 
 describe('buildArticleSummaryPrompt properties', () => {
-  it('always replaces the {text} placeholder', () => {
+  it('interpolates arbitrary content once without confusing content for a template token', () => {
     fc.assert(
-      fc.property(fc.string(), (text) => {
-        const prompt = buildArticleSummaryPrompt(text);
-        expect(prompt).not.toContain('{text}');
-        // Template wraps text inside <text> tags, so verify presence there.
-        expect(prompt).toContain(`<text>${text}</text>`);
-      }),
+      fc.property(
+        promptContentArb('{text}', '</text>'),
+        fc.boolean(),
+        (text, preferContentLanguage) => {
+          const prompt = buildArticleSummaryPrompt(text, { preferContentLanguage });
+          const interpolated = interpolateOnce(ARTICLE_SUMMARY_PROMPT_TEMPLATE, '{text}', text);
+          const expected = preferContentLanguage
+            ? `${LANGUAGE_INSTRUCTION}\n${interpolated}`
+            : interpolated;
+          expect(prompt).toBe(expected);
+        },
+      ),
     );
   });
 });
 
 describe('buildArticleSummaryMergePrompt properties', () => {
-  it('always replaces the {chunk_summaries} placeholder', () => {
+  it('interpolates arbitrary chunk summaries exactly', () => {
     fc.assert(
-      fc.property(fc.string(), (summaries) => {
-        const prompt = buildArticleSummaryMergePrompt(summaries);
-        expect(prompt).not.toContain('{chunk_summaries}');
-        expect(prompt).toContain(`<chunk_summaries>${summaries}</chunk_summaries>`);
-      }),
+      fc.property(
+        promptContentArb('{chunk_summaries}', '</chunk_summaries>'),
+        fc.boolean(),
+        (summaries, preferContentLanguage) => {
+          const prompt = buildArticleSummaryMergePrompt(summaries, { preferContentLanguage });
+          const interpolated = interpolateOnce(
+            ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE,
+            '{chunk_summaries}',
+            summaries,
+          );
+          const expected = preferContentLanguage
+            ? `${LANGUAGE_INSTRUCTION}\n${interpolated}`
+            : interpolated;
+          expect(prompt).toBe(expected);
+        },
+      ),
+    );
+  });
+});
+
+describe('buildTopicSummaryFromSourcePrompt properties', () => {
+  it('interpolates arbitrary source content exactly', () => {
+    fc.assert(
+      fc.property(
+        promptContentArb('{source}', '</source>'),
+        fc.boolean(),
+        (source, preferContentLanguage) => {
+          const prompt = buildTopicSummaryFromSourcePrompt(source, { preferContentLanguage });
+          const interpolated = interpolateOnce(
+            TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE,
+            '{source}',
+            source,
+          );
+          const expected = preferContentLanguage
+            ? `${LANGUAGE_INSTRUCTION}\n${interpolated}`
+            : interpolated;
+          expect(prompt).toBe(expected);
+        },
+      ),
     );
   });
 });
 
 describe('buildSentenceSummaryPrompt properties', () => {
-  it('always replaces the {sentence} placeholder', () => {
+  it('interpolates arbitrary sentence content exactly', () => {
     fc.assert(
-      fc.property(fc.string(), (sentence) => {
-        const prompt = buildSentenceSummaryPrompt(sentence);
-        expect(prompt).not.toContain('{sentence}');
-        expect(prompt).toContain(`<text>${sentence}</text>`);
-      }),
+      fc.property(
+        promptContentArb('{sentence}', '</text>'),
+        fc.boolean(),
+        (sentence, preferContentLanguage) => {
+          const prompt = buildSentenceSummaryPrompt(sentence, { preferContentLanguage });
+          const interpolated = interpolateOnce(
+            SENTENCE_SUMMARY_PROMPT_TEMPLATE,
+            '{sentence}',
+            sentence,
+          );
+          const expected = preferContentLanguage
+            ? `${LANGUAGE_INSTRUCTION}\n${interpolated}`
+            : interpolated;
+          expect(prompt).toBe(expected);
+        },
+      ),
     );
   });
 });
 
 describe('formatChunkSummariesForMerge properties', () => {
-  it('output contains chunk numbers for every record', () => {
+  const chunkRecordArb = fc.record({
+    start_sentence: fc.nat(1000),
+    end_sentence: fc.nat(1000),
+    summary: fc.option(fc.record({ text: singleLineTextArb }), { nil: undefined }),
+  });
+
+  it('formats every generated chunk as an exact, separated block', () => {
     fc.assert(
-      fc.property(
-        fc.array(
-          fc.record({
-            start_sentence: fc.nat(1000),
-            end_sentence: fc.nat(1000),
-            summary: fc.option(fc.record({ text: fc.string() }), { nil: undefined }),
-          }),
-        ),
-        (records) => {
-          const result = formatChunkSummariesForMerge(records);
-          for (let i = 0; i < records.length; i++) {
-            expect(result).toContain(`Chunk ${i + 1}`);
-          }
-        },
-      ),
+      fc.property(fc.array(chunkRecordArb, { minLength: 1 }), (records) => {
+        expect(formatChunkSummariesForMerge(records)).toBe(
+          records
+            .map(
+              (record, index) =>
+                `Chunk ${index + 1} (sentences ${record.start_sentence}-${record.end_sentence}):\n` +
+                `${record.summary?.text || ''}`,
+            )
+            .join('\n\n'),
+        );
+      }),
     );
   });
 
   it('empty array produces empty string', () => {
     expect(formatChunkSummariesForMerge([])).toBe('');
-  });
-
-  it('output length grows monotonically with record count', () => {
-    fc.assert(
-      fc.property(
-        fc.array(
-          fc.record({
-            start_sentence: fc.nat(100),
-            end_sentence: fc.nat(100),
-            summary: fc.option(fc.record({ text: fc.string() }), { nil: undefined }),
-          }),
-          { minLength: 1 },
-        ),
-        (records) => {
-          const full = formatChunkSummariesForMerge(records);
-          const truncated = formatChunkSummariesForMerge(records.slice(0, -1));
-          expect(full.length).toBeGreaterThan(truncated.length);
-        },
-      ),
-    );
   });
 });
