@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <title>PageToLLM Canvas</title>
+    <link rel="stylesheet" href="summary-errors.css" />
     <style>
       :root {
         color-scheme: light;
@@ -244,6 +245,102 @@
         background: var(--accent);
         color: var(--surface);
         border-color: var(--accent);
+      }
+
+      .badge.needs_attention {
+        background: var(--accent);
+        color: var(--surface);
+        border-color: var(--accent);
+      }
+
+      .badge.status-button {
+        cursor: pointer;
+        font-family: inherit;
+      }
+
+      .badge.status-button:hover {
+        background: var(--ink);
+        color: var(--surface);
+        border-color: var(--ink);
+      }
+
+      .pagetollm-popup-summary-errors-dialog {
+        --pagetollm-summary-errors-list-width: 100%;
+        --pagetollm-summary-errors-list-max-height: 140px;
+        --pagetollm-summary-errors-list-margin: 0;
+
+        position: fixed;
+        inset: 0;
+        width: auto;
+        max-width: none;
+        height: auto;
+        max-height: none;
+        margin: auto;
+        padding: 0;
+        overflow: visible;
+        color: inherit;
+        border: 0;
+        background: transparent;
+      }
+
+      .pagetollm-popup-summary-errors-dialog::backdrop {
+        background: rgb(0 0 0 / 45%);
+      }
+
+      .pagetollm-spinner-box {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        width: min(350px, calc(100vw - 28px));
+        max-height: calc(100vh - 28px);
+        overflow: auto;
+        box-sizing: border-box;
+        padding: 22px;
+        background: var(--surface);
+        border: 2px solid var(--ink);
+        text-align: center;
+      }
+
+      .pagetollm-spinner-error-title {
+        color: var(--accent);
+        font-family: var(--font-voice);
+        font-size: 19px;
+        font-weight: 800;
+      }
+
+      .pagetollm-spinner-error-body {
+        color: var(--on-surface);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .pagetollm-spinner-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+      }
+
+      .pagetollm-spinner-actions button {
+        padding: 7px 12px;
+        border: 1px solid var(--ink);
+        background: var(--surface);
+        color: var(--ink);
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .pagetollm-spinner-actions .pagetollm-spinner-retry-btn {
+        border-width: 2px;
+        background: var(--ink);
+        color: var(--surface);
+      }
+
+      .pagetollm-spinner-actions button:disabled {
+        cursor: default;
+        opacity: 0.5;
       }
 
       .actions {

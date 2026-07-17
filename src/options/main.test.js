@@ -209,6 +209,65 @@ describe('options main.jsx', () => {
     );
   });
 
+  it('opens summary errors from needs-attention status and can skip them', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') {
+        cb({
+          ok: true,
+          items: [
+            {
+              key: 'attention-1',
+              sourceUrl: 'https://example.com/attention',
+              createdAt: 1716972000000,
+              status: 'needs_attention',
+              summaryErrors: [{ topic: 'Tech>AI', error_message: 'Timed out' }],
+            },
+          ],
+        });
+      } else if (msg.type === 'resolveSummaryErrors') {
+        cb({ ok: true });
+      } else if (msg.type === 'getRecord') {
+        cb({
+          ok: true,
+          record: {
+            key: 'attention-1',
+            sourceUrl: 'https://example.com/attention',
+            status: 'needs_attention',
+            summaryErrors: [{ topic: 'Tech>AI', error_message: 'Timed out' }],
+          },
+        });
+      }
+    });
+
+    await import('./main.jsx');
+    await waitFor(() => {
+      expect(document.querySelector('tbody tr')).not.toBeNull();
+    });
+
+    const statusButton = document.querySelector('.status.needs_attention.status-button');
+    expect(statusButton.textContent).toContain('needs attention');
+    statusButton.click();
+
+    await waitFor(() => {
+      expect(document.querySelector('.pagetollm-summary-errors-list')).not.toBeNull();
+    });
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      { type: 'getRecord', key: 'attention-1' },
+      expect.any(Function),
+    );
+    expect(document.querySelector('.pagetollm-options-error-overlay').textContent).toContain(
+      'Tech>AI',
+    );
+    document.querySelector('.pagetollm-spinner-skip-btn').click();
+
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledWith(
+        { type: 'resolveSummaryErrors', key: 'attention-1', action: 'skip' },
+        expect.any(Function),
+      );
+    });
+  });
+
   it('shows a generate-summaries action only for done records without summaries', async () => {
     sendMessageMock.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') {

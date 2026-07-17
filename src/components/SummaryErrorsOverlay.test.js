@@ -57,12 +57,99 @@ describe('SummaryErrorsOverlay', () => {
     unmount();
   });
 
+  it('supports a host-specific close handler, class, and source label', () => {
+    const onClose = vi.fn();
+    const { container, unmount } = render(
+      createElement(SummaryErrorsOverlay, {
+        className: 'host-overlay',
+        sourceUrl: 'https://example.com/article',
+        summaryErrors: ERRORS,
+        onRetry: () => {},
+        onSkip: () => {},
+        onClose,
+      }),
+    );
+
+    const dialog = container.querySelector('[role="alertdialog"]');
+    expect(dialog.classList.contains('host-overlay')).toBe(true);
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(container.querySelector('.pagetollm-summary-errors-source').textContent).toBe(
+      'https://example.com/article',
+    );
+
+    act(() => container.querySelector('.pagetollm-spinner-close-btn').click());
+    expect(onClose).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it('focuses the primary action, traps Tab, closes with Escape, and restores focus', () => {
+    const returnButton = document.createElement('button');
+    document.body.appendChild(returnButton);
+    returnButton.focus();
+    const onClose = vi.fn();
+    const { container, unmount } = render(
+      createElement(SummaryErrorsOverlay, {
+        summaryErrors: ERRORS,
+        onRetry: () => {},
+        onSkip: () => {},
+        onClose,
+      }),
+    );
+    const retryButton = container.querySelector('.pagetollm-spinner-retry-btn');
+    const closeButton = container.querySelector('.pagetollm-spinner-close-btn');
+
+    expect(document.activeElement).toBe(retryButton);
+
+    closeButton.focus();
+    act(() =>
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', cancelable: true })),
+    );
+    expect(document.activeElement).toBe(retryButton);
+
+    act(() =>
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true }),
+      ),
+    );
+    expect(document.activeElement).toBe(closeButton);
+
+    act(() =>
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    unmount();
+    expect(document.activeElement).toBe(returnButton);
+    returnButton.remove();
+  });
+
+  it('closes from the backdrop but not from the dialog box', () => {
+    const onClose = vi.fn();
+    const { container, unmount } = render(
+      createElement(SummaryErrorsOverlay, {
+        summaryErrors: ERRORS,
+        onRetry: () => {},
+        onSkip: () => {},
+        onClose,
+      }),
+    );
+    const overlay = container.querySelector('[role="alertdialog"]');
+    const box = container.querySelector('.pagetollm-spinner-box');
+
+    act(() => box.click());
+    expect(onClose).not.toHaveBeenCalled();
+    act(() => overlay.click());
+    expect(onClose).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
   it('invokes onRetry / onSkip and disables buttons while the decision is in flight', async () => {
     let resolveRetry;
     const onRetry = vi.fn(() => new Promise((r) => (resolveRetry = r)));
     const onSkip = vi.fn();
+    const onClose = vi.fn();
     const { container, unmount } = render(
-      createElement(SummaryErrorsOverlay, { summaryErrors: ERRORS, onRetry, onSkip }),
+      createElement(SummaryErrorsOverlay, { summaryErrors: ERRORS, onRetry, onSkip, onClose }),
     );
 
     const retryBtn = container.querySelector('.pagetollm-spinner-retry-btn');
@@ -81,6 +168,11 @@ describe('SummaryErrorsOverlay', () => {
       skipBtn.click();
     });
     expect(onSkip).not.toHaveBeenCalled();
+    act(() =>
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
+    );
+    act(() => container.querySelector('[role="alertdialog"]').click());
+    expect(onClose).not.toHaveBeenCalled();
 
     await act(async () => {
       resolveRetry();

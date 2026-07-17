@@ -606,37 +606,6 @@ body.canvas-global-dragging * {
   background: var(--surface-low);
 }
 
-/* Failed-topic list in the needs-attention popup */
-.pagetollm-summary-errors-list {
-  list-style: none;
-  margin: 4px 0 0;
-  padding: 0;
-  max-height: 160px;
-  overflow: auto;
-  text-align: left;
-}
-
-.pagetollm-summary-errors-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 6px 8px;
-  border: 1px solid var(--ghost);
-  background: var(--surface-low);
-  margin-bottom: 6px;
-}
-
-.pagetollm-summary-errors-topic {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--ink);
-}
-
-.pagetollm-summary-errors-reason {
-  font-size: 11px;
-  color: var(--on-surface-muted);
-}
-
 /* Primary: ink fill */
 .pagetollm-spinner-retry-btn {
   background: var(--ink);

@@ -15,6 +15,7 @@ const STATIC_FILES = [
   'verboseLogSettings.js',
   'chat.css',
   'content.css',
+  'summary-errors.css',
   'popup.html',
   'options.html',
   'modal.html',

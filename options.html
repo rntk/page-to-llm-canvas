@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <title>PageToLLM Canvas - Options</title>
+    <link rel="stylesheet" href="summary-errors.css" />
     <style>
       :root {
         color-scheme: light;
@@ -160,7 +161,8 @@
         background: var(--ink);
         color: var(--surface);
       }
-      .status.error {
+      .status.error,
+      .status.needs_attention {
         background: var(--accent);
         color: var(--surface);
         border-color: var(--accent);
@@ -525,12 +527,13 @@
         }
       }
 
-      /* Clickable `error` status chip in the records table. */
+      /* Clickable error/needs-attention status chips in the records table. */
       .status-button {
         cursor: pointer;
         font-family: inherit;
       }
-      .status.error.status-button:hover {
+      .status.error.status-button:hover,
+      .status.needs_attention.status-button:hover {
         background: var(--ink);
         color: var(--surface);
         border-color: var(--ink);
@@ -539,6 +542,10 @@
       /* Record error dialog (mirrors the canvas "Processing Failed" overlay,
          but page-level fixed rather than iframe-absolute). */
       .pagetollm-options-error-overlay {
+        --pagetollm-summary-errors-list-width: 100%;
+        --pagetollm-summary-errors-list-max-height: 180px;
+        --pagetollm-summary-errors-list-margin: 0;
+
         position: fixed;
         inset: 0;
         display: flex;
@@ -620,9 +627,16 @@
         color: var(--ink);
       }
       .pagetollm-spinner-retry-btn:disabled,
+      .pagetollm-spinner-skip-btn:disabled,
       .pagetollm-spinner-close-btn:disabled {
         opacity: 0.5;
         cursor: default;
+      }
+      .pagetollm-spinner-skip-btn,
+      .pagetollm-spinner-close-btn {
+        background: var(--surface);
+        color: var(--ink);
+        border: 1px solid var(--ink);
       }
     </style>
   </head>

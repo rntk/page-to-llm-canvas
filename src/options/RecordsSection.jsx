@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { MSG } from '../../messages.js';
-import { retryRecord } from '../utils/errorUtils.js';
+import { resolveSummaryErrors, retryRecord } from '../utils/errorUtils.js';
+import SummaryErrorsOverlay from '../components/SummaryErrorsOverlay.jsx';
 import RecordErrorDialog from './RecordErrorDialog.jsx';
 import {
   actionConfirmPrompt,
@@ -49,6 +50,7 @@ export function RecordsSection() {
   const [importMessage, setImportMessage] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [errorDialogKey, setErrorDialogKey] = useState(null);
+  const [summaryErrorsDialogItem, setSummaryErrorsDialogItem] = useState(null);
   const importInputRef = useRef(null);
 
   const applyRecords = useCallback((nextItems) => {
@@ -144,6 +146,23 @@ export function RecordsSection() {
     await retryRecord(errorDialogKey, 'Options');
     setErrorDialogKey(null);
     await loadRecords();
+  };
+
+  const resolveSummaryErrorsFromDialog = async (action) => {
+    if (!summaryErrorsDialogItem) return;
+    await resolveSummaryErrors(summaryErrorsDialogItem.key, action, 'Options');
+    setSummaryErrorsDialogItem(null);
+    await loadRecords();
+  };
+
+  const openSummaryErrorsDialog = async (item) => {
+    setError('');
+    const response = await sendMessage({ type: MSG.getRecord, key: item.key });
+    if (!response || !response.ok || !response.record) {
+      setError((response && response.error) || 'Failed to load summary errors');
+      return;
+    }
+    setSummaryErrorsDialogItem(response.record);
   };
 
   const chooseImportFile = () => {
@@ -262,14 +281,22 @@ export function RecordsSection() {
                   </td>
                   <td>{formatDate(item.createdAt)}</td>
                   <td>
-                    {item.status === 'error' ? (
+                    {item.status === 'error' || item.status === 'needs_attention' ? (
                       <button
                         type="button"
                         className={`${statusClass(item.status)} status-button`}
-                        title="View error details and retry"
-                        onClick={() => setErrorDialogKey(item.key)}
+                        title={
+                          item.status === 'needs_attention'
+                            ? 'Review failed summaries and retry or skip'
+                            : 'View error details and retry'
+                        }
+                        onClick={() =>
+                          item.status === 'needs_attention'
+                            ? void openSummaryErrorsDialog(item)
+                            : setErrorDialogKey(item.key)
+                        }
                       >
-                        {item.status} ⚠️
+                        {item.status === 'needs_attention' ? 'needs attention' : item.status} ⚠️
                       </button>
                     ) : (
                       <span className={statusClass(item.status)} title={item.error || undefined}>
@@ -326,6 +353,16 @@ export function RecordsSection() {
           errorText={errorDialogItem.error}
           onRetry={retryFromErrorDialog}
           onClose={() => setErrorDialogKey(null)}
+        />
+      ) : null}
+      {summaryErrorsDialogItem ? (
+        <SummaryErrorsOverlay
+          className="pagetollm-options-error-overlay"
+          sourceUrl={summaryErrorsDialogItem.sourceUrl}
+          summaryErrors={summaryErrorsDialogItem.summaryErrors}
+          onRetry={() => resolveSummaryErrorsFromDialog('retry')}
+          onSkip={() => resolveSummaryErrorsFromDialog('skip')}
+          onClose={() => setSummaryErrorsDialogItem(null)}
         />
       ) : null}
     </>

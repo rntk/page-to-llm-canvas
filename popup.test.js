@@ -94,6 +94,7 @@ describe('popup pure functions', () => {
     expect(popup.statusLabel('splitting')).toBe('Processing');
     expect(popup.statusLabel('summarizing')).toBe('Processing');
     expect(popup.statusLabel('error')).toBe('Error');
+    expect(popup.statusLabel('needs_attention')).toBe('Needs attention');
     expect(popup.statusLabel('unknown')).toBe('unknown');
     expect(popup.statusLabel('')).toBe('Unknown');
   });
@@ -666,6 +667,8 @@ describe('popup UI integration', () => {
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') {
         cb({ ok: true, items });
+      } else if (msg.type === 'getRecord') {
+        cb({ ok: true, record: items.find((item) => item.key === msg.key) });
       } else if (msg.type === 'listProviders') {
         cb({
           ok: true,
@@ -692,6 +695,54 @@ describe('popup UI integration', () => {
     expect(record.querySelectorAll('.action').length).toBeGreaterThan(1);
     expect(document.getElementById('empty').hidden).toBe(true);
     expect(document.getElementById('record-count').textContent).toBe('1');
+  });
+
+  it('opens summary resolution from a needs-attention status and retries it', async () => {
+    const attentionRecord = {
+      ...sampleRecord,
+      key: 'attention-1',
+      status: 'needs_attention',
+      summaryErrors: [{ topic: 'Tech>AI', error_message: 'Timed out' }],
+    };
+    stubListResponses([attentionRecord]);
+    document.getElementById('refresh-btn').click();
+
+    let statusButton = null;
+    for (let i = 0; i < 50; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      statusButton = document.querySelector('#records .badge.needs_attention');
+      if (statusButton) break;
+    }
+    expect(statusButton).not.toBeNull();
+    expect(statusButton.tagName).toBe('BUTTON');
+    statusButton.click();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const dialog = document.querySelector('#summary-errors-dialog-root [role="alertdialog"]');
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      { type: 'getRecord', key: 'attention-1' },
+      expect.any(Function),
+    );
+    expect(dialog.tagName).toBe('DIALOG');
+    expect(dialog.textContent).toContain('Tech>AI');
+    const retryButton = dialog.querySelector('.pagetollm-spinner-retry-btn');
+    expect(document.activeElement).toBe(retryButton);
+    retryButton.click();
+
+    for (let i = 0; i < 50; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      if (
+        chrome.runtime.sendMessage.mock.calls.some(
+          ([message]) => message.type === 'resolveSummaryErrors',
+        )
+      ) {
+        break;
+      }
+    }
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      { type: 'resolveSummaryErrors', key: 'attention-1', action: 'retry' },
+      expect.any(Function),
+    );
   });
 
   it('shows an error when listRecords returns a failed response', async () => {

@@ -1,0 +1,38 @@
+/* Shared failed-topic details used by the canvas, popup, and Options dialogs. */
+.pagetollm-summary-errors-source {
+  max-width: 100%;
+  color: var(--on-surface-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.pagetollm-summary-errors-list {
+  width: var(--pagetollm-summary-errors-list-width, auto);
+  max-height: var(--pagetollm-summary-errors-list-max-height, 160px);
+  margin: var(--pagetollm-summary-errors-list-margin, 4px 0 0);
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+  text-align: left;
+}
+
+.pagetollm-summary-errors-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--ghost);
+  background: var(--surface-low);
+}
+
+.pagetollm-summary-errors-topic {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pagetollm-summary-errors-reason {
+  color: var(--on-surface-muted);
+  font-size: 11px;
+}
