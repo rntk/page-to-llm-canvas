@@ -1,9 +1,9 @@
 // Pure display / derived-stat helpers for LLM metrics (options UI only).
 //
-// Kept separate from llmMetrics.js so this module has zero chrome.storage
+// Kept separate from llm.js so this module has zero chrome.storage
 // dependency and can be reasoned about (and tested) as pure functions.
 
-import { LLM_TASK_TYPE_LABELS, normalizeTaskType } from './llmMetrics.js';
+import { LLM_TASK_TYPE_LABELS, normalizeTaskType } from './llm.js';
 
 /**
  * @param {string} taskType

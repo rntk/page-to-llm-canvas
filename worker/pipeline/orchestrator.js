@@ -1,16 +1,16 @@
 // Pipeline entry point: clean HTML, split sentences, find topic ranges, and
 // generate per-topic summaries. This runs in the service-worker context.
 
-import { callLLMWithRetry as callLLMWithRetryRaw, createAdjustableLimiter } from './llm.js';
-import { wrapCallLLMWithRetry } from './llmMetrics.js';
+import { callLLMWithRetry as callLLMWithRetryRaw, createAdjustableLimiter } from '../llm/llm.js';
+import { wrapCallLLMWithRetry } from '../metrics/llm.js';
 import {
   DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
   MAX_PARALLEL_LLM_REQUESTS_KEY,
   getStoredMaxParallelLlmRequests,
   normalizeMaxParallelLlmRequests,
-} from './llmConcurrencySettings.js';
-import { getStoredPreferContentLanguage } from './languageSettings.js';
-import { getStoredVerboseLogs } from './verboseLogSettings.js';
+} from '../settings/llmConcurrency.js';
+import { getStoredPreferContentLanguage } from '../settings/language.js';
+import { getStoredVerboseLogs } from '../settings/verboseLog.js';
 import { createPipelineRuntime, formatPipelineError } from './pipelineRuntime.js';
 import { computeTopics } from './topicRangesStage.js';
 import { finalizeSummariesDisabled, runSummaries } from './summaryStage.js';

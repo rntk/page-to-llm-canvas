@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LLM_TASK_TYPES, emptyLlmMetrics, emptyLlmMetricTotals } from './llmMetrics.js';
+import { LLM_TASK_TYPES, emptyLlmMetrics, emptyLlmMetricTotals } from './llm.js';
 import {
   averageDurationMs,
   cacheHitRate,
@@ -8,7 +8,7 @@ import {
   formatMetricPercent,
   formatTaskTypeLabel,
   listTaskTypes,
-} from './llmMetricsFormat.js';
+} from './format.js';
 
 describe('llmMetricsFormat helpers', () => {
   it('formats task type labels', () => {

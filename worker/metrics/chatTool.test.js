@@ -7,7 +7,7 @@ import {
   isErrorOutcome,
   normalizeChatToolMetrics,
   recordChatToolMetric,
-} from './chatToolMetrics.js';
+} from './chatTool.js';
 
 describe('chat tool metrics', () => {
   let stored;

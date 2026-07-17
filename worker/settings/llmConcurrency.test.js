@@ -8,7 +8,7 @@ import {
   getStoredMaxParallelLlmRequests,
   normalizeMaxParallelLlmRequests,
   setStoredMaxParallelLlmRequests,
-} from './llmConcurrencySettings.js';
+} from './llmConcurrency.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();

@@ -3,7 +3,7 @@ import {
   PROVIDER_DEFINITIONS,
   SERVICE_TIER_DEFINITIONS,
   getProviderDefinition,
-} from '../../worker/providers.js';
+} from '../../worker/llm/providers.js';
 import { MSG } from '../../messages.js';
 import {
   shouldWarnTokenWipe,

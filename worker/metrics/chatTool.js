@@ -6,16 +6,16 @@
 // (which contains line numbers at most, e.g. "line range must be between 1 and 42").
 //
 // TO REMOVE ENTIRELY:
-//   1. Delete this file (and chatToolMetrics.test.js)
+//   1. Delete this file (and chatTool.test.js)
 //   2. In background.js: remove the recordChatToolMetric/clearChatToolMetrics
 //      imports + the MSG.recordChatToolMetric / MSG.clearChatToolMetrics handlers
 //   3. In messages.js: remove the recordChatToolMetric + clearChatToolMetrics types
 //   4. In src/chat/articleChat.js: remove the recordToolMetric plumbing
 //   5. In OptionsApp.jsx: remove ChatToolMetricsSection + its import + render
 
-import { CHAT_TOOL_OUTCOMES } from '../telemetry.js';
+import { CHAT_TOOL_OUTCOMES } from '../../telemetry.js';
 
-export { CHAT_TOOL_OUTCOMES } from '../telemetry.js';
+export { CHAT_TOOL_OUTCOMES } from '../../telemetry.js';
 
 export const CHAT_TOOL_METRICS_KEY = 'pagetollm-chat-tool-metrics';
 export const CHAT_TOOL_METRICS_MAX_RECENT = 60;

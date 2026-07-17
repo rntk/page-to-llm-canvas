@@ -15,21 +15,21 @@ import {
   getStoredPreferContentLanguage,
   setStoredPreferContentLanguage,
   normalizePreferContentLanguage,
-} from '../../worker/languageSettings.js';
+} from '../../worker/settings/language.js';
 import {
   SUMMARIES_DISABLED_KEY,
   DEFAULT_SUMMARIES_DISABLED,
   getStoredSummariesDisabled,
   setStoredSummariesDisabled,
   normalizeSummariesDisabled,
-} from '../../worker/summarySettings.js';
+} from '../../worker/settings/summary.js';
 import {
   VERBOSE_LOGS_KEY,
   DEFAULT_VERBOSE_LOGS,
   getStoredVerboseLogs,
   setStoredVerboseLogs,
   normalizeVerboseLogs,
-} from '../../worker/verboseLogSettings.js';
+} from '../../worker/settings/verboseLog.js';
 import {
   MAX_PARALLEL_LLM_REQUESTS_KEY,
   DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
@@ -38,7 +38,7 @@ import {
   getStoredMaxParallelLlmRequests,
   setStoredMaxParallelLlmRequests,
   normalizeMaxParallelLlmRequests,
-} from '../../worker/llmConcurrencySettings.js';
+} from '../../worker/settings/llmConcurrency.js';
 
 export function ThemeToggle() {
   const [controller] = useState(() => createThemeController());

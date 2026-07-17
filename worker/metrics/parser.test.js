@@ -6,7 +6,7 @@ import {
   getParserMetrics,
   normalizeParserMetrics,
   recordParserMetric,
-} from './parserMetrics.js';
+} from './parser.js';
 
 describe('parser metrics', () => {
   let stored;

@@ -13,8 +13,8 @@ import {
   recordLlmMetric,
   getLlmMetrics,
   clearLlmMetrics,
-} from './llmMetrics.js';
-import { listTaskTypes } from './llmMetricsFormat.js';
+} from './llm.js';
+import { listTaskTypes } from './format.js';
 
 function stubChromeStore(initial = {}) {
   const store = { ...initial };

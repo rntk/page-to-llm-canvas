@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { splitSentences } from './sentence_splitter.js';
+import { splitSentences } from './sentenceSplitter.js';
 
 describe('splitSentences', () => {
   it('returns empty array for empty string', () => {

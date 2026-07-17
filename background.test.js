@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { readRecord, writeRecord } from './worker/storage.js';
-import { LLM_METRICS_KEY } from './worker/llmMetrics.js';
-import { CHAT_TOOL_METRICS_KEY } from './worker/chatToolMetrics.js';
+import { readRecord, writeRecord } from './worker/storage/storage.js';
+import { LLM_METRICS_KEY } from './worker/metrics/llm.js';
+import { CHAT_TOOL_METRICS_KEY } from './worker/metrics/chatTool.js';
 
-vi.mock('./worker/orchestrator.js', () => ({
+vi.mock('./worker/pipeline/orchestrator.js', () => ({
   runPipeline: vi.fn(() => new Promise((resolve) => setTimeout(resolve, 10))),
 }));
 
@@ -74,7 +74,7 @@ function makeChromeMock() {
 }
 
 // Records are physically split across `:meta`/`:content`/`:summaries` docs
-// (see worker/storage.js); seeding/reading a record for a test goes through
+// (see worker/storage/storage.js); seeding/reading a record for a test goes through
 // the same writeRecord/readRecord functions background.js itself uses,
 // rather than poking the mock store directly. Requires `chrome` to already
 // be stubbed to `chromeMock` (writeRecord/readRecord read the global).
@@ -178,7 +178,7 @@ describe('background pipeline lifecycle', () => {
     expect(result.ok).toBe(true);
     expect(result.key).toBeDefined();
 
-    const { runPipeline } = await import('./worker/orchestrator.js');
+    const { runPipeline } = await import('./worker/pipeline/orchestrator.js');
     expect(runPipeline).toHaveBeenCalledTimes(1);
     expect(runPipeline).toHaveBeenCalledWith(
       result.key,
@@ -208,7 +208,7 @@ describe('background pipeline lifecycle', () => {
     expect(resultB.ok).toBe(true);
     expect(resultA.key).not.toBe(resultB.key);
 
-    const { runPipeline } = await import('./worker/orchestrator.js');
+    const { runPipeline } = await import('./worker/pipeline/orchestrator.js');
     expect(runPipeline).toHaveBeenCalledTimes(2);
     expect(runPipeline).toHaveBeenCalledWith(
       resultA.key,
@@ -245,7 +245,7 @@ describe('background pipeline lifecycle', () => {
 
     expect(result1.key).toBe(result2.key);
 
-    const { runPipeline } = await import('./worker/orchestrator.js');
+    const { runPipeline } = await import('./worker/pipeline/orchestrator.js');
     expect(runPipeline).toHaveBeenCalledTimes(1);
   });
 
@@ -267,7 +267,7 @@ describe('background pipeline lifecycle', () => {
     expect(result.ok).toBe(true);
     expect(result.key).toBe('done1');
 
-    const { runPipeline } = await import('./worker/orchestrator.js');
+    const { runPipeline } = await import('./worker/pipeline/orchestrator.js');
     expect(runPipeline).not.toHaveBeenCalled();
   });
 
@@ -303,7 +303,7 @@ describe('background pipeline lifecycle', () => {
     expect(updated.topic_summaries['Tech>All'].error).toBe(true);
 
     await new Promise((r) => setTimeout(r, 30));
-    const { runPipeline } = await import('./worker/orchestrator.js');
+    const { runPipeline } = await import('./worker/pipeline/orchestrator.js');
     expect(runPipeline).toHaveBeenCalledWith(
       'park1',
       expect.objectContaining({ signal: expect.any(Object) }),
@@ -368,7 +368,7 @@ describe('background pipeline lifecycle', () => {
     expect(res.stale).toBe(true);
 
     await new Promise((r) => setTimeout(r, 30));
-    const { runPipeline } = await import('./worker/orchestrator.js');
+    const { runPipeline } = await import('./worker/pipeline/orchestrator.js');
     expect(runPipeline).not.toHaveBeenCalled();
   });
 
@@ -420,7 +420,7 @@ describe('background pipeline lifecycle', () => {
     expect(updated.sentences).toEqual(['Alpha.', 'Beta.']);
 
     await new Promise((r) => setTimeout(r, 30));
-    const { runPipeline } = await import('./worker/orchestrator.js');
+    const { runPipeline } = await import('./worker/pipeline/orchestrator.js');
     expect(runPipeline).toHaveBeenCalledWith(
       'gen1',
       expect.objectContaining({ signal: expect.any(Object) }),
@@ -441,7 +441,7 @@ describe('background pipeline lifecycle', () => {
     expect(res.error).toMatch(/no topics/i);
 
     await new Promise((r) => setTimeout(r, 30));
-    const { runPipeline } = await import('./worker/orchestrator.js');
+    const { runPipeline } = await import('./worker/pipeline/orchestrator.js');
     expect(runPipeline).not.toHaveBeenCalled();
   });
 
@@ -456,7 +456,7 @@ describe('background pipeline lifecycle', () => {
     await import('./background.js');
     await new Promise((r) => setTimeout(r, 30));
 
-    const { listRecords } = await import('./worker/storage.js');
+    const { listRecords } = await import('./worker/storage/storage.js');
     const items = await listRecords();
     expect(items.find((i) => i.key === 'old1').summariesDisabled).toBe(true);
   });
@@ -512,7 +512,7 @@ describe('background pipeline lifecycle', () => {
 
     await startPipeline('stale1');
 
-    const { runPipeline } = await import('./worker/orchestrator.js');
+    const { runPipeline } = await import('./worker/pipeline/orchestrator.js');
     expect(runPipeline).toHaveBeenCalledTimes(1);
     expect(runPipeline).toHaveBeenCalledWith(
       'stale1',
@@ -534,7 +534,7 @@ describe('background pipeline lifecycle', () => {
     );
 
     const { startPipeline, _resetJobRegistry } = await import('./background.js');
-    const { runPipeline } = await import('./worker/orchestrator.js');
+    const { runPipeline } = await import('./worker/pipeline/orchestrator.js');
     _resetJobRegistry();
 
     let resolvePipeline;
@@ -583,7 +583,7 @@ describe('background pipeline lifecycle', () => {
 
     await p1;
 
-    const { runPipeline } = await import('./worker/orchestrator.js');
+    const { runPipeline } = await import('./worker/pipeline/orchestrator.js');
     expect(runPipeline).toHaveBeenCalledTimes(1);
   });
 
@@ -598,7 +598,7 @@ describe('background pipeline lifecycle', () => {
     await seedRecord(chromeMock, rec);
 
     const { startPipeline, dispatchMessage, _resetJobRegistry } = await import('./background.js');
-    const { runPipeline } = await import('./worker/orchestrator.js');
+    const { runPipeline } = await import('./worker/pipeline/orchestrator.js');
     _resetJobRegistry();
 
     let resolvePipeline;
@@ -640,7 +640,7 @@ describe('background pipeline lifecycle', () => {
     );
 
     const { startPipeline, dispatchMessage, _resetJobRegistry } = await import('./background.js');
-    const { runPipeline } = await import('./worker/orchestrator.js');
+    const { runPipeline } = await import('./worker/pipeline/orchestrator.js');
     _resetJobRegistry();
 
     let resolvePipeline;
@@ -683,7 +683,7 @@ describe('background pipeline lifecycle', () => {
 
     await startPipeline('done2');
 
-    const { runPipeline } = await import('./worker/orchestrator.js');
+    const { runPipeline } = await import('./worker/pipeline/orchestrator.js');
     expect(runPipeline).not.toHaveBeenCalled();
   });
 
@@ -726,7 +726,7 @@ describe('background pipeline lifecycle', () => {
 
     await startPipeline('err1');
 
-    const { runPipeline } = await import('./worker/orchestrator.js');
+    const { runPipeline } = await import('./worker/pipeline/orchestrator.js');
     expect(runPipeline).not.toHaveBeenCalled();
   });
 });

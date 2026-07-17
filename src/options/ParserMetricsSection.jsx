@@ -5,7 +5,7 @@ import {
   emptyParserMetrics,
   getParserMetrics,
   normalizeParserMetrics,
-} from '../../worker/parserMetrics.js';
+} from '../../worker/metrics/parser.js';
 import { CollapsibleSection } from './CollapsibleSection.jsx';
 
 function formatDate(timestamp) {

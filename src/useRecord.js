@@ -5,7 +5,7 @@ import { sendRuntimeMessage } from './utils/runtimeMessages.js';
 /**
  * Subscribes to the record identified by `key`. The record is physically
  * split across `pagetollm:rec:${key}:meta` / `:content` / `:summaries` docs
- * (see worker/storage.js), so a single storage key's `onChanged` payload is
+ * (see worker/storage/storage.js), so a single storage key's `onChanged` payload is
  * not the full record. Initial fetch and every live update go through the
  * service worker's `getRecord` message, which reassembles the full record
  * from the split docs; the storage listener here is only a refetch trigger,

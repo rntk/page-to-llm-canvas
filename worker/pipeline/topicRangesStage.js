@@ -1,10 +1,10 @@
 import { stripTagsKeepOffsets } from './html.js';
-import { splitSentences } from './sentence_splitter.js';
+import { splitSentences } from './sentenceSplitter.js';
 import { buildTaggedText, buildTopicRangesPrompt } from './prompts.js';
-import { parseTopicRangesDetailed, groupsFromSegments, TopicParseError } from './topic_parser.js';
-import { recordParserMetric } from './parserMetrics.js';
-import { parallelMap } from './llm.js';
-import { LLM_TASK_TYPES } from './llmMetrics.js';
+import { parseTopicRangesDetailed, groupsFromSegments, TopicParseError } from './topicParser.js';
+import { recordParserMetric } from '../metrics/parser.js';
+import { parallelMap } from '../llm/llm.js';
+import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
 import { MAX_TAGGED_CHARS } from './pipelineConfig.js';
 

@@ -56,7 +56,7 @@ export default [
         {
           paths: [
             {
-              name: '../worker/orchestrator.js',
+              name: '../worker/pipeline/orchestrator.js',
               importNames: ['runPipeline'],
               message:
                 'The canvas observes pipeline state; only the background service worker owns runPipeline.',

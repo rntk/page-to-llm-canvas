@@ -6,7 +6,7 @@ import {
   getStoredPreferContentLanguage,
   normalizePreferContentLanguage,
   setStoredPreferContentLanguage,
-} from './languageSettings.js';
+} from './language.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();

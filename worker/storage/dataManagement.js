@@ -3,15 +3,15 @@
 // byte totals only, so provider tokens and page/chat content are not exposed.
 
 import { INDEX_KEY, INDEX_SCHEMA_KEY, RECORD_STORAGE_PREFIX } from './storage.js';
-import { PROVIDERS_KEY } from './providers.js';
-import { LLM_METRICS_KEY, LLM_METRICS_EPOCH_KEY } from './llmMetrics.js';
-import { PARSER_METRICS_KEY } from './parserMetrics.js';
-import { CHAT_TOOL_METRICS_KEY } from './chatToolMetrics.js';
-import { PREFER_CONTENT_LANGUAGE_KEY } from './languageSettings.js';
-import { SUMMARIES_DISABLED_KEY } from './summarySettings.js';
-import { MAX_PARALLEL_LLM_REQUESTS_KEY } from './llmConcurrencySettings.js';
-import { VERBOSE_LOGS_KEY } from '../verboseLogSettings.js';
-import { clearLocal, getLocal, MUTATION_QUEUE_KEY, queuedUpdate } from './storagePrimitives.js';
+import { PROVIDERS_KEY } from '../llm/providers.js';
+import { LLM_METRICS_KEY, LLM_METRICS_EPOCH_KEY } from '../metrics/llm.js';
+import { PARSER_METRICS_KEY } from '../metrics/parser.js';
+import { CHAT_TOOL_METRICS_KEY } from '../metrics/chatTool.js';
+import { PREFER_CONTENT_LANGUAGE_KEY } from '../settings/language.js';
+import { SUMMARIES_DISABLED_KEY } from '../settings/summary.js';
+import { MAX_PARALLEL_LLM_REQUESTS_KEY } from '../settings/llmConcurrency.js';
+import { VERBOSE_LOGS_KEY } from '../../verboseLogSettings.js';
+import { clearLocal, getLocal, MUTATION_QUEUE_KEY, queuedUpdate } from './primitives.js';
 
 const CHAT_STORAGE_PREFIX = 'pagetollm:chats:';
 const SETTINGS_KEYS = new Set([

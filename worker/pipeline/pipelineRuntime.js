@@ -1,4 +1,4 @@
-import { appendProcessingLog, flushProcessingLog, readRecord, updateRecord } from './storage.js';
+import { appendProcessingLog, flushProcessingLog, readRecord, updateRecord } from '../storage/storage.js';
 
 /**
  * Creates the storage/logging boundary shared by all pipeline stages. The

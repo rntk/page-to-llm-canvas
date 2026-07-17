@@ -6,7 +6,7 @@ import {
   queuedUpdate,
   MUTATION_QUEUE_KEY,
   resetUpdateQueues,
-} from './storagePrimitives.js';
+} from './primitives.js';
 import {
   allChatStorageKeys,
   chatStorageKeysForRecord,
@@ -16,7 +16,7 @@ import {
   recordMetaStorageKey as metaStorageKey,
   recordContentStorageKey as contentStorageKey,
   recordSummariesStorageKey as summariesStorageKey,
-} from './storageKeys.js';
+} from './keys.js';
 
 export const INDEX_KEY = 'pagetollm:index';
 // Version stamp for the cached index projections (see buildRecordMeta). Bump it

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { writeRecord } from './storage.js';
+import { writeRecord } from './storage/storage.js';
 
 function makeChromeMock() {
   const store = new Map();
@@ -55,7 +55,7 @@ function makeChromeMock() {
 }
 
 // Records are physically split across `:meta`/`:content`/`:summaries` docs
-// (see worker/storage.js); seeding/reading a record for a test goes through
+// (see worker/storage/storage.js); seeding/reading a record for a test goes through
 // the same writeRecord/readRecord functions the pipeline itself uses, rather
 // than poking the mock store directly. Requires `chrome` to already be
 // stubbed to `chromeMock` (writeRecord/readRecord read the global).

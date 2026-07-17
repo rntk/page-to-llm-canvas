@@ -1,17 +1,17 @@
 // Isolated LLM request duration, token, and prompt-cache metrics.
 //
 // TO REMOVE ENTIRELY:
-//   1. Delete this file (and llmMetrics.test.js)
+//   1. Delete this file (and llm.test.js)
 //   2. In orchestrator.js: remove the llmMetrics import + wrap lines; restore
-//      a plain `callLLMWithRetry` import from ./llm.js
+//      a plain `callLLMWithRetry` import from ../llm/llm.js
 //   3. In background.js: remove the recordLlmMetric import + the metrics wiring
 //      in the MSG.llmChatCompletion handler (and drop `taskType` from the chat
 //      send payloads in src/chat/articleChat.js)
 //   4. In OptionsApp.jsx: remove LlmMetricsSection + its import + render
 
-import { LLM_TASK_TYPES } from '../telemetry.js';
+import { LLM_TASK_TYPES } from '../../telemetry.js';
 
-export { LLM_TASK_TYPES } from '../telemetry.js';
+export { LLM_TASK_TYPES } from '../../telemetry.js';
 
 export const LLM_METRICS_KEY = 'pagetollm-llm-metrics';
 /** Bumped on clear so in-flight read-modify-writes can detect staleness across SW/options contexts. */

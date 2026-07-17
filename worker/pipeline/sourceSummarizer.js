@@ -3,8 +3,8 @@ import {
   buildTopicSummaryFromSourcePrompt,
   formatChunkSummariesForMerge,
 } from './prompts.js';
-import { parallelMap } from './llm.js';
-import { LLM_TASK_TYPES } from './llmMetrics.js';
+import { parallelMap } from '../llm/llm.js';
+import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { splitContiguousRuns } from './topicTreeMerge.js';
 import { SOURCE_SUMMARY_MAX_CHARS, SUMMARY_CONCURRENCY } from './pipelineConfig.js';
 

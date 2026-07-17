@@ -4,7 +4,7 @@ import {
   buildChatCompletionsUrl,
   extractLlmUsage,
   stripThink,
-} from './llm_clients.js';
+} from './clients.js';
 
 function okJson(json) {
   return { ok: true, status: 200, json: async () => json };

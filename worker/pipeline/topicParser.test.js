@@ -4,7 +4,7 @@ import {
   parseTopicRangesDetailed,
   groupsFromSegments,
   TopicParseError,
-} from './topic_parser.js';
+} from './topicParser.js';
 
 // Helpers -------------------------------------------------------------------
 

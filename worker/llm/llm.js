@@ -3,8 +3,8 @@
 
 export const LLM_REQUEST_TIMEOUT_MS = 120_000;
 import { getActiveProvider } from './providers.js';
-import { createClient } from './llm_clients.js';
-import { getStoredVerboseLogs } from './verboseLogSettings.js';
+import { createClient } from './clients.js';
+import { getStoredVerboseLogs } from '../settings/verboseLog.js';
 
 /**
  * Makes a single completion call to the active provider.
@@ -15,7 +15,7 @@ import { getStoredVerboseLogs } from './verboseLogSettings.js';
  * model is taken from the active provider configured on the options page.
  *
  * Request/response console detail (and the raw client dumps inside
- * llm_clients.js) only fire when the "verbose pipeline logs" setting is on.
+ * clients.js) only fire when the "verbose pipeline logs" setting is on.
  * Failures still always warn.
  *
  * @param {{

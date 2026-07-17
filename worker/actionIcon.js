@@ -2,8 +2,8 @@
 // context; owns its own debounce/refresh state so background.js only needs
 // to wire storage-change notifications into scheduleActionProgressIconRefresh.
 
-import { listRecords } from './storage.js';
-import { isInFlightRecord } from './pipelineStatus.js';
+import { listRecords } from './storage/storage.js';
+import { isInFlightRecord } from './pipeline/pipelineStatus.js';
 
 const ACTION_ICON_PATHS = Object.freeze({
   16: 'icons/icon-16.png',

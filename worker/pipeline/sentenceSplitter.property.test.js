@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
-import { splitSentences } from './sentence_splitter.js';
+import { splitSentences } from './sentenceSplitter.js';
 
 const countWords = (s) => (s.match(/\S+/g) || []).length;
 

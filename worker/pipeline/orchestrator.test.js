@@ -9,19 +9,19 @@ import {
 import { parseSummaryResponse, shouldInlineRun, chunkSourceSentences } from './sourceSummarizer.js';
 import { classifyLlmError } from './summaryStage.js';
 import { buildTopicTree, splitContiguousRuns } from './topicTreeMerge.js';
-import * as storage from './storage.js';
+import * as storage from '../storage/storage.js';
 import * as html from './html.js';
-import * as sentenceSplitter from './sentence_splitter.js';
-import * as llm from './llm.js';
-import { getStoredVerboseLogs } from './verboseLogSettings.js';
-import { getStoredMaxParallelLlmRequests } from './llmConcurrencySettings.js';
+import * as sentenceSplitter from './sentenceSplitter.js';
+import * as llm from '../llm/llm.js';
+import { getStoredVerboseLogs } from '../settings/verboseLog.js';
+import { getStoredMaxParallelLlmRequests } from '../settings/llmConcurrency.js';
 
 const pipelineLimiter = vi.hoisted(() => ({
   run: vi.fn((fn) => fn()),
   setLimit: vi.fn(),
 }));
 
-vi.mock('./storage.js', () => ({
+vi.mock('../storage/storage.js', () => ({
   readRecord: vi.fn(),
   updateRecord: vi.fn(),
   appendProcessingLog: vi.fn(),
@@ -30,16 +30,16 @@ vi.mock('./storage.js', () => ({
 
 vi.mock('./html.js', () => ({
   stripTagsKeepOffsets: vi.fn(),
-  // topic_parser.js uses the real decodeEntities to canonicalize label
+  // topicParser.js uses the real decodeEntities to canonicalize label
   // segments; the passthrough keeps entity-free fixture labels intact.
   decodeEntities: vi.fn((s) => s),
 }));
 
-vi.mock('./sentence_splitter.js', () => ({
+vi.mock('./sentenceSplitter.js', () => ({
   splitSentences: vi.fn(),
 }));
 
-vi.mock('./llm.js', () => ({
+vi.mock('../llm/llm.js', () => ({
   callLLMWithRetry: vi.fn(),
   createAdjustableLimiter: vi.fn(() => pipelineLimiter),
   createLimiter: vi.fn(() => (fn) => fn()),
@@ -52,15 +52,15 @@ vi.mock('./llm.js', () => ({
   }),
 }));
 
-vi.mock('./verboseLogSettings.js', () => ({
+vi.mock('../settings/verboseLog.js', () => ({
   getStoredVerboseLogs: vi.fn(async () => false),
 }));
 
-vi.mock('./languageSettings.js', () => ({
+vi.mock('../settings/language.js', () => ({
   getStoredPreferContentLanguage: vi.fn(async () => false),
 }));
 
-vi.mock('./llmConcurrencySettings.js', () => ({
+vi.mock('../settings/llmConcurrency.js', () => ({
   DEFAULT_MAX_PARALLEL_LLM_REQUESTS: 4,
   MAX_PARALLEL_LLM_REQUESTS_KEY: 'pagetollm-max-parallel-llm-requests',
   getStoredMaxParallelLlmRequests: vi.fn(async () => 4),

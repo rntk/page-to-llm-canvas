@@ -1,28 +1,28 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
-  DEFAULT_SUMMARIES_DISABLED,
-  SUMMARIES_DISABLED_KEY,
-  getStoredSummariesDisabled,
-  normalizeSummariesDisabled,
-  setStoredSummariesDisabled,
-} from './summarySettings.js';
+  DEFAULT_VERBOSE_LOGS,
+  VERBOSE_LOGS_KEY,
+  getStoredVerboseLogs,
+  normalizeVerboseLogs,
+  setStoredVerboseLogs,
+} from './verboseLog.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('summary settings', () => {
+describe('verbose log settings', () => {
   it('normalizes only strict true to true', () => {
-    expect(normalizeSummariesDisabled(true)).toBe(true);
-    expect(normalizeSummariesDisabled(false)).toBe(false);
-    expect(normalizeSummariesDisabled(undefined)).toBe(false);
-    expect(normalizeSummariesDisabled('true')).toBe(false);
-    expect(normalizeSummariesDisabled(1)).toBe(false);
+    expect(normalizeVerboseLogs(true)).toBe(true);
+    expect(normalizeVerboseLogs(false)).toBe(false);
+    expect(normalizeVerboseLogs(undefined)).toBe(false);
+    expect(normalizeVerboseLogs('true')).toBe(false);
+    expect(normalizeVerboseLogs(1)).toBe(false);
   });
 
   it('defaults to off', () => {
-    expect(DEFAULT_SUMMARIES_DISABLED).toBe(false);
+    expect(DEFAULT_VERBOSE_LOGS).toBe(false);
   });
 
   it('reads stored preference with normalization and fallback paths', async () => {
@@ -34,18 +34,18 @@ describe('summary settings', () => {
         },
       },
     });
-    await expect(getStoredSummariesDisabled()).resolves.toBe(true);
+    await expect(getStoredVerboseLogs()).resolves.toBe(true);
 
     chrome.storage.local.get = vi.fn((key, cb) => cb({ [key]: 'yes' }));
-    await expect(getStoredSummariesDisabled()).resolves.toBe(false);
+    await expect(getStoredVerboseLogs()).resolves.toBe(false);
 
     chrome.runtime.lastError = { message: 'read failed' };
-    await expect(getStoredSummariesDisabled()).resolves.toBe(DEFAULT_SUMMARIES_DISABLED);
+    await expect(getStoredVerboseLogs()).resolves.toBe(DEFAULT_VERBOSE_LOGS);
 
     chrome.storage.local.get = vi.fn(() => {
       throw new Error('missing storage');
     });
-    await expect(getStoredSummariesDisabled()).resolves.toBe(DEFAULT_SUMMARIES_DISABLED);
+    await expect(getStoredVerboseLogs()).resolves.toBe(DEFAULT_VERBOSE_LOGS);
   });
 
   it('writes stored preference and rejects storage failures', async () => {
@@ -58,26 +58,26 @@ describe('summary settings', () => {
       },
     });
 
-    await expect(setStoredSummariesDisabled(true)).resolves.toBe(true);
+    await expect(setStoredVerboseLogs(true)).resolves.toBe(true);
     expect(chrome.storage.local.set).toHaveBeenCalledWith(
-      { [SUMMARIES_DISABLED_KEY]: true },
+      { [VERBOSE_LOGS_KEY]: true },
       expect.any(Function),
     );
 
     // Non-true values are normalized before persisting.
-    await expect(setStoredSummariesDisabled('yes')).resolves.toBe(false);
+    await expect(setStoredVerboseLogs('yes')).resolves.toBe(false);
     expect(chrome.storage.local.set).toHaveBeenLastCalledWith(
-      { [SUMMARIES_DISABLED_KEY]: false },
+      { [VERBOSE_LOGS_KEY]: false },
       expect.any(Function),
     );
 
     chrome.runtime.lastError = { message: 'write failed' };
-    await expect(setStoredSummariesDisabled(true)).rejects.toThrow('write failed');
+    await expect(setStoredVerboseLogs(true)).rejects.toThrow('write failed');
 
     chrome.runtime.lastError = null;
     chrome.storage.local.set = vi.fn(() => {
       throw 'boom';
     });
-    await expect(setStoredSummariesDisabled(true)).rejects.toThrow('boom');
+    await expect(setStoredVerboseLogs(true)).rejects.toThrow('boom');
   });
 });

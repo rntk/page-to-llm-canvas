@@ -5,7 +5,7 @@ import {
   getLlmMetrics,
   clearLlmMetrics,
   normalizeLlmMetrics,
-} from '../../worker/llmMetrics.js';
+} from '../../worker/metrics/llm.js';
 import {
   averageDurationMs,
   cacheHitRate,
@@ -14,7 +14,7 @@ import {
   formatMetricPercent,
   formatTaskTypeLabel,
   listTaskTypes,
-} from '../../worker/llmMetricsFormat.js';
+} from '../../worker/metrics/format.js';
 import { CollapsibleSection } from './CollapsibleSection.jsx';
 
 function formatDate(timestamp) {
