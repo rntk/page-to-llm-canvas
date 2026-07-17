@@ -10,6 +10,7 @@ import { DataManagementSection } from './DataManagementSection.jsx';
 export {
   ContentLanguageSection,
   HighlightColorSection,
+  LlmConcurrencySection,
   SummaryGenerationSection,
   ThemeToggle,
   VerboseLogsSection,

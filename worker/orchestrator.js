@@ -1,16 +1,40 @@
 // Pipeline entry point: clean HTML, split sentences, find topic ranges, and
 // generate per-topic summaries. This runs in the service-worker context.
 
-import { callLLMWithRetry as callLLMWithRetryRaw } from './llm.js';
+import { callLLMWithRetry as callLLMWithRetryRaw, createAdjustableLimiter } from './llm.js';
 import { wrapCallLLMWithRetry } from './llmMetrics.js';
+import {
+  DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
+  MAX_PARALLEL_LLM_REQUESTS_KEY,
+  getStoredMaxParallelLlmRequests,
+  normalizeMaxParallelLlmRequests,
+} from './llmConcurrencySettings.js';
 import { getStoredPreferContentLanguage } from './languageSettings.js';
 import { getStoredVerboseLogs } from './verboseLogSettings.js';
 import { createPipelineRuntime, formatPipelineError } from './pipelineRuntime.js';
 import { computeTopics } from './topicRangesStage.js';
 import { finalizeSummariesDisabled, runSummaries } from './summaryStage.js';
 
-// Isolated request metrics: all stages receive the same wrapped LLM boundary.
-const callLLMWithRetry = wrapCallLLMWithRetry(callLLMWithRetryRaw);
+// All concurrently running page pipelines share this provider-facing boundary.
+// Internal stage caps still control their own fan-out, while this outer queue
+// prevents those caps from multiplying when many pages are submitted together.
+const pipelineLlmLimiter = createAdjustableLimiter(DEFAULT_MAX_PARALLEL_LLM_REQUESTS);
+const measuredCallLLMWithRetry = wrapCallLLMWithRetry(callLLMWithRetryRaw);
+const callLLMWithRetry = (...args) =>
+  pipelineLlmLimiter.run(() => measuredCallLLMWithRetry(...args));
+let concurrencySettingRevision = 0;
+
+try {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local' || !changes?.[MAX_PARALLEL_LLM_REQUESTS_KEY]) return;
+    concurrencySettingRevision++;
+    pipelineLlmLimiter.setLimit(
+      normalizeMaxParallelLlmRequests(changes[MAX_PARALLEL_LLM_REQUESTS_KEY].newValue),
+    );
+  });
+} catch (_) {
+  /* The stored value is still loaded whenever a pipeline starts. */
+}
 
 /**
  * Runs or resumes the persisted article-processing pipeline.
@@ -19,14 +43,24 @@ const callLLMWithRetry = wrapCallLLMWithRetry(callLLMWithRetryRaw);
  * @param {{pipelineRunId?: string, signal?: AbortSignal}} [options]
  */
 export async function runPipeline(key, options = {}) {
+  const concurrencyRevisionAtRead = concurrencySettingRevision;
+  const [preferContentLanguage, verboseLogs, maxParallelLlmRequests] = await Promise.all([
+    getStoredPreferContentLanguage(),
+    getStoredVerboseLogs(),
+    getStoredMaxParallelLlmRequests(),
+  ]);
+  if (concurrencySettingRevision === concurrencyRevisionAtRead) {
+    pipelineLlmLimiter.setLimit(maxParallelLlmRequests);
+  }
+
   const runtime = createPipelineRuntime({
     key,
     pipelineRunId: options.pipelineRunId,
     signal: options.signal,
     // Snapshot settings once so mid-run changes do not alter prompt or logging
     // behavior, including across service-worker resume calls.
-    preferContentLanguage: await getStoredPreferContentLanguage(),
-    verboseLogs: await getStoredVerboseLogs(),
+    preferContentLanguage,
+    verboseLogs,
     summariesDisabled: false,
   });
 

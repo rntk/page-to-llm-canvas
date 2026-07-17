@@ -16,7 +16,8 @@ const CATEGORY_ROWS = [
   {
     id: 'settings',
     label: 'Preferences',
-    description: 'Theme, highlight color, language, summary, and diagnostic-log preferences',
+    description:
+      'Theme, highlight color, language, summary, LLM concurrency, and diagnostic-log preferences',
   },
   {
     id: 'diagnostics',

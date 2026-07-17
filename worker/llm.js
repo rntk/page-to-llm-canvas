@@ -287,6 +287,52 @@ export function createLimiter(limit) {
 }
 
 /**
+ * Returns a FIFO concurrency limiter whose cap can be changed without replacing
+ * the queue. When the cap is lowered below the current active count, active
+ * tasks finish normally and no queued task starts until the new cap allows it.
+ *
+ * @param {number} initialLimit
+ * @returns {{run: <T>(fn: () => Promise<T>) => Promise<T>, setLimit: (limit: number) => void}}
+ */
+export function createAdjustableLimiter(initialLimit) {
+  let limit = normalizeLimiterLimit(initialLimit);
+  let active = 0;
+  const queue = [];
+
+  function drain() {
+    while (active < limit && queue.length > 0) {
+      const next = queue.shift();
+      active++;
+      Promise.resolve()
+        .then(next.fn)
+        .then(next.resolve, next.reject)
+        .finally(() => {
+          active--;
+          drain();
+        });
+    }
+  }
+
+  return {
+    run(fn) {
+      return new Promise((resolve, reject) => {
+        queue.push({ fn, resolve, reject });
+        drain();
+      });
+    },
+    setLimit(nextLimit) {
+      limit = normalizeLimiterLimit(nextLimit);
+      drain();
+    },
+  };
+}
+
+function normalizeLimiterLimit(value) {
+  const parsed = Math.floor(Number(value));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+/**
  * @template T,U
  * @param {T[]} items
  * @param {number} limit

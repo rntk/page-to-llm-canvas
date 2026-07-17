@@ -14,6 +14,12 @@ import * as html from './html.js';
 import * as sentenceSplitter from './sentence_splitter.js';
 import * as llm from './llm.js';
 import { getStoredVerboseLogs } from './verboseLogSettings.js';
+import { getStoredMaxParallelLlmRequests } from './llmConcurrencySettings.js';
+
+const pipelineLimiter = vi.hoisted(() => ({
+  run: vi.fn((fn) => fn()),
+  setLimit: vi.fn(),
+}));
 
 vi.mock('./storage.js', () => ({
   readRecord: vi.fn(),
@@ -35,6 +41,7 @@ vi.mock('./sentence_splitter.js', () => ({
 
 vi.mock('./llm.js', () => ({
   callLLMWithRetry: vi.fn(),
+  createAdjustableLimiter: vi.fn(() => pipelineLimiter),
   createLimiter: vi.fn(() => (fn) => fn()),
   parallelMap: vi.fn(async (items, limit, fn) => {
     const results = [];
@@ -51,6 +58,13 @@ vi.mock('./verboseLogSettings.js', () => ({
 
 vi.mock('./languageSettings.js', () => ({
   getStoredPreferContentLanguage: vi.fn(async () => false),
+}));
+
+vi.mock('./llmConcurrencySettings.js', () => ({
+  DEFAULT_MAX_PARALLEL_LLM_REQUESTS: 4,
+  MAX_PARALLEL_LLM_REQUESTS_KEY: 'pagetollm-max-parallel-llm-requests',
+  getStoredMaxParallelLlmRequests: vi.fn(async () => 4),
+  normalizeMaxParallelLlmRequests: vi.fn((value) => Number(value) || 4),
 }));
 
 function makeMapping(text) {
@@ -390,6 +404,15 @@ describe('mapTextOffsetToHtml', () => {
 // ---------------------------------------------------------------------------
 
 describe('runPipeline', () => {
+  it('configures the shared LLM limiter from the stored setting', async () => {
+    getStoredMaxParallelLlmRequests.mockResolvedValueOnce(2);
+    storage.readRecord.mockResolvedValue(makeRecord('limited', '<p></p>'));
+
+    await runPipeline('limited');
+
+    expect(pipelineLimiter.setLimit).toHaveBeenCalledWith(2);
+  });
+
   it('runs the full pipeline for a single topic', async () => {
     const htmlText = '<p>Sentence one. Sentence two.</p>';
     const plainText = 'Sentence one. Sentence two.';

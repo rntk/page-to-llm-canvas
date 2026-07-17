@@ -9,6 +9,7 @@ import { PARSER_METRICS_KEY } from './parserMetrics.js';
 import { CHAT_TOOL_METRICS_KEY } from './chatToolMetrics.js';
 import { PREFER_CONTENT_LANGUAGE_KEY } from './languageSettings.js';
 import { SUMMARIES_DISABLED_KEY } from './summarySettings.js';
+import { MAX_PARALLEL_LLM_REQUESTS_KEY } from './llmConcurrencySettings.js';
 import { VERBOSE_LOGS_KEY } from '../verboseLogSettings.js';
 import { clearLocal, getLocal, MUTATION_QUEUE_KEY, queuedUpdate } from './storagePrimitives.js';
 
@@ -16,6 +17,7 @@ const CHAT_STORAGE_PREFIX = 'pagetollm:chats:';
 const SETTINGS_KEYS = new Set([
   PREFER_CONTENT_LANGUAGE_KEY,
   SUMMARIES_DISABLED_KEY,
+  MAX_PARALLEL_LLM_REQUESTS_KEY,
   VERBOSE_LOGS_KEY,
   'pagetollm-highlight-color',
   'pagetollm-theme',

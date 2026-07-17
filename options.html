@@ -337,6 +337,20 @@
       .settings-group .field {
         min-width: 0;
       }
+      .settings-group input[type='number'] {
+        width: 90px;
+        padding: 8px 10px;
+        border: 1px solid var(--ink);
+        border-radius: 0;
+        color: var(--on-surface);
+        background: var(--surface);
+        font-family: var(--font-data);
+        font-size: 13px;
+      }
+      .settings-group input[type='number']:focus {
+        outline: 2px solid var(--ink);
+        outline-offset: 2px;
+      }
       .provider-form {
         background: var(--surface);
         border: 1px solid var(--ink);

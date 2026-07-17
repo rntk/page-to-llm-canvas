@@ -44,6 +44,7 @@ describe('extension data management', () => {
       'pagetollm:chats:page:chat_1': { messages: [{ content: 'private chat' }] },
       'pagetollm:llm:providers': { providers: [{ token: 'secret' }] },
       'pagetollm-theme': 'dark',
+      'pagetollm-max-parallel-llm-requests': 3,
       'pagetollm-llm-metrics': { totalCount: 1 },
       'old-extension-key': { legacy: true },
     });
@@ -51,14 +52,14 @@ describe('extension data management', () => {
 
     const overview = await getStorageOverview();
 
-    expect(overview.totalKeyCount).toBe(9);
+    expect(overview.totalKeyCount).toBe(10);
     expect(overview.categories.pageData).toMatchObject({
       keyCount: 5,
       recordCount: 1,
       chatCount: 1,
     });
     expect(overview.categories.providers).toMatchObject({ keyCount: 1, providerCount: 1 });
-    expect(overview.categories.settings.keyCount).toBe(1);
+    expect(overview.categories.settings.keyCount).toBe(2);
     expect(overview.categories.diagnostics.keyCount).toBe(1);
     expect(overview.categories.other.keyCount).toBe(1);
     expect(JSON.stringify(overview)).not.toContain('secret');

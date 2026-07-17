@@ -30,6 +30,15 @@ import {
   setStoredVerboseLogs,
   normalizeVerboseLogs,
 } from '../../worker/verboseLogSettings.js';
+import {
+  MAX_PARALLEL_LLM_REQUESTS_KEY,
+  DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
+  MIN_PARALLEL_LLM_REQUESTS,
+  MAX_PARALLEL_LLM_REQUESTS,
+  getStoredMaxParallelLlmRequests,
+  setStoredMaxParallelLlmRequests,
+  normalizeMaxParallelLlmRequests,
+} from '../../worker/llmConcurrencySettings.js';
 
 export function ThemeToggle() {
   const [controller] = useState(() => createThemeController());
@@ -247,6 +256,40 @@ export function SummaryGenerationSection() {
   );
 }
 
+export function LlmConcurrencySection() {
+  const [maxParallelRequests, setMaxParallelRequests] = useStoredPreference({
+    storageKey: MAX_PARALLEL_LLM_REQUESTS_KEY,
+    defaultValue: DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
+    readPreference: getStoredMaxParallelLlmRequests,
+    writePreference: setStoredMaxParallelLlmRequests,
+    normalize: normalizeMaxParallelLlmRequests,
+  });
+
+  return (
+    <div className="settings-group">
+      <h3>LLM concurrency</h3>
+      <div className="field">
+        <label htmlFor="max-parallel-llm-requests">Maximum parallel requests</label>
+        <div>
+          <input
+            id="max-parallel-llm-requests"
+            type="number"
+            min={MIN_PARALLEL_LLM_REQUESTS}
+            max={MAX_PARALLEL_LLM_REQUESTS}
+            step="1"
+            value={maxParallelRequests}
+            onChange={(event) => setMaxParallelRequests(event.target.value)}
+          />
+        </div>
+        <div className="note">
+          Limits LLM calls across all pages being processed at the same time. Extra calls wait in a
+          shared queue. Changes apply to queued and future calls.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function VerboseLogsSection() {
   const [verboseLogs, setVerboseLogs] = useStoredPreference({
     storageKey: VERBOSE_LOGS_KEY,
@@ -295,6 +338,7 @@ export function GeneralSettingsPanel() {
         </div>
         <ContentLanguageSection />
         <SummaryGenerationSection />
+        <LlmConcurrencySection />
         <VerboseLogsSection />
         <HighlightColorSection />
       </div>

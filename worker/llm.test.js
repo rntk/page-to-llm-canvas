@@ -671,6 +671,61 @@ describe('createLimiter', () => {
   });
 });
 
+describe('createAdjustableLimiter', () => {
+  it('applies a lower limit to queued tasks without replacing the queue', async () => {
+    const { createAdjustableLimiter } = await getLLM();
+    const limiter = createAdjustableLimiter(2);
+    const releases = [];
+    const started = [];
+    const task = (id) =>
+      limiter.run(
+        () =>
+          new Promise((resolve) => {
+            started.push(id);
+            releases[id] = resolve;
+          }),
+      );
+
+    const tasks = [task(0), task(1), task(2), task(3)];
+    await vi.waitFor(() => expect(started).toEqual([0, 1]));
+
+    limiter.setLimit(1);
+    releases[0]();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(started).toEqual([0, 1]);
+
+    releases[1]();
+    await vi.waitFor(() => expect(started).toEqual([0, 1, 2]));
+    releases[2]();
+    await vi.waitFor(() => expect(started).toEqual([0, 1, 2, 3]));
+    releases[3]();
+    await Promise.all(tasks);
+  });
+
+  it('raises the limit and admits queued tasks immediately', async () => {
+    const { createAdjustableLimiter } = await getLLM();
+    const limiter = createAdjustableLimiter(1);
+    const releases = [];
+    const started = [];
+    const task = (id) =>
+      limiter.run(
+        () =>
+          new Promise((resolve) => {
+            started.push(id);
+            releases[id] = resolve;
+          }),
+      );
+
+    const tasks = [task(0), task(1), task(2)];
+    await vi.waitFor(() => expect(started).toEqual([0]));
+    limiter.setLimit(3);
+    await vi.waitFor(() => expect(started).toEqual([0, 1, 2]));
+    releases.forEach((release) => release());
+    await Promise.all(tasks);
+  });
+});
+
 describe('exports', () => {
   it('exports a positive LLM_REQUEST_TIMEOUT_MS number', async () => {
     const { LLM_REQUEST_TIMEOUT_MS } = await getLLM();
