@@ -18,7 +18,7 @@ function createTurnId() {
 /**
  * Article chat panel: composes the persisted-session hook with the
  * presentational pieces and owns the send path. One LLM turn runs entirely
- * in memory (highlights are live-painted as they stream in) and is then
+ * in memory (highlights are painted as they stream in) and is then
  * committed with one idempotent persistChatTurn call. A stable turn id makes
  * retrying safe when the storage commit succeeded but its acknowledgement was
  * lost.
@@ -51,7 +51,6 @@ export default function ArticleChat({
   const subjectTitle = `${subjectLabel[0].toUpperCase()}${subjectLabel.slice(1)}`;
   const [input, setInput] = useState('');
   const [activeTab, setActiveTab] = useState('chat');
-  const [autoFocusEvents, setAutoFocusEvents] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [notice, setNotice] = useState(null);
@@ -334,7 +333,7 @@ export default function ArticleChat({
     let turnResult;
     try {
       try {
-        // Run the whole turn first; onHighlight only live-paints the article.
+        // Run the whole turn first; onHighlight paints new evidence as it streams.
         turnResult = await runArticleChatTurn({
           history: messages,
           question,
@@ -344,7 +343,6 @@ export default function ArticleChat({
           highlightedRanges,
           onHighlight: (range) => {
             if (!isCurrentOperation(operation)) return undefined;
-            if (autoFocusEvents) return focusHighlight(range);
             return onHighlight?.(range);
           },
         });
@@ -415,8 +413,6 @@ export default function ArticleChat({
     activeChatId,
     adoptPersistedTurn,
     applyEvents,
-    autoFocusEvents,
-    focusHighlight,
     highlightedRanges,
     input,
     isCurrentOperation,
@@ -531,22 +527,6 @@ export default function ArticleChat({
             Events <span>{events.length}</span>
           </button>
         </div>
-        <label
-          className="pagetollm-chat-events-live"
-          title={
-            subjectLabel === 'video'
-              ? 'Automatically jump the video to new evidence'
-              : 'Automatically scroll or zoom to new events'
-          }
-        >
-          <input
-            type="checkbox"
-            aria-label={subjectLabel === 'video' ? 'Live video jumps' : 'Live event focus'}
-            checked={autoFocusEvents}
-            onChange={(event) => setAutoFocusEvents(event.target.checked)}
-          />
-          Live
-        </label>
       </div>
 
       {activeTab === 'events' ? (

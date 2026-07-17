@@ -112,9 +112,9 @@ export async function openYouTubeRail(rec) {
   };
 
   // Stored chat events use 1-based transcript line ranges. Deliberate event
-  // selection (and streamed events when Live is enabled) arrives with
-  // `focus: true`; resolve the first line to its nearest transcript timestamp
-  // and use the exact same seek path as a topic/summary card click.
+  // selection arrives with `focus: true`; resolve the first line to its
+  // nearest transcript timestamp and use the exact same seek path as a
+  // topic/summary card click.
   const getChatEventTimestamp = ({ startLine }) => getTimestampForSentences(sentences, [startLine]);
 
   const handleChatHighlight = ({ startLine }, { focus = false } = {}) => {
@@ -128,8 +128,6 @@ export async function openYouTubeRail(rec) {
     }
     return seekTo(seconds);
   };
-
-  const handleClearChatHighlights = () => {};
 
   function renderRail() {
     if (isClosed() || guard.isStale()) return;
@@ -155,7 +153,6 @@ export async function openYouTubeRail(rec) {
         sentences={sentences}
         recordKey={record.key}
         onChatHighlight={handleChatHighlight}
-        onClearChatHighlights={handleClearChatHighlights}
         getChatEventTimestamp={getChatEventTimestamp}
       />,
     );

@@ -265,13 +265,15 @@ describe('App composition behavior', () => {
     await act(async () => root.unmount());
   });
 
-  it('mounts chat, accumulates highlights, focuses their range, and closes chat', async () => {
+  it('paints chat highlights but only focuses a deliberately selected event', async () => {
     const rect = { x: 1, y: 2, width: 3, height: 4 };
     mocks.buildSentenceDomRange.mockReturnValue({ getBoundingClientRect: () => rect });
     const { root } = await renderApp();
 
     await act(async () => state.childProps.controls.onToggleChat());
     expect(state.childProps.chat.recordKey).toBe('record-1');
+    await act(async () => state.childProps.chat.onHighlight({ startLine: 1, endLine: 2 }));
+    expect(mocks.zoomToTarget).not.toHaveBeenCalled();
     await act(async () =>
       state.childProps.chat.onHighlight({ startLine: 1, endLine: 2 }, { focus: true }),
     );

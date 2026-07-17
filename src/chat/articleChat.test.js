@@ -611,7 +611,7 @@ describe('article chat tool-call outcome metrics', () => {
     );
   });
 
-  it('commits the range but records "paint_failed" when live painting throws', async () => {
+  it('commits the range but records "paint_failed" when streamed painting throws', async () => {
     const onHighlight = vi.fn().mockRejectedValue(new Error('canvas gone'));
     const { recordToolMetric, result } = await runWith({
       toolCall: { name: 'highlight_span', arguments: { start_line: 2, end_line: 2 } },

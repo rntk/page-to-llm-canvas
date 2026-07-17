@@ -239,10 +239,6 @@ describe('ArticleChat persisted history', () => {
     expect(eventButton.textContent).toContain('Timestamp unavailable');
     expect(container.querySelectorAll('.pagetollm-chat-event > button')).toHaveLength(1);
     expect(container.querySelector('[aria-label^="Delete event"]')).toBeNull();
-    expect(container.querySelector('.pagetollm-chat-events-live').title).toContain(
-      'jump the video',
-    );
-
     unmount();
   });
 
@@ -427,7 +423,7 @@ describe('ArticleChat persisted history', () => {
     unmount();
   });
 
-  it('offers automatic event focus on the Events tab and leaves it disabled by default', async () => {
+  it('paints streamed evidence without automatically focusing it', async () => {
     turnLoop.runArticleChatTurn.mockImplementation(async ({ onHighlight: paintHighlight }) => {
       await paintHighlight({ startLine: 3, endLine: 3, label: 'Focused evidence' });
       return {
@@ -470,25 +466,14 @@ describe('ArticleChat persisted history', () => {
     );
     await flushAsyncWork();
 
-    const eventsTab = Array.from(container.querySelectorAll('.pagetollm-chat-tabs button')).find(
-      (button) => button.textContent.includes('Events'),
-    );
-    act(() => eventsTab.click());
-    const autoFocus = container.querySelector('.pagetollm-chat-events-live input');
-    expect(autoFocus.checked).toBe(false);
-    act(() => autoFocus.click());
-
-    const chatTab = Array.from(container.querySelectorAll('.pagetollm-chat-tabs button')).find(
-      (button) => button.textContent.includes('Chat'),
-    );
-    act(() => chatTab.click());
     typeQuestion(container, 'Focus this');
     await clickSend(container);
 
-    expect(onHighlight).toHaveBeenCalledWith(
-      { startLine: 3, endLine: 3, label: 'Focused evidence' },
-      { focus: true },
-    );
+    expect(onHighlight).toHaveBeenCalledWith({
+      startLine: 3,
+      endLine: 3,
+      label: 'Focused evidence',
+    });
 
     unmount();
   });
@@ -522,7 +507,7 @@ describe('ArticleChat persisted history', () => {
       'Doomed question',
     );
     expect(container.textContent).not.toContain('Lost answer.');
-    // Live-painted highlights are reset to the stored selected event.
+    // Stream-painted highlights are reset to the stored selected event.
     expect(onHighlight).toHaveBeenLastCalledWith({
       startLine: 1,
       endLine: 2,

@@ -179,7 +179,7 @@ describe('openYouTubeRail', () => {
       );
     });
 
-    it('shows video chat with Live off and seeks when a stored event is clicked', async () => {
+    it('shows video chat and seeks when a stored event is clicked', async () => {
       const video = mountVideo();
       fetchRecord.mockResolvedValue(
         baseRecord({
@@ -247,17 +247,13 @@ describe('openYouTubeRail', () => {
         (button) => button.textContent.includes('Events'),
       );
       await act(async () => eventsTab.click());
-      const liveLabel = rail().querySelector('.pagetollm-chat-events-live');
-      const live = liveLabel.querySelector('input');
-      expect(live.checked).toBe(false);
-      expect(liveLabel.title).toContain('jump the video');
       expect(eventsTab.getAttribute('role')).toBe('tab');
       expect(eventsTab.getAttribute('aria-selected')).toBe('true');
       expect(rail().querySelector('.pagetollm-rail-close').getAttribute('aria-label')).toBe(
         'Close rail',
       );
       // Loading the selected event is passive; it must not jump until the user
-      // clicks it (or explicitly enables Live for future streamed events).
+      // clicks it.
       expect(video.currentTime).toBe(0);
 
       const eventButton = rail().querySelector('.pagetollm-chat-event > button');

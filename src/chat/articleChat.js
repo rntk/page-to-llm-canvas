@@ -406,7 +406,7 @@ async function runArticleChatChunk({
             result = `Skipped lines ${range.startLine}-${range.endLine}: that passage is already highlighted.`;
           } else {
             // Commit the range for persistence up front. onHighlight is a
-            // best-effort live paint (UI only); a paint failure must not drop
+            // best-effort streamed paint (UI only); a paint failure must not drop
             // the range or be reported to the model as a bad call — otherwise
             // it re-issues the same valid range and can loop.
             ranges.push(range);
@@ -463,7 +463,7 @@ async function runArticleChatChunk({
  * and the new ranges are returned so the caller can commit the whole turn
  * atomically.
  *
- * `onHighlight(range)` fires as each new range is accepted, for live UI
+ * `onHighlight(range)` fires as each new range is accepted, for streamed UI
  * painting only.
  *
  * The optional AbortSignal cancels local work immediately. Every provider
