@@ -4,9 +4,9 @@ import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import HierarchyApp from './HierarchyApp.jsx';
-import { useRecord } from '../useRecord.js';
+import { useRecord } from '../canvas/hooks/useRecord.js';
 
-vi.mock('../useRecord.js', () => ({
+vi.mock('../canvas/hooks/useRecord.js', () => ({
   useRecord: vi.fn(),
 }));
 

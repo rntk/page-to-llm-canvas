@@ -6,7 +6,7 @@ vi.mock('./App.jsx', () => ({
   default: vi.fn(() => React.createElement('div', { 'data-testid': 'app' })),
 }));
 
-vi.mock('./hierarchy/HierarchyApp.jsx', () => ({
+vi.mock('../hierarchy/HierarchyApp.jsx', () => ({
   default: vi.fn(() => React.createElement('div', { 'data-testid': 'hierarchy-app' })),
 }));
 
@@ -33,7 +33,7 @@ describe('main.jsx entry point', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    const HierarchyAppMock = (await import('./hierarchy/HierarchyApp.jsx')).default;
+    const HierarchyAppMock = (await import('../hierarchy/HierarchyApp.jsx')).default;
     expect(HierarchyAppMock).toHaveBeenCalledWith(
       expect.objectContaining({ initialKey: 'key-hier' }),
       undefined,

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { buildSentenceDomRange } from './sentenceHighlight.js';
-import { buildCanvasTopicPan, resolveCanvasTopicNavigation } from './topicNavigation.js';
+import { buildSentenceDomRange } from '../../highlights/sentenceHighlight.js';
+import { buildCanvasTopicPan, resolveCanvasTopicNavigation } from '../../domain/topicNavigation.js';
 
 /** Coordinates topic navigation with the canvas transform and live DOM ranges. */
 export function useCanvasTopicNavigation({

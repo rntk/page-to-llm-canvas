@@ -1,4 +1,4 @@
-import { collectWordEntries, buildSentenceWordRanges } from '../sentenceHighlight.js';
+import { collectWordEntries, buildSentenceWordRanges } from '../highlights/sentenceHighlight.js';
 
 function mergeIntervals(intervals) {
   const sorted = intervals

@@ -3,7 +3,7 @@ import {
   HIGHLIGHT_NAME,
   supportsHighlightApi,
   paintSentenceHighlight,
-} from './sentenceHighlight.js';
+} from '../../highlights/sentenceHighlight.js';
 
 /** Second CSS Custom Highlight name, used for the hovered (not selected) topic. */
 const HIGHLIGHT_HOVER = 'pagetollm-sentence-hover';

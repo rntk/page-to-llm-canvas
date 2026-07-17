@@ -3,7 +3,7 @@ import {
   CHAT_HIGHLIGHT_NAME,
   paintSentenceHighlight,
   supportsHighlightApi,
-} from '../sentenceHighlight.js';
+} from '../highlights/sentenceHighlight.js';
 
 // Re-exported for callers that still import the constant from this module.
 export { CHAT_HIGHLIGHT_NAME };

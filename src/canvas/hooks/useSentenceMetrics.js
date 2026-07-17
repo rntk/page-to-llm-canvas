@@ -3,7 +3,7 @@ import {
   collectWordEntries,
   buildSentenceDomRange,
   buildSentenceWordRanges,
-} from './sentenceHighlight.js';
+} from '../../highlights/sentenceHighlight.js';
 
 function areSentenceMetricsEqual(prevMetrics, nextMetrics) {
   if (prevMetrics === nextMetrics) return true;

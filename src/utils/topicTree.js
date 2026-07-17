@@ -1,4 +1,4 @@
-import { splitTopicPath } from '../topicDomain.js';
+import { splitTopicPath } from '../domain/topicDomain.js';
 
 /**
  * Build a nested tree from a flat list of topics whose `name` encodes a

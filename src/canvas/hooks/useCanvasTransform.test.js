@@ -4,7 +4,7 @@ import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { useCanvasTransform } from './useCanvasTransform.js';
-import { clampScale, cursorAnchoredTranslate } from './utils/canvasMath.js';
+import { clampScale, cursorAnchoredTranslate } from '../../utils/canvasMath.js';
 
 function renderHook(callback) {
   const container = document.createElement('div');

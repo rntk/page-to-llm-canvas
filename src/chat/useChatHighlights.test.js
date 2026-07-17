@@ -8,7 +8,7 @@ const highlightApi = vi.hoisted(() => ({
   paintSentenceHighlight: vi.fn(),
 }));
 
-vi.mock('../sentenceHighlight.js', () => ({
+vi.mock('../highlights/sentenceHighlight.js', () => ({
   CHAT_HIGHLIGHT_NAME: 'pagetollm-chat-sentence',
   supportsHighlightApi: highlightApi.supportsHighlightApi,
   paintSentenceHighlight: highlightApi.paintSentenceHighlight,

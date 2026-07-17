@@ -36,11 +36,11 @@ const mocks = vi.hoisted(() => ({
   handleShowSourceSentences: vi.fn(),
 }));
 
-vi.mock('./useRecord.js', () => ({
+vi.mock('./hooks/useRecord.js', () => ({
   useRecord: () => ({ record: state.record, error: state.error }),
 }));
 
-vi.mock('./topicCards.js', () => ({
+vi.mock('../domain/topicCards.js', () => ({
   COLUMN_GAP: 10,
   RAIL_PADDING: 10,
   buildTopicCards: vi.fn(() => [{ key: 'Topic#0', path: 'Topic', levelIndex: 0, height: 20 }]),
@@ -57,27 +57,27 @@ function captureComponent(name) {
   };
 }
 
-vi.mock('./components/CanvasTopicHierarchyRail.jsx', () => ({
+vi.mock('../components/CanvasTopicHierarchyRail.jsx', () => ({
   default: captureComponent('rail'),
 }));
-vi.mock('./components/CanvasSummaryView.jsx', () => ({
+vi.mock('../components/CanvasSummaryView.jsx', () => ({
   default: captureComponent('summary'),
 }));
-vi.mock('./components/CanvasZoomControls.jsx', () => ({
+vi.mock('../components/CanvasZoomControls.jsx', () => ({
   default: captureComponent('controls'),
 }));
-vi.mock('./components/SpinnerOverlay.jsx', () => ({ default: captureComponent('spinner') }));
-vi.mock('./components/SummaryErrorsOverlay.jsx', () => ({
+vi.mock('../components/SpinnerOverlay.jsx', () => ({ default: captureComponent('spinner') }));
+vi.mock('../components/SummaryErrorsOverlay.jsx', () => ({
   default: captureComponent('summaryErrors'),
 }));
-vi.mock('./components/ArticleHtml.jsx', () => ({ default: captureComponent('article') }));
-vi.mock('./chat/ArticleChat.jsx', () => ({ default: captureComponent('chat') }));
+vi.mock('../components/ArticleHtml.jsx', () => ({ default: captureComponent('article') }));
+vi.mock('../chat/ArticleChat.jsx', () => ({ default: captureComponent('chat') }));
 
 vi.mock('./closeModal.js', () => ({ closeModal: mocks.closeModal }));
-vi.mock('./utils/canvasMath.js', () => ({
+vi.mock('../utils/canvasMath.js', () => ({
   clampScale: (value) => Math.max(0.1, Math.min(4, value)),
 }));
-vi.mock('./useCanvasTransform.js', () => ({
+vi.mock('./hooks/useCanvasTransform.js', () => ({
   useCanvasTransform: () => ({
     scale: 1,
     isCanvasDragging: false,
@@ -96,26 +96,26 @@ vi.mock('./useCanvasTransform.js', () => ({
     flashFocus: mocks.flashFocus,
   }),
 }));
-vi.mock('./useCanvasAlignment.js', () => ({
+vi.mock('./hooks/useCanvasAlignment.js', () => ({
   useCanvasAlignment: () => ({
     captureAnchor: mocks.captureAnchor,
     skipNextAlignment: mocks.skipNextAlignment,
   }),
 }));
-vi.mock('./useSentenceMetrics.js', () => ({
+vi.mock('./hooks/useSentenceMetrics.js', () => ({
   useSentenceMetrics: () => ({
     sentenceMetrics: new Map(),
     summaryMetricsState: new Map(),
     refreshSentenceRanges: mocks.refreshSentenceRanges,
   }),
 }));
-vi.mock('./useSentenceHighlights.js', () => ({ useSentenceHighlights: vi.fn() }));
-vi.mock('./chat/useChatHighlights.js', () => ({ useChatHighlights: vi.fn() }));
-vi.mock('./useInitialView.js', () => ({ useInitialView: vi.fn() }));
-vi.mock('./useCanvasRecordViewModel.js', () => ({
+vi.mock('./hooks/useSentenceHighlights.js', () => ({ useSentenceHighlights: vi.fn() }));
+vi.mock('../chat/useChatHighlights.js', () => ({ useChatHighlights: vi.fn() }));
+vi.mock('./hooks/useInitialView.js', () => ({ useInitialView: vi.fn() }));
+vi.mock('./hooks/useCanvasRecordViewModel.js', () => ({
   useCanvasRecordViewModel: () => state.vm,
 }));
-vi.mock('./useCanvasTopicNavigation.js', () => ({
+vi.mock('./hooks/useCanvasTopicNavigation.js', () => ({
   useCanvasTopicNavigation: () => ({
     zoomToTopic: mocks.zoomToTopic,
     panToTopic: mocks.panToTopic,
@@ -123,7 +123,7 @@ vi.mock('./useCanvasTopicNavigation.js', () => ({
     handleShowSourceSentences: mocks.handleShowSourceSentences,
   }),
 }));
-vi.mock('./useTopicSelection.js', () => ({
+vi.mock('./hooks/useTopicSelection.js', () => ({
   useTopicSelection: () => ({
     selectedTopicKey: 'Topic',
     selectedTopicCardKey: 'Topic#0',
@@ -143,14 +143,14 @@ vi.mock('./useTopicSelection.js', () => ({
     clearTopicSelection: mocks.clearTopicSelection,
   }),
 }));
-vi.mock('./utils/errorUtils.js', () => ({
+vi.mock('../utils/errorUtils.js', () => ({
   retryRecord: mocks.retryRecord,
   resolveSummaryErrors: mocks.resolveSummaryErrors,
 }));
-vi.mock('./utils/currentTopicSummary.js', () => ({
+vi.mock('../utils/currentTopicSummary.js', () => ({
   selectCurrentTopicSummary: vi.fn(() => ({ key: 'Topic#0', text: 'Summary' })),
 }));
-vi.mock('./sentenceHighlight.js', () => ({
+vi.mock('../highlights/sentenceHighlight.js', () => ({
   buildSentenceDomRange: mocks.buildSentenceDomRange,
 }));
 

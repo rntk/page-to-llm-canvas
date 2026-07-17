@@ -7,7 +7,7 @@
  */
 
 import { getTopicSentenceNumbers, splitSentenceRuns, splitTopicPath } from './topicDomain.js';
-import { clampScale } from './utils/canvasMath.js';
+import { clampScale } from '../utils/canvasMath.js';
 
 // Compatibility exports for callers that previously sourced domain helpers
 // from this layout module. New code should import them from topicDomain.js.

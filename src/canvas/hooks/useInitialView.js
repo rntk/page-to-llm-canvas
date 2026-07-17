@@ -1,11 +1,11 @@
 import { useEffect, useReducer } from 'react';
-import { clampScale } from './utils/canvasMath.js';
+import { clampScale } from '../../utils/canvasMath.js';
 import {
   buildTopicNavigationList,
   findTopicNavigationTarget,
   getTopicNavigationTopicKey,
   getTopicNavigationCardKey,
-} from './topicNavigation.js';
+} from '../../domain/topicNavigation.js';
 
 /**
  * Phase machine for the one-time "opening view" setup.

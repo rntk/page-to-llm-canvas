@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
-import { sanitizeArticleHtml, escapeHtml } from './articleHtml.js';
-import { buildSummaryCards, filterSummaryCardsByLevel } from './summaryCards.js';
-import { buildTopicSentenceIndex, getMaxTopicLevel } from './topicDomain.js';
+import { sanitizeArticleHtml, escapeHtml } from '../../highlights/articleHtml.js';
+import { buildSummaryCards, filterSummaryCardsByLevel } from '../../domain/summaryCards.js';
+import { buildTopicSentenceIndex, getMaxTopicLevel } from '../../domain/topicDomain.js';
 
 /**
  * Normalize a storage record into the stable, derived data consumed by the

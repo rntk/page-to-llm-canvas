@@ -1,6 +1,6 @@
-import { getTopicSentenceNumbers, getTopicSentenceNumbersRaw } from '../topicDomain.js';
+import { getTopicSentenceNumbers, getTopicSentenceNumbersRaw } from '../domain/topicDomain.js';
 
-export { getTopicSentenceNumbersRaw } from '../topicDomain.js';
+export { getTopicSentenceNumbersRaw } from '../domain/topicDomain.js';
 
 /**
  * Collect all sentence numbers for a topic tree entry and its descendants.

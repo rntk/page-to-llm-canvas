@@ -3,13 +3,13 @@ import {
   splitTopicPath,
   getTopicSentenceNumbersRaw,
   computeMaxTopicLevelForRecord,
-} from '../topicDomain.js';
+} from '../domain/topicDomain.js';
 
 /**
  * Extract sentence numbers from a topic, preserving zero-based indices (the
  * content pipeline's `record.sentences` array is zero-indexed, unlike the
  * hierarchy view's one-based numbering). Delegates to
- * ../topicDomain.js#getTopicSentenceNumbersRaw, which also honors
+ * ../domain/topicDomain.js#getTopicSentenceNumbersRaw, which also honors
  * `topic.sentenceIndices` and filters out non-integer/negative values.
  *
  * @param {{sentences?: number[], sentenceIndices?: number[], ranges?: Array<{sentence_start?: number, sentence_end?: number}>}} topic
@@ -21,7 +21,7 @@ export function getTopicSentenceNumbers(topic) {
 
 /**
  * Split a hierarchical topic path into normalized path segments. Delegates to
- * ../topicDomain.js.
+ * ../domain/topicDomain.js.
  *
  * @param {string} name
  * @returns {string[]}
@@ -35,7 +35,7 @@ export function splitPath(name) {
  * topic list (depth from `name` path) and the `topic_summary_index` (each
  * entry's explicit `level`, or its path depth when absent). Drives the rail's
  * level selector, so summary-only levels count even when no topic reaches them.
- * Delegates to ../topicDomain.js.
+ * Delegates to ../domain/topicDomain.js.
  *
  * @param {{topics?: Array<{name?: string}>, topic_summary_index?: Record<string, {level?: number}>}} record
  * @returns {number} The maximum 0-based level.

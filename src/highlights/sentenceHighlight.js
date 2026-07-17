@@ -1,7 +1,7 @@
 // Shared helpers for locating record sentences inside a live DOM subtree and
 // painting them with the native CSS Custom Highlight API. Used by both the
 // in-page rail (src/content/main.jsx, operating on the live page) and the
-// canvas modal (src/App.jsx, operating on the re-rendered article HTML).
+// canvas modal (src/canvas/App.jsx, operating on the re-rendered article HTML).
 
 const WORD_TOKEN_RE = /\S+/g;
 export const HIGHLIGHT_NAME = 'pagetollm-sentence';

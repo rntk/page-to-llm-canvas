@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { closeModal } from '../closeModal.js';
+import { closeModal } from '../canvas/closeModal.js';
 
 /**
  * Confirm popup shown when a record is parked in `needs_attention`: some topic

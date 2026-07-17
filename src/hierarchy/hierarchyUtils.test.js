@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { getSentencesForNode, getTopicSentenceNumbersRaw } from './hierarchyUtils.js';
-import { getTopicSentenceNumbers } from '../topicDomain.js';
+import { getTopicSentenceNumbers } from '../domain/topicDomain.js';
 
-vi.mock('../topicDomain.js', async (importOriginal) => {
+vi.mock('../domain/topicDomain.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,

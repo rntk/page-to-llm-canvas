@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from 'vitest';
-import { sanitizeArticleHtml, escapeHtml } from './articleHtml.js';
+import { sanitizeArticleHtml, escapeHtml } from '../highlights/articleHtml.js';
 
 describe('sanitizeArticleHtml', () => {
   it('strips <script> elements but keeps surrounding text', () => {

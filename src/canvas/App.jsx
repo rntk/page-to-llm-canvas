@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRecord } from './useRecord.js';
-import { MSG } from '../messages.js';
+import { useRecord } from './hooks/useRecord.js';
+import { MSG } from '../../messages.js';
 import {
   buildTopicCards,
   getTopicTitleFontSize,
@@ -9,28 +9,28 @@ import {
   patchTopicCardsFromSummaryMetrics,
   COLUMN_GAP,
   RAIL_PADDING,
-} from './topicCards.js';
-import CanvasTopicHierarchyRail from './components/CanvasTopicHierarchyRail.jsx';
-import CanvasSummaryView from './components/CanvasSummaryView.jsx';
-import CanvasZoomControls from './components/CanvasZoomControls.jsx';
-import SpinnerOverlay from './components/SpinnerOverlay.jsx';
-import SummaryErrorsOverlay from './components/SummaryErrorsOverlay.jsx';
-import ArticleHtml from './components/ArticleHtml.jsx';
+} from '../domain/topicCards.js';
+import CanvasTopicHierarchyRail from '../components/CanvasTopicHierarchyRail.jsx';
+import CanvasSummaryView from '../components/CanvasSummaryView.jsx';
+import CanvasZoomControls from '../components/CanvasZoomControls.jsx';
+import SpinnerOverlay from '../components/SpinnerOverlay.jsx';
+import SummaryErrorsOverlay from '../components/SummaryErrorsOverlay.jsx';
+import ArticleHtml from '../components/ArticleHtml.jsx';
 import { closeModal } from './closeModal.js';
-import { useCanvasTransform } from './useCanvasTransform.js';
-import { clampScale } from './utils/canvasMath.js';
-import { useCanvasAlignment } from './useCanvasAlignment.js';
-import { useSentenceMetrics } from './useSentenceMetrics.js';
-import { useSentenceHighlights } from './useSentenceHighlights.js';
-import { useInitialView } from './useInitialView.js';
-import { useCanvasRecordViewModel } from './useCanvasRecordViewModel.js';
-import { useCanvasTopicNavigation } from './useCanvasTopicNavigation.js';
-import { useTopicSelection } from './useTopicSelection.js';
-import { retryRecord, resolveSummaryErrors } from './utils/errorUtils.js';
-import { selectCurrentTopicSummary } from './utils/currentTopicSummary.js';
-import ArticleChat from './chat/ArticleChat.jsx';
-import { useChatHighlights } from './chat/useChatHighlights.js';
-import { buildSentenceDomRange } from './sentenceHighlight.js';
+import { useCanvasTransform } from './hooks/useCanvasTransform.js';
+import { clampScale } from '../utils/canvasMath.js';
+import { useCanvasAlignment } from './hooks/useCanvasAlignment.js';
+import { useSentenceMetrics } from './hooks/useSentenceMetrics.js';
+import { useSentenceHighlights } from './hooks/useSentenceHighlights.js';
+import { useInitialView } from './hooks/useInitialView.js';
+import { useCanvasRecordViewModel } from './hooks/useCanvasRecordViewModel.js';
+import { useCanvasTopicNavigation } from './hooks/useCanvasTopicNavigation.js';
+import { useTopicSelection } from './hooks/useTopicSelection.js';
+import { retryRecord, resolveSummaryErrors } from '../utils/errorUtils.js';
+import { selectCurrentTopicSummary } from '../utils/currentTopicSummary.js';
+import ArticleChat from '../chat/ArticleChat.jsx';
+import { useChatHighlights } from '../chat/useChatHighlights.js';
+import { buildSentenceDomRange } from '../highlights/sentenceHighlight.js';
 
 /**
  * @param {{ initialKey: string }} props

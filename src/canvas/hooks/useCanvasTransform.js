@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { clampScale, cursorAnchoredTranslate } from './utils/canvasMath.js';
+import { clampScale, cursorAnchoredTranslate } from '../../utils/canvasMath.js';
 
 const WHEEL_IN = 1.1;
 const WHEEL_OUT = 1 / 1.1;
 const ARROW_STEP = 80;
 
-export { clampScale, cursorAnchoredTranslate } from './utils/canvasMath.js';
+export { clampScale, cursorAnchoredTranslate } from '../../utils/canvasMath.js';
 
 /**
  * Simplified canvas transform hook: pan, wheel zoom, programmatic zoom,

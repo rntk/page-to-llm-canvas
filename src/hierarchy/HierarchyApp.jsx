@@ -1,15 +1,15 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
-import { useRecord } from '../useRecord.js';
+import { useRecord } from '../canvas/hooks/useRecord.js';
 import TopicHierarchyView from './TopicHierarchyView.jsx';
 import { getSentencesForNode } from './hierarchyUtils.js';
 import { getYouTubeTimestampLink, getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
 import YouTubeTimestampButton from '../components/YouTubeTimestampButton.jsx';
-import { closeModal, postMessageToParent } from '../closeModal.js';
+import { closeModal, postMessageToParent } from '../canvas/closeModal.js';
 import { splitError, retryRecord } from '../utils/errorUtils.js';
 import ErrorDetails from '../components/ErrorDetails.jsx';
 import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
 import { buildTopicTree, collectNonLeafPaths } from '../utils/topicTree.js';
-import { getMaxTopicLevel } from '../topicDomain.js';
+import { getMaxTopicLevel } from '../domain/topicDomain.js';
 import './hierarchy.css';
 
 export default function HierarchyApp({ initialKey }) {

@@ -8,7 +8,7 @@ import {
   HIGHLIGHT_NAME,
   collectWordEntries,
   buildSentenceWordRanges,
-} from './sentenceHighlight.js';
+} from '../../highlights/sentenceHighlight.js';
 
 const HIGHLIGHT_HOVER = 'pagetollm-sentence-hover';
 

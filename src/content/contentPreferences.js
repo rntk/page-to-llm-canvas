@@ -12,7 +12,7 @@ import {
   getStoredHighlightColor,
   normalizeHighlightColor,
   applyHighlightColorToElement,
-} from '../highlightSettings.js';
+} from '../highlights/highlightSettings.js';
 
 // The injected toolbar/rail tokens are scoped to their host elements (not the
 // host page's :root), so we tag those elements with the saved preference and

@@ -6,7 +6,7 @@ export default {
     related: false,
   },
   reporters: ['html', 'clear-text', 'progress', 'json'],
-  // `src/main.jsx` is only bootstrap wiring. App itself is behaviorally loaded
+  // `src/canvas/main.jsx` is only bootstrap wiring. App itself is behaviorally loaded
   // by App.test.jsx and should remain in mutation scope.
   mutate: [
     'src/**/*.{js,jsx,mjs}',
@@ -15,7 +15,7 @@ export default {
     'popup.js',
     'theme.js',
     'verboseLogSettings.js',
-    '!src/main.jsx',
+    '!src/canvas/main.jsx',
     // Test files match the globs above but must never be mutated themselves;
     // exclude them here (not via ignorePatterns, which controls sandbox
     // copying and would strip the test files Stryker needs to run).

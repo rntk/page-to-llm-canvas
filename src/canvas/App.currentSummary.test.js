@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { selectCurrentTopicSummary } from './utils/currentTopicSummary.js';
+import { selectCurrentTopicSummary } from '../utils/currentTopicSummary.js';
 
 describe('selectCurrentTopicSummary', () => {
   const cards = [

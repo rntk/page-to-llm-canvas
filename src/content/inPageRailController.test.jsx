@@ -52,7 +52,7 @@ vi.mock('./railGeometry.js', () => ({
   computeCardVerticalBox: vi.fn(() => ({ top: 0, height: 50 })),
 }));
 
-vi.mock('../sentenceHighlight.js', async (importOriginal) => {
+vi.mock('../highlights/sentenceHighlight.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
@@ -66,7 +66,7 @@ const { openInPageRail } = await import('./inPageRailController.jsx');
 const { fetchRecord } = await import('./recordFetch.js');
 const { openCanvasIframe, openHierarchyIframe } = await import('./recordViewIframe.js');
 const { closeInPageRail, railLoadingTokenHolder } = await import('./railSurface.js');
-const { buildSentenceDomRange } = await import('../sentenceHighlight.js');
+const { buildSentenceDomRange } = await import('../highlights/sentenceHighlight.js');
 
 function baseRecord(overrides = {}) {
   return {

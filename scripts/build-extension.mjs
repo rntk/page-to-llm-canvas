@@ -98,7 +98,7 @@ const entries = [
   },
   {
     name: 'modal',
-    input: path.join(root, 'src/main.jsx'),
+    input: path.join(root, 'src/canvas/main.jsx'),
     emptyOutDir: false,
   },
   {

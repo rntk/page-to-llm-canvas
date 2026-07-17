@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { MSG } from '../messages.js';
-import { sendRuntimeMessage } from './utils/runtimeMessages.js';
+import { MSG } from '../../../messages.js';
+import { sendRuntimeMessage } from '../../utils/runtimeMessages.js';
 
 /**
  * Subscribes to the record identified by `key`. The record is physically

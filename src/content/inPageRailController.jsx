@@ -2,7 +2,7 @@ import React from 'react';
 import { flushSync } from 'react-dom';
 import InPageRail from './InPageRail.jsx';
 import { splitError, retryRecord } from '../utils/errorUtils.js';
-import { resolveColumnOverlaps } from '../topicCards.js';
+import { resolveColumnOverlaps } from '../domain/topicCards.js';
 import {
   HIGHLIGHT_NAME,
   CHAT_HIGHLIGHT_NAME,
@@ -11,7 +11,7 @@ import {
   buildSentenceDomRange,
   buildSentenceWordRanges,
   paintSentenceHighlight,
-} from '../sentenceHighlight.js';
+} from '../highlights/sentenceHighlight.js';
 import {
   topicAccentColor,
   buildSummaryEntries,

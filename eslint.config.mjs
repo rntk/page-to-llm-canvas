@@ -49,14 +49,14 @@ export default [
     },
   },
   {
-    files: ['src/App.jsx'],
+    files: ['src/canvas/App.jsx'],
     rules: {
       'no-restricted-imports': [
         'error',
         {
           paths: [
             {
-              name: '../worker/pipeline/orchestrator.js',
+              name: '../../worker/pipeline/orchestrator.js',
               importNames: ['runPipeline'],
               message:
                 'The canvas observes pipeline state; only the background service worker owns runPipeline.',

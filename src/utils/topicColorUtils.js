@@ -2,7 +2,7 @@
  * Minimal deterministic topic color utilities (copied/trimmed from main frontend).
  */
 
-import { splitTopicPath } from '../topicDomain.js';
+import { splitTopicPath } from '../domain/topicDomain.js';
 
 function hashString(value) {
   let hash = 0;

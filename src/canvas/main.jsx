@@ -1,16 +1,16 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
-import HierarchyApp from './hierarchy/HierarchyApp.jsx';
+import HierarchyApp from '../hierarchy/HierarchyApp.jsx';
 import './modal.css';
 import { parseModalRoute } from './modalRoute.js';
-import { createThemeController } from '../theme.js';
+import { createThemeController } from '../../theme.js';
 import {
   HIGHLIGHT_COLOR_KEY,
   getStoredHighlightColor,
   normalizeHighlightColor,
   applyHighlightColorToElement,
-} from './highlightSettings.js';
+} from '../highlights/highlightSettings.js';
 
 // Apply the saved light/dark/system preference to this iframe document, and
 // keep it in sync if the preference changes (from the popup/options) while a

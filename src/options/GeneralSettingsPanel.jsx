@@ -8,7 +8,7 @@ import {
   setStoredHighlightColor,
   normalizeHighlightColor,
   applyHighlightColorToElement,
-} from '../highlightSettings.js';
+} from '../highlights/highlightSettings.js';
 import {
   PREFER_CONTENT_LANGUAGE_KEY,
   DEFAULT_PREFER_CONTENT_LANGUAGE,

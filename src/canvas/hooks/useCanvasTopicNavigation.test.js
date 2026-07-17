@@ -9,7 +9,7 @@ const sentenceHighlightMocks = vi.hoisted(() => ({
   buildSentenceDomRange: vi.fn(),
 }));
 
-vi.mock('./sentenceHighlight.js', () => sentenceHighlightMocks);
+vi.mock('../../highlights/sentenceHighlight.js', () => sentenceHighlightMocks);
 
 import { useCanvasTopicNavigation } from './useCanvasTopicNavigation.js';
 

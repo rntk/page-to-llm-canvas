@@ -1,5 +1,5 @@
 import React from 'react';
-import { closeModal } from '../closeModal.js';
+import { closeModal } from '../canvas/closeModal.js';
 import { splitError } from '../utils/errorUtils.js';
 import ErrorDetails from './ErrorDetails.jsx';
 
