@@ -1,24 +1,20 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import SelectionToolbar from './SelectionToolbar.jsx';
-import { guardTrustedUserEvent } from './eventSecurity.js';
-import { MSG } from '../../messages.js';
-import {
-  moveSelectedEntry,
-  removeSelectedEntry,
-  selectedBlocksForToolbar,
-} from './selectionState.js';
-import { canStepUpElement, stepUpSelectedEntry } from './contentViewLogic.js';
+import { guardTrustedUserEvent } from './trustedEvents.js';
+import { MSG } from '../../../messages.js';
+import { moveSelectedEntry, removeSelectedEntry, selectedBlocksForToolbar } from './state.js';
+import { canStepUpElement, stepUpSelectedEntry } from './elementTraversal.js';
 import { buildCssPath } from './cssPath.js';
-import { buildHtml } from './selectionHtml.js';
-import { TOOLBAR_SHADOW_STYLES } from './selectionToolbarStyles.js';
+import { buildHtml } from './html.js';
+import { TOOLBAR_SHADOW_STYLES } from './SelectionToolbar.styles.js';
 import {
   applyContentTheme,
   applyContentHighlightColor,
   trackMountedSurface,
   untrackMountedSurface,
   registerThemedSurface,
-} from './contentPreferences.js';
+} from '../shared/surfacePreferences.js';
 
 let selectionToolbar = null;
 let selectionToolbarRoot = null;

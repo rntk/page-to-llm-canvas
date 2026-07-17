@@ -73,7 +73,8 @@
 /* Selection toolbar: floating frosted vellum. The host element (this rule)
    lives in the light DOM, but its contents render inside a closed shadow
    root — the toolbar's inner styles (buttons, block list, etc.) live in
-   TOOLBAR_SHADOW_STYLES in src/content/main.jsx, not here. */
+   TOOLBAR_SHADOW_STYLES in src/content/selection/SelectionToolbar.styles.js,
+   not here. */
 #pagetollm-selection-toolbar {
   position: fixed;
   top: 20px;

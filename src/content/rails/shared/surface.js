@@ -5,7 +5,7 @@ import {
   trackMountedSurface,
   untrackMountedSurface,
   registerThemedSurface,
-} from './contentPreferences.js';
+} from '../../shared/surfacePreferences.js';
 
 const IN_PAGE_RAIL_WIDTHS = Object.freeze({
   topics: 260,

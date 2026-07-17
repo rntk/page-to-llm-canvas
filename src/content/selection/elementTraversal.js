@@ -1,4 +1,4 @@
-import { renumberSelectedEntries } from './selectionState.js';
+import { renumberSelectedEntries } from './state.js';
 
 export function canStepUpElement(el, boundaries = {}) {
   const parent = el && el.parentElement;
@@ -47,13 +47,4 @@ export function stepUpSelectedEntry(entries, index, boundaries = {}) {
     oldElement: entry.el,
     newElement: parent,
   };
-}
-
-export function buildRecordViewIframeSrc(getUrl, key, view) {
-  const base = getUrl('modal.html');
-  const params = [`key=${encodeURIComponent(key)}`];
-  if (view && view !== 'canvas') {
-    params.push(`view=${encodeURIComponent(view)}`);
-  }
-  return `${base}?${params.join('&')}`;
 }

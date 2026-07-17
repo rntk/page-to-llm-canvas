@@ -1,6 +1,6 @@
 // Shadow-DOM stylesheet for the selection toolbar. Kept as a string so it can be
 // injected into the toolbar's closed shadow root (the palette variables are
-// tagged on the host element by contentPreferences and flipped by content.css).
+// tagged on the host element by surfacePreferences and flipped by content.css).
 export const TOOLBAR_SHADOW_STYLES = `
   #pagetollm-toolbar-top {
     display: flex;

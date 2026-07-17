@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { guardTrustedUserEvent, isTrustedUserEvent } from './eventSecurity.js';
+import { guardTrustedUserEvent, isTrustedUserEvent } from './trustedEvents.js';
 
 function eventWithTrust(isTrusted) {
   return {

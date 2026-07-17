@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { computeSummaryCursorState } from './summaryCursor.js';
-import ArticleChat from '../chat/ArticleChat.jsx';
+import ArticleChat from '../../../chat/ArticleChat.jsx';
 
 const SUMMARY_CURSOR_MIN_TOP = 112;
 

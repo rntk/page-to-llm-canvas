@@ -13,9 +13,9 @@ const {
   removeCanvasIframe,
   getCanvasIframe,
   setRailCloser,
-} = await import('./recordViewIframe.js');
+} = await import('./iframeManager.js');
 
-describe('recordViewIframe', () => {
+describe('record-view iframe manager', () => {
   beforeEach(() => {
     removeCanvasIframe();
     setRailCloser(() => {});

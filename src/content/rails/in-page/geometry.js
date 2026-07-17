@@ -1,4 +1,4 @@
-import { buildSentenceDomRange } from '../highlights/sentenceHighlight.js';
+import { buildSentenceDomRange } from '../../../highlights/sentenceHighlight.js';
 
 /**
  * Geometry and scroll helpers extracted from the in-page rail logic

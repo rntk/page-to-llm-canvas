@@ -1,8 +1,8 @@
 import React from 'react';
 import { flushSync } from 'react-dom';
 import InPageRail from './InPageRail.jsx';
-import { splitError, retryRecord } from '../utils/errorUtils.js';
-import { resolveColumnOverlaps } from '../domain/topicCards.js';
+import { splitError, retryRecord } from '../../../utils/errorUtils.js';
+import { resolveColumnOverlaps } from '../../../domain/topicCards.js';
 import {
   HIGHLIGHT_NAME,
   CHAT_HIGHLIGHT_NAME,
@@ -11,23 +11,27 @@ import {
   buildSentenceDomRange,
   buildSentenceWordRanges,
   paintSentenceHighlight,
-} from '../highlights/sentenceHighlight.js';
+} from '../../../highlights/sentenceHighlight.js';
 import {
   topicAccentColor,
   buildSummaryEntries,
   buildHierarchicalTopicEntries,
   splitIntoContiguousRuns,
   computeMaxTopicLevel,
-} from './recordTransform.js';
-import { getScrollableAncestor, getRailOriginTop, computeCardVerticalBox } from './railGeometry.js';
+} from '../shared/railCards.js';
+import { getScrollableAncestor, getRailOriginTop, computeCardVerticalBox } from './geometry.js';
 import {
   fetchRecord,
   findPickedElements,
   assessRecordForRail,
   createLoadToken,
-} from './recordFetch.js';
-import { createRailSurface, closeInPageRail, railLoadingTokenHolder } from './railSurface.js';
-import { openCanvasIframe, openHierarchyIframe, removeCanvasIframe } from './recordViewIframe.js';
+} from '../shared/recordFetch.js';
+import { createRailSurface, closeInPageRail, railLoadingTokenHolder } from '../shared/surface.js';
+import {
+  openCanvasIframe,
+  openHierarchyIframe,
+  removeCanvasIframe,
+} from '../../record-view/iframeManager.js';
 
 export async function openInPageRail(rec, initialMode, options = {}) {
   closeInPageRail();

@@ -19,25 +19,25 @@ vi.stubGlobal('chrome', {
   },
 });
 
-vi.mock('./recordFetch.js', async (importOriginal) => {
+vi.mock('../shared/recordFetch.js', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, fetchRecord: vi.fn() };
 });
 
-vi.mock('./recordViewIframe.js', async (importOriginal) => {
+vi.mock('../../record-view/iframeManager.js', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, removeCanvasIframe: vi.fn() };
 });
 
-vi.mock('./youtubeRailSync.js', async (importOriginal) => {
+vi.mock('./sync.js', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, buildYouTubeRailCards: vi.fn() };
 });
 
-const { openYouTubeRail } = await import('./youtubeRailController.jsx');
-const { fetchRecord } = await import('./recordFetch.js');
-const { buildYouTubeRailCards } = await import('./youtubeRailSync.js');
-const { closeInPageRail, railLoadingTokenHolder } = await import('./railSurface.js');
+const { openYouTubeRail } = await import('./controller.jsx');
+const { fetchRecord } = await import('../shared/recordFetch.js');
+const { buildYouTubeRailCards } = await import('./sync.js');
+const { closeInPageRail, railLoadingTokenHolder } = await import('../shared/surface.js');
 
 function baseRecord(overrides = {}) {
   return {

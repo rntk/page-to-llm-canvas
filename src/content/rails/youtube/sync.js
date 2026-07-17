@@ -7,12 +7,12 @@
 // Everything here is DOM-free so it can be unit tested in isolation; the React
 // component and the content-script glue stay thin around it.
 
-import { getTimestampForSentences } from '../utils/youtubeTimestamp.js';
+import { getTimestampForSentences } from '../../../utils/youtubeTimestamp.js';
 import {
   buildSummaryEntries,
   buildHierarchicalTopicEntries,
   topicAccentColor,
-} from './recordTransform.js';
+} from '../shared/railCards.js';
 
 /**
  * Build the ordered, timestamped card list for the YouTube rail.

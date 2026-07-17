@@ -8,7 +8,7 @@ import {
   getYouTubeRailNextActiveIdFromNormalized,
   normalizeYouTubeRailCard,
   normalizeYouTubeRailCards,
-} from './youtubeRailViewModel.js';
+} from './viewModel.js';
 
 describe('normalizeYouTubeRailCard', () => {
   it('returns null for non-object input', () => {

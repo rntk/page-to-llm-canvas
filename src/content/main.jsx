@@ -1,14 +1,14 @@
-import { showSelectionToolbar } from './selectionController.jsx';
+import { showSelectionToolbar } from './selection/controller.jsx';
 import {
   openCanvasIframe,
   openHierarchyIframe,
   removeCanvasIframe,
   getCanvasIframe,
   setRailCloser,
-} from './recordViewIframe.js';
-import { openInPageRail } from './inPageRailController.jsx';
-import { openYouTubeRail } from './youtubeRailController.jsx';
-import { closeInPageRail } from './railSurface.js';
+} from './record-view/iframeManager.js';
+import { openInPageRail } from './rails/in-page/controller.jsx';
+import { openYouTubeRail } from './rails/youtube/controller.jsx';
+import { closeInPageRail } from './rails/shared/surface.js';
 
 // The iframe manager and the rail controllers are mutually exclusive but must
 // not import each other. Inject the rail closer so opening an iframe can tear

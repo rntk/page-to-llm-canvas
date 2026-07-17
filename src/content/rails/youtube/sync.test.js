@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildYouTubeRailCards, findActiveCardIndex } from './youtubeRailSync.js';
+import { buildYouTubeRailCards, findActiveCardIndex } from './sync.js';
 
 // Transcript sentences carry inline timestamps the way the YouTube capture emits
 // them ("2:51 2 minutes, 51 seconds ..."). Sentence numbers are 1-based.

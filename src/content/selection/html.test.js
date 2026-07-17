@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { buildHtml } from './selectionHtml.js';
+import { buildHtml } from './html.js';
 
 describe('buildHtml', () => {
   let container;

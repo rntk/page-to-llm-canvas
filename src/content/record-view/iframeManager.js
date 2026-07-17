@@ -1,4 +1,4 @@
-import { buildRecordViewIframeSrc } from './contentViewLogic.js';
+import { buildRecordViewIframeSrc } from './url.js';
 
 // The record-view iframe is mutually exclusive with the in-page rail. Opening an
 // iframe must close any open rail, but this module must not import the rail

@@ -31,7 +31,7 @@ vi.stubGlobal('chrome', {
   },
 });
 
-vi.mock('./recordViewIframe.js', async (importOriginal) => {
+vi.mock('../../record-view/iframeManager.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
@@ -41,18 +41,18 @@ vi.mock('./recordViewIframe.js', async (importOriginal) => {
   };
 });
 
-vi.mock('./recordFetch.js', async (importOriginal) => {
+vi.mock('../shared/recordFetch.js', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, fetchRecord: vi.fn() };
 });
 
-vi.mock('./railGeometry.js', () => ({
+vi.mock('./geometry.js', () => ({
   getScrollableAncestor: vi.fn(() => window),
   getRailOriginTop: vi.fn(() => 100),
   computeCardVerticalBox: vi.fn(() => ({ top: 0, height: 50 })),
 }));
 
-vi.mock('../highlights/sentenceHighlight.js', async (importOriginal) => {
+vi.mock('../../../highlights/sentenceHighlight.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
@@ -62,11 +62,12 @@ vi.mock('../highlights/sentenceHighlight.js', async (importOriginal) => {
   };
 });
 
-const { openInPageRail } = await import('./inPageRailController.jsx');
-const { fetchRecord } = await import('./recordFetch.js');
-const { openCanvasIframe, openHierarchyIframe } = await import('./recordViewIframe.js');
-const { closeInPageRail, railLoadingTokenHolder } = await import('./railSurface.js');
-const { buildSentenceDomRange } = await import('../highlights/sentenceHighlight.js');
+const { openInPageRail } = await import('./controller.jsx');
+const { fetchRecord } = await import('../shared/recordFetch.js');
+const { openCanvasIframe, openHierarchyIframe } =
+  await import('../../record-view/iframeManager.js');
+const { closeInPageRail, railLoadingTokenHolder } = await import('../shared/surface.js');
+const { buildSentenceDomRange } = await import('../../../highlights/sentenceHighlight.js');
 
 function baseRecord(overrides = {}) {
   return {

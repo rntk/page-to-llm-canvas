@@ -7,7 +7,7 @@ import {
   buildHierarchicalTopicEntries,
   splitIntoContiguousRuns,
   computeMaxTopicLevel,
-} from './recordTransform.js';
+} from './railCards.js';
 
 // ── splitPath ──────────────────────────────────────────────────────────────
 

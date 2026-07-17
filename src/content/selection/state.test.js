@@ -4,13 +4,13 @@ import {
   removeSelectedEntry,
   renumberSelectedEntries,
   selectedBlocksForToolbar,
-} from './selectionState.js';
+} from './state.js';
 
 function entries(names) {
   return names.map((name, index) => ({ el: { name }, originalNumber: index + 10 }));
 }
 
-describe('selectionState', () => {
+describe('selection state', () => {
   it('renumbers entries without changing their element references', () => {
     const input = entries(['a', 'b']);
     const result = renumberSelectedEntries(input);

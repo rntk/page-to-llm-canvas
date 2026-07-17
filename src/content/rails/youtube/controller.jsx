@@ -1,11 +1,11 @@
 import React from 'react';
 import YouTubeRail from './YouTubeRail.jsx';
-import { buildYouTubeRailCards } from './youtubeRailSync.js';
-import { formatTimestampLabel, getTimestampForSentences } from '../utils/youtubeTimestamp.js';
-import { computeMaxTopicLevel } from './recordTransform.js';
-import { fetchRecord, createLoadToken } from './recordFetch.js';
-import { createRailSurface, closeInPageRail, railLoadingTokenHolder } from './railSurface.js';
-import { removeCanvasIframe } from './recordViewIframe.js';
+import { buildYouTubeRailCards } from './sync.js';
+import { formatTimestampLabel, getTimestampForSentences } from '../../../utils/youtubeTimestamp.js';
+import { computeMaxTopicLevel } from '../shared/railCards.js';
+import { fetchRecord, createLoadToken } from '../shared/recordFetch.js';
+import { createRailSurface, closeInPageRail, railLoadingTokenHolder } from '../shared/surface.js';
+import { removeCanvasIframe } from '../../record-view/iframeManager.js';
 
 // Prefer YouTube's main player element so we don't accidentally bind to a
 // hover-preview thumbnail or an ad's <video>. Falls back to any <video> for

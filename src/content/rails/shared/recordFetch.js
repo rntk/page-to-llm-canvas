@@ -1,5 +1,5 @@
 /**
- * recordFetch.js
+ * Shared record-fetch helpers for content rails.
  *
  * Pure helpers extracted from openInPageRail in main.jsx:
  *   - fetchRecord       chrome.runtime.sendMessage wrapper
@@ -8,8 +8,8 @@
  *   - createLoadToken   race-condition guard factory
  */
 
-import { MSG } from '../../messages.js';
-import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
+import { MSG } from '../../../../messages.js';
+import { sendRuntimeMessage } from '../../../utils/runtimeMessages.js';
 
 /**
  * Fetch a record from the background via chrome.runtime.sendMessage.

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// contentPreferences reads storage at module load, so stub chrome before import.
+// surfacePreferences reads storage at module load, so stub chrome before import.
 let storageChangeListener = null;
 let themeValue;
 let highlightValue;
@@ -34,9 +34,9 @@ const {
   trackMountedSurface,
   untrackMountedSurface,
   registerThemedSurface,
-} = await import('./contentPreferences.js');
+} = await import('./surfacePreferences.js');
 
-describe('contentPreferences', () => {
+describe('surfacePreferences', () => {
   beforeEach(() => {
     themeValue = undefined;
     highlightValue = undefined;

@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import ArticleChat from '../chat/ArticleChat.jsx';
-import { formatTimestampLabel } from '../utils/youtubeTimestamp.js';
+import ArticleChat from '../../../chat/ArticleChat.jsx';
+import { formatTimestampLabel } from '../../../utils/youtubeTimestamp.js';
 import {
   getYouTubeRailCardBodyText,
   getYouTubeRailActiveCardIdFromNormalized,
   getYouTubeRailNextActiveIdFromNormalized,
   normalizeYouTubeRailCards,
-} from './youtubeRailViewModel.js';
+} from './viewModel.js';
 
 const DEFAULT_POLL_MS = 1000;
 

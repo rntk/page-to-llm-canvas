@@ -5,9 +5,9 @@ import {
   getRailOriginTop,
   getScrollableAncestor,
   computeCardVerticalBox,
-} from './railGeometry.js';
+} from './geometry.js';
 
-describe('railGeometry scroll helpers', () => {
+describe('in-page rail geometry helpers', () => {
   it('getScrollTop uses scrollTop for non-window containers', () => {
     const el = { scrollTop: 123 };
     expect(getScrollTop(el, window)).toBe(123);

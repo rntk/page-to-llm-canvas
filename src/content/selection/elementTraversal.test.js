@@ -1,11 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
-import {
-  buildRecordViewIframeSrc,
-  canStepUpElement,
-  stepUpSelectedEntry,
-} from './contentViewLogic.js';
+import { describe, expect, it } from 'vitest';
+import { canStepUpElement, stepUpSelectedEntry } from './elementTraversal.js';
 
-describe('contentViewLogic', () => {
+describe('elementTraversal', () => {
   it('detects when an element can step up to its parent', () => {
     const body = { nodeName: 'BODY' };
     const html = { nodeName: 'HTML' };
@@ -65,19 +61,5 @@ describe('contentViewLogic', () => {
     expect(result.entries[0].el).toBe(parent);
     expect(result.entries[1].el).toBe(sibling);
     expect(result.entries.map((entry) => entry.originalNumber)).toEqual([1, 2]);
-  });
-
-  it('builds iframe URLs for canvas and hierarchy views', () => {
-    const getUrl = vi.fn((path) => `chrome-extension://test/${path}`);
-
-    expect(buildRecordViewIframeSrc(getUrl, 'record key')).toBe(
-      'chrome-extension://test/modal.html?key=record%20key',
-    );
-    expect(buildRecordViewIframeSrc(getUrl, 'record key', 'hierarchy')).toBe(
-      'chrome-extension://test/modal.html?key=record%20key&view=hierarchy',
-    );
-    expect(buildRecordViewIframeSrc(getUrl, 'record key', 'canvas')).toBe(
-      'chrome-extension://test/modal.html?key=record%20key',
-    );
   });
 });

@@ -5,14 +5,14 @@ import {
   applyThemeToElement,
   THEME_KEY,
   THEME_SYSTEM,
-} from '../../theme.js';
+} from '../../../theme.js';
 import {
   HIGHLIGHT_COLOR_KEY,
   DEFAULT_HIGHLIGHT_COLOR,
   getStoredHighlightColor,
   normalizeHighlightColor,
   applyHighlightColorToElement,
-} from '../highlights/highlightSettings.js';
+} from '../../highlights/highlightSettings.js';
 
 // The injected toolbar/rail tokens are scoped to their host elements (not the
 // host page's :root), so we tag those elements with the saved preference and

@@ -1,4 +1,4 @@
-import { findActiveCardIndex } from './youtubeRailSync.js';
+import { findActiveCardIndex } from './sync.js';
 
 export function normalizeYouTubeRailCard(card) {
   if (!card || typeof card !== 'object') return null;
