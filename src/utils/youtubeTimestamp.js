@@ -64,6 +64,14 @@ export function parseTimestampSeconds(text) {
  * numbers are 1-based, except some records emit a leading `0`, in which case the
  * whole set is shifted by one. arrayIndex = number + offset - 1.
  *
+ * When the card's first sentence sits at the very start of the transcript but
+ * that opening line carries no inline timestamp (e.g. a title or greeting before
+ * the first "0:00" cue), the backward scan finds nothing. We then anchor the card
+ * to the start of the video (0s) so the first topic still appears on the rail and
+ * its deep-links resolve — but only if the transcript is timestamped somewhere
+ * downstream. A transcript with no parseable timestamps at all isn't a synced
+ * transcript, so those cards still resolve to null and get dropped.
+ *
  * @param {string[]} sentences
  * @param {number[]} sourceSentences
  * @returns {number | null}
@@ -74,10 +82,18 @@ export function getTimestampForSentences(sentences, sourceSentences) {
   const numbers = sourceSentences.filter((n) => Number.isFinite(n));
   if (numbers.length === 0) return null;
   const offset = numbers.some((n) => n === 0) ? 1 : 0;
-  const startIndex = Math.min(Math.min(...numbers) + offset - 1, sentences.length - 1);
-  for (let i = Math.max(0, startIndex); i >= 0; i -= 1) {
+  const startIndex = Math.max(0, Math.min(Math.min(...numbers) + offset - 1, sentences.length - 1));
+  for (let i = startIndex; i >= 0; i -= 1) {
     const seconds = parseTimestampSeconds(sentences[i]);
     if (seconds != null) return seconds;
+  }
+  // Card anchored at the transcript start with no timestamp on its opening line:
+  // fall back to video-start 0s, provided a timestamp exists further down (so a
+  // genuinely un-timestamped transcript still yields no card).
+  if (startIndex === 0) {
+    for (let i = 1; i < sentences.length; i += 1) {
+      if (parseTimestampSeconds(sentences[i]) != null) return 0;
+    }
   }
   return null;
 }

@@ -94,6 +94,22 @@ describe('getTimestampForSentences', () => {
     expect(getTimestampForSentences(sentences, [1])).toBe(1);
   });
 
+  it('anchors a transcript-start card with no leading timestamp to 0s', () => {
+    // A title/greeting precedes the first cue, so the first topic's opening
+    // sentence has no inline timestamp and nothing precedes it.
+    const withIntro = [
+      'Welcome to the channel', // index 0 -> sentence 1, no timestamp
+      '0:05 5 seconds first topic', // index 1 -> sentence 2
+      '1:00 1 minute second topic', // index 2 -> sentence 3
+    ];
+    expect(getTimestampForSentences(withIntro, [1, 2])).toBe(0); // 1-based first topic
+    expect(getTimestampForSentences(withIntro, [0, 1])).toBe(0); // 0-based first topic
+  });
+
+  it('still returns null when the transcript has no timestamps at all', () => {
+    expect(getTimestampForSentences(['plain text', 'still no timestamp'], [1, 2])).toBeNull();
+  });
+
   it('returns null for empty input', () => {
     expect(getTimestampForSentences([], [1])).toBeNull();
     expect(getTimestampForSentences(sentences, [])).toBeNull();
