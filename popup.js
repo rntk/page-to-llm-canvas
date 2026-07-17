@@ -1,7 +1,6 @@
 import { createThemeController, themeIcon, themeLabel } from './theme.js';
 import { getYouTubeVideoId } from './src/utils/youtubeTimestamp.js';
 import { sendRuntimeMessage, sendTabMessage } from './src/utils/runtimeMessages.js';
-import { resolveSummaryErrors } from './src/utils/errorUtils.js';
 import { MSG } from './messages.js';
 
 // Re-exported so popup.test.js (and other importers) keep resolving it from here.
@@ -391,166 +390,6 @@ export function buildRecordDisplayData(records) {
   };
 }
 
-let summaryErrorsDialogHost = null;
-let summaryErrorsDialog = null;
-let summaryErrorsReturnFocus = null;
-
-function closeSummaryErrorsDialog({ restoreFocus = true } = {}) {
-  if (summaryErrorsDialog?.open && typeof summaryErrorsDialog.close === 'function') {
-    summaryErrorsDialog.close();
-  }
-  if (summaryErrorsDialogHost) summaryErrorsDialogHost.remove();
-  summaryErrorsDialogHost = null;
-  summaryErrorsDialog = null;
-  if (
-    restoreFocus &&
-    summaryErrorsReturnFocus instanceof HTMLElement &&
-    summaryErrorsReturnFocus.isConnected
-  ) {
-    summaryErrorsReturnFocus.focus();
-  }
-  summaryErrorsReturnFocus = null;
-}
-
-function makeSummaryErrorsDialog(record) {
-  const dialog = document.createElement('dialog');
-  dialog.className = 'pagetollm-popup-summary-errors-dialog';
-  dialog.setAttribute('role', 'alertdialog');
-  dialog.setAttribute('aria-modal', 'true');
-  dialog.setAttribute('aria-labelledby', 'pagetollm-popup-summary-errors-title');
-  dialog.setAttribute('aria-describedby', 'pagetollm-popup-summary-errors-description');
-
-  const box = document.createElement('div');
-  box.className = 'pagetollm-spinner-box';
-
-  const errors = Array.isArray(record.summaryErrors) ? record.summaryErrors : [];
-  const title = document.createElement('div');
-  title.id = 'pagetollm-popup-summary-errors-title';
-  title.className = 'pagetollm-spinner-error-title';
-  title.textContent =
-    errors.length === 1
-      ? '1 topic could not be summarized'
-      : `${errors.length} topics could not be summarized`;
-
-  const description = document.createElement('div');
-  description.id = 'pagetollm-popup-summary-errors-description';
-  description.className = 'pagetollm-spinner-error-body';
-  description.textContent =
-    'The model kept failing on these after several automatic retries. Retry them, or skip to finish with those topics left empty.';
-
-  box.appendChild(title);
-  box.appendChild(description);
-
-  if (record.sourceUrl) {
-    const source = document.createElement('div');
-    source.className = 'pagetollm-summary-errors-source';
-    source.textContent = record.sourceUrl;
-    box.appendChild(source);
-  }
-
-  if (errors.length > 0) {
-    const list = document.createElement('ul');
-    list.className = 'pagetollm-summary-errors-list';
-    errors.forEach((error) => {
-      const item = document.createElement('li');
-      item.className = 'pagetollm-summary-errors-item';
-
-      const topic = document.createElement('span');
-      topic.className = 'pagetollm-summary-errors-topic';
-      topic.textContent = error.topic || 'Untitled topic';
-      item.appendChild(topic);
-
-      if (error.error_message) {
-        const reason = document.createElement('span');
-        reason.className = 'pagetollm-summary-errors-reason';
-        reason.textContent = error.error_message;
-        item.appendChild(reason);
-      }
-      list.appendChild(item);
-    });
-    box.appendChild(list);
-  }
-
-  const actions = document.createElement('div');
-  actions.className = 'pagetollm-spinner-actions';
-  const retryButton = document.createElement('button');
-  retryButton.type = 'button';
-  retryButton.className = 'pagetollm-spinner-retry-btn';
-  retryButton.textContent = 'Retry all';
-  const skipButton = document.createElement('button');
-  skipButton.type = 'button';
-  skipButton.className = 'pagetollm-spinner-skip-btn';
-  skipButton.textContent = 'Skip';
-  const closeButton = document.createElement('button');
-  closeButton.type = 'button';
-  closeButton.className = 'pagetollm-spinner-close-btn';
-  closeButton.textContent = 'Close';
-  const buttons = [retryButton, skipButton, closeButton];
-
-  const setBusy = (busy) => {
-    dialog.dataset.busy = busy ? 'true' : 'false';
-    buttons.forEach((button) => {
-      button.disabled = busy;
-    });
-  };
-  const resolve = async (action) => {
-    if (dialog.dataset.busy === 'true') return;
-    setBusy(true);
-    try {
-      await resolveSummaryErrors(record.key, action, 'Popup');
-      closeSummaryErrorsDialog({ restoreFocus: false });
-      await refreshRecords({ forceRender: true });
-    } catch (_) {
-      setBusy(false);
-      retryButton.focus();
-    }
-  };
-
-  retryButton.addEventListener('click', () => void resolve('retry'));
-  skipButton.addEventListener('click', () => void resolve('skip'));
-  closeButton.addEventListener('click', () => closeSummaryErrorsDialog());
-  dialog.addEventListener('cancel', (event) => {
-    event.preventDefault();
-    if (dialog.dataset.busy !== 'true') closeSummaryErrorsDialog();
-  });
-  dialog.addEventListener('click', (event) => {
-    if (event.target === dialog && dialog.dataset.busy !== 'true') closeSummaryErrorsDialog();
-  });
-
-  actions.append(retryButton, skipButton, closeButton);
-  box.appendChild(actions);
-  dialog.appendChild(box);
-  return { dialog, retryButton };
-}
-
-export async function openSummaryErrorsDialog(record) {
-  closeSummaryErrorsDialog();
-  const returnFocus = document.activeElement;
-  let response;
-  try {
-    response = await runtimeMessage({ type: MSG.getRecord, key: record.key });
-  } catch (err) {
-    setError(err.message || 'Unable to load summary errors');
-    return;
-  }
-  if (!response || !response.ok || !response.record) {
-    setError(responseErrorMessage(response, 'Unable to load summary errors'));
-    return;
-  }
-  const fullRecord = response.record;
-  summaryErrorsReturnFocus = returnFocus;
-
-  summaryErrorsDialogHost = document.createElement('div');
-  summaryErrorsDialogHost.id = 'summary-errors-dialog-root';
-  document.body.appendChild(summaryErrorsDialogHost);
-  const { dialog, retryButton } = makeSummaryErrorsDialog(fullRecord);
-  summaryErrorsDialog = dialog;
-  summaryErrorsDialogHost.appendChild(dialog);
-  if (typeof dialog.showModal === 'function') dialog.showModal();
-  else dialog.setAttribute('open', '');
-  retryButton.focus();
-}
-
 export function recordDisplaySignature(records) {
   return JSON.stringify(buildRecordDisplayData(records));
 }
@@ -596,8 +435,8 @@ function renderRecords(records, { force = false } = {}) {
     if (display.status === 'needs_attention') {
       badge.type = 'button';
       badge.classList.add('status-button');
-      badge.title = 'Review failed summaries and retry or skip';
-      badge.addEventListener('click', () => void openSummaryErrorsDialog(display));
+      badge.title = 'Open the canvas to review failed summaries and retry or skip';
+      badge.addEventListener('click', () => void openRecordView(display.key, 'canvas'));
     }
 
     const actions = document.createElement('div');

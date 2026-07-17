@@ -667,8 +667,6 @@ describe('popup UI integration', () => {
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') {
         cb({ ok: true, items });
-      } else if (msg.type === 'getRecord') {
-        cb({ ok: true, record: items.find((item) => item.key === msg.key) });
       } else if (msg.type === 'listProviders') {
         cb({
           ok: true,
@@ -697,7 +695,7 @@ describe('popup UI integration', () => {
     expect(document.getElementById('record-count').textContent).toBe('1');
   });
 
-  it('opens summary resolution from a needs-attention status and retries it', async () => {
+  it('opens the canvas from a needs-attention status', async () => {
     const attentionRecord = {
       ...sampleRecord,
       key: 'attention-1',
@@ -715,32 +713,17 @@ describe('popup UI integration', () => {
     }
     expect(statusButton).not.toBeNull();
     expect(statusButton.tagName).toBe('BUTTON');
+    expect(statusButton.title).toContain('Open the canvas');
+    chrome.tabs.sendMessage.mockClear();
     statusButton.click();
-
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const dialog = document.querySelector('#summary-errors-dialog-root [role="alertdialog"]');
-    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
-      { type: 'getRecord', key: 'attention-1' },
-      expect.any(Function),
-    );
-    expect(dialog.tagName).toBe('DIALOG');
-    expect(dialog.textContent).toContain('Tech>AI');
-    const retryButton = dialog.querySelector('.pagetollm-spinner-retry-btn');
-    expect(document.activeElement).toBe(retryButton);
-    retryButton.click();
 
     for (let i = 0; i < 50; i += 1) {
       await new Promise((resolve) => setTimeout(resolve, 10));
-      if (
-        chrome.runtime.sendMessage.mock.calls.some(
-          ([message]) => message.type === 'resolveSummaryErrors',
-        )
-      ) {
-        break;
-      }
+      if (chrome.tabs.sendMessage.mock.calls.length > 0) break;
     }
-    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
-      { type: 'resolveSummaryErrors', key: 'attention-1', action: 'retry' },
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      42,
+      { action: 'openRecordView', key: 'attention-1', mode: 'canvas' },
       expect.any(Function),
     );
   });
