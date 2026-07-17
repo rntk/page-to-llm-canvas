@@ -15,6 +15,94 @@ const TOPIC_RANGE_RETRY_BASE_DELAY_MS = 2000;
 const TOPIC_RANGE_MAX_SENTENCES = 40;
 const TOPIC_RANGE_RESPLIT_MAX_DEPTH = 2;
 
+// Verbose diagnostics payloads are capped independently of the (already
+// privacy-safe) counts recorded by recordParserMetric, since they carry raw
+// index lists / response text and only ever reach the record's processingLog
+// when the verbose-logs setting is on.
+const DIAGNOSTICS_LOG_CAP = 50;
+const RAW_RESPONSE_LOG_MAX_CHARS = 20000;
+
+/**
+ * True when parse diagnostics show any permissive-parser quirk worth
+ * surfacing verbosely (as opposed to a clean parse with nothing to explain).
+ */
+function hasDiagnosticQuirks(diagnostics) {
+  if (!diagnostics) return false;
+  return (
+    (diagnostics.invalidRangeTokens || 0) > 0 ||
+    (diagnostics.outOfRange || []).length > 0 ||
+    (diagnostics.duplicates || []).length > 0 ||
+    (diagnostics.missing || []).length > 0 ||
+    (diagnostics.reversedRanges || 0) > 0 ||
+    (diagnostics.ignoredLineCount || 0) > 0
+  );
+}
+
+/** Cap a raw array for logging, reporting whether entries were dropped. */
+function capForLog(arr, cap = DIAGNOSTICS_LOG_CAP) {
+  const values = arr || [];
+  return { values: values.slice(0, cap), truncated: values.length > cap };
+}
+
+/**
+ * Compact a sorted list of sentence indices (e.g. diagnostics.duplicates /
+ * .missing) into inclusive range strings, e.g. [3,4,5,6,7,8,9,14] -> ["3-9",
+ * "14"], capped at `cap` compacted entries.
+ */
+function compactIndexRanges(indices, cap = DIAGNOSTICS_LOG_CAP) {
+  const compacted = [];
+  let i = 0;
+  const list = indices || [];
+  while (i < list.length) {
+    const start = list[i];
+    let end = start;
+    let j = i + 1;
+    while (j < list.length && list[j] === end + 1) {
+      end = list[j];
+      j++;
+    }
+    compacted.push(start === end ? `${start}` : `${start}-${end}`);
+    i = j;
+  }
+  return { values: compacted.slice(0, cap), truncated: compacted.length > cap };
+}
+
+/** Shared payload for the `topic_ranges_parse_diagnostics` verbose log. */
+function buildParseDiagnosticsLogDetails(diagnostics) {
+  const outOfRange = capForLog(diagnostics.outOfRange);
+  const duplicates = compactIndexRanges(diagnostics.duplicates);
+  const missing = compactIndexRanges(diagnostics.missing);
+  const repairs = capForLog(diagnostics.repairs);
+  return {
+    sentenceCount: diagnostics.sentenceCount,
+    inputLineCount: diagnostics.inputLineCount,
+    parsedLineCount: diagnostics.parsedLineCount,
+    ignoredLineCount: diagnostics.ignoredLineCount,
+    parsedRangeCount: diagnostics.parsedRangeCount,
+    invalidRangeTokens: diagnostics.invalidRangeTokens,
+    reversedRanges: diagnostics.reversedRanges,
+    outOfRange: outOfRange.values,
+    outOfRangeTruncated: outOfRange.truncated,
+    duplicates: duplicates.values,
+    duplicatesTruncated: duplicates.truncated,
+    missing: missing.values,
+    missingTruncated: missing.truncated,
+    repairs: repairs.values,
+    repairsTruncated: Boolean(diagnostics.repairsTruncated) || repairs.truncated,
+    ignoredLineSamples: diagnostics.ignoredLineSamples || [],
+  };
+}
+
+/** Shared payload for the `topic_ranges_raw_response` verbose log. */
+function buildRawResponseLogDetails(rawResponse) {
+  const text = typeof rawResponse === 'string' ? rawResponse : String(rawResponse ?? '');
+  return {
+    responseLength: text.length,
+    truncated: text.length > RAW_RESPONSE_LOG_MAX_CHARS,
+    response: text.slice(0, RAW_RESPONSE_LOG_MAX_CHARS),
+  };
+}
+
 export function chunkTaggedText(tagged, maxChars) {
   const lines = tagged.split('\n');
   const chunks = [];
@@ -122,14 +210,63 @@ async function resplitSegment(runtime, segment, sentenceTexts, depth, callLLMWit
         try {
           const parsed = parseTopicRangesDetailed(raw, sliceTexts.length);
           await recordParserMetric({ ok: true, scope: 'resplit', diagnostics: parsed.diagnostics });
+          if (hasDiagnosticQuirks(parsed.diagnostics)) {
+            await runtime.log(
+              'topic_ranges_parse_diagnostics',
+              {
+                scope: 'resplit',
+                depth,
+                start: segment.start,
+                end: segment.end,
+                ...buildParseDiagnosticsLogDetails(parsed.diagnostics),
+              },
+              { verbose: true },
+            );
+            await runtime.log(
+              'topic_ranges_raw_response',
+              {
+                scope: 'resplit',
+                depth,
+                start: segment.start,
+                end: segment.end,
+                ...buildRawResponseLogDetails(raw),
+              },
+              { verbose: true },
+            );
+          }
           return parsed.groups;
         } catch (error) {
+          const diagnostics = { ...error?.diagnostics, sentenceCount: sliceTexts.length };
           await recordParserMetric({
             ok: false,
             scope: 'resplit',
-            diagnostics: { ...error?.diagnostics, sentenceCount: sliceTexts.length },
+            diagnostics,
             error: error?.message,
           });
+          if (error instanceof TopicParseError) {
+            await runtime.log(
+              'topic_ranges_parse_diagnostics',
+              {
+                scope: 'resplit',
+                depth,
+                start: segment.start,
+                end: segment.end,
+                ...buildParseDiagnosticsLogDetails(diagnostics),
+              },
+              { verbose: true },
+            );
+            await runtime.log(
+              'topic_ranges_raw_response',
+              {
+                scope: 'resplit',
+                depth,
+                start: segment.start,
+                end: segment.end,
+                ...buildRawResponseLogDetails(raw),
+              },
+              { verbose: true },
+            );
+          }
           throw error;
         }
       },
@@ -370,15 +507,56 @@ export async function computeTopics(runtime, record, callLLMWithRetry) {
           recoveredAfterRetry: parseAttempt > 1,
           diagnostics: parsed.diagnostics,
         });
+        if (hasDiagnosticQuirks(parsed.diagnostics)) {
+          await runtime.log(
+            'topic_ranges_parse_diagnostics',
+            {
+              scope: 'primary',
+              attempt: parseAttempt,
+              ...buildParseDiagnosticsLogDetails(parsed.diagnostics),
+            },
+            { verbose: true },
+          );
+          await runtime.log(
+            'topic_ranges_raw_response',
+            {
+              scope: 'primary',
+              attempt: parseAttempt,
+              ...buildRawResponseLogDetails(combined),
+            },
+            { verbose: true },
+          );
+        }
         return parsed.groups;
       } catch (error) {
+        const diagnostics = { ...error?.diagnostics, sentenceCount: sentenceTexts.length };
         await recordParserMetric({
           ok: false,
           scope: 'primary',
           attempt: parseAttempt,
-          diagnostics: { ...error?.diagnostics, sentenceCount: sentenceTexts.length },
+          diagnostics,
           error: error?.message,
         });
+        if (error instanceof TopicParseError) {
+          await runtime.log(
+            'topic_ranges_parse_diagnostics',
+            {
+              scope: 'primary',
+              attempt: parseAttempt,
+              ...buildParseDiagnosticsLogDetails(diagnostics),
+            },
+            { verbose: true },
+          );
+          await runtime.log(
+            'topic_ranges_raw_response',
+            {
+              scope: 'primary',
+              attempt: parseAttempt,
+              ...buildRawResponseLogDetails(combined),
+            },
+            { verbose: true },
+          );
+        }
         throw error;
       }
     },

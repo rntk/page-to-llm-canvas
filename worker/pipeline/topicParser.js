@@ -24,7 +24,10 @@ export class TopicParseError extends Error {
    *   outOfRange?: Array<[number, number]>,
    *   duplicates?: number[],
    *   missing?: number[],
-   *   invalidRangeTokens?: number
+   *   invalidRangeTokens?: number,
+   *   ignoredLineSamples?: string[],
+   *   repairs?: Array<object>,
+   *   repairsTruncated?: boolean
    * }} diagnostics
    */
   constructor(message, diagnostics = {}) {
@@ -108,6 +111,17 @@ function clampRange(start, end, maxIndex) {
   return { start, end };
 }
 
+const MAX_IGNORED_LINE_SAMPLES = 10;
+const IGNORED_LINE_SAMPLE_MAX_CHARS = 200;
+const MAX_REPAIRS = 50;
+
+/** Truncate a raw line to a safe sample length (privacy-safe: caller-gated by verbose logging). */
+function truncateSample(line) {
+  return line.length > IGNORED_LINE_SAMPLE_MAX_CHARS
+    ? line.slice(0, IGNORED_LINE_SAMPLE_MAX_CHARS)
+    : line;
+}
+
 function mergeRanges(ranges) {
   if (!ranges.length) return [];
   const ordered = ranges.slice().sort((a, b) => a.start - b.start || a.end - b.end);
@@ -136,9 +150,12 @@ function mergeRanges(ranges) {
  *
  * @param {Array<{label: string[], ranges: Array<{start: number, end: number}>}>} groups
  * @param {number} sentenceCount
+ * @param {Array<object>} repairs Output array; each deterministic fix is pushed here
+ *   (capped by the caller via pushRepair), so callers can surface WHY coverage
+ *   needed repair without re-deriving it from the before/after groups.
  * @returns {Array<{label: string[], ranges: Array<{start: number, end: number}>}>}
  */
-function repairCoverage(groups, sentenceCount) {
+function repairCoverage(groups, sentenceCount, repairs) {
   const maxIndex = sentenceCount - 1;
 
   // Flatten all (groupIndex, range) pairs and sort by start, then parse order.
@@ -155,19 +172,34 @@ function repairCoverage(groups, sentenceCount) {
   for (const { gi, range } of flat) {
     if (range.end < nextExpected) {
       // Entirely consumed by an earlier range (overlap) — drop it.
+      pushRepair(repairs, { type: 'overlap-drop', start: range.start, end: range.end });
       continue;
     }
     let start = Math.max(range.start, nextExpected);
     if (start > range.end) continue;
+    if (start !== range.start) {
+      pushRepair(repairs, {
+        type: 'overlap-trim',
+        start: range.start,
+        end: range.end,
+        newStart: start,
+      });
+    }
 
     if (start > nextExpected) {
       // Gap before this range.
       if (lastAdded === null) {
         // Gap at the very beginning: pull this first range back to 0.
+        pushRepair(repairs, { type: 'gap-start', filledStart: 0, filledEnd: start - 1 });
         start = 0;
       } else {
         // Gap in the middle: extend the previously-added range forward.
         const prev = adjusted[lastAdded.gi][lastAdded.idx];
+        pushRepair(repairs, {
+          type: 'gap-middle',
+          filledStart: prev.end + 1,
+          filledEnd: start - 1,
+        });
         adjusted[lastAdded.gi][lastAdded.idx] = { start: prev.start, end: start - 1 };
       }
     }
@@ -180,6 +212,7 @@ function repairCoverage(groups, sentenceCount) {
   // Trailing gap: extend the last added range to the final index.
   if (nextExpected <= maxIndex && lastAdded !== null) {
     const prev = adjusted[lastAdded.gi][lastAdded.idx];
+    pushRepair(repairs, { type: 'gap-tail', filledStart: nextExpected, filledEnd: maxIndex });
     adjusted[lastAdded.gi][lastAdded.idx] = { start: prev.start, end: maxIndex };
   }
 
@@ -189,6 +222,16 @@ function repairCoverage(groups, sentenceCount) {
     if (adjusted[gi].length) result.push({ label: g.label, ranges: adjusted[gi] });
   });
   return result;
+}
+
+/** Push a repair entry, capping the array at MAX_REPAIRS and tracking truncation via `.truncated`. */
+function pushRepair(repairs, entry) {
+  if (!repairs) return;
+  if (repairs.length >= MAX_REPAIRS) {
+    repairs.truncated = true;
+    return;
+  }
+  repairs.push(entry);
 }
 
 /**
@@ -238,11 +281,21 @@ function finalizeGroups(rawGroups, sentenceCount, invalidRangeTokens = 0) {
     groups.push({ label: g.label, ranges: merged });
   }
   const diagnostics = collectDiagnostics(rawGroups, sentenceCount, invalidRangeTokens);
-  if (!groups.length)
+  if (!groups.length) {
+    // No ranges survived to repair — report an empty, untruncated repair list
+    // rather than omitting the fields on this error path.
+    diagnostics.repairs = [];
+    diagnostics.repairsTruncated = false;
     throw new TopicParseError('No valid topic ranges found in response', diagnostics);
+  }
 
-  // Repair overlaps and gaps so coverage is continuous over [0, maxIndex].
-  groups = repairCoverage(groups, sentenceCount);
+  // Repair overlaps and gaps so coverage is continuous over [0, maxIndex]. The
+  // `repairs` array (capped at MAX_REPAIRS, with `.truncated` set past the cap)
+  // records what was fixed and why, for verbose diagnostics upstream.
+  const repairs = [];
+  groups = repairCoverage(groups, sentenceCount, repairs);
+  diagnostics.repairs = repairs.slice(0, MAX_REPAIRS);
+  diagnostics.repairsTruncated = Boolean(repairs.truncated);
 
   // AdjacentSameTopicJoiner: merge consecutive groups with identical labels.
   const joined = [];
@@ -326,6 +379,15 @@ export function parseTopicRangesDetailed(response, sentenceCount) {
   let invalidRangeTokens = 0;
   let reversedRanges = 0;
   let parsedLineCount = 0;
+  // Raw lines the parse loop skipped (no `:`, empty topic path, empty label, or
+  // zero clamped ranges), sampled for verbose diagnostics — never fed into
+  // recordParserMetric, which must stay privacy-safe.
+  const ignoredLineSamples = [];
+  const recordIgnoredLine = (ln) => {
+    if (ignoredLineSamples.length < MAX_IGNORED_LINE_SAMPLES) {
+      ignoredLineSamples.push(truncateSample(ln));
+    }
+  };
 
   for (const ln of lines) {
     let topicPath, rangesStr;
@@ -338,12 +400,19 @@ export function parseTopicRangesDetailed(response, sentenceCount) {
       topicPath = ln.slice(0, idx).trim();
       rangesStr = ln.slice(idx + 1).trim();
     } else {
+      recordIgnoredLine(ln);
       continue;
     }
-    if (!topicPath) continue;
+    if (!topicPath) {
+      recordIgnoredLine(ln);
+      continue;
+    }
 
     let label = normalizeLabelParts(topicPath.split('>'));
-    if (!label.length) continue;
+    if (!label.length) {
+      recordIgnoredLine(ln);
+      continue;
+    }
     const key = normalizeLabelKey(label);
     if (!keyToCanonical.has(key)) keyToCanonical.set(key, label);
     label = keyToCanonical.get(key);
@@ -359,7 +428,10 @@ export function parseTopicRangesDetailed(response, sentenceCount) {
         clamped.push({ ...r, rawStart: s, rawEnd: e, ordinal: ordinal++ });
       }
     }
-    if (!clamped.length) continue;
+    if (!clamped.length) {
+      recordIgnoredLine(ln);
+      continue;
+    }
     parsedLineCount++;
 
     if (!grouped.has(key)) {
@@ -381,6 +453,7 @@ export function parseTopicRangesDetailed(response, sentenceCount) {
         inputLineCount: lines.length,
         parsedLineCount,
         ignoredLineCount: lines.length - parsedLineCount,
+        ignoredLineSamples,
         parsedRangeCount: ordinal,
         reversedRanges,
       };
@@ -395,6 +468,7 @@ export function parseTopicRangesDetailed(response, sentenceCount) {
       inputLineCount: lines.length,
       parsedLineCount,
       ignoredLineCount: lines.length - parsedLineCount,
+      ignoredLineSamples,
       parsedRangeCount: ordinal,
       reversedRanges,
     },

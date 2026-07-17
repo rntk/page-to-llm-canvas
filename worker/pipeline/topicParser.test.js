@@ -274,6 +274,123 @@ describe('parser quality diagnostics', () => {
   });
 });
 
+describe('ignoredLineSamples', () => {
+  it('samples raw ignored lines (no colon, empty topic, empty label, zero ranges)', () => {
+    const resp = [
+      'no colon here',
+      'Tech>A: 0-2',
+      ': 1-2', // empty topic path
+      '   >   : 1-2', // label parts all blank after normalization
+      'Tech>B: nope', // zero clamped ranges
+    ].join('\n');
+    const { diagnostics } = parseTopicRangesDetailed(resp, 3);
+    expect(diagnostics.ignoredLineCount).toBe(4);
+    expect(diagnostics.ignoredLineSamples).toEqual([
+      'no colon here',
+      ': 1-2',
+      '>   : 1-2',
+      'Tech>B: nope',
+    ]);
+  });
+
+  it('caps ignoredLineSamples at 10 entries', () => {
+    const lines = Array.from({ length: 15 }, (_, i) => `garbage line ${i}`);
+    const resp = ['Tech>A: 0-2', ...lines].join('\n');
+    const { diagnostics } = parseTopicRangesDetailed(resp, 3);
+    expect(diagnostics.ignoredLineCount).toBe(15);
+    expect(diagnostics.ignoredLineSamples).toHaveLength(10);
+    expect(diagnostics.ignoredLineSamples).toEqual(lines.slice(0, 10));
+  });
+
+  it('truncates sampled lines to 200 chars', () => {
+    const longLine = 'x'.repeat(250);
+    const resp = `Tech>A: 0-2\n${longLine}`;
+    const { diagnostics } = parseTopicRangesDetailed(resp, 3);
+    expect(diagnostics.ignoredLineSamples).toHaveLength(1);
+    expect(diagnostics.ignoredLineSamples[0]).toHaveLength(200);
+    expect(diagnostics.ignoredLineSamples[0]).toBe('x'.repeat(200));
+  });
+
+  it('is present (empty) on a clean parse', () => {
+    const { diagnostics } = parseTopicRangesDetailed('Tech>A: 0-2', 3);
+    expect(diagnostics.ignoredLineSamples).toEqual([]);
+  });
+
+  it('is attached to thrown TopicParseError diagnostics', () => {
+    expect.assertions(1);
+    try {
+      parseTopicRangesDetailed('no colon here\njust text', 3);
+    } catch (error) {
+      expect(error.diagnostics.ignoredLineSamples).toEqual(['no colon here', 'just text']);
+    }
+  });
+});
+
+describe('repairs diagnostics', () => {
+  it('reports overlap-trim and overlap-drop for trimmed/consumed ranges', () => {
+    // A:0-3 and B:2-4 overlap on 2-3; A claimed first → B trimmed to start at 4.
+    const { diagnostics } = parseTopicRangesDetailed('Tech>A: 0-3\nTech>B: 2-4', 5);
+    expect(diagnostics.repairsTruncated).toBe(false);
+    expect(diagnostics.repairs).toEqual([{ type: 'overlap-trim', start: 2, end: 4, newStart: 4 }]);
+  });
+
+  it('reports overlap-drop when a range is entirely consumed', () => {
+    // A:0-4 fully covers B:1-2 → B is dropped entirely.
+    const { diagnostics } = parseTopicRangesDetailed('Tech>A: 0-4\nTech>B: 1-2', 5);
+    expect(diagnostics.repairs).toEqual([{ type: 'overlap-drop', start: 1, end: 2 }]);
+  });
+
+  it('reports gap-start when the first range does not begin at 0', () => {
+    const { diagnostics } = parseTopicRangesDetailed('Tech>A: 2-4', 5);
+    expect(diagnostics.repairs).toEqual([{ type: 'gap-start', filledStart: 0, filledEnd: 1 }]);
+  });
+
+  it('reports gap-middle when an interior gap extends the previous range', () => {
+    const { diagnostics } = parseTopicRangesDetailed('Tech>A: 0-1\nTech>B: 3-4', 5);
+    expect(diagnostics.repairs).toEqual([{ type: 'gap-middle', filledStart: 2, filledEnd: 2 }]);
+  });
+
+  it('reports gap-tail when the last range does not reach the final index', () => {
+    const { diagnostics } = parseTopicRangesDetailed('Tech>A: 0-2', 5);
+    expect(diagnostics.repairs).toEqual([{ type: 'gap-tail', filledStart: 3, filledEnd: 4 }]);
+  });
+
+  it('reports an empty, untruncated repairs list on a clean parse', () => {
+    const { diagnostics } = parseTopicRangesDetailed('Tech>A: 0-4', 5);
+    expect(diagnostics.repairs).toEqual([]);
+    expect(diagnostics.repairsTruncated).toBe(false);
+  });
+
+  it('caps repairs at 50 entries and sets repairsTruncated', () => {
+    // 60 single-sentence topics each separated by a gap sentence force 59 gap
+    // repairs (interleaved singles create a gap before every other range).
+    const lines = [];
+    for (let i = 0; i < 60; i++) {
+      lines.push(`Tech>T${i}: ${i * 2}`);
+    }
+    const sentenceCount = 60 * 2;
+    const { diagnostics } = parseTopicRangesDetailed(lines.join('\n'), sentenceCount);
+    expect(diagnostics.repairs.length).toBe(50);
+    expect(diagnostics.repairsTruncated).toBe(true);
+  });
+
+  it('leaves existing diagnostics fields unchanged when repairs are added', () => {
+    const { diagnostics } = parseTopicRangesDetailed('Tech>A: 0-1\nTech>B: 3-4', 5);
+    expect(diagnostics).toMatchObject({
+      sentenceCount: 5,
+      inputLineCount: 2,
+      parsedLineCount: 2,
+      ignoredLineCount: 0,
+      parsedRangeCount: 2,
+      invalidRangeTokens: 0,
+      reversedRanges: 0,
+      outOfRange: [],
+      duplicates: [],
+      missing: [2],
+    });
+  });
+});
+
 // groupsFromSegments -------------------------------------------------------
 
 describe('groupsFromSegments', () => {

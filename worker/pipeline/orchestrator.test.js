@@ -498,6 +498,47 @@ describe('runPipeline', () => {
     expect(lastCall[1].status).toBe('done');
   });
 
+  it('emits topic_ranges_parse_diagnostics and raw_response on a failed parse attempt', async () => {
+    getStoredVerboseLogs.mockResolvedValue(true);
+    const plainText = 'A. B. C.';
+    const mapping = makeMapping(plainText);
+    storage.readRecord.mockResolvedValue(makeRecord('key3-verbose', '<p>A. B. C.</p>'));
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'A.', start: 0, end: 2 },
+      { text: 'B.', start: 3, end: 5 },
+      { text: 'C.', start: 6, end: 8 },
+    ]);
+
+    let attempt = 0;
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) {
+        attempt++;
+        if (attempt === 1) return 'Invalid response';
+        return 'Tech>All: 0-2';
+      }
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
+      return '';
+    });
+
+    await runPipeline('key3-verbose');
+    expect(attempt).toBe(2);
+
+    const entries = storage.appendProcessingLog.mock.calls.map((call) => ({
+      stage: call[1],
+      details: call[2],
+    }));
+    const failedDiag = entries.find(
+      (e) => e.stage === 'topic_ranges_parse_diagnostics' && e.details.attempt === 1,
+    );
+    const failedRaw = entries.find(
+      (e) => e.stage === 'topic_ranges_raw_response' && e.details.attempt === 1,
+    );
+    expect(failedDiag).toBeDefined();
+    expect(failedRaw).toBeDefined();
+    expect(failedRaw.details.response).toBe('Invalid response');
+  });
+
   it('throws when record is not found', async () => {
     storage.readRecord.mockResolvedValue(null);
     await expect(runPipeline('missing')).rejects.toThrow('record not found: missing');
@@ -583,6 +624,84 @@ describe('runPipeline', () => {
     expect(stages).toContain('topic_summary_llm_request');
     expect(stages).toContain('topic_tree_merge_start');
     expect(stages).toContain('pipeline_done');
+  });
+
+  function loggedEntries() {
+    return storage.appendProcessingLog.mock.calls.map((call) => ({
+      stage: call[1],
+      details: call[2],
+    }));
+  }
+
+  it('does not emit topic_ranges_parse_diagnostics/raw_response for a clean parse', async () => {
+    getStoredVerboseLogs.mockResolvedValue(true);
+    const plainText = 'Sentence one. Sentence two.';
+    const mapping = makeMapping(plainText);
+
+    storage.readRecord.mockResolvedValue(
+      makeRecord('key-verbose-clean', '<p>Sentence one. Sentence two.</p>'),
+    );
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'Sentence one.', start: 0, end: 13 },
+      { text: 'Sentence two.', start: 14, end: 27 },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary text.';
+      return '';
+    });
+
+    await runPipeline('key-verbose-clean');
+
+    const stages = loggedStages();
+    expect(stages).not.toContain('topic_ranges_parse_diagnostics');
+    expect(stages).not.toContain('topic_ranges_raw_response');
+  });
+
+  it('emits topic_ranges_parse_diagnostics and topic_ranges_raw_response when the parse has quirks', async () => {
+    getStoredVerboseLogs.mockResolvedValue(true);
+    const plainText = 'Sentence one. Sentence two.';
+    const mapping = makeMapping(plainText);
+
+    storage.readRecord.mockResolvedValue(
+      makeRecord('key-verbose-quirky', '<p>Sentence one. Sentence two.</p>'),
+    );
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'Sentence one.', start: 0, end: 13 },
+      { text: 'Sentence two.', start: 14, end: 27 },
+    ]);
+    // Only sentence 0 is claimed; sentence 1 is a trailing gap the repair
+    // step fills, which should surface as a diagnostics quirk.
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary text.';
+      return '';
+    });
+
+    await runPipeline('key-verbose-quirky');
+
+    const entries = loggedEntries();
+    const diagEntry = entries.find((e) => e.stage === 'topic_ranges_parse_diagnostics');
+    const rawEntry = entries.find((e) => e.stage === 'topic_ranges_raw_response');
+    expect(diagEntry).toBeDefined();
+    expect(diagEntry.details).toMatchObject({
+      scope: 'primary',
+      attempt: 1,
+      sentenceCount: 2,
+      missing: ['1'],
+      repairsTruncated: false,
+    });
+    expect(diagEntry.details.repairs).toEqual([{ type: 'gap-tail', filledStart: 1, filledEnd: 1 }]);
+    expect(rawEntry).toBeDefined();
+    expect(rawEntry.details).toMatchObject({
+      scope: 'primary',
+      attempt: 1,
+      response: 'Tech>All: 0',
+      responseLength: 'Tech>All: 0'.length,
+      truncated: false,
+    });
   });
 
   it('summarizes a parent topic from its own source text, not by merging child summaries', async () => {
