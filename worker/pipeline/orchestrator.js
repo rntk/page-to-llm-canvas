@@ -20,8 +20,14 @@ import { finalizeSummariesDisabled, runSummaries } from './summaryStage.js';
 // prevents those caps from multiplying when many pages are submitted together.
 const pipelineLlmLimiter = createAdjustableLimiter(DEFAULT_MAX_PARALLEL_LLM_REQUESTS);
 const measuredCallLLMWithRetry = wrapCallLLMWithRetry(callLLMWithRetryRaw);
-const callLLMWithRetry = (...args) =>
-  pipelineLlmLimiter.run(() => measuredCallLLMWithRetry(...args));
+// The limiter slot is held for the entire retry loop, including its backoff
+// sleeps, not just the in-flight HTTP call. Releasing the slot between
+// attempts would let a replacement request take it and hit the same
+// failing/rate-limited provider while the original request is still backing
+// off, defeating the point of backoff. Pass the caller's signal through so a
+// queued (not-yet-started) call can be cancelled without waiting for a slot.
+const callLLMWithRetry = (opts, maxRetries) =>
+  pipelineLlmLimiter.run(() => measuredCallLLMWithRetry(opts, maxRetries), opts?.signal);
 let concurrencySettingRevision = 0;
 
 try {

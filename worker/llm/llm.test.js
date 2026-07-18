@@ -555,6 +555,84 @@ describe('callLLMWithRetry', () => {
     await expect(request).rejects.toMatchObject({ name: 'AbortError' });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+
+  it('does not retry a non-retryable 4xx status', async () => {
+    const { callLLMWithRetry } = await getLLM();
+    vi.mocked(fetch).mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => 'Unauthorized',
+      headers: { get: () => null },
+    });
+
+    await expect(callLLMWithRetry({ prompt: 'hello' }, 3)).rejects.toThrow(
+      'LLM HTTP 401: Unauthorized',
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a 429 (rate limit) status', async () => {
+    const { callLLMWithRetry } = await getLLM();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        text: async () => 'Rate limited',
+        headers: { get: () => null },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: 'Success' } }] }),
+      });
+
+    const content = await callLLMWithRetry({ prompt: 'hello' }, 3);
+    expect(content).toBe('Success');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('honors Retry-After for the backoff delay', async () => {
+    const setTimeoutDelays = [];
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms) => {
+      setTimeoutDelays.push(ms);
+      fn();
+      return 0;
+    });
+    const { callLLMWithRetry, LLM_REQUEST_TIMEOUT_MS } = await getLLM();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        text: async () => 'Rate limited',
+        headers: { get: (name) => (name === 'Retry-After' ? '2' : null) },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: 'Success' } }] }),
+      });
+
+    const content = await callLLMWithRetry({ prompt: 'hello' }, 3);
+    expect(content).toBe('Success');
+    // The 120000ms request-timeout signal also schedules a setTimeout; filter
+    // it out to isolate the retry backoff delay, which should be the
+    // Retry-After value (2000ms) since it exceeds the attempt-0 jitter range.
+    const backoffDelays = setTimeoutDelays.filter((ms) => ms !== LLM_REQUEST_TIMEOUT_MS);
+    expect(backoffDelays).toEqual([2000]);
+  });
+
+  it('makes exactly one attempt when maxRetries is 0', async () => {
+    const { callLLMWithRetry } = await getLLM();
+    vi.mocked(fetch).mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: async () => 'Error',
+      headers: { get: () => null },
+    });
+
+    await expect(callLLMWithRetry({ prompt: 'hello' }, 0)).rejects.toThrow('LLM HTTP 500: Error');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('parallelMap', () => {
@@ -615,6 +693,42 @@ describe('parallelMap', () => {
     expect(res).toEqual([1]);
     expect(order).toEqual([1]);
   });
+
+  it('stops claiming new items once one item rejects, but lets in-flight items finish', async () => {
+    const { parallelMap } = await getLLM();
+    const items = [1, 2, 3, 4];
+    const calls = [];
+    const err = new Error('item 1 failed');
+    let rejectFirst;
+    let resolveSecond;
+
+    const fn = vi.fn((x) => {
+      calls.push(x);
+      if (x === 1) return new Promise((_resolve, reject) => (rejectFirst = reject));
+      if (x === 2) return new Promise((resolve) => (resolveSecond = () => resolve(20)));
+      return Promise.resolve(x * 10);
+    });
+
+    const mapPromise = parallelMap(items, 2, fn);
+    // Attach the rejection handler now, before triggering the failure below,
+    // so the promise is never briefly unobserved (which Node flags as an
+    // unhandled rejection even when a handler follows shortly after).
+    const assertion = expect(mapPromise).rejects.toBe(err);
+    // Both workers claim their first item synchronously (no await before the
+    // first fn call), so items 1 and 2 are in flight immediately.
+    expect(calls).toEqual([1, 2]);
+
+    rejectFirst(err);
+    // Let item 1's rejection propagate and flip `failed` before item 2's
+    // worker loops back to (not) claim a new item.
+    await new Promise((r) => setTimeout(r, 0));
+
+    resolveSecond();
+
+    await assertion;
+    // Items 3 and 4 were never started once the failure was recorded.
+    expect(calls).toEqual([1, 2]);
+  });
 });
 
 describe('createLimiter', () => {
@@ -668,6 +782,26 @@ describe('createLimiter', () => {
       ),
     );
     expect(order).toEqual([1, 2, 3]);
+  });
+
+  it('treats a limit of 0 or NaN as a limit of 1 instead of stalling forever', async () => {
+    const { createLimiter } = await getLLM();
+    for (const badLimit of [0, NaN]) {
+      const limit = createLimiter(badLimit);
+      let active = 0;
+      let maxActive = 0;
+      const task = async (x) => {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((r) => setTimeout(r, 5));
+        active--;
+        return x;
+      };
+
+      const res = await Promise.all([1, 2, 3].map((x) => limit(() => task(x))));
+      expect(res).toEqual([1, 2, 3]);
+      expect(maxActive).toBe(1);
+    }
   });
 });
 
@@ -724,6 +858,184 @@ describe('createAdjustableLimiter', () => {
     releases.forEach((release) => release());
     await Promise.all(tasks);
   });
+
+  it('rejects with AbortError and never calls fn when the signal is already aborted', async () => {
+    const { createAdjustableLimiter } = await getLLM();
+    const limiter = createAdjustableLimiter(2);
+    const controller = new AbortController();
+    controller.abort();
+    const fn = vi.fn(async () => 'result');
+
+    await expect(limiter.run(fn, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('rejects a queued task the moment its signal aborts, leaving slot accounting intact', async () => {
+    const { createAdjustableLimiter } = await getLLM();
+    const limiter = createAdjustableLimiter(1);
+    let releaseA;
+    // Occupy the only slot with a running, signal-less task.
+    const taskA = limiter.run(
+      () =>
+        new Promise((resolve) => {
+          releaseA = () => resolve('A result');
+        }),
+    );
+
+    const controllerB = new AbortController();
+    const fnB = vi.fn(async () => 'B result');
+    // Queued behind the full limiter — never gets a slot before it aborts.
+    const taskB = limiter.run(fnB, controllerB.signal);
+
+    controllerB.abort();
+    await expect(taskB).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fnB).not.toHaveBeenCalled();
+
+    // A later-queued task still runs once the slot frees, proving `active`
+    // was never touched by the queued cancellation above.
+    const fnC = vi.fn(async () => 'C result');
+    const taskC = limiter.run(fnC);
+
+    releaseA();
+    await expect(taskA).resolves.toBe('A result');
+    await expect(taskC).resolves.toBe('C result');
+    expect(fnC).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs a queued task normally when slot frees and cleans up its abort listener', async () => {
+    const { createAdjustableLimiter } = await getLLM();
+    const limiter = createAdjustableLimiter(1);
+    let releaseA;
+    const taskA = limiter.run(() => new Promise((r) => (releaseA = r)));
+
+    const controllerB = new AbortController();
+    const fnB = vi.fn(async () => 'B result');
+    const taskB = limiter.run(fnB, controllerB.signal);
+
+    // Let the event loop / microtask queue run to initialize releaseA
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    releaseA();
+    await expect(taskA).resolves.toBeUndefined();
+    await expect(taskB).resolves.toBe('B result');
+    expect(fnB).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('mergeAbortSignals', () => {
+  it('handles 0 signals', async () => {
+    const { mergeAbortSignals } = await getLLM();
+    const merged = mergeAbortSignals();
+    expect(merged.signal).toBeUndefined();
+    expect(typeof merged.dispose).toBe('function');
+    merged.dispose();
+  });
+
+  it('handles 1 signal', async () => {
+    const { mergeAbortSignals } = await getLLM();
+    const controller = new AbortController();
+    const merged = mergeAbortSignals(controller.signal);
+    expect(merged.signal).toBe(controller.signal);
+    expect(typeof merged.dispose).toBe('function');
+    merged.dispose();
+  });
+
+  it('handles multiple signals (with AbortSignal.any supported)', async () => {
+    const { mergeAbortSignals } = await getLLM();
+    const controller1 = new AbortController();
+    const controller2 = new AbortController();
+    const merged = mergeAbortSignals(controller1.signal, controller2.signal);
+    expect(merged.signal.aborted).toBe(false);
+    controller1.abort();
+    expect(merged.signal.aborted).toBe(true);
+    merged.dispose();
+  });
+
+  it('handles multiple signals (fallback logic when AbortSignal.any is absent)', async () => {
+    const { mergeAbortSignals } = await getLLM();
+    const originalAny = AbortSignal.any;
+    Object.defineProperty(AbortSignal, 'any', {
+      value: undefined,
+      configurable: true,
+    });
+
+    try {
+      const controller1 = new AbortController();
+      const controller2 = new AbortController();
+      const merged = mergeAbortSignals(controller1.signal, controller2.signal);
+      expect(merged.signal.aborted).toBe(false);
+      controller2.abort();
+      expect(merged.signal.aborted).toBe(true);
+      merged.dispose();
+
+      // Test pre-aborted signal path in fallback logic
+      const preAborted = new AbortController();
+      preAborted.abort();
+      const controller3 = new AbortController();
+      const merged2 = mergeAbortSignals(preAborted.signal, controller3.signal);
+      expect(merged2.signal.aborted).toBe(true);
+      merged2.dispose();
+    } finally {
+      Object.defineProperty(AbortSignal, 'any', {
+        value: originalAny,
+        configurable: true,
+      });
+    }
+  });
+});
+
+describe('createRequestTimeoutSignal', () => {
+  it('creates a timeout signal and fires abort after ms', async () => {
+    const { createRequestTimeoutSignal } = await getLLM();
+    vi.useFakeTimers();
+    const timeout = createRequestTimeoutSignal(1000);
+    expect(timeout.signal.aborted).toBe(false);
+    vi.advanceTimersByTime(1000);
+    expect(timeout.signal.aborted).toBe(true);
+    expect(timeout.signal.reason?.name).toBe('TimeoutError');
+    vi.useRealTimers();
+  });
+
+  it('does not fire abort if disposed before timeout', async () => {
+    const { createRequestTimeoutSignal } = await getLLM();
+    vi.useFakeTimers();
+    const timeout = createRequestTimeoutSignal(1000);
+    timeout.dispose();
+    vi.advanceTimersByTime(1000);
+    expect(timeout.signal.aborted).toBe(false);
+    vi.useRealTimers();
+  });
+});
+
+describe('sleepWithAbort', () => {
+  it('resolves after ms when no signal is present', async () => {
+    const { sleepWithAbort } = await getLLM();
+    vi.useFakeTimers();
+    const promise = sleepWithAbort(500);
+    vi.advanceTimersByTime(500);
+    await expect(promise).resolves.toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it('rejects immediately if signal is already aborted', async () => {
+    const { sleepWithAbort } = await getLLM();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(sleepWithAbort(500, controller.signal)).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+  });
+
+  it('rejects if signal aborts during sleep', async () => {
+    const { sleepWithAbort } = await getLLM();
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const promise = sleepWithAbort(1000, controller.signal);
+    vi.advanceTimersByTime(500);
+    controller.abort();
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
+    vi.useRealTimers();
+  });
 });
 
 describe('exports', () => {
@@ -733,3 +1045,4 @@ describe('exports', () => {
     expect(LLM_REQUEST_TIMEOUT_MS).toBeGreaterThan(0);
   });
 });
+

@@ -171,6 +171,27 @@ async function readErrorText(res) {
   return `LLM HTTP ${res.status}: ${txt.slice(0, 300)}`;
 }
 
+/**
+ * Parses a `Retry-After` header value into milliseconds. Accepts either an
+ * integer-seconds value or an HTTP-date value; returns undefined when the
+ * header is absent or does not parse. A past HTTP-date floors at 0 rather
+ * than going negative.
+ * @param {string | null | undefined} headerValue
+ * @returns {number | undefined}
+ */
+export function parseRetryAfterMs(headerValue) {
+  if (!headerValue) return undefined;
+  const trimmed = String(headerValue).trim();
+  if (/^\d+$/.test(trimmed)) {
+    return Number(trimmed) * 1000;
+  }
+  const dateMs = Date.parse(trimmed);
+  if (Number.isFinite(dateMs)) {
+    return Math.max(dateMs - Date.now(), 0);
+  }
+  return undefined;
+}
+
 // Models that reject the `temperature` parameter (mirrors the guard in
 // example/llm/openai_client.py). Sending temperature to these yields a 400.
 const NO_TEMPERATURE_MODELS = new Set(['gpt-5-mini', 'gpt-5-nano']);
@@ -383,7 +404,13 @@ function openAICompatibleClient({
         body: JSON.stringify(body),
         signal,
       });
-      if (!res.ok) throw new Error(await readErrorText(res));
+      if (!res.ok) {
+        const error = new Error(await readErrorText(res));
+        error.status = res.status;
+        const retryAfterMs = parseRetryAfterMs(res.headers?.get?.('Retry-After'));
+        if (Number.isFinite(retryAfterMs)) error.retryAfterMs = retryAfterMs;
+        throw error;
+      }
 
       const data = await res.json();
       logClientVerbose(verboseLogs, 'LLM client raw response data:', data);
@@ -571,7 +598,13 @@ function anthropicClient({ apiKey, model, serviceTier }) {
         body: JSON.stringify(body),
         signal,
       });
-      if (!res.ok) throw new Error(await readErrorText(res));
+      if (!res.ok) {
+        const error = new Error(await readErrorText(res));
+        error.status = res.status;
+        const retryAfterMs = parseRetryAfterMs(res.headers?.get?.('Retry-After'));
+        if (Number.isFinite(retryAfterMs)) error.retryAfterMs = retryAfterMs;
+        throw error;
+      }
 
       const data = await res.json();
       logClientVerbose(verboseLogs, 'LLM client raw response data:', data);

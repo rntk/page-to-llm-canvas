@@ -63,7 +63,7 @@ export async function callLLMDirect(options) {
 
   const startedAt = Date.now();
   const timeoutSignal = createRequestTimeoutSignal(LLM_REQUEST_TIMEOUT_MS);
-  const requestSignal = mergeAbortSignals(signal, timeoutSignal.signal);
+  const mergedSignal = mergeAbortSignals(signal, timeoutSignal.signal);
   // Snapshot per call so a mid-flight options toggle cannot half-apply.
   const verboseLogs = await getStoredVerboseLogs();
   if (verboseLogs) {
@@ -94,7 +94,7 @@ export async function callLLMDirect(options) {
       toolChoice,
       parallelToolCalls,
       temperature,
-      signal: requestSignal,
+      signal: mergedSignal.signal,
       verboseLogs,
     });
     try {
@@ -139,9 +139,15 @@ export async function callLLMDirect(options) {
         ? `LLM request timed out after ${LLM_REQUEST_TIMEOUT_MS}ms`
         : (e && e.message) || String(e);
     console.warn('PageToLLM Canvas LLM request failed:', message);
-    return { ok: false, error: message };
+    return {
+      ok: false,
+      error: message,
+      ...(Number.isFinite(e?.status) ? { status: e.status } : {}),
+      ...(Number.isFinite(e?.retryAfterMs) ? { retryAfterMs: e.retryAfterMs } : {}),
+    };
   } finally {
     timeoutSignal.dispose();
+    mergedSignal.dispose();
   }
 }
 
@@ -151,36 +157,44 @@ function makeAbortError(message) {
   return error;
 }
 
-function mergeAbortSignals(...signals) {
+export function mergeAbortSignals(...signals) {
   const activeSignals = signals.filter(Boolean);
-  if (activeSignals.length === 0) return undefined;
-  if (activeSignals.length === 1) return activeSignals[0];
+  if (activeSignals.length === 0) return { signal: undefined, dispose() {} };
+  if (activeSignals.length === 1) return { signal: activeSignals[0], dispose() {} };
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
-    return AbortSignal.any(activeSignals);
+    return { signal: AbortSignal.any(activeSignals), dispose() {} };
   }
 
   const controller = new AbortController();
   const abort = () => controller.abort();
+  const listenedSignals = [];
   for (const signal of activeSignals) {
     if (signal.aborted) {
       abort();
       break;
     }
     signal.addEventListener('abort', abort, { once: true });
+    listenedSignals.push(signal);
   }
-  return controller.signal;
+  return {
+    signal: controller.signal,
+    dispose() {
+      for (const signal of listenedSignals) {
+        signal.removeEventListener('abort', abort);
+      }
+    },
+  };
 }
 
-function createRequestTimeoutSignal(ms) {
-  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-    return {
-      signal: AbortSignal.timeout(ms),
-      dispose() {},
-    };
-  }
-
+export function createRequestTimeoutSignal(ms) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), ms);
+  const timeoutId = setTimeout(() => {
+    controller.abort(
+      typeof DOMException !== 'undefined'
+        ? new DOMException('Timeout', 'TimeoutError')
+        : Object.assign(new Error('Timeout'), { name: 'TimeoutError' }),
+    );
+  }, ms);
   return {
     signal: controller.signal,
     dispose() {
@@ -197,7 +211,10 @@ export async function callLLM(options) {
   const response = await callLLMDirect(options);
   if (!response.ok || typeof response.content !== 'string') {
     const message = response.error || 'LLM request failed';
-    throw new Error(message);
+    const error = new Error(message);
+    if (Number.isFinite(response.status)) error.status = response.status;
+    if (Number.isFinite(response.retryAfterMs)) error.retryAfterMs = response.retryAfterMs;
+    throw error;
   }
   return response.content;
 }
@@ -208,8 +225,11 @@ export async function callLLM(options) {
  * @returns {Promise<string>}
  */
 export async function callLLMWithRetry(opts, maxRetries = 3) {
+  // Guard against a caller-supplied maxRetries <= 0/NaN reaching the final
+  // `throw lastErr` with lastErr still undefined — always make at least one attempt.
+  const attempts = Number.isFinite(maxRetries) && maxRetries >= 1 ? Math.trunc(maxRetries) : 1;
   let lastErr;
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
     if (opts.signal?.aborted) {
       throw makeAbortError('LLM request aborted');
     }
@@ -218,20 +238,38 @@ export async function callLLMWithRetry(opts, maxRetries = 3) {
     } catch (e) {
       lastErr = e;
       if (opts.signal?.aborted || e?.name === 'AbortError') break;
+      // A 4xx status other than 408 (timeout) or 429 (rate limit) reflects a
+      // malformed/unauthorized request that will never succeed on retry.
+      // Statusless errors (network failures, timeouts) and 408/429/5xx remain retryable.
+      if (
+        Number.isFinite(e?.status) &&
+        e.status >= 400 &&
+        e.status < 500 &&
+        e.status !== 408 &&
+        e.status !== 429
+      ) {
+        break;
+      }
       console.warn('PageToLLM Canvas LLM attempt failed:', {
         attempt: attempt + 1,
-        maxRetries,
+        maxRetries: attempts,
         error: (e && e.message) || String(e),
       });
-      if (attempt === maxRetries - 1) break;
-      const delay = 1000 * Math.pow(2, attempt);
+      if (attempt === attempts - 1) break;
+      // Equal-jitter backoff spreads retries so multiple concurrent requests
+      // that failed together do not all retry in lockstep.
+      let delay = 1000 * Math.pow(2, attempt) * (0.5 + Math.random());
+      if (Number.isFinite(e?.retryAfterMs) && e.retryAfterMs > 0) {
+        // Honor the provider's Retry-After when present, capped at 60s.
+        delay = Math.min(Math.max(e.retryAfterMs, delay), 60_000);
+      }
       await sleepWithAbort(delay, opts.signal);
     }
   }
   throw lastErr;
 }
 
-function sleepWithAbort(ms, signal) {
+export function sleepWithAbort(ms, signal) {
   if (!signal) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
@@ -261,10 +299,11 @@ function sleepWithAbort(ms, signal) {
  * @returns {<T>(fn: () => Promise<T>) => Promise<T>}
  */
 export function createLimiter(limit) {
+  const normalizedLimit = normalizeLimiterLimit(limit);
   let active = 0;
   const queue = [];
   function tryNext() {
-    if (active >= limit) return;
+    if (active >= normalizedLimit) return;
     const next = queue.shift();
     if (!next) return;
     active++;
@@ -292,7 +331,7 @@ export function createLimiter(limit) {
  * tasks finish normally and no queued task starts until the new cap allows it.
  *
  * @param {number} initialLimit
- * @returns {{run: <T>(fn: () => Promise<T>) => Promise<T>, setLimit: (limit: number) => void}}
+ * @returns {{run: <T>(fn: () => Promise<T>, signal?: AbortSignal) => Promise<T>, setLimit: (limit: number) => void}}
  */
 export function createAdjustableLimiter(initialLimit) {
   let limit = normalizeLimiterLimit(initialLimit);
@@ -302,6 +341,9 @@ export function createAdjustableLimiter(initialLimit) {
   function drain() {
     while (active < limit && queue.length > 0) {
       const next = queue.shift();
+      // The entry has started now; its abort listener (if any) no longer
+      // needs to watch the queue — the running fn handles its own abort.
+      if (next.signal) next.signal.removeEventListener('abort', next.onAbort);
       active++;
       Promise.resolve()
         .then(next.fn)
@@ -314,9 +356,25 @@ export function createAdjustableLimiter(initialLimit) {
   }
 
   return {
-    run(fn) {
+    run(fn, signal) {
+      if (signal?.aborted) {
+        return Promise.reject(makeAbortError('LLM request aborted'));
+      }
       return new Promise((resolve, reject) => {
-        queue.push({ fn, resolve, reject });
+        const entry = { fn, resolve, reject, signal };
+        if (signal) {
+          entry.onAbort = () => {
+            const index = queue.indexOf(entry);
+            // Already dequeued (started running): let the running fn's own
+            // abort handling take care of it — the slot accounting here must
+            // stay untouched since a queued entry never incremented `active`.
+            if (index === -1) return;
+            queue.splice(index, 1);
+            reject(makeAbortError('LLM request aborted'));
+          };
+          signal.addEventListener('abort', entry.onAbort, { once: true });
+        }
+        queue.push(entry);
         drain();
       });
     },
@@ -345,6 +403,11 @@ function normalizeLimiterLimit(value) {
  *   is fewer than one item to follow, so at least one item always remains for
  *   the parallel phase. A throwing `fn` rejects before the burst starts, just as
  *   it would inside the burst.
+ *
+ *   Once any worker's `fn` rejects, no worker claims a NEW item afterward —
+ *   in-flight items are left to finish, but the failure stops the burst from
+ *   growing. The returned promise rejects with that first error as soon as it
+ *   occurs.
  * @returns {Promise<U[]>}
  */
 export async function parallelMap(items, limit, fn, { warmupFirst = false } = {}) {
@@ -355,11 +418,18 @@ export async function parallelMap(items, limit, fn, { warmupFirst = false } = {}
     next++;
   }
   const remaining = Math.max(items.length - next, 1);
+  let failed = false;
   const workers = new Array(Math.min(limit, remaining)).fill(0).map(async () => {
     while (true) {
+      if (failed) return;
       const i = next++;
       if (i >= items.length) return;
-      results[i] = await fn(items[i], i);
+      try {
+        results[i] = await fn(items[i], i);
+      } catch (e) {
+        failed = true;
+        throw e;
+      }
     }
   });
   await Promise.all(workers);

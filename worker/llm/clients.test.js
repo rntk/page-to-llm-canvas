@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createClient, buildChatCompletionsUrl, extractLlmUsage, stripThink } from './clients.js';
+import { createClient, buildChatCompletionsUrl, extractLlmUsage, stripThink, parseRetryAfterMs } from './clients.js';
 
 function okJson(json) {
   return { ok: true, status: 200, json: async () => json };
@@ -760,5 +760,73 @@ describe('createClient dispatch', () => {
     const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
     expect(body.tools).toBeUndefined();
     expect(body.tool_choice).toBeUndefined();
+  });
+
+  it('openai-compatible client handles non-ok responses with status and Retry-After', async () => {
+    const client = createClient({ type: 'openai', model: 'm', token: 'k' });
+    vi.mocked(fetch).mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: async () => 'Rate limit exceeded',
+      headers: { get: (name) => (name === 'Retry-After' ? '30' : null) },
+    });
+    try {
+      await client.complete({ prompt: 'p' });
+      expect.fail('Should have thrown');
+    } catch (e) {
+      expect(e.status).toBe(429);
+      expect(e.retryAfterMs).toBe(30000);
+      expect(e.message).toContain('LLM HTTP 429: Rate limit exceeded');
+    }
+  });
+
+  it('anthropic client handles non-ok responses with status and Retry-After', async () => {
+    const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'k' });
+    vi.mocked(fetch).mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: async () => 'Rate limit exceeded',
+      headers: { get: (name) => (name === 'Retry-After' ? '15' : null) },
+    });
+    try {
+      await client.complete({ prompt: 'p' });
+      expect.fail('Should have thrown');
+    } catch (e) {
+      expect(e.status).toBe(429);
+      expect(e.retryAfterMs).toBe(15000);
+      expect(e.message).toContain('LLM HTTP 429: Rate limit exceeded');
+    }
+  });
+
+  describe('parseRetryAfterMs', () => {
+    it('returns undefined for empty, null, undefined or invalid values', () => {
+      expect(parseRetryAfterMs()).toBeUndefined();
+      expect(parseRetryAfterMs(null)).toBeUndefined();
+      expect(parseRetryAfterMs('')).toBeUndefined();
+      expect(parseRetryAfterMs('not-a-number-or-date')).toBeUndefined();
+    });
+
+    it('parses integer seconds correctly', () => {
+      expect(parseRetryAfterMs('120')).toBe(120000);
+      expect(parseRetryAfterMs('  30  ')).toBe(30000);
+    });
+
+    it('parses HTTP-date in the future', () => {
+      const now = 1600000000000;
+      const originalNow = Date.now;
+      Date.now = () => now;
+      const dateStr = new Date(now + 5000).toUTCString();
+      expect(parseRetryAfterMs(dateStr)).toBe(5000);
+      Date.now = originalNow;
+    });
+
+    it('floors past HTTP-dates to 0', () => {
+      const now = 1600000000000;
+      const originalNow = Date.now;
+      Date.now = () => now;
+      const dateStr = new Date(now - 5000).toUTCString();
+      expect(parseRetryAfterMs(dateStr)).toBe(0);
+      Date.now = originalNow;
+    });
   });
 });
