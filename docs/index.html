@@ -42,9 +42,8 @@
     <header class="navbar">
       <div class="nav-container">
         <nav class="nav-links">
-          <a href="#about"><i class="fa-solid fa-circle-info"></i> About</a>
+          <a href="#use-cases"><i class="fa-solid fa-compass"></i> Use Cases</a>
           <a href="#quickstart"><i class="fa-solid fa-rocket"></i> Quickstart</a>
-          <a href="#screencasts"><i class="fa-solid fa-circle-play"></i> Demos</a>
           <a href="#faq"><i class="fa-solid fa-circle-question"></i> Help</a>
         </nav>
         <div class="nav-actions">
@@ -55,31 +54,376 @@
       </div>
     </header>
 
-    <!-- Hero Section -->
-    <section class="hero" id="hero">
-      <div class="hero-content">
-        <h1 class="hero-title">A browser extension for page topics and summaries</h1>
-        <p class="hero-subtitle">
-          Pick a block of any page and an LLM you configure finds its topics and subtopics, writes a
-          summary for each, and lays the results out in inline, hierarchy, and canvas views.
-        </p>
-        <div class="hero-actions">
-          <a href="#quickstart" class="btn btn-primary" id="btn-hero-get-started">
-            Get Started <i class="fa-solid fa-arrow-right"></i>
-          </a>
-          <a href="#screencasts" class="btn btn-secondary" id="btn-hero-watch-demo">
-            Watch Demos <i class="fa-solid fa-play"></i>
-          </a>
+    <!-- Use Cases -->
+    <section class="section use-cases" id="use-cases">
+      <div class="container">
+        <div class="use-cases-intro">
+          <p class="section-eyebrow">PageToLLM Canvas</p>
+          <h1>Find your way through a long read</h1>
+          <p>
+            Turn an article or other long-form text into a navigable map. The extension uses the LLM
+            you configure to identify topics, build summaries at several levels, and keep every
+            overview connected to the original source.
+          </p>
         </div>
-      </div>
-      <div class="hero-visual">
-        <div class="canvas-mockup-wrapper">
-          <img
-            src="media/screenshots/canvas-summaries-view.png"
-            alt="PageToLLM Canvas Summary View Dashboard"
-            class="hero-image"
-            id="hero-img-main"
-          />
+
+        <div class="use-case-showcase">
+          <article class="use-case-card use-case-card--featured">
+            <div class="use-case-copy">
+              <div class="use-case-heading">
+                <span class="use-case-number">01</span>
+                <span class="use-case-label">Topic hierarchy</span>
+              </div>
+              <h2>See the structure at a glance</h2>
+              <p>
+                Open the hierarchy for a fast, structured overview of an article. Move between
+                detail levels, fold individual branches, and read a summary at any level. When a
+                topic matters, jump straight to its source passage.
+              </p>
+              <ul class="use-case-points">
+                <li>Skim broad themes before opening their subtopics.</li>
+                <li>Change summary depth with the level controls.</li>
+                <li>Navigate from a topic back to its supporting text.</li>
+              </ul>
+            </div>
+            <div class="use-case-media">
+              <div class="media-switcher" data-media-switcher>
+                <div class="media-tabs" role="tablist" aria-label="Topic hierarchy media">
+                  <button
+                    id="hierarchy-screenshot-tab"
+                    class="media-tab is-active"
+                    type="button"
+                    role="tab"
+                    aria-selected="true"
+                    aria-controls="hierarchy-screenshot"
+                  >
+                    Screenshot
+                  </button>
+                  <button
+                    id="hierarchy-video-tab"
+                    class="media-tab"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="hierarchy-video"
+                    tabindex="-1"
+                  >
+                    Screencast
+                  </button>
+                </div>
+                <figure
+                  id="hierarchy-screenshot"
+                  class="media-panel"
+                  role="tabpanel"
+                  aria-labelledby="hierarchy-screenshot-tab"
+                >
+                  <img
+                    src="media/screenshots/topics-hierarchy-view.png"
+                    alt="A long article arranged as a multilevel topic hierarchy with summaries"
+                    class="lightbox-trigger"
+                  />
+                  <figcaption>
+                    Broad themes, nested topics, and summaries in one overview.
+                  </figcaption>
+                </figure>
+                <figure
+                  id="hierarchy-video"
+                  class="media-panel"
+                  role="tabpanel"
+                  aria-labelledby="hierarchy-video-tab"
+                  hidden
+                >
+                  <video
+                    controls
+                    muted
+                    playsinline
+                    preload="metadata"
+                    poster="media/screenshots/topics-hierarchy-view.png"
+                  >
+                    <source src="media/screencasts/page-topics-hierarchy.webm" type="video/webm" />
+                    Your browser does not support the video tag.
+                  </video>
+                  <figcaption>Walk through levels, branches, and topic summaries.</figcaption>
+                </figure>
+              </div>
+            </div>
+          </article>
+
+          <article class="use-case-card use-case-card--featured use-case-card--reverse">
+            <div class="use-case-copy">
+              <div class="use-case-heading">
+                <span class="use-case-number">02</span>
+                <span class="use-case-label">Canvas</span>
+              </div>
+              <h2>Skim the map and the text together</h2>
+              <p>
+                Canvas lays the full article beside its multilevel topic map, so you can pan, zoom,
+                change detail level, jump to any section, and check a summary without losing your
+                place.
+              </p>
+              <ul class="use-case-points">
+                <li>Move between the article and its topic structure.</li>
+                <li>Preview a summary or the source sentences behind it.</li>
+                <li>Switch to summary view for a faster topic-by-topic scan.</li>
+              </ul>
+            </div>
+            <div class="use-case-media">
+              <div class="media-switcher" data-media-switcher>
+                <div class="media-tabs" role="tablist" aria-label="Canvas media">
+                  <button
+                    id="canvas-topics-tab"
+                    class="media-tab is-active"
+                    type="button"
+                    role="tab"
+                    aria-selected="true"
+                    aria-controls="canvas-topics"
+                  >
+                    Topic view
+                  </button>
+                  <button
+                    id="canvas-summaries-tab"
+                    class="media-tab"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="canvas-summaries"
+                    tabindex="-1"
+                  >
+                    Summary view
+                  </button>
+                  <button
+                    id="canvas-video-tab"
+                    class="media-tab"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="canvas-video"
+                    tabindex="-1"
+                  >
+                    Screencast
+                  </button>
+                </div>
+                <figure
+                  id="canvas-topics"
+                  class="media-panel"
+                  role="tabpanel"
+                  aria-labelledby="canvas-topics-tab"
+                >
+                  <img
+                    src="media/screenshots/canvas-topics-view.png"
+                    alt="Canvas view with article text, a current-topic summary, and a multilevel topic map"
+                    class="lightbox-trigger"
+                  />
+                  <figcaption>
+                    Article, topic map, and current summary share one workspace.
+                  </figcaption>
+                </figure>
+                <figure
+                  id="canvas-summaries"
+                  class="media-panel"
+                  role="tabpanel"
+                  aria-labelledby="canvas-summaries-tab"
+                  hidden
+                >
+                  <img
+                    src="media/screenshots/canvas-summaries-view.png"
+                    alt="Canvas summary cards aligned with the article's multilevel topic map"
+                    class="lightbox-trigger"
+                  />
+                  <figcaption>
+                    Scan one summary per topic and preview its source passage.
+                  </figcaption>
+                </figure>
+                <figure
+                  id="canvas-video"
+                  class="media-panel"
+                  role="tabpanel"
+                  aria-labelledby="canvas-video-tab"
+                  hidden
+                >
+                  <video
+                    controls
+                    muted
+                    playsinline
+                    preload="metadata"
+                    poster="media/screenshots/canvas-topics-view.png"
+                  >
+                    <source src="media/screencasts/canvas-topics.webm" type="video/webm" />
+                    Your browser does not support the video tag.
+                  </video>
+                  <figcaption>See topic selection and navigation on the canvas.</figcaption>
+                </figure>
+              </div>
+            </div>
+          </article>
+
+          <article class="use-case-card use-case-card--featured">
+            <div class="use-case-copy">
+              <div class="use-case-heading">
+                <span class="use-case-number">03</span>
+                <span class="use-case-label">In-page sidebar</span>
+              </div>
+              <h2>Keep a reading guide beside the original page</h2>
+              <p>
+                Stay in the article while the sidebar follows along. It shows topic cues or the
+                current section's summary as you scroll, with controls for moving between a quick
+                overview and more detailed summaries.
+              </p>
+              <ul class="use-case-points">
+                <li>Follow topics without leaving the source page.</li>
+                <li>Jump between a sidebar topic and its exact passage.</li>
+                <li>See the summary for the section currently in view.</li>
+              </ul>
+            </div>
+            <div class="use-case-media">
+              <div class="media-switcher" data-media-switcher>
+                <div class="media-tabs" role="tablist" aria-label="In-page sidebar media">
+                  <button
+                    id="sidebar-topics-tab"
+                    class="media-tab is-active"
+                    type="button"
+                    role="tab"
+                    aria-selected="true"
+                    aria-controls="sidebar-topics"
+                  >
+                    Topics
+                  </button>
+                  <button
+                    id="sidebar-summary-tab"
+                    class="media-tab"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="sidebar-summary"
+                    tabindex="-1"
+                  >
+                    Summary
+                  </button>
+                  <button
+                    id="sidebar-topics-video-tab"
+                    class="media-tab"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="sidebar-topics-video"
+                    tabindex="-1"
+                  >
+                    Topics video
+                  </button>
+                  <button
+                    id="sidebar-summary-video-tab"
+                    class="media-tab"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="sidebar-summary-video"
+                    tabindex="-1"
+                  >
+                    Summary video
+                  </button>
+                </div>
+                <figure
+                  id="sidebar-topics"
+                  class="media-panel"
+                  role="tabpanel"
+                  aria-labelledby="sidebar-topics-tab"
+                >
+                  <img
+                    src="media/screenshots/page-topics-list.png"
+                    alt="Original article with an in-page sidebar listing topics at several levels"
+                    class="lightbox-trigger"
+                  />
+                  <figcaption>Use the topic list as a map beside the original article.</figcaption>
+                </figure>
+                <figure
+                  id="sidebar-summary"
+                  class="media-panel"
+                  role="tabpanel"
+                  aria-labelledby="sidebar-summary-tab"
+                  hidden
+                >
+                  <img
+                    src="media/screenshots/page-current-topic-summary.png"
+                    alt="Original article with an in-page sidebar showing the current topic summary"
+                    class="lightbox-trigger"
+                  />
+                  <figcaption>
+                    The current summary follows your place in the original article.
+                  </figcaption>
+                </figure>
+                <figure
+                  id="sidebar-topics-video"
+                  class="media-panel"
+                  role="tabpanel"
+                  aria-labelledby="sidebar-topics-video-tab"
+                  hidden
+                >
+                  <video
+                    controls
+                    muted
+                    playsinline
+                    preload="metadata"
+                    poster="media/screenshots/page-topics-list.png"
+                  >
+                    <source src="media/screencasts/page-topics.webm" type="video/webm" />
+                    Your browser does not support the video tag.
+                  </video>
+                  <figcaption>See how topic cues connect to sections on the page.</figcaption>
+                </figure>
+                <figure
+                  id="sidebar-summary-video"
+                  class="media-panel"
+                  role="tabpanel"
+                  aria-labelledby="sidebar-summary-video-tab"
+                  hidden
+                >
+                  <video
+                    controls
+                    muted
+                    playsinline
+                    preload="metadata"
+                    poster="media/screenshots/page-current-topic-summary.png"
+                  >
+                    <source src="media/screencasts/page-summaries.webm" type="video/webm" />
+                    Your browser does not support the video tag.
+                  </video>
+                  <figcaption>Watch summaries update alongside the source page.</figcaption>
+                </figure>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="use-case-compact-grid">
+          <article class="use-case-card use-case-card--compact">
+            <div class="use-case-icon" aria-hidden="true">
+              <i class="fa-regular fa-comments"></i>
+            </div>
+            <div class="use-case-heading">
+              <span class="use-case-number">04</span>
+              <span class="use-case-label">Article chat</span>
+            </div>
+            <h2>Ask the long read</h2>
+            <p>
+              Ask questions about the analyzed text and get answers tied to supporting passages.
+              Revisit cited highlights from the Events tab or continue a saved conversation later.
+            </p>
+          </article>
+
+          <article class="use-case-card use-case-card--compact">
+            <div class="use-case-icon" aria-hidden="true">
+              <i class="fa-brands fa-youtube"></i>
+            </div>
+            <div class="use-case-heading">
+              <span class="use-case-number">05</span>
+              <span class="use-case-label">YouTube</span>
+            </div>
+            <h2>Navigate a long video by topic</h2>
+            <p>
+              Turn a transcript into timestamped topics and summaries. The sidebar follows playback,
+              lets you change detail levels, and jumps the video directly to the section you choose.
+            </p>
+          </article>
         </div>
       </div>
     </section>
@@ -266,117 +610,9 @@ npm run build</code></pre>
         </div>
 
         <p class="quickstart-footnote">
-          <a href="#screencasts">Watch the demos</a> for a walkthrough of each view.
+          <a href="#use-cases">Explore the use cases</a> to choose the view that fits your reading
+          style.
         </p>
-      </div>
-    </section>
-
-    <!-- Interactive Demos (Screencasts) -->
-    <section class="section screencasts-section" id="screencasts">
-      <div class="container">
-        <div class="section-header">
-          <h2 class="section-title">Demos & Screencasts</h2>
-          <p class="section-desc">
-            Short recordings showing how to select page content, run the pipeline, and view the
-            generated topics and summaries.
-          </p>
-        </div>
-
-        <div class="screencast-player-container">
-          <!-- Left Side: Interactive Sidebar Selector -->
-          <div class="screencast-sidebar">
-            <button
-              class="screencast-tab-btn active"
-              id="tab-btn-pick-block"
-              onclick="selectScreencast('how-pick-block', this)"
-            >
-              <span class="tab-icon"><i class="fa-solid fa-hand-pointer"></i></span>
-              <div class="tab-info">
-                <h4>Pick a Page Block</h4>
-                <p>Select the exact page area you want processed.</p>
-              </div>
-            </button>
-
-            <button
-              class="screencast-tab-btn"
-              id="tab-btn-summaries"
-              onclick="selectScreencast('page-summaries', this)"
-            >
-              <span class="tab-icon"><i class="fa-solid fa-list-check"></i></span>
-              <div class="tab-info">
-                <h4>Page Summaries</h4>
-                <p>Extract and summarize selected articles.</p>
-              </div>
-            </button>
-
-            <button
-              class="screencast-tab-btn"
-              id="tab-btn-topics"
-              onclick="selectScreencast('canvas-topics', this)"
-            >
-              <span class="tab-icon"><i class="fa-solid fa-diagram-project"></i></span>
-              <div class="tab-info">
-                <h4>Canvas Topics Exploration</h4>
-                <p>Navigate the generated topics on the canvas.</p>
-              </div>
-            </button>
-
-            <button
-              class="screencast-tab-btn"
-              id="tab-btn-hierarchy"
-              onclick="selectScreencast('page-topics-hierarchy', this)"
-            >
-              <span class="tab-icon"><i class="fa-solid fa-sitemap"></i></span>
-              <div class="tab-info">
-                <h4>Topic Hierarchy Sidebar</h4>
-                <p>Explore deep document hierarchies via sidebar.</p>
-              </div>
-            </button>
-
-            <button
-              class="screencast-tab-btn"
-              id="tab-btn-pagetopics"
-              onclick="selectScreencast('page-topics', this)"
-            >
-              <span class="tab-icon"><i class="fa-solid fa-tags"></i></span>
-              <div class="tab-info">
-                <h4>Page Topics & Inline Tags</h4>
-                <p>See categorized topics aligned with page content.</p>
-              </div>
-            </button>
-          </div>
-
-          <!-- Right Side: Video Player Display -->
-          <div class="screencast-display">
-            <div class="video-wrapper">
-              <video
-                id="screencast-video"
-                controls
-                muted
-                playsinline
-                poster="media/screenshots/extension-popup-ready-to-pick-block.png"
-              >
-                <source
-                  id="screencast-source"
-                  src="media/screencasts/how-pick-block.webm"
-                  type="video/webm"
-                />
-                Your browser does not support the video tag.
-              </video>
-              <div class="video-overlay-play" id="video-overlay">
-                <i class="fa-solid fa-play"></i>
-              </div>
-            </div>
-            <div class="screencast-details">
-              <h3 id="screencast-title">Picking a Page Block</h3>
-              <p id="screencast-description">
-                Start pick mode from the extension popup, choose the content block on the page, and
-                click the "Submit" button to send only that selected area into the summarization
-                pipeline.
-              </p>
-            </div>
-          </div>
-        </div>
       </div>
     </section>
 
@@ -452,7 +688,7 @@ npm run build</code></pre>
     <footer class="footer">
       <div class="container footer-content">
         <div class="footer-links">
-          <a href="#hero">Back to Top</a>
+          <a href="#use-cases">Back to Top</a>
           <a href="https://github.com/rntk/page-to-llm-canvas" target="_blank"
             ><i class="fa-brands fa-github"></i> Source Code</a
           >

@@ -2,97 +2,7 @@
  * Interactive Script for PageToLLM Canvas Documentation Page
  */
 
-// 1. Screencast Video Player Controller
-const screencastsData = {
-  'how-pick-block': {
-    title: 'Picking a Page Block',
-    src: 'media/screencasts/how-pick-block.webm',
-    desc: 'Start pick mode from the extension popup, choose the content block on the page, and click "Submit" to send that area into the pipeline.',
-  },
-  'page-summaries': {
-    title: 'Generating Page Summaries',
-    src: 'media/screencasts/page-summaries.webm',
-    desc: 'Select portions of an article, run processing, and view the summaries generated for each block, with status indicators for splitting and summarizing along the way.',
-  },
-  'canvas-topics': {
-    title: 'Canvas Topics Exploration',
-    src: 'media/screencasts/canvas-topics.webm',
-    desc: 'Open the canvas view to see topics laid out as cards. Pan and zoom, and select a card to read its full summary.',
-  },
-  'page-topics-hierarchy': {
-    title: 'Topics Hierarchy Sidebar',
-    src: 'media/screencasts/page-topics-hierarchy.webm',
-    desc: 'The hierarchy sidebar lists topics and subtopics in nested levels. Clicking a node in the sidebar highlights and centers the matching block on the canvas.',
-  },
-  'page-topics': {
-    title: 'Page Topics & Inline Tags',
-    src: 'media/screencasts/page-topics.webm',
-    desc: 'Topics are shown inline on the source page as tags attached to block headers, so you can see what each section is about before reading it.',
-  },
-};
-
-const videoPlayer = document.getElementById('screencast-video');
-const videoSource = document.getElementById('screencast-source');
-const videoOverlay = document.getElementById('video-overlay');
-const videoWrapper = videoPlayer ? videoPlayer.closest('.video-wrapper') : null;
-const screencastTitle = document.getElementById('screencast-title');
-const screencastDesc = document.getElementById('screencast-description');
-
-function selectScreencast(id, element) {
-  const data = screencastsData[id];
-  if (!data || !videoPlayer || !videoSource) return;
-
-  // Active Button Class Highlight
-  document.querySelectorAll('.screencast-tab-btn').forEach((btn) => {
-    btn.classList.remove('active');
-  });
-  element.classList.add('active');
-
-  // Change Video Source & Details
-  videoSource.src = data.src;
-  screencastTitle.textContent = data.title;
-  screencastDesc.textContent = data.desc;
-
-  // Reload Video
-  videoPlayer.load();
-
-  // Play Video
-  videoPlayer
-    .play()
-    .then(() => {
-      if (videoWrapper) videoWrapper.classList.add('playing');
-    })
-    .catch((err) => {
-      console.log('Video autoplay prevented: ', err);
-      if (videoWrapper) videoWrapper.classList.remove('playing');
-    });
-}
-
-function togglePlayVideo() {
-  if (!videoPlayer) return;
-
-  if (videoPlayer.paused) {
-    videoPlayer.play();
-  } else {
-    videoPlayer.pause();
-  }
-}
-
-if (videoPlayer) {
-  videoPlayer.addEventListener('play', () => {
-    if (videoWrapper) videoWrapper.classList.add('playing');
-  });
-
-  videoPlayer.addEventListener('pause', () => {
-    if (videoWrapper) videoWrapper.classList.remove('playing');
-  });
-
-  videoPlayer.addEventListener('ended', () => {
-    if (videoWrapper) videoWrapper.classList.remove('playing');
-  });
-}
-
-// 2. Onboarding Code Tab Switcher
+// 1. Onboarding Code Tab Switcher
 function switchCodeTab(event, tabId) {
   const tabContainer = event.target.closest('.code-tab-container');
   if (!tabContainer) return;
@@ -109,7 +19,50 @@ function switchCodeTab(event, tabId) {
   if (selectedContent) selectedContent.classList.add('active');
 }
 
-// 4. Lightbox Modal for Screenshots
+// 2. Per-use-case Media Switchers
+function setupMediaSwitchers() {
+  document.querySelectorAll('[data-media-switcher]').forEach((switcher) => {
+    const tabs = Array.from(switcher.querySelectorAll('[role="tab"]'));
+    const panels = Array.from(switcher.querySelectorAll('[role="tabpanel"]'));
+
+    const activateTab = (activeTab) => {
+      const activePanelId = activeTab.getAttribute('aria-controls');
+
+      tabs.forEach((tab) => {
+        const isActive = tab === activeTab;
+        tab.classList.toggle('is-active', isActive);
+        tab.setAttribute('aria-selected', String(isActive));
+        tab.tabIndex = isActive ? 0 : -1;
+      });
+
+      panels.forEach((panel) => {
+        const isActive = panel.id === activePanelId;
+        panel.hidden = !isActive;
+        if (!isActive) panel.querySelector('video')?.pause();
+      });
+    };
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => activateTab(tab));
+      tab.addEventListener('keydown', (event) => {
+        let nextIndex = null;
+        if (event.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
+        if (event.key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;
+        if (event.key === 'Home') nextIndex = 0;
+        if (event.key === 'End') nextIndex = tabs.length - 1;
+        if (nextIndex === null) return;
+
+        event.preventDefault();
+        activateTab(tabs[nextIndex]);
+        tabs[nextIndex].focus();
+      });
+    });
+  });
+}
+
+document.addEventListener('DOMContentLoaded', setupMediaSwitchers);
+
+// 3. Lightbox Modal for Screenshots
 const lightbox = document.getElementById('gallery-lightbox');
 const lightboxImg = document.getElementById('lightbox-img');
 const lightboxCaption = document.getElementById('lightbox-caption');
@@ -150,7 +103,7 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// 5. FAQ Accordion Toggle
+// 4. FAQ Accordion Toggle
 function toggleFaq(button) {
   const item = button.closest('.faq-item');
   if (!item) return;
@@ -173,12 +126,6 @@ function toggleFaq(button) {
 }
 
 // Programmatic bindings & window exports for ESLint compliance
-if (videoOverlay) {
-  videoOverlay.addEventListener('click', togglePlayVideo);
-}
-
-window.selectScreencast = selectScreencast;
-window.togglePlayVideo = togglePlayVideo;
 window.switchCodeTab = switchCodeTab;
 window.closeLightbox = closeLightbox;
 window.toggleFaq = toggleFaq;
