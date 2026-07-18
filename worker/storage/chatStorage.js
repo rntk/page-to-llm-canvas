@@ -9,11 +9,7 @@ import {
   queuedUpdate,
   MUTATION_QUEUE_KEY,
 } from './primitives.js';
-import {
-  recordMetaStorageKey,
-  chatIndexStorageKey,
-  chatDocumentStorageKey,
-} from './keys.js';
+import { recordMetaStorageKey, chatIndexStorageKey, chatDocumentStorageKey } from './keys.js';
 
 const CHAT_TITLE_MAX_CHARS = 60;
 export const MAX_CHAT_TURNS = 50;

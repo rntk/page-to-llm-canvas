@@ -356,7 +356,10 @@ function CanvasTopicHierarchyRail({
       canvasViewport && typeof window.MutationObserver !== 'undefined'
         ? new window.MutationObserver(scheduleVisibilityUpdate)
         : null;
-    styleObserver?.observe(canvasViewport, { attributes: true, attributeFilter: ['style', 'class'] });
+    styleObserver?.observe(canvasViewport, {
+      attributes: true,
+      attributeFilter: ['style', 'class'],
+    });
 
     const resizeObserver =
       typeof window.ResizeObserver !== 'undefined'
