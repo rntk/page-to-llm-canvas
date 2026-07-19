@@ -305,40 +305,38 @@ export function RecordsSection() {
                     )}
                   </td>
                   <td>
-                    <button type="button" onClick={() => runAction('open', item.key)}>
-                      Open
-                    </button>{' '}
-                    <button type="button" onClick={() => runAction('reprocess', item.key)}>
-                      Reprocess
-                    </button>{' '}
-                    {item.status === 'done' && item.summariesDisabled ? (
-                      <>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      <button type="button" onClick={() => runAction('open', item.key)}>
+                        Open
+                      </button>
+                      <button type="button" onClick={() => runAction('reprocess', item.key)}>
+                        Reprocess
+                      </button>
+                      {item.status === 'done' && item.summariesDisabled ? (
                         <button
                           type="button"
                           title="Generate summaries from the already-computed topics, without reprocessing the page"
                           onClick={() => runAction('generateSummaries', item.key)}
                         >
                           Generate summaries
-                        </button>{' '}
-                      </>
-                    ) : null}
-                    {IN_FLIGHT_STATUSES.has(item.status) ? (
-                      <>
+                        </button>
+                      ) : null}
+                      {IN_FLIGHT_STATUSES.has(item.status) ? (
                         <button type="button" onClick={() => runAction('stop', item.key)}>
                           Stop
-                        </button>{' '}
-                      </>
-                    ) : null}
-                    <button type="button" onClick={() => runAction('exportData', item.key)}>
-                      Export data
-                    </button>{' '}
-                    <button
-                      className="danger"
-                      type="button"
-                      onClick={() => runAction('delete', item.key)}
-                    >
-                      Delete
-                    </button>
+                        </button>
+                      ) : null}
+                      <button type="button" onClick={() => runAction('exportData', item.key)}>
+                        Export data
+                      </button>
+                      <button
+                        className="danger"
+                        type="button"
+                        onClick={() => runAction('delete', item.key)}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
