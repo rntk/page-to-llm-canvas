@@ -5,7 +5,7 @@ import {
   applyThemeToElement,
   THEME_KEY,
   THEME_SYSTEM,
-} from '../../../theme.js';
+} from '../../shared/runtime/theme.js';
 import {
   HIGHLIGHT_COLOR_KEY,
   DEFAULT_HIGHLIGHT_COLOR,

@@ -1,5 +1,5 @@
-import { MSG } from '../../messages.js';
-import { CHAT_TOOL_OUTCOMES, LLM_TASK_TYPES } from '../../telemetry.js';
+import { MSG } from '../shared/runtime/messages.js';
+import { CHAT_TOOL_OUTCOMES, LLM_TASK_TYPES } from '../shared/runtime/telemetry.js';
 import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 import { createChatLogger } from './chatLogger.js';
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { MSG } from '../../messages.js';
+import { MSG } from '../shared/runtime/messages.js';
 import { sendMessage } from './optionsApi.js';
 
 const CATEGORY_ROWS = [

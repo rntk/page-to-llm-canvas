@@ -3,7 +3,7 @@
  * No DOM, no chrome, no window/confirm/alert references.
  */
 
-import { MSG } from '../../messages.js';
+import { MSG } from '../shared/runtime/messages.js';
 
 /**
  * @returns {{id: string, name: string, type: string, model: string, token: string, url: string, serviceTier: string}}

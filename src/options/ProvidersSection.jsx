@@ -4,7 +4,7 @@ import {
   SERVICE_TIER_DEFINITIONS,
   getProviderDefinition,
 } from '../../worker/llm/providers.js';
-import { MSG } from '../../messages.js';
+import { MSG } from '../shared/runtime/messages.js';
 import {
   shouldWarnTokenWipe,
   createEmptyProviderForm,

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRecord } from './hooks/useRecord.js';
-import { MSG } from '../../messages.js';
+import { MSG } from '../shared/runtime/messages.js';
 import {
   buildTopicCards,
   getTopicTitleFontSize,
@@ -10,12 +10,12 @@ import {
   COLUMN_GAP,
   RAIL_PADDING,
 } from '../domain/topicCards.js';
-import CanvasTopicHierarchyRail from '../components/CanvasTopicHierarchyRail.jsx';
-import CanvasSummaryView from '../components/CanvasSummaryView.jsx';
-import CanvasZoomControls from '../components/CanvasZoomControls.jsx';
-import SpinnerOverlay from '../components/SpinnerOverlay.jsx';
+import CanvasTopicHierarchyRail from './components/CanvasTopicHierarchyRail.jsx';
+import CanvasSummaryView from './components/CanvasSummaryView.jsx';
+import CanvasZoomControls from './components/CanvasZoomControls.jsx';
+import SpinnerOverlay from './components/SpinnerOverlay.jsx';
 import SummaryErrorsOverlay from '../components/SummaryErrorsOverlay.jsx';
-import ArticleHtml from '../components/ArticleHtml.jsx';
+import ArticleHtml from './components/ArticleHtml.jsx';
 import { closeModal } from './closeModal.js';
 import { useCanvasTransform } from './hooks/useCanvasTransform.js';
 import { clampScale } from '../utils/canvasMath.js';

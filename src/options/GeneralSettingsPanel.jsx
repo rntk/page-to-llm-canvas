@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { createThemeController, themeCycle, themeIcon, themeLabel } from '../../theme.js';
+import { createThemeController, themeCycle, themeIcon, themeLabel } from '../shared/runtime/theme.js';
 import { useStoredPreference } from './useStoredPreference.js';
 import {
   HIGHLIGHT_COLOR_KEY,

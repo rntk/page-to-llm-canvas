@@ -11,10 +11,10 @@ export default {
   mutate: [
     'src/**/*.{js,jsx,mjs}',
     'worker/**/*.js',
-    'background.js',
-    'popup.js',
-    'theme.js',
-    'verboseLogSettings.js',
+    'src/extension/background/background.js',
+    'src/extension/popup/popup.js',
+    'src/shared/runtime/theme.js',
+    'src/shared/runtime/verboseLogSettings.js',
     '!src/canvas/main.jsx',
     // Test files match the globs above but must never be mutated themselves;
     // exclude them here (not via ignorePatterns, which controls sandbox

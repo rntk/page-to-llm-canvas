@@ -7,21 +7,19 @@ import { fileURLToPath } from 'node:url';
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const watch = process.argv.includes('--watch');
 
-const STATIC_FILES = [
-  'manifest.json',
-  'background.js',
-  'messages.js',
-  'telemetry.js',
-  'verboseLogSettings.js',
-  'chat.css',
-  'content.css',
-  'summary-errors.css',
-  'popup.html',
-  'options.html',
-  'modal.html',
+// Source assets are grouped by responsibility, while the extension package
+// intentionally stays flat because manifest URLs are relative to dist/.
+const STATIC_ASSETS = [
+  { source: 'manifest.json', output: 'manifest.json' },
+  { source: 'src/extension/styles/chat.css', output: 'chat.css' },
+  { source: 'src/extension/styles/content.css', output: 'content.css' },
+  { source: 'src/extension/styles/summary-errors.css', output: 'summary-errors.css' },
+  { source: 'src/extension/pages/popup.html', output: 'popup.html' },
+  { source: 'src/extension/pages/options.html', output: 'options.html' },
+  { source: 'src/extension/pages/modal.html', output: 'modal.html' },
 ];
 
-const STATIC_DIRS = ['worker', 'icons'];
+const STATIC_DIRS = [{ source: 'icons', output: 'icons' }];
 
 function copyFileIfExists(src, dest) {
   if (!fs.existsSync(src)) return;
@@ -48,11 +46,11 @@ function copyDirRecursive(src, dest) {
 
 function copyExtensionStaticAssets() {
   const outDir = path.join(root, 'dist');
-  for (const file of STATIC_FILES) {
-    copyFileIfExists(path.join(root, file), path.join(outDir, file));
+  for (const { source, output } of STATIC_ASSETS) {
+    copyFileIfExists(path.join(root, source), path.join(outDir, output));
   }
-  for (const dir of STATIC_DIRS) {
-    copyDirRecursive(path.join(root, dir), path.join(outDir, dir));
+  for (const { source, output } of STATIC_DIRS) {
+    copyDirRecursive(path.join(root, source), path.join(outDir, output));
   }
 }
 
@@ -98,6 +96,11 @@ const entries = [
     emptyOutDir: true,
   },
   {
+    name: 'background',
+    input: path.join(root, 'src/extension/background/background.js'),
+    emptyOutDir: false,
+  },
+  {
     name: 'modal',
     input: path.join(root, 'src/canvas/main.jsx'),
     emptyOutDir: false,
@@ -109,7 +112,7 @@ const entries = [
   },
   {
     name: 'popup',
-    input: path.join(root, 'popup.js'),
+    input: path.join(root, 'src/extension/popup/popup.js'),
     emptyOutDir: false,
   },
 ];

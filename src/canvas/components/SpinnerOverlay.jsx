@@ -1,7 +1,7 @@
 import React from 'react';
-import { closeModal } from '../canvas/closeModal.js';
-import { splitError } from '../utils/errorUtils.js';
-import ErrorDetails from './ErrorDetails.jsx';
+import { closeModal } from '../closeModal.js';
+import { splitError } from '../../utils/errorUtils.js';
+import ErrorDetails from '../../components/ErrorDetails.jsx';
 
 /**
  * Shared chrome for every overlay state: a centered box with a title, an

@@ -9,9 +9,9 @@
 //      send payloads in src/chat/articleChat.js)
 //   4. In OptionsApp.jsx: remove LlmMetricsSection + its import + render
 
-import { LLM_TASK_TYPES } from '../../telemetry.js';
+import { LLM_TASK_TYPES } from '../../src/shared/runtime/telemetry.js';
 
-export { LLM_TASK_TYPES } from '../../telemetry.js';
+export { LLM_TASK_TYPES } from '../../src/shared/runtime/telemetry.js';
 
 export const LLM_METRICS_KEY = 'pagetollm-llm-metrics';
 /** Bumped on clear so in-flight read-modify-writes can detect staleness across SW/options contexts. */

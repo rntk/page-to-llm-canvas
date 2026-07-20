@@ -2,7 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import SelectionToolbar from './SelectionToolbar.jsx';
 import { guardTrustedUserEvent } from './trustedEvents.js';
-import { MSG } from '../../../messages.js';
+import { MSG } from '../../shared/runtime/messages.js';
 import { moveSelectedEntry, removeSelectedEntry, selectedBlocksForToolbar } from './state.js';
 import { canStepUpElement, stepUpSelectedEntry } from './elementTraversal.js';
 import { buildCssPath } from './cssPath.js';

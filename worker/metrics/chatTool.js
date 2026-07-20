@@ -13,9 +13,9 @@
 //   4. In src/chat/articleChat.js: remove the recordToolMetric plumbing
 //   5. In OptionsApp.jsx: remove ChatToolMetricsSection + its import + render
 
-import { CHAT_TOOL_OUTCOMES } from '../../telemetry.js';
+import { CHAT_TOOL_OUTCOMES } from '../../src/shared/runtime/telemetry.js';
 
-export { CHAT_TOOL_OUTCOMES } from '../../telemetry.js';
+export { CHAT_TOOL_OUTCOMES } from '../../src/shared/runtime/telemetry.js';
 
 export const CHAT_TOOL_METRICS_KEY = 'pagetollm-chat-tool-metrics';
 export const CHAT_TOOL_METRICS_MAX_RECENT = 60;

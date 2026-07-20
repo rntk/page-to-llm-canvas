@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { MSG } from '../../messages.js';
+import { MSG } from '../shared/runtime/messages.js';
 import { resolveSummaryErrors, retryRecord } from '../utils/errorUtils.js';
 import SummaryErrorsOverlay from '../components/SummaryErrorsOverlay.jsx';
 import RecordErrorDialog from './RecordErrorDialog.jsx';

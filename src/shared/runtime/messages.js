@@ -1,7 +1,5 @@
-// Shared runtime-message type constants. Kept at the repo root (like theme.js)
-// so it is importable both by the bundled src/ code (Vite inlines it) and by the
-// unbundled background.js service worker (which loads it as a plain ES module
-// from dist/ via a relative path). The build copies this file into dist/.
+// Shared runtime-message type constants for extension surfaces and the service
+// worker. Keep this file dependency-free and browser-safe.
 //
 // These are the `type` values on chrome.runtime messages dispatched by
 // background.js's MESSAGE_HANDLERS. The content-script `action:` messages

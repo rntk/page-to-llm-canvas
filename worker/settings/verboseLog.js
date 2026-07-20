@@ -10,4 +10,4 @@
 // (quiet), and every accessor degrades to the default rather than throwing so
 // a storage hiccup never breaks the pipeline.
 
-export * from '../../verboseLogSettings.js';
+export * from '../../src/shared/runtime/verboseLogSettings.js';

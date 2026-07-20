@@ -1,6 +1,6 @@
 import React from 'react';
-import { getYouTubeTimestampLink, getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
-import YouTubeTimestampButton from './YouTubeTimestampButton.jsx';
+import { getYouTubeTimestampLink, getYouTubeVideoId } from '../../utils/youtubeTimestamp.js';
+import YouTubeTimestampButton from '../../components/YouTubeTimestampButton.jsx';
 import {
   buildHighlightedSentencePreviewHtml,
   buildPreviewSourceModel,

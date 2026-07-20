@@ -1,6 +1,6 @@
 import React from 'react';
-import { getHierarchyTopicAccentColor } from '../utils/topicColorUtils.js';
-import { isTopicRead } from '../utils/topicReadUtils.js';
+import { getHierarchyTopicAccentColor } from '../../utils/topicColorUtils.js';
+import { isTopicRead } from '../../utils/topicReadUtils.js';
 import {
   CARD_COMPACT_TITLE_MAX_LINES,
   getAdjustedHierarchyCards,
@@ -8,9 +8,9 @@ import {
   getCardLabelHeight,
   getSummaryFontSizes,
   getTitleLineBudget,
-} from '../utils/denseCardLayout.js';
-import { getYouTubeTimestampLink, getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
-import YouTubeTimestampButton from './YouTubeTimestampButton.jsx';
+} from '../../utils/denseCardLayout.js';
+import { getYouTubeTimestampLink, getYouTubeVideoId } from '../../utils/youtubeTimestamp.js';
+import YouTubeTimestampButton from '../../components/YouTubeTimestampButton.jsx';
 
 // Accent colors are a pure function of (fullPath, depth) and never change once a
 // card exists, but hashing the path on every render — for every card, on every

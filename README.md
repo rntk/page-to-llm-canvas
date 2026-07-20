@@ -37,14 +37,22 @@ This project is a release candidate: the extension is feature-complete and is be
 
 Build is owned by `scripts/build-extension.mjs`, which runs Vite once per React entrypoint so extension scripts stay self-contained browser files. Produces a `dist/` directory containing:
 
-- `manifest.json`, `background.js`, `content.js`, `content.css`, `popup.html`, `popup.js`, `options.html`, `options.js`, `icons/`, `worker/`
+- `manifest.json`, `background.js`, `content.js`, `content.css`, `popup.html`, `popup.js`, `options.html`, `options.js`, `icons/`
 - `modal.html`, `modal.js`, `modal.css` (React bundle)
 
 Source entrypoints:
 
 - `src/content/main.jsx` -> `dist/content.js`
 - `src/options/main.jsx` -> `dist/options.js`
-- `src/main.jsx` -> `dist/modal.js`
+- `src/canvas/main.jsx` -> `dist/modal.js`
+- `src/extension/background/background.js` -> `dist/background.js`
+- `src/extension/popup/popup.js` -> `dist/popup.js`
+
+Extension-only source is grouped under `src/extension/`: entrypoints live in
+`background/` and `popup/`, static templates in `pages/`, and delivery-scoped
+styles in `styles/`. Browser-safe contracts shared by extension surfaces and
+the service worker live in `src/shared/runtime/`. The build maps these sources
+back to the flat filenames required by `manifest.json`.
 
 From the repository root, build with Docker (no local Node.js install needed):
 

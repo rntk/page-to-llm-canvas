@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import TopicLevelSwitcher from './TopicLevelSwitcher.jsx';
+import TopicLevelSwitcher from '../../components/TopicLevelSwitcher.jsx';
 
 /**
  * Floating zoom & view-mode controls for the canvas, mirroring the main app.

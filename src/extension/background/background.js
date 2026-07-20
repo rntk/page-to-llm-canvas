@@ -8,21 +8,21 @@ import {
   findRecordByUrl,
   migrateIndexMeta,
   reconcileRecordStorage,
-} from './worker/storage/storage.js';
+} from '../../../worker/storage/storage.js';
 import {
   listChats,
   readChat,
   appendChatTurn,
   deleteChatHistory,
   reconcileChatStorage,
-} from './worker/storage/chatStorage.js';
-import { runPipeline } from './worker/pipeline/orchestrator.js';
-import { callLLMDirect } from './worker/llm/llm.js';
-import { clearLlmMetrics, recordLlmMetric } from './worker/metrics/llm.js';
-import { clearChatToolMetrics, recordChatToolMetric } from './worker/metrics/chatTool.js';
-import { clearParserMetrics } from './worker/metrics/parser.js';
-import { clearAllExtensionData, getStorageOverview } from './worker/storage/dataManagement.js';
-import { getStoredSummariesDisabled } from './worker/settings/summary.js';
+} from '../../../worker/storage/chatStorage.js';
+import { runPipeline } from '../../../worker/pipeline/orchestrator.js';
+import { callLLMDirect } from '../../../worker/llm/llm.js';
+import { clearLlmMetrics, recordLlmMetric } from '../../../worker/metrics/llm.js';
+import { clearChatToolMetrics, recordChatToolMetric } from '../../../worker/metrics/chatTool.js';
+import { clearParserMetrics } from '../../../worker/metrics/parser.js';
+import { clearAllExtensionData, getStorageOverview } from '../../../worker/storage/dataManagement.js';
+import { getStoredSummariesDisabled } from '../../../worker/settings/summary.js';
 import {
   getProvidersState,
   sanitizeProvider,
@@ -30,13 +30,13 @@ import {
   saveProvider,
   deleteProvider,
   setActiveProvider,
-} from './worker/llm/providers.js';
+} from '../../../worker/llm/providers.js';
 import {
   refreshActionProgressIcon,
   scheduleActionProgressIconRefresh,
-} from './worker/actionIcon.js';
-import { isInFlightRecord, isInFlightStatus } from './worker/pipeline/pipelineStatus.js';
-import { MSG } from './messages.js';
+} from '../../../worker/actionIcon.js';
+import { isInFlightRecord, isInFlightStatus } from '../../../worker/pipeline/pipelineStatus.js';
+import { MSG } from '../../shared/runtime/messages.js';
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';

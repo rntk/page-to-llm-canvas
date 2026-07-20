@@ -1,4 +1,4 @@
-import { MSG } from '../../messages.js';
+import { MSG } from '../shared/runtime/messages.js';
 import { normalizeProvidersResponse } from './optionsLogic.js';
 import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 

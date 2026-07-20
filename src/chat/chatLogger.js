@@ -1,4 +1,4 @@
-import { getStoredVerboseLogs } from '../../verboseLogSettings.js';
+import { getStoredVerboseLogs } from '../shared/runtime/verboseLogSettings.js';
 
 /**
  * Creates the console boundary for article-chat diagnostics. Like the

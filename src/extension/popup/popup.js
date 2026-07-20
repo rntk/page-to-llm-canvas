@@ -1,7 +1,7 @@
-import { createThemeController, themeIcon, themeLabel } from './theme.js';
-import { getYouTubeVideoId } from './src/utils/youtubeTimestamp.js';
-import { sendRuntimeMessage, sendTabMessage } from './src/utils/runtimeMessages.js';
-import { MSG } from './messages.js';
+import { createThemeController, themeIcon, themeLabel } from '../../shared/runtime/theme.js';
+import { getYouTubeVideoId } from '../../utils/youtubeTimestamp.js';
+import { sendRuntimeMessage, sendTabMessage } from '../../utils/runtimeMessages.js';
+import { MSG } from '../../shared/runtime/messages.js';
 
 // Re-exported so popup.test.js (and other importers) keep resolving it from here.
 export { getYouTubeVideoId };

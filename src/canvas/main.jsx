@@ -4,7 +4,7 @@ import App from './App.jsx';
 import HierarchyApp from '../hierarchy/HierarchyApp.jsx';
 import './modal.css';
 import { parseModalRoute } from './modalRoute.js';
-import { createThemeController } from '../../theme.js';
+import { createThemeController } from '../shared/runtime/theme.js';
 import {
   HIGHLIGHT_COLOR_KEY,
   getStoredHighlightColor,

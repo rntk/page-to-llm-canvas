@@ -19,12 +19,12 @@ export default defineConfig({
       include: [
         'src/**/*.{js,jsx,ts,tsx,mjs}',
         'worker/**/*.js',
-        'background.js',
-        'popup.js',
-        'theme.js',
-        'verboseLogSettings.js',
-        'messages.js',
-        'telemetry.js',
+        'src/extension/background/background.js',
+        'src/extension/popup/popup.js',
+        'src/shared/runtime/theme.js',
+        'src/shared/runtime/verboseLogSettings.js',
+        'src/shared/runtime/messages.js',
+        'src/shared/runtime/telemetry.js',
       ],
       exclude: ['**/*.test.{js,jsx,ts,tsx,mjs}', '**/*.spec.{js,jsx,ts,tsx,mjs}', 'dist/**'],
       // Ratchet floors. `test:coverage` fails if global coverage drops below

@@ -57,20 +57,20 @@ function captureComponent(name) {
   };
 }
 
-vi.mock('../components/CanvasTopicHierarchyRail.jsx', () => ({
+vi.mock('./components/CanvasTopicHierarchyRail.jsx', () => ({
   default: captureComponent('rail'),
 }));
-vi.mock('../components/CanvasSummaryView.jsx', () => ({
+vi.mock('./components/CanvasSummaryView.jsx', () => ({
   default: captureComponent('summary'),
 }));
-vi.mock('../components/CanvasZoomControls.jsx', () => ({
+vi.mock('./components/CanvasZoomControls.jsx', () => ({
   default: captureComponent('controls'),
 }));
-vi.mock('../components/SpinnerOverlay.jsx', () => ({ default: captureComponent('spinner') }));
+vi.mock('./components/SpinnerOverlay.jsx', () => ({ default: captureComponent('spinner') }));
 vi.mock('../components/SummaryErrorsOverlay.jsx', () => ({
   default: captureComponent('summaryErrors'),
 }));
-vi.mock('../components/ArticleHtml.jsx', () => ({ default: captureComponent('article') }));
+vi.mock('./components/ArticleHtml.jsx', () => ({ default: captureComponent('article') }));
 vi.mock('../chat/ArticleChat.jsx', () => ({ default: captureComponent('chat') }));
 
 vi.mock('./closeModal.js', () => ({ closeModal: mocks.closeModal }));

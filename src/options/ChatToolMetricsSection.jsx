@@ -7,7 +7,7 @@ import {
   isErrorOutcome,
   normalizeChatToolMetrics,
 } from '../../worker/metrics/chatTool.js';
-import { MSG } from '../../messages.js';
+import { MSG } from '../shared/runtime/messages.js';
 import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 import { CollapsibleSection } from './CollapsibleSection.jsx';
 

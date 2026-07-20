@@ -10,7 +10,7 @@ import { CHAT_TOOL_METRICS_KEY } from '../metrics/chatTool.js';
 import { PREFER_CONTENT_LANGUAGE_KEY } from '../settings/language.js';
 import { SUMMARIES_DISABLED_KEY } from '../settings/summary.js';
 import { MAX_PARALLEL_LLM_REQUESTS_KEY } from '../settings/llmConcurrency.js';
-import { VERBOSE_LOGS_KEY } from '../../verboseLogSettings.js';
+import { VERBOSE_LOGS_KEY } from '../../src/shared/runtime/verboseLogSettings.js';
 import { clearLocal, getLocal, MUTATION_QUEUE_KEY, queuedUpdate } from './primitives.js';
 
 const CHAT_STORAGE_PREFIX = 'pagetollm:chats:';

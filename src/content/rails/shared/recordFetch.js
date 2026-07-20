@@ -8,7 +8,7 @@
  *   - createLoadToken   race-condition guard factory
  */
 
-import { MSG } from '../../../../messages.js';
+import { MSG } from '../../../shared/runtime/messages.js';
 import { sendRuntimeMessage } from '../../../utils/runtimeMessages.js';
 
 /**
