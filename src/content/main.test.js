@@ -650,7 +650,7 @@ describe('content script main.jsx', () => {
     host.remove();
   });
 
-  it('opens a YouTube rail and switches summary mode', async () => {
+  it('opens the requested mode in a YouTube rail', async () => {
     const video = document.createElement('video');
     video.className = 'html5-main-video';
     let videoTime = 0;
@@ -699,7 +699,7 @@ describe('content script main.jsx', () => {
     const sendResponse = vi.fn();
     await act(async () => {
       messageListener(
-        { action: 'openRecordView', key: 'youtube-key', mode: 'youtube' },
+        { action: 'openRecordView', key: 'youtube-key', mode: 'summaries', rail: 'youtube' },
         {},
         sendResponse,
       );
@@ -711,20 +711,21 @@ describe('content script main.jsx', () => {
     const rail = document.getElementById('pagetollm-in-page-rail');
     expect(rail).not.toBeNull();
     expect(rail.dataset.youtube).toBe('true');
-    expect(rail.dataset.mode).toBe('topics');
+    expect(rail.dataset.mode).toBe('summaries');
 
     let cards = rail.querySelectorAll('.pagetollm-yt-rail-card');
     expect(cards).toHaveLength(2);
-    const modeSelect = rail.querySelector('.pagetollm-rail-mode-select');
-    await act(async () => {
-      modeSelect.value = 'summaries';
-      modeSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    expect(rail.dataset.mode).toBe('summaries');
-    cards = rail.querySelectorAll('.pagetollm-yt-rail-card');
-    expect(cards).toHaveLength(2);
     expect(rail.textContent).toContain('Intro summary');
     expect(rail.textContent).toContain('(no summary)');
+    const modeSelect = rail.querySelector('.pagetollm-rail-mode-select');
+    await act(async () => {
+      modeSelect.value = 'topics';
+      modeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(rail.dataset.mode).toBe('topics');
+    cards = rail.querySelectorAll('.pagetollm-yt-rail-card');
+    expect(cards).toHaveLength(2);
+    expect(rail.textContent).not.toContain('Intro summary');
 
     messageListener(
       { action: 'openRecordView', key: 'cleanup-canvas', mode: 'canvas' },

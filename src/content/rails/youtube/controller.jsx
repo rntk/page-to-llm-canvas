@@ -14,7 +14,7 @@ function getYouTubeVideoElement() {
   return document.querySelector('.html5-main-video') || document.querySelector('video');
 }
 
-export async function openYouTubeRail(rec) {
+export async function openYouTubeRail(rec, initialMode = 'topics') {
   closeInPageRail();
   removeCanvasIframe();
 
@@ -43,7 +43,10 @@ export async function openYouTubeRail(rec) {
     return;
   }
 
-  const state = { mode: 'topics', selectedLevel: 0 };
+  const state = {
+    mode: initialMode === 'summaries' || initialMode === 'chat' ? initialMode : 'topics',
+    selectedLevel: 0,
+  };
 
   const maxLevel = computeMaxTopicLevel(record);
 

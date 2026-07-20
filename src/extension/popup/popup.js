@@ -136,6 +136,7 @@ export function providerReadinessState(response, error) {
 }
 
 export function getRecordActions(record) {
+  const useYouTubeRail = isYouTubeUrl(record && record.sourceUrl);
   const viewActions = [
     {
       label: 'Canvas',
@@ -153,27 +154,22 @@ export function getRecordActions(record) {
       {
         label: 'Topics',
         mode: 'topics',
+        ...(useYouTubeRail ? { rail: 'youtube' } : {}),
         description: 'View extracted topics from this analysis.',
       },
       {
         label: 'Summaries',
         mode: 'summaries',
+        ...(useYouTubeRail ? { rail: 'youtube' } : {}),
         description: 'View generated summaries for selected content.',
       },
       {
         label: 'Chat',
         mode: 'chat',
+        ...(useYouTubeRail ? { rail: 'youtube' } : {}),
         description: 'Open chat mode to ask questions about this page.',
       },
     );
-    if (isYouTubeUrl(record && record.sourceUrl)) {
-      viewActions.push({
-        label: 'YT Sync',
-        mode: 'youtube',
-        description:
-          'Open a sidebar that follows the video, showing the topic/summary for the current moment.',
-      });
-    }
   }
   const manageActions = [
     {
@@ -257,10 +253,12 @@ function setLoading() {
   setError('');
 }
 
-async function openRecordView(key, mode) {
+async function openRecordView(key, mode, rail) {
   if (!activeTab || !activeTab.id) return;
   try {
-    const response = await tabMessage(activeTab.id, { action: 'openRecordView', key, mode });
+    const message = { action: 'openRecordView', key, mode };
+    if (rail) message.rail = rail;
+    const response = await tabMessage(activeTab.id, message);
     if (response && response.status === 'error') {
       setError(responseErrorMessage(response, 'Unable to open saved analysis'));
       return;
@@ -278,13 +276,13 @@ function addActionHint(button, label, description) {
   button.setAttribute('aria-label', `${label}: ${description}`);
 }
 
-function makeAction(label, key, mode, description, isPrimary = false) {
+function makeAction(label, key, mode, description, isPrimary = false, rail) {
   const button = document.createElement('button');
   button.className = isPrimary ? 'action primary-action' : 'action';
   button.type = 'button';
   button.textContent = label;
   addActionHint(button, label, description);
-  button.addEventListener('click', () => openRecordView(key, mode));
+  button.addEventListener('click', () => openRecordView(key, mode, rail));
   return button;
 }
 
@@ -453,7 +451,14 @@ function renderRecords(records, { force = false } = {}) {
         const isPrimary = !primaryAssigned;
         primaryAssigned = true;
         viewGroup.appendChild(
-          makeAction(action.label, display.key, action.mode, action.description, isPrimary),
+          makeAction(
+            action.label,
+            display.key,
+            action.mode,
+            action.description,
+            isPrimary,
+            action.rail,
+          ),
         );
       } else if (action.kind === 'export') {
         manageGroup.appendChild(makeExportAction(action, display.key));

@@ -28,7 +28,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ status: 'error', error: 'missing key' });
       return true;
     }
-    handleRecordViewRequest({ key }, mode)
+    handleRecordViewRequest({ key }, mode, message.rail)
       .then(() => sendResponse({ status: 'ok' }))
       .catch((err) =>
         sendResponse({ status: 'error', error: err && err.message ? err.message : String(err) }),
@@ -67,7 +67,7 @@ window.addEventListener('message', (event) => {
 
 // ── Record view actions ───────────────────────────────────────────────────
 
-async function handleRecordViewRequest(rec, mode) {
+async function handleRecordViewRequest(rec, mode, rail) {
   if (mode === 'canvas') {
     openCanvasIframe(rec.key);
     return;
@@ -76,8 +76,8 @@ async function handleRecordViewRequest(rec, mode) {
     openHierarchyIframe(rec.key);
     return;
   }
-  if (mode === 'youtube') {
-    await openYouTubeRail(rec);
+  if (rail === 'youtube') {
+    await openYouTubeRail(rec, mode);
     return;
   }
   await openInPageRail(rec, mode);

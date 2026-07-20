@@ -221,39 +221,43 @@ describe('popup pure functions', () => {
     ).not.toContain('Generate summaries');
   });
 
-  it('getRecordActions adds a YT Sync view for done YouTube records', () => {
-    const labels = popup
-      .getRecordActions({ status: 'done', sourceUrl: 'https://www.youtube.com/watch?v=abc123' })
-      .map((action) => action.label);
+  it('getRecordActions routes YouTube content actions to the YouTube rail', () => {
+    const actions = popup.getRecordActions({
+      status: 'done',
+      sourceUrl: 'https://www.youtube.com/watch?v=abc123',
+    });
+    const labels = actions.map((action) => action.label);
     expect(labels).toEqual([
       'Canvas',
       'Hierarchy',
       'Topics',
       'Summaries',
       'Chat',
-      'YT Sync',
       'Reprocess',
       'Export data',
       'Delete',
     ]);
     expect(
-      popup
-        .getRecordActions({ status: 'done', sourceUrl: 'https://www.youtube.com/watch?v=abc123' })
-        .find((action) => action.label === 'YT Sync'),
-    ).toEqual(expect.objectContaining({ kind: 'view', mode: 'youtube' }));
+      actions.filter((action) => ['Topics', 'Summaries', 'Chat'].includes(action.label)),
+    ).toEqual([
+      expect.objectContaining({ kind: 'view', mode: 'topics', rail: 'youtube' }),
+      expect.objectContaining({ kind: 'view', mode: 'summaries', rail: 'youtube' }),
+      expect.objectContaining({ kind: 'view', mode: 'chat', rail: 'youtube' }),
+    ]);
   });
 
-  it('getRecordActions omits YT Sync for non-YouTube or unfinished records', () => {
+  it('getRecordActions keeps non-YouTube and unfinished actions off the YouTube rail', () => {
     expect(
       popup
         .getRecordActions({ status: 'done', sourceUrl: 'https://example.com/page' })
-        .map((a) => a.label),
-    ).not.toContain('YT Sync');
+        .filter((action) => action.kind === 'view')
+        .some((action) => action.rail === 'youtube'),
+    ).toBe(false);
     expect(
       popup
         .getRecordActions({ status: 'summarizing', sourceUrl: 'https://youtu.be/abc123' })
-        .map((a) => a.label),
-    ).not.toContain('YT Sync');
+        .some((action) => action.rail === 'youtube'),
+    ).toBe(false);
   });
 
   it('isYouTubeUrl recognizes watch, youtu.be, shorts and rejects others', () => {
