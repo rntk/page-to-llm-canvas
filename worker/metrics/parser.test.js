@@ -68,4 +68,10 @@ describe('parser metrics', () => {
     await clearParserMetrics();
     expect(stored[PARSER_METRICS_KEY]).toEqual(emptyParserMetrics());
   });
+
+  it('returns empty metrics when the Chrome storage namespace is unavailable', async () => {
+    vi.stubGlobal('chrome', { runtime: {} });
+
+    await expect(getParserMetrics()).resolves.toEqual(emptyParserMetrics());
+  });
 });

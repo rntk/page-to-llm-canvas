@@ -63,6 +63,12 @@ export function buildTopicTree(topics) {
     if (nodes.has(path)) return nodes.get(path);
     const parts = path.split('>');
     const parentPath = parts.slice(0, -1).join('>');
+    // Every recursive step must move toward the root. Besides documenting the
+    // path invariant, this turns a malformed derivation into a local error
+    // instead of unbounded self/growing recursion and a crashed worker.
+    if (parentPath.length >= path.length) {
+      throw new Error(`Invalid topic path: parent does not shrink (${path})`);
+    }
     const parent = getOrCreate(parentPath);
     const node = {
       path,

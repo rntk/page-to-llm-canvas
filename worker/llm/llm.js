@@ -302,6 +302,7 @@ export function createLimiter(limit) {
   const normalizedLimit = normalizeLimiterLimit(limit);
   let active = 0;
   const queue = [];
+
   function tryNext() {
     if (active >= normalizedLimit) return;
     const next = queue.shift();
@@ -309,16 +310,29 @@ export function createLimiter(limit) {
     active++;
     next();
   }
+
   return function run(fn) {
     return new Promise((resolve, reject) => {
       queue.push(() => {
-        Promise.resolve()
-          .then(fn)
-          .then(resolve, reject)
-          .finally(() => {
+        // Release the slot before exposing the task's outcome to its caller.
+        // Apart from making the limiter's state consistent at settlement time,
+        // handling cleanup in the same promise path prevents a throw from
+        // tryNext() becoming an ignored rejection from a detached finally().
+        const settleAfterCleanup = (settle, value) => {
+          try {
             active--;
             tryNext();
-          });
+          } catch (error) {
+            reject(error);
+            return;
+          }
+          settle(value);
+        };
+
+        Promise.resolve().then(fn).then(
+          (value) => settleAfterCleanup(resolve, value),
+          (error) => settleAfterCleanup(reject, error),
+        );
       });
       tryNext();
     });

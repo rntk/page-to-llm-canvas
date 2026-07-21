@@ -507,6 +507,132 @@ describe('createClient dispatch', () => {
     ]);
   });
 
+  it.each([null, undefined, ''])(
+    'openai-compatible client normalizes empty inbound tool arguments (%s) to an object',
+    async (argumentsValue) => {
+      vi.mocked(fetch).mockResolvedValue(
+        okJson({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-empty',
+                    type: 'function',
+                    function: { name: 'highlight_span', arguments: argumentsValue },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      );
+      const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'k' });
+
+      await expect(client.complete({ prompt: 'p' })).resolves.toMatchObject({
+        toolCalls: [{ id: 'call-empty', name: 'highlight_span', arguments: {} }],
+      });
+    },
+  );
+
+  it('openai-compatible client preserves object-valued inbound tool arguments', async () => {
+    const inboundArguments = { start_line: 2, end_line: 3 };
+    vi.mocked(fetch).mockResolvedValue(
+      okJson({
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: 'call-object',
+                  type: 'function',
+                  function: { name: 'highlight_span', arguments: inboundArguments },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+    const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'k' });
+
+    await expect(client.complete({ prompt: 'p' })).resolves.toMatchObject({
+      toolCalls: [{ id: 'call-object', name: 'highlight_span', arguments: inboundArguments }],
+    });
+  });
+
+  it.each([
+    ['array value', []],
+    ['numeric value', 42],
+    ['boolean value', true],
+  ])(
+    'openai-compatible client rejects a non-object %s for inbound tool arguments',
+    async (_, argumentsValue) => {
+      vi.mocked(fetch).mockResolvedValue(
+        okJson({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-invalid',
+                    type: 'function',
+                    function: { name: 'highlight_span', arguments: argumentsValue },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      );
+      const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'k' });
+
+      await expect(client.complete({ prompt: 'p' })).rejects.toThrow(
+        'Tool-call arguments must be a JSON object',
+      );
+    },
+  );
+
+  it.each([
+    ['malformed JSON', '{"start_line":'],
+    ['JSON array', '[1,2]'],
+    ['JSON null', 'null'],
+    ['JSON number', '42'],
+    ['JSON string', '"value"'],
+  ])(
+    'openai-compatible client rejects %s in string-encoded tool arguments',
+    async (label, argumentsValue) => {
+      vi.mocked(fetch).mockResolvedValue(
+        okJson({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-invalid-json',
+                    type: 'function',
+                    function: { name: 'highlight_span', arguments: argumentsValue },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      );
+      const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'k' });
+
+      const expectedMessage =
+        label === 'malformed JSON'
+          ? 'Invalid tool-call arguments JSON:'
+          : 'Tool-call arguments must decode to a JSON object';
+      await expect(client.complete({ prompt: 'p' })).rejects.toThrow(expectedMessage);
+    },
+  );
+
   it('openai-compatible client combines <think> tags and reasoning_content into reasoning', async () => {
     vi.mocked(fetch).mockResolvedValue(
       okJson({

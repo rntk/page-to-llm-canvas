@@ -34,6 +34,13 @@ describe('getYouTubeVideoId', () => {
     expect(getYouTubeVideoId('')).toBeNull();
     expect(getYouTubeVideoId(null)).toBeNull();
   });
+
+  it('rejects truthy non-string inputs, including URL-coercible objects', () => {
+    expect(getYouTubeVideoId({})).toBeNull();
+    expect(getYouTubeVideoId([])).toBeNull();
+    expect(getYouTubeVideoId(123)).toBeNull();
+    expect(getYouTubeVideoId(new URL('https://www.youtube.com/watch?v=coercible'))).toBeNull();
+  });
 });
 
 describe('parseTimestampSeconds', () => {
@@ -68,6 +75,12 @@ describe('parseTimestampSeconds', () => {
       parseTimestampSeconds('This is a simple text sentence without any time info.'),
     ).toBeNull();
     expect(parseTimestampSeconds('')).toBeNull();
+  });
+
+  it('returns null for truthy non-string input', () => {
+    expect(parseTimestampSeconds({})).toBeNull();
+    expect(parseTimestampSeconds([])).toBeNull();
+    expect(parseTimestampSeconds(123)).toBeNull();
   });
 });
 

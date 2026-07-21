@@ -58,6 +58,8 @@ function makeChromeMock() {
       getURL: vi.fn((path = '') => `chrome-extension://test-id/${path}`),
       sendMessage: vi.fn(),
       onMessage: { addListener: vi.fn() },
+      onStartup: { addListener: vi.fn() },
+      onInstalled: { addListener: vi.fn() },
     },
     alarms: {
       create: vi.fn(),
@@ -1381,5 +1383,348 @@ describe('dispatchMessage unit tests', () => {
     const res = await dispatchMessage({ type: 'clearChatToolMetrics' });
     expect(res).toEqual({ ok: true });
     expect(chromeMock.storage.local._store.get(CHAT_TOOL_METRICS_KEY).totalCount).toBe(0);
+  });
+});
+
+describe('background service-worker boundaries', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it('creates the keepalive alarm only when one does not already exist', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(chromeMock, makeRecord('keepalive-new', { status: 'pending' }));
+
+    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+    chromeMock.alarms.create.mockClear();
+
+    await startPipeline('keepalive-new');
+    expect(chromeMock.alarms.get).toHaveBeenCalledWith('pipeline-keepalive', expect.any(Function));
+    expect(chromeMock.alarms.create).toHaveBeenCalledWith('pipeline-keepalive', {
+      periodInMinutes: 0.5,
+    });
+
+    await seedRecord(chromeMock, makeRecord('keepalive-existing', { status: 'pending' }));
+    chromeMock.alarms.get.mockImplementation((_name, cb) =>
+      cb({ name: 'pipeline-keepalive', periodInMinutes: 0.5 }),
+    );
+    chromeMock.alarms.create.mockClear();
+    await startPipeline('keepalive-existing');
+    expect(chromeMock.alarms.create).not.toHaveBeenCalled();
+  });
+
+  it('ignores unrelated alarms and clears keepalive when storage has no active records', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await import('./background.js');
+    const alarmListener = chromeMock.alarms.onAlarm.addListener.mock.calls[0][0];
+
+    alarmListener({ name: 'unrelated' });
+    await Promise.resolve();
+    expect(chromeMock.alarms.clear).not.toHaveBeenCalled();
+
+    alarmListener({ name: 'pipeline-keepalive' });
+    await vi.waitFor(() => {
+      expect(chromeMock.alarms.clear).toHaveBeenCalledWith('pipeline-keepalive');
+    });
+  });
+
+  it('resumes every active record when the keepalive alarm fires', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(chromeMock, makeRecord('alarm-a', { status: 'splitting' }));
+    await seedRecord(chromeMock, makeRecord('alarm-b', { status: 'summarizing' }));
+    await seedRecord(chromeMock, makeRecord('alarm-done', { status: 'done' }));
+
+    const { _resetJobRegistry } = await import('./background.js');
+    const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+    _resetJobRegistry();
+    runPipeline.mockClear();
+
+    const alarmListener = chromeMock.alarms.onAlarm.addListener.mock.calls[0][0];
+    alarmListener({ name: 'pipeline-keepalive' });
+
+    await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(2));
+    expect(runPipeline.mock.calls.map(([key]) => key).sort()).toEqual(['alarm-a', 'alarm-b']);
+    expect(chromeMock.alarms.clear).not.toHaveBeenCalled();
+  });
+
+  it('refreshes progress only for local record-storage changes', async () => {
+    vi.useFakeTimers();
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await import('./background.js');
+    await vi.runAllTimersAsync();
+    chromeMock.action.setBadgeText.mockClear();
+
+    const changed = chromeMock.storage.onChanged.addListener.mock.calls[0][0];
+    changed({ 'pagetollm:rec:x:meta': { newValue: {} } }, 'sync');
+    changed({ unrelated: { newValue: {} } }, 'local');
+    await vi.advanceTimersByTimeAsync(250);
+    expect(chromeMock.action.setBadgeText).not.toHaveBeenCalled();
+
+    changed(
+      {
+        unrelated: { newValue: {} },
+        'pagetollm:rec:x:content': { newValue: {} },
+      },
+      'local',
+    );
+    await vi.advanceTimersByTimeAsync(250);
+    expect(chromeMock.action.setBadgeText).toHaveBeenCalledWith({ text: '' });
+    vi.useRealTimers();
+  });
+
+  it('rejects null and typeless runtime messages synchronously', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await import('./background.js');
+    const listener = chromeMock.runtime.onMessage.addListener.mock.calls[0][0];
+
+    for (const msg of [null, {}, { type: '' }]) {
+      const sendResponse = vi.fn();
+      expect(listener(msg, {}, sendResponse)).toBe(false);
+      expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'no type' });
+    }
+  });
+
+  it.each(['onStartup', 'onInstalled'])(
+    'resumes orphaned work from the runtime %s event',
+    async (eventName) => {
+      const chromeMock = makeChromeMock();
+      vi.stubGlobal('chrome', chromeMock);
+      await seedRecord(chromeMock, makeRecord(`${eventName}-active`, { status: 'splitting' }));
+      await seedRecord(chromeMock, makeRecord(`${eventName}-done`, { status: 'done' }));
+
+      const { _resetJobRegistry } = await import('./background.js');
+      const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+      _resetJobRegistry();
+      runPipeline.mockClear();
+
+      expect(chromeMock.runtime[eventName].addListener).toHaveBeenCalledTimes(1);
+      chromeMock.runtime[eventName].addListener.mock.calls[0][0]();
+
+      await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(1));
+      expect(runPipeline).toHaveBeenCalledWith(
+        `${eventName}-active`,
+        expect.objectContaining({ signal: expect.any(Object) }),
+      );
+      expect(chromeMock.alarms.get).toHaveBeenCalledWith(
+        'pipeline-keepalive',
+        expect.any(Function),
+      );
+    },
+  );
+
+  it('does nothing on startup when the record list has no active work', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(chromeMock, makeRecord('startup-done', { status: 'done' }));
+
+    await import('./background.js');
+    const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+    runPipeline.mockClear();
+    chromeMock.alarms.get.mockClear();
+    chromeMock.runtime.onStartup.addListener.mock.calls[0][0]();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(runPipeline).not.toHaveBeenCalled();
+    expect(chromeMock.alarms.get).not.toHaveBeenCalled();
+  });
+});
+
+describe('record import and submission boundaries', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  async function loadDispatch(chromeMock) {
+    vi.stubGlobal('chrome', chromeMock);
+    const { dispatchMessage } = await import('./background.js');
+    return (msg) => dispatchMessage(msg, { url: 'chrome-extension://test-id/options.html' });
+  }
+
+  it.each([undefined, null, '', false, 0])(
+    'rejects an empty submission html value: %j',
+    async (html) => {
+      const chromeMock = makeChromeMock();
+      vi.stubGlobal('chrome', chromeMock);
+      const { handleSubmit } = await import('./background.js');
+
+      await expect(handleSubmit({ html })).resolves.toEqual({ ok: false, error: 'missing html' });
+    },
+  );
+
+  it('persists all observable defaults for a fresh submission', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    const { handleSubmit, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const result = await handleSubmit({ html: '<main>defaults</main>', selectors: 'main' });
+    const stored = await readRecord(result.key);
+
+    expect(result).toEqual({ ok: true, key: expect.stringMatching(/^[a-f0-9]{32}$/) });
+    expect(stored).toMatchObject({
+      key: result.key,
+      sourceUrl: '',
+      html: '<main>defaults</main>',
+      text: '',
+      status: 'pending',
+      error: null,
+      progress: { stage: 'queued', done: 0, total: 0 },
+      sentences: [],
+      topics: [],
+      topic_summaries: {},
+      topic_summary_index: {},
+      processingLog: [],
+      selectors: [],
+      skipSummaries: false,
+    });
+    expect(stored.pipelineRunId).toEqual(expect.any(String));
+    expect(stored.pipelineRunId.length).toBeGreaterThan(0);
+    expect(stored.createdAt).toEqual(expect.any(Number));
+    expect(stored.updatedAt).toBe(stored.createdAt);
+  });
+
+  it('uses a deterministic non-UUID fallback when randomUUID is unavailable', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    const originalCrypto = globalThis.crypto;
+    vi.stubGlobal('crypto', { subtle: originalCrypto.subtle });
+    vi.spyOn(Date, 'now').mockReturnValue(36);
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+
+    const { handleSubmit } = await import('./background.js');
+    const result = await handleSubmit({ html: '<p>fallback id</p>' });
+    const stored = await readRecord(result.key);
+
+    expect(stored.pipelineRunId).toBe('10-i');
+    vi.restoreAllMocks();
+    vi.stubGlobal('crypto', originalCrypto);
+  });
+
+  it('rejects non-array and empty import payloads', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatch = await loadDispatch(chromeMock);
+
+    for (const records of [undefined, null, {}, 'records', []]) {
+      await expect(dispatch({ type: 'importRecords', records })).resolves.toEqual({
+        ok: false,
+        error: 'no records to import',
+      });
+    }
+  });
+
+  it('accepts each supported record-content shape and rejects malformed records', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatch = await loadDispatch(chromeMock);
+    const records = [
+      { key: ' html ', html: '' },
+      { key: 'text', text: '' },
+      { key: 'sentences', sentences: [] },
+      { key: 'topics', topics: [] },
+      { key: 'summaries', topic_summaries: {} },
+      null,
+      'record',
+      {},
+      { key: 123, text: 'x' },
+      { key: '   ', text: 'x' },
+      { key: 'metadata-only', sourceUrl: 'https://example.com' },
+    ];
+
+    await expect(dispatch({ type: 'importRecords', records })).resolves.toEqual({
+      ok: true,
+      count: 5,
+    });
+    expect(await readRecord('html')).toMatchObject({ key: 'html', html: '' });
+    expect(await readRecord('text')).toMatchObject({ key: 'text', text: '' });
+    expect(await readRecord('sentences')).toMatchObject({ key: 'sentences', sentences: [] });
+    expect(await readRecord('topics')).toMatchObject({ key: 'topics', topics: [] });
+    expect(await readRecord('summaries')).toMatchObject({ key: 'summaries', topic_summaries: {} });
+    expect(await readRecord('metadata-only')).toBeNull();
+  });
+
+  it('normalizes imported status, error, and progress without discarding valid progress fields', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatch = await loadDispatch(chromeMock);
+
+    await expect(
+      dispatch({
+        type: 'importRecords',
+        records: [
+          {
+            key: 'active',
+            text: 'x',
+            status: 'summarizing',
+            error: 'old failure',
+            progress: { detail: 'kept', stage: 'old', done: 9, total: 10 },
+          },
+          { key: 'failed', text: 'x', status: 'error', error: 'kept failure', progress: null },
+          { key: 'nostatus', text: 'x', status: '', error: 'discarded' },
+        ],
+      }),
+    ).resolves.toEqual({ ok: true, count: 3 });
+
+    expect(await readRecord('active')).toMatchObject({
+      status: 'done',
+      error: null,
+      progress: { detail: 'kept', stage: 'imported', done: 1, total: 1 },
+    });
+    expect(await readRecord('failed')).toMatchObject({
+      status: 'error',
+      error: 'kept failure',
+      progress: { stage: 'imported', done: 1, total: 1 },
+    });
+    expect(await readRecord('nostatus')).toMatchObject({
+      status: 'done',
+      error: null,
+      progress: { stage: 'imported', done: 1, total: 1 },
+    });
+  });
+
+  it('distinguishes every missing topics/sentences prerequisite for summary generation', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatch = await loadDispatch(chromeMock);
+    const cases = [
+      makeRecord('topics-not-array', { status: 'done', topics: null, sentences: ['x'] }),
+      makeRecord('topics-empty', { status: 'done', topics: [], sentences: ['x'] }),
+      makeRecord('sentences-not-array', {
+        status: 'done',
+        topics: [{ name: 'A' }],
+        sentences: null,
+      }),
+      makeRecord('sentences-empty', { status: 'done', topics: [{ name: 'A' }], sentences: [] }),
+    ];
+    for (const record of cases) await seedRecord(chromeMock, record);
+
+    for (const record of cases) {
+      await expect(dispatch({ type: 'generateRecordSummaries', key: record.key })).resolves.toEqual(
+        {
+          ok: false,
+          error: 'record has no topics yet — reprocess it instead',
+        },
+      );
+    }
+  });
+
+  it('returns precise results for missing and already-finished cancellation targets', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatch = await loadDispatch(chromeMock);
+    await seedRecord(chromeMock, makeRecord('already-done', { status: 'done' }));
+
+    await expect(dispatch({ type: 'cancelRecordProcessing', key: 'missing' })).resolves.toEqual({
+      ok: false,
+      error: 'record not found',
+    });
+    await expect(
+      dispatch({ type: 'cancelRecordProcessing', key: 'already-done' }),
+    ).resolves.toEqual({ ok: true, stale: true });
+    expect((await readRecord('already-done')).status).toBe('done');
   });
 });

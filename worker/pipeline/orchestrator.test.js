@@ -727,6 +727,40 @@ describe('runPipeline', () => {
     });
   });
 
+  it.each([
+    ['invalid range token', 'Tech>All: 0-1, nope', { invalidRangeTokens: 1 }],
+    ['out-of-range indices', 'Tech>All: 0-3', { outOfRange: [[0, 3]] }],
+    ['duplicate indices', 'Tech>A: 0-1\nTech>B: 1', { duplicates: ['1'] }],
+    ['reversed range', 'Tech>All: 1-0', { reversedRanges: 1 }],
+    ['ignored output line', 'Tech>All: 0-1\nunstructured commentary', { ignoredLineCount: 1 }],
+  ])('surfaces %s as a diagnostic quirk on its own', async (_label, response, expected) => {
+    getStoredVerboseLogs.mockResolvedValue(true);
+    const plainText = 'Sentence one. Sentence two.';
+    storage.readRecord.mockResolvedValue(
+      makeRecord(`key-verbose-${_label}`, '<p>Sentence one. Sentence two.</p>'),
+    );
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping: makeMapping(plainText) });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'Sentence one.', start: 0, end: 13 },
+      { text: 'Sentence two.', start: 14, end: 27 },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) return response;
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary text.';
+      return '';
+    });
+
+    await runPipeline(`key-verbose-${_label}`);
+
+    const entries = loggedEntries();
+    const diagEntry = entries.find((entry) => entry.stage === 'topic_ranges_parse_diagnostics');
+    expect(diagEntry).toBeDefined();
+    expect(diagEntry.details).toMatchObject({ scope: 'primary', attempt: 1, ...expected });
+    expect(
+      entries.find((entry) => entry.stage === 'topic_ranges_raw_response')?.details.response,
+    ).toBe(response);
+  });
+
   it('summarizes a parent topic from its own source text, not by merging child summaries', async () => {
     const plainText = 'AI chip launched. It costs $5. Robot ships Tuesday. It weighs 2kg.';
     const mapping = makeMapping(plainText);

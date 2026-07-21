@@ -16,6 +16,8 @@ import {
   _resetUpdateQueues,
 } from './storage.js';
 
+const originalCrypto = globalThis.crypto;
+
 // ---------------------------------------------------------------------------
 // Chrome mock helpers (mirrors worker/storage.test.js)
 // ---------------------------------------------------------------------------
@@ -533,6 +535,66 @@ describe('titleIsDefault behavior', () => {
 // ---------------------------------------------------------------------------
 
 describe('appendChatTurn', () => {
+  it('uses crypto.randomUUID ids when the browser provides them', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const randomUUID = vi
+      .fn()
+      .mockReturnValueOnce('turn-uuid')
+      .mockReturnValueOnce('chat-uuid')
+      .mockReturnValueOnce('message-uuid');
+    vi.stubGlobal('crypto', { randomUUID });
+
+    try {
+      const { chat, messages } = await appendChatTurn('article', null, {
+        messages: [{ role: 'user', content: 'Use UUID ids' }],
+      });
+
+      expect(chat.chatId).toBe('chat_chat-uuid');
+      expect(chat.turnIds).toEqual(['turn_turn-uuid']);
+      expect(messages[0]).toMatchObject({
+        id: 'message_message-uuid',
+        turnId: 'turn_turn-uuid',
+      });
+      expect(randomUUID).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.stubGlobal('crypto', originalCrypto);
+    }
+  });
+
+  it.each([
+    ['crypto is unavailable', undefined],
+    ['crypto.randomUUID is unavailable', {}],
+    ['crypto.randomUUID returns no id', { randomUUID: vi.fn(() => '') }],
+  ])('falls back to locally generated ids when %s', async (_label, cryptoValue) => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+
+    vi.stubGlobal('crypto', cryptoValue);
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(123456);
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+
+    try {
+      const { chat, messages } = await appendChatTurn('article', null, {
+        messages: [{ role: 'user', content: 'Use fallback ids' }],
+      });
+
+      expect(chat.chatId).toBe('chat_2n9c_i');
+      expect(chat.turnIds).toEqual(['turn_2n9c_i']);
+      expect(messages[0]).toMatchObject({
+        id: 'message_2n9c_i',
+        turnId: 'turn_2n9c_i',
+      });
+      expect(await readChat('article', chat.chatId)).toEqual(chat);
+    } finally {
+      dateNow.mockRestore();
+      random.mockRestore();
+      vi.stubGlobal('crypto', originalCrypto);
+    }
+  });
+
   it('creates the chat inline when chatId is falsy and persists the whole turn', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);

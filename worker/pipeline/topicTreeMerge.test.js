@@ -7,6 +7,19 @@ import { buildTopicTree, summarizeTopicTree } from './topicTreeMerge.js';
 const oneRun = (sentences, text) => ({ runs: [{ sentences, text }] });
 
 describe('buildTopicTree', () => {
+  it('builds a deep path from strictly shorter parent prefixes', () => {
+    const { root, nodes } = buildTopicTree([
+      { name: 'Domain>Section>Leaf', sentences: [3] },
+    ]);
+
+    expect([...nodes.keys()]).toEqual(['', 'Domain', 'Domain>Section', 'Domain>Section>Leaf']);
+    expect(root.children.map((node) => node.path)).toEqual(['Domain']);
+    expect(nodes.get('Domain').children.map((node) => node.path)).toEqual(['Domain>Section']);
+    expect(nodes.get('Domain>Section').children.map((node) => node.path)).toEqual([
+      'Domain>Section>Leaf',
+    ]);
+  });
+
   it('merges sentences from duplicate topic paths', () => {
     const { nodes } = buildTopicTree([
       { name: 'A>B', sentences: [1, 2] },

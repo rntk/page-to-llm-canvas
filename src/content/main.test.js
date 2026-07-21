@@ -235,6 +235,12 @@ describe('content script main.jsx', () => {
   });
 
   it('routes a trusted topic-sentence command into the in-page rail', async () => {
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const railErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('requestAnimationFrame', (callback) => {
+      callback(0);
+      return 1;
+    });
     const article = document.createElement('div');
     article.id = 'trusted-article';
     article.textContent = 'Alpha sentence. Beta sentence.';
@@ -283,7 +289,10 @@ describe('content script main.jsx', () => {
     expect(rail).not.toBeNull();
     expect(rail.dataset.mode).toBe('topics');
     expect(rail.querySelector('[data-level="1"]').className).toContain('active');
+    expect(railErrorSpy).not.toHaveBeenCalled();
     article.remove();
+    railErrorSpy.mockRestore();
+    vi.stubGlobal('requestAnimationFrame', originalRequestAnimationFrame);
   });
 
   it('resets block numbers and counter properly on removal', async () => {

@@ -508,24 +508,20 @@ async function refreshRecords({ showLoading = false, forceRender = false } = {})
   const requestId = ++refreshRequestId;
   if (showLoading) setLoading();
 
-  activeTab = await getActiveTab();
-  if (requestId !== refreshRequestId) return;
-
-  activePageUrl = normalizePageUrl(activeTab && activeTab.url);
-  activeHostname = hostnameFromUrl(activeTab && activeTab.url);
-  hostEl.textContent = activeHostname || 'Current page';
-  hostEl.title = activeTab && activeTab.url ? activeTab.url : '';
-
   try {
+    const nextActiveTab = await getActiveTab();
+    if (requestId !== refreshRequestId) return;
+
+    activeTab = nextActiveTab;
+    activePageUrl = normalizePageUrl(activeTab && activeTab.url);
+    activeHostname = hostnameFromUrl(activeTab && activeTab.url);
+    hostEl.textContent = activeHostname || 'Current page';
+    hostEl.title = activeTab && activeTab.url ? activeTab.url : '';
+
     const response = await runtimeMessage({ type: MSG.listRecords });
     if (requestId !== refreshRequestId) return;
 
     if (!response || !response.ok || !Array.isArray(response.items)) {
-      if (showLoading) {
-        recordsEl.replaceChildren();
-        emptyEl.hidden = true;
-        lastRenderedRecordsSignature = '';
-      }
       setError(responseErrorMessage(response, 'Unable to load saved analyses'));
       return;
     }
@@ -536,12 +532,7 @@ async function refreshRecords({ showLoading = false, forceRender = false } = {})
     applyProviderReadinessState(providerState);
   } catch (err) {
     if (requestId !== refreshRequestId) return;
-    if (showLoading) {
-      recordsEl.replaceChildren();
-      emptyEl.hidden = true;
-      lastRenderedRecordsSignature = '';
-    }
-    setError(err.message || String(err));
+    setError(err?.message || String(err));
   }
 }
 

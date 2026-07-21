@@ -769,6 +769,58 @@ describe('createLimiter', () => {
     expect(order).toEqual(['fail', 'ok']);
   });
 
+  it('releases the slot and admits the next task before settling the completed task', async () => {
+    const { createLimiter } = await getLLM();
+    const limit = createLimiter(1);
+    let releaseFirst;
+    let secondStarted = false;
+
+    const first = limit(
+      () =>
+        new Promise((resolve) => {
+          releaseFirst = resolve;
+        }),
+    );
+    const second = limit(async () => {
+      secondStarted = true;
+      return 'second';
+    });
+
+    await vi.waitFor(() => expect(releaseFirst).toBeTypeOf('function'));
+    releaseFirst('first');
+
+    await expect(first).resolves.toBe('first');
+    expect(secondStarted).toBe(true);
+    await expect(second).resolves.toBe('second');
+  });
+
+  it('releases the slot before propagating a task rejection', async () => {
+    const { createLimiter } = await getLLM();
+    const limit = createLimiter(1);
+    const failure = new Error('first failed');
+    let rejectFirst;
+    let secondStarted = false;
+
+    const first = limit(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectFirst = reject;
+        }),
+    );
+    const firstAssertion = expect(first).rejects.toBe(failure);
+    const second = limit(async () => {
+      secondStarted = true;
+      return 'second';
+    });
+
+    await vi.waitFor(() => expect(rejectFirst).toBeTypeOf('function'));
+    rejectFirst(failure);
+
+    await firstAssertion;
+    expect(secondStarted).toBe(true);
+    await expect(second).resolves.toBe('second');
+  });
+
   it('runs queued tasks in FIFO order under a limit of 1', async () => {
     const { createLimiter } = await getLLM();
     const limit = createLimiter(1);

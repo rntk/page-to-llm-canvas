@@ -66,6 +66,12 @@ describe('chat tool metrics', () => {
     expect(metrics.recent).toEqual([]);
   });
 
+  it('returns empty metrics when the Chrome storage namespace is unavailable', async () => {
+    vi.stubGlobal('chrome', { runtime: {} });
+
+    await expect(getChatToolMetrics()).resolves.toEqual(emptyChatToolMetrics());
+  });
+
   it('classifies error vs non-error outcomes', () => {
     expect(isErrorOutcome('unknown_tool')).toBe(true);
     expect(isErrorOutcome('invalid_arguments')).toBe(true);

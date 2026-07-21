@@ -36,6 +36,11 @@ describe('options main.jsx', () => {
       runtime: {
         sendMessage: sendMessageMock,
       },
+      // Keep storage itself present while leaving the optional APIs absent.
+      // Dedicated metric tests cover a wholly missing storage namespace; doing
+      // that in mounted React effects turns expected mutant failures into
+      // unhandled rejections before Stryker can attribute them to an assertion.
+      storage: {},
     });
 
     confirmMock = vi.fn(() => true);

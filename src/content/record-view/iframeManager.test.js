@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.stubGlobal('chrome', {
   runtime: {
@@ -19,6 +19,10 @@ describe('record-view iframe manager', () => {
   beforeEach(() => {
     removeCanvasIframe();
     setRailCloser(() => {});
+  });
+
+  afterEach(() => {
+    removeCanvasIframe();
   });
 
   it('opens a canvas iframe, tracks it, and encodes the key in the src', () => {

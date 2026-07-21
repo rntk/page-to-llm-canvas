@@ -9,6 +9,8 @@ const state = vi.hoisted(() => ({
   record: null,
   error: null,
   vm: {},
+  vmInput: null,
+  canvasWrapElement: null,
   childProps: {},
 }));
 
@@ -18,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   zoomToTarget: vi.fn(),
   flashFocus: vi.fn(),
   handleMouseDown: vi.fn(),
+  canvasFocus: vi.fn(),
   captureAnchor: vi.fn(),
   skipNextAlignment: vi.fn(),
   refreshSentenceRanges: vi.fn(() => ({ wordEntries: [], sentenceRanges: new Map() })),
@@ -85,7 +88,7 @@ vi.mock('./hooks/useCanvasTransform.js', () => ({
     isZoomingToTarget: false,
     canvasWrapRef: { current: null },
     canvasViewportRef: { current: null },
-    canvasWrapElRef: { current: { focus: vi.fn(), clientHeight: 500 } },
+    canvasWrapElRef: { current: state.canvasWrapElement },
     scaleRef: { current: 1 },
     translateRef: { current: { x: 3, y: 4 } },
     userMovedCanvasRef: { current: false },
@@ -113,7 +116,10 @@ vi.mock('./hooks/useSentenceHighlights.js', () => ({ useSentenceHighlights: vi.f
 vi.mock('../chat/useChatHighlights.js', () => ({ useChatHighlights: vi.fn() }));
 vi.mock('./hooks/useInitialView.js', () => ({ useInitialView: vi.fn() }));
 vi.mock('./hooks/useCanvasRecordViewModel.js', () => ({
-  useCanvasRecordViewModel: () => state.vm,
+  useCanvasRecordViewModel: (input) => {
+    state.vmInput = input;
+    return state.vm;
+  },
 }));
 vi.mock('./hooks/useCanvasTopicNavigation.js', () => ({
   useCanvasTopicNavigation: () => ({
@@ -187,6 +193,8 @@ describe('App composition behavior', () => {
     state.record = { key: 'record-1', sourceUrl: 'https://example.com', summaryErrors: [] };
     state.error = null;
     state.vm = { ...doneView };
+    state.vmInput = null;
+    state.canvasWrapElement = { focus: mocks.canvasFocus, clientHeight: 500 };
     state.childProps = {};
     vi.clearAllMocks();
     mocks.refreshSentenceRanges.mockReturnValue({ wordEntries: [], sentenceRanges: new Map() });
@@ -230,6 +238,12 @@ describe('App composition behavior', () => {
 
   it('wires the completed canvas controls and topic interactions', async () => {
     const { container, root } = await renderApp();
+    expect(state.vmInput.showSummaryModeRaw).toBe(false);
+    expect(state.childProps.controls.showSummaryMode).toBe(false);
+    expect(state.childProps.controls.showTopicHierarchy).toBe(true);
+    expect(state.childProps.controls.showChat).toBe(false);
+    expect(state.childProps.chat).toBeUndefined();
+    expect(mocks.canvasFocus).toHaveBeenCalledWith({ preventScroll: true });
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
       { type: 'ensurePipeline', key: 'record-1' },
       expect.any(Function),
@@ -247,7 +261,9 @@ describe('App composition behavior', () => {
     expect(mocks.setTransformNow).toHaveBeenNthCalledWith(3, 1, { x: 40, y: 40 });
 
     await act(async () => state.childProps.controls.onToggleSummaryMode());
+    expect(state.vmInput.showSummaryModeRaw).toBe(true);
     await act(async () => state.childProps.controls.onToggleTopicHierarchy());
+    expect(state.childProps.controls.showTopicHierarchy).toBe(false);
     await act(async () => state.childProps.controls.onLevelChange(0));
     await act(async () => state.childProps.controls.onLevelChange(1));
     expect(mocks.captureAnchor).toHaveBeenCalledWith(true);
@@ -258,9 +274,12 @@ describe('App composition behavior', () => {
     expect(mocks.toggleTopicSelection).toHaveBeenCalled();
     expect(mocks.zoomToTopic).toHaveBeenCalled();
 
+    const focusCallsBeforeMouseDown = mocks.canvasFocus.mock.calls.length;
     container
       .querySelector('.canvas-area')
       .dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(mocks.canvasFocus).toHaveBeenCalledTimes(focusCallsBeforeMouseDown + 1);
+    expect(mocks.canvasFocus).toHaveBeenLastCalledWith({ preventScroll: true });
     expect(mocks.handleMouseDown).toHaveBeenCalled();
     await act(async () => root.unmount());
   });
@@ -271,6 +290,7 @@ describe('App composition behavior', () => {
     const { root } = await renderApp();
 
     await act(async () => state.childProps.controls.onToggleChat());
+    expect(state.childProps.controls.showChat).toBe(true);
     expect(state.childProps.chat.recordKey).toBe('record-1');
     await act(async () => state.childProps.chat.onHighlight({ startLine: 1, endLine: 2 }));
     expect(mocks.zoomToTarget).not.toHaveBeenCalled();
@@ -283,6 +303,21 @@ describe('App composition behavior', () => {
     expect(state.childProps.chat).toBeDefined();
     await act(async () => root.unmount());
   });
+
+  it.each([null, { clientHeight: 500 }])(
+    'tolerates a canvas wrapper without a focus method: %s',
+    async (canvasWrapElement) => {
+      state.canvasWrapElement = canvasWrapElement;
+      const { container, root } = await renderApp();
+      expect(() =>
+        container
+          .querySelector('.canvas-area')
+          .dispatchEvent(new MouseEvent('mousedown', { bubbles: true })),
+      ).not.toThrow();
+      expect(mocks.handleMouseDown).toHaveBeenCalledOnce();
+      await act(async () => root.unmount());
+    },
+  );
 
   it('requests pipeline ownership and tolerates empty keys and failed responses', async () => {
     chrome.runtime.sendMessage.mockImplementationOnce((_message, callback) =>
