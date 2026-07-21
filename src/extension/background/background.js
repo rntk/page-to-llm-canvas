@@ -21,7 +21,10 @@ import { callLLMDirect } from '../../../worker/llm/llm.js';
 import { clearLlmMetrics, recordLlmMetric } from '../../../worker/metrics/llm.js';
 import { clearChatToolMetrics, recordChatToolMetric } from '../../../worker/metrics/chatTool.js';
 import { clearParserMetrics } from '../../../worker/metrics/parser.js';
-import { clearAllExtensionData, getStorageOverview } from '../../../worker/storage/dataManagement.js';
+import {
+  clearAllExtensionData,
+  getStorageOverview,
+} from '../../../worker/storage/dataManagement.js';
 import { getStoredSummariesDisabled } from '../../../worker/settings/summary.js';
 import {
   getProvidersState,

@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createClient, buildChatCompletionsUrl, extractLlmUsage, stripThink, parseRetryAfterMs } from './clients.js';
+import {
+  createClient,
+  buildChatCompletionsUrl,
+  extractLlmUsage,
+  stripThink,
+  parseRetryAfterMs,
+} from './clients.js';
 
 function okJson(json) {
   return { ok: true, status: 200, json: async () => json };
