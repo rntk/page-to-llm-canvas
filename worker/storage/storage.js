@@ -274,16 +274,6 @@ function createContentRevision() {
     : `rev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 }
 
-/**
- * Whether a record with this key exists in storage. Only reads the small meta
- * document, so callers do not need to reassemble the full record.
- * @param {string} key
- * @returns {Promise<boolean>}
- */
-export async function recordExists(key) {
-  return !!(await loadMetaForWrite(key));
-}
-
 function isStaleRun(meta, options) {
   return (
     hasOwn(options, 'expectedPipelineRunId') && meta.pipelineRunId !== options.expectedPipelineRunId

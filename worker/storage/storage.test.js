@@ -12,7 +12,6 @@ import {
   buildRecordSnippet,
   migrateIndexMeta,
   reconcileRecordStorage,
-  recordExists,
   INDEX_KEY,
   INDEX_SCHEMA_KEY,
   INDEX_SCHEMA_VERSION,
@@ -568,19 +567,6 @@ describe('buildRecordSnippet', () => {
   it('normalizes whitespace and returns an empty string for missing text', () => {
     expect(buildRecordSnippet({ text: '  Alpha\nBeta\tGamma  ' })).toBe('Alpha Beta Gamma');
     expect(buildRecordSnippet({})).toBe('');
-  });
-});
-
-describe('recordExists', () => {
-  it('reflects whether the meta doc is present in storage', async () => {
-    const mock = makeChromeMock();
-    vi.stubGlobal('chrome', mock);
-
-    expect(await recordExists('r1')).toBe(false);
-    await seedRecord(mock, makeRecord('r1'));
-    expect(await recordExists('r1')).toBe(true);
-    await deleteRecord('r1');
-    expect(await recordExists('r1')).toBe(false);
   });
 });
 

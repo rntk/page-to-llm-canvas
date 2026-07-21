@@ -112,13 +112,6 @@ export const HIGHLIGHT_SPAN_TOOL = Object.freeze({
   },
 });
 
-export function buildNumberedArticle(sentences) {
-  return (Array.isArray(sentences) ? sentences : [])
-    .map((sentence, index) => `${index + 1}: ${String(sentence || '').trim()}`)
-    .filter((line) => !/^\d+:\s*$/.test(line))
-    .join('\n');
-}
-
 /**
  * Split an article into bounded, sentence-aligned contexts. The text is
  * numbered before chunking: a model can therefore refer to the same global

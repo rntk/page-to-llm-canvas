@@ -13,43 +13,10 @@ import {
   getCardLabelHeight,
   getCompactCardHeight,
   getDenseCardZIndex,
-  getFiniteNumber,
   getSummaryFontSizes,
   getTitleLineBudget,
   nudgeCrowdedPair,
 } from './denseCardLayout.js';
-
-// ---------------------------------------------------------------------------
-// getFiniteNumber
-// ---------------------------------------------------------------------------
-describe('getFiniteNumber', () => {
-  it('returns the value when it is finite', () => {
-    expect(getFiniteNumber(42, 0)).toBe(42);
-    expect(getFiniteNumber(0, 99)).toBe(0);
-    expect(getFiniteNumber(-5.5, 99)).toBe(-5.5);
-  });
-
-  it('returns the fallback for NaN', () => {
-    expect(getFiniteNumber(NaN, 10)).toBe(10);
-  });
-
-  it('returns the fallback for Infinity and -Infinity', () => {
-    expect(getFiniteNumber(Infinity, 7)).toBe(7);
-    expect(getFiniteNumber(-Infinity, 7)).toBe(7);
-  });
-
-  it('returns the fallback for undefined', () => {
-    expect(getFiniteNumber(undefined, 5)).toBe(5);
-  });
-
-  it('returns the fallback for null', () => {
-    expect(getFiniteNumber(null, 3)).toBe(3);
-  });
-
-  it('returns the fallback for a string', () => {
-    expect(getFiniteNumber('abc', 1)).toBe(1);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // cardsOverlapVertically
@@ -126,6 +93,13 @@ describe('getCompactCardHeight', () => {
     const card = {};
     expect(getCompactCardHeight(card, true)).toBe(DENSE_CARD_MIN_HEIGHT);
   });
+
+  it.each([Infinity, -Infinity, null, '80'])(
+    'falls back to DENSE_CARD_MIN_HEIGHT for non-finite height %p',
+    (height) => {
+      expect(getCompactCardHeight({ height }, true)).toBe(DENSE_CARD_MIN_HEIGHT);
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -179,6 +153,13 @@ describe('getAdjustedTitleFontSize', () => {
     const result = getAdjustedTitleFontSize(card, 200);
     expect(result).toBe(12);
   });
+
+  it.each([Infinity, -Infinity, null, '12'])(
+    'falls back to 12 for non-finite titleFontSize %p',
+    (titleFontSize) => {
+      expect(getAdjustedTitleFontSize({ titleFontSize }, 200)).toBe(12);
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------

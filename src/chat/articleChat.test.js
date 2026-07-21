@@ -1,16 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  buildNumberedArticle,
-  chunkNumberedArticle,
-  rangesOverlap,
-  runArticleChatTurn,
-} from './articleChat.js';
+import { chunkNumberedArticle, rangesOverlap, runArticleChatTurn } from './articleChat.js';
 
 describe('article chat tool loop', () => {
-  it('numbers article sentences', () => {
-    expect(buildNumberedArticle(['First.', 'Second.'])).toBe('1: First.\n2: Second.');
-  });
-
   it('chunks at sentence boundaries while preserving global line numbers', () => {
     expect(chunkNumberedArticle(['First.', '', 'Second.', 'A very long sentence.'], 19)).toEqual([
       { startLine: 1, endLine: 1, text: '1: First.' },

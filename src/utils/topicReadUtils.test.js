@@ -1,24 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toReadTopicsSet, isTopicRead } from './topicReadUtils.js';
-
-describe('toReadTopicsSet', () => {
-  it('returns a Set as-is', () => {
-    const set = new Set(['a', 'b']);
-    expect(toReadTopicsSet(set)).toBe(set);
-  });
-
-  it('returns an empty Set for null', () => {
-    expect(toReadTopicsSet(null)).toEqual(new Set());
-  });
-
-  it('returns an empty Set for undefined', () => {
-    expect(toReadTopicsSet(undefined)).toEqual(new Set());
-  });
-
-  it('converts an array to a Set', () => {
-    expect(toReadTopicsSet(['x', 'y'])).toEqual(new Set(['x', 'y']));
-  });
-});
+import { isTopicRead } from './topicReadUtils.js';
 
 describe('isTopicRead', () => {
   it('returns false for empty topic name', () => {

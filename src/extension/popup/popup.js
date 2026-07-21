@@ -388,10 +388,6 @@ export function buildRecordDisplayData(records) {
   };
 }
 
-export function recordDisplaySignature(records) {
-  return JSON.stringify(buildRecordDisplayData(records));
-}
-
 function renderRecords(records, { force = false } = {}) {
   const data = buildRecordDisplayData(records);
   const signature = JSON.stringify(data);

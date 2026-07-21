@@ -30,7 +30,7 @@ export const SUMMARY_YOUTUBE_FONT_SIZE = 11;
  * @param {number} fallback
  * @returns {number}
  */
-export function getFiniteNumber(value, fallback) {
+function getFiniteNumber(value, fallback) {
   return Number.isFinite(value) ? value : fallback;
 }
 

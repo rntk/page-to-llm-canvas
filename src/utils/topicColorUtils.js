@@ -57,8 +57,3 @@ export function getHierarchyTopicHighlightColorDark(topicName, depth) {
   const lightness = Math.min(30, 19 + d * 3);
   return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 }
-
-export function getTopicAccentColor(topicName) {
-  const hue = hashString(topicName) % 360;
-  return `hsl(${hue}, 42%, 46%)`;
-}

@@ -3,7 +3,6 @@ import {
   getHierarchyTopicAccentColor,
   getHierarchyTopicHighlightColor,
   getHierarchyTopicHighlightColorDark,
-  getTopicAccentColor,
 } from './topicColorUtils.js';
 
 describe('getHierarchyTopicAccentColor', () => {
@@ -97,22 +96,5 @@ describe('getHierarchyTopicHighlightColorDark', () => {
 
   it('handles null topic name', () => {
     expect(getHierarchyTopicHighlightColorDark(null)).toMatch(/^hsl\(\d+, \d+%, \d+%\)$/);
-  });
-});
-
-describe('getTopicAccentColor', () => {
-  it('returns an hsl() color string', () => {
-    const result = getTopicAccentColor('Tech');
-    expect(result).toMatch(/^hsl\(\d+, 42%, 46%\)$/);
-  });
-
-  it('returns different hues for different topic names', () => {
-    const a = getTopicAccentColor('Alpha');
-    const b = getTopicAccentColor('Beta');
-    expect(a).not.toBe(b);
-  });
-
-  it('returns the same color for the same input', () => {
-    expect(getTopicAccentColor('Tech')).toBe(getTopicAccentColor('Tech'));
   });
 });

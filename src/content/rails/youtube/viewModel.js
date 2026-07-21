@@ -22,24 +22,10 @@ export function normalizeYouTubeRailCards(cards) {
     .filter((card) => card && card.id && Number.isFinite(card.seconds));
 }
 
-export function getYouTubeRailCardSeconds(cards) {
-  return normalizeYouTubeRailCards(cards).map((card) => card.seconds);
-}
-
-export function getYouTubeRailActiveCardId(cards, currentTime) {
-  const normalizedCards = normalizeYouTubeRailCards(cards);
-  return getYouTubeRailActiveCardIdFromNormalized(normalizedCards, currentTime);
-}
-
 export function getYouTubeRailActiveCardIdFromNormalized(normalizedCards, currentTime) {
   const starts = normalizedCards.map((card) => card.seconds);
   const index = findActiveCardIndex(starts, currentTime);
   return index >= 0 ? (normalizedCards[index]?.id ?? null) : null;
-}
-
-export function getYouTubeRailNextActiveId(cards, currentTime, previousActiveId) {
-  const nextActiveId = getYouTubeRailActiveCardId(cards, currentTime);
-  return nextActiveId === previousActiveId ? previousActiveId : nextActiveId;
 }
 
 export function getYouTubeRailNextActiveIdFromNormalized(
