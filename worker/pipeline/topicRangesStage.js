@@ -13,6 +13,7 @@ const TOPIC_RANGE_TEMPERATURE = 0.2;
 const TOPIC_RANGE_MAX_RETRIES = 3;
 const TOPIC_RANGE_RETRY_BASE_DELAY_MS = 2000;
 const TOPIC_RANGE_MAX_SENTENCES = 40;
+const TOPIC_RANGE_INPUT_MAX_SENTENCES = 240;
 const TOPIC_RANGE_RESPLIT_MAX_DEPTH = 2;
 
 // Verbose diagnostics payloads are capped independently of the (already
@@ -122,6 +123,44 @@ export function chunkTaggedText(tagged, maxChars) {
   return chunks;
 }
 
+/**
+ * Build independently parseable topic-range inputs. Marker IDs intentionally
+ * restart at zero in each chunk so the parser can validate and repair coverage
+ * against that chunk alone. `start` maps the local IDs back to the article.
+ */
+export function chunkTopicRangeSentences(
+  sentences,
+  maxChars = MAX_TAGGED_CHARS,
+  maxSentences = TOPIC_RANGE_INPUT_MAX_SENTENCES,
+) {
+  if (!Array.isArray(sentences) || sentences.length === 0) return [];
+  if (!Number.isFinite(maxChars) || maxChars <= 0) throw new Error('maxChars must be positive');
+  if (!Number.isInteger(maxSentences) || maxSentences <= 0) {
+    throw new Error('maxSentences must be a positive integer');
+  }
+
+  const chunks = [];
+  let start = 0;
+  while (start < sentences.length) {
+    const lines = [];
+    let length = 0;
+    while (start + lines.length < sentences.length && lines.length < maxSentences) {
+      const value = sentences[start + lines.length];
+      const sentence = typeof value === 'string' ? value : value?.text;
+      const line = `{${lines.length}} ${sentence ?? ''}`;
+      const addedLength = line.length + (lines.length > 0 ? 1 : 0);
+      if (lines.length > 0 && length + addedLength > maxChars) break;
+      lines.push(line);
+      length += addedLength;
+    }
+
+    const sentenceCount = lines.length;
+    chunks.push({ start, sentenceCount, tagged: lines.join('\n') });
+    start += sentenceCount;
+  }
+  return chunks;
+}
+
 export function rangesToSentenceList(ranges) {
   // Ranges are 0-based inclusive; output a 1-based ordered unique list.
   const set = new Set();
@@ -167,10 +206,17 @@ export function groupsToTopics(groups, sentenceObjs, mapping) {
 
 /**
  * Re-query the LLM to subdivide one oversized sentence range. This is
- * best-effort: a failed or ineffective re-split returns null so its caller can
- * retain the original range.
+ * best-effort: a failed re-split returns null so its caller can retain the
+ * original range; an ineffective large re-split falls back to bounded windows.
  */
-async function resplitSegment(runtime, segment, sentenceTexts, depth, callLLMWithRetry) {
+async function resplitSegment(
+  runtime,
+  segment,
+  sentenceTexts,
+  depth,
+  callLLMWithRetry,
+  { acceptSingle = false } = {},
+) {
   const span = segment.end - segment.start + 1;
   const sliceTexts = sentenceTexts.slice(segment.start, segment.end + 1);
   const tagged = buildTaggedText(sliceTexts);
@@ -295,6 +341,8 @@ async function resplitSegment(runtime, segment, sentenceTexts, depth, callLLMWit
   subSegments.sort((a, b) => a.start - b.start);
 
   if (subSegments.length <= 1) {
+    if (acceptSingle && subSegments.length === 1) return subSegments;
+
     await runtime.log(
       'topic_ranges_resplit_no_progress',
       {
@@ -305,6 +353,34 @@ async function resplitSegment(runtime, segment, sentenceTexts, depth, callLLMWit
       },
       { verbose: true },
     );
+
+    // A single label over a large slice is often a marker-grounding failure.
+    // Re-query deterministic small windows: even a single-topic answer is
+    // useful there because its label is grounded in at most 40 sentences.
+    if (span > TOPIC_RANGE_MAX_SENTENCES) {
+      const windows = [];
+      for (let start = segment.start; start <= segment.end; start += TOPIC_RANGE_MAX_SENTENCES) {
+        windows.push({
+          label: segment.label,
+          start,
+          end: Math.min(segment.end, start + TOPIC_RANGE_MAX_SENTENCES - 1),
+        });
+      }
+      await runtime.log(
+        'topic_ranges_resplit_window_fallback',
+        { start: segment.start, end: segment.end, span, depth, windowCount: windows.length },
+        { verbose: true },
+      );
+      const windowResults = await parallelMap(
+        windows,
+        TOPIC_RANGE_CONCURRENCY,
+        async (window) =>
+          (await resplitSegment(runtime, window, sentenceTexts, depth + 1, callLLMWithRetry, {
+            acceptSingle: true,
+          })) || [window],
+      );
+      return windowResults.flat();
+    }
     return null;
   }
 
@@ -453,83 +529,105 @@ export async function computeTopics(runtime, record, callLLMWithRetry) {
     return { topics: null, sentenceTexts };
   }
 
-  const tagged = buildTaggedText(sentenceTexts);
-  const chunks =
-    tagged.length > MAX_TAGGED_CHARS ? chunkTaggedText(tagged, MAX_TAGGED_CHARS) : [tagged];
+  const chunks = chunkTopicRangeSentences(sentenceTexts);
   await runtime.log(
     'topic_ranges_start',
-    { taggedLength: tagged.length, chunkCount: chunks.length },
+    {
+      taggedLength: chunks.reduce((sum, chunk) => sum + chunk.tagged.length, 0),
+      chunkCount: chunks.length,
+      maxSentencesPerChunk: TOPIC_RANGE_INPUT_MAX_SENTENCES,
+    },
     { verbose: true },
   );
 
   let parseAttempt = 1;
+  const failedChunkIndexes = new Set();
   let groups = await queryTopicRangesWithRetry({
     maxRetries: TOPIC_RANGE_MAX_RETRIES,
     baseDelayMs: TOPIC_RANGE_RETRY_BASE_DELAY_MS,
     isRetryable: (error) => error instanceof TopicParseError,
     callLLM: async (attemptIndex) => {
       parseAttempt = attemptIndex + 1;
-      const responses = await parallelMap(
-        chunks,
-        TOPIC_RANGE_CONCURRENCY,
-        async (chunk, chunkIndex) => {
-          const prompt = buildTopicRangesPrompt(chunk, {
-            preferContentLanguage: runtime.preferContentLanguage,
-          });
-          await runtime.log(
-            'topic_ranges_llm_request',
-            { chunkIndex, promptLength: prompt.length, attempt: attemptIndex + 1 },
-            { verbose: true },
-          );
-          const response = await callLLMWithRetry({
-            prompt,
-            temperature: TOPIC_RANGE_TEMPERATURE,
-            signal: runtime.signal,
-            taskType: LLM_TASK_TYPES.TOPIC_RANGES,
-          });
-          await runtime.log(
-            'topic_ranges_llm_response',
-            { chunkIndex, responseLength: response.length, attempt: attemptIndex + 1 },
-            { verbose: true },
-          );
-          return response;
-        },
-      );
-      return responses.join('\n');
-    },
-    parse: async (combined) => {
-      try {
-        const parsed = parseTopicRangesDetailed(combined, sentenceTexts.length);
-        await recordParserMetric({
-          ok: true,
-          scope: 'primary',
-          attempt: parseAttempt,
-          recoveredAfterRetry: parseAttempt > 1,
-          diagnostics: parsed.diagnostics,
+      return parallelMap(chunks, TOPIC_RANGE_CONCURRENCY, async (chunk, chunkIndex) => {
+        const prompt = buildTopicRangesPrompt(chunk.tagged, {
+          preferContentLanguage: runtime.preferContentLanguage,
         });
-        if (hasDiagnosticQuirks(parsed.diagnostics)) {
-          await runtime.log(
-            'topic_ranges_parse_diagnostics',
-            {
-              scope: 'primary',
-              attempt: parseAttempt,
-              ...buildParseDiagnosticsLogDetails(parsed.diagnostics),
-            },
-            { verbose: true },
-          );
-          await runtime.log(
-            'topic_ranges_raw_response',
-            {
-              scope: 'primary',
-              attempt: parseAttempt,
-              ...buildRawResponseLogDetails(combined),
-            },
-            { verbose: true },
-          );
+        await runtime.log(
+          'topic_ranges_llm_request',
+          { chunkIndex, promptLength: prompt.length, attempt: attemptIndex + 1 },
+          { verbose: true },
+        );
+        const response = await callLLMWithRetry({
+          prompt,
+          temperature: TOPIC_RANGE_TEMPERATURE,
+          signal: runtime.signal,
+          taskType: LLM_TASK_TYPES.TOPIC_RANGES,
+        });
+        await runtime.log(
+          'topic_ranges_llm_response',
+          { chunkIndex, responseLength: response.length, attempt: attemptIndex + 1 },
+          { verbose: true },
+        );
+        return { chunk, chunkIndex, response };
+      });
+    },
+    parse: async (responses) => {
+      let activeResponse = null;
+      try {
+        const segments = [];
+        const successfulMetricSamples = [];
+        for (const { chunk, chunkIndex, response } of responses) {
+          activeResponse = { chunk, chunkIndex, response };
+          const parsed = parseTopicRangesDetailed(response, chunk.sentenceCount);
+          successfulMetricSamples.push({
+            ok: true,
+            scope: 'primary',
+            attempt: parseAttempt,
+            recoveredAfterRetry: failedChunkIndexes.has(chunkIndex),
+            diagnostics: parsed.diagnostics,
+          });
+          if (hasDiagnosticQuirks(parsed.diagnostics)) {
+            await runtime.log(
+              'topic_ranges_parse_diagnostics',
+              {
+                scope: 'primary',
+                attempt: parseAttempt,
+                chunkIndex,
+                sentenceStart: chunk.start,
+                ...buildParseDiagnosticsLogDetails(parsed.diagnostics),
+              },
+              { verbose: true },
+            );
+            await runtime.log(
+              'topic_ranges_raw_response',
+              {
+                scope: 'primary',
+                attempt: parseAttempt,
+                chunkIndex,
+                sentenceStart: chunk.start,
+                ...buildRawResponseLogDetails(response),
+              },
+              { verbose: true },
+            );
+          }
+          for (const group of parsed.groups) {
+            for (const range of group.ranges) {
+              segments.push({
+                label: group.label,
+                start: range.start + chunk.start,
+                end: range.end + chunk.start,
+              });
+            }
+          }
         }
-        return parsed.groups;
+        const parsedGroups = groupsFromSegments(segments, sentenceTexts.length);
+        for (const sample of successfulMetricSamples) await recordParserMetric(sample);
+        return parsedGroups;
       } catch (error) {
-        const diagnostics = { ...error?.diagnostics, sentenceCount: sentenceTexts.length };
+        const diagnostics = error?.diagnostics || {};
+        if (error instanceof TopicParseError && activeResponse) {
+          failedChunkIndexes.add(activeResponse.chunkIndex);
+        }
         await recordParserMetric({
           ok: false,
           scope: 'primary',
@@ -543,6 +641,8 @@ export async function computeTopics(runtime, record, callLLMWithRetry) {
             {
               scope: 'primary',
               attempt: parseAttempt,
+              chunkIndex: activeResponse?.chunkIndex,
+              sentenceStart: activeResponse?.chunk.start,
               ...buildParseDiagnosticsLogDetails(diagnostics),
             },
             { verbose: true },
@@ -552,7 +652,9 @@ export async function computeTopics(runtime, record, callLLMWithRetry) {
             {
               scope: 'primary',
               attempt: parseAttempt,
-              ...buildRawResponseLogDetails(combined),
+              chunkIndex: activeResponse?.chunkIndex,
+              sentenceStart: activeResponse?.chunk.start,
+              ...buildRawResponseLogDetails(activeResponse?.response),
             },
             { verbose: true },
           );

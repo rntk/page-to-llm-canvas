@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { runPipeline } from './orchestrator.js';
 import {
   chunkTaggedText,
+  chunkTopicRangeSentences,
   groupsToTopics,
   rangesToSentenceList,
   mapTextOffsetToHtml,
@@ -13,6 +14,7 @@ import * as storage from '../storage/storage.js';
 import * as html from './html.js';
 import * as sentenceSplitter from './sentenceSplitter.js';
 import * as llm from '../llm/llm.js';
+import * as parserMetrics from '../metrics/parser.js';
 import { getStoredVerboseLogs } from '../settings/verboseLog.js';
 import { getStoredMaxParallelLlmRequests } from '../settings/llmConcurrency.js';
 
@@ -50,6 +52,10 @@ vi.mock('../llm/llm.js', () => ({
     }
     return results;
   }),
+}));
+
+vi.mock('../metrics/parser.js', () => ({
+  recordParserMetric: vi.fn(async () => undefined),
 }));
 
 vi.mock('../settings/verboseLog.js', () => ({
@@ -158,6 +164,23 @@ describe('chunkTaggedText', () => {
     const tagged = 'verylonglinewithoutnewlines';
     const result = chunkTaggedText(tagged, 10);
     expect(result).toEqual([tagged]);
+  });
+});
+
+describe('chunkTopicRangeSentences', () => {
+  it('restarts local markers and preserves each global start offset', () => {
+    const chunks = chunkTopicRangeSentences(['A', 'B', 'C', 'D', 'E'], 100, 2);
+    expect(chunks).toEqual([
+      { start: 0, sentenceCount: 2, tagged: '{0} A\n{1} B' },
+      { start: 2, sentenceCount: 2, tagged: '{0} C\n{1} D' },
+      { start: 4, sentenceCount: 1, tagged: '{0} E' },
+    ]);
+  });
+
+  it('also bounds chunks by characters without dropping an oversized sentence', () => {
+    const chunks = chunkTopicRangeSentences(['12345', '67890', 'x'.repeat(30)], 15, 10);
+    expect(chunks.map((chunk) => chunk.sentenceCount)).toEqual([1, 1, 1]);
+    expect(chunks.map((chunk) => chunk.start)).toEqual([0, 1, 2]);
   });
 });
 
@@ -805,7 +828,7 @@ describe('runPipeline', () => {
     expect(doneCall[1].topic_summary_index['Tech>All'].runs[0].text).toBe(plainText);
   });
 
-  it('chunks tagged text when it exceeds MAX_TAGGED_CHARS', async () => {
+  it('chunks primary topic input into bounded sentence windows', async () => {
     const htmlText = '<p>x</p>';
     const plainText = 'x'.repeat(30000);
     const mapping = makeMapping(plainText);
@@ -824,7 +847,13 @@ describe('runPipeline', () => {
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) {
         chunkCount++;
-        return `Tech>All: 0-${sentences.length - 1}`;
+        const markerIds = [...prompt.matchAll(/^\{(\d+)\}/gm)].map((match) => Number(match[1]));
+        const last = Math.max(...markerIds);
+        const ranges = [];
+        for (let start = 0; start <= last; start += 40) {
+          ranges.push(`Tech>Chunk ${chunkCount}-${start}: ${start}-${Math.min(last, start + 39)}`);
+        }
+        return ranges.join('\n');
       }
       if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
       return '';
@@ -837,6 +866,88 @@ describe('runPipeline', () => {
       expect.objectContaining({ status: 'done' }),
       expect.anything(),
     );
+  });
+
+  it('parses each primary chunk locally and restores global sentence offsets', async () => {
+    const n = 245;
+    const plainText = Array.from({ length: n }, (_, i) => `S${i}.`).join(' ');
+    storage.readRecord.mockResolvedValue(makeRecord('key-local-chunks', `<p>${plainText}</p>`));
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping: makeMapping(plainText) });
+    sentenceSplitter.splitSentences.mockReturnValue(
+      Array.from({ length: n }, (_, i) => ({ text: `S${i}.`, start: i * 5, end: i * 5 + 3 })),
+    );
+
+    let partitionCalls = 0;
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) {
+        partitionCalls++;
+        if (prompt.includes('{239}')) {
+          return [
+            'Tech>Part 1: 0-39',
+            'Tech>Part 2: 40-79',
+            'Tech>Part 3: 80-119',
+            'Tech>Part 4: 120-159',
+            'Tech>Part 5: 160-199',
+            'Tech>Part 6: 200-239',
+          ].join('\n');
+        }
+        return 'Tech>Last: 0-4';
+      }
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
+      return '';
+    });
+
+    await runPipeline('key-local-chunks');
+
+    expect(partitionCalls).toBe(2);
+    const topicCall = storage.updateRecord.mock.calls.find(
+      (call) => call[1].topics && call[1].status === 'summarizing',
+    );
+    expect(topicCall[1].topics.map((topic) => topic.name)).toEqual([
+      'Tech>Part 1',
+      'Tech>Part 2',
+      'Tech>Part 3',
+      'Tech>Part 4',
+      'Tech>Part 5',
+      'Tech>Part 6',
+      'Tech>Last',
+    ]);
+    expect(topicCall[1].topics[6].sentences).toEqual([241, 242, 243, 244, 245]);
+  });
+
+  it('records successful chunk metrics only after the full parse attempt succeeds', async () => {
+    const n = 241;
+    const plainText = Array.from({ length: n }, (_, i) => `S${i}.`).join(' ');
+    storage.readRecord.mockResolvedValue(makeRecord('key-metric-retry', `<p>${plainText}</p>`));
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping: makeMapping(plainText) });
+    sentenceSplitter.splitSentences.mockReturnValue(
+      Array.from({ length: n }, (_, i) => ({ text: `S${i}.`, start: i * 5, end: i * 5 + 3 })),
+    );
+
+    let shortChunkCalls = 0;
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) {
+        if (prompt.includes('{239}')) {
+          return Array.from({ length: 6 }, (_, i) => {
+            const start = i * 40;
+            return `Tech>Part ${i + 1}: ${start}-${start + 39}`;
+          }).join('\n');
+        }
+        shortChunkCalls++;
+        return shortChunkCalls === 1 ? 'not parseable' : 'Tech>Last: 0';
+      }
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
+      return '';
+    });
+
+    await runPipeline('key-metric-retry');
+
+    const primarySamples = parserMetrics.recordParserMetric.mock.calls
+      .map(([sample]) => sample)
+      .filter((sample) => sample.scope === 'primary');
+    expect(primarySamples.map((sample) => sample.ok)).toEqual([false, true, true]);
+    expect(primarySamples.filter((sample) => sample.recoveredAfterRetry)).toHaveLength(1);
+    expect(primarySamples.at(-1).recoveredAfterRetry).toBe(true);
   });
 
   it('re-splits an oversized topic range via additional LLM calls', async () => {
@@ -877,9 +988,9 @@ describe('runPipeline', () => {
     expect(topicCall[1].topics[1].sentences).toEqual(Array.from({ length: 30 }, (_, i) => i + 31));
   });
 
-  it('keeps the original range when a re-split makes no progress', async () => {
-    // The re-split call insists the slice is still a single topic, so the
-    // oversized range is left intact rather than looping.
+  it('falls back to bounded windows when a re-split makes no progress', async () => {
+    // The first re-split insists the slice is still a single topic. The stage
+    // then queries two <=40-sentence windows before accepting that answer.
     const n = 60;
     const plainText = Array.from({ length: n }, (_, i) => `S${i}.`).join(' ');
     const mapping = makeMapping(plainText);
@@ -901,8 +1012,8 @@ describe('runPipeline', () => {
 
     await runPipeline('keyBig2');
 
-    // One re-split was attempted (no progress), then we stopped — no loop.
-    expect(partitionCalls).toBe(2);
+    // Primary partition + failed whole-range re-split + two bounded windows.
+    expect(partitionCalls).toBe(4);
     const topicCall = storage.updateRecord.mock.calls.find(
       (call) => call[1].topics && call[1].status === 'summarizing',
     );

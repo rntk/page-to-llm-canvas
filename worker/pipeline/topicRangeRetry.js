@@ -2,7 +2,7 @@
 //
 // Both the primary topic-ranges query (computeTopics) and the oversized-range
 // re-split (resplitSegment) follow the same shape: dispatch one or more LLM
-// calls for an attempt, concatenate the responses, parse them, and on a parse
+// calls for an attempt, collect the raw result, parse it, and on a parse
 // error either retry (with exponential backoff) or give up. The two call sites
 // differ only in their side effects (which logPipeline stages / updateRecord
 // patches they emit) and in how they treat exhaustion (rethrow vs. return),
@@ -36,10 +36,10 @@ export function computeBackoffDelay(attemptIndex, baseDelayMs = DEFAULT_RETRY_BA
  * runs after a retryable parse error, before the backoff sleep. Both are
  * awaited so callers can perform async side effects (logging) in order.
  *
- * @template T
+ * @template Raw, T
  * @param {object} opts
- * @param {(attemptIndex: number) => Promise<string>} opts.callLLM
- * @param {(raw: string) => (T | Promise<T>)} opts.parse
+ * @param {(attemptIndex: number) => Promise<Raw>} opts.callLLM
+ * @param {(raw: Raw) => (T | Promise<T>)} opts.parse
  * @param {number} [opts.maxRetries]              total retries after attempt 0
  * @param {number} [opts.baseDelayMs]
  * @param {(err: unknown) => boolean} [opts.isRetryable]
