@@ -11,6 +11,7 @@ export {
   ContentLanguageSection,
   HighlightColorSection,
   LlmConcurrencySection,
+  LlmRequestTimeoutSection,
   SummaryGenerationSection,
   ThemeToggle,
   VerboseLogsSection,

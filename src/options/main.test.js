@@ -1,5 +1,10 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
+import {
+  DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS,
+  MAX_LLM_REQUEST_TIMEOUT_SECONDS,
+  MIN_LLM_REQUEST_TIMEOUT_SECONDS,
+} from '../../worker/settings/llmTimeout.js';
 
 async function waitFor(assertion, timeout = 1000) {
   const start = Date.now();
@@ -77,6 +82,10 @@ describe('options main.jsx', () => {
     expect(tabs[0].getAttribute('aria-selected')).toBe('true');
     expect(generalPanel.hidden).toBe(false);
     expect(recordsPanel.hidden).toBe(true);
+    const requestTimeoutInput = document.getElementById('llm-request-timeout-seconds');
+    expect(requestTimeoutInput.value).toBe(String(DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS));
+    expect(requestTimeoutInput.min).toBe(String(MIN_LLM_REQUEST_TIMEOUT_SECONDS));
+    expect(requestTimeoutInput.max).toBe(String(MAX_LLM_REQUEST_TIMEOUT_SECONDS));
 
     tabs[2].click();
     await waitFor(() => {

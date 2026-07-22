@@ -18,6 +18,9 @@
 //   complete({ prompt, temperature?, signal?, verboseLogs? }) ->
 //     Promise<{ content, endpoint, model, provider, usage? }>
 // and throws an Error (message reused verbatim in callLLMDirect) on failure.
+// The entrypoint supplies `signal` with both caller cancellation and the
+// user-configured request timeout already combined, so every provider fetch
+// observes the same timeout policy.
 // Raw prompt/request/response dumps and cache-usage stats only log when
 // `verboseLogs` is true (set from the options "verbose pipeline logs" toggle).
 

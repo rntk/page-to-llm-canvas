@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS } from '../settings/llmTimeout.js';
 
 const OPENAI_COMP_PROVIDER = {
   id: 'p1',
@@ -11,7 +12,7 @@ const OPENAI_COMP_PROVIDER = {
 
 const EXPECTED_ENDPOINT = 'http://192.168.0.147:8989/v1/chat/completions';
 
-function stubChrome(state, { verboseLogs = false } = {}) {
+function stubChrome(state, { verboseLogs = false, requestTimeoutSeconds } = {}) {
   vi.stubGlobal('chrome', {
     runtime: { lastError: undefined },
     storage: {
@@ -19,6 +20,9 @@ function stubChrome(state, { verboseLogs = false } = {}) {
         get: (keys, cb) => {
           const items = { 'pagetollm:llm:providers': state };
           if (verboseLogs) items['pagetollm-verbose-logs'] = true;
+          if (requestTimeoutSeconds !== undefined) {
+            items['pagetollm-llm-request-timeout-seconds'] = requestTimeoutSeconds;
+          }
           cb(items);
         },
       },
@@ -274,6 +278,21 @@ describe('callLLMDirect', () => {
     const res = await callLLMDirect({ prompt: 'hello' });
     expect(res.ok).toBe(false);
     expect(res.error).toContain('timed out');
+  });
+
+  it('uses the configured request timeout', async () => {
+    stubActiveProvider(OPENAI_COMP_PROVIDER, { requestTimeoutSeconds: 600 });
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    const { callLLMDirect } = await getLLM();
+    vi.mocked(fetch).mockRejectedValue({
+      name: 'AbortError',
+      message: 'The operation was aborted.',
+    });
+
+    const res = await callLLMDirect({ prompt: 'hello' });
+
+    expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 600_000);
+    expect(res.error).toBe('LLM request timed out after 600000ms');
   });
 
   it('throws AbortError when the caller signal aborts an in-flight request', async () => {
@@ -598,7 +617,7 @@ describe('callLLMWithRetry', () => {
       fn();
       return 0;
     });
-    const { callLLMWithRetry, LLM_REQUEST_TIMEOUT_MS } = await getLLM();
+    const { callLLMWithRetry } = await getLLM();
     vi.mocked(fetch)
       .mockResolvedValueOnce({
         ok: false,
@@ -614,10 +633,11 @@ describe('callLLMWithRetry', () => {
 
     const content = await callLLMWithRetry({ prompt: 'hello' }, 3);
     expect(content).toBe('Success');
-    // The 120000ms request-timeout signal also schedules a setTimeout; filter
-    // it out to isolate the retry backoff delay, which should be the
-    // Retry-After value (2000ms) since it exceeds the attempt-0 jitter range.
-    const backoffDelays = setTimeoutDelays.filter((ms) => ms !== LLM_REQUEST_TIMEOUT_MS);
+    // Each request-timeout signal also schedules a setTimeout; filter the
+    // default-derived delay out to isolate the retry backoff, which should be
+    // the Retry-After value (2000ms) since it exceeds the attempt-0 jitter range.
+    const defaultRequestTimeoutMs = DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS * 1000;
+    const backoffDelays = setTimeoutDelays.filter((ms) => ms !== defaultRequestTimeoutMs);
     expect(backoffDelays).toEqual([2000]);
   });
 
@@ -1087,13 +1107,5 @@ describe('sleepWithAbort', () => {
     controller.abort();
     await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
     vi.useRealTimers();
-  });
-});
-
-describe('exports', () => {
-  it('exports a positive LLM_REQUEST_TIMEOUT_MS number', async () => {
-    const { LLM_REQUEST_TIMEOUT_MS } = await getLLM();
-    expect(typeof LLM_REQUEST_TIMEOUT_MS).toBe('number');
-    expect(LLM_REQUEST_TIMEOUT_MS).toBeGreaterThan(0);
   });
 });

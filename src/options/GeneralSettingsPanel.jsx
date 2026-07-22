@@ -44,6 +44,15 @@ import {
   setStoredMaxParallelLlmRequests,
   normalizeMaxParallelLlmRequests,
 } from '../../worker/settings/llmConcurrency.js';
+import {
+  LLM_REQUEST_TIMEOUT_SECONDS_KEY,
+  DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS,
+  MIN_LLM_REQUEST_TIMEOUT_SECONDS,
+  MAX_LLM_REQUEST_TIMEOUT_SECONDS,
+  getStoredLlmRequestTimeoutSeconds,
+  setStoredLlmRequestTimeoutSeconds,
+  normalizeLlmRequestTimeoutSeconds,
+} from '../../worker/settings/llmTimeout.js';
 
 export function ThemeToggle() {
   const [controller] = useState(() => createThemeController());
@@ -295,6 +304,40 @@ export function LlmConcurrencySection() {
   );
 }
 
+export function LlmRequestTimeoutSection() {
+  const [requestTimeoutSeconds, setRequestTimeoutSeconds] = useStoredPreference({
+    storageKey: LLM_REQUEST_TIMEOUT_SECONDS_KEY,
+    defaultValue: DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS,
+    readPreference: getStoredLlmRequestTimeoutSeconds,
+    writePreference: setStoredLlmRequestTimeoutSeconds,
+    normalize: normalizeLlmRequestTimeoutSeconds,
+  });
+
+  return (
+    <div className="settings-group">
+      <h3>LLM request timeout</h3>
+      <div className="field">
+        <label htmlFor="llm-request-timeout-seconds">Timeout (seconds)</label>
+        <div>
+          <input
+            id="llm-request-timeout-seconds"
+            type="number"
+            min={MIN_LLM_REQUEST_TIMEOUT_SECONDS}
+            max={MAX_LLM_REQUEST_TIMEOUT_SECONDS}
+            step="1"
+            value={requestTimeoutSeconds}
+            onChange={(event) => setRequestTimeoutSeconds(event.target.value)}
+          />
+        </div>
+        <div className="note">
+          Maximum time allowed for each LLM request. The default is 120 seconds. Changes apply to
+          new requests and retry attempts.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function VerboseLogsSection() {
   const [verboseLogs, setVerboseLogs] = useStoredPreference({
     storageKey: VERBOSE_LOGS_KEY,
@@ -344,6 +387,7 @@ export function GeneralSettingsPanel() {
         <ContentLanguageSection />
         <SummaryGenerationSection />
         <LlmConcurrencySection />
+        <LlmRequestTimeoutSection />
         <VerboseLogsSection />
         <HighlightColorSection />
       </div>

@@ -1,10 +1,10 @@
 // LLM client entrypoint for the PageToLLM Canvas pipeline.
 // Runs in the service worker context; dispatches to the active provider's client.
 
-export const LLM_REQUEST_TIMEOUT_MS = 120_000;
 import { getActiveProvider } from './providers.js';
 import { createClient } from './clients.js';
 import { getStoredVerboseLogs } from '../settings/verboseLog.js';
+import { getStoredLlmRequestTimeoutSeconds } from '../settings/llmTimeout.js';
 
 /**
  * Makes a single completion call to the active provider.
@@ -62,10 +62,15 @@ export async function callLLMDirect(options) {
   }
 
   const startedAt = Date.now();
-  const timeoutSignal = createRequestTimeoutSignal(LLM_REQUEST_TIMEOUT_MS);
+  // Snapshot settings per call so mid-flight options changes apply only to the
+  // next request or retry attempt.
+  const [requestTimeoutSeconds, verboseLogs] = await Promise.all([
+    getStoredLlmRequestTimeoutSeconds(),
+    getStoredVerboseLogs(),
+  ]);
+  const requestTimeoutMs = requestTimeoutSeconds * 1000;
+  const timeoutSignal = createRequestTimeoutSignal(requestTimeoutMs);
   const mergedSignal = mergeAbortSignals(signal, timeoutSignal.signal);
-  // Snapshot per call so a mid-flight options toggle cannot half-apply.
-  const verboseLogs = await getStoredVerboseLogs();
   if (verboseLogs) {
     console.info('PageToLLM Canvas LLM request:', {
       provider: provider.name,
@@ -75,6 +80,7 @@ export async function callLLMDirect(options) {
       messageCount: Array.isArray(messages) ? messages.length : undefined,
       toolCount: Array.isArray(tools) ? tools.length : undefined,
       temperature,
+      timeoutMs: requestTimeoutMs,
     });
   }
 
@@ -136,7 +142,7 @@ export async function callLLMDirect(options) {
     }
     const message =
       e && (e.name === 'AbortError' || e.name === 'TimeoutError')
-        ? `LLM request timed out after ${LLM_REQUEST_TIMEOUT_MS}ms`
+        ? `LLM request timed out after ${requestTimeoutMs}ms`
         : (e && e.message) || String(e);
     console.warn('PageToLLM Canvas LLM request failed:', message);
     return {
