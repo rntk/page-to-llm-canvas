@@ -732,6 +732,39 @@ describe('popup UI integration', () => {
     );
   });
 
+  it('opens the canvas from an error status', async () => {
+    const errorRecord = {
+      ...sampleRecord,
+      key: 'error-1',
+      status: 'error',
+      error: 'Pipeline execution failed',
+    };
+    stubListResponses([errorRecord]);
+    document.getElementById('refresh-btn').click();
+
+    let statusButton = null;
+    for (let i = 0; i < 50; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      statusButton = document.querySelector('#records .badge.error');
+      if (statusButton) break;
+    }
+    expect(statusButton).not.toBeNull();
+    expect(statusButton.tagName).toBe('BUTTON');
+    expect(statusButton.title).toContain('Open the canvas to view the error message and retry');
+    chrome.tabs.sendMessage.mockClear();
+    statusButton.click();
+
+    for (let i = 0; i < 50; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      if (chrome.tabs.sendMessage.mock.calls.length > 0) break;
+    }
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      42,
+      { action: 'openRecordView', key: 'error-1', mode: 'canvas' },
+      expect.any(Function),
+    );
+  });
+
   it('shows an error when listRecords returns a failed response', async () => {
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') cb({ ok: false, error: 'backend down' });

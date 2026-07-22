@@ -423,13 +423,17 @@ function renderRecords(records, { force = false } = {}) {
     }
     copy.appendChild(meta);
 
-    const badge = document.createElement(display.status === 'needs_attention' ? 'button' : 'span');
+    const isClickableStatus = display.status === 'needs_attention' || display.status === 'error';
+    const badge = document.createElement(isClickableStatus ? 'button' : 'span');
     badge.className = `badge ${display.status}`;
     badge.textContent = display.badge;
-    if (display.status === 'needs_attention') {
+    if (isClickableStatus) {
       badge.type = 'button';
       badge.classList.add('status-button');
-      badge.title = 'Open the canvas to review failed summaries and retry or skip';
+      badge.title =
+        display.status === 'error'
+          ? 'Open the canvas to view the error message and retry'
+          : 'Open the canvas to review failed summaries and retry or skip';
       badge.addEventListener('click', () => void openRecordView(display.key, 'canvas'));
     }
 
