@@ -15,6 +15,7 @@ import * as html from './html.js';
 import * as sentenceSplitter from './sentenceSplitter.js';
 import * as llm from '../llm/llm.js';
 import * as parserMetrics from '../metrics/parser.js';
+import * as resplitMetrics from '../metrics/resplit.js';
 import { getStoredVerboseLogs } from '../settings/verboseLog.js';
 import { getStoredMaxParallelLlmRequests } from '../settings/llmConcurrency.js';
 
@@ -57,6 +58,14 @@ vi.mock('../llm/llm.js', () => ({
 vi.mock('../metrics/parser.js', () => ({
   recordParserMetric: vi.fn(async () => undefined),
 }));
+
+vi.mock('../metrics/resplit.js', async () => {
+  const actual = await vi.importActual('../metrics/resplit.js');
+  return {
+    ...actual,
+    recordResplitRun: vi.fn(async () => undefined),
+  };
+});
 
 vi.mock('../settings/verboseLog.js', () => ({
   getStoredVerboseLogs: vi.fn(async () => false),
@@ -1020,6 +1029,30 @@ describe('runPipeline', () => {
     // Coverage of the original range is preserved across the subdivision.
     expect(topicCall[1].topics[0].sentences).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
     expect(topicCall[1].topics[1].sentences).toEqual(Array.from({ length: 30 }, (_, i) => i + 31));
+
+    // A resplit metrics sample is recorded exactly once per refineOversizedRanges
+    // call, reflecting that this run found (and successfully split) one
+    // oversized 60-sentence range.
+    expect(resplitMetrics.recordResplitRun).toHaveBeenCalledTimes(1);
+    const sample = resplitMetrics.recordResplitRun.mock.calls[0][0];
+    expect(sample).toMatchObject({
+      oversizeCount: 1,
+      oversizeSpans: [60],
+      changed: true,
+      groupCountBefore: 1,
+      groupCountAfter: 2,
+    });
+    expect(sample.resplitCallCount).toBeGreaterThan(0);
+    expect(sample.outcomes.subdivided).toBe(1);
+    // llmRequestCount counts actual LLM requests (one per chunk), which is
+    // always >= resplitCallCount (one per resplitSegment invocation); this
+    // fixture's tagged text stays under MAX_TAGGED_CHARS so no invocation
+    // fans out into multiple chunk requests, and the two stay equal here.
+    expect(sample.llmRequestCount).toBeGreaterThanOrEqual(sample.resplitCallCount);
+    // 60 sentences stays under both MAX_TAGGED_CHARS and
+    // TOPIC_RANGE_INPUT_MAX_SENTENCES (240), so the primary stage used a
+    // single chunk/request for this fixture.
+    expect(sample.primaryChunkCount).toBe(1);
   });
 
   it('falls back to bounded windows when a re-split makes no progress', async () => {
@@ -1054,6 +1087,35 @@ describe('runPipeline', () => {
     expect(topicCall[1].topics.map((t) => t.name)).toEqual(['Tech>All']);
     const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
     expect(doneCall).toBeDefined();
+
+    // Still recorded even though the resplit made no progress: the sample is
+    // the denominator, not a success flag.
+    expect(resplitMetrics.recordResplitRun).toHaveBeenCalledTimes(1);
+    const sample = resplitMetrics.recordResplitRun.mock.calls[0][0];
+    // The window fallback does split the segment (2 windows), so `changed`
+    // is true even though groupsFromSegments recombines them back into a
+    // single "Tech>All" group (both windows carry the same label).
+    expect(sample).toMatchObject({
+      oversizeCount: 1,
+      oversizeSpans: [60],
+      changed: true,
+      groupCountBefore: 1,
+      groupCountAfter: 1,
+      resplitCallCount: 3,
+      primaryChunkCount: 1,
+    });
+    // This is exactly the "changed but no net group gain" case
+    // runsWithGroupGain exists to filter out: groupCountAfter does not
+    // exceed groupCountBefore, so this run would NOT count toward
+    // runsWithGroupGain even though it does count toward runsChanged.
+    expect(sample.groupCountAfter).not.toBeGreaterThan(sample.groupCountBefore);
+    expect(sample.outcomes).toMatchObject({
+      windowFallback: 1,
+      acceptedSingle: 2,
+      subdivided: 0,
+      noProgress: 0,
+      error: 0,
+    });
   });
 
   it('recursively re-splits a sub-segment that is still oversized', async () => {

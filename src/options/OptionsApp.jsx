@@ -3,6 +3,7 @@ import { GeneralSettingsPanel } from './GeneralSettingsPanel.jsx';
 import { LlmMetricsSection } from './LlmMetricsSection.jsx';
 import { ChatToolMetricsSection } from './ChatToolMetricsSection.jsx';
 import { ParserMetricsSection } from './ParserMetricsSection.jsx';
+import { ResplitMetricsSection } from './ResplitMetricsSection.jsx';
 import { ProvidersSection } from './ProvidersSection.jsx';
 import { RecordsSection } from './RecordsSection.jsx';
 import { DataManagementSection } from './DataManagementSection.jsx';
@@ -139,6 +140,7 @@ export function OptionsApp() {
         hidden={activeTab !== 'diagnostics'}
       >
         <ParserMetricsSection />
+        <ResplitMetricsSection />
         <LlmMetricsSection />
         <ChatToolMetricsSection />
       </div>

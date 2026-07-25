@@ -21,6 +21,7 @@ import { callLLMDirect } from '../../../worker/llm/llm.js';
 import { clearLlmMetrics, recordLlmMetric } from '../../../worker/metrics/llm.js';
 import { clearChatToolMetrics, recordChatToolMetric } from '../../../worker/metrics/chatTool.js';
 import { clearParserMetrics } from '../../../worker/metrics/parser.js';
+import { clearResplitMetrics } from '../../../worker/metrics/resplit.js';
 import {
   clearAllExtensionData,
   getStorageOverview,
@@ -660,7 +661,12 @@ export const MESSAGE_HANDLERS = {
       // each metrics queue before the authoritative storage clear. This keeps
       // an old request from restoring data immediately after reset returns.
       await Promise.allSettled([...pipelineJobs, ...activeChatCompletionJobs]);
-      await Promise.all([clearLlmMetrics(), clearParserMetrics(), clearChatToolMetrics()]);
+      await Promise.all([
+        clearLlmMetrics(),
+        clearParserMetrics(),
+        clearResplitMetrics(),
+        clearChatToolMetrics(),
+      ]);
       await clearAllExtensionData();
       return { ok: true };
     },

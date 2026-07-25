@@ -3,6 +3,12 @@ import { splitSentences } from './sentenceSplitter.js';
 import { buildTaggedText, buildTopicRangesPrompt } from './prompts.js';
 import { parseTopicRangesDetailed, groupsFromSegments, TopicParseError } from './topicParser.js';
 import { recordParserMetric } from '../metrics/parser.js';
+import {
+  RESPLIT_OUTCOMES,
+  createResplitRunStats,
+  noteResplitOutcome,
+  recordResplitRun,
+} from '../metrics/resplit.js';
 import { parallelMap } from '../llm/llm.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
@@ -215,13 +221,21 @@ async function resplitSegment(
   sentenceTexts,
   depth,
   callLLMWithRetry,
-  { acceptSingle = false } = {},
+  { acceptSingle = false, stats = null } = {},
 ) {
   const span = segment.end - segment.start + 1;
   const sliceTexts = sentenceTexts.slice(segment.start, segment.end + 1);
   const tagged = buildTaggedText(sliceTexts);
   const chunks =
     tagged.length > MAX_TAGGED_CHARS ? chunkTaggedText(tagged, MAX_TAGGED_CHARS) : [tagged];
+
+  if (stats) {
+    stats.resplitCallCount++;
+    // One request per chunk, not per invocation: an oversized range whose
+    // tagged text exceeds MAX_TAGGED_CHARS fans out below, and counting it
+    // once would understate cost exactly for the longest ranges.
+    stats.llmRequestCount += chunks.length;
+  }
 
   await runtime.log(
     'topic_ranges_resplit_request',
@@ -324,6 +338,7 @@ async function resplitSegment(
       depth,
       error: (error && error.message) || String(error),
     });
+    noteResplitOutcome(stats, RESPLIT_OUTCOMES.ERROR);
     return null;
   }
 
@@ -341,7 +356,10 @@ async function resplitSegment(
   subSegments.sort((a, b) => a.start - b.start);
 
   if (subSegments.length <= 1) {
-    if (acceptSingle && subSegments.length === 1) return subSegments;
+    if (acceptSingle && subSegments.length === 1) {
+      noteResplitOutcome(stats, RESPLIT_OUTCOMES.ACCEPTED_SINGLE);
+      return subSegments;
+    }
 
     await runtime.log(
       'topic_ranges_resplit_no_progress',
@@ -371,16 +389,19 @@ async function resplitSegment(
         { start: segment.start, end: segment.end, span, depth, windowCount: windows.length },
         { verbose: true },
       );
+      noteResplitOutcome(stats, RESPLIT_OUTCOMES.WINDOW_FALLBACK);
       const windowResults = await parallelMap(
         windows,
         TOPIC_RANGE_CONCURRENCY,
         async (window) =>
           (await resplitSegment(runtime, window, sentenceTexts, depth + 1, callLLMWithRetry, {
             acceptSingle: true,
+            stats,
           })) || [window],
       );
       return windowResults.flat();
     }
+    noteResplitOutcome(stats, RESPLIT_OUTCOMES.NO_PROGRESS);
     return null;
   }
 
@@ -395,6 +416,7 @@ async function resplitSegment(
     },
     { verbose: true },
   );
+  noteResplitOutcome(stats, RESPLIT_OUTCOMES.SUBDIVIDED);
 
   if (depth + 1 < TOPIC_RANGE_RESPLIT_MAX_DEPTH) {
     const expanded = await parallelMap(subSegments, TOPIC_RANGE_CONCURRENCY, async (subSegment) => {
@@ -405,6 +427,7 @@ async function resplitSegment(
           sentenceTexts,
           depth + 1,
           callLLMWithRetry,
+          { stats },
         );
         if (deeper) return deeper;
       }
@@ -416,7 +439,42 @@ async function resplitSegment(
   return subSegments;
 }
 
-async function refineOversizedRanges(runtime, groups, sentenceTexts, callLLMWithRetry) {
+async function refineOversizedRanges(
+  runtime,
+  groups,
+  sentenceTexts,
+  callLLMWithRetry,
+  { primaryChunkCount = 0 } = {},
+) {
+  // One metrics sample per call, including the no-oversize early return: that
+  // is the denominator for deciding whether resplit still pays for itself.
+  const stats = createResplitRunStats();
+  stats.primaryChunkCount = primaryChunkCount;
+  stats.groupCountBefore = groups.length;
+  stats.groupCountAfter = groups.length;
+  try {
+    return await refineOversizedRangesWithStats(
+      runtime,
+      groups,
+      sentenceTexts,
+      callLLMWithRetry,
+      stats,
+    );
+  } finally {
+    // Awaited like every recordParserMetric call in this file: the service
+    // worker can be recycled right after this returns, and a dropped sample
+    // silently biases the counts the keep/remove decision rests on.
+    await recordResplitRun(stats);
+  }
+}
+
+async function refineOversizedRangesWithStats(
+  runtime,
+  groups,
+  sentenceTexts,
+  callLLMWithRetry,
+  stats,
+) {
   const segments = [];
   for (const group of groups) {
     for (const range of group.ranges) {
@@ -425,9 +483,15 @@ async function refineOversizedRanges(runtime, groups, sentenceTexts, callLLMWith
   }
   segments.sort((a, b) => a.start - b.start);
 
+  const spans = segments.map((segment) => segment.end - segment.start + 1);
+  stats.segmentCount = segments.length;
+  stats.maxSpan = spans.length ? Math.max(...spans) : 0;
+
   const oversized = segments.filter(
     (segment) => segment.end - segment.start + 1 > TOPIC_RANGE_MAX_SENTENCES,
   );
+  stats.oversizeCount = oversized.length;
+  stats.oversizeSpans = oversized.map((segment) => segment.end - segment.start + 1);
   if (!oversized.length) return groups;
 
   await runtime.log(
@@ -449,6 +513,7 @@ async function refineOversizedRanges(runtime, groups, sentenceTexts, callLLMWith
         sentenceTexts,
         0,
         callLLMWithRetry,
+        { stats },
       );
       if (subSegments && subSegments.length > 1) {
         changed = true;
@@ -459,8 +524,10 @@ async function refineOversizedRanges(runtime, groups, sentenceTexts, callLLMWith
   });
 
   if (!changed) return groups;
+  stats.changed = true;
 
   const regrouped = groupsFromSegments(refinedParts.flat(), sentenceTexts.length);
+  stats.groupCountAfter = regrouped.length;
   await runtime.log(
     'topic_ranges_oversize_refined',
     {
@@ -671,7 +738,12 @@ export async function computeTopics(runtime, record, callLLMWithRetry) {
   });
 
   try {
-    groups = await refineOversizedRanges(runtime, groups, sentenceTexts, callLLMWithRetry);
+    groups = await refineOversizedRanges(runtime, groups, sentenceTexts, callLLMWithRetry, {
+      // Baseline the resplit cost against what the primary stage already spent
+      // on the same article; both share LLM_TASK_TYPES.TOPIC_RANGES, so the
+      // general LLM metrics cannot tell them apart.
+      primaryChunkCount: chunks.length,
+    });
   } catch (error) {
     await runtime.log('topic_ranges_oversize_error', {
       error: (error && error.message) || String(error),
