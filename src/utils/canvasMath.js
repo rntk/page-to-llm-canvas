@@ -1,4 +1,6 @@
-const MIN_SCALE = 0.3;
+// Keep enough range for a high-level canvas view while retaining a usable
+// minimum size for the canvas content.
+const MIN_SCALE = 0.1;
 const MAX_SCALE = 3;
 
 /**

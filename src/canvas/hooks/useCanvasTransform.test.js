@@ -43,10 +43,10 @@ describe('clampScale', () => {
     expect(clampScale(undefined)).toBe(1);
   });
 
-  it('clamps to MIN_SCALE (0.3) for small values', () => {
-    expect(clampScale(0)).toBe(0.3);
-    expect(clampScale(0.1)).toBe(0.3);
-    expect(clampScale(-5)).toBe(0.3);
+  it('clamps to MIN_SCALE (0.1) for small values', () => {
+    expect(clampScale(0)).toBe(0.1);
+    expect(clampScale(0.05)).toBe(0.1);
+    expect(clampScale(-5)).toBe(0.1);
   });
 
   it('clamps to MAX_SCALE (3) for large values', () => {
@@ -61,7 +61,7 @@ describe('clampScale', () => {
   });
 
   it('allows exactly MIN_SCALE', () => {
-    expect(clampScale(0.3)).toBe(0.3);
+    expect(clampScale(0.1)).toBe(0.1);
   });
 
   it('allows exactly MAX_SCALE', () => {
@@ -431,7 +431,7 @@ describe('useCanvasTransform', () => {
       await new Promise((r) => setTimeout(r, 5));
     });
     // scale should have increased again (but still >= MIN)
-    expect(result.current.scale).toBeGreaterThanOrEqual(0.3);
+    expect(result.current.scale).toBeGreaterThanOrEqual(0.1);
   });
 
   it('wheel with no effective scale change early returns without updating', () => {
@@ -445,7 +445,7 @@ describe('useCanvasTransform', () => {
 
     // Force current scale to MIN so further WHEEL_OUT produces no change
     act(() => {
-      result.current.setTransformNow(0.3, { x: 0, y: 0 });
+      result.current.setTransformNow(0.1, { x: 0, y: 0 });
     });
     const before = { ...result.current.translate };
 

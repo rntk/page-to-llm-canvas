@@ -24,7 +24,7 @@ describe('constants', () => {
   it('exports expected card layout constants', () => {
     expect(CARD_WIDTH).toBe(240);
     expect(SUMMARY_CARD_WIDTH).toBe(442);
-    expect(SUMMARY_CARD_MAX_WIDTH).toBe(988);
+    expect(SUMMARY_CARD_MAX_WIDTH).toBe(4420);
     expect(COLUMN_GAP).toBe(18);
     expect(RAIL_PADDING).toBe(24);
   });
@@ -206,8 +206,8 @@ describe('getZoomAdjustedSummaryCardWidth', () => {
     expect(getZoomAdjustedSummaryCardWidth(0.5)).toBeGreaterThan(SUMMARY_CARD_WIDTH);
   });
 
-  it('caps the summary card width', () => {
-    expect(getZoomAdjustedSummaryCardWidth(0.3)).toBe(SUMMARY_CARD_MAX_WIDTH);
+  it('caps the summary card width at the minimum zoom', () => {
+    expect(getZoomAdjustedSummaryCardWidth(0.1)).toBe(SUMMARY_CARD_MAX_WIDTH);
   });
 
   it('returns SUMMARY_CARD_WIDTH when zoomed in', () => {
