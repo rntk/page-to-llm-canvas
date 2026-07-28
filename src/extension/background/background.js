@@ -41,6 +41,7 @@ import {
 } from '../../../worker/actionIcon.js';
 import { isInFlightRecord, isInFlightStatus } from '../../../worker/pipeline/pipelineStatus.js';
 import { MSG } from '../../shared/runtime/messages.js';
+import { createQueuedRecord, PIPELINE_STAGE, PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
@@ -310,30 +311,22 @@ export async function handleSubmit(submission) {
   // orchestrator only ever reads the record, so the decision survives mid-run
   // toggle flips and service-worker restarts (see runPipeline).
   const skipSummaries = await getStoredSummariesDisabled();
-  const rec = existing || {
-    key,
-    sourceUrl: sourceUrl || '',
-    html,
-    text: '',
-    status: 'pending',
-    error: null,
-    progress: { stage: 'queued', done: 0, total: 0 },
-    sentences: [],
-    topics: [],
-    topic_summaries: {},
-    topic_summary_index: {},
-    processingLog: [],
-    selectors: Array.isArray(selectors) ? selectors : [],
-    pipelineRunId,
-    skipSummaries,
-    createdAt: now,
-    updatedAt: now,
-  };
+  const rec =
+    existing ||
+    createQueuedRecord({
+      key,
+      sourceUrl: sourceUrl || '',
+      html,
+      selectors,
+      pipelineRunId,
+      skipSummaries,
+      now,
+    });
   if (existing) {
     rec.pipelineRunId = pipelineRunId;
-    rec.status = 'pending';
+    rec.status = PIPELINE_STATUS.PENDING;
     rec.error = null;
-    rec.progress = { stage: 'queued', done: 0, total: 0 };
+    rec.progress = { stage: PIPELINE_STAGE.QUEUED, done: 0, total: 0 };
     rec.updatedAt = now;
     rec.sourceUrl = sourceUrl || rec.sourceUrl;
     rec.html = html;
