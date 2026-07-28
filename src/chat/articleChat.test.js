@@ -15,6 +15,23 @@ describe('article chat tool loop', () => {
     expect(rangesOverlap({ startLine: 2, endLine: 3 }, { startLine: 4, endLine: 5 })).toBe(false);
   });
 
+  it('accepts the grouped turn contract', async () => {
+    const send = vi.fn().mockResolvedValue({ ok: true, content: 'Answer.' });
+    const result = await runArticleChatTurn({
+      article: {
+        history: [],
+        sentences: ['Article sentence.'],
+        highlightedRanges: [],
+      },
+      question: 'What is this about?',
+      limits: { maxToolRounds: 2 },
+      dependencies: { send },
+    });
+
+    expect(result.reply).toBe('Answer.');
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
   it('executes highlights, collects the transcript, then yields the final reply', async () => {
     const send = vi
       .fn()

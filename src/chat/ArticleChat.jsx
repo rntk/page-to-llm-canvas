@@ -335,15 +335,21 @@ export default function ArticleChat({
       try {
         // Run the whole turn first; onHighlight paints new evidence as it streams.
         turnResult = await runArticleChatTurn({
-          history: messages,
+          article: {
+            history: messages,
+            sentences,
+            highlightedRanges,
+          },
           question,
-          sentences,
-          turnId,
-          signal: operation.controller.signal,
-          highlightedRanges,
-          onHighlight: (range) => {
-            if (!isCurrentOperation(operation)) return undefined;
-            return onHighlight?.(range);
+          runtime: {
+            turnId,
+            signal: operation.controller.signal,
+          },
+          effects: {
+            onHighlight: (range) => {
+              if (!isCurrentOperation(operation)) return undefined;
+              return onHighlight?.(range);
+            },
           },
         });
         // Closing/unmounting invalidates the operation before it can write.
