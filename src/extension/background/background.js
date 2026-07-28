@@ -39,9 +39,17 @@ import {
   refreshActionProgressIcon,
   scheduleActionProgressIconRefresh,
 } from '../../../worker/actionIcon.js';
-import { isInFlightRecord, isInFlightStatus } from '../../../worker/pipeline/pipelineStatus.js';
+import {
+  isInFlightRecord,
+  isInFlightStatus,
+} from '../../../worker/pipeline/pipelineStatus.js';
 import { MSG } from '../../shared/runtime/messages.js';
-import { createQueuedRecord, PIPELINE_STAGE, PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
+import {
+  createQueuedRecord,
+  isImportableRecord,
+  PIPELINE_STAGE,
+  PIPELINE_STATUS,
+} from '../../shared/runtime/contracts.js';
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
@@ -83,20 +91,6 @@ function isExtensionPageSender(sender) {
 const KEEPALIVE_ALARM = 'pipeline-keepalive';
 // Chrome MV3 enforces a minimum of 30 s (0.5 min) for alarm periods.
 const KEEPALIVE_PERIOD_MINUTES = 0.5;
-
-function isImportableRecord(record) {
-  return (
-    !!record &&
-    typeof record === 'object' &&
-    typeof record.key === 'string' &&
-    !!record.key.trim() &&
-    (typeof record.html === 'string' ||
-      typeof record.text === 'string' ||
-      Array.isArray(record.sentences) ||
-      Array.isArray(record.topics) ||
-      !!record.topic_summaries)
-  );
-}
 
 /**
  * Returns a copy of the topic-summaries map with every in-flight error marker
@@ -591,10 +585,10 @@ export const MESSAGE_HANDLERS = {
             key,
             pipelineRunId: createPipelineRunId(),
             status,
-            error: status === 'done' ? null : record.error || null,
+            error: status === PIPELINE_STATUS.DONE ? null : record.error || null,
             progress: {
               ...(record.progress && typeof record.progress === 'object' ? record.progress : {}),
-              stage: 'imported',
+              stage: PIPELINE_STAGE.IMPORTED,
               done: 1,
               total: 1,
             },

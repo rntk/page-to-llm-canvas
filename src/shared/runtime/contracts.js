@@ -30,6 +30,11 @@ export const PIPELINE_STAGE = Object.freeze({
 
 const PIPELINE_STATUS_VALUES = new Set(Object.values(PIPELINE_STATUS));
 const PIPELINE_STAGE_VALUES = new Set(Object.values(PIPELINE_STAGE));
+const IN_FLIGHT_PIPELINE_STATUSES = new Set([
+  PIPELINE_STATUS.PENDING,
+  PIPELINE_STATUS.SPLITTING,
+  PIPELINE_STATUS.SUMMARIZING,
+]);
 
 /** @param {unknown} value @returns {boolean} */
 export function isPipelineStatus(value) {
@@ -39,6 +44,33 @@ export function isPipelineStatus(value) {
 /** @param {unknown} value @returns {boolean} */
 export function isPipelineStage(value) {
   return typeof value === 'string' && PIPELINE_STAGE_VALUES.has(value);
+}
+
+/** @param {unknown} value @returns {boolean} */
+export function isInFlightPipelineStatus(value) {
+  return isPipelineStatus(value) && IN_FLIGHT_PIPELINE_STATUSES.has(value);
+}
+
+/**
+ * Identifies records that contain enough article data to be imported. This is
+ * shared by the options page and service worker so both import paths enforce
+ * the same minimum contract.
+ *
+ * @param {unknown} record
+ * @returns {boolean}
+ */
+export function isImportableRecord(record) {
+  return (
+    !!record &&
+    typeof record === 'object' &&
+    typeof record.key === 'string' &&
+    !!record.key.trim() &&
+    (typeof record.html === 'string' ||
+      typeof record.text === 'string' ||
+      Array.isArray(record.sentences) ||
+      Array.isArray(record.topics) ||
+      !!record.topic_summaries)
+  );
 }
 
 /**

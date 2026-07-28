@@ -4,6 +4,12 @@
  */
 
 import { MSG } from '../shared/runtime/messages.js';
+import {
+  isImportableRecord,
+  isInFlightPipelineStatus,
+  PIPELINE_STAGE,
+  PIPELINE_STATUS,
+} from '../shared/runtime/contracts.js';
 
 /**
  * @returns {{id: string, name: string, type: string, model: string, token: string, url: string, serviceTier: string}}
@@ -77,8 +83,6 @@ export function updateProviderFormType(form, type, defaultModel = '') {
 }
 
 const IMPORT_RECORD_ARRAY_KEYS = ['records', 'items'];
-const IMPORT_IN_FLIGHT_STATUSES = new Set(['pending', 'splitting', 'summarizing']);
-
 function createImportedRecordKey(index = 0) {
   const suffix = index > 0 ? `-${index + 1}` : '';
   return `imported-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${suffix}`;
@@ -104,23 +108,7 @@ export function extractImportedRecords(payload) {
   return [payload];
 }
 
-/**
- * @param {object|null|undefined} record
- * @returns {boolean}
- */
-export function isImportableRecord(record) {
-  return (
-    !!record &&
-    typeof record === 'object' &&
-    typeof record.key === 'string' &&
-    !!record.key.trim() &&
-    (typeof record.html === 'string' ||
-      typeof record.text === 'string' ||
-      Array.isArray(record.sentences) ||
-      Array.isArray(record.topics) ||
-      !!record.topic_summaries)
-  );
-}
+export { isImportableRecord };
 
 /**
  * Deduplicates records by key. Later entries win because they are the values
@@ -152,17 +140,17 @@ export function normalizeImportedRecords(payload) {
         typeof record.key === 'string' && record.key.trim()
           ? record.key.trim()
           : createImportedRecordKey(index);
-      const status = IMPORT_IN_FLIGHT_STATUSES.has(record.status)
-        ? 'done'
-        : record.status || 'done';
+      const status = isInFlightPipelineStatus(record.status)
+        ? PIPELINE_STATUS.DONE
+        : record.status || PIPELINE_STATUS.DONE;
       return {
         ...record,
         key,
         status,
-        error: status === 'done' ? null : record.error || null,
+        error: status === PIPELINE_STATUS.DONE ? null : record.error || null,
         progress: {
           ...(record.progress && typeof record.progress === 'object' ? record.progress : {}),
-          stage: 'imported',
+          stage: PIPELINE_STAGE.IMPORTED,
           done: 1,
           total: 1,
         },

@@ -1,5 +1,7 @@
 import {
   createQueuedRecord,
+  isImportableRecord,
+  isInFlightPipelineStatus,
   isPipelineStage,
   isPipelineStatus,
   PIPELINE_STAGE,
@@ -12,6 +14,14 @@ describe('runtime contracts', () => {
     expect(isPipelineStatus('unknown')).toBe(false);
     expect(isPipelineStage(PIPELINE_STAGE.TOPIC_RANGES)).toBe(true);
     expect(isPipelineStage('unknown')).toBe(false);
+    expect(isInFlightPipelineStatus(PIPELINE_STATUS.SUMMARIZING)).toBe(true);
+    expect(isInFlightPipelineStatus(PIPELINE_STATUS.DONE)).toBe(false);
+  });
+
+  it('shares the minimum importable-record contract', () => {
+    expect(isImportableRecord({ key: 'record-1', text: 'Article' })).toBe(true);
+    expect(isImportableRecord({ key: 'record-1', sourceUrl: 'https://example.test' })).toBe(false);
+    expect(isImportableRecord({ key: '   ', text: 'Article' })).toBe(false);
   });
 
   it('creates the canonical queued record shape', () => {
