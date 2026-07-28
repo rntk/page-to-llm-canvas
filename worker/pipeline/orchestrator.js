@@ -97,7 +97,11 @@ export async function runPipeline(key, options = {}) {
       });
       await runtime.update({ status: 'summarizing', error: null });
     } else {
-      ({ topics, sentenceTexts } = await computeTopics(runtime, record, callLLMWithRetry));
+      ({ topics, sentenceTexts } = await computeTopics({
+        runtime,
+        record,
+        callLLMWithRetry,
+      }));
       if (!topics) return;
     }
 

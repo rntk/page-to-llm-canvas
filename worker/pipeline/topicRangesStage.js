@@ -542,8 +542,14 @@ async function refineOversizedRangesWithStats(
 /**
  * Cleans the HTML, splits sentences, and runs the LLM topic-ranges stage.
  * Returns topics:null when no sentences were found and the record was finalized.
+ *
+ * @param {{
+ *   runtime: import('./pipelineRuntime.js').PipelineRuntime,
+ *   record: object,
+ *   callLLMWithRetry: Function,
+ * }} input
  */
-export async function computeTopics(runtime, record, callLLMWithRetry) {
+export async function computeTopics({ runtime, record, callLLMWithRetry }) {
   await runtime.update({
     status: 'splitting',
     progress: { stage: 'cleaning_html', done: 0, total: 0 },

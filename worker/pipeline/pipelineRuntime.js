@@ -6,15 +6,53 @@ import {
 } from '../storage/storage.js';
 
 /**
+ * @typedef {Object} PipelineRuntimeContext
+ * @property {string} key
+ * @property {string} [pipelineRunId]
+ * @property {AbortSignal} [signal]
+ * @property {boolean} [preferContentLanguage]
+ * @property {boolean} [verboseLogs]
+ * @property {boolean} [summariesDisabled]
+ */
+
+/**
+ * @typedef {Object} PipelineRuntime
+ * @property {string} key
+ * @property {string|undefined} pipelineRunId
+ * @property {AbortSignal|undefined} signal
+ * @property {boolean|undefined} preferContentLanguage
+ * @property {boolean|undefined} verboseLogs
+ * @property {boolean} summariesDisabled
+ * @property {() => void} assertActive
+ * @property {() => Promise<object|null>} read
+ * @property {(patch: object) => Promise<object>} update
+ * @property {(stage: string, details?: object, options?: {verbose?: boolean}) => Promise<void>} log
+ * @property {() => Promise<void>} flushLogs
+ */
+
+/**
  * Creates the storage/logging boundary shared by all pipeline stages. The
  * runtime owns cancellation checks and the expected pipeline-run id so stage
  * modules cannot accidentally persist work for a superseded run.
  *
- * @param {{key: string, pipelineRunId?: string, signal?: AbortSignal, preferContentLanguage?: boolean, verboseLogs?: boolean, summariesDisabled?: boolean}} context
+ * @param {PipelineRuntimeContext} context
+ * @returns {PipelineRuntime}
  */
-export function createPipelineRuntime(context) {
+export function createPipelineRuntime({
+  key,
+  pipelineRunId,
+  signal,
+  preferContentLanguage,
+  verboseLogs,
+  summariesDisabled = false,
+}) {
   const runtime = {
-    ...context,
+    key,
+    pipelineRunId,
+    signal,
+    preferContentLanguage,
+    verboseLogs,
+    summariesDisabled,
 
     assertActive() {
       if (runtime.signal?.aborted) {
