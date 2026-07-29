@@ -209,74 +209,168 @@ describe('useCanvasTransform', () => {
     expect(result.current.isZoomingToTarget).toBe(true);
   });
 
-  it('zoomToTarget re-pins the content left edge after a zoom-induced reflow', async () => {
-    // Regression: the article column's left padding is zoom-adjusted (sized
-    // 1/scale to stay screen-constant), so zooming IN from a zoomed-out state
-    // collapses the gutter and the content slides left *after* the transform
-    // applies. zoomToTarget must re-pin the content's left edge from the
-    // settled layout, or the zoom lands on the rail instead of the sentence.
+  it('zoomToTarget places the canvas from the settled (post-reflow) layout', () => {
+    // Regression: the summary gutter and the rail cards are sized 1/scale to
+    // stay screen-constant, so the reading column's layout-x is itself a
+    // function of the scale — 4460px at scale 0.1, 482px at 1.5. Zooming in from
+    // a zoomed-out state therefore reflows the layout out from under the
+    // placement, and placing the canvas from the pre-zoom measurement stranded
+    // the article thousands of px off (which edge depended on the rule). The
+    // placement must be recomputed once the new scale's layout has committed.
+    //
+    // The fake canvas below models that relationship: `layoutScale` (what the
+    // committed React state reflows to) is deliberately distinct from
+    // `applied.scale` (the mid-transition transform the rects are measured
+    // through), exactly as in the browser.
+    const COLUMN = 772;
+    const RAIL = 500;
+    const gutterFor = (layoutScale) => 442 * Math.max(1, 1 / layoutScale) + 40;
+
+    function mountFakeCanvas({ wrapWidth }) {
+      const content = document.createElement('div');
+      Object.defineProperty(content, 'offsetWidth', { value: COLUMN, configurable: true });
+      const contentRef = { current: content };
+      const hook = renderHook(() => useCanvasTransform({ contentRef }));
+
+      // Mid-transition transform: the DOM still carries the pre-zoom scale.
+      const applied = { scale: 1 };
+      const layoutScale = () => hook.result.current.scale;
+      const translateX = () => hook.result.current.translate.x;
+      const groupLocal = () => gutterFor(layoutScale()) + COLUMN + RAIL;
+
+      const wrap = document.createElement('div');
+      wrap.getBoundingClientRect = () => ({ left: 0, top: 0, width: wrapWidth, height: 1000 });
+      const viewport = document.createElement('div');
+      viewport.getBoundingClientRect = () => ({
+        left: translateX(),
+        top: 0,
+        width: groupLocal() * applied.scale,
+        height: 1000,
+      });
+      content.getBoundingClientRect = () => ({
+        left: translateX() + gutterFor(layoutScale()) * applied.scale,
+        top: 0,
+        width: COLUMN * applied.scale,
+        height: 100,
+      });
+      vi.spyOn(window, 'getComputedStyle').mockImplementation((el) =>
+        el === viewport
+          ? { transform: `matrix(${applied.scale}, 0, 0, ${applied.scale}, 0, 0)` }
+          : { transform: 'none' },
+      );
+
+      act(() => {
+        hook.result.current.canvasWrapRef(wrap);
+        hook.result.current.canvasViewportRef(viewport);
+      });
+      return { hook, applied, groupLocal };
+    }
+
+    // Narrow canvas: the whole layout cannot fit, so the reading column is
+    // framed and the rail is allowed to fall outside.
+    {
+      const { hook, applied } = mountFakeCanvas({ wrapWidth: 1000 });
+      act(() => {
+        hook.result.current.viewport.setTransformNow(0.1, { x: 0, y: 0 });
+      });
+      applied.scale = 0.1;
+
+      act(() => {
+        hook.result.current.viewport.zoomToTarget({ top: 100, left: 50, width: 5, height: 5 }, 1.5);
+      });
+
+      // Settled layout at 1.5: gutter 482, column 772 * 1.5 = 1158 wide — wider
+      // than the usable width (1000 - 48), so the column's left edge is pinned
+      // one edge-margin in: x = 24 - 482 * 1.5 = -699. The pre-reflow layout
+      // (gutter 4460 at scale 0.1) would have placed it at 24 - 4460 * 1.5,
+      // i.e. ~6000px off screen.
+      expect(hook.result.current.scale).toBe(1.5);
+      expect(hook.result.current.translate.x).toBeCloseTo(-699, 5);
+      hook.unmount();
+    }
+
+    // Wide canvas: the whole layout fits, so gutter *and* rail stay on screen.
+    {
+      const { hook, applied, groupLocal } = mountFakeCanvas({ wrapWidth: 3000 });
+      act(() => {
+        hook.result.current.viewport.setTransformNow(0.1, { x: 0, y: 0 });
+      });
+      applied.scale = 0.1;
+
+      act(() => {
+        hook.result.current.viewport.zoomToTarget({ top: 100, left: 50, width: 5, height: 5 }, 1.5);
+      });
+
+      // group = (482 + 772 + 500) * 1.5 = 2631, centred in 3000.
+      const groupWidth = groupLocal() * 1.5;
+      expect(hook.result.current.translate.x).toBeCloseTo((3000 - groupWidth) / 2, 5);
+      // The rail's right edge stays inside the canvas — the reported symptom was
+      // the rail being pushed out past the right border.
+      expect(hook.result.current.translate.x + groupWidth).toBeLessThanOrEqual(3000);
+      hook.unmount();
+    }
+
+    // Second click while the first zoom is still animating: the scale is already
+    // at the target, so nothing reflows and no settled-layout pass runs — the
+    // placement has to be right first time, measured through the *mid-flight*
+    // transform (0.9 here, not the 1.5 the canvas is heading for).
+    {
+      const { hook, applied } = mountFakeCanvas({ wrapWidth: 1000 });
+      act(() => {
+        hook.result.current.viewport.setTransformNow(1.5, { x: -200, y: 0 });
+      });
+      applied.scale = 0.9;
+
+      act(() => {
+        hook.result.current.viewport.zoomToTarget({ top: 100, left: 50, width: 5, height: 5 }, 1.5);
+      });
+
+      // Same settled layout as the narrow case above, so the same placement:
+      // unscaling by 1.5 instead of the applied 0.9 would inflate the column's
+      // local-x by 1.67x and land it hundreds of px off.
+      expect(hook.result.current.translate.x).toBeCloseTo(-699, 5);
+      hook.unmount();
+    }
+  });
+
+  it('zoomToTarget frames the reading column and leaves later moves alone', () => {
     const content = document.createElement('div');
-    let contentLeft = 300; // pre-reflow position at the inflated gutter
-    content.getBoundingClientRect = () => ({ left: contentLeft, top: 0, width: 0, height: 0 });
+    Object.defineProperty(content, 'offsetWidth', { value: 400, configurable: true });
+    content.getBoundingClientRect = () => ({ left: 200, top: 0, width: 400, height: 100 });
     const contentRef = { current: content };
     const { result } = renderHook(() => useCanvasTransform({ contentRef }));
 
     const wrap = document.createElement('div');
     wrap.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 1000 });
     const viewport = document.createElement('div');
-    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 1000 });
-
-    // The viewport's `transform` transition means the re-pin's rAF reads a
-    // *mid-animation* layout, still at the old scale (0.3). The re-pin divides
-    // the measured rect by the scale actually applied to the DOM, so simulate
-    // that by reporting a 0.3-scaled transform from getComputedStyle.
-    let appliedScale = 0.3;
-    const realGetComputedStyle = window.getComputedStyle.bind(window);
-    const getComputedStyleSpy = vi.spyOn(window, 'getComputedStyle').mockImplementation((el) => {
-      if (el === viewport) {
-        return { transform: `matrix(${appliedScale}, 0, 0, ${appliedScale}, 0, 0)` };
-      }
-      return realGetComputedStyle(el);
-    });
+    viewport.getBoundingClientRect = () => ({ left: 0, top: 0, width: 2000, height: 1000 });
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((el) =>
+      el === viewport ? { transform: 'matrix(1, 0, 0, 1, 0, 0)' } : { transform: 'none' },
+    );
 
     act(() => {
       result.current.canvasWrapRef(wrap);
       result.current.canvasViewportRef(viewport);
     });
-
-    // Start zoomed out so zooming in collapses the gutter.
     act(() => {
-      result.current.viewport.setTransformNow(0.3, { x: 0, y: 0 });
+      result.current.viewport.setTransformNow(1, { x: -100, y: 0 });
     });
 
     act(() => {
-      result.current.viewport.zoomToTarget({ top: 100, left: 320, width: 50, height: 50 }, 1.5);
+      result.current.viewport.zoomToTarget({ top: 100, left: 220, width: 50, height: 20 }, 1.5);
     });
+    // The group (2000 * 1.5) does not fit, but the column (400 * 1.5 = 600)
+    // does, so it is centred: x = (1000 - 600) / 2 - 200 * 1.5 = -100. The old
+    // rule pinned the column flush left (40 - 300 = -260), which is what pushed
+    // the text off the left edge of the canvas.
+    expect(result.current.translate.x).toBe(-100);
 
-    // Initial placement from the inflated (pre-reflow) layout:
-    // localContentX = (300 - 0) / 0.3 = 1000; nextX = 40 - 1000 * 1.5 = -1460.
-    expect(result.current.scale).toBe(1.5);
-    expect(result.current.translate.x).toBe(-1460);
-    const pinnedY = result.current.translate.y;
-
-    // The scale change reflows the gutter; the content's settled local-left is
-    // 400px. The rAF still runs mid-transition (transform applied at scale 0.3),
-    // so the content's *screen* left reads 400 * 0.3 = 120.
-    contentLeft = 120;
-
-    // Flush the queued rAF (mocked as setTimeout(fn, 0)).
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 5));
+    // The settled-layout placement fires for the zoom's own scale commit only:
+    // a later zoom or pan of any other origin must not be re-placed.
+    act(() => {
+      result.current.viewport.setTransformNow(2, { x: 777, y: 0 });
     });
-
-    // Re-pinned from the transform-invariant local-left: dividing the animated
-    // rect (120) by the applied scale (0.3) recovers 400, then re-pins at the
-    // target scale: 40 - 400 * 1.5 = -560. Reading the raw rect would have
-    // pinned to 40 - 120 = -80, sliding the article far to the right.
-    expect(result.current.translate.x).toBe(-560);
-    expect(result.current.translate.y).toBe(pinnedY);
-
-    getComputedStyleSpy.mockRestore();
+    expect(result.current.translate.x).toBe(777);
   });
 
   it('navigateCanvas moves to top', () => {

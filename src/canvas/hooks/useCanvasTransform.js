@@ -4,6 +4,75 @@ import { clampScale, cursorAnchoredTranslate } from '../../utils/canvasMath.js';
 const WHEEL_IN = 1.1;
 const WHEEL_OUT = 1 / 1.1;
 const ARROW_STEP = 80;
+// Keep the canvas content this far inside the viewport edges. Mirrors the
+// alignment hook's margin of the same name.
+const EDGE_MARGIN = 24;
+// Fallback left edge (wrap-local px) used only when nothing can be measured.
+const FALLBACK_CONTENT_LEFT = 40;
+// Ignore sub-pixel corrections so we never schedule a no-op transform.
+const MIN_DELTA = 0.5;
+
+/**
+ * Scale actually applied to an element right now.
+ *
+ * The viewport carries a 320ms `transform` transition, so its computed matrix
+ * is generally mid-flight and does *not* equal the target scale. Every rect
+ * measured off the viewport is scaled by this value, so dividing by it is what
+ * recovers a transform-invariant (layout) coordinate.
+ */
+function readAppliedScale(el, fallbackScale) {
+  try {
+    const matrix = new DOMMatrixReadOnly(window.getComputedStyle(el).transform);
+    return matrix.a || fallbackScale;
+  } catch (_) {
+    // `transform: none`, or no DOMMatrixReadOnly (older/jsdom-ish hosts).
+    return fallbackScale;
+  }
+}
+
+/**
+ * Where the canvas content should sit horizontally after a zoom-to-target.
+ *
+ * Deliberately an *absolute* placement — a pure function of the settled layout,
+ * never a nudge from the current position. Zoom-to-target is a deliberate jump,
+ * and the layout it lands in is not the one it started from: the summary gutter
+ * and rail cards are sized `1/scale` to stay screen-constant, so zooming in from
+ * a zoomed-out state collapses a gutter that can be thousands of layout px wide.
+ * Any rule that carried the pre-zoom position forward would carry that error
+ * forward with it (and a "keep it where it is" branch would then preserve it
+ * permanently, stranding the article off one edge).
+ *
+ * Prefers to frame the whole layout — summary gutter, reading column and topic
+ * rail — so the rail stays on screen when it fits. When it cannot fit, the
+ * reading column is centred, and if even that overflows, its left edge is
+ * pinned inside the viewport so reading starts at the beginning of the line.
+ *
+ * @param {{localContentLeft: number, columnLayoutWidth: number,
+ *          groupLayoutWidth: number, nextScale: number, wrapWidth: number}} params
+ * @returns {number} translate.x
+ */
+function zoomPinnedTranslateX({
+  localContentLeft,
+  columnLayoutWidth,
+  groupLayoutWidth,
+  nextScale,
+  wrapWidth,
+}) {
+  const scaledLeft = localContentLeft * nextScale;
+  if (!(wrapWidth > 0)) return FALLBACK_CONTENT_LEFT - scaledLeft;
+  const usableWidth = wrapWidth - 2 * EDGE_MARGIN;
+
+  // The whole layout fits: centre it, gutter and rail included. The group's
+  // local left is 0 — it is the transformed viewport's only child — so this is
+  // the translate itself.
+  const groupWidth = groupLayoutWidth * nextScale;
+  if (groupWidth > 0 && groupWidth <= usableWidth) return (wrapWidth - groupWidth) / 2;
+
+  const columnWidth = columnLayoutWidth * nextScale;
+  if (!(columnWidth > 0)) return FALLBACK_CONTENT_LEFT - scaledLeft;
+  const targetLeft = columnWidth >= usableWidth ? EDGE_MARGIN : (wrapWidth - columnWidth) / 2;
+  return targetLeft - scaledLeft;
+}
 
 /**
  * Simplified canvas transform hook: pan, wheel zoom, programmatic zoom,
@@ -51,6 +120,9 @@ export function useCanvasTransform({ contentRef } = {}) {
   const pendingRef = useRef(null);
   const focusTimerRef = useRef(null);
   const zoomingTimerRef = useRef(null);
+  // Set by zoomToTarget when its placement must be redone once the new scale's
+  // layout has committed; consumed by the layout effect below.
+  const pendingZoomPinRef = useRef(null);
   // Drag pan writes the transform imperatively (CSS vars + translateRef) on a
   // dedicated rAF, bypassing React state so a mouse drag does not re-render the
   // whole canvas tree ~60fps. State is committed once on mouse-up.
@@ -122,8 +194,9 @@ export function useCanvasTransform({ contentRef } = {}) {
 
   // CSS variable sync on the viewport. Runs in a layout effect (synchronously
   // after commit, before paint) so the transform is applied before any
-  // post-transform measurement — notably the zoom-to-target re-pin below, which
-  // reads the settled layout in a requestAnimationFrame.
+  // post-transform measurement — notably the zoom-to-target placement below,
+  // which is a layout effect declared after this one and so reads the settled
+  // transform.
   useLayoutEffect(() => {
     if (!canvasViewportEl) return;
     canvasViewportEl.style.setProperty('--canvas-translate-x', `${translate.x}px`);
@@ -323,17 +396,32 @@ export function useCanvasTransform({ contentRef } = {}) {
       const viewportRect = viewportEl.getBoundingClientRect();
       const currentScale = scaleRef.current || 1;
       const nextScale = clampScale(Math.max(currentScale, zoomLevel));
+      // Unscale by the transform on the DOM *right now*, not by `scaleRef`: a
+      // zoom-to-target triggered while an earlier one is still animating (click
+      // two events in a row) measures rects through a mid-flight scale, and
+      // dividing those by the target scale skews every coordinate below.
+      const appliedScale = readAppliedScale(viewportEl, currentScale);
       const localTargetY =
-        (targetRect.top + targetRect.height / 2 - viewportRect.top) / currentScale;
+        (targetRect.top + targetRect.height / 2 - viewportRect.top) / appliedScale;
       let nextX;
       const content = contentRef?.current;
       if (content) {
         const localContentX =
-          (content.getBoundingClientRect().left - viewportRect.left) / currentScale;
-        nextX = 40 - localContentX * nextScale;
+          (content.getBoundingClientRect().left - viewportRect.left) / appliedScale;
+        nextX = zoomPinnedTranslateX({
+          localContentLeft: localContentX,
+          // offsetWidth is layout px (transform-free), so it needs no unscaling.
+          columnLayoutWidth: content.offsetWidth,
+          // The viewport shrink-wraps its single child (the gutter + column +
+          // rail group), so its width is the group's width. Adding a sibling to
+          // `.canvas-viewport` would break that.
+          groupLayoutWidth: viewportRect.width / appliedScale,
+          nextScale,
+          wrapWidth: wrapRect.width,
+        });
       } else {
         const localTargetX =
-          (targetRect.left + targetRect.width / 2 - viewportRect.left) / currentScale;
+          (targetRect.left + targetRect.width / 2 - viewportRect.left) / appliedScale;
         nextX = wrapRect.width / 2 - localTargetX * nextScale;
       }
       const nextY = wrapRect.height * 0.2 - localTargetY * nextScale;
@@ -348,46 +436,62 @@ export function useCanvasTransform({ contentRef } = {}) {
       // settles (see isZoomingToTarget). Pan paths deliberately do not call this.
       flashZoomingToTarget();
 
-      // The article column's left offset is zoom-adjusted: the summary gutter
-      // and rail cards are sized 1/scale so they stay screen-constant, which
-      // makes the article's local-x a function of `scale`. `nextX` above was
-      // computed from the pre-zoom layout, so when the new scale reflows (e.g.
-      // zooming in from a zoomed-out state collapses the inflated gutter) the
-      // article slides sideways and the zoom lands on the rail instead of the
-      // sentence. Re-pin the content's left edge from the *settled* layout once
-      // the reflow has happened. Scale is unchanged here, so this is a pure pan
-      // and triggers no further reflow.
-      if (content) {
-        window.requestAnimationFrame(() => {
-          const settledViewport = canvasViewportElRef.current;
-          if (!settledViewport) return;
-          const settledViewportRect = settledViewport.getBoundingClientRect();
-          const settledContentLeft = content.getBoundingClientRect().left;
-          // `flashFocus()` adds a 320ms `transform` transition, so this rAF runs
-          // while the viewport is still animating toward `nextScale` — the rects
-          // above are mid-flight at the *old* scale. But the transform is shared
-          // by both elements, so `(contentLeft - viewportLeft)` always equals
-          // `contentLocalLeft * appliedScale` at every instant of the animation.
-          // The layout (gutter width) is already settled, so dividing by the
-          // scale actually applied to the DOM recovers the transform-invariant
-          // local left, which we then re-pin at `nextScale`. (Reading the
-          // animated rect without this division pins to the old scale's layout,
-          // shifting the article sideways — badly on large zoom jumps.)
-          const appliedScale =
-            new DOMMatrixReadOnly(window.getComputedStyle(settledViewport).transform).a ||
-            nextScale;
-          const localContentLeft = (settledContentLeft - settledViewportRect.left) / appliedScale;
-          const correctedX = 40 - localContentLeft * nextScale;
-          if (Math.abs(correctedX - (translateRef.current?.x ?? nextX)) < 0.5) return;
-          setTransformNow(scaleRef.current || nextScale, {
-            x: correctedX,
-            y: translateRef.current?.y ?? nextY,
-          });
-        });
-      }
+      // The layout the zoom lands in is not the one it was measured in: the
+      // summary gutter and rail cards are sized 1/scale to stay screen-constant,
+      // so the reading column's local-x is itself a function of `scale` (at
+      // scale 0.1 the gutter is 4420 layout px; at 1.4 it is 442). `nextX` above
+      // is therefore only a provisional placement from the pre-zoom layout —
+      // good enough if nothing reflows, thousands of px out if it does.
+      //
+      // Ask for a re-placement from the settled layout. Only the scale commit
+      // can settle it, so when the scale is unchanged there is nothing to wait
+      // for and the provisional placement is already final.
+      if (content && nextScale !== currentScale) pendingZoomPinRef.current = { scale: nextScale };
     },
     [contentRef, flashFocus, flashZoomingToTarget, setTransformNow],
   );
+
+  // Final horizontal placement for a zoom-to-target, from the *settled* layout.
+  //
+  // A layout effect, not a rAF: it runs after the commit that applied the new
+  // scale (so the gutter/rail have reflowed) but still before paint, so the
+  // corrected position is part of the same frame — the provisional placement is
+  // never painted, and there is no frame-ordering race with the alignment hook
+  // or with React's own flush timing.
+  useLayoutEffect(() => {
+    const pending = pendingZoomPinRef.current;
+    // Wait for the commit that carries the zoom's scale; ignore every other
+    // transform change (wheel, drag, pan), which must not be re-placed.
+    if (!pending || pending.scale !== scale) return;
+    pendingZoomPinRef.current = null;
+
+    const wrap = canvasWrapElRef.current;
+    const viewportEl = canvasViewportElRef.current;
+    const content = contentRef?.current;
+    if (!wrap || !viewportEl || !content) return;
+    const wrapRect = wrap.getBoundingClientRect();
+    const viewportRect = viewportEl.getBoundingClientRect();
+    if (wrapRect.width === 0) return;
+
+    // Every rect measured off the viewport carries the transform that is
+    // actually applied right now (mid-transition, so generally not `scale`).
+    // Dividing by it recovers the transform-invariant layout coordinates the
+    // placement rule works in.
+    const appliedScale = readAppliedScale(viewportEl, scale);
+    const localContentLeft =
+      (content.getBoundingClientRect().left - viewportRect.left) / appliedScale;
+    const nextX = zoomPinnedTranslateX({
+      localContentLeft,
+      columnLayoutWidth: content.offsetWidth,
+      groupLayoutWidth: viewportRect.width / appliedScale,
+      nextScale: scale,
+      wrapWidth: wrapRect.width,
+    });
+    if (Math.abs(nextX - (translateRef.current?.x ?? 0)) < MIN_DELTA) return;
+    // Pure horizontal pan at an unchanged scale: no further reflow, so this
+    // settles in one pass.
+    setTransformNow(scale, { x: nextX, y: translateRef.current?.y ?? 0 });
+  }, [contentRef, scale, setTransformNow]);
 
   // The imperative viewport handle: everything a consumer needs to *read* the
   // live transform (the refs, which stay current between renders) or *move* it,

@@ -233,15 +233,23 @@ export default function App({ initialKey }) {
     refreshSentenceRanges,
   });
 
-  const handleChatHighlight = useCallback(({ startLine, endLine }, { focus = false } = {}) => {
-    if (focus) pendingChatHighlightLineRef.current ??= startLine;
-    setShowSummaryMode(false);
-    setChatSentenceNumbers((current) => {
-      const next = new Set(current);
-      for (let line = startLine; line <= endLine; line += 1) next.add(line);
-      return Array.from(next).sort((a, b) => a - b);
-    });
-  }, []);
+  const handleChatHighlight = useCallback(
+    ({ startLine, endLine }, { focus = false } = {}) => {
+      if (focus) pendingChatHighlightLineRef.current ??= startLine;
+      // Leaving summary mode reflows the canvas, which would make the alignment
+      // hook glide the column one frame later — on top of the zoom below, whose
+      // placement then reads as "off". The pending zoom owns positioning here,
+      // exactly as the summary view's "show source sentences" path does.
+      if (focus && showSummaryMode) skipNextAlignment();
+      setShowSummaryMode(false);
+      setChatSentenceNumbers((current) => {
+        const next = new Set(current);
+        for (let line = startLine; line <= endLine; line += 1) next.add(line);
+        return Array.from(next).sort((a, b) => a - b);
+      });
+    },
+    [showSummaryMode, skipNextAlignment],
+  );
   const handleClearChatHighlights = useCallback(() => setChatSentenceNumbers([]), []);
 
   useEffect(() => {
