@@ -119,12 +119,7 @@ function normalizeRunSample(sample = {}) {
     oversizeCount: nonNegative(sample.oversizeCount) || oversizeSpans.length,
     maxSpan: Math.max(nonNegative(sample.maxSpan), ...oversizeSpans, 0),
     resplitCallCount: nonNegative(sample.resplitCallCount),
-    // Legacy samples predate the per-chunk counter; fall back to the
-    // invocation count so old rows read as a lower bound rather than zero.
-    llmRequestCount: Math.max(
-      nonNegative(sample.llmRequestCount),
-      nonNegative(sample.resplitCallCount),
-    ),
+    llmRequestCount: nonNegative(sample.llmRequestCount),
     primaryChunkCount: nonNegative(sample.primaryChunkCount),
     changed: sample.changed === true,
     groupCountBefore: nonNegative(sample.groupCountBefore),
@@ -156,10 +151,7 @@ export function normalizeResplitMetrics(value) {
     runsWithGroupGain: nonNegative(value.runsWithGroupGain),
     oversizeSegmentCount: nonNegative(value.oversizeSegmentCount),
     resplitCallCount: nonNegative(value.resplitCallCount),
-    llmRequestCount: Math.max(
-      nonNegative(value.llmRequestCount),
-      nonNegative(value.resplitCallCount),
-    ),
+    llmRequestCount: nonNegative(value.llmRequestCount),
     primaryRequestCount: nonNegative(value.primaryRequestCount),
     maxSpanObserved: nonNegative(value.maxSpanObserved),
     outcomes,

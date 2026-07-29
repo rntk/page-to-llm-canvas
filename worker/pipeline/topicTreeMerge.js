@@ -129,6 +129,32 @@ export function splitContiguousRuns(sentenceIds) {
 }
 
 /**
+ * Builds the canonical index projection available before parent summaries have
+ * been resolved. This keeps successfully generated leaf summaries visible
+ * while a record is parked for review.
+ *
+ * @param {Array<{name?: string, sentences?: number[]}>} topics
+ * @param {Record<string, {runs?: Array<{sentences: number[], text: string}>, source_sentences?: number[]}>} leafSummaries
+ * @returns {Record<string, {runs: Array<{sentences: number[], text: string}>, level: number, source_sentences: number[]}>}
+ */
+export function buildPartialTopicSummaryIndex(topics, leafSummaries) {
+  const { nodes } = buildTopicTree(topics);
+  const index = {};
+  for (const [path, summary] of Object.entries(leafSummaries)) {
+    const node = nodes.get(path);
+    if (!node || !summary || typeof summary !== 'object') continue;
+    index[path] = {
+      runs: Array.isArray(summary.runs) ? summary.runs : [],
+      level: node.level - 1,
+      source_sentences: Array.isArray(summary.source_sentences)
+        ? summary.source_sentences
+        : node.sourceSentences,
+    };
+  }
+  return index;
+}
+
+/**
  * Each summary is a list of per-run entries ({sentences, text}), one per
  * contiguous occurrence of the topic, rather than a single text blob.
  *

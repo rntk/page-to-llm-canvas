@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from 'vitest';
-import { sanitizeArticleHtml, escapeHtml } from '../highlights/articleHtml.js';
+import { sanitizeArticleHtml } from '../highlights/articleHtml.js';
 
 describe('sanitizeArticleHtml', () => {
   it('strips <script> elements but keeps surrounding text', () => {
@@ -43,16 +43,5 @@ describe('sanitizeArticleHtml', () => {
     expect(sanitizeArticleHtml('')).toBe('');
     expect(sanitizeArticleHtml(null)).toBe('');
     expect(sanitizeArticleHtml(undefined)).toBe('');
-  });
-});
-
-describe('escapeHtml', () => {
-  it('escapes HTML metacharacters', () => {
-    expect(escapeHtml('<b>&"\'</b>')).toBe('&lt;b&gt;&amp;&quot;&#39;&lt;/b&gt;');
-  });
-
-  it('coerces falsy values to empty string', () => {
-    expect(escapeHtml(null)).toBe('');
-    expect(escapeHtml(undefined)).toBe('');
   });
 });

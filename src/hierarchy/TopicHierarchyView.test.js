@@ -27,7 +27,6 @@ describe('TopicHierarchyView', () => {
     const { container, unmount } = render(
       createElement(TopicHierarchyView, {
         topics: [],
-        topicSummaries: {},
         topicSummaryIndex: {},
         selectedTopicPath: null,
         onTopicClick: vi.fn(),
@@ -46,7 +45,6 @@ describe('TopicHierarchyView', () => {
       {
         name: 'Fruit > Apple',
         sentences: [1, 2, 3],
-        summary: 'An apple a day',
       },
       {
         name: 'Fruit > Banana',
@@ -55,21 +53,19 @@ describe('TopicHierarchyView', () => {
       {
         name: 'Veggie',
         sentences: [10],
-        summary_text: 'Healthy veggie',
       },
     ];
 
-    const mockSummaries = {
-      'Fruit>Banana': {
-        text: 'Yellow fruit summary',
-      },
+    const topicSummaryIndex = {
+      'Fruit>Apple': { runs: [{ text: 'An apple a day' }] },
+      'Fruit>Banana': { runs: [{ text: 'Yellow fruit summary' }] },
+      Veggie: { runs: [{ text: 'Healthy veggie' }] },
     };
 
     const { container, unmount } = render(
       createElement(TopicHierarchyView, {
         topics: mockTopics,
-        topicSummaries: mockSummaries,
-        topicSummaryIndex: {},
+        topicSummaryIndex,
         selectedTopicPath: 'Fruit>Apple',
         onTopicClick,
       }),
@@ -129,15 +125,14 @@ describe('TopicHierarchyView', () => {
       { name: 'Fruit > Banana', sentences: [3] },
       { name: 'Veggie', sentences: [10] },
     ];
-    const mockSummaries = {
-      Fruit: { text: 'Fruit overview summary' },
+    const topicSummaryIndex = {
+      Fruit: { runs: [{ text: 'Fruit overview summary' }] },
     };
 
     const { container, unmount } = render(
       createElement(TopicHierarchyView, {
         topics: mockTopics,
-        topicSummaries: mockSummaries,
-        topicSummaryIndex: {},
+        topicSummaryIndex,
         selectedTopicPath: null,
         onTopicClick,
       }),
@@ -182,39 +177,6 @@ describe('TopicHierarchyView', () => {
     const { container, unmount } = render(
       createElement(TopicHierarchyView, {
         topics: mockTopics,
-        topicSummaries: {},
-        topicSummaryIndex: {},
-        selectedTopicPath: null,
-        onTopicClick: vi.fn(),
-        sourceUrl: 'https://www.youtube.com/watch?v=abc',
-        sentences: ['0:10 Intro to apple', '0:20 Details about apple'],
-      }),
-    );
-
-    const youtubeButtons = container.querySelectorAll('.canvas-youtube-timestamp');
-    expect(youtubeButtons.length).toBe(2);
-
-    expect(youtubeButtons[0].getAttribute('href')).toContain('t=10s');
-    expect(youtubeButtons[0].textContent).toBe('0:00:10');
-
-    expect(youtubeButtons[1].getAttribute('href')).toContain('t=10s');
-    expect(youtubeButtons[1].textContent).toBe('0:00:10');
-
-    unmount();
-  });
-
-  it('renders youtube icon and timestamp links when isYouTube is true and sentence IDs are zero-based', () => {
-    const mockTopics = [
-      {
-        name: 'Fruit > Apple',
-        sentences: [0, 1],
-      },
-    ];
-
-    const { container, unmount } = render(
-      createElement(TopicHierarchyView, {
-        topics: mockTopics,
-        topicSummaries: {},
         topicSummaryIndex: {},
         selectedTopicPath: null,
         onTopicClick: vi.fn(),
@@ -273,7 +235,6 @@ describe('TopicHierarchyView', () => {
     return render(
       createElement(TopicHierarchyView, {
         topics: widthTopics,
-        topicSummaries: {},
         topicSummaryIndex: {},
         selectedTopicPath: null,
         onTopicClick: vi.fn(),
@@ -310,7 +271,6 @@ describe('TopicHierarchyView', () => {
     const buildView = (collapsedPaths) =>
       createElement(TopicHierarchyView, {
         topics: controlledTopics,
-        topicSummaries: {},
         topicSummaryIndex: {},
         selectedTopicPath: null,
         onTopicClick: vi.fn(),
@@ -345,15 +305,15 @@ describe('TopicHierarchyView', () => {
       {
         name: 'Fruit > Apple',
         sentences: [1],
-        summary: 'Delicious red apple',
       },
     ];
 
     const { container, unmount } = render(
       createElement(TopicHierarchyView, {
         topics: mockTopics,
-        topicSummaries: {},
-        topicSummaryIndex: {},
+        topicSummaryIndex: {
+          'Fruit > Apple': { runs: [{ text: 'Delicious red apple' }] },
+        },
         selectedTopicPath: null,
         onTopicClick: vi.fn(),
         onSummaryClick,

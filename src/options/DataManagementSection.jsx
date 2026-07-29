@@ -26,8 +26,8 @@ const CATEGORY_ROWS = [
   },
   {
     id: 'other',
-    label: 'Other / legacy',
-    description: 'Any unrecognized local keys retained by this or an older extension version',
+    label: 'Other',
+    description: 'Any unrecognized local storage keys',
   },
 ];
 
@@ -94,7 +94,7 @@ export function DataManagementSection({ onDataChanged }) {
   const resetExtension = async () => {
     if (
       !confirm(
-        'Reset ALL extension data? This permanently removes page data and chats, provider settings and API tokens, preferences, diagnostics, and any legacy stored data.',
+        'Reset ALL extension data? This permanently removes page data and chats, provider settings and API tokens, preferences, diagnostics, and unrecognized stored data.',
       )
     ) {
       return;
@@ -176,7 +176,7 @@ export function DataManagementSection({ onDataChanged }) {
           <h3>Reset extension</h3>
           <p className="note">
             Removes every local value, including provider API tokens, preferences, diagnostics, and
-            unknown legacy keys.
+            unrecognized keys.
           </p>
           <button className="danger" type="button" onClick={resetExtension} disabled={!!busyAction}>
             {busyAction === 'all' ? 'Resetting...' : 'Delete all extension data'}

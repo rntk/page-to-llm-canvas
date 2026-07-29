@@ -80,19 +80,9 @@ describe('getTopicSentenceNumbers', () => {
     expect(getTopicSentenceNumbers(null)).toEqual([]);
   });
 
-  it('returns sentenceIndices when present', () => {
-    const topic = { sentenceIndices: [3, 1, 2] };
-    expect(getTopicSentenceNumbers(topic)).toEqual([1, 2, 3]);
-  });
-
-  it('returns sentences when no sentenceIndices', () => {
+  it('returns sorted sentences', () => {
     const topic = { sentences: [5, 3, 4] };
     expect(getTopicSentenceNumbers(topic)).toEqual([3, 4, 5]);
-  });
-
-  it('prefers sentenceIndices over sentences', () => {
-    const topic = { sentenceIndices: [1], sentences: [5, 6] };
-    expect(getTopicSentenceNumbers(topic)).toEqual([1]);
   });
 
   it('filters out non-positive integers', () => {
@@ -100,33 +90,8 @@ describe('getTopicSentenceNumbers', () => {
     expect(getTopicSentenceNumbers(topic)).toEqual([2, 3]);
   });
 
-  it('extracts from ranges when no explicit sentences', () => {
-    const topic = { ranges: [{ sentence_start: 2, sentence_end: 5 }] };
-    expect(getTopicSentenceNumbers(topic)).toEqual([2, 3, 4, 5]);
-  });
-
-  it('handles ranges with reversed start/end', () => {
-    const topic = { ranges: [{ sentence_start: 5, sentence_end: 2 }] };
-    expect(getTopicSentenceNumbers(topic)).toEqual([2, 3, 4, 5]);
-  });
-
-  it('handles single-sentence ranges', () => {
-    const topic = { ranges: [{ sentence_start: 3 }] };
-    expect(getTopicSentenceNumbers(topic)).toEqual([3]);
-  });
-
-  it('deduplicates across overlapping ranges', () => {
-    const topic = {
-      ranges: [
-        { sentence_start: 1, sentence_end: 3 },
-        { sentence_start: 3, sentence_end: 5 },
-      ],
-    };
-    expect(getTopicSentenceNumbers(topic)).toEqual([1, 2, 3, 4, 5]);
-  });
-
-  it('returns empty array for empty ranges', () => {
-    const topic = { ranges: [] };
+  it('returns empty array when sentences are missing', () => {
+    const topic = {};
     expect(getTopicSentenceNumbers(topic)).toEqual([]);
   });
 });
@@ -150,11 +115,11 @@ describe('buildTopicSentenceIndex', () => {
     const index = buildTopicSentenceIndex([
       { name: '', sentences: [1] },
       { name: 'Tech', sentences: [] },
-      { name: 'Science', ranges: [{ sentence_start: 2, sentence_end: 3 }] },
+      { name: 'Science', sentences: [] },
     ]);
 
     expect(index.has('Tech')).toBe(false);
-    expect([...index.get('Science')]).toEqual([2, 3]);
+    expect(index.has('Science')).toBe(false);
   });
 });
 

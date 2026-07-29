@@ -120,42 +120,38 @@ describe('record helpers', () => {
     expect(safeFilenamePart('a'.repeat(200))).toHaveLength(80);
   });
 
-  it('extracts imported records from supported JSON wrapper shapes', () => {
-    const record = { key: 'r1', text: 'hello' };
+  it('extracts a record or a top-level record array', () => {
+    const record = { key: 'r1', html: '<p>hello</p>' };
     expect(extractImportedRecords(record)).toEqual([record]);
-    expect(extractImportedRecords({ record })).toEqual([record]);
-    expect(extractImportedRecords({ records: [record, null, 'bad'] })).toEqual([record]);
-    expect(extractImportedRecords({ items: [record] })).toEqual([record]);
-    expect(extractImportedRecords({ records: [], items: [record] })).toEqual([record]);
+    expect(extractImportedRecords([record, null, 'bad'])).toEqual([record]);
     expect(extractImportedRecords(null)).toEqual([]);
   });
 
-  it('checks whether an imported record has enough data to open', () => {
+  it('requires the canonical key and HTML fields for imported records', () => {
     expect(isImportableRecord({ key: 'r1', html: '<p>hello</p>' })).toBe(true);
-    expect(isImportableRecord({ key: 'r1', text: 'hello' })).toBe(true);
-    expect(isImportableRecord({ key: 'r1', topics: [] })).toBe(true);
-    expect(isImportableRecord({ key: 'r1', topic_summaries: {} })).toBe(true);
+    expect(isImportableRecord({ key: 'r1', text: 'hello' })).toBe(false);
     expect(isImportableRecord({ key: 'r1', sourceUrl: 'https://example.com' })).toBe(false);
-    expect(isImportableRecord({ key: '   ', text: 'hello' })).toBe(false);
+    expect(isImportableRecord({ key: '   ', html: '<p>hello</p>' })).toBe(false);
   });
 
   it('deduplicates imported records by key with later entries winning', () => {
     expect(
       dedupeImportedRecords([
-        { key: 'r1', text: 'old' },
-        { key: 'r2', text: 'other' },
-        { key: 'r1', text: 'new' },
+        { key: 'r1', html: '<p>old</p>' },
+        { key: 'r2', html: '<p>other</p>' },
+        { key: 'r1', html: '<p>new</p>' },
         { key: 'metadata-only', sourceUrl: 'https://example.com' },
       ]),
     ).toEqual([
-      { key: 'r1', text: 'new' },
-      { key: 'r2', text: 'other' },
+      { key: 'r1', html: '<p>new</p>' },
+      { key: 'r2', html: '<p>other</p>' },
     ]);
   });
 
   it('normalizes imported records into viewable non-pipeline records', () => {
     const [record] = normalizeImportedRecords({
       key: ' rec1 ',
+      html: '<p>raw text</p>',
       text: 'raw text',
       topics: [{ name: 'Topic', sentences: [1] }],
       topic_summaries: { Topic: { text: 'summary' } },
@@ -178,7 +174,7 @@ describe('record helpers', () => {
     expect(record.importedAt).toEqual(expect.any(Number));
   });
 
-  it('rejects JSON payloads that do not include record content, topics, or summaries', () => {
+  it('rejects JSON payloads without canonical HTML content', () => {
     expect(
       normalizeImportedRecords({ key: 'metadata-only', sourceUrl: 'https://example.com' }),
     ).toEqual([]);

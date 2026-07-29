@@ -17,7 +17,7 @@ export async function getStoredChat(key, chatId) {
 
 export async function persistChatTurn(key, chatId, turn) {
   const response = await request({ type: MSG.appendChatTurn, key, chatId, turn });
-  return { chat: response.chat, messages: response.messages, events: response.events };
+  return { chat: response.chat };
 }
 
 export async function removeStoredChat(key, chatId) {

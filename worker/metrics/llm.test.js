@@ -115,20 +115,6 @@ describe('normalizeLlmMetrics / helpers', () => {
     expect(normalized.byTaskType.article_summary.failureCount).toBe(1);
   });
 
-  it('defaults missing byTaskType and taskType on legacy payloads', () => {
-    const normalized = normalizeLlmMetrics({
-      totalCount: 1,
-      successCount: 1,
-      failureCount: 0,
-      totalDurationMs: 10,
-      minDurationMs: 10,
-      maxDurationMs: 10,
-      recent: [{ at: 1, durationMs: 10, ok: true }],
-    });
-    expect(normalized.byTaskType).toEqual({});
-    expect(normalized.recent[0].taskType).toBe(LLM_TASK_TYPES.UNKNOWN);
-  });
-
   it('normalizes task types', () => {
     expect(normalizeTaskType(undefined)).toBe(LLM_TASK_TYPES.UNKNOWN);
     expect(normalizeTaskType('')).toBe(LLM_TASK_TYPES.UNKNOWN);

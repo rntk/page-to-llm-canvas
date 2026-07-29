@@ -797,8 +797,8 @@ export const MESSAGE_HANDLERS = {
       return hasMessages || hasEvents ? null : 'empty turn';
     },
     async handle(msg) {
-      const { chat, messages, events } = await appendChatTurn(msg.key, msg.chatId, msg.turn);
-      return { ok: true, chat, messages, events };
+      const { chat } = await appendChatTurn(msg.key, msg.chatId, msg.turn);
+      return { ok: true, chat };
     },
   },
 

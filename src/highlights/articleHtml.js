@@ -2,13 +2,6 @@
 // modal. Kept separate from App.jsx so they stay plain functions (testable,
 // and friendly to React Fast Refresh).
 
-const HTML_ESCAPE_RE = /[&<>"']/g;
-const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-
-export function escapeHtml(text) {
-  return String(text || '').replace(HTML_ESCAPE_RE, (c) => HTML_ESCAPES[c]);
-}
-
 /**
  * Re-render the original article markup as faithfully as possible while removing
  * anything that could execute or fetch in the modal iframe. The page's CSP

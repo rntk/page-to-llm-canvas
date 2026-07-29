@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildTopicTree, summarizeTopicTree } from './topicTreeMerge.js';
+import {
+  buildPartialTopicSummaryIndex,
+  buildTopicTree,
+  summarizeTopicTree,
+} from './topicTreeMerge.js';
 
 // Summaries are per contiguous run: { runs: [{ sentences, text }] }. A leaf with a
 // single run is the common case; internal nodes return whatever runs
@@ -8,9 +12,7 @@ const oneRun = (sentences, text) => ({ runs: [{ sentences, text }] });
 
 describe('buildTopicTree', () => {
   it('builds a deep path from strictly shorter parent prefixes', () => {
-    const { root, nodes } = buildTopicTree([
-      { name: 'Domain>Section>Leaf', sentences: [3] },
-    ]);
+    const { root, nodes } = buildTopicTree([{ name: 'Domain>Section>Leaf', sentences: [3] }]);
 
     expect([...nodes.keys()]).toEqual(['', 'Domain', 'Domain>Section', 'Domain>Section>Leaf']);
     expect(root.children.map((node) => node.path)).toEqual(['Domain']);
@@ -28,6 +30,41 @@ describe('buildTopicTree', () => {
 
     expect(nodes.get('A>B').sourceSentences).toEqual([1, 2, 4]);
     expect(nodes.get('A').sourceSentences).toEqual([1, 2, 4]);
+  });
+});
+
+describe('buildPartialTopicSummaryIndex', () => {
+  it('projects available leaf checkpoints into the canonical index shape', () => {
+    const index = buildPartialTopicSummaryIndex(
+      [
+        { name: 'Tech>AI', sentences: [1, 2] },
+        { name: 'Tech>Hardware', sentences: [3] },
+      ],
+      {
+        'Tech>AI': {
+          runs: [{ sentences: [1, 2], text: 'AI summary.' }],
+          source_sentences: [1, 2],
+        },
+        'Tech>Hardware': {
+          runs: [{ sentences: [3], text: '' }],
+          source_sentences: [3],
+          error: true,
+        },
+      },
+    );
+
+    expect(index).toEqual({
+      'Tech>AI': {
+        runs: [{ sentences: [1, 2], text: 'AI summary.' }],
+        level: 1,
+        source_sentences: [1, 2],
+      },
+      'Tech>Hardware': {
+        runs: [{ sentences: [3], text: '' }],
+        level: 1,
+        source_sentences: [3],
+      },
+    });
   });
 });
 

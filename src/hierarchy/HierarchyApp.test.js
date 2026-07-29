@@ -247,8 +247,9 @@ describe('HierarchyApp', () => {
     const mockRecord = {
       status: 'done',
       topics: [{ name: 'Fruit', sentences: [1] }],
-      topic_summaries: { Fruit: 'A delicious collection of fruits.' },
-      topic_summary_index: { Fruit: 0 },
+      topic_summary_index: {
+        Fruit: { runs: [{ text: 'A delicious collection of fruits.' }] },
+      },
     };
     useRecord.mockReturnValue({ record: mockRecord, error: null });
 

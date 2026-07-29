@@ -141,7 +141,7 @@ describe('per-chat history and events', () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
     await seedRecord(mock, makeRecord('article'));
-    const { chat: first, events: firstEvents } = await appendChatTurn('article', null, {
+    const { chat: first } = await appendChatTurn('article', null, {
       events: [{ eventType: 'highlight_span', data: { startLine: 1, endLine: 1 } }],
     });
     const { chat: second } = await appendChatTurn('article', null, {
@@ -150,7 +150,7 @@ describe('per-chat history and events', () => {
 
     expect((await readChat('article', first.chatId)).events).toHaveLength(1);
     expect((await readChat('article', second.chatId)).events).toHaveLength(1);
-    expect(firstEvents[0].seq).toBe(1);
+    expect(first.events[0].seq).toBe(1);
     expect((await readChat('article', second.chatId)).events).toHaveLength(1);
     expect(await deleteChatHistory('article', second.chatId)).toBe(true);
     expect(await readChat('article', second.chatId)).toBeNull();
@@ -489,45 +489,6 @@ describe('titleIsDefault behavior', () => {
     expect(stored.title).toBe('Real question');
     expect(stored.titleIsDefault).toBe(false);
   });
-
-  it('derives the title for already-stored chats missing the flag (backward compat)', async () => {
-    const mock = makeChromeMock();
-    vi.stubGlobal('chrome', mock);
-    await seedRecord(mock, makeRecord('article'));
-
-    // Simulate a chat written before titleIsDefault existed.
-    const { chat } = await appendChatTurn('article', null, {
-      events: [{ data: { startLine: 0, endLine: 0 } }],
-    });
-    const storedChat = mock.storage.local._store.get(`pagetollm:chats:article:${chat.chatId}`);
-    delete storedChat.titleIsDefault;
-
-    await appendChatTurn('article', chat.chatId, {
-      messages: [{ role: 'user', content: 'Legacy question' }],
-    });
-    const stored = await readChat('article', chat.chatId);
-    expect(stored.title).toBe('Legacy question');
-    expect(stored.titleIsDefault).toBe(false);
-  });
-
-  it('does not clobber a user-visible title on flagless chats that were already renamed', async () => {
-    const mock = makeChromeMock();
-    vi.stubGlobal('chrome', mock);
-    await seedRecord(mock, makeRecord('article'));
-
-    // A flagless legacy chat whose title was already derived is not re-derived.
-    const { chat } = await appendChatTurn('article', null, {
-      events: [{ data: { startLine: 0, endLine: 0 } }],
-    });
-    const storedChat = mock.storage.local._store.get(`pagetollm:chats:article:${chat.chatId}`);
-    delete storedChat.titleIsDefault;
-    storedChat.title = 'Already derived';
-
-    await appendChatTurn('article', chat.chatId, {
-      messages: [{ role: 'user', content: 'New question' }],
-    });
-    expect((await readChat('article', chat.chatId)).title).toBe('Already derived');
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -547,13 +508,13 @@ describe('appendChatTurn', () => {
     vi.stubGlobal('crypto', { randomUUID });
 
     try {
-      const { chat, messages } = await appendChatTurn('article', null, {
+      const { chat } = await appendChatTurn('article', null, {
         messages: [{ role: 'user', content: 'Use UUID ids' }],
       });
 
       expect(chat.chatId).toBe('chat_chat-uuid');
       expect(chat.turnIds).toEqual(['turn_turn-uuid']);
-      expect(messages[0]).toMatchObject({
+      expect(chat.messages[0]).toMatchObject({
         id: 'message_message-uuid',
         turnId: 'turn_turn-uuid',
       });
@@ -577,13 +538,13 @@ describe('appendChatTurn', () => {
     const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
 
     try {
-      const { chat, messages } = await appendChatTurn('article', null, {
+      const { chat } = await appendChatTurn('article', null, {
         messages: [{ role: 'user', content: 'Use fallback ids' }],
       });
 
       expect(chat.chatId).toBe('chat_2n9c_i');
       expect(chat.turnIds).toEqual(['turn_2n9c_i']);
-      expect(messages[0]).toMatchObject({
+      expect(chat.messages[0]).toMatchObject({
         id: 'message_2n9c_i',
         turnId: 'turn_2n9c_i',
       });
@@ -600,7 +561,7 @@ describe('appendChatTurn', () => {
     vi.stubGlobal('chrome', mock);
     await seedRecord(mock, makeRecord('article'));
 
-    const { chat, messages, events } = await appendChatTurn('article', null, {
+    const { chat } = await appendChatTurn('article', null, {
       messages: [
         { role: 'user', content: 'Where is the evidence?' },
         {
@@ -616,18 +577,18 @@ describe('appendChatTurn', () => {
     });
 
     expect(chat.chatId).toMatch(/^chat_/);
-    expect(messages).toHaveLength(4);
-    expect(events).toHaveLength(1);
-    expect(messages[0]).toMatchObject({ role: 'user', content: 'Where is the evidence?' });
-    expect(messages[0].id).toMatch(/^message_/);
-    expect(messages[1]).toMatchObject({ role: 'assistant', hidden: true });
-    expect(messages[1].toolCalls).toEqual([
+    expect(chat.messages).toHaveLength(4);
+    expect(chat.events).toHaveLength(1);
+    expect(chat.messages[0]).toMatchObject({ role: 'user', content: 'Where is the evidence?' });
+    expect(chat.messages[0].id).toMatch(/^message_/);
+    expect(chat.messages[1]).toMatchObject({ role: 'assistant', hidden: true });
+    expect(chat.messages[1].toolCalls).toEqual([
       { id: 'call-1', name: 'highlight_span', arguments: {} },
     ]);
-    expect(messages[2]).toMatchObject({ role: 'tool', toolCallId: 'call-1' });
+    expect(chat.messages[2]).toMatchObject({ role: 'tool', toolCallId: 'call-1' });
     // Provider reasoning is intentionally not retained in durable history.
-    expect(messages[3]).not.toHaveProperty('reasoning');
-    expect(events[0]).toMatchObject({
+    expect(chat.messages[3]).not.toHaveProperty('reasoning');
+    expect(chat.events[0]).toMatchObject({
       seq: 1,
       eventType: 'highlight_span',
       data: { startLine: 2, endLine: 3 },
@@ -651,15 +612,15 @@ describe('appendChatTurn', () => {
     vi.stubGlobal('chrome', mock);
     await seedRecord(mock, makeRecord('article'));
 
-    const { messages } = await appendChatTurn('article', null, {
+    const { chat } = await appendChatTurn('article', null, {
       messages: [
         { role: 'system', content: 'Not a real chat role.' },
         { content: 'No role at all.' },
       ],
     });
 
-    expect(messages[0].role).toBe('user');
-    expect(messages[1].role).toBe('user');
+    expect(chat.messages[0].role).toBe('user');
+    expect(chat.messages[1].role).toBe('user');
   });
 
   it('assigns sequential event seqs continuing from the chat nextEventSeq', async () => {
@@ -670,7 +631,7 @@ describe('appendChatTurn', () => {
       events: [{ data: { startLine: 1, endLine: 1 } }],
     });
 
-    const { events } = await appendChatTurn('article', chat.chatId, {
+    const { chat: updated } = await appendChatTurn('article', chat.chatId, {
       events: [
         { data: { startLine: 2, endLine: 2 } },
         { data: { startLine: 3, endLine: 3 } },
@@ -678,7 +639,7 @@ describe('appendChatTurn', () => {
       ],
     });
 
-    expect(events.map((event) => event.seq)).toEqual([2, 3, 4]);
+    expect(updated.events.slice(-3).map((event) => event.seq)).toEqual([2, 3, 4]);
     const stored = await readChat('article', chat.chatId);
     expect(stored.events.map((event) => event.seq)).toEqual([1, 2, 3, 4]);
     expect(stored.nextEventSeq).toBe(5);
@@ -695,10 +656,10 @@ describe('appendChatTurn', () => {
     stored.events[0].seq = 8;
     stored.nextEventSeq = 2;
 
-    const { events } = await appendChatTurn('article', chat.chatId, {
+    const { chat: updated } = await appendChatTurn('article', chat.chatId, {
       events: [{ data: { startLine: 2, endLine: 2 } }],
     });
-    expect(events[0].seq).toBe(9);
+    expect(updated.events.at(-1).seq).toBe(9);
   });
 
   it('is idempotent by turnId, including creation retries without a chatId', async () => {
@@ -714,12 +675,11 @@ describe('appendChatTurn', () => {
     const first = await appendChatTurn('article', null, turn);
     const retried = await appendChatTurn('article', null, turn);
 
-    expect(retried.duplicate).toBe(true);
     expect(retried.chat.chatId).toBe(first.chat.chatId);
-    expect(retried.messages).toEqual(first.messages);
-    expect(retried.events).toEqual(first.events);
+    expect(retried.chat.messages).toEqual(first.chat.messages);
+    expect(retried.chat.events).toEqual(first.chat.events);
     expect(retried.chat.messages).toHaveLength(1);
-    expect(retried.messages[0].turnId).toBe(turn.turnId);
+    expect(retried.chat.messages[0].turnId).toBe(turn.turnId);
   });
 
   it('deletes chats and their index entries after the record content revision changes', async () => {
@@ -844,9 +804,10 @@ describe('appendChatTurn', () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
     await seedRecord(mock, makeRecord('article'));
-    const { chat, messages: seedMessages } = await appendChatTurn('article', null, {
+    const { chat } = await appendChatTurn('article', null, {
       messages: [{ role: 'user', content: 'seed', hidden: true }],
     });
+    const seedMessages = chat.messages;
     mock._state.lastErrorOnSet = true;
 
     await expect(

@@ -1,5 +1,20 @@
 import { describe, it, expect } from 'vitest';
-import { computeMaxTopicLevelForRecord } from './topicDomain.js';
+import { computeMaxTopicLevelForRecord, requireTopicSummaryLevel } from './topicDomain.js';
+
+describe('requireTopicSummaryLevel', () => {
+  it('returns a canonical non-negative integer level', () => {
+    expect(requireTopicSummaryLevel('A > B', { level: 1 })).toBe(1);
+  });
+
+  it.each([null, {}, { level: -1 }, { level: 1.5 }, { level: Number.NaN }])(
+    'rejects a malformed index entry: %j',
+    (entry) => {
+      expect(() => requireTopicSummaryLevel('A > B', entry)).toThrow(
+        'Invalid topic_summary_index entry for "A > B"',
+      );
+    },
+  );
+});
 
 // ── computeMaxTopicLevelForRecord ───────────────────────────────────────────
 
@@ -30,24 +45,6 @@ describe('computeMaxTopicLevelForRecord', () => {
     expect(computeMaxTopicLevelForRecord(record)).toBe(4);
   });
 
-  it('infers summary index level from path depth when entry.level is absent', () => {
-    const record = {
-      topic_summary_index: {
-        'A > B > C': {},
-      },
-    };
-    expect(computeMaxTopicLevelForRecord(record)).toBe(2);
-  });
-
-  it('infers summary index level from path depth when an entry is nullish', () => {
-    const record = {
-      topic_summary_index: {
-        'A > B > C': null,
-      },
-    };
-    expect(computeMaxTopicLevelForRecord(record)).toBe(2);
-  });
-
   it('skips empty-key summary index entries', () => {
     const record = {
       topics: [{ name: 'A > B' }],
@@ -70,5 +67,13 @@ describe('computeMaxTopicLevelForRecord', () => {
 
   it('handles non-array topics and non-object index gracefully', () => {
     expect(computeMaxTopicLevelForRecord({ topics: null, topic_summary_index: null })).toBe(0);
+  });
+
+  it('rejects an index entry without an explicit canonical level', () => {
+    expect(() =>
+      computeMaxTopicLevelForRecord({
+        topic_summary_index: { 'A > B': { runs: [] } },
+      }),
+    ).toThrow('Invalid topic_summary_index entry for "A > B"');
   });
 });

@@ -116,7 +116,7 @@ export async function getStorageOverview() {
 }
 
 /**
- * Removes every local value, including unknown/legacy keys. Serialized behind
+ * Removes every local value, including unrecognized keys. Serialized behind
  * record/chat mutations so an already-queued write cannot survive the reset.
  */
 export function clearAllExtensionData() {

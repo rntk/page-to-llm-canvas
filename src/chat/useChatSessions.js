@@ -216,23 +216,13 @@ export function useChatSessions({ recordKey, applyEvents }) {
       if (activeChatIdRef.current !== expectedChatId) return false;
       const authoritativeChat = persisted?.chat;
       if (!authoritativeChat?.chatId) return false;
-      const fallbackMessages = Array.isArray(persisted.messages) ? persisted.messages : [];
-      const fallbackEvents = Array.isArray(persisted.events) ? persisted.events : [];
-      const chat = {
-        ...authoritativeChat,
-        messages: Array.isArray(authoritativeChat.messages)
-          ? authoritativeChat.messages
-          : [...messages, ...fallbackMessages],
-        events: Array.isArray(authoritativeChat.events) ? authoritativeChat.events : events,
-      };
-      const fallbackEventSeqs = new Set(fallbackEvents.map((event) => event.seq));
-      const turnEvents = chat.events.filter(
-        (event) => (turnId && event.turnId === turnId) || fallbackEventSeqs.has(event.seq),
+      const turnEvents = authoritativeChat.events.filter(
+        (event) => turnId && event.turnId === turnId,
       );
-      adoptChat(chat, turnEvents.at(-1) || null);
+      adoptChat(authoritativeChat, turnEvents.at(-1) || null);
       return true;
     },
-    [adoptChat, events, messages],
+    [adoptChat],
   );
 
   /** Reconcile an append whose response may have been lost after storage committed. */
@@ -243,7 +233,7 @@ export function useChatSessions({ recordKey, applyEvents }) {
         const chat = await getStoredChat(recordKey, chatId);
         if (!chat?.messages?.some((message) => message.turnId === turnId)) return false;
         if (!mountedRef.current || activeChatIdRef.current !== chatId) return false;
-        const turnEvents = (chat.events || []).filter((event) => event.turnId === turnId);
+        const turnEvents = chat.events.filter((event) => event.turnId === turnId);
         adoptChat(chat, turnEvents.at(-1) || null);
         return true;
       } catch {

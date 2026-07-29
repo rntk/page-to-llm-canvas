@@ -5,8 +5,6 @@ const WHEEL_IN = 1.1;
 const WHEEL_OUT = 1 / 1.1;
 const ARROW_STEP = 80;
 
-export { clampScale, cursorAnchoredTranslate } from '../../utils/canvasMath.js';
-
 /**
  * Simplified canvas transform hook: pan, wheel zoom, programmatic zoom,
  * page navigation, and arrow/Home/End/PageUp/PageDown keyboard shortcuts.

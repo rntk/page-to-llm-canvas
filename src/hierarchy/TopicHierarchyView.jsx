@@ -5,7 +5,7 @@ import {
   getHierarchyTopicHighlightColorDark,
   getHierarchyTopicAccentColor,
 } from '../utils/topicColorUtils.js';
-import { spacedTopicPath, getSummaryText, buildSummaryLookup } from './topicViewUtils.js';
+import { spacedTopicPath, buildSummaryLookup } from './topicViewUtils.js';
 import { getYouTubeTimestampLink, getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
 import YouTubeTimestampButton from '../components/YouTubeTimestampButton.jsx';
 import { getSentencesForNode } from './hierarchyUtils.js';
@@ -25,12 +25,7 @@ const CARD_WIDTH_CAP_INSET = 24;
 
 function getNodeSummary(node, summaryLookup) {
   return (
-    getSummaryText(node.topic?.summary) ||
-    getSummaryText(node.topic?.topic_summary) ||
-    getSummaryText(node.topic?.summary_text) ||
-    summaryLookup.get(node.fullPath) ||
-    summaryLookup.get(spacedTopicPath(node.fullPath)) ||
-    ''
+    summaryLookup.get(node.fullPath) || summaryLookup.get(spacedTopicPath(node.fullPath)) || ''
   );
 }
 
@@ -94,7 +89,7 @@ const HierarchyNode = React.memo(function HierarchyNode({
 
   const youtubeLink = useMemo(() => {
     if (!isYouTube) return null;
-    const sourceSentences = getSentencesForNode(entry, { preserveZero: true });
+    const sourceSentences = getSentencesForNode(entry);
     // h:mm:ss for every label so the links stay in a straight, fixed-width column.
     return getYouTubeTimestampLink({
       sourceUrl,
@@ -111,7 +106,7 @@ const HierarchyNode = React.memo(function HierarchyNode({
       onSummaryClick?.({
         path: spacedTopicPath(node.fullPath),
         text: summary,
-        sourceSentences: getSentencesForNode(entry, { preserveZero: true }),
+        sourceSentences: getSentencesForNode(entry),
       });
     };
     const handleSummaryKeyDown = (e) => {
@@ -188,7 +183,7 @@ const HierarchyNode = React.memo(function HierarchyNode({
       onSummaryClick?.({
         path: spacedTopicPath(node.fullPath),
         text: summary,
-        sourceSentences: getSentencesForNode(entry, { preserveZero: true }),
+        sourceSentences: getSentencesForNode(entry),
       });
     };
     const handleSummaryKeyDown = (e) => {
@@ -268,7 +263,6 @@ const HierarchyNode = React.memo(function HierarchyNode({
 
 export default function TopicHierarchyView({
   topics,
-  topicSummaries,
   topicSummaryIndex,
   selectedTopicPath,
   onTopicClick,
@@ -279,10 +273,7 @@ export default function TopicHierarchyView({
   sentences,
 }) {
   const roots = useMemo(() => buildTopicTree(topics, 0), [topics]);
-  const summaryLookup = useMemo(
-    () => buildSummaryLookup(topicSummaries, topicSummaryIndex),
-    [topicSummaries, topicSummaryIndex],
-  );
+  const summaryLookup = useMemo(() => buildSummaryLookup(topicSummaryIndex), [topicSummaryIndex]);
 
   const [localCollapsedPaths, setLocalCollapsedPaths] = useState(() => new Set());
 

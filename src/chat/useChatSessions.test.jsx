@@ -148,11 +148,7 @@ describe('useChatSessions', () => {
   });
 
   it('selects one ungrouped event, selects a complete turn, and clears the paint', async () => {
-    const events = [
-      { seq: 1, turnId: 'turn-a' },
-      { seq: 2 },
-      { seq: 3, turnId: 'turn-a' },
-    ];
+    const events = [{ seq: 1, turnId: 'turn-a' }, { seq: 2 }, { seq: 3, turnId: 'turn-a' }];
     api.listStoredChats.mockResolvedValue([{ chatId: 'chat-1' }]);
     api.getStoredChat.mockResolvedValue(chat('chat-1', { events }));
     const ctx = setup();
@@ -312,9 +308,7 @@ describe('useChatSessions', () => {
   });
 
   it('starts a new chat after deleting the final active chat', async () => {
-    api.listStoredChats
-      .mockResolvedValueOnce([{ chatId: 'only' }])
-      .mockResolvedValueOnce([]);
+    api.listStoredChats.mockResolvedValueOnce([{ chatId: 'only' }]).mockResolvedValueOnce([]);
     api.getStoredChat.mockResolvedValue(chat('only', { messages: [{ content: 'old' }] }));
     const ctx = setup();
     await flushAsyncWork();
@@ -384,15 +378,11 @@ describe('useChatSessions', () => {
     expect(
       ctx.current.adoptPersistedTurn({ chat: { chatId: 'other' } }, { expectedChatId: null }),
     ).toBe(false);
-    expect(
-      ctx.current.adoptPersistedTurn({}, { expectedChatId: 'chat-1', turnId: 'new' }),
-    ).toBe(false);
+    expect(ctx.current.adoptPersistedTurn({}, { expectedChatId: 'chat-1', turnId: 'new' })).toBe(
+      false,
+    );
 
-    const newEvents = [
-      oldEvents[0],
-      { seq: 2, turnId: 'new' },
-      { seq: 3, turnId: 'new' },
-    ];
+    const newEvents = [oldEvents[0], { seq: 2, turnId: 'new' }, { seq: 3, turnId: 'new' }];
     let adopted;
     act(() => {
       adopted = ctx.current.adoptPersistedTurn(
@@ -413,31 +403,6 @@ describe('useChatSessions', () => {
     expect(ctx.current.events).toEqual(newEvents);
     expect(ctx.current.paintedEvents).toEqual(newEvents.slice(1));
     expect(ctx.current.selectedEventSeq).toBe(3);
-  });
-
-  it('uses persisted fallbacks when the authoritative chat omits message and event arrays', async () => {
-    const events = [{ seq: 1, turnId: 'old' }, { seq: 2, turnId: 'fallback' }];
-    api.listStoredChats.mockResolvedValue([{ chatId: 'chat-1' }]);
-    api.getStoredChat.mockResolvedValue(
-      chat('chat-1', { messages: [{ content: 'existing' }], events }),
-    );
-    const ctx = setup();
-    await flushAsyncWork();
-
-    act(() => {
-      ctx.current.adoptPersistedTurn(
-        {
-          chat: { chatId: 'chat-1' },
-          messages: [{ content: 'fallback' }],
-          events: [{ seq: 2 }],
-        },
-        { expectedChatId: 'chat-1' },
-      );
-    });
-    expect(ctx.current.messages).toEqual([{ content: 'existing' }, { content: 'fallback' }]);
-    expect(ctx.current.events).toEqual(events);
-    expect(ctx.current.paintedEvents).toEqual([events[1]]);
-    expect(ctx.current.selectedEventSeq).toBe(2);
   });
 
   it('reconciles a committed turn and rejects incomplete, stale, and failed reconciliations', async () => {

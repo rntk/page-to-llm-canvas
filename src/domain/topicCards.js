@@ -9,16 +9,6 @@
 import { getTopicSentenceNumbers, splitSentenceRuns, splitTopicPath } from './topicDomain.js';
 import { clampScale } from '../utils/canvasMath.js';
 
-// Compatibility exports for callers that previously sourced domain helpers
-// from this layout module. New code should import them from topicDomain.js.
-export {
-  buildTopicSentenceIndex,
-  getMaxTopicLevel,
-  getTopicSentenceNumbers,
-  splitSentenceRuns,
-  splitTopicPath,
-} from './topicDomain.js';
-
 export const CARD_WIDTH = 240;
 export const SUMMARY_CARD_WIDTH = 442;
 // The canvas can zoom out to 0.1, so allow the summary card to grow to 10x its
@@ -279,7 +269,7 @@ export function patchTopicCardsFromSummaryMetrics(cards, allSummaryCards, summar
  * Builds the positioned topic card objects for the rail view, showing all
  * hierarchy levels from 0 through selectedLevel in separate columns.
  *
- * @param {Array<{name: string, sentences?: number[], sentenceIndices?: number[], ranges?: Array<{sentence_start?: number, sentence_end?: number}>}>} topics - The topics from the record.
+ * @param {Array<{name: string, sentences?: number[]}>} topics - The topics from the record.
  * @param {number} selectedLevel - The selected maximum hierarchy level to display.
  * @param {Map<number, SentenceMetric>} [sentenceMetrics] - Measured sentence positions, keyed by 1-based sentence number.
  * @returns {Array<{

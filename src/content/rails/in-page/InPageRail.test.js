@@ -39,7 +39,7 @@ describe('InPageRail', () => {
       path: 'Topic A',
       accent: 'red',
       box: { top: 100, height: 200 },
-      sentences: [0, 1],
+      sentences: [1, 2],
     },
     {
       id: 'card2',
@@ -47,7 +47,7 @@ describe('InPageRail', () => {
       path: 'Topic B',
       accent: 'blue',
       box: { top: 350, height: 150 },
-      sentences: [2, 3],
+      sentences: [3, 4],
     },
   ];
 

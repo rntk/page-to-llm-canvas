@@ -19,9 +19,6 @@ import {
 } from './keys.js';
 
 export const INDEX_KEY = 'pagetollm:index';
-// Retain the old stamp only as a cleanup target for users upgrading from the
-// short-lived index migration. It is no longer read or written.
-const RETIRED_INDEX_SCHEMA_KEY = 'pagetollm:index-schema';
 const MAX_PROCESSING_LOG_ENTRIES = 80;
 const RECORD_SNIPPET_MAX_CHARS = 500;
 export const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
@@ -34,8 +31,9 @@ export const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
 //     step.
 //   - content: html/text/sentences/topics — written a handful of times per
 //     run (essentially write-once).
-//   - summaries: topic_summaries/topic_summary_index — written once per
-//     completed topic.
+//   - summaries: topic_summaries is the resumable leaf-work checkpoint;
+//     topic_summary_index is the canonical UI projection. The checkpoint stays
+//     load-bearing even though UI code never reads it directly.
 const CONTENT_FIELDS = ['html', 'text', 'sentences', 'topics'];
 const SUMMARY_FIELDS = ['topic_summaries', 'topic_summary_index'];
 
@@ -446,12 +444,7 @@ export async function deleteAll() {
       // can leave a page or chat document that no index names. Scan both owned
       // namespaces first, then remove everything in one call so hidden orphan
       // data is covered by the same user-facing action as visible records.
-      const keys = [
-        ...(await allRecordStorageKeys()),
-        ...(await allChatStorageKeys()),
-        INDEX_KEY,
-        RETIRED_INDEX_SCHEMA_KEY,
-      ];
+      const keys = [...(await allRecordStorageKeys()), ...(await allChatStorageKeys()), INDEX_KEY];
       await removeLocal([...new Set(keys)]);
     });
   });

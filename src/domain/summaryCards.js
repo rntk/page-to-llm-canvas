@@ -1,4 +1,4 @@
-import { splitSentenceRuns, splitTopicPath } from './topicDomain.js';
+import { requireTopicSummaryLevel, splitSentenceRuns, splitTopicPath } from './topicDomain.js';
 
 /**
  * Normalizes a summary entry's per-run list into render-ready runs. Each summary
@@ -51,70 +51,26 @@ export function filterSummaryCardsByLevel(allSummaryCards, selectedLevel) {
 }
 
 /**
- * Pure helper that turns record.topics + record.topic_summaries (legacy) or
- * record.topic_summary_index (preferred, hierarchical) into the
- * summaryViewCards[] array consumed by CanvasSummaryView.
+ * Pure helper that turns record.topic_summary_index into the summaryViewCards[]
+ * array consumed by CanvasSummaryView.
  *
- * @param {Array} topics
- * @param {object} topicSummaries
  * @param {object} topicSummaryIndex
  * @returns {Array} Card shape: { key, path, name, text, sourceSentences, startSentence, levelIndex }
  */
-export function buildSummaryCards(topics, topicSummaries, topicSummaryIndex) {
+export function buildSummaryCards(topicSummaryIndex) {
   const index =
     topicSummaryIndex && typeof topicSummaryIndex === 'object' ? topicSummaryIndex : null;
 
-  if (index && Object.keys(index).length > 0) {
-    const cards = [];
-    for (const [rawPath, entry] of Object.entries(index)) {
-      if (!rawPath) continue;
-      const parts = splitTopicPath(rawPath);
-      const path = parts.join(' > ') || rawPath;
-      const name = parts[parts.length - 1] || path;
-      const sourceSentences = Array.isArray(entry.source_sentences) ? entry.source_sentences : [];
-      const levelIndex = typeof entry.level === 'number' ? entry.level : parts.length - 1;
-
-      const runs = runsForRender(entry.runs, sourceSentences);
-      runs.forEach((run, runIndex) => {
-        const startSentence = run.sentences.length ? Math.min(...run.sentences) : 0;
-        cards.push({
-          key: `${path}#${levelIndex}#${runIndex}`,
-          path,
-          name,
-          text: run.text,
-          sourceSentences: run.sentences,
-          startSentence,
-          levelIndex,
-        });
-      });
-    }
-    cards.sort(
-      (a, b) =>
-        a.levelIndex - b.levelIndex ||
-        a.startSentence - b.startSentence ||
-        a.path.localeCompare(b.path),
-    );
-    return cards;
-  }
-
-  if (!Array.isArray(topics)) return [];
-  const summaries = topicSummaries || {};
-
+  if (!index) return [];
   const cards = [];
-  for (const topic of topics) {
-    const parts = splitTopicPath(topic.name);
-    const path = parts.join(' > ') || topic.name;
+  for (const [rawPath, entry] of Object.entries(index)) {
+    if (!rawPath) continue;
+    const parts = splitTopicPath(rawPath);
+    const path = parts.join(' > ') || rawPath;
     const name = parts[parts.length - 1] || path;
-
-    const summary = summaries[topic.name] || summaries[path] || {};
-    const sourceSentences = Array.isArray(summary.source_sentences)
-      ? summary.source_sentences
-      : Array.isArray(topic.sentences)
-        ? topic.sentences
-        : [];
-    const levelIndex = parts.length - 1;
-
-    const runs = runsForRender(summary.runs, sourceSentences);
+    const levelIndex = requireTopicSummaryLevel(rawPath, entry);
+    const sourceSentences = Array.isArray(entry.source_sentences) ? entry.source_sentences : [];
+    const runs = runsForRender(entry.runs, sourceSentences);
     runs.forEach((run, runIndex) => {
       const startSentence = run.sentences.length ? Math.min(...run.sentences) : 0;
       cards.push({

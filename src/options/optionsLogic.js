@@ -82,16 +82,9 @@ export function updateProviderFormType(form, type, defaultModel = '') {
   };
 }
 
-const IMPORT_RECORD_ARRAY_KEYS = ['records', 'items'];
-function createImportedRecordKey(index = 0) {
-  const suffix = index > 0 ? `-${index + 1}` : '';
-  return `imported-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${suffix}`;
-}
-
 /**
- * Extracts record objects from an imported JSON payload. Supports a single
- * record, `{ record }`, `{ records }`, or `{ items }` so older/export-wrapper
- * shapes are accepted without another UI path.
+ * Extracts record objects from an imported JSON payload. A single exported
+ * record and a top-level array for bulk import are the supported shapes.
  *
  * @param {unknown} payload
  * @returns {Array<object>}
@@ -99,12 +92,6 @@ function createImportedRecordKey(index = 0) {
 export function extractImportedRecords(payload) {
   if (Array.isArray(payload)) return payload.filter((item) => item && typeof item === 'object');
   if (!payload || typeof payload !== 'object') return [];
-  if (payload.record && typeof payload.record === 'object') return [payload.record];
-  for (const key of IMPORT_RECORD_ARRAY_KEYS) {
-    if (!Array.isArray(payload[key])) continue;
-    const records = payload[key].filter((item) => item && typeof item === 'object');
-    if (records.length > 0) return records;
-  }
   return [payload];
 }
 
@@ -134,30 +121,25 @@ export function dedupeImportedRecords(records) {
  */
 export function normalizeImportedRecords(payload) {
   const records = extractImportedRecords(payload);
-  return records
-    .map((record, index) => {
-      const key =
-        typeof record.key === 'string' && record.key.trim()
-          ? record.key.trim()
-          : createImportedRecordKey(index);
-      const status = isInFlightPipelineStatus(record.status)
-        ? PIPELINE_STATUS.DONE
-        : record.status || PIPELINE_STATUS.DONE;
-      return {
-        ...record,
-        key,
-        status,
-        error: status === PIPELINE_STATUS.DONE ? null : record.error || null,
-        progress: {
-          ...(record.progress && typeof record.progress === 'object' ? record.progress : {}),
-          stage: PIPELINE_STAGE.IMPORTED,
-          done: 1,
-          total: 1,
-        },
-        importedAt: Date.now(),
-      };
-    })
-    .filter(isImportableRecord);
+  return records.filter(isImportableRecord).map((record) => {
+    const key = record.key.trim();
+    const status = isInFlightPipelineStatus(record.status)
+      ? PIPELINE_STATUS.DONE
+      : record.status || PIPELINE_STATUS.DONE;
+    return {
+      ...record,
+      key,
+      status,
+      error: status === PIPELINE_STATUS.DONE ? null : record.error || null,
+      progress: {
+        ...(record.progress && typeof record.progress === 'object' ? record.progress : {}),
+        stage: PIPELINE_STAGE.IMPORTED,
+        done: 1,
+        total: 1,
+      },
+      importedAt: Date.now(),
+    };
+  });
 }
 
 /**

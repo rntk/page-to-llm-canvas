@@ -20,9 +20,9 @@ describe('runtime contracts', () => {
   });
 
   it('shares the minimum importable-record contract', () => {
-    expect(isImportableRecord({ key: 'record-1', text: 'Article' })).toBe(true);
+    expect(isImportableRecord({ key: 'record-1', html: '<p>Article</p>' })).toBe(true);
     expect(isImportableRecord({ key: 'record-1', sourceUrl: 'https://example.test' })).toBe(false);
-    expect(isImportableRecord({ key: '   ', text: 'Article' })).toBe(false);
+    expect(isImportableRecord({ key: '   ', html: '<p>Article</p>' })).toBe(false);
   });
 
   it('creates the canonical queued record shape', () => {

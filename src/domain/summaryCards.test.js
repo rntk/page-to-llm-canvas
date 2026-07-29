@@ -116,7 +116,7 @@ describe('buildSummaryCards', () => {
       },
     };
 
-    const cards = buildSummaryCards([], null, topicSummaryIndex);
+    const cards = buildSummaryCards(topicSummaryIndex);
 
     expect(cards).toHaveLength(2);
 
@@ -141,48 +141,6 @@ describe('buildSummaryCards', () => {
     });
   });
 
-  it('makes one card per run of a legacy topics entry, each with its own text', () => {
-    const topics = [
-      {
-        name: 'A > C',
-        sentences: [5, 6, 20, 21],
-      },
-    ];
-    const topicSummaries = {
-      'A > C': {
-        runs: [
-          { sentences: [5, 6], text: 'First C occurrence' },
-          { sentences: [20, 21], text: 'Second C occurrence' },
-        ],
-        source_sentences: [5, 6, 20, 21],
-      },
-    };
-
-    const cards = buildSummaryCards(topics, topicSummaries, null);
-
-    expect(cards).toHaveLength(2);
-
-    expect(cards[0]).toEqual({
-      key: 'A > C#1#0',
-      path: 'A > C',
-      name: 'C',
-      text: 'First C occurrence',
-      sourceSentences: [5, 6],
-      startSentence: 5,
-      levelIndex: 1,
-    });
-
-    expect(cards[1]).toEqual({
-      key: 'A > C#1#1',
-      path: 'A > C',
-      name: 'C',
-      text: 'Second C occurrence',
-      sourceSentences: [20, 21],
-      startSentence: 20,
-      levelIndex: 1,
-    });
-  });
-
   it('falls back to positioned empty cards when an entry has no runs', () => {
     // An errored/skipped topic carries no runs; it should still occupy its place
     // on the rail (one empty card per contiguous occurrence) rather than vanish.
@@ -190,11 +148,19 @@ describe('buildSummaryCards', () => {
       'A > B': { runs: [], source_sentences: [1, 2, 7, 8], level: 1 },
     };
 
-    const cards = buildSummaryCards([], null, topicSummaryIndex);
+    const cards = buildSummaryCards(topicSummaryIndex);
 
     expect(cards.map((c) => ({ text: c.text, sourceSentences: c.sourceSentences }))).toEqual([
       { text: '', sourceSentences: [1, 2] },
       { text: '', sourceSentences: [7, 8] },
     ]);
+  });
+
+  it('rejects an entry without an explicit canonical level', () => {
+    expect(() =>
+      buildSummaryCards({
+        Topic: { runs: [], source_sentences: [1] },
+      }),
+    ).toThrow('Invalid topic_summary_index entry for "Topic"');
   });
 });

@@ -543,16 +543,14 @@ describe('deleteAll', () => {
     expect(await readRecord('r2')).toBeNull();
   });
 
-  it('wipes unindexed page documents and retired migration state', async () => {
+  it('wipes unindexed page documents', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
     mock.storage.local._store.set('pagetollm:rec:orphan:content', { text: 'hidden' });
-    mock.storage.local._store.set('pagetollm:index-schema', 1);
 
     await deleteAll();
 
     expect(mock.storage.local._store.has('pagetollm:rec:orphan:content')).toBe(false);
-    expect(mock.storage.local._store.has('pagetollm:index-schema')).toBe(false);
   });
 
   it('is ordered after an in-flight writeRecord and leaves storage empty', async () => {

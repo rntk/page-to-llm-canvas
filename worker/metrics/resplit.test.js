@@ -233,24 +233,6 @@ describe('resplit metrics', () => {
     expect(metrics.llmRequestCount).toBe(0);
   });
 
-  it('falls back llmRequestCount to resplitCallCount for a top-level legacy object missing it', () => {
-    const legacy = {
-      runCount: 10,
-      resplitCallCount: 7,
-      // llmRequestCount intentionally absent (predates the counter).
-    };
-    const normalized = normalizeResplitMetrics(legacy);
-    expect(normalized.llmRequestCount).toBe(7);
-  });
-
-  it('falls back llmRequestCount to resplitCallCount within a legacy recent[] entry missing it', () => {
-    const legacy = {
-      recent: [{ resplitCallCount: 4 }],
-    };
-    const normalized = normalizeResplitMetrics(legacy);
-    expect(normalized.recent[0]).toMatchObject({ resplitCallCount: 4, llmRequestCount: 4 });
-  });
-
   it('accumulates primaryChunkCount into primaryRequestCount across runs', async () => {
     await recordResplitRun({
       oversizeCount: 1,
@@ -273,16 +255,6 @@ describe('resplit metrics', () => {
 
     const metrics = await getResplitMetrics();
     expect(metrics.primaryRequestCount).toBe(0);
-  });
-
-  it('defaults primaryRequestCount to 0 for a legacy top-level object lacking it', () => {
-    const legacy = {
-      runCount: 10,
-      resplitCallCount: 7,
-      // primaryRequestCount intentionally absent (predates the counter).
-    };
-    const normalized = normalizeResplitMetrics(legacy);
-    expect(normalized.primaryRequestCount).toBe(0);
   });
 
   it('carries primaryChunkCount on recent[] entries', async () => {
@@ -317,35 +289,14 @@ describe('resplit metrics', () => {
     }
   });
 
-  it('normalizes corrupt/legacy payloads without throwing', () => {
+  it('normalizes corrupt payloads without throwing', () => {
     expect(normalizeResplitMetrics(undefined)).toEqual(emptyResplitMetrics());
     expect(normalizeResplitMetrics(null)).toEqual(emptyResplitMetrics());
     expect(normalizeResplitMetrics('bad')).toEqual(emptyResplitMetrics());
     expect(normalizeResplitMetrics(['bad'])).toEqual(emptyResplitMetrics());
-    // Legacy object missing the new fields entirely.
     expect(normalizeResplitMetrics({ totalCount: 3, recent: 'not-an-array' })).toEqual(
       emptyResplitMetrics(),
     );
-  });
-
-  it('defaults runsWithGroupGain to 0 for a legacy stored object lacking the field', () => {
-    // Simulates a payload written before runsWithGroupGain existed: other
-    // real counters are present, but runsWithGroupGain itself is absent.
-    const legacy = {
-      runCount: 10,
-      runsWithOversize: 4,
-      runsChanged: 2,
-      oversizeSegmentCount: 4,
-      resplitCallCount: 4,
-      maxSpanObserved: 90,
-      outcomes: { subdivided: 2 },
-      oversizeSpanBuckets: { le80: 2 },
-      recent: [],
-    };
-    const normalized = normalizeResplitMetrics(legacy);
-    expect(normalized.runsWithGroupGain).toBe(0);
-    expect(normalized.runCount).toBe(10);
-    expect(normalized.runsChanged).toBe(2);
   });
 
   it('clears stored metrics back to empty', async () => {

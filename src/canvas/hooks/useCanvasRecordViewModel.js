@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { sanitizeArticleHtml, escapeHtml } from '../../highlights/articleHtml.js';
+import { sanitizeArticleHtml } from '../../highlights/articleHtml.js';
 import { buildSummaryCards, filterSummaryCardsByLevel } from '../../domain/summaryCards.js';
 import { buildTopicSentenceIndex, getMaxTopicLevel } from '../../domain/topicDomain.js';
 
@@ -32,24 +32,18 @@ export function useCanvasRecordViewModel({ record, error, selectedLevel, showSum
 
   const articleHtml = useMemo(() => {
     const html = record?.html;
-    if (html) return sanitizeArticleHtml(html);
-    if (sentences.length) return `<p>${sentences.map(escapeHtml).join(' ')}</p>`;
-    return '';
-  }, [record?.html, sentences]);
+    return html ? sanitizeArticleHtml(html) : '';
+  }, [record?.html]);
 
   const maxLevel = useMemo(() => getMaxTopicLevel(topics), [topics]);
-  const summariesJson = useMemo(
-    () => JSON.stringify(record?.topic_summaries || null),
-    [record?.topic_summaries],
-  );
   const summaryIndexJson = useMemo(
     () => JSON.stringify(record?.topic_summary_index || null),
     [record?.topic_summary_index],
   );
   const allSummaryCards = useMemo(
-    () => buildSummaryCards(topics, record?.topic_summaries, record?.topic_summary_index),
+    () => buildSummaryCards(record?.topic_summary_index),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [topics, summariesJson, summaryIndexJson],
+    [summaryIndexJson],
   );
   const summaryCards = useMemo(
     () => filterSummaryCardsByLevel(allSummaryCards, selectedLevel),

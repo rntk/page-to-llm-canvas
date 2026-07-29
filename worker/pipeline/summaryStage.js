@@ -2,7 +2,12 @@ import { buildArticleSummaryPrompt } from './prompts.js';
 import { createLimiter, parallelMap } from '../llm/llm.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { planSummaryWork } from './summaryPlanning.js';
-import { buildTopicTree, summarizeTopicTree, splitContiguousRuns } from './topicTreeMerge.js';
+import {
+  buildPartialTopicSummaryIndex,
+  buildTopicTree,
+  summarizeTopicTree,
+  splitContiguousRuns,
+} from './topicTreeMerge.js';
 import { SUMMARY_CONCURRENCY } from './pipelineConfig.js';
 import {
   makeSourceSummarizer,
@@ -49,9 +54,10 @@ function collectSummaryErrors(topicSummaries) {
   return errors;
 }
 
-async function parkForReview(runtime, summaryErrors, phase, { done, total }) {
+async function parkForReview(runtime, summaryErrors, phase, topicSummaryIndex, { done, total }) {
   await runtime.update({
     status: PIPELINE_STATUS.NEEDS_ATTENTION,
+    topic_summary_index: topicSummaryIndex,
     summaryErrors,
     forceFinalize: false,
     progress: { stage: PIPELINE_STAGE.NEEDS_ATTENTION, done, total },
@@ -196,7 +202,13 @@ export async function runSummaries({
 
   const leafErrors = collectSummaryErrors(topic_summaries);
   if (leafErrors.length && !forceFinalize) {
-    await parkForReview(runtime, leafErrors, 'leaf', { done, total });
+    await parkForReview(
+      runtime,
+      leafErrors,
+      'leaf',
+      buildPartialTopicSummaryIndex(topics, topic_summaries),
+      { done, total },
+    );
     return;
   }
 
@@ -239,7 +251,10 @@ export async function runSummaries({
   );
 
   if (summaryErrors.length && !forceFinalize) {
-    await parkForReview(runtime, summaryErrors, 'merge', { done: total, total });
+    await parkForReview(runtime, summaryErrors, 'merge', topic_summary_index, {
+      done: total,
+      total,
+    });
     return;
   }
 

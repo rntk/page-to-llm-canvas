@@ -1146,9 +1146,9 @@ describe('dispatchMessage unit tests', () => {
     expect(first.ok).toBe(true);
     expect(first.chat.chatId).toMatch(/^chat_/);
     expect(first.chat.title).toBe('Where is it?');
-    expect(first.messages).toHaveLength(2);
-    expect(first.events).toHaveLength(1);
-    expect(first.events[0].seq).toBe(1);
+    expect(first.chat.messages).toHaveLength(2);
+    expect(first.chat.events).toHaveLength(1);
+    expect(first.chat.events[0].seq).toBe(1);
 
     const second = await dispatchMessage({
       type: 'appendChatTurn',
@@ -1157,7 +1157,7 @@ describe('dispatchMessage unit tests', () => {
       turn: { events: [{ eventType: 'highlight_span', data: { startLine: 3, endLine: 3 } }] },
     });
     expect(second.ok).toBe(true);
-    expect(second.events[0].seq).toBe(2);
+    expect(second.chat.events.at(-1).seq).toBe(2);
     expect(second.chat.messages).toHaveLength(2);
 
     const missingChat = await dispatchMessage({
@@ -1178,9 +1178,9 @@ describe('dispatchMessage unit tests', () => {
       {
         type: 'importRecords',
         records: [
-          { key: 'dup', text: 'old' },
+          { key: 'dup', html: '<p>old</p>', text: 'old' },
           { key: 'metadata-only', sourceUrl: 'https://example.com' },
-          { key: 'dup', text: 'new' },
+          { key: 'dup', html: '<p>new</p>', text: 'new' },
         ],
       },
       sender,
@@ -1205,7 +1205,10 @@ describe('dispatchMessage unit tests', () => {
     expect(created.ok).toBe(true);
 
     await dispatchMessage(
-      { type: 'importRecords', records: [{ key: 'replace-me', text: 'new content' }] },
+      {
+        type: 'importRecords',
+        records: [{ key: 'replace-me', html: '<p>new content</p>', text: 'new content' }],
+      },
       sender,
     );
 
@@ -1249,6 +1252,7 @@ describe('dispatchMessage unit tests', () => {
         records: [
           {
             key: 'imported',
+            html: '<p>imported text</p>',
             text: 'imported text',
             status: 'summarizing',
             pipelineRunId: 'run-old',
@@ -1621,7 +1625,7 @@ describe('record import and submission boundaries', () => {
     }
   });
 
-  it('accepts each supported record-content shape and rejects malformed records', async () => {
+  it('accepts canonical records with HTML and rejects incomplete records', async () => {
     const chromeMock = makeChromeMock();
     const dispatch = await loadDispatch(chromeMock);
     const records = [
@@ -1640,13 +1644,13 @@ describe('record import and submission boundaries', () => {
 
     await expect(dispatch({ type: 'importRecords', records })).resolves.toEqual({
       ok: true,
-      count: 5,
+      count: 1,
     });
     expect(await readRecord('html')).toMatchObject({ key: 'html', html: '' });
-    expect(await readRecord('text')).toMatchObject({ key: 'text', text: '' });
-    expect(await readRecord('sentences')).toMatchObject({ key: 'sentences', sentences: [] });
-    expect(await readRecord('topics')).toMatchObject({ key: 'topics', topics: [] });
-    expect(await readRecord('summaries')).toMatchObject({ key: 'summaries', topic_summaries: {} });
+    expect(await readRecord('text')).toBeNull();
+    expect(await readRecord('sentences')).toBeNull();
+    expect(await readRecord('topics')).toBeNull();
+    expect(await readRecord('summaries')).toBeNull();
     expect(await readRecord('metadata-only')).toBeNull();
   });
 
@@ -1660,13 +1664,21 @@ describe('record import and submission boundaries', () => {
         records: [
           {
             key: 'active',
+            html: '<p>x</p>',
             text: 'x',
             status: 'summarizing',
             error: 'old failure',
             progress: { detail: 'kept', stage: 'old', done: 9, total: 10 },
           },
-          { key: 'failed', text: 'x', status: 'error', error: 'kept failure', progress: null },
-          { key: 'nostatus', text: 'x', status: '', error: 'discarded' },
+          {
+            key: 'failed',
+            html: '<p>x</p>',
+            text: 'x',
+            status: 'error',
+            error: 'kept failure',
+            progress: null,
+          },
+          { key: 'nostatus', html: '<p>x</p>', text: 'x', status: '', error: 'discarded' },
         ],
       }),
     ).resolves.toEqual({ ok: true, count: 3 });

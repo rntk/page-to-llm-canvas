@@ -1,23 +1,10 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { escapeHtml, sanitizeArticleHtml } from './articleHtml.js';
+import { sanitizeArticleHtml } from './articleHtml.js';
 
 describe('articleHtml helpers', () => {
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  describe('escapeHtml', () => {
-    it('escapes HTML metacharacters', () => {
-      expect(escapeHtml(`Tom & Jerry <3 "hi" 'bye'`)).toBe(
-        'Tom &amp; Jerry &lt;3 &quot;hi&quot; &#39;bye&#39;',
-      );
-    });
-
-    it('coerces falsy values to empty strings', () => {
-      expect(escapeHtml(null)).toBe('');
-      expect(escapeHtml(undefined)).toBe('');
-    });
   });
 
   describe('sanitizeArticleHtml', () => {

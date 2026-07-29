@@ -46,11 +46,11 @@ function baseRecord(overrides = {}) {
     sourceUrl: 'https://www.youtube.com/watch?v=abc123',
     sentences: ['Intro sentence.', 'Middle sentence.'],
     topics: [
-      { name: 'Parent > Intro', sentences: [0] },
-      { name: 'Parent > Middle', sentences: [1] },
+      { name: 'Parent > Intro', sentences: [1] },
+      { name: 'Parent > Middle', sentences: [2] },
     ],
     topic_summary_index: {
-      'Parent > Intro': { level: 1, runs: [{ sentences: [0], text: 'Intro summary' }] },
+      'Parent > Intro': { level: 1, runs: [{ sentences: [1], text: 'Intro summary' }] },
       'Parent > Middle': { level: 1, runs: [] },
     },
     ...overrides,
@@ -65,7 +65,7 @@ const twoCards = [
     text: 'Intro summary',
     accent: '#a11',
     seconds: 0,
-    sentences: [0],
+    sentences: [1],
   },
   {
     id: 'b',
@@ -74,7 +74,7 @@ const twoCards = [
     text: '',
     accent: '#1a1',
     seconds: 30,
-    sentences: [1],
+    sentences: [2],
   },
 ];
 
@@ -336,7 +336,7 @@ describe('openYouTubeRail', () => {
           text: '',
           accent: '#111',
           seconds: -5,
-          sentences: [0],
+          sentences: [1],
         },
       ]);
       await act(async () => {

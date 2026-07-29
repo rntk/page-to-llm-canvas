@@ -97,12 +97,6 @@ describe('getTimestampForSentences', () => {
     expect(getTimestampForSentences(sentences, [4])).toBe(26);
   });
 
-  it('applies the +1 offset when a leading 0 is present', () => {
-    // 0-based numbering: source 2 -> array index 3 (0:26)
-    expect(getTimestampForSentences(sentences, [0, 1, 2])).toBe(1);
-    expect(getTimestampForSentences(sentences, [3])).toBe(1);
-  });
-
   it('does not return null at the boundary (first card)', () => {
     expect(getTimestampForSentences(sentences, [1])).toBe(1);
   });
@@ -116,7 +110,6 @@ describe('getTimestampForSentences', () => {
       '1:00 1 minute second topic', // index 2 -> sentence 3
     ];
     expect(getTimestampForSentences(withIntro, [1, 2])).toBe(0); // 1-based first topic
-    expect(getTimestampForSentences(withIntro, [0, 1])).toBe(0); // 0-based first topic
   });
 
   it('still returns null when the transcript has no timestamps at all', () => {

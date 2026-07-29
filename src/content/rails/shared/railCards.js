@@ -1,39 +1,15 @@
 import { getHierarchyTopicAccentColor } from '../../../utils/topicColorUtils.js';
 import {
   splitTopicPath,
-  getTopicSentenceNumbersRaw,
+  getTopicSentenceNumbers,
   computeMaxTopicLevelForRecord,
+  requireTopicSummaryLevel,
 } from '../../../domain/topicDomain.js';
-
-/**
- * Extract sentence numbers from a topic, preserving zero-based indices (the
- * content pipeline's `record.sentences` array is zero-indexed, unlike the
- * hierarchy view's one-based numbering). Delegates to
- * topicDomain.js#getTopicSentenceNumbersRaw, which also honors
- * `topic.sentenceIndices` and filters out non-integer/negative values.
- *
- * @param {{sentences?: number[], sentenceIndices?: number[], ranges?: Array<{sentence_start?: number, sentence_end?: number}>}} topic
- * @returns {number[]}
- */
-export function getTopicSentenceNumbers(topic) {
-  return getTopicSentenceNumbersRaw(topic);
-}
-
-/**
- * Split a hierarchical topic path into normalized path segments. Delegates to
- * topicDomain.js.
- *
- * @param {string} name
- * @returns {string[]}
- */
-export function splitPath(name) {
-  return splitTopicPath(name);
-}
 
 /**
  * Compute the deepest topic level present in a record, considering both the
  * topic list (depth from `name` path) and the `topic_summary_index` (each
- * entry's explicit `level`, or its path depth when absent). Drives the rail's
+ * entry's explicit `level`). Drives the rail's
  * level selector, so summary-only levels count even when no topic reaches them.
  * Delegates to topicDomain.js.
  *
@@ -48,7 +24,7 @@ export { getHierarchyTopicAccentColor as topicAccentColor };
 
 /**
  * Build summary entries from record: ONE entry per contiguous run of each node in
- * topic_summary_index (preferred) or leaf topic_summaries. A topic that recurs at
+ * topic_summary_index. A topic that recurs at
  * non-adjacent places yields one entry per occurrence, each carrying that run's
  * own summary text and its own sentences, so rails position location-specific
  * summaries instead of repeating one blob. `sentenceNumbersByPath` keeps the full
@@ -76,48 +52,23 @@ export function buildSummaryEntries(record) {
     }
   };
 
-  if (index && typeof index === 'object' && Object.keys(index).length > 0) {
-    for (const [rawPath, entry] of Object.entries(index)) {
-      if (!rawPath) continue;
-      const indexEntry = entry && typeof entry === 'object' ? entry : {};
-      const parts = splitPath(rawPath);
-      const path = parts.join(' > ');
-      const sourceSentences = Array.isArray(indexEntry.source_sentences)
-        ? indexEntry.source_sentences.slice().sort((a, b) => a - b)
-        : [];
-      const level = typeof indexEntry.level === 'number' ? indexEntry.level : parts.length - 1;
-      sentenceNumbersByPath.set(path, sourceSentences);
-      pushRuns({
-        path,
-        name: parts[parts.length - 1] || path,
-        level,
-        runs: indexEntry.runs,
-        sourceSentences,
-      });
-    }
-  } else {
-    const topics = Array.isArray(record.topics) ? record.topics : [];
-    const summaries = record.topic_summaries || {};
-    for (const topic of topics) {
-      const parts = splitPath(topic.name);
-      const path = parts.join(' > ');
-      const summary = summaries[topic.name] || summaries[path] || {};
-      const sourceSentences = (
-        Array.isArray(summary.source_sentences)
-          ? summary.source_sentences
-          : getTopicSentenceNumbers(topic)
-      )
-        .slice()
-        .sort((a, b) => a - b);
-      sentenceNumbersByPath.set(path, sourceSentences);
-      pushRuns({
-        path,
-        name: parts[parts.length - 1] || path,
-        level: parts.length - 1,
-        runs: summary.runs,
-        sourceSentences,
-      });
-    }
+  if (!index || typeof index !== 'object') return { entries: out, sentenceNumbersByPath };
+  for (const [rawPath, entry] of Object.entries(index)) {
+    if (!rawPath) continue;
+    const parts = splitTopicPath(rawPath);
+    const path = parts.join(' > ');
+    const level = requireTopicSummaryLevel(rawPath, entry);
+    const sourceSentences = Array.isArray(entry.source_sentences)
+      ? entry.source_sentences.slice().sort((a, b) => a - b)
+      : [];
+    sentenceNumbersByPath.set(path, sourceSentences);
+    pushRuns({
+      path,
+      name: parts[parts.length - 1] || path,
+      level,
+      runs: entry.runs,
+      sourceSentences,
+    });
   }
   return { entries: out, sentenceNumbersByPath };
 }
@@ -127,7 +78,7 @@ export function buildHierarchicalTopicEntries(record, selectedLevel) {
   const nodes = new Map();
 
   for (const t of topics) {
-    const parts = splitPath(t.name);
+    const parts = splitTopicPath(t.name);
     const limit = Math.min(parts.length, selectedLevel + 1);
     const sentences = getTopicSentenceNumbers(t);
 

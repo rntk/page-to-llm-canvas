@@ -18,8 +18,6 @@ const MAX_TURN_MESSAGES = 40;
 // to 50 rounds. Keep a finite abuse guard without rejecting a valid bounded
 // engine result near the end of a long evidence-gathering turn.
 const MAX_TURN_EVENTS = 200;
-const MAX_LEGACY_MESSAGES = 400;
-const MAX_LEGACY_EVENTS = 200;
 const MAX_TURN_INDEX_ENTRIES = 200;
 const CHAT_STORAGE_PREFIX = 'pagetollm:chats:';
 const CHAT_INDEX_SUFFIX = ':index';
@@ -41,8 +39,8 @@ function createStorageId(prefix) {
 async function readChatIndex(key) {
   const storageKey = chatIndexStorageKey(key);
   const value = (await getLocal(storageKey))[storageKey];
-  return value && Array.isArray(value.chats)
-    ? { ...value, turns: Array.isArray(value.turns) ? value.turns : [] }
+  return value && Array.isArray(value.chats) && Array.isArray(value.turns)
+    ? value
     : { chats: [], turns: [] };
 }
 
@@ -122,8 +120,8 @@ function chatTurnMappings(chat) {
 }
 
 function normalizedStoredIndex(value) {
-  return value && Array.isArray(value.chats)
-    ? { chats: value.chats, turns: Array.isArray(value.turns) ? value.turns : [] }
+  return value && Array.isArray(value.chats) && Array.isArray(value.turns)
+    ? { chats: value.chats, turns: value.turns }
     : null;
 }
 
@@ -185,15 +183,8 @@ function normalizeChatEvent(event, seq, now, turnId) {
   };
 }
 
-/**
- * True while the chat still carries the placeholder title, so it should be
- * derived from the first visible user message. `titleIsDefault` is the flag;
- * the `title === 'New chat'` fallback keeps chats stored before the flag
- * existed deriving correctly.
- */
 function titleIsDerivable(chat) {
-  if (chat.titleIsDefault === true) return true;
-  return chat.titleIsDefault === undefined && chat.title === 'New chat';
+  return chat.titleIsDefault === true;
 }
 
 /**
@@ -218,13 +209,13 @@ async function readRecordContentRevision(key) {
   if (!meta) return null;
   return typeof meta.contentRevision === 'string' && meta.contentRevision
     ? meta.contentRevision
-    : 'legacy';
+    : null;
 }
 
 function normalizedChatRevision(chat) {
   return typeof chat?.contentRevision === 'string' && chat.contentRevision
     ? chat.contentRevision
-    : 'legacy';
+    : null;
 }
 
 function isCompatible(chat, contentRevision) {
@@ -255,43 +246,14 @@ export async function readChat(key, chatId) {
 }
 
 function applyRetention(chat) {
-  let messages = Array.isArray(chat.messages) ? chat.messages : [];
-  let events = Array.isArray(chat.events) ? chat.events : [];
-  const legacyTurnId = `legacy_${chat.chatId}`;
-  if (messages.some((item) => !item.turnId) || events.some((item) => !item.turnId)) {
-    const legacyMessages = messages
-      .filter((item) => !item.turnId)
-      .slice(-MAX_LEGACY_MESSAGES)
-      .map((item) => ({ ...item, turnId: legacyTurnId }));
-    const legacyEvents = events
-      .filter((item) => !item.turnId)
-      .slice(-MAX_LEGACY_EVENTS)
-      .map((item) => ({ ...item, turnId: legacyTurnId }));
-    messages = [...legacyMessages, ...messages.filter((item) => item.turnId)];
-    events = [...legacyEvents, ...events.filter((item) => item.turnId)];
-  }
+  const messages = Array.isArray(chat.messages) ? chat.messages : [];
+  const events = Array.isArray(chat.events) ? chat.events : [];
   const turnIds = Array.isArray(chat.turnIds) ? [...chat.turnIds] : [];
-  if (
-    (messages.some((item) => item.turnId === legacyTurnId) ||
-      events.some((item) => item.turnId === legacyTurnId)) &&
-    !turnIds.includes(legacyTurnId)
-  ) {
-    turnIds.unshift(legacyTurnId);
-  }
   const keptTurnIds = turnIds.slice(-MAX_CHAT_TURNS);
   const kept = new Set(keptTurnIds);
   chat.turnIds = keptTurnIds;
   chat.messages = messages.filter((item) => kept.has(item.turnId));
   chat.events = events.filter((item) => kept.has(item.turnId));
-}
-
-function duplicateResult(chat, turnId) {
-  return {
-    chat,
-    messages: chat.messages.filter((message) => message.turnId === turnId),
-    events: chat.events.filter((event) => event.turnId === turnId),
-    duplicate: true,
-  };
 }
 
 /**
@@ -308,7 +270,7 @@ function duplicateResult(chat, turnId) {
  * @param {string} key
  * @param {string | null | undefined} chatId
  * @param {{turnId?: string, messages?: object[], events?: object[]}} turn
- * @returns {Promise<{chat: object, messages: object[], events: object[], duplicate: boolean}>}
+ * @returns {Promise<{chat: object}>}
  */
 export async function appendChatTurn(key, chatId, turn = {}) {
   const inputMessages = Array.isArray(turn?.messages) ? turn.messages : [];
@@ -336,7 +298,7 @@ export async function appendChatTurn(key, chatId, turn = {}) {
     }
     if (mapped && (!chatId || mapped.chatId === chatId)) {
       const prior = await readStoredChat(key, mapped.chatId);
-      if (isCompatible(prior, contentRevision)) return duplicateResult(prior, turnId);
+      if (isCompatible(prior, contentRevision)) return { chat: prior };
     }
 
     let chat;
@@ -347,7 +309,7 @@ export async function appendChatTurn(key, chatId, turn = {}) {
         stored.messages?.some((message) => message.turnId === turnId) ||
         stored.events?.some((event) => event.turnId === turnId)
       ) {
-        return duplicateResult(stored, turnId);
+        return { chat: stored };
       }
       // Shallow copy so a failed write leaves no trace of the turn: every
       // mutation below reassigns properties/arrays, never touching `stored`.
@@ -389,7 +351,7 @@ export async function appendChatTurn(key, chatId, turn = {}) {
       { turnId, chatId: chat.chatId },
     ].slice(-MAX_TURN_INDEX_ENTRIES);
     await updateChatAndIndex(key, chat, index);
-    return { chat, messages, events, duplicate: false };
+    return { chat };
   });
 }
 
@@ -404,7 +366,7 @@ export async function deleteChatHistory(key, chatId) {
     // the chat visible and retryable instead of stranding an orphan forever.
     // Chat ids are storage-key segments. Colons are never generated and would
     // make `{ key: 'a', chatId: 'b:chat_x' }` alias record `a:b`'s document.
-    // Unsafe legacy/corrupt summaries can be dropped, but must never address a
+    // Corrupt summaries can be dropped, but must never address a
     // physical document.
     if (isSafeChatId(chatId)) await removeLocal(chatDocumentStorageKey(key, chatId));
 
@@ -551,7 +513,7 @@ export async function reconcileChatStorage() {
       const contentRevision = meta
         ? typeof meta.contentRevision === 'string' && meta.contentRevision
           ? meta.contentRevision
-          : 'legacy'
+          : null
         : null;
 
       if (!contentRevision) {

@@ -1419,6 +1419,11 @@ describe('runPipeline', () => {
     const parkCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'needs_attention');
     expect(parkCall).toBeDefined();
     expect(parkCall[1].summaryErrors.map((e) => e.topic)).toContain('Tech>All');
+    expect(parkCall[1].topic_summary_index['Tech>All']).toEqual({
+      runs: [{ sentences: [1], text: '' }],
+      level: 1,
+      source_sentences: [1],
+    });
   });
 
   it('finalizes a parked failure to empty text when resumed with forceFinalize (skip)', async () => {
@@ -1483,6 +1488,11 @@ describe('runPipeline', () => {
     expect(parkCall).toBeDefined();
     expect(parkCall[1].summaryErrors.map((e) => e.topic)).toContain('Tech');
     expect(parkCall[1].summaryErrors[0].error_kind).toBe('rate_limited');
+    expect(parkCall[1].topic_summary_index['Tech'].runs).toEqual([
+      { sentences: [1, 2, 3, 4], text: '' },
+    ]);
+    expect(parkCall[1].topic_summary_index['Tech>AI'].runs[0].text).toBe('A. B.');
+    expect(parkCall[1].topic_summary_index['Tech>Hardware'].runs[0].text).toBe('C. D.');
   });
 
   it('forceFinalize (skip) bypasses the merge-phase park and finishes empty', async () => {

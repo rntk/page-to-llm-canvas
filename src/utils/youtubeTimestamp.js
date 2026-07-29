@@ -60,9 +60,7 @@ export function parseTimestampSeconds(text) {
  * sentences by scanning backward from the card's first sentence to the nearest
  * preceding inline timestamp.
  *
- * Mirrors the 0/1-based offset handling in CanvasSummaryView: source sentence
- * numbers are 1-based, except some records emit a leading `0`, in which case the
- * whole set is shifted by one. arrayIndex = number + offset - 1.
+ * Source sentence numbers use the canonical one-based record contract.
  *
  * When the card's first sentence sits at the very start of the transcript but
  * that opening line carries no inline timestamp (e.g. a title or greeting before
@@ -79,10 +77,9 @@ export function parseTimestampSeconds(text) {
 export function getTimestampForSentences(sentences, sourceSentences) {
   if (!Array.isArray(sentences) || sentences.length === 0) return null;
   if (!Array.isArray(sourceSentences) || sourceSentences.length === 0) return null;
-  const numbers = sourceSentences.filter((n) => Number.isFinite(n));
+  const numbers = sourceSentences.filter((n) => Number.isInteger(n) && n > 0);
   if (numbers.length === 0) return null;
-  const offset = numbers.some((n) => n === 0) ? 1 : 0;
-  const startIndex = Math.max(0, Math.min(Math.min(...numbers) + offset - 1, sentences.length - 1));
+  const startIndex = Math.max(0, Math.min(Math.min(...numbers) - 1, sentences.length - 1));
   for (let i = startIndex; i >= 0; i -= 1) {
     const seconds = parseTimestampSeconds(sentences[i]);
     if (seconds != null) return seconds;

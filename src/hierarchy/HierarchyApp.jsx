@@ -177,7 +177,6 @@ export default function HierarchyApp({ initialKey }) {
     body = (
       <TopicHierarchyView
         topics={topics}
-        topicSummaries={record?.topic_summaries}
         topicSummaryIndex={record?.topic_summary_index}
         collapsedPaths={collapsedPaths}
         onToggleCollapse={handleToggleCollapse}

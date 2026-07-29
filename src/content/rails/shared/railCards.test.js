@@ -1,42 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
-  getTopicSentenceNumbers,
-  splitPath,
   topicAccentColor,
   buildSummaryEntries,
   buildHierarchicalTopicEntries,
   splitIntoContiguousRuns,
   computeMaxTopicLevel,
 } from './railCards.js';
-
-// ── splitPath ──────────────────────────────────────────────────────────────
-
-describe('splitPath', () => {
-  it('splits a simple path by >', () => {
-    expect(splitPath('A > B > C')).toEqual(['A', 'B', 'C']);
-  });
-
-  it('trims whitespace around parts', () => {
-    expect(splitPath('  A  >  B  ')).toEqual(['A', 'B']);
-  });
-
-  it('filters empty parts', () => {
-    expect(splitPath('A >> B')).toEqual(['A', 'B']);
-  });
-
-  it('returns empty array for empty string', () => {
-    expect(splitPath('')).toEqual([]);
-  });
-
-  it('returns empty array for null/undefined', () => {
-    expect(splitPath(null)).toEqual([]);
-    expect(splitPath(undefined)).toEqual([]);
-  });
-
-  it('returns single part when no > present', () => {
-    expect(splitPath('Topic')).toEqual(['Topic']);
-  });
-});
 
 // ── computeMaxTopicLevel ───────────────────────────────────────────────────
 
@@ -60,24 +29,6 @@ describe('computeMaxTopicLevel', () => {
       },
     };
     expect(computeMaxTopicLevel(record)).toBe(4);
-  });
-
-  it('infers summary index level from path depth when entry.level is absent', () => {
-    const record = {
-      topic_summary_index: {
-        'A > B > C': {},
-      },
-    };
-    expect(computeMaxTopicLevel(record)).toBe(2);
-  });
-
-  it('infers summary index level from path depth when an entry is nullish', () => {
-    const record = {
-      topic_summary_index: {
-        'A > B > C': null,
-      },
-    };
-    expect(computeMaxTopicLevel(record)).toBe(2);
   });
 
   it('skips empty-key summary index entries', () => {
@@ -105,99 +56,6 @@ describe('computeMaxTopicLevel', () => {
   });
 });
 
-// ── getTopicSentenceNumbers ────────────────────────────────────────────────
-
-describe('getTopicSentenceNumbers', () => {
-  it('returns sorted sentences array when present', () => {
-    const topic = { sentences: [3, 1, 2] };
-    expect(getTopicSentenceNumbers(topic)).toEqual([1, 2, 3]);
-  });
-
-  it('prefers sentences over ranges', () => {
-    const topic = { sentences: [5], ranges: [{ sentence_start: 1, sentence_end: 3 }] };
-    expect(getTopicSentenceNumbers(topic)).toEqual([5]);
-  });
-
-  it('expands ranges when sentences is absent', () => {
-    const topic = { ranges: [{ sentence_start: 2, sentence_end: 4 }] };
-    expect(getTopicSentenceNumbers(topic)).toEqual([2, 3, 4]);
-  });
-
-  it('handles single-sentence range (sentence_end equals sentence_start)', () => {
-    const topic = { ranges: [{ sentence_start: 3, sentence_end: 3 }] };
-    expect(getTopicSentenceNumbers(topic)).toEqual([3]);
-  });
-
-  it('uses sentence_start when sentence_end is null', () => {
-    const topic = { ranges: [{ sentence_start: 5, sentence_end: null }] };
-    expect(getTopicSentenceNumbers(topic)).toEqual([5]);
-  });
-
-  it('uses sentence_start when sentence_end is undefined', () => {
-    const topic = { ranges: [{ sentence_start: 7, sentence_end: undefined }] };
-    expect(getTopicSentenceNumbers(topic)).toEqual([7]);
-  });
-
-  it('uses sentence_start when sentence_end is empty string', () => {
-    const topic = { ranges: [{ sentence_start: 4, sentence_end: '' }] };
-    expect(getTopicSentenceNumbers(topic)).toEqual([4]);
-  });
-
-  it('deduplicates overlapping ranges', () => {
-    const topic = {
-      ranges: [
-        { sentence_start: 1, sentence_end: 3 },
-        { sentence_start: 2, sentence_end: 4 },
-      ],
-    };
-    expect(getTopicSentenceNumbers(topic)).toEqual([1, 2, 3, 4]);
-  });
-
-  it('skips ranges with non-integer values', () => {
-    const topic = { ranges: [{ sentence_start: 'a', sentence_end: 3 }] };
-    expect(getTopicSentenceNumbers(topic)).toEqual([]);
-  });
-
-  it('returns empty array for empty topic', () => {
-    expect(getTopicSentenceNumbers({})).toEqual([]);
-  });
-
-  it('returns empty array when sentences is an empty array', () => {
-    const topic = { sentences: [], ranges: [{ sentence_start: 0, sentence_end: 1 }] };
-    // sentences is present but empty — falls through to ranges
-    expect(getTopicSentenceNumbers(topic)).toEqual([0, 1]);
-  });
-
-  it('prefers sentenceIndices over sentences', () => {
-    const topic = { sentenceIndices: [4, 0], sentences: [7, 8] };
-    expect(getTopicSentenceNumbers(topic)).toEqual([0, 4]);
-  });
-
-  it('falls through to ranges when sentenceIndices is empty, even if sentences is populated', () => {
-    const topic = {
-      sentenceIndices: [],
-      sentences: [7, 8],
-      ranges: [{ sentence_start: 1, sentence_end: 2 }],
-    };
-    expect(getTopicSentenceNumbers(topic)).toEqual([1, 2]);
-  });
-
-  it('filters non-integer and negative explicit values', () => {
-    const topic = { sentences: [3, '2', -1, 1.5, 0] };
-    expect(getTopicSentenceNumbers(topic)).toEqual([0, 3]);
-  });
-
-  it('returns empty array when all explicit values are filtered out, without falling back to ranges', () => {
-    const topic = { sentences: ['1', -2], ranges: [{ sentence_start: 5, sentence_end: 6 }] };
-    expect(getTopicSentenceNumbers(topic)).toEqual([]);
-  });
-
-  it('clamps negative range starts to zero', () => {
-    const topic = { ranges: [{ sentence_start: -2, sentence_end: 1 }] };
-    expect(getTopicSentenceNumbers(topic)).toEqual([0, 1]);
-  });
-});
-
 // ── topicAccentColor ───────────────────────────────────────────────────────
 
 describe('topicAccentColor', () => {
@@ -222,14 +80,14 @@ describe('topicAccentColor', () => {
 // ── buildSummaryEntries ────────────────────────────────────────────────────
 
 describe('buildSummaryEntries', () => {
-  describe('topic_summary_index path (preferred)', () => {
+  describe('topic_summary_index', () => {
     it('builds one entry per run from topic_summary_index', () => {
       const record = {
         topic_summary_index: {
           'Science > Physics': {
             level: 1,
-            runs: [{ sentences: [2, 0, 1], text: 'Physics summary' }],
-            source_sentences: [2, 0, 1],
+            runs: [{ sentences: [3, 1, 2], text: 'Physics summary' }],
+            source_sentences: [3, 1, 2],
           },
         },
       };
@@ -239,7 +97,7 @@ describe('buildSummaryEntries', () => {
       expect(e.path).toBe('Science > Physics');
       expect(e.name).toBe('Physics');
       expect(e.text).toBe('Physics summary');
-      expect(e.sourceSentences).toEqual([0, 1, 2]);
+      expect(e.sourceSentences).toEqual([1, 2, 3]);
       expect(e.level).toBe(1);
     });
 
@@ -269,25 +127,15 @@ describe('buildSummaryEntries', () => {
       ]);
     });
 
-    it('infers level from path depth when entry.level is not a number', () => {
-      const record = {
-        topic_summary_index: {
-          'A > B > C': { runs: [{ sentences: [], text: 'deep' }], source_sentences: [] },
-        },
-      };
-      const { entries } = buildSummaryEntries(record);
-      expect(entries[0].level).toBe(2);
-    });
-
-    it('handles nullish index entries without throwing', () => {
+    it('rejects malformed index entries', () => {
       const record = {
         topic_summary_index: {
           'A > B > C': null,
         },
       };
-      const { entries, sentenceNumbersByPath } = buildSummaryEntries(record);
-      expect(entries).toEqual([]);
-      expect(sentenceNumbersByPath.get('A > B > C')).toEqual([]);
+      expect(() => buildSummaryEntries(record)).toThrow(
+        'Invalid topic_summary_index entry for "A > B > C"',
+      );
     });
 
     it('skips empty-key entries', () => {
@@ -326,52 +174,8 @@ describe('buildSummaryEntries', () => {
     });
   });
 
-  describe('fallback to topic_summaries', () => {
-    it('falls back when topic_summary_index is absent', () => {
-      const record = {
-        topics: [{ name: 'Tech', sentences: [0, 1] }],
-        topic_summaries: {
-          Tech: { runs: [{ sentences: [1, 0], text: 'Tech summary' }], source_sentences: [1, 0] },
-        },
-      };
-      const { entries } = buildSummaryEntries(record);
-      expect(entries).toHaveLength(1);
-      expect(entries[0].text).toBe('Tech summary');
-      expect(entries[0].sourceSentences).toEqual([0, 1]);
-    });
-
-    it('falls back when topic_summary_index is empty object', () => {
-      const record = {
-        topic_summary_index: {},
-        topics: [{ name: 'A', sentences: [5] }],
-        topic_summaries: {},
-      };
-      const { entries } = buildSummaryEntries(record);
-      expect(entries).toHaveLength(1);
-      expect(entries[0].name).toBe('A');
-    });
-
-    it('falls back to path key lookup in topic_summaries', () => {
-      const record = {
-        topics: [{ name: 'A > B', sentences: [1] }],
-        topic_summaries: {
-          'A > B': { runs: [{ sentences: [1], text: 'path lookup' }], source_sentences: [1] },
-        },
-      };
-      const { entries } = buildSummaryEntries(record);
-      expect(entries[0].text).toBe('path lookup');
-    });
-
-    it('handles empty topics array', () => {
-      const record = { topics: [], topic_summaries: {} };
-      const { entries } = buildSummaryEntries(record);
-      expect(entries).toEqual([]);
-    });
-
-    it('handles missing topics and topic_summaries', () => {
-      const { entries } = buildSummaryEntries({});
-      expect(entries).toEqual([]);
-    });
+  it('returns no summary entries when topic_summary_index is missing', () => {
+    expect(buildSummaryEntries({}).entries).toEqual([]);
   });
 });
 
@@ -381,9 +185,9 @@ describe('buildHierarchicalTopicEntries', () => {
   it('returns only root level nodes when selectedLevel is 0', () => {
     const record = {
       topics: [
-        { name: 'Tech > AI', sentences: [0, 1] },
-        { name: 'Tech > Web', sentences: [2] },
-        { name: 'Science', sentences: [3] },
+        { name: 'Tech > AI', sentences: [1, 2] },
+        { name: 'Tech > Web', sentences: [3] },
+        { name: 'Science', sentences: [4] },
       ],
     };
     const result = buildHierarchicalTopicEntries(record, 0);
@@ -394,8 +198,8 @@ describe('buildHierarchicalTopicEntries', () => {
   it('includes child nodes when selectedLevel is 1', () => {
     const record = {
       topics: [
-        { name: 'Tech > AI', sentences: [0] },
-        { name: 'Tech > Web', sentences: [1] },
+        { name: 'Tech > AI', sentences: [1] },
+        { name: 'Tech > Web', sentences: [2] },
       ],
     };
     const result = buildHierarchicalTopicEntries(record, 1);
@@ -408,13 +212,13 @@ describe('buildHierarchicalTopicEntries', () => {
   it('accumulates sentences across topics sharing a parent', () => {
     const record = {
       topics: [
-        { name: 'Tech > AI', sentences: [0, 1] },
-        { name: 'Tech > Web', sentences: [2, 3] },
+        { name: 'Tech > AI', sentences: [1, 2] },
+        { name: 'Tech > Web', sentences: [3, 4] },
       ],
     };
     const result = buildHierarchicalTopicEntries(record, 0);
     const tech = result.find((e) => e.path === 'Tech');
-    expect(tech.sentences).toEqual([0, 1, 2, 3]);
+    expect(tech.sentences).toEqual([1, 2, 3, 4]);
   });
 
   it('returns empty array for empty topics', () => {
@@ -424,7 +228,7 @@ describe('buildHierarchicalTopicEntries', () => {
 
   it('does not include levels deeper than selectedLevel', () => {
     const record = {
-      topics: [{ name: 'A > B > C', sentences: [0] }],
+      topics: [{ name: 'A > B > C', sentences: [1] }],
     };
     const result = buildHierarchicalTopicEntries(record, 1);
     const paths = result.map((e) => e.path);
@@ -434,7 +238,7 @@ describe('buildHierarchicalTopicEntries', () => {
 
   it('filters to selectedLevel in buildRailCards context (level property matches depth)', () => {
     const record = {
-      topics: [{ name: 'A > B', sentences: [0, 1] }],
+      topics: [{ name: 'A > B', sentences: [1, 2] }],
     };
     const result = buildHierarchicalTopicEntries(record, 1);
     const atLevel1 = result.filter((e) => e.level === 1);

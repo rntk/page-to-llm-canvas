@@ -78,7 +78,10 @@ export async function runPipeline(key, options = {}) {
     runtime.setSummariesDisabled(record.skipSummaries === true);
 
     // A summarizing record has already persisted topics for its current HTML.
-    // Reuse them after service-worker recycling and fill only missing summaries.
+    // `topic_summaries` is the load-bearing leaf checkpoint used to resume or
+    // retry incomplete summary work; UI consumers read `topic_summary_index`.
+    // Reuse the checkpoint after service-worker recycling and fill only missing
+    // summaries.
     const resuming =
       record.status === PIPELINE_STATUS.SUMMARIZING &&
       Array.isArray(record.topics) &&

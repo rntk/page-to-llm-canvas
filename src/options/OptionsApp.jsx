@@ -8,18 +8,6 @@ import { ProvidersSection } from './ProvidersSection.jsx';
 import { RecordsSection } from './RecordsSection.jsx';
 import { DataManagementSection } from './DataManagementSection.jsx';
 
-export {
-  ContentLanguageSection,
-  HighlightColorSection,
-  LlmConcurrencySection,
-  LlmRequestTimeoutSection,
-  SummaryGenerationSection,
-  ThemeToggle,
-  VerboseLogsSection,
-} from './GeneralSettingsPanel.jsx';
-export { LlmMetricsSection } from './LlmMetricsSection.jsx';
-export { ProvidersSection } from './ProvidersSection.jsx';
-
 const OPTION_TABS = [
   { id: 'general', label: 'General' },
   { id: 'providers', label: 'Providers' },

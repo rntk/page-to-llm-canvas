@@ -331,9 +331,18 @@ describe('ArticleChat persisted history', () => {
         };
       },
     );
-    api.persistChatTurn.mockResolvedValue({
+    api.persistChatTurn.mockImplementation(async (_key, _chatId, turn) => ({
       chat: {
         chatId: 'chat-1',
+        messages: [
+          { id: 'm-3', role: 'user', content: 'What about line three?', turnId: turn.turnId },
+          {
+            id: 'm-6',
+            role: 'assistant',
+            content: 'Line three answers it.',
+            turnId: turn.turnId,
+          },
+        ],
         events: [
           {
             seq: 1,
@@ -344,29 +353,11 @@ describe('ArticleChat persisted history', () => {
             seq: 2,
             eventType: 'highlight_span',
             data: { startLine: 3, endLine: 3, label: 'New evidence' },
+            turnId: turn.turnId,
           },
         ],
       },
-      messages: [
-        { id: 'm-3', role: 'user', content: 'What about line three?' },
-        {
-          id: 'm-4',
-          role: 'assistant',
-          content: '',
-          hidden: true,
-          toolCalls: [{ id: 'call-1', name: 'highlight_span', arguments: {} }],
-        },
-        { id: 'm-5', role: 'tool', content: 'Highlighted lines 3-3.', hidden: true },
-        { id: 'm-6', role: 'assistant', content: 'Line three answers it.' },
-      ],
-      events: [
-        {
-          seq: 2,
-          eventType: 'highlight_span',
-          data: { startLine: 3, endLine: 3, label: 'New evidence' },
-        },
-      ],
-    });
+    }));
     const onHighlight = vi.fn();
     const { container, unmount } = render(
       <ArticleChat
@@ -438,29 +429,23 @@ describe('ArticleChat persisted history', () => {
         };
       },
     );
-    api.persistChatTurn.mockResolvedValue({
+    api.persistChatTurn.mockImplementation(async (_key, _chatId, turn) => ({
       chat: {
         chatId: 'chat-1',
+        messages: [
+          { id: 'm-3', role: 'user', content: 'Focus this', turnId: turn.turnId },
+          { id: 'm-4', role: 'assistant', content: 'Focused answer.', turnId: turn.turnId },
+        ],
         events: [
           {
             seq: 2,
             eventType: 'highlight_span',
             data: { startLine: 3, endLine: 3, label: 'Focused evidence' },
+            turnId: turn.turnId,
           },
         ],
       },
-      messages: [
-        { id: 'm-3', role: 'user', content: 'Focus this' },
-        { id: 'm-4', role: 'assistant', content: 'Focused answer.' },
-      ],
-      events: [
-        {
-          seq: 2,
-          eventType: 'highlight_span',
-          data: { startLine: 3, endLine: 3, label: 'Focused evidence' },
-        },
-      ],
-    });
+    }));
     const onHighlight = vi.fn();
     const { container, unmount } = render(
       <ArticleChat
@@ -529,29 +514,28 @@ describe('ArticleChat persisted history', () => {
       transcriptMessages: [],
       highlightRanges: [{ startLine: 3, endLine: 3, label: 'New evidence' }],
     });
-    api.persistChatTurn.mockResolvedValue({
+    api.persistChatTurn.mockImplementation(async (_key, _chatId, turn) => ({
       chat: {
         chatId: 'chat-1',
+        messages: [
+          { id: 'm-3', role: 'user', content: 'What about line three?', turnId: turn.turnId },
+          {
+            id: 'm-4',
+            role: 'assistant',
+            content: 'Line three answers it.',
+            turnId: turn.turnId,
+          },
+        ],
         events: [
           {
             seq: 2,
             eventType: 'highlight_span',
             data: { startLine: 3, endLine: 3, label: 'New evidence' },
+            turnId: turn.turnId,
           },
         ],
       },
-      messages: [
-        { id: 'm-3', role: 'user', content: 'What about line three?' },
-        { id: 'm-4', role: 'assistant', content: 'Line three answers it.' },
-      ],
-      events: [
-        {
-          seq: 2,
-          eventType: 'highlight_span',
-          data: { startLine: 3, endLine: 3, label: 'New evidence' },
-        },
-      ],
-    });
+    }));
     // Mount lists chats once (resolves); the post-turn refresh is the second
     // call and rejects — the round-trip fails after the turn was persisted.
     api.listStoredChats

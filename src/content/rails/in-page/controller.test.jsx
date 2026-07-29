@@ -75,12 +75,12 @@ function baseRecord(overrides = {}) {
     status: 'done',
     selectors: ['#article'],
     sentences: ['Alpha sentence.', 'Beta sentence.'],
-    topics: [{ name: 'Parent > Child', sentences: [0, 1] }],
+    topics: [{ name: 'Parent > Child', sentences: [1, 2] }],
     topic_summary_index: {
       'Parent > Child': {
         level: 1,
-        runs: [{ sentences: [0, 1], text: 'Summary text' }],
-        source_sentences: [0, 1],
+        runs: [{ sentences: [1, 2], text: 'Summary text' }],
+        source_sentences: [1, 2],
       },
     },
     ...overrides,

@@ -65,11 +65,7 @@ export function isImportableRecord(record) {
     typeof record === 'object' &&
     typeof record.key === 'string' &&
     !!record.key.trim() &&
-    (typeof record.html === 'string' ||
-      typeof record.text === 'string' ||
-      Array.isArray(record.sentences) ||
-      Array.isArray(record.topics) ||
-      !!record.topic_summaries)
+    typeof record.html === 'string'
   );
 }
 

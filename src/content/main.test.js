@@ -253,12 +253,12 @@ describe('content script main.jsx', () => {
           status: 'done',
           selectors: ['#trusted-article'],
           sentences: ['Alpha sentence.', 'Beta sentence.'],
-          topics: [{ name: 'Parent > Child', sentences: [0, 1] }],
+          topics: [{ name: 'Parent > Child', sentences: [1, 2] }],
           topic_summary_index: {
             'Parent > Child': {
               level: 1,
-              runs: [{ sentences: [0, 1], text: 'Summary text' }],
-              source_sentences: [0, 1],
+              runs: [{ sentences: [1, 2], text: 'Summary text' }],
+              source_sentences: [1, 2],
             },
           },
         },
@@ -612,12 +612,12 @@ describe('content script main.jsx', () => {
             status: 'done',
             selectors: ['#rail-switch-host'],
             sentences: ['Alpha sentence.', 'Beta sentence.'],
-            topics: [{ name: 'Topic A', sentences: [0, 1] }],
+            topics: [{ name: 'Topic A', sentences: [1, 2] }],
             topic_summary_index: {
               'Topic A': {
                 level: 0,
-                runs: [{ sentences: [0, 1], text: 'Summary A' }],
-                source_sentences: [0, 1],
+                runs: [{ sentences: [1, 2], text: 'Summary A' }],
+                source_sentences: [1, 2],
               },
             },
           },
@@ -683,19 +683,19 @@ describe('content script main.jsx', () => {
             sourceUrl: 'https://www.youtube.com/watch?v=abc123',
             sentences: ['0:00 0 seconds Intro starts.', '0:30 30 seconds Middle starts.'],
             topics: [
-              { name: 'Intro', sentences: [0] },
-              { name: 'Middle', sentences: [1] },
+              { name: 'Intro', sentences: [1] },
+              { name: 'Middle', sentences: [2] },
             ],
             topic_summary_index: {
               Intro: {
                 level: 0,
-                runs: [{ sentences: [0], text: 'Intro summary' }],
-                source_sentences: [0],
+                runs: [{ sentences: [1], text: 'Intro summary' }],
+                source_sentences: [1],
               },
               Middle: {
                 level: 0,
                 runs: [],
-                source_sentences: [1],
+                source_sentences: [2],
               },
             },
           },
