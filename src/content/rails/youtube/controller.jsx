@@ -14,7 +14,7 @@ function getYouTubeVideoElement() {
   return document.querySelector('.html5-main-video') || document.querySelector('video');
 }
 
-export async function openYouTubeRail(rec, initialMode = 'topics') {
+export async function openYouTubeRail(rec, initialMode = 'topics', options = {}) {
   closeInPageRail();
   removeCanvasIframe();
 
@@ -45,7 +45,7 @@ export async function openYouTubeRail(rec, initialMode = 'topics') {
 
   const state = {
     mode: initialMode === 'summaries' || initialMode === 'chat' ? initialMode : 'topics',
-    selectedLevel: 0,
+    selectedLevel: options && typeof options.level === 'number' ? options.level : 0,
   };
 
   const maxLevel = computeMaxTopicLevel(record);
@@ -162,4 +162,11 @@ export async function openYouTubeRail(rec, initialMode = 'topics') {
   }
 
   renderRail();
+
+  if (options && options.sentenceNumbers && options.sentenceNumbers.length > 0) {
+    const seconds = getTimestampForSentences(sentences, options.sentenceNumbers);
+    if (seconds != null) {
+      void seekTo(seconds);
+    }
+  }
 }

@@ -86,6 +86,7 @@ describe('HierarchyApp', () => {
       {
         type: 'pagetollm-scroll-to-topic-sentences',
         key: 'key1',
+        rail: 'page',
         sentenceNumbers: [1],
         level: 0,
         topicPath: 'Fruit',

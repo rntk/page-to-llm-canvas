@@ -55,12 +55,17 @@ window.addEventListener('message', (event) => {
     removeCanvasIframe();
   } else if (data && data.type === 'pagetollm-scroll-to-topic-sentences') {
     removeCanvasIframe();
-    void openInPageRail({ key: data.key }, 'topics', {
+    const options = {
       sentenceNumbers: data.sentenceNumbers,
       level: data.level,
       topicPath: data.topicPath,
-    }).catch((err) => {
-      console.error('PageToLLM in-page rail error:', err);
+    };
+    const openRail =
+      data.rail === 'youtube'
+        ? openYouTubeRail({ key: data.key }, 'topics', options)
+        : openInPageRail({ key: data.key }, 'topics', options);
+    void openRail.catch((err) => {
+      console.error('PageToLLM rail error:', err);
     });
   }
 });

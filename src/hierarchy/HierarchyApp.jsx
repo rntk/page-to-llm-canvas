@@ -188,6 +188,7 @@ export default function HierarchyApp({ initialKey }) {
             postMessageToParent({
               type: 'pagetollm-scroll-to-topic-sentences',
               key: initialKey,
+              rail: isYouTube ? 'youtube' : 'page',
               sentenceNumbers,
               level: entry.node.depth,
               topicPath: entry.node.fullPath,
