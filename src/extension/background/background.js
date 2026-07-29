@@ -39,10 +39,7 @@ import {
   refreshActionProgressIcon,
   scheduleActionProgressIconRefresh,
 } from '../../../worker/actionIcon.js';
-import {
-  isInFlightRecord,
-  isInFlightStatus,
-} from '../../../worker/pipeline/pipelineStatus.js';
+import { isInFlightRecord, isInFlightStatus } from '../../../worker/pipeline/pipelineStatus.js';
 import { MSG } from '../../shared/runtime/messages.js';
 import {
   createQueuedRecord,
@@ -289,7 +286,7 @@ export async function handleSubmit(submission) {
     existing = await readRecord(key);
   }
 
-  if (existing && existing.status === 'done') {
+  if (existing && existing.status === PIPELINE_STATUS.DONE) {
     return { ok: true, key };
   }
 
@@ -381,9 +378,9 @@ export const MESSAGE_HANDLERS = {
       cancelActivePipeline(msg.key);
       const updated = await updateRecord(msg.key, {
         pipelineRunId: createPipelineRunId(),
-        status: 'pending',
+        status: PIPELINE_STATUS.PENDING,
         error: null,
-        progress: { stage: 'queued', done: 0, total: 0 },
+        progress: { stage: PIPELINE_STAGE.QUEUED, done: 0, total: 0 },
         skipSummaries: await getStoredSummariesDisabled(),
       });
       if (!updated) {
@@ -411,9 +408,9 @@ export const MESSAGE_HANDLERS = {
         msg.key,
         {
           pipelineRunId: createPipelineRunId(),
-          status: 'pending',
+          status: PIPELINE_STATUS.PENDING,
           error: null,
-          progress: { stage: 'queued', done: 0, total: 0 },
+          progress: { stage: PIPELINE_STAGE.QUEUED, done: 0, total: 0 },
           topics: [],
           topic_summaries: {},
           topic_summary_index: {},
@@ -460,14 +457,14 @@ export const MESSAGE_HANDLERS = {
       cancelActivePipeline(msg.key);
       await updateRecord(msg.key, {
         pipelineRunId: createPipelineRunId(),
-        status: 'summarizing',
+        status: PIPELINE_STATUS.SUMMARIZING,
         error: null,
         // Explicit intent: this run generates summaries even while the global
         // "disable summaries" toggle is on.
         skipSummaries: false,
         summaryErrors: [],
         forceFinalize: false,
-        progress: { stage: 'summarizing_topics', done: 0, total: rec.topics.length },
+        progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done: 0, total: rec.topics.length },
       });
       startPipeline(msg.key).catch((err) => {
         console.error('PageToLLM Canvas generateRecordSummaries startPipeline failed:', err);
@@ -492,9 +489,9 @@ export const MESSAGE_HANDLERS = {
       }
       await updateRecord(msg.key, {
         pipelineRunId: createPipelineRunId(),
-        status: 'cancelled',
+        status: PIPELINE_STATUS.CANCELLED,
         error: 'Processing stopped.',
-        progress: { stage: 'cancelled', done: 0, total: 0 },
+        progress: { stage: PIPELINE_STAGE.CANCELLED, done: 0, total: 0 },
       });
       return { ok: true };
     },
@@ -513,20 +510,20 @@ export const MESSAGE_HANDLERS = {
         return { ok: false, error: 'record not found' };
       }
       // Only a parked record can be resolved; ignore stale/double clicks.
-      if (rec.status !== 'needs_attention') {
+      if (rec.status !== PIPELINE_STATUS.NEEDS_ATTENTION) {
         return { ok: true, stale: true };
       }
 
       cancelActivePipeline(msg.key);
       const patch = {
         pipelineRunId: createPipelineRunId(),
-        status: 'summarizing',
+        status: PIPELINE_STATUS.SUMMARIZING,
         error: null,
         summaryErrors: [],
         forceFinalize: msg.action === 'skip',
         // Reset the parked progress stage so the resuming UI shows summarizing,
         // not the transient 'needs_attention' stage, before the worker's first write.
-        progress: { stage: 'summarizing_topics', done: 0, total: 0 },
+        progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done: 0, total: 0 },
       };
       if (msg.action === 'skip') {
         // Accept the empty summaries: drop the in-flight error flags so the
@@ -577,7 +574,9 @@ export const MESSAGE_HANDLERS = {
 
       for (const record of recordsByKey.values()) {
         const key = record.key.trim();
-        const status = isInFlightStatus(record.status) ? 'done' : record.status || 'done';
+        const status = isInFlightStatus(record.status)
+          ? PIPELINE_STATUS.DONE
+          : record.status || PIPELINE_STATUS.DONE;
         cancelActivePipeline(key);
         await writeRecord(
           {

@@ -26,6 +26,7 @@ import {
  * @property {() => void} assertActive
  * @property {() => Promise<object|null>} read
  * @property {(patch: object) => Promise<object>} update
+ * @property {(disabled: boolean) => void} setSummariesDisabled
  * @property {(stage: string, details?: object, options?: {verbose?: boolean}) => Promise<void>} log
  * @property {() => Promise<void>} flushLogs
  */
@@ -78,6 +79,10 @@ export function createPipelineRuntime({
         throw err;
       }
       return updated;
+    },
+
+    setSummariesDisabled(disabled) {
+      runtime.summariesDisabled = disabled === true;
     },
 
     /**

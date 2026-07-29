@@ -10,6 +10,7 @@ import {
   runSourceText,
   shouldInlineRun,
 } from './sourceSummarizer.js';
+import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
 
 /** Maps provider/transport errors to stable UI categories and messages. */
 export function classifyLlmError(error) {
@@ -50,10 +51,10 @@ function collectSummaryErrors(topicSummaries) {
 
 async function parkForReview(runtime, summaryErrors, phase, { done, total }) {
   await runtime.update({
-    status: 'needs_attention',
+    status: PIPELINE_STATUS.NEEDS_ATTENTION,
     summaryErrors,
     forceFinalize: false,
-    progress: { stage: 'needs_attention', done, total },
+    progress: { stage: PIPELINE_STAGE.NEEDS_ATTENTION, done, total },
   });
   await runtime.log('topic_summaries_needs_attention', {
     phase,
@@ -66,11 +67,11 @@ async function parkForReview(runtime, summaryErrors, phase, { done, total }) {
 export async function finalizeSummariesDisabled(runtime, topics) {
   await runtime.log('summaries_disabled_skip', { topicCount: topics.length });
   await runtime.update({
-    status: 'done',
+    status: PIPELINE_STATUS.DONE,
     topic_summaries: {},
     topic_summary_index: {},
     summariesDisabled: true,
-    progress: { stage: 'done', done: topics.length, total: topics.length },
+    progress: { stage: PIPELINE_STAGE.DONE, done: topics.length, total: topics.length },
     summaryErrors: [],
     forceFinalize: false,
   });
@@ -100,7 +101,7 @@ export async function runSummaries({
 
   let done = reusedCount;
   await runtime.update({
-    progress: { stage: 'summarizing_topics', done, total },
+    progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done, total },
   });
   if (pendingCount < total) {
     await runtime.log(
@@ -187,7 +188,7 @@ export async function runSummaries({
       );
       await runtime.update({
         topic_summaries: { ...topic_summaries },
-        progress: { stage: 'summarizing_topics', done, total },
+        progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done, total },
       });
     },
     { warmupFirst: true },
@@ -251,11 +252,11 @@ export async function runSummaries({
   }
 
   await runtime.update({
-    status: 'done',
+    status: PIPELINE_STATUS.DONE,
     topic_summaries: finalizedSummaries,
     topic_summary_index,
     summariesDisabled: false,
-    progress: { stage: 'done', done: total, total },
+    progress: { stage: PIPELINE_STAGE.DONE, done: total, total },
     summaryErrors: [],
     forceFinalize: false,
   });

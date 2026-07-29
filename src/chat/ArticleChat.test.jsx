@@ -314,21 +314,23 @@ describe('ArticleChat persisted history', () => {
   });
 
   it('persists the whole turn atomically and adopts the returned data', async () => {
-    turnLoop.runArticleChatTurn.mockImplementation(async ({ onHighlight: paintHighlight }) => {
-      await paintHighlight({ startLine: 3, endLine: 3, label: 'New evidence' });
-      return {
-        reply: 'Line three answers it.',
-        transcriptMessages: [
-          {
-            role: 'assistant',
-            content: '',
-            toolCalls: [{ id: 'call-1', name: 'highlight_span', arguments: {} }],
-          },
-          { role: 'tool', content: 'Highlighted lines 3-3.', toolCallId: 'call-1' },
-        ],
-        highlightRanges: [{ startLine: 3, endLine: 3, label: 'New evidence' }],
-      };
-    });
+    turnLoop.runArticleChatTurn.mockImplementation(
+      async ({ effects: { onHighlight: paintHighlight } }) => {
+        await paintHighlight({ startLine: 3, endLine: 3, label: 'New evidence' });
+        return {
+          reply: 'Line three answers it.',
+          transcriptMessages: [
+            {
+              role: 'assistant',
+              content: '',
+              toolCalls: [{ id: 'call-1', name: 'highlight_span', arguments: {} }],
+            },
+            { role: 'tool', content: 'Highlighted lines 3-3.', toolCallId: 'call-1' },
+          ],
+          highlightRanges: [{ startLine: 3, endLine: 3, label: 'New evidence' }],
+        };
+      },
+    );
     api.persistChatTurn.mockResolvedValue({
       chat: {
         chatId: 'chat-1',
@@ -383,7 +385,9 @@ describe('ArticleChat persisted history', () => {
     expect(turnLoop.runArticleChatTurn).toHaveBeenCalledWith(
       expect.objectContaining({
         question: 'What about line three?',
-        highlightedRanges: [{ startLine: 1, endLine: 2, label: 'First evidence' }],
+        article: expect.objectContaining({
+          highlightedRanges: [{ startLine: 1, endLine: 2, label: 'First evidence' }],
+        }),
       }),
     );
     expect(onHighlight).toHaveBeenLastCalledWith({
@@ -424,14 +428,16 @@ describe('ArticleChat persisted history', () => {
   });
 
   it('paints streamed evidence without automatically focusing it', async () => {
-    turnLoop.runArticleChatTurn.mockImplementation(async ({ onHighlight: paintHighlight }) => {
-      await paintHighlight({ startLine: 3, endLine: 3, label: 'Focused evidence' });
-      return {
-        reply: 'Focused answer.',
-        transcriptMessages: [],
-        highlightRanges: [{ startLine: 3, endLine: 3, label: 'Focused evidence' }],
-      };
-    });
+    turnLoop.runArticleChatTurn.mockImplementation(
+      async ({ effects: { onHighlight: paintHighlight } }) => {
+        await paintHighlight({ startLine: 3, endLine: 3, label: 'Focused evidence' });
+        return {
+          reply: 'Focused answer.',
+          transcriptMessages: [],
+          highlightRanges: [{ startLine: 3, endLine: 3, label: 'Focused evidence' }],
+        };
+      },
+    );
     api.persistChatTurn.mockResolvedValue({
       chat: {
         chatId: 'chat-1',
@@ -637,10 +643,10 @@ describe('ArticleChat persisted history', () => {
     typeQuestion(container, 'Will be closed');
     await act(async () => container.querySelector('.pagetollm-chat-composer button').click());
     const turnOptions = turnLoop.runArticleChatTurn.mock.calls[0][0];
-    expect(turnOptions.turnId).toEqual(expect.any(String));
-    expect(turnOptions.signal.aborted).toBe(false);
+    expect(turnOptions.runtime.turnId).toEqual(expect.any(String));
+    expect(turnOptions.runtime.signal.aborted).toBe(false);
     unmount();
-    expect(turnOptions.signal.aborted).toBe(true);
+    expect(turnOptions.runtime.signal.aborted).toBe(true);
     await act(async () => {
       finishTurn({ reply: 'Too late', transcriptMessages: [], highlightRanges: [] });
     });
@@ -651,7 +657,7 @@ describe('ArticleChat persisted history', () => {
 
   it('offers a Stop action that aborts the turn and restores the question', async () => {
     turnLoop.runArticleChatTurn.mockImplementation(
-      ({ signal }) =>
+      ({ runtime: { signal } }) =>
         new Promise((_resolve, reject) => {
           signal.addEventListener(
             'abort',
@@ -679,7 +685,7 @@ describe('ArticleChat persisted history', () => {
     act(() => stopButton.click());
     await flushAsyncWork();
 
-    expect(turnOptions.signal.aborted).toBe(true);
+    expect(turnOptions.runtime.signal.aborted).toBe(true);
     expect(api.persistChatTurn).not.toHaveBeenCalled();
     expect(container.querySelector('.pagetollm-chat-composer textarea').value).toBe(
       'Please stop this',
@@ -691,7 +697,9 @@ describe('ArticleChat persisted history', () => {
 
     await clickSend(container);
     expect(turnLoop.runArticleChatTurn).toHaveBeenCalledTimes(2);
-    expect(turnLoop.runArticleChatTurn.mock.calls[1][0].turnId).not.toBe(turnOptions.turnId);
+    expect(turnLoop.runArticleChatTurn.mock.calls[1][0].runtime.turnId).not.toBe(
+      turnOptions.runtime.turnId,
+    );
     unmount();
   });
 
@@ -710,7 +718,7 @@ describe('ArticleChat persisted history', () => {
     );
     await flushAsyncWork();
 
-    expect(turnOptions.signal.aborted).toBe(true);
+    expect(turnOptions.runtime.signal.aborted).toBe(true);
     expect(view.container.querySelector('.pagetollm-chat-composer textarea').disabled).toBe(false);
     expect(view.container.querySelector('.pagetollm-chat-composer button').textContent).toBe(
       'Send',

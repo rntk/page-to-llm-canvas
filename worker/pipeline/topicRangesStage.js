@@ -13,6 +13,7 @@ import { parallelMap } from '../llm/llm.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
 import { MAX_TAGGED_CHARS } from './pipelineConfig.js';
+import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
 
 const TOPIC_RANGE_CONCURRENCY = 4;
 const TOPIC_RANGE_TEMPERATURE = 0.2;
@@ -551,8 +552,8 @@ async function refineOversizedRangesWithStats(
  */
 export async function computeTopics({ runtime, record, callLLMWithRetry }) {
   await runtime.update({
-    status: 'splitting',
-    progress: { stage: 'cleaning_html', done: 0, total: 0 },
+    status: PIPELINE_STATUS.SPLITTING,
+    progress: { stage: PIPELINE_STAGE.CLEANING_HTML, done: 0, total: 0 },
     error: null,
     topics: [],
     topic_summaries: {},
@@ -574,7 +575,7 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
 
   await runtime.update({
     text,
-    progress: { stage: 'splitting_sentences', done: 0, total: 0 },
+    progress: { stage: PIPELINE_STAGE.SPLITTING_SENTENCES, done: 0, total: 0 },
   });
   await runtime.log('splitting_sentences_start', {}, { verbose: true });
 
@@ -588,16 +589,16 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
 
   await runtime.update({
     sentences: sentenceTexts,
-    progress: { stage: 'topic_ranges', done: 0, total: sentenceTexts.length },
+    progress: { stage: PIPELINE_STAGE.TOPIC_RANGES, done: 0, total: sentenceTexts.length },
   });
 
   if (sentenceTexts.length === 0) {
     await runtime.update({
-      status: 'done',
+      status: PIPELINE_STATUS.DONE,
       topics: [],
       topic_summaries: {},
       summariesDisabled: runtime.summariesDisabled,
-      progress: { stage: 'done', done: 0, total: 0 },
+      progress: { stage: PIPELINE_STAGE.DONE, done: 0, total: 0 },
     });
     return { topics: null, sentenceTexts };
   }
@@ -761,8 +762,8 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
   const topics = groupsToTopics(groups, sentenceObjs, mapping);
   await runtime.update({
     topics,
-    status: 'summarizing',
-    progress: { stage: 'summarizing_topics', done: 0, total: topics.length },
+    status: PIPELINE_STATUS.SUMMARIZING,
+    progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done: 0, total: topics.length },
   });
 
   return { topics, sentenceTexts };

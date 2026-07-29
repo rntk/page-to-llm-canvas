@@ -14,6 +14,7 @@ import { getStoredVerboseLogs } from '../settings/verboseLog.js';
 import { createPipelineRuntime, formatPipelineError } from './pipelineRuntime.js';
 import { computeTopics } from './topicRangesStage.js';
 import { finalizeSummariesDisabled, runSummaries } from './summaryStage.js';
+import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
 
 // All concurrently running page pipelines share this provider-facing boundary.
 // Internal stage caps still control their own fan-out, while this outer queue
@@ -74,12 +75,14 @@ export async function runPipeline(key, options = {}) {
     await runtime.log('pipeline_start');
     const record = await runtime.read();
     if (!record) throw new Error(`record not found: ${key}`);
-    runtime.summariesDisabled = record.skipSummaries === true;
+    runtime.setSummariesDisabled(record.skipSummaries === true);
 
     // A summarizing record has already persisted topics for its current HTML.
     // Reuse them after service-worker recycling and fill only missing summaries.
     const resuming =
-      record.status === 'summarizing' && Array.isArray(record.topics) && record.topics.length > 0;
+      record.status === PIPELINE_STATUS.SUMMARIZING &&
+      Array.isArray(record.topics) &&
+      record.topics.length > 0;
 
     let topics;
     let sentenceTexts;
@@ -91,11 +94,11 @@ export async function runPipeline(key, options = {}) {
           ? record.topic_summaries
           : {};
       await runtime.log('pipeline_resume', {
-        stage: 'summarizing',
+        stage: PIPELINE_STAGE.SUMMARIZING,
         topicCount: topics.length,
         existingSummaryCount: Object.keys(existingSummaries).length,
       });
-      await runtime.update({ status: 'summarizing', error: null });
+      await runtime.update({ status: PIPELINE_STATUS.SUMMARIZING, error: null });
     } else {
       ({ topics, sentenceTexts } = await computeTopics({
         runtime,
@@ -134,9 +137,11 @@ export async function runPipeline(key, options = {}) {
 
     const formattedError = formatPipelineError(error);
     await runtime.log('pipeline_error', { error: formattedError });
-    await runtime.update({ status: 'error', error: formattedError }).catch((writeError) => {
-      console.error('PageToLLM Canvas: failed to persist error status to storage:', writeError);
-    });
+    await runtime
+      .update({ status: PIPELINE_STATUS.ERROR, error: formattedError })
+      .catch((writeError) => {
+        console.error('PageToLLM Canvas: failed to persist error status to storage:', writeError);
+      });
     throw error;
   } finally {
     await runtime.flushLogs();
