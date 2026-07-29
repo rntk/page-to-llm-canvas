@@ -8,7 +8,7 @@ import { clampScale } from '../../utils/canvasMath.js';
 
 // The hook returns void; its behaviour is observed through the callbacks and
 // refs it drives across the three phases (level-set → zoomed → first topic).
-function makeProps(overrides = {}) {
+function makeProps({ viewport: viewportOverrides, ...overrides } = {}) {
   return {
     isDone: true,
     topics: [{ title: 'T' }],
@@ -16,10 +16,15 @@ function makeProps(overrides = {}) {
     maxLevel: 0,
     selectedLevel: 0,
     setSelectedLevel: vi.fn(),
-    userMovedCanvasRef: { current: false },
-    setTransformNow: vi.fn(),
-    scaleRef: { current: 1 },
-    translateRef: { current: { x: 40, y: 40 } },
+    // The transform hook hands consumers one imperative handle, so the live
+    // transform refs and setTransformNow travel together here too.
+    viewport: {
+      userMovedCanvasRef: { current: false },
+      setTransformNow: vi.fn(),
+      scaleRef: { current: 1 },
+      translateRef: { current: { x: 40, y: 40 } },
+      ...viewportOverrides,
+    },
     showSummaryMode: false,
     summaryCards: [],
     zoomAdjustedTopicCards: [{ fullPath: 'A', levelIndex: 0, startSentence: 1, key: 'kA' }],
@@ -67,8 +72,11 @@ describe('useInitialView', () => {
     // Phase 1 needs no setSelectedLevel because there is no deeper level.
     expect(props.setSelectedLevel).not.toHaveBeenCalled();
     // Phase 2 zoomed out ~3 "-" clicks: scale / 1.2^3.
-    expect(props.setTransformNow).toHaveBeenCalledTimes(1);
-    expect(props.setTransformNow).toHaveBeenCalledWith(clampScale(1 / 1.2 ** 3), { x: 40, y: 40 });
+    expect(props.viewport.setTransformNow).toHaveBeenCalledTimes(1);
+    expect(props.viewport.setTransformNow).toHaveBeenCalledWith(clampScale(1 / 1.2 ** 3), {
+      x: 40,
+      y: 40,
+    });
     // Phase 3 selected the first topic.
     expect(props.setSelectedTopicKey).toHaveBeenCalledWith('A');
     expect(props.setSelectedTopicCardKey).toHaveBeenCalledWith('kA');
@@ -81,20 +89,20 @@ describe('useInitialView', () => {
     const ctx = setup(props);
     // Phase 1 sets the leaf level but phase 2 is gated until selectedLevel lands.
     expect(props.setSelectedLevel).toHaveBeenCalledWith(3);
-    expect(props.setTransformNow).not.toHaveBeenCalled();
+    expect(props.viewport.setTransformNow).not.toHaveBeenCalled();
 
     // Simulate the level switcher committing the leaf level.
     ctx.rerender({ selectedLevel: 3 });
-    expect(props.setTransformNow).toHaveBeenCalledTimes(1);
+    expect(props.viewport.setTransformNow).toHaveBeenCalledTimes(1);
     expect(props.panToTopic).toHaveBeenCalledTimes(1);
     ctx.cleanup();
   });
 
   it('skips the opening view when the user already moved the canvas', () => {
-    const props = makeProps({ userMovedCanvasRef: { current: true } });
+    const props = makeProps({ viewport: { userMovedCanvasRef: { current: true } } });
     const ctx = setup(props);
     expect(props.setSelectedLevel).not.toHaveBeenCalled();
-    expect(props.setTransformNow).not.toHaveBeenCalled();
+    expect(props.viewport.setTransformNow).not.toHaveBeenCalled();
     expect(props.panToTopic).not.toHaveBeenCalled();
     ctx.cleanup();
   });
@@ -103,22 +111,22 @@ describe('useInitialView', () => {
     const props = makeProps({ selectedLevel: 2, maxLevel: 3 });
     const ctx = setup(props);
     expect(props.setSelectedLevel).not.toHaveBeenCalled();
-    expect(props.setTransformNow).not.toHaveBeenCalled();
+    expect(props.viewport.setTransformNow).not.toHaveBeenCalled();
     ctx.cleanup();
   });
 
   it('does nothing until the article and hierarchy are measured', () => {
     const notReady = makeProps({ isDone: false });
     const ctx = setup(notReady);
-    expect(notReady.setTransformNow).not.toHaveBeenCalled();
+    expect(notReady.viewport.setTransformNow).not.toHaveBeenCalled();
 
     const empty = makeProps({ topics: [] });
     const ctx2 = setup(empty);
-    expect(empty.setTransformNow).not.toHaveBeenCalled();
+    expect(empty.viewport.setTransformNow).not.toHaveBeenCalled();
 
     const noMetrics = makeProps({ sentenceMetrics: new Map() });
     const ctx3 = setup(noMetrics);
-    expect(noMetrics.setTransformNow).not.toHaveBeenCalled();
+    expect(noMetrics.viewport.setTransformNow).not.toHaveBeenCalled();
 
     ctx.cleanup();
     ctx2.cleanup();
@@ -129,7 +137,7 @@ describe('useInitialView', () => {
     const props = makeProps({ zoomAdjustedTopicCards: [] });
     const ctx = setup(props);
     // Phase 2 still zoomed; phase 3 found no target so made no selection.
-    expect(props.setTransformNow).toHaveBeenCalledTimes(1);
+    expect(props.viewport.setTransformNow).toHaveBeenCalledTimes(1);
     expect(props.setSelectedTopicKey).not.toHaveBeenCalled();
     expect(props.panToTopic).not.toHaveBeenCalled();
     ctx.cleanup();

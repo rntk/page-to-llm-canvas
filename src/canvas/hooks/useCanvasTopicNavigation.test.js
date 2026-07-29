@@ -29,11 +29,16 @@ function setup(overrides = {}) {
     setSelectedTopicKey: vi.fn(),
     setSelectedTopicCardKey: vi.fn(),
     refreshSentenceRanges: vi.fn(() => ({ wordEntries: [], sentenceRanges: new Map() })),
-    zoomToTarget: vi.fn(),
-    canvasWrapElRef: { current: { clientHeight: 600 } },
-    scaleRef: { current: 2 },
-    translateRef: { current: { x: 42, y: -20 } },
-    setTransformNow: vi.fn(),
+    // The transform hook's single imperative handle (stable identity, as in the
+    // real hook) rather than six loose members.
+    viewport: {
+      zoomToTarget: vi.fn(),
+      canvasWrapElRef: { current: { clientHeight: 600 } },
+      scaleRef: { current: 2 },
+      translateRef: { current: { x: 42, y: -20 } },
+      setTransformNow: vi.fn(),
+      userMovedCanvasRef: { current: false },
+    },
     flashFocus: vi.fn(),
     navigateCanvas: vi.fn(),
     skipNextAlignment: vi.fn(),
@@ -91,7 +96,7 @@ describe('useCanvasTopicNavigation', () => {
 
     act(() => ctx.result.current.zoomToTopic('Parent'));
     expect(summaryEl.getBoundingClientRect).toHaveBeenCalledOnce();
-    expect(ctx.props.zoomToTarget).toHaveBeenLastCalledWith(summaryRect);
+    expect(ctx.props.viewport.zoomToTarget).toHaveBeenLastCalledWith(summaryRect);
 
     ctx.rerender({ showSummaryMode: false });
     act(() => ctx.result.current.zoomToTopic('Parent', { startSentence: 3 }));
@@ -101,19 +106,19 @@ describe('useCanvasTopicNavigation', () => {
       [],
       3,
     );
-    expect(ctx.props.zoomToTarget).toHaveBeenLastCalledWith(articleRect);
+    expect(ctx.props.viewport.zoomToTarget).toHaveBeenLastCalledWith(articleRect);
   });
 
   it('pans valid cards and ignores cards without a finite measured top', () => {
     const ctx = setup();
 
     act(() => ctx.result.current.panToTopic({ key: 'A#0', fullPath: 'A', top: 150 }));
-    expect(ctx.props.setTransformNow).toHaveBeenCalledWith(2, { x: 42, y: -180 });
+    expect(ctx.props.viewport.setTransformNow).toHaveBeenCalledWith(2, { x: 42, y: -180 });
     expect(ctx.props.flashFocus).toHaveBeenCalledOnce();
 
     ctx.rerender({ showSummaryMode: true, summaryMetricsState: new Map() });
     act(() => ctx.result.current.panToTopic({ key: 'Missing#0', path: 'Missing' }));
-    expect(ctx.props.setTransformNow).toHaveBeenCalledTimes(1);
+    expect(ctx.props.viewport.setTransformNow).toHaveBeenCalledTimes(1);
     expect(ctx.props.flashFocus).toHaveBeenCalledTimes(1);
   });
 
@@ -134,7 +139,7 @@ describe('useCanvasTopicNavigation', () => {
     act(() => ctx.result.current.handleNavigate('next-topic'));
     expect(ctx.props.setSelectedTopicKey).toHaveBeenCalledWith('B');
     expect(ctx.props.setSelectedTopicCardKey).toHaveBeenCalledWith('B#0');
-    expect(ctx.props.setTransformNow).toHaveBeenCalledWith(2, { x: 42, y: -40 });
+    expect(ctx.props.viewport.setTransformNow).toHaveBeenCalledWith(2, { x: 42, y: -40 });
     expect(ctx.props.flashFocus).toHaveBeenCalledOnce();
   });
 
@@ -150,7 +155,7 @@ describe('useCanvasTopicNavigation', () => {
     expect(ctx.props.setSelectedTopicKey).toHaveBeenCalledWith('Topic');
     expect(ctx.props.setSelectedTopicCardKey).toHaveBeenCalledWith('Topic#0');
     expect(ctx.props.setShowSummaryMode).toHaveBeenCalledWith(false);
-    expect(ctx.props.zoomToTarget).not.toHaveBeenCalled();
+    expect(ctx.props.viewport.zoomToTarget).not.toHaveBeenCalled();
 
     ctx.rerender({ showSummaryMode: false });
     expect(sentenceHighlightMocks.buildSentenceDomRange).toHaveBeenCalledWith(
@@ -158,6 +163,6 @@ describe('useCanvasTopicNavigation', () => {
       [],
       4,
     );
-    expect(ctx.props.zoomToTarget).toHaveBeenCalledWith(articleRect);
+    expect(ctx.props.viewport.zoomToTarget).toHaveBeenCalledWith(articleRect);
   });
 });

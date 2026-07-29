@@ -80,6 +80,23 @@ vi.mock('./closeModal.js', () => ({ closeModal: mocks.closeModal }));
 vi.mock('../utils/canvasMath.js', () => ({
   clampScale: (value) => Math.max(0.1, Math.min(4, value)),
 }));
+// The real hook memoizes `viewport` to a stable identity, so the mock keeps one
+// object across renders too — App uses it as an effect dependency, and a fresh
+// object per render would re-run those effects on every render.
+const viewportMock = vi.hoisted(() => ({
+  // Read through to `state` so tests can swap the wrap element per case.
+  canvasWrapElRef: {
+    get current() {
+      return state.canvasWrapElement;
+    },
+  },
+  scaleRef: { current: 1 },
+  translateRef: { current: { x: 3, y: 4 } },
+  userMovedCanvasRef: { current: false },
+  setTransformNow: mocks.setTransformNow,
+  zoomToTarget: mocks.zoomToTarget,
+}));
+
 vi.mock('./hooks/useCanvasTransform.js', () => ({
   useCanvasTransform: () => ({
     scale: 1,
@@ -88,15 +105,10 @@ vi.mock('./hooks/useCanvasTransform.js', () => ({
     isZoomingToTarget: false,
     canvasWrapRef: { current: null },
     canvasViewportRef: { current: null },
-    canvasWrapElRef: { current: state.canvasWrapElement },
-    scaleRef: { current: 1 },
-    translateRef: { current: { x: 3, y: 4 } },
-    userMovedCanvasRef: { current: false },
     handleMouseDown: mocks.handleMouseDown,
-    setTransformNow: mocks.setTransformNow,
     navigateCanvas: mocks.navigateCanvas,
-    zoomToTarget: mocks.zoomToTarget,
     flashFocus: mocks.flashFocus,
+    viewport: viewportMock,
   }),
 }));
 vi.mock('./hooks/useCanvasAlignment.js', () => ({
@@ -196,6 +208,11 @@ describe('App composition behavior', () => {
     state.vmInput = null;
     state.canvasWrapElement = { focus: mocks.canvasFocus, clientHeight: 500 };
     state.childProps = {};
+    // The shared viewport handle is stateful across tests now that it is a single
+    // stable object; reset the members App writes to.
+    viewportMock.scaleRef.current = 1;
+    viewportMock.translateRef.current = { x: 3, y: 4 };
+    viewportMock.userMovedCanvasRef.current = false;
     vi.clearAllMocks();
     mocks.refreshSentenceRanges.mockReturnValue({ wordEntries: [], sentenceRanges: new Map() });
     mocks.buildSentenceDomRange.mockReturnValue(null);

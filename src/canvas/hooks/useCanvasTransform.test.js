@@ -137,10 +137,34 @@ describe('useCanvasTransform', () => {
   it('setTransformNow updates scale and translate synchronously', () => {
     const { result } = renderHook(() => useCanvasTransform());
     act(() => {
-      result.current.setTransformNow(1.5, { x: 100, y: 200 });
+      result.current.viewport.setTransformNow(1.5, { x: 100, y: 200 });
     });
     expect(result.current.scale).toBe(1.5);
     expect(result.current.translate).toEqual({ x: 100, y: 200 });
+  });
+
+  it('keeps the viewport handle stable and limited to the imperative surface', () => {
+    const { result } = renderHook(() => useCanvasTransform());
+    const first = result.current.viewport;
+    act(() => {
+      result.current.viewport.setTransformNow(1.5, { x: 100, y: 200 });
+    });
+    // Guards against a vacuous identity check: the transform really did commit a
+    // new render, and the handle still survived it unchanged. Its memo must not
+    // depend on the transform, or every pan/zoom would re-run consumers' effects.
+    expect(result.current.scale).toBe(1.5);
+    expect(result.current.viewport).toBe(first);
+    expect(Object.keys(result.current.viewport).sort()).toEqual([
+      'canvasWrapElRef',
+      'scaleRef',
+      'setTransformNow',
+      'translateRef',
+      'userMovedCanvasRef',
+      'zoomToTarget',
+    ]);
+    // Bundled, not duplicated: the handle's members are gone from the flat return.
+    expect(result.current.scaleRef).toBeUndefined();
+    expect(result.current.setTransformNow).toBeUndefined();
   });
 
   it('ArrowUp keyboard pan offsets translate upward', () => {
@@ -175,7 +199,7 @@ describe('useCanvasTransform', () => {
 
     const targetRect = { top: 100, left: 100, width: 50, height: 50 };
     act(() => {
-      result.current.zoomToTarget(targetRect, 1.5);
+      result.current.viewport.zoomToTarget(targetRect, 1.5);
     });
 
     expect(result.current.scale).toBe(1.5);
@@ -222,11 +246,11 @@ describe('useCanvasTransform', () => {
 
     // Start zoomed out so zooming in collapses the gutter.
     act(() => {
-      result.current.setTransformNow(0.3, { x: 0, y: 0 });
+      result.current.viewport.setTransformNow(0.3, { x: 0, y: 0 });
     });
 
     act(() => {
-      result.current.zoomToTarget({ top: 100, left: 320, width: 50, height: 50 }, 1.5);
+      result.current.viewport.zoomToTarget({ top: 100, left: 320, width: 50, height: 50 }, 1.5);
     });
 
     // Initial placement from the inflated (pre-reflow) layout:
@@ -445,7 +469,7 @@ describe('useCanvasTransform', () => {
 
     // Force current scale to MIN so further WHEEL_OUT produces no change
     act(() => {
-      result.current.setTransformNow(0.1, { x: 0, y: 0 });
+      result.current.viewport.setTransformNow(0.1, { x: 0, y: 0 });
     });
     const before = { ...result.current.translate };
 

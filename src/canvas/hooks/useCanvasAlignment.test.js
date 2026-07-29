@@ -84,15 +84,24 @@ function setup({ wrapRect, anchorRect, autoRaf = true }) {
     translateRef.current = t;
   });
 
+  // The hook now takes the transform's single imperative handle. Built once, as
+  // the real hook memoizes it, so re-rendering the harness never re-runs effects
+  // that key on it.
+  const viewport = {
+    canvasWrapElRef: wrapElRef,
+    setTransformNow,
+    translateRef,
+    scaleRef,
+    userMovedCanvasRef: { current: false },
+    zoomToTarget: vi.fn(),
+  };
+
   const apiRef = { current: null };
   function Harness({ d }) {
     apiRef.current = useCanvasAlignment({
       enabled: true,
       anchorRef,
-      wrapElRef,
-      setTransformNow,
-      translateRef,
-      scaleRef,
+      viewport,
       flashFocus,
       deps: [d],
     });

@@ -18,6 +18,8 @@ import {
   recordSummariesStorageKey as summariesStorageKey,
 } from './keys.js';
 
+/** @typedef {import('../../src/shared/runtime/contracts.js').ArticleRecord} ArticleRecord */
+
 export const INDEX_KEY = 'pagetollm:index';
 const MAX_PROCESSING_LOG_ENTRIES = 80;
 const RECORD_SNIPPET_MAX_CHARS = 500;
@@ -150,6 +152,8 @@ async function syncIndexMeta(key, patch, fallbackMeta) {
 /**
  * Reads and reassembles the full logical record from its three physical docs.
  * Returns `null` if none of them hold anything.
+ * @param {string} key
+ * @returns {Promise<ArticleRecord | null>}
  */
 export async function readRecord(key) {
   const metaKey = metaStorageKey(key);
@@ -163,6 +167,11 @@ export async function readRecord(key) {
   return { ...(content || {}), ...(summaries || {}), ...(meta || {}) };
 }
 
+/**
+ * @param {ArticleRecord} rec
+ * @param {{bumpContentRevision?: boolean}} [options]
+ * @returns {Promise<void>}
+ */
 export async function writeRecord(rec, options = {}) {
   if (!rec || !rec.key) throw new Error('writeRecord: record.key required');
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
@@ -230,6 +239,12 @@ function isStaleRun(meta, options) {
   );
 }
 
+/**
+ * @param {string} key
+ * @param {Partial<ArticleRecord>} patch
+ * @param {{bumpContentRevision?: boolean, expectedPipelineRunId?: unknown}} [options]
+ * @returns {Promise<ArticleRecord | null>}
+ */
 export async function updateRecord(key, patch, options = {}) {
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
     return queuedUpdate(key, async () => {
@@ -381,6 +396,9 @@ export function appendProcessingLog(key, stage, details = {}, options = {}) {
   return buf.deferred.promise;
 }
 
+/**
+ * @returns {Promise<Array<{key: string} & Partial<ArticleRecord>>>}
+ */
 export async function listRecords() {
   const idx = await readIndex();
   // Every key's projection is kept in sync by writeRecord/updateRecord, so
@@ -544,7 +562,7 @@ export async function reconcileRecordStorage() {
  * `sourceUrl` never lives there; the full record is only read once, for the
  * actual match.
  * @param {string} url - The URL of the source page to match.
- * @returns {Promise<object | null>} The matching record, or null if not found.
+ * @returns {Promise<ArticleRecord | null>} The matching record, or null if not found.
  */
 export async function findRecordByUrl(url) {
   if (!url) return null;

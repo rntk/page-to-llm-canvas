@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { clampScale, cursorAnchoredTranslate } from '../../utils/canvasMath.js';
 
 const WHEEL_IN = 1.1;
@@ -8,6 +8,12 @@ const ARROW_STEP = 80;
 /**
  * Simplified canvas transform hook: pan, wheel zoom, programmatic zoom,
  * page navigation, and arrow/Home/End/PageUp/PageDown keyboard shortcuts.
+ *
+ * Returns render state (`translate`/`scale` and the drag/focus flags, which must
+ * stay flat so consumers re-render when they change) plus a single `viewport`
+ * handle carrying the imperative surface — the live transform refs and the
+ * move-the-canvas callbacks — for the hooks that drive the canvas rather than
+ * draw it. See the `viewport` memo below for why it is bundled.
  */
 export function useCanvasTransform({ contentRef } = {}) {
   const [translate, setTranslate] = useState({ x: 40, y: 40 });
@@ -107,10 +113,10 @@ export function useCanvasTransform({ contentRef } = {}) {
   // avoiding a render storm. State is reconciled on mouse-up.
   const applyTranslateImperative = useCallback((next) => {
     translateRef.current = next;
-    const viewport = canvasViewportElRef.current;
-    if (viewport) {
-      viewport.style.setProperty('--canvas-translate-x', `${next.x}px`);
-      viewport.style.setProperty('--canvas-translate-y', `${next.y}px`);
+    const viewportEl = canvasViewportElRef.current;
+    if (viewportEl) {
+      viewportEl.style.setProperty('--canvas-translate-x', `${next.x}px`);
+      viewportEl.style.setProperty('--canvas-translate-y', `${next.y}px`);
     }
   }, []);
 
@@ -249,11 +255,11 @@ export function useCanvasTransform({ contentRef } = {}) {
       if (pos === 'top') {
         nextY = topY;
       } else if (pos === 'bottom') {
-        const viewport = canvasViewportElRef.current;
+        const viewportEl = canvasViewportElRef.current;
         const content = contentRef?.current;
-        if (viewport && content) {
+        if (viewportEl && content) {
           const bottom =
-            content.getBoundingClientRect().bottom - viewport.getBoundingClientRect().top;
+            content.getBoundingClientRect().bottom - viewportEl.getBoundingClientRect().top;
           nextY = Math.min(topY, viewportHeight - bottom - topY);
         } else {
           nextY = currentTranslate.y - pageStep;
@@ -311,10 +317,10 @@ export function useCanvasTransform({ contentRef } = {}) {
   const zoomToTarget = useCallback(
     (targetRect, zoomLevel = 1.4) => {
       const wrap = canvasWrapElRef.current;
-      const viewport = canvasViewportElRef.current;
-      if (!wrap || !viewport || !targetRect) return;
+      const viewportEl = canvasViewportElRef.current;
+      if (!wrap || !viewportEl || !targetRect) return;
       const wrapRect = wrap.getBoundingClientRect();
-      const viewportRect = viewport.getBoundingClientRect();
+      const viewportRect = viewportEl.getBoundingClientRect();
       const currentScale = scaleRef.current || 1;
       const nextScale = clampScale(Math.max(currentScale, zoomLevel));
       const localTargetY =
@@ -383,6 +389,30 @@ export function useCanvasTransform({ contentRef } = {}) {
     [contentRef, flashFocus, flashZoomingToTarget, setTransformNow],
   );
 
+  // The imperative viewport handle: everything a consumer needs to *read* the
+  // live transform (the refs, which stay current between renders) or *move* it,
+  // bundled so it travels as one concept instead of six props threaded through
+  // App. Deliberately excludes render state (`scale`/`translate`/flags), which
+  // consumers must take flat so they re-render on change.
+  //
+  // Deps are the callbacks only: the four `useRef` containers are created once
+  // and are stable for the component's lifetime, so listing them would add
+  // nothing. That keeps the handle's identity flipping if and only if a callback
+  // member changes — i.e. never in practice, since both are `useCallback`s over
+  // stable deps — so effects keyed on `viewport` re-run exactly as often as
+  // effects keyed on the individual members did.
+  const viewport = useMemo(
+    () => ({
+      scaleRef,
+      translateRef,
+      canvasWrapElRef,
+      userMovedCanvasRef,
+      setTransformNow,
+      zoomToTarget,
+    }),
+    [setTransformNow, zoomToTarget],
+  );
+
   // Clean up the focus/zoom timers on unmount.
   useEffect(
     () => () => {
@@ -400,15 +430,10 @@ export function useCanvasTransform({ contentRef } = {}) {
     isZoomingToTarget,
     canvasWrapRef,
     canvasViewportRef,
-    canvasWrapElRef,
     canvasViewportElRef,
-    scaleRef,
-    translateRef,
-    userMovedCanvasRef,
     handleMouseDown,
-    setTransformNow,
     navigateCanvas,
-    zoomToTarget,
     flashFocus,
+    viewport,
   };
 }

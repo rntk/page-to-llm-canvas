@@ -2,7 +2,14 @@ import { useCallback, useEffect, useRef } from 'react';
 import { buildSentenceDomRange } from '../../highlights/sentenceHighlight.js';
 import { buildCanvasTopicPan, resolveCanvasTopicNavigation } from '../../domain/topicNavigation.js';
 
-/** Coordinates topic navigation with the canvas transform and live DOM ranges. */
+/**
+ * Coordinates topic navigation with the canvas transform and live DOM ranges.
+ *
+ * Takes the canvas transform's imperative `viewport` handle (live transform refs
+ * plus `setTransformNow`/`zoomToTarget`) rather than its members individually;
+ * `flashFocus` and `navigateCanvas` stay separate because they are not part of
+ * that handle.
+ */
 export function useCanvasTopicNavigation({
   showSummaryMode,
   setShowSummaryMode,
@@ -16,15 +23,12 @@ export function useCanvasTopicNavigation({
   setSelectedTopicKey,
   setSelectedTopicCardKey,
   refreshSentenceRanges,
-  zoomToTarget,
-  canvasWrapElRef,
-  scaleRef,
-  translateRef,
-  setTransformNow,
+  viewport,
   flashFocus,
   navigateCanvas,
   skipNextAlignment,
 }) {
+  const { zoomToTarget, canvasWrapElRef, scaleRef, translateRef, setTransformNow } = viewport;
   const pendingZoomSentenceRef = useRef(null);
 
   const zoomToTopic = useCallback(

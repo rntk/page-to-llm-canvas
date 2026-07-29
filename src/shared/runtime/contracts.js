@@ -86,6 +86,72 @@ export function isImportableRecord(record) {
 }
 
 /**
+ * The persisted shape of a page record (see `worker/storage/storage.js`,
+ * which physically splits this object across meta/content/summaries storage
+ * docs and reassembles it on read). Field names mix camelCase (`sourceUrl`,
+ * `createdAt`, `pipelineRunId`, `contentRevision`) with snake_case
+ * (`topic_summaries`, `topic_summary_index`, and the per-chunk
+ * `start_sentence`/`end_sentence` keys nested inside `topic_summaries`
+ * entries). This inconsistency is intentional/historical — the shape is
+ * persisted in user storage, so renaming any of these keys would require a
+ * storage migration, not just a code change.
+ *
+ * Optionality here is the intersection of the TWO paths that create records,
+ * because both write through `writeRecord` and neither backfills defaults
+ * (`pickMetaFields`/`pickContentFields`/`pickSummaryFields` copy only the keys
+ * actually present, and `readRecord` merges the three docs as-is):
+ *
+ *   1. `createQueuedRecord` (pipeline kickoff) — populates every field below.
+ *   2. Record import (`MSG.importRecords` in background.js, and
+ *      `normalizeImportedRecords` in options) — spreads a user-supplied JSON
+ *      object that only had to satisfy `isImportableRecord`, then overrides
+ *      `key`, `status`, `error`, `progress` and `pipelineRunId`.
+ *
+ * So a field is REQUIRED only if path 2 also guarantees it. Fields that path 1
+ * always sets but an imported record can lack are marked optional — consumers
+ * that assume otherwise (e.g. `record.sentences.length`) can throw on an
+ * imported record today.
+ *
+ * @typedef {Object} ArticleRecord
+ * @property {string} key - Content-hash-derived id; primary storage key.
+ * @property {string} html - Raw captured HTML. Required non-empty by
+ *   `isImportableRecord`.
+ * @property {string} status - One of the `PIPELINE_STATUS` values.
+ * @property {string|null} error - Human-readable failure message, or null.
+ * @property {{stage: string, done: number, total: number}} progress -
+ *   Current pipeline progress; `stage` is one of the `PIPELINE_STAGE` values.
+ * @property {string} pipelineRunId - Id of the run currently allowed to
+ *   write this record; guards against stale/superseded runs.
+ * @property {string} [sourceUrl] - Origin URL of the captured page ('' if none).
+ * @property {string} [text] - Cleaned article text extracted from `html`.
+ * @property {string[]} [sentences] - Sentence-split article text.
+ * @property {object[]} [topics] - Detected topic ranges over `sentences`.
+ * @property {Record<string, object>} [topic_summaries] - Resumable per-topic
+ *   summary checkpoint, keyed by topic id. Entries may nest
+ *   `start_sentence`/`end_sentence` chunk bounds (snake_case; see
+ *   `worker/pipeline/sourceSummarizer.js`).
+ * @property {Record<string, {level: number}>} [topic_summary_index] -
+ *   Canonical UI projection of `topic_summaries`. Tolerated absent/null by
+ *   `isImportableRecord`.
+ * @property {object[]} [processingLog] - Buffered diagnostic log entries
+ *   (capped; see `MAX_PROCESSING_LOG_ENTRIES` in storage.js).
+ * @property {string[]} [selectors] - CSS selectors used to capture the page.
+ * @property {boolean} [skipSummaries] - Run directive: summaries disabled for
+ *   this run (decided at kickoff from the global toggle).
+ * @property {boolean} [summariesDisabled] - Outcome flag: the run finished
+ *   intentionally without summaries (distinct from `skipSummaries`, the
+ *   directive).
+ * @property {object[]} [summaryErrors] - Per-topic summary failures parked
+ *   for user review (`PIPELINE_STATUS.NEEDS_ATTENTION`).
+ * @property {boolean} [forceFinalize] - Run directive: finalize/merge even if
+ *   some leaf summaries errored or are missing.
+ * @property {string} [contentRevision] - Opaque id bumped whenever
+ *   html/text/sentences/topics change; used to invalidate cached chats.
+ * @property {number} [createdAt] - Epoch ms when the record was first queued.
+ * @property {number} [updatedAt] - Epoch ms of the most recent write.
+ */
+
+/**
  * Creates the canonical initial record used when a new submission is queued.
  * The result is intentionally a serializable object, not a class instance.
  *

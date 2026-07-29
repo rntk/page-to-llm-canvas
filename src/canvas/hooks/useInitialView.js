@@ -53,10 +53,12 @@ function initialViewReducer(phase, action) {
  *   maxLevel: number,
  *   selectedLevel: number,
  *   setSelectedLevel: (level: number) => void,
- *   userMovedCanvasRef: import('react').RefObject<boolean>,
- *   setTransformNow: (scale: number, translate: { x: number, y: number }) => void,
- *   scaleRef: import('react').RefObject<number>,
- *   translateRef: import('react').RefObject<{ x: number, y: number }>,
+ *   viewport: {
+ *     userMovedCanvasRef: import('react').RefObject<boolean>,
+ *     scaleRef: import('react').RefObject<number>,
+ *     translateRef: import('react').RefObject<{ x: number, y: number }>,
+ *     setTransformNow: (scale: number, translate: { x: number, y: number }) => void,
+ *   },
  *   showSummaryMode: boolean,
  *   summaryCards: Array<unknown>,
  *   zoomAdjustedTopicCards: Array<unknown>,
@@ -74,10 +76,7 @@ export function useInitialView({
   maxLevel,
   selectedLevel,
   setSelectedLevel,
-  userMovedCanvasRef,
-  setTransformNow,
-  scaleRef,
-  translateRef,
+  viewport,
   showSummaryMode,
   summaryCards,
   zoomAdjustedTopicCards,
@@ -86,6 +85,9 @@ export function useInitialView({
   setSelectedTopicKey,
   setSelectedTopicCardKey,
 }) {
+  // The opening view only reads the live transform and moves it once, so it takes
+  // the imperative viewport handle rather than the render-state scale/translate.
+  const { userMovedCanvasRef, setTransformNow, scaleRef, translateRef } = viewport;
   const [initialViewPhase, dispatch] = useReducer(initialViewReducer, 'pending');
 
   // ── Opening view: leaf level, zoomed out ~3 clicks, first topic's summary ──

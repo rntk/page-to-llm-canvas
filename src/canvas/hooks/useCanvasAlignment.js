@@ -61,10 +61,12 @@ export function computeComfortLeft(currentLeft, columnWidth, wrapWidth) {
  * @param {{
  *   enabled: boolean,
  *   anchorRef: import('react').RefObject<HTMLElement>,
- *   wrapElRef: import('react').RefObject<HTMLElement>,
- *   setTransformNow: (scale: number, translate: {x: number, y: number}) => void,
- *   translateRef: import('react').RefObject<{x: number, y: number}>,
- *   scaleRef: import('react').RefObject<number>,
+ *   viewport: {
+ *     canvasWrapElRef: import('react').RefObject<HTMLElement>,
+ *     scaleRef: import('react').RefObject<number>,
+ *     translateRef: import('react').RefObject<{x: number, y: number}>,
+ *     setTransformNow: (scale: number, translate: {x: number, y: number}) => void,
+ *   },
  *   flashFocus?: () => void,
  *   deps: ReadonlyArray<unknown>,
  * }} params
@@ -73,16 +75,10 @@ export function computeComfortLeft(currentLeft, columnWidth, wrapWidth) {
  *   skipNextAlignment: () => void,
  * }}
  */
-export function useCanvasAlignment({
-  enabled,
-  anchorRef,
-  wrapElRef,
-  setTransformNow,
-  translateRef,
-  scaleRef,
-  flashFocus,
-  deps,
-}) {
+export function useCanvasAlignment({ enabled, anchorRef, viewport, flashFocus, deps }) {
+  // The wrap element is the measurement frame here, not "the canvas viewport"
+  // in the CSS sense, so keep this hook's own `wrapElRef` naming for the body.
+  const { canvasWrapElRef: wrapElRef, setTransformNow, translateRef, scaleRef } = viewport;
   // The column's pre-change screen position, recorded synchronously by callers
   // before they trigger a layout-affecting state update. `resetTop` requests
   // that vertical position be reset to the top margin instead of preserved

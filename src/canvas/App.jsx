@@ -73,16 +73,20 @@ export default function App({ initialKey }) {
     isZoomingToTarget,
     canvasWrapRef,
     canvasViewportRef,
-    canvasWrapElRef,
-    scaleRef,
-    translateRef,
-    userMovedCanvasRef,
     handleMouseDown,
-    setTransformNow,
     navigateCanvas,
-    zoomToTarget,
     flashFocus,
+    // Single imperative handle (live transform refs + setTransformNow/
+    // zoomToTarget) handed to the hooks that move the canvas; stable identity,
+    // so it is safe as a lone effect dependency.
+    viewport,
   } = useCanvasTransform({ contentRef: articleTextRef });
+  // The handle travels whole to the hooks below; App's own reads of the live
+  // transform pull the ref containers out here because the React Compiler only
+  // recognises a ref as a ref when it is destructured off the hook result
+  // (reading `viewport.someRef.current` in a callback trips its immutability /
+  // memoization checks). They are stable for the component's lifetime either way.
+  const { canvasWrapElRef, scaleRef, translateRef, userMovedCanvasRef } = viewport;
 
   const handleCanvasMouseDown = useCallback(
     (e) => {
@@ -129,6 +133,8 @@ export default function App({ initialKey }) {
     articleTextRef,
     summaryWrapRef,
     summaryCardRefs,
+    // Measurement only reads the live scale — handing it the whole viewport
+    // handle would widen its surface for nothing.
     scaleRef,
     isDone,
     showSummaryMode,
@@ -189,10 +195,7 @@ export default function App({ initialKey }) {
   const { captureAnchor, skipNextAlignment } = useCanvasAlignment({
     enabled: isDone,
     anchorRef: articleTextRef,
-    wrapElRef: canvasWrapElRef,
-    setTransformNow,
-    translateRef,
-    scaleRef,
+    viewport,
     flashFocus,
     deps: [showSummaryMode, selectedLevel, showTopicHierarchy],
   });
@@ -247,8 +250,8 @@ export default function App({ initialKey }) {
     pendingChatHighlightLineRef.current = null;
     const { wordEntries, sentenceRanges } = refreshSentenceRanges();
     const range = buildSentenceDomRange(sentenceRanges, wordEntries, sentenceNumber);
-    if (range) zoomToTarget(range.getBoundingClientRect());
-  }, [chatSentenceNumbers, refreshSentenceRanges, showSummaryMode, zoomToTarget]);
+    if (range) viewport.zoomToTarget(range.getBoundingClientRect());
+  }, [chatSentenceNumbers, refreshSentenceRanges, showSummaryMode, viewport]);
 
   // ── Topic interaction ────────────────────────────────────────────────────
 
@@ -266,11 +269,7 @@ export default function App({ initialKey }) {
       setSelectedTopicKey,
       setSelectedTopicCardKey,
       refreshSentenceRanges,
-      zoomToTarget,
-      canvasWrapElRef,
-      scaleRef,
-      translateRef,
-      setTransformNow,
+      viewport,
       flashFocus,
       navigateCanvas,
       skipNextAlignment,
@@ -336,18 +335,18 @@ export default function App({ initialKey }) {
 
   const handleZoomIn = useCallback(() => {
     userMovedCanvasRef.current = true;
-    setTransformNow(clampScale((scaleRef.current || 1) * 1.2), translateRef.current);
-  }, [setTransformNow, scaleRef, translateRef, userMovedCanvasRef]);
+    viewport.setTransformNow(clampScale((scaleRef.current || 1) * 1.2), translateRef.current);
+  }, [viewport, scaleRef, translateRef, userMovedCanvasRef]);
 
   const handleZoomOut = useCallback(() => {
     userMovedCanvasRef.current = true;
-    setTransformNow(clampScale((scaleRef.current || 1) / 1.2), translateRef.current);
-  }, [setTransformNow, scaleRef, translateRef, userMovedCanvasRef]);
+    viewport.setTransformNow(clampScale((scaleRef.current || 1) / 1.2), translateRef.current);
+  }, [viewport, scaleRef, translateRef, userMovedCanvasRef]);
 
   const handleReset = useCallback(() => {
     userMovedCanvasRef.current = true;
-    setTransformNow(1, { x: 40, y: 40 });
-  }, [setTransformNow, userMovedCanvasRef]);
+    viewport.setTransformNow(1, { x: 40, y: 40 });
+  }, [viewport, userMovedCanvasRef]);
 
   const handleToggleSummaryMode = useCallback(() => {
     // No summaries to show a-la-carte when the pipeline skipped them.
@@ -391,10 +390,7 @@ export default function App({ initialKey }) {
     maxLevel,
     selectedLevel,
     setSelectedLevel,
-    userMovedCanvasRef,
-    setTransformNow,
-    scaleRef,
-    translateRef,
+    viewport,
     showSummaryMode,
     summaryCards,
     zoomAdjustedTopicCards,
