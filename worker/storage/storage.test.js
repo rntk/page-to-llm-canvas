@@ -10,11 +10,8 @@ import {
   deleteAll,
   findRecordByUrl,
   buildRecordSnippet,
-  migrateIndexMeta,
   reconcileRecordStorage,
   INDEX_KEY,
-  INDEX_SCHEMA_KEY,
-  INDEX_SCHEMA_VERSION,
   _resetUpdateQueues,
 } from './storage.js';
 
@@ -494,75 +491,6 @@ describe('listRecords', () => {
   });
 });
 
-describe('migrateIndexMeta', () => {
-  /** Simulates a projection cached by a version predating `summariesDisabled`. */
-  function stripProjectionField(mock, key) {
-    delete mock.storage.local._store.get(INDEX_KEY).meta[key].summariesDisabled;
-  }
-
-  it('backfills summariesDisabled from the meta doc for old projections', async () => {
-    const mock = makeChromeMock();
-    vi.stubGlobal('chrome', mock);
-
-    await seedRecord(mock, makeRecord('old-nosum', { status: 'done', summariesDisabled: true }));
-    await seedRecord(mock, makeRecord('old-sum', { status: 'done' }));
-    stripProjectionField(mock, 'old-nosum');
-    stripProjectionField(mock, 'old-sum');
-
-    await migrateIndexMeta();
-
-    const items = await listRecords();
-    expect(items.find((i) => i.key === 'old-nosum').summariesDisabled).toBe(true);
-    expect(items.find((i) => i.key === 'old-sum').summariesDisabled).toBe(false);
-    expect(mock.storage.local._store.get(INDEX_SCHEMA_KEY)).toBe(INDEX_SCHEMA_VERSION);
-  });
-
-  it('does not recreate internal page storage when there are no records', async () => {
-    const mock = makeChromeMock();
-    vi.stubGlobal('chrome', mock);
-
-    await migrateIndexMeta();
-
-    expect(mock.storage.local._store.has(INDEX_SCHEMA_KEY)).toBe(false);
-    expect(mock.storage.local._store.has(INDEX_KEY)).toBe(false);
-  });
-
-  it('is a stamped no-op on subsequent runs', async () => {
-    const mock = makeChromeMock();
-    vi.stubGlobal('chrome', mock);
-
-    await seedRecord(mock, makeRecord('r1', { status: 'done', summariesDisabled: true }));
-    await migrateIndexMeta();
-
-    // Strip the field again: a stamped migration must not scan or repair —
-    // startups after the first stay a single storage read.
-    stripProjectionField(mock, 'r1');
-    await migrateIndexMeta();
-    expect(mock.storage.local._store.get(INDEX_KEY).meta['r1'].summariesDisabled).toBeUndefined();
-  });
-
-  it('does not stamp on failure, so the next startup retries', async () => {
-    const mock = makeChromeMock();
-    vi.stubGlobal('chrome', mock);
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    await seedRecord(mock, makeRecord('r1', { status: 'done', summariesDisabled: true }));
-    stripProjectionField(mock, 'r1');
-
-    mock._state.lastErrorOnGet = true;
-    await migrateIndexMeta();
-    mock._state.lastErrorOnGet = false;
-    expect(mock.storage.local._store.get(INDEX_SCHEMA_KEY)).toBeUndefined();
-
-    await migrateIndexMeta();
-    const [item] = await listRecords();
-    expect(item.summariesDisabled).toBe(true);
-    expect(mock.storage.local._store.get(INDEX_SCHEMA_KEY)).toBe(INDEX_SCHEMA_VERSION);
-
-    warnSpy.mockRestore();
-  });
-});
-
 describe('buildRecordSnippet', () => {
   it('normalizes whitespace and returns an empty string for missing text', () => {
     expect(buildRecordSnippet({ text: '  Alpha\nBeta\tGamma  ' })).toBe('Alpha Beta Gamma');
@@ -615,16 +543,16 @@ describe('deleteAll', () => {
     expect(await readRecord('r2')).toBeNull();
   });
 
-  it('wipes unindexed page documents and the index schema stamp', async () => {
+  it('wipes unindexed page documents and retired migration state', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
     mock.storage.local._store.set('pagetollm:rec:orphan:content', { text: 'hidden' });
-    mock.storage.local._store.set(INDEX_SCHEMA_KEY, INDEX_SCHEMA_VERSION);
+    mock.storage.local._store.set('pagetollm:index-schema', 1);
 
     await deleteAll();
 
     expect(mock.storage.local._store.has('pagetollm:rec:orphan:content')).toBe(false);
-    expect(mock.storage.local._store.has(INDEX_SCHEMA_KEY)).toBe(false);
+    expect(mock.storage.local._store.has('pagetollm:index-schema')).toBe(false);
   });
 
   it('is ordered after an in-flight writeRecord and leaves storage empty', async () => {
@@ -655,6 +583,7 @@ describe('reconcileRecordStorage', () => {
     vi.stubGlobal('chrome', mock);
     const record = makeRecord('recovered', { status: 'done', text: 'Recovered page text' });
     await seedRecord(mock, record);
+    delete mock.storage.local._store.get(INDEX_KEY).meta.recovered.summariesDisabled;
 
     mock.storage.local._store.set(INDEX_KEY, { keys: ['ghost'], meta: { ghost: {} } });
     mock.storage.local._store.set('pagetollm:rec:ownerless:content', { text: 'orphan' });
@@ -668,6 +597,7 @@ describe('reconcileRecordStorage', () => {
     expect(result).toMatchObject({ recordCount: 1, recoveredCount: 1, removedKeys: 3 });
     expect((await listRecords()).map((item) => item.key)).toEqual(['recovered']);
     expect((await listRecords())[0].snippet).toBe('Recovered page text');
+    expect((await listRecords())[0].summariesDisabled).toBe(false);
     expect(mock.storage.local._store.has('pagetollm:rec:ownerless:content')).toBe(false);
     expect(mock.storage.local._store.has('pagetollm:rec:ownerless:summaries')).toBe(false);
     expect(mock.storage.local._store.has('pagetollm:rec:corrupt:meta')).toBe(false);

@@ -6,7 +6,6 @@ import {
   deleteRecord,
   deleteAll,
   findRecordByUrl,
-  migrateIndexMeta,
   reconcileRecordStorage,
 } from '../../../worker/storage/storage.js';
 import {
@@ -670,7 +669,6 @@ export const MESSAGE_HANDLERS = {
           toolChoice,
           parallelToolCalls,
           temperature = 0.8,
-          model,
           taskType,
           chatTurnId,
         } = msg;
@@ -693,7 +691,6 @@ export const MESSAGE_HANDLERS = {
             toolChoice,
             parallelToolCalls,
             temperature,
-            model,
             signal: controller?.signal,
             metricsCollector: (collected) => {
               if (collected && typeof collected === 'object') sample = collected;
@@ -949,12 +946,13 @@ if (chrome.runtime?.onInstalled?.addListener) {
 }
 
 // Repair interrupted page/index writes before reconciling their dependent
-// chats. Both routines are idempotent and share the global mutation queue with
+// chats. Reconciliation rebuilds projections from authoritative record meta,
+// including fields added by newer versions, so no separate schema migration is
+// needed. Both routines are idempotent and share the global mutation queue with
 // normal writes, so startup races cannot resurrect deleted data.
 void (async () => {
   try {
     await reconcileRecordStorage();
-    await migrateIndexMeta();
     await reconcileChatStorage();
   } catch (err) {
     console.warn('PageToLLM Canvas: storage reconciliation failed:', err);

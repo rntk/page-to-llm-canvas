@@ -11,9 +11,6 @@ import { getStoredLlmRequestTimeoutSeconds } from '../settings/llmTimeout.js';
  * Returns `{ok, content?, error?}` — the same shape used by the background
  * message handler so it can delegate here too.
  *
- * The `model` argument is accepted for backwards-compatibility but ignored; the
- * model is taken from the active provider configured on the options page.
- *
  * Request/response console detail (and the raw client dumps inside
  * clients.js) only fire when the "verbose pipeline logs" setting is on.
  * Failures still always warn.
@@ -25,7 +22,6 @@ import { getStoredLlmRequestTimeoutSeconds } from '../settings/llmTimeout.js';
  *   toolChoice?: unknown,
  *   parallelToolCalls?: boolean,
  *   temperature?: number,
- *   model?: string,
  *   signal?: AbortSignal,
  *   metricsCollector?: (sample: Record<string, unknown>) => void,
  * }} options
@@ -210,7 +206,7 @@ export function createRequestTimeoutSignal(ms) {
 }
 
 /**
- * @param {{prompt: string, temperature?: number, model?: string, signal?: AbortSignal, metricsCollector?: (sample: Record<string, unknown>) => void}} options
+ * @param {{prompt: string, temperature?: number, signal?: AbortSignal, metricsCollector?: (sample: Record<string, unknown>) => void}} options
  * @returns {Promise<string>}
  */
 export async function callLLM(options) {
@@ -226,7 +222,7 @@ export async function callLLM(options) {
 }
 
 /**
- * @param {{prompt: string, temperature?: number, model?: string, signal?: AbortSignal, metricsCollector?: (sample: Record<string, unknown>) => void}} opts
+ * @param {{prompt: string, temperature?: number, signal?: AbortSignal, metricsCollector?: (sample: Record<string, unknown>) => void}} opts
  * @param {number} [maxRetries]
  * @returns {Promise<string>}
  */

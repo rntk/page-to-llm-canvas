@@ -447,7 +447,7 @@ describe('background pipeline lifecycle', () => {
     expect(runPipeline).not.toHaveBeenCalled();
   });
 
-  it('backfills old index projections at service-worker startup', async () => {
+  it('reconciles old index projections at service-worker startup', async () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);
 

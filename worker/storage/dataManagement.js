@@ -2,7 +2,7 @@
 // Values never leave the worker: the options page receives category counts and
 // byte totals only, so provider tokens and page/chat content are not exposed.
 
-import { INDEX_KEY, INDEX_SCHEMA_KEY, RECORD_STORAGE_PREFIX } from './storage.js';
+import { INDEX_KEY, RECORD_STORAGE_PREFIX } from './storage.js';
 import { PROVIDERS_KEY } from '../llm/providers.js';
 import { LLM_METRICS_KEY, LLM_METRICS_EPOCH_KEY } from '../metrics/llm.js';
 import { PARSER_METRICS_KEY } from '../metrics/parser.js';
@@ -36,7 +36,6 @@ const DIAGNOSTIC_KEYS = new Set([
 function categoryForKey(key) {
   if (
     key === INDEX_KEY ||
-    key === INDEX_SCHEMA_KEY ||
     key.startsWith(RECORD_STORAGE_PREFIX) ||
     key.startsWith(CHAT_STORAGE_PREFIX)
   ) {
