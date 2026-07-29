@@ -132,6 +132,15 @@ describe('record helpers', () => {
     expect(isImportableRecord({ key: 'r1', text: 'hello' })).toBe(false);
     expect(isImportableRecord({ key: 'r1', sourceUrl: 'https://example.com' })).toBe(false);
     expect(isImportableRecord({ key: '   ', html: '<p>hello</p>' })).toBe(false);
+    expect(isImportableRecord({ key: 'r1', html: '' })).toBe(false);
+    expect(isImportableRecord({ key: 'r1', html: '   ' })).toBe(false);
+    expect(
+      isImportableRecord({
+        key: 'r1',
+        html: '<p>hello</p>',
+        topic_summary_index: { Topic: { runs: [] } },
+      }),
+    ).toBe(false);
   });
 
   it('deduplicates imported records by key with later entries winning', () => {
@@ -155,6 +164,7 @@ describe('record helpers', () => {
       text: 'raw text',
       topics: [{ name: 'Topic', sentences: [1] }],
       topic_summaries: { Topic: { text: 'summary' } },
+      topic_summary_index: { Topic: { level: 0, runs: [] } },
       status: 'summarizing',
       error: 'still running',
       progress: { stage: 'summarizing_topics', done: 0, total: 4 },
@@ -168,6 +178,7 @@ describe('record helpers', () => {
         text: 'raw text',
         topics: [{ name: 'Topic', sentences: [1] }],
         topic_summaries: { Topic: { text: 'summary' } },
+        topic_summary_index: { Topic: { level: 0, runs: [] } },
         progress: { stage: 'imported', done: 1, total: 1 },
       }),
     );
@@ -177,6 +188,14 @@ describe('record helpers', () => {
   it('rejects JSON payloads without canonical HTML content', () => {
     expect(
       normalizeImportedRecords({ key: 'metadata-only', sourceUrl: 'https://example.com' }),
+    ).toEqual([]);
+    expect(normalizeImportedRecords({ key: 'empty-html', html: '' })).toEqual([]);
+    expect(
+      normalizeImportedRecords({
+        key: 'invalid-summary-index',
+        html: '<p>hello</p>',
+        topic_summary_index: { Topic: { runs: [] } },
+      }),
     ).toEqual([]);
   });
 });

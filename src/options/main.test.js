@@ -425,7 +425,7 @@ describe('options main.jsx', () => {
       status: 'summarizing',
       topics: [{ name: 'Topic', sentences: [1] }],
       topic_summaries: { Topic: { text: 'raw summary' } },
-      topic_summary_index: ['Topic'],
+      topic_summary_index: { Topic: { level: 0, runs: [] } },
       createdAt: 1716972000000,
     };
 

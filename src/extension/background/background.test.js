@@ -1180,6 +1180,12 @@ describe('dispatchMessage unit tests', () => {
         records: [
           { key: 'dup', html: '<p>old</p>', text: 'old' },
           { key: 'metadata-only', sourceUrl: 'https://example.com' },
+          { key: 'empty-html', html: '' },
+          {
+            key: 'invalid-summary-index',
+            html: '<p>invalid summary index</p>',
+            topic_summary_index: { Topic: { runs: [] } },
+          },
           { key: 'dup', html: '<p>new</p>', text: 'new' },
         ],
       },
@@ -1190,6 +1196,8 @@ describe('dispatchMessage unit tests', () => {
     const stored = await readRecord('dup');
     expect(stored.text).toBe('new');
     expect(await readRecord('metadata-only')).toBeNull();
+    expect(await readRecord('empty-html')).toBeNull();
+    expect(await readRecord('invalid-summary-index')).toBeNull();
   });
 
   it('archives chat history when an import replaces record content', async () => {
@@ -1629,7 +1637,8 @@ describe('record import and submission boundaries', () => {
     const chromeMock = makeChromeMock();
     const dispatch = await loadDispatch(chromeMock);
     const records = [
-      { key: ' html ', html: '' },
+      { key: ' html ', html: '<p>article</p>' },
+      { key: 'empty-html', html: '' },
       { key: 'text', text: '' },
       { key: 'sentences', sentences: [] },
       { key: 'topics', topics: [] },
@@ -1646,7 +1655,8 @@ describe('record import and submission boundaries', () => {
       ok: true,
       count: 1,
     });
-    expect(await readRecord('html')).toMatchObject({ key: 'html', html: '' });
+    expect(await readRecord('html')).toMatchObject({ key: 'html', html: '<p>article</p>' });
+    expect(await readRecord('empty-html')).toBeNull();
     expect(await readRecord('text')).toBeNull();
     expect(await readRecord('sentences')).toBeNull();
     expect(await readRecord('topics')).toBeNull();

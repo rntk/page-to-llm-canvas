@@ -37,6 +37,20 @@ const IN_FLIGHT_PIPELINE_STATUSES = new Set([
 ]);
 
 /** @param {unknown} value @returns {boolean} */
+function isImportableTopicSummaryIndex(value) {
+  if (value == null) return true;
+  if (typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.values(value).every(
+    (entry) =>
+      !!entry &&
+      typeof entry === 'object' &&
+      !Array.isArray(entry) &&
+      Number.isInteger(entry.level) &&
+      entry.level >= 0,
+  );
+}
+
+/** @param {unknown} value @returns {boolean} */
 export function isPipelineStatus(value) {
   return typeof value === 'string' && PIPELINE_STATUS_VALUES.has(value);
 }
@@ -65,7 +79,9 @@ export function isImportableRecord(record) {
     typeof record === 'object' &&
     typeof record.key === 'string' &&
     !!record.key.trim() &&
-    typeof record.html === 'string'
+    typeof record.html === 'string' &&
+    !!record.html.trim() &&
+    isImportableTopicSummaryIndex(record.topic_summary_index)
   );
 }
 

@@ -23,6 +23,39 @@ describe('runtime contracts', () => {
     expect(isImportableRecord({ key: 'record-1', html: '<p>Article</p>' })).toBe(true);
     expect(isImportableRecord({ key: 'record-1', sourceUrl: 'https://example.test' })).toBe(false);
     expect(isImportableRecord({ key: '   ', html: '<p>Article</p>' })).toBe(false);
+    expect(isImportableRecord({ key: 'record-1', html: '' })).toBe(false);
+    expect(isImportableRecord({ key: 'record-1', html: '   ' })).toBe(false);
+  });
+
+  it('rejects imported summary indexes with invalid levels', () => {
+    expect(
+      isImportableRecord({
+        key: 'record-1',
+        html: '<p>Article</p>',
+        topic_summary_index: { Topic: { level: 0 } },
+      }),
+    ).toBe(true);
+    expect(
+      isImportableRecord({
+        key: 'record-1',
+        html: '<p>Article</p>',
+        topic_summary_index: { Topic: { runs: [] } },
+      }),
+    ).toBe(false);
+    expect(
+      isImportableRecord({
+        key: 'record-1',
+        html: '<p>Article</p>',
+        topic_summary_index: { Topic: { level: -1 } },
+      }),
+    ).toBe(false);
+    expect(
+      isImportableRecord({
+        key: 'record-1',
+        html: '<p>Article</p>',
+        topic_summary_index: ['Topic'],
+      }),
+    ).toBe(false);
   });
 
   it('creates the canonical queued record shape', () => {
