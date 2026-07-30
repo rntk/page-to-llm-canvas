@@ -7,6 +7,10 @@ import { buildSentenceDomRange } from '../../../highlights/sentenceHighlight.js'
  * Defaults preserve original behavior using global window/document.
  */
 
+/**
+ * @param {Element|null} scrollContainer Scroll container or window.
+ * @param {Window} [win] Window used for viewport scrolling.
+ */
 export function getScrollTop(scrollContainer, win = window) {
   return scrollContainer && scrollContainer !== win ? scrollContainer.scrollTop : win.scrollY;
 }

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getStoredChat, listStoredChats, removeStoredChat } from './chatApi.js';
 
-/** Map a stored highlight_span event to a paintable sentence range. */
+/** Map a stored highlight_span event to a paintable sentence range.
+ * @param {object} event Stored chat event.
+ */
 export function eventRange(event) {
   if (event?.eventType !== 'highlight_span') return null;
   const startLine = Number(event.data?.startLine);

@@ -76,6 +76,7 @@ function decodeEntityAt(html, i) {
 /**
  * Decodes HTML entities anywhere in a plain string (no tag handling).
  * Unrecognized or malformed entities are left as-is.
+ * @param {string} str Plain text to decode.
  */
 export function decodeEntities(str) {
   if (!str.includes('&')) return str;

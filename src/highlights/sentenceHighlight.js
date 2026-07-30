@@ -33,6 +33,7 @@ export function isSkippableContainer(node) {
  * the DOM. Returns the global ordered list of word entries:
  * [{ word, node, start, end }] where node/start/end locate the word inside a
  * live text node, suitable for building a Range.
+ * @param {Node[]} roots DOM roots to traverse.
  */
 export function collectWordEntries(roots) {
   const entries = [];
@@ -76,6 +77,9 @@ export function collectWordEntries(roots) {
 /**
  * Build a live DOM Range spanning from the first word to the last word of a
  * sentence (inclusive). Returns null if the entries are missing.
+ * @param {Map<number, object>} sentenceRanges Sentence-to-word ranges.
+ * @param {object[]} wordEntries Ordered word entries.
+ * @param {number} sNum 1-based sentence number.
  */
 export function buildSentenceDomRange(sentenceRanges, wordEntries, sNum) {
   const range = sentenceRanges.get(sNum);
@@ -132,6 +136,8 @@ export function paintSentenceHighlight(name, sentenceNumbers, { wordEntries, sen
  * count to handle tokenization drift (e.g. punctuation, em-dashes). Start matches
  * the first token in a forward window; end matches the last token in a window near
  * the expected end. Anchoring the end prevents highlights from overshooting.
+ * @param {string[]} sentences Article sentences.
+ * @param {object[]} wordEntries Ordered DOM word entries.
  */
 export function buildSentenceWordRanges(sentences, wordEntries) {
   const ranges = new Map();

@@ -26,6 +26,7 @@ const THEME_META = {
 /**
  * True when the platform can report a color-scheme preference, i.e. when the
  * "System" option is meaningful. Falls back to false on any failure.
+ * @param {Window|undefined} [win] Window-like object to query.
  */
 export function systemThemeSupported(win = typeof window !== 'undefined' ? window : undefined) {
   if (!win || typeof win.matchMedia !== 'function') return false;
@@ -39,6 +40,8 @@ export function systemThemeSupported(win = typeof window !== 'undefined' ? windo
 /**
  * Coerces an arbitrary stored value into a valid preference. When "system" is
  * unsupported it is the default; otherwise light is the default.
+ * @param {string} value Stored theme preference.
+ * @param {boolean} allowSystem Whether the system preference is supported.
  */
 export function normalizeTheme(value, allowSystem) {
   if (value === THEME_DARK) return THEME_DARK;
@@ -47,12 +50,17 @@ export function normalizeTheme(value, allowSystem) {
   return allowSystem ? THEME_SYSTEM : THEME_LIGHT;
 }
 
-/** Ordered cycle used by the popup's single toggle button. */
+/** Ordered cycle used by the popup's single toggle button.
+ * @param {boolean} allowSystem Whether to include the system preference.
+ */
 export function themeCycle(allowSystem) {
   return allowSystem ? [THEME_LIGHT, THEME_DARK, THEME_SYSTEM] : [THEME_LIGHT, THEME_DARK];
 }
 
-/** Next preference when cycling the popup toggle. */
+/** Next preference when cycling the popup toggle.
+ * @param {string} current Current preference.
+ * @param {boolean} allowSystem Whether to include the system preference.
+ */
 export function nextTheme(current, allowSystem) {
   const cycle = themeCycle(allowSystem);
   const idx = cycle.indexOf(current);
@@ -70,6 +78,8 @@ export function themeIcon(preference) {
 /**
  * Applies a preference to the document. Explicit light/dark set `data-theme`;
  * "system" removes it so the `prefers-color-scheme` media query takes over.
+ * @param {Element} el Element receiving the preference.
+ * @param {string} preference Theme preference.
  */
 export function applyThemeToElement(el, preference) {
   if (!el || typeof el.setAttribute !== 'function') return;
@@ -84,6 +94,8 @@ export function applyThemeToElement(el, preference) {
  * Applies a preference to the document root. Explicit light/dark set
  * `data-theme`; "system" removes it so the `prefers-color-scheme` media query
  * takes over.
+ * @param {string} preference Theme preference.
+ * @param {Document|undefined} [doc] Document-like object to update.
  */
 export function applyTheme(
   preference,
@@ -122,6 +134,7 @@ export function setStoredTheme(preference) {
  * Creates a small controller that owns the current preference, applies it to
  * the document, persists changes, and notifies subscribers. Dependencies are
  * injectable for testing.
+ * @param {{doc?: Document, win?: Window, getStored?: Function, setStored?: Function}} [options]
  */
 export function createThemeController({
   doc = typeof document !== 'undefined' ? document : undefined,

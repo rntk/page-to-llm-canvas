@@ -144,6 +144,7 @@ export function findTopicNavigationTarget({
 /**
  * Resolve a control position into the topic card and selection identities the
  * hook should apply. Non-topic positions remain available to canvas navigation.
+ * @param {object} options Navigation state.
  */
 export function resolveCanvasTopicNavigation({
   position,
@@ -184,7 +185,9 @@ export function resolveCanvasTopicNavigation({
   };
 }
 
-/** Build the transform needed to place a topic one fifth down the viewport. */
+/** Build the transform needed to place a topic one fifth down the viewport.
+ * @param {object} options Topic card and viewport state.
+ */
 export function buildCanvasTopicPan({
   card,
   showSummaryMode,

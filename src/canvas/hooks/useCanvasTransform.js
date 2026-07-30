@@ -19,6 +19,8 @@ const MIN_DELTA = 0.5;
  * is generally mid-flight and does *not* equal the target scale. Every rect
  * measured off the viewport is scaled by this value, so dividing by it is what
  * recovers a transform-invariant (layout) coordinate.
+ * @param {Element} el Measured element.
+ * @param {number} fallbackScale Fallback scale when no matrix is available.
  */
 function readAppliedScale(el, fallbackScale) {
   try {
@@ -83,6 +85,7 @@ function zoomPinnedTranslateX({
  * handle carrying the imperative surface — the live transform refs and the
  * move-the-canvas callbacks — for the hooks that drive the canvas rather than
  * draw it. See the `viewport` memo below for why it is bundled.
+ * @param {{contentRef?: import('react').RefObject<HTMLElement>}} [options] Hook options.
  */
 export function useCanvasTransform({ contentRef } = {}) {
   const [translate, setTranslate] = useState({ x: 40, y: 40 });

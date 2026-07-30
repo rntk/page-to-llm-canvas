@@ -23,9 +23,7 @@ import {
  * the rest are sorted ascending by time so the list reads top-to-bottom in
  * playback order.
  *
- * @param {{ sentences?: string[] }} record
- * @param {'summaries' | 'topics'} mode
- * @param {number} selectedLevel
+ * @param {object} input Record and selected rail mode/level.
  * @returns {Array<{ id: string, name: string, text: string, path: string,
  *   level: number, seconds: number, accent: string, sentences: number[] }>}
  */

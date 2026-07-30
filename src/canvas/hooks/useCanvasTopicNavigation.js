@@ -9,6 +9,7 @@ import { buildCanvasTopicPan, resolveCanvasTopicNavigation } from '../../domain/
  * plus `setTransformNow`/`zoomToTarget`) rather than its members individually;
  * `flashFocus` and `navigateCanvas` stay separate because they are not part of
  * that handle.
+ * @param {object} options Navigation hook dependencies.
  */
 export function useCanvasTopicNavigation({
   showSummaryMode,

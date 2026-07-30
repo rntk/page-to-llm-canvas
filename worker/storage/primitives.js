@@ -18,7 +18,9 @@ export async function getLocal(keys) {
 
 /** Reads only keys under one namespace when StorageArea.getKeys is available
  * (Chrome 130+), avoiding deserialization of unrelated large record payloads.
- * Older browsers fall back to one full read and filter the result locally. */
+ * Older browsers fall back to one full read and filter the result locally.
+ * @param {string} prefix Storage-key prefix.
+ */
 export async function getLocalByPrefix(prefix) {
   if (typeof chrome.storage.local.getKeys !== 'function') {
     const allItems = await getLocal(null);

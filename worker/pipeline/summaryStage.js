@@ -17,7 +17,9 @@ import {
 } from './sourceSummarizer.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
 
-/** Maps provider/transport errors to stable UI categories and messages. */
+/** Maps provider/transport errors to stable UI categories and messages.
+ * @param {unknown} error Provider or transport error.
+ */
 export function classifyLlmError(error) {
   const raw = (error && error.message) || String(error);
   if (/timed out|timeout/i.test(raw)) {
@@ -69,7 +71,10 @@ async function parkForReview(runtime, summaryErrors, phase, topicSummaryIndex, {
   });
 }
 
-/** Finalizes a run without summary calls while preserving its computed topics. */
+/** Finalizes a run without summary calls while preserving its computed topics.
+ * @param {import('./pipelineRuntime.js').PipelineRuntime} runtime Pipeline runtime.
+ * @param {object[]} topics Computed topic records.
+ */
 export async function finalizeSummariesDisabled(runtime, topics) {
   await runtime.log('summaries_disabled_skip', { topicCount: topics.length });
   await runtime.update({
@@ -90,6 +95,7 @@ export async function finalizeSummariesDisabled(runtime, topics) {
 /**
  * Generates missing leaf summaries, resolves the topic-summary tree, and
  * either finalizes the record or parks it for a retry/skip decision.
+ * @param {object} input Summary-stage dependencies and state.
  */
 export async function runSummaries({
   runtime,

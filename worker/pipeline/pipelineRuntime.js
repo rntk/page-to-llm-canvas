@@ -88,6 +88,9 @@ export function createPipelineRuntime({
     /**
      * Lifecycle and error stages always record. Verbose stages only record when
      * verbose logging was enabled when this run started.
+     * @param {string} stage Pipeline stage name.
+     * @param {object} [details] Diagnostic details.
+     * @param {{verbose?: boolean}} [options] Logging options.
      */
     async log(stage, details = {}, options = {}) {
       if (options.verbose && !runtime.verboseLogs) return;

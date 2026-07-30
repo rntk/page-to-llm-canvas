@@ -39,7 +39,10 @@ export function runSourceText(runIds, sentenceTexts) {
     .trim();
 }
 
-/** A short contiguous run can be shown verbatim without an LLM call. */
+/** A short contiguous run can be shown verbatim without an LLM call.
+ * @param {number[]} runSentences Sentence ids in the run.
+ * @param {string} sourceText Source text for the run.
+ */
 export function shouldInlineRun(runSentences, sourceText) {
   const text = String(sourceText || '').trim();
   if (!text) return true;
@@ -54,6 +57,9 @@ export function shouldInlineRun(runSentences, sourceText) {
 /**
  * Splits source sentences into char-bounded chunks at sentence boundaries.
  * Each chunk retains its global 1-based sentence range for merge labels.
+ * @param {number[]} sourceSentenceIds Source sentence ids.
+ * @param {string[]} sentenceTexts Article sentence text by id.
+ * @param {number} maxChars Maximum chunk size.
  */
 export function chunkSourceSentences(sourceSentenceIds, sentenceTexts, maxChars) {
   const chunks = [];
@@ -89,6 +95,7 @@ export function chunkSourceSentences(sourceSentenceIds, sentenceTexts, maxChars)
  * Builds the source summarizer injected into topic-tree resolution. Internal
  * nodes summarize fresh source rather than repeatedly merging already-brief
  * child summaries. Oversized runs are summarized by chunk and merged once.
+ * @param {object} input Source text and LLM dependencies.
  */
 export function makeSourceSummarizer({
   sentenceTexts,

@@ -340,7 +340,10 @@ function logCacheUsage(provider, data, verboseLogs) {
   });
 }
 
-/** @param {boolean} [verboseLogs] */
+/**
+ * @param {boolean} [verboseLogs] Whether verbose logging is enabled.
+ * @param {unknown[]} args Values to log.
+ */
 function logClientVerbose(verboseLogs, ...args) {
   if (!verboseLogs) return;
   console.log(...args);
@@ -352,6 +355,7 @@ function logClientVerbose(verboseLogs, ...args) {
  * `cache_prompt` flag — only safe for local OpenAI-compatible servers.
  * `guardTemperature` drops the temperature field for models that reject it
  * (OpenAI-hosted only).
+ * @param {{baseUrl: string, apiKey?: string, model: string, serviceTier?: string, cachePrompt?: boolean, promptCacheKey?: string, guardTemperature?: boolean, providerLabel?: string}} options Client options.
  */
 function openAICompatibleClient({
   baseUrl,
@@ -454,6 +458,7 @@ function anthropicCacheableContent(prompt) {
  * Anthropic tool definitions use `input_schema` instead of OpenAI's
  * `parameters` and have no `function` wrapper. Builds from the internal
  * `{name, description, parameters}` shape only — see file header comment.
+ * @param {object} tool Internal tool definition.
  */
 function toAnthropicTool(tool) {
   return {
@@ -469,6 +474,8 @@ function toAnthropicTool(tool) {
  * Anthropic has no top-level parallel_tool_calls; `disable_parallel_tool_use`
  * lives inside the tool_choice object, so `parallelToolCalls === false` forces
  * a tool_choice even when the caller did not set one.
+ * @param {unknown} toolChoice Requested tool-choice value.
+ * @param {boolean|undefined} parallelToolCalls Whether parallel calls are allowed.
  */
 function toAnthropicToolChoice(toolChoice, parallelToolCalls) {
   let choice;
@@ -495,6 +502,7 @@ function toAnthropicToolChoice(toolChoice, parallelToolCalls) {
  * one user message of `tool_result` blocks (Anthropic requires all results for
  * a turn in a single user message, tool_result blocks first). Internal-input
  * only — see file header comment.
+ * @param {object[]} messages Internal message history.
  */
 function toAnthropicMessages(messages) {
   const systemParts = [];
@@ -545,7 +553,9 @@ function toAnthropicMessages(messages) {
   return { system: systemParts.join('\n\n') || undefined, messages: output };
 }
 
-/** Anthropic Messages API client. */
+/** Anthropic Messages API client.
+ * @param {{apiKey: string, model: string, serviceTier?: string}} options Client options.
+ */
 function anthropicClient({ apiKey, model, serviceTier }) {
   return {
     async complete({

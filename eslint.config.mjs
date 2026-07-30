@@ -1,4 +1,5 @@
 import js from '@eslint/js';
+import jsdoc from 'eslint-plugin-jsdoc';
 import globals from 'globals';
 import react from 'eslint-plugin-react';
 import reactHooks from 'eslint-plugin-react-hooks';
@@ -24,12 +25,15 @@ export default [
       },
     },
     plugins: {
+      jsdoc,
       'react-refresh': reactRefresh,
     },
     settings: {
       react: { version: 'detect' },
     },
     rules: {
+      'jsdoc/check-param-names': ['error', { checkDestructured: false }],
+      'jsdoc/require-param': ['error', { checkDestructured: false, checkDestructuredRoots: false }],
       'react-refresh/only-export-components': 'warn',
       'react/react-in-jsx-scope': 'off',
       'react/prop-types': 'off',

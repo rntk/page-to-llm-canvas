@@ -35,6 +35,10 @@ const SPAN_BUCKETS = [
 
 export const SPAN_BUCKET_KEYS = SPAN_BUCKETS.map((bucket) => bucket.key);
 
+/**
+ * @param {number} span Span length in sentences.
+ * @returns {string} Matching span bucket key.
+ */
 export function spanBucketKey(span) {
   const value = Math.max(0, Number(span) || 0);
   return (SPAN_BUCKETS.find((bucket) => value <= bucket.max) ?? SPAN_BUCKETS.at(-1)).key;
@@ -100,7 +104,10 @@ export function createResplitRunStats() {
   };
 }
 
-/** Tally one resplitSegment outcome onto a run's stats (no-op when unset). */
+/** Tally one resplitSegment outcome onto a run's stats (no-op when unset).
+ * @param {object} stats Mutable per-run statistics.
+ * @param {string} outcome Resplit outcome key.
+ */
 export function noteResplitOutcome(stats, outcome) {
   if (!stats || !OUTCOME_KEYS.includes(outcome)) return;
   stats.outcomes[outcome]++;
@@ -185,6 +192,7 @@ export async function getResplitMetrics() {
  * Record one refineOversizedRanges run. Call this for every run, including
  * runs with no oversized ranges — those are the denominator that makes the
  * "is resplit still needed?" question answerable.
+ * @param {object} [sample] Privacy-safe run sample.
  */
 export function recordResplitRun(sample = {}) {
   writeChain = writeChain

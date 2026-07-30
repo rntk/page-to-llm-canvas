@@ -43,6 +43,7 @@ export class TopicParseError extends Error {
  * whitespace run (NBSP included) to a single space and trims. Without this,
  * "Claude&nbsp;Tag" / "Claude  Tag" / "Claude   Tag" persist as distinct tree
  * branches even though the dedup key would treat them as equal.
+ * @param {string} raw Raw label segment.
  */
 function normalizeSegment(raw) {
   return decodeEntities(raw).replace(/\s+/gu, ' ').trim();
@@ -115,7 +116,9 @@ const MAX_IGNORED_LINE_SAMPLES = 10;
 const IGNORED_LINE_SAMPLE_MAX_CHARS = 200;
 const MAX_REPAIRS = 50;
 
-/** Truncate a raw line to a safe sample length (privacy-safe: caller-gated by verbose logging). */
+/** Truncate a raw line to a safe sample length (privacy-safe: caller-gated by verbose logging).
+ * @param {string} line Raw parser line.
+ */
 function truncateSample(line) {
   return line.length > IGNORED_LINE_SAMPLE_MAX_CHARS
     ? line.slice(0, IGNORED_LINE_SAMPLE_MAX_CHARS)
@@ -224,7 +227,10 @@ function repairCoverage(groups, sentenceCount, repairs) {
   return result;
 }
 
-/** Push a repair entry, capping the array at MAX_REPAIRS and tracking truncation via `.truncated`. */
+/** Push a repair entry, capping the array at MAX_REPAIRS and tracking truncation via `.truncated`.
+ * @param {Array<object>} repairs Mutable repair list.
+ * @param {object} entry Repair entry.
+ */
 function pushRepair(repairs, entry) {
   if (!repairs) return;
   if (repairs.length >= MAX_REPAIRS) {
@@ -362,6 +368,8 @@ export function parseTopicRanges(response, sentenceCount) {
 /**
  * Parse topic ranges and expose privacy-safe quality diagnostics describing any
  * deterministic repair the permissive parser had to perform.
+ * @param {string} response Raw model response.
+ * @param {number} sentenceCount Number of article sentences.
  */
 export function parseTopicRangesDetailed(response, sentenceCount) {
   if (sentenceCount <= 0) throw new Error('sentenceCount must be positive');

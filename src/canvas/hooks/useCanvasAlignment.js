@@ -20,6 +20,9 @@ const MIN_DELTA = 0.5;
  * minimum delta to re-enter the zone and keeping both edges within `EDGE_MARGIN`.
  * A column already near center is untouched. Runs only on deliberate switches,
  * so it does not fight manual panning.
+ * @param {number} currentLeft Current column left edge.
+ * @param {number} columnWidth Column width.
+ * @param {number} wrapWidth Viewport width.
  */
 export function computeComfortLeft(currentLeft, columnWidth, wrapWidth) {
   // Column wider than the comfortable viewport: centering is meaningless, so we

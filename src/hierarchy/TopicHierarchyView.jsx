@@ -34,6 +34,8 @@ function getNodeSummary(node, summaryLookup) {
  * collapsed set. A collapsed branch shrinks to a single row, so its ancestors
  * shrink too; without this the parent's reserved row-span would leave a gap.
  * Returns a Map keyed by node.uid.
+ * @param {object[]} roots Root hierarchy entries.
+ * @param {Set<string>} collapsedPaths Collapsed node paths.
  */
 function buildSpanMap(roots, collapsedPaths) {
   const map = new Map();

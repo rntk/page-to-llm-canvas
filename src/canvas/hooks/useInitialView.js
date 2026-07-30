@@ -16,6 +16,8 @@ import {
  * an effect body. The guards keep every transition idempotent: an action only
  * advances from the phase that legitimately precedes it, so a re-run of an
  * effect can never skip or rewind a step.
+ * @param {string} phase Current opening-view phase.
+ * @param {string} action Requested transition.
  */
 function initialViewReducer(phase, action) {
   switch (action) {

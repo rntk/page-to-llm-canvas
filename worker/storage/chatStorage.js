@@ -143,7 +143,9 @@ async function updateChatAndIndex(key, chat, currentIndex) {
 }
 
 /** A fresh empty chat. `titleIsDefault` marks the placeholder title as still
- * derivable from the first visible user message (see deriveChatTitle). */
+ * derivable from the first visible user message (see deriveChatTitle).
+ * @param {string} contentRevision Record content revision.
+ */
 function newChat(contentRevision) {
   const now = Date.now();
   return {
@@ -191,6 +193,8 @@ function titleIsDerivable(chat) {
  * Derives the chat title from a normalized user message in place, when the
  * title is still the derivable placeholder. A blank message leaves the
  * placeholder untouched so a later message can still set it.
+ * @param {object} chat Mutable chat document.
+ * @param {object} message Normalized user message.
  */
 function deriveChatTitle(chat, message) {
   if (!titleIsDerivable(chat)) return;
@@ -388,6 +392,8 @@ export async function deleteChatHistory(key, chatId) {
  * Removes chats grounded in superseded record content. Deliberately unqueued:
  * callers in storage.js already hold the global mutation queue while changing
  * the content revision, so queueing again here would self-deadlock.
+ * @param {string} key Record key.
+ * @param {string} contentRevision Current record content revision.
  */
 export async function pruneChatsForContentRevision(key, contentRevision) {
   const index = await readChatIndex(key);
@@ -435,6 +441,7 @@ export async function pruneChatsForContentRevision(key, contentRevision) {
  * Every storage key holding chat documents for a record: the chat index plus
  * one key per chat. Reading these before any removal lets deleteAll gather all
  * chat keys up front, so a read failure aborts the cascade with nothing deleted.
+ * @param {string} key Record key.
  */
 export async function chatStorageKeysForRecord(key) {
   const index = await readChatIndex(key);

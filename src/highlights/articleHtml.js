@@ -8,6 +8,7 @@
  * (`script-src 'self'`) already blocks inline handlers and remote scripts; this
  * is defence in depth so the choice to inject stored remote HTML is explicit.
  * Inline `style` attributes are kept so the article keeps its original look.
+ * @param {string} html Stored article HTML.
  */
 export function sanitizeArticleHtml(html) {
   if (!html) return '';

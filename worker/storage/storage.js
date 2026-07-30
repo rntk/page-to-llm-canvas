@@ -59,7 +59,9 @@ function pickSummaryFields(obj) {
   return pickFields(obj, SUMMARY_FIELDS);
 }
 
-/** Everything that isn't explicitly content or summaries lives in meta. */
+/** Everything that isn't explicitly content or summaries lives in meta.
+ * @param {object} obj Record-like object.
+ */
 function pickMetaFields(obj) {
   const out = {};
   for (const [k, v] of Object.entries(obj)) {
@@ -95,6 +97,7 @@ async function writeIndex(idx) {
  * frequent metadata-only changes (status/progress ticks) never require
  * reading or writing every record's full payload (html/text/sentences/
  * topics/summaries) just to keep listings up to date.
+ * @param {object} rec Record metadata source.
  */
 function buildRecordMeta(rec) {
   return {
@@ -124,6 +127,9 @@ const INDEX_META_FIELDS = ['status', 'progress', 'error', 'text', 'sourceUrl', '
  * the index. A failure here only makes the cached listing momentarily stale —
  * it never threatens the record write that already succeeded — so it is
  * swallowed.
+ * @param {string} key Record key.
+ * @param {object} patch Partial record update.
+ * @param {object} fallbackMeta Existing metadata fallback.
  */
 async function syncIndexMeta(key, patch, fallbackMeta) {
   if (!INDEX_META_FIELDS.some((f) => hasOwn(patch, f))) return;
@@ -219,6 +225,7 @@ export async function writeRecord(rec, options = {}) {
  * Only reads the small meta doc — the whole point of the split, since this
  * runs on nearly every pipeline step. Returns `null` if the record does not
  * exist.
+ * @param {string} key Record key.
  */
 async function loadMetaForWrite(key) {
   const metaKey = metaStorageKey(key);

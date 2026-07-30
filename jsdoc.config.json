@@ -1,0 +1,16 @@
+{
+  "source": {
+    "include": ["src", "worker"],
+    "includePattern": "\\.(js|jsx)$",
+    "excludePattern": "(^|/)(node_modules|dist|coverage|reports)/|\\.test\\.(js|jsx)$"
+  },
+  "opts": {
+    "destination": "docs/api",
+    "recurse": true,
+    "encoding": "utf8"
+  },
+  "templates": {
+    "cleverLinks": false,
+    "monospaceLinks": false
+  }
+}

@@ -49,6 +49,8 @@ export function getHierarchyTopicHighlightColor(topicName, depth) {
  * Dark-mode variant of the topic card fill. Keeps the same per-root hue for
  * identity but uses a low lightness so the cards read as tinted dark surfaces
  * instead of the bright pastels used in light mode.
+ * @param {string} topicName Topic path.
+ * @param {number} depth Optional topic depth.
  */
 export function getHierarchyTopicHighlightColorDark(topicName, depth) {
   const hue = getHierarchyTopicHue(topicName);

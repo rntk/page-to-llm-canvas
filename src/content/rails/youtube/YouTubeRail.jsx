@@ -78,6 +78,7 @@ function HierarchicalCardTitle({ name, path }) {
  * transcript timestamp. A poll loop reads the player's current time and marks
  * (and scrolls to) the card for the current moment; clicking a card seeks the
  * player to that moment.
+ * @param {object} props Rail properties and callbacks.
  */
 export default function YouTubeRail({
   mode,

@@ -29,6 +29,7 @@ export { getHierarchyTopicAccentColor as topicAccentColor };
  * own summary text and its own sentences, so rails position location-specific
  * summaries instead of repeating one blob. `sentenceNumbersByPath` keeps the full
  * aggregated sentence set per path.
+ * @param {object} record Record containing topic summaries.
  */
 export function buildSummaryEntries(record) {
   const out = [];

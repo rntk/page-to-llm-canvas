@@ -7,6 +7,7 @@ import { createChatLogger } from './chatLogger.js';
  * Default transport for one tool-call outcome metric. Fire-and-forget: the
  * turn must never fail or stall because diagnostics could not be recorded, and
  * `chrome.runtime` may be absent (tests, non-extension contexts).
+ * @param {object} sample Metric payload.
  */
 function postToolMetric(sample) {
   try {
@@ -118,6 +119,8 @@ export const HIGHLIGHT_SPAN_TOOL = Object.freeze({
  * line number regardless of which chunk it received. An oversized sentence is
  * intentionally kept whole in its own chunk rather than silently truncated.
  *
+ * @param {Array<string>} sentences Article sentences in display order.
+ * @param {number} [maxChars] Maximum characters per chunk.
  * @returns {{startLine: number, endLine: number, text: string}[]}
  */
 export function chunkNumberedArticle(sentences, maxChars = ARTICLE_CHAT_CHUNK_MAX_CHARS) {
@@ -160,6 +163,8 @@ export function rangesOverlap(a, b) {
 /**
  * A tool-call validation failure, tagged with a stable `code` so callers can
  * classify the outcome without matching on the human-facing message text.
+ * @param {string} message Human-facing error message.
+ * @param {string} code Stable error code.
  */
 function toolArgError(message, code) {
   const error = new Error(message);
@@ -203,6 +208,7 @@ function validateHighlightArgs(
  * Keep only recent user-visible conversation context. Historical tool calls
  * are persisted for auditability, but replaying every chunk's calls into every
  * later chunk multiplies token usage and gives the model irrelevant ranges.
+ * @param {object[]} history Persisted conversation history.
  */
 function compactConversationHistory(history) {
   const source = (Array.isArray(history) ? history : []).filter(
@@ -235,6 +241,7 @@ function compactConversationHistory(history) {
  * conversation history and the new question is deliberate: the prefix is
  * byte-for-byte identical for subsequent questions about the same record, so
  * OpenAI-compatible prompt caches and local KV caches can reuse it.
+ * @param {{startLine: number, endLine: number, text: string}} chunk Source chunk.
  */
 function buildChunkDataMessage(chunk) {
   return JSON.stringify({
@@ -323,6 +330,7 @@ function normalizeArticleChatTurnOptions(options = {}) {
  * Run the assistant/tool loop against one bounded source chunk. It shares the
  * turn-wide range lists and transcript with sibling chunks but has its own
  * cacheable source prefix.
+ * @param {object} input Chunk-loop state and dependencies.
  */
 async function runArticleChatChunk({
   chunk,

@@ -118,6 +118,9 @@ export const PROVIDERS_KEY = 'pagetollm:llm:providers';
  * @property {string|null} activeId
  */
 
+/**
+ * @param {string|string[]} keys Storage keys to read.
+ */
 async function getLocal(keys) {
   return new Promise((resolve, reject) => {
     chrome.storage.local.get(keys, (items) => {

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  *
  * The persistence functions are injected so the hook stays independent of a
  * specific preference and the storage boundary remains easy to test.
+ * @param {{storageKey: string, defaultValue: unknown, readPreference: Function, writePreference: Function, normalize: Function}} options Preference dependencies.
  */
 export function useStoredPreference({
   storageKey,

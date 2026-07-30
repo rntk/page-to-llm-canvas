@@ -33,6 +33,7 @@ const RAW_RESPONSE_LOG_MAX_CHARS = 20000;
 /**
  * True when parse diagnostics show any permissive-parser quirk worth
  * surfacing verbosely (as opposed to a clean parse with nothing to explain).
+ * @param {object} diagnostics Parser diagnostics.
  */
 function hasDiagnosticQuirks(diagnostics) {
   if (!diagnostics) return false;
@@ -46,7 +47,10 @@ function hasDiagnosticQuirks(diagnostics) {
   );
 }
 
-/** Cap a raw array for logging, reporting whether entries were dropped. */
+/** Cap a raw array for logging, reporting whether entries were dropped.
+ * @param {Array<unknown>} arr Values to cap.
+ * @param {number} [cap] Maximum number of values to retain.
+ */
 function capForLog(arr, cap = DIAGNOSTICS_LOG_CAP) {
   const values = arr || [];
   return { values: values.slice(0, cap), truncated: values.length > cap };
@@ -56,6 +60,8 @@ function capForLog(arr, cap = DIAGNOSTICS_LOG_CAP) {
  * Compact a sorted list of sentence indices (e.g. diagnostics.duplicates /
  * .missing) into inclusive range strings, e.g. [3,4,5,6,7,8,9,14] -> ["3-9",
  * "14"], capped at `cap` compacted entries.
+ * @param {number[]} indices Sorted sentence indices.
+ * @param {number} [cap] Maximum number of compacted entries to retain.
  */
 function compactIndexRanges(indices, cap = DIAGNOSTICS_LOG_CAP) {
   const compacted = [];
@@ -75,7 +81,9 @@ function compactIndexRanges(indices, cap = DIAGNOSTICS_LOG_CAP) {
   return { values: compacted.slice(0, cap), truncated: compacted.length > cap };
 }
 
-/** Shared payload for the `topic_ranges_parse_diagnostics` verbose log. */
+/** Shared payload for the `topic_ranges_parse_diagnostics` verbose log.
+ * @param {object} diagnostics Parser diagnostics.
+ */
 function buildParseDiagnosticsLogDetails(diagnostics) {
   const outOfRange = capForLog(diagnostics.outOfRange);
   const duplicates = compactIndexRanges(diagnostics.duplicates);
@@ -101,7 +109,9 @@ function buildParseDiagnosticsLogDetails(diagnostics) {
   };
 }
 
-/** Shared payload for the `topic_ranges_raw_response` verbose log. */
+/** Shared payload for the `topic_ranges_raw_response` verbose log.
+ * @param {unknown} rawResponse Raw model response.
+ */
 function buildRawResponseLogDetails(rawResponse) {
   const text = typeof rawResponse === 'string' ? rawResponse : String(rawResponse ?? '');
   return {
@@ -134,6 +144,9 @@ export function chunkTaggedText(tagged, maxChars) {
  * Build independently parseable topic-range inputs. Marker IDs intentionally
  * restart at zero in each chunk so the parser can validate and repair coverage
  * against that chunk alone. `start` maps the local IDs back to the article.
+ * @param {string[]|object[]} sentences Source sentences.
+ * @param {number} [maxChars] Maximum chunk size.
+ * @param {number} [maxSentences] Maximum sentences per chunk.
  */
 export function chunkTopicRangeSentences(
   sentences,
@@ -215,6 +228,12 @@ export function groupsToTopics(groups, sentenceObjs, mapping) {
  * Re-query the LLM to subdivide one oversized sentence range. This is
  * best-effort: a failed re-split returns null so its caller can retain the
  * original range; an ineffective large re-split falls back to bounded windows.
+ * @param {import('./pipelineRuntime.js').PipelineRuntime} runtime Pipeline runtime.
+ * @param {object} segment Oversized topic segment.
+ * @param {string[]} sentenceTexts Article sentence text.
+ * @param {number} depth Current resplit depth.
+ * @param {Function} callLLMWithRetry LLM request function.
+ * @param {{acceptSingle?: boolean, stats?: object}} [options] Resplit options.
  */
 async function resplitSegment(
   runtime,
