@@ -139,7 +139,11 @@ export function makeSourceSummarizer({
   };
 
   return async (sourceSentenceIds) => {
-    const ids = Array.isArray(sourceSentenceIds) ? sourceSentenceIds : [];
+    const ids = Array.isArray(sourceSentenceIds)
+      ? sourceSentenceIds.filter(
+          (id) => Number.isInteger(id) && id > 0 && id <= sentenceTexts.length,
+        )
+      : [];
     const runs = splitContiguousRuns(ids);
     const summarized = await parallelMap(runs, SUMMARY_CONCURRENCY, async (runIds) => {
       const text = runSourceText(runIds, sentenceTexts);
