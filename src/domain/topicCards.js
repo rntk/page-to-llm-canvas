@@ -343,7 +343,6 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
 
   const rootNode = createTreeNode('root', '', -1);
 
-  // Build the tree hierarchy up to selected level
   for (const topic of topics) {
     const parts = splitTopicPath(topic.name);
     const limit = Math.min(parts.length, level + 1);
@@ -368,7 +367,6 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
     }
   }
 
-  // Collect all nodes grouped by depth level
   /** @type {Map<number, TopicTreeNode[]>} */
   const nodesByDepth = new Map();
 

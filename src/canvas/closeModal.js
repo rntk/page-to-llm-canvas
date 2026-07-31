@@ -1,7 +1,3 @@
-/**
- * Ask the host page (the modal runs in an iframe) to tear down the modal.
- * The content script listens for this message — see content/main.jsx.
- */
 export function getParentOrigin() {
   const ancestorOrigin = window.location.ancestorOrigins?.[0];
   if (ancestorOrigin && ancestorOrigin !== 'null') return ancestorOrigin;
@@ -22,6 +18,10 @@ export function postMessageToParent(message) {
   window.parent.postMessage(message, getParentOrigin());
 }
 
+/**
+ * Ask the host page (the modal runs in an iframe) to tear down the modal.
+ * The content script listens for this message — see content/main.jsx.
+ */
 export function closeModal() {
   try {
     if (window.parent === window) {

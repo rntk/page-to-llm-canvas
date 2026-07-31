@@ -87,7 +87,6 @@ function closeLightbox() {
   }
 }
 
-// Close Lightbox on Click Outside of Image
 if (lightbox) {
   lightbox.addEventListener('click', (e) => {
     if (e.target === lightbox) {
@@ -96,7 +95,6 @@ if (lightbox) {
   });
 }
 
-// Close Lightbox on ESC Key
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     closeLightbox();

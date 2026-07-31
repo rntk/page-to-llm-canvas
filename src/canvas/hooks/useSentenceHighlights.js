@@ -35,10 +35,6 @@ export function useSentenceHighlights({
   articleHtml,
   refreshSentenceRanges,
 }) {
-  // ── Sentence highlighting (native CSS Custom Highlight API) ───────────────
-  // A single live Range per sentence paints continuously across whitespace and
-  // inline tags. The selected topic and the hovered topic get separate named
-  // highlights so they can be styled distinctly via ::highlight() in modal.css.
   useEffect(() => {
     if (!isDone || showSummaryMode || !supportsHighlightApi()) return undefined;
     const { wordEntries, sentenceRanges } = refreshSentenceRanges();

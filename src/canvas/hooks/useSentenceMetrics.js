@@ -80,9 +80,6 @@ export function useSentenceMetrics({
   // summary cards' bounding rects (measured by an effect below).
   const [summaryMetricsState, setSummaryMetricsState] = useState(() => new Map());
 
-  // Live DOM Ranges over the rendered article HTML, keyed by sentence number.
-  // Built in a layout effect after the HTML mounts; the measurement and highlight
-  // effects re-run once layout changes.
   const wordEntriesRef = useRef([]);
   const sentenceRangesRef = useRef(new Map());
 

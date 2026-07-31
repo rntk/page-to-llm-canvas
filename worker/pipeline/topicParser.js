@@ -239,17 +239,6 @@ function pushRepair(repairs, entry) {
   repairs.push(entry);
 }
 
-/**
- * Shared tail of parseTopicRanges: takes label-grouped ranges (in first-appearance
- * order, labels already deduped) and produces the final continuous, non-overlapping,
- * adjacent-joined groups. Extracted so oversized-range refinement can rebuild the
- * same shape from re-split segments without re-parsing a raw LLM response.
- *
- * @param {Array<{label: string[], ranges: Array<{start: number, end: number}>}>} rawGroups
- * @param {number} sentenceCount
- * @param invalidRangeTokens
- * @returns {Array<{label: string[], ranges: Array<{start: number, end: number}>}>}
- */
 function collectDiagnostics(rawGroups, sentenceCount, invalidRangeTokens = 0) {
   const seen = new Array(sentenceCount).fill(0);
   const outOfRange = [];
@@ -278,6 +267,17 @@ function collectDiagnostics(rawGroups, sentenceCount, invalidRangeTokens = 0) {
   return { outOfRange, duplicates, missing, invalidRangeTokens };
 }
 
+/**
+ * Shared tail of parseTopicRanges: takes label-grouped ranges (in first-appearance
+ * order, labels already deduped) and produces the final continuous, non-overlapping,
+ * adjacent-joined groups. Extracted so oversized-range refinement can rebuild the
+ * same shape from re-split segments without re-parsing a raw LLM response.
+ *
+ * @param {Array<{label: string[], ranges: Array<{start: number, end: number}>}>} rawGroups
+ * @param {number} sentenceCount
+ * @param invalidRangeTokens
+ * @returns {Array<{label: string[], ranges: Array<{start: number, end: number}>}>}
+ */
 function finalizeGroups(rawGroups, sentenceCount, invalidRangeTokens = 0) {
   let groups = [];
   for (const g of rawGroups) {

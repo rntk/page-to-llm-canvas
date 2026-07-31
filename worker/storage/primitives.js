@@ -66,7 +66,6 @@ export async function removeLocal(keys) {
   });
 }
 
-/** Removes every value owned by the extension's local storage area. */
 export async function clearLocal() {
   return new Promise((resolve, reject) => {
     chrome.storage.local.clear(() => {

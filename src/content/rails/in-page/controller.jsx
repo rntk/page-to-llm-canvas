@@ -93,7 +93,6 @@ export async function openInPageRail(rec, initialMode, options = {}) {
     }
     return;
   }
-  // assessment.kind === 'ready'
   const record = assessment.record;
   const elements = findPickedElements(record.selectors);
   if (elements.length === 0) {

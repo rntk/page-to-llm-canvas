@@ -124,11 +124,6 @@ export default function App({ initialKey }) {
     stage,
   } = useCanvasRecordViewModel({ record, error, selectedLevel, showSummaryModeRaw });
 
-  // Measurement engine: live sentence Ranges plus measured sentence/summary
-  // geometry that drives the topic-hierarchy rail. `summaryMetricsState` holds
-  // topic-card positions in summary mode, derived from the rendered summary
-  // cards' bounding rects; `refreshSentenceRanges` is shared with the highlight
-  // hook and the zoom-to-sentence handlers below.
   const { sentenceMetrics, summaryMetricsState, refreshSentenceRanges } = useSentenceMetrics({
     articleTextRef,
     summaryWrapRef,
@@ -213,8 +208,6 @@ export default function App({ initialKey }) {
     });
   }, [summariesDisabled, showSummaryMode, activeTopicKey, activeTopicCardKey, allSummaryCards]);
 
-  // Paint the selected/hovered topic's source sentences via the native CSS
-  // Custom Highlight API; shares the measurement engine's live sentence Ranges.
   useSentenceHighlights({
     isDone,
     showSummaryMode,
@@ -357,7 +350,6 @@ export default function App({ initialKey }) {
   }, [viewport, userMovedCanvasRef]);
 
   const handleToggleSummaryMode = useCallback(() => {
-    // No summaries to show a-la-carte when the pipeline skipped them.
     if (summariesDisabled) return;
     // Content swaps wholesale (article ⇄ summary cards), so reset the vertical
     // position to the top margin; horizontal stays continuous.
@@ -366,7 +358,6 @@ export default function App({ initialKey }) {
   }, [captureAnchor, summariesDisabled]);
 
   const handleToggleTopicHierarchy = useCallback(() => {
-    // Same content, only the rail's reserved width changes — preserve both axes.
     captureAnchor(false);
     setShowTopicHierarchy((v) => !v);
   }, [captureAnchor]);
@@ -376,16 +367,12 @@ export default function App({ initialKey }) {
       // Clicking the already-selected level is a no-op; skip so we never strand
       // a captured anchor that the next real switch would then mis-consume.
       if (level === selectedLevel) return;
-      // Same content, denser/sparser rail — preserve both axes.
       captureAnchor(false);
       setSelectedLevel(level);
       clearTopicSelection();
     },
     [captureAnchor, clearTopicSelection, selectedLevel, setSelectedLevel],
   );
-
-  // Canvas alignment (centering + anti-jump continuity) is owned by
-  // useCanvasAlignment above.
 
   // ── Opening view: leaf level, zoomed out ~3 clicks, first topic's summary ──
   // Owned by useInitialView: a one-time three-phase state machine that runs once

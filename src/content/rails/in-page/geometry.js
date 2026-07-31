@@ -2,15 +2,11 @@ import { buildSentenceDomRange } from '../../../highlights/sentenceHighlight.js'
 
 /**
  * Geometry and scroll helpers extracted from the in-page rail logic
- * (src/content/main.jsx) so they can be unit tested in isolation.
+ * (src/content/rails/in-page/controller.jsx) so they can be unit tested in isolation.
  *
  * Defaults preserve original behavior using global window/document.
  */
 
-/**
- * @param {Element|null} scrollContainer Scroll container or window.
- * @param {Window} [win] Window used for viewport scrolling.
- */
 export function getScrollTop(scrollContainer, win = window) {
   return scrollContainer && scrollContainer !== win ? scrollContainer.scrollTop : win.scrollY;
 }

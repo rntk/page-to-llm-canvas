@@ -1,7 +1,7 @@
 /**
  * Shared record-fetch helpers for content rails.
  *
- * Pure helpers extracted from openInPageRail in main.jsx:
+ * Pure helpers extracted from openInPageRail in rails/in-page/controller.jsx:
  *   - fetchRecord       chrome.runtime.sendMessage wrapper
  *   - findPickedElements querySelector loop
  *   - assessRecordForRail  validates a fetched record for rail display
