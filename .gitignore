@@ -5,3 +5,5 @@ docs/api/
 # Stryker mutation testing
 .stryker-tmp
 reports/mutation
+.idea
+
