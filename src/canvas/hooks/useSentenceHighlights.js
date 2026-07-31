@@ -16,15 +16,14 @@ const HIGHLIGHT_HOVER = 'pagetollm-sentence-hover';
  * inline tags. The selected topic and the hovered topic get separate named
  * highlights so they can be styled distinctly via ::highlight() in modal.css.
  *
- * @param {{
- *   isDone: boolean,
- *   showSummaryMode: boolean,
- *   topicSentenceIndex: Map<string, Iterable<number>>,
- *   selectedTopicKey: string | null,
- *   hoveredTopicKey: string | null,
- *   articleHtml: string,
- *   refreshSentenceRanges: () => { wordEntries: Array<unknown>, sentenceRanges: Map<number, unknown> },
- * }} params
+ * @param {object} params
+ * @param {boolean} params.isDone
+ * @param {boolean} params.showSummaryMode
+ * @param {Map<string, Iterable<number>>} params.topicSentenceIndex
+ * @param {?string} params.selectedTopicKey
+ * @param {?string} params.hoveredTopicKey
+ * @param {string} params.articleHtml
+ * @param {function(): {wordEntries: Array<unknown>, sentenceRanges: Map<number, unknown>}} params.refreshSentenceRanges
  * @returns {void}
  */
 export function useSentenceHighlights({

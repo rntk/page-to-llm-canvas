@@ -6,7 +6,9 @@ import React from 'react';
  * subtree (see sentenceHighlight.js) rather than per-sentence spans, so the
  * markup can stay structurally identical to the source for readability.
  *
- * @param {{ html: string, articleTextRef: import('react').Ref<HTMLDivElement> }} props
+ * @param {object} props
+ * @param {string} props.html
+ * @param {object} props.articleTextRef
  */
 const ArticleHtml = React.memo(function ArticleHtml({ html, articleTextRef }) {
   return (

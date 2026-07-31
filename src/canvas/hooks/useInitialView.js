@@ -48,27 +48,25 @@ function initialViewReducer(phase, action) {
  * topic cards for the leaf level only exist after `selectedLevel` itself has
  * updated) — a single effect closure would read stale values.
  *
- * @param {{
- *   isDone: boolean,
- *   topics: Array<unknown>,
- *   sentenceMetrics: Map<number, unknown>,
- *   maxLevel: number,
- *   selectedLevel: number,
- *   setSelectedLevel: (level: number) => void,
- *   viewport: {
- *     userMovedCanvasRef: import('react').RefObject<boolean>,
- *     scaleRef: import('react').RefObject<number>,
- *     translateRef: import('react').RefObject<{ x: number, y: number }>,
- *     setTransformNow: (scale: number, translate: { x: number, y: number }) => void,
- *   },
- *   showSummaryMode: boolean,
- *   summaryCards: Array<unknown>,
- *   zoomAdjustedTopicCards: Array<unknown>,
- *   summaryMetricsState: Map<string, unknown>,
- *   panToTopic: (card: unknown) => void,
- *   setSelectedTopicKey: (key: string | null) => void,
- *   setSelectedTopicCardKey: (key: string | null) => void,
- * }} params
+ * @param {object} params
+ * @param {boolean} params.isDone
+ * @param {Array<unknown>} params.topics
+ * @param {Map<number, unknown>} params.sentenceMetrics
+ * @param {number} params.maxLevel
+ * @param {number} params.selectedLevel
+ * @param {function(number): void} params.setSelectedLevel
+ * @param {object} params.viewport
+ * @param {object} params.viewport.userMovedCanvasRef
+ * @param {object} params.viewport.scaleRef
+ * @param {object} params.viewport.translateRef
+ * @param {function(number, {x: number, y: number}): void} params.viewport.setTransformNow
+ * @param {boolean} params.showSummaryMode
+ * @param {Array<unknown>} params.summaryCards
+ * @param {Array<unknown>} params.zoomAdjustedTopicCards
+ * @param {Map<string, unknown>} params.summaryMetricsState
+ * @param {function(unknown): void} params.panToTopic
+ * @param {function(?string): void} params.setSelectedTopicKey
+ * @param {function(?string): void} params.setSelectedTopicCardKey
  * @returns {void}
  */
 export function useInitialView({

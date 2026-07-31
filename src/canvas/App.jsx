@@ -34,7 +34,7 @@ import { buildSentenceDomRange } from '../highlights/sentenceHighlight.js';
 
 /**
  * @param {{ initialKey: string }} props
- * @returns {import("react").JSX.Element}
+ * @returns {JSX.Element}
  */
 export default function App({ initialKey }) {
   const { record, error } = useRecord(initialKey);

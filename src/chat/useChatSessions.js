@@ -25,10 +25,9 @@ const USE_LATEST_EVENT = Symbol('use latest event');
  * newer selection. `applyEvents` paints the evidence belonging to the active
  * turn; the complete `events` list remains historical/auditable data.
  *
- * @param {{
- *   recordKey: string,
- *   applyEvents: (events: object[], options?: {focusEvent?: object}) => void,
- * }} options
+ * @param {object} options
+ * @param {string} options.recordKey
+ * @param {function(object[], object=): void} options.applyEvents events, options: {focusEvent?: object}
  */
 export function useChatSessions({ recordKey, applyEvents }) {
   const [chats, setChats] = useState([]);

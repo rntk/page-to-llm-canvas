@@ -46,7 +46,7 @@
  * Builds the worker's summary tree from flat hierarchical topic paths and
  * aggregates descendant sentence ids onto every parent node.
  *
- * @param {Array<{name?: string, sentences?: number[]}>} topics
+ * @param {Array<{name: string, sentences: number[]}>} topics
  * @returns {{root: object, nodes: Map<string, object>}}
  */
 export function buildTopicTree(topics) {
@@ -133,8 +133,8 @@ export function splitContiguousRuns(sentenceIds) {
  * been resolved. This keeps successfully generated leaf summaries visible
  * while a record is parked for review.
  *
- * @param {Array<{name?: string, sentences?: number[]}>} topics
- * @param {Record<string, {runs?: Array<{sentences: number[], text: string}>, source_sentences?: number[]}>} leafSummaries
+ * @param {Array<{name: string, sentences: number[]}>} topics
+ * @param {Record<string, {runs: Array<{sentences: number[], text: string}>, source_sentences: number[]}>} leafSummaries
  * @returns {Record<string, {runs: Array<{sentences: number[], text: string}>, level: number, source_sentences: number[]}>}
  */
 export function buildPartialTopicSummaryIndex(topics, leafSummaries) {
@@ -159,10 +159,10 @@ export function buildPartialTopicSummaryIndex(topics, leafSummaries) {
  * contiguous occurrence of the topic, rather than a single text blob.
  *
  * @param {object} params
- * @param {Map<string, {path: string, level: number, children: object[], sourceSentences: number[], summary?: object}>} params.nodes
- * @param {Record<string, {runs?: Array<{sentences: number[], text: string}>}>} params.leafSummaries  keyed by topic path
- * @param {(sourceSentenceIds: number[], info: {path: string}) => Promise<{runs: Array<{sentences: number[], text: string}>}>} params.summarizeSource
- * @param {(info: {path: string, error: unknown}) => (void | Promise<void>)} [params.onError]
+ * @param {Map<string, {path: string, level: number, children: Array<object>, sourceSentences: number[], summary: object}>} params.nodes
+ * @param {Record<string, {runs: Array<{sentences: number[], text: string}>}>} params.leafSummaries  keyed by topic path
+ * @param {function(number[], {path: string}): Promise<{runs: Array<{sentences: number[], text: string}>}>} params.summarizeSource
+ * @param {function({path: string, error: unknown}): (void | Promise<void>)} [params.onError]
  * @returns {Promise<Record<string, {runs: Array<{sentences: number[], text: string}>, level: number, source_sentences: number[]}>>}
  */
 export async function summarizeTopicTree({ nodes, leafSummaries, summarizeSource, onError }) {

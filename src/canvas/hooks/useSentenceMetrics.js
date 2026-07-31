@@ -48,23 +48,18 @@ function areSummaryMetricsEqual(prevMetrics, nextMetrics) {
  * image/font loads. The topic-hierarchy rail is positioned from the maps this
  * hook returns; the highlight hook shares its `refreshSentenceRanges`.
  *
- * @param {{
- *   articleTextRef: import('react').RefObject<HTMLElement>,
- *   summaryWrapRef: import('react').RefObject<HTMLElement>,
- *   summaryCardRefs: import('react').RefObject<Record<string, HTMLElement>>,
- *   scaleRef: import('react').RefObject<number>,
- *   isDone: boolean,
- *   showSummaryMode: boolean,
- *   isZoomingToTarget: boolean,
- *   sentences: Array<unknown>,
- *   summaryCards: Array<unknown>,
- *   articleHtml: string,
- * }} params
- * @returns {{
- *   sentenceMetrics: Map<number, { top: number, bottom: number }>,
- *   summaryMetricsState: Map<string, { top: number, height: number }>,
- *   refreshSentenceRanges: () => { wordEntries: Array<unknown>, sentenceRanges: Map<number, unknown> },
- * }}
+ * @param {object} params
+ * @param {object} params.articleTextRef
+ * @param {object} params.summaryWrapRef
+ * @param {object} params.summaryCardRefs
+ * @param {object} params.scaleRef
+ * @param {boolean} params.isDone
+ * @param {boolean} params.showSummaryMode
+ * @param {boolean} params.isZoomingToTarget
+ * @param {Array<unknown>} params.sentences
+ * @param {Array<unknown>} params.summaryCards
+ * @param {string} params.articleHtml
+ * @returns {{sentenceMetrics: Map<number, {top: number, bottom: number}>, summaryMetricsState: Map<string, {top: number, height: number}>, refreshSentenceRanges: function(): {wordEntries: Array<unknown>, sentenceRanges: Map<number, unknown>}}}
  */
 export function useSentenceMetrics({
   articleTextRef,

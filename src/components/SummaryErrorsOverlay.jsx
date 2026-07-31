@@ -7,14 +7,13 @@ import { closeModal } from '../canvas/closeModal.js';
  * all of them — retry every failed topic, or skip them (accept empty summaries
  * and finish). Buttons disable while the decision is in flight.
  *
- * @param {{
- *   summaryErrors?: Array<{topic: string, error_kind?: string, error_message?: string, error_detail?: string}>,
- *   sourceUrl?: string,
- *   className?: string,
- *   onRetry: () => (void | Promise<void>),
- *   onSkip: () => (void | Promise<void>),
- *   onClose?: () => void,
- * }} props
+ * @param {object} props
+ * @param {Array<{topic: string, error_kind: string, error_message: string, error_detail: string}>} [props.summaryErrors]
+ * @param {string} [props.sourceUrl]
+ * @param {string} [props.className]
+ * @param {function(): (void | Promise<void>)} props.onRetry
+ * @param {function(): (void | Promise<void>)} props.onSkip
+ * @param {function(): void} [props.onClose]
  */
 export default function SummaryErrorsOverlay({
   summaryErrors,

@@ -273,7 +273,10 @@ function applyRetention(chat) {
  *
  * @param {string} key
  * @param {string | null | undefined} chatId
- * @param {{turnId?: string, messages?: object[], events?: object[]}} turn
+ * @param {object} [turn]
+ * @param {string} [turn.turnId]
+ * @param {object[]} [turn.messages]
+ * @param {object[]} [turn.events]
  * @returns {Promise<{chat: object}>}
  */
 export async function appendChatTurn(key, chatId, turn = {}) {

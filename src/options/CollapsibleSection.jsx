@@ -10,12 +10,11 @@ import React from 'react';
  * `variant="field"` renders a lighter, nested group (used for the sub-tables
  * inside a section), matching the plain `.field` / `.note--stacked` styling.
  *
- * @param {{
- *   title: React.ReactNode,
- *   defaultOpen?: boolean,
- *   variant?: 'section' | 'field',
- *   children: React.ReactNode,
- * }} props
+ * @param {object} props
+ * @param {React.ReactNode} props.title
+ * @param {boolean} [props.defaultOpen]
+ * @param {('section'|'field')} [props.variant]
+ * @param {React.ReactNode} props.children
  */
 export function CollapsibleSection({ title, defaultOpen = true, variant = 'section', children }) {
   const isField = variant === 'field';

@@ -171,7 +171,7 @@ export function sanitizeProvider(provider) {
 
 /**
  * @param {ProvidersState} state
- * @returns {{providers: Array<Omit<ProviderEntry, "token"> & {hasToken: boolean}>, activeId: string|null}}
+ * @returns {{providers: Array<{id: string, name: string, type: string, model: string, url: string, serviceTier: string, hasToken: boolean}>, activeId: string|null}}
  */
 export function sanitizeProvidersState(state) {
   return {

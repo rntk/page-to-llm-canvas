@@ -47,7 +47,9 @@ try {
  * Runs or resumes the persisted article-processing pipeline.
  *
  * @param {string} key
- * @param {{pipelineRunId?: string, signal?: AbortSignal}} [options]
+ * @param {object} [options]
+ * @param {string} [options.pipelineRunId]
+ * @param {AbortSignal} [options.signal]
  */
 export async function runPipeline(key, options = {}) {
   const concurrencyRevisionAtRead = concurrencySettingRevision;

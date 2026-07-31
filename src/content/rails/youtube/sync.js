@@ -24,6 +24,10 @@ import {
  * playback order.
  *
  * @param {object} input Record and selected rail mode/level.
+ * @param {object} [input.record] Article record supplying sentences.
+ * @param {string[]} [input.record.sentences] Article sentences in display order.
+ * @param {'summaries'|'topics'} input.mode Which card set the rail renders.
+ * @param {number} [input.selectedLevel] Hierarchy level the rail is scoped to.
  * @returns {Array<{ id: string, name: string, text: string, path: string,
  *   level: number, seconds: number, accent: string, sentences: number[] }>}
  */

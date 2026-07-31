@@ -18,8 +18,6 @@ import {
   recordSummariesStorageKey as summariesStorageKey,
 } from './keys.js';
 
-/** @typedef {import('../../src/shared/runtime/contracts.js').ArticleRecord} ArticleRecord */
-
 export const INDEX_KEY = 'pagetollm:index';
 const MAX_PROCESSING_LOG_ENTRIES = 80;
 const RECORD_SNIPPET_MAX_CHARS = 500;
@@ -175,7 +173,8 @@ export async function readRecord(key) {
 
 /**
  * @param {ArticleRecord} rec
- * @param {{bumpContentRevision?: boolean}} [options]
+ * @param {object} [options]
+ * @param {boolean} [options.bumpContentRevision]
  * @returns {Promise<void>}
  */
 export async function writeRecord(rec, options = {}) {
@@ -249,7 +248,9 @@ function isStaleRun(meta, options) {
 /**
  * @param {string} key
  * @param {Partial<ArticleRecord>} patch
- * @param {{bumpContentRevision?: boolean, expectedPipelineRunId?: unknown}} [options]
+ * @param {object} [options]
+ * @param {boolean} [options.bumpContentRevision]
+ * @param {unknown} [options.expectedPipelineRunId]
  * @returns {Promise<ArticleRecord | null>}
  */
 export async function updateRecord(key, patch, options = {}) {
@@ -307,7 +308,7 @@ export async function updateRecord(key, patch, options = {}) {
 const LOG_FLUSH_DELAY_MS = 250;
 /** @type {Map<string, {entries: object[], options: object, deferred: {promise: Promise, resolve: Function, reject: Function}}>} */
 const _logBuffers = new Map();
-/** @type {Map<string, ReturnType<typeof setTimeout>>} */
+/** @type {Map<string, *>} */
 const _logFlushTimers = new Map();
 
 function createDeferred() {
@@ -369,10 +370,11 @@ export function flushProcessingLog(key) {
  * @param {string} key
  * @param {string} stage
  * @param {Record<string, unknown>} [details]
- * @param {{expectedPipelineRunId?: unknown}} [options]  Identifies the pipeline
+ * @param {object} [options]  Identifies the pipeline
  *   run this entry belongs to; a buffer whose entries were queued under a
  *   different run id is treated as stale and flushed before this entry starts
  *   a new buffer under `options`.
+ * @param {unknown} [options.expectedPipelineRunId]
  * @returns {Promise<object | null>}
  */
 export function appendProcessingLog(key, stage, details = {}, options = {}) {
@@ -404,7 +406,7 @@ export function appendProcessingLog(key, stage, details = {}, options = {}) {
 }
 
 /**
- * @returns {Promise<Array<{key: string} & Partial<ArticleRecord>>>}
+ * @returns {Promise<Array<Partial<ArticleRecord>>>}
  */
 export async function listRecords() {
   const idx = await readIndex();

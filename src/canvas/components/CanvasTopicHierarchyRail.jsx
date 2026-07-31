@@ -148,44 +148,29 @@ const TopicCard = React.memo(function TopicCard({
  */
 
 /**
- * @param {{
- *   show: boolean,
- *   selectedLevel: number,
- *   topicCards: Array<{
- *     key: string,
- *     fullPath: string,
- *     displayName: string,
- *     sentenceCount: number,
- *     startSentence: number,
- *     endSentence: number,
- *     top: number,
- *     height: number,
- *     titleFontSize: number,
- *     depth: number,
- *     levelIndex: number,
- *     right: number,
- *   }>,
- *   railWidth: number,
- *   cardWidth: number,
- *   activeTopicKey: string | null,
- *   activeTopicCardKey?: string | null,
- *   selectedTopicKey: string | null,
- *   selectedTopicCardKey?: string | null,
- *   onTopicEnter: (topicKey: string, cardKey?: string) => void,
- *   onTopicLeave: (topicKey: string, cardKey?: string) => void,
- *   onTopicClick: (topicKey: string, card: CanvasTopicCard) => void,
- *   onCancelTopicSelection: (() => void) | null,
- *   readTopics: Set<string> | string[] | null,
- *   onToggleRead: ((topicKey: string) => void) | null,
- *   currentTopicSummary: {
- *     key?: string,
- *     path: string,
- *     text: string,
- *     sourceSentences?: number[],
- *   } | null,
- *   sentences?: string[],
- *   sourceUrl?: string,
- * }} props
+ * @param {object} props
+ * @param {boolean} props.show
+ * @param {number} props.selectedLevel
+ * @param {Array<CanvasTopicCard>} props.topicCards
+ * @param {number} props.railWidth
+ * @param {number} props.cardWidth
+ * @param {?string} props.activeTopicKey
+ * @param {?string} [props.activeTopicCardKey]
+ * @param {?string} props.selectedTopicKey
+ * @param {?string} [props.selectedTopicCardKey]
+ * @param {function(string, string=): void} props.onTopicEnter
+ * @param {function(string, string=): void} props.onTopicLeave
+ * @param {function(string, CanvasTopicCard): void} props.onTopicClick
+ * @param {?function(): void} props.onCancelTopicSelection
+ * @param {Set<string> | string[] | null} props.readTopics
+ * @param {?function(string): void} props.onToggleRead
+ * @param {?object} props.currentTopicSummary
+ * @param {string} [props.currentTopicSummary.key]
+ * @param {string} props.currentTopicSummary.path
+ * @param {string} props.currentTopicSummary.text
+ * @param {number[]} [props.currentTopicSummary.sourceSentences]
+ * @param {string[]} [props.sentences]
+ * @param {string} [props.sourceUrl]
  */
 function CanvasTopicHierarchyRail({
   show,

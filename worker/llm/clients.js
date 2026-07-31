@@ -220,13 +220,13 @@ function roundedPercent(part, total) {
  * @param {string} provider
  * @param {unknown} data
  * @returns {{
- *   inputTokens?: number,
- *   outputTokens?: number,
- *   totalTokens?: number,
- *   reasoningTokens?: number,
- *   cacheReadTokens?: number,
- *   cacheWriteTokens?: number,
- *   cacheMissTokens?: number,
+ *   inputTokens: number,
+ *   outputTokens: number,
+ *   totalTokens: number,
+ *   reasoningTokens: number,
+ *   cacheReadTokens: number,
+ *   cacheWriteTokens: number,
+ *   cacheMissTokens: number
  * } | undefined}
  */
 export function extractLlmUsage(provider, data) {
@@ -342,7 +342,7 @@ function logCacheUsage(provider, data, verboseLogs) {
 
 /**
  * @param {boolean} [verboseLogs] Whether verbose logging is enabled.
- * @param {unknown[]} args Values to log.
+ * @param {...unknown} args Values to log.
  */
 function logClientVerbose(verboseLogs, ...args) {
   if (!verboseLogs) return;
@@ -355,7 +355,15 @@ function logClientVerbose(verboseLogs, ...args) {
  * `cache_prompt` flag — only safe for local OpenAI-compatible servers.
  * `guardTemperature` drops the temperature field for models that reject it
  * (OpenAI-hosted only).
- * @param {{baseUrl: string, apiKey?: string, model: string, serviceTier?: string, cachePrompt?: boolean, promptCacheKey?: string, guardTemperature?: boolean, providerLabel?: string}} options Client options.
+ * @param {object} options Client options.
+ * @param {string} options.baseUrl
+ * @param {string} [options.apiKey]
+ * @param {string} options.model
+ * @param {string} [options.serviceTier]
+ * @param {boolean} [options.cachePrompt]
+ * @param {string} [options.promptCacheKey]
+ * @param {boolean} [options.guardTemperature]
+ * @param {string} [options.providerLabel]
  */
 function openAICompatibleClient({
   baseUrl,
@@ -554,7 +562,10 @@ function toAnthropicMessages(messages) {
 }
 
 /** Anthropic Messages API client.
- * @param {{apiKey: string, model: string, serviceTier?: string}} options Client options.
+ * @param {object} options Client options.
+ * @param {string} options.apiKey
+ * @param {string} options.model
+ * @param {string} [options.serviceTier]
  */
 function anthropicClient({ apiKey, model, serviceTier }) {
   return {
@@ -687,24 +698,28 @@ function toAnthropicServiceTier(serviceTier) {
  * only when parsing the HTTP response that comes back from the provider —
  * that inbound boundary is where malformed/varying data actually
  * originates, so that is the only place defensive parsing belongs.
- * @param {{type: string, model: string, token?: string, url?: string}} provider
- * @returns {{complete: (opts: {
- *   prompt?: string,
- *   messages?: Array<{role: string, content: string, reasoning?: string, toolCallId?: string, toolCalls?: Array<{id: string, name: string, arguments: Record<string, unknown>}>}>,
- *   tools?: Array<{name: string, description: string, parameters: Record<string, unknown>}>,
- *   toolChoice?: unknown,
- *   parallelToolCalls?: boolean,
- *   temperature?: number,
- *   signal?: AbortSignal,
- *   verboseLogs?: boolean,
- * }) => Promise<{
+ * @param {object} provider
+ * @param {string} provider.type
+ * @param {string} provider.model
+ * @param {string} [provider.token]
+ * @param {string} [provider.url]
+ * @returns {{complete: function({
+ *   prompt: string,
+ *   messages: Array<{role: string, content: string, reasoning: string, toolCallId: string, toolCalls: Array<{id: string, name: string, arguments: Record<string, unknown>}>}>,
+ *   tools: Array<{name: string, description: string, parameters: Record<string, unknown>}>,
+ *   toolChoice: unknown,
+ *   parallelToolCalls: boolean,
+ *   temperature: number,
+ *   signal: AbortSignal,
+ *   verboseLogs: boolean
+ * }): Promise<{
  *   content: string,
- *   reasoning?: string,
- *   toolCalls?: Array<{id: string | null, name: string, arguments: Record<string, unknown>}>,
+ *   reasoning: string,
+ *   toolCalls: Array<{id: string|null, name: string, arguments: Record<string, unknown>}>,
  *   endpoint: string,
  *   model: string,
  *   provider: string,
- *   usage?: Record<string, number>,
+ *   usage: Record<string, number>
  * }>}}
  */
 export function createClient(provider) {

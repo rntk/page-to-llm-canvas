@@ -52,13 +52,13 @@ export function normalizeTaskType(value) {
 
 /**
  * @typedef {{
- *   inputTokens?: number,
- *   outputTokens?: number,
- *   totalTokens?: number,
- *   reasoningTokens?: number,
- *   cacheReadTokens?: number,
- *   cacheWriteTokens?: number,
- *   cacheMissTokens?: number,
+ *   inputTokens: number,
+ *   outputTokens: number,
+ *   totalTokens: number,
+ *   reasoningTokens: number,
+ *   cacheReadTokens: number,
+ *   cacheWriteTokens: number,
+ *   cacheMissTokens: number
  * }} LlmUsage
  */
 /**
@@ -67,12 +67,12 @@ export function normalizeTaskType(value) {
  *   durationMs: number,
  *   ok: boolean,
  *   taskType: string,
- *   error?: string,
- *   provider?: string,
- *   model?: string,
- *   requestChars?: number,
- *   responseChars?: number,
- *   usage?: LlmUsage,
+ *   error: string,
+ *   provider: string,
+ *   model: string,
+ *   requestChars: number,
+ *   responseChars: number,
+ *   usage: LlmUsage
  * }} LlmMetricEntry
  */
 /**
@@ -93,14 +93,31 @@ export function normalizeTaskType(value) {
  *   totalCacheWriteTokens: number,
  *   totalCacheMissTokens: number,
  *   totalRequestChars: number,
- *   totalResponseChars: number,
+ *   totalResponseChars: number
  * }} LlmMetricTotals
  */
 /**
- * @typedef {LlmMetricTotals & {
+ * @typedef {{
+ *   totalCount: number,
+ *   successCount: number,
+ *   failureCount: number,
+ *   totalDurationMs: number,
+ *   minDurationMs: number | null,
+ *   maxDurationMs: number | null,
+ *   usageSampleCount: number,
+ *   cacheSampleCount: number,
+ *   totalInputTokens: number,
+ *   totalOutputTokens: number,
+ *   totalTokens: number,
+ *   totalReasoningTokens: number,
+ *   totalCacheReadTokens: number,
+ *   totalCacheWriteTokens: number,
+ *   totalCacheMissTokens: number,
+ *   totalRequestChars: number,
+ *   totalResponseChars: number,
  *   epoch: number,
- *   recent: LlmMetricEntry[],
- *   byTaskType: Record<string, LlmMetricTotals>,
+ *   recent: Array<LlmMetricEntry>,
+ *   byTaskType: Record<string, LlmMetricTotals>
  * }} LlmMetrics
  */
 
@@ -350,7 +367,7 @@ export function wrapCallLLMWithRetry(callLLMWithRetry) {
 let writeChain = Promise.resolve();
 
 /**
- * @param {() => Promise<void>} fn
+ * @param {function(): Promise<void>} fn
  * @returns {Promise<void>}
  */
 function enqueueWrite(fn) {
@@ -422,17 +439,16 @@ function applyMetric(current, entry) {
 }
 
 /**
- * @param {{
- *   durationMs: number,
- *   ok: boolean,
- *   taskType?: string,
- *   error?: string,
- *   provider?: string,
- *   model?: string,
- *   requestChars?: number,
- *   responseChars?: number,
- *   usage?: LlmUsage,
- * }} entry
+ * @param {object} entry
+ * @param {number} entry.durationMs
+ * @param {boolean} entry.ok
+ * @param {string} [entry.taskType]
+ * @param {string} [entry.error]
+ * @param {string} [entry.provider]
+ * @param {string} [entry.model]
+ * @param {number} [entry.requestChars]
+ * @param {number} [entry.responseChars]
+ * @param {LlmUsage} [entry.usage]
  * @returns {Promise<void>}
  */
 export function recordLlmMetric(entry) {

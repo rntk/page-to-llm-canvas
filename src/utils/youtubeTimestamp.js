@@ -115,7 +115,9 @@ export function buildYouTubeTimestampUrl(videoId, seconds) {
  * the bare call is unchanged for existing callers (canvas views).
  *
  * @param {number} seconds
- * @param {{ padMinutes?: boolean, forceHours?: boolean }} [options]
+ * @param {object} [options]
+ * @param {boolean} [options.padMinutes]
+ * @param {boolean} [options.forceHours]
  * @returns {string}
  */
 export function formatTimestampLabel(seconds, options = {}) {
@@ -136,9 +138,14 @@ export function formatTimestampLabel(seconds, options = {}) {
  * isn't a YouTube transcript or no timestamp can be found, so callers can render
  * the button conditionally.
  *
- * @param {{ sourceUrl?: string, sentences?: string[], sourceSentences?: number[],
- *   labelOptions?: { padMinutes?: boolean, forceHours?: boolean } }} params
- * @returns {{ url: string, seconds: number, label: string } | null}
+ * @param {object} params
+ * @param {string} [params.sourceUrl]
+ * @param {string[]} [params.sentences]
+ * @param {number[]} [params.sourceSentences]
+ * @param {object} [params.labelOptions]
+ * @param {boolean} [params.labelOptions.padMinutes]
+ * @param {boolean} [params.labelOptions.forceHours]
+ * @returns {({ url: string, seconds: number, label: string }|null)}
  */
 export function getYouTubeTimestampLink({ sourceUrl, sentences, sourceSentences, labelOptions }) {
   const videoId = getYouTubeVideoId(sourceUrl);

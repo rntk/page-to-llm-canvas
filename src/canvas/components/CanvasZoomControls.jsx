@@ -4,24 +4,23 @@ import TopicLevelSwitcher from '../../components/TopicLevelSwitcher.jsx';
 /**
  * Floating zoom & view-mode controls for the canvas, mirroring the main app.
  *
- * @param {{
- *   onNavigate: (pos: "top" | "bottom" | "prev" | "next" | "first-topic" | "prev-topic" | "next-topic" | "last-topic") => void,
- *   onZoomIn: () => void,
- *   onZoomOut: () => void,
- *   onReset: () => void,
- *   showSummaryMode: boolean,
- *   onToggleSummaryMode: () => void,
- *   summaryModeAvailable?: boolean,
- *   showTopicHierarchy: boolean,
- *   onToggleTopicHierarchy: () => void,
- *   onClose: () => void,
- *   selectedLevel: number,
- *   maxLevel: number,
- *   onLevelChange: (level: number) => void,
- *   showChat?: boolean,
- *   onToggleChat?: () => void,
- * }} props
- * @returns {import("react").JSX.Element}
+ * @param {object} props
+ * @param {function(string): void} props.onNavigate pos: "top" | "bottom" | "prev" | "next" | "first-topic" | "prev-topic" | "next-topic" | "last-topic"
+ * @param {function(): void} props.onZoomIn
+ * @param {function(): void} props.onZoomOut
+ * @param {function(): void} props.onReset
+ * @param {boolean} props.showSummaryMode
+ * @param {function(): void} props.onToggleSummaryMode
+ * @param {boolean} [props.summaryModeAvailable]
+ * @param {boolean} props.showTopicHierarchy
+ * @param {function(): void} props.onToggleTopicHierarchy
+ * @param {function(): void} props.onClose
+ * @param {number} props.selectedLevel
+ * @param {number} props.maxLevel
+ * @param {function(number): void} props.onLevelChange
+ * @param {boolean} [props.showChat]
+ * @param {function(): void} [props.onToggleChat]
+ * @returns {JSX.Element}
  */
 function CanvasZoomControls({
   onNavigate,

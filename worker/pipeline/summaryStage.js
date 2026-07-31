@@ -72,7 +72,7 @@ async function parkForReview(runtime, summaryErrors, phase, topicSummaryIndex, {
 }
 
 /** Finalizes a run without summary calls while preserving its computed topics.
- * @param {import('./pipelineRuntime.js').PipelineRuntime} runtime Pipeline runtime.
+ * @param {PipelineRuntime} runtime Pipeline runtime.
  * @param {object[]} topics Computed topic records.
  */
 export async function finalizeSummariesDisabled(runtime, topics) {

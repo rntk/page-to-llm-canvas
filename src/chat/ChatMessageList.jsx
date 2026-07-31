@@ -3,12 +3,11 @@ import React, { useEffect, useRef } from 'react';
 /**
  * Scrolling transcript of visible chat messages plus the loading row.
  *
- * @param {{
- *   messages: object[],
- *   isLoading: boolean,
- *   isLoadingHistory: boolean,
- *   emptyPrompt?: string,
- * }} props
+ * @param {object} props
+ * @param {object[]} props.messages
+ * @param {boolean} props.isLoading
+ * @param {boolean} props.isLoadingHistory
+ * @param {string} [props.emptyPrompt]
  */
 export default function ChatMessageList({
   messages,

@@ -34,8 +34,8 @@ const themedSurfaceProviders = new Set();
  * Register a live getter for a themed surface. The getter returns the current
  * host element (or a falsy value when the surface is not mounted). Returns an
  * unregister function.
- * @param {() => (HTMLElement | null | undefined | false)} getEl
- * @returns {() => void}
+ * @param {function(): (HTMLElement|null|undefined|false)} getEl
+ * @returns {function(): void}
  */
 export function registerThemedSurface(getEl) {
   themedSurfaceProviders.add(getEl);

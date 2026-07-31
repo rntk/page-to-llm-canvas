@@ -36,8 +36,8 @@ registerThemedSurface(() => activeRailController && activeRailController.railEl)
  * @param {object} opts
  * @param {{ mode: string }} opts.state - Live rail state; `setRailWidthForMode` reads `state.mode`.
  * @param {boolean} [opts.youtube] - Tag the host with `data-youtube` (YouTube rail only).
- * @param {() => void} [opts.onTeardown] - Extra teardown step (e.g. clearing CSS highlights).
- * @returns {{ railEl: HTMLElement, railRoot: import('react-dom/client').Root, setRailWidthForMode: () => void, isClosed: () => boolean }}
+ * @param {function(): void} [opts.onTeardown] - Extra teardown step (e.g. clearing CSS highlights).
+ * @returns {{ railEl: HTMLElement, railRoot: object, setRailWidthForMode: function(): void, isClosed: function(): boolean }}
  */
 export function createRailSurface({ state, youtube = false, onTeardown } = {}) {
   const railEl = document.createElement('aside');

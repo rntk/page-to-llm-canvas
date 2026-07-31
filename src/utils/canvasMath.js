@@ -17,12 +17,11 @@ export function clampScale(value) {
 /**
  * Keep the canvas point under the cursor fixed while changing scale.
  *
- * @param {{
- *   cursor: {x: number, y: number},
- *   translate: {x: number, y: number},
- *   currentScale: number,
- *   nextScale: number,
- * }} params
+ * @param {object} params
+ * @param {{x: number, y: number}} params.cursor
+ * @param {{x: number, y: number}} params.translate
+ * @param {number} params.currentScale
+ * @param {number} params.nextScale
  * @returns {{x: number, y: number}}
  */
 export function cursorAnchoredTranslate({ cursor, translate, currentScale, nextScale }) {

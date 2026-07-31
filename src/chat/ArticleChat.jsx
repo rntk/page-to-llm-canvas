@@ -23,17 +23,16 @@ function createTurnId() {
  * retrying safe when the storage commit succeeded but its acknowledgement was
  * lost.
  *
- * @param {{
- *   recordKey: string,
- *   sentences: string[],
- *   onHighlight?: (range: object) => void,
- *   onClearHighlights?: () => void,
- *   onClose?: () => void,
- *   onEscape?: () => void,
- *   headerActionsTarget?: HTMLElement | null,
- *   subject?: 'article' | 'video',
- *   getEventTimestamp?: (range: object) => number | null,
- * }} props
+ * @param {object} props
+ * @param {string} props.recordKey
+ * @param {string[]} props.sentences
+ * @param {function(object): void} [props.onHighlight]
+ * @param {function(): void} [props.onClearHighlights]
+ * @param {function(): void} [props.onClose]
+ * @param {function(): void} [props.onEscape]
+ * @param {?HTMLElement} [props.headerActionsTarget]
+ * @param {'article' | 'video'} [props.subject]
+ * @param {function(object): ?number} [props.getEventTimestamp]
  */
 export default function ArticleChat({
   recordKey,

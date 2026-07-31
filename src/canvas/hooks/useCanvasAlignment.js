@@ -61,22 +61,17 @@ export function computeComfortLeft(currentLeft, columnWidth, wrapWidth) {
  * Runs only on deliberate changes (from `deps`) or the initial load (which centering
  * pins to the top margin), never during manual panning/zooming.
  *
- * @param {{
- *   enabled: boolean,
- *   anchorRef: import('react').RefObject<HTMLElement>,
- *   viewport: {
- *     canvasWrapElRef: import('react').RefObject<HTMLElement>,
- *     scaleRef: import('react').RefObject<number>,
- *     translateRef: import('react').RefObject<{x: number, y: number}>,
- *     setTransformNow: (scale: number, translate: {x: number, y: number}) => void,
- *   },
- *   flashFocus?: () => void,
- *   deps: ReadonlyArray<unknown>,
- * }} params
- * @returns {{
- *   captureAnchor: (resetTop?: boolean) => void,
- *   skipNextAlignment: () => void,
- * }}
+ * @param {object} params
+ * @param {boolean} params.enabled
+ * @param {object} params.anchorRef
+ * @param {object} params.viewport
+ * @param {object} params.viewport.canvasWrapElRef
+ * @param {object} params.viewport.scaleRef
+ * @param {object} params.viewport.translateRef
+ * @param {function(number, {x: number, y: number}): void} params.viewport.setTransformNow
+ * @param {function(): void} [params.flashFocus]
+ * @param {ReadonlyArray<unknown>} params.deps
+ * @returns {{captureAnchor: function(boolean=): void, skipNextAlignment: function(): void}}
  */
 export function useCanvasAlignment({ enabled, anchorRef, viewport, flashFocus, deps }) {
   // The wrap element is the measurement frame here, not "the canvas viewport"

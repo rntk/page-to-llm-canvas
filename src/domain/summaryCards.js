@@ -7,7 +7,7 @@ import { requireTopicSummaryLevel, splitSentenceRuns, splitTopicPath } from './t
  * empty runs derived from its aggregated sentences, so the topic still occupies
  * its place on the rail instead of vanishing.
  *
- * @param {Array<{sentences?: number[], text?: string}>} runs
+ * @param {Array<{sentences: number[], text: string}>} runs
  * @param {number[]} sourceSentences
  * @returns {Array<{sentences: number[], text: string}>}
  */

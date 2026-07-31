@@ -140,7 +140,8 @@ export function nudgeCrowdedPair(topCard, bottomCard) {
  * Returns the z-index for a card. Crowded cards with fewer sentences float
  * higher so labels remain visible.
  *
- * @param {{sentenceCount?: number}} card
+ * @param {object} card
+ * @param {number} [card.sentenceCount]
  * @param {boolean} isCrowded
  * @returns {number}
  */
@@ -153,7 +154,7 @@ export function getDenseCardZIndex(card, isCrowded) {
  * Runs multi-pass overlap resolution on a single level's cards, compacting
  * heights and nudging positions to reduce visual crowding.
  *
- * @param {Array<{top: number, height: number, fullPath: string, titleFontSize: number, sentenceCount?: number}>} levelCards
+ * @param {Array<{top: number, height: number, fullPath: string, titleFontSize: number, sentenceCount: number}>} levelCards
  * @returns {Array}
  */
 export function adjustCrowdedLevelCards(levelCards) {
@@ -226,7 +227,8 @@ export function getAdjustedHierarchyCards(cards) {
  * Derives summary-panel font sizes from the anchor card's title font size,
  * scaling all three sizes proportionally when the card is zoomed.
  *
- * @param {{titleFontSize?: number} | null | undefined} anchorCard
+ * @param {object} [anchorCard]
+ * @param {number} [anchorCard.titleFontSize]
  * @returns {{kicker: number, title: number, text: number}}
  */
 export function getSummaryFontSizes(anchorCard) {

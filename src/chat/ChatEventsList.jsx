@@ -6,14 +6,13 @@ import { eventRange } from './useChatSessions.js';
  * Read-only list of highlight events for the active chat. Events can be
  * selected to revisit their evidence, but are retained for the chat's life.
  *
- * @param {{
- *   events: object[],
- *   selectedEventSeq: number | null,
- *   onSelectEvent: (event: object) => void,
- *   subject?: 'article' | 'video',
- *   getEventTimestamp?: (range: object) => number | null,
- *   disabled?: boolean,
- * }} props
+ * @param {object} props
+ * @param {object[]} props.events
+ * @param {?number} props.selectedEventSeq
+ * @param {function(object): void} props.onSelectEvent
+ * @param {'article' | 'video'} [props.subject]
+ * @param {function(object): ?number} [props.getEventTimestamp]
+ * @param {boolean} [props.disabled]
  */
 export default function ChatEventsList({
   events,

@@ -12,13 +12,13 @@
 
 /**
  * @param {Array<{name: string, sentences: number[]}>} topics
- * @param {Record<string, {runs?: Array<{sentences: number[], text: string}>, error?: boolean}>} previousSummaries
+ * @param {Record<string, {runs: Array<{sentences: number[], text: string}>, error: boolean}>} previousSummaries
  * @returns {{
  *   reused: Record<string, {runs: Array<{sentences: number[], text: string}>, source_sentences: number[]}>,
  *   pending: Array<object>,
  *   reusedCount: number,
  *   pendingCount: number,
- *   total: number,
+ *   total: number
  * }}
  */
 export function planSummaryWork(topics, previousSummaries = {}) {

@@ -14,7 +14,7 @@ import { splitTopicPath } from '../domain/topicDomain.js';
  * extraction and has different structural requirements — the two are not
  * merged on purpose.
  *
- * @param {Array<{name: string, sentences?: number[]}>} topics
+ * @param {Array<{name: string, sentences: number[]}>} topics
  * @param {number} [startDepth]
  */
 export function buildTopicTree(topics, startDepth = 0) {
@@ -70,7 +70,8 @@ function computeLeafCount(entry) {
  * (the fold-tree analogue of the canvas rail's `levelIndex <= selectedLevel`).
  *
  * @param {Array<{node: {fullPath: string, depth: number}, children: Map<string, any>}>} roots
- * @param {{minDepth?: number}} [options]
+ * @param {object} [options]
+ * @param {number} [options.minDepth]
  * @returns {string[]}
  */
 export function collectNonLeafPaths(roots, { minDepth = 0 } = {}) {

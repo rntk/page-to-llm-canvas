@@ -23,7 +23,9 @@ export function formatTaskTypeLabel(taskType) {
 /**
  * Average duration in ms, or null when there are no samples.
  * Works for overall metrics or a single task-type bucket.
- * @param {{ totalCount?: number, totalDurationMs?: number } | null | undefined} metrics
+ * @param {object} [metrics]
+ * @param {number} [metrics.totalCount]
+ * @param {number} [metrics.totalDurationMs]
  * @returns {number | null}
  */
 export function averageDurationMs(metrics) {
@@ -34,11 +36,10 @@ export function averageDurationMs(metrics) {
 /**
  * Cache-read percentage across requests that reported cache usage.
  * Cache writes count as misses because they did not reuse an existing prefix.
- * @param {{
- *   totalCacheReadTokens?: number,
- *   totalCacheWriteTokens?: number,
- *   totalCacheMissTokens?: number,
- * } | null | undefined} metrics
+ * @param {object} [metrics]
+ * @param {number} [metrics.totalCacheReadTokens]
+ * @param {number} [metrics.totalCacheWriteTokens]
+ * @param {number} [metrics.totalCacheMissTokens]
  * @returns {number | null}
  */
 export function cacheHitRate(metrics) {
@@ -66,8 +67,9 @@ export function formatMetricPercent(value) {
 
 /**
  * Task-type keys present in metrics, ordered by totalCount desc then name.
- * @param {{ byTaskType?: Record<string, { totalCount?: number }> }} metrics
- * @returns {string[]}
+ * @param {object} metrics
+ * @param {Record<string, {totalCount: number}>} [metrics.byTaskType]
+ * @returns {Array<string>}
  */
 export function listTaskTypes(metrics) {
   const byTaskType = metrics?.byTaskType || {};

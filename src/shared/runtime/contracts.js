@@ -155,15 +155,14 @@ export function isImportableRecord(record) {
  * Creates the canonical initial record used when a new submission is queued.
  * The result is intentionally a serializable object, not a class instance.
  *
- * @param {{
- *   key: string,
- *   html: string,
- *   sourceUrl?: string,
- *   selectors?: string[],
- *   pipelineRunId: string,
- *   skipSummaries?: boolean,
- *   now?: number,
- * }} input
+ * @param {object} input
+ * @param {string} input.key
+ * @param {string} input.html
+ * @param {string} [input.sourceUrl]
+ * @param {string[]} [input.selectors]
+ * @param {string} input.pipelineRunId
+ * @param {boolean} [input.skipSummaries]
+ * @param {number} [input.now]
  */
 export function createQueuedRecord({
   key,

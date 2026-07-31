@@ -7,7 +7,11 @@ import { buildTopicSentenceIndex, getMaxTopicLevel } from '../../domain/topicDom
  * Normalize a storage record into the stable, derived data consumed by the
  * canvas. Storage updates replace the record object frequently, so this hook
  * deliberately preserves identities for article data that has not changed.
- * @param {{record?: object, error?: string, selectedLevel: number, showSummaryModeRaw: boolean}} input
+ * @param {object} input
+ * @param {object} [input.record]
+ * @param {string} [input.error]
+ * @param {number} input.selectedLevel
+ * @param {boolean} input.showSummaryModeRaw
  */
 export function useCanvasRecordViewModel({ record, error, selectedLevel, showSummaryModeRaw }) {
   // Serialize once per record change, not once per render. `record` is

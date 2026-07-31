@@ -134,7 +134,11 @@ export function setStoredTheme(preference) {
  * Creates a small controller that owns the current preference, applies it to
  * the document, persists changes, and notifies subscribers. Dependencies are
  * injectable for testing.
- * @param {{doc?: Document, win?: Window, getStored?: Function, setStored?: Function}} [options]
+ * @param {object} [options]
+ * @param {Document} [options.doc]
+ * @param {Window} [options.win]
+ * @param {Function} [options.getStored]
+ * @param {Function} [options.setStored]
  */
 export function createThemeController({
   doc = typeof document !== 'undefined' ? document : undefined,

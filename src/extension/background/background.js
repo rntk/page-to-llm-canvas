@@ -150,7 +150,7 @@ try {
 /**
  * In-memory job registry to prevent duplicate pipeline runs while the
  * service worker is alive. Keyed by record key; value is the run promise.
- * @type {Map<string, {promise: Promise<void>, controller: AbortController, pipelineRunId?: string}>}
+ * @type {Map<string, {promise: Promise<void>, controller: AbortController, pipelineRunId: string}>}
  */
 const _jobRegistry = new Map();
 const _starting = new Set();
@@ -264,8 +264,11 @@ export async function startPipeline(key) {
 }
 
 /**
- * @param {{html?: string, sourceUrl?: string, selectors?: string[]}} submission
- * @returns {Promise<{ok: boolean, key?: string, error?: string}>}
+ * @param {object} submission
+ * @param {string} [submission.html]
+ * @param {string} [submission.sourceUrl]
+ * @param {string[]} [submission.selectors]
+ * @returns {Promise<{ok: boolean, key: string, error: string}>}
  */
 export async function handleSubmit(submission) {
   const { html, sourceUrl, selectors } = submission;
@@ -344,8 +347,8 @@ export async function handleSubmit(submission) {
  *
  * @type {Record<string, {
  *   requiresExtensionPage: boolean,
- *   validate: (msg: object) => string | null,
- *   handle: (msg: object, sender: object) => Promise<object>
+ *   validate: function(object): (string|null),
+ *   handle: function(object, object): Promise<object>
  * }>}
  */
 export const MESSAGE_HANDLERS = {
@@ -867,7 +870,7 @@ export const MESSAGE_HANDLERS = {
  *
  * @param {object} msg
  * @param {object} sender
- * @param {typeof MESSAGE_HANDLERS} [handlers]
+ * @param {*} [handlers]
  * @returns {Promise<object>}
  */
 export async function dispatchMessage(msg, sender, handlers = MESSAGE_HANDLERS) {

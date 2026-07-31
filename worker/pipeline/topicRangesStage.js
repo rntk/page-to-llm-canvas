@@ -228,12 +228,14 @@ export function groupsToTopics(groups, sentenceObjs, mapping) {
  * Re-query the LLM to subdivide one oversized sentence range. This is
  * best-effort: a failed re-split returns null so its caller can retain the
  * original range; an ineffective large re-split falls back to bounded windows.
- * @param {import('./pipelineRuntime.js').PipelineRuntime} runtime Pipeline runtime.
+ * @param {PipelineRuntime} runtime Pipeline runtime.
  * @param {object} segment Oversized topic segment.
  * @param {string[]} sentenceTexts Article sentence text.
  * @param {number} depth Current resplit depth.
  * @param {Function} callLLMWithRetry LLM request function.
- * @param {{acceptSingle?: boolean, stats?: object}} [options] Resplit options.
+ * @param {object} [options] Resplit options.
+ * @param {boolean} [options.acceptSingle]
+ * @param {object} [options.stats]
  */
 async function resplitSegment(
   runtime,
@@ -563,11 +565,10 @@ async function refineOversizedRangesWithStats(
  * Cleans the HTML, splits sentences, and runs the LLM topic-ranges stage.
  * Returns topics:null when no sentences were found and the record was finalized.
  *
- * @param {{
- *   runtime: import('./pipelineRuntime.js').PipelineRuntime,
- *   record: object,
- *   callLLMWithRetry: Function,
- * }} input
+ * @param {object} input
+ * @param {PipelineRuntime} input.runtime
+ * @param {object} input.record
+ * @param {Function} input.callLLMWithRetry
  */
 export async function computeTopics({ runtime, record, callLLMWithRetry }) {
   await runtime.update({

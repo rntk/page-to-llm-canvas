@@ -1,15 +1,14 @@
 import React from 'react';
 
 /**
- * @param {{
- *   selectedLevel: number,
- *   maxLevel: number,
- *   onChange: (level: number) => void,
- *   label?: string,
- *   className?: string,
- *   getOptionLabel?: (level: number) => string,
- * }} props
- * @returns {import("react").JSX.Element}
+ * @param {object} props
+ * @param {number} props.selectedLevel
+ * @param {number} props.maxLevel
+ * @param {function(number): void} props.onChange
+ * @param {string} [props.label]
+ * @param {string} [props.className]
+ * @param {function(number): string} [props.getOptionLabel]
+ * @returns {JSX.Element}
  */
 export default function TopicLevelSwitcher({
   selectedLevel,

@@ -9,14 +9,13 @@ function formatDate(timestamp) {
 /**
  * Dropdown list of stored chats with per-chat delete.
  *
- * @param {{
- *   chats: object[],
- *   activeChatId: string | null,
- *   onSelectChat: (chatId: string) => void,
- *   onDeleteChat: (chatId: string) => void,
- *   disabled?: boolean,
- *   deleteDisabled?: boolean,
- * }} props
+ * @param {object} props
+ * @param {object[]} props.chats
+ * @param {?string} props.activeChatId
+ * @param {function(string): void} props.onSelectChat
+ * @param {function(string): void} props.onDeleteChat
+ * @param {boolean} [props.disabled]
+ * @param {boolean} [props.deleteDisabled]
  */
 export default function ChatHistoryPanel({
   chats,

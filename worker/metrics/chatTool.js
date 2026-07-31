@@ -119,7 +119,9 @@ export async function getChatToolMetrics() {
 }
 
 /**
- * @param {{ outcome?: string, error?: string }} [sample]
+ * @param {object} [sample]
+ * @param {string} [sample.outcome]
+ * @param {string} [sample.error]
  * @returns {Promise<void>}
  */
 export function recordChatToolMetric(sample = {}) {

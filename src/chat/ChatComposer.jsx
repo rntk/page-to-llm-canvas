@@ -4,15 +4,14 @@ import React, { useCallback, useId } from 'react';
  * Question textarea plus Send button. Enter sends; Shift+Enter inserts a
  * newline.
  *
- * @param {{
- *   value: string,
- *   onChange: (value: string) => void,
- *   onSend: () => void,
- *   onStop?: () => void,
- *   isLoading?: boolean,
- *   disabled: boolean,
- *   placeholder?: string,
- * }} props
+ * @param {object} props
+ * @param {string} props.value
+ * @param {function(string): void} props.onChange
+ * @param {function(): void} props.onSend
+ * @param {function(): void} [props.onStop]
+ * @param {boolean} [props.isLoading]
+ * @param {boolean} props.disabled
+ * @param {string} [props.placeholder]
  */
 export default function ChatComposer({
   value,

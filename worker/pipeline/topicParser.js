@@ -20,15 +20,14 @@ const SINGLE_TOKEN_RE = /^(\d+)$/;
 export class TopicParseError extends Error {
   /**
    * @param {string} message
-   * @param {{
-   *   outOfRange?: Array<[number, number]>,
-   *   duplicates?: number[],
-   *   missing?: number[],
-   *   invalidRangeTokens?: number,
-   *   ignoredLineSamples?: string[],
-   *   repairs?: Array<object>,
-   *   repairsTruncated?: boolean
-   * }} diagnostics
+   * @param {object} diagnostics
+   * @param {Array<number[]>} [diagnostics.outOfRange]
+   * @param {number[]} [diagnostics.duplicates]
+   * @param {number[]} [diagnostics.missing]
+   * @param {number} [diagnostics.invalidRangeTokens]
+   * @param {string[]} [diagnostics.ignoredLineSamples]
+   * @param {Array<object>} [diagnostics.repairs]
+   * @param {boolean} [diagnostics.repairsTruncated]
    */
   constructor(message, diagnostics = {}) {
     super(message);

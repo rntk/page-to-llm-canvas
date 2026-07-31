@@ -8,12 +8,11 @@ import { splitError } from '../utils/errorUtils.js';
  * ErrorDetails split) but lives on a real page instead of the modal iframe, so
  * it owns its own close handler rather than calling `closeModal`.
  *
- * @param {{
- *   sourceUrl?: string,
- *   errorText?: string | null,
- *   onRetry: () => (void | Promise<void>),
- *   onClose: () => void,
- * }} props
+ * @param {object} props
+ * @param {string} [props.sourceUrl]
+ * @param {string|null} [props.errorText]
+ * @param {function(): (void|Promise<void>)} props.onRetry
+ * @param {function(): void} props.onClose
  */
 export default function RecordErrorDialog({ sourceUrl, errorText, onRetry, onClose }) {
   const [busy, setBusy] = useState(false);

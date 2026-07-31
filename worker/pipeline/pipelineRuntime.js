@@ -23,12 +23,12 @@ import {
  * @property {boolean|undefined} preferContentLanguage
  * @property {boolean|undefined} verboseLogs
  * @property {boolean} summariesDisabled
- * @property {() => void} assertActive
- * @property {() => Promise<object|null>} read
- * @property {(patch: object) => Promise<object>} update
- * @property {(disabled: boolean) => void} setSummariesDisabled
- * @property {(stage: string, details?: object, options?: {verbose?: boolean}) => Promise<void>} log
- * @property {() => Promise<void>} flushLogs
+ * @property {function(): void} assertActive
+ * @property {function(): Promise<object|null>} read
+ * @property {function(object): Promise<object>} update
+ * @property {function(boolean): void} setSummariesDisabled
+ * @property {function(string, object, {verbose: boolean}): Promise<void>} log
+ * @property {function(): Promise<void>} flushLogs
  */
 
 /**
@@ -90,7 +90,8 @@ export function createPipelineRuntime({
      * verbose logging was enabled when this run started.
      * @param {string} stage Pipeline stage name.
      * @param {object} [details] Diagnostic details.
-     * @param {{verbose?: boolean}} [options] Logging options.
+     * @param {object} [options] Logging options.
+     * @param {boolean} [options.verbose]
      */
     async log(stage, details = {}, options = {}) {
       if (options.verbose && !runtime.verboseLogs) return;

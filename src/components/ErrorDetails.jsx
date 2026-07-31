@@ -4,12 +4,11 @@ import React from 'react';
  * Reusable component to render a primary error message and an optional,
  * collapsible stack trace/technical details preformatted block.
  *
- * @param {{
- *   message: string,
- *   details?: string,
- *   msgClassName?: string,
- *   detailsClassName?: string,
- * }} props
+ * @param {object} props
+ * @param {string} props.message
+ * @param {string} [props.details]
+ * @param {string} [props.msgClassName]
+ * @param {string} [props.detailsClassName]
  */
 export default function ErrorDetails({ message, details, msgClassName, detailsClassName }) {
   if (!details) {

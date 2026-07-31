@@ -15,17 +15,16 @@ import { getStoredLlmRequestTimeoutSeconds } from '../settings/llmTimeout.js';
  * clients.js) only fire when the "verbose pipeline logs" setting is on.
  * Failures still always warn.
  *
- * @param {{
- *   prompt?: string,
- *   messages?: Array<Record<string, unknown>>,
- *   tools?: Array<Record<string, unknown>>,
- *   toolChoice?: unknown,
- *   parallelToolCalls?: boolean,
- *   temperature?: number,
- *   signal?: AbortSignal,
- *   metricsCollector?: (sample: Record<string, unknown>) => void,
- * }} options
- * @returns {Promise<{ok: boolean, content?: string, reasoning?: string, toolCalls?: Array<Record<string, unknown>>, error?: string}>}
+ * @param {object} options
+ * @param {string} [options.prompt]
+ * @param {Array<Record<string, unknown>>} [options.messages]
+ * @param {Array<Record<string, unknown>>} [options.tools]
+ * @param {unknown} [options.toolChoice]
+ * @param {boolean} [options.parallelToolCalls]
+ * @param {number} [options.temperature]
+ * @param {AbortSignal} [options.signal]
+ * @param {function(Record<string, unknown>): void} [options.metricsCollector]
+ * @returns {Promise<{ok: boolean, content: string, reasoning: string, toolCalls: Array<Record<string, unknown>>, error: string}>}
  */
 export async function callLLMDirect(options) {
   const {
@@ -206,7 +205,11 @@ export function createRequestTimeoutSignal(ms) {
 }
 
 /**
- * @param {{prompt: string, temperature?: number, signal?: AbortSignal, metricsCollector?: (sample: Record<string, unknown>) => void}} options
+ * @param {object} options
+ * @param {string} options.prompt
+ * @param {number} [options.temperature]
+ * @param {AbortSignal} [options.signal]
+ * @param {function(Record<string, unknown>): void} [options.metricsCollector]
  * @returns {Promise<string>}
  */
 export async function callLLM(options) {
@@ -222,7 +225,11 @@ export async function callLLM(options) {
 }
 
 /**
- * @param {{prompt: string, temperature?: number, signal?: AbortSignal, metricsCollector?: (sample: Record<string, unknown>) => void}} opts
+ * @param {object} opts
+ * @param {string} opts.prompt
+ * @param {number} [opts.temperature]
+ * @param {AbortSignal} [opts.signal]
+ * @param {function(Record<string, unknown>): void} [opts.metricsCollector]
  * @param {number} [maxRetries]
  * @returns {Promise<string>}
  */
@@ -298,7 +305,7 @@ export function sleepWithAbort(ms, signal) {
  * full task list is not known up front.
  *
  * @param {number} limit
- * @returns {<T>(fn: () => Promise<T>) => Promise<T>}
+ * @returns {function(function(): Promise<*>): Promise<*>}
  */
 export function createLimiter(limit) {
   const normalizedLimit = normalizeLimiterLimit(limit);
@@ -347,7 +354,7 @@ export function createLimiter(limit) {
  * tasks finish normally and no queued task starts until the new cap allows it.
  *
  * @param {number} initialLimit
- * @returns {{run: <T>(fn: () => Promise<T>, signal?: AbortSignal) => Promise<T>, setLimit: (limit: number) => void}}
+ * @returns {{run: function(function(): Promise<*>, AbortSignal): Promise<*>, setLimit: function(number): void}}
  */
 export function createAdjustableLimiter(initialLimit) {
   let limit = normalizeLimiterLimit(initialLimit);
@@ -408,10 +415,10 @@ function normalizeLimiterLimit(value) {
 
 /**
  * @template T,U
- * @param {T[]} items
+ * @param {Array<T>} items
  * @param {number} limit
- * @param {(item: T, index: number) => Promise<U>} fn
- * @param {{warmupFirst?: boolean}} [options] When `warmupFirst` is set, the first
+ * @param {function(T, number): Promise<U>} fn
+ * @param {object} [options] When `warmupFirst` is set, the first
  *   item runs to completion before the concurrent burst is released. Every
  *   request in a burst shares the same long prompt prefix, so completing one
  *   first lets the provider commit that prefix to its prompt/KV cache and the
@@ -424,7 +431,8 @@ function normalizeLimiterLimit(value) {
  *   in-flight items are left to finish, but the failure stops the burst from
  *   growing. The returned promise rejects with that first error as soon as it
  *   occurs.
- * @returns {Promise<U[]>}
+ * @param {boolean} [options.warmupFirst]
+ * @returns {Promise<Array<U>>}
  */
 export async function parallelMap(items, limit, fn, { warmupFirst = false } = {}) {
   const results = new Array(items.length);

@@ -93,7 +93,7 @@ export const MUTATION_QUEUE_KEY = 'pagetollm:mutation-queue';
  * The Map entry is pruned once the queue goes idle to avoid a memory leak.
  * @template T
  * @param {string} key - logical record key or INDEX_KEY
- * @param {() => Promise<T>} fn
+ * @param {function(): Promise<T>} fn
  * @returns {Promise<T>}
  */
 export function queuedUpdate(key, fn) {

@@ -66,7 +66,7 @@ export function findPickedElements(selectors) {
  * checks.
  *
  * @param {object|null} record
- * @returns {{ kind: string } & object}
+ * @returns {{ kind: string }}
  */
 export function assessRecordForRail(record) {
   if (!record) {
@@ -102,7 +102,7 @@ export function assessRecordForRail(record) {
  *   if (guard.isStale()) return;
  *
  * @param {{ current: symbol|null }} tokenHolder  mutable ref shared with callers
- * @returns {{ token: symbol, isStale: () => boolean }}
+ * @returns {{ token: symbol, isStale: function(): boolean }}
  */
 export function createLoadToken(tokenHolder) {
   const token = Symbol('rail-loading');

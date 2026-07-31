@@ -61,7 +61,9 @@ export function getMaxTopicLevel(topics) {
  * entry's explicit `level`). Drives the rail's level selector, so summary-only
  * levels count even when no topic reaches them.
  *
- * @param {{topics?: Array<{name?: string}>, topic_summary_index?: Record<string, {level?: number}>}} record
+ * @param {object} record
+ * @param {Array<{name: string}>} [record.topics]
+ * @param {Record<string, {level: number}>} [record.topic_summary_index]
  * @returns {number} The maximum 0-based level.
  */
 export function computeMaxTopicLevelForRecord(record) {
@@ -85,7 +87,8 @@ export function computeMaxTopicLevelForRecord(record) {
 /**
  * Extract positive, one-based sentence numbers from a topic.
  *
- * @param {{sentences?: number[]}} topic
+ * @param {object} topic
+ * @param {number[]} [topic.sentences]
  * @returns {number[]}
  */
 export function getTopicSentenceNumbers(topic) {

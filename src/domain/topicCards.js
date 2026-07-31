@@ -269,7 +269,7 @@ export function patchTopicCardsFromSummaryMetrics(cards, allSummaryCards, summar
  * Builds the positioned topic card objects for the rail view, showing all
  * hierarchy levels from 0 through selectedLevel in separate columns.
  *
- * @param {Array<{name: string, sentences?: number[]}>} topics - The topics from the record.
+ * @param {Array<{name: string, sentences: number[]}>} topics - The topics from the record.
  * @param {number} selectedLevel - The selected maximum hierarchy level to display.
  * @param {Map<number, SentenceMetric>} [sentenceMetrics] - Measured sentence positions, keyed by 1-based sentence number.
  * @returns {Array<{
@@ -284,7 +284,7 @@ export function patchTopicCardsFromSummaryMetrics(cards, allSummaryCards, summar
  *   titleFontSize: number,
  *   depth: number,
  *   levelIndex: number,
- *   right: number,
+ *   right: number
  * }>} Positioned topic cards representing the full hierarchy up to selectedLevel.
  */
 export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {

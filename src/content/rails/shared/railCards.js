@@ -13,7 +13,9 @@ import {
  * level selector, so summary-only levels count even when no topic reaches them.
  * Delegates to topicDomain.js.
  *
- * @param {{topics?: Array<{name?: string}>, topic_summary_index?: Record<string, {level?: number}>}} record
+ * @param {object} record
+ * @param {Array<{name: string}>} [record.topics]
+ * @param {Record<string, {level: number}>} [record.topic_summary_index]
  * @returns {number} The maximum 0-based level.
  */
 export function computeMaxTopicLevel(record) {

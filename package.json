@@ -37,7 +37,7 @@
     "coverage:report": "node scripts/check-coverage.mjs",
     "test:property": "vitest run property.test",
     "docs:generate": "jsdoc --configure jsdoc.config.json",
-    "docs:check": "eslint .",
+    "docs:check": "eslint . && npm run docs:generate",
     "test:mutation": "stryker run",
     "test:mutation:full": "stryker run --force",
     "test:advanced": "npm run test:property && npm run test:mutation",

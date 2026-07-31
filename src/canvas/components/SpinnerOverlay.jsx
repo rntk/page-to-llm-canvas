@@ -8,11 +8,10 @@ import ErrorDetails from '../../components/ErrorDetails.jsx';
  * optional body line, and an actions row. The default "processing" state is the
  * one exception (it shows a spinner instead of a title) and is rendered inline.
  *
- * @param {{
- *   title: string,
- *   body?: import('react').ReactNode,
- *   onRetry?: () => void,
- * }} props
+ * @param {object} props
+ * @param {string} props.title
+ * @param {ReactNode} [props.body]
+ * @param {function(): void} [props.onRetry]
  */
 function OverlayShell({ title, body, onRetry }) {
   return (
@@ -36,14 +35,13 @@ function OverlayShell({ title, body, onRetry }) {
 }
 
 /**
- * @param {{
- *   stage?: string,
- *   error?: string | null,
- *   recordError?: string | null,
- *   onRetry?: () => void,
- *   isMissing?: boolean,
- *   isDeleted?: boolean,
- * }} props
+ * @param {object} props
+ * @param {string} [props.stage]
+ * @param {?string} [props.error]
+ * @param {?string} [props.recordError]
+ * @param {function(): void} [props.onRetry]
+ * @param {boolean} [props.isMissing]
+ * @param {boolean} [props.isDeleted]
  */
 export default function SpinnerOverlay({
   stage,
