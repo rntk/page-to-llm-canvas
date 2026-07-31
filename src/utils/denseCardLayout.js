@@ -224,12 +224,21 @@ export function getAdjustedHierarchyCards(cards) {
 }
 
 /**
- * Derives summary-panel font sizes from the anchor card's title font size,
- * scaling all three sizes proportionally when the card is zoomed.
+ * Scales the summary-panel font sizes proportionally to `titleFontSize`'s ratio
+ * against the base topic title size.
+ *
+ * NOTE: the floating current-topic summary card deliberately passes a synthetic,
+ * zoom-only anchor (`getSummaryAnchorTitleFontSize` in domain/topicCards.js) and
+ * NOT a real rail card: a card's titleFontSize is capped to its own height, and
+ * that cap is not even monotonic in height (the title line budget flips at
+ * CARD_COMPACT_HEIGHT_THRESHOLD), so feeding it here made one summary render
+ * unreadably smaller than another at the same zoom level. In-card text such as
+ * the rail card's YouTube link does correctly pass its own card, since it has to
+ * fit inside that card.
  *
  * @param {object} [anchorCard]
  * @param {number} [anchorCard.titleFontSize]
- * @returns {{kicker: number, title: number, text: number}}
+ * @returns {{kicker: number, title: number, text: number, youtube: number}}
  */
 export function getSummaryFontSizes(anchorCard) {
   const anchorTitleSize = getFiniteNumber(anchorCard?.titleFontSize, BASE_TOPIC_TITLE_FONT_SIZE);

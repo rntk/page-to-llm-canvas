@@ -52,6 +52,39 @@ function getTitleLineBudget(height) {
 }
 
 /**
+ * Zoom-only font growth factor (1 at zoom-in, growing as the canvas zooms out)
+ * so text keeps a roughly steady on-screen size. Shared by the topic-card title
+ * and the floating summary card.
+ *
+ * @param {number} scale
+ * @returns {number}
+ */
+function getZoomFontMultiplier(scale) {
+  return Math.max(1, 1.25 / clampScale(scale) - 0.25);
+}
+
+/**
+ * Title font size for the floating current-topic summary card's anchor.
+ *
+ * Deliberately depends on zoom ONLY — not on the anchor topic card's height.
+ * The per-card height cap in `getTopicTitleFontSize` below is right for a title
+ * that must fit inside its card, but the summary card is a separate floating
+ * panel: deriving its fonts from a short/crowded card made the same summary
+ * render smaller (and unreadable) for some topics than others at one zoom level.
+ *
+ * Growth is capped where `getZoomAdjustedSummaryCardWidth` stops widening, so
+ * text and container reach their maximum together instead of the font
+ * overflowing a card that stopped growing several zoom steps earlier.
+ *
+ * @param {number} scale
+ * @returns {number}
+ */
+export function getSummaryAnchorTitleFontSize(scale) {
+  const maxMultiplier = SUMMARY_CARD_MAX_WIDTH / SUMMARY_CARD_WIDTH;
+  return CARD_TITLE_FONT_SIZE * Math.min(getZoomFontMultiplier(scale), maxMultiplier);
+}
+
+/**
  * Per-card title font size that grows on zoom-out (1/scale, capped at 1) and
  * shrinks if the card is too short to fit two lines.
  *
@@ -59,7 +92,7 @@ function getTitleLineBudget(height) {
  * @returns {number}
  */
 export function getTopicTitleFontSize({ scale, height }) {
-  const zoomAdjusted = CARD_TITLE_FONT_SIZE * Math.max(1, 1.25 / clampScale(scale) - 0.25);
+  const zoomAdjusted = CARD_TITLE_FONT_SIZE * getZoomFontMultiplier(scale);
   const safeHeight = Number.isFinite(height) ? height : CARD_HEIGHT;
   const titleLines = getTitleLineBudget(safeHeight);
   const availableTitleHeight = Math.max(

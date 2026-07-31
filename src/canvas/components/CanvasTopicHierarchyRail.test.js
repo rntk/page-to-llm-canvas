@@ -313,13 +313,11 @@ describe('CanvasTopicHierarchyRail', () => {
     unmount();
   });
 
-  it('scales the current-topic summary card fonts from the matched rail title size', () => {
+  it('scales the current-topic summary card fonts from the canvas zoom scale', () => {
     const { container, unmount } = render(
       createElement(CanvasTopicHierarchyRail, {
         ...defaultProps,
-        topicCards: defaultProps.topicCards.map((card) =>
-          card.fullPath === 'Topic A > Sub B' ? { ...card, height: 120, titleFontSize: 18 } : card,
-        ),
+        scale: 0.5,
         currentTopicSummary: {
           path: 'Topic A > Sub B',
           text: 'A short summary of Sub B.',
@@ -327,11 +325,44 @@ describe('CanvasTopicHierarchyRail', () => {
       }),
     );
 
+    // scale 0.5 -> multiplier 1.25 / 0.5 - 0.25 = 2.25
     const summary = container.querySelector('.canvas-topic-current-summary');
-    expect(summary.style.getPropertyValue('--current-summary-kicker-font-size')).toBe('15px');
-    expect(summary.style.getPropertyValue('--current-summary-title-font-size')).toBe('24px');
-    expect(summary.style.getPropertyValue('--current-summary-text-font-size')).toBe('21px');
+    expect(summary.style.getPropertyValue('--current-summary-kicker-font-size')).toBe('22.5px');
+    expect(summary.style.getPropertyValue('--current-summary-title-font-size')).toBe('36px');
+    expect(summary.style.getPropertyValue('--current-summary-text-font-size')).toBe('31.5px');
     unmount();
+  });
+
+  it('keeps the summary card fonts identical for anchor cards of different sizes', () => {
+    const renderForAnchor = (anchorOverrides) => {
+      const { container, unmount } = render(
+        createElement(CanvasTopicHierarchyRail, {
+          ...defaultProps,
+          scale: 0.5,
+          topicCards: defaultProps.topicCards.map((card) =>
+            card.fullPath === 'Topic A > Sub B' ? { ...card, ...anchorOverrides } : card,
+          ),
+          currentTopicSummary: {
+            path: 'Topic A > Sub B',
+            text: 'A short summary of Sub B.',
+          },
+        }),
+      );
+      const summary = container.querySelector('.canvas-topic-current-summary');
+      const fonts = [
+        summary.style.getPropertyValue('--current-summary-kicker-font-size'),
+        summary.style.getPropertyValue('--current-summary-title-font-size'),
+        summary.style.getPropertyValue('--current-summary-text-font-size'),
+      ];
+      unmount();
+      return fonts;
+    };
+
+    // A short, crowded card used to cap the summary's fonts far below a tall
+    // card's at the same zoom, making some summaries unreadable.
+    expect(renderForAnchor({ height: 56, titleFontSize: 20 })).toEqual(
+      renderForAnchor({ height: 220, titleFontSize: 40 }),
+    );
   });
 
   it('renders compact cards with one larger title line and matching label height', () => {

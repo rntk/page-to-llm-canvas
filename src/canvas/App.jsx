@@ -490,6 +490,7 @@ export default function App({ initialKey }) {
                     currentTopicSummary={currentTopicSummary}
                     sentences={sentences}
                     sourceUrl={record?.sourceUrl}
+                    scale={scale}
                   />
                 </div>
               </div>
