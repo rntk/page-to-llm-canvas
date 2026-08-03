@@ -16,6 +16,7 @@ import { closeInPageRail } from './rails/shared/surface.js';
 setRailCloser(closeInPageRail);
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || !message.action) return false;
   if (message.action === 'startSelection') {
     showSelectionToolbar();
     sendResponse({ status: 'ready' });
@@ -35,7 +36,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       );
     return true;
   }
-  return true;
+  // Unknown action: no response is coming, so let the channel close now rather
+  // than stranding the caller until this listener's sendResponse is collected.
+  return false;
 });
 
 const extensionOrigin = new URL(chrome.runtime.getURL('')).origin;
