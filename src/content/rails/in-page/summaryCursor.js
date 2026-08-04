@@ -1,5 +1,5 @@
-const SUMMARY_CURSOR_VIEWPORT_RATIO = 0.38;
-const SUMMARY_CURSOR_MIN_TOP = 112;
+export const SUMMARY_CURSOR_VIEWPORT_RATIO = 0.38;
+export const SUMMARY_CURSOR_MIN_TOP = 112;
 
 export function computeSummaryCursorState({
   cards,
@@ -11,7 +11,7 @@ export function computeSummaryCursorState({
 }) {
   const currentCards = Array.isArray(cards) ? cards : [];
   if (currentCards.length === 0) {
-    return { cursorTop: SUMMARY_CURSOR_MIN_TOP, activeCardId: null };
+    return { cursorTop: SUMMARY_CURSOR_MIN_TOP, activeCardId: null, relativeY: 0 };
   }
 
   const cursorTop = Math.max(
@@ -23,5 +23,7 @@ export function computeSummaryCursorState({
     .filter((card) => relativeY >= card.box.top && relativeY <= card.box.top + card.box.height)
     .sort((a, b) => a.box.height - b.box.height || a.box.top - b.box.top);
 
-  return { cursorTop, activeCardId: matching[0]?.id || null };
+  // `relativeY` is the cursor's position in card-box space; callers use it to
+  // order cards around the cursor even when it falls in a gap between boxes.
+  return { cursorTop, activeCardId: matching[0]?.id || null, relativeY };
 }

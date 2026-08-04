@@ -725,7 +725,8 @@ describe('content script main.jsx', () => {
     let cards = rail.querySelectorAll('.pagetollm-yt-rail-card');
     expect(cards).toHaveLength(2);
     expect(rail.textContent).toContain('Intro summary');
-    expect(rail.textContent).toContain('(no summary)');
+    // Non-active summary cards render as titles only.
+    expect(rail.textContent).toContain('Middle');
     const modeSelect = rail.querySelector('.pagetollm-rail-mode-select');
     await act(async () => {
       modeSelect.value = 'topics';

@@ -283,7 +283,9 @@ export default function YouTubeRail({
                   </span>
                   <HierarchicalCardTitle name={card.name} path={card.path} />
                 </div>
-                {isSummary && (
+                {/* Only the card for the current moment shows its summary; the
+                    rest stay as titles so the surrounding topics remain visible. */}
+                {isSummary && isActive && (
                   <div className="pagetollm-yt-rail-card-body">
                     {getYouTubeRailCardBodyText(card)}
                   </div>

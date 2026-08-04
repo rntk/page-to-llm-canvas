@@ -5,6 +5,8 @@ import {
   getRailOriginTop,
   getScrollableAncestor,
   computeCardVerticalBox,
+  computeRailTrailingPad,
+  RAIL_TRAILING_PAD,
 } from './geometry.js';
 
 describe('in-page rail geometry helpers', () => {
@@ -164,6 +166,40 @@ describe('computeCardVerticalBox', () => {
     expect(box).not.toBeNull();
     expect(box.top).toBe(100);
     expect(box.height).toBe(40);
+  });
+
+  describe('computeRailTrailingPad', () => {
+    const fakeWin = (innerHeight) => ({ innerHeight });
+
+    it('keeps the plain pad outside summaries mode', () => {
+      expect(
+        computeRailTrailingPad({ isSummary: false, scrollContainer: null, win: fakeWin(900) }),
+      ).toBe(RAIL_TRAILING_PAD);
+    });
+
+    it('reserves the space below the cursor line for window scroll', () => {
+      const win = fakeWin(900);
+      // cursor sits at round(0.38 * 900) = 342, so 900 - 342 = 558 stays visible.
+      expect(computeRailTrailingPad({ isSummary: true, scrollContainer: win, win })).toBe(558);
+    });
+
+    it('measures from the container box for nested scrollers', () => {
+      const win = fakeWin(900);
+      const container = {
+        clientHeight: 500,
+        getBoundingClientRect: () => ({ top: 100 }),
+      };
+      // cursor: max(112, round(100 + 500 * 0.38)) = 290; bottom 600 - 290 = 310.
+      expect(computeRailTrailingPad({ isSummary: true, scrollContainer: container, win })).toBe(310);
+    });
+
+    it('never goes below the plain pad in a short viewport', () => {
+      const win = fakeWin(150);
+      // The cursor clamps to 112px, leaving 38px — less than the base pad.
+      expect(computeRailTrailingPad({ isSummary: true, scrollContainer: win, win })).toBe(
+        RAIL_TRAILING_PAD,
+      );
+    });
   });
 
   it('returns null when no laid out rects produce finite bounds', () => {

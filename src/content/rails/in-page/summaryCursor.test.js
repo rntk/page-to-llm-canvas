@@ -15,7 +15,7 @@ describe('computeSummaryCursorState', () => {
         containerTop: 0,
         containerHeight: 100,
       }),
-    ).toEqual({ cursorTop: 112, activeCardId: 'large' });
+    ).toEqual({ cursorTop: 112, activeCardId: 'large', relativeY: 112 });
   });
 
   it('chooses the shortest matching card when cards overlap', () => {
@@ -26,7 +26,7 @@ describe('computeSummaryCursorState', () => {
         containerTop: 0,
         containerHeight: 421,
       }),
-    ).toEqual({ cursorTop: 160, activeCardId: 'small' });
+    ).toEqual({ cursorTop: 160, activeCardId: 'small', relativeY: 160 });
   });
 
   it('accounts for nested scroll container offset', () => {
@@ -39,7 +39,7 @@ describe('computeSummaryCursorState', () => {
         scrollTop: 230,
         isWindowScroll: false,
       }),
-    ).toEqual({ cursorTop: 112, activeCardId: 'nested' });
+    ).toEqual({ cursorTop: 112, activeCardId: 'nested', relativeY: 302 });
   });
 
   it('clears the active card when there are no cards', () => {
@@ -50,6 +50,6 @@ describe('computeSummaryCursorState', () => {
         containerTop: 0,
         containerHeight: 500,
       }),
-    ).toEqual({ cursorTop: 112, activeCardId: null });
+    ).toEqual({ cursorTop: 112, activeCardId: null, relativeY: 0 });
   });
 });

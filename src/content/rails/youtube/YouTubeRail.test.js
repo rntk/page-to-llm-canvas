@@ -240,15 +240,31 @@ describe('YouTubeRail', () => {
     expect(cancelSpy).toHaveBeenCalledWith(1);
   });
 
-  it('renders summaries with body fallback and empty state for invalid cards', () => {
+  it('renders only the active summary body, keeping other topics as titles', () => {
     const { container, rerender, unmount } = render(
       createElement(YouTubeRail, { ...defaultProps, mode: 'summaries' }),
     );
 
     const bodies = container.querySelectorAll('.pagetollm-yt-rail-card-body');
-    expect(bodies).toHaveLength(2);
+    expect(bodies).toHaveLength(1);
     expect(bodies[0].textContent).toBe('Opening summary');
-    expect(bodies[1].textContent).toBe('(no summary)');
+    expect(container.querySelectorAll('.pagetollm-yt-rail-card')).toHaveLength(2);
+
+    // Advancing the player past the second card moves the summary body with it.
+    rerender(
+      createElement(YouTubeRail, {
+        ...defaultProps,
+        mode: 'summaries',
+        getCurrentTime: () => 40,
+      }),
+    );
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    const nextBodies = container.querySelectorAll('.pagetollm-yt-rail-card-body');
+    expect(nextBodies).toHaveLength(1);
+    expect(nextBodies[0].textContent).toBe('(no summary)');
 
     rerender(
       createElement(YouTubeRail, {

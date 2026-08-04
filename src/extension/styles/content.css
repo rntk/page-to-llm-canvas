@@ -384,14 +384,120 @@ body.pagetollm-rail-open {
   pointer-events: none;
 }
 
-.pagetollm-summary-active-card {
-  appearance: none !important;
+/* Summary column: the active summary sits at the cursor line, with the
+   surrounding topics listed as bare titles above and below it. The before-list
+   is bottom-aligned and sized so the card's top always lands on the cursor. */
+.pagetollm-summary-stack {
   position: fixed;
-  top: calc(var(--pagetollm-summary-cursor-top, 38vh) + 14px);
+  top: 112px; /* SUMMARY_CURSOR_MIN_TOP in summaryCursor.js */
+  bottom: 12px;
   right: 12px;
   z-index: 2001;
+  display: flex;
+  flex-direction: column;
   width: calc(var(--pagetollm-rail-width, 340px) - 24px);
-  max-height: calc(100vh - var(--pagetollm-summary-cursor-top, 38vh) - 28px);
+  box-sizing: border-box;
+  pointer-events: none;
+  animation: pagetollm-summary-fade-in 0.18s ease-out;
+}
+
+.pagetollm-summary-topic-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The 112px below is the stack's own top offset (SUMMARY_CURSOR_MIN_TOP). */
+.pagetollm-summary-topic-list.is-before {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  height: calc(var(--pagetollm-summary-cursor-top, 38vh) + 14px - 112px);
+  max-height: calc(100% - 44px);
+  justify-content: flex-end;
+  padding-bottom: 6px;
+}
+
+/* Zero basis: the following-topics list only takes space the summary leaves
+   over, apart from a small reserve that keeps one title visible. The reserve
+   fits a full title row: parent chain plus a two-line topic. */
+.pagetollm-summary-topic-list.is-after {
+  flex: 1 1 0;
+  min-height: 56px;
+  justify-content: flex-start;
+  padding-top: 6px;
+}
+
+.pagetollm-summary-topic {
+  appearance: none !important;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 7px 8px;
+  background: transparent;
+  border: 0 !important;
+  border-left: 3px solid var(--pagetollm-card-accent, var(--ghost)) !important;
+  border-radius: 0 !important;
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+  opacity: 0.62;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease,
+    background 0.15s ease;
+}
+
+.pagetollm-summary-topic:hover,
+.pagetollm-summary-topic:focus {
+  opacity: 1;
+  background: var(--surface);
+  transform: translateX(-2px);
+}
+
+.pagetollm-summary-topic:focus {
+  outline: 1px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.pagetollm-summary-topic-title {
+  font-family: var(--font-data);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--on-surface);
+  overflow: hidden;
+}
+
+/* Clamp the two parts separately: clamping the wrapper would spend the line
+   budget on the ancestor chain and clip the topic the row is actually for.
+   Explicit size rather than the inherited 0.7em, which is illegible at 12px. */
+.pagetollm-summary-topic-title .pagetollm-rail-card-parent-topics {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+
+.pagetollm-summary-topic-title .pagetollm-rail-card-current-topic {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.pagetollm-summary-active-card {
+  appearance: none !important;
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  pointer-events: auto;
+  width: 100%;
   box-sizing: border-box;
   padding: 10px 12px 12px;
   background: var(--surface);
@@ -410,12 +516,56 @@ body.pagetollm-rail-open {
   transform: translateX(-2px);
 }
 
+/* The card is keyed on the card id, so each new summary re-runs this on mount. */
+.pagetollm-summary-active-card.is-enter-down {
+  animation: pagetollm-card-slide-in-down 0.22s ease-out;
+}
+
+.pagetollm-summary-active-card.is-enter-up {
+  animation: pagetollm-card-slide-in-up 0.22s ease-out;
+}
+
+@keyframes pagetollm-summary-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pagetollm-card-slide-in-down {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes pagetollm-card-slide-in-up {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
 .pagetollm-summary-active-card:focus {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
 
 .pagetollm-summary-active-card-title {
+  flex: 0 0 auto;
   margin-bottom: 7px;
   font-family: var(--font-data);
   font-size: 14px;
@@ -428,7 +578,8 @@ body.pagetollm-rail-open {
 }
 
 .pagetollm-summary-active-card-body {
-  max-height: calc(100vh - var(--pagetollm-summary-cursor-top, 38vh) - 78px);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 4px;
@@ -655,4 +806,20 @@ body.pagetollm-rail-open {
 
 .pagetollm-yt-rail-card.is-active .pagetollm-yt-rail-card-body {
   color: var(--on-surface);
+  animation: pagetollm-card-slide-in-down 0.22s ease-out;
+}
+
+/* Keep the rails usable for readers who ask for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .pagetollm-summary-stack,
+  .pagetollm-summary-active-card.is-enter-down,
+  .pagetollm-summary-active-card.is-enter-up,
+  .pagetollm-yt-rail-card.is-active .pagetollm-yt-rail-card-body {
+    animation: none;
+  }
+
+  .pagetollm-summary-topic,
+  .pagetollm-yt-rail-card {
+    transition: none;
+  }
 }

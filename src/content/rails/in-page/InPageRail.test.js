@@ -286,6 +286,199 @@ describe('InPageRail', () => {
     unmount();
   });
 
+  it('lists the surrounding topics as titles around the active summary', async () => {
+    const onHighlightCard = vi.fn();
+    const onScrollToCard = vi.fn();
+    const rafCallbacks = [];
+    vi.stubGlobal('requestAnimationFrame', (cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+    const flushFrames = () => {
+      while (rafCallbacks.length) rafCallbacks.shift()();
+    };
+
+    const cards = [
+      ...mockCards,
+      {
+        id: 'card3',
+        name: 'Card 3',
+        path: 'Topic C',
+        accent: 'green',
+        box: { top: 550, height: 150 },
+        sentences: [5, 6],
+      },
+    ];
+
+    const mockScrollContainer = document.createElement('div');
+    mockScrollContainer.getBoundingClientRect = () => ({ top: 100, height: 800 });
+    Object.defineProperty(mockScrollContainer, 'clientHeight', { value: 800, configurable: true });
+    Object.defineProperty(mockScrollContainer, 'scrollTop', { value: 100, configurable: true });
+
+    const { container, unmount } = render(
+      createElement(InPageRail, {
+        ...defaultProps,
+        mode: 'summaries',
+        cards,
+        onHighlightCard,
+        onScrollToCard,
+        scrollContainer: mockScrollContainer,
+      }),
+    );
+
+    container.querySelector('.pagetollm-rail-body').getBoundingClientRect = () => ({
+      top: 150,
+      height: 800,
+    });
+    act(() => {
+      mockScrollContainer.dispatchEvent(new Event('scroll'));
+      flushFrames();
+    });
+    await Promise.resolve();
+
+    // Cursor resolves to card2, so card1 sits above it and card3 below.
+    expect(container.querySelector('.pagetollm-summary-active-card-title').textContent).toContain(
+      'Card 2',
+    );
+    const before = container.querySelectorAll('.is-before .pagetollm-summary-topic');
+    const after = container.querySelectorAll('.is-after .pagetollm-summary-topic');
+    expect(before).toHaveLength(1);
+    expect(before[0].textContent).toContain('Card 1');
+    expect(after).toHaveLength(1);
+    expect(after[0].textContent).toContain('Card 3');
+
+    onHighlightCard.mockClear();
+    act(() => {
+      after[0].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      after[0].dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
+    });
+    expect(onHighlightCard).toHaveBeenCalledWith(cards[2], true);
+
+    act(() => {
+      after[0].dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+      after[0].dispatchEvent(new MouseEvent('mouseleave', { bubbles: false }));
+    });
+    expect(onHighlightCard).toHaveBeenCalledWith(cards[2], false);
+
+    act(() => {
+      after[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(onScrollToCard).toHaveBeenCalledWith(cards[2]);
+
+    unmount();
+  });
+
+  it('reverses the enter direction when the cursor moves back up the article', () => {
+    const rafCallbacks = [];
+    vi.stubGlobal('requestAnimationFrame', (cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+    const flushFrames = () => {
+      while (rafCallbacks.length) rafCallbacks.shift()();
+    };
+
+    const mockScrollContainer = document.createElement('div');
+    mockScrollContainer.getBoundingClientRect = () => ({ top: 100, height: 800 });
+    Object.defineProperty(mockScrollContainer, 'clientHeight', { value: 800, configurable: true });
+    let scrollTop = 100;
+    Object.defineProperty(mockScrollContainer, 'scrollTop', {
+      get: () => scrollTop,
+      configurable: true,
+    });
+
+    const { container, unmount } = render(
+      createElement(InPageRail, {
+        ...defaultProps,
+        mode: 'summaries',
+        scrollContainer: mockScrollContainer,
+      }),
+    );
+
+    container.querySelector('.pagetollm-rail-body').getBoundingClientRect = () => ({
+      top: 150,
+      height: 800,
+    });
+    act(() => {
+      mockScrollContainer.dispatchEvent(new Event('scroll'));
+      flushFrames();
+    });
+    // Mounting already resolves card2, so this only pins the default direction;
+    // the upward transition below is the assertion that exercises the logic.
+    expect(container.querySelector('.pagetollm-summary-active-card').className).toContain(
+      'is-enter-down',
+    );
+
+    scrollTop = 0;
+    act(() => {
+      mockScrollContainer.dispatchEvent(new Event('scroll'));
+      flushFrames();
+    });
+    // relativeY 254 → back to card1, arriving from above.
+    expect(container.querySelector('.pagetollm-summary-active-card').className).toContain(
+      'is-enter-up',
+    );
+
+    unmount();
+  });
+
+  it('splits the topics around the cursor when it falls between summaries', async () => {
+    const rafCallbacks = [];
+    vi.stubGlobal('requestAnimationFrame', (cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+    const flushFrames = () => {
+      while (rafCallbacks.length) rafCallbacks.shift()();
+    };
+
+    const cards = [
+      ...mockCards,
+      {
+        id: 'card3',
+        name: 'Card 3',
+        path: 'Topic C',
+        accent: 'green',
+        box: { top: 550, height: 150 },
+        sentences: [5, 6],
+      },
+    ];
+
+    const mockScrollContainer = document.createElement('div');
+    mockScrollContainer.getBoundingClientRect = () => ({ top: 100, height: 800 });
+    Object.defineProperty(mockScrollContainer, 'clientHeight', { value: 800, configurable: true });
+    // Cursor lands at 320 in card space: past card1 (100-300), before card2 (350-500).
+    Object.defineProperty(mockScrollContainer, 'scrollTop', { value: 66, configurable: true });
+
+    const { container, unmount } = render(
+      createElement(InPageRail, {
+        ...defaultProps,
+        mode: 'summaries',
+        cards,
+        scrollContainer: mockScrollContainer,
+      }),
+    );
+
+    container.querySelector('.pagetollm-rail-body').getBoundingClientRect = () => ({
+      top: 150,
+      height: 800,
+    });
+    act(() => {
+      mockScrollContainer.dispatchEvent(new Event('scroll'));
+      flushFrames();
+    });
+    await Promise.resolve();
+
+    // The summary sticks to the last card above the cursor instead of blanking.
+    expect(container.querySelector('.pagetollm-summary-active-card-title').textContent).toContain(
+      'Card 1',
+    );
+    expect(container.querySelectorAll('.is-before .pagetollm-summary-topic')).toHaveLength(0);
+    expect(container.querySelectorAll('.is-after .pagetollm-summary-topic')).toHaveLength(2);
+
+    unmount();
+  });
+
   it('shows a notice instead of an empty summary rail when summaries are disabled', () => {
     const { container, unmount } = render(
       createElement(InPageRail, {

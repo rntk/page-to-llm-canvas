@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { computeSummaryCursorState } from './summaryCursor.js';
+import { computeSummaryCursorState, SUMMARY_CURSOR_MIN_TOP } from './summaryCursor.js';
 import ArticleChat from '../../../chat/ArticleChat.jsx';
-
-const SUMMARY_CURSOR_MIN_TOP = 112;
 
 const RAIL_MODE_OPTIONS = new Set(['topics', 'summaries', 'chat', 'hierarchy', 'canvas']);
 
@@ -132,6 +130,41 @@ function getScrollContainerViewportTop(scrollContainer) {
   return scrollContainer.getBoundingClientRect().top;
 }
 
+function SummaryTopicTitle({ card, onEnter, onLeave, onOpen }) {
+  return (
+    <button
+      type="button"
+      className="pagetollm-summary-topic"
+      style={{ '--pagetollm-card-accent': card.accent }}
+      onMouseEnter={() => onEnter(card)}
+      onMouseLeave={() => onLeave(card)}
+      onClick={() => onOpen(card)}
+    >
+      <HierarchicalCardTitle
+        className="pagetollm-summary-topic-title"
+        name={card.name}
+        path={card.path}
+      />
+    </button>
+  );
+}
+
+/**
+ * Index of the summary to show for the current cursor position. In the gaps
+ * between card boxes the cursor has no active card, so we hold the nearest one
+ * above it: the summary stays put instead of blanking out at every boundary.
+ * @param {Array<{id: string, box: {top: number}}>} cards Cards in document order.
+ * @param {string|null} activeCardId Card whose box contains the cursor, if any.
+ * @param {number} cursorY Cursor position in card-box space.
+ * @returns {number} Index of the card to show, or -1 above the first card.
+ */
+function resolveDisplayIndex(cards, activeCardId, cursorY) {
+  const activeIndex = cards.findIndex((card) => card.id === activeCardId);
+  if (activeIndex >= 0) return activeIndex;
+  const nextIndex = cards.findIndex((card) => card.box.top > cursorY);
+  return (nextIndex < 0 ? cards.length : nextIndex) - 1;
+}
+
 function SummaryCursorView({
   cards,
   bodyRef,
@@ -141,7 +174,13 @@ function SummaryCursorView({
   onScrollToCard,
 }) {
   const [activeCardId, setActiveCardId] = useState(null);
+  const [hoveredCardId, setHoveredCardId] = useState(null);
   const [cursorTop, setCursorTop] = useState(SUMMARY_CURSOR_MIN_TOP);
+  // Index rather than the raw cursor position: it only changes at topic
+  // boundaries, so scrolling within a topic causes no re-render at all.
+  const [displayIndex, setDisplayIndex] = useState(-1);
+  const [enterDirection, setEnterDirection] = useState('down');
+  const activeIndexRef = useRef(-1);
   const cardsRef = useRef(cards);
   useEffect(() => {
     cardsRef.current = cards;
@@ -151,7 +190,22 @@ function SummaryCursorView({
     onHighlightCardRef.current = onHighlightCard;
   }, [onHighlightCard]);
 
-  const activeCard = useMemo(
+  // Cards arrive sorted by vertical position, so the slices around the shown
+  // one are the topics that precede and follow it in the article.
+  const { activeCard, cardsBefore, cardsAfter } = useMemo(() => {
+    // Clamp: on a level switch `cards` changes before the next cursor update.
+    const index = Math.min(displayIndex, cards.length - 1);
+    if (index < 0) return { activeCard: null, cardsBefore: [], cardsAfter: cards };
+    return {
+      activeCard: cards[index],
+      cardsBefore: cards.slice(0, index),
+      cardsAfter: cards.slice(index + 1),
+    };
+  }, [cards, displayIndex]);
+
+  // The page highlight follows the strictly-active card, so it clears in the
+  // gaps between topics even though the summary card itself stays put.
+  const highlightCard = useMemo(
     () => cards.find((card) => card.id === activeCardId) || null,
     [activeCardId, cards],
   );
@@ -160,6 +214,9 @@ function SummaryCursorView({
     const body = bodyRef.current;
     const currentCards = cardsRef.current;
     if (!body || currentCards.length === 0) {
+      activeIndexRef.current = -1;
+      setHoveredCardId(null);
+      setDisplayIndex(-1);
       setActiveCardId(null);
       return;
     }
@@ -174,6 +231,23 @@ function SummaryCursorView({
     });
     const nextCursorTop = nextState.cursorTop;
     setCursorTop(nextCursorTop);
+    const nextIndex = resolveDisplayIndex(
+      currentCards,
+      nextState.activeCardId,
+      nextState.relativeY,
+    );
+    if (nextIndex !== activeIndexRef.current) {
+      // Slide the incoming summary in from the side it arrives from, so the
+      // swap reads as movement through the article rather than a jump cut.
+      if (nextIndex >= 0) {
+        setEnterDirection(nextIndex > activeIndexRef.current ? 'down' : 'up');
+      }
+      activeIndexRef.current = nextIndex;
+      // A hovered title moves into the card slot as the page scrolls, which
+      // never fires mouseleave; drop the hover so its highlight can't stick.
+      setHoveredCardId(null);
+    }
+    setDisplayIndex(nextIndex);
     setActiveCardId(nextState.activeCardId);
   }, [bodyRef, scrollContainer]);
 
@@ -210,15 +284,36 @@ function SummaryCursorView({
 
   useEffect(() => {
     const highlightFn = onHighlightCardRef.current;
-    if (activeCard) {
-      highlightFn(activeCard, true);
+    if (highlightCard) {
+      highlightFn(highlightCard, true);
     }
     return () => {
-      if (activeCard) {
-        highlightFn(activeCard, false);
+      if (highlightCard) {
+        highlightFn(highlightCard, false);
       }
     };
-  }, [activeCard]);
+  }, [highlightCard]);
+
+  const hoveredCard = useMemo(
+    () => cards.find((card) => card.id === hoveredCardId) || null,
+    [cards, hoveredCardId],
+  );
+
+  // Hovering a neighbouring title highlights its sentences. Keying the effect on
+  // the card (not the DOM event) also clears the highlight when the hovered card
+  // scrolls out of the list without ever firing a mouseleave.
+  useEffect(() => {
+    if (!hoveredCard) return undefined;
+    const highlightFn = onHighlightCardRef.current;
+    highlightFn(hoveredCard, true);
+    return () => highlightFn(hoveredCard, false);
+  }, [hoveredCard]);
+
+  const handleTopicEnter = useCallback((card) => setHoveredCardId(card.id), []);
+  const handleTopicLeave = useCallback(
+    (card) => setHoveredCardId((prev) => (prev === card.id ? null : prev)),
+    [],
+  );
 
   const cursorTopStyle = `${cursorTop}px`;
 
@@ -230,25 +325,52 @@ function SummaryCursorView({
         aria-hidden="true"
       />
       <div className="pagetollm-summary-cursor-hitbox" style={{ height: `${bodyHeight}px` }} />
-      {activeCard ? (
-        <button
-          type="button"
-          className="pagetollm-summary-active-card"
-          style={{
-            '--pagetollm-summary-cursor-top': cursorTopStyle,
-            '--pagetollm-card-accent': activeCard.accent,
-          }}
-          onClick={() => onScrollToCard(activeCard)}
+      {cards.length > 0 ? (
+        <div
+          className="pagetollm-summary-stack"
+          style={{ '--pagetollm-summary-cursor-top': cursorTopStyle }}
         >
-          <HierarchicalCardTitle
-            className="pagetollm-summary-active-card-title"
-            name={activeCard.name}
-            path={activeCard.path}
-          />
-          <div className="pagetollm-summary-active-card-body">
-            {activeCard.text || '(no summary)'}
+          <div className="pagetollm-summary-topic-list is-before">
+            {cardsBefore.map((card) => (
+              <SummaryTopicTitle
+                key={card.id}
+                card={card}
+                onEnter={handleTopicEnter}
+                onLeave={handleTopicLeave}
+                onOpen={onScrollToCard}
+              />
+            ))}
           </div>
-        </button>
+          {activeCard ? (
+            <button
+              key={activeCard.id}
+              type="button"
+              className={`pagetollm-summary-active-card is-enter-${enterDirection}`}
+              style={{ '--pagetollm-card-accent': activeCard.accent }}
+              onClick={() => onScrollToCard(activeCard)}
+            >
+              <HierarchicalCardTitle
+                className="pagetollm-summary-active-card-title"
+                name={activeCard.name}
+                path={activeCard.path}
+              />
+              <div className="pagetollm-summary-active-card-body">
+                {activeCard.text || '(no summary)'}
+              </div>
+            </button>
+          ) : null}
+          <div className="pagetollm-summary-topic-list is-after">
+            {cardsAfter.map((card) => (
+              <SummaryTopicTitle
+                key={card.id}
+                card={card}
+                onEnter={handleTopicEnter}
+                onLeave={handleTopicLeave}
+                onOpen={onScrollToCard}
+              />
+            ))}
+          </div>
+        </div>
       ) : null}
     </>
   );

@@ -19,7 +19,12 @@ import {
   splitIntoContiguousRuns,
   computeMaxTopicLevel,
 } from '../shared/railCards.js';
-import { getScrollableAncestor, getRailOriginTop, computeCardVerticalBox } from './geometry.js';
+import {
+  getScrollableAncestor,
+  getRailOriginTop,
+  computeCardVerticalBox,
+  computeRailTrailingPad,
+} from './geometry.js';
 import {
   fetchRecord,
   findPickedElements,
@@ -117,9 +122,14 @@ export async function openInPageRail(rec, initialMode, options = {}) {
 
   const maxLevel = computeMaxTopicLevel(record);
 
+  // Set once the rail is mounted; see the resize wiring near the end of this
+  // function. Declared here so teardown can detach the listener.
+  let detachViewportResize = null;
+
   const { railEl, railRoot, setRailWidthForMode, isClosed } = createRailSurface({
     state,
     onTeardown: () => {
+      if (detachViewportResize) detachViewportResize();
       if (supportsHighlightApi()) {
         CSS.highlights.delete(HIGHLIGHT_NAME);
         CSS.highlights.delete(CHAT_HIGHLIGHT_NAME);
@@ -241,8 +251,9 @@ export async function openInPageRail(rec, initialMode, options = {}) {
     }
     cardSpecs.sort((a, b) => a.box.top - b.box.top);
 
+    const trailingPad = computeRailTrailingPad({ isSummary, scrollContainer });
     const railHeight = cardSpecs.length
-      ? Math.max(...cardSpecs.map((c) => c.box.top + c.box.height)) + 80
+      ? Math.max(...cardSpecs.map((c) => c.box.top + c.box.height)) + trailingPad
       : 200;
     return { cards: cardSpecs, bodyHeight: railHeight };
   }
@@ -335,6 +346,25 @@ export async function openInPageRail(rec, initialMode, options = {}) {
   const bodyRect = railEl.querySelector('.pagetollm-rail-body').getBoundingClientRect();
   railOriginTop = getRailOriginTop(bodyRect, scrollContainer);
   renderRail();
+
+  // In summaries mode the rail height reserves a viewport-sized run below the
+  // last card (computeRailTrailingPad), so a resize leaves it stale — too short
+  // when the window grows, which is exactly the "summary floats past the rail"
+  // case. Re-render to re-measure.
+  let resizeFrameId = 0;
+  const handleViewportResize = () => {
+    if (resizeFrameId) return;
+    resizeFrameId = requestAnimationFrame(() => {
+      resizeFrameId = 0;
+      if (isClosed() || guard.isStale() || state.mode !== 'summaries') return;
+      renderRail();
+    });
+  };
+  window.addEventListener('resize', handleViewportResize);
+  detachViewportResize = () => {
+    if (resizeFrameId) cancelAnimationFrame(resizeFrameId);
+    window.removeEventListener('resize', handleViewportResize);
+  };
 
   if (options && options.sentenceNumbers && options.sentenceNumbers.length > 0) {
     requestAnimationFrame(() => {

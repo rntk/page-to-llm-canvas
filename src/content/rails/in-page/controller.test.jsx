@@ -46,11 +46,15 @@ vi.mock('../shared/recordFetch.js', async (importOriginal) => {
   return { ...actual, fetchRecord: vi.fn() };
 });
 
-vi.mock('./geometry.js', () => ({
-  getScrollableAncestor: vi.fn(() => window),
-  getRailOriginTop: vi.fn(() => 100),
-  computeCardVerticalBox: vi.fn(() => ({ top: 0, height: 50 })),
-}));
+vi.mock('./geometry.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    getScrollableAncestor: vi.fn(() => window),
+    getRailOriginTop: vi.fn(() => 100),
+    computeCardVerticalBox: vi.fn(() => ({ top: 0, height: 50 })),
+  };
+});
 
 vi.mock('../../../highlights/sentenceHighlight.js', async (importOriginal) => {
   const actual = await importOriginal();
@@ -340,6 +344,34 @@ describe('openInPageRail', () => {
       expect(rail().dataset.mode).toBe('summaries');
       expect(openCanvasIframe).not.toHaveBeenCalled();
       expect(openHierarchyIframe).not.toHaveBeenCalled();
+    });
+
+    it('grows the rail body in summaries mode so the last summary keeps a background', async () => {
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'topics');
+      });
+      const body = () => rail().querySelector('.pagetollm-rail-body');
+      // Topics mode pads the lowest card box by a flat 80px.
+      const topicsHeight = Number.parseFloat(body().style.height);
+      const cardsBottom = topicsHeight - 80;
+
+      const select = rail().querySelector('.pagetollm-rail-mode-select');
+      await act(async () => {
+        select.value = 'summaries';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      // The fixture's only summary sits at level 1; without this the summary
+      // card set is empty and the body falls back to its fixed 200px.
+      await act(async () => {
+        rail().querySelector('.pagetollm-rail-level-btn[data-level="1"]').click();
+      });
+
+      // The summary column is fixed to the viewport, so the rail must reserve
+      // everything from the cursor line down to the bottom of the viewport.
+      const cursorTop = Math.max(112, Math.round(window.innerHeight * 0.38));
+      const expected = cardsBottom + Math.max(80, window.innerHeight - cursorTop);
+      expect(body().style.height).toBe(`${expected}px`);
+      expect(expected).toBeGreaterThan(topicsHeight);
     });
 
     it('switching level updates the active level button', async () => {
