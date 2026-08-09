@@ -121,6 +121,49 @@
   background: var(--pagetollm-highlight-color) !important;
 }
 
+/* ErrorBoundary fallback rendered inside the rail. Not absolutely positioned:
+   the rail body already flows in a constrained, positioned container, and the
+   fallback should just fill that space rather than fight it. */
+.pagetollm-error-boundary {
+  padding: 16px;
+  color: var(--on-surface);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.pagetollm-error-boundary button {
+  padding: 7px 14px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pagetollm-error-boundary button:hover {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.pagetollm-error-details {
+  margin: 12px 0;
+  color: var(--on-surface-muted);
+  text-align: left;
+}
+
+.pagetollm-error-details summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.pagetollm-error-details p {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 /* ── In-page rail (topics / summaries view) ────────────────────────────── */
 
 body.pagetollm-rail-open {

@@ -36,3 +36,28 @@
   color: var(--on-surface-muted);
   font-size: 11px;
 }
+
+/* Shared ErrorBoundary fallback (options + canvas roots). */
+.pagetollm-error-boundary {
+  padding: 16px;
+  color: var(--on-surface, inherit);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.pagetollm-error-boundary button {
+  padding: 7px 14px;
+  border: 1px solid var(--ink, currentcolor);
+  border-radius: 0;
+  background: var(--surface, transparent);
+  color: var(--ink, inherit);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pagetollm-error-boundary button:hover {
+  background: var(--ink, currentcolor);
+  color: var(--surface, inherit);
+}
