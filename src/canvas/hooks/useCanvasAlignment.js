@@ -62,7 +62,6 @@ export function computeComfortLeft(currentLeft, columnWidth, wrapWidth) {
  * pins to the top margin), never during manual panning/zooming.
  *
  * @param {object} params
- * @param {boolean} params.enabled
  * @param {object} params.anchorRef
  * @param {object} params.viewport
  * @param {object} params.viewport.canvasWrapElRef
@@ -73,7 +72,7 @@ export function computeComfortLeft(currentLeft, columnWidth, wrapWidth) {
  * @param {ReadonlyArray<unknown>} params.deps
  * @returns {{captureAnchor: function(boolean=): void, skipNextAlignment: function(): void}}
  */
-export function useCanvasAlignment({ enabled, anchorRef, viewport, flashFocus, deps }) {
+export function useCanvasAlignment({ anchorRef, viewport, flashFocus, deps }) {
   // The wrap element is the measurement frame here, not "the canvas viewport"
   // in the CSS sense, so keep this hook's own `wrapElRef` naming for the body.
   const { canvasWrapElRef: wrapElRef, setTransformNow, translateRef, scaleRef } = viewport;
@@ -199,7 +198,6 @@ export function useCanvasAlignment({ enabled, anchorRef, viewport, flashFocus, d
   // commit, so it is already settled here — no rAF race against the old code's
   // fixed two-frame wait.
   useLayoutEffect(() => {
-    if (!enabled) return;
     const prev = stateRef.current;
     const depsKey = JSON.stringify(deps);
     if (!prev.inited) {
@@ -229,7 +227,7 @@ export function useCanvasAlignment({ enabled, anchorRef, viewport, flashFocus, d
     }
     align(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, align, ...deps]);
+  }, [align, ...deps]);
 
   // Cancel any in-flight animated move on unmount.
   useEffect(

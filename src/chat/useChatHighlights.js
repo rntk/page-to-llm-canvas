@@ -9,16 +9,15 @@ import {
 export { CHAT_HIGHLIGHT_NAME };
 
 export function useChatHighlights({
-  isDone,
   showSummaryMode,
   sentenceNumbers,
   articleHtml,
   refreshSentenceRanges,
 }) {
   useEffect(() => {
-    if (!isDone || showSummaryMode || !supportsHighlightApi()) return undefined;
+    if (showSummaryMode || !supportsHighlightApi()) return undefined;
     const { wordEntries, sentenceRanges } = refreshSentenceRanges();
     paintSentenceHighlight(CHAT_HIGHLIGHT_NAME, sentenceNumbers, { wordEntries, sentenceRanges });
     return () => CSS.highlights.delete(CHAT_HIGHLIGHT_NAME);
-  }, [articleHtml, isDone, refreshSentenceRanges, sentenceNumbers, showSummaryMode]);
+  }, [articleHtml, refreshSentenceRanges, sentenceNumbers, showSummaryMode]);
 }

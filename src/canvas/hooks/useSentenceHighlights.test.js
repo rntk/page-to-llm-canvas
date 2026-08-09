@@ -46,7 +46,6 @@ function buildArticle(sentences) {
 function setup(overrides = {}) {
   const { container, refresh } = buildArticle(['One two three', 'four five six']);
   const props = {
-    isDone: true,
     showSummaryMode: false,
     // sentence 1 → "sel", sentence 2 → "hov".
     topicSentenceIndex: new Map([
@@ -132,13 +131,6 @@ describe('useSentenceHighlights', () => {
     ctx.cleanup();
     expect(CSS.highlights.has(HIGHLIGHT_NAME)).toBe(false);
     expect(CSS.highlights.has(HIGHLIGHT_HOVER)).toBe(false);
-  });
-
-  it('is a no-op before the article is ready', () => {
-    const spy = vi.spyOn(CSS.highlights, 'set');
-    const ctx = setup({ isDone: false, selectedTopicKey: 'sel' });
-    expect(spy).not.toHaveBeenCalled();
-    ctx.cleanup();
   });
 
   it('is a no-op in summary mode', () => {

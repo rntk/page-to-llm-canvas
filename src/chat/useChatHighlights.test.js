@@ -25,7 +25,6 @@ function setup(overrides = {}) {
   };
   const refreshSentenceRanges = vi.fn(() => rangeData);
   let props = {
-    isDone: true,
     showSummaryMode: false,
     sentenceNumbers: [1, 3],
     articleHtml: '<p>One</p>',
@@ -94,7 +93,6 @@ describe('useChatHighlights', () => {
   });
 
   it.each([
-    ['the article is not done', { isDone: false }, true],
     ['summary mode is visible', { showSummaryMode: true }, true],
     ['the Highlight API is unavailable', {}, false],
   ])('does nothing when %s', (_label, overrides, supportsApi) => {

@@ -99,7 +99,6 @@ function setup({ wrapRect, anchorRect, autoRaf = true }) {
   const apiRef = { current: null };
   function Harness({ d }) {
     apiRef.current = useCanvasAlignment({
-      enabled: true,
       anchorRef,
       viewport,
       flashFocus,

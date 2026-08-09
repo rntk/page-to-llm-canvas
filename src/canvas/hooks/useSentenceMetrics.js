@@ -53,7 +53,6 @@ function areSummaryMetricsEqual(prevMetrics, nextMetrics) {
  * @param {object} params.summaryWrapRef
  * @param {object} params.summaryCardRefs
  * @param {object} params.scaleRef
- * @param {boolean} params.isDone
  * @param {boolean} params.showSummaryMode
  * @param {boolean} params.isZoomingToTarget
  * @param {Array<unknown>} params.sentences
@@ -66,7 +65,6 @@ export function useSentenceMetrics({
   summaryWrapRef,
   summaryCardRefs,
   scaleRef,
-  isDone,
   showSummaryMode,
   isZoomingToTarget,
   sentences,
@@ -101,9 +99,9 @@ export function useSentenceMetrics({
 
   // Re-build word entries and sentence ranges synchronously before paint whenever layout changes.
   useLayoutEffect(() => {
-    if (!isDone || showSummaryMode) return;
+    if (showSummaryMode) return;
     refreshSentenceRanges();
-  }, [isDone, showSummaryMode, articleHtml, refreshSentenceRanges]);
+  }, [showSummaryMode, articleHtml, refreshSentenceRanges]);
 
   const measureSentencePositions = useCallback(() => {
     const wrap = summaryWrapRef.current;
@@ -181,7 +179,6 @@ export function useSentenceMetrics({
   }, [showSummaryMode, measureSentencePositions]);
 
   useLayoutEffect(() => {
-    if (!isDone) return undefined;
     let raf1 = 0;
     let raf2 = 0;
     let raf3 = 0;
@@ -251,7 +248,6 @@ export function useSentenceMetrics({
       fontsCancelled = true;
     };
   }, [
-    isDone,
     showSummaryMode,
     sentences,
     summaryCards,

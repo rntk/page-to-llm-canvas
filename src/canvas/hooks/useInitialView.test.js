@@ -10,7 +10,6 @@ import { clampScale } from '../../utils/canvasMath.js';
 // refs it drives across the three phases (level-set → zoomed → first topic).
 function makeProps({ viewport: viewportOverrides, ...overrides } = {}) {
   return {
-    isDone: true,
     topics: [{ title: 'T' }],
     sentenceMetrics: new Map([[1, { top: 0, bottom: 10 }]]),
     maxLevel: 0,
@@ -116,21 +115,16 @@ describe('useInitialView', () => {
   });
 
   it('does nothing until the article and hierarchy are measured', () => {
-    const notReady = makeProps({ isDone: false });
-    const ctx = setup(notReady);
-    expect(notReady.viewport.setTransformNow).not.toHaveBeenCalled();
-
     const empty = makeProps({ topics: [] });
-    const ctx2 = setup(empty);
+    const ctx = setup(empty);
     expect(empty.viewport.setTransformNow).not.toHaveBeenCalled();
 
     const noMetrics = makeProps({ sentenceMetrics: new Map() });
-    const ctx3 = setup(noMetrics);
+    const ctx2 = setup(noMetrics);
     expect(noMetrics.viewport.setTransformNow).not.toHaveBeenCalled();
 
     ctx.cleanup();
     ctx2.cleanup();
-    ctx3.cleanup();
   });
 
   it('still advances through the phases when no first topic can be found', () => {

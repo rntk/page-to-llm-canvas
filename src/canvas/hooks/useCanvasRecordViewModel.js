@@ -9,11 +9,10 @@ import { buildTopicSentenceIndex, getMaxTopicLevel } from '../../domain/topicDom
  * deliberately preserves identities for article data that has not changed.
  * @param {object} input
  * @param {object} [input.record]
- * @param {string} [input.error]
  * @param {number} input.selectedLevel
  * @param {boolean} input.showSummaryModeRaw
  */
-export function useCanvasRecordViewModel({ record, error, selectedLevel, showSummaryModeRaw }) {
+export function useCanvasRecordViewModel({ record, selectedLevel, showSummaryModeRaw }) {
   // Serialize once per record change, not once per render. `record` is
   // referentially stable across UI interactions, while storage writes mint a
   // new object. Downstream memos can therefore ignore equivalent rewrites.
@@ -55,17 +54,10 @@ export function useCanvasRecordViewModel({ record, error, selectedLevel, showSum
     [allSummaryCards, selectedLevel],
   );
 
-  const isDone = record?.status === 'done';
   const summariesDisabled = record?.summariesDisabled === true;
   // Keep this derived so a live record update disabling summaries exits summary
   // mode immediately, without waiting for an effect to reset local state.
   const showSummaryMode = showSummaryModeRaw && !summariesDisabled;
-  const isNeedsAttention = record?.status === 'needs_attention';
-  const isRecordError = record?.status === 'error' || record?.status === 'cancelled';
-  const isMissing = !record && error === 'record not found';
-  const isDeleted = !record && error === 'record deleted';
-  const stage = record?.progress?.stage || record?.status || 'loading';
-
   return {
     topics,
     topicSentenceIndex,
@@ -74,13 +66,7 @@ export function useCanvasRecordViewModel({ record, error, selectedLevel, showSum
     maxLevel,
     allSummaryCards,
     summaryCards,
-    isDone,
     summariesDisabled,
     showSummaryMode,
-    isNeedsAttention,
-    isRecordError,
-    isMissing,
-    isDeleted,
-    stage,
   };
 }

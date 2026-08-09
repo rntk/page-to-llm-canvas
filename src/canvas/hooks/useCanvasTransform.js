@@ -102,8 +102,7 @@ export function useCanvasTransform({ contentRef } = {}) {
   // the post-settle remeasurement.
   const [isZoomingToTarget, setIsZoomingToTarget] = useState(false);
 
-  // Callback refs so listeners can re-bind once the DOM mounts (the canvas
-  // wrap is rendered conditionally on `isDone`, so it is null on first effect).
+  // Callback refs so listeners can re-bind once the canvas DOM mounts.
   const canvasWrapElRef = useRef(null);
   const canvasViewportElRef = useRef(null);
   const [canvasWrapEl, setCanvasWrapEl] = useState(null);

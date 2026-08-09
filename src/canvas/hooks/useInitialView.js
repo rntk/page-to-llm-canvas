@@ -49,7 +49,6 @@ function initialViewReducer(phase, action) {
  * updated) — a single effect closure would read stale values.
  *
  * @param {object} params
- * @param {boolean} params.isDone
  * @param {Array<unknown>} params.topics
  * @param {Map<number, unknown>} params.sentenceMetrics
  * @param {number} params.maxLevel
@@ -70,7 +69,6 @@ function initialViewReducer(phase, action) {
  * @returns {void}
  */
 export function useInitialView({
-  isDone,
   topics,
   sentenceMetrics,
   maxLevel,
@@ -95,7 +93,7 @@ export function useInitialView({
   // level switcher straight to the leaf level (mirrors clicking it manually).
   useEffect(() => {
     if (initialViewPhase !== 'pending') return;
-    if (!isDone || topics.length === 0 || sentenceMetrics.size === 0) return;
+    if (topics.length === 0 || sentenceMetrics.size === 0) return;
     // The user already touched the canvas (panned/zoomed/switched level) while
     // this settled — don't yank their view out from under them.
     if (userMovedCanvasRef.current || selectedLevel !== 0) {
@@ -108,7 +106,6 @@ export function useInitialView({
     dispatch('level-set');
   }, [
     initialViewPhase,
-    isDone,
     topics,
     sentenceMetrics,
     maxLevel,

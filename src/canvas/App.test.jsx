@@ -25,8 +25,6 @@ const mocks = vi.hoisted(() => ({
   skipNextAlignment: vi.fn(),
   refreshSentenceRanges: vi.fn(() => ({ wordEntries: [], sentenceRanges: new Map() })),
   buildSentenceDomRange: vi.fn(),
-  retryRecord: vi.fn(() => Promise.resolve()),
-  resolveSummaryErrors: vi.fn(() => Promise.resolve()),
   closeModal: vi.fn(),
   toggleTopicSelection: vi.fn(),
   clearTopicSelection: vi.fn(),
@@ -68,10 +66,6 @@ vi.mock('./components/CanvasSummaryView.jsx', () => ({
 }));
 vi.mock('./components/CanvasZoomControls.jsx', () => ({
   default: captureComponent('controls'),
-}));
-vi.mock('./components/SpinnerOverlay.jsx', () => ({ default: captureComponent('spinner') }));
-vi.mock('../components/SummaryErrorsOverlay.jsx', () => ({
-  default: captureComponent('summaryErrors'),
 }));
 vi.mock('./components/ArticleHtml.jsx', () => ({ default: captureComponent('article') }));
 vi.mock('../chat/ArticleChat.jsx', () => ({ default: captureComponent('chat') }));
@@ -161,10 +155,6 @@ vi.mock('./hooks/useTopicSelection.js', () => ({
     clearTopicSelection: mocks.clearTopicSelection,
   }),
 }));
-vi.mock('../utils/errorUtils.js', () => ({
-  retryRecord: mocks.retryRecord,
-  resolveSummaryErrors: mocks.resolveSummaryErrors,
-}));
 vi.mock('../utils/currentTopicSummary.js', () => ({
   selectCurrentTopicSummary: vi.fn(() => ({ key: 'Topic#0', text: 'Summary' })),
 }));
@@ -182,14 +172,8 @@ const doneView = {
   maxLevel: 1,
   allSummaryCards: [{ key: 'Topic#0', path: 'Topic', startSentence: 1 }],
   summaryCards: [{ key: 'Topic#0', path: 'Topic', startSentence: 1 }],
-  isDone: true,
   summariesDisabled: false,
   showSummaryMode: false,
-  isNeedsAttention: false,
-  isRecordError: false,
-  isMissing: false,
-  isDeleted: false,
-  stage: 'done',
 };
 
 async function renderApp(initialKey = 'record-1') {
@@ -202,7 +186,11 @@ async function renderApp(initialKey = 'record-1') {
 
 describe('App composition behavior', () => {
   beforeEach(() => {
-    state.record = { key: 'record-1', sourceUrl: 'https://example.com', summaryErrors: [] };
+    state.record = {
+      key: 'record-1',
+      status: 'done',
+      sourceUrl: 'https://example.com',
+    };
     state.error = null;
     state.vm = { ...doneView };
     state.vmInput = null;
@@ -231,27 +219,19 @@ describe('App composition behavior', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders terminal and loading states and delegates their recovery actions', async () => {
-    state.vm = {
-      ...doneView,
-      isDone: false,
-      isRecordError: true,
-      stage: 'error',
-    };
-    const errorRender = await renderApp();
-    expect(state.childProps.spinner.recordError).toBe('');
-    await act(async () => state.childProps.spinner.onRetry());
-    expect(mocks.retryRecord).toHaveBeenCalledWith('record-1', 'Canvas');
-    await act(async () => errorRender.root.unmount());
+  it.each(['pending', 'summarizing', 'needs_attention', 'error', 'cancelled'])(
+    'does not mount Canvas for a %s record',
+    async (status) => {
+      state.record = { key: 'record-1', status };
+      const { container, root } = await renderApp();
 
-    state.vm = { ...doneView, isDone: false, isNeedsAttention: true, stage: 'needs_attention' };
-    const attentionRender = await renderApp();
-    await act(async () => state.childProps.summaryErrors.onRetry());
-    await act(async () => state.childProps.summaryErrors.onSkip());
-    expect(mocks.resolveSummaryErrors).toHaveBeenCalledWith('record-1', 'retry', 'Canvas');
-    expect(mocks.resolveSummaryErrors).toHaveBeenCalledWith('record-1', 'skip', 'Canvas');
-    await act(async () => attentionRender.root.unmount());
-  });
+      expect(container.childElementCount).toBe(0);
+      expect(state.vmInput).toBeNull();
+      expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+
+      await act(async () => root.unmount());
+    },
+  );
 
   it('wires the completed canvas controls and topic interactions', async () => {
     const { container, root } = await renderApp();
@@ -261,10 +241,7 @@ describe('App composition behavior', () => {
     expect(state.childProps.controls.showChat).toBe(false);
     expect(state.childProps.chat).toBeUndefined();
     expect(mocks.canvasFocus).toHaveBeenCalledWith({ preventScroll: true });
-    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
-      { type: 'ensurePipeline', key: 'record-1' },
-      expect.any(Function),
-    );
+    expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
     expect(state.childProps.article.html).toBe(doneView.articleHtml);
     expect(state.childProps.rail.currentTopicSummary).toEqual(
       expect.objectContaining({ text: 'Summary' }),
@@ -335,21 +312,6 @@ describe('App composition behavior', () => {
       await act(async () => root.unmount());
     },
   );
-
-  it('requests pipeline ownership and tolerates empty keys and failed responses', async () => {
-    chrome.runtime.sendMessage.mockImplementationOnce((_message, callback) =>
-      callback({ ok: false, error: 'not ready' }),
-    );
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const failed = await renderApp();
-    expect(warn).toHaveBeenCalledWith('PageToLLM Canvas ensurePipeline failed:', 'not ready');
-    await act(async () => failed.root.unmount());
-
-    chrome.runtime.sendMessage.mockClear();
-    const empty = await renderApp('');
-    expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
-    await act(async () => empty.root.unmount());
-  });
 
   it('suppresses summary-only behavior when summaries are disabled', async () => {
     state.vm = { ...doneView, summariesDisabled: true };

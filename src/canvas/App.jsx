@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRecord } from './hooks/useRecord.js';
-import { MSG } from '../shared/runtime/messages.js';
 import {
   buildTopicCards,
   getTopicTitleFontSize,
@@ -13,8 +12,6 @@ import {
 import CanvasTopicHierarchyRail from './components/CanvasTopicHierarchyRail.jsx';
 import CanvasSummaryView from './components/CanvasSummaryView.jsx';
 import CanvasZoomControls from './components/CanvasZoomControls.jsx';
-import SpinnerOverlay from './components/SpinnerOverlay.jsx';
-import SummaryErrorsOverlay from '../components/SummaryErrorsOverlay.jsx';
 import ArticleHtml from './components/ArticleHtml.jsx';
 import { closeModal } from './closeModal.js';
 import { useCanvasTransform } from './hooks/useCanvasTransform.js';
@@ -26,7 +23,6 @@ import { useInitialView } from './hooks/useInitialView.js';
 import { useCanvasRecordViewModel } from './hooks/useCanvasRecordViewModel.js';
 import { useCanvasTopicNavigation } from './hooks/useCanvasTopicNavigation.js';
 import { useTopicSelection } from './hooks/useTopicSelection.js';
-import { retryRecord, resolveSummaryErrors } from '../utils/errorUtils.js';
 import { selectCurrentTopicSummary } from '../utils/currentTopicSummary.js';
 import ArticleChat from '../chat/ArticleChat.jsx';
 import { useChatHighlights } from '../chat/useChatHighlights.js';
@@ -37,7 +33,16 @@ import { buildSentenceDomRange } from '../highlights/sentenceHighlight.js';
  * @returns {JSX.Element}
  */
 export default function App({ initialKey }) {
-  const { record, error } = useRecord(initialKey);
+  const { record } = useRecord(initialKey);
+
+  // Canvas is a read-only view of completed data. Pipeline progress, failures,
+  // retries, and summary review are handled from the popup and Options page.
+  if (record?.status !== 'done') return null;
+
+  return <CanvasApp initialKey={initialKey} record={record} />;
+}
+
+function CanvasApp({ initialKey, record }) {
   const [showSummaryModeRaw, setShowSummaryMode] = useState(false);
   const [showTopicHierarchy, setShowTopicHierarchy] = useState(true);
   const [showChat, setShowChat] = useState(false);
@@ -114,15 +119,9 @@ export default function App({ initialKey }) {
     maxLevel,
     allSummaryCards,
     summaryCards,
-    isDone,
     summariesDisabled,
     showSummaryMode,
-    isNeedsAttention,
-    isRecordError,
-    isMissing,
-    isDeleted,
-    stage,
-  } = useCanvasRecordViewModel({ record, error, selectedLevel, showSummaryModeRaw });
+  } = useCanvasRecordViewModel({ record, selectedLevel, showSummaryModeRaw });
 
   const { sentenceMetrics, summaryMetricsState, refreshSentenceRanges } = useSentenceMetrics({
     articleTextRef,
@@ -131,7 +130,6 @@ export default function App({ initialKey }) {
     // Measurement only reads the live scale — handing it the whole viewport
     // handle would widen its surface for nothing.
     scaleRef,
-    isDone,
     showSummaryMode,
     isZoomingToTarget,
     sentences,
@@ -188,7 +186,6 @@ export default function App({ initialKey }) {
   // on-screen position. The reading column (articleTextRef) is the anchor in
   // both modes; the rail and side cards are allowed to reflow around it.
   const { captureAnchor, skipNextAlignment } = useCanvasAlignment({
-    enabled: isDone,
     anchorRef: articleTextRef,
     viewport,
     flashFocus,
@@ -209,7 +206,6 @@ export default function App({ initialKey }) {
   }, [summariesDisabled, showSummaryMode, activeTopicKey, activeTopicCardKey, allSummaryCards]);
 
   useSentenceHighlights({
-    isDone,
     showSummaryMode,
     topicSentenceIndex,
     selectedTopicKey,
@@ -219,7 +215,6 @@ export default function App({ initialKey }) {
   });
 
   useChatHighlights({
-    isDone,
     showSummaryMode,
     sentenceNumbers: chatSentenceNumbers,
     articleHtml,
@@ -297,42 +292,11 @@ export default function App({ initialKey }) {
   }, []);
 
   useEffect(() => {
-    if (!isDone) return;
     const wrap = canvasWrapElRef.current;
     if (wrap && typeof wrap.focus === 'function') {
       wrap.focus({ preventScroll: true });
     }
-  }, [isDone, canvasWrapElRef]);
-
-  // ── Pipeline lifecycle ───────────────────────────────────────────────────
-  // The modal does NOT start the pipeline. It only asks the background to
-  // ensure a pipeline is running for this key, then renders whatever state
-  // arrives through chrome.storage.onChanged.
-
-  useEffect(() => {
-    if (!initialKey) return;
-    chrome.runtime.sendMessage({ type: MSG.ensurePipeline, key: initialKey }, (resp) => {
-      if (chrome.runtime.lastError) {
-        console.warn('PageToLLM Canvas ensurePipeline error:', chrome.runtime.lastError.message);
-      } else if (resp && !resp.ok) {
-        console.warn('PageToLLM Canvas ensurePipeline failed:', resp.error);
-      }
-    });
-  }, [initialKey]);
-
-  const handleRetry = useCallback(() => {
-    if (!initialKey) return;
-    retryRecord(initialKey, 'Canvas').catch(() => {});
-  }, [initialKey]);
-
-  const handleSummaryErrorsRetry = useCallback(
-    () => resolveSummaryErrors(initialKey, 'retry', 'Canvas'),
-    [initialKey],
-  );
-  const handleSummaryErrorsSkip = useCallback(
-    () => resolveSummaryErrors(initialKey, 'skip', 'Canvas'),
-    [initialKey],
-  );
+  }, [canvasWrapElRef]);
 
   const handleZoomIn = useCallback(() => {
     userMovedCanvasRef.current = true;
@@ -379,7 +343,6 @@ export default function App({ initialKey }) {
   // the article and topic hierarchy are measured. See the hook for why the steps
   // are split across separate committed renders.
   useInitialView({
-    isDone,
     topics,
     sentenceMetrics,
     maxLevel,
@@ -400,119 +363,100 @@ export default function App({ initialKey }) {
   return (
     <div className="pagetollm-modal-root">
       <main className="pagetollm-body">
-        {isNeedsAttention && (
-          <SummaryErrorsOverlay
-            summaryErrors={record?.summaryErrors}
-            onRetry={handleSummaryErrorsRetry}
-            onSkip={handleSummaryErrorsSkip}
-          />
-        )}
-        {!isDone && !isNeedsAttention && (
-          <SpinnerOverlay
-            stage={stage}
-            error={!isRecordError && !isMissing && !isDeleted ? error : null}
-            recordError={isRecordError ? (record?.error ?? '') : undefined}
-            onRetry={isRecordError ? handleRetry : undefined}
-            isMissing={isMissing}
-            isDeleted={isDeleted}
-          />
-        )}
-        {isDone && (
-          <div className="pagetollm-canvas-main">
+        <div className="pagetollm-canvas-main">
+          <div
+            ref={canvasWrapRef}
+            className={`canvas-area${isCanvasDragging ? ' is-dragging' : ''}`}
+            onMouseDown={handleCanvasMouseDown}
+            tabIndex={0}
+          >
             <div
-              ref={canvasWrapRef}
-              className={`canvas-area${isCanvasDragging ? ' is-dragging' : ''}`}
-              onMouseDown={handleCanvasMouseDown}
-              tabIndex={0}
+              ref={canvasViewportRef}
+              className={`canvas-viewport${isFocusingHighlight ? ' is-focusing-highlight' : ''}`}
             >
               <div
-                ref={canvasViewportRef}
-                className={`canvas-viewport${isFocusingHighlight ? ' is-focusing-highlight' : ''}`}
+                ref={summaryWrapRef}
+                className={`canvas-article-with-summaries${showTopicHierarchy || showSummaryMode ? ' has-topic-hierarchy' : ''}${showSummaryMode ? ' is-summary-mode' : ''}`}
+                style={{
+                  '--canvas-topic-hierarchy-width': `${railWidth}px`,
+                  '--current-summary-width': `${currentSummaryWidth}px`,
+                }}
               >
-                <div
-                  ref={summaryWrapRef}
-                  className={`canvas-article-with-summaries${showTopicHierarchy || showSummaryMode ? ' has-topic-hierarchy' : ''}${showSummaryMode ? ' is-summary-mode' : ''}`}
-                  style={{
-                    '--canvas-topic-hierarchy-width': `${railWidth}px`,
-                    '--current-summary-width': `${currentSummaryWidth}px`,
-                  }}
-                >
-                  {showSummaryMode ? (
-                    <CanvasSummaryView
-                      summaryViewCards={summaryCards}
-                      summaryViewActivePath={activeTopicKey}
-                      summaryViewActiveCardKey={activeTopicCardKey}
-                      summaryViewHoveredPath={hoveredTopicKey}
-                      summaryViewHoveredCardKey={hoveredTopicCardKey}
-                      summaryCardRefs={summaryCardRefs}
-                      setHoveredTopicKey={setHoveredTopicKey}
-                      setHoveredTopicCardKey={setHoveredTopicCardKey}
-                      articleTextRef={articleTextRef}
-                      onShowSourceSentences={handleShowSourceSentences}
-                      articleHtml={articleHtml}
-                      sentences={sentences}
-                      sourceUrl={record?.sourceUrl}
-                      previewWidth={currentSummaryWidth}
-                    />
-                  ) : (
-                    <ArticleHtml html={articleHtml} articleTextRef={articleTextRef} />
-                  )}
-
-                  <CanvasTopicHierarchyRail
-                    show={showTopicHierarchy || showSummaryMode}
-                    selectedLevel={selectedLevel}
-                    topicCards={zoomAdjustedTopicCards}
-                    railWidth={railWidth}
-                    cardWidth={cardWidth}
-                    activeTopicKey={activeTopicKey}
-                    activeTopicCardKey={activeTopicCardKey}
-                    selectedTopicKey={selectedTopicKey}
-                    selectedTopicCardKey={selectedTopicCardKey}
-                    onTopicEnter={handleTopicEnter}
-                    onTopicLeave={handleTopicLeave}
-                    onTopicClick={handleTopicClick}
-                    onCancelTopicSelection={clearTopicSelection}
-                    readTopics={null}
-                    onToggleRead={null}
-                    currentTopicSummary={currentTopicSummary}
+                {showSummaryMode ? (
+                  <CanvasSummaryView
+                    summaryViewCards={summaryCards}
+                    summaryViewActivePath={activeTopicKey}
+                    summaryViewActiveCardKey={activeTopicCardKey}
+                    summaryViewHoveredPath={hoveredTopicKey}
+                    summaryViewHoveredCardKey={hoveredTopicCardKey}
+                    summaryCardRefs={summaryCardRefs}
+                    setHoveredTopicKey={setHoveredTopicKey}
+                    setHoveredTopicCardKey={setHoveredTopicCardKey}
+                    articleTextRef={articleTextRef}
+                    onShowSourceSentences={handleShowSourceSentences}
+                    articleHtml={articleHtml}
                     sentences={sentences}
                     sourceUrl={record?.sourceUrl}
-                    scale={scale}
+                    previewWidth={currentSummaryWidth}
                   />
-                </div>
-              </div>
-            </div>
+                ) : (
+                  <ArticleHtml html={articleHtml} articleTextRef={articleTextRef} />
+                )}
 
-            <CanvasZoomControls
-              onClose={closeModal}
-              onNavigate={handleNavigate}
-              onZoomIn={handleZoomIn}
-              onZoomOut={handleZoomOut}
-              onReset={handleReset}
-              showSummaryMode={showSummaryMode}
-              onToggleSummaryMode={handleToggleSummaryMode}
-              summaryModeAvailable={!summariesDisabled}
-              showTopicHierarchy={showTopicHierarchy}
-              onToggleTopicHierarchy={handleToggleTopicHierarchy}
-              selectedLevel={selectedLevel}
-              maxLevel={maxLevel}
-              onLevelChange={handleLevelChange}
-              showChat={showChat}
-              onToggleChat={() => setShowChat((value) => !value)}
-            />
-            {showChat ? (
-              <div className="canvas-chat-panel">
-                <ArticleChat
-                  recordKey={initialKey}
+                <CanvasTopicHierarchyRail
+                  show={showTopicHierarchy || showSummaryMode}
+                  selectedLevel={selectedLevel}
+                  topicCards={zoomAdjustedTopicCards}
+                  railWidth={railWidth}
+                  cardWidth={cardWidth}
+                  activeTopicKey={activeTopicKey}
+                  activeTopicCardKey={activeTopicCardKey}
+                  selectedTopicKey={selectedTopicKey}
+                  selectedTopicCardKey={selectedTopicCardKey}
+                  onTopicEnter={handleTopicEnter}
+                  onTopicLeave={handleTopicLeave}
+                  onTopicClick={handleTopicClick}
+                  onCancelTopicSelection={clearTopicSelection}
+                  readTopics={null}
+                  onToggleRead={null}
+                  currentTopicSummary={currentTopicSummary}
                   sentences={sentences}
-                  onHighlight={handleChatHighlight}
-                  onClearHighlights={handleClearChatHighlights}
-                  onClose={() => setShowChat(false)}
+                  sourceUrl={record?.sourceUrl}
+                  scale={scale}
                 />
               </div>
-            ) : null}
+            </div>
           </div>
-        )}
+
+          <CanvasZoomControls
+            onClose={closeModal}
+            onNavigate={handleNavigate}
+            onZoomIn={handleZoomIn}
+            onZoomOut={handleZoomOut}
+            onReset={handleReset}
+            showSummaryMode={showSummaryMode}
+            onToggleSummaryMode={handleToggleSummaryMode}
+            summaryModeAvailable={!summariesDisabled}
+            showTopicHierarchy={showTopicHierarchy}
+            onToggleTopicHierarchy={handleToggleTopicHierarchy}
+            selectedLevel={selectedLevel}
+            maxLevel={maxLevel}
+            onLevelChange={handleLevelChange}
+            showChat={showChat}
+            onToggleChat={() => setShowChat((value) => !value)}
+          />
+          {showChat ? (
+            <div className="canvas-chat-panel">
+              <ArticleChat
+                recordKey={initialKey}
+                sentences={sentences}
+                onHighlight={handleChatHighlight}
+                onClearHighlights={handleClearChatHighlights}
+                onClose={() => setShowChat(false)}
+              />
+            </div>
+          ) : null}
+        </div>
       </main>
     </div>
   );

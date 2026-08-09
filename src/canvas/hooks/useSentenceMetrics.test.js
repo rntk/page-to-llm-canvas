@@ -56,7 +56,6 @@ function setup(overrides = {}) {
     summaryWrapRef: { current: wrap },
     summaryCardRefs: { current: {} },
     scaleRef: { current: 1 },
-    isDone: true,
     showSummaryMode: false,
     isZoomingToTarget: false,
     sentences: SENTENCES,
@@ -107,7 +106,7 @@ describe('useSentenceMetrics', () => {
   });
 
   it('refreshSentenceRanges returns the cached refs when the article is absent', () => {
-    const ctx = setup({ articleTextRef: { current: null }, isDone: false });
+    const ctx = setup({ articleTextRef: { current: null } });
     const out = ctx.result.current.refreshSentenceRanges();
     expect(out.wordEntries).toEqual([]);
     expect(out.sentenceRanges instanceof Map).toBe(true);
@@ -210,12 +209,5 @@ describe('useSentenceMetrics', () => {
     expect(ctx.result.current.sentenceMetrics.size).toBe(SENTENCES.length);
     ctx.cleanup();
     delete document.fonts;
-  });
-
-  it('does nothing until the article measurement is done', () => {
-    const ctx = setup({ isDone: false });
-    ctx.flushRafs();
-    expect(ctx.result.current.sentenceMetrics.size).toBe(0);
-    ctx.cleanup();
   });
 });

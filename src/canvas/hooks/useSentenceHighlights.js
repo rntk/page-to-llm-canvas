@@ -17,7 +17,6 @@ const HIGHLIGHT_HOVER = 'pagetollm-sentence-hover';
  * highlights so they can be styled distinctly via ::highlight() in modal.css.
  *
  * @param {object} params
- * @param {boolean} params.isDone
  * @param {boolean} params.showSummaryMode
  * @param {Map<string, Iterable<number>>} params.topicSentenceIndex
  * @param {?string} params.selectedTopicKey
@@ -27,7 +26,6 @@ const HIGHLIGHT_HOVER = 'pagetollm-sentence-hover';
  * @returns {void}
  */
 export function useSentenceHighlights({
-  isDone,
   showSummaryMode,
   topicSentenceIndex,
   selectedTopicKey,
@@ -36,7 +34,7 @@ export function useSentenceHighlights({
   refreshSentenceRanges,
 }) {
   useEffect(() => {
-    if (!isDone || showSummaryMode || !supportsHighlightApi()) return undefined;
+    if (showSummaryMode || !supportsHighlightApi()) return undefined;
     const { wordEntries, sentenceRanges } = refreshSentenceRanges();
 
     const sentencesForKey = (key) => {
@@ -57,7 +55,6 @@ export function useSentenceHighlights({
       CSS.highlights.delete(HIGHLIGHT_HOVER);
     };
   }, [
-    isDone,
     showSummaryMode,
     topicSentenceIndex,
     selectedTopicKey,
