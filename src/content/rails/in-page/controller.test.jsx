@@ -19,6 +19,7 @@ class FakeHighlight {
 vi.stubGlobal('chrome', {
   runtime: {
     sendMessage: vi.fn((_msg, cb) => cb({ ok: false })),
+    openOptionsPage: vi.fn(() => Promise.resolve()),
     getURL: vi.fn((p) => 'about:blank#' + p),
     lastError: null,
   },
@@ -115,12 +116,14 @@ describe('openInPageRail', () => {
       return 1;
     });
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    window.open = vi.fn(() => ({}));
     vi.stubGlobal('CSS', { highlights: new Map() });
     vi.stubGlobal('Highlight', FakeHighlight);
     window.scrollTo = vi.fn();
     fetchRecord.mockReset();
     openCanvasIframe.mockClear();
     openHierarchyIframe.mockClear();
+    globalThis.chrome.runtime.openOptionsPage.mockClear();
     globalThis.chrome.runtime.sendMessage.mockClear();
     globalThis.chrome.runtime.sendMessage.mockImplementation((_msg, cb) => cb({ ok: false }));
   });
@@ -141,64 +144,28 @@ describe('openInPageRail', () => {
     expect(rail()).toBeNull();
   });
 
-  it('on error status: confirming retry retries and opens the canvas', async () => {
+  it('opens Options for an error record instead of retrying from the rail', async () => {
     fetchRecord.mockResolvedValue(baseRecord({ status: 'error', error: 'Boom failed' }));
-    confirm.mockReturnValue(true);
-    globalThis.chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      if (msg.type === 'retryRecord') return cb({ ok: true });
-      cb({ ok: false });
-    });
 
     await act(async () => {
       await openInPageRail({ key: 'rail-key' }, 'topics');
     });
 
-    expect(confirm).toHaveBeenCalled();
-    expect(confirm.mock.calls[0][0]).toContain('Boom failed');
-    expect(openCanvasIframe).toHaveBeenCalledWith('rail-key');
-  });
-
-  it('on error status: a failed retry alerts instead of opening the canvas', async () => {
-    fetchRecord.mockResolvedValue(baseRecord({ status: 'error', error: 'Boom failed' }));
-    confirm.mockReturnValue(true);
-    globalThis.chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      if (msg.type === 'retryRecord') return cb({ ok: false, error: 'server exploded' });
-      cb({ ok: false });
-    });
-
-    await act(async () => {
-      await openInPageRail({ key: 'rail-key' }, 'topics');
-    });
-
-    expect(openCanvasIframe).not.toHaveBeenCalled();
-    expect(alert).toHaveBeenCalledWith(expect.stringContaining('server exploded'));
-  });
-
-  it('on error status: declining the retry confirm does nothing further', async () => {
-    fetchRecord.mockResolvedValue(baseRecord({ status: 'error', error: 'Boom failed' }));
-    confirm.mockReturnValue(false);
-
-    await act(async () => {
-      await openInPageRail({ key: 'rail-key' }, 'topics');
-    });
-
+    expect(window.open).toHaveBeenCalledWith('about:blank#options.html#records', '_blank');
+    expect(globalThis.chrome.runtime.openOptionsPage).not.toHaveBeenCalled();
     expect(openCanvasIframe).not.toHaveBeenCalled();
     expect(globalThis.chrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('needs_attention: confirming opens the canvas, declining does not', async () => {
+  it('opens Options for needs_attention instead of opening Canvas', async () => {
     fetchRecord.mockResolvedValue(baseRecord({ status: 'needs_attention' }));
-    confirm.mockReturnValue(false);
     await act(async () => {
       await openInPageRail({ key: 'rail-key' }, 'topics');
     });
-    expect(openCanvasIframe).not.toHaveBeenCalled();
 
-    confirm.mockReturnValue(true);
-    await act(async () => {
-      await openInPageRail({ key: 'rail-key' }, 'topics');
-    });
-    expect(openCanvasIframe).toHaveBeenCalledWith('rail-key');
+    expect(window.open).toHaveBeenCalledWith('about:blank#options.html#records', '_blank');
+    expect(globalThis.chrome.runtime.openOptionsPage).not.toHaveBeenCalled();
+    expect(openCanvasIframe).not.toHaveBeenCalled();
   });
 
   it('alerts with the processing stage when the record is in progress', async () => {

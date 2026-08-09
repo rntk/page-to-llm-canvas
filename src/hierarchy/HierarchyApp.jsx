@@ -161,8 +161,8 @@ export default function HierarchyApp({ initialKey }) {
           {count === 1 ? '1 topic needs attention' : `${count} topics need attention`}
         </div>
         <div className="th-page__error-message">
-          Some topics could not be summarized after several retries. Open the canvas view to retry
-          or skip them.
+          Some topics could not be summarized after several retries. Open the Options page to retry
+          or skip them from the Records section.
         </div>
         <div className="th-page__error-actions">
           <button type="button" className="th-page__close-btn" onClick={closeModal}>

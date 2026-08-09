@@ -28,6 +28,7 @@ beforeAll(() => {
       getURL: vi.fn((path) => path),
     },
     tabs: {
+      create: vi.fn(() => Promise.resolve()),
       sendMessage: vi.fn((tabId, msg, cb) => {
         cb({ status: 'ok' });
       }),
@@ -163,7 +164,7 @@ describe('popup pure functions', () => {
       'Delete',
     ]);
     expect(popup.getRecordActions({ status: 'summarizing' }).map((action) => action.label)).toEqual(
-      ['Canvas', 'Reprocess', 'Export data', 'Delete'],
+      ['Reprocess', 'Export data', 'Delete'],
     );
   });
 
@@ -633,13 +634,13 @@ describe('buildRecordDisplayData', () => {
     ]);
   });
 
-  it('includes only canvas view action for non-done records', () => {
+  it('includes no view actions for non-done records', () => {
     const records = [
       { key: 'r5', sourceUrl: 'https://x.com/', createdAt: 0, status: 'summarizing' },
     ];
     const result = popup.buildRecordDisplayData(records);
     const viewActions = result.records[0].actions.filter((a) => a.kind === 'view');
-    expect(viewActions.map((a) => a.mode)).toEqual(['canvas']);
+    expect(viewActions).toEqual([]);
   });
 });
 
@@ -699,7 +700,7 @@ describe('popup UI integration', () => {
     expect(document.getElementById('record-count').textContent).toBe('1');
   });
 
-  it('opens the canvas from a needs-attention status', async () => {
+  it('opens Options from a needs-attention status', async () => {
     const attentionRecord = {
       ...sampleRecord,
       key: 'attention-1',
@@ -717,22 +718,16 @@ describe('popup UI integration', () => {
     }
     expect(statusButton).not.toBeNull();
     expect(statusButton.tagName).toBe('BUTTON');
-    expect(statusButton.title).toContain('Open the canvas');
+    expect(statusButton.title).toContain('Open Options');
+    chrome.tabs.create.mockClear();
     chrome.tabs.sendMessage.mockClear();
     statusButton.click();
 
-    for (let i = 0; i < 50; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      if (chrome.tabs.sendMessage.mock.calls.length > 0) break;
-    }
-    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
-      42,
-      { action: 'openRecordView', key: 'attention-1', mode: 'canvas' },
-      expect.any(Function),
-    );
+    expect(chrome.tabs.create).toHaveBeenCalledWith({ url: 'options.html#records' });
+    expect(chrome.tabs.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('opens the canvas from an error status', async () => {
+  it('opens Options from an error status', async () => {
     const errorRecord = {
       ...sampleRecord,
       key: 'error-1',
@@ -750,19 +745,13 @@ describe('popup UI integration', () => {
     }
     expect(statusButton).not.toBeNull();
     expect(statusButton.tagName).toBe('BUTTON');
-    expect(statusButton.title).toContain('Open the canvas to view the error message and retry');
+    expect(statusButton.title).toContain('Open Options');
+    chrome.tabs.create.mockClear();
     chrome.tabs.sendMessage.mockClear();
     statusButton.click();
 
-    for (let i = 0; i < 50; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      if (chrome.tabs.sendMessage.mock.calls.length > 0) break;
-    }
-    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
-      42,
-      { action: 'openRecordView', key: 'error-1', mode: 'canvas' },
-      expect.any(Function),
-    );
+    expect(chrome.tabs.create).toHaveBeenCalledWith({ url: 'options.html#records' });
+    expect(chrome.tabs.sendMessage).not.toHaveBeenCalled();
   });
 
   it('shows an error when listRecords returns a failed response', async () => {

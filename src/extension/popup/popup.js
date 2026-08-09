@@ -137,15 +137,14 @@ export function providerReadinessState(response, error) {
 
 export function getRecordActions(record) {
   const useYouTubeRail = isYouTubeUrl(record && record.sourceUrl);
-  const viewActions = [
-    {
-      label: 'Canvas',
-      mode: 'canvas',
-      description: 'Open the saved visual canvas for this page.',
-    },
-  ];
+  const viewActions = [];
   if (record && record.status === 'done') {
     viewActions.push(
+      {
+        label: 'Canvas',
+        mode: 'canvas',
+        description: 'Open the saved visual canvas for this page.',
+      },
       {
         label: 'Hierarchy',
         mode: 'hierarchy',
@@ -251,6 +250,20 @@ function setLoading() {
   countEl.textContent = '';
   lastRenderedRecordsSignature = '';
   setError('');
+}
+
+function openOptionsPage(hash = '') {
+  if (hash) {
+    const url = chrome.runtime.getURL(`options.html${hash}`);
+    if (chrome.tabs?.create) return chrome.tabs.create({ url });
+    window.open(url);
+    return undefined;
+  }
+  if (chrome.runtime.openOptionsPage) {
+    return chrome.runtime.openOptionsPage();
+  }
+  window.open(chrome.runtime.getURL('options.html'));
+  return undefined;
 }
 
 async function openRecordView(key, mode, rail) {
@@ -423,7 +436,10 @@ function renderRecords(records, { force = false } = {}) {
     }
     copy.appendChild(meta);
 
-    const isClickableStatus = display.status === 'needs_attention' || display.status === 'error';
+    const isClickableStatus =
+      display.status === 'needs_attention' ||
+      display.status === 'error' ||
+      display.status === 'cancelled';
     const badge = document.createElement(isClickableStatus ? 'button' : 'span');
     badge.className = `badge ${display.status}`;
     badge.textContent = display.badge;
@@ -431,10 +447,10 @@ function renderRecords(records, { force = false } = {}) {
       badge.type = 'button';
       badge.classList.add('status-button');
       badge.title =
-        display.status === 'error'
-          ? 'Open the canvas to view the error message and retry'
-          : 'Open the canvas to review failed summaries and retry or skip';
-      badge.addEventListener('click', () => void openRecordView(display.key, 'canvas'));
+        display.status === 'needs_attention'
+          ? 'Open Options to review failed summaries and retry or skip'
+          : 'Open Options to view the error and retry';
+      badge.addEventListener('click', () => void openOptionsPage('#records'));
     }
 
     const actions = document.createElement('div');
@@ -564,11 +580,7 @@ refreshBtn.addEventListener('click', () =>
 
 optionsLink.addEventListener('click', (e) => {
   e.preventDefault();
-  if (chrome.runtime.openOptionsPage) {
-    chrome.runtime.openOptionsPage();
-  } else {
-    window.open(chrome.runtime.getURL('options.html'));
-  }
+  void openOptionsPage();
 });
 
 try {

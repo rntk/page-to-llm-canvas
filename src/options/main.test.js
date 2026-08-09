@@ -223,6 +223,49 @@ describe('options main.jsx', () => {
     );
   });
 
+  it('offers the same retry dialog for a cancelled record', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') {
+        cb({
+          ok: true,
+          items: [
+            {
+              key: 'cancelled-1',
+              sourceUrl: 'https://example.com',
+              createdAt: 1716972000000,
+              status: 'cancelled',
+              error: 'Processing stopped.',
+            },
+          ],
+        });
+      } else if (msg.type === 'retryRecord') {
+        cb({ ok: true });
+      }
+    });
+
+    await import('./main.jsx');
+    await waitFor(() => {
+      expect(document.querySelector('.status.cancelled.status-button')).not.toBeNull();
+    });
+    expect(
+      Array.from(document.querySelectorAll('tbody tr button')).some(
+        (button) => button.textContent === 'Open',
+      ),
+    ).toBe(false);
+
+    document.querySelector('.status.cancelled.status-button').click();
+    await waitFor(() => {
+      expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
+    });
+    document.querySelector('.pagetollm-spinner-retry-btn').click();
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledWith(
+        { type: 'retryRecord', key: 'cancelled-1' },
+        expect.any(Function),
+      );
+    });
+  });
+
   it('opens summary errors from needs-attention status and can skip them', async () => {
     sendMessageMock.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') {
@@ -260,6 +303,11 @@ describe('options main.jsx', () => {
 
     const statusButton = document.querySelector('.status.needs_attention.status-button');
     expect(statusButton.textContent).toContain('needs attention');
+    expect(
+      Array.from(document.querySelectorAll('tbody tr button')).some(
+        (button) => button.textContent === 'Open',
+      ),
+    ).toBe(false);
     statusButton.click();
 
     await waitFor(() => {

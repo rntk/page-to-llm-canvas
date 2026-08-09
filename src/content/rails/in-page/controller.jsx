@@ -1,7 +1,6 @@
 import React from 'react';
 import { flushSync } from 'react-dom';
 import InPageRail from './InPageRail.jsx';
-import { splitError, retryRecord } from '../../../utils/errorUtils.js';
 import { resolveColumnOverlaps } from '../../../domain/topicCards.js';
 import {
   HIGHLIGHT_NAME,
@@ -38,6 +37,16 @@ import {
   removeCanvasIframe,
 } from '../../record-view/iframeManager.js';
 
+async function openOptionsForRecovery() {
+  const url = chrome.runtime.getURL('options.html#records');
+  if (typeof window.open === 'function' && window.open(url, '_blank')) return;
+  if (typeof chrome?.runtime?.openOptionsPage === 'function') {
+    await chrome.runtime.openOptionsPage();
+    return;
+  }
+  alert('PageToLLM: Open the extension Options page to review this analysis.');
+}
+
 export async function openInPageRail(rec, initialMode, options = {}) {
   closeInPageRail();
   removeCanvasIframe();
@@ -57,30 +66,11 @@ export async function openInPageRail(rec, initialMode, options = {}) {
     return;
   }
   if (assessment.kind === 'error') {
-    const { message } = splitError(
-      assessment.record.error || 'Unknown error occurred during processing.',
-    );
-    const retry = confirm(
-      `PageToLLM: Processing failed.\n\nError: ${message}\n\nWould you like to retry analyzing this page?`,
-    );
-    if (retry) {
-      try {
-        await retryRecord(assessment.record.key, 'InPageRail');
-        openCanvasIframe(assessment.record.key);
-      } catch (err) {
-        alert('Retry failed: ' + (err.message || String(err)));
-      }
-    }
+    await openOptionsForRecovery();
     return;
   }
   if (assessment.kind === 'needs_attention') {
-    const open = confirm(
-      'PageToLLM: Some topics could not be summarized after several retries.\n\n' +
-        'Open the canvas view to retry or skip them?',
-    );
-    if (open) {
-      openCanvasIframe(assessment.record.key);
-    }
+    await openOptionsForRecovery();
     return;
   }
   if (assessment.kind === 'in_progress') {

@@ -209,7 +209,7 @@ describe('HierarchyApp', () => {
     const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
 
     expect(container.textContent).toContain('2 topics need attention');
-    expect(container.textContent).toContain('Open the canvas view to retry');
+    expect(container.textContent).toContain('Open the Options page to retry');
 
     unmount();
   });

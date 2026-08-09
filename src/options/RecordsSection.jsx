@@ -326,7 +326,9 @@ export function RecordsSection() {
                   </td>
                   <td>{formatDate(item.createdAt)}</td>
                   <td>
-                    {item.status === 'error' || item.status === 'needs_attention' ? (
+                    {item.status === 'error' ||
+                    item.status === 'cancelled' ||
+                    item.status === 'needs_attention' ? (
                       <button
                         type="button"
                         className={`${statusClass(item.status)} status-button`}
@@ -351,13 +353,16 @@ export function RecordsSection() {
                   </td>
                   <td>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                      <button type="button" onClick={() => runAction('open', item.key)}>
-                        Open
-                      </button>
+                      {item.status === 'done' ? (
+                        <button type="button" onClick={() => runAction('open', item.key)}>
+                          Open
+                        </button>
+                      ) : null}
                       <button type="button" onClick={() => runAction('reprocess', item.key)}>
                         Reprocess
                       </button>
-                      {item.status === 'done' && item.summariesDisabled ? (
+                      {item.status === 'done' &&
+                      (item.summariesDisabled || item.summariesIncomplete) ? (
                         <button
                           type="button"
                           title="Generate summaries from the already-computed topics, without reprocessing the page"
