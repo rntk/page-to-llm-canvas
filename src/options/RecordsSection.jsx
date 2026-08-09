@@ -47,15 +47,26 @@ export function RecordsSection() {
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState(null);
   const [importMessage, setImportMessage] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [errorDialogKey, setErrorDialogKey] = useState(null);
   const [summaryErrorsDialogItem, setSummaryErrorsDialogItem] = useState(null);
   const importInputRef = useRef(null);
 
-  const applyRecords = useCallback((nextItems) => {
-    setItems(nextItems);
+  // A failed load (transport failure or `{ok:false}`) must not be rendered as
+  // "No records yet" - that reads as "you have no records" to a user who may
+  // have many, and unlike the metrics sections there is nothing else here to
+  // self-correct. Keep whatever list was last successfully loaded and surface
+  // a distinct error state with a retry affordance instead.
+  const applyRecords = useCallback(({ items: nextItems, error: nextError }) => {
     setIsLoading(false);
+    if (nextItems) {
+      setItems(nextItems);
+      setLoadError(null);
+    } else {
+      setLoadError(nextError || 'Failed to load records');
+    }
   }, []);
 
   const loadRecords = useCallback(async () => {
@@ -67,8 +78,8 @@ export function RecordsSection() {
     let isCurrent = true;
 
     async function loadInitialRecords() {
-      const nextItems = await listRecords();
-      if (isCurrent) applyRecords(nextItems);
+      const result = await listRecords();
+      if (isCurrent) applyRecords(result);
     }
 
     void loadInitialRecords();
@@ -176,6 +187,15 @@ export function RecordsSection() {
     event.target.value = '';
     if (!file) return;
 
+    // Collision detection is derived from `items`, so it is only safe after a
+    // successful list load. In particular, a failed refresh may leave a stale
+    // list (or the initial empty value) here while records that would collide
+    // remain unseen in storage.
+    if (isLoading || loadError) {
+      setError('Cannot import while records are unavailable. Retry loading records first.');
+      return;
+    }
+
     setError('');
     setImportMessage('');
     setIsImporting(true);
@@ -218,8 +238,12 @@ export function RecordsSection() {
   };
 
   const errorDialogItem = errorDialogKey
-    ? items.find((item) => item.key === errorDialogKey && item.status === 'error')
+    ? items.find(
+        (item) =>
+          item.key === errorDialogKey && (item.status === 'error' || item.status === 'cancelled'),
+      )
     : null;
+  const importUnavailable = isLoading || Boolean(loadError);
 
   return (
     <>
@@ -235,7 +259,11 @@ export function RecordsSection() {
             style={{ display: 'none' }}
             aria-label="Import records JSON"
           />
-          <button type="button" onClick={chooseImportFile} disabled={isImporting}>
+          <button
+            type="button"
+            onClick={chooseImportFile}
+            disabled={isImporting || importUnavailable}
+          >
             {isImporting ? 'Importing...' : 'Import data'}
           </button>{' '}
           <button className="danger" type="button" onClick={deleteAll}>
@@ -245,9 +273,26 @@ export function RecordsSection() {
       </div>
       <div id="content">
         {error ? <div className="form-error form-error--stacked">{error}</div> : null}
+        {loadError && items.length > 0 ? (
+          <div className="form-error form-error--stacked">
+            Couldn&apos;t refresh records: {loadError}{' '}
+            <button type="button" onClick={() => void loadRecords()}>
+              Retry
+            </button>
+          </div>
+        ) : null}
         {importMessage ? <div className="note note--stacked">{importMessage}</div> : null}
         {isLoading ? (
           <div className="empty">Loading records...</div>
+        ) : loadError && items.length === 0 ? (
+          <div className="form-error">
+            Couldn&apos;t load records: {loadError}
+            <div>
+              <button type="button" onClick={() => void loadRecords()}>
+                Retry
+              </button>
+            </div>
+          </div>
         ) : items.length === 0 ? (
           <div className="empty">No records yet. Use the popup to pick blocks on a page.</div>
         ) : (

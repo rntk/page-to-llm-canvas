@@ -24,11 +24,19 @@ export function ProvidersSection() {
   const [form, setForm] = useState(() => createEmptyProviderForm());
   const [error, setError] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
+  // Kept separate from `error` (form/action errors): a failed load must not
+  // render as "No providers configured yet" - that may prompt someone to
+  // needlessly re-enter API keys that are, in fact, still stored.
+  const [loadError, setLoadError] = useState(null);
 
   const applyProviders = useCallback((next) => {
-    if (!next) return;
-    setProviders(next.providers);
-    setActiveId(next.activeId);
+    if (next.providers) {
+      setProviders(next.providers);
+      setActiveId(next.activeId);
+      setLoadError(null);
+    } else {
+      setLoadError(next.error || 'Failed to load providers');
+    }
   }, []);
 
   const load = useCallback(async () => {
@@ -106,13 +114,23 @@ export function ProvidersSection() {
 
   const remove = async (id) => {
     if (!confirm('Delete this provider?')) return;
-    await sendMessage({ type: MSG.deleteProvider, id });
+    setError('');
+    const response = await sendMessage({ type: MSG.deleteProvider, id });
+    if (!response || !response.ok) {
+      setError((response && response.error) || 'Failed to delete provider');
+      return;
+    }
     if (form.id === id) cancel();
     await load();
   };
 
   const activate = async (id) => {
-    await sendMessage({ type: MSG.setActiveProvider, id });
+    setError('');
+    const response = await sendMessage({ type: MSG.setActiveProvider, id });
+    if (!response || !response.ok) {
+      setError((response && response.error) || 'Failed to set active provider');
+      return;
+    }
     await load();
   };
 
@@ -131,7 +149,25 @@ export function ProvidersSection() {
         </button>
       </div>
 
-      {providers.length === 0 ? (
+      {error && !isFormOpen ? <div className="form-error form-error--stacked">{error}</div> : null}
+      {loadError && providers.length > 0 ? (
+        <div className="form-error form-error--stacked">
+          Couldn&apos;t refresh providers: {loadError}{' '}
+          <button type="button" onClick={() => void load()}>
+            Retry
+          </button>
+        </div>
+      ) : null}
+      {loadError && providers.length === 0 ? (
+        <div className="form-error">
+          Couldn&apos;t load providers: {loadError}
+          <div>
+            <button type="button" onClick={() => void load()}>
+              Retry
+            </button>
+          </div>
+        </div>
+      ) : providers.length === 0 ? (
         <div className="empty">No providers configured yet.</div>
       ) : (
         <table>

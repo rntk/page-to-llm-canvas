@@ -442,6 +442,10 @@ describe('options main.jsx', () => {
     await import('./main.jsx');
     await waitFor(() => {
       expect(document.querySelector('input[type="file"]')).not.toBeNull();
+      const importButton = Array.from(document.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Import data',
+      );
+      expect(importButton.disabled).toBe(false);
     });
 
     const file = new File([JSON.stringify(record)], 'pagetollm-data-rec1.json', {
@@ -535,6 +539,72 @@ describe('options main.jsx', () => {
     expect(sendMessageMock.mock.calls.some(([msg]) => msg.type === 'importRecords')).toBe(false);
   });
 
+  it('disables import and rejects a file event while the record list is unavailable', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') cb({ ok: false, error: 'storage read failed' });
+      else if (msg.type === 'listProviders') cb({ ok: true, providers: [], activeId: null });
+    });
+
+    await import('./main.jsx');
+    await waitFor(() => {
+      expect(document.querySelector('#content').textContent).toContain("Couldn't load records");
+    });
+
+    const importButton = Array.from(document.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Import data',
+    );
+    expect(importButton.disabled).toBe(true);
+
+    const input = document.querySelector('input[type="file"]');
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [new File(['{"key":"unseen"}'], 'records.json', { type: 'application/json' })],
+    });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('Cannot import while records are unavailable');
+    });
+    expect(sendMessageMock.mock.calls.some(([msg]) => msg.type === 'importRecords')).toBe(false);
+  });
+
+  it('disables import after a refresh fails even when stale records remain visible', async () => {
+    let listCalls = 0;
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') {
+        listCalls += 1;
+        if (listCalls === 1) {
+          cb({
+            ok: true,
+            items: [{ key: 'existing', sourceUrl: 'https://example.com', status: 'done' }],
+          });
+        } else {
+          cb({ ok: false, error: 'refresh failed' });
+        }
+      } else if (msg.type === 'reprocessRecord') {
+        cb({ ok: true });
+      } else if (msg.type === 'listProviders') {
+        cb({ ok: true, providers: [], activeId: null });
+      }
+    });
+
+    await import('./main.jsx');
+    await waitFor(() => {
+      expect(document.querySelector('tbody tr')).not.toBeNull();
+    });
+    Array.from(document.querySelectorAll('tbody tr button'))
+      .find((button) => button.textContent === 'Reprocess')
+      .click();
+    await waitFor(() => {
+      expect(document.querySelector('#content').textContent).toContain("Couldn't refresh records");
+    });
+
+    const importButton = Array.from(document.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Import data',
+    );
+    expect(importButton.disabled).toBe(true);
+    expect(document.querySelector('tbody tr').textContent).toContain('https://example.com');
+  });
+
   it('handles empty record list', async () => {
     sendMessageMock.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') {
@@ -548,6 +618,97 @@ describe('options main.jsx', () => {
       expect(empty).not.toBeNull();
       expect(empty.textContent).toContain('No records yet');
     });
+  });
+
+  // A failed round-trip must render a distinct error state with a retry
+  // affordance, not the same "No records yet" empty state a user with real
+  // records could see on a transient failure.
+  it('shows a retry affordance instead of "No records yet" when listRecords fails, and recovers on retry', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') cb({ ok: false, error: 'storage read failed' });
+    });
+
+    await import('./main.jsx');
+    await waitFor(() => {
+      expect(document.querySelector('#content').textContent).toContain(
+        "Couldn't load records: storage read failed",
+      );
+    });
+    expect(document.querySelector('#content').textContent).not.toContain('No records yet');
+
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') {
+        cb({
+          ok: true,
+          items: [{ key: 'rec1', sourceUrl: 'https://example.com', status: 'done' }],
+        });
+      }
+    });
+    const retryBtn = Array.from(document.querySelectorAll('#content button')).find(
+      (button) => button.textContent === 'Retry',
+    );
+    expect(retryBtn).not.toBeUndefined();
+    retryBtn.click();
+
+    await waitFor(() => {
+      expect(document.querySelector('tbody tr')).not.toBeNull();
+    });
+  });
+
+  // U1's same "empty state hides a real failure" defect on the providers list.
+  it('shows a retry affordance instead of "No providers configured yet" when listProviders fails', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') cb({ ok: true, items: [] });
+      else if (msg.type === 'listProviders') cb({ ok: false, error: 'storage read failed' });
+    });
+
+    await import('./main.jsx');
+    await waitFor(() => {
+      const providersPanel = document.getElementById('options-panel-providers');
+      expect(providersPanel.textContent).toContain("Couldn't load providers: storage read failed");
+    });
+    expect(document.getElementById('options-panel-providers').textContent).not.toContain(
+      'No providers configured yet',
+    );
+  });
+
+  // A failed delete must surface an error instead of silently reloading the
+  // (unchanged) provider list.
+  it('surfaces an error when deleting a provider fails, and the provider is not silently removed', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') cb({ ok: true, items: [] });
+      else if (msg.type === 'listProviders') {
+        cb({
+          ok: true,
+          providers: [
+            { id: 'p1', name: 'Local', type: 'openai_comp', model: 'm', url: 'http://h' },
+          ],
+          activeId: 'p1',
+        });
+      } else if (msg.type === 'deleteProvider') {
+        cb({ ok: false, error: 'delete failed' });
+      }
+    });
+
+    await import('./main.jsx');
+    let deleteBtn;
+    await waitFor(() => {
+      const providerTable = document.querySelectorAll('table')[0];
+      deleteBtn = Array.from(providerTable.querySelectorAll('tbody button')).find(
+        (b) => b.textContent === 'Delete',
+      );
+      expect(deleteBtn).not.toBeUndefined();
+    });
+
+    deleteBtn.click();
+    await waitFor(() => {
+      expect(document.getElementById('options-panel-providers').textContent).toContain(
+        'delete failed',
+      );
+    });
+    // The provider is still listed - a failed delete must not silently no-op
+    // by reloading a list that (correctly) still contains it, without saying why.
+    expect(document.querySelectorAll('table')[0].querySelectorAll('tbody tr')).toHaveLength(1);
   });
 
   it('handles deleteAll', async () => {
