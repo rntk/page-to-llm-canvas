@@ -14,6 +14,7 @@
 //   5. In OptionsApp.jsx: remove ChatToolMetricsSection + its import + render
 
 import { CHAT_TOOL_OUTCOMES } from '../../src/shared/runtime/telemetry.js';
+import { createMetricsStore } from './metricsStore.js';
 
 export { CHAT_TOOL_OUTCOMES } from '../../src/shared/runtime/telemetry.js';
 
@@ -99,23 +100,15 @@ export function normalizeChatToolMetrics(value) {
   };
 }
 
-let writeChain = Promise.resolve();
-
-function readRaw() {
-  return new Promise((resolve) => {
-    try {
-      chrome.storage.local.get(CHAT_TOOL_METRICS_KEY, (items) =>
-        resolve(normalizeChatToolMetrics(items?.[CHAT_TOOL_METRICS_KEY])),
-      );
-    } catch (_) {
-      resolve(emptyChatToolMetrics());
-    }
-  });
-}
+const store = createMetricsStore({
+  key: CHAT_TOOL_METRICS_KEY,
+  normalize: normalizeChatToolMetrics,
+  empty: emptyChatToolMetrics,
+  label: 'chat tool',
+});
 
 export async function getChatToolMetrics() {
-  if (typeof chrome === 'undefined' || !chrome?.storage?.local) return emptyChatToolMetrics();
-  return readRaw();
+  return store.getMetrics();
 }
 
 /**
@@ -125,41 +118,24 @@ export async function getChatToolMetrics() {
  * @returns {Promise<void>}
  */
 export function recordChatToolMetric(sample = {}) {
-  writeChain = writeChain
-    .then(async () => {
-      if (typeof chrome === 'undefined' || !chrome?.storage?.local) return;
-      const outcome = normalizeOutcome(sample.outcome);
-      if (!outcome) return; // Drop unrecognized outcomes rather than corrupt the store.
-      const metrics = await readRaw();
-      const entry = {
-        at: Date.now(),
-        outcome,
-        error: typeof sample.error === 'string' ? sample.error.slice(0, 160) : '',
-      };
-      metrics.totalCount++;
-      if (isErrorOutcome(outcome)) metrics.errorCount++;
-      else metrics.okCount++;
-      metrics.byOutcome[outcome] = (metrics.byOutcome[outcome] || 0) + 1;
-      metrics.recent.unshift(entry);
-      metrics.recent = metrics.recent.slice(0, CHAT_TOOL_METRICS_MAX_RECENT);
-      await new Promise((resolve) =>
-        chrome.storage.local.set({ [CHAT_TOOL_METRICS_KEY]: metrics }, resolve),
-      );
-    })
-    .catch((error) => console.warn('PageToLLM Canvas chat tool metrics record failed:', error));
-  return writeChain;
+  return store.queueWrite((metrics) => {
+    const outcome = normalizeOutcome(sample.outcome);
+    if (!outcome) return null; // Drop unrecognized outcomes rather than corrupt the store.
+    const entry = {
+      at: Date.now(),
+      outcome,
+      error: typeof sample.error === 'string' ? sample.error.slice(0, 160) : '',
+    };
+    metrics.totalCount++;
+    if (isErrorOutcome(outcome)) metrics.errorCount++;
+    else metrics.okCount++;
+    metrics.byOutcome[outcome] = (metrics.byOutcome[outcome] || 0) + 1;
+    metrics.recent.unshift(entry);
+    metrics.recent = metrics.recent.slice(0, CHAT_TOOL_METRICS_MAX_RECENT);
+    return metrics;
+  });
 }
 
 export function clearChatToolMetrics() {
-  writeChain = writeChain.then(
-    () =>
-      new Promise((resolve) => {
-        try {
-          chrome.storage.local.set({ [CHAT_TOOL_METRICS_KEY]: emptyChatToolMetrics() }, resolve);
-        } catch (_) {
-          resolve();
-        }
-      }),
-  );
-  return writeChain;
+  return store.clear();
 }

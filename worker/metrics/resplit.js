@@ -7,6 +7,8 @@
 // that needs a denominator, so a sample is recorded for EVERY
 // refineOversizedRanges call, including runs where nothing was oversized.
 
+import { createMetricsStore } from './metricsStore.js';
+
 export const RESPLIT_METRICS_KEY = 'pagetollm-resplit-metrics';
 export const RESPLIT_METRICS_MAX_RECENT = 40;
 
@@ -169,23 +171,15 @@ export function normalizeResplitMetrics(value) {
 
 // Serialized read-modify-write: resplits fan out through parallelMap and
 // recurse, so unserialized chrome.storage.local updates would lose counts.
-let writeChain = Promise.resolve();
-
-function readRaw() {
-  return new Promise((resolve) => {
-    try {
-      chrome.storage.local.get(RESPLIT_METRICS_KEY, (items) =>
-        resolve(normalizeResplitMetrics(items?.[RESPLIT_METRICS_KEY])),
-      );
-    } catch (_) {
-      resolve(emptyResplitMetrics());
-    }
-  });
-}
+const store = createMetricsStore({
+  key: RESPLIT_METRICS_KEY,
+  normalize: normalizeResplitMetrics,
+  empty: emptyResplitMetrics,
+  label: 'resplit',
+});
 
 export async function getResplitMetrics() {
-  if (typeof chrome === 'undefined' || !chrome?.storage?.local) return emptyResplitMetrics();
-  return readRaw();
+  return store.getMetrics();
 }
 
 /**
@@ -195,45 +189,28 @@ export async function getResplitMetrics() {
  * @param {object} [sample] Privacy-safe run sample.
  */
 export function recordResplitRun(sample = {}) {
-  writeChain = writeChain
-    .then(async () => {
-      if (typeof chrome === 'undefined' || !chrome?.storage?.local) return;
-      const metrics = await readRaw();
-      const run = normalizeRunSample(sample);
+  return store.queueWrite((metrics) => {
+    const run = normalizeRunSample(sample);
 
-      metrics.runCount++;
-      if (run.oversizeCount > 0) metrics.runsWithOversize++;
-      if (run.changed) metrics.runsChanged++;
-      if (run.groupCountAfter > run.groupCountBefore) metrics.runsWithGroupGain++;
-      metrics.oversizeSegmentCount += run.oversizeCount;
-      metrics.resplitCallCount += run.resplitCallCount;
-      metrics.llmRequestCount += run.llmRequestCount;
-      metrics.primaryRequestCount += run.primaryChunkCount;
-      metrics.maxSpanObserved = Math.max(metrics.maxSpanObserved, run.maxSpan);
-      for (const key of OUTCOME_KEYS) metrics.outcomes[key] += run.outcomes[key];
-      for (const span of run.oversizeSpans) metrics.oversizeSpanBuckets[spanBucketKey(span)]++;
+    metrics.runCount++;
+    if (run.oversizeCount > 0) metrics.runsWithOversize++;
+    if (run.changed) metrics.runsChanged++;
+    if (run.groupCountAfter > run.groupCountBefore) metrics.runsWithGroupGain++;
+    metrics.oversizeSegmentCount += run.oversizeCount;
+    metrics.resplitCallCount += run.resplitCallCount;
+    metrics.llmRequestCount += run.llmRequestCount;
+    metrics.primaryRequestCount += run.primaryChunkCount;
+    metrics.maxSpanObserved = Math.max(metrics.maxSpanObserved, run.maxSpan);
+    for (const key of OUTCOME_KEYS) metrics.outcomes[key] += run.outcomes[key];
+    for (const span of run.oversizeSpans) metrics.oversizeSpanBuckets[spanBucketKey(span)]++;
 
-      const { oversizeSpans: _spans, ...entry } = run;
-      metrics.recent.unshift(entry);
-      metrics.recent = metrics.recent.slice(0, RESPLIT_METRICS_MAX_RECENT);
-      await new Promise((resolve) =>
-        chrome.storage.local.set({ [RESPLIT_METRICS_KEY]: metrics }, resolve),
-      );
-    })
-    .catch((error) => console.warn('PageToLLM Canvas resplit metrics record failed:', error));
-  return writeChain;
+    const { oversizeSpans: _spans, ...entry } = run;
+    metrics.recent.unshift(entry);
+    metrics.recent = metrics.recent.slice(0, RESPLIT_METRICS_MAX_RECENT);
+    return metrics;
+  });
 }
 
 export function clearResplitMetrics() {
-  writeChain = writeChain.then(
-    () =>
-      new Promise((resolve) => {
-        try {
-          chrome.storage.local.set({ [RESPLIT_METRICS_KEY]: emptyResplitMetrics() }, resolve);
-        } catch (_) {
-          resolve();
-        }
-      }),
-  );
-  return writeChain;
+  return store.clear();
 }

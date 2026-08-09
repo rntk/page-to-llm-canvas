@@ -1,6 +1,8 @@
 // Privacy-safe topic parser quality metrics. Never stores prompts, responses,
 // article text, URLs, record keys, or topic labels.
 
+import { createMetricsStore } from './metricsStore.js';
+
 export const PARSER_METRICS_KEY = 'pagetollm-parser-metrics';
 export const PARSER_METRICS_MAX_RECENT = 60;
 
@@ -77,71 +79,46 @@ export function normalizeParserMetrics(value) {
   };
 }
 
-let writeChain = Promise.resolve();
-
-function readRaw() {
-  return new Promise((resolve) => {
-    try {
-      chrome.storage.local.get(PARSER_METRICS_KEY, (items) =>
-        resolve(normalizeParserMetrics(items?.[PARSER_METRICS_KEY])),
-      );
-    } catch (_) {
-      resolve(emptyParserMetrics());
-    }
-  });
-}
+const store = createMetricsStore({
+  key: PARSER_METRICS_KEY,
+  normalize: normalizeParserMetrics,
+  empty: emptyParserMetrics,
+  label: 'parser',
+});
 
 export async function getParserMetrics() {
-  if (typeof chrome === 'undefined' || !chrome?.storage?.local) return emptyParserMetrics();
-  return readRaw();
+  return store.getMetrics();
 }
 
 export function recordParserMetric(sample = {}) {
-  writeChain = writeChain
-    .then(async () => {
-      if (typeof chrome === 'undefined' || !chrome?.storage?.local) return;
-      const metrics = await readRaw();
-      const quirks = summarizeParserDiagnostics(sample.diagnostics);
-      const repaired = QUIRK_KEYS.some((key) => quirks[key] > 0);
-      const entry = {
-        at: Date.now(),
-        ok: sample.ok === true,
-        repaired,
-        recoveredAfterRetry: sample.recoveredAfterRetry === true,
-        scope: sample.scope === 'resplit' ? 'resplit' : 'primary',
-        attempt: Math.max(1, nonNegative(sample.attempt)),
-        sentenceCount: nonNegative(sample.diagnostics?.sentenceCount),
-        inputLineCount: nonNegative(sample.diagnostics?.inputLineCount),
-        parsedRangeCount: nonNegative(sample.diagnostics?.parsedRangeCount),
-        error: typeof sample.error === 'string' ? sample.error.slice(0, 160) : '',
-        quirks,
-      };
-      metrics.totalCount++;
-      if (entry.ok) metrics.successCount++;
-      else metrics.failureCount++;
-      if (entry.ok && repaired) metrics.repairedCount++;
-      if (entry.recoveredAfterRetry) metrics.retryRecoveredCount++;
-      for (const key of QUIRK_KEYS) metrics.totals[key] += quirks[key];
-      metrics.recent.unshift(entry);
-      metrics.recent = metrics.recent.slice(0, PARSER_METRICS_MAX_RECENT);
-      await new Promise((resolve) =>
-        chrome.storage.local.set({ [PARSER_METRICS_KEY]: metrics }, resolve),
-      );
-    })
-    .catch((error) => console.warn('PageToLLM Canvas parser metrics record failed:', error));
-  return writeChain;
+  return store.queueWrite((metrics) => {
+    const quirks = summarizeParserDiagnostics(sample.diagnostics);
+    const repaired = QUIRK_KEYS.some((key) => quirks[key] > 0);
+    const entry = {
+      at: Date.now(),
+      ok: sample.ok === true,
+      repaired,
+      recoveredAfterRetry: sample.recoveredAfterRetry === true,
+      scope: sample.scope === 'resplit' ? 'resplit' : 'primary',
+      attempt: Math.max(1, nonNegative(sample.attempt)),
+      sentenceCount: nonNegative(sample.diagnostics?.sentenceCount),
+      inputLineCount: nonNegative(sample.diagnostics?.inputLineCount),
+      parsedRangeCount: nonNegative(sample.diagnostics?.parsedRangeCount),
+      error: typeof sample.error === 'string' ? sample.error.slice(0, 160) : '',
+      quirks,
+    };
+    metrics.totalCount++;
+    if (entry.ok) metrics.successCount++;
+    else metrics.failureCount++;
+    if (entry.ok && repaired) metrics.repairedCount++;
+    if (entry.recoveredAfterRetry) metrics.retryRecoveredCount++;
+    for (const key of QUIRK_KEYS) metrics.totals[key] += quirks[key];
+    metrics.recent.unshift(entry);
+    metrics.recent = metrics.recent.slice(0, PARSER_METRICS_MAX_RECENT);
+    return metrics;
+  });
 }
 
 export function clearParserMetrics() {
-  writeChain = writeChain.then(
-    () =>
-      new Promise((resolve) => {
-        try {
-          chrome.storage.local.set({ [PARSER_METRICS_KEY]: emptyParserMetrics() }, resolve);
-        } catch (_) {
-          resolve();
-        }
-      }),
-  );
-  return writeChain;
+  return store.clear();
 }
