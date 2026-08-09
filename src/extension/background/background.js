@@ -46,6 +46,10 @@ import {
   PIPELINE_STAGE,
   PIPELINE_STATUS,
 } from '../../shared/runtime/contracts.js';
+import { createLogger } from '../../shared/runtime/log.js';
+
+const log = createLogger();
+const resumeLog = createLogger('resume');
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
@@ -920,7 +924,7 @@ async function resumeInFlightRecords() {
   try {
     items = await listRecords();
   } catch (err) {
-    console.warn('PageToLLM Canvas resume scan failed:', err);
+    resumeLog.warn('scan failed:', err);
     return;
   }
   const inFlight = (Array.isArray(items) ? items : []).filter(isInFlightRecord);
@@ -928,7 +932,7 @@ async function resumeInFlightRecords() {
   scheduleKeepAlive();
   for (const rec of inFlight) {
     startPipeline(rec.key).catch((err) => {
-      console.error('PageToLLM Canvas resume failed for', rec.key, err);
+      resumeLog.error('failed for', rec.key, err);
     });
   }
 }
@@ -958,7 +962,7 @@ void (async () => {
     await reconcileRecordStorage();
     await reconcileChatStorage();
   } catch (err) {
-    console.warn('PageToLLM Canvas: storage reconciliation failed:', err);
+    log.warn('storage reconciliation failed:', err);
   }
 })();
 

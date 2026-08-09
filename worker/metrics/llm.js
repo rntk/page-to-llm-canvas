@@ -10,8 +10,11 @@
 //   4. In OptionsApp.jsx: remove LlmMetricsSection + its import + render
 
 import { LLM_TASK_TYPES } from '../../src/shared/runtime/telemetry.js';
+import { createLogger } from '../../src/shared/runtime/log.js';
 
 export { LLM_TASK_TYPES } from '../../src/shared/runtime/telemetry.js';
+
+const log = createLogger('LLM');
 
 export const LLM_METRICS_KEY = 'pagetollm-llm-metrics';
 /** Bumped on clear so in-flight read-modify-writes can detect staleness across SW/options contexts. */
@@ -498,7 +501,7 @@ export function recordLlmMetric(entry) {
         if (epochAfter === epoch) return;
       }
     } catch (err) {
-      console.warn('PageToLLM Canvas LLM metrics record failed:', err);
+      log.warn('metrics record failed:', err);
     }
   });
 }
@@ -634,7 +637,7 @@ export function clearLlmMetrics() {
         }
       });
     } catch (err) {
-      console.warn('PageToLLM Canvas LLM metrics clear failed:', err);
+      log.warn('metrics clear failed:', err);
       throw err;
     }
   });

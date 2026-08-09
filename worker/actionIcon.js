@@ -4,6 +4,9 @@
 
 import { listRecords } from './storage/storage.js';
 import { isInFlightRecord } from './pipeline/pipelineStatus.js';
+import { createLogger } from '../src/shared/runtime/log.js';
+
+const log = createLogger('action icon');
 
 const ACTION_ICON_PATHS = Object.freeze({
   16: 'icons/icon-16.png',
@@ -149,7 +152,7 @@ export async function refreshActionProgressIcon() {
     if (updateId !== _actionIconUpdateId) return;
     await setActionProgressIcon(summarizeProcessingState(records), updateId);
   } catch (err) {
-    console.warn('PageToLLM Canvas action icon update failed:', err);
+    log.warn('update failed:', err);
   }
 }
 

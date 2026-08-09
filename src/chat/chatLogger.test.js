@@ -45,4 +45,23 @@ describe('chat logger', () => {
       reason: 'network',
     });
   });
+
+  it('does not leave an unhandled rejection when the verbose-logs read fails, and drops buffered events', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    getStoredVerboseLogs.mockRejectedValueOnce(new Error('storage unavailable'));
+    const log = createChatLogger();
+
+    log('request', { id: 1 }, { verbose: true });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      'PageToLLM Canvas chat: verbose log setting load failed:',
+      expect.any(Error),
+    );
+    // isReady flushed to true on failure, so a subsequent verbose call no
+    // longer buffers indefinitely; the setting stayed off (safe default).
+    log('another', { id: 2 }, { verbose: true });
+    expect(console.info).not.toHaveBeenCalled();
+  });
 });

@@ -5,6 +5,9 @@ import { getActiveProvider } from './providers.js';
 import { createClient } from './clients.js';
 import { getStoredVerboseLogs } from '../settings/verboseLog.js';
 import { getStoredLlmRequestTimeoutSeconds } from '../settings/llmTimeout.js';
+import { createLogger } from '../../src/shared/runtime/log.js';
+
+const log = createLogger('LLM');
 
 /**
  * Makes a single completion call to the active provider.
@@ -67,7 +70,7 @@ export async function callLLMDirect(options) {
   const timeoutSignal = createRequestTimeoutSignal(requestTimeoutMs);
   const mergedSignal = mergeAbortSignals(signal, timeoutSignal.signal);
   if (verboseLogs) {
-    console.info('PageToLLM Canvas LLM request:', {
+    log.info('request:', {
       provider: provider.name,
       type: provider.type,
       model: provider.model,
@@ -118,7 +121,7 @@ export async function callLLMDirect(options) {
       // Diagnostics must never turn a successful model response into a failure.
     }
     if (verboseLogs) {
-      console.info('PageToLLM Canvas LLM response:', {
+      log.info('response:', {
         endpoint,
         durationMs: Date.now() - startedAt,
         responseLength: content.length,
@@ -259,7 +262,7 @@ export async function callLLMWithRetry(opts, maxRetries = 3) {
       ) {
         break;
       }
-      console.warn('PageToLLM Canvas LLM attempt failed:', {
+      log.warn('attempt failed:', {
         attempt: attempt + 1,
         maxRetries: attempts,
         error: (e && e.message) || String(e),
