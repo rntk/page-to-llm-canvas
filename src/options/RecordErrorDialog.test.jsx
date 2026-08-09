@@ -113,7 +113,8 @@ describe('RecordErrorDialog', () => {
     expect(retryButton.disabled).toBe(true);
   });
 
-  it('re-enables actions when retry rejects so the user can try again', async () => {
+  it('re-enables actions and shows the failure when retry rejects so the user can try again', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const onRetry = vi.fn().mockRejectedValue(new Error('send failed'));
     const { container } = renderDialog({ onRetry });
     const retryButton = container.querySelector('.pagetollm-spinner-retry-btn');
@@ -128,5 +129,34 @@ describe('RecordErrorDialog', () => {
     expect(retryButton.textContent).toBe('Retry');
     expect(retryButton.disabled).toBe(false);
     expect(closeButton.disabled).toBe(false);
+    expect(container.textContent).toContain('Retry failed: send failed');
+    expect(warnSpy).toHaveBeenCalledWith('PageToLLM Options retry failed:', 'send failed');
+  });
+
+  it('clears a previous retry error when a new retry attempt starts', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let resolveRetry;
+    const onRetry = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('send failed'))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveRetry = resolve;
+          }),
+      );
+    const { container } = renderDialog({ onRetry });
+    const retryButton = container.querySelector('.pagetollm-spinner-retry-btn');
+
+    await act(async () => {
+      retryButton.click();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain('Retry failed: send failed');
+
+    act(() => retryButton.click());
+    expect(container.textContent).not.toContain('Retry failed: send failed');
+
+    await act(async () => resolveRetry());
   });
 });

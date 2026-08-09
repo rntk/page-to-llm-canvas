@@ -185,7 +185,7 @@ describe('popup pure functions', () => {
     ]);
   });
 
-  it('getRecordActions offers Generate summaries only for done records without summaries', () => {
+  it('getRecordActions offers Generate summaries for done records with missing summary work', () => {
     expect(
       popup
         .getRecordActions({ status: 'done', summariesDisabled: true })
@@ -211,10 +211,19 @@ describe('popup pure functions', () => {
         messageType: 'generateRecordSummaries',
       }),
     );
-    // Not offered when summaries already ran, or while still processing.
+    // Not offered when all summary work finished, or while still processing.
     expect(
       popup.getRecordActions({ status: 'done', summariesDisabled: false }).map((a) => a.label),
     ).not.toContain('Generate summaries');
+    expect(
+      popup
+        .getRecordActions({
+          status: 'done',
+          summariesDisabled: false,
+          summariesIncomplete: true,
+        })
+        .map((a) => a.label),
+    ).toContain('Generate summaries');
     expect(
       popup
         .getRecordActions({ status: 'summarizing', summariesDisabled: true })
@@ -513,6 +522,21 @@ describe('handleMessageAction', () => {
       onError,
     });
     expect(onError).toHaveBeenCalledWith('Custom fallback');
+  });
+
+  it('reports a stale action instead of running its success refresh', async () => {
+    const runtimeMessage = vi.fn().mockResolvedValue({ ok: true, stale: true });
+    const onSuccess = vi.fn();
+    const onError = vi.fn();
+    await popup.handleMessageAction(makeAction(), 'k1', {
+      confirm: () => true,
+      runtimeMessage,
+      onSuccess,
+      onError,
+    });
+
+    expect(onError).toHaveBeenCalledWith('This record has already been handled.');
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 
   it('calls onError with null response using failureMessage', async () => {

@@ -4,6 +4,10 @@ import {
   readRecord,
   updateRecord,
 } from '../storage/storage.js';
+import { markCancellation } from './cancellation.js';
+import { createLogger } from '../../src/shared/runtime/log.js';
+
+const logger = createLogger('pipeline');
 
 /**
  * @typedef {Object} PipelineRuntimeContext
@@ -25,9 +29,9 @@ import {
  * @property {boolean} summariesDisabled
  * @property {function(): void} assertActive
  * @property {function(): Promise<object|null>} read
- * @property {function(object): Promise<object>} update
+ * @property {function(object, object=): Promise<object>} update
  * @property {function(boolean): void} setSummariesDisabled
- * @property {function(string, object, {verbose: boolean}): Promise<void>} log
+ * @property {function(string, object, object=): Promise<void>} log
  * @property {function(): Promise<void>} flushLogs
  */
 
@@ -59,7 +63,7 @@ export function createPipelineRuntime({
       if (runtime.signal?.aborted) {
         const err = new Error('Pipeline run was cancelled');
         err.name = 'AbortError';
-        throw err;
+        throw markCancellation(err);
       }
     },
 
@@ -68,15 +72,22 @@ export function createPipelineRuntime({
       return await readRecord(runtime.key);
     },
 
-    async update(patch) {
-      runtime.assertActive();
+    async update(patch, options = {}) {
+      // Failure persistence may race an external abort. The run-id CAS still
+      // prevents a cancelled/superseded job from overwriting its successor,
+      // while allowing an unrelated failure to be saved when this run remains
+      // current.
+      if (!options.allowAborted) runtime.assertActive();
       const updated = await updateRecord(runtime.key, patch, {
         expectedPipelineRunId: runtime.pipelineRunId,
       });
       if (!updated) {
+        // Losing the CAS means a newer run owns the record. That is a
+        // cancellation for this run even though nothing aborted its signal, so
+        // it is marked explicitly rather than relying on the AbortError name.
         const err = new Error('Pipeline run is no longer current');
         err.name = 'AbortError';
-        throw err;
+        throw markCancellation(err);
       }
       return updated;
     },
@@ -92,22 +103,29 @@ export function createPipelineRuntime({
      * @param {object} [details] Diagnostic details.
      * @param {object} [options] Logging options.
      * @param {boolean} [options.verbose]
+     * @param {boolean} [options.allowAborted]
      */
     async log(stage, details = {}, options = {}) {
       if (options.verbose && !runtime.verboseLogs) return;
-      console.info('PageToLLM Canvas pipeline:', stage, details);
-      runtime.assertActive();
+      logger.event(stage, details);
+      if (!options.allowAborted) runtime.assertActive();
       // Logging is buffered, so persistence intentionally does not serialize
       // pipeline progress behind it. The final flush happens in runPipeline.
       appendProcessingLog(runtime.key, stage, details, {
         expectedPipelineRunId: runtime.pipelineRunId,
       }).catch((err) => {
-        console.warn('PageToLLM Canvas pipeline log failed:', err);
+        logger.warn('log failed:', err);
       });
     },
 
     async flushLogs() {
-      await flushProcessingLog(runtime.key).catch(() => {});
+      // Best-effort like the buffered append above: a failed flush must not
+      // mask the pipeline error this is usually called alongside. It does need
+      // a signal though — the lost buffer is the diagnostic trail explaining
+      // that very failure.
+      await flushProcessingLog(runtime.key).catch((err) => {
+        logger.warn('log flush failed:', err);
+      });
     },
   };
 

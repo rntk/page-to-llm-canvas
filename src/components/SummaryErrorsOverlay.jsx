@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { closeModal } from '../canvas/closeModal.js';
+import { isStaleActionError, STALE_ACTION_MESSAGE } from '../shared/runtime/actionResponses.js';
 
 /**
  * Confirm popup shown when a record is parked in `needs_attention`: some topic
@@ -24,6 +25,8 @@ export default function SummaryErrorsOverlay({
   onClose = closeModal,
 }) {
   const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState(null);
+  const [staleNotice, setStaleNotice] = useState(null);
   const overlayRef = useRef(null);
   const retryButtonRef = useRef(null);
   const busyRef = useRef(false);
@@ -87,11 +90,27 @@ export default function SummaryErrorsOverlay({
   const run = (fn) => async () => {
     if (busy) return;
     setBusy(true);
+    setActionError(null);
+    setStaleNotice(null);
     try {
-      await fn();
-    } catch (_) {
+      const result = await fn();
+      // `stale` means the decision already took effect — another window
+      // resolved it, or the pipeline moved on — so it is information, not a
+      // failure: asking the user to try again would be a lie.
+      if (result?.stale === true) setStaleNotice(STALE_ACTION_MESSAGE);
+    } catch (e) {
+      if (isStaleActionError(e)) {
+        setStaleNotice(e.message);
+        return;
+      }
       // The pipeline status drives the UI; a failed send just re-enables the
-      // buttons so the user can try again.
+      // buttons so the user can try again, plus surfaces the failure so it
+      // isn't silently swallowed.
+      console.warn('PageToLLM SummaryErrorsOverlay action failed:', e?.message);
+      setActionError(e?.message || 'The request failed. Please try again.');
+    } finally {
+      // Always re-enable: a successful decision must not leave the buttons —
+      // and Escape / backdrop dismissal — locked out forever.
       setBusy(false);
     }
   };
@@ -116,8 +135,8 @@ export default function SummaryErrorsOverlay({
             : `${count} topics could not be summarized`}
         </div>
         <div id="pagetollm-summary-errors-description" className="pagetollm-spinner-error-body">
-          The model kept failing on these after several automatic retries. Retry them, or skip to
-          finish with those topics left empty.
+          The model kept failing on these after several automatic retries. Retry them, or skip these
+          failures and continue. Any new failures will still need review.
         </div>
         {sourceUrl ? <div className="pagetollm-summary-errors-source">{sourceUrl}</div> : null}
         {count > 0 && (
@@ -133,6 +152,16 @@ export default function SummaryErrorsOverlay({
               </li>
             ))}
           </ul>
+        )}
+        {actionError && (
+          <div className="pagetollm-spinner-error-body" role="alert">
+            {actionError}
+          </div>
+        )}
+        {staleNotice && (
+          <div className="pagetollm-spinner-error-body" role="status">
+            {staleNotice}
+          </div>
         )}
         <div className="pagetollm-spinner-actions">
           <button

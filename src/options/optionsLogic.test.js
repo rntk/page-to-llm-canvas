@@ -222,6 +222,12 @@ describe('record action routing', () => {
   it('returns the runtime fallback error for message-based actions with custom response text', () => {
     expect(actionResponseError({ error: 'nope' }, 'reprocess')).toBe('nope');
   });
+
+  it('returns actionable feedback for a stale mutation response', () => {
+    expect(actionResponseError({ ok: true, stale: true }, 'reprocess')).toBe(
+      'This record has already been handled.',
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -113,7 +113,9 @@ export function buildTopicTree(topics) {
  * @returns {number[][]} ordered runs of consecutive ids
  */
 export function splitContiguousRuns(sentenceIds) {
-  const sorted = Array.isArray(sentenceIds) ? sentenceIds.slice().sort((a, b) => a - b) : [];
+  const sorted = Array.isArray(sentenceIds)
+    ? Array.from(new Set(sentenceIds)).sort((a, b) => a - b)
+    : [];
   const runs = [];
   let cur = [];
   for (const id of sorted) {
@@ -163,6 +165,10 @@ export function buildPartialTopicSummaryIndex(topics, leafSummaries) {
  * @param {Record<string, {runs: Array<{sentences: number[], text: string}>}>} params.leafSummaries  keyed by topic path
  * @param {function(number[], {path: string}): Promise<{runs: Array<{sentences: number[], text: string}>}>} params.summarizeSource
  * @param {function({path: string, error: unknown}): (void | Promise<void>)} [params.onError]
+ *   Called with a node's summarization failure. Returning normally degrades that
+ *   node to empty runs and resolution continues; throwing (or rejecting)
+ *   propagates and aborts the whole tree, which is how a caller escalates an
+ *   error that a retry could never fix.
  * @returns {Promise<Record<string, {runs: Array<{sentences: number[], text: string}>, level: number, source_sentences: number[]}>>}
  */
 export async function summarizeTopicTree({ nodes, leafSummaries, summarizeSource, onError }) {

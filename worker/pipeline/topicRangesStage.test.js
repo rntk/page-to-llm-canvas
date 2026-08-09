@@ -9,6 +9,8 @@ import {
 } from './topicRangesStage.js';
 
 import { splitSentences } from './sentenceSplitter.js';
+import { recordParserMetric } from '../metrics/parser.js';
+import { recordResplitRun } from '../metrics/resplit.js';
 
 vi.mock('../llm/llm.js', () => ({
   parallelMap: async (items, _limit, fn) => {
@@ -144,6 +146,13 @@ describe('computeTopics', () => {
 
     expect(result).toEqual({ topics: null, sentenceTexts: [] });
     expect(callLLMWithRetry).not.toHaveBeenCalled();
+    expect(runtime.update).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        summariesDisabled: false,
+        summariesIncomplete: false,
+      }),
+    );
     expect(runtime.update).toHaveBeenLastCalledWith(
       expect.objectContaining({
         status: 'done',
@@ -162,7 +171,7 @@ describe('computeTopics', () => {
     ]);
     const result = await computeTopics({
       runtime,
-      record: { html: '<p>Alpha topic. Beta topic.</p>' },
+      record: { html: '<p>Alpha topic. Beta topic.</p>', contentRevision: 'rev-current' },
       callLLMWithRetry,
     });
 
@@ -174,7 +183,107 @@ describe('computeTopics', () => {
     });
     expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
     expect(runtime.update).toHaveBeenLastCalledWith(
-      expect.objectContaining({ status: 'summarizing', topics: result.topics }),
+      expect.objectContaining({
+        status: 'summarizing',
+        topics: result.topics,
+        summaryCheckpointContentRevision: 'rev-current',
+      }),
     );
+  });
+
+  it('propagates cancellation during resplit instead of recording a resplit error', async () => {
+    const runtime = makeRuntime();
+    const controller = new AbortController();
+    runtime.signal = controller.signal;
+    recordParserMetric.mockClear();
+    recordResplitRun.mockClear();
+    // One oversized range (> TOPIC_RANGE_MAX_SENTENCES) so refinement runs.
+    splitSentences.mockReturnValue(
+      Array.from({ length: 45 }, (_, index) => ({
+        text: `Sentence ${index}.`,
+        start: index * 12,
+        end: index * 12 + 11,
+      })),
+    );
+    const abortError = new Error('The user aborted a request.');
+    abortError.name = 'AbortError';
+    let call = 0;
+    const callLLMWithRetry = vi.fn(async () => {
+      call++;
+      if (call === 1) return 'Science>AI: 0-44';
+      controller.abort();
+      throw abortError;
+    });
+
+    await expect(
+      computeTopics({ runtime, record: { html: '<p>x</p>' }, callLLMWithRetry }),
+    ).rejects.toBe(abortError);
+
+    expect(runtime.log).not.toHaveBeenCalledWith('topic_ranges_resplit_error', expect.anything());
+    expect(runtime.log).not.toHaveBeenCalledWith('topic_ranges_oversize_error', expect.anything());
+    // The already-completed primary parse remains a valid sample, but the
+    // cancelled resplit must not create parser or run-level resplit metrics.
+    expect(recordParserMetric).toHaveBeenCalledTimes(1);
+    expect(recordParserMetric).toHaveBeenCalledWith(expect.objectContaining({ scope: 'primary' }));
+    expect(recordResplitRun).not.toHaveBeenCalled();
+  });
+
+  it('does not record parser or resplit metrics when cancellation wins before primary parsing', async () => {
+    const runtime = makeRuntime();
+    const controller = new AbortController();
+    runtime.signal = controller.signal;
+    recordParserMetric.mockClear();
+    recordResplitRun.mockClear();
+    splitSentences.mockReturnValue([
+      { text: 'Alpha topic.', start: 0, end: 12 },
+      { text: 'Beta topic.', start: 13, end: 24 },
+    ]);
+    const callLLMWithRetry = vi.fn(async () => {
+      controller.abort();
+      return 'Science>AI: 0-1';
+    });
+
+    await expect(
+      computeTopics({ runtime, record: { html: '<p>x</p>' }, callLLMWithRetry }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(recordParserMetric).not.toHaveBeenCalled();
+    expect(recordResplitRun).not.toHaveBeenCalled();
+  });
+
+  it('does not record a resplit run when cancellation lands after successful refinement', async () => {
+    const runtime = makeRuntime();
+    const controller = new AbortController();
+    runtime.signal = controller.signal;
+    runtime.log.mockImplementation(async (stage) => {
+      if (stage === 'topic_ranges_oversize_refined') {
+        controller.abort();
+        return;
+      }
+      if (controller.signal.aborted) {
+        const error = new Error('Pipeline run was cancelled');
+        error.name = 'AbortError';
+        throw error;
+      }
+    });
+    recordResplitRun.mockClear();
+    splitSentences.mockReturnValue(
+      Array.from({ length: 45 }, (_, index) => ({
+        text: `Sentence ${index}.`,
+        start: index * 12,
+        end: index * 12 + 11,
+      })),
+    );
+    let call = 0;
+    const callLLMWithRetry = vi.fn(async () => {
+      call++;
+      return call === 1 ? 'Science>AI: 0-44' : 'Science>One: 0-21\nScience>Two: 22-44';
+    });
+
+    await expect(
+      computeTopics({ runtime, record: { html: '<p>x</p>' }, callLLMWithRetry }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(recordResplitRun).not.toHaveBeenCalled();
   });
 });

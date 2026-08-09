@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { classifyLlmError, finalizeSummariesDisabled, runSummaries } from './summaryStage.js';
+import {
+  classifyLlmError,
+  finalizeSummariesDisabled,
+  isCancellationError,
+  runSummaries,
+} from './summaryStage.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
+import { LLM_TASK_TYPES } from '../metrics/llm.js';
 
 function makeRuntime() {
   return {
@@ -43,6 +49,34 @@ describe('classifyLlmError', () => {
   });
 });
 
+describe('isCancellationError', () => {
+  it('recognizes AbortError by name', () => {
+    const error = new Error('signal is aborted without reason');
+    error.name = 'AbortError';
+    expect(isCancellationError(error)).toBe(true);
+  });
+
+  it('does not mistake an unrelated error arriving after abort for cancellation', () => {
+    const controller = new AbortController();
+    controller.abort();
+    expect(isCancellationError(new Error('provider failed'), { signal: controller.signal })).toBe(
+      false,
+    );
+  });
+
+  it('recognizes the signal exact abort reason even without an AbortError name', () => {
+    const reason = new Error('custom cancellation reason');
+    const controller = new AbortController();
+    controller.abort(reason);
+    expect(isCancellationError(reason, { signal: controller.signal })).toBe(true);
+  });
+
+  it('does not flag a genuine provider error', () => {
+    const runtime = { signal: { aborted: false } };
+    expect(isCancellationError(new Error('401 invalid api key'), runtime)).toBe(false);
+  });
+});
+
 describe('finalizeSummariesDisabled', () => {
   it('marks the run done without creating topic summaries', async () => {
     const runtime = makeRuntime();
@@ -58,9 +92,11 @@ describe('finalizeSummariesDisabled', () => {
       topic_summaries: {},
       topic_summary_index: {},
       summariesDisabled: true,
+      summariesIncomplete: false,
       progress: { stage: PIPELINE_STAGE.DONE, done: 2, total: 2 },
       summaryErrors: [],
       forceFinalize: false,
+      acceptedMergeFailurePaths: [],
     });
     expect(runtime.log).toHaveBeenNthCalledWith(1, 'summaries_disabled_skip', { topicCount: 2 });
     expect(runtime.log).toHaveBeenNthCalledWith(2, 'pipeline_done', {
@@ -94,6 +130,8 @@ describe('runSummaries', () => {
           source_sentences: [1],
         },
       },
+      summariesDisabled: false,
+      summariesIncomplete: false,
       progress: { stage: PIPELINE_STAGE.DONE, done: 1, total: 1 },
     });
   });
@@ -149,6 +187,7 @@ describe('runSummaries', () => {
         },
       ],
       forceFinalize: false,
+      summariesIncomplete: false,
       progress: { stage: PIPELINE_STAGE.NEEDS_ATTENTION, done: 1, total: 1 },
     });
     expect(runtime.log).toHaveBeenCalledWith('topic_summaries_needs_attention', {
@@ -161,7 +200,204 @@ describe('runSummaries', () => {
     );
   });
 
-  it('force-finalizes after a leaf failure and clears the error marker', async () => {
+  it('propagates a genuine AbortError unchanged (same object identity)', async () => {
+    const runtime = makeRuntime();
+    runtime.signal = { aborted: true };
+    const abortError = new Error('signal is aborted without reason');
+    abortError.name = 'AbortError';
+    const callLLMWithRetry = vi.fn(async () => {
+      throw abortError;
+    });
+
+    await expect(
+      runSummaries({
+        runtime,
+        topics: [topic],
+        sentenceTexts: ['word '.repeat(70).trim()],
+        previousSummaries: {},
+        callLLMWithRetry,
+      }),
+    ).rejects.toBe(abortError);
+
+    expect(
+      runtime.update.mock.calls.some(([patch]) => patch.status === PIPELINE_STATUS.NEEDS_ATTENTION),
+    ).toBe(false);
+    expect(runtime.log).not.toHaveBeenCalledWith(
+      'topic_summaries_needs_attention',
+      expect.anything(),
+    );
+  });
+
+  it('propagates the original non-cancellation error that arrives after abort', async () => {
+    const runtime = makeRuntime();
+    runtime.signal = { aborted: true };
+    const raceError = new TypeError('Cannot read properties of undefined');
+    const callLLMWithRetry = vi.fn(async () => {
+      throw raceError;
+    });
+
+    await expect(
+      runSummaries({
+        runtime,
+        topics: [topic],
+        sentenceTexts: ['word '.repeat(70).trim()],
+        previousSummaries: {},
+        callLLMWithRetry,
+      }),
+    ).rejects.toBe(raceError);
+
+    expect(
+      runtime.update.mock.calls.some(([patch]) => patch.status === PIPELINE_STATUS.NEEDS_ATTENTION),
+    ).toBe(false);
+    expect(runtime.log).not.toHaveBeenCalledWith(
+      'topic_summaries_needs_attention',
+      expect.anything(),
+    );
+  });
+
+  it('propagates an unrelated merge failure that arrives after abort', async () => {
+    const runtime = makeRuntime();
+    const controller = new AbortController();
+    runtime.signal = controller.signal;
+    const raceError = new TypeError('transport closed while aborting');
+    const callLLMWithRetry = vi.fn(async () => {
+      controller.abort();
+      throw raceError;
+    });
+
+    await expect(
+      runSummaries({
+        runtime,
+        topics: [
+          { name: 'A>x', sentences: [1] },
+          { name: 'A>y', sentences: [2] },
+        ],
+        sentenceTexts: ['x '.repeat(80).trim(), 'y '.repeat(80).trim()],
+        previousSummaries: {
+          'A>x': { runs: [{ sentences: [1], text: 'X' }], source_sentences: [1] },
+          'A>y': { runs: [{ sentences: [2], text: 'Y' }], source_sentences: [2] },
+        },
+        callLLMWithRetry,
+      }),
+    ).rejects.toBe(raceError);
+    expect(
+      runtime.update.mock.calls.some(([patch]) => patch.status === PIPELINE_STATUS.NEEDS_ATTENTION),
+    ).toBe(false);
+    expect(runtime.log).not.toHaveBeenCalledWith('topic_tree_merge_error', expect.anything());
+  });
+
+  // The merge stage below reuses both leaves from the checkpoint, so the only
+  // LLM request left is the ancestor's source summary.
+  const mergeOnlyRun = (runtime, callLLMWithRetry) =>
+    runSummaries({
+      runtime,
+      topics: [
+        { name: 'A>x', sentences: [1] },
+        { name: 'A>y', sentences: [2] },
+      ],
+      sentenceTexts: ['x '.repeat(80).trim(), 'y '.repeat(80).trim()],
+      previousSummaries: {
+        'A>x': { runs: [{ sentences: [1], text: 'X' }], source_sentences: [1] },
+        'A>y': { runs: [{ sentences: [2], text: 'Y' }], source_sentences: [2] },
+      },
+      callLLMWithRetry,
+    });
+
+  it('parks the run for review when a merge summary fails at the provider', async () => {
+    const runtime = makeRuntime();
+    const callLLMWithRetry = vi.fn(async () => {
+      throw new Error('timed out');
+    });
+
+    await mergeOnlyRun(runtime, callLLMWithRetry);
+
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+    expect(lastUpdate(runtime)).toMatchObject({
+      status: PIPELINE_STATUS.NEEDS_ATTENTION,
+      summaryErrors: [
+        {
+          topic: 'A',
+          error_kind: 'timeout',
+          error_message: 'The model did not respond in time.',
+          error_detail: 'Error: timed out',
+        },
+      ],
+      forceFinalize: false,
+      progress: { stage: PIPELINE_STAGE.NEEDS_ATTENTION, done: 2, total: 2 },
+    });
+    expect(runtime.log).toHaveBeenCalledWith('topic_tree_merge_error', {
+      path: 'A',
+      error_kind: 'timeout',
+      error: 'The model did not respond in time.',
+    });
+    expect(runtime.log).toHaveBeenCalledWith('topic_summaries_needs_attention', {
+      phase: 'merge',
+      errorCount: 1,
+      topics: ['A'],
+    });
+  });
+
+  it('rejects instead of parking when our own merge parsing code throws', async () => {
+    // Same policy as the leaf path: a TypeError raised while parsing the merge
+    // response is a deterministic bug, so it must not travel through
+    // classifyLlmError and park the node behind a Retry that cannot succeed.
+    const runtime = makeRuntime();
+    const callLLMWithRetry = vi.fn(async () => ({
+      toString() {
+        throw new TypeError('not a summary response');
+      },
+    }));
+
+    await expect(mergeOnlyRun(runtime, callLLMWithRetry)).rejects.toThrow(TypeError);
+
+    expect(
+      runtime.update.mock.calls.some(([patch]) => patch.status === PIPELINE_STATUS.NEEDS_ATTENTION),
+    ).toBe(false);
+    expect(runtime.log).not.toHaveBeenCalledWith('topic_tree_merge_error', expect.anything());
+    expect(runtime.log).not.toHaveBeenCalledWith(
+      'topic_summaries_needs_attention',
+      expect.anything(),
+    );
+  });
+
+  it('rejects instead of parking when a merge dependency throws a primitive', async () => {
+    // A non-object throw cannot carry the provider marker; it must still be
+    // treated as our own bug rather than silently parked.
+    const runtime = makeRuntime();
+    const callLLMWithRetry = vi.fn(async () => ({
+      toString() {
+        throw 'prompt template missing';
+      },
+    }));
+
+    await expect(mergeOnlyRun(runtime, callLLMWithRetry)).rejects.toBe('prompt template missing');
+
+    expect(
+      runtime.update.mock.calls.some(([patch]) => patch.status === PIPELINE_STATUS.NEEDS_ATTENTION),
+    ).toBe(false);
+    expect(runtime.log).not.toHaveBeenCalledWith('topic_tree_merge_error', expect.anything());
+  });
+
+  it('propagates a merge-stage cancellation as an AbortError without parking', async () => {
+    const runtime = makeRuntime();
+    const controller = new AbortController();
+    runtime.signal = controller.signal;
+    const abortError = new Error('signal is aborted without reason');
+    abortError.name = 'AbortError';
+    const callLLMWithRetry = vi.fn(async () => {
+      controller.abort(abortError);
+      throw abortError;
+    });
+
+    await expect(mergeOnlyRun(runtime, callLLMWithRetry)).rejects.toBe(abortError);
+
+    expect(
+      runtime.update.mock.calls.some(([patch]) => patch.status === PIPELINE_STATUS.NEEDS_ATTENTION),
+    ).toBe(false);
+    expect(runtime.log).not.toHaveBeenCalledWith('topic_tree_merge_error', expect.anything());
+  });
+
+  it('parks a new leaf failure during a force-finalizing resume', async () => {
     const runtime = makeRuntime();
     const callLLMWithRetry = vi.fn(async () => {
       throw new Error('timed out');
@@ -177,18 +413,461 @@ describe('runSummaries', () => {
     });
 
     expect(lastUpdate(runtime)).toMatchObject({
-      status: PIPELINE_STATUS.DONE,
-      topic_summaries: { A: { runs: [{ sentences: [1], text: '' }], source_sentences: [1] } },
-      topic_summary_index: {
-        A: { runs: [{ sentences: [1], text: '' }], level: 0, source_sentences: [1] },
-      },
-      summariesDisabled: false,
-      summaryErrors: [],
+      status: PIPELINE_STATUS.NEEDS_ATTENTION,
+      summaryErrors: [{ topic: 'A', error_kind: 'timeout' }],
       forceFinalize: false,
     });
+    expect(runtime.log).toHaveBeenCalledWith(
+      'topic_summaries_needs_attention',
+      expect.objectContaining({ phase: 'leaf', topics: ['A'] }),
+    );
+  });
+
+  it('force-finalizes a leaf skip while preserving unaffected ancestor work', async () => {
+    // All leaves are already checkpointed when review opens. The user accepted
+    // `A>z`'s failure; its source stays empty while the successful x/y branch
+    // still contributes a freshly generated ancestor summary.
+    const runtime = makeRuntime();
+    const long = (marker) => `${marker} ${'word '.repeat(40)}`.trim();
+    const sentenceTexts = [
+      long('s1'),
+      long('s2'),
+      long('s3'),
+      long('s4'),
+      long('gap5'),
+      long('gap6'),
+      long('gap7'),
+      long('gap8'),
+      long('gap9'),
+      long('zzz10'),
+      long('zzz11'),
+    ];
+    const callLLMWithRetry = vi.fn(async () => 'Unaffected A summary.');
+
+    await runSummaries({
+      runtime,
+      topics: [
+        { name: 'A>x', sentences: [1, 2] },
+        { name: 'A>y', sentences: [3, 4] },
+        { name: 'A>z', sentences: [10, 11] },
+      ],
+      sentenceTexts,
+      previousSummaries: {
+        'A>x': { runs: [{ sentences: [1, 2], text: 'X' }], source_sentences: [1, 2] },
+        'A>y': { runs: [{ sentences: [3, 4], text: 'Y' }], source_sentences: [3, 4] },
+        'A>z': {
+          runs: [{ sentences: [10, 11], text: '' }],
+          source_sentences: [10, 11],
+          acceptedFailure: true,
+        },
+      },
+      forceFinalize: true,
+      callLLMWithRetry,
+    });
+
+    const patch = lastUpdate(runtime);
+    expect(patch).toMatchObject({ status: PIPELINE_STATUS.DONE, forceFinalize: false });
+    expect(patch.topic_summary_index.A.runs).toEqual([
+      { sentences: [1, 2, 3, 4], text: 'Unaffected A summary.' },
+      { sentences: [10, 11], text: '' },
+    ]);
+    expect(patch.topic_summary_index['A>x'].runs).toEqual([{ sentences: [1, 2], text: 'X' }]);
+    expect(patch.topic_summary_index['A>y'].runs).toEqual([{ sentences: [3, 4], text: 'Y' }]);
+    expect(patch.topic_summary_index['A>z'].runs).toEqual([{ sentences: [10, 11], text: '' }]);
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+    expect(runtime.log).not.toHaveBeenCalledWith('topic_tree_merge_error', expect.anything());
+  });
+
+  it('omits an accepted leaf source while retaining adjacent ancestor-owned content', async () => {
+    const runtime = makeRuntime();
+    const ownSource = `ancestor ${'word '.repeat(40)}`.trim();
+    const failedSource = `failed-leaf ${'word '.repeat(40)}`.trim();
+    const callLLMWithRetry = vi.fn(async () => 'Ancestor-only summary.');
+
+    await runSummaries({
+      runtime,
+      topics: [
+        { name: 'A', sentences: [1] },
+        { name: 'A>failed', sentences: [2] },
+      ],
+      sentenceTexts: [ownSource, failedSource],
+      previousSummaries: {
+        A: {
+          runs: [{ sentences: [1], text: 'Existing ancestor leaf summary.' }],
+          source_sentences: [1],
+        },
+        'A>failed': {
+          runs: [{ sentences: [2], text: '' }],
+          source_sentences: [2],
+          acceptedFailure: true,
+        },
+      },
+      forceFinalize: true,
+      callLLMWithRetry,
+    });
+
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+    const prompt = callLLMWithRetry.mock.calls[0][0].prompt;
+    expect(prompt).toContain(ownSource);
+    expect(prompt).not.toContain(failedSource);
+    expect(lastUpdate(runtime).topic_summary_index.A.runs).toEqual([
+      { sentences: [1, 2], text: 'Ancestor-only summary.' },
+    ]);
+    expect(lastUpdate(runtime).topic_summary_index['A>failed'].runs).toEqual([
+      { sentences: [2], text: '' },
+    ]);
+  });
+
+  it('scopes and stamps a reused acceptedFailure leaf on the real skip resume', async () => {
+    // The actual "skip" path: the handler already swapped the leaf's error flags
+    // for `acceptedFailure`, so the resumed run REUSES the leaf (no re-query) and
+    // must still recognize it as failed through planSummaryWork's narrowed shape.
+    const runtime = makeRuntime();
+    const long = (marker) => `${marker} ${'word '.repeat(40)}`.trim();
+    const sentenceTexts = [
+      long('s1'),
+      long('s2'),
+      long('s3'),
+      long('s4'),
+      long('gap5'),
+      long('gap6'),
+      long('gap7'),
+      long('gap8'),
+      long('gap9'),
+      long('zzz10'),
+      long('zzz11'),
+    ];
+    const callLLMWithRetry = vi.fn(async ({ taskType }) =>
+      taskType === LLM_TASK_TYPES.ARTICLE_SUMMARY ? 'LEAF' : 'PARENT',
+    );
+
+    await runSummaries({
+      runtime,
+      topics: [
+        { name: 'A>x', sentences: [1, 2] },
+        { name: 'A>y', sentences: [3, 4] },
+        { name: 'A>z', sentences: [10, 11] },
+      ],
+      sentenceTexts,
+      previousSummaries: {
+        'A>x': { runs: [{ sentences: [1, 2], text: 'LEAF' }], source_sentences: [1, 2] },
+        'A>y': { runs: [{ sentences: [3, 4], text: 'LEAF' }], source_sentences: [3, 4] },
+        'A>z': {
+          runs: [{ sentences: [10, 11], text: '' }],
+          source_sentences: [10, 11],
+          acceptedFailure: true,
+        },
+      },
+      forceFinalize: true,
+      callLLMWithRetry,
+    });
+
+    const patch = lastUpdate(runtime);
+    expect(patch.topic_summary_index.A.runs).toEqual([
+      { sentences: [1, 2, 3, 4], text: 'PARENT' },
+      { sentences: [10, 11], text: '' },
+    ]);
+    // The accepted failure is finalized, not persisted as a transient marker.
+    expect(patch.topic_summaries['A>z']).toEqual({
+      runs: [{ sentences: [10, 11], text: '' }],
+      source_sentences: [10, 11],
+      forcedEmpty: true,
+    });
+    expect(patch.topic_summaries['A>x'].forcedEmpty).toBeUndefined();
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('finalizes an accepted merge failure without repeating its source-summary request', async () => {
+    const runtime = makeRuntime();
+    const long = (marker) => `${marker} ${'word '.repeat(40)}`.trim();
+    const sentenceTexts = [
+      long('a1'),
+      long('a2'),
+      long('b1'),
+      long('b2'),
+      long('c1'),
+      long('c2'),
+      long('d1'),
+      long('d2'),
+    ];
+    const callLLMWithRetry = vi.fn(async () => 'should not be called');
+
+    await runSummaries({
+      runtime,
+      topics: [
+        { name: 'Tech>AI', sentences: [1, 2] },
+        { name: 'Tech>Hardware', sentences: [3, 4] },
+        { name: 'Other>One', sentences: [5, 6] },
+        { name: 'Other>Two', sentences: [7, 8] },
+      ],
+      sentenceTexts,
+      previousSummaries: {
+        'Tech>AI': { runs: [{ sentences: [1, 2], text: 'AI summary.' }] },
+        'Tech>Hardware': { runs: [{ sentences: [3, 4], text: 'Hardware summary.' }] },
+        'Other>One': { runs: [{ sentences: [5, 6], text: 'One summary.' }] },
+        'Other>Two': { runs: [{ sentences: [7, 8], text: 'Two summary.' }] },
+      },
+      previousSummaryIndex: {
+        Tech: {
+          runs: [{ sentences: [1, 2, 3, 4], text: '' }],
+          level: 0,
+          source_sentences: [1, 2, 3, 4],
+        },
+        'Tech>AI': {
+          runs: [{ sentences: [1, 2], text: 'AI summary.' }],
+          level: 1,
+          source_sentences: [1, 2],
+        },
+        'Tech>Hardware': {
+          runs: [{ sentences: [3, 4], text: 'Hardware summary.' }],
+          level: 1,
+          source_sentences: [3, 4],
+        },
+        Other: {
+          runs: [{ sentences: [5, 6, 7, 8], text: 'Existing successful merge.' }],
+          level: 0,
+          source_sentences: [5, 6, 7, 8],
+        },
+        'Other>One': {
+          runs: [{ sentences: [5, 6], text: 'One summary.' }],
+          level: 1,
+          source_sentences: [5, 6],
+        },
+        'Other>Two': {
+          runs: [{ sentences: [7, 8], text: 'Two summary.' }],
+          level: 1,
+          source_sentences: [7, 8],
+        },
+      },
+      forceFinalize: true,
+      acceptedMergeFailurePaths: ['Tech'],
+      callLLMWithRetry,
+    });
+
+    expect(callLLMWithRetry).not.toHaveBeenCalled();
+    expect(runtime.log).toHaveBeenCalledWith(
+      'topic_tree_merge_reused',
+      { nodeCount: 6 },
+      { verbose: true },
+    );
+    expect(lastUpdate(runtime)).toMatchObject({
+      status: PIPELINE_STATUS.DONE,
+      summariesDisabled: false,
+      summariesIncomplete: true,
+      topic_summary_index: {
+        Tech: { runs: [{ sentences: [1, 2, 3, 4], text: '' }] },
+        Other: { runs: [{ sentences: [5, 6, 7, 8], text: 'Existing successful merge.' }] },
+      },
+      acceptedMergeFailurePaths: [],
+    });
+  });
+
+  it('refuses a parked merge index whose internal node runs do not fit the tree', async () => {
+    const runtime = makeRuntime();
+    const long = (marker) => `${marker} ${'word '.repeat(40)}`.trim();
+    const sentenceTexts = [long('a1'), long('a2'), long('b1'), long('b2')];
+    const callLLMWithRetry = vi.fn(async () => 'Rebuilt merge.');
+
+    await runSummaries({
+      runtime,
+      topics: [
+        { name: 'Accepted>One', sentences: [1] },
+        { name: 'Accepted>Two', sentences: [2] },
+        { name: 'Other>One', sentences: [3] },
+        { name: 'Other>Two', sentences: [4] },
+      ],
+      sentenceTexts,
+      previousSummaries: {
+        'Accepted>One': { runs: [{ sentences: [1], text: 'A1' }] },
+        'Accepted>Two': { runs: [{ sentences: [2], text: 'A2' }] },
+        'Other>One': { runs: [{ sentences: [3], text: 'B1' }] },
+        'Other>Two': { runs: [{ sentences: [4], text: 'B2' }] },
+      },
+      previousSummaryIndex: {
+        Accepted: { runs: [{ sentences: [1, 2], text: '' }], level: 0, source_sentences: [1, 2] },
+        'Accepted>One': { runs: [{ sentences: [1], text: 'A1' }], level: 1, source_sentences: [1] },
+        'Accepted>Two': { runs: [{ sentences: [2], text: 'A2' }], level: 1, source_sentences: [2] },
+        // Corrupt internal node: it claims the right source, but its runs are
+        // split and located as if they belonged to the other branch. Only the
+        // leaves used to be checked against the current tree, so this branch
+        // could be adopted whole — the rails place each card by its run's
+        // sentence ids, so it would surface as the wrong text in the right
+        // place rather than as missing text.
+        Other: {
+          runs: [
+            { sentences: [1], text: 'Belongs to the Accepted branch.' },
+            { sentences: [4], text: 'Other tail.' },
+          ],
+          level: 0,
+          source_sentences: [3, 4],
+        },
+        'Other>One': { runs: [{ sentences: [3], text: 'B1' }], level: 1, source_sentences: [3] },
+        'Other>Two': { runs: [{ sentences: [4], text: 'B2' }], level: 1, source_sentences: [4] },
+      },
+      forceFinalize: true,
+      acceptedMergeFailurePaths: ['Accepted'],
+      callLLMWithRetry,
+    });
+
+    expect(runtime.log).not.toHaveBeenCalledWith(
+      'topic_tree_merge_reused',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+    expect(lastUpdate(runtime)).toMatchObject({ status: PIPELINE_STATUS.DONE });
+    expect(lastUpdate(runtime).topic_summary_index.Other.runs).toEqual([
+      { sentences: [3, 4], text: 'Rebuilt merge.' },
+    ]);
+    expect(lastUpdate(runtime).topic_summary_index.Accepted.runs).toEqual([
+      { sentences: [1, 2], text: '' },
+    ]);
+  });
+
+  it('rebuilds an unusable merge checkpoint without emptying unrelated branches', async () => {
+    const runtime = makeRuntime();
+    const long = (marker) => `${marker} ${'word '.repeat(40)}`.trim();
+    const sentenceTexts = [long('a1'), long('a2'), long('b1'), long('b2')];
+    const callLLMWithRetry = vi.fn(async () => 'Retried other merge.');
+
+    await runSummaries({
+      runtime,
+      topics: [
+        { name: 'Accepted>One', sentences: [1] },
+        { name: 'Accepted>Two', sentences: [2] },
+        { name: 'Other>One', sentences: [3] },
+        { name: 'Other>Two', sentences: [4] },
+      ],
+      sentenceTexts,
+      previousSummaries: {
+        'Accepted>One': { runs: [{ sentences: [1], text: 'A1' }] },
+        'Accepted>Two': { runs: [{ sentences: [2], text: 'A2' }] },
+        'Other>One': { runs: [{ sentences: [3], text: 'B1' }] },
+        'Other>Two': { runs: [{ sentences: [4], text: 'B2' }] },
+      },
+      forceFinalize: true,
+      acceptedMergeFailurePaths: ['Accepted'],
+      callLLMWithRetry,
+    });
+
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+    expect(callLLMWithRetry).toHaveBeenCalledWith(
+      expect.objectContaining({ taskType: LLM_TASK_TYPES.TOPIC_SUMMARY_FROM_SOURCE }),
+    );
+    expect(lastUpdate(runtime)).toMatchObject({ status: PIPELINE_STATUS.DONE });
+    expect(lastUpdate(runtime).topic_summary_index.Accepted.runs).toEqual([
+      { sentences: [1, 2], text: '' },
+    ]);
+    expect(lastUpdate(runtime).topic_summary_index.Other.runs).toEqual([
+      { sentences: [3, 4], text: 'Retried other merge.' },
+    ]);
+  });
+
+  it('keeps force-finalize path-scoped when Retry carries an accepted leaf marker', async () => {
+    const runtime = makeRuntime();
+    const long = (marker) => `${marker} ${'word '.repeat(40)}`.trim();
+    const sentenceTexts = [long('a1'), long('a2'), long('b1'), long('b2')];
+    const callLLMWithRetry = vi.fn(async ({ prompt }) =>
+      prompt.includes('a2') ? 'Recovered good sibling.' : 'Recovered unrelated branch.',
+    );
+
+    await runSummaries({
+      runtime,
+      topics: [
+        { name: 'Accepted>Failed', sentences: [1] },
+        { name: 'Accepted>Good', sentences: [2] },
+        { name: 'Retried>One', sentences: [3] },
+        { name: 'Retried>Two', sentences: [4] },
+      ],
+      sentenceTexts,
+      previousSummaries: {
+        'Accepted>Failed': {
+          runs: [{ sentences: [1], text: '' }],
+          source_sentences: [1],
+          acceptedFailure: true,
+        },
+        'Accepted>Good': { runs: [{ sentences: [2], text: 'Good' }], source_sentences: [2] },
+        'Retried>One': { runs: [{ sentences: [3], text: 'One' }], source_sentences: [3] },
+        'Retried>Two': { runs: [{ sentences: [4], text: 'Two' }], source_sentences: [4] },
+      },
+      // This is the defensive chained-review state produced when Retry keeps
+      // an accepted marker from an earlier decision.
+      forceFinalize: true,
+      callLLMWithRetry,
+    });
+
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(2);
+    expect(lastUpdate(runtime).topic_summary_index.Accepted.runs).toEqual([
+      { sentences: [1, 2], text: 'Recovered good sibling.' },
+    ]);
+    expect(lastUpdate(runtime).topic_summary_index.Retried.runs).toEqual([
+      { sentences: [3, 4], text: 'Recovered unrelated branch.' },
+    ]);
+    expect(lastUpdate(runtime).topic_summaries['Accepted>Failed'].forcedEmpty).toBe(true);
+  });
+
+  it('rejects instead of parking when our own parsing code throws', async () => {
+    // A TypeError from parseSummaryResult is a deterministic bug, not a
+    // retryable provider failure: parking it would offer a Retry button that
+    // can never succeed.
+    const runtime = makeRuntime();
+    const callLLMWithRetry = vi.fn(async () => ({
+      toString() {
+        throw new TypeError('not a summary response');
+      },
+    }));
+
+    await expect(
+      runSummaries({
+        runtime,
+        topics: [topic],
+        sentenceTexts: ['word '.repeat(70).trim()],
+        previousSummaries: {},
+        callLLMWithRetry,
+      }),
+    ).rejects.toThrow(TypeError);
+
     expect(runtime.log).not.toHaveBeenCalledWith(
       'topic_summaries_needs_attention',
       expect.anything(),
     );
+    expect(runtime.log).not.toHaveBeenCalledWith(
+      'topic_summary_llm_error',
+      expect.objectContaining({ error_kind: 'error' }),
+    );
+  });
+
+  it('marks an accepted failure forcedEmpty so a later resume retries it', async () => {
+    const runtime = makeRuntime();
+    const callLLMWithRetry = vi.fn();
+
+    await runSummaries({
+      runtime,
+      topics: [topic, { name: 'B', sentences: [2] }],
+      sentenceTexts: ['word '.repeat(70).trim(), 'A short second sentence.'],
+      previousSummaries: {
+        A: {
+          runs: [{ sentences: [1], text: '' }],
+          source_sentences: [1],
+          acceptedFailure: true,
+        },
+      },
+      forceFinalize: true,
+      callLLMWithRetry,
+    });
+
+    const { topic_summaries, summariesDisabled, summariesIncomplete } = lastUpdate(runtime);
+    expect(topic_summaries.A).toEqual({
+      runs: [{ sentences: [1], text: '' }],
+      source_sentences: [1],
+      forcedEmpty: true,
+    });
+    // The successful topic stays a plain summary: no marker, so it is reused.
+    expect(topic_summaries.B).toEqual({
+      runs: [{ sentences: [2], text: 'A short second sentence.' }],
+      source_sentences: [2],
+    });
+    expect(summariesDisabled).toBe(false);
+    expect(summariesIncomplete).toBe(true);
   });
 });

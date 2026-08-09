@@ -1,17 +1,63 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { readRecord, writeRecord } from '../../../worker/storage/storage.js';
+import { readRecord, writeRecord, updateRecord } from '../../../worker/storage/storage.js';
 import { LLM_METRICS_KEY } from '../../../worker/metrics/llm.js';
 import { CHAT_TOOL_METRICS_KEY } from '../../../worker/metrics/chatTool.js';
+import { PARSER_METRICS_KEY } from '../../../worker/metrics/parser.js';
+import { RESPLIT_METRICS_KEY } from '../../../worker/metrics/resplit.js';
 
+// The checkpoint predicate mirrors the real one in orchestrator.js (its own
+// rules are covered there); only `runPipeline` needs to be replaced, and
+// importing the real orchestrator would drag the whole LLM stack into these
+// service-worker tests.
 vi.mock('../../../worker/pipeline/orchestrator.js', () => ({
   runPipeline: vi.fn(() => new Promise((resolve) => setTimeout(resolve, 10))),
+  isSummaryCheckpointComplete: vi.fn((record) => {
+    if (!Array.isArray(record?.topics) || record.topics.length === 0) return false;
+    if (!Array.isArray(record.sentences) || record.sentences.length === 0) return false;
+    const hasSourceText = (sentenceId) =>
+      typeof record.sentences[sentenceId - 1] === 'string' &&
+      record.sentences[sentenceId - 1].trim() !== '';
+    let summarizableTopics = 0;
+    for (const topic of record.topics) {
+      if (typeof topic?.name !== 'string' || topic.name.trim() === '') return false;
+      if (!Array.isArray(topic.sentences)) return false;
+      const inRange = topic.sentences.every(
+        (sentenceId) =>
+          Number.isInteger(sentenceId) && sentenceId >= 1 && sentenceId <= record.sentences.length,
+      );
+      if (!inRange) return false;
+      if (topic.sentences.some(hasSourceText)) summarizableTopics++;
+    }
+    return summarizableTopics > 0;
+  }),
 }));
+
+// `updateRecord` is wrapped (not replaced) so the real implementation still
+// runs by default; individual tests can override it with
+// `updateRecord.mockRejectedValueOnce(...)` to simulate a storage failure
+// distinct from the mocked `runPipeline` rejection above.
+vi.mock('../../../worker/storage/storage.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, updateRecord: vi.fn(actual.updateRecord) };
+});
 
 const STALE_MS = 10 * 60 * 1000;
 
 function makeChromeMock() {
   const store = new Map();
-  const runtime = { lastError: null };
+  // One object, handed out as `chrome.runtime` and closed over by the storage
+  // callbacks below. It used to be spread into the returned mock, which meant a
+  // `lastError` a test set on `chrome.runtime` was never cleared by the reset in
+  // those callbacks — real Chrome scopes `lastError` to the callback that is
+  // running, so a stale one would leak into unrelated calls.
+  const runtime = {
+    lastError: null,
+    getURL: vi.fn((path = '') => `chrome-extension://test-id/${path}`),
+    sendMessage: vi.fn(),
+    onMessage: { addListener: vi.fn() },
+    onStartup: { addListener: vi.fn() },
+    onInstalled: { addListener: vi.fn() },
+  };
 
   const chromeLocal = {
     _store: store,
@@ -53,14 +99,7 @@ function makeChromeMock() {
       local: chromeLocal,
       onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
     },
-    runtime: {
-      ...runtime,
-      getURL: vi.fn((path = '') => `chrome-extension://test-id/${path}`),
-      sendMessage: vi.fn(),
-      onMessage: { addListener: vi.fn() },
-      onStartup: { addListener: vi.fn() },
-      onInstalled: { addListener: vi.fn() },
-    },
+    runtime,
     alarms: {
       create: vi.fn(),
       clear: vi.fn(),
@@ -101,6 +140,15 @@ function makeRecord(key, overrides = {}) {
     createdAt: 1000,
     updatedAt: 1000,
     ...overrides,
+  };
+}
+
+function completeSummaryCheckpoint() {
+  return {
+    contentRevision: 'checkpoint-revision',
+    summaryCheckpointContentRevision: 'checkpoint-revision',
+    sentences: ['One.', 'Two.'],
+    topics: [{ name: 'Checkpoint', sentences: [1, 2], sentence_spans: [], ranges: [] }],
   };
 }
 
@@ -280,7 +328,9 @@ describe('background pipeline lifecycle', () => {
     await seedRecord(
       chromeMock,
       makeRecord('park1', {
+        ...completeSummaryCheckpoint(),
         status: 'needs_attention',
+        summariesIncomplete: true,
         summaryErrors: [{ topic: 'Tech>All', error_kind: 'timeout', error_message: 'x' }],
         topic_summaries: {
           'Tech>All': { text: '', source_sentences: [1], error: true, error_kind: 'timeout' },
@@ -301,6 +351,7 @@ describe('background pipeline lifecycle', () => {
     expect(updated.status).toBe('summarizing');
     expect(updated.forceFinalize).toBe(false);
     expect(updated.summaryErrors).toEqual([]);
+    expect(updated.summariesIncomplete).toBe(false);
     // Retry keeps the flag so the resumed run re-queries only the failed leaf.
     expect(updated.topic_summaries['Tech>All'].error).toBe(true);
 
@@ -312,13 +363,63 @@ describe('background pipeline lifecycle', () => {
     );
   });
 
-  it('resolveSummaryErrors skip clears leaf error flags and forces finalize', async () => {
+  it.each(['retry', 'skip'])(
+    'resolveSummaryErrors %s refuses an incomplete checkpoint without mutating it',
+    async (action) => {
+      const chromeMock = makeChromeMock();
+      vi.stubGlobal('chrome', chromeMock);
+      await seedRecord(
+        chromeMock,
+        makeRecord('park-incomplete', {
+          pipelineRunId: 'imported-run',
+          status: 'needs_attention',
+          sentences: [],
+          topics: [{ name: 'A', sentences: [1], sentence_spans: [], ranges: [] }],
+          summaryErrors: [{ topic: 'A', error_kind: 'timeout', error_message: 'x' }],
+          topic_summaries: {
+            A: {
+              runs: [{ sentences: [1], text: 'A good surviving summary.' }],
+              source_sentences: [1],
+              error: true,
+            },
+          },
+          topic_summary_index: {
+            A: {
+              runs: [{ sentences: [1], text: 'A good surviving summary.' }],
+              level: 0,
+              source_sentences: [1],
+            },
+          },
+        }),
+      );
+      const before = await readRecord('park-incomplete');
+
+      const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+      _resetJobRegistry();
+      const result = await dispatchMessage(
+        { type: 'resolveSummaryErrors', key: 'park-incomplete', action },
+        {},
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        error: 'The saved summary checkpoint is incomplete. Reprocess the record instead.',
+      });
+      expect(await readRecord('park-incomplete')).toEqual(before);
+      expect(updateRecord).not.toHaveBeenCalled();
+      const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+      expect(runPipeline).not.toHaveBeenCalled();
+    },
+  );
+
+  it('resolveSummaryErrors skip swaps leaf error flags for acceptedFailure and forces finalize', async () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);
 
     await seedRecord(
       chromeMock,
       makeRecord('park2', {
+        ...completeSummaryCheckpoint(),
         status: 'needs_attention',
         summaryErrors: [{ topic: 'Tech>All', error_kind: 'timeout', error_message: 'x' }],
         topic_summaries: {
@@ -349,8 +450,179 @@ describe('background pipeline lifecycle', () => {
     expect(leaf.error).toBeUndefined();
     expect(leaf.error_kind).toBeUndefined();
     expect(leaf.error_message).toBeUndefined();
+    // The failure is still marked, just transiently: the resumed run needs it to
+    // scope ancestor summaries and stamp `forcedEmpty`, but `planSummaryWork`
+    // ignores it so the leaf is reused without a re-query.
+    expect(leaf.acceptedFailure).toBe(true);
     expect(leaf.text).toBe('');
     expect(leaf.source_sentences).toEqual([1]);
+  });
+
+  it('resolveSummaryErrors skip carries merge-only failures so resume does not repeat them', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    await seedRecord(
+      chromeMock,
+      makeRecord('park-merge', {
+        ...completeSummaryCheckpoint(),
+        status: 'needs_attention',
+        summaryErrors: [{ topic: 'Tech', error_kind: 'timeout', error_message: 'x' }],
+        topic_summaries: {
+          'Tech>AI': { runs: [], source_sentences: [1, 2] },
+          'Tech>Hardware': { runs: [], source_sentences: [3, 4] },
+        },
+      }),
+    );
+
+    const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const res = await dispatchMessage(
+      { type: 'resolveSummaryErrors', key: 'park-merge', action: 'skip' },
+      {},
+    );
+
+    expect(res.ok).toBe(true);
+    const updated = await readRecord('park-merge');
+    expect(updated.forceFinalize).toBe(true);
+    expect(updated.acceptedMergeFailurePaths).toEqual(['Tech']);
+  });
+
+  it('serializes concurrent Retry and Skip decisions with the pipeline run id', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(
+      chromeMock,
+      makeRecord('park-race', {
+        ...completeSummaryCheckpoint(),
+        pipelineRunId: 'review-run',
+        status: 'needs_attention',
+        summaryErrors: [{ topic: 'Tech>All', error_kind: 'timeout', error_message: 'x' }],
+        topic_summaries: {
+          'Tech>All': {
+            runs: [{ sentences: [1], text: '' }],
+            source_sentences: [1],
+            error: true,
+          },
+        },
+      }),
+    );
+
+    const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    // Both handlers take their snapshot before storage's queued update runs.
+    // Retry is dispatched first and must retain the error marker; the stale
+    // Skip must not overwrite the whole summaries field afterward.
+    const [retry, skip] = await Promise.all([
+      dispatchMessage({ type: 'resolveSummaryErrors', key: 'park-race', action: 'retry' }, {}),
+      dispatchMessage({ type: 'resolveSummaryErrors', key: 'park-race', action: 'skip' }, {}),
+    ]);
+
+    expect(retry).toEqual({ ok: true });
+    expect(skip).toEqual({ ok: true, stale: true });
+    const stored = await readRecord('park-race');
+    expect(stored.status).toBe('summarizing');
+    expect(stored.forceFinalize).toBe(false);
+    expect(stored.topic_summaries['Tech>All'].error).toBe(true);
+    expect(stored.topic_summaries['Tech>All'].acceptedFailure).toBeUndefined();
+    const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+    await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not cancel a replacement summary run started after the decision CAS', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(
+      chromeMock,
+      makeRecord('park-replacement-race', {
+        ...completeSummaryCheckpoint(),
+        pipelineRunId: 'review-run',
+        status: 'needs_attention',
+        summaryErrors: [{ topic: 'Checkpoint', error_kind: 'timeout', error_message: 'x' }],
+        topic_summaries: {
+          Checkpoint: {
+            runs: [{ sentences: [1, 2], text: '' }],
+            source_sentences: [1, 2],
+            error: true,
+          },
+        },
+      }),
+    );
+
+    const { dispatchMessage, startPipeline, _resetJobRegistry } = await import('./background.js');
+    const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+    _resetJobRegistry();
+
+    let resolvePipeline;
+    runPipeline.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePipeline = resolve;
+        }),
+    );
+    const realUpdate = updateRecord.getMockImplementation();
+    updateRecord.mockImplementationOnce(async (key, patch, options) => {
+      const updated = await realUpdate(key, patch, options);
+      // Model a keepalive taking the newly minted run after the decision owns
+      // storage, but before the handler gets to its cancellation call.
+      void startPipeline(key);
+      await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(1));
+      return updated;
+    });
+
+    await expect(
+      dispatchMessage(
+        { type: 'resolveSummaryErrors', key: 'park-replacement-race', action: 'retry' },
+        {},
+      ),
+    ).resolves.toEqual({ ok: true });
+
+    expect(runPipeline).toHaveBeenCalledTimes(1);
+    expect(runPipeline.mock.calls[0][1].pipelineRunId).not.toBe('review-run');
+    expect(runPipeline.mock.calls[0][1].signal.aborted).toBe(false);
+
+    resolvePipeline();
+  });
+
+  it('resolveSummaryErrors retry preserves failures accepted in an earlier review', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    await seedRecord(
+      chromeMock,
+      makeRecord('park-chained', {
+        ...completeSummaryCheckpoint(),
+        status: 'needs_attention',
+        summaryErrors: [{ topic: 'Other', error_kind: 'timeout', error_message: 'new failure' }],
+        topic_summaries: {
+          'Tech>All': { runs: [], source_sentences: [1], acceptedFailure: true },
+          'Other>All': { runs: [], source_sentences: [2], error: true },
+        },
+        topic_summary_index: {
+          Tech: { runs: [], level: 0, source_sentences: [1] },
+          Other: { runs: [], level: 0, source_sentences: [2] },
+        },
+        acceptedMergeFailurePaths: ['Tech'],
+      }),
+    );
+
+    const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const res = await dispatchMessage(
+      { type: 'resolveSummaryErrors', key: 'park-chained', action: 'retry' },
+      {},
+    );
+
+    expect(res.ok).toBe(true);
+    const updated = await readRecord('park-chained');
+    expect(updated.forceFinalize).toBe(true);
+    expect(updated.acceptedMergeFailurePaths).toEqual(['Tech']);
+    expect(updated.topic_summary_index).toEqual({});
+    expect(updated.topic_summaries['Tech>All'].acceptedFailure).toBe(true);
+    expect(updated.topic_summaries['Other>All'].error).toBe(true);
   });
 
   it('resolveSummaryErrors is a no-op when the record is not parked', async () => {
@@ -399,9 +671,11 @@ describe('background pipeline lifecycle', () => {
         status: 'done',
         skipSummaries: true,
         summariesDisabled: true,
+        summariesIncomplete: true,
         sentences: ['Alpha.', 'Beta.'],
         topics: [{ name: 'Tech>All', sentences: [1, 2], sentence_spans: [], ranges: [] }],
         pipelineRunId: 'old-run',
+        acceptedMergeFailurePaths: ['Stale'],
       }),
     );
 
@@ -417,6 +691,8 @@ describe('background pipeline lifecycle', () => {
     expect(updated.pipelineRunId).not.toBe('old-run');
     expect(updated.forceFinalize).toBe(false);
     expect(updated.summaryErrors).toEqual([]);
+    expect(updated.acceptedMergeFailurePaths).toEqual([]);
+    expect(updated.summariesIncomplete).toBe(false);
     // Topics and sentences are kept so the pipeline resumes instead of reprocessing.
     expect(updated.topics).toHaveLength(1);
     expect(updated.sentences).toEqual(['Alpha.', 'Beta.']);
@@ -445,6 +721,97 @@ describe('background pipeline lifecycle', () => {
     await new Promise((r) => setTimeout(r, 30));
     const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
     expect(runPipeline).not.toHaveBeenCalled();
+  });
+
+  it('generateRecordSummaries refuses invalid sentence references without mutating the record', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(
+      chromeMock,
+      makeRecord('gen-invalid', {
+        status: 'done',
+        sentences: ['One.'],
+        topics: [{ name: 'A', sentences: [2], sentence_spans: [], ranges: [] }],
+        topic_summaries: {
+          A: { runs: [{ sentences: [1], text: 'Keep me.' }], source_sentences: [1] },
+        },
+      }),
+    );
+    const before = await readRecord('gen-invalid');
+
+    const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+    const result = await dispatchMessage(
+      { type: 'generateRecordSummaries', key: 'gen-invalid' },
+      {},
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'record has an incomplete summary checkpoint — reprocess it instead',
+    });
+    expect(await readRecord('gen-invalid')).toEqual(before);
+    expect(updateRecord).not.toHaveBeenCalled();
+    const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+    expect(runPipeline).not.toHaveBeenCalled();
+  });
+
+  it.each(['pending', 'splitting', 'summarizing', 'needs_attention'])(
+    'generateRecordSummaries leaves an active %s record alone',
+    async (status) => {
+      const chromeMock = makeChromeMock();
+      vi.stubGlobal('chrome', chromeMock);
+      const record = makeRecord(`gen-active-${status}`, {
+        status,
+        pipelineRunId: 'active-run',
+        ...completeSummaryCheckpoint(),
+      });
+      await seedRecord(chromeMock, record);
+
+      const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+      _resetJobRegistry();
+
+      await expect(
+        dispatchMessage({ type: 'generateRecordSummaries', key: record.key }, {}),
+      ).resolves.toEqual({ ok: true, stale: true });
+      expect(await readRecord(record.key)).toEqual(record);
+      expect(updateRecord).not.toHaveBeenCalled();
+      const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+      expect(runPipeline).not.toHaveBeenCalled();
+    },
+  );
+
+  it('generateRecordSummaries treats a CAS-lost terminal record as stale', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(
+      chromeMock,
+      makeRecord('gen-race', {
+        status: 'done',
+        pipelineRunId: 'old-run',
+        ...completeSummaryCheckpoint(),
+      }),
+    );
+    const { dispatchMessage } = await import('./background.js');
+    const realUpdate = updateRecord.getMockImplementation();
+    updateRecord.mockImplementationOnce(async (key, patch, options) => {
+      await realUpdate(key, { pipelineRunId: 'replacement-run' });
+      return realUpdate(key, patch, options);
+    });
+
+    await expect(
+      dispatchMessage({ type: 'generateRecordSummaries', key: 'gen-race' }, {}),
+    ).resolves.toEqual({ ok: true, stale: true });
+    expect((await readRecord('gen-race')).pipelineRunId).toBe('replacement-run');
+    expect((await readRecord('gen-race')).status).toBe('done');
+    expect(updateRecord).toHaveBeenLastCalledWith(
+      'gen-race',
+      expect.any(Object),
+      expect.objectContaining({
+        expectedPipelineRunId: 'old-run',
+        expectedStatuses: ['done', 'cancelled', 'error'],
+      }),
+    );
   });
 
   it('reconciles old index projections at service-worker startup', async () => {
@@ -562,10 +929,102 @@ describe('background pipeline lifecycle', () => {
 
     expect(oldOptions.signal.aborted).toBe(true);
     expect(runPipeline).toHaveBeenCalledTimes(2);
-    expect(runPipeline.mock.calls[1][1].pipelineRunId).toBe('run-same');
+    // The takeover run must not inherit the evicted run's id: that id is the
+    // only thing standing between a late failure from the aborted run and this
+    // run's own writes.
+    expect(runPipeline.mock.calls[1][1].pipelineRunId).not.toBe('run-same');
+    expect(runPipeline.mock.calls[1][1].pipelineRunId).toEqual(expect.any(String));
+    expect((await readRecord('stale-running')).pipelineRunId).toBe(
+      runPipeline.mock.calls[1][1].pipelineRunId,
+    );
 
     resolvePipeline();
     await first;
+  });
+
+  it('keeps a takeover run DONE when the run it evicted fails afterwards', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    await seedRecord(
+      chromeMock,
+      makeRecord('overlap', {
+        status: 'summarizing',
+        pipelineRunId: 'run-old',
+        updatedAt: Date.now(),
+      }),
+    );
+
+    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+    _resetJobRegistry();
+
+    // The evicted run is still parked inside a provider call when it is
+    // aborted, so its genuine failure settles only after the takeover run has
+    // already finished — the overlap the two halves of this race miss when
+    // tested separately.
+    let rejectEvictedRun;
+    runPipeline.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectEvictedRun = reject;
+        }),
+    );
+
+    const evictedRun = startPipeline('overlap');
+    await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(1));
+    expect(runPipeline.mock.calls[0][1].pipelineRunId).toBe('run-old');
+
+    const metaKey = 'pagetollm:rec:overlap:meta';
+    chromeMock.storage.local._store.set(metaKey, {
+      ...chromeMock.storage.local._store.get(metaKey),
+      updatedAt: Date.now() - STALE_MS - 1000,
+    });
+
+    await startPipeline('overlap');
+    const takeoverRunId = runPipeline.mock.calls[1][1].pipelineRunId;
+
+    // The replacement run finishes successfully...
+    await updateRecord(
+      'overlap',
+      { status: 'done', error: null },
+      { expectedPipelineRunId: takeoverRunId },
+    );
+
+    // ...and only then does the evicted run's provider call reject. Its error
+    // write (orchestrator's, and the background fallback's) is guarded by the
+    // run id it started with, which no longer owns the record.
+    rejectEvictedRun(new Error('provider 500'));
+    await evictedRun;
+
+    const finished = await readRecord('overlap');
+    expect(finished.status).toBe('done');
+    expect(finished.error).toBeNull();
+  });
+
+  it('arms the keepalive alarm before the bootstrap read', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    await seedRecord(chromeMock, makeRecord('read-fails', { status: 'summarizing' }));
+
+    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+    chromeMock.alarms.create.mockClear();
+
+    chromeMock.storage.local.get.mockImplementationOnce(() => {
+      throw new Error('storage read failed');
+    });
+
+    await expect(startPipeline('read-fails')).rejects.toThrow('storage read failed');
+
+    // The caller has already persisted an in-flight status and answered
+    // {ok:true}. With no job registered and no alarm, nothing would ever
+    // resume this record.
+    expect(chromeMock.alarms.create).toHaveBeenCalledWith(
+      'pipeline-keepalive',
+      expect.objectContaining({ periodInMinutes: expect.any(Number) }),
+    );
   });
 
   it('does not duplicate an already-running job', async () => {
@@ -596,6 +1055,7 @@ describe('background pipeline lifecycle', () => {
     const rec = makeRecord('cancel1', {
       status: 'summarizing',
       pipelineRunId: 'run-old',
+      summariesIncomplete: true,
     });
     await seedRecord(chromeMock, rec);
 
@@ -622,9 +1082,174 @@ describe('background pipeline lifecycle', () => {
     const stored = await readRecord('cancel1');
     expect(stored.status).toBe('cancelled');
     expect(stored.pipelineRunId).not.toBe('run-old');
+    expect(stored.summariesIncomplete).toBe(false);
 
     resolvePipeline();
     await running;
+  });
+
+  it('treats a cancel as stale when the run finalized before its queued write', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(
+      chromeMock,
+      makeRecord('cancel-race', { status: 'summarizing', pipelineRunId: 'run-old' }),
+    );
+
+    const { dispatchMessage } = await import('./background.js');
+    const realUpdate = updateRecord.getMockImplementation();
+    updateRecord.mockImplementationOnce(async (key, patch, options) => {
+      // Model the pipeline's finalize write landing after the handler read its
+      // snapshot but before the handler reaches storage's serialized update.
+      await realUpdate(
+        key,
+        // Pipeline finalization retains ownership of its run id, which is why
+        // the status guard (not just the run-id guard) is needed here.
+        { status: 'done', error: null, pipelineRunId: 'run-old' },
+        { expectedPipelineRunId: 'run-old' },
+      );
+      return realUpdate(key, patch, options);
+    });
+
+    await expect(
+      dispatchMessage({ type: 'cancelRecordProcessing', key: 'cancel-race' }, {}),
+    ).resolves.toEqual({ ok: true, stale: true });
+    expect((await readRecord('cancel-race')).status).toBe('done');
+  });
+
+  it('treats a retry as stale when another writer already took the run', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(chromeMock, makeRecord('retry-race', { pipelineRunId: 'run-old' }));
+
+    const { dispatchMessage } = await import('./background.js');
+    const realUpdate = updateRecord.getMockImplementation();
+    updateRecord.mockImplementationOnce(async (key, patch, options) => {
+      await realUpdate(
+        key,
+        { status: 'done', error: null, pipelineRunId: 'run-finished' },
+        { expectedPipelineRunId: 'run-old' },
+      );
+      return realUpdate(key, patch, options);
+    });
+
+    await expect(dispatchMessage({ type: 'retryRecord', key: 'retry-race' }, {})).resolves.toEqual({
+      ok: true,
+      stale: true,
+    });
+    expect((await readRecord('retry-race')).status).toBe('done');
+  });
+
+  it('restarts a stale summary checkpoint for new HTML and preserves its summary directive', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    chromeMock.storage.local._store.set('pagetollm-summaries-disabled', false);
+    await seedRecord(
+      chromeMock,
+      makeRecord('retry-stale-summary-checkpoint', {
+        ...completeSummaryCheckpoint(),
+        contentRevision: 'new-content-revision',
+        summaryCheckpointContentRevision: 'old-content-revision',
+        html: '<p>Replacement article.</p>',
+        status: 'error',
+        error: 'pipeline failed before topic computation',
+        skipSummaries: true,
+      }),
+    );
+
+    const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+    await expect(
+      dispatchMessage({ type: 'retryRecord', key: 'retry-stale-summary-checkpoint' }, {}),
+    ).resolves.toEqual({ ok: true });
+
+    const retried = await readRecord('retry-stale-summary-checkpoint');
+    expect(retried).toMatchObject({
+      status: 'pending',
+      error: null,
+      skipSummaries: true,
+      progress: { stage: 'queued', done: 0, total: 0 },
+    });
+  });
+
+  it('retries a valid errored summary checkpoint without rebuilding it', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    chromeMock.storage.local._store.set('pagetollm-summaries-disabled', true);
+    await seedRecord(
+      chromeMock,
+      makeRecord('retry-summary-checkpoint', {
+        ...completeSummaryCheckpoint(),
+        status: 'error',
+        error: 'late storage write failed',
+        summariesIncomplete: true,
+        topic_summaries: {
+          Checkpoint: {
+            runs: [{ sentences: [1, 2], text: 'Already paid for.' }],
+            source_sentences: [1, 2],
+          },
+        },
+      }),
+    );
+
+    const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+    await expect(
+      dispatchMessage({ type: 'retryRecord', key: 'retry-summary-checkpoint' }, {}),
+    ).resolves.toEqual({ ok: true });
+
+    const retried = await readRecord('retry-summary-checkpoint');
+    expect(retried).toMatchObject({
+      status: 'summarizing',
+      error: null,
+      skipSummaries: false,
+      summariesIncomplete: false,
+      progress: { stage: 'summarizing_topics', done: 0, total: 1 },
+    });
+    expect(retried.topic_summaries.Checkpoint).toEqual({
+      runs: [{ sentences: [1, 2], text: 'Already paid for.' }],
+      source_sentences: [1, 2],
+    });
+  });
+
+  it('keeps accepted Skip directives when retrying an interrupted summary resume', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(
+      chromeMock,
+      makeRecord('retry-accepted-skip', {
+        ...completeSummaryCheckpoint(),
+        status: 'error',
+        error: 'late index write failed',
+        forceFinalize: true,
+        acceptedMergeFailurePaths: ['Checkpoint'],
+        topic_summaries: {
+          Checkpoint: {
+            runs: [{ sentences: [1, 2], text: '' }],
+            source_sentences: [1, 2],
+            acceptedFailure: true,
+          },
+        },
+      }),
+    );
+
+    const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+    await expect(
+      dispatchMessage({ type: 'retryRecord', key: 'retry-accepted-skip' }, {}),
+    ).resolves.toEqual({ ok: true });
+
+    const retried = await readRecord('retry-accepted-skip');
+    expect(retried).toMatchObject({
+      status: 'summarizing',
+      forceFinalize: true,
+      acceptedMergeFailurePaths: ['Checkpoint'],
+    });
+    expect(retried.topic_summaries.Checkpoint).toEqual({
+      runs: [{ sentences: [1, 2], text: '' }],
+      source_sentences: [1, 2],
+      acceptedFailure: true,
+    });
   });
 
   it('reprocessRecord aborts stale work and starts a fresh run id', async () => {
@@ -638,6 +1263,8 @@ describe('background pipeline lifecycle', () => {
         pipelineRunId: 'run-old',
         topics: [{ name: 'Old', sentences: [1] }],
         sentences: ['old'],
+        acceptedMergeFailurePaths: ['Old'],
+        summariesIncomplete: true,
       }),
     );
 
@@ -667,10 +1294,49 @@ describe('background pipeline lifecycle', () => {
     expect(stored.pipelineRunId).not.toBe('run-old');
     expect(stored.topics).toEqual([]);
     expect(stored.sentences).toEqual([]);
+    expect(stored.acceptedMergeFailurePaths).toEqual([]);
+    expect(stored.summariesIncomplete).toBe(false);
     expect(runPipeline.mock.calls[1][1].pipelineRunId).toBe(stored.pipelineRunId);
 
     resolvePipeline();
     await running;
+  });
+
+  it('reprocessRecord treats a CAS-lost replacement as stale without clearing its checkpoint', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(
+      chromeMock,
+      makeRecord('reprocess-race', {
+        status: 'error',
+        pipelineRunId: 'old-run',
+        text: 'Keep this checkpoint.',
+        sentences: ['Keep this checkpoint.'],
+        topics: [{ name: 'Keep', sentences: [1] }],
+      }),
+    );
+    const { dispatchMessage } = await import('./background.js');
+    const realUpdate = updateRecord.getMockImplementation();
+    updateRecord.mockImplementationOnce(async (key, patch, options) => {
+      await realUpdate(key, { pipelineRunId: 'replacement-run' });
+      return realUpdate(key, patch, options);
+    });
+
+    await expect(
+      dispatchMessage({ type: 'reprocessRecord', key: 'reprocess-race' }, {}),
+    ).resolves.toEqual({ ok: true, stale: true });
+    const stored = await readRecord('reprocess-race');
+    expect(stored).toMatchObject({
+      pipelineRunId: 'replacement-run',
+      text: 'Keep this checkpoint.',
+      sentences: ['Keep this checkpoint.'],
+      topics: [{ name: 'Keep', sentences: [1] }],
+    });
+    expect(updateRecord).toHaveBeenLastCalledWith(
+      'reprocess-race',
+      expect.any(Object),
+      expect.objectContaining({ expectedPipelineRunId: 'old-run', bumpContentRevision: true }),
+    );
   });
 
   it('does not start a job for done records', async () => {
@@ -716,6 +1382,52 @@ describe('background pipeline lifecycle', () => {
     expect(stored.status).toBe('pending');
   });
 
+  it('clears the prior content checkpoint when resubmitting a non-done URL', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    const { handleSubmit, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+    await seedRecord(
+      chromeMock,
+      makeRecord('url-checkpoint', {
+        sourceUrl: 'https://example.com/article-with-checkpoint',
+        status: 'error',
+        text: 'Old text.',
+        sentences: ['Old sentence.'],
+        topics: [{ name: 'Old', sentences: [1] }],
+        topic_summaries: { Old: { runs: [{ sentences: [1], text: 'Old summary.' }] } },
+        topic_summary_index: { Old: { text: 'Old summary.' } },
+        summaryErrors: [{ topic: 'Old' }],
+        summaryCheckpointContentRevision: 'old-revision',
+        forceFinalize: true,
+        acceptedMergeFailurePaths: ['Old'],
+        summariesIncomplete: true,
+      }),
+    );
+
+    await expect(
+      handleSubmit({
+        html: '<p>new body</p>',
+        sourceUrl: 'https://example.com/article-with-checkpoint',
+      }),
+    ).resolves.toEqual({ ok: true, key: 'url-checkpoint' });
+
+    const stored = await readRecord('url-checkpoint');
+    expect(stored).toMatchObject({
+      html: '<p>new body</p>',
+      text: '',
+      sentences: [],
+      topics: [],
+      topic_summaries: {},
+      topic_summary_index: {},
+      summaryErrors: [],
+      summaryCheckpointContentRevision: null,
+      forceFinalize: false,
+      acceptedMergeFailurePaths: [],
+      summariesIncomplete: false,
+    });
+  });
+
   it('does not start a job for error records', async () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);
@@ -734,7 +1446,7 @@ describe('background pipeline lifecycle', () => {
 });
 
 describe('clearSummaryErrorFlags (pure)', () => {
-  it('strips error markers from topic summaries while preserving other fields', async () => {
+  it('swaps error markers for acceptedFailure while preserving other fields', async () => {
     const { clearSummaryErrorFlags } = await import('./background.js');
     const input = {
       'A>B': {
@@ -751,7 +1463,10 @@ describe('clearSummaryErrorFlags (pure)', () => {
     };
     const out = clearSummaryErrorFlags(input);
     expect(out).toEqual({
-      'A>B': { text: 't', source_sentences: [1], other: 42 },
+      // The failed leaf keeps a transient marker so the resumed run can still
+      // scope ancestor summaries around it and stamp `forcedEmpty`; an entry
+      // that never failed is untouched.
+      'A>B': { text: 't', source_sentences: [1], other: 42, acceptedFailure: true },
       C: { text: 'ok', source_sentences: [3] },
       bad: null,
     });
@@ -898,6 +1613,25 @@ describe('dispatchMessage unit tests', () => {
     expect(res).toEqual({ ok: false, error: 'unknown type: nope' });
   });
 
+  it('treats inherited Object.prototype keys as unknown types instead of rejecting', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+
+    const fakeHandlers = {};
+    await expect(dispatchMessage({ type: '__proto__' }, {}, fakeHandlers)).resolves.toEqual({
+      ok: false,
+      error: 'unknown type: __proto__',
+    });
+    await expect(dispatchMessage({ type: 'constructor' }, {}, fakeHandlers)).resolves.toEqual({
+      ok: false,
+      error: 'unknown type: constructor',
+    });
+    await expect(dispatchMessage({ type: 'toString' }, {}, fakeHandlers)).resolves.toEqual({
+      ok: false,
+      error: 'unknown type: toString',
+    });
+  });
+
   it('returns validation error when validate returns a string', async () => {
     const chromeMock = makeChromeMock();
     const dispatchMessage = await loadDispatchMessage(chromeMock);
@@ -1025,7 +1759,10 @@ describe('dispatchMessage unit tests', () => {
   it('handles retryRecord, reprocessRecord, getRecord, deleteRecord, and deleteAll', async () => {
     const chromeMock = makeChromeMock();
     const dispatchMessage = await loadDispatchMessage(chromeMock);
-    await seedRecord(chromeMock, makeRecord('rec1', { status: 'error' }));
+    await seedRecord(
+      chromeMock,
+      makeRecord('rec1', { status: 'error', acceptedMergeFailurePaths: ['Stale'] }),
+    );
 
     expect((await dispatchMessage({ type: 'retryRecord' })).error).toBe('missing key');
     expect((await dispatchMessage({ type: 'retryRecord', key: 'missing' })).error).toBe(
@@ -1034,6 +1771,7 @@ describe('dispatchMessage unit tests', () => {
 
     const retry = await dispatchMessage({ type: 'retryRecord', key: 'rec1' });
     expect(retry.ok).toBe(true);
+    expect((await readRecord('rec1')).acceptedMergeFailurePaths).toEqual([]);
 
     const reprocess = await dispatchMessage({ type: 'reprocessRecord', key: 'rec1' });
     expect(reprocess.ok).toBe(true);
@@ -1098,6 +1836,27 @@ describe('dispatchMessage unit tests', () => {
 
     const reset = await dispatchMessage({ type: 'deleteAllExtensionData' }, sender);
     expect(reset.ok).toBe(true);
+    expect(chromeMock.storage.local.clear).toHaveBeenCalledTimes(1);
+    expect(chromeMock.storage.local._store.size).toBe(0);
+  });
+
+  it('still clears all extension data when a preliminary metric clear fails', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+    chromeMock.storage.local._store.set('legacy-unknown-key', { old: true });
+    const sender = { url: 'chrome-extension://test-id/options.html' };
+
+    // The first preliminary clear is LLM metrics. Its rejected write must not
+    // skip the authoritative storage.local.clear() that follows all queues.
+    chromeMock.storage.local.set.mockImplementationOnce((_items, callback) => {
+      chromeMock.runtime.lastError = { message: 'metric clear unavailable' };
+      callback();
+      chromeMock.runtime.lastError = null;
+    });
+
+    const reset = await dispatchMessage({ type: 'deleteAllExtensionData' }, sender);
+
+    expect(reset).toEqual({ ok: true });
     expect(chromeMock.storage.local.clear).toHaveBeenCalledTimes(1);
     expect(chromeMock.storage.local._store.size).toBe(0);
   });
@@ -1396,6 +2155,19 @@ describe('dispatchMessage unit tests', () => {
     expect(res).toEqual({ ok: true });
     expect(chromeMock.storage.local._store.get(CHAT_TOOL_METRICS_KEY).totalCount).toBe(0);
   });
+
+  it('clears parser and resplit metrics through the worker', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+    chromeMock.storage.local._store.set(PARSER_METRICS_KEY, { totalCount: 3 });
+    chromeMock.storage.local._store.set(RESPLIT_METRICS_KEY, { runCount: 4 });
+
+    await expect(dispatchMessage({ type: 'clearParserMetrics' })).resolves.toEqual({ ok: true });
+    await expect(dispatchMessage({ type: 'clearResplitMetrics' })).resolves.toEqual({ ok: true });
+
+    expect(chromeMock.storage.local._store.get(PARSER_METRICS_KEY).totalCount).toBe(0);
+    expect(chromeMock.storage.local._store.get(RESPLIT_METRICS_KEY).runCount).toBe(0);
+  });
 });
 
 describe('background service-worker boundaries', () => {
@@ -1418,6 +2190,10 @@ describe('background service-worker boundaries', () => {
     expect(chromeMock.alarms.create).toHaveBeenCalledWith('pipeline-keepalive', {
       periodInMinutes: 0.5,
     });
+    // `alarms.create` only accepts (name, alarmInfo); a third (callback)
+    // argument makes Chrome reject the call synchronously, so the arity is
+    // asserted explicitly — the mock itself accepts any arity.
+    expect(chromeMock.alarms.create.mock.calls[0].length).toBe(2);
 
     await seedRecord(chromeMock, makeRecord('keepalive-existing', { status: 'pending' }));
     chromeMock.alarms.get.mockImplementation((_name, cb) =>
@@ -1426,6 +2202,210 @@ describe('background service-worker boundaries', () => {
     chromeMock.alarms.create.mockClear();
     await startPipeline('keepalive-existing');
     expect(chromeMock.alarms.create).not.toHaveBeenCalled();
+  });
+
+  it('warns but still attempts to create the alarm when chrome.alarms.get reports lastError', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(chromeMock, makeRecord('keepalive-get-error', { status: 'pending' }));
+
+    chromeMock.alarms.get.mockImplementation((_name, cb) => {
+      chromeMock.runtime.lastError = { message: 'get boom' };
+      cb(undefined);
+      chromeMock.runtime.lastError = null;
+    });
+
+    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await startPipeline('keepalive-get-error');
+      expect(warnSpy).toHaveBeenCalledWith(
+        'PageToLLM Canvas: chrome.alarms.get failed:',
+        expect.objectContaining({ message: 'get boom' }),
+      );
+      // A failed get can't be trusted, so bailing out would guarantee no
+      // alarm exists (the worst outcome for the sole SW-restart recovery
+      // path). alarms.create is idempotent by name, so it must still be
+      // attempted.
+      expect(chromeMock.alarms.create).toHaveBeenCalledWith('pipeline-keepalive', {
+        periodInMinutes: 0.5,
+      });
+      expect(chromeMock.alarms.create.mock.calls[0].length).toBe(2);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('does not throttle ambiguous legacy creates after a get failure', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    // Three distinct records so each `startPipeline` call is a fresh job
+    // (the registry dedups repeat calls for the same key) and reaches
+    // `scheduleKeepAlive()` independently.
+    await seedRecord(chromeMock, makeRecord('keepalive-throttle-a', { status: 'pending' }));
+    await seedRecord(chromeMock, makeRecord('keepalive-throttle-b', { status: 'pending' }));
+    await seedRecord(chromeMock, makeRecord('keepalive-throttle-c', { status: 'pending' }));
+
+    chromeMock.alarms.get.mockImplementation((_name, cb) => {
+      chromeMock.runtime.lastError = { message: 'get boom' };
+      cb(undefined);
+      chromeMock.runtime.lastError = null;
+    });
+
+    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      await startPipeline('keepalive-throttle-a');
+      expect(chromeMock.alarms.create).toHaveBeenCalledTimes(1);
+
+      // With a legacy, non-promise create, the get callback's lastError can
+      // still be present after create. That does not establish success, so it
+      // must not stamp the throttle and suppress the recovery attempt.
+      chromeMock.alarms.create.mockClear();
+      nowSpy.mockReturnValue(1_000_000 + 1000);
+      await startPipeline('keepalive-throttle-b');
+      expect(chromeMock.alarms.create).toHaveBeenCalledTimes(1);
+
+      // The same remains true after a full period: every call is attempted
+      // until the platform provides an unambiguous success signal.
+      chromeMock.alarms.create.mockClear();
+      nowSpy.mockReturnValue(1_000_000 + 31_000);
+      await startPipeline('keepalive-throttle-c');
+      expect(chromeMock.alarms.create).toHaveBeenCalledTimes(1);
+    } finally {
+      warnSpy.mockRestore();
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('warns when chrome.alarms.create reports lastError', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(chromeMock, makeRecord('keepalive-create-error', { status: 'pending' }));
+
+    // Pre-Chrome-111 shape: `create` returns undefined and reports the failure
+    // through `runtime.lastError` instead of a rejected promise.
+    chromeMock.alarms.create.mockImplementation(() => {
+      chromeMock.runtime.lastError = { message: 'create boom' };
+      return undefined;
+    });
+
+    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await startPipeline('keepalive-create-error');
+      expect(warnSpy).toHaveBeenCalledWith(
+        'PageToLLM Canvas: chrome.alarms.create failed:',
+        expect.objectContaining({ message: 'create boom' }),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('warns when chrome.alarms.create rejects (promise form) or throws', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(chromeMock, makeRecord('keepalive-create-reject', { status: 'pending' }));
+    await seedRecord(chromeMock, makeRecord('keepalive-create-throw', { status: 'pending' }));
+
+    // Chrome 111+ returns a promise; a bad signature throws synchronously.
+    chromeMock.alarms.create.mockImplementation(() => Promise.reject(new Error('create rejected')));
+
+    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await startPipeline('keepalive-create-reject');
+      await vi.waitFor(() =>
+        expect(warnSpy).toHaveBeenCalledWith(
+          'PageToLLM Canvas: chrome.alarms.create failed:',
+          expect.objectContaining({ message: 'create rejected' }),
+        ),
+      );
+
+      chromeMock.alarms.create.mockImplementation(() => {
+        throw new Error('No matching signature');
+      });
+      await expect(startPipeline('keepalive-create-throw')).resolves.not.toThrow();
+      expect(warnSpy).toHaveBeenCalledWith(
+        'PageToLLM Canvas: chrome.alarms.create failed:',
+        expect.objectContaining({ message: 'No matching signature' }),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('does not throttle after a failed create, so the keepalive is not stranded', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(chromeMock, makeRecord('keepalive-retry-a', { status: 'pending' }));
+    await seedRecord(chromeMock, makeRecord('keepalive-retry-b', { status: 'pending' }));
+    await seedRecord(chromeMock, makeRecord('keepalive-retry-c', { status: 'pending' }));
+    await seedRecord(chromeMock, makeRecord('keepalive-retry-d', { status: 'pending' }));
+
+    chromeMock.alarms.get.mockImplementation((_name, cb) => {
+      chromeMock.runtime.lastError = { message: 'get boom' };
+      cb(undefined);
+      chromeMock.runtime.lastError = null;
+    });
+
+    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(2_000_000);
+    try {
+      // A failed create leaves no alarm behind, so there is no live period to
+      // protect — the throttle must not suppress the next attempt.
+      chromeMock.alarms.create.mockImplementation(() => {
+        throw new Error('No matching signature');
+      });
+      await startPipeline('keepalive-retry-a');
+      expect(chromeMock.alarms.create).toHaveBeenCalledTimes(1);
+
+      chromeMock.alarms.create.mockClear();
+      chromeMock.alarms.create.mockImplementation(() => undefined);
+      nowSpy.mockReturnValue(2_000_000 + 1000);
+      await startPipeline('keepalive-retry-b');
+      expect(chromeMock.alarms.create).toHaveBeenCalledTimes(1);
+
+      // Same for the Chrome 111+ promise form: the stamp is taken optimistically
+      // when the create is issued, but a rejection must release it.
+      chromeMock.alarms.create.mockImplementation(() =>
+        Promise.reject(new Error('create rejected')),
+      );
+      // Past the period, so the stamp left by the successful create above no
+      // longer suppresses this attempt.
+      nowSpy.mockReturnValue(2_000_000 + 31_000);
+      await startPipeline('keepalive-retry-c');
+      await vi.waitFor(() =>
+        expect(warnSpy).toHaveBeenCalledWith(
+          'PageToLLM Canvas: chrome.alarms.create failed:',
+          expect.objectContaining({ message: 'create rejected' }),
+        ),
+      );
+
+      chromeMock.alarms.create.mockClear();
+      chromeMock.alarms.create.mockImplementation(() => undefined);
+      // Still inside the period of the stamp the rejected create took, so this
+      // only reaches `create` because the rejection released that stamp.
+      nowSpy.mockReturnValue(2_000_000 + 32_000);
+      await startPipeline('keepalive-retry-d');
+      expect(chromeMock.alarms.create).toHaveBeenCalledTimes(1);
+    } finally {
+      warnSpy.mockRestore();
+      nowSpy.mockRestore();
+    }
   });
 
   it('ignores unrelated alarms and clears keepalive when storage has no active records', async () => {
@@ -1442,6 +2422,33 @@ describe('background service-worker boundaries', () => {
     await vi.waitFor(() => {
       expect(chromeMock.alarms.clear).toHaveBeenCalledWith('pipeline-keepalive');
     });
+  });
+
+  it('clears keepalive from authoritative terminal metadata when its index projection is stale', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(chromeMock, makeRecord('alarm-terminal', { status: 'summarizing' }));
+
+    // Simulate the exact interrupted projection write: the meta document has
+    // reached its terminal state but the cached list entry still says it is
+    // summarizing. Keepalive must use the authoritative listing and stop.
+    const metaKey = 'pagetollm:rec:alarm-terminal:meta';
+    chromeMock.storage.local._store.set(metaKey, {
+      ...chromeMock.storage.local._store.get(metaKey),
+      status: 'done',
+      progress: { stage: 'complete', done: 1, total: 1 },
+    });
+
+    await import('./background.js');
+    const alarmListener = chromeMock.alarms.onAlarm.addListener.mock.calls[0][0];
+    alarmListener({ name: 'pipeline-keepalive' });
+
+    await vi.waitFor(() => {
+      expect(chromeMock.alarms.clear).toHaveBeenCalledWith('pipeline-keepalive');
+    });
+    expect(
+      chromeMock.storage.local._store.get('pagetollm:index').meta['alarm-terminal'].status,
+    ).toBe('done');
   });
 
   it('resumes every active record when the keepalive alarm fires', async () => {
@@ -1462,6 +2469,176 @@ describe('background service-worker boundaries', () => {
     await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(2));
     expect(runPipeline.mock.calls.map(([key]) => key).sort()).toEqual(['alarm-a', 'alarm-b']);
     expect(chromeMock.alarms.clear).not.toHaveBeenCalled();
+  });
+
+  it('does not produce an unhandled rejection when listRecords fails in the keepalive handler', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await import('./background.js');
+    const alarmListener = chromeMock.alarms.onAlarm.addListener.mock.calls[0][0];
+
+    const unhandledRejections = [];
+    const onUnhandledRejection = (err) => unhandledRejections.push(err);
+    globalThis.process.on('unhandledRejection', onUnhandledRejection);
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // Fail only the index read `listRecords` performs. `lastError` is reported
+    // inside the failing callback and cleared again on the way out, the way
+    // Chrome scopes it, so the simulated failure cannot leak into unrelated
+    // reads.
+    const passThroughGet = chromeMock.storage.local.get.getMockImplementation();
+    chromeMock.storage.local.get.mockImplementation((keys, cb) => {
+      const requested = Array.isArray(keys) ? keys : [keys];
+      if (!requested.includes('pagetollm:index')) {
+        passThroughGet(keys, cb);
+        return;
+      }
+      chromeMock.runtime.lastError = { message: 'boom' };
+      cb({});
+      chromeMock.runtime.lastError = null;
+    });
+    try {
+      alarmListener({ name: 'pipeline-keepalive' });
+      // Let the rejected listRecords() promise and its .catch handler settle.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
+
+      expect(unhandledRejections).toEqual([]);
+      expect(errorSpy).toHaveBeenCalledWith(
+        'PageToLLM Canvas keepalive listRecords failed:',
+        expect.any(Error),
+      );
+    } finally {
+      globalThis.process.off('unhandledRejection', onUnhandledRejection);
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('falls back to an ERROR status write when the pipeline fails and re-logs if that write also fails', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(chromeMock, makeRecord('fallback1', { status: 'summarizing' }));
+
+    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+    _resetJobRegistry();
+    updateRecord.mockClear();
+
+    // Simulate a pipeline failure that reaches startPipeline's catch (as it
+    // would if orchestrator's own error-status write also failed and rethrew).
+    runPipeline.mockImplementationOnce(() => Promise.reject(new Error('pipeline boom')));
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await startPipeline('fallback1');
+      await vi.waitFor(() => {
+        expect(updateRecord).toHaveBeenCalledWith(
+          'fallback1',
+          expect.objectContaining({
+            status: 'error',
+            error: expect.stringContaining('pipeline boom'),
+          }),
+          { expectedPipelineRunId: undefined },
+        );
+      });
+      const stored = await readRecord('fallback1');
+      expect(stored.status).toBe('error');
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('logs (and does not throw) when both the pipeline and the fallback status write fail', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(chromeMock, makeRecord('fallback2', { status: 'summarizing' }));
+
+    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+    _resetJobRegistry();
+    updateRecord.mockClear();
+
+    runPipeline.mockImplementationOnce(() => Promise.reject(new Error('pipeline boom')));
+    updateRecord.mockRejectedValueOnce(new Error('storage boom'));
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await startPipeline('fallback2');
+      await vi.waitFor(() => {
+        expect(errorSpy).toHaveBeenCalledWith(
+          'PageToLLM Canvas: fallback error-status write also failed for',
+          'fallback2',
+          expect.any(Error),
+        );
+      });
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('does not let a superseded run clobber a newer run when the fallback write races a resubmit', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(
+      chromeMock,
+      makeRecord('fallback3', { status: 'summarizing', pipelineRunId: 'run-A' }),
+    );
+
+    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+    _resetJobRegistry();
+    updateRecord.mockClear();
+
+    // Run A's pipeline stalls so a resubmit (run B) can take ownership of the
+    // record before A's failure is handled.
+    let rejectRunA;
+    runPipeline.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectRunA = reject;
+        }),
+    );
+
+    const running = startPipeline('fallback3');
+    // Let startPipeline read the record and capture pipelineRunId 'run-A'.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // A newer run now owns the record (e.g. the user resubmitted).
+    await updateRecord('fallback3', { status: 'splitting', pipelineRunId: 'run-B' });
+    updateRecord.mockClear();
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      rejectRunA(new Error('pipeline boom'));
+      await running;
+
+      await vi.waitFor(() => {
+        expect(updateRecord).toHaveBeenCalledWith(
+          'fallback3',
+          expect.objectContaining({ status: 'error' }),
+          { expectedPipelineRunId: 'run-A' },
+        );
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        'PageToLLM Canvas: fallback error-status write skipped (record superseded) for',
+        'fallback3',
+      );
+      // The fallback's guarded write must not have overwritten run B's state.
+      expect(errorSpy).not.toHaveBeenCalledWith(
+        'PageToLLM Canvas: fallback error-status write also failed for',
+        expect.anything(),
+        expect.anything(),
+      );
+
+      const stored = await readRecord('fallback3');
+      expect(stored.status).toBe('splitting');
+      expect(stored.pipelineRunId).toBe('run-B');
+    } finally {
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
   });
 
   it('refreshes progress only for local record-storage changes', async () => {
@@ -1714,22 +2891,38 @@ describe('record import and submission boundaries', () => {
     const chromeMock = makeChromeMock();
     const dispatch = await loadDispatch(chromeMock);
     const cases = [
-      makeRecord('topics-not-array', { status: 'done', topics: null, sentences: ['x'] }),
-      makeRecord('topics-empty', { status: 'done', topics: [], sentences: ['x'] }),
-      makeRecord('sentences-not-array', {
-        status: 'done',
-        topics: [{ name: 'A' }],
-        sentences: null,
-      }),
-      makeRecord('sentences-empty', { status: 'done', topics: [{ name: 'A' }], sentences: [] }),
+      {
+        record: makeRecord('topics-not-array', { status: 'done', topics: null, sentences: ['x'] }),
+        error: 'record has no topics yet — reprocess it instead',
+      },
+      {
+        record: makeRecord('topics-empty', { status: 'done', topics: [], sentences: ['x'] }),
+        error: 'record has no topics yet — reprocess it instead',
+      },
+      {
+        record: makeRecord('sentences-not-array', {
+          status: 'done',
+          topics: [{ name: 'A' }],
+          sentences: null,
+        }),
+        error: 'record has an incomplete summary checkpoint — reprocess it instead',
+      },
+      {
+        record: makeRecord('sentences-empty', {
+          status: 'done',
+          topics: [{ name: 'A' }],
+          sentences: [],
+        }),
+        error: 'record has an incomplete summary checkpoint — reprocess it instead',
+      },
     ];
-    for (const record of cases) await seedRecord(chromeMock, record);
+    for (const { record } of cases) await seedRecord(chromeMock, record);
 
-    for (const record of cases) {
+    for (const { record, error } of cases) {
       await expect(dispatch({ type: 'generateRecordSummaries', key: record.key })).resolves.toEqual(
         {
           ok: false,
-          error: 'record has no topics yet — reprocess it instead',
+          error,
         },
       );
     }

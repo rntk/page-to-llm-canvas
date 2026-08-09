@@ -330,7 +330,7 @@ describe('options main.jsx', () => {
     });
   });
 
-  it('shows a generate-summaries action only for done records without summaries', async () => {
+  it('shows a generate-summaries action for done records with missing summary work', async () => {
     sendMessageMock.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') {
         cb({
@@ -350,6 +350,14 @@ describe('options main.jsx', () => {
               status: 'done',
               summariesDisabled: false,
             },
+            {
+              key: 'partial',
+              sourceUrl: 'https://example.com/partial',
+              createdAt: 1716972000000,
+              status: 'done',
+              summariesDisabled: false,
+              summariesIncomplete: true,
+            },
           ],
         });
       } else if (msg.type === 'generateRecordSummaries') {
@@ -359,7 +367,7 @@ describe('options main.jsx', () => {
 
     await import('./main.jsx');
     await waitFor(() => {
-      expect(document.querySelectorAll('tbody tr')).toHaveLength(2);
+      expect(document.querySelectorAll('tbody tr')).toHaveLength(3);
     });
 
     const rows = document.querySelectorAll('tbody tr');
@@ -369,6 +377,7 @@ describe('options main.jsx', () => {
       );
 
     expect(generateBtnIn(rows[1])).toBeUndefined();
+    expect(generateBtnIn(rows[2])).not.toBeUndefined();
 
     const generateBtn = generateBtnIn(rows[0]);
     expect(generateBtn).not.toBeUndefined();
@@ -379,6 +388,43 @@ describe('options main.jsx', () => {
       expect.any(Function),
     );
     expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a stale generate-summaries action instead of refreshing as success', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') {
+        cb({
+          ok: true,
+          items: [
+            {
+              key: 'partial',
+              sourceUrl: 'https://example.com/partial',
+              status: 'done',
+              summariesIncomplete: true,
+            },
+          ],
+        });
+      } else if (msg.type === 'generateRecordSummaries') {
+        cb({ ok: true, stale: true });
+      } else if (msg.type === 'listProviders') {
+        cb({ ok: true, providers: [], activeId: null });
+      }
+    });
+
+    await import('./main.jsx');
+    await waitFor(() => {
+      expect(document.querySelector('tbody tr')).not.toBeNull();
+    });
+
+    Array.from(document.querySelectorAll('tbody tr button'))
+      .find((button) => button.textContent === 'Generate summaries')
+      .click();
+
+    await waitFor(() => {
+      expect(document.querySelector('#content').textContent).toContain(
+        'This record has already been handled.',
+      );
+    });
   });
 
   it('exports a full stored record data JSON file', async () => {

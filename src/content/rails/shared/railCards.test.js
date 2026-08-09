@@ -150,16 +150,32 @@ describe('buildSummaryEntries', () => {
       expect(entries[0].name).toBe('Topic');
     });
 
-    it('falls back to positioned empty entries when an index entry has no runs', () => {
+    it('omits entries when an index entry has no summary runs', () => {
       const record = {
         topic_summary_index: {
           Topic: { level: 0, source_sentences: [1, 2, 7] },
         },
       };
       const { entries } = buildSummaryEntries(record);
-      expect(entries.map((e) => ({ text: e.text, sourceSentences: e.sourceSentences }))).toEqual([
-        { text: '', sourceSentences: [1, 2] },
-        { text: '', sourceSentences: [7] },
+      expect(entries).toEqual([]);
+    });
+
+    it('omits blank runs while preserving valid summaries', () => {
+      const record = {
+        topic_summary_index: {
+          Topic: {
+            level: 0,
+            runs: [
+              { sentences: [1], text: 'kept' },
+              { sentences: [2], text: '   ' },
+            ],
+            source_sentences: [1, 2],
+          },
+        },
+      };
+      const { entries } = buildSummaryEntries(record);
+      expect(entries).toEqual([
+        { path: 'Topic', name: 'Topic', text: 'kept', sourceSentences: [1], level: 0 },
       ]);
     });
 

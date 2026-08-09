@@ -13,7 +13,10 @@ import { SUMMARIES_DISABLED_KEY } from '../settings/summary.js';
 import { MAX_PARALLEL_LLM_REQUESTS_KEY } from '../settings/llmConcurrency.js';
 import { LLM_REQUEST_TIMEOUT_SECONDS_KEY } from '../settings/llmTimeout.js';
 import { VERBOSE_LOGS_KEY } from '../../src/shared/runtime/verboseLogSettings.js';
+import { createLogger } from '../../src/shared/runtime/log.js';
 import { clearLocal, getLocal, MUTATION_QUEUE_KEY, queuedUpdate } from './primitives.js';
+
+const log = createLogger();
 
 const CHAT_STORAGE_PREFIX = 'pagetollm:chats:';
 const SETTINGS_KEYS = new Set([
@@ -55,18 +58,30 @@ function approximateBytes(items) {
   }
 }
 
+/**
+ * @param {string[]} keys
+ * @param {object} items
+ * @returns {Promise<{bytes: number, approximate: boolean}>} `approximate` is
+ *   true when the real byte count could not be obtained (older Chrome without
+ *   `getBytesInUse`, or a `lastError` on the call) and `bytes` is a rough
+ *   JSON-size estimate instead of the true on-disk figure.
+ */
 function bytesInUse(keys, items) {
-  if (!keys.length) return Promise.resolve(0);
+  if (!keys.length) return Promise.resolve({ bytes: 0, approximate: false });
   if (typeof chrome.storage.local.getBytesInUse !== 'function') {
-    return Promise.resolve(approximateBytes(items));
+    return Promise.resolve({ bytes: approximateBytes(items), approximate: true });
   }
   return new Promise((resolve) => {
     chrome.storage.local.getBytesInUse(keys, (bytes) => {
       if (chrome.runtime.lastError) {
-        resolve(approximateBytes(items));
+        log.warn(
+          'getBytesInUse failed, falling back to an approximate size:',
+          chrome.runtime.lastError,
+        );
+        resolve({ bytes: approximateBytes(items), approximate: true });
         return;
       }
-      resolve(Math.max(0, Number(bytes) || 0));
+      resolve({ bytes: Math.max(0, Number(bytes) || 0), approximate: false });
     });
   });
 }
@@ -91,9 +106,11 @@ export async function getStorageOverview() {
   await Promise.all(
     Object.entries(grouped).map(async ([id, items]) => {
       const keys = Object.keys(items);
+      const { bytes, approximate } = await bytesInUse(keys, items);
       categories[id] = {
         keyCount: keys.length,
-        bytes: await bytesInUse(keys, items),
+        bytes,
+        approximate,
       };
     }),
   );
@@ -111,6 +128,9 @@ export async function getStorageOverview() {
   return {
     totalBytes: Object.values(categories).reduce((sum, category) => sum + category.bytes, 0),
     totalKeyCount: Object.keys(allItems).length,
+    // True when any category's byte count is an estimate rather than the
+    // real on-disk size, so totalBytes above is an estimate too.
+    approximate: Object.values(categories).some((category) => category.approximate),
     categories,
   };
 }

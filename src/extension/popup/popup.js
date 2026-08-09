@@ -2,6 +2,10 @@ import { createThemeController, themeIcon, themeLabel } from '../../shared/runti
 import { getYouTubeVideoId } from '../../utils/youtubeTimestamp.js';
 import { sendRuntimeMessage, sendTabMessage } from '../../utils/runtimeMessages.js';
 import { MSG } from '../../shared/runtime/messages.js';
+import {
+  isStaleActionResponse,
+  STALE_ACTION_MESSAGE,
+} from '../../shared/runtime/actionResponses.js';
 
 // Re-exported so popup.test.js (and other importers) keep resolving it from here.
 export { getYouTubeVideoId };
@@ -182,10 +186,14 @@ export function getRecordActions(record) {
     },
   ];
 
-  // Records finished intentionally without summaries (global toggle was on at
-  // process time) get a one-shot action that fills summaries from stored topics
-  // without redoing clean/split/topic-ranges — same path as Options.
-  if (record && record.status === 'done' && record.summariesDisabled) {
+  // Records finished with no summaries (global toggle) or a skipped failed
+  // summary get a one-shot action that fills only missing work from stored
+  // topics without redoing clean/split/topic-ranges — same path as Options.
+  if (
+    record &&
+    record.status === 'done' &&
+    (record.summariesDisabled || record.summariesIncomplete)
+  ) {
     manageActions.push({
       kind: 'message',
       label: 'Generate summaries',
@@ -236,6 +244,7 @@ export function urlsMatchActivePage(sourceUrl, activePageUrl) {
 }
 
 export function responseErrorMessage(response, fallback) {
+  if (isStaleActionResponse(response)) return STALE_ACTION_MESSAGE;
   return (response && response.error) || fallback;
 }
 
@@ -344,7 +353,7 @@ export async function handleMessageAction(
   if (action.confirmMessage && !confirm(action.confirmMessage)) return;
   try {
     const response = await runtimeMessage({ type: action.messageType, key });
-    if (!response || !response.ok) {
+    if (!response || !response.ok || isStaleActionResponse(response)) {
       onError(responseErrorMessage(response, action.failureMessage));
       return;
     }

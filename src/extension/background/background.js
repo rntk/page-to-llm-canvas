@@ -15,7 +15,8 @@ import {
   deleteChatHistory,
   reconcileChatStorage,
 } from '../../../worker/storage/chatStorage.js';
-import { runPipeline } from '../../../worker/pipeline/orchestrator.js';
+import { isSummaryCheckpointComplete, runPipeline } from '../../../worker/pipeline/orchestrator.js';
+import { formatPipelineError } from '../../../worker/pipeline/pipelineRuntime.js';
 import { callLLMDirect } from '../../../worker/llm/llm.js';
 import { clearLlmMetrics, recordLlmMetric } from '../../../worker/metrics/llm.js';
 import { clearChatToolMetrics, recordChatToolMetric } from '../../../worker/metrics/chatTool.js';
@@ -42,13 +43,17 @@ import { isInFlightRecord, isInFlightStatus } from '../../../worker/pipeline/pip
 import { MSG } from '../../shared/runtime/messages.js';
 import {
   createQueuedRecord,
+  IN_FLIGHT_PIPELINE_STATUSES,
   isImportableRecord,
   PIPELINE_STAGE,
   PIPELINE_STATUS,
+  SUMMARY_GENERATION_SOURCE_STATUSES,
 } from '../../shared/runtime/contracts.js';
 import { createLogger } from '../../shared/runtime/log.js';
 
 const log = createLogger();
+const keepaliveLog = createLogger('keepalive');
+const backgroundLog = createLogger('background');
 const resumeLog = createLogger('resume');
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
@@ -94,8 +99,10 @@ const KEEPALIVE_PERIOD_MINUTES = 0.5;
 
 /**
  * Returns a copy of the topic-summaries map with every in-flight error marker
- * (the `error` flag and its reason fields) removed, so the failed leaves are
- * reused as legit empty summaries on the next resume instead of being re-queried.
+ * (the `error` flag and its reason fields) replaced by `acceptedFailure: true`,
+ * so the failed leaves are reused as-is on the next resume instead of being
+ * re-queried, while the resumed run can still tell they were accepted failures
+ * (see `worker/pipeline/summaryStage.js`).
  *
  * @param {Record<string, object>} topicSummaries
  * @returns {Record<string, object>}
@@ -105,9 +112,14 @@ export function clearSummaryErrorFlags(topicSummaries) {
   const out = {};
   for (const [name, s] of Object.entries(src)) {
     if (s && typeof s === 'object') {
-      // eslint-disable-next-line no-unused-vars
       const { error, error_kind, error_message, error_detail, ...rest } = s;
-      out[name] = rest;
+      // Replace the stripped flags with the transient `acceptedFailure` marker:
+      // the resumed run must still recognize the leaf as failed (so ancestor
+      // summaries skip its source and finalization stamps `forcedEmpty`), while
+      // `planSummaryWork` deliberately ignores the marker and reuses the leaf
+      // as-is — no re-query, which is the whole point of "skip".
+      const hadError = error || error_kind || error_message || error_detail;
+      out[name] = hadError ? { ...rest, acceptedFailure: true } : rest;
     } else {
       out[name] = s;
     }
@@ -115,10 +127,75 @@ export function clearSummaryErrorFlags(topicSummaries) {
   return out;
 }
 
+/**
+ * Finds merge-only failures in a parked record. Leaf failures live on
+ * `topic_summaries` with `error: true`; a parked error without that marker was
+ * raised while resolving an internal tree node. On "skip" we preserve those
+ * paths as a transient directive so the resumed run can finalize their empty
+ * result without sending the same source-summary request again.
+ *
+ * @param {object[]} summaryErrors
+ * @param {Record<string, object>} topicSummaries
+ * @returns {string[]}
+ */
+export function getAcceptedMergeFailurePaths(summaryErrors, topicSummaries) {
+  const summaries = topicSummaries && typeof topicSummaries === 'object' ? topicSummaries : {};
+  const paths = new Set();
+  for (const error of Array.isArray(summaryErrors) ? summaryErrors : []) {
+    const path = error && typeof error.topic === 'string' ? error.topic : '';
+    if (path && !summaries[path]?.error) paths.add(path);
+  }
+  return [...paths];
+}
+
+// Tracks the last `alarms.create` attempt: `create` replaces an existing
+// alarm and restarts its period, so repeated creates would keep pushing the
+// keepalive's fire time out.
+let lastKeepAliveCreateAt = 0;
+
 function scheduleKeepAlive() {
   chrome.alarms.get(KEEPALIVE_ALARM, (existing) => {
-    if (!existing) {
-      chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: KEEPALIVE_PERIOD_MINUTES });
+    // lastError persists for the whole callback, so a successful create below
+    // wouldn't clear a get failure; compare by identity against createError.
+    const getError = chrome.runtime.lastError;
+    const getFailed = !!getError;
+    if (getFailed) {
+      // `existing` can't be trusted after a failed get, but bailing out here
+      // would guarantee no alarm exists, so retry `create` below instead.
+      // Skip it if already created this period, or the alarm would never fire.
+      log.warn('chrome.alarms.get failed:', getError);
+      if (Date.now() - lastKeepAliveCreateAt < KEEPALIVE_PERIOD_MINUTES * 60_000) return;
+    }
+    if (getFailed || !existing) {
+      // Only a successful create may stamp the throttle — a failed create
+      // leaves no alarm to protect, so suppressing the next attempt would
+      // strand the keepalive. Stamped optimistically below; released if it rejects.
+      try {
+        const created = chrome.alarms.create(KEEPALIVE_ALARM, {
+          periodInMinutes: KEEPALIVE_PERIOD_MINUTES,
+        });
+        if (created && typeof created.then === 'function') {
+          const stampedAt = Date.now();
+          lastKeepAliveCreateAt = stampedAt;
+          created.catch((err) => {
+            // Clear only our own stamp: a rejection landing after a later
+            // create succeeded must not clear that stamp and reopen the loop.
+            if (lastKeepAliveCreateAt === stampedAt) lastKeepAliveCreateAt = 0;
+            log.warn('chrome.alarms.create failed:', err);
+          });
+        } else {
+          const createError = chrome.runtime.lastError;
+          if (createError && createError !== getError) {
+            log.warn('chrome.alarms.create failed:', createError);
+          } else if (!getFailed) {
+            // Only stamp when the get itself succeeded — after a failed get,
+            // this lastError may just be that same stale error.
+            lastKeepAliveCreateAt = Date.now();
+          }
+        }
+      } catch (err) {
+        log.warn('chrome.alarms.create failed:', err);
+      }
     }
   });
 }
@@ -126,18 +203,22 @@ function scheduleKeepAlive() {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== KEEPALIVE_ALARM) return;
   // Resume any in-flight records that lost their SW context (e.g. after SW termination).
-  listRecords().then((items) => {
-    const inFlight = items.filter(isInFlightRecord);
-    if (inFlight.length === 0) {
-      chrome.alarms.clear(KEEPALIVE_ALARM);
-      return;
-    }
-    for (const rec of inFlight) {
-      startPipeline(rec.key).catch((err) => {
-        console.error('PageToLLM Canvas keepalive resume failed for', rec.key, err);
-      });
-    }
-  });
+  listRecords()
+    .then((items) => {
+      const inFlight = items.filter(isInFlightRecord);
+      if (inFlight.length === 0) {
+        chrome.alarms.clear(KEEPALIVE_ALARM);
+        return;
+      }
+      for (const rec of inFlight) {
+        startPipeline(rec.key).catch((err) => {
+          keepaliveLog.error('resume failed for', rec.key, err);
+        });
+      }
+    })
+    .catch((err) => {
+      keepaliveLog.error('listRecords failed:', err);
+    });
 });
 
 try {
@@ -175,9 +256,19 @@ function createPipelineRunId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-function cancelActivePipeline(key) {
+function cancelActivePipeline(key, options = {}) {
   const job = _jobRegistry.get(key);
   if (!job) return false;
+  // A handler that read an earlier snapshot must not abort a job subsequently
+  // started by the writer that won ownership of this record. Property presence
+  // deliberately distinguishes an unguarded cancel from a legacy record whose
+  // expected run id is explicitly `undefined`.
+  if (
+    Object.hasOwn(options, 'expectedPipelineRunId') &&
+    job.pipelineRunId !== options.expectedPipelineRunId
+  ) {
+    return false;
+  }
   job.controller.abort();
   _jobRegistry.delete(key);
   // Intentionally do NOT clear the keepalive alarm here: the in-memory registry
@@ -227,6 +318,16 @@ export async function startPipeline(key) {
 
   _starting.add(key);
   try {
+    // Arm the recovery alarm before the first storage read, not after it.
+    // Callers persist an in-flight status and answer `{ok: true}` before this
+    // runs (submit, retry, reprocess, Generate summaries, Retry/Skip), so a
+    // failing read here would otherwise leave the record in-flight with no job,
+    // no alarm and nothing left to resume it — the UI would wait forever. The
+    // onAlarm handler clears the alarm as soon as storage says nothing is
+    // in-flight, so arming it for a record that turns out not to need it costs
+    // a single alarm tick.
+    scheduleKeepAlive();
+
     const rec = await readRecord(key);
     if (!rec) return;
 
@@ -235,19 +336,68 @@ export async function startPipeline(key) {
     // Skip if a healthy (non-stale) job is already in the registry.
     if (_jobRegistry.has(key) && !isStaleRecord(rec)) return;
 
+    // Taking a record over from a hung job needs a new run id, and needs it
+    // before that job is aborted. Aborting is a request, not synchronous
+    // ownership: the evicted run can still be parked inside a provider call and
+    // settle afterwards. Since the orchestrator deliberately no longer launders
+    // a post-abort provider failure into a cancellation, that late failure
+    // persists ERROR guarded only by the run-id CAS — so sharing the record's
+    // current id would give it a passing CAS against work this takeover has
+    // since finished, flipping a DONE record back to ERROR. Rotating first
+    // makes every write from the evicted run fail that CAS instead, which the
+    // orchestrator already treats as a superseded run.
+    let pipelineRunId = rec.pipelineRunId;
+    if (_jobRegistry.has(key)) {
+      const rotatedRunId = createPipelineRunId();
+      const rotated = await updateRecord(
+        key,
+        { pipelineRunId: rotatedRunId },
+        { expectedPipelineRunId: rec.pipelineRunId },
+      );
+      // Rejected CAS: another writer (a retry/reprocess minting its own id, or
+      // a deletion) took ownership between the read and here. It cancels and
+      // restarts the record itself, so leave the current job alone rather than
+      // aborting a run this call no longer owns.
+      if (!rotated) return;
+      pipelineRunId = rotatedRunId;
+    }
+
     // Evict and abort any hung/stale promise before starting fresh.
     cancelActivePipeline(key);
 
-    scheduleKeepAlive();
-
     const controller = new AbortController();
-    const pipelineRunId = rec.pipelineRunId;
     const promise = runPipeline(key, {
       pipelineRunId,
       signal: controller.signal,
     })
       .catch((err) => {
-        console.error('PageToLLM Canvas background pipeline failed for', key, err);
+        backgroundLog.error('pipeline failed for', key, err);
+        // Defensive fallback: the pipeline's own attempt to persist an ERROR
+        // status on failure (orchestrator.js) can itself fail to write, in
+        // which case the record would keep an in-flight status forever and
+        // the keepalive alarm would re-run this failing pipeline every 30s.
+        // Best-effort re-attempt here; if this also fails there's nothing
+        // further we can safely do without risking a retry loop of writes.
+        // `expectedPipelineRunId` mirrors runtime.update (pipelineRuntime.js)
+        // so a superseded run's fallback can never clobber a newer run that
+        // has since taken ownership of this record — the same run-id guard
+        // orchestrator.js relies on for its own AbortError handling.
+        return updateRecord(
+          key,
+          { status: PIPELINE_STATUS.ERROR, error: formatPipelineError(err) },
+          { expectedPipelineRunId: pipelineRunId },
+        )
+          .then((updated) => {
+            if (!updated) {
+              // Guard rejected the write (record no longer owned by this run,
+              // or already gone): someone else owns the record now, so no
+              // fallback is needed. Not an error.
+              log.warn('fallback error-status write skipped (record superseded) for', key);
+            }
+          })
+          .catch((fallbackErr) => {
+            log.error('fallback error-status write also failed for', key, fallbackErr);
+          });
       })
       .finally(() => {
         const current = _jobRegistry.get(key);
@@ -329,13 +479,27 @@ export async function handleSubmit(submission) {
     rec.html = html;
     rec.processingLog = [];
     rec.skipSummaries = skipSummaries;
+    // A submission for a non-terminal URL replaces its HTML and therefore
+    // invalidates every checkpoint derived from the previous content. Keep
+    // this in sync with reprocessRecord: retry may otherwise mistake the old
+    // topics/sentences for a checkpoint belonging to this new revision.
+    rec.topics = [];
+    rec.topic_summaries = {};
+    rec.topic_summary_index = {};
+    rec.sentences = [];
+    rec.text = '';
+    rec.summaryErrors = [];
+    rec.forceFinalize = false;
+    rec.acceptedMergeFailurePaths = [];
+    rec.summaryCheckpointContentRevision = null;
+    rec.summariesIncomplete = false;
     if (Array.isArray(selectors)) rec.selectors = selectors;
   }
   await writeRecord(rec, { bumpContentRevision: !!existing });
 
   // Start the pipeline in the background; do not await.
   startPipeline(key).catch((err) => {
-    console.error('PageToLLM Canvas background startPipeline failed:', err);
+    backgroundLog.error('startPipeline failed:', err);
   });
 
   return { ok: true, key };
@@ -381,19 +545,66 @@ export const MESSAGE_HANDLERS = {
       return msg.key ? null : 'missing key';
     },
     async handle(msg) {
-      cancelActivePipeline(msg.key);
-      const updated = await updateRecord(msg.key, {
-        pipelineRunId: createPipelineRunId(),
-        status: PIPELINE_STATUS.PENDING,
-        error: null,
-        progress: { stage: PIPELINE_STAGE.QUEUED, done: 0, total: 0 },
-        skipSummaries: await getStoredSummariesDisabled(),
-      });
-      if (!updated) {
+      const rec = await readRecord(msg.key);
+      if (!rec) {
         return { ok: false, error: 'record not found' };
       }
+      // A generic failure can happen after the topic checkpoint and one or
+      // more summaries have already been persisted (for example, a later
+      // storage write). Re-enter the summarizing status only when the whole
+      // checkpoint is safe to resume; otherwise retain the normal fresh-run
+      // retry path. Reprocess remains the explicitly destructive operation.
+      const resumesSummaries =
+        typeof rec.contentRevision === 'string' &&
+        rec.contentRevision !== '' &&
+        rec.summaryCheckpointContentRevision === rec.contentRevision &&
+        isSummaryCheckpointComplete(rec);
+      // A Retry can be pressed after a generic failure interrupted a prior
+      // Skip/force-finalize resume. Those directives are part of the saved
+      // summary checkpoint: dropping them would re-run merge work the user
+      // explicitly accepted, and would stop accepted leaf failures from being
+      // finalized as retryable empties. They have no meaning on a fresh run.
+      const forceFinalize = resumesSummaries && rec.forceFinalize === true;
+      const acceptedMergeFailurePaths =
+        forceFinalize && Array.isArray(rec.acceptedMergeFailurePaths)
+          ? rec.acceptedMergeFailurePaths
+          : [];
+      const updated = await updateRecord(
+        msg.key,
+        {
+          pipelineRunId: createPipelineRunId(),
+          status: resumesSummaries ? PIPELINE_STATUS.SUMMARIZING : PIPELINE_STATUS.PENDING,
+          error: null,
+          progress: {
+            stage: resumesSummaries ? PIPELINE_STAGE.SUMMARIZING_TOPICS : PIPELINE_STAGE.QUEUED,
+            done: 0,
+            total: resumesSummaries ? rec.topics.length : 0,
+          },
+          // A resumed checkpoint must finish the summary work that was
+          // already paid for. Applying a newly enabled global "skip
+          // summaries" preference here would finalize it by clearing those
+          // saved summaries. Fresh retries retain the directive chosen when
+          // the failed run was submitted; only legacy records without one
+          // fall back to the current global setting.
+          skipSummaries: resumesSummaries
+            ? false
+            : typeof rec.skipSummaries === 'boolean'
+              ? rec.skipSummaries
+              : await getStoredSummariesDisabled(),
+          forceFinalize,
+          acceptedMergeFailurePaths,
+          summariesIncomplete: false,
+        },
+        { expectedPipelineRunId: rec.pipelineRunId },
+      );
+      if (!updated) {
+        return { ok: true, stale: true };
+      }
+      // Abort only the run represented by the snapshot that this successful
+      // compare-and-swap superseded.
+      cancelActivePipeline(msg.key, { expectedPipelineRunId: rec.pipelineRunId });
       startPipeline(msg.key).catch((err) => {
-        console.error('PageToLLM Canvas retryRecord startPipeline failed:', err);
+        log.child('retryRecord startPipeline').error('failed:', err);
       });
       return { ok: true };
     },
@@ -409,8 +620,7 @@ export const MESSAGE_HANDLERS = {
       if (!rec) {
         return { ok: false, error: 'record not found' };
       }
-      cancelActivePipeline(msg.key);
-      await updateRecord(
+      const updated = await updateRecord(
         msg.key,
         {
           pipelineRunId: createPipelineRunId(),
@@ -424,11 +634,25 @@ export const MESSAGE_HANDLERS = {
           text: '',
           processingLog: [],
           skipSummaries: await getStoredSummariesDisabled(),
+          summaryErrors: [],
+          forceFinalize: false,
+          acceptedMergeFailurePaths: [],
+          summaryCheckpointContentRevision: null,
+          summariesIncomplete: false,
         },
-        { bumpContentRevision: true },
+        {
+          bumpContentRevision: true,
+          expectedPipelineRunId: rec.pipelineRunId,
+        },
       );
+      if (!updated) {
+        return { ok: true, stale: true };
+      }
+      // Abort only after winning the CAS, and only abort the run represented
+      // by the snapshot that was just superseded.
+      cancelActivePipeline(msg.key, { expectedPipelineRunId: rec.pipelineRunId });
       startPipeline(msg.key).catch((err) => {
-        console.error('PageToLLM Canvas reprocessRecord startPipeline failed:', err);
+        log.child('reprocessRecord startPipeline').error('failed:', err);
       });
       return { ok: true };
     },
@@ -450,30 +674,49 @@ export const MESSAGE_HANDLERS = {
       if (!rec) {
         return { ok: false, error: 'record not found' };
       }
-      // The resume path needs the topics and their source sentences; without
-      // them there is nothing to summarize against — that's a full reprocess.
-      if (
-        !Array.isArray(rec.topics) ||
-        rec.topics.length === 0 ||
-        !Array.isArray(rec.sentences) ||
-        rec.sentences.length === 0
-      ) {
-        return { ok: false, error: 'record has no topics yet — reprocess it instead' };
+      // This action resumes a terminal record's saved checkpoint. It must not
+      // replace an active pipeline (which could still be building that
+      // checkpoint) with a summaries-only run.
+      if (!SUMMARY_GENERATION_SOURCE_STATUSES.has(rec.status)) {
+        return { ok: true, stale: true };
       }
-      cancelActivePipeline(msg.key);
-      await updateRecord(msg.key, {
-        pipelineRunId: createPipelineRunId(),
-        status: PIPELINE_STATUS.SUMMARIZING,
-        error: null,
-        // Explicit intent: this run generates summaries even while the global
-        // "disable summaries" toggle is on.
-        skipSummaries: false,
-        summaryErrors: [],
-        forceFinalize: false,
-        progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done: 0, total: rec.topics.length },
-      });
+      // The resume path needs a complete topic/sentence checkpoint. Reject
+      // before changing status or cancelling work: malformed imports can have
+      // non-empty arrays whose topic references still cannot be summarized.
+      if (!isSummaryCheckpointComplete(rec)) {
+        const hasTopicData = Array.isArray(rec.topics) && rec.topics.length > 0;
+        const error = hasTopicData
+          ? 'record has an incomplete summary checkpoint — reprocess it instead'
+          : 'record has no topics yet — reprocess it instead';
+        return { ok: false, error };
+      }
+      const updated = await updateRecord(
+        msg.key,
+        {
+          pipelineRunId: createPipelineRunId(),
+          status: PIPELINE_STATUS.SUMMARIZING,
+          error: null,
+          // Explicit intent: this run generates summaries even while the global
+          // "disable summaries" toggle is on.
+          skipSummaries: false,
+          summaryErrors: [],
+          forceFinalize: false,
+          acceptedMergeFailurePaths: [],
+          summaryCheckpointContentRevision: rec.contentRevision,
+          summariesIncomplete: false,
+          progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done: 0, total: rec.topics.length },
+        },
+        {
+          expectedPipelineRunId: rec.pipelineRunId,
+          expectedStatuses: [...SUMMARY_GENERATION_SOURCE_STATUSES],
+        },
+      );
+      if (!updated) {
+        return { ok: true, stale: true };
+      }
+      cancelActivePipeline(msg.key, { expectedPipelineRunId: rec.pipelineRunId });
       startPipeline(msg.key).catch((err) => {
-        console.error('PageToLLM Canvas generateRecordSummaries startPipeline failed:', err);
+        log.child('generateRecordSummaries startPipeline').error('failed:', err);
       });
       return { ok: true };
     },
@@ -489,16 +732,29 @@ export const MESSAGE_HANDLERS = {
       if (!rec) {
         return { ok: false, error: 'record not found' };
       }
-      cancelActivePipeline(msg.key);
       if (!isInFlightStatus(rec.status)) {
         return { ok: true, stale: true };
       }
-      await updateRecord(msg.key, {
-        pipelineRunId: createPipelineRunId(),
-        status: PIPELINE_STATUS.CANCELLED,
-        error: 'Processing stopped.',
-        progress: { stage: PIPELINE_STAGE.CANCELLED, done: 0, total: 0 },
-      });
+      const updated = await updateRecord(
+        msg.key,
+        {
+          pipelineRunId: createPipelineRunId(),
+          status: PIPELINE_STATUS.CANCELLED,
+          error: 'Processing stopped.',
+          summariesIncomplete: false,
+          progress: { stage: PIPELINE_STAGE.CANCELLED, done: 0, total: 0 },
+        },
+        {
+          expectedPipelineRunId: rec.pipelineRunId,
+          // A finalizer keeps the same run id, so the queued write must also
+          // verify that this record has not already reached a terminal state.
+          expectedStatuses: [...IN_FLIGHT_PIPELINE_STATUSES],
+        },
+      );
+      if (!updated) {
+        return { ok: true, stale: true };
+      }
+      cancelActivePipeline(msg.key, { expectedPipelineRunId: rec.pipelineRunId });
       return { ok: true };
     },
   },
@@ -519,14 +775,36 @@ export const MESSAGE_HANDLERS = {
       if (rec.status !== PIPELINE_STATUS.NEEDS_ATTENTION) {
         return { ok: true, stale: true };
       }
+      // Imported records can retain a parked status while lacking the sentence
+      // checkpoint their topics reference. Reject before changing status,
+      // markers, or summaries; only an explicit Reprocess may discard that
+      // partial checkpoint and rebuild topics from HTML.
+      if (!isSummaryCheckpointComplete(rec)) {
+        return {
+          ok: false,
+          error: 'The saved summary checkpoint is incomplete. Reprocess the record instead.',
+        };
+      }
 
-      cancelActivePipeline(msg.key);
+      const carriedAcceptedMergePaths = Array.isArray(rec.acceptedMergeFailurePaths)
+        ? rec.acceptedMergeFailurePaths
+        : [];
+      const hasAcceptedLeafFailure = Object.values(
+        rec.topic_summaries && typeof rec.topic_summaries === 'object' ? rec.topic_summaries : {},
+      ).some((summary) => summary?.acceptedFailure === true);
       const patch = {
         pipelineRunId: createPipelineRunId(),
         status: PIPELINE_STATUS.SUMMARIZING,
         error: null,
         summaryErrors: [],
-        forceFinalize: msg.action === 'skip',
+        // A new review can happen while finalizing an earlier Skip. Keep that
+        // earlier, path-scoped acceptance active while retrying only the newly
+        // failed work.
+        forceFinalize:
+          msg.action === 'skip' || hasAcceptedLeafFailure || carriedAcceptedMergePaths.length > 0,
+        acceptedMergeFailurePaths: carriedAcceptedMergePaths,
+        summaryCheckpointContentRevision: rec.contentRevision,
+        summariesIncomplete: false,
         // Reset the parked progress stage so the resuming UI shows summarizing,
         // not the transient 'needs_attention' stage, before the worker's first write.
         progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done: 0, total: 0 },
@@ -534,12 +812,37 @@ export const MESSAGE_HANDLERS = {
       if (msg.action === 'skip') {
         // Accept the empty summaries: drop the in-flight error flags so the
         // resumed run reuses the failed leaves as-is (no re-query), and let
-        // forceFinalize push the merge/finalize through even if it also degrades.
+        // forceFinalize finalize only those explicitly accepted failures.
         patch.topic_summaries = clearSummaryErrorFlags(rec.topic_summaries);
+        patch.acceptedMergeFailurePaths = [
+          ...new Set([
+            ...carriedAcceptedMergePaths,
+            ...getAcceptedMergeFailurePaths(rec.summaryErrors, rec.topic_summaries),
+          ]),
+        ];
+      } else if (carriedAcceptedMergePaths.length > 0) {
+        // The parked index contains empty runs for the newly failed merge
+        // paths as well as the paths accepted in an earlier review. Reusing it
+        // wholesale would turn this explicit Retry into a silent Skip. Force a
+        // fresh tree merge; makeForceFinalizeSummarizer still suppresses only
+        // the carried, explicitly accepted paths.
+        patch.topic_summary_index = {};
       }
-      await updateRecord(msg.key, patch);
+      const updated = await updateRecord(msg.key, patch, {
+        // The handler derived the entire patch from this snapshot. Serialize
+        // competing Retry/Skip decisions by accepting only the first writer;
+        // its newly minted run id makes every stale sibling decision fail the
+        // compare-and-swap inside storage's per-record update queue.
+        expectedPipelineRunId: rec.pipelineRunId,
+      });
+      if (!updated) {
+        return { ok: true, stale: true };
+      }
+      // Only the winning decision may abort/start jobs. A stale competing
+      // overlay must not cancel the pipeline that the winner just launched.
+      cancelActivePipeline(msg.key, { expectedPipelineRunId: rec.pipelineRunId });
       startPipeline(msg.key).catch((err) => {
-        console.error('PageToLLM Canvas resolveSummaryErrors startPipeline failed:', err);
+        log.child('resolveSummaryErrors startPipeline').error('failed:', err);
       });
       return { ok: true };
     },
@@ -903,7 +1206,7 @@ export const MESSAGE_HANDLERS = {
  * @returns {Promise<object>}
  */
 export async function dispatchMessage(msg, sender, handlers = MESSAGE_HANDLERS) {
-  const entry = handlers[msg.type];
+  const entry = Object.hasOwn(handlers, msg.type) ? handlers[msg.type] : undefined;
   if (!entry) {
     return { ok: false, error: 'unknown type: ' + msg.type };
   }
@@ -930,7 +1233,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false;
   }
 
-  dispatchMessage(msg, sender).then(sendResponse);
+  // Two-arg form on purpose: a trailing .catch would also catch a throw from
+  // sendResponse itself and then call it a second time, so a failed send would
+  // rethrow into an unhandled rejection and leave the sender hanging.
+  dispatchMessage(msg, sender).then(sendResponse, (err) => {
+    sendResponse({ ok: false, error: (err && err.message) || String(err) });
+  });
 
   return true;
 });

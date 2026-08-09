@@ -38,8 +38,8 @@ export function buildSummaryEntries(record) {
   const index = record.topic_summary_index;
   const sentenceNumbersByPath = new Map();
 
-  // Emit one entry per run; fall back to positioned empty runs (split from the
-  // aggregated sentences) so an errored/skipped topic still appears on the rail.
+  // Emit only runs with usable summary text. Failed or skipped summaries stay
+  // absent from the rail instead of creating empty placeholder cards.
   const pushRuns = ({ path, name, level, runs, sourceSentences }) => {
     const rendered =
       Array.isArray(runs) && runs.length > 0
@@ -51,6 +51,7 @@ export function buildSummaryEntries(record) {
           }))
         : splitIntoContiguousRuns(sourceSentences).map((run) => ({ sentences: run, text: '' }));
     for (const run of rendered) {
+      if (!run.text) continue;
       out.push({ path, name, text: run.text, sourceSentences: run.sentences, level });
     }
   };

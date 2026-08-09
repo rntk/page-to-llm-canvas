@@ -4,6 +4,7 @@
  */
 
 import { MSG } from '../shared/runtime/messages.js';
+import { isStaleActionResponse, STALE_ACTION_MESSAGE } from '../shared/runtime/actionResponses.js';
 import {
   isImportableRecord,
   isInFlightPipelineStatus,
@@ -173,6 +174,7 @@ export function recordActionRouting(action) {
  * @returns {string}
  */
 export function actionResponseError(resp, action) {
+  if (isStaleActionResponse(resp)) return STALE_ACTION_MESSAGE;
   return (resp && resp.error) || actionErrorMessage(action);
 }
 

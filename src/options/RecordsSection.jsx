@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { MSG } from '../shared/runtime/messages.js';
+import { isStaleActionResponse } from '../shared/runtime/actionResponses.js';
+import { IN_FLIGHT_PIPELINE_STATUSES } from '../shared/runtime/contracts.js';
 import { resolveSummaryErrors, retryRecord } from '../utils/errorUtils.js';
 import SummaryErrorsOverlay from '../components/SummaryErrorsOverlay.jsx';
 import RecordErrorDialog from './RecordErrorDialog.jsx';
@@ -12,8 +14,6 @@ import {
   dedupeImportedRecords,
 } from './optionsLogic.js';
 import { listRecords, sendMessage } from './optionsApi.js';
-
-const IN_FLIGHT_STATUSES = new Set(['pending', 'splitting', 'summarizing']);
 
 function formatDate(timestamp) {
   if (!timestamp) return '';
@@ -134,7 +134,7 @@ export function RecordsSection() {
       action === 'stop'
     ) {
       const response = await sendMessage({ type: messageType, key });
-      if (!response || !response.ok) {
+      if (!response || !response.ok || isStaleActionResponse(response)) {
         setError(actionResponseError(response, action));
         return;
       }
@@ -371,7 +371,7 @@ export function RecordsSection() {
                           Generate summaries
                         </button>
                       ) : null}
-                      {IN_FLIGHT_STATUSES.has(item.status) ? (
+                      {IN_FLIGHT_PIPELINE_STATUSES.has(item.status) ? (
                         <button type="button" onClick={() => runAction('stop', item.key)}>
                           Stop
                         </button>

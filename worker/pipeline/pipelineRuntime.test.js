@@ -9,6 +9,7 @@ const storage = vi.hoisted(() => ({
 
 vi.mock('../storage/storage.js', () => storage);
 
+import { isCancellationError } from './cancellation.js';
 import { createPipelineRuntime, formatPipelineError } from './pipelineRuntime.js';
 
 describe('formatPipelineError', () => {
@@ -58,10 +59,15 @@ describe('createPipelineRuntime', () => {
     storage.updateRecord.mockResolvedValueOnce(null);
     const runtime = createPipelineRuntime({ key: 'record-1', pipelineRunId: 'run-7' });
 
-    await expect(runtime.update({ status: 'done' })).rejects.toMatchObject({
+    const superseded = await runtime.update({ status: 'done' }).catch((error) => error);
+    expect(superseded).toMatchObject({
       name: 'AbortError',
       message: 'Pipeline run is no longer current',
     });
+    // Losing the record to a newer run never aborts this run's signal, so the
+    // marker is the only thing that keeps it classified as cancellation.
+    expect(runtime.signal?.aborted).toBeUndefined();
+    expect(isCancellationError(superseded, runtime)).toBe(true);
 
     const controller = new AbortController();
     controller.abort();

@@ -148,15 +148,21 @@ export function DataManagementSection({ onDataChanged }) {
                     <th scope="row">{row.label}</th>
                     <td>{row.description}</td>
                     <td>{categoryDetail(row.id, category)}</td>
-                    <td className="mono">{formatBytes(category.bytes)}</td>
+                    <td className="mono">
+                      {category.approximate ? '~' : ''}
+                      {formatBytes(category.bytes)}
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
           <div className="storage-total note">
-            Total: {formatBytes(overview.totalBytes)} across {overview.totalKeyCount || 0} stored
-            items.
+            Total: {overview.approximate ? '~' : ''}
+            {formatBytes(overview.totalBytes)} across {overview.totalKeyCount || 0} stored items.
+            {overview.approximate
+              ? ' Sizes marked ~ are estimated: the browser could not report exact usage.'
+              : ''}
           </div>
         </>
       )}

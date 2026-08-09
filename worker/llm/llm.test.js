@@ -316,6 +316,19 @@ describe('callLLMDirect', () => {
     await expect(request).rejects.toMatchObject({ name: 'AbortError' });
   });
 
+  it('preserves a provider failure that settles after the caller signal aborts', async () => {
+    const { callLLMDirect } = await getLLM();
+    const controller = new AbortController();
+    vi.mocked(fetch).mockImplementation(async () => {
+      controller.abort();
+      throw new Error('provider rejected the request');
+    });
+
+    await expect(
+      callLLMDirect({ prompt: 'hello', signal: controller.signal }),
+    ).resolves.toMatchObject({ ok: false, error: 'provider rejected the request' });
+  });
+
   it('callLLM preserves AbortError from a caller signal', async () => {
     const { callLLM } = await getLLM();
     const controller = new AbortController();
@@ -347,6 +360,18 @@ describe('callLLMDirect', () => {
     expect(console.warn).toHaveBeenCalledWith(
       'PageToLLM Canvas LLM request failed:',
       'Connection refused',
+    );
+  });
+
+  it("uses an object rejection's provider error field", async () => {
+    const { callLLMDirect } = await getLLM();
+    vi.mocked(fetch).mockRejectedValue({ error: 'Provider is overloaded' });
+
+    const res = await callLLMDirect({ prompt: 'hello' });
+    expect(res).toMatchObject({ ok: false, error: 'Provider is overloaded' });
+    expect(console.warn).toHaveBeenCalledWith(
+      'PageToLLM Canvas LLM request failed:',
+      'Provider is overloaded',
     );
   });
 

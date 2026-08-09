@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { runPipeline } from './orchestrator.js';
+import { isSummaryCheckpointComplete, runPipeline } from './orchestrator.js';
 import {
   chunkTaggedText,
   chunkTopicRangeSentences,
@@ -118,6 +118,77 @@ beforeEach(() => {
   html.stripTagsKeepOffsets.mockReturnValue({ text: '', mapping: [0] });
   sentenceSplitter.splitSentences.mockReturnValue([]);
   llm.callLLMWithRetry.mockResolvedValue('');
+});
+
+describe('isSummaryCheckpointComplete', () => {
+  it('requires every topic reference to be an in-range integer sentence id', () => {
+    const record = {
+      sentences: ['One.', 'Two.'],
+      topics: [{ name: 'A', sentences: [1, 2] }],
+    };
+
+    expect(isSummaryCheckpointComplete(record)).toBe(true);
+    for (const invalidSentenceId of [0, 3, 1.5, '1']) {
+      expect(
+        isSummaryCheckpointComplete({
+          ...record,
+          topics: [{ name: 'A', sentences: [invalidSentenceId] }],
+        }),
+      ).toBe(false);
+    }
+  });
+
+  it('rejects a checkpoint whose topics can only produce blank summaries', () => {
+    // In-range ids are not enough: each of these resumes to a record that
+    // finalizes as DONE with nothing in it, and with the "Generate summaries"
+    // affordance switched off because summariesIncomplete stays false.
+    expect(
+      isSummaryCheckpointComplete({
+        sentences: ['One.', 'Two.'],
+        topics: [{ name: 'A', sentences: [] }],
+      }),
+    ).toBe(false);
+    expect(
+      isSummaryCheckpointComplete({
+        sentences: ['   ', ''],
+        topics: [{ name: 'A', sentences: [1, 2] }],
+      }),
+    ).toBe(false);
+    expect(
+      isSummaryCheckpointComplete({
+        sentences: ['One.', 'Two.'],
+        topics: [{ name: 'A', sentences: [1] }, { sentences: [2] }],
+      }),
+    ).toBe(false);
+    for (const unusableName of ['', '   ', 42, null]) {
+      expect(
+        isSummaryCheckpointComplete({
+          sentences: ['One.', 'Two.'],
+          topics: [{ name: unusableName, sentences: [1, 2] }],
+        }),
+      ).toBe(false);
+    }
+    expect(
+      isSummaryCheckpointComplete({
+        sentences: ['One.', 'Two.'],
+        topics: [{ name: 'A', sentences: 'nope' }],
+      }),
+    ).toBe(false);
+  });
+
+  it('accepts a checkpoint where one topic is empty but others still summarize', () => {
+    // A fresh run could produce the same empty topic, so refusing the whole
+    // checkpoint would only throw away the summaries that did survive.
+    expect(
+      isSummaryCheckpointComplete({
+        sentences: ['One.', 'Two.'],
+        topics: [
+          { name: 'A', sentences: [1, 2] },
+          { name: 'B', sentences: [] },
+        ],
+      }),
+    ).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -245,6 +316,10 @@ describe('splitContiguousRuns', () => {
       [1, 2],
       [5, 6],
     ]);
+  });
+
+  it('deduplicates ids before grouping', () => {
+    expect(splitContiguousRuns([2, 1, 1, 2, 5, 5])).toEqual([[1, 2], [5]]);
   });
 
   it('returns a single run for fully contiguous ids', () => {
@@ -594,6 +669,25 @@ describe('runPipeline', () => {
     );
   });
 
+  it('persists an unrelated error that settles after the signal is aborted', async () => {
+    const controller = new AbortController();
+    storage.readRecord.mockResolvedValue(makeRecord('cancelled-plain-error', '<p>text</p>'));
+    html.stripTagsKeepOffsets.mockImplementation(() => {
+      controller.abort();
+      throw new Error('transport closed while aborting');
+    });
+
+    await expect(
+      runPipeline('cancelled-plain-error', { signal: controller.signal }),
+    ).rejects.toThrow('transport closed while aborting');
+
+    expect(
+      storage.updateRecord.mock.calls.some(
+        ([key, patch]) => key === 'cancelled-plain-error' && patch.status === 'error',
+      ),
+    ).toBe(true);
+  });
+
   function loggedStages() {
     return storage.appendProcessingLog.mock.calls.map((call) => call[1]);
   }
@@ -845,6 +939,41 @@ describe('runPipeline', () => {
     expect(parkCall[1].summaryErrors[0].topic).toBe('Tech>All');
     expect(parkCall[1].summaryErrors[0].error_kind).toBe('timeout');
     expect(parkCall[1].summaryErrors[0].error_message).toMatch(/did not respond/i);
+  });
+
+  it('persists the original provider failure when it settles after abort', async () => {
+    const controller = new AbortController();
+    const providerError = new Error('provider failed while cancellation raced');
+    const plainText = LONG_SUMMARY_TEXT;
+    storage.readRecord.mockResolvedValue(makeRecord('provider-abort-race', `<p>${plainText}</p>`));
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping: makeMapping(plainText) });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: plainText, start: 0, end: plainText.length },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
+      if (prompt.includes('Summarize the text within the <text> tags')) {
+        controller.abort();
+        throw providerError;
+      }
+      return '';
+    });
+
+    await expect(runPipeline('provider-abort-race', { signal: controller.signal })).rejects.toBe(
+      providerError,
+    );
+
+    expect(
+      storage.updateRecord.mock.calls.some(
+        ([key, patch]) =>
+          key === 'provider-abort-race' &&
+          patch.status === 'error' &&
+          patch.error.includes(providerError.message),
+      ),
+    ).toBe(true);
+    expect(
+      storage.updateRecord.mock.calls.some(([, patch]) => patch.status === 'needs_attention'),
+    ).toBe(false);
   });
 
   it('uses source text when the summary model returns NO_SUMMARY', async () => {
@@ -1258,10 +1387,135 @@ describe('runPipeline', () => {
     expect(summaryPrompts).toHaveLength(1);
     expect(summaryPrompts[0]).toContain(LONG_SUMMARY_TEXT);
 
+    const resumeCall = storage.updateRecord.mock.calls.find(
+      (call) => call[1].status === 'summarizing' && call[1].summariesIncomplete === false,
+    );
+    expect(resumeCall).toBeDefined();
+
     const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
     expect(doneCall).toBeDefined();
     expect(doneCall[1].topic_summaries.A.runs[0].text).toBe('Existing A summary.');
     expect(doneCall[1].topic_summaries.B.runs[0].text).toBe('Fresh B summary.');
+  });
+
+  it('refuses an incomplete resume without erasing valid summary checkpoints', async () => {
+    // Same shape as a normal resumable checkpoint, except `sentences` is empty.
+    // The stale topics reference sentence ids that no longer resolve to any
+    // text, so resuming would silently produce blank summaries.
+    const plainText = 'AB. CD.';
+    const mapping = makeMapping(plainText);
+    storage.readRecord.mockResolvedValue({
+      key: 'resumeNoSentences',
+      html: '<p>AB. CD.</p>',
+      status: 'summarizing',
+      sentences: [],
+      topics: [{ name: 'A', sentences: [1], sentence_spans: [], ranges: [] }],
+      topic_summaries: {
+        A: { runs: [{ sentences: [1], text: 'Keep this summary.' }], source_sentences: [1] },
+      },
+      topic_summary_index: {
+        A: {
+          runs: [{ sentences: [1], text: 'Keep this summary.' }],
+          level: 0,
+          source_sentences: [1],
+        },
+      },
+    });
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'AB.', start: 0, end: 3 },
+      { text: 'CD.', start: 4, end: 7 },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
+      return '';
+    });
+
+    await expect(runPipeline('resumeNoSentences')).rejects.toThrow(
+      'saved sentence checkpoint is incomplete',
+    );
+
+    // Refusal may update status/error, but it must not enter computeTopics,
+    // whose first write clears every topic and summary checkpoint.
+    expect(html.stripTagsKeepOffsets).not.toHaveBeenCalled();
+    expect(sentenceSplitter.splitSentences).not.toHaveBeenCalled();
+    expect(llm.callLLMWithRetry).not.toHaveBeenCalled();
+    expect(
+      storage.updateRecord.mock.calls.some(([, patch]) =>
+        ['topics', 'topic_summaries', 'topic_summary_index'].some((field) =>
+          Object.prototype.hasOwnProperty.call(patch, field),
+        ),
+      ),
+    ).toBe(false);
+    expect(storage.updateRecord).toHaveBeenCalledWith(
+      'resumeNoSentences',
+      expect.objectContaining({
+        status: 'error',
+        error: expect.stringContaining('saved sentence checkpoint is incomplete'),
+      }),
+      expect.anything(),
+    );
+
+    const rejectionLog = storage.appendProcessingLog.mock.calls.find(
+      (call) => call[1] === 'pipeline_resume_rejected',
+    );
+    expect(rejectionLog).toBeDefined();
+
+    const resumeLog = storage.appendProcessingLog.mock.calls.find(
+      (call) => call[1] === 'pipeline_resume',
+    );
+    expect(resumeLog).toBeUndefined();
+  });
+
+  it('refuses a resume when a topic references an out-of-range sentence id', async () => {
+    const plainText = 'AB. CD.';
+    const mapping = makeMapping(plainText);
+    storage.readRecord.mockResolvedValue({
+      key: 'resumeOutOfRange',
+      html: '<p>AB. CD.</p>',
+      status: 'summarizing',
+      // Only one sentence persisted, but the stale topic references sentence 2.
+      sentences: ['Alpha.'],
+      topics: [{ name: 'A', sentences: [1, 2], sentence_spans: [], ranges: [] }],
+      topic_summaries: {},
+      topic_summary_index: {},
+    });
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'AB.', start: 0, end: 3 },
+      { text: 'CD.', start: 4, end: 7 },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
+      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
+      return '';
+    });
+
+    await expect(runPipeline('resumeOutOfRange')).rejects.toThrow(
+      'saved sentence checkpoint is incomplete',
+    );
+
+    expect(html.stripTagsKeepOffsets).not.toHaveBeenCalled();
+    expect(sentenceSplitter.splitSentences).not.toHaveBeenCalled();
+    expect(llm.callLLMWithRetry).not.toHaveBeenCalled();
+    expect(
+      storage.updateRecord.mock.calls.some(([, patch]) =>
+        ['topics', 'topic_summaries', 'topic_summary_index'].some((field) =>
+          Object.prototype.hasOwnProperty.call(patch, field),
+        ),
+      ),
+    ).toBe(false);
+    expect(storage.updateRecord).toHaveBeenCalledWith(
+      'resumeOutOfRange',
+      expect.objectContaining({ status: 'error' }),
+      expect.anything(),
+    );
+
+    const rejectionLog = storage.appendProcessingLog.mock.calls.find(
+      (call) => call[1] === 'pipeline_resume_rejected',
+    );
+    expect(rejectionLog).toBeDefined();
   });
 
   it('summarizes each non-adjacent run of a topic separately on resume', async () => {
@@ -1347,7 +1601,7 @@ describe('runPipeline', () => {
     ]);
   });
 
-  it('retries only summaries flagged with an error, keeping legit empty (NO_SUMMARY) results', async () => {
+  it('retries only summaries flagged with an error, keeping a stored NO_SUMMARY fallback', async () => {
     storage.readRecord.mockResolvedValue({
       key: 'resume2',
       html: '<p>ignored</p>',
@@ -1360,8 +1614,10 @@ describe('runPipeline', () => {
       ],
       topic_summaries: {
         A: { runs: [{ sentences: [1], text: 'Good A.' }], source_sentences: [1] },
-        B: { runs: [], source_sentences: [2] }, // legit empty — keep
-        C: { runs: [], source_sentences: [3], error: true }, // failed — retry
+        // A NO_SUMMARY response is persisted as the source text, so it has a
+        // valid run layout and can be distinguished from a damaged entry.
+        B: { runs: [{ sentences: [2], text: 'Beta.' }], source_sentences: [2] },
+        C: { runs: [{ sentences: [3], text: '' }], source_sentences: [3], error: true },
       },
       topic_summary_index: {},
     });
@@ -1383,7 +1639,7 @@ describe('runPipeline', () => {
 
     const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
     expect(doneCall[1].topic_summaries.A.runs[0].text).toBe('Good A.');
-    expect(doneCall[1].topic_summaries.B.runs).toEqual([]);
+    expect(doneCall[1].topic_summaries.B.runs).toEqual([{ sentences: [2], text: 'Beta.' }]);
     expect(doneCall[1].topic_summaries.C.runs[0].text).toBe('Recovered C.');
     expect(doneCall[1].topic_summaries.C.error).toBeUndefined();
   });
@@ -1428,15 +1684,22 @@ describe('runPipeline', () => {
 
   it('finalizes a parked failure to empty text when resumed with forceFinalize (skip)', async () => {
     // Simulate the "skip" resume: record is back in 'summarizing', the failed
-    // leaf's error flag was already cleared by the resolveSummaryErrors handler,
-    // and forceFinalize tells the run to finish accepting the empty summary.
+    // leaf's error flags were already swapped for `acceptedFailure` by the
+    // resolveSummaryErrors handler, and forceFinalize tells the run to finish
+    // accepting the empty summary.
     storage.readRecord.mockResolvedValue({
       ...makeRecord('skip1', '<p>One. Two.</p>'),
       status: 'summarizing',
       forceFinalize: true,
       topics: [{ name: 'Tech>All', sentences: [1, 2], sentence_spans: [], ranges: [] }],
       sentences: ['One.', 'Two.'],
-      topic_summaries: { 'Tech>All': { runs: [], source_sentences: [1, 2] } },
+      topic_summaries: {
+        'Tech>All': {
+          runs: [{ sentences: [1, 2], text: '' }],
+          source_sentences: [1, 2],
+          acceptedFailure: true,
+        },
+      },
     });
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Merge the chunk summaries')) return 'Merged.';
@@ -1447,8 +1710,14 @@ describe('runPipeline', () => {
 
     const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
     expect(doneCall).toBeDefined();
-    expect(doneCall[1].topic_summaries['Tech>All'].runs).toEqual([]);
+    expect(doneCall[1].topic_summaries['Tech>All'].runs).toEqual([{ sentences: [1, 2], text: '' }]);
     expect(doneCall[1].topic_summaries['Tech>All'].error).toBeUndefined();
+    // The accepted failure is finalized as `forcedEmpty` (retryable later) and
+    // the transient marker is not persisted.
+    expect(doneCall[1].topic_summaries['Tech>All'].forcedEmpty).toBe(true);
+    expect(doneCall[1].topic_summaries['Tech>All'].acceptedFailure).toBeUndefined();
+    expect(doneCall[1].summariesDisabled).toBe(false);
+    expect(doneCall[1].summariesIncomplete).toBe(true);
     // Park state is cleared on finalize.
     expect(doneCall[1].summaryErrors).toEqual([]);
     expect(doneCall[1].forceFinalize).toBe(false);
@@ -1495,11 +1764,12 @@ describe('runPipeline', () => {
     expect(parkCall[1].topic_summary_index['Tech>Hardware'].runs[0].text).toBe('C. D.');
   });
 
-  it('forceFinalize (skip) bypasses the merge-phase park and finishes empty', async () => {
+  it('merge-phase skip reuses the parked tree index without another merge call', async () => {
     storage.readRecord.mockResolvedValue({
       ...makeRecord('mergeskip', '<p>A. B. C. D.</p>'),
       status: 'summarizing',
       forceFinalize: true,
+      acceptedMergeFailurePaths: ['Tech'],
       topics: [
         { name: 'Tech>AI', sentences: [1, 2], sentence_spans: [], ranges: [] },
         { name: 'Tech>Hardware', sentences: [3, 4], sentence_spans: [], ranges: [] },
@@ -1512,6 +1782,23 @@ describe('runPipeline', () => {
           source_sentences: [3, 4],
         },
       },
+      topic_summary_index: {
+        Tech: {
+          runs: [{ sentences: [1, 2, 3, 4], text: '' }],
+          level: 0,
+          source_sentences: [1, 2, 3, 4],
+        },
+        'Tech>AI': {
+          runs: [{ sentences: [1, 2], text: 'AI summary.' }],
+          level: 1,
+          source_sentences: [1, 2],
+        },
+        'Tech>Hardware': {
+          runs: [{ sentences: [3, 4], text: 'HW summary.' }],
+          level: 1,
+          source_sentences: [3, 4],
+        },
+      },
     });
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Merge the chunk summaries')) throw new Error('LLM HTTP 429');
@@ -1520,7 +1807,8 @@ describe('runPipeline', () => {
 
     await runPipeline('mergeskip');
 
-    // No re-park and no provider call: the skipped merge degrades immediately.
+    // No re-park and no provider call: the skip reuses the complete parked
+    // projection, including its accepted empty parent result.
     expect(storage.updateRecord.mock.calls.some((c) => c[1].status === 'needs_attention')).toBe(
       false,
     );
@@ -1531,14 +1819,130 @@ describe('runPipeline', () => {
     ).toBe(false);
     const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
     expect(doneCall).toBeDefined();
-    // Tech's children are adjacent ([1,2]+[3,4]) so they form one mixed run; the
-    // skip stub degrades that generated run to empty text. The leaves are kept.
+    // The failed parent remains empty exactly as parked, while its successful
+    // leaf results are kept.
     expect(doneCall[1].topic_summary_index['Tech'].runs).toEqual([
       { sentences: [1, 2, 3, 4], text: '' },
     ]);
     expect(doneCall[1].topic_summaries['Tech>AI'].runs[0].text).toBe('AI summary.');
+    expect(doneCall[1].summariesDisabled).toBe(false);
+    expect(doneCall[1].summariesIncomplete).toBe(true);
     expect(doneCall[1].summaryErrors).toEqual([]);
     expect(doneCall[1].forceFinalize).toBe(false);
+  });
+
+  it('refuses an invalid force-finalize checkpoint without consuming its review state', async () => {
+    // The checkpoint has topics but no sentences. It cannot be resumed, and a
+    // full recompute here would erase both the partial summaries and the user's
+    // accepted-path state before they explicitly choose Reprocess.
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('skipInvalid', `<p>${LONG_SUMMARY_TEXT}</p>`),
+      status: 'summarizing',
+      forceFinalize: true,
+      acceptedMergeFailurePaths: ['Old>Accepted'],
+      sentences: [],
+      topics: [{ name: 'Tech>All', sentences: [1], sentence_spans: [], ranges: [] }],
+      topic_summaries: {
+        'Tech>All': {
+          runs: [{ sentences: [1], text: 'Keep this partial summary.' }],
+          source_sentences: [1],
+        },
+      },
+    });
+    html.stripTagsKeepOffsets.mockReturnValue({
+      text: LONG_SUMMARY_TEXT,
+      mapping: makeMapping(LONG_SUMMARY_TEXT),
+    });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: LONG_SUMMARY_TEXT, start: 0, end: LONG_SUMMARY_TEXT.length },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
+      if (prompt.includes('Summarize the text within the <text> tags')) throw new Error('LLM down');
+      return '';
+    });
+
+    await expect(runPipeline('skipInvalid')).rejects.toThrow(
+      'saved sentence checkpoint is incomplete',
+    );
+
+    expect(html.stripTagsKeepOffsets).not.toHaveBeenCalled();
+    expect(sentenceSplitter.splitSentences).not.toHaveBeenCalled();
+    expect(llm.callLLMWithRetry).not.toHaveBeenCalled();
+    const rejectionLog = storage.appendProcessingLog.mock.calls.find(
+      (call) => call[1] === 'pipeline_resume_rejected',
+    );
+    expect(rejectionLog).toBeDefined();
+    expect(
+      storage.updateRecord.mock.calls.some(([, patch]) =>
+        [
+          'topics',
+          'topic_summaries',
+          'topic_summary_index',
+          'forceFinalize',
+          'acceptedMergeFailurePaths',
+        ].some((field) => Object.prototype.hasOwnProperty.call(patch, field)),
+      ),
+    ).toBe(false);
+    expect(storage.updateRecord).toHaveBeenCalledWith(
+      'skipInvalid',
+      expect.objectContaining({ status: 'error' }),
+      expect.anything(),
+    );
+  });
+
+  it('resumes with forceFinalize when the checkpoint is valid', async () => {
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('skipValid', '<p>One.</p>'),
+      status: 'summarizing',
+      forceFinalize: true,
+      sentences: ['One.'],
+      topics: [{ name: 'Tech>All', sentences: [1], sentence_spans: [], ranges: [] }],
+      topic_summaries: {},
+    });
+    llm.callLLMWithRetry.mockImplementation(async () => {
+      throw new Error('should not be called: run resumes and inlines the single short sentence');
+    });
+
+    await runPipeline('skipValid');
+
+    // A valid checkpoint is resumed: no HTML/sentence recompute.
+    expect(html.stripTagsKeepOffsets).not.toHaveBeenCalled();
+    expect(sentenceSplitter.splitSentences).not.toHaveBeenCalled();
+    const resumeLog = storage.appendProcessingLog.mock.calls.find(
+      (call) => call[1] === 'pipeline_resume',
+    );
+    expect(resumeLog).toBeDefined();
+
+    const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
+    expect(doneCall).toBeDefined();
+    expect(storage.updateRecord.mock.calls.some((c) => c[1].status === 'needs_attention')).toBe(
+      false,
+    );
+  });
+
+  it('does not set forceFinalize for a fresh record, so a summary failure parks for review', async () => {
+    storage.readRecord.mockResolvedValue(makeRecord('freshNoForce', `<p>${LONG_SUMMARY_TEXT}</p>`));
+    html.stripTagsKeepOffsets.mockReturnValue({
+      text: LONG_SUMMARY_TEXT,
+      mapping: makeMapping(LONG_SUMMARY_TEXT),
+    });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: LONG_SUMMARY_TEXT, start: 0, end: LONG_SUMMARY_TEXT.length },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
+      if (prompt.includes('Summarize the text within the <text> tags')) throw new Error('LLM down');
+      return '';
+    });
+
+    await runPipeline('freshNoForce');
+
+    // Without forceFinalize, a summary failure parks the record for review
+    // instead of finalizing empty.
+    expect(storage.updateRecord.mock.calls.some((c) => c[1].status === 'done')).toBe(false);
+    const parkCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'needs_attention');
+    expect(parkCall).toBeDefined();
   });
 
   it('chunks an oversized parent source into per-chunk summaries, then merges them', async () => {
@@ -1730,7 +2134,12 @@ describe('runPipeline', () => {
       topics: [],
       topic_summaries: {},
       topic_summary_index: {},
+      summaryErrors: [],
+      forceFinalize: false,
+      acceptedMergeFailurePaths: [],
+      summaryCheckpointContentRevision: null,
       summariesDisabled: false,
+      summariesIncomplete: false,
     });
 
     // The final result has only the fresh summaries.

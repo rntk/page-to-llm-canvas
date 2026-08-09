@@ -30,10 +30,18 @@ export const PIPELINE_STAGE = Object.freeze({
 
 const PIPELINE_STATUS_VALUES = new Set(Object.values(PIPELINE_STATUS));
 const PIPELINE_STAGE_VALUES = new Set(Object.values(PIPELINE_STAGE));
-const IN_FLIGHT_PIPELINE_STATUSES = new Set([
+export const IN_FLIGHT_PIPELINE_STATUSES = new Set([
   PIPELINE_STATUS.PENDING,
   PIPELINE_STATUS.SPLITTING,
   PIPELINE_STATUS.SUMMARIZING,
+]);
+
+// Terminal checkpoints from which the summaries-only action may safely mint a
+// replacement run. `needs_attention` has its own Retry/Skip resolution path.
+export const SUMMARY_GENERATION_SOURCE_STATUSES = new Set([
+  PIPELINE_STATUS.DONE,
+  PIPELINE_STATUS.CANCELLED,
+  PIPELINE_STATUS.ERROR,
 ]);
 
 /** @param {unknown} value @returns {boolean} */
@@ -129,7 +137,18 @@ export function isImportableRecord(record) {
  * @property {Record<string, object>} [topic_summaries] - Resumable per-topic
  *   summary checkpoint, keyed by topic id. Entries may nest
  *   `start_sentence`/`end_sentence` chunk bounds (snake_case; see
- *   `worker/pipeline/sourceSummarizer.js`).
+ *   `worker/pipeline/sourceSummarizer.js`). An entry may carry
+ *   `forcedEmpty: true`, meaning the user accepted a failed topic via "skip"
+ *   and finalization cleared its in-flight `error` marker — it distinguishes
+ *   that case from a legitimately empty summary so `planSummaryWork`
+ *   (`worker/pipeline/summaryPlanning.js`) can still retry it on a resume.
+ *   An entry may also carry `acceptedFailure: true`, the transient counterpart
+ *   written by the "skip" handler (`clearSummaryErrorFlags` in background.js)
+ *   in place of the error fields it strips: it tells the resumed run the leaf
+ *   is an accepted failure — so ancestor summaries skip its source and
+ *   finalization stamps `forcedEmpty` — without making `planSummaryWork`
+ *   re-query it. Finalization never persists it, so it only ever exists on a
+ *   record between the skip decision and the end of the resumed run.
  * @property {Record<string, {level: number}>} [topic_summary_index] -
  *   Canonical UI projection of `topic_summaries`. Tolerated absent/null by
  *   `isImportableRecord`.
@@ -138,15 +157,26 @@ export function isImportableRecord(record) {
  * @property {string[]} [selectors] - CSS selectors used to capture the page.
  * @property {boolean} [skipSummaries] - Run directive: summaries disabled for
  *   this run (decided at kickoff from the global toggle).
- * @property {boolean} [summariesDisabled] - Outcome flag: the run finished
- *   intentionally without summaries (distinct from `skipSummaries`, the
- *   directive).
+ * @property {boolean} [summariesDisabled] - Outcome flag: summary generation
+ *   was disabled and the record has no summaries. Distinct from
+ *   `skipSummaries`, the run directive.
+ * @property {boolean} [summariesIncomplete] - Outcome flag: summary generation
+ *   ran, but one or more failed summaries were accepted as empty. Consumers
+ *   use it to offer a targeted regeneration without hiding successful
+ *   summaries.
  * @property {object[]} [summaryErrors] - Per-topic summary failures parked
  *   for user review (`PIPELINE_STATUS.NEEDS_ATTENTION`).
- * @property {boolean} [forceFinalize] - Run directive: finalize/merge even if
- *   some leaf summaries errored or are missing.
+ * @property {boolean} [forceFinalize] - Transient skip directive: finalize the
+ *   failures identified by accepted leaf/merge markers. New failures raised
+ *   during the resumed run still park for review.
+ * @property {string[]} [acceptedMergeFailurePaths] - Transient paths of
+ *   tree-merge failures accepted via "skip". The resumed run preserves their
+ *   empty result without repeating the failed source-summary request.
  * @property {string} [contentRevision] - Opaque id bumped whenever
  *   html/text/sentences/topics change; used to invalidate cached chats.
+ * @property {string|null} [summaryCheckpointContentRevision] - Content
+ *   revision whose sentence/topic data reached the summarization stage. Retry
+ *   only resumes a summary checkpoint when this matches `contentRevision`.
  * @property {number} [createdAt] - Epoch ms when the record was first queued.
  * @property {number} [updatedAt] - Epoch ms of the most recent write.
  */
@@ -193,6 +223,7 @@ export function createQueuedRecord({
     selectors: Array.isArray(selectors) ? selectors : [],
     pipelineRunId,
     skipSummaries,
+    summaryCheckpointContentRevision: null,
     createdAt: now,
     updatedAt: now,
   };

@@ -4,6 +4,7 @@ import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import SummaryErrorsOverlay from './SummaryErrorsOverlay.jsx';
+import { StaleActionError } from '../shared/runtime/actionResponses.js';
 
 function render(element) {
   const container = document.createElement('div');
@@ -40,6 +41,7 @@ describe('SummaryErrorsOverlay', () => {
     expect(items).toHaveLength(2);
     expect(items[0].textContent).toContain('Tech>AI');
     expect(items[0].textContent).toContain('did not respond');
+    expect(container.textContent).toContain('Any new failures will still need review.');
     unmount();
   });
 
@@ -180,7 +182,98 @@ describe('SummaryErrorsOverlay', () => {
     unmount();
   });
 
-  it('re-enables buttons when the decision send rejects', async () => {
+  it('re-enables buttons and dismissal once a successful decision settles', async () => {
+    let resolveRetry;
+    const onRetry = vi.fn(() => new Promise((r) => (resolveRetry = r)));
+    const onClose = vi.fn();
+    const { container, unmount } = render(
+      createElement(SummaryErrorsOverlay, {
+        summaryErrors: ERRORS,
+        onRetry,
+        onSkip: () => {},
+        onClose,
+      }),
+    );
+    const retryBtn = container.querySelector('.pagetollm-spinner-retry-btn');
+    const skipBtn = container.querySelector('.pagetollm-spinner-skip-btn');
+    const closeBtn = container.querySelector('.pagetollm-spinner-close-btn');
+
+    await act(async () => {
+      retryBtn.click();
+    });
+    expect(closeBtn.disabled).toBe(true);
+
+    await act(async () => {
+      resolveRetry({ ok: true });
+    });
+    expect(retryBtn.disabled).toBe(false);
+    expect(skipBtn.disabled).toBe(false);
+    expect(closeBtn.disabled).toBe(false);
+
+    act(() =>
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+    act(() => container.querySelector('[role="alertdialog"]').click());
+    expect(onClose).toHaveBeenCalledTimes(2);
+    act(() => closeBtn.click());
+    expect(onClose).toHaveBeenCalledTimes(3);
+    unmount();
+  });
+
+  it('reports a stale decision as information rather than a failure', async () => {
+    const onRetry = vi.fn(() => Promise.reject(new StaleActionError()));
+    const { container, unmount } = render(
+      createElement(SummaryErrorsOverlay, {
+        summaryErrors: ERRORS,
+        onRetry,
+        onSkip: () => {},
+      }),
+    );
+    const retryBtn = container.querySelector('.pagetollm-spinner-retry-btn');
+    await act(async () => {
+      retryBtn.click();
+    });
+
+    const notice = container.querySelector('[role="status"]');
+    expect(notice.textContent).toBe('This record has already been handled.');
+    expect(container.querySelector('[role="alert"]')).toBe(null);
+    expect(retryBtn.disabled).toBe(false);
+    unmount();
+  });
+
+  it('clears the stale notice when a new attempt starts', async () => {
+    let resolveRetry;
+    const onRetry = vi
+      .fn()
+      .mockImplementationOnce(() => Promise.resolve({ ok: true, stale: true }))
+      .mockImplementationOnce(() => new Promise((r) => (resolveRetry = r)));
+    const { container, unmount } = render(
+      createElement(SummaryErrorsOverlay, {
+        summaryErrors: ERRORS,
+        onRetry,
+        onSkip: () => {},
+      }),
+    );
+    const retryBtn = container.querySelector('.pagetollm-spinner-retry-btn');
+    await act(async () => {
+      retryBtn.click();
+    });
+    expect(container.textContent).toContain('This record has already been handled.');
+
+    await act(async () => {
+      retryBtn.click();
+    });
+    expect(container.textContent).not.toContain('This record has already been handled.');
+
+    await act(async () => {
+      resolveRetry({ ok: true });
+    });
+    unmount();
+  });
+
+  it('re-enables buttons and shows the failure when the decision send rejects', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const onRetry = vi.fn(() => Promise.reject(new Error('send failed')));
     const { container, unmount } = render(
       createElement(SummaryErrorsOverlay, {
@@ -194,6 +287,42 @@ describe('SummaryErrorsOverlay', () => {
       retryBtn.click();
     });
     expect(retryBtn.disabled).toBe(false);
+    expect(container.textContent).toContain('send failed');
+    expect(warnSpy).toHaveBeenCalledWith(
+      'PageToLLM SummaryErrorsOverlay action failed:',
+      'send failed',
+    );
+    unmount();
+  });
+
+  it('clears a previous action error when a new attempt starts', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let resolveRetry;
+    const onRetry = vi
+      .fn()
+      .mockImplementationOnce(() => Promise.reject(new Error('send failed')))
+      .mockImplementationOnce(() => new Promise((r) => (resolveRetry = r)));
+    const { container, unmount } = render(
+      createElement(SummaryErrorsOverlay, {
+        summaryErrors: ERRORS,
+        onRetry,
+        onSkip: () => {},
+      }),
+    );
+    const retryBtn = container.querySelector('.pagetollm-spinner-retry-btn');
+    await act(async () => {
+      retryBtn.click();
+    });
+    expect(container.textContent).toContain('send failed');
+
+    await act(async () => {
+      retryBtn.click();
+    });
+    expect(container.textContent).not.toContain('send failed');
+
+    await act(async () => {
+      resolveRetry();
+    });
     unmount();
   });
 });

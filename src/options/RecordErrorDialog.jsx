@@ -16,17 +16,21 @@ import { splitError } from '../utils/errorUtils.js';
  */
 export default function RecordErrorDialog({ sourceUrl, errorText, onRetry, onClose }) {
   const [busy, setBusy] = useState(false);
+  const [retryError, setRetryError] = useState(null);
   const hasMessage = errorText != null && String(errorText) !== '';
   const { message, details } = hasMessage ? splitError(errorText) : { message: '', details: '' };
 
   const handleRetry = async () => {
     if (busy) return;
     setBusy(true);
+    setRetryError(null);
     try {
       // On success the parent reloads records and unmounts this dialog; only a
       // failed send returns here, where we re-enable the buttons for a retry.
       await onRetry();
-    } catch (_) {
+    } catch (e) {
+      console.warn('PageToLLM Options retry failed:', e?.message);
+      setRetryError(e?.message || 'Retry failed');
       setBusy(false);
     }
   };
@@ -49,6 +53,11 @@ export default function RecordErrorDialog({ sourceUrl, errorText, onRetry, onClo
               msgClassName="pagetollm-spinner-error-msg"
               detailsClassName="pagetollm-spinner-error-details"
             />
+          </div>
+        ) : null}
+        {retryError ? (
+          <div className="pagetollm-spinner-error-body" role="alert">
+            Retry failed: {retryError}
           </div>
         ) : null}
         <div className="pagetollm-spinner-actions">

@@ -135,14 +135,18 @@ export async function callLLMDirect(options) {
       ...(toolCalls?.length ? { toolCalls } : {}),
     };
   } catch (e) {
-    if (signal?.aborted) {
+    // A provider/transport error can settle after the caller aborts. Treat it
+    // as cancellation only when the rejection itself is abort-shaped (or is
+    // the signal's exact abort reason); the signal state alone would discard a
+    // genuine provider failure that won the response race.
+    if (isAbortRejection(e, signal)) {
       throw makeAbortError('LLM request aborted');
     }
     const message =
       e && (e.name === 'AbortError' || e.name === 'TimeoutError')
         ? `LLM request timed out after ${requestTimeoutMs}ms`
-        : (e && e.message) || String(e);
-    console.warn('PageToLLM Canvas LLM request failed:', message);
+        : getErrorMessage(e);
+    log.warn('request failed:', message);
     return {
       ok: false,
       error: message,
@@ -155,10 +159,38 @@ export async function callLLMDirect(options) {
   }
 }
 
+function getErrorMessage(error) {
+  if (typeof error?.message === 'string' && error.message) return error.message;
+  if (typeof error?.error === 'string' && error.error) return error.error;
+  if (typeof error === 'string') return error;
+  try {
+    const serialized = JSON.stringify(error);
+    if (serialized && serialized !== '{}') return serialized;
+  } catch (_) {
+    // Fall through to String for circular provider error objects.
+  }
+  return String(error);
+}
+
 function makeAbortError(message) {
   const error = new Error(message);
   error.name = 'AbortError';
   return error;
+}
+
+function isAbortRejection(error, signal) {
+  if (!signal?.aborted) return false;
+  const reason = signal.reason;
+  const seen = new Set();
+  let current = error;
+  while (current && (typeof current === 'object' || typeof current === 'function')) {
+    if (seen.has(current)) break;
+    seen.add(current);
+    if (current.name === 'AbortError' || current.code === 'ABORT_ERR') return true;
+    if (reason !== undefined && current === reason) return true;
+    current = current.cause;
+  }
+  return false;
 }
 
 export function mergeAbortSignals(...signals) {

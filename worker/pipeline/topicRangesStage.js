@@ -14,6 +14,9 @@ import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
 import { MAX_TAGGED_CHARS } from './pipelineConfig.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
+import { isCancellationError, rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
+
+const ABORT_MESSAGE = 'pipeline aborted during topic ranging';
 
 const TOPIC_RANGE_CONCURRENCY = 4;
 const TOPIC_RANGE_TEMPERATURE = 0.2;
@@ -290,8 +293,10 @@ async function resplitSegment(
       },
       parse: async (raw) => {
         try {
+          // The request may have fulfilled just as cancellation landed. Stop
+          // before attributing that superseded response to parser metrics.
+          throwIfCancelled(runtime, ABORT_MESSAGE);
           const parsed = parseTopicRangesDetailed(raw, sliceTexts.length);
-          await recordParserMetric({ ok: true, scope: 'resplit', diagnostics: parsed.diagnostics });
           if (hasDiagnosticQuirks(parsed.diagnostics)) {
             await runtime.log(
               'topic_ranges_parse_diagnostics',
@@ -316,8 +321,13 @@ async function resplitSegment(
               { verbose: true },
             );
           }
+          throwIfCancelled(runtime, ABORT_MESSAGE);
+          await recordParserMetric({ ok: true, scope: 'resplit', diagnostics: parsed.diagnostics });
           return parsed.groups;
         } catch (error) {
+          // An AbortError from the boundary check or runtime logging is not a
+          // malformed model response and must not become a parser sample.
+          rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
           const diagnostics = { ...error?.diagnostics, sentenceCount: sliceTexts.length };
           await recordParserMetric({
             ok: false,
@@ -354,6 +364,10 @@ async function resplitSegment(
       },
     });
   } catch (error) {
+    // A cancelled run is not a resplit failure: recording it would both log a
+    // phantom error on the record and bias the ERROR counts that the keep/remove
+    // decision for the resplit feature rests on.
+    rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
     await runtime.log('topic_ranges_resplit_error', {
       start: segment.start,
       end: segment.end,
@@ -474,19 +488,31 @@ async function refineOversizedRanges(
   stats.primaryChunkCount = primaryChunkCount;
   stats.groupCountBefore = groups.length;
   stats.groupCountAfter = groups.length;
+  let cancelled = false;
+  let completed = false;
   try {
-    return await refineOversizedRangesWithStats(
+    const refined = await refineOversizedRangesWithStats(
       runtime,
       groups,
       sentenceTexts,
       callLLMWithRetry,
       stats,
     );
+    completed = true;
+    return refined;
+  } catch (error) {
+    cancelled = isCancellationError(error, runtime);
+    throw error;
   } finally {
     // Awaited like every recordParserMetric call in this file: the service
     // worker can be recycled right after this returns, and a dropped sample
     // silently biases the counts the keep/remove decision rests on.
-    await recordResplitRun(stats);
+    // A successful refinement can still lose a cancellation race before this
+    // terminal metric write. Suppress that superseded sample, while retaining
+    // genuine provider failures that arrived after abort (`completed` is false
+    // for those and `cancelled` deliberately remains false).
+    const cancelledAfterSuccess = completed && runtime.signal?.aborted;
+    if (!cancelled && !cancelledAfterSuccess) await recordResplitRun(stats);
   }
 }
 
@@ -578,7 +604,16 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
     topics: [],
     topic_summaries: {},
     topic_summary_index: {},
+    // A full topic recompute invalidates every path-scoped review decision
+    // from the previous tree. Clear them in storage as well as in the current
+    // orchestrator invocation so a later park/retry cannot reactivate stale
+    // accepted paths against the newly derived tree.
+    summaryErrors: [],
+    forceFinalize: false,
+    acceptedMergeFailurePaths: [],
+    summaryCheckpointContentRevision: null,
     summariesDisabled: false,
+    summariesIncomplete: false,
   });
   await runtime.log(
     'cleaning_html_start',
@@ -668,6 +703,9 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
     parse: async (responses) => {
       let activeResponse = null;
       try {
+        // Do not count a response that lost a cancellation race as a parser
+        // attempt for the active pipeline.
+        throwIfCancelled(runtime, ABORT_MESSAGE);
         const segments = [];
         const successfulMetricSamples = [];
         for (const { chunk, chunkIndex, response } of responses) {
@@ -715,9 +753,14 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
           }
         }
         const parsedGroups = groupsFromSegments(segments, sentenceTexts.length);
-        for (const sample of successfulMetricSamples) await recordParserMetric(sample);
+        throwIfCancelled(runtime, ABORT_MESSAGE);
+        for (const sample of successfulMetricSamples) {
+          throwIfCancelled(runtime, ABORT_MESSAGE);
+          await recordParserMetric(sample);
+        }
         return parsedGroups;
       } catch (error) {
+        rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
         const diagnostics = error?.diagnostics || {};
         if (error instanceof TopicParseError && activeResponse) {
           failedChunkIndexes.add(activeResponse.chunkIndex);
@@ -772,6 +815,10 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
       primaryChunkCount: chunks.length,
     });
   } catch (error) {
+    // Oversize refinement is best-effort — the unrefined groups are still
+    // usable — but a cancellation must propagate instead of being swallowed
+    // here and letting a superseded run continue to topic building.
+    rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
     await runtime.log('topic_ranges_oversize_error', {
       error: (error && error.message) || String(error),
     });
@@ -782,6 +829,10 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
   const topics = groupsToTopics(groups, sentenceObjs, mapping);
   await runtime.update({
     topics,
+    // Topics and sentences are now a resumable checkpoint for exactly the
+    // content revision read by this run. A later submission bumps
+    // contentRevision, so Retry cannot mistake these topics for the new HTML.
+    summaryCheckpointContentRevision: record.contentRevision,
     status: PIPELINE_STATUS.SUMMARIZING,
     progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done: 0, total: topics.length },
   });

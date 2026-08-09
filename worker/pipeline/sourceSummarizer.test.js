@@ -7,6 +7,7 @@ import {
   runSourceText,
   shouldInlineRun,
 } from './sourceSummarizer.js';
+import { isProviderFailure, markProviderFailure } from './providerFailure.js';
 
 describe('parseSummaryResult', () => {
   it('normalizes empty, fenced, and explicit no-summary responses', () => {
@@ -37,6 +38,46 @@ describe('parseSummaryResult', () => {
       noSummary: false,
     });
     expect(parseSummaryResponse('  useful answer  ')).toBe('useful answer');
+  });
+});
+
+describe('markProviderFailure', () => {
+  it('marks an ordinary error in place and recognizes it through a cause chain', () => {
+    const error = new Error('timed out');
+
+    expect(markProviderFailure(error)).toBe(error);
+    expect(isProviderFailure(error)).toBe(true);
+    expect(isProviderFailure(new Error('wrapped', { cause: error }))).toBe(true);
+  });
+
+  it('wraps values that cannot carry the marker instead of mutating them', () => {
+    const marked = markProviderFailure('plain failure');
+
+    expect(marked).toBeInstanceOf(Error);
+    expect(marked.message).toBe('plain failure');
+    expect(marked.cause).toBe('plain failure');
+    expect(isProviderFailure(marked)).toBe(true);
+
+    const frozen = Object.freeze(new Error('frozen failure'));
+    const markedFrozen = markProviderFailure(frozen);
+
+    expect(markedFrozen).not.toBe(frozen);
+    expect(markedFrozen.cause).toBe(frozen);
+    expect(isProviderFailure(markedFrozen)).toBe(true);
+    expect(isProviderFailure(frozen)).toBe(false);
+  });
+
+  it('keeps a wrapped cancellation recognizable and tolerates cyclic causes', () => {
+    const abortError = new Error('LLM request aborted');
+    abortError.name = 'AbortError';
+    Object.freeze(abortError);
+
+    expect(markProviderFailure(abortError).name).toBe('AbortError');
+
+    const cyclic = new Error('cyclic');
+    cyclic.cause = cyclic;
+    expect(isProviderFailure(cyclic)).toBe(false);
+    expect(isProviderFailure(undefined)).toBe(false);
   });
 });
 
@@ -168,6 +209,52 @@ describe('makeSourceSummarizer', () => {
       runs: [{ sentences: [1], text: 'summary' }],
     });
     expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks a provider rejection as a provider failure through the limiter', async () => {
+    const providerError = new Error('timed out');
+    const { summarize } = make(
+      ['word '.repeat(60).trim()],
+      vi.fn(async () => {
+        throw providerError;
+      }),
+    );
+
+    await expect(summarize([1])).rejects.toBe(providerError);
+    expect(isProviderFailure(providerError)).toBe(true);
+  });
+
+  it('marks the chunk-merge rejection of an oversized run as a provider failure', async () => {
+    const sentenceTexts = Array.from(
+      { length: 3 },
+      (_, index) => `${index + 1} ${'x'.repeat(30000)}`,
+    );
+    const mergeError = new Error('HTTP 429 from provider');
+    const callLLMWithRetry = vi
+      .fn()
+      .mockResolvedValueOnce('chunk one')
+      .mockResolvedValueOnce('chunk two')
+      .mockResolvedValueOnce('chunk three')
+      .mockRejectedValueOnce(mergeError);
+    const { summarize } = make(sentenceTexts, callLLMWithRetry);
+
+    await expect(summarize([1, 2, 3])).rejects.toBe(mergeError);
+    expect(isProviderFailure(mergeError)).toBe(true);
+  });
+
+  it('leaves a response-parsing bug unmarked so callers do not treat it as retryable', async () => {
+    const parseError = new TypeError('not a summary response');
+    const { summarize } = make(
+      ['word '.repeat(60).trim()],
+      vi.fn(async () => ({
+        toString() {
+          throw parseError;
+        },
+      })),
+    );
+
+    await expect(summarize([1])).rejects.toBe(parseError);
+    expect(isProviderFailure(parseError)).toBe(false);
   });
 
   it('defaults to the non-language-specific prompt mode', async () => {

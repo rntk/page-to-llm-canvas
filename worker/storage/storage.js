@@ -17,11 +17,16 @@ import {
   recordContentStorageKey as contentStorageKey,
   recordSummariesStorageKey as summariesStorageKey,
 } from './keys.js';
+import { createLogger } from '../../src/shared/runtime/log.js';
+
+const log = createLogger();
 
 export const INDEX_KEY = 'pagetollm:index';
 const MAX_PROCESSING_LOG_ENTRIES = 80;
 const RECORD_SNIPPET_MAX_CHARS = 500;
+export const INDEX_REPAIR_THROTTLE_MS = 5 * 60 * 1000;
 export const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
+let lastIndexProjectionRepairAt = null;
 
 // A record is physically split across three storage keys so that the
 // high-frequency writes (status/progress/log ticks) never have to
@@ -71,6 +76,7 @@ function pickMetaFields(obj) {
 /** Clears all per-key queues and buffered log state. Exposed for testing only. */
 export function _resetUpdateQueues() {
   resetUpdateQueues();
+  lastIndexProjectionRepairAt = null;
   for (const timer of _logFlushTimers.values()) clearTimeout(timer);
   _logFlushTimers.clear();
   _logBuffers.clear();
@@ -105,13 +111,22 @@ function buildRecordMeta(rec) {
     status: rec.status,
     progress: rec.progress,
     error: rec.error,
-    // Outcome flag ("finished intentionally without summaries"), not the run
-    // directive — listings use it to offer summary generation for the record.
+    // Outcome flags, not the run directive. Listings use both to offer summary
+    // generation, while viewers only use `summariesDisabled` to hide summaries.
     summariesDisabled: rec.summariesDisabled === true,
+    summariesIncomplete: rec.summariesIncomplete === true,
   };
 }
 
-const INDEX_META_FIELDS = ['status', 'progress', 'error', 'text', 'sourceUrl', 'summariesDisabled'];
+const INDEX_META_FIELDS = [
+  'status',
+  'progress',
+  'error',
+  'text',
+  'sourceUrl',
+  'summariesDisabled',
+  'summariesIncomplete',
+];
 
 /**
  * Best-effort, incremental refresh of a record's cached index projection.
@@ -143,14 +158,78 @@ async function syncIndexMeta(key, patch, fallbackMeta) {
       if (hasOwn(patch, 'sourceUrl')) next.sourceUrl = patch.sourceUrl;
       if (hasOwn(patch, 'summariesDisabled'))
         next.summariesDisabled = patch.summariesDisabled === true;
+      if (hasOwn(patch, 'summariesIncomplete'))
+        next.summariesIncomplete = patch.summariesIncomplete === true;
       if (hasOwn(patch, 'text')) next.snippet = buildRecordSnippet({ text: patch.text });
       if (next.createdAt === undefined) next.createdAt = fallbackMeta && fallbackMeta.createdAt;
       idx.meta[key] = next;
       await writeIndex(idx);
     });
   } catch (err) {
-    console.warn('PageToLLM Canvas: failed to sync index meta for', key, err);
+    // The meta document was already written when this projection write failed.
+    // Retry from that authoritative document rather than merely replaying the
+    // patch: a concurrent writer may have changed another projected field in
+    // the meantime. If storage remains unavailable, listRecords() still
+    // overlays the authoritative metadata for callers (including keepalive),
+    // and retries persisting the repaired projection on its next read.
+    try {
+      await repairIndexedRecordProjection(key);
+    } catch (repairErr) {
+      log.warn('failed to sync index meta for', key, err);
+      log.warn('failed to repair index meta for', key, repairErr);
+    }
   }
+}
+
+/**
+ * Copies fields that are authoritative in a record's meta document into an
+ * existing index projection. The text snippet deliberately remains cached:
+ * text lives in the separate content document and normal content writes
+ * already update it through syncIndexMeta().
+ * @param {object} meta Authoritative record metadata document.
+ * @param {object} [cached] Existing lightweight index projection.
+ * @returns {object} Repaired lightweight index projection.
+ */
+function mergeAuthoritativeMetaIntoProjection(meta, cached = {}) {
+  return {
+    ...cached,
+    sourceUrl: meta.sourceUrl,
+    createdAt: meta.createdAt,
+    status: meta.status,
+    progress: meta.progress,
+    error: meta.error,
+    summariesDisabled: meta.summariesDisabled === true,
+    summariesIncomplete: meta.summariesIncomplete === true,
+  };
+}
+
+function isRecordMeta(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Rebuilds one already-indexed record's lightweight projection from its
+ * authoritative metadata. This is intentionally narrow: it is the recovery
+ * path for an interrupted incremental index write, whereas startup's
+ * reconcileRecordStorage() remains responsible for discovering unindexed
+ * records and ownerless documents.
+ * @param {string} key Record key whose existing projection should be repaired.
+ * @returns {Promise<void>}
+ */
+async function repairIndexedRecordProjection(key) {
+  return queuedUpdate(INDEX_KEY, async () => {
+    const idx = await readIndex();
+    if (!idx.keys.includes(key)) return;
+    const meta = (await getLocal(metaStorageKey(key)))[metaStorageKey(key)];
+    const next = { keys: [...idx.keys], meta: { ...idx.meta } };
+    if (!isRecordMeta(meta)) {
+      next.keys = next.keys.filter((item) => item !== key);
+      delete next.meta[key];
+    } else {
+      next.meta[key] = mergeAuthoritativeMetaIntoProjection(meta, idx.meta[key]);
+    }
+    if (JSON.stringify(next) !== JSON.stringify(idx)) await writeIndex(next);
+  });
 }
 
 /**
@@ -185,6 +264,11 @@ export async function writeRecord(rec, options = {}) {
       const contentKey = contentStorageKey(rec.key);
       const summariesKey = summariesStorageKey(rec.key);
       const existingMeta = await loadMetaForWrite(rec.key);
+      // Snapshot what is about to be overwritten so the index-failure path
+      // below can put it back. Only for a record that already exists: a
+      // brand-new key has nothing to restore, and skipping the read keeps the
+      // common submit path from pulling in the (possibly large) content doc.
+      const priorDocs = existingMeta ? await getLocal([metaKey, contentKey, summariesKey]) : null;
       const contentRevision =
         options.bumpContentRevision === true
           ? createContentRevision()
@@ -207,16 +291,55 @@ export async function writeRecord(rec, options = {}) {
           await writeIndex(idx);
         });
       } catch (err) {
-        await removeLocal([metaKey, contentKey, summariesKey]).catch(() => {});
+        // The three docs were already replaced above, so a failed index write
+        // has to undo them. Deleting is only correct for a record this call
+        // created: for an existing key (an import collision, a resubmission)
+        // deletion would destroy the HTML, topics and summaries this write was
+        // merely replacing — a rollback that loses more than the write would
+        // have. Restore the snapshot instead, removing only the docs that did
+        // not exist before.
+        await rollbackRecordDocs(rec.key, priorDocs, [metaKey, contentKey, summariesKey]).catch(
+          (rollbackErr) => {
+            log.warn(
+              'writeRecord rollback failed for',
+              rec.key,
+              'after index write error:',
+              rollbackErr,
+            );
+          },
+        );
         throw err;
       }
       if (existingMeta && options.bumpContentRevision === true) {
         await pruneChatsForContentRevision(rec.key, contentRevision).catch((err) => {
-          console.warn('PageToLLM Canvas: stale chat cleanup failed:', err);
+          log.warn('stale chat cleanup failed:', err);
         });
       }
     });
   });
+}
+
+/**
+ * Restores the record docs captured before a `writeRecord` overwrite.
+ * `priorDocs` is null when the record did not exist, in which case removing
+ * every doc is the correct rollback.
+ * @param {string} key Record key.
+ * @param {object|null} priorDocs Snapshot taken before the overwrite.
+ * @param {string[]} docKeys Meta, content and summaries storage keys.
+ */
+async function rollbackRecordDocs(key, priorDocs, docKeys) {
+  if (!priorDocs) {
+    await removeLocal(docKeys);
+    return;
+  }
+  const restore = {};
+  const remove = [];
+  for (const docKey of docKeys) {
+    if (priorDocs[docKey] === undefined) remove.push(docKey);
+    else restore[docKey] = priorDocs[docKey];
+  }
+  if (Object.keys(restore).length) await setLocal(restore);
+  if (remove.length) await removeLocal(remove);
 }
 
 /**
@@ -240,8 +363,15 @@ function createContentRevision() {
 }
 
 function isStaleRun(meta, options) {
+  if (
+    hasOwn(options, 'expectedPipelineRunId') &&
+    meta.pipelineRunId !== options.expectedPipelineRunId
+  ) {
+    return true;
+  }
   return (
-    hasOwn(options, 'expectedPipelineRunId') && meta.pipelineRunId !== options.expectedPipelineRunId
+    hasOwn(options, 'expectedStatuses') &&
+    (!Array.isArray(options.expectedStatuses) || !options.expectedStatuses.includes(meta.status))
   );
 }
 
@@ -251,6 +381,7 @@ function isStaleRun(meta, options) {
  * @param {object} [options]
  * @param {boolean} [options.bumpContentRevision]
  * @param {unknown} [options.expectedPipelineRunId]
+ * @param {string[]} [options.expectedStatuses] Statuses that may be replaced.
  * @returns {Promise<ArticleRecord | null>}
  */
 export async function updateRecord(key, patch, options = {}) {
@@ -290,7 +421,7 @@ export async function updateRecord(key, patch, options = {}) {
       await syncIndexMeta(key, patch, mergedMeta);
       if (touchesContent && options.bumpContentRevision === true) {
         await pruneChatsForContentRevision(key, mergedMeta.contentRevision).catch((err) => {
-          console.warn('PageToLLM Canvas: stale chat cleanup failed:', err);
+          log.warn('stale chat cleanup failed:', err);
         });
       }
 
@@ -406,16 +537,78 @@ export function appendProcessingLog(key, stage, details = {}, options = {}) {
 }
 
 /**
+ * Rewrites the index projection from the authoritative meta documents.
+ * Best-effort cache maintenance only: callers already hold correct data, so a
+ * failure here is logged and swallowed rather than failing their read.
+ * @returns {Promise<void>}
+ */
+async function repairAllIndexProjections() {
+  await queuedUpdate(INDEX_KEY, async () => {
+    // Re-read while holding the index queue so a concurrent incremental
+    // projection write cannot be overwritten by this repair.
+    const current = await readIndex();
+    const currentMetaKeys = current.keys.map(metaStorageKey);
+    const currentMetas = currentMetaKeys.length ? await getLocal(currentMetaKeys) : {};
+    const next = { keys: [], meta: {} };
+    for (const key of current.keys) {
+      const authoritativeMeta = currentMetas[metaStorageKey(key)];
+      if (!isRecordMeta(authoritativeMeta)) continue;
+      next.keys.push(key);
+      next.meta[key] = mergeAuthoritativeMetaIntoProjection(authoritativeMeta, current.meta[key]);
+    }
+    if (JSON.stringify(next) !== JSON.stringify(current)) await writeIndex(next);
+  }).catch((err) => {
+    // The caller's projections are still correct. Keeping the listing usable
+    // matters most for terminal states, and a later scan retries after the
+    // repair throttle expires.
+    log.warn('failed to repair record index projection:', err);
+  });
+}
+
+function shouldAttemptIndexProjectionRepair(now = Date.now()) {
+  if (lastIndexProjectionRepairAt !== null) {
+    const elapsed = now - lastIndexProjectionRepairAt;
+    if (elapsed >= 0 && elapsed < INDEX_REPAIR_THROTTLE_MS) return false;
+  }
+  lastIndexProjectionRepairAt = now;
+  return true;
+}
+
+/**
+ * Lists every indexed record's metadata, read authoritatively.
+ *
+ * Cost, because this is called on hot paths (the 30s keepalive alarm, the popup
+ * and Options listings): one index read plus one batched `getLocal` of EVERY
+ * record's meta document — not an index-only read. When the cached projection
+ * turns out to be stale, this read path may also WRITE: a throttled
+ * `repairAllIndexProjections` attempt re-reads the index and every meta
+ * document under the index queue before rewriting the cache. Authoritative
+ * reads are never throttled; only this best-effort persistence repair is.
+ * Content/summaries documents are never touched on this path.
+ *
+ * The extra reads are deliberate: the index is a cache, never the source of
+ * truth for a record's status. `updateRecord` commits the small meta document
+ * before its index projection, so a failed projection write would otherwise
+ * hide a terminal error/done state from the popup, Options, and the keepalive
+ * alarm indefinitely.
  * @returns {Promise<Array<Partial<ArticleRecord>>>}
  */
 export async function listRecords() {
   const idx = await readIndex();
-  // Every key's projection is kept in sync by writeRecord/updateRecord, so
-  // this never touches the full records.
+  const metaKeys = idx.keys.map(metaStorageKey);
+  const metas = metaKeys.length ? await getLocal(metaKeys) : {};
   const out = [];
+  const repaired = { keys: [], meta: {} };
   for (const k of idx.keys) {
-    const meta = idx.meta[k];
-    if (meta) out.push({ key: k, ...meta });
+    const authoritativeMeta = metas[metaStorageKey(k)];
+    if (!isRecordMeta(authoritativeMeta)) continue;
+    const meta = mergeAuthoritativeMetaIntoProjection(authoritativeMeta, idx.meta[k]);
+    repaired.keys.push(k);
+    repaired.meta[k] = meta;
+    out.push({ key: k, ...meta });
+  }
+  if (JSON.stringify(repaired) !== JSON.stringify(idx) && shouldAttemptIndexProjectionRepair()) {
+    await repairAllIndexProjections();
   }
   return out;
 }
@@ -456,7 +649,14 @@ export async function deleteRecord(key) {
         } catch (err) {
           // Documents are gone but retaining an index entry would create a
           // ghost record. Best-effort removal keeps listings authoritative.
-          await writeIndex(nextIdx).catch(() => {});
+          await writeIndex(nextIdx).catch((retryErr) => {
+            log.warn(
+              'deleteRecord failed to retry index write for',
+              key,
+              'after initial write error:',
+              retryErr,
+            );
+          });
           throw err;
         }
       });

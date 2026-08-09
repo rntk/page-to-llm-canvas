@@ -12,6 +12,7 @@ import {
   buildRecordSnippet,
   reconcileRecordStorage,
   INDEX_KEY,
+  INDEX_REPAIR_THROTTLE_MS,
   _resetUpdateQueues,
 } from './storage.js';
 
@@ -24,7 +25,7 @@ import {
  *
  * @param {{ lastErrorOnSet?: boolean, lastErrorOnGet?: boolean,
  *            lastErrorOnRemove?: boolean, setDelay?: number,
- *            failSetOnCall?: number }} [opts]
+ *            failSetOnCall?: number, failIndexSet?: boolean }} [opts]
  */
 function makeChromeMock(opts = {}) {
   // Kept as a live (mutable) object, rather than destructured consts, so
@@ -36,6 +37,7 @@ function makeChromeMock(opts = {}) {
     lastErrorOnRemove: false,
     setDelay: 0,
     failSetOnCall: 0,
+    failIndexSet: false,
     ...opts,
   };
   const store = new Map();
@@ -68,7 +70,11 @@ function makeChromeMock(opts = {}) {
     set: vi.fn((items, cb) => {
       const doSet = () => {
         setCalls += 1;
-        if (state.lastErrorOnSet || setCalls === state.failSetOnCall) {
+        if (
+          state.lastErrorOnSet ||
+          setCalls === state.failSetOnCall ||
+          (state.failIndexSet && Object.hasOwn(items, INDEX_KEY))
+        ) {
           runtime.lastError = { message: 'QuotaExceededError' };
           cb();
           runtime.lastError = null;
@@ -173,6 +179,37 @@ describe('chrome.runtime.lastError propagation', () => {
     expect(await readRecord('r1')).toBeNull();
     expect(await listRecords()).toHaveLength(0);
   });
+
+  it('writeRecord restores the previous docs when the index write fails on an existing record', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    const original = makeRecord('r1', {
+      html: '<p>original</p>',
+      text: 'original',
+      topics: [{ name: 'Topic', sentences: [1] }],
+      topic_summaries: { Topic: { runs: [{ sentences: [1], text: 'Original summary.' }] } },
+    });
+    await seedRecord(mock, original);
+
+    // Seeding used two set calls (docs, then index). The replacement's doc
+    // write is call 3 and its index write is call 4 — the one that fails here.
+    mock._state.failSetOnCall = 4;
+
+    await expect(
+      writeRecord(makeRecord('r1', { html: '<p>replacement</p>', text: 'replacement' })),
+    ).rejects.toThrow('QuotaExceededError');
+
+    // Deleting is the right rollback only for a record this write created. An
+    // import collision or a resubmission would otherwise lose the HTML, topics
+    // and summaries the failed write was merely replacing.
+    const restored = await readRecord('r1');
+    expect(restored).not.toBeNull();
+    expect(restored.html).toBe('<p>original</p>');
+    expect(restored.text).toBe('original');
+    expect(restored.topics).toEqual(original.topics);
+    expect(restored.topic_summaries).toEqual(original.topic_summaries);
+    expect(await listRecords()).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -212,6 +249,24 @@ describe('updateRecord basic correctness', () => {
     expect((await readRecord('r1')).status).toBe('pending');
   });
 
+  it('skips updates when the current status is outside expected statuses', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('r1', { pipelineRunId: 'run-current', status: 'done' }));
+
+    const result = await updateRecord(
+      'r1',
+      { status: 'cancelled' },
+      {
+        expectedPipelineRunId: 'run-current',
+        expectedStatuses: ['pending', 'splitting', 'summarizing'],
+      },
+    );
+
+    expect(result).toBeNull();
+    expect((await readRecord('r1')).status).toBe('done');
+  });
+
   it('updates updatedAt timestamp', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
@@ -224,6 +279,70 @@ describe('updateRecord basic correctness', () => {
 
     expect(result.updatedAt).toBeGreaterThanOrEqual(before);
     expect(result.updatedAt).toBeLessThanOrEqual(after);
+  });
+
+  it('retries a failed terminal-state projection write from authoritative metadata', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('r1', { status: 'summarizing' }));
+
+    // Seed used two writes. The metadata update is call three and the first
+    // index write is call four, so only the projection attempt fails.
+    mock._state.failSetOnCall = 4;
+    await updateRecord('r1', {
+      status: 'needs_attention',
+      error: { message: 'provider failed' },
+    });
+
+    expect((await readRecord('r1')).status).toBe('needs_attention');
+    expect((await listRecords())[0]).toMatchObject({
+      key: 'r1',
+      status: 'needs_attention',
+      error: { message: 'provider failed' },
+    });
+    expect(mock.storage.local._store.get(INDEX_KEY).meta.r1).toMatchObject({
+      status: 'needs_attention',
+      error: { message: 'provider failed' },
+    });
+  });
+
+  it('lists terminal metadata accurately and retries repair while index writes remain unavailable', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('r1', { status: 'summarizing' }));
+
+    mock._state.failIndexSet = true;
+    await updateRecord('r1', { status: 'done', error: null });
+
+    // The in-memory mock returns stored objects by reference, unlike Chrome's
+    // structured-clone storage API. Restore the stale persisted projection so
+    // this test exercises the durable failure state rather than that mock-only
+    // aliasing detail.
+    const staleIndex = structuredClone(mock.storage.local._store.get(INDEX_KEY));
+    staleIndex.meta.r1.status = 'summarizing';
+    mock.storage.local._store.set(INDEX_KEY, staleIndex);
+
+    const repairAttemptAt = Date.now();
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(repairAttemptAt);
+    try {
+      // Both the immediate retry and this list-triggered persistence retry fail,
+      // but consumers must see the committed terminal metadata rather than the
+      // stale summarizing cache.
+      expect((await listRecords())[0]).toMatchObject({ key: 'r1', status: 'done' });
+      expect(mock.storage.local._store.get(INDEX_KEY).meta.r1.status).toBe('summarizing');
+
+      // Authoritative reads continue on every call, while the expensive repair
+      // pass is suppressed until the throttle expires.
+      mock._state.failIndexSet = false;
+      expect((await listRecords())[0]).toMatchObject({ key: 'r1', status: 'done' });
+      expect(mock.storage.local._store.get(INDEX_KEY).meta.r1.status).toBe('summarizing');
+
+      nowSpy.mockReturnValue(repairAttemptAt + INDEX_REPAIR_THROTTLE_MS);
+      await listRecords();
+      expect(mock.storage.local._store.get(INDEX_KEY).meta.r1.status).toBe('done');
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 });
 
@@ -463,18 +582,27 @@ describe('listRecords', () => {
     }
   });
 
-  it('exposes the summariesDisabled outcome flag and keeps it in sync on update', async () => {
+  it('exposes summary outcome flags and keeps them in sync on update', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
 
-    await seedRecord(mock, makeRecord('r1', { summariesDisabled: true }));
+    await seedRecord(
+      mock,
+      makeRecord('r1', { summariesDisabled: true, summariesIncomplete: false }),
+    );
     let [item] = await listRecords();
     expect(item.summariesDisabled).toBe(true);
+    expect(item.summariesIncomplete).toBe(false);
 
     // Mirrors the pipeline finalize patch after summaries are generated.
-    await updateRecord('r1', { status: 'done', summariesDisabled: false });
+    await updateRecord('r1', {
+      status: 'done',
+      summariesDisabled: false,
+      summariesIncomplete: true,
+    });
     [item] = await listRecords();
     expect(item.summariesDisabled).toBe(false);
+    expect(item.summariesIncomplete).toBe(true);
   });
 
   it('includes a normalized bounded text snippet', async () => {
@@ -582,6 +710,7 @@ describe('reconcileRecordStorage', () => {
     const record = makeRecord('recovered', { status: 'done', text: 'Recovered page text' });
     await seedRecord(mock, record);
     delete mock.storage.local._store.get(INDEX_KEY).meta.recovered.summariesDisabled;
+    delete mock.storage.local._store.get(INDEX_KEY).meta.recovered.summariesIncomplete;
 
     mock.storage.local._store.set(INDEX_KEY, { keys: ['ghost'], meta: { ghost: {} } });
     mock.storage.local._store.set('pagetollm:rec:ownerless:content', { text: 'orphan' });
@@ -596,6 +725,7 @@ describe('reconcileRecordStorage', () => {
     expect((await listRecords()).map((item) => item.key)).toEqual(['recovered']);
     expect((await listRecords())[0].snippet).toBe('Recovered page text');
     expect((await listRecords())[0].summariesDisabled).toBe(false);
+    expect((await listRecords())[0].summariesIncomplete).toBe(false);
     expect(mock.storage.local._store.has('pagetollm:rec:ownerless:content')).toBe(false);
     expect(mock.storage.local._store.has('pagetollm:rec:ownerless:summaries')).toBe(false);
     expect(mock.storage.local._store.has('pagetollm:rec:corrupt:meta')).toBe(false);

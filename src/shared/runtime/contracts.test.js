@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   createQueuedRecord,
+  IN_FLIGHT_PIPELINE_STATUSES,
   isImportableRecord,
   isInFlightPipelineStatus,
   isPipelineStage,
   isPipelineStatus,
   PIPELINE_STAGE,
   PIPELINE_STATUS,
+  SUMMARY_GENERATION_SOURCE_STATUSES,
 } from './contracts.js';
 
 describe('runtime contracts', () => {
@@ -17,6 +19,8 @@ describe('runtime contracts', () => {
     expect(isPipelineStage('unknown')).toBe(false);
     expect(isInFlightPipelineStatus(PIPELINE_STATUS.SUMMARIZING)).toBe(true);
     expect(isInFlightPipelineStatus(PIPELINE_STATUS.DONE)).toBe(false);
+    expect([...IN_FLIGHT_PIPELINE_STATUSES]).toEqual(['pending', 'splitting', 'summarizing']);
+    expect([...SUMMARY_GENERATION_SOURCE_STATUSES]).toEqual(['done', 'cancelled', 'error']);
   });
 
   it('shares the minimum importable-record contract', () => {
@@ -85,6 +89,7 @@ describe('runtime contracts', () => {
       selectors: ['main'],
       pipelineRunId: 'run-1',
       skipSummaries: true,
+      summaryCheckpointContentRevision: null,
       createdAt: 123,
       updatedAt: 123,
     });

@@ -5,6 +5,7 @@ import {
 } from './prompts.js';
 import { parallelMap } from '../llm/llm.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
+import { markProviderFailure } from './providerFailure.js';
 import { splitContiguousRuns } from './topicTreeMerge.js';
 import { SOURCE_SUMMARY_MAX_CHARS, SUMMARY_CONCURRENCY } from './pipelineConfig.js';
 
@@ -104,9 +105,22 @@ export function makeSourceSummarizer({
   preferContentLanguage = false,
   callLLMWithRetry,
 }) {
+  // Same policy as the leaf summary path: only the provider call is marked as
+  // a retryable failure. A throw from our own prompt building, chunking or
+  // response parsing is a code bug and must reach the merge stage unmarked so
+  // it surfaces as a pipeline error instead of parking the topic behind a
+  // Retry button that can never succeed.
+  const callProvider = async (options) => {
+    try {
+      return await callLLMWithRetry(options);
+    } catch (error) {
+      throw markProviderFailure(error);
+    }
+  };
+
   const summarizeText = async (text) => {
     const response = await limit(() =>
-      callLLMWithRetry({
+      callProvider({
         prompt: buildTopicSummaryFromSourcePrompt(text, { preferContentLanguage }),
         temperature: 0.8,
         signal,
@@ -128,7 +142,7 @@ export function makeSourceSummarizer({
       summary: { text: await summarizeText(chunk.text) },
     }));
     const mergeResponse = await limit(() =>
-      callLLMWithRetry({
+      callProvider({
         prompt: buildArticleSummaryMergePrompt(formatChunkSummariesForMerge(records), {
           preferContentLanguage,
         }),
