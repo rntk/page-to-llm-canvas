@@ -77,30 +77,46 @@ function refreshMountedHighlightColor() {
   }
 }
 
-void getStoredTheme().then((stored) => {
-  setCachedThemePreference(stored);
-  // A surface opened before this async read resolved was tagged with the
-  // default; re-tag it now that the real preference is known.
-  refreshMountedContentTheme();
-});
+void getStoredTheme()
+  .then((stored) => {
+    setCachedThemePreference(stored);
+    // A surface opened before this async read resolved was tagged with the
+    // default; re-tag it now that the real preference is known.
+    refreshMountedContentTheme();
+  })
+  .catch((err) => {
+    console.warn('PageToLLM content initial theme load failed:', err);
+  });
 
-void getStoredHighlightColor().then((stored) => {
-  setCachedHighlightColor(stored);
-  refreshMountedHighlightColor();
-});
+void getStoredHighlightColor()
+  .then((stored) => {
+    setCachedHighlightColor(stored);
+    refreshMountedHighlightColor();
+  })
+  .catch((err) => {
+    console.warn('PageToLLM content initial highlight color load failed:', err);
+  });
 
 function syncPreferenceCacheFromStorage() {
   const syncId = ++preferenceStorageSyncId;
-  void getStoredTheme().then((stored) => {
-    if (syncId !== preferenceStorageSyncId) return;
-    setCachedThemePreference(stored);
-    refreshMountedContentTheme();
-  });
-  void getStoredHighlightColor().then((stored) => {
-    if (syncId !== preferenceStorageSyncId) return;
-    setCachedHighlightColor(stored);
-    refreshMountedHighlightColor();
-  });
+  void getStoredTheme()
+    .then((stored) => {
+      if (syncId !== preferenceStorageSyncId) return;
+      setCachedThemePreference(stored);
+      refreshMountedContentTheme();
+    })
+    .catch((err) => {
+      console.warn('PageToLLM content theme resync failed:', err);
+    });
+  void getStoredHighlightColor()
+    .then((stored) => {
+      if (syncId !== preferenceStorageSyncId) return;
+      setCachedHighlightColor(stored);
+      refreshMountedHighlightColor();
+    })
+    .catch((err) => {
+      console.warn('PageToLLM content highlight color resync failed:', err);
+    });
 }
 
 function handlePreferenceStorageChange(changes, areaName) {

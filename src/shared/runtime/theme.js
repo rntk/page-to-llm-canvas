@@ -6,6 +6,10 @@
 // keeps the live OS re-render free (no matchMedia listener to maintain) and
 // avoids a flash of the wrong colors for system users on first paint.
 
+import { createLogger } from './log.js';
+
+const log = createLogger();
+
 // Stored outside the `pagetollm:` prefix on purpose: popup.js refreshes its
 // record list for any changed key under that prefix, so a theme write must not
 // match it.
@@ -121,11 +125,17 @@ export function getStoredTheme() {
 }
 
 export function setStoredTheme(preference) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     try {
-      chrome.storage.local.set({ [THEME_KEY]: preference }, () => resolve());
-    } catch (_) {
-      resolve();
+      chrome.storage.local.set({ [THEME_KEY]: preference }, () => {
+        if (chrome.runtime && chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message || 'storage.set failed'));
+          return;
+        }
+        resolve();
+      });
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error(String(error)));
     }
   });
 }
@@ -169,7 +179,17 @@ export function createThemeController({
   async function setPreference(value) {
     preference = normalizeTheme(value, allowSystem);
     render();
-    await setStored(preference);
+    // Keep the applied preference even if persistence fails — reverting the
+    // just-rendered choice with no explanation would be worse than a theme
+    // that silently fails to survive a reload. setStored now rejects on a
+    // storage error (matching its siblings' contract), so callers of
+    // setPreference/cycle must not be left with an unhandled rejection; log
+    // it here instead since this is the one place all callers funnel through.
+    try {
+      await setStored(preference);
+    } catch (error) {
+      log.warn('failed to persist theme preference:', error);
+    }
     return current();
   }
 

@@ -197,7 +197,10 @@ describe('storage helpers', () => {
   it('resolves safely when chrome is unavailable', async () => {
     vi.stubGlobal('chrome', undefined);
     expect(await getStoredTheme()).toBeUndefined();
-    await expect(setStoredTheme(THEME_LIGHT)).resolves.toBeUndefined();
+    // setStoredTheme now matches its siblings (verboseLogSettings,
+    // highlightSettings): a failed write rejects rather than reporting a
+    // silent success.
+    await expect(setStoredTheme(THEME_LIGHT)).rejects.toThrow();
     vi.unstubAllGlobals();
   });
 });
@@ -237,6 +240,42 @@ describe('createThemeController', () => {
 
     await controller.setPreference(THEME_SYSTEM);
     expect(doc.documentElement.getAttribute('data-theme')).toBe(null);
+  });
+
+  it('keeps the applied preference and warns when persisting fails', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const doc = makeDoc();
+    const setStored = vi.fn().mockRejectedValue(new Error('storage.set failed'));
+    const controller = createThemeController({
+      doc,
+      win: winWithDark(false),
+      getStored: () => Promise.resolve(undefined),
+      setStored,
+    });
+
+    await expect(controller.setPreference(THEME_DARK)).resolves.toMatchObject({
+      preference: THEME_DARK,
+    });
+    expect(doc.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('notifies subscribers exactly once per setPreference call', async () => {
+    const doc = makeDoc();
+    const controller = createThemeController({
+      doc,
+      win: winWithDark(false),
+      getStored: () => Promise.resolve(undefined),
+      setStored: vi.fn().mockResolvedValue(undefined),
+    });
+    const fn = vi.fn();
+    controller.subscribe(fn);
+    fn.mockClear();
+
+    await controller.setPreference(THEME_DARK);
+
+    expect(fn).toHaveBeenCalledTimes(1);
   });
 
   it('cycles through preferences', async () => {
