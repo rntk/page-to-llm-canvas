@@ -53,6 +53,20 @@ export default [
     },
   },
   {
+    // Error-handling remediation: catch read-modify-write races (require-atomic-updates)
+    // and promise executors that return a value, which almost always signals a
+    // misunderstanding of the executor's role (no-promise-executor-return). Excludes
+    // *.test.{js,jsx,mjs}: measured at ~56 violations there (mostly chrome.storage
+    // mock helpers built as `new Promise((resolve) => { chrome.storage.local.set(...,
+    // () => resolve(...)) })`), which is test-harness noise, not production risk.
+    files: ['src/**/*.{js,jsx,mjs}', 'worker/**/*.{js,jsx,mjs}'],
+    ignores: ['**/*.test.{js,jsx,mjs}'],
+    rules: {
+      'require-atomic-updates': 'error',
+      'no-promise-executor-return': 'error',
+    },
+  },
+  {
     // Test helpers carry one-line docblocks for readability, not API docs, and
     // `jsdoc.config.json` excludes them from generation. Keep the two views of
     // "what is documented" in sync.

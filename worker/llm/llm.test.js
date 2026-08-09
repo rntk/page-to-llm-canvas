@@ -549,13 +549,19 @@ describe('callLLMWithRetry', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     stubActiveProvider();
 
-    let resolveTimeoutScheduled;
-    const timeoutScheduled = new Promise((resolve) => {
-      resolveTimeoutScheduled = resolve;
+    let resolveBackoffScheduled;
+    const backoffScheduled = new Promise((resolve) => {
+      resolveBackoffScheduled = resolve;
     });
+    let scheduledTimeouts = 0;
     vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn) => {
-      resolveTimeoutScheduled(fn);
-      return 1;
+      scheduledTimeouts++;
+      // callLLMDirect first installs its per-request timeout. The retry loop
+      // installs the backoff timer only after that request has failed; wait for
+      // this second timer so the test actually aborts during backoff rather
+      // than racing the provider failure itself.
+      if (scheduledTimeouts === 2) resolveBackoffScheduled(fn);
+      return scheduledTimeouts;
     });
     vi.spyOn(globalThis, 'clearTimeout').mockImplementation(() => {});
 
@@ -568,7 +574,7 @@ describe('callLLMWithRetry', () => {
     });
 
     const request = callLLMWithRetry({ prompt: 'hello', signal: controller.signal }, 3);
-    await timeoutScheduled;
+    await backoffScheduled;
     controller.abort();
 
     await expect(request).rejects.toMatchObject({ name: 'AbortError' });

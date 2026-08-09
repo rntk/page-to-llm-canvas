@@ -283,7 +283,9 @@ export async function callLLMWithRetry(opts, maxRetries = 3) {
 
 export function sleepWithAbort(ms, signal) {
   if (!signal) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
   }
   if (signal.aborted) {
     return Promise.reject(makeAbortError('LLM request aborted'));
@@ -341,10 +343,12 @@ export function createLimiter(limit) {
           settle(value);
         };
 
-        Promise.resolve().then(fn).then(
-          (value) => settleAfterCleanup(resolve, value),
-          (error) => settleAfterCleanup(reject, error),
-        );
+        Promise.resolve()
+          .then(fn)
+          .then(
+            (value) => settleAfterCleanup(resolve, value),
+            (error) => settleAfterCleanup(reject, error),
+          );
       });
       tryNext();
     });
@@ -454,6 +458,9 @@ export async function parallelMap(items, limit, fn, { warmupFirst = false } = {}
       try {
         results[i] = await fn(items[i], i);
       } catch (e) {
+        // `failed` is a one-way flag: every write is an unconditional `true`, never
+        // derived from a prior read, so concurrent workers racing to set it is harmless.
+        // eslint-disable-next-line require-atomic-updates
         failed = true;
         throw e;
       }

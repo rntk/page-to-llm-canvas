@@ -252,6 +252,10 @@ async function submitSelection(event) {
     console.error('PageToLLM submit error:', err);
     alert('PageToLLM error: ' + err.message);
   } finally {
+    // Unconditional reset, and the `if (isSubmitting) return;` guard above prevents
+    // any concurrent invocation from running while this one is in flight, so there
+    // is no other writer to race with.
+    // eslint-disable-next-line require-atomic-updates
     isSubmitting = false;
     cleanupSelection();
   }

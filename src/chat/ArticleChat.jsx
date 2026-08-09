@@ -371,6 +371,10 @@ export default function ArticleChat({
           expectedChatId: operation.chatId,
           turnId,
         });
+        // Unconditional write gated by the isCurrentOperation() check immediately
+        // above with no intervening await; a concurrent send() would have already
+        // replaced operationRef.current, so no stale invocation reaches this line.
+        // eslint-disable-next-line require-atomic-updates
         retryTurnRef.current = null;
         setPendingQuestion('');
       } catch (err) {
@@ -381,16 +385,21 @@ export default function ArticleChat({
           ? await reconcilePersistedTurn(operation.chatId, turnId)
           : false;
         if (reconciled && isCurrentOperation(operation)) {
+          // Same operation-identity guard as above, checked synchronously on this line.
+          // eslint-disable-next-line require-atomic-updates
           retryTurnRef.current = null;
           setPendingQuestion('');
           return;
         }
         if (!isCurrentOperation(operation)) return;
+        // Same operation-identity guard, no intervening await since the check above.
+        // eslint-disable-next-line require-atomic-updates
         retryTurnRef.current = { question, turnId };
         setPendingQuestion('');
         setInput(question);
         applyEvents(paintedEvents);
         if (err?.name === 'AbortError') {
+          // eslint-disable-next-line require-atomic-updates -- see guard note above.
           retryTurnRef.current = null;
           setError('');
           setNotice({ tone: 'warning', message: 'Response stopped.' });

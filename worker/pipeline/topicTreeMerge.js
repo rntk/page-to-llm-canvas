@@ -245,6 +245,10 @@ export async function summarizeTopicTree({ nodes, leafSummaries, summarizeSource
 
   await Promise.all(
     summarizable.map(async (node) => {
+      // `node` is this callback's own per-iteration binding (map over distinct node
+      // objects); nothing else in this module assigns `.summary`, so there is no
+      // concurrent writer to race with.
+      // eslint-disable-next-line require-atomic-updates
       node.summary = await resolve(node);
     }),
   );

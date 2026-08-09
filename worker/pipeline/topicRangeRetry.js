@@ -15,7 +15,9 @@
 export const DEFAULT_RETRY_BASE_DELAY_MS = 2000;
 
 function defaultSleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 export function computeBackoffDelay(attemptIndex, baseDelayMs = DEFAULT_RETRY_BASE_DELAY_MS) {

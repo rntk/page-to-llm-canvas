@@ -537,15 +537,20 @@ async function refreshRecords({ showLoading = false, forceRender = false } = {})
 }
 
 pickBtn.addEventListener('click', async () => {
-  activeTab = activeTab || (await getActiveTab());
-  if (!activeTab || !activeTab.id) {
+  // Resolve into a local rather than writing back to the module-scoped
+  // `activeTab`. That variable is owned by refreshRecords(), which guards its
+  // own writes with `refreshRequestId`; a click racing a refresh would
+  // otherwise read a stale value, await, and clobber the newer tab the
+  // refresh just stored.
+  const tab = activeTab || (await getActiveTab());
+  if (!tab || !tab.id) {
     window.close();
     return;
   }
   try {
     await refreshProviderReadiness();
     if (!providerReady) return;
-    await tabMessage(activeTab.id, { action: 'startSelection' });
+    await tabMessage(tab.id, { action: 'startSelection' });
     window.close();
   } catch (err) {
     setError('Unable to start selection on this page.');
