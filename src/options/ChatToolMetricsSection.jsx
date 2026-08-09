@@ -28,7 +28,11 @@ export function ChatToolMetricsSection() {
 
   useEffect(() => {
     let current = true;
-    void getChatToolMetrics().then((stored) => current && setMetrics(stored));
+    void getChatToolMetrics()
+      .then((stored) => current && setMetrics(stored))
+      .catch((err) => {
+        console.warn('PageToLLM Options chat tool metrics load failed:', err);
+      });
     const onChanged = (changes, areaName) => {
       if (areaName === 'local' && changes?.[CHAT_TOOL_METRICS_KEY]) {
         setMetrics(normalizeChatToolMetrics(changes[CHAT_TOOL_METRICS_KEY].newValue));
@@ -54,7 +58,10 @@ export function ChatToolMetricsSection() {
     try {
       // Route through the worker so the clear serializes with worker-side
       // records on one writeChain (see the clearChatToolMetrics handler).
-      await sendRuntimeMessage({ type: MSG.clearChatToolMetrics });
+      const response = await sendRuntimeMessage({ type: MSG.clearChatToolMetrics });
+      if (!response?.ok) {
+        throw new Error(response?.error || 'Failed to clear chat tool metrics');
+      }
       setMetrics(emptyChatToolMetrics());
     } catch (_) {
       const stored = await getChatToolMetrics();

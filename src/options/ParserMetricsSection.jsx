@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   PARSER_METRICS_KEY,
-  clearParserMetrics,
   emptyParserMetrics,
   getParserMetrics,
   normalizeParserMetrics,
 } from '../../worker/metrics/parser.js';
+import { MSG } from '../shared/runtime/messages.js';
+import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 import { CollapsibleSection } from './CollapsibleSection.jsx';
 
 function formatDate(timestamp) {
@@ -26,10 +27,15 @@ function quirksLabel(quirks) {
 export function ParserMetricsSection() {
   const [metrics, setMetrics] = useState(() => emptyParserMetrics());
   const [isClearing, setIsClearing] = useState(false);
+  const [clearError, setClearError] = useState('');
 
   useEffect(() => {
     let current = true;
-    void getParserMetrics().then((stored) => current && setMetrics(stored));
+    void getParserMetrics()
+      .then((stored) => current && setMetrics(stored))
+      .catch((err) => {
+        console.warn('PageToLLM Options parser metrics load failed:', err);
+      });
     const onChanged = (changes, areaName) => {
       if (areaName === 'local' && changes?.[PARSER_METRICS_KEY]) {
         setMetrics(normalizeParserMetrics(changes[PARSER_METRICS_KEY].newValue));
@@ -52,9 +58,28 @@ export function ParserMetricsSection() {
 
   const handleClear = useCallback(async () => {
     setIsClearing(true);
-    await clearParserMetrics();
-    setMetrics(emptyParserMetrics());
-    setIsClearing(false);
+    setClearError('');
+    try {
+      const response = await sendRuntimeMessage({ type: MSG.clearParserMetrics });
+      if (!response?.ok) {
+        throw new Error(response?.error || 'Failed to clear parser metrics');
+      }
+      setMetrics(emptyParserMetrics());
+    } catch (error) {
+      // A failed clear leaves the stored counters intact. Reload them so the
+      // user can see the current data and try again instead of being left in
+      // a permanently busy state.
+      let message = error?.message || 'Failed to clear parser metrics';
+      try {
+        const stored = await getParserMetrics();
+        setMetrics(stored);
+      } catch (reloadError) {
+        message += `. Metrics could not be reloaded: ${reloadError?.message || String(reloadError)}`;
+      }
+      setClearError(message);
+    } finally {
+      setIsClearing(false);
+    }
   }, []);
 
   return (
@@ -68,6 +93,11 @@ export function ParserMetricsSection() {
           {isClearing ? 'Clearing...' : 'Clear parser metrics'}
         </button>
       </div>
+      {clearError ? (
+        <div className="form-error form-error--stacked" role="alert">
+          {clearError}
+        </div>
+      ) : null}
       {!metrics.totalCount ? (
         <div className="empty">No topic parser attempts recorded yet.</div>
       ) : (

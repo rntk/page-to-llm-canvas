@@ -24,6 +24,8 @@ export const MSG = Object.freeze({
   cancelChatTurn: 'cancelChatTurn',
   recordChatToolMetric: 'recordChatToolMetric',
   clearChatToolMetrics: 'clearChatToolMetrics',
+  clearParserMetrics: 'clearParserMetrics',
+  clearResplitMetrics: 'clearResplitMetrics',
   listChats: 'listChats',
   getChat: 'getChat',
   appendChatTurn: 'appendChatTurn',

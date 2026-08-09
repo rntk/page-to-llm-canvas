@@ -653,7 +653,11 @@ export const MESSAGE_HANDLERS = {
       // each metrics queue before the authoritative storage clear. This keeps
       // an old request from restoring data immediately after reset returns.
       await Promise.allSettled([...pipelineJobs, ...activeChatCompletionJobs]);
-      await Promise.all([
+      // Metric clears are queued after the cancelled work's terminal writes.
+      // Let every queue settle even when a best-effort preliminary clear
+      // fails, then perform the authoritative full reset. Otherwise one
+      // failed metric write would leave all extension data in place.
+      await Promise.allSettled([
         clearLlmMetrics(),
         clearParserMetrics(),
         clearResplitMetrics(),
@@ -764,6 +768,27 @@ export const MESSAGE_HANDLERS = {
     validate: () => null,
     async handle() {
       await clearChatToolMetrics();
+      return { ok: true };
+    },
+  },
+
+  // Parser and resplit samples are also produced in the worker. Route their
+  // clears through this realm so each clear shares the same serialized metrics
+  // queue as its in-flight record writes.
+  [MSG.clearParserMetrics]: {
+    requiresExtensionPage: false,
+    validate: () => null,
+    async handle() {
+      await clearParserMetrics();
+      return { ok: true };
+    },
+  },
+
+  [MSG.clearResplitMetrics]: {
+    requiresExtensionPage: false,
+    validate: () => null,
+    async handle() {
+      await clearResplitMetrics();
       return { ok: true };
     },
   },
