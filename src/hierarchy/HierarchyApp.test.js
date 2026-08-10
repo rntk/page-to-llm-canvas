@@ -214,7 +214,7 @@ describe('HierarchyApp', () => {
     unmount();
   });
 
-  it('renders pipeline error state and triggers retry', () => {
+  it('renders pipeline error state read-only, pointing at Options instead of retrying', () => {
     const sendMessageMock = vi.fn();
     vi.stubGlobal('chrome', {
       runtime: {
@@ -234,12 +234,9 @@ describe('HierarchyApp', () => {
     expect(details).not.toBeNull();
     expect(details.textContent).toContain('stack trace details');
 
-    const retryBtn = container.querySelector('.th-page__retry-btn');
-    act(() => retryBtn.click());
-    expect(sendMessageMock).toHaveBeenCalledWith(
-      { type: 'retryRecord', key: 'key1' },
-      expect.any(Function),
-    );
+    expect(container.textContent).toContain('Open the Options page to retry');
+    expect(container.querySelector('.th-page__retry-btn')).toBeNull();
+    expect(sendMessageMock).not.toHaveBeenCalled();
 
     unmount();
   });

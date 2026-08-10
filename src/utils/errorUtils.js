@@ -28,11 +28,14 @@ export function splitError(recordError) {
 /**
  * Shared helper to send a retryRecord message to the background service worker.
  *
+ * Pipeline-mutating actions are Options-only; the in-page surfaces (rails,
+ * canvas, hierarchy) are read-only and point the user here instead.
+ *
  * @param {string} key - The unique storage key for the record.
  * @param {string} [serviceName] - The name of the calling service (for logs).
  * @returns {Promise<object>}
  */
-export async function retryRecord(key, serviceName = 'Canvas') {
+export async function retryRecord(key, serviceName = 'Options') {
   let resp;
   try {
     resp = await sendRuntimeMessage({ type: MSG.retryRecord, key });
@@ -50,16 +53,15 @@ export async function retryRecord(key, serviceName = 'Canvas') {
  * Resolves a record parked in `needs_attention`: re-runs the failed summaries
  * ("retry") or accepts them empty and finishes ("skip").
  *
- * A stale response is raised as a distinguishable `StaleActionError`. The
- * shared review overlay renders that condition informationally, while callers
- * that do not own a separate notice still surface useful feedback.
+ * A stale response is raised as a distinguishable `StaleActionError`, which the
+ * Options review overlay renders informationally.
  *
  * @param {string} key - The unique storage key for the record.
  * @param {'retry'|'skip'} action
  * @param {string} [serviceName] - The name of the calling service (for logs).
  * @returns {Promise<object>}
  */
-export async function resolveSummaryErrors(key, action, serviceName = 'Canvas') {
+export async function resolveSummaryErrors(key, action, serviceName = 'Options') {
   let resp;
   try {
     resp = await sendRuntimeMessage({ type: MSG.resolveSummaryErrors, key, action });
@@ -71,51 +73,4 @@ export async function resolveSummaryErrors(key, action, serviceName = 'Canvas') 
     console.warn(`PageToLLM ${serviceName} resolve failed:`, resp?.error);
   }
   return assertActionResponseSucceeded(resp, 'Resolve failed');
-}
-
-/**
- * Shared helper to send a reprocessRecord message to the background service
- * worker. Unlike `retryRecord`, this discards the stored checkpoint and rebuilds
- * topics from the saved HTML, which is the only recovery for a record whose
- * checkpoint is too incomplete to resume.
- *
- * @param {string} key - The unique storage key for the record.
- * @param {string} [serviceName] - The name of the calling service (for logs).
- * @returns {Promise<object>}
- */
-export async function reprocessRecord(key, serviceName = 'Canvas') {
-  let resp;
-  try {
-    resp = await sendRuntimeMessage({ type: MSG.reprocessRecord, key });
-  } catch (e) {
-    console.warn(`PageToLLM ${serviceName} reprocess error:`, e.message);
-    throw e;
-  }
-  if (resp?.ok !== true) {
-    console.warn(`PageToLLM ${serviceName} reprocess failed:`, resp?.error);
-  }
-  return assertActionResponseSucceeded(resp, 'Reprocess failed');
-}
-
-/**
- * Shared helper to send a generateRecordSummaries message to the background
- * service worker: fills in the summaries a finished record is still missing,
- * reusing the stored topics instead of reprocessing the page.
- *
- * @param {string} key - The unique storage key for the record.
- * @param {string} [serviceName] - The name of the calling service (for logs).
- * @returns {Promise<object>}
- */
-export async function generateRecordSummaries(key, serviceName = 'Canvas') {
-  let resp;
-  try {
-    resp = await sendRuntimeMessage({ type: MSG.generateRecordSummaries, key });
-  } catch (e) {
-    console.warn(`PageToLLM ${serviceName} generate summaries error:`, e.message);
-    throw e;
-  }
-  if (resp?.ok !== true) {
-    console.warn(`PageToLLM ${serviceName} generate summaries failed:`, resp?.error);
-  }
-  return assertActionResponseSucceeded(resp, 'Generate summaries failed');
 }

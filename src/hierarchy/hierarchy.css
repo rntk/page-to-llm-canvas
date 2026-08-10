@@ -196,22 +196,6 @@
   justify-content: center;
 }
 
-.th-page__retry-btn {
-  padding: 8px 18px;
-  background: var(--th-strong-bg);
-  color: var(--th-strong-fg);
-  border: 2px solid var(--th-strong-bg);
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  border-radius: 0;
-}
-
-.th-page__retry-btn:hover {
-  background: var(--th-surface);
-  color: var(--th-fg);
-}
-
 .th-page__close-btn {
   padding: 8px 18px;
   background: var(--th-surface);

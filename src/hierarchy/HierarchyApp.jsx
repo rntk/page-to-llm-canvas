@@ -5,7 +5,7 @@ import { getSentencesForNode } from './hierarchyUtils.js';
 import { getYouTubeTimestampLink, getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
 import YouTubeTimestampButton from '../components/YouTubeTimestampButton.jsx';
 import { closeModal, postMessageToParent } from '../canvas/closeModal.js';
-import { splitError, retryRecord } from '../utils/errorUtils.js';
+import { splitError } from '../utils/errorUtils.js';
 import ErrorDetails from '../components/ErrorDetails.jsx';
 import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
 import { buildTopicTree, collectNonLeafPaths } from '../utils/topicTree.js';
@@ -55,11 +55,6 @@ export default function HierarchyApp({ initialKey }) {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [activeSummary]);
-
-  const handleRetry = useCallback(() => {
-    if (!initialKey) return;
-    retryRecord(initialKey, 'Hierarchy').catch(() => {});
-  }, [initialKey]);
 
   // Serialize once per record change, not once per render: `record` is stable across
   // UI renders (only storage writes mint a new object), so keying on the reference
@@ -143,10 +138,10 @@ export default function HierarchyApp({ initialKey }) {
           msgClassName="th-page__error-message"
           detailsClassName="th-page__error-details"
         />
+        <div className="th-page__error-message">
+          Open the Options page to retry this analysis from the Records section.
+        </div>
         <div className="th-page__error-actions">
-          <button type="button" className="th-page__retry-btn" onClick={handleRetry}>
-            Retry
-          </button>
           <button type="button" className="th-page__close-btn" onClick={closeModal}>
             Close
           </button>

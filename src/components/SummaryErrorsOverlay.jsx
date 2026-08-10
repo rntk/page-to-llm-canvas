@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { closeModal } from '../canvas/closeModal.js';
 import { isStaleActionError, STALE_ACTION_MESSAGE } from '../shared/runtime/actionResponses.js';
 
 /**
@@ -8,13 +7,16 @@ import { isStaleActionError, STALE_ACTION_MESSAGE } from '../shared/runtime/acti
  * all of them — retry every failed topic, or skip them (accept empty summaries
  * and finish). Buttons disable while the decision is in flight.
  *
+ * Rendered only by the Options page: the in-page surfaces (rails, canvas,
+ * hierarchy) are read-only and route this decision here.
+ *
  * @param {object} props
  * @param {Array<{topic: string, error_kind: string, error_message: string, error_detail: string}>} [props.summaryErrors]
  * @param {string} [props.sourceUrl]
  * @param {string} [props.className]
  * @param {function(): (void | Promise<void>)} props.onRetry
  * @param {function(): (void | Promise<void>)} props.onSkip
- * @param {function(): void} [props.onClose]
+ * @param {function(): void} props.onClose
  */
 export default function SummaryErrorsOverlay({
   summaryErrors,
@@ -22,7 +24,7 @@ export default function SummaryErrorsOverlay({
   className = '',
   onRetry,
   onSkip,
-  onClose = closeModal,
+  onClose,
 }) {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState(null);
@@ -49,7 +51,7 @@ export default function SummaryErrorsOverlay({
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        if (!busyRef.current) onCloseRef.current();
+        if (!busyRef.current) onCloseRef.current?.();
         return;
       }
       if (event.key !== 'Tab') return;
@@ -125,7 +127,7 @@ export default function SummaryErrorsOverlay({
       aria-labelledby="pagetollm-summary-errors-title"
       aria-describedby="pagetollm-summary-errors-description"
       onClick={(event) => {
-        if (event.target === event.currentTarget && !busy) onClose();
+        if (event.target === event.currentTarget && !busy) onClose?.();
       }}
     >
       <div className="pagetollm-spinner-box">
@@ -184,7 +186,7 @@ export default function SummaryErrorsOverlay({
           <button
             type="button"
             className="pagetollm-spinner-close-btn"
-            onClick={onClose}
+            onClick={() => onClose?.()}
             disabled={busy}
           >
             Close

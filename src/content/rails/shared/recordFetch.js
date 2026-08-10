@@ -77,8 +77,9 @@ export function assessRecordForRail(record) {
   }
   // Parked awaiting a user retry/skip decision. This is deliberately not an
   // in-flight status and never auto-resumes, so it must NOT look like ordinary
-  // progress (which would tell the user to "wait"); route it to the canvas where
-  // the retry/skip popup lives.
+  // progress (which would tell the user to "wait"). In-page surfaces are
+  // read-only, so the caller routes this to the Options page, the only place
+  // the retry/skip resolution lives.
   if (record.status === 'needs_attention') {
     return { kind: 'needs_attention', record };
   }
