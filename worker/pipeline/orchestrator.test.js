@@ -1087,7 +1087,7 @@ describe('runPipeline', () => {
     expect(topicCall[1].topics[6].sentences).toEqual([241, 242, 243, 244, 245]);
   });
 
-  it('records successful chunk metrics only after the full parse attempt succeeds', async () => {
+  it('re-requests only the chunk that failed to parse, keeping the sibling chunk', async () => {
     const n = 241;
     const plainText = Array.from({ length: n }, (_, i) => `S${i}.`).join(' ');
     storage.readRecord.mockResolvedValue(makeRecord('key-metric-retry', `<p>${plainText}</p>`));
@@ -1096,10 +1096,12 @@ describe('runPipeline', () => {
       Array.from({ length: n }, (_, i) => ({ text: `S${i}.`, start: i * 5, end: i * 5 + 3 })),
     );
 
+    let longChunkCalls = 0;
     let shortChunkCalls = 0;
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) {
         if (prompt.includes('{239}')) {
+          longChunkCalls++;
           return Array.from({ length: 6 }, (_, i) => {
             const start = i * 40;
             return `Tech>Part ${i + 1}: ${start}-${start + 39}`;
@@ -1113,6 +1115,11 @@ describe('runPipeline', () => {
     });
 
     await runPipeline('key-metric-retry');
+
+    // The retry costs one request, not one per chunk: the 240-sentence chunk
+    // parsed on attempt 1 and is never re-sent.
+    expect(longChunkCalls).toBe(1);
+    expect(shortChunkCalls).toBe(2);
 
     const primarySamples = parserMetrics.recordParserMetric.mock.calls
       .map(([sample]) => sample)

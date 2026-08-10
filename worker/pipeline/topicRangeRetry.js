@@ -45,6 +45,10 @@ export function computeBackoffDelay(attemptIndex, baseDelayMs = DEFAULT_RETRY_BA
  * @param {number} [opts.maxRetries]              total retries after attempt 0
  * @param {number} [opts.baseDelayMs]
  * @param {function(unknown): boolean} [opts.isRetryable]
+ * @param {function({attemptIndex: number, baseDelayMs: number, error: unknown}): number} [opts.computeDelay]
+ *   Overrides the delay before the next attempt. Defaults to the exponential
+ *   schedule above; a caller whose errors can carry a provider cooldown
+ *   (Retry-After) uses it to wait out that cooldown instead.
  * @param {function(number): Promise<void>} [opts.sleep]
  * @param {function({attemptIndex: number, attemptNumber: number}): (void | Promise<void>)} [opts.onAttempt]
  * @param {function({attemptIndex: number, attemptNumber: number, maxRetries: number, error: Error}): (void | Promise<void>)} [opts.onParseRetry]
@@ -56,6 +60,7 @@ export async function queryTopicRangesWithRetry({
   maxRetries = 0,
   baseDelayMs = DEFAULT_RETRY_BASE_DELAY_MS,
   isRetryable = () => true,
+  computeDelay = ({ attemptIndex, baseDelayMs: base }) => computeBackoffDelay(attemptIndex, base),
   sleep = defaultSleep,
   onAttempt,
   onParseRetry,
@@ -73,7 +78,7 @@ export async function queryTopicRangesWithRetry({
       if (onParseRetry) {
         await onParseRetry({ attemptIndex, attemptNumber, maxRetries, error: err });
       }
-      await sleep(computeBackoffDelay(attemptIndex, baseDelayMs));
+      await sleep(computeDelay({ attemptIndex, baseDelayMs, error: err }));
     }
   }
   // Unreachable: the loop either returns a parsed value or throws.

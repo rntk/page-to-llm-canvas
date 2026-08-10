@@ -34,12 +34,16 @@ let lastIndexProjectionRepairAt = null;
 // topics) or the moderately-changing per-topic summaries:
 //   - meta: everything else — the hot path, written on nearly every pipeline
 //     step.
-//   - content: html/text/sentences/topics — written a handful of times per
-//     run (essentially write-once).
+//   - content: html/text/sentences/topics/topic_range_chunks — written a
+//     handful of times per run (essentially write-once). topic_range_chunks is
+//     the topic-ranges chunk checkpoint; it lives here rather than in meta
+//     because every meta write re-serializes on the hot path, and it is written
+//     only when the topic-ranges stage fails (and cleared when it succeeds), so
+//     it never adds a content write to a healthy run.
 //   - summaries: topic_summaries is the resumable leaf-work checkpoint;
 //     topic_summary_index is the canonical UI projection. The checkpoint stays
 //     load-bearing even though UI code never reads it directly.
-const CONTENT_FIELDS = ['html', 'text', 'sentences', 'topics'];
+const CONTENT_FIELDS = ['html', 'text', 'sentences', 'topics', 'topic_range_chunks'];
 const SUMMARY_FIELDS = ['topic_summaries', 'topic_summary_index'];
 
 function hasOwn(obj, field) {

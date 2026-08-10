@@ -134,6 +134,16 @@ export function isImportableRecord(record) {
  * @property {string} [text] - Cleaned article text extracted from `html`.
  * @property {string[]} [sentences] - Sentence-split article text.
  * @property {object[]} [topics] - Detected topic ranges over `sentences`.
+ * @property {object|null} [topic_range_chunks] - Resumable checkpoint for the
+ *   topic-ranges stage: `{contentRevision, sentenceCount, chunks}` where
+ *   `chunks[i]` is either null (that chunk still needs an LLM request) or
+ *   `{start, sentenceCount, segments}` holding the already-parsed, article-
+ *   absolute segments for chunk `i`. Written only when the stage fails and
+ *   cleared when it succeeds, so a Retry re-requests only the chunks that
+ *   never landed. Validated structurally on read (see
+ *   `readTopicRangeChunkCheckpoint` in `worker/pipeline/topicRangesStage.js`)
+ *   and discarded whole unless `contentRevision` still matches, since an
+ *   imported record can carry an arbitrary user-supplied value here.
  * @property {Record<string, object>} [topic_summaries] - Resumable per-topic
  *   summary checkpoint, keyed by topic id. Entries may nest
  *   `start_sentence`/`end_sentence` chunk bounds (snake_case; see

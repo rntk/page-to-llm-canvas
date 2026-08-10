@@ -11,7 +11,7 @@ import {
 } from '../metrics/resplit.js';
 import { parallelMap } from '../llm/llm.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
-import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
+import { computeBackoffDelay, queryTopicRangesWithRetry } from './topicRangeRetry.js';
 import { MAX_TAGGED_CHARS } from './pipelineConfig.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
 import { isCancellationError, rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
@@ -22,6 +22,9 @@ const TOPIC_RANGE_CONCURRENCY = 4;
 const TOPIC_RANGE_TEMPERATURE = 0.2;
 const TOPIC_RANGE_MAX_RETRIES = 3;
 const TOPIC_RANGE_RETRY_BASE_DELAY_MS = 2000;
+// Same ceiling callLLMWithRetry applies to a provider's Retry-After, so a
+// hostile or misconfigured header cannot park the stage indefinitely.
+const MAX_PROVIDER_COOLDOWN_MS = 60_000;
 const TOPIC_RANGE_MAX_SENTENCES = 40;
 const TOPIC_RANGE_INPUT_MAX_SENTENCES = 240;
 const TOPIC_RANGE_RESPLIT_MAX_DEPTH = 2;
@@ -124,6 +127,30 @@ function buildRawResponseLogDetails(rawResponse) {
   };
 }
 
+/**
+ * Emits the diagnostics + raw-response verbose log pair. The two entries always
+ * travel together and share their context fields, so they are built once here
+ * rather than restated at each call site (primary/resplit × quirky-success and
+ * parse-failure).
+ * @param {PipelineRuntime} runtime Pipeline runtime.
+ * @param {object} context Fields identifying which parse this describes.
+ * @param {object} payload
+ * @param {object} payload.diagnostics Parser diagnostics to summarize.
+ * @param {unknown} payload.response Raw model response.
+ */
+async function logParseDiagnostics(runtime, context, { diagnostics, response }) {
+  await runtime.log(
+    'topic_ranges_parse_diagnostics',
+    { ...context, ...buildParseDiagnosticsLogDetails(diagnostics) },
+    { verbose: true },
+  );
+  await runtime.log(
+    'topic_ranges_raw_response',
+    { ...context, ...buildRawResponseLogDetails(response) },
+    { verbose: true },
+  );
+}
+
 export function chunkTaggedText(tagged, maxChars) {
   const lines = tagged.split('\n');
   const chunks = [];
@@ -182,6 +209,351 @@ export function chunkTopicRangeSentences(
     start += sentenceCount;
   }
   return chunks;
+}
+
+/**
+ * Aggregate failure for the primary topic-ranges stage: one or more chunks did
+ * not produce parsed segments this attempt. It carries the per-chunk detail so
+ * the retry loop can re-request only those chunks, and a single `retryable`
+ * verdict so a permanently-failing chunk (a 401, a malformed request) aborts
+ * the stage immediately instead of burning three more backoff rounds — no
+ * amount of retrying can complete coverage without it.
+ */
+export class TopicRangeChunkError extends Error {
+  constructor(message, { chunkIndexes = [], errors = [], retryable = true } = {}) {
+    super(message);
+    this.name = 'TopicRangeChunkError';
+    this.chunkIndexes = chunkIndexes;
+    this.errors = errors;
+    this.retryable = retryable;
+  }
+}
+
+/** The provider cooldown this stage will actually honor, already capped.
+ * @param {unknown} error Error carrying a provider Retry-After, if any.
+ */
+function providerCooldownMs(error) {
+  const requested = error?.retryAfterMs;
+  return Number.isFinite(requested) && requested > 0
+    ? Math.min(requested, MAX_PROVIDER_COOLDOWN_MS)
+    : 0;
+}
+
+/**
+ * Mirrors callLLMWithRetry's own classification (worker/llm/llm.js): a 4xx
+ * other than 408 (timeout) or 429 (rate limit) reflects a request that will
+ * never succeed, so it must not be retried at the stage level either.
+ * @param {unknown} error Error thrown by the provider call.
+ */
+function isPermanentDispatchError(error) {
+  const status = error?.status;
+  return (
+    Number.isFinite(status) && status >= 400 && status < 500 && status !== 408 && status !== 429
+  );
+}
+
+/**
+ * Builds the aggregate error for the chunks still missing segments. Retryable
+ * only when EVERY failure is retryable.
+ * @param {object[]} failedStates Chunk states without parsed segments.
+ * @param {number} chunkCount Total chunk count for the article.
+ */
+function buildChunkFailureError(failedStates, chunkCount) {
+  const retryable = failedStates.every((state) =>
+    state.parseError
+      ? state.parseError instanceof TopicParseError
+      : !isPermanentDispatchError(state.dispatchError),
+  );
+  const chunkIndexes = failedStates.map((state) => state.chunkIndex);
+  const errors = failedStates.map((state) => state.parseError || state.dispatchError);
+  const first = errors.find(Boolean);
+  const firstMessage = (first && first.message) || 'unknown error';
+  const label = compactIndexRanges(chunkIndexes).values.join(', ');
+  const aggregate = new TopicRangeChunkError(
+    `${failedStates.length} of ${chunkCount} topic-range chunks failed (chunk ${label}): ${firstMessage}`,
+    { chunkIndexes, errors, retryable },
+  );
+  // A provider error used to reach runPipeline as itself; keep its HTTP
+  // classification visible on the aggregate. Taken from the first error that
+  // HAS one rather than the first error outright, so a leading parse failure
+  // does not hide a sibling chunk's 429 — the same reason the cooldown below
+  // scans every error.
+  // Deliberately NOT chained as `cause`: isCancellationError walks the cause
+  // chain and trusts abort SHAPE whenever the signal is aborted, so an
+  // abort-shaped transport timeout hidden there could make a later cancellation
+  // launder this genuine failure into a silent no-op instead of an ERROR write.
+  // The originals stay reachable on `.errors`, which nothing walks.
+  const status = errors.find((error) => Number.isFinite(error?.status))?.status;
+  if (status !== undefined) aggregate.status = status;
+  // The LONGEST cooldown any failed chunk was given, not the first one's: the
+  // next attempt re-dispatches all of them together, so respecting anything
+  // shorter would still hit the provider inside a cooldown it asked for.
+  const cooldowns = errors
+    .map((error) => error?.retryAfterMs)
+    .filter((ms) => Number.isFinite(ms) && ms > 0);
+  if (cooldowns.length > 0) aggregate.retryAfterMs = Math.max(...cooldowns);
+  return aggregate;
+}
+
+/**
+ * Validates a persisted topic-ranges checkpoint against the chunks just
+ * derived from the current sentences, returning the per-chunk segments that
+ * may be reused (null where the chunk still needs an LLM request), or null
+ * when nothing is reusable.
+ *
+ * Deliberately all-or-nothing on any structural surprise: the checkpoint is
+ * only a cost optimization, so a half-trusted one is never worth the risk of
+ * feeding bogus ranges into groupsFromSegments. It also has to survive an
+ * imported record, where every field is user-supplied JSON — hence the bounds
+ * check of each segment against its own chunk rather than trusting `start`.
+ *
+ * @param {object} record Record snapshot read at pipeline start.
+ * @param {object[]} chunks Chunks derived from the current sentences.
+ * @returns {{segments: (object[]|null)[], reusedChunkCount: number}|null}
+ */
+export function readTopicRangeChunkCheckpoint(record, chunks) {
+  const checkpoint = record?.topic_range_chunks;
+  if (!checkpoint || typeof checkpoint !== 'object') return null;
+  if (!Array.isArray(chunks) || chunks.length === 0) return null;
+  if (!Array.isArray(checkpoint.chunks) || checkpoint.chunks.length !== chunks.length) return null;
+  // Without a revision to pin it to, the checkpoint cannot be proven to
+  // describe these sentences; recomputing is the only safe answer.
+  const revision = record?.contentRevision;
+  if (typeof revision !== 'string' || !revision) return null;
+  if (checkpoint.contentRevision !== revision) return null;
+  const sentenceCount = chunks.reduce((sum, chunk) => sum + chunk.sentenceCount, 0);
+  if (checkpoint.sentenceCount !== sentenceCount) return null;
+
+  const segments = new Array(chunks.length).fill(null);
+  let reusedChunkCount = 0;
+  for (let index = 0; index < chunks.length; index++) {
+    const entry = checkpoint.chunks[index];
+    if (entry == null) continue;
+    if (typeof entry !== 'object') return null;
+    const chunk = chunks[index];
+    if (entry.start !== chunk.start || entry.sentenceCount !== chunk.sentenceCount) return null;
+    if (!Array.isArray(entry.segments)) return null;
+    // A chunk this stage completed always carries at least one segment —
+    // parseTopicRangesDetailed throws rather than return zero groups. An empty
+    // list therefore never came from our own writer, and restoring it would
+    // mark the chunk DONE with nothing in it: with every chunk like that,
+    // nothing is dispatched, groupsFromSegments throws 'No valid topic ranges'
+    // on the empty set, and the checkpoint is never cleared — so every later
+    // Retry reads it back and fails identically. Reject it instead.
+    if (entry.segments.length === 0) return null;
+    const lastSentence = chunk.start + chunk.sentenceCount - 1;
+    const restored = [];
+    for (const segment of entry.segments) {
+      if (!segment || typeof segment !== 'object') return null;
+      const { label, start, end } = segment;
+      if (!Array.isArray(label) || label.length === 0) return null;
+      if (!label.every((part) => typeof part === 'string' && part.trim() !== '')) return null;
+      if (!Number.isInteger(start) || !Number.isInteger(end) || start > end) return null;
+      if (start < chunk.start || end > lastSentence) return null;
+      restored.push({ label: [...label], start, end });
+    }
+    segments[index] = restored;
+    reusedChunkCount++;
+  }
+  if (reusedChunkCount === 0) return null;
+  return { segments, reusedChunkCount };
+}
+
+/** Serializes the completed chunks so a later run can skip re-requesting them.
+ * @param {string} contentRevision Revision the checkpoint is pinned to.
+ * @param {object[]} chunkStates Per-chunk stage state.
+ * @param {number} sentenceCount Sentence count the chunks were derived from.
+ */
+function buildTopicRangeChunkCheckpoint(contentRevision, chunkStates, sentenceCount) {
+  return {
+    contentRevision,
+    sentenceCount,
+    chunks: chunkStates.map((state) =>
+      state.segments === null
+        ? null
+        : {
+            start: state.chunk.start,
+            sentenceCount: state.chunk.sentenceCount,
+            segments: state.segments,
+          },
+    ),
+  };
+}
+
+/**
+ * Persists the completed chunks on the way out of a failed topic-ranges stage.
+ * Best-effort and deliberately silent: it runs while an error is already
+ * propagating, and losing a cost optimization must never replace the real
+ * failure the user needs to see.
+ * @param {PipelineRuntime} runtime Pipeline runtime.
+ * @param {object} record Record snapshot read at pipeline start.
+ * @param {object[]} chunkStates Per-chunk stage state.
+ * @param {number} sentenceCount Sentence count the chunks were derived from.
+ * @param {unknown} error Error that ended the stage.
+ */
+async function saveTopicRangeChunkCheckpoint(runtime, record, chunkStates, sentenceCount, error) {
+  // A cancelled run's partial work belongs to a superseded attempt, and a
+  // checkpoint with nothing done (or nothing left to do) saves no requests.
+  if (isCancellationError(error, runtime)) return;
+  // Same contract readTopicRangeChunkCheckpoint enforces: without a revision to
+  // pin it to, the checkpoint would be rejected on read, so writing it is a
+  // content-doc write that can never pay for itself.
+  const contentRevision = record?.contentRevision;
+  if (typeof contentRevision !== 'string' || !contentRevision) return;
+  const done = chunkStates.filter((state) => state.segments !== null).length;
+  if (done === 0 || done === chunkStates.length) return;
+  try {
+    await runtime.update({
+      topic_range_chunks: buildTopicRangeChunkCheckpoint(
+        contentRevision,
+        chunkStates,
+        sentenceCount,
+      ),
+    });
+    // allowAborted: the write already landed, so an abort racing this log must
+    // not send us down the catch below and report a save that succeeded as
+    // failed.
+    await runtime.log(
+      'topic_ranges_checkpoint_saved',
+      { completedChunkCount: done, chunkCount: chunkStates.length },
+      { allowAborted: true },
+    );
+  } catch (writeError) {
+    await runtime
+      .log(
+        'topic_ranges_checkpoint_save_failed',
+        { error: (writeError && writeError.message) || String(writeError) },
+        { allowAborted: true },
+      )
+      .catch(() => {
+        /* The stage error below is the one that matters. */
+      });
+  }
+}
+
+/**
+ * Requests every chunk that still needs segments, recording the outcome on each
+ * chunk state rather than throwing. A provider failure is confined to its own
+ * chunk, so parallelMap's fail-fast no longer discards the responses its
+ * siblings already paid for; cancellation still stops the whole burst, since
+ * nothing a superseded run produced is wanted.
+ * @param {object} params
+ * @param {PipelineRuntime} params.runtime Pipeline runtime.
+ * @param {function(object): Promise<string>} params.callLLMWithRetry Provider call.
+ * @param {object[]} params.pending Chunk states still missing segments.
+ * @param {number} params.attempt 1-based stage attempt number.
+ */
+async function dispatchPendingChunks({ runtime, callLLMWithRetry, pending, attempt }) {
+  await parallelMap(pending, TOPIC_RANGE_CONCURRENCY, async (state) => {
+    state.response = null;
+    state.dispatchError = null;
+    state.parseError = null;
+    const prompt = buildTopicRangesPrompt(state.chunk.tagged, {
+      preferContentLanguage: runtime.preferContentLanguage,
+    });
+    await runtime.log(
+      'topic_ranges_llm_request',
+      { chunkIndex: state.chunkIndex, promptLength: prompt.length, attempt },
+      { verbose: true },
+    );
+    try {
+      // Each worker owns exactly one `state` — parallelMap never hands the same
+      // item to two workers — so writing it across an await is not the
+      // interleaving the rule is guarding against.
+      // eslint-disable-next-line require-atomic-updates
+      state.response = await callLLMWithRetry({
+        prompt,
+        temperature: TOPIC_RANGE_TEMPERATURE,
+        signal: runtime.signal,
+        taskType: LLM_TASK_TYPES.TOPIC_RANGES,
+      });
+    } catch (error) {
+      rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
+      // Sole owner of `state`, as above.
+      // eslint-disable-next-line require-atomic-updates
+      state.dispatchError = error;
+      await runtime.log('topic_ranges_llm_error', {
+        chunkIndex: state.chunkIndex,
+        attempt,
+        error: (error && error.message) || String(error),
+      });
+      return;
+    }
+    await runtime.log(
+      'topic_ranges_llm_response',
+      { chunkIndex: state.chunkIndex, responseLength: state.response.length, attempt },
+      { verbose: true },
+    );
+  });
+}
+
+/**
+ * Parses the responses this attempt dispatched, promoting every chunk that
+ * parses to DONE — `segments` set, in article-absolute sentence indexes — and
+ * leaving the rest pending for the next attempt.
+ * @param {object} params
+ * @param {PipelineRuntime} params.runtime Pipeline runtime.
+ * @param {object[]} params.dispatched Chunk states dispatched this attempt.
+ * @param {number} params.attempt 1-based stage attempt number.
+ * @param {Set<number>} params.failedChunkIndexes Chunks that failed to parse earlier.
+ */
+async function parseDispatchedChunks({ runtime, dispatched, attempt, failedChunkIndexes }) {
+  const successfulMetricSamples = [];
+  for (const state of dispatched) {
+    if (state.dispatchError) continue;
+    const { chunk, chunkIndex, response } = state;
+    const logContext = { scope: 'primary', attempt, chunkIndex, sentenceStart: chunk.start };
+    try {
+      const parsed = parseTopicRangesDetailed(response, chunk.sentenceCount);
+      if (hasDiagnosticQuirks(parsed.diagnostics)) {
+        await logParseDiagnostics(runtime, logContext, {
+          diagnostics: parsed.diagnostics,
+          response,
+        });
+      }
+      state.segments = parsed.groups.flatMap((group) =>
+        group.ranges.map((range) => ({
+          label: group.label,
+          start: range.start + chunk.start,
+          end: range.end + chunk.start,
+        })),
+      );
+      successfulMetricSamples.push({
+        ok: true,
+        scope: 'primary',
+        attempt,
+        recoveredAfterRetry: failedChunkIndexes.has(chunkIndex),
+        diagnostics: parsed.diagnostics,
+      });
+    } catch (error) {
+      rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
+      state.parseError = error;
+      const diagnostics = error?.diagnostics || {};
+      // One failure sample per failed CHUNK, not per attempt as before: now
+      // that a sibling's success is kept, an attempt no longer maps to a single
+      // parse outcome. This shifts the parser-metric denominator (a 3-chunk
+      // attempt with 2 bad chunks records 2 failures, not 1) — deliberately,
+      // since the per-chunk count is what the parser's own error rate is.
+      await recordParserMetric({
+        ok: false,
+        scope: 'primary',
+        attempt,
+        diagnostics,
+        error: error?.message,
+      });
+      if (error instanceof TopicParseError) {
+        failedChunkIndexes.add(chunkIndex);
+        await logParseDiagnostics(runtime, logContext, { diagnostics, response });
+      }
+    }
+  }
+  // Successes are permanent now, so their samples are recorded as soon as they
+  // happen rather than being held until every chunk parses (and discarded when
+  // one does not).
+  for (const sample of successfulMetricSamples) {
+    throwIfCancelled(runtime, ABORT_MESSAGE);
+    await recordParserMetric(sample);
+  }
 }
 
 export function rangesToSentenceList(ranges) {
@@ -292,34 +664,17 @@ async function resplitSegment(
         return responses.join('\n');
       },
       parse: async (raw) => {
+        const logContext = { scope: 'resplit', depth, start: segment.start, end: segment.end };
         try {
           // The request may have fulfilled just as cancellation landed. Stop
           // before attributing that superseded response to parser metrics.
           throwIfCancelled(runtime, ABORT_MESSAGE);
           const parsed = parseTopicRangesDetailed(raw, sliceTexts.length);
           if (hasDiagnosticQuirks(parsed.diagnostics)) {
-            await runtime.log(
-              'topic_ranges_parse_diagnostics',
-              {
-                scope: 'resplit',
-                depth,
-                start: segment.start,
-                end: segment.end,
-                ...buildParseDiagnosticsLogDetails(parsed.diagnostics),
-              },
-              { verbose: true },
-            );
-            await runtime.log(
-              'topic_ranges_raw_response',
-              {
-                scope: 'resplit',
-                depth,
-                start: segment.start,
-                end: segment.end,
-                ...buildRawResponseLogDetails(raw),
-              },
-              { verbose: true },
-            );
+            await logParseDiagnostics(runtime, logContext, {
+              diagnostics: parsed.diagnostics,
+              response: raw,
+            });
           }
           throwIfCancelled(runtime, ABORT_MESSAGE);
           await recordParserMetric({ ok: true, scope: 'resplit', diagnostics: parsed.diagnostics });
@@ -336,28 +691,7 @@ async function resplitSegment(
             error: error?.message,
           });
           if (error instanceof TopicParseError) {
-            await runtime.log(
-              'topic_ranges_parse_diagnostics',
-              {
-                scope: 'resplit',
-                depth,
-                start: segment.start,
-                end: segment.end,
-                ...buildParseDiagnosticsLogDetails(diagnostics),
-              },
-              { verbose: true },
-            );
-            await runtime.log(
-              'topic_ranges_raw_response',
-              {
-                scope: 'resplit',
-                depth,
-                start: segment.start,
-                end: segment.end,
-                ...buildRawResponseLogDetails(raw),
-              },
-              { verbose: true },
-            );
+            await logParseDiagnostics(runtime, logContext, { diagnostics, response: raw });
           }
           throw error;
         }
@@ -642,9 +976,16 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
     { verbose: true },
   );
 
+  const chunks = chunkTopicRangeSentences(sentenceTexts);
+  const checkpoint = readTopicRangeChunkCheckpoint(record, chunks);
+
   await runtime.update({
     sentences: sentenceTexts,
     progress: { stage: PIPELINE_STAGE.TOPIC_RANGES, done: 0, total: sentenceTexts.length },
+    // A checkpoint that cannot be proven to describe these sentences is dead
+    // weight. Drop it in this write, which already touches the content doc,
+    // rather than paying for a second one.
+    ...(record?.topic_range_chunks && !checkpoint ? { topic_range_chunks: null } : {}),
   });
 
   if (sentenceTexts.length === 0) {
@@ -658,154 +999,110 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
     return { topics: null, sentenceTexts };
   }
 
-  const chunks = chunkTopicRangeSentences(sentenceTexts);
   await runtime.log(
     'topic_ranges_start',
     {
       taggedLength: chunks.reduce((sum, chunk) => sum + chunk.tagged.length, 0),
       chunkCount: chunks.length,
       maxSentencesPerChunk: TOPIC_RANGE_INPUT_MAX_SENTENCES,
+      resumedChunkCount: checkpoint?.reusedChunkCount || 0,
     },
     { verbose: true },
   );
+  if (checkpoint) {
+    await runtime.log('topic_ranges_resume_chunks', {
+      resumedChunkCount: checkpoint.reusedChunkCount,
+      chunkCount: chunks.length,
+    });
+  }
+
+  // Chunk-level state is the unit of work for the whole stage: a chunk with
+  // `segments` set is DONE and is never dispatched or parsed again, in this
+  // attempt or any later one. Everything below — the retry scope, the failure
+  // aggregate, the persisted checkpoint — is derived from it, so a single bad
+  // chunk costs one request per retry instead of re-running the whole article.
+  const chunkStates = chunks.map((chunk, chunkIndex) => ({
+    chunk,
+    chunkIndex,
+    segments: checkpoint?.segments[chunkIndex] ?? null,
+    response: null,
+    dispatchError: null,
+    parseError: null,
+  }));
+  const pendingChunkStates = () => chunkStates.filter((state) => state.segments === null);
 
   let parseAttempt = 1;
   const failedChunkIndexes = new Set();
-  let groups = await queryTopicRangesWithRetry({
-    maxRetries: TOPIC_RANGE_MAX_RETRIES,
-    baseDelayMs: TOPIC_RANGE_RETRY_BASE_DELAY_MS,
-    isRetryable: (error) => error instanceof TopicParseError,
-    callLLM: async (attemptIndex) => {
-      parseAttempt = attemptIndex + 1;
-      return parallelMap(chunks, TOPIC_RANGE_CONCURRENCY, async (chunk, chunkIndex) => {
-        const prompt = buildTopicRangesPrompt(chunk.tagged, {
-          preferContentLanguage: runtime.preferContentLanguage,
+  let groups;
+  try {
+    groups = await queryTopicRangesWithRetry({
+      maxRetries: TOPIC_RANGE_MAX_RETRIES,
+      baseDelayMs: TOPIC_RANGE_RETRY_BASE_DELAY_MS,
+      isRetryable: (error) =>
+        error instanceof TopicRangeChunkError ? error.retryable : error instanceof TopicParseError,
+      // A 429 that exhausted callLLMWithRetry arrives here still carrying the
+      // provider's Retry-After. Sleeping the plain 2/4/8s schedule would
+      // re-dispatch inside that cooldown, extending the rate limit and turning
+      // a recoverable article into an ERROR — so wait out whichever is longer.
+      computeDelay: ({ attemptIndex, baseDelayMs, error }) =>
+        Math.max(computeBackoffDelay(attemptIndex, baseDelayMs), providerCooldownMs(error)),
+      callLLM: async (attemptIndex) => {
+        parseAttempt = attemptIndex + 1;
+        const pending = pendingChunkStates();
+        if (attemptIndex > 0) {
+          const retried = capForLog(pending.map((state) => state.chunkIndex));
+          await runtime.log('topic_ranges_retry_scope', {
+            attempt: parseAttempt,
+            retriedChunkCount: pending.length,
+            completedChunkCount: chunks.length - pending.length,
+            chunkCount: chunks.length,
+            retriedChunkIndexes: retried.values,
+            retriedChunkIndexesTruncated: retried.truncated,
+          });
+        }
+        await dispatchPendingChunks({
+          runtime,
+          callLLMWithRetry,
+          pending,
+          attempt: parseAttempt,
         });
-        await runtime.log(
-          'topic_ranges_llm_request',
-          { chunkIndex, promptLength: prompt.length, attempt: attemptIndex + 1 },
-          { verbose: true },
-        );
-        const response = await callLLMWithRetry({
-          prompt,
-          temperature: TOPIC_RANGE_TEMPERATURE,
-          signal: runtime.signal,
-          taskType: LLM_TASK_TYPES.TOPIC_RANGES,
-        });
-        await runtime.log(
-          'topic_ranges_llm_response',
-          { chunkIndex, responseLength: response.length, attempt: attemptIndex + 1 },
-          { verbose: true },
-        );
-        return { chunk, chunkIndex, response };
-      });
-    },
-    parse: async (responses) => {
-      let activeResponse = null;
-      try {
+        return pending;
+      },
+      parse: async (dispatched) => {
         // Do not count a response that lost a cancellation race as a parser
         // attempt for the active pipeline.
         throwIfCancelled(runtime, ABORT_MESSAGE);
-        const segments = [];
-        const successfulMetricSamples = [];
-        for (const { chunk, chunkIndex, response } of responses) {
-          activeResponse = { chunk, chunkIndex, response };
-          const parsed = parseTopicRangesDetailed(response, chunk.sentenceCount);
-          successfulMetricSamples.push({
-            ok: true,
-            scope: 'primary',
-            attempt: parseAttempt,
-            recoveredAfterRetry: failedChunkIndexes.has(chunkIndex),
-            diagnostics: parsed.diagnostics,
-          });
-          if (hasDiagnosticQuirks(parsed.diagnostics)) {
-            await runtime.log(
-              'topic_ranges_parse_diagnostics',
-              {
-                scope: 'primary',
-                attempt: parseAttempt,
-                chunkIndex,
-                sentenceStart: chunk.start,
-                ...buildParseDiagnosticsLogDetails(parsed.diagnostics),
-              },
-              { verbose: true },
-            );
-            await runtime.log(
-              'topic_ranges_raw_response',
-              {
-                scope: 'primary',
-                attempt: parseAttempt,
-                chunkIndex,
-                sentenceStart: chunk.start,
-                ...buildRawResponseLogDetails(response),
-              },
-              { verbose: true },
-            );
-          }
-          for (const group of parsed.groups) {
-            for (const range of group.ranges) {
-              segments.push({
-                label: group.label,
-                start: range.start + chunk.start,
-                end: range.end + chunk.start,
-              });
-            }
-          }
-        }
-        const parsedGroups = groupsFromSegments(segments, sentenceTexts.length);
-        throwIfCancelled(runtime, ABORT_MESSAGE);
-        for (const sample of successfulMetricSamples) {
-          throwIfCancelled(runtime, ABORT_MESSAGE);
-          await recordParserMetric(sample);
-        }
-        return parsedGroups;
-      } catch (error) {
-        rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
-        const diagnostics = error?.diagnostics || {};
-        if (error instanceof TopicParseError && activeResponse) {
-          failedChunkIndexes.add(activeResponse.chunkIndex);
-        }
-        await recordParserMetric({
-          ok: false,
-          scope: 'primary',
+        await parseDispatchedChunks({
+          runtime,
+          dispatched,
           attempt: parseAttempt,
-          diagnostics,
-          error: error?.message,
+          failedChunkIndexes,
         });
-        if (error instanceof TopicParseError) {
-          await runtime.log(
-            'topic_ranges_parse_diagnostics',
-            {
-              scope: 'primary',
-              attempt: parseAttempt,
-              chunkIndex: activeResponse?.chunkIndex,
-              sentenceStart: activeResponse?.chunk.start,
-              ...buildParseDiagnosticsLogDetails(diagnostics),
-            },
-            { verbose: true },
-          );
-          await runtime.log(
-            'topic_ranges_raw_response',
-            {
-              scope: 'primary',
-              attempt: parseAttempt,
-              chunkIndex: activeResponse?.chunkIndex,
-              sentenceStart: activeResponse?.chunk.start,
-              ...buildRawResponseLogDetails(activeResponse?.response),
-            },
-            { verbose: true },
-          );
-        }
-        throw error;
-      }
-    },
-    onParseRetry: ({ attemptNumber, maxRetries, error }) =>
-      runtime.log('topic_ranges_parse_retry', {
-        attempt: attemptNumber,
-        maxRetries,
-        error: error.message,
-      }),
-  });
+        const failed = pendingChunkStates();
+        if (failed.length > 0) throw buildChunkFailureError(failed, chunks.length);
+        throwIfCancelled(runtime, ABORT_MESSAGE);
+        return groupsFromSegments(
+          chunkStates.flatMap((state) => state.segments),
+          sentenceTexts.length,
+        );
+      },
+      onParseRetry: ({ attemptNumber, maxRetries, error }) =>
+        runtime.log('topic_ranges_parse_retry', {
+          attempt: attemptNumber,
+          maxRetries,
+          retryingChunkCount: pendingChunkStates().length,
+          chunkCount: chunks.length,
+          // The capped value the stage will honor, not the raw header: logging
+          // a 24h Retry-After next to a 60s sleep only misleads whoever is
+          // debugging the rate-limit incident.
+          providerCooldownMs: providerCooldownMs(error) || null,
+          error: error.message,
+        }),
+    });
+  } catch (error) {
+    await saveTopicRangeChunkCheckpoint(runtime, record, chunkStates, sentenceTexts.length, error);
+    throw error;
+  }
 
   try {
     groups = await refineOversizedRanges(runtime, groups, sentenceTexts, callLLMWithRetry, {
@@ -829,6 +1126,10 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
   const topics = groupsToTopics(groups, sentenceObjs, mapping);
   await runtime.update({
     topics,
+    // The chunk checkpoint has served its purpose; clearing it here rides along
+    // on a content write that was happening anyway, so a healthy run pays
+    // nothing for it and no stale segments outlive the topics they produced.
+    topic_range_chunks: null,
     // Topics and sentences are now a resumable checkpoint for exactly the
     // content revision read by this run. A later submission bumps
     // contentRevision, so Retry cannot mistake these topics for the new HTML.

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   chunkTaggedText,
   chunkTopicRangeSentences,
@@ -6,6 +6,7 @@ import {
   groupsToTopics,
   mapTextOffsetToHtml,
   rangesToSentenceList,
+  readTopicRangeChunkCheckpoint,
 } from './topicRangesStage.js';
 
 import { splitSentences } from './sentenceSplitter.js';
@@ -126,6 +127,56 @@ describe('groupsToTopics', () => {
   });
 });
 
+// 241 sentences split into exactly two chunks (240 + 1) at
+// TOPIC_RANGE_INPUT_MAX_SENTENCES, which is the smallest article that can show
+// one chunk failing while another succeeds.
+const TWO_CHUNK_SENTENCE_COUNT = 241;
+const LONG_CHUNK_TOPIC_COUNT = 6;
+
+function makeSentences(count) {
+  return Array.from({ length: count }, (_, index) => ({
+    text: `S${index}.`,
+    start: index * 5,
+    end: index * 5 + 3,
+  }));
+}
+
+/** The 240-sentence chunk is the only one whose markers reach {239}. */
+function isLongChunkPrompt(prompt) {
+  return prompt.includes('{239}');
+}
+
+function longChunkResponse() {
+  return Array.from(
+    { length: LONG_CHUNK_TOPIC_COUNT },
+    (_, index) => `Tech>Part ${index + 1}: ${index * 40}-${index * 40 + 39}`,
+  ).join('\n');
+}
+
+/** The same partition as longChunkResponse(), in persisted checkpoint form. */
+function longChunkSegments() {
+  return Array.from({ length: LONG_CHUNK_TOPIC_COUNT }, (_, index) => ({
+    label: ['Tech', `Part ${index + 1}`],
+    start: index * 40,
+    end: index * 40 + 39,
+  }));
+}
+
+function makeCheckpoint(overrides = {}) {
+  return {
+    contentRevision: 'rev-1',
+    sentenceCount: TWO_CHUNK_SENTENCE_COUNT,
+    chunks: [{ start: 0, sentenceCount: 240, segments: longChunkSegments() }, null],
+    ...overrides,
+  };
+}
+
+function twoChunks() {
+  return chunkTopicRangeSentences(
+    makeSentences(TWO_CHUNK_SENTENCE_COUNT).map((sentence) => sentence.text),
+  );
+}
+
 function makeRuntime() {
   return {
     signal: undefined,
@@ -137,6 +188,21 @@ function makeRuntime() {
 }
 
 describe('computeTopics', () => {
+  let setTimeoutSpy;
+
+  beforeEach(() => {
+    // Retry backoff is real (2s/4s/8s) — run it instantly so the retry-scope
+    // tests below don't spend 14 seconds sleeping.
+    setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn) => {
+      if (typeof fn === 'function') fn();
+      return 0;
+    });
+  });
+
+  afterEach(() => {
+    setTimeoutSpy.mockRestore();
+  });
+
   it('finalizes an HTML record with no sentences without calling the LLM', async () => {
     const runtime = makeRuntime();
     const callLLMWithRetry = vi.fn();
@@ -251,6 +317,31 @@ describe('computeTopics', () => {
     expect(recordResplitRun).not.toHaveBeenCalled();
   });
 
+  it('records a per-chunk failure sample without discarding the sibling chunk that parsed', async () => {
+    const runtime = makeRuntime();
+    recordParserMetric.mockClear();
+    splitSentences.mockReturnValue(makeSentences(TWO_CHUNK_SENTENCE_COUNT));
+    const callLLMWithRetry = vi.fn(async ({ prompt }) =>
+      isLongChunkPrompt(prompt) ? longChunkResponse() : 'not parseable',
+    );
+
+    await expect(
+      computeTopics({
+        runtime,
+        record: { html: '<p>x</p>', contentRevision: 'rev-1' },
+        callLLMWithRetry,
+      }),
+    ).rejects.toMatchObject({ name: 'TopicRangeChunkError', retryable: true });
+
+    const primarySamples = recordParserMetric.mock.calls
+      .map(([sample]) => sample)
+      .filter((sample) => sample.scope === 'primary');
+    // Four attempts: the short chunk fails every time, the long one parses once
+    // and is never re-parsed, so there is exactly one success sample.
+    expect(primarySamples.filter((sample) => sample.ok)).toHaveLength(1);
+    expect(primarySamples.filter((sample) => !sample.ok)).toHaveLength(4);
+  });
+
   it('does not record a resplit run when cancellation lands after successful refinement', async () => {
     const runtime = makeRuntime();
     const controller = new AbortController();
@@ -285,5 +376,301 @@ describe('computeTopics', () => {
     ).rejects.toMatchObject({ name: 'AbortError' });
 
     expect(recordResplitRun).not.toHaveBeenCalled();
+  });
+});
+
+describe('topic-ranges incremental retry', () => {
+  let setTimeoutSpy;
+
+  beforeEach(() => {
+    setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn) => {
+      if (typeof fn === 'function') fn();
+      return 0;
+    });
+    splitSentences.mockReturnValue(makeSentences(TWO_CHUNK_SENTENCE_COUNT));
+  });
+
+  afterEach(() => {
+    setTimeoutSpy.mockRestore();
+  });
+
+  it('re-requests only the chunk whose provider call failed', async () => {
+    const runtime = makeRuntime();
+    let shortChunkCalls = 0;
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      if (isLongChunkPrompt(prompt)) return longChunkResponse();
+      shortChunkCalls++;
+      if (shortChunkCalls === 1) {
+        throw Object.assign(new Error('provider unavailable'), { status: 503 });
+      }
+      return 'Tech>Last: 0';
+    });
+
+    const result = await computeTopics({
+      runtime,
+      record: { html: '<p>x</p>', contentRevision: 'rev-1' },
+      callLLMWithRetry,
+    });
+
+    expect(result.topics).toHaveLength(LONG_CHUNK_TOPIC_COUNT + 1);
+    // Three requests total, not four: the long chunk's response survived its
+    // sibling's failure instead of being discarded by the fan-out.
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(3);
+    expect(
+      callLLMWithRetry.mock.calls.filter(([{ prompt }]) => isLongChunkPrompt(prompt)),
+    ).toHaveLength(1);
+  });
+
+  it('gives up immediately when a chunk fails with a permanent 4xx', async () => {
+    const runtime = makeRuntime();
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      if (isLongChunkPrompt(prompt)) return longChunkResponse();
+      throw Object.assign(new Error('invalid api key'), { status: 401 });
+    });
+
+    await expect(
+      computeTopics({
+        runtime,
+        record: { html: '<p>x</p>', contentRevision: 'rev-1' },
+        callLLMWithRetry,
+      }),
+    ).rejects.toMatchObject({ name: 'TopicRangeChunkError', retryable: false });
+
+    // One attempt only: no amount of retrying fixes a rejected key, so the
+    // three backoff rounds are not spent.
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(2);
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+  });
+
+  it('waits out a 429 Retry-After before re-dispatching, instead of the plain backoff', async () => {
+    const runtime = makeRuntime();
+    let shortChunkCalls = 0;
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      if (isLongChunkPrompt(prompt)) return longChunkResponse();
+      shortChunkCalls++;
+      if (shortChunkCalls === 1) {
+        throw Object.assign(new Error('rate limited'), { status: 429, retryAfterMs: 30_000 });
+      }
+      return 'Tech>Last: 0';
+    });
+
+    await computeTopics({
+      runtime,
+      record: { html: '<p>x</p>', contentRevision: 'rev-1' },
+      callLLMWithRetry,
+    });
+
+    // The provider's cooldown, not the 2s first backoff step.
+    expect(setTimeoutSpy.mock.calls.map(([, delay]) => delay)).toEqual([30_000]);
+  });
+
+  it('caps a provider cooldown so an absurd Retry-After cannot park the stage', async () => {
+    const runtime = makeRuntime();
+    let shortChunkCalls = 0;
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      if (isLongChunkPrompt(prompt)) return longChunkResponse();
+      shortChunkCalls++;
+      if (shortChunkCalls === 1) {
+        throw Object.assign(new Error('rate limited'), {
+          status: 429,
+          retryAfterMs: 24 * 60 * 60 * 1000,
+        });
+      }
+      return 'Tech>Last: 0';
+    });
+
+    await computeTopics({
+      runtime,
+      record: { html: '<p>x</p>', contentRevision: 'rev-1' },
+      callLLMWithRetry,
+    });
+
+    expect(setTimeoutSpy.mock.calls.map(([, delay]) => delay)).toEqual([60_000]);
+  });
+
+  it('keeps the exponential backoff when the failure carries no cooldown', async () => {
+    const runtime = makeRuntime();
+    const callLLMWithRetry = vi.fn(async ({ prompt }) =>
+      isLongChunkPrompt(prompt) ? longChunkResponse() : 'not parseable',
+    );
+
+    await expect(
+      computeTopics({
+        runtime,
+        record: { html: '<p>x</p>', contentRevision: 'rev-1' },
+        callLLMWithRetry,
+      }),
+    ).rejects.toMatchObject({ name: 'TopicRangeChunkError' });
+
+    expect(setTimeoutSpy.mock.calls.map(([, delay]) => delay)).toEqual([2000, 4000, 8000]);
+  });
+
+  it('persists the chunks that succeeded when the stage finally fails', async () => {
+    const runtime = makeRuntime();
+    const callLLMWithRetry = vi.fn(async ({ prompt }) =>
+      isLongChunkPrompt(prompt) ? longChunkResponse() : 'not parseable',
+    );
+
+    await expect(
+      computeTopics({
+        runtime,
+        record: { html: '<p>x</p>', contentRevision: 'rev-1' },
+        callLLMWithRetry,
+      }),
+    ).rejects.toMatchObject({ name: 'TopicRangeChunkError' });
+
+    const saved = runtime.update.mock.calls
+      .map(([patch]) => patch)
+      .find((patch) => patch.topic_range_chunks);
+    expect(saved.topic_range_chunks).toEqual({
+      contentRevision: 'rev-1',
+      sentenceCount: TWO_CHUNK_SENTENCE_COUNT,
+      chunks: [{ start: 0, sentenceCount: 240, segments: longChunkSegments() }, null],
+    });
+  });
+
+  it('skips the checkpoint write when the record has no revision to pin it to', async () => {
+    const runtime = makeRuntime();
+    const callLLMWithRetry = vi.fn(async ({ prompt }) =>
+      isLongChunkPrompt(prompt) ? longChunkResponse() : 'not parseable',
+    );
+
+    await expect(
+      computeTopics({ runtime, record: { html: '<p>x</p>' }, callLLMWithRetry }),
+    ).rejects.toMatchObject({ name: 'TopicRangeChunkError' });
+
+    // readTopicRangeChunkCheckpoint would reject such a checkpoint anyway, so
+    // writing one only costs a content-doc write.
+    expect(
+      runtime.update.mock.calls.map(([patch]) => patch).some((patch) => patch.topic_range_chunks),
+    ).toBe(false);
+  });
+
+  it('carries a sibling chunk 429 onto the aggregate even behind a parse failure', async () => {
+    const runtime = makeRuntime();
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      if (isLongChunkPrompt(prompt)) return 'not parseable';
+      throw Object.assign(new Error('rate limited'), { status: 429, retryAfterMs: 30_000 });
+    });
+
+    await expect(
+      computeTopics({
+        runtime,
+        record: { html: '<p>x</p>', contentRevision: 'rev-1' },
+        callLLMWithRetry,
+      }),
+    ).rejects.toMatchObject({ name: 'TopicRangeChunkError', status: 429, retryAfterMs: 30_000 });
+  });
+
+  it('resumes a persisted checkpoint and requests only the missing chunk', async () => {
+    const runtime = makeRuntime();
+    const callLLMWithRetry = vi.fn(async () => 'Tech>Last: 0');
+
+    const result = await computeTopics({
+      runtime,
+      record: {
+        html: '<p>x</p>',
+        contentRevision: 'rev-1',
+        topic_range_chunks: makeCheckpoint(),
+      },
+      callLLMWithRetry,
+    });
+
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+    expect(isLongChunkPrompt(callLLMWithRetry.mock.calls[0][0].prompt)).toBe(false);
+    expect(result.topics.map((topic) => topic.name)).toEqual([
+      ...Array.from({ length: LONG_CHUNK_TOPIC_COUNT }, (_, i) => `Tech>Part ${i + 1}`),
+      'Tech>Last',
+    ]);
+    // Cleared in the same write that stores the topics it produced.
+    expect(runtime.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ topic_range_chunks: null }),
+    );
+  });
+
+  it('discards a checkpoint from a different content revision and re-requests everything', async () => {
+    const runtime = makeRuntime();
+    const callLLMWithRetry = vi.fn(async ({ prompt }) =>
+      isLongChunkPrompt(prompt) ? longChunkResponse() : 'Tech>Last: 0',
+    );
+
+    await computeTopics({
+      runtime,
+      record: {
+        html: '<p>x</p>',
+        contentRevision: 'rev-2',
+        topic_range_chunks: makeCheckpoint({ contentRevision: 'rev-1' }),
+      },
+      callLLMWithRetry,
+    });
+
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(2);
+    const cleared = runtime.update.mock.calls
+      .map(([patch]) => patch)
+      .find((patch) => 'sentences' in patch);
+    expect(cleared.topic_range_chunks).toBeNull();
+  });
+});
+
+describe('readTopicRangeChunkCheckpoint', () => {
+  const record = (checkpoint, contentRevision = 'rev-1') => ({
+    contentRevision,
+    topic_range_chunks: checkpoint,
+  });
+
+  it('restores the completed chunks and leaves the pending ones null', () => {
+    const restored = readTopicRangeChunkCheckpoint(record(makeCheckpoint()), twoChunks());
+    expect(restored.reusedChunkCount).toBe(1);
+    expect(restored.segments[0]).toEqual(longChunkSegments());
+    expect(restored.segments[1]).toBeNull();
+  });
+
+  it.each([
+    ['a mismatched content revision', makeCheckpoint({ contentRevision: 'rev-other' })],
+    ['a mismatched sentence count', makeCheckpoint({ sentenceCount: 240 })],
+    ['a mismatched chunk count', makeCheckpoint({ chunks: [null] })],
+    [
+      'a mismatched chunk boundary',
+      makeCheckpoint({ chunks: [{ start: 1, sentenceCount: 240, segments: [] }, null] }),
+    ],
+    [
+      'a segment outside its own chunk',
+      makeCheckpoint({
+        chunks: [
+          { start: 0, sentenceCount: 240, segments: [{ label: ['Tech'], start: 0, end: 240 }] },
+          null,
+        ],
+      }),
+    ],
+    [
+      'a malformed segment label',
+      makeCheckpoint({
+        chunks: [
+          { start: 0, sentenceCount: 240, segments: [{ label: [''], start: 0, end: 1 }] },
+          null,
+        ],
+      }),
+    ],
+    ['nothing completed', makeCheckpoint({ chunks: [null, null] })],
+    [
+      // Would otherwise restore as DONE-but-empty: nothing left to dispatch and
+      // no segments to group, which poisons every later Retry identically.
+      'a completed chunk carrying no segments',
+      makeCheckpoint({
+        chunks: [
+          { start: 0, sentenceCount: 240, segments: [] },
+          { start: 240, sentenceCount: 1, segments: [] },
+        ],
+      }),
+    ],
+    ['a non-object payload', 'not-a-checkpoint'],
+  ])('refuses a checkpoint with %s', (_label, checkpoint) => {
+    expect(readTopicRangeChunkCheckpoint(record(checkpoint), twoChunks())).toBeNull();
+  });
+
+  it('refuses a checkpoint when the record has no content revision to pin it to', () => {
+    expect(
+      readTopicRangeChunkCheckpoint({ topic_range_chunks: makeCheckpoint() }, twoChunks()),
+    ).toBeNull();
   });
 });

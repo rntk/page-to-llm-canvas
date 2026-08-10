@@ -187,6 +187,36 @@ describe('queryTopicRangesWithRetry', () => {
     expect(order).toEqual(['attempt:0', 'llm:0', 'retry:0', 'attempt:1', 'llm:1']);
   });
 
+  it('lets an injected computeDelay override the exponential schedule per error', async () => {
+    // The topic-ranges stage uses this to honor a provider Retry-After that
+    // would otherwise be ignored in favor of the fixed 2/4/8s steps.
+    const callLLM = vi.fn(async () => 'raw');
+    const parse = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw Object.assign(new TopicParseError('rate limited'), { retryAfterMs: 30000 });
+      })
+      .mockImplementationOnce(() => 'ok');
+    const sleep = vi.fn(async () => {});
+    const computeDelay = vi.fn(({ attemptIndex, baseDelayMs, error }) =>
+      Math.max(computeBackoffDelay(attemptIndex, baseDelayMs), error.retryAfterMs || 0),
+    );
+
+    const result = await queryTopicRangesWithRetry({
+      callLLM,
+      parse,
+      maxRetries: 3,
+      baseDelayMs: 2000,
+      isRetryable: (e) => e instanceof TopicParseError,
+      computeDelay,
+      sleep,
+    });
+
+    expect(result).toBe('ok');
+    expect(sleep).toHaveBeenCalledWith(30000);
+    expect(computeDelay.mock.calls[0][0]).toMatchObject({ attemptIndex: 0, baseDelayMs: 2000 });
+  });
+
   it('defaults to a real-timer sleep when none is injected', async () => {
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn) => {
       if (typeof fn === 'function') fn();
