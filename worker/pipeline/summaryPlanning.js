@@ -1,9 +1,8 @@
 // Pure pending-work detection for the per-topic summary stage.
 //
 // Given the topic list and the summaries carried over from a resumed run, decide
-// which topics can reuse their stored summary and which still need an LLM call.
-// A previous summary is reusable only when it structurally matches the current
-// topic's runs and carries neither `error: true` nor `forcedEmpty: true`.
+// which runs can be reused and which still need an LLM call. Pending topics are
+// returned as executable per-run plans; the checkpoint unit is a run.
 // `error` is the in-flight retry marker: a leaf whose LLM call failed is
 // stored with `error: true` so a resumed run re-queries it. `forcedEmpty` is
 // its finalized counterpart: the user chose "skip", so the run completed with
@@ -18,6 +17,7 @@
 // resulting state mutation and logging.
 
 import { splitContiguousRuns } from './topicTreeMerge.js';
+import { isFailedSummaryRun, migrateLegacySummaryRunMarkers } from './summaryRunMarkers.js';
 
 /**
  * A single summarization attempt's stored output.
@@ -48,7 +48,7 @@ import { splitContiguousRuns } from './topicTreeMerge.js';
 /**
  * @typedef {object} PlanSummaryWorkResult
  * @property {Record<string, ReusedSummaryEntry>} reused
- * @property {Array<object>} pending
+ * @property {Array<object>} pending Executable per-topic plans.
  * @property {number} reusedCount
  * @property {number} pendingCount
  * @property {number} total
@@ -64,17 +64,18 @@ export function planSummaryWork(topics, previousSummaries = {}) {
   const pending = [];
   for (const topic of topics) {
     const prev = previousSummaries[topic.name];
-    if (isReusableSummaryEntry(topic, prev)) {
+    const plan = planSummaryRuns(topic, prev);
+    if (plan.pendingRunIndexes.length === 0) {
       reused[topic.name] = {
-        runs: prev.runs,
+        runs: plan.runResults,
         source_sentences: topic.sentences,
         // Copied field by field on purpose: the narrowed shape is what keeps
         // stale error/marker fields out of the resumed run, so only this one
         // transient marker is carried over explicitly.
-        ...(prev.acceptedFailure ? { acceptedFailure: true } : {}),
+        ...(plan.acceptedFailure ? { acceptedFailure: true } : {}),
       };
     } else {
-      pending.push(topic);
+      pending.push({ ...topic, ...plan });
     }
   }
   const total = topics.length;
@@ -88,46 +89,99 @@ export function planSummaryWork(topics, previousSummaries = {}) {
   };
 }
 
+const sameRun = (a, b) =>
+  !!a &&
+  typeof a === 'object' &&
+  !Array.isArray(a) &&
+  typeof a.text === 'string' &&
+  Array.isArray(a.sentences) &&
+  a.sentences.length === b.length &&
+  a.sentences.every((id, index) => id === b[index]);
+
+const runKey = (sentences) => sentences.join(',');
+
 /**
- * A checkpoint entry is reusable only when its runs still cover the current
- * topic's source exactly. The topic list is authoritative: accepting an empty
- * object, an empty run list for a non-empty topic, or arbitrary run ids can
- * otherwise let a damaged/imported checkpoint finalize as complete without
- * generating any summary output.
+ * Plans each expected run independently. This also migrates the old shape,
+ * where one topic-level `error`/`forcedEmpty` marker invalidated every run.
+ * Structurally valid non-empty runs are retained; only failed/missing runs
+ * become pending. `acceptedFailure` is intentionally reusable and is carried
+ * as a topic marker for the force-finalize tree pass.
  *
- * @param {{sentences?: number[]}} topic
- * @param {PreviousSummaryEntry} previous
- * @returns {boolean}
+ * @param {{name: string, sentences?: number[]}} topic
+ * @param {PreviousSummaryEntry|undefined} previous
+ * @returns {{runResults: Array<object>, pendingRunIndexes: number[], acceptedFailure: boolean, previousFailure: object|null}}
  */
-function isReusableSummaryEntry(topic, previous) {
-  if (
-    !previous ||
-    typeof previous !== 'object' ||
-    Array.isArray(previous) ||
-    previous.error ||
-    previous.forcedEmpty ||
-    !Array.isArray(topic?.sentences) ||
-    !Array.isArray(previous.runs)
-  ) {
-    return false;
+function planSummaryRuns(topic, previous) {
+  const expectedRuns = splitContiguousRuns(topic?.sentences);
+  const legacyRuns =
+    previous &&
+    !Array.isArray(previous.runs) &&
+    Array.isArray(previous.source_sentences) &&
+    typeof previous.text === 'string' &&
+    expectedRuns.length === 1 &&
+    previous.source_sentences.length === expectedRuns[0].length &&
+    previous.source_sentences.every((id, index) => id === expectedRuns[0][index])
+      ? [{ sentences: expectedRuns[0], text: previous.text }]
+      : null;
+  const validPrevious =
+    previous &&
+    typeof previous === 'object' &&
+    !Array.isArray(previous) &&
+    (Array.isArray(previous.runs) || legacyRuns);
+  const migratedPrevious = validPrevious
+    ? migrateLegacySummaryRunMarkers({
+        ...previous,
+        runs: previous.runs || legacyRuns,
+      })
+    : null;
+  const previousByKey = new Map();
+  if (validPrevious) {
+    for (const run of migratedPrevious.runs) {
+      if (run && Array.isArray(run.sentences)) previousByKey.set(runKey(run.sentences), run);
+    }
   }
 
-  // Use the same normalization as summary generation. Checkpoints can be
-  // imported, so topic sentence ids are not guaranteed to be pre-sorted or
-  // de-duplicated even though newly generated topics currently are.
-  const expectedRuns = splitContiguousRuns(topic.sentences);
-  if (previous.runs.length !== expectedRuns.length) return false;
+  const runResults = [];
+  const pendingRunIndexes = [];
+  let acceptedFailure = false;
+  let previousFailure = null;
+  for (const [index, expected] of expectedRuns.entries()) {
+    const prior = previousByKey.get(runKey(expected));
+    if (!sameRun(prior, expected)) {
+      runResults.push({ sentences: expected, text: '', error: true });
+      pendingRunIndexes.push(index);
+      continue;
+    }
 
-  return previous.runs.every((run, index) => {
-    const expected = expectedRuns[index];
-    return (
-      !!run &&
-      typeof run === 'object' &&
-      !Array.isArray(run) &&
-      typeof run.text === 'string' &&
-      Array.isArray(run.sentences) &&
-      run.sentences.length === expected.length &&
-      run.sentences.every((sentenceId, sentenceIndex) => sentenceId === expected[sentenceIndex])
-    );
-  });
+    if (prior.acceptedFailure === true) {
+      runResults.push(prior);
+      acceptedFailure = true;
+    } else if (isFailedSummaryRun(prior)) {
+      runResults.push(prior);
+      pendingRunIndexes.push(index);
+      previousFailure ||= {
+        error_kind: prior.error_kind || migratedPrevious?.error_kind,
+        error_message: prior.error_message || migratedPrevious?.error_message,
+        error_detail: prior.error_detail || migratedPrevious?.error_detail,
+      };
+    } else {
+      runResults.push(prior);
+    }
+  }
+
+  return {
+    runResults,
+    pendingRunIndexes,
+    acceptedFailure,
+    // Preserve useful error details while the failed run is being retried.
+    previousFailure:
+      previousFailure ||
+      (migratedPrevious?.error === true
+        ? {
+            error_kind: migratedPrevious.error_kind,
+            error_message: migratedPrevious.error_message,
+            error_detail: migratedPrevious.error_detail,
+          }
+        : null),
+  };
 }

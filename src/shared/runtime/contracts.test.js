@@ -85,6 +85,7 @@ describe('runtime contracts', () => {
       topics: [],
       topic_summaries: {},
       topic_summary_index: {},
+      source_summary_units: {},
       processingLog: [],
       selectors: ['main'],
       pipelineRunId: 'run-1',

@@ -7,6 +7,7 @@ import {
   runSourceText,
   shouldInlineRun,
 } from './sourceSummarizer.js';
+import { makeCachedSourceSummarizer, sourceSummaryUnitId } from './sourceSummaryCache.js';
 import { isProviderFailure, markProviderFailure } from './providerFailure.js';
 
 describe('parseSummaryResult', () => {
@@ -115,14 +116,15 @@ describe('source run helpers', () => {
 });
 
 describe('makeSourceSummarizer', () => {
-  const make = (sentenceTexts, callLLMWithRetry = vi.fn(async () => 'summary')) => {
+  const make = (sentenceTexts, callLLMWithRetry = vi.fn(async () => 'summary'), overrides = {}) => {
     const limit = vi.fn((work) => work());
-    const summarize = makeSourceSummarizer({
+    const summarize = makeCachedSourceSummarizer({
       sentenceTexts,
       limit,
       signal: undefined,
       preferContentLanguage: true,
       callLLMWithRetry,
+      ...overrides,
     });
     return { summarize, callLLMWithRetry, limit };
   };
@@ -151,6 +153,94 @@ describe('makeSourceSummarizer', () => {
       expect.objectContaining({ temperature: 0.8, signal: undefined }),
     );
     expect(callLLMWithRetry.mock.calls[0][0].prompt).toContain('LANGUAGE:');
+  });
+
+  it('persists and reuses a provider-backed non-inline run as a single unit', async () => {
+    const text = 'word '.repeat(60).trim();
+    const persistedUnits = {};
+    const persistUnit = vi.fn(async (unit) => {
+      persistedUnits[unit.unitId] = unit;
+    });
+    const firstCall = vi.fn(async () => 'single summary');
+
+    const { summarize } = make([text], firstCall, {
+      contentRevision: 'rev-1',
+      inputFingerprint: 'settings-a',
+      persistUnit,
+    });
+
+    await expect(summarize([1], { path: 'Tech>All' })).resolves.toEqual({
+      runs: [{ sentences: [1], text: 'single summary' }],
+    });
+    expect(firstCall).toHaveBeenCalledTimes(1);
+    expect(persistUnit).toHaveBeenCalledTimes(1);
+
+    const expectedSingleId = sourceSummaryUnitId({
+      kind: 'single',
+      path: 'Tech>All',
+      runSentences: [1],
+      startSentence: 1,
+      endSentence: 1,
+    });
+    expect(persistedUnits[expectedSingleId]).toMatchObject({
+      kind: 'single',
+      path: 'Tech>All',
+      run: [1],
+      start_sentence: 1,
+      end_sentence: 1,
+      contentRevision: 'rev-1',
+      status: 'done',
+      result: 'single summary',
+    });
+
+    const secondCall = vi.fn();
+    const { summarize: reused } = make([text], secondCall, {
+      contentRevision: 'rev-1',
+      inputFingerprint: 'settings-a',
+      priorUnits: persistedUnits,
+      persistUnit,
+    });
+
+    await expect(reused([1], { path: 'Tech>All' })).resolves.toEqual({
+      runs: [{ sentences: [1], text: 'single summary' }],
+    });
+    expect(secondCall).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid single prior units and recomputes the provider-backed run', async () => {
+    const text = 'word '.repeat(60).trim();
+    const singleId = sourceSummaryUnitId({
+      kind: 'single',
+      path: 'Tech>All',
+      runSentences: [1],
+      startSentence: 1,
+      endSentence: 1,
+    });
+    const priorUnits = {
+      [singleId]: {
+        unitId: singleId,
+        kind: 'single',
+        path: 'Tech>All',
+        run: [1],
+        start_sentence: 1,
+        end_sentence: 1,
+        contentRevision: 'old-rev',
+        inputFingerprint: '',
+        status: 'done',
+        result: 123,
+      },
+    };
+    const callLLMWithRetry = vi.fn(async () => 'fresh summary');
+    const { summarize } = make([text], callLLMWithRetry, {
+      contentRevision: 'rev-1',
+      inputFingerprint: 'settings-b',
+      priorUnits,
+    });
+
+    await expect(summarize([1], { path: 'Tech>All' })).resolves.toEqual({
+      runs: [{ sentences: [1], text: 'fresh summary' }],
+    });
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
   });
 
   it('uses one merge request for an oversized run and falls back to chunk summaries', async () => {
@@ -267,5 +357,239 @@ describe('makeSourceSummarizer', () => {
 
     await summarize([1]);
     expect(callLLMWithRetry.mock.calls[0][0].prompt).not.toContain('LANGUAGE:');
+  });
+
+  it('persists chunk and merge units for oversized runs, then reuses them', async () => {
+    const sentenceTexts = Array.from(
+      { length: 3 },
+      (_, index) => `${index + 1} ${'x'.repeat(30000)}`,
+    );
+    const persistedUnits = {};
+    const persistUnit = vi.fn(async (unit) => {
+      persistedUnits[unit.unitId] = unit;
+    });
+    const firstCall = vi
+      .fn()
+      .mockResolvedValueOnce('chunk one')
+      .mockResolvedValueOnce('chunk two')
+      .mockResolvedValueOnce('chunk three')
+      .mockResolvedValueOnce('merged summary');
+    const runIds = [1, 2, 3];
+
+    const { summarize } = make(sentenceTexts, firstCall, {
+      contentRevision: 'rev-1',
+      inputFingerprint: 'settings-a',
+      persistUnit,
+    });
+
+    await expect(summarize(runIds, { path: 'Tech>All' })).resolves.toEqual({
+      runs: [{ sentences: runIds, text: 'merged summary' }],
+    });
+    expect(firstCall).toHaveBeenCalledTimes(4);
+    expect(persistUnit).toHaveBeenCalledTimes(4);
+
+    const expectedChunkId = sourceSummaryUnitId({
+      kind: 'chunk',
+      path: 'Tech>All',
+      runSentences: runIds,
+      startSentence: 1,
+      endSentence: 1,
+    });
+    expect(persistedUnits[expectedChunkId]).toMatchObject({
+      kind: 'chunk',
+      path: 'Tech>All',
+      run: runIds,
+      start_sentence: 1,
+      end_sentence: 1,
+      contentRevision: 'rev-1',
+      status: 'done',
+      result: 'chunk one',
+    });
+
+    const expectedMergeId = sourceSummaryUnitId({
+      kind: 'merge',
+      path: 'Tech>All',
+      runSentences: runIds,
+      startSentence: 1,
+      endSentence: 3,
+    });
+    expect(persistedUnits[expectedMergeId]).toMatchObject({
+      kind: 'merge',
+      path: 'Tech>All',
+      run: runIds,
+      start_sentence: 1,
+      end_sentence: 3,
+      contentRevision: 'rev-1',
+      status: 'done',
+      result: 'merged summary',
+    });
+
+    const secondCall = vi.fn();
+    const { summarize: reused } = make(sentenceTexts, secondCall, {
+      contentRevision: 'rev-1',
+      inputFingerprint: 'settings-a',
+      priorUnits: persistedUnits,
+      persistUnit,
+    });
+
+    await expect(reused(runIds, { path: 'Tech>All' })).resolves.toEqual({
+      runs: [{ sentences: runIds, text: 'merged summary' }],
+    });
+    expect(secondCall).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed or mismatched prior units and recomputes the oversized run', async () => {
+    const sentenceTexts = Array.from(
+      { length: 3 },
+      (_, index) => `${index + 1} ${'x'.repeat(30000)}`,
+    );
+    const chunkId = sourceSummaryUnitId({
+      kind: 'chunk',
+      path: 'Tech>All',
+      runSentences: [1, 2, 3],
+      startSentence: 1,
+      endSentence: 1,
+    });
+    const mergeId = sourceSummaryUnitId({
+      kind: 'merge',
+      path: 'Tech>All',
+      runSentences: [1, 2, 3],
+      startSentence: 1,
+      endSentence: 3,
+    });
+    const priorUnits = {
+      [chunkId]: {
+        unitId: chunkId,
+        kind: 'chunk',
+        path: 'Tech>All',
+        run: [1, 2, 3],
+        start_sentence: 1,
+        end_sentence: 1,
+        contentRevision: 'rev-1',
+        inputFingerprint: '',
+        status: 'done',
+        result: 123,
+      },
+      [mergeId]: {
+        unitId: mergeId,
+        kind: 'merge',
+        path: 'Tech>All',
+        run: [1, 2, 3],
+        start_sentence: 1,
+        end_sentence: 3,
+        contentRevision: 'old-rev',
+        inputFingerprint: 'stale-merge-fingerprint',
+        status: 'done',
+        result: 'stale merge',
+      },
+    };
+    const callLLMWithRetry = vi
+      .fn()
+      .mockResolvedValueOnce('fresh chunk one')
+      .mockResolvedValueOnce('fresh chunk two')
+      .mockResolvedValueOnce('fresh chunk three')
+      .mockResolvedValueOnce('fresh merge');
+    const { summarize } = make(sentenceTexts, callLLMWithRetry, {
+      contentRevision: 'rev-1',
+      inputFingerprint: 'settings-b',
+      priorUnits,
+    });
+
+    await expect(summarize([1, 2, 3], { path: 'Tech>All' })).resolves.toEqual({
+      runs: [{ sentences: [1, 2, 3], text: 'fresh merge' }],
+    });
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(4);
+  });
+
+  it('waits for sibling chunk persistence before surfacing a chunk failure', async () => {
+    const sentenceTexts = Array.from(
+      { length: 3 },
+      (_, index) => `${index + 1} ${'x'.repeat(30000)}`,
+    );
+    const failure = new Error('chunk two failed');
+    const events = [];
+    const persistUnit = vi.fn(async (unit) => {
+      events.push(`persist:${unit.start_sentence}:start`);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      events.push(`persist:${unit.start_sentence}:done`);
+    });
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      if (prompt.includes(sentenceTexts[0])) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        events.push('chunk:1:done');
+        return 'chunk one';
+      }
+      if (prompt.includes(sentenceTexts[1])) {
+        events.push('chunk:2:failed');
+        throw failure;
+      }
+      if (prompt.includes(sentenceTexts[2])) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        events.push('chunk:3:done');
+        return 'chunk three';
+      }
+      return 'unused merge';
+    });
+    const { summarize } = make(sentenceTexts, callLLMWithRetry, {
+      contentRevision: 'rev-1',
+      persistUnit,
+    });
+
+    await expect(summarize([1, 2, 3], { path: 'Tech>All' })).rejects.toBe(failure);
+    expect(events).toContain('chunk:2:failed');
+    expect(events).toContain('persist:1:done');
+    expect(events).toContain('persist:3:done');
+    expect(persistUnit).toHaveBeenCalledTimes(2);
+  });
+
+  it('waits for other oversized runs to finish persisting before surfacing a run failure', async () => {
+    const sentenceTexts = Array.from(
+      { length: 5 },
+      (_, index) => `${index + 1} ${'x'.repeat(30000)}`,
+    );
+    const failure = new Error('second run failed');
+    const events = [];
+    const persistUnit = vi.fn(async (unit) => {
+      events.push(`persist:${unit.start_sentence}:${unit.kind}:start`);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      events.push(`persist:${unit.start_sentence}:${unit.kind}:done`);
+    });
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      if (prompt.includes(sentenceTexts[0])) {
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        events.push('run:1:chunk');
+        return 'run one chunk';
+      }
+      if (prompt.includes(sentenceTexts[1])) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        events.push('run:1:chunk');
+        return 'run one chunk two';
+      }
+      if (prompt.includes(sentenceTexts[2])) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        events.push('run:1:chunk');
+        return 'run one chunk three';
+      }
+      if (prompt.includes('Chunk 1 (sentences 1-1)')) {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        events.push('run:1:merge');
+        return 'run one merged';
+      }
+      if (prompt.includes(sentenceTexts[4])) {
+        events.push('run:2:failed');
+        throw failure;
+      }
+      return 'unused merge';
+    });
+    const { summarize } = make(sentenceTexts, callLLMWithRetry, {
+      contentRevision: 'rev-1',
+      persistUnit,
+    });
+
+    await expect(summarize([1, 2, 3, 5], { path: 'Tech>All' })).rejects.toBe(failure);
+    expect(events).toContain('run:2:failed');
+    expect(events).toContain('run:1:merge');
+    expect(events).toContain('persist:1:chunk:done');
+    expect(events).toContain('persist:1:merge:done');
   });
 });

@@ -10,7 +10,7 @@ const topics = [
 describe('planSummaryWork', () => {
   it('treats every topic as pending on a fresh run (no previous summaries)', () => {
     const plan = planSummaryWork(topics, {});
-    expect(plan.pending).toEqual(topics);
+    expect(plan.pending.map((entry) => entry.name)).toEqual(['A', 'B', 'C']);
     expect(plan.pendingCount).toBe(3);
     expect(plan.reusedCount).toBe(0);
     expect(plan.total).toBe(3);
@@ -80,7 +80,7 @@ describe('planSummaryWork', () => {
     });
     expect(plan.pending.map((t) => t.name)).toEqual(['B']);
     expect(plan.reused.C).toEqual({
-      runs: [{ sentences: [3], text: '' }],
+      runs: [{ sentences: [3], text: '', acceptedFailure: true }],
       source_sentences: [3],
       acceptedFailure: true,
     });
@@ -97,7 +97,7 @@ describe('planSummaryWork', () => {
     ]) {
       const plan = planSummaryWork(topic, { A: previous });
       expect(plan.reused).toEqual({});
-      expect(plan.pending).toEqual(topic);
+      expect(plan.pending.map((entry) => entry.name)).toEqual(['A']);
     }
   });
 
@@ -126,6 +126,73 @@ describe('planSummaryWork', () => {
       ],
       source_sentences: [6, 1, 5, 2, 2, 6],
     });
+  });
+
+  it('retains successful runs from a topic-level error checkpoint', () => {
+    const topic = [{ name: 'A', sentences: [1, 2, 5, 6] }];
+    const plan = planSummaryWork(topic, {
+      A: {
+        runs: [
+          { sentences: [1, 2], text: 'Recovered already.' },
+          { sentences: [5, 6], text: '', error: true, error_kind: 'timeout' },
+        ],
+        source_sentences: [1, 2, 5, 6],
+        error: true,
+      },
+    });
+
+    expect(plan.pending.map((entry) => entry.name)).toEqual(['A']);
+    expect(plan.pending[0].runResults).toEqual([
+      { sentences: [1, 2], text: 'Recovered already.' },
+      { sentences: [5, 6], text: '', error: true, error_kind: 'timeout' },
+    ]);
+    expect(plan.pending[0].pendingRunIndexes).toEqual([1]);
+    expect(plan.pendingCount).toBe(1);
+  });
+
+  it('reuses only accepted runs when a modern checkpoint has per-run failures', () => {
+    const topic = [{ name: 'A', sentences: [1, 5] }];
+    const plan = planSummaryWork(topic, {
+      A: {
+        runs: [
+          { sentences: [1], text: '', acceptedFailure: true },
+          { sentences: [5], text: '', error: true },
+        ],
+        source_sentences: [1, 5],
+        acceptedFailure: true,
+        error: true,
+      },
+    });
+
+    expect(plan.pending[0].runResults).toEqual([
+      { sentences: [1], text: '', acceptedFailure: true },
+      { sentences: [5], text: '', error: true },
+    ]);
+    expect(plan.pending[0].pendingRunIndexes).toEqual([1]);
+    expect(plan.pending[0].acceptedFailure).toBe(true);
+  });
+
+  it('does not infer modern unmarked empty siblings as failed or accepted', () => {
+    const topic = [{ name: 'A', sentences: [1, 5, 9] }];
+    const plan = planSummaryWork(topic, {
+      A: {
+        runs: [
+          { sentences: [1], text: '', acceptedFailure: true },
+          { sentences: [5], text: '' },
+          { sentences: [9], text: '', error: true },
+        ],
+        source_sentences: [1, 5, 9],
+        acceptedFailure: true,
+        error: true,
+      },
+    });
+
+    expect(plan.pending[0].runResults).toEqual([
+      { sentences: [1], text: '', acceptedFailure: true },
+      { sentences: [5], text: '' },
+      { sentences: [9], text: '', error: true },
+    ]);
+    expect(plan.pending[0].pendingRunIndexes).toEqual([2]);
   });
 
   it('handles empty topics', () => {

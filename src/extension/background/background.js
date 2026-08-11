@@ -40,6 +40,10 @@ import {
   scheduleActionProgressIconRefresh,
 } from '../../../worker/actionIcon.js';
 import { isInFlightRecord, isInFlightStatus } from '../../../worker/pipeline/pipelineStatus.js';
+import {
+  acceptFailedSummaryRun,
+  migrateLegacySummaryRunMarkers,
+} from '../../../worker/pipeline/summaryRunMarkers.js';
 import { MSG } from '../../shared/runtime/messages.js';
 import {
   createQueuedRecord,
@@ -98,11 +102,10 @@ const KEEPALIVE_ALARM = 'pipeline-keepalive';
 const KEEPALIVE_PERIOD_MINUTES = 0.5;
 
 /**
- * Returns a copy of the topic-summaries map with every in-flight error marker
- * (the `error` flag and its reason fields) replaced by `acceptedFailure: true`,
- * so the failed leaves are reused as-is on the next resume instead of being
- * re-queried, while the resumed run can still tell they were accepted failures
- * (see `worker/pipeline/summaryStage.js`).
+ * Returns a copy of the topic-summaries map with in-flight error markers
+ * replaced by per-run `acceptedFailure: true` markers, so successful sibling
+ * runs remain reusable while only the explicitly failed runs are accepted as-is
+ * on the next resume. Legacy topic-level markers are migrated conservatively.
  *
  * @param {Record<string, object>} topicSummaries
  * @returns {Record<string, object>}
@@ -119,7 +122,22 @@ export function clearSummaryErrorFlags(topicSummaries) {
       // `planSummaryWork` deliberately ignores the marker and reuses the leaf
       // as-is — no re-query, which is the whole point of "skip".
       const hadError = error || error_kind || error_message || error_detail;
-      out[name] = hadError ? { ...rest, acceptedFailure: true } : rest;
+      if (Array.isArray(rest.runs)) {
+        const migrated = migrateLegacySummaryRunMarkers({
+          ...rest,
+          ...(hadError ? { error: true } : {}),
+        });
+        const runs = migrated.runs.map(acceptFailedSummaryRun);
+        const acceptedRun = runs.some((run) => run?.acceptedFailure === true);
+        out[name] = {
+          ...rest,
+          runs,
+          ...(acceptedRun ? { acceptedFailure: true } : {}),
+        };
+      } else {
+        // Legacy/imported entries may predate the per-run `runs` shape.
+        out[name] = hadError ? { ...rest, acceptedFailure: true } : rest;
+      }
     } else {
       out[name] = s;
     }
@@ -486,6 +504,7 @@ export async function handleSubmit(submission) {
     rec.topics = [];
     rec.topic_summaries = {};
     rec.topic_summary_index = {};
+    rec.source_summary_units = {};
     rec.sentences = [];
     rec.text = '';
     rec.summaryErrors = [];
@@ -630,6 +649,7 @@ export const MESSAGE_HANDLERS = {
           topics: [],
           topic_summaries: {},
           topic_summary_index: {},
+          source_summary_units: {},
           sentences: [],
           text: '',
           processingLog: [],
@@ -702,7 +722,6 @@ export const MESSAGE_HANDLERS = {
           summaryErrors: [],
           forceFinalize: false,
           acceptedMergeFailurePaths: [],
-          summaryCheckpointContentRevision: rec.contentRevision,
           summariesIncomplete: false,
           progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done: 0, total: rec.topics.length },
         },
@@ -803,7 +822,6 @@ export const MESSAGE_HANDLERS = {
         forceFinalize:
           msg.action === 'skip' || hasAcceptedLeafFailure || carriedAcceptedMergePaths.length > 0,
         acceptedMergeFailurePaths: carriedAcceptedMergePaths,
-        summaryCheckpointContentRevision: rec.contentRevision,
         summariesIncomplete: false,
         // Reset the parked progress stage so the resuming UI shows summarizing,
         // not the transient 'needs_attention' stage, before the worker's first write.

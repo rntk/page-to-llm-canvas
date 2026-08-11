@@ -9,15 +9,12 @@ import {
   splitContiguousRuns,
 } from './topicTreeMerge.js';
 import { SUMMARY_CONCURRENCY } from './pipelineConfig.js';
-import {
-  makeSourceSummarizer,
-  parseSummaryResult,
-  runSourceText,
-  shouldInlineRun,
-} from './sourceSummarizer.js';
+import { parseSummaryResult, runSourceText, shouldInlineRun } from './sourceSummarizer.js';
+import { makeCachedSourceSummarizer } from './sourceSummaryCache.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
 import { isCancellationError, rethrowIfCancelled } from './cancellation.js';
 import { isProviderFailure } from './providerFailure.js';
+import { isFailedSummaryRun } from './summaryRunMarkers.js';
 
 export { isCancellationError };
 
@@ -174,7 +171,18 @@ function makeForceFinalizeSummarizer(summarizeSource, leafSummaries, acceptedMer
       ([path, summary]) =>
         path && summary?.acceptedFailure === true && Array.isArray(summary.source_sentences),
     )
-    .map(([path, summary]) => ({ path, sentenceIds: new Set(summary.source_sentences) }));
+    .map(([path, summary]) => {
+      const acceptedRuns = Array.isArray(summary.runs)
+        ? summary.runs.filter((run) => run?.acceptedFailure === true)
+        : [];
+      const sentenceIds = acceptedRuns.length
+        ? acceptedRuns.flatMap((run) => (Array.isArray(run.sentences) ? run.sentences : []))
+        : summary.acceptedFailure === true
+          ? summary.source_sentences
+          : [];
+      return { path, sentenceIds: new Set(sentenceIds) };
+    })
+    .filter(({ sentenceIds }) => sentenceIds.size > 0);
   const acceptedMergePaths = new Set(
     acceptedMergeFailurePaths.filter((path) => typeof path === 'string' && path),
   );
@@ -229,6 +237,7 @@ export async function finalizeSummariesDisabled(runtime, topics) {
     status: PIPELINE_STATUS.DONE,
     topic_summaries: {},
     topic_summary_index: {},
+    source_summary_units: {},
     summariesDisabled: true,
     summariesIncomplete: false,
     progress: { stage: PIPELINE_STAGE.DONE, done: topics.length, total: topics.length },
@@ -253,6 +262,8 @@ export async function runSummaries({
   sentenceTexts,
   previousSummaries,
   previousSummaryIndex = {},
+  previousSourceSummaryUnits = {},
+  contentRevision,
   forceFinalize = false,
   acceptedMergeFailurePaths = [],
   callLLMWithRetry,
@@ -293,17 +304,57 @@ export async function runSummaries({
         { verbose: true },
       );
 
-      const runs = splitContiguousRuns(topic.sentences);
-      const runResults = [];
+      const { runResults, pendingRunIndexes, acceptedFailure, previousFailure } = topic;
+      // A pending run is represented by its structurally valid empty slot plus
+      // the topic-level error marker. This keeps the UI/index run shape
+      // backward-compatible while making each successful slot durable.
+      const unresolved = new Set(pendingRunIndexes);
       let failure = null;
-      for (const runIds of runs) {
+      const pendingFailure = previousFailure;
+
+      const persistLeafCheckpoint = async () => {
+        const hasUnresolved = unresolved.size > 0;
+        topic_summaries[topic.name] = {
+          runs: runResults,
+          source_sentences: topic.sentences,
+          ...(hasUnresolved
+            ? {
+                error: true,
+                ...(failure ||
+                  pendingFailure || {
+                    error_kind: 'error',
+                    error_message: 'Summary is incomplete.',
+                  }),
+              }
+            : {}),
+          ...(acceptedFailure ? { acceptedFailure: true } : {}),
+        };
+        await runtime.update({
+          topic_summaries: { ...topic_summaries },
+          progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done, total },
+        });
+      };
+
+      for (const [runIndex, runResult] of runResults.entries()) {
+        if (!unresolved.has(runIndex)) continue;
+        const runIds = runResult.sentences;
         const sourceText = runSourceText(runIds, sentenceTexts);
         if (!sourceText) {
-          runResults.push({ sentences: runIds, text: '' });
+          unresolved.delete(runIndex);
+          runResults[runIndex] = {
+            sentences: runIds,
+            text: '',
+          };
+          await persistLeafCheckpoint();
           continue;
         }
         if (shouldInlineRun(runIds, sourceText)) {
-          runResults.push({ sentences: runIds, text: sourceText });
+          unresolved.delete(runIndex);
+          runResults[runIndex] = {
+            sentences: runIds,
+            text: sourceText,
+          };
+          await persistLeafCheckpoint();
           continue;
         }
 
@@ -330,26 +381,45 @@ export async function runSummaries({
             error: message,
             detail,
           });
-          failure = failure || {
+          const runFailure = {
             error_kind: kind,
             error_message: message,
             error_detail: detail,
           };
-          runResults.push({ sentences: runIds, text: '' });
+          failure = failure || runFailure;
+          runResults[runIndex] = {
+            sentences: runIds,
+            text: '',
+            error: true,
+            ...runFailure,
+          };
+          await persistLeafCheckpoint();
           continue;
         }
 
         const parsed = parseSummaryResult(response);
-        runResults.push({
+        unresolved.delete(runIndex);
+        runResults[runIndex] = {
           sentences: runIds,
           text: parsed.text || (parsed.noSummary ? sourceText : ''),
-        });
+        };
+        await persistLeafCheckpoint();
       }
 
       topic_summaries[topic.name] = {
         runs: runResults,
         source_sentences: topic.sentences,
-        ...(failure ? { error: true, ...failure } : {}),
+        ...(unresolved.size > 0
+          ? {
+              error: true,
+              ...(failure ||
+                pendingFailure || {
+                  error_kind: 'error',
+                  error_message: 'Summary is incomplete.',
+                }),
+            }
+          : {}),
+        ...(acceptedFailure ? { acceptedFailure: true } : {}),
       };
       done++;
       await runtime.log(
@@ -383,6 +453,10 @@ export async function runSummaries({
   await runtime.log('topic_tree_merge_start', { leafCount: total }, { verbose: true });
   const { nodes } = buildTopicTree(topics);
   const summaryErrors = [];
+  const source_summary_units =
+    previousSourceSummaryUnits && typeof previousSourceSummaryUnits === 'object'
+      ? { ...previousSourceSummaryUnits }
+      : {};
   let topic_summary_index = forceFinalize
     ? reuseParkedMergeIndex(nodes, previousSummaryIndex, acceptedMergeFailurePaths, topic_summaries)
     : null;
@@ -393,12 +467,20 @@ export async function runSummaries({
       { verbose: true },
     );
   } else {
-    const normalSummarizeSource = makeSourceSummarizer({
+    const normalSummarizeSource = makeCachedSourceSummarizer({
       sentenceTexts,
       limit: createLimiter(SUMMARY_CONCURRENCY),
       signal: runtime.signal,
       preferContentLanguage: runtime.preferContentLanguage,
       callLLMWithRetry,
+      priorUnits: source_summary_units,
+      contentRevision,
+      persistUnit: async (unit) => {
+        source_summary_units[unit.unitId] = unit;
+        await runtime.update({
+          source_summary_units: { ...source_summary_units },
+        });
+      },
     });
     // A complete parked merge index can be reused above; otherwise force-finalize
     // suppresses only user-accepted paths so Retry doesn't empty other branches.
@@ -413,6 +495,11 @@ export async function runSummaries({
       nodes,
       leafSummaries: topic_summaries,
       summarizeSource,
+      // A normal Retry can adopt each structurally valid prior merge path. Skip
+      // remains on the existing force-finalize path because accepted failures
+      // must suppress only their own branches.
+      previousSummaryIndex,
+      reusePriorSummaries: !forceFinalize,
       onError: ({ path, error }) => {
         rethrowIfCancelled(error, runtime);
         // Same policy as above: `makeSourceSummarizer` marks provider rejections,
@@ -442,6 +529,14 @@ export async function runSummaries({
   // Accepted merge paths are suppressed/reused above, so any error collected
   // here is new, even on a force-finalizing resume.
   if (summaryErrors.length) {
+    // Persist the failed path on the projection itself. Older parked records
+    // only had summaryErrors, but new normal Retries need a durable per-path
+    // distinction after the background handler clears that transient list.
+    for (const { topic: path } of summaryErrors) {
+      if (topic_summary_index[path]) {
+        topic_summary_index[path] = { ...topic_summary_index[path], error: true };
+      }
+    }
     await parkForReview(runtime, summaryErrors, 'merge', topic_summary_index, {
       done: total,
       total,
@@ -449,15 +544,25 @@ export async function runSummaries({
     return;
   }
 
-  // Finalization drops the in-flight `error`/`acceptedFailure` markers; either
-  // becomes `forcedEmpty: true` so planSummaryWork can tell it apart from a
-  // legit empty summary and retry later (acceptedFailure is never persisted).
+  // Finalization replaces in-flight `error`/`acceptedFailure` markers with
+  // `forcedEmpty`, which is the durable DONE-state signal for a later retry.
   const finalizedSummaries = {};
   for (const [name, summary] of Object.entries(topic_summaries)) {
+    const finalRuns = (Array.isArray(summary.runs) ? summary.runs : []).map((run) => {
+      const accepted = run?.acceptedFailure === true || isFailedSummaryRun(run);
+      return {
+        sentences: run.sentences,
+        text: typeof run.text === 'string' ? run.text : '',
+        ...(accepted ? { forcedEmpty: true } : {}),
+      };
+    });
+    const hasForcedEmptyRun = finalRuns.some((run) => run.forcedEmpty === true);
     finalizedSummaries[name] = {
-      runs: Array.isArray(summary.runs) ? summary.runs : [],
+      runs: finalRuns,
       source_sentences: summary.source_sentences,
-      ...(summary.error || summary.acceptedFailure ? { forcedEmpty: true } : {}),
+      ...(summary.error || summary.acceptedFailure || hasForcedEmptyRun
+        ? { forcedEmpty: true }
+        : {}),
     };
   }
 
@@ -465,6 +570,7 @@ export async function runSummaries({
     status: PIPELINE_STATUS.DONE,
     topic_summaries: finalizedSummaries,
     topic_summary_index,
+    source_summary_units: {},
     // Summaries ran, so `summariesDisabled` stays false and the ones that
     // succeeded remain viewable. A skipped leaf stays retryable
     // (`forcedEmpty`) rather than looking like every summary is absent.

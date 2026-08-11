@@ -354,18 +354,64 @@ describe('record storage split (meta/content/summaries)', () => {
   it('writeRecord splits a record across meta/content/summaries docs', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
-    await writeRecord(makeRecord('r1', { html: '<p>hi</p>', text: 'hi' }));
+    await writeRecord(
+      makeRecord('r1', {
+        html: '<p>hi</p>',
+        text: 'hi',
+        source_summary_units: {
+          unit1: { unitId: 'unit1', status: 'done', result: 'cached merge' },
+        },
+      }),
+    );
 
     const store = mock.storage.local._store;
     expect(store.has('pagetollm:rec:r1:meta')).toBe(true);
     expect(store.has('pagetollm:rec:r1:content')).toBe(true);
     expect(store.has('pagetollm:rec:r1:summaries')).toBe(true);
     expect(store.get('pagetollm:rec:r1:content').html).toBe('<p>hi</p>');
+    expect(store.get('pagetollm:rec:r1:summaries').source_summary_units).toEqual({
+      unit1: { unitId: 'unit1', status: 'done', result: 'cached merge' },
+    });
 
     // readRecord reassembles the full logical record transparently.
     const rec = await readRecord('r1');
     expect(rec.status).toBe('pending');
     expect(rec.html).toBe('<p>hi</p>');
+    expect(rec.source_summary_units).toEqual({
+      unit1: { unitId: 'unit1', status: 'done', result: 'cached merge' },
+    });
+  });
+
+  it('summary-doc updates can add source_summary_units without clobbering other summaries', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(
+      makeRecord('r1', {
+        topic_summaries: {
+          Topic: { runs: [{ sentences: [1], text: 'existing summary' }], source_sentences: [1] },
+        },
+        topic_summary_index: {
+          Topic: { level: 0, runs: [{ sentences: [1], text: 'existing summary' }] },
+        },
+      }),
+    );
+
+    await updateRecord('r1', {
+      source_summary_units: {
+        unit1: { unitId: 'unit1', status: 'done', result: 'cached merge' },
+      },
+    });
+
+    const stored = await readRecord('r1');
+    expect(stored.topic_summaries).toEqual({
+      Topic: { runs: [{ sentences: [1], text: 'existing summary' }], source_sentences: [1] },
+    });
+    expect(stored.topic_summary_index).toEqual({
+      Topic: { level: 0, runs: [{ sentences: [1], text: 'existing summary' }] },
+    });
+    expect(stored.source_summary_units).toEqual({
+      unit1: { unitId: 'unit1', status: 'done', result: 'cached merge' },
+    });
   });
 
   it('a status/progress-only update on an already-written record never touches the content or summaries docs', async () => {
@@ -441,6 +487,35 @@ describe('concurrent updateRecord writes do not lose data', () => {
     const stored = await readRecord('r1');
     expect(Object.keys(stored.topic_summaries).sort()).toEqual(['T1', 'T2', 'T3', 'T4']);
     expect(stored.progress.done).toBe(4);
+  });
+
+  it('preserves source_summary_units when another concurrent update writes topic summaries', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    const rec = makeRecord('r1', { topic_summaries: {}, source_summary_units: {} });
+    await seedRecord(mock, rec);
+
+    await Promise.all([
+      updateRecord('r1', {
+        source_summary_units: {
+          unit1: { unitId: 'unit1', status: 'done', result: 'cached merge' },
+        },
+      }),
+      updateRecord('r1', {
+        topic_summaries: {
+          Topic: { runs: [{ sentences: [1], text: 'fresh summary' }], source_sentences: [1] },
+        },
+      }),
+    ]);
+
+    const stored = await readRecord('r1');
+    expect(stored.source_summary_units).toEqual({
+      unit1: { unitId: 'unit1', status: 'done', result: 'cached merge' },
+    });
+    expect(stored.topic_summaries).toEqual({
+      Topic: { runs: [{ sentences: [1], text: 'fresh summary' }], source_sentences: [1] },
+    });
   });
 
   it('does not clobber a field updated by one task when another updates a different field', async () => {

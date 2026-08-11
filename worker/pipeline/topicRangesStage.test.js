@@ -12,6 +12,7 @@ import {
 import { splitSentences } from './sentenceSplitter.js';
 import { recordParserMetric } from '../metrics/parser.js';
 import { recordResplitRun } from '../metrics/resplit.js';
+import { markCancellation } from './cancellation.js';
 
 vi.mock('../llm/llm.js', () => ({
   parallelMap: async (items, _limit, fn) => {
@@ -255,6 +256,10 @@ describe('computeTopics', () => {
         summaryCheckpointContentRevision: 'rev-current',
       }),
     );
+    expect(runtime.update.mock.calls[0][0]).toMatchObject({
+      status: 'splitting',
+      source_summary_units: {},
+    });
   });
 
   it('propagates cancellation during resplit instead of recording a resplit error', async () => {
@@ -527,6 +532,75 @@ describe('topic-ranges incremental retry', () => {
       sentenceCount: TWO_CHUNK_SENTENCE_COUNT,
       chunks: [{ start: 0, sentenceCount: 240, segments: longChunkSegments() }, null],
     });
+
+    // The successful sibling is checkpointed after the first parse round,
+    // before the retry loop exhausts. Later retries may refresh the same
+    // checkpoint, but durability must not depend on reaching this catch.
+    expect(
+      runtime.update.mock.calls.filter(([patch]) => patch.topic_range_chunks).length,
+    ).toBeGreaterThan(1);
+  });
+
+  it('checkpoints every parsed chunk before the final topic write clears it', async () => {
+    const runtime = makeRuntime();
+    const callLLMWithRetry = vi.fn(async ({ prompt }) =>
+      isLongChunkPrompt(prompt) ? longChunkResponse() : 'Tech>Last: 0',
+    );
+
+    await computeTopics({
+      runtime,
+      record: { html: '<p>x</p>', contentRevision: 'rev-1' },
+      callLLMWithRetry,
+    });
+
+    const checkpoints = runtime.update.mock.calls
+      .map(([patch]) => patch.topic_range_chunks)
+      .filter(Boolean);
+    expect(checkpoints.length).toBeGreaterThan(0);
+    expect(checkpoints.at(-1)).toEqual({
+      contentRevision: 'rev-1',
+      sentenceCount: TWO_CHUNK_SENTENCE_COUNT,
+      chunks: [
+        { start: 0, sentenceCount: 240, segments: longChunkSegments() },
+        {
+          start: 240,
+          sentenceCount: 1,
+          segments: [{ label: ['Tech', 'Last'], start: 240, end: 240 }],
+        },
+      ],
+    });
+    expect(runtime.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ topic_range_chunks: null }),
+    );
+  });
+
+  it('stops retrying when a checkpoint write loses run ownership', async () => {
+    const runtime = makeRuntime();
+    const superseded = markCancellation(new Error('Pipeline run is no longer current'));
+    superseded.name = 'AbortError';
+    runtime.update.mockImplementation(async (patch) => {
+      if (patch.topic_range_chunks) throw superseded;
+    });
+    const callLLMWithRetry = vi.fn(async ({ prompt }) =>
+      isLongChunkPrompt(prompt) ? longChunkResponse() : 'not parseable',
+    );
+
+    await expect(
+      computeTopics({
+        runtime,
+        record: { html: '<p>x</p>', contentRevision: 'rev-1' },
+        callLLMWithRetry,
+      }),
+    ).rejects.toBe(superseded);
+
+    expect(runtime.signal).toBeUndefined();
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(2);
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+    expect(runtime.log).not.toHaveBeenCalledWith(
+      'topic_ranges_checkpoint_save_failed',
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it('skips the checkpoint write when the record has no revision to pin it to', async () => {

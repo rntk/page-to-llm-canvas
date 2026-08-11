@@ -37,14 +37,15 @@ let lastIndexProjectionRepairAt = null;
 //   - content: html/text/sentences/topics/topic_range_chunks — written a
 //     handful of times per run (essentially write-once). topic_range_chunks is
 //     the topic-ranges chunk checkpoint; it lives here rather than in meta
-//     because every meta write re-serializes on the hot path, and it is written
-//     only when the topic-ranges stage fails (and cleared when it succeeds), so
-//     it never adds a content write to a healthy run.
+//     because every meta write re-serializes on the hot path. It is updated
+//     after successful topic-range parse rounds and cleared when that stage
+//     succeeds.
 //   - summaries: topic_summaries is the resumable leaf-work checkpoint;
-//     topic_summary_index is the canonical UI projection. The checkpoint stays
-//     load-bearing even though UI code never reads it directly.
+//     topic_summary_index is the canonical UI projection; source_summary_units
+//     is the optional per-request source-summary checkpoint. The checkpoints
+//     stay load-bearing even though UI code never reads them directly.
 const CONTENT_FIELDS = ['html', 'text', 'sentences', 'topics', 'topic_range_chunks'];
-const SUMMARY_FIELDS = ['topic_summaries', 'topic_summary_index'];
+const SUMMARY_FIELDS = ['topic_summaries', 'topic_summary_index', 'source_summary_units'];
 
 function hasOwn(obj, field) {
   return Object.prototype.hasOwnProperty.call(obj, field);

@@ -669,6 +669,8 @@ describe('background pipeline lifecycle', () => {
       chromeMock,
       makeRecord('gen1', {
         status: 'done',
+        contentRevision: 'gen-revision',
+        summaryCheckpointContentRevision: 'gen-revision',
         skipSummaries: true,
         summariesDisabled: true,
         summariesIncomplete: true,
@@ -721,6 +723,31 @@ describe('background pipeline lifecycle', () => {
     await new Promise((r) => setTimeout(r, 30));
     const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
     expect(runPipeline).not.toHaveBeenCalled();
+  });
+
+  it('generateRecordSummaries does not bless a stale checkpoint revision', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(
+      chromeMock,
+      makeRecord('gen-stale-revision', {
+        status: 'done',
+        contentRevision: 'new-revision',
+        summaryCheckpointContentRevision: 'old-revision',
+        sentences: ['Old sentence.'],
+        topics: [{ name: 'Old', sentences: [1], sentence_spans: [], ranges: [] }],
+      }),
+    );
+
+    const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+    await expect(
+      dispatchMessage({ type: 'generateRecordSummaries', key: 'gen-stale-revision' }, {}),
+    ).resolves.toEqual({ ok: true });
+
+    const updated = await readRecord('gen-stale-revision');
+    expect(updated.status).toBe('summarizing');
+    expect(updated.summaryCheckpointContentRevision).toBe('old-revision');
   });
 
   it('generateRecordSummaries refuses invalid sentence references without mutating the record', async () => {
@@ -1263,6 +1290,9 @@ describe('background pipeline lifecycle', () => {
         pipelineRunId: 'run-old',
         topics: [{ name: 'Old', sentences: [1] }],
         sentences: ['old'],
+        source_summary_units: {
+          unit1: { unitId: 'unit1', status: 'done', result: 'cached source summary' },
+        },
         acceptedMergeFailurePaths: ['Old'],
         summariesIncomplete: true,
       }),
@@ -1294,6 +1324,7 @@ describe('background pipeline lifecycle', () => {
     expect(stored.pipelineRunId).not.toBe('run-old');
     expect(stored.topics).toEqual([]);
     expect(stored.sentences).toEqual([]);
+    expect(stored.source_summary_units).toEqual({});
     expect(stored.acceptedMergeFailurePaths).toEqual([]);
     expect(stored.summariesIncomplete).toBe(false);
     expect(runPipeline.mock.calls[1][1].pipelineRunId).toBe(stored.pipelineRunId);
@@ -1397,6 +1428,7 @@ describe('background pipeline lifecycle', () => {
         topics: [{ name: 'Old', sentences: [1] }],
         topic_summaries: { Old: { runs: [{ sentences: [1], text: 'Old summary.' }] } },
         topic_summary_index: { Old: { text: 'Old summary.' } },
+        source_summary_units: { old: { unitId: 'old', status: 'done' } },
         summaryErrors: [{ topic: 'Old' }],
         summaryCheckpointContentRevision: 'old-revision',
         forceFinalize: true,
@@ -1420,6 +1452,7 @@ describe('background pipeline lifecycle', () => {
       topics: [],
       topic_summaries: {},
       topic_summary_index: {},
+      source_summary_units: {},
       summaryErrors: [],
       summaryCheckpointContentRevision: null,
       forceFinalize: false,
@@ -1477,6 +1510,36 @@ describe('clearSummaryErrorFlags (pure)', () => {
     expect(clearSummaryErrorFlags(null)).toEqual({});
     expect(clearSummaryErrorFlags(undefined)).toEqual({});
     expect(clearSummaryErrorFlags({})).toEqual({});
+  });
+
+  it('accepts only explicitly failed runs in a modern checkpoint', async () => {
+    const { clearSummaryErrorFlags } = await import('./background.js');
+    const out = clearSummaryErrorFlags({
+      A: {
+        runs: [
+          { sentences: [1], text: '' },
+          {
+            sentences: [5],
+            text: '',
+            error: true,
+            error_kind: 'timeout',
+            error_message: 'retry exhausted',
+          },
+        ],
+        source_sentences: [1, 5],
+        error: true,
+        error_kind: 'timeout',
+      },
+    });
+
+    expect(out.A).toEqual({
+      runs: [
+        { sentences: [1], text: '' },
+        { sentences: [5], text: '', acceptedFailure: true },
+      ],
+      source_sentences: [1, 5],
+      acceptedFailure: true,
+    });
   });
 });
 
@@ -1778,6 +1841,7 @@ describe('dispatchMessage unit tests', () => {
     const reprocessed = await readRecord('rec1');
     expect(reprocessed.topics).toEqual([]);
     expect(reprocessed.sentences).toEqual([]);
+    expect(reprocessed.source_summary_units).toEqual({});
 
     const got = await dispatchMessage({ type: 'getRecord', key: 'rec1' });
     expect(got.ok).toBe(true);

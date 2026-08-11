@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { isSummaryCheckpointComplete, runPipeline } from './orchestrator.js';
+import {
+  isSummaryCheckpointComplete,
+  isSummaryCheckpointRevisionCurrent,
+  runPipeline,
+} from './orchestrator.js';
 import {
   chunkTaggedText,
   chunkTopicRangeSentences,
@@ -90,6 +94,8 @@ function makeRecord(key, htmlContent) {
   return {
     key,
     html: htmlContent,
+    contentRevision: 'test-revision',
+    summaryCheckpointContentRevision: 'test-revision',
     status: 'pending',
     topics: [],
     topic_summaries: {},
@@ -188,6 +194,26 @@ describe('isSummaryCheckpointComplete', () => {
         ],
       }),
     ).toBe(true);
+  });
+});
+
+describe('isSummaryCheckpointRevisionCurrent', () => {
+  it('requires two non-empty matching revisions', () => {
+    expect(
+      isSummaryCheckpointRevisionCurrent({
+        contentRevision: 'rev-1',
+        summaryCheckpointContentRevision: 'rev-1',
+      }),
+    ).toBe(true);
+    for (const record of [
+      { contentRevision: 'rev-1', summaryCheckpointContentRevision: 'rev-2' },
+      { contentRevision: 'rev-1', summaryCheckpointContentRevision: null },
+      { contentRevision: 'rev-1' },
+      { contentRevision: '', summaryCheckpointContentRevision: '' },
+      { summaryCheckpointContentRevision: 'rev-1' },
+    ]) {
+      expect(isSummaryCheckpointRevisionCurrent(record)).toBe(false);
+    }
   });
 });
 
@@ -1358,6 +1384,8 @@ describe('runPipeline', () => {
       key: 'resume1',
       html: '<p>ignored on resume</p>',
       status: 'summarizing',
+      contentRevision: 'resume-1-revision',
+      summaryCheckpointContentRevision: 'resume-1-revision',
       sentences: ['Alpha.', LONG_SUMMARY_TEXT],
       topics: [
         { name: 'A', sentences: [1], sentence_spans: [], ranges: [] },
@@ -1415,6 +1443,8 @@ describe('runPipeline', () => {
       key: 'resumeNoSentences',
       html: '<p>AB. CD.</p>',
       status: 'summarizing',
+      contentRevision: 'resume-invalid-revision',
+      summaryCheckpointContentRevision: 'resume-invalid-revision',
       sentences: [],
       topics: [{ name: 'A', sentences: [1], sentence_spans: [], ranges: [] }],
       topic_summaries: {
@@ -1475,6 +1505,62 @@ describe('runPipeline', () => {
     expect(resumeLog).toBeUndefined();
   });
 
+  it.each([
+    [
+      'a stale revision',
+      { contentRevision: 'new-revision', summaryCheckpointContentRevision: 'old-revision' },
+    ],
+    ['a legacy checkpoint without a revision', { contentRevision: 'new-revision' }],
+  ])('rebuilds topics instead of consuming %s', async (_label, revisions) => {
+    const freshText = 'Fresh sentence.';
+    storage.readRecord.mockResolvedValue({
+      key: 'stale-summary-checkpoint',
+      html: '<p>Fresh sentence.</p>',
+      status: 'summarizing',
+      ...revisions,
+      sentences: ['Old sentence.'],
+      topics: [{ name: 'Old', sentences: [1], sentence_spans: [], ranges: [] }],
+      topic_summaries: {
+        Old: { runs: [{ sentences: [1], text: 'Old summary.' }], source_sentences: [1] },
+      },
+      topic_summary_index: {
+        Old: {
+          runs: [{ sentences: [1], text: 'Old summary.' }],
+          level: 0,
+          source_sentences: [1],
+        },
+      },
+    });
+    html.stripTagsKeepOffsets.mockReturnValue({ text: freshText, mapping: makeMapping(freshText) });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: freshText, start: 0, end: freshText.length },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      if (prompt.includes('Partition the markers')) return 'Fresh: 0';
+      return 'SHOULD_NOT_BE_CALLED';
+    });
+
+    await runPipeline('stale-summary-checkpoint');
+
+    expect(html.stripTagsKeepOffsets).toHaveBeenCalled();
+    expect(sentenceSplitter.splitSentences).toHaveBeenCalled();
+    expect(
+      llm.callLLMWithRetry.mock.calls.some(([opts]) =>
+        opts.prompt.includes('Partition the markers'),
+      ),
+    ).toBe(true);
+    const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
+    expect(doneCall).toBeDefined();
+    expect(doneCall[1].topic_summaries.Old).toBeUndefined();
+    expect(doneCall[1].topic_summaries.Fresh.runs[0].text).toBe(freshText);
+    expect(storage.appendProcessingLog).toHaveBeenCalledWith(
+      'stale-summary-checkpoint',
+      'pipeline_resume_rejected',
+      expect.objectContaining({ reason: 'content_revision_mismatch' }),
+      expect.anything(),
+    );
+  });
+
   it('refuses a resume when a topic references an out-of-range sentence id', async () => {
     const plainText = 'AB. CD.';
     const mapping = makeMapping(plainText);
@@ -1482,6 +1568,8 @@ describe('runPipeline', () => {
       key: 'resumeOutOfRange',
       html: '<p>AB. CD.</p>',
       status: 'summarizing',
+      contentRevision: 'resume-invalid-revision',
+      summaryCheckpointContentRevision: 'resume-invalid-revision',
       // Only one sentence persisted, but the stale topic references sentence 2.
       sentences: ['Alpha.'],
       topics: [{ name: 'A', sentences: [1, 2], sentence_spans: [], ranges: [] }],
@@ -1532,6 +1620,8 @@ describe('runPipeline', () => {
       key: 'runs1',
       html: '<p>ignored on resume</p>',
       status: 'summarizing',
+      contentRevision: 'runs-1-revision',
+      summaryCheckpointContentRevision: 'runs-1-revision',
       sentences: ['One.', 'Two.', 'Skip three.', 'Skip four.', 'Five.', 'Six.'],
       topics: [{ name: 'A', sentences: [1, 2, 5, 6], sentence_spans: [], ranges: [] }],
       topic_summaries: {},
@@ -1576,6 +1666,8 @@ describe('runPipeline', () => {
       key: 'multiRunParent',
       html: '<p>ignored on resume</p>',
       status: 'summarizing',
+      contentRevision: 'multi-run-parent-revision',
+      summaryCheckpointContentRevision: 'multi-run-parent-revision',
       sentences,
       topics: [
         { name: 'Tech>A', sentences: [1, 2], sentence_spans: [], ranges: [] },
@@ -1613,6 +1705,8 @@ describe('runPipeline', () => {
       key: 'resume2',
       html: '<p>ignored</p>',
       status: 'summarizing',
+      contentRevision: 'resume-2-revision',
+      summaryCheckpointContentRevision: 'resume-2-revision',
       sentences: ['Alpha.', 'Beta.', LONG_SUMMARY_TEXT],
       topics: [
         { name: 'A', sentences: [1], sentence_spans: [], ranges: [] },
@@ -1683,7 +1777,7 @@ describe('runPipeline', () => {
     expect(parkCall).toBeDefined();
     expect(parkCall[1].summaryErrors.map((e) => e.topic)).toContain('Tech>All');
     expect(parkCall[1].topic_summary_index['Tech>All']).toEqual({
-      runs: [{ sentences: [1], text: '' }],
+      runs: [{ sentences: [1], text: '', error: true }],
       level: 1,
       source_sentences: [1],
     });
@@ -1717,7 +1811,9 @@ describe('runPipeline', () => {
 
     const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
     expect(doneCall).toBeDefined();
-    expect(doneCall[1].topic_summaries['Tech>All'].runs).toEqual([{ sentences: [1, 2], text: '' }]);
+    expect(doneCall[1].topic_summaries['Tech>All'].runs).toEqual([
+      { sentences: [1, 2], text: '', forcedEmpty: true },
+    ]);
     expect(doneCall[1].topic_summaries['Tech>All'].error).toBeUndefined();
     // The accepted failure is finalized as `forcedEmpty` (retryable later) and
     // the transient marker is not persisted.
@@ -1765,7 +1861,7 @@ describe('runPipeline', () => {
     expect(parkCall[1].summaryErrors.map((e) => e.topic)).toContain('Tech');
     expect(parkCall[1].summaryErrors[0].error_kind).toBe('rate_limited');
     expect(parkCall[1].topic_summary_index['Tech'].runs).toEqual([
-      { sentences: [1, 2, 3, 4], text: '' },
+      { sentences: [1, 2, 3, 4], text: '', error: true },
     ]);
     expect(parkCall[1].topic_summary_index['Tech>AI'].runs[0].text).toBe('A. B.');
     expect(parkCall[1].topic_summary_index['Tech>Hardware'].runs[0].text).toBe('C. D.');
@@ -2115,6 +2211,7 @@ describe('runPipeline', () => {
         StaleTopic: { text: 'Old summary.', source_sentences: [1] },
       },
       topic_summary_index: { StaleTopic: { text: 'Old' } },
+      source_summary_units: { old: { unitId: 'old', status: 'done' } },
     });
 
     html.stripTagsKeepOffsets.mockReturnValue({
@@ -2141,6 +2238,7 @@ describe('runPipeline', () => {
       topics: [],
       topic_summaries: {},
       topic_summary_index: {},
+      source_summary_units: {},
       summaryErrors: [],
       forceFinalize: false,
       acceptedMergeFailurePaths: [],
@@ -2202,6 +2300,8 @@ describe('runPipeline', () => {
       key: 'disabled2',
       html: '<p>ignored on resume</p>',
       status: 'summarizing',
+      contentRevision: 'disabled-2-revision',
+      summaryCheckpointContentRevision: 'disabled-2-revision',
       skipSummaries: true,
       sentences: ['Alpha.', 'Beta.'],
       topics: [{ name: 'A', sentences: [1, 2], sentence_spans: [], ranges: [] }],
@@ -2257,6 +2357,8 @@ describe('runPipeline', () => {
       key: 'gen1',
       html: '<p>ignored on resume</p>',
       status: 'summarizing',
+      contentRevision: 'gen-1-revision',
+      summaryCheckpointContentRevision: 'gen-1-revision',
       skipSummaries: false,
       summariesDisabled: true,
       sentences: [LONG_SUMMARY_TEXT],

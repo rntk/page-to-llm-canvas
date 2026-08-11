@@ -138,16 +138,15 @@ export function isImportableRecord(record) {
  *   topic-ranges stage: `{contentRevision, sentenceCount, chunks}` where
  *   `chunks[i]` is either null (that chunk still needs an LLM request) or
  *   `{start, sentenceCount, segments}` holding the already-parsed, article-
- *   absolute segments for chunk `i`. Written only when the stage fails and
- *   cleared when it succeeds, so a Retry re-requests only the chunks that
- *   never landed. Validated structurally on read (see
+ *   absolute segments for chunk `i`. Updated after successful parse rounds
+ *   and cleared when the stage succeeds, so a Retry re-requests only chunks
+ *   that never landed. Validated structurally on read (see
  *   `readTopicRangeChunkCheckpoint` in `worker/pipeline/topicRangesStage.js`)
  *   and discarded whole unless `contentRevision` still matches, since an
  *   imported record can carry an arbitrary user-supplied value here.
  * @property {Record<string, object>} [topic_summaries] - Resumable per-topic
- *   summary checkpoint, keyed by topic id. Entries may nest
- *   `start_sentence`/`end_sentence` chunk bounds (snake_case; see
- *   `worker/pipeline/sourceSummarizer.js`). An entry may carry
+ *   summary checkpoint, keyed by topic id and containing per-run results. An
+ *   entry may carry
  *   `forcedEmpty: true`, meaning the user accepted a failed topic via "skip"
  *   and finalization cleared its in-flight `error` marker — it distinguishes
  *   that case from a legitimately empty summary so `planSummaryWork`
@@ -162,6 +161,12 @@ export function isImportableRecord(record) {
  * @property {Record<string, {level: number}>} [topic_summary_index] -
  *   Canonical UI projection of `topic_summaries`. Tolerated absent/null by
  *   `isImportableRecord`.
+ * @property {Record<string, object>} [source_summary_units] - Optional
+ *   resumable source-summary units keyed by stable request-kind/path/run/chunk
+ *   bounds. A unit is reusable only when it is marked `done`, carries a
+ *   non-empty matching `contentRevision`, and its input fingerprint matches
+ *   the current source/prompt/settings input. Legacy/imported records may
+ *   omit this field.
  * @property {object[]} [processingLog] - Buffered diagnostic log entries
  *   (capped; see `MAX_PROCESSING_LOG_ENTRIES` in storage.js).
  * @property {string[]} [selectors] - CSS selectors used to capture the page.
@@ -229,6 +234,7 @@ export function createQueuedRecord({
     topics: [],
     topic_summaries: {},
     topic_summary_index: {},
+    source_summary_units: {},
     processingLog: [],
     selectors: Array.isArray(selectors) ? selectors : [],
     pipelineRunId,

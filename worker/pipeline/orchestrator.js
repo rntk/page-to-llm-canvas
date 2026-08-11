@@ -58,6 +58,28 @@ export function isSummaryCheckpointComplete(record) {
   return summarizableTopics > 0;
 }
 
+/**
+ * A summary checkpoint is tied to the content revision whose sentences and
+ * topics it references.  Missing revisions are deliberately not treated as
+ * compatible: imported/legacy records cannot prove that their checkpoint was
+ * derived from the current content, so they take the fresh topic-building
+ * path instead of reusing potentially stale summaries.
+ *
+ * @param {object} record
+ * @returns {boolean}
+ */
+export function isSummaryCheckpointRevisionCurrent(record) {
+  const contentRevision = record?.contentRevision;
+  const checkpointRevision = record?.summaryCheckpointContentRevision;
+  return (
+    typeof contentRevision === 'string' &&
+    contentRevision !== '' &&
+    typeof checkpointRevision === 'string' &&
+    checkpointRevision !== '' &&
+    checkpointRevision === contentRevision
+  );
+}
+
 // Shared provider-facing boundary across all running page pipelines, so
 // per-stage concurrency caps don't multiply when many pages run together.
 const pipelineLlmLimiter = createAdjustableLimiter(DEFAULT_MAX_PARALLEL_LLM_REQUESTS);
@@ -124,10 +146,25 @@ export async function runPipeline(key, options = {}) {
       record.status === PIPELINE_STATUS.SUMMARIZING &&
       Array.isArray(record.topics) &&
       record.topics.length > 0;
-    const resuming = hasCheckpointTopics && isSummaryCheckpointComplete(record);
-    if (hasCheckpointTopics && !resuming) {
+    const revisionCurrent = isSummaryCheckpointRevisionCurrent(record);
+    const checkpointComplete = hasCheckpointTopics && isSummaryCheckpointComplete(record);
+    // A matching revision plus malformed structure is unsafe to consume and
+    // must preserve the checkpoint for an explicit Reprocess decision.  A
+    // stale or legacy revision is different: the saved topics are not proven
+    // to belong to this content, so rebuild them through computeTopics rather
+    // than displaying or summarizing stale data.
+    const resuming = revisionCurrent && checkpointComplete;
+    if (hasCheckpointTopics && !revisionCurrent) {
       await runtime.log('pipeline_resume_rejected', {
         stage: PIPELINE_STAGE.SUMMARIZING,
+        reason: 'content_revision_mismatch',
+        topicCount: record.topics.length,
+        sentenceCount: Array.isArray(record.sentences) ? record.sentences.length : 0,
+      });
+    } else if (hasCheckpointTopics && !checkpointComplete) {
+      await runtime.log('pipeline_resume_rejected', {
+        stage: PIPELINE_STAGE.SUMMARIZING,
+        reason: 'incomplete_checkpoint',
         topicCount: record.topics.length,
         sentenceCount: Array.isArray(record.sentences) ? record.sentences.length : 0,
       });
@@ -188,6 +225,14 @@ export async function runPipeline(key, options = {}) {
       sentenceTexts,
       previousSummaries,
       previousSummaryIndex,
+      previousSourceSummaryUnits:
+        resuming && record.source_summary_units && typeof record.source_summary_units === 'object'
+          ? record.source_summary_units
+          : {},
+      contentRevision:
+        typeof record.contentRevision === 'string' && record.contentRevision
+          ? record.contentRevision
+          : null,
       forceFinalize,
       acceptedMergeFailurePaths,
       callLLMWithRetry,

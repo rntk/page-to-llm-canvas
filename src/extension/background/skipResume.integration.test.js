@@ -103,6 +103,8 @@ function makeParkedRecord(key) {
     sourceUrl: 'https://example.com',
     html: '<p>parked</p>',
     text: SENTENCES.join(' '),
+    contentRevision: 'checkpoint-revision',
+    summaryCheckpointContentRevision: 'checkpoint-revision',
     status: 'needs_attention',
     error: null,
     progress: { stage: 'needs_attention', done: 2, total: 3 },
@@ -167,7 +169,7 @@ describe('resolveSummaryErrors skip → resumed pipeline', () => {
     // (b) The leaf is persisted as a force-accepted empty summary, and the
     // transient marker does not survive finalization.
     expect(done.topic_summaries['A>z']).toEqual({
-      runs: [{ sentences: [10, 11], text: '' }],
+      runs: [{ sentences: [10, 11], text: '', forcedEmpty: true }],
       source_sentences: [10, 11],
       forcedEmpty: true,
     });

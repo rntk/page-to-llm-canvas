@@ -91,6 +91,7 @@ describe('finalizeSummariesDisabled', () => {
       status: PIPELINE_STATUS.DONE,
       topic_summaries: {},
       topic_summary_index: {},
+      source_summary_units: {},
       summariesDisabled: true,
       summariesIncomplete: false,
       progress: { stage: PIPELINE_STAGE.DONE, done: 2, total: 2 },
@@ -155,7 +156,236 @@ describe('runSummaries', () => {
       topic_summaries: {
         A: { runs: [{ sentences: [1], text: source }], source_sentences: [1] },
       },
+      source_summary_units: {},
       summaryErrors: [],
+    });
+  });
+
+  it('persists completed runs before a later run resolves', async () => {
+    const runtime = makeRuntime();
+    const long = (marker) => `${marker} ${'word '.repeat(45)}`.trim();
+    const sentenceTexts = [
+      long('first-1'),
+      long('first-2'),
+      'gap.',
+      'gap.',
+      long('second-5'),
+      long('second-6'),
+    ];
+    let resolveSecond;
+    const secondPending = new Promise((resolve) => {
+      resolveSecond = resolve;
+    });
+    let calls = 0;
+    const callLLMWithRetry = vi.fn(async () => {
+      calls++;
+      if (calls === 1) return 'first run summary';
+      return secondPending;
+    });
+
+    const running = runSummaries({
+      runtime,
+      topics: [{ name: 'A', sentences: [1, 2, 5, 6] }],
+      sentenceTexts,
+      previousSummaries: {},
+      callLLMWithRetry,
+    });
+
+    await vi.waitFor(() => {
+      const checkpoint = runtime.update.mock.calls
+        .map(([patch]) => patch)
+        .find((patch) => patch.topic_summaries?.A?.runs?.[0]?.text === 'first run summary');
+      expect(checkpoint).toBeDefined();
+      expect(checkpoint.topic_summaries.A.runs[1]).toMatchObject({
+        sentences: [5, 6],
+        error: true,
+      });
+    });
+
+    resolveSecond('second run summary');
+    await running;
+  });
+
+  it('retries only the failed run in a partially completed topic', async () => {
+    const runtime = makeRuntime();
+    const long = (marker) => `${marker} ${'word '.repeat(45)}`.trim();
+    const firstSource = `${long('first-1')} ${long('first-2')}`;
+    const secondSource = `${long('second-5')} ${long('second-6')}`;
+    const callLLMWithRetry = vi.fn(async () => 'recovered second run');
+
+    await runSummaries({
+      runtime,
+      topics: [{ name: 'A', sentences: [1, 2, 5, 6] }],
+      sentenceTexts: [
+        long('first-1'),
+        long('first-2'),
+        'gap.',
+        'gap.',
+        long('second-5'),
+        long('second-6'),
+      ],
+      previousSummaries: {
+        A: {
+          runs: [
+            { sentences: [1, 2], text: 'existing first run' },
+            { sentences: [5, 6], text: '', error: true, error_kind: 'timeout' },
+          ],
+          source_sentences: [1, 2, 5, 6],
+          error: true,
+        },
+      },
+      callLLMWithRetry,
+    });
+
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+    expect(callLLMWithRetry.mock.calls[0][0].prompt).toContain(secondSource);
+    expect(callLLMWithRetry.mock.calls[0][0].prompt).not.toContain(firstSource);
+    expect(lastUpdate(runtime).topic_summaries.A.runs).toEqual([
+      { sentences: [1, 2], text: 'existing first run' },
+      { sentences: [5, 6], text: 'recovered second run' },
+    ]);
+  });
+
+  it('reuses successful merge paths and retries only a failed parent path', async () => {
+    const runtime = makeRuntime();
+    const long = (marker) => `${marker} ${'word '.repeat(45)}`.trim();
+    const sentenceTexts = [
+      long('tech-a1'),
+      long('tech-a2'),
+      long('tech-b1'),
+      long('tech-b2'),
+      long('other-a1'),
+      long('other-a2'),
+      long('other-b1'),
+      long('other-b2'),
+    ];
+    const callLLMWithRetry = vi.fn(async ({ taskType }) =>
+      taskType === LLM_TASK_TYPES.TOPIC_SUMMARY_FROM_SOURCE ? 'retried other parent' : 'leaf',
+    );
+
+    await runSummaries({
+      runtime,
+      topics: [
+        { name: 'Tech>A', sentences: [1, 2] },
+        { name: 'Tech>B', sentences: [3, 4] },
+        { name: 'Other>A', sentences: [5, 6] },
+        { name: 'Other>B', sentences: [7, 8] },
+      ],
+      sentenceTexts,
+      previousSummaries: {
+        'Tech>A': { runs: [{ sentences: [1, 2], text: 'tech leaf a' }] },
+        'Tech>B': { runs: [{ sentences: [3, 4], text: 'tech leaf b' }] },
+        'Other>A': { runs: [{ sentences: [5, 6], text: 'other leaf a' }] },
+        'Other>B': { runs: [{ sentences: [7, 8], text: 'other leaf b' }] },
+      },
+      previousSummaryIndex: {
+        Tech: {
+          runs: [{ sentences: [1, 2, 3, 4], text: 'existing tech parent' }],
+          source_sentences: [1, 2, 3, 4],
+          level: 0,
+        },
+        Other: {
+          runs: [{ sentences: [5, 6, 7, 8], text: '' }],
+          source_sentences: [5, 6, 7, 8],
+          level: 0,
+          error: true,
+        },
+        'Tech>A': { runs: [{ sentences: [1, 2], text: 'tech leaf a' }], source_sentences: [1, 2] },
+        'Tech>B': { runs: [{ sentences: [3, 4], text: 'tech leaf b' }], source_sentences: [3, 4] },
+        'Other>A': {
+          runs: [{ sentences: [5, 6], text: 'other leaf a' }],
+          source_sentences: [5, 6],
+        },
+        'Other>B': {
+          runs: [{ sentences: [7, 8], text: 'other leaf b' }],
+          source_sentences: [7, 8],
+        },
+      },
+      callLLMWithRetry,
+    });
+
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+    expect(lastUpdate(runtime).topic_summary_index.Tech.runs).toEqual([
+      { sentences: [1, 2, 3, 4], text: 'existing tech parent' },
+    ]);
+    expect(lastUpdate(runtime).topic_summary_index.Other.runs).toEqual([
+      { sentences: [5, 6, 7, 8], text: 'retried other parent' },
+    ]);
+  });
+
+  it('reuses persisted oversized merge chunks on a normal retry and then clears them on success', async () => {
+    const long = (marker) => `${marker} ${'x'.repeat(30000)}`;
+    const topics = [
+      { name: 'Tech>AI', sentences: [1, 2] },
+      { name: 'Tech>Hardware', sentences: [3, 4] },
+    ];
+    const sentenceTexts = [long('a1'), long('a2'), long('b1'), long('b2')];
+    const previousSummaries = {
+      'Tech>AI': { runs: [{ sentences: [1, 2], text: 'AI summary.' }], source_sentences: [1, 2] },
+      'Tech>Hardware': {
+        runs: [{ sentences: [3, 4], text: 'Hardware summary.' }],
+        source_sentences: [3, 4],
+      },
+    };
+
+    const firstRuntime = makeRuntime();
+    const firstCall = vi
+      .fn()
+      .mockResolvedValueOnce('chunk one')
+      .mockResolvedValueOnce('chunk two')
+      .mockResolvedValueOnce('chunk three')
+      .mockResolvedValueOnce('chunk four')
+      .mockRejectedValueOnce(new Error('timed out'));
+
+    await runSummaries({
+      runtime: firstRuntime,
+      topics,
+      sentenceTexts,
+      previousSummaries,
+      contentRevision: 'rev-1',
+      callLLMWithRetry: firstCall,
+    });
+
+    const parked = lastUpdate(
+      firstRuntime,
+      (patch) => patch.status === PIPELINE_STATUS.NEEDS_ATTENTION,
+    );
+    expect(parked.summaryErrors).toEqual([
+      expect.objectContaining({ topic: 'Tech', error_kind: 'timeout' }),
+    ]);
+    const persistedSourceUnitWrites = firstRuntime.update.mock.calls
+      .map(([patch]) => patch.source_summary_units)
+      .filter(Boolean);
+    expect(persistedSourceUnitWrites).toHaveLength(4);
+    const persistedUnits = persistedSourceUnitWrites.at(-1);
+    expect(Object.keys(persistedUnits)).toHaveLength(4);
+
+    const secondRuntime = makeRuntime();
+    const secondCall = vi.fn(async () => 'retried merged parent');
+
+    await runSummaries({
+      runtime: secondRuntime,
+      topics,
+      sentenceTexts,
+      previousSummaries,
+      previousSummaryIndex: parked.topic_summary_index,
+      previousSourceSummaryUnits: persistedUnits,
+      contentRevision: 'rev-1',
+      callLLMWithRetry: secondCall,
+    });
+
+    expect(secondCall).toHaveBeenCalledTimes(1);
+    expect(secondCall).toHaveBeenCalledWith(
+      expect.objectContaining({ taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE }),
+    );
+    expect(lastUpdate(secondRuntime)).toMatchObject({
+      status: PIPELINE_STATUS.DONE,
+      source_summary_units: {},
+      topic_summary_index: {
+        Tech: {
+          runs: [{ sentences: [1, 2, 3, 4], text: 'retried merged parent' }],
+        },
+      },
     });
   });
 
@@ -176,7 +406,11 @@ describe('runSummaries', () => {
     expect(lastUpdate(runtime)).toEqual({
       status: PIPELINE_STATUS.NEEDS_ATTENTION,
       topic_summary_index: {
-        A: { runs: [{ sentences: [1], text: '' }], level: 0, source_sentences: [1] },
+        A: {
+          runs: [{ sentences: [1], text: '', error: true }],
+          level: 0,
+          source_sentences: [1],
+        },
       },
       summaryErrors: [
         {
@@ -569,7 +803,7 @@ describe('runSummaries', () => {
     ]);
     // The accepted failure is finalized, not persisted as a transient marker.
     expect(patch.topic_summaries['A>z']).toEqual({
-      runs: [{ sentences: [10, 11], text: '' }],
+      runs: [{ sentences: [10, 11], text: '', forcedEmpty: true }],
       source_sentences: [10, 11],
       forcedEmpty: true,
     });
@@ -858,7 +1092,7 @@ describe('runSummaries', () => {
 
     const { topic_summaries, summariesDisabled, summariesIncomplete } = lastUpdate(runtime);
     expect(topic_summaries.A).toEqual({
-      runs: [{ sentences: [1], text: '' }],
+      runs: [{ sentences: [1], text: '', forcedEmpty: true }],
       source_sentences: [1],
       forcedEmpty: true,
     });

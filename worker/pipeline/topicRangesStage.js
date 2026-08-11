@@ -381,10 +381,11 @@ function buildTopicRangeChunkCheckpoint(contentRevision, chunkStates, sentenceCo
 }
 
 /**
- * Persists the completed chunks on the way out of a failed topic-ranges stage.
- * Best-effort and deliberately silent: it runs while an error is already
- * propagating, and losing a cost optimization must never replace the real
- * failure the user needs to see.
+ * Persists the completed chunks of the topic-ranges stage.
+ *
+ * This is called both after a parse round and on the way out of a failed
+ * stage.  The write is best-effort and deliberately silent: losing a cost
+ * optimization must never replace the real failure the user needs to see.
  * @param {PipelineRuntime} runtime Pipeline runtime.
  * @param {object} record Record snapshot read at pipeline start.
  * @param {object[]} chunkStates Per-chunk stage state.
@@ -401,7 +402,7 @@ async function saveTopicRangeChunkCheckpoint(runtime, record, chunkStates, sente
   const contentRevision = record?.contentRevision;
   if (typeof contentRevision !== 'string' || !contentRevision) return;
   const done = chunkStates.filter((state) => state.segments !== null).length;
-  if (done === 0 || done === chunkStates.length) return;
+  if (done === 0) return;
   try {
     await runtime.update({
       topic_range_chunks: buildTopicRangeChunkCheckpoint(
@@ -419,6 +420,10 @@ async function saveTopicRangeChunkCheckpoint(runtime, record, chunkStates, sente
       { allowAborted: true },
     );
   } catch (writeError) {
+    // A lost expectedPipelineRunId CAS means this run no longer owns the
+    // record. Unlike an ordinary storage failure, it must stop the retry loop
+    // even when the runtime's signal was never aborted.
+    rethrowIfCancelled(writeError, runtime, ABORT_MESSAGE);
     await runtime
       .log(
         'topic_ranges_checkpoint_save_failed',
@@ -938,6 +943,7 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
     topics: [],
     topic_summaries: {},
     topic_summary_index: {},
+    source_summary_units: {},
     // A full topic recompute invalidates every path-scoped review decision
     // from the previous tree. Clear them in storage as well as in the current
     // orchestrator invocation so a later park/retry cannot reactivate stale
@@ -1078,6 +1084,12 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
           attempt: parseAttempt,
           failedChunkIndexes,
         });
+        // A successful chunk is durable before a retry backoff (and before
+        // the later refinement/topic write).  If the service worker is
+        // terminated while another chunk is being retried, the next run can
+        // restore every parsed sibling instead of paying for it again.
+        await saveTopicRangeChunkCheckpoint(runtime, record, chunkStates, sentenceTexts.length);
+        throwIfCancelled(runtime, ABORT_MESSAGE);
         const failed = pendingChunkStates();
         if (failed.length > 0) throw buildChunkFailureError(failed, chunks.length);
         throwIfCancelled(runtime, ABORT_MESSAGE);

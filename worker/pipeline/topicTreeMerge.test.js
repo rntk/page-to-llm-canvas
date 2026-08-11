@@ -163,6 +163,83 @@ describe('summarizeTopicTree', () => {
     ]);
   });
 
+  it('reuses a successful same-path run when a sibling run failed', async () => {
+    const topics = [
+      { name: 'Tech', sentences: [2, 6] },
+      { name: 'Tech>AI', sentences: [1, 5] },
+    ];
+    const { nodes } = buildTopicTree(topics);
+    const summarizeSource = vi.fn(async (ids) => oneRun(ids, 'fresh failed-run replacement'));
+
+    const index = await summarizeTopicTree({
+      nodes,
+      leafSummaries: {
+        Tech: oneRun([2, 6], 'tech own source'),
+        'Tech>AI': oneRun([1, 5], 'ai leaf'),
+      },
+      previousSummaryIndex: {
+        Tech: {
+          runs: [
+            { sentences: [1, 2], text: 'keep successful run' },
+            { sentences: [5, 6], text: '', error: true },
+          ],
+          source_sentences: [1, 2, 5, 6],
+          error: true,
+        },
+      },
+      reusePriorSummaries: true,
+      summarizeSource,
+    });
+
+    expect(summarizeSource).toHaveBeenCalledWith([5, 6], { path: 'Tech' });
+    expect(index.Tech.runs).toEqual([
+      { sentences: [1, 2], text: 'keep successful run' },
+      { sentences: [5, 6], text: 'fresh failed-run replacement' },
+    ]);
+  });
+
+  it('keeps an unaffected ancestor run when a descendant run failed', async () => {
+    const topics = [
+      { name: 'Tech', sentences: [1] },
+      { name: 'Tech>AI', sentences: [5] },
+    ];
+    const { nodes } = buildTopicTree(topics);
+    const summarizeSource = vi.fn();
+
+    const index = await summarizeTopicTree({
+      nodes,
+      leafSummaries: {
+        Tech: oneRun([1], 'tech own leaf'),
+        'Tech>AI': {
+          runs: [{ sentences: [5], text: '', error: true }],
+          error: true,
+        },
+      },
+      previousSummaryIndex: {
+        Tech: {
+          runs: [
+            { sentences: [1], text: 'keep unaffected ancestor run' },
+            { sentences: [5], text: '', error: true },
+          ],
+          source_sentences: [1, 5],
+        },
+        'Tech>AI': {
+          runs: [{ sentences: [5], text: '', error: true }],
+          source_sentences: [5],
+          error: true,
+        },
+      },
+      reusePriorSummaries: true,
+      summarizeSource,
+    });
+
+    expect(summarizeSource).not.toHaveBeenCalled();
+    expect(index.Tech.runs).toEqual([
+      { sentences: [1], text: 'keep unaffected ancestor run' },
+      { sentences: [5], text: '' },
+    ]);
+  });
+
   it('never summarizes the empty root path, even with multiple top-level domains', async () => {
     // Each domain has two children so it is a genuine summarize-from-source
     // anchor (not a delegating single-child node); this keeps the root-skip
@@ -327,8 +404,8 @@ describe('summarizeTopicTree', () => {
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledWith({ path: 'Tech', error: boom });
     // The single mixed run [1,2] was generated; on failure it degrades to empty
-    // text (keeping its position) rather than dropping the run entirely.
-    expect(index['Tech'].runs).toEqual([{ sentences: [1, 2], text: '' }]);
+    // text (keeping its position) and retains a durable run-level marker.
+    expect(index['Tech'].runs).toEqual([{ sentences: [1, 2], text: '', error: true }]);
     // Leaves are unaffected by the internal-node failure.
     expect(index['Tech>AI'].runs[0].text).toBe('a');
   });

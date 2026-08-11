@@ -118,48 +118,87 @@ export function makeSourceSummarizer({
     }
   };
 
-  const summarizeText = async (text) => {
+  const summarizeText = async (text, sourceSummaryUnit) => {
     const response = await limit(() =>
       callProvider({
         prompt: buildTopicSummaryFromSourcePrompt(text, { preferContentLanguage }),
         temperature: 0.8,
         signal,
         taskType: LLM_TASK_TYPES.TOPIC_SUMMARY_FROM_SOURCE,
+        sourceSummaryUnit,
       }),
     );
     return parseSummaryResponse(response) || text;
   };
 
-  const summarizeRun = async (runIds, text) => {
+  const summarizeRun = async (runIds, text, path) => {
     if (text.length <= SOURCE_SUMMARY_MAX_CHARS) {
-      return await summarizeText(text);
+      return await summarizeText(text, {
+        kind: 'single',
+        source: text,
+        path,
+        runSentences: runIds,
+        startSentence: runIds[0],
+        endSentence: runIds[runIds.length - 1],
+      });
     }
 
     const chunks = chunkSourceSentences(runIds, sentenceTexts, SOURCE_SUMMARY_MAX_CHARS);
-    const records = await parallelMap(chunks, SUMMARY_CONCURRENCY, async (chunk) => ({
+    const chunkResults = await parallelMap(chunks, SUMMARY_CONCURRENCY, async (chunk) => {
+      try {
+        const summaryText = await summarizeText(chunk.text, {
+          kind: 'chunk',
+          source: chunk.text,
+          path,
+          runSentences: runIds,
+          startSentence: chunk.start,
+          endSentence: chunk.end,
+        });
+        return { chunk, text: summaryText };
+      } catch (error) {
+        // Catch per item so parallelMap waits for all in-flight siblings before
+        // surfacing the first failure.
+        return { chunk, error };
+      }
+    });
+    const failedChunk = chunkResults.find((result) => result.error);
+    if (failedChunk) throw failedChunk.error;
+
+    const records = chunkResults.map(({ chunk, text: summaryText }) => ({
       start_sentence: chunk.start,
       end_sentence: chunk.end,
-      summary: { text: await summarizeText(chunk.text) },
+      summary: { text: summaryText },
     }));
+    const mergeSource = formatChunkSummariesForMerge(records);
     const mergeResponse = await limit(() =>
       callProvider({
-        prompt: buildArticleSummaryMergePrompt(formatChunkSummariesForMerge(records), {
+        prompt: buildArticleSummaryMergePrompt(mergeSource, {
           preferContentLanguage,
         }),
         temperature: 0.8,
         signal,
         taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE,
+        sourceSummaryUnit: {
+          kind: 'merge',
+          source: mergeSource,
+          path,
+          runSentences: runIds,
+          startSentence: runIds[0],
+          endSentence: runIds[runIds.length - 1],
+        },
       }),
     );
     const merged = parseSummaryResponse(mergeResponse);
-    if (merged) return merged;
-    return records
-      .map((record) => record.summary.text)
-      .filter(Boolean)
-      .join('\n');
+    const result =
+      merged ||
+      records
+        .map((record) => record.summary.text)
+        .filter(Boolean)
+        .join('\n');
+    return result;
   };
 
-  return async (sourceSentenceIds) => {
+  return async (sourceSentenceIds, info = {}) => {
     const ids = Array.isArray(sourceSentenceIds)
       ? sourceSentenceIds.filter(
           (id) => Number.isInteger(id) && id > 0 && id <= sentenceTexts.length,
@@ -167,11 +206,20 @@ export function makeSourceSummarizer({
       : [];
     const runs = splitContiguousRuns(ids);
     const summarized = await parallelMap(runs, SUMMARY_CONCURRENCY, async (runIds) => {
-      const text = runSourceText(runIds, sentenceTexts);
-      if (!text) return { sentences: runIds, text: '' };
-      if (shouldInlineRun(runIds, text)) return { sentences: runIds, text };
-      return { sentences: runIds, text: await summarizeRun(runIds, text) };
+      try {
+        const text = runSourceText(runIds, sentenceTexts);
+        if (!text) return { sentences: runIds, text: '' };
+        if (shouldInlineRun(runIds, text)) return { sentences: runIds, text };
+        return {
+          sentences: runIds,
+          text: await summarizeRun(runIds, text, typeof info?.path === 'string' ? info.path : ''),
+        };
+      } catch (error) {
+        return { sentences: runIds, error };
+      }
     });
+    const failedRun = summarized.find((result) => result.error);
+    if (failedRun) throw failedRun.error;
     return { runs: summarized };
   };
 }
