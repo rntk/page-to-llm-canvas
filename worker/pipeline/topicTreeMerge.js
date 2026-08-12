@@ -43,6 +43,7 @@
 // is unit-testable with fakes.
 
 import {
+  hasSummaryRunMarker,
   isFailedSummaryRun,
   migrateLegacySummaryRunMarkers,
   publicSummaryRun,
@@ -89,7 +90,7 @@ export function buildTopicTree(topics) {
   }
 
   for (const topic of topics) {
-    if (!topic.name || topic.name === 'no_topic') continue;
+    if (!topic.name) continue;
     const node = getOrCreate(topic.name);
     if (Array.isArray(topic.sentences)) {
       node.sourceSentences.push(...topic.sentences);
@@ -217,7 +218,7 @@ export async function summarizeTopicTree({
   // markers that cannot be tied to a run; those remain conservative and block
   // reuse of the whole path (and dependent ancestor runs).
   const priorFailedRunsByPath = new Map();
-  const priorEntryFailurePaths = new Set();
+  const priorEntryFailuresByPath = new Map();
   const priorRunsByPath = new Map();
   if (reusePriorSummaries && previousSummaryIndex && typeof previousSummaryIndex === 'object') {
     for (const [path, prior] of Object.entries(previousSummaryIndex)) {
@@ -230,14 +231,16 @@ export async function summarizeTopicTree({
           byFirst.set(run.sentences[0], run);
           if (isFailedSummaryRun(run)) {
             if (run.sentences.length > 0) failedRuns.push(run.sentences);
-            else priorEntryFailurePaths.add(path);
+            else priorEntryFailuresByPath.set(path, migratedPrior.source_sentences || null);
           }
         }
       }
       if (failedRuns.length > 0) priorFailedRunsByPath.set(path, failedRuns);
       // An entry-level marker with no identifiable failed run is retained as a
       // conservative path-level failure for legacy/imported checkpoints.
-      if (prior.error === true && failedRuns.length === 0) priorEntryFailurePaths.add(path);
+      if (prior.error === true && failedRuns.length === 0) {
+        priorEntryFailuresByPath.set(path, migratedPrior.source_sentences || null);
+      }
       priorRunsByPath.set(path, byFirst);
     }
   }
@@ -247,31 +250,66 @@ export async function summarizeTopicTree({
     return Array.isArray(b) && b.some((sentence) => source.has(sentence));
   };
 
-  const hasFailedDependency = (path, run) => {
-    const leaf = migrateLegacySummaryRunMarkers(leafSummaries[path]);
-    const failedLeafRuns = (Array.isArray(leaf?.runs) ? leaf.runs : [])
+  const failedLeafRunsByPath = new Map();
+  const failedLeafEntryRunsByPath = new Map();
+  for (const [path, leaf] of Object.entries(leafSummaries || {})) {
+    const migratedLeaf = migrateLegacySummaryRunMarkers(leaf);
+    const failedRuns = (Array.isArray(migratedLeaf?.runs) ? migratedLeaf.runs : [])
       .filter(
-        (failed) =>
-          failed &&
-          Array.isArray(failed.sentences) &&
-          failed.sentences.length > 0 &&
-          isFailedSummaryRun(failed),
+        (run) =>
+          run &&
+          Array.isArray(run.sentences) &&
+          run.sentences.length > 0 &&
+          // Skip deliberately makes accepted failures reusable as leaves, but
+          // they still invalidate any ancestor summary that overlaps their
+          // source. Every durable run marker has that dependency meaning here.
+          hasSummaryRunMarker(run),
       )
-      .map((failed) => failed.sentences);
-    if (failedLeafRuns.some((failed) => overlaps(run, failed))) return true;
-    if (failedLeafRuns.length === 0 && (leaf?.error === true || leaf?.forcedEmpty === true)) {
-      return true;
+      .map((run) => run.sentences);
+    if (failedRuns.length > 0) failedLeafRunsByPath.set(path, failedRuns);
+    if (
+      failedRuns.length === 0 &&
+      (migratedLeaf?.error === true ||
+        migratedLeaf?.forcedEmpty === true ||
+        migratedLeaf?.acceptedFailure === true)
+    ) {
+      failedLeafEntryRunsByPath.set(path, migratedLeaf.source_sentences || null);
     }
-    for (const [failedPath, failedRuns] of priorFailedRunsByPath) {
+  }
+
+  const isDescendantOrSelf = (candidate, path) =>
+    candidate === path || candidate.startsWith(`${path}>`);
+  const entryFailureAffectsRun = (sourceSentences, run) =>
+    !Array.isArray(sourceSentences) ||
+    sourceSentences.length === 0 ||
+    overlaps(run, sourceSentences);
+
+  const hasFailedDependency = (path, run) => {
+    for (const [failedPath, failedRuns] of failedLeafRunsByPath) {
       if (
-        (failedPath === path || failedPath.startsWith(`${path}>`)) &&
+        isDescendantOrSelf(failedPath, path) &&
         failedRuns.some((failed) => overlaps(run, failed))
       ) {
         return true;
       }
     }
-    for (const failedPath of priorEntryFailurePaths) {
-      if (failedPath === path || failedPath.startsWith(`${path}>`)) return true;
+    for (const [failedPath, sourceSentences] of failedLeafEntryRunsByPath) {
+      if (isDescendantOrSelf(failedPath, path) && entryFailureAffectsRun(sourceSentences, run)) {
+        return true;
+      }
+    }
+    for (const [failedPath, failedRuns] of priorFailedRunsByPath) {
+      if (
+        isDescendantOrSelf(failedPath, path) &&
+        failedRuns.some((failed) => overlaps(run, failed))
+      ) {
+        return true;
+      }
+    }
+    for (const [failedPath, sourceSentences] of priorEntryFailuresByPath) {
+      if (isDescendantOrSelf(failedPath, path) && entryFailureAffectsRun(sourceSentences, run)) {
+        return true;
+      }
     }
     return false;
   };
@@ -298,14 +336,14 @@ export async function summarizeTopicTree({
         const prior = priorRuns?.get(run[0]);
         const priorMatches =
           reusePriorSummaries &&
-          !priorEntryFailurePaths.has(node.path) &&
+          !priorEntryFailuresByPath.has(node.path) &&
           prior &&
           Array.isArray(prior.sentences) &&
           sameSource(prior.sentences, run) &&
           typeof prior.text === 'string' &&
           prior.text !== '' &&
           !priorFailedRunsByPath.get(node.path)?.some((failed) => overlaps(run, failed)) &&
-          !(child && hasFailedDependency(child.path, run));
+          !hasFailedDependency(node.path, run);
         return { run, child, prior: priorMatches ? prior : null };
       });
       const generateRuns = plan

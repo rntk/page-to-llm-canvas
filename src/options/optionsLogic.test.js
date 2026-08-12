@@ -32,6 +32,7 @@ describe('provider form helpers', () => {
       token: '',
       url: '',
       serviceTier: '',
+      contextWindowTokens: '',
     });
   });
 
@@ -54,6 +55,7 @@ describe('provider form helpers', () => {
         token: 'secret',
         url: '',
         serviceTier: 'auto',
+        contextWindowTokens: 128000,
       }),
     ).toEqual({
       id: 'p1',
@@ -63,6 +65,7 @@ describe('provider form helpers', () => {
       token: '',
       url: '',
       serviceTier: 'auto',
+      contextWindowTokens: '128000',
     });
   });
 
@@ -87,6 +90,7 @@ describe('provider form helpers', () => {
       token: '',
       url: '',
       serviceTier: '',
+      contextWindowTokens: '',
     });
   });
 
@@ -101,6 +105,7 @@ describe('provider form helpers', () => {
       token: '',
       url: '',
       serviceTier: '',
+      contextWindowTokens: '',
     });
   });
 });

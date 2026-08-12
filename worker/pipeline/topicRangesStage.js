@@ -12,7 +12,13 @@ import {
 import { parallelMap } from '../llm/llm.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { computeBackoffDelay, queryTopicRangesWithRetry } from './topicRangeRetry.js';
-import { MAX_TAGGED_CHARS } from './pipelineConfig.js';
+import {
+  MAX_TAGGED_CHARS,
+  TOPIC_RANGE_INPUT_MAX_SENTENCES,
+  TOPIC_RANGE_PROVIDER_MAX_ATTEMPTS,
+  TOPIC_RANGE_RESPLIT_PROVIDER_MAX_ATTEMPTS,
+  TOPIC_RANGE_STAGE_MAX_RETRIES,
+} from './pipelineConfig.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
 import { isCancellationError, rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
 
@@ -20,13 +26,11 @@ const ABORT_MESSAGE = 'pipeline aborted during topic ranging';
 
 const TOPIC_RANGE_CONCURRENCY = 4;
 const TOPIC_RANGE_TEMPERATURE = 0.2;
-const TOPIC_RANGE_MAX_RETRIES = 3;
 const TOPIC_RANGE_RETRY_BASE_DELAY_MS = 2000;
 // Same ceiling callLLMWithRetry applies to a provider's Retry-After, so a
 // hostile or misconfigured header cannot park the stage indefinitely.
 const MAX_PROVIDER_COOLDOWN_MS = 60_000;
 const TOPIC_RANGE_MAX_SENTENCES = 40;
-const TOPIC_RANGE_INPUT_MAX_SENTENCES = 240;
 const TOPIC_RANGE_RESPLIT_MAX_DEPTH = 2;
 
 // Verbose diagnostics payloads are capped independently of the (already
@@ -152,7 +156,7 @@ async function logParseDiagnostics(runtime, context, { diagnostics, response }) 
 }
 
 export function chunkTaggedText(tagged, maxChars) {
-  const lines = tagged.split('\n');
+  const lines = tagged.split('\n').map((line) => fitTextToChars(line, maxChars));
   const chunks = [];
   let cur = [];
   let curLen = 0;
@@ -168,6 +172,22 @@ export function chunkTaggedText(tagged, maxChars) {
   }
   if (cur.length) chunks.push(cur.join('\n'));
   return chunks;
+}
+
+function fitTextToChars(text, maxChars) {
+  const value = String(text || '');
+  if (value.length <= maxChars) return value;
+  if (maxChars <= 1) return value.slice(0, maxChars);
+  const separator = '…';
+  const retained = maxChars - separator.length;
+  const headLength = Math.ceil(retained / 2);
+  return `${value.slice(0, headLength)}${separator}${value.slice(value.length - (retained - headLength))}`;
+}
+
+function taggedSentenceLine(localIndex, sentence, maxChars) {
+  const prefix = `{${localIndex}} `;
+  if (prefix.length >= maxChars) return prefix.slice(0, maxChars);
+  return `${prefix}${fitTextToChars(sentence, maxChars - prefix.length)}`;
 }
 
 /**
@@ -197,7 +217,10 @@ export function chunkTopicRangeSentences(
     while (start + lines.length < sentences.length && lines.length < maxSentences) {
       const value = sentences[start + lines.length];
       const sentence = typeof value === 'string' ? value : value?.text;
-      const line = `{${lines.length}} ${sentence ?? ''}`;
+      // One pathological sentence (minified data, a data URL, etc.) must not
+      // defeat the request budget. Topic ranging only needs enough of that
+      // indivisible sentence to label it, so preserve both its head and tail.
+      const line = taggedSentenceLine(lines.length, sentence ?? '', maxChars);
       const addedLength = line.length + (lines.length > 0 ? 1 : 0);
       if (lines.length > 0 && length + addedLength > maxChars) break;
       lines.push(line);
@@ -246,6 +269,7 @@ function providerCooldownMs(error) {
  * @param {unknown} error Error thrown by the provider call.
  */
 function isPermanentDispatchError(error) {
+  if (error?.retryable === false) return true;
   const status = error?.status;
   return (
     Number.isFinite(status) && status >= 400 && status < 500 && status !== 408 && status !== 429
@@ -449,47 +473,55 @@ async function saveTopicRangeChunkCheckpoint(runtime, record, chunkStates, sente
  * @param {number} params.attempt 1-based stage attempt number.
  */
 async function dispatchPendingChunks({ runtime, callLLMWithRetry, pending, attempt }) {
-  await parallelMap(pending, TOPIC_RANGE_CONCURRENCY, async (state) => {
-    state.response = null;
-    state.dispatchError = null;
-    state.parseError = null;
-    const prompt = buildTopicRangesPrompt(state.chunk.tagged, {
-      preferContentLanguage: runtime.preferContentLanguage,
-    });
-    await runtime.log(
-      'topic_ranges_llm_request',
-      { chunkIndex: state.chunkIndex, promptLength: prompt.length, attempt },
-      { verbose: true },
-    );
-    try {
-      // Each worker owns exactly one `state` — parallelMap never hands the same
-      // item to two workers — so writing it across an await is not the
-      // interleaving the rule is guarding against.
-      // eslint-disable-next-line require-atomic-updates
-      state.response = await callLLMWithRetry({
-        prompt,
-        temperature: TOPIC_RANGE_TEMPERATURE,
-        signal: runtime.signal,
-        taskType: LLM_TASK_TYPES.TOPIC_RANGES,
+  await parallelMap(
+    pending,
+    TOPIC_RANGE_CONCURRENCY,
+    async (state) => {
+      state.response = null;
+      state.dispatchError = null;
+      state.parseError = null;
+      const prompt = buildTopicRangesPrompt(state.chunk.tagged, {
+        preferContentLanguage: runtime.preferContentLanguage,
       });
-    } catch (error) {
-      rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
-      // Sole owner of `state`, as above.
-      // eslint-disable-next-line require-atomic-updates
-      state.dispatchError = error;
-      await runtime.log('topic_ranges_llm_error', {
-        chunkIndex: state.chunkIndex,
-        attempt,
-        error: (error && error.message) || String(error),
-      });
-      return;
-    }
-    await runtime.log(
-      'topic_ranges_llm_response',
-      { chunkIndex: state.chunkIndex, responseLength: state.response.length, attempt },
-      { verbose: true },
-    );
-  });
+      await runtime.log(
+        'topic_ranges_llm_request',
+        { chunkIndex: state.chunkIndex, promptLength: prompt.length, attempt },
+        { verbose: true },
+      );
+      try {
+        // Each worker owns exactly one `state` — parallelMap never hands the same
+        // item to two workers — so writing it across an await is not the
+        // interleaving the rule is guarding against.
+        // eslint-disable-next-line require-atomic-updates
+        state.response = await callLLMWithRetry(
+          {
+            prompt,
+            temperature: TOPIC_RANGE_TEMPERATURE,
+            signal: runtime.signal,
+            taskType: LLM_TASK_TYPES.TOPIC_RANGES,
+          },
+          TOPIC_RANGE_PROVIDER_MAX_ATTEMPTS,
+        );
+      } catch (error) {
+        rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
+        // Sole owner of `state`, as above.
+        // eslint-disable-next-line require-atomic-updates
+        state.dispatchError = error;
+        await runtime.log('topic_ranges_llm_error', {
+          chunkIndex: state.chunkIndex,
+          attempt,
+          error: (error && error.message) || String(error),
+        });
+        return;
+      }
+      await runtime.log(
+        'topic_ranges_llm_response',
+        { chunkIndex: state.chunkIndex, responseLength: state.response.length, attempt },
+        { verbose: true },
+      );
+    },
+    { warmupFirst: true },
+  );
 }
 
 /**
@@ -628,8 +660,8 @@ async function resplitSegment(
   const span = segment.end - segment.start + 1;
   const sliceTexts = sentenceTexts.slice(segment.start, segment.end + 1);
   const tagged = buildTaggedText(sliceTexts);
-  const chunks =
-    tagged.length > MAX_TAGGED_CHARS ? chunkTaggedText(tagged, MAX_TAGGED_CHARS) : [tagged];
+  const maxChars = runtime.maxTextChunkChars;
+  const chunks = tagged.length > maxChars ? chunkTaggedText(tagged, maxChars) : [tagged];
 
   if (stats) {
     stats.resplitCallCount++;
@@ -656,17 +688,37 @@ async function resplitSegment(
     subGroups = await queryTopicRangesWithRetry({
       maxRetries: 0,
       callLLM: async () => {
-        const responses = await parallelMap(chunks, TOPIC_RANGE_CONCURRENCY, (chunk) =>
-          callLLMWithRetry({
-            prompt: buildTopicRangesPrompt(chunk, {
-              preferContentLanguage: runtime.preferContentLanguage,
-            }),
-            temperature: TOPIC_RANGE_TEMPERATURE,
-            signal: runtime.signal,
-            taskType: LLM_TASK_TYPES.TOPIC_RANGES,
-          }),
+        const responses = await parallelMap(
+          chunks,
+          TOPIC_RANGE_CONCURRENCY,
+          async (chunk) => {
+            try {
+              return {
+                content: await callLLMWithRetry(
+                  {
+                    prompt: buildTopicRangesPrompt(chunk, {
+                      preferContentLanguage: runtime.preferContentLanguage,
+                    }),
+                    temperature: TOPIC_RANGE_TEMPERATURE,
+                    signal: runtime.signal,
+                    taskType: LLM_TASK_TYPES.TOPIC_RANGES,
+                  },
+                  TOPIC_RANGE_RESPLIT_PROVIDER_MAX_ATTEMPTS,
+                ),
+              };
+            } catch (error) {
+              rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
+              // Keep every paid-for sibling request in flight before surfacing
+              // the failure; parallelMap's default fail-fast would abandon
+              // queued chunks as soon as one provider call rejects.
+              return { error };
+            }
+          },
+          { warmupFirst: true },
         );
-        return responses.join('\n');
+        const failed = responses.find((response) => response.error);
+        if (failed) throw failed.error;
+        return responses.map((response) => response.content).join('\n');
       },
       parse: async (raw) => {
         const logContext = { scope: 'resplit', depth, start: segment.start, end: segment.end };
@@ -952,6 +1004,7 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
     forceFinalize: false,
     acceptedMergeFailurePaths: [],
     summaryCheckpointContentRevision: null,
+    summaryCheckpointPreferContentLanguage: null,
     summariesDisabled: false,
     summariesIncomplete: false,
   });
@@ -982,7 +1035,11 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
     { verbose: true },
   );
 
-  const chunks = chunkTopicRangeSentences(sentenceTexts);
+  const chunks = chunkTopicRangeSentences(
+    sentenceTexts,
+    runtime.maxTextChunkChars,
+    runtime.maxTopicRangeSentences,
+  );
   const checkpoint = readTopicRangeChunkCheckpoint(record, chunks);
 
   await runtime.update({
@@ -1010,7 +1067,7 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
     {
       taggedLength: chunks.reduce((sum, chunk) => sum + chunk.tagged.length, 0),
       chunkCount: chunks.length,
-      maxSentencesPerChunk: TOPIC_RANGE_INPUT_MAX_SENTENCES,
+      maxSentencesPerChunk: runtime.maxTopicRangeSentences,
       resumedChunkCount: checkpoint?.reusedChunkCount || 0,
     },
     { verbose: true },
@@ -1042,7 +1099,7 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
   let groups;
   try {
     groups = await queryTopicRangesWithRetry({
-      maxRetries: TOPIC_RANGE_MAX_RETRIES,
+      maxRetries: TOPIC_RANGE_STAGE_MAX_RETRIES,
       baseDelayMs: TOPIC_RANGE_RETRY_BASE_DELAY_MS,
       isRetryable: (error) =>
         error instanceof TopicRangeChunkError ? error.retryable : error instanceof TopicParseError,
@@ -1146,6 +1203,7 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
     // content revision read by this run. A later submission bumps
     // contentRevision, so Retry cannot mistake these topics for the new HTML.
     summaryCheckpointContentRevision: record.contentRevision,
+    summaryCheckpointPreferContentLanguage: runtime.preferContentLanguage === true,
     status: PIPELINE_STATUS.SUMMARIZING,
     progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done: 0, total: topics.length },
   });

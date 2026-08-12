@@ -1,6 +1,4 @@
-import { buildArticleSummaryPrompt } from './prompts.js';
 import { createLimiter, parallelMap } from '../llm/llm.js';
-import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { planSummaryWork } from './summaryPlanning.js';
 import {
   buildPartialTopicSummaryIndex,
@@ -9,7 +7,6 @@ import {
   splitContiguousRuns,
 } from './topicTreeMerge.js';
 import { SUMMARY_CONCURRENCY } from './pipelineConfig.js';
-import { parseSummaryResult, runSourceText, shouldInlineRun } from './sourceSummarizer.js';
 import { makeCachedSourceSummarizer } from './sourceSummaryCache.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
 import { isCancellationError, rethrowIfCancelled } from './cancellation.js';
@@ -73,88 +70,6 @@ async function parkForReview(runtime, summaryErrors, phase, topicSummaryIndex, {
     errorCount: summaryErrors.length,
     topics: summaryErrors.map((error) => error.topic),
   });
-}
-
-/** Rebuilds a parked merge index using the current nodes' structural fields
- * while preserving prior run texts; returns null on any mismatch, so a
- * stale/corrupt checkpoint is recomputed normally.
- * @param {Map<string, {level: number, sourceSentences: number[]}>} nodes
- * @param {Record<string, object>} previousSummaryIndex
- * @param {string[]} acceptedMergeFailurePaths
- * @param {Record<string, object>} leafSummaries
- * @returns {Record<string, object>|null}
- */
-function reuseParkedMergeIndex(
-  nodes,
-  previousSummaryIndex,
-  acceptedMergeFailurePaths,
-  leafSummaries,
-) {
-  if (
-    !acceptedMergeFailurePaths.length ||
-    !previousSummaryIndex ||
-    typeof previousSummaryIndex !== 'object'
-  ) {
-    return null;
-  }
-  const currentPaths = [...nodes.keys()].filter(Boolean);
-  const currentPathSet = new Set(currentPaths);
-  if (!acceptedMergeFailurePaths.every((path) => currentPathSet.has(path))) return null;
-
-  const reused = {};
-  for (const path of currentPaths) {
-    const node = nodes.get(path);
-    const prior = previousSummaryIndex[path];
-    if (!prior || !Array.isArray(prior.runs) || !Array.isArray(prior.source_sentences)) {
-      return null;
-    }
-    const sameSource =
-      prior.source_sentences.length === node.sourceSentences.length &&
-      prior.source_sentences.every((id, index) => id === node.sourceSentences[index]);
-    if (!sameSource) return null;
-
-    // Every node carries exactly one run per contiguous source occurrence, in
-    // document order; a mismatch (wrong-branch ids, non-string text) reads as
-    // wrong text in place, not missing text, so it parks reuse.
-    const expectedRuns = splitContiguousRuns(node.sourceSentences);
-    if (prior.runs.length !== expectedRuns.length) return null;
-    const sameRunLayout = expectedRuns.every((expected, index) => {
-      const priorRun = prior.runs[index];
-      return (
-        priorRun &&
-        typeof priorRun.text === 'string' &&
-        Array.isArray(priorRun.sentences) &&
-        priorRun.sentences.length === expected.length &&
-        priorRun.sentences.every((id, sentenceIndex) => id === expected[sentenceIndex])
-      );
-    });
-    if (!sameRunLayout) return null;
-
-    if (node.children.length === 0) {
-      const leafRuns = leafSummaries[path]?.runs;
-      const sameRuns =
-        Array.isArray(leafRuns) &&
-        leafRuns.length === prior.runs.length &&
-        leafRuns.every((run, runIndex) => {
-          const priorRun = prior.runs[runIndex];
-          return (
-            priorRun &&
-            run.text === priorRun.text &&
-            Array.isArray(run.sentences) &&
-            Array.isArray(priorRun.sentences) &&
-            run.sentences.length === priorRun.sentences.length &&
-            run.sentences.every((id, sentenceIndex) => id === priorRun.sentences[sentenceIndex])
-          );
-        });
-      if (!sameRuns) return null;
-    }
-    reused[path] = {
-      runs: prior.runs,
-      level: node.level - 1,
-      source_sentences: node.sourceSentences,
-    };
-  }
-  return reused;
 }
 
 /** Wraps the tree summarizer for a Skip resume: an accepted merge node stays
@@ -230,14 +145,20 @@ function makeForceFinalizeSummarizer(summarizeSource, leafSummaries, acceptedMer
 /** Finalizes a run without summary calls while preserving its computed topics.
  * @param {PipelineRuntime} runtime Pipeline runtime.
  * @param {object[]} topics Computed topic records.
+ * @param {object} [options]
+ * @param {boolean} [options.preserveExistingSummaries]
  */
-export async function finalizeSummariesDisabled(runtime, topics) {
+export async function finalizeSummariesDisabled(
+  runtime,
+  topics,
+  { preserveExistingSummaries = false } = {},
+) {
   await runtime.log('summaries_disabled_skip', { topicCount: topics.length });
   await runtime.update({
     status: PIPELINE_STATUS.DONE,
-    topic_summaries: {},
-    topic_summary_index: {},
-    source_summary_units: {},
+    ...(!preserveExistingSummaries
+      ? { topic_summaries: {}, topic_summary_index: {}, source_summary_units: {} }
+      : {}),
     summariesDisabled: true,
     summariesIncomplete: false,
     progress: { stage: PIPELINE_STAGE.DONE, done: topics.length, total: topics.length },
@@ -273,6 +194,26 @@ export async function runSummaries({
     previousSummaries,
   );
   const topic_summaries = { ...reused };
+  const source_summary_units =
+    previousSourceSummaryUnits && typeof previousSourceSummaryUnits === 'object'
+      ? { ...previousSourceSummaryUnits }
+      : {};
+  const persistSourceSummaryUnit = async (unit) => {
+    source_summary_units[unit.unitId] = unit;
+    await runtime.update({ source_summary_units: { ...source_summary_units } });
+  };
+  const leafSummarizeSource = makeCachedSourceSummarizer({
+    sentenceTexts,
+    limit: createLimiter(SUMMARY_CONCURRENCY),
+    signal: runtime.signal,
+    preferContentLanguage: runtime.preferContentLanguage,
+    callLLMWithRetry,
+    priorUnits: source_summary_units,
+    contentRevision,
+    persistUnit: persistSourceSummaryUnit,
+    summaryMode: 'leaf',
+    maxChars: runtime.maxTextChunkChars,
+  });
 
   let done = reusedCount;
   await runtime.update({
@@ -312,9 +253,9 @@ export async function runSummaries({
       let failure = null;
       const pendingFailure = previousFailure;
 
-      const persistLeafCheckpoint = async () => {
+      const buildLeafSummaryEntry = () => {
         const hasUnresolved = unresolved.size > 0;
-        topic_summaries[topic.name] = {
+        return {
           runs: runResults,
           source_sentences: topic.sentences,
           ...(hasUnresolved
@@ -329,6 +270,10 @@ export async function runSummaries({
             : {}),
           ...(acceptedFailure ? { acceptedFailure: true } : {}),
         };
+      };
+
+      const persistLeafCheckpoint = async () => {
+        topic_summaries[topic.name] = buildLeafSummaryEntry();
         await runtime.update({
           topic_summaries: { ...topic_summaries },
           progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done, total },
@@ -338,41 +283,19 @@ export async function runSummaries({
       for (const [runIndex, runResult] of runResults.entries()) {
         if (!unresolved.has(runIndex)) continue;
         const runIds = runResult.sentences;
-        const sourceText = runSourceText(runIds, sentenceTexts);
-        if (!sourceText) {
-          unresolved.delete(runIndex);
-          runResults[runIndex] = {
-            sentences: runIds,
-            text: '',
-          };
-          await persistLeafCheckpoint();
-          continue;
-        }
-        if (shouldInlineRun(runIds, sourceText)) {
-          unresolved.delete(runIndex);
-          runResults[runIndex] = {
-            sentences: runIds,
-            text: sourceText,
-          };
-          await persistLeafCheckpoint();
-          continue;
-        }
-
-        // Only the provider call is guarded: a throw from prompt building or
-        // parsing is a code bug that must surface as a pipeline error, not a Retry button.
-        const prompt = buildArticleSummaryPrompt(sourceText, {
-          preferContentLanguage: runtime.preferContentLanguage,
-        });
-        let response;
         try {
-          response = await callLLMWithRetry({
-            prompt,
-            temperature: 0.8,
-            signal: runtime.signal,
-            taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY,
-          });
+          const summarized = await leafSummarizeSource(runIds, { path: topic.name });
+          const summarizedRun = summarized?.runs?.[0];
+          unresolved.delete(runIndex);
+          runResults[runIndex] = {
+            sentences: runIds,
+            text: typeof summarizedRun?.text === 'string' ? summarizedRun.text : '',
+          };
         } catch (error) {
           rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
+          // Provider failures are actionable through Retry/Skip. A prompt,
+          // chunking, cache, or parsing bug is not and must fail the pipeline.
+          if (!isProviderFailure(error)) throw error;
           const { kind, message } = classifyLlmError(error);
           const detail = (error && error.message) || String(error);
           await runtime.log('topic_summary_llm_error', {
@@ -396,32 +319,11 @@ export async function runSummaries({
           await persistLeafCheckpoint();
           continue;
         }
-
-        const parsed = parseSummaryResult(response);
-        unresolved.delete(runIndex);
-        runResults[runIndex] = {
-          sentences: runIds,
-          text: parsed.text || (parsed.noSummary ? sourceText : ''),
-        };
         await persistLeafCheckpoint();
       }
 
-      topic_summaries[topic.name] = {
-        runs: runResults,
-        source_sentences: topic.sentences,
-        ...(unresolved.size > 0
-          ? {
-              error: true,
-              ...(failure ||
-                pendingFailure || {
-                  error_kind: 'error',
-                  error_message: 'Summary is incomplete.',
-                }),
-            }
-          : {}),
-        ...(acceptedFailure ? { acceptedFailure: true } : {}),
-      };
-      done++;
+      topic_summaries[topic.name] = buildLeafSummaryEntry();
+      if (unresolved.size === 0) done++;
       await runtime.log(
         'topic_summary_llm_response',
         { topic: topic.name, runCount: runResults.length },
@@ -450,83 +352,65 @@ export async function runSummaries({
     return;
   }
 
+  // Internal nodes do not map cleanly to a determinate request count: some
+  // delegate to a child, some reuse prior work, and others fan out through
+  // source-summary chunking. Switch to an explicit indeterminate phase instead
+  // of leaving the leaf counter displayed at 100% while merge work is running.
+  await runtime.update({
+    progress: { stage: PIPELINE_STAGE.MERGING_SUMMARIES, done: 0, total: 0 },
+  });
   await runtime.log('topic_tree_merge_start', { leafCount: total }, { verbose: true });
   const { nodes } = buildTopicTree(topics);
   const summaryErrors = [];
-  const source_summary_units =
-    previousSourceSummaryUnits && typeof previousSourceSummaryUnits === 'object'
-      ? { ...previousSourceSummaryUnits }
-      : {};
-  let topic_summary_index = forceFinalize
-    ? reuseParkedMergeIndex(nodes, previousSummaryIndex, acceptedMergeFailurePaths, topic_summaries)
-    : null;
-  if (topic_summary_index) {
-    await runtime.log(
-      'topic_tree_merge_reused',
-      { nodeCount: Object.keys(topic_summary_index).length },
-      { verbose: true },
-    );
-  } else {
-    const normalSummarizeSource = makeCachedSourceSummarizer({
-      sentenceTexts,
-      limit: createLimiter(SUMMARY_CONCURRENCY),
-      signal: runtime.signal,
-      preferContentLanguage: runtime.preferContentLanguage,
-      callLLMWithRetry,
-      priorUnits: source_summary_units,
-      contentRevision,
-      persistUnit: async (unit) => {
-        source_summary_units[unit.unitId] = unit;
-        await runtime.update({
-          source_summary_units: { ...source_summary_units },
-        });
-      },
-    });
-    // A complete parked merge index can be reused above; otherwise force-finalize
-    // suppresses only user-accepted paths so Retry doesn't empty other branches.
-    const summarizeSource = forceFinalize
-      ? makeForceFinalizeSummarizer(
-          normalSummarizeSource,
-          topic_summaries,
-          acceptedMergeFailurePaths,
-        )
-      : normalSummarizeSource;
-    topic_summary_index = await summarizeTopicTree({
-      nodes,
-      leafSummaries: topic_summaries,
-      summarizeSource,
-      // A normal Retry can adopt each structurally valid prior merge path. Skip
-      // remains on the existing force-finalize path because accepted failures
-      // must suppress only their own branches.
-      previousSummaryIndex,
-      reusePriorSummaries: !forceFinalize,
-      onError: ({ path, error }) => {
-        rethrowIfCancelled(error, runtime);
-        // Same policy as above: `makeSourceSummarizer` marks provider rejections,
-        // so anything unmarked is our own bug and must surface, not park behind Retry.
-        if (!isProviderFailure(error)) throw error;
-        const { kind, message } = classifyLlmError(error);
-        summaryErrors.push({
-          topic: path,
-          error_kind: kind,
-          error_message: message,
-          error_detail: String(error),
-        });
-        return runtime.log('topic_tree_merge_error', {
-          path,
-          error_kind: kind,
-          error: message,
-        });
-      },
-    });
-  }
+  const normalSummarizeSource = makeCachedSourceSummarizer({
+    sentenceTexts,
+    limit: createLimiter(SUMMARY_CONCURRENCY),
+    signal: runtime.signal,
+    preferContentLanguage: runtime.preferContentLanguage,
+    callLLMWithRetry,
+    priorUnits: source_summary_units,
+    contentRevision,
+    persistUnit: persistSourceSummaryUnit,
+    maxChars: runtime.maxTextChunkChars,
+  });
+  const summarizeSource = forceFinalize
+    ? makeForceFinalizeSummarizer(normalSummarizeSource, topic_summaries, acceptedMergeFailurePaths)
+    : normalSummarizeSource;
+  const topic_summary_index = await summarizeTopicTree({
+    nodes,
+    leafSummaries: topic_summaries,
+    summarizeSource,
+    // Reuse is per run and failure-aware for both Retry and Skip. Accepted
+    // paths are suppressed by summarizeSource while unrelated successful
+    // paths retain their already-paid-for summaries.
+    previousSummaryIndex,
+    reusePriorSummaries: true,
+    onError: ({ path, error }) => {
+      rethrowIfCancelled(error, runtime);
+      // Same policy as above: `makeSourceSummarizer` marks provider rejections,
+      // so anything unmarked is our own bug and must surface, not park behind Retry.
+      if (!isProviderFailure(error)) throw error;
+      const { kind, message } = classifyLlmError(error);
+      summaryErrors.push({
+        topic: path,
+        error_kind: kind,
+        error_message: message,
+        error_detail: String(error),
+      });
+      return runtime.log('topic_tree_merge_error', {
+        path,
+        error_kind: kind,
+        error: message,
+      });
+    },
+  });
   await runtime.log(
     'topic_tree_merge_done',
     { nodeCount: Object.keys(topic_summary_index).length },
     { verbose: true },
   );
 
-  // Accepted merge paths are suppressed/reused above, so any error collected
+  // Accepted merge paths are suppressed during generation, so any error collected
   // here is new, even on a force-finalizing resume.
   if (summaryErrors.length) {
     // Persist the failed path on the projection itself. Older parked records
@@ -538,8 +422,8 @@ export async function runSummaries({
       }
     }
     await parkForReview(runtime, summaryErrors, 'merge', topic_summary_index, {
-      done: total,
-      total,
+      done: 0,
+      total: 0,
     });
     return;
   }

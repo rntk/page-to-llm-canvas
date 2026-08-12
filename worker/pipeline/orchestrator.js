@@ -2,6 +2,7 @@
 // generate per-topic summaries. This runs in the service-worker context.
 
 import { callLLMWithRetry as callLLMWithRetryRaw, createAdjustableLimiter } from '../llm/llm.js';
+import { getActiveProvider } from '../llm/providers.js';
 import { wrapCallLLMWithRetry } from '../metrics/llm.js';
 import {
   DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
@@ -17,6 +18,7 @@ import { finalizeSummariesDisabled, runSummaries } from './summaryStage.js';
 import { isCancellationError } from './cancellation.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
 import { createLogger } from '../../src/shared/runtime/log.js';
+import { getPipelineTextChunkMaxChars, getTopicRangeInputMaxSentences } from './pipelineConfig.js';
 
 const log = createLogger();
 const pipelineLog = createLogger('pipeline');
@@ -28,8 +30,8 @@ const pipelineLog = createLogger('pipeline');
 // valid summaries that survived a partial write.
 //
 // Two failure classes are handled differently. A structurally malformed
-// topic — no usable nonblank string `name`, `sentences` not an array, or an
-// out-of-range sentence id — refuses the WHOLE checkpoint even if other
+// topic — no usable nonblank string `name`, `sentences` empty/not an array, or
+// an out-of-range sentence id — refuses the WHOLE checkpoint even if other
 // topics are healthy. A well-formed topic whose sentences resolve to blank
 // source text is tolerated per topic; the checkpoint is refused only when NO
 // topic can yield a summary.
@@ -45,7 +47,7 @@ export function isSummaryCheckpointComplete(record) {
   let summarizableTopics = 0;
   for (const topic of record.topics) {
     if (typeof topic?.name !== 'string' || topic.name.trim() === '') return false;
-    if (!Array.isArray(topic.sentences)) return false;
+    if (!Array.isArray(topic.sentences) || topic.sentences.length === 0) return false;
     if (
       !topic.sentences.every(
         (oneIdx) => Number.isInteger(oneIdx) && oneIdx >= 1 && oneIdx <= sentenceCount,
@@ -78,6 +80,36 @@ export function isSummaryCheckpointRevisionCurrent(record) {
     checkpointRevision !== '' &&
     checkpointRevision === contentRevision
   );
+}
+
+/**
+ * Purely classifies the record snapshot before the orchestrator performs any
+ * resume-side effects. A current-but-malformed checkpoint is preserved for an
+ * explicit Reprocess decision; a stale checkpoint is rebuilt from source.
+ *
+ * @param {object} record
+ * @returns {{resuming: boolean, rejectionReason: string|null}}
+ */
+export function planResume(record) {
+  const isSummarizing = record?.status === PIPELINE_STATUS.SUMMARIZING;
+  const hasCheckpointTopics =
+    isSummarizing && Array.isArray(record?.topics) && record.topics.length > 0;
+  const revisionCurrent = isSummaryCheckpointRevisionCurrent(record);
+  const checkpointComplete = hasCheckpointTopics && isSummaryCheckpointComplete(record);
+  // A current checkpoint revision means this record already reached the
+  // summary boundary. Preserve it on every structural failure, including a
+  // missing/empty topic list, rather than falling into computeTopics and
+  // destructively clearing any summary work that survived the malformed write.
+  if (isSummarizing && revisionCurrent && !checkpointComplete) {
+    return {
+      resuming: false,
+      rejectionReason: 'incomplete_checkpoint',
+    };
+  }
+  return {
+    resuming: revisionCurrent && checkpointComplete,
+    rejectionReason: hasCheckpointTopics && !revisionCurrent ? 'content_revision_mismatch' : null,
+  };
 }
 
 // Shared provider-facing boundary across all running page pipelines, so
@@ -113,27 +145,44 @@ try {
  * @param {AbortSignal} [options.signal]
  */
 export async function runPipeline(key, options = {}) {
-  const concurrencyRevisionAtRead = concurrencySettingRevision;
-  const [preferContentLanguage, verboseLogs, maxParallelLlmRequests] = await Promise.all([
-    getStoredPreferContentLanguage(),
-    getStoredVerboseLogs(),
-    getStoredMaxParallelLlmRequests(),
-  ]);
-  if (concurrencySettingRevision === concurrencyRevisionAtRead) {
-    pipelineLlmLimiter.setLimit(maxParallelLlmRequests);
-  }
-
-  const runtime = createPipelineRuntime({
+  const runtimeContext = {
     key,
     pipelineRunId: options.pipelineRunId,
     signal: options.signal,
-    // Snapshot settings once so a mid-run change doesn't alter behavior.
-    preferContentLanguage,
-    verboseLogs,
     summariesDisabled: false,
-  });
+  };
+  // Keep a minimal runtime available so settings/provider bootstrap failures
+  // still follow the normal pipeline error and logging path.
+  let runtime = createPipelineRuntime(runtimeContext);
 
+  const concurrencyRevisionAtRead = concurrencySettingRevision;
   try {
+    const [preferContentLanguage, verboseLogs, maxParallelLlmRequests, activeProvider] =
+      await Promise.all([
+        getStoredPreferContentLanguage(),
+        getStoredVerboseLogs(),
+        getStoredMaxParallelLlmRequests(),
+        // The provider snapshot sizes and handles every request in this run.
+        // A missing provider remains an ordinary request-boundary error, but an
+        // inability to read provider storage must retain its real cause.
+        getActiveProvider(),
+      ]);
+    if (concurrencySettingRevision === concurrencyRevisionAtRead) {
+      pipelineLlmLimiter.setLimit(maxParallelLlmRequests);
+    }
+    // Size and dispatch against the same snapshot. A provider selected later is
+    // picked up by the next pipeline run instead of silently changing this run's
+    // context limit between requests or retries.
+    const callRunLLMWithRetry = (opts, maxRetries) =>
+      callLLMWithRetry({ ...opts, provider: activeProvider }, maxRetries);
+
+    runtime = createPipelineRuntime({
+      ...runtimeContext,
+      preferContentLanguage,
+      verboseLogs,
+      maxTextChunkChars: getPipelineTextChunkMaxChars(activeProvider?.contextWindowTokens),
+      maxTopicRangeSentences: getTopicRangeInputMaxSentences(activeProvider?.contextWindowTokens),
+    });
     await runtime.log('pipeline_start');
     const record = await runtime.read();
     if (!record) throw new Error(`record not found: ${key}`);
@@ -142,32 +191,22 @@ export async function runPipeline(key, options = {}) {
     // `topic_summaries` is the leaf checkpoint used to resume/retry summary
     // work after service-worker recycling; UI consumers read
     // `topic_summary_index` instead.
-    const hasCheckpointTopics =
-      record.status === PIPELINE_STATUS.SUMMARIZING &&
-      Array.isArray(record.topics) &&
-      record.topics.length > 0;
-    const revisionCurrent = isSummaryCheckpointRevisionCurrent(record);
-    const checkpointComplete = hasCheckpointTopics && isSummaryCheckpointComplete(record);
+    const resumePlan = planResume(record);
     // A matching revision plus malformed structure is unsafe to consume and
     // must preserve the checkpoint for an explicit Reprocess decision.  A
     // stale or legacy revision is different: the saved topics are not proven
     // to belong to this content, so rebuild them through computeTopics rather
     // than displaying or summarizing stale data.
-    const resuming = revisionCurrent && checkpointComplete;
-    if (hasCheckpointTopics && !revisionCurrent) {
+    const resuming = resumePlan.resuming;
+    if (resumePlan.rejectionReason) {
       await runtime.log('pipeline_resume_rejected', {
         stage: PIPELINE_STAGE.SUMMARIZING,
-        reason: 'content_revision_mismatch',
-        topicCount: record.topics.length,
+        reason: resumePlan.rejectionReason,
+        topicCount: Array.isArray(record.topics) ? record.topics.length : 0,
         sentenceCount: Array.isArray(record.sentences) ? record.sentences.length : 0,
       });
-    } else if (hasCheckpointTopics && !checkpointComplete) {
-      await runtime.log('pipeline_resume_rejected', {
-        stage: PIPELINE_STAGE.SUMMARIZING,
-        reason: 'incomplete_checkpoint',
-        topicCount: record.topics.length,
-        sentenceCount: Array.isArray(record.sentences) ? record.sentences.length : 0,
-      });
+    }
+    if (resumePlan.rejectionReason === 'incomplete_checkpoint') {
       throw new Error(
         'Cannot resume summaries because the saved sentence checkpoint is incomplete. Reprocess the record to rebuild it.',
       );
@@ -178,6 +217,12 @@ export async function runPipeline(key, options = {}) {
     if (resuming) {
       topics = record.topics;
       sentenceTexts = Array.isArray(record.sentences) ? record.sentences : [];
+      // A resume completes one logical summary run. Keep its language policy
+      // stable even if the global preference changed while the worker was
+      // stopped, so reused and newly generated summaries cannot mix languages.
+      if (typeof record.summaryCheckpointPreferContentLanguage === 'boolean') {
+        runtime.preferContentLanguage = record.summaryCheckpointPreferContentLanguage;
+      }
       const existingSummaries =
         record.topic_summaries && typeof record.topic_summaries === 'object'
           ? record.topic_summaries
@@ -190,19 +235,22 @@ export async function runPipeline(key, options = {}) {
       await runtime.update({
         status: PIPELINE_STATUS.SUMMARIZING,
         error: null,
+        summaryErrors: [],
         summariesIncomplete: false,
       });
     } else {
       ({ topics, sentenceTexts } = await computeTopics({
         runtime,
         record,
-        callLLMWithRetry,
+        callLLMWithRetry: callRunLLMWithRetry,
       }));
       if (!topics) return;
     }
 
     if (runtime.summariesDisabled) {
-      await finalizeSummariesDisabled(runtime, topics);
+      await finalizeSummariesDisabled(runtime, topics, {
+        preserveExistingSummaries: resuming,
+      });
       return;
     }
 
@@ -235,7 +283,7 @@ export async function runPipeline(key, options = {}) {
           : null,
       forceFinalize,
       acceptedMergeFailurePaths,
-      callLLMWithRetry,
+      callLLMWithRetry: callRunLLMWithRetry,
     });
   } catch (error) {
     if (isCancellationError(error, runtime)) {

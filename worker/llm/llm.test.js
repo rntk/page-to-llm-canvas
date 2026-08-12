@@ -77,6 +77,7 @@ describe('callLLMDirect', () => {
     const res = await callLLMDirect({ prompt: 'hello' });
     expect(res.ok).toBe(false);
     expect(res.error).toBe('storage unavailable');
+    expect(res.retryable).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -111,6 +112,30 @@ describe('callLLMDirect', () => {
           cache_prompt: true,
         }),
       }),
+    );
+  });
+
+  it('uses an explicit provider snapshot instead of rereading the active provider', async () => {
+    const { callLLMDirect } = await getLLM();
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content: 'snapshot response' } }] }),
+    });
+    const provider = {
+      ...OPENAI_COMP_PROVIDER,
+      id: 'snapshot',
+      name: 'Snapshot',
+      url: 'http://snapshot.local:9000',
+    };
+
+    await expect(callLLMDirect({ prompt: 'hello', provider })).resolves.toEqual({
+      ok: true,
+      content: 'snapshot response',
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      'http://snapshot.local:9000/v1/chat/completions',
+      expect.objectContaining({ method: 'POST' }),
     );
   });
 
@@ -619,6 +644,17 @@ describe('callLLMWithRetry', () => {
       'LLM HTTP 401: Unauthorized',
     );
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry when no provider is configured', async () => {
+    stubChrome({ providers: [], activeId: null });
+    const { callLLMWithRetry } = await getLLM();
+
+    await expect(callLLMWithRetry({ prompt: 'hello' }, 3)).rejects.toMatchObject({
+      message: expect.stringContaining('No LLM provider configured'),
+      retryable: false,
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('retries a 429 (rate limit) status', async () => {

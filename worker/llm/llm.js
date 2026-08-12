@@ -26,8 +26,9 @@ const log = createLogger('LLM');
  * @param {boolean} [options.parallelToolCalls]
  * @param {number} [options.temperature]
  * @param {AbortSignal} [options.signal]
+ * @param {object|null} [options.provider] Provider snapshot to use instead of rereading the active provider.
  * @param {function(Record<string, unknown>): void} [options.metricsCollector]
- * @returns {Promise<{ok: boolean, content: string, reasoning: string, toolCalls: Array<Record<string, unknown>>, error: string}>}
+ * @returns {Promise<{ok: boolean, content: string, reasoning: string, toolCalls: Array<Record<string, unknown>>, error: string, retryable?: boolean}>}
  */
 export async function callLLMDirect(options) {
   const {
@@ -40,15 +41,20 @@ export async function callLLMDirect(options) {
     signal,
   } = options;
   let provider;
-  try {
-    provider = await getActiveProvider();
-  } catch (e) {
-    return { ok: false, error: (e && e.message) || String(e) };
+  if (options.provider !== undefined) {
+    provider = options.provider;
+  } else {
+    try {
+      provider = await getActiveProvider();
+    } catch (e) {
+      return { ok: false, error: (e && e.message) || String(e), retryable: false };
+    }
   }
   if (!provider) {
     return {
       ok: false,
       error: 'No LLM provider configured. Add one in the extension options page.',
+      retryable: false,
     };
   }
 
@@ -56,7 +62,7 @@ export async function callLLMDirect(options) {
   try {
     client = createClient(provider);
   } catch (e) {
-    return { ok: false, error: (e && e.message) || String(e) };
+    return { ok: false, error: (e && e.message) || String(e), retryable: false };
   }
 
   const startedAt = Date.now();
@@ -254,6 +260,7 @@ export async function callLLM(options) {
     const error = new Error(message);
     if (Number.isFinite(response.status)) error.status = response.status;
     if (Number.isFinite(response.retryAfterMs)) error.retryAfterMs = response.retryAfterMs;
+    if (response.retryable === false) error.retryable = false;
     throw error;
   }
   return response.content;
@@ -282,6 +289,7 @@ export async function callLLMWithRetry(opts, maxRetries = 3) {
     } catch (e) {
       lastErr = e;
       if (opts.signal?.aborted || e?.name === 'AbortError') break;
+      if (e?.retryable === false) break;
       // A 4xx status other than 408 (timeout) or 429 (rate limit) reflects a
       // malformed/unauthorized request that will never succeed on retry.
       // Statusless errors (network failures, timeouts) and 408/429/5xx remain retryable.

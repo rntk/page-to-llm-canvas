@@ -16,6 +16,7 @@ describe('runtime contracts', () => {
     expect(isPipelineStatus(PIPELINE_STATUS.DONE)).toBe(true);
     expect(isPipelineStatus('unknown')).toBe(false);
     expect(isPipelineStage(PIPELINE_STAGE.TOPIC_RANGES)).toBe(true);
+    expect(isPipelineStage(PIPELINE_STAGE.MERGING_SUMMARIES)).toBe(true);
     expect(isPipelineStage('unknown')).toBe(false);
     expect(isInFlightPipelineStatus(PIPELINE_STATUS.SUMMARIZING)).toBe(true);
     expect(isInFlightPipelineStatus(PIPELINE_STATUS.DONE)).toBe(false);
@@ -91,6 +92,7 @@ describe('runtime contracts', () => {
       pipelineRunId: 'run-1',
       skipSummaries: true,
       summaryCheckpointContentRevision: null,
+      summaryCheckpointPreferContentLanguage: null,
       createdAt: 123,
       updatedAt: 123,
     });

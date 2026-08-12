@@ -240,6 +240,71 @@ describe('summarizeTopicTree', () => {
     ]);
   });
 
+  it('scopes an entry-level descendant failure to its recorded source sentences', async () => {
+    const topics = [
+      { name: 'Tech', sentences: [1] },
+      { name: 'Tech>AI', sentences: [5] },
+    ];
+    const { nodes } = buildTopicTree(topics);
+    const summarizeSource = vi.fn();
+
+    const index = await summarizeTopicTree({
+      nodes,
+      leafSummaries: {
+        Tech: oneRun([1], 'tech own leaf'),
+        'Tech>AI': { runs: [], source_sentences: [5], error: true },
+      },
+      previousSummaryIndex: {
+        Tech: {
+          runs: [
+            { sentences: [1], text: 'keep unaffected ancestor run' },
+            { sentences: [5], text: 'stale failed descendant' },
+          ],
+          source_sentences: [1, 5],
+        },
+      },
+      reusePriorSummaries: true,
+      summarizeSource,
+    });
+
+    expect(summarizeSource).not.toHaveBeenCalled();
+    expect(index.Tech.runs).toEqual([
+      { sentences: [1], text: 'keep unaffected ancestor run' },
+      { sentences: [5], text: '' },
+    ]);
+  });
+
+  it('does not reuse a mixed-child ancestor run when one leaf failure was accepted', async () => {
+    const topics = [
+      { name: 'Tech>AI', sentences: [1] },
+      { name: 'Tech>HW', sentences: [2] },
+    ];
+    const { nodes } = buildTopicTree(topics);
+    const summarizeSource = vi.fn(async (ids) => oneRun(ids, 'fresh safe ancestor'));
+
+    const index = await summarizeTopicTree({
+      nodes,
+      leafSummaries: {
+        'Tech>AI': {
+          runs: [{ sentences: [1], text: '', acceptedFailure: true }],
+          acceptedFailure: true,
+        },
+        'Tech>HW': oneRun([2], 'hardware leaf'),
+      },
+      previousSummaryIndex: {
+        Tech: {
+          runs: [{ sentences: [1, 2], text: 'stale ancestor' }],
+          source_sentences: [1, 2],
+        },
+      },
+      reusePriorSummaries: true,
+      summarizeSource,
+    });
+
+    expect(summarizeSource).toHaveBeenCalledWith([1, 2], { path: 'Tech' });
+    expect(index.Tech.runs).toEqual([{ sentences: [1, 2], text: 'fresh safe ancestor' }]);
+  });
+
   it('never summarizes the empty root path, even with multiple top-level domains', async () => {
     // Each domain has two children so it is a genuine summarize-from-source
     // anchor (not a delegating single-child node); this keeps the root-skip

@@ -723,10 +723,10 @@ describe('content script main.jsx', () => {
     expect(rail.dataset.mode).toBe('summaries');
 
     let cards = rail.querySelectorAll('.pagetollm-yt-rail-card');
-    expect(cards).toHaveLength(2);
+    expect(cards).toHaveLength(1);
     expect(rail.textContent).toContain('Intro summary');
-    // Non-active summary cards render as titles only.
-    expect(rail.textContent).toContain('Middle');
+    // Topics without a generated summary are omitted from summaries mode.
+    expect(rail.textContent).not.toContain('Middle');
     const modeSelect = rail.querySelector('.pagetollm-rail-mode-select');
     await act(async () => {
       modeSelect.value = 'topics';
@@ -735,6 +735,7 @@ describe('content script main.jsx', () => {
     expect(rail.dataset.mode).toBe('topics');
     cards = rail.querySelectorAll('.pagetollm-yt-rail-card');
     expect(cards).toHaveLength(2);
+    expect(rail.textContent).toContain('Middle');
     expect(rail.textContent).not.toContain('Intro summary');
 
     messageListener(

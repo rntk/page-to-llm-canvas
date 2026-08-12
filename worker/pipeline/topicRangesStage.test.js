@@ -13,6 +13,7 @@ import { splitSentences } from './sentenceSplitter.js';
 import { recordParserMetric } from '../metrics/parser.js';
 import { recordResplitRun } from '../metrics/resplit.js';
 import { markCancellation } from './cancellation.js';
+import { MAX_TAGGED_CHARS, TOPIC_RANGE_INPUT_MAX_SENTENCES } from './pipelineConfig.js';
 
 vi.mock('../llm/llm.js', () => ({
   parallelMap: async (items, _limit, fn) => {
@@ -38,9 +39,9 @@ vi.mock('./sentenceSplitter.js', () => ({
 }));
 
 describe('chunkTaggedText', () => {
-  it('splits only at newline boundaries and keeps oversized lines intact', () => {
+  it('splits at newline boundaries and bounds pathological individual lines', () => {
     expect(chunkTaggedText('one\ntwo\nthree', 8)).toEqual(['one\ntwo', 'three']);
-    expect(chunkTaggedText('oversized', 3)).toEqual(['oversized']);
+    expect(chunkTaggedText('oversized', 3)).toEqual(['o…d']);
     expect(chunkTaggedText('', 3)).toEqual(['']);
   });
 });
@@ -53,13 +54,15 @@ describe('chunkTopicRangeSentences', () => {
     ]);
   });
 
-  it('splits at the character boundary without dropping a long sentence', () => {
+  it('splits at the character boundary while retaining every sentence marker', () => {
     const chunks = chunkTopicRangeSentences(['12345', '67890', 'x'.repeat(20)], 10, 10);
     expect(chunks.map(({ start, sentenceCount }) => ({ start, sentenceCount }))).toEqual([
       { start: 0, sentenceCount: 1 },
       { start: 1, sentenceCount: 1 },
       { start: 2, sentenceCount: 1 },
     ]);
+    expect(chunks.every((chunk) => chunk.tagged.length <= 10)).toBe(true);
+    expect(chunks[2].tagged).toMatch(/^\{0\} x+…x+$/);
   });
 
   it('returns no chunks for empty input and validates positive limits', () => {
@@ -183,6 +186,8 @@ function makeRuntime() {
     signal: undefined,
     preferContentLanguage: false,
     summariesDisabled: false,
+    maxTextChunkChars: MAX_TAGGED_CHARS,
+    maxTopicRangeSentences: TOPIC_RANGE_INPUT_MAX_SENTENCES,
     update: vi.fn(async () => undefined),
     log: vi.fn(async () => undefined),
   };
@@ -443,6 +448,25 @@ describe('topic-ranges incremental retry', () => {
 
     // One attempt only: no amount of retrying fixes a rejected key, so the
     // three backoff rounds are not spent.
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(2);
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+  });
+
+  it('gives up immediately when a provider configuration error is non-retryable', async () => {
+    const runtime = makeRuntime();
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      if (isLongChunkPrompt(prompt)) return longChunkResponse();
+      throw Object.assign(new Error('No LLM provider configured'), { retryable: false });
+    });
+
+    await expect(
+      computeTopics({
+        runtime,
+        record: { html: '<p>x</p>', contentRevision: 'rev-1' },
+        callLLMWithRetry,
+      }),
+    ).rejects.toMatchObject({ name: 'TopicRangeChunkError', retryable: false });
+
     expect(callLLMWithRetry).toHaveBeenCalledTimes(2);
     expect(setTimeoutSpy).not.toHaveBeenCalled();
   });

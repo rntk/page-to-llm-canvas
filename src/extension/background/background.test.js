@@ -11,6 +11,14 @@ import { RESPLIT_METRICS_KEY } from '../../../worker/metrics/resplit.js';
 // service-worker tests.
 vi.mock('../../../worker/pipeline/orchestrator.js', () => ({
   runPipeline: vi.fn(() => new Promise((resolve) => setTimeout(resolve, 10))),
+  isSummaryCheckpointRevisionCurrent: vi.fn(
+    (record) =>
+      typeof record?.contentRevision === 'string' &&
+      record.contentRevision !== '' &&
+      typeof record?.summaryCheckpointContentRevision === 'string' &&
+      record.summaryCheckpointContentRevision !== '' &&
+      record.summaryCheckpointContentRevision === record.contentRevision,
+  ),
   isSummaryCheckpointComplete: vi.fn((record) => {
     if (!Array.isArray(record?.topics) || record.topics.length === 0) return false;
     if (!Array.isArray(record.sentences) || record.sentences.length === 0) return false;
@@ -20,7 +28,7 @@ vi.mock('../../../worker/pipeline/orchestrator.js', () => ({
     let summarizableTopics = 0;
     for (const topic of record.topics) {
       if (typeof topic?.name !== 'string' || topic.name.trim() === '') return false;
-      if (!Array.isArray(topic.sentences)) return false;
+      if (!Array.isArray(topic.sentences) || topic.sentences.length === 0) return false;
       const inRange = topic.sentences.every(
         (sentenceId) =>
           Number.isInteger(sentenceId) && sentenceId >= 1 && sentenceId <= record.sentences.length,
@@ -412,6 +420,49 @@ describe('background pipeline lifecycle', () => {
     },
   );
 
+  it.each(['retry', 'skip'])(
+    'resolveSummaryErrors %s refuses a stale checkpoint without mutating it',
+    async (action) => {
+      const chromeMock = makeChromeMock();
+      vi.stubGlobal('chrome', chromeMock);
+      await seedRecord(
+        chromeMock,
+        makeRecord('park-stale', {
+          ...completeSummaryCheckpoint(),
+          pipelineRunId: 'imported-run',
+          contentRevision: 'new-revision',
+          summaryCheckpointContentRevision: 'old-revision',
+          status: 'needs_attention',
+          summaryErrors: [{ topic: 'Checkpoint', error_kind: 'timeout', error_message: 'x' }],
+          topic_summaries: {
+            Checkpoint: {
+              runs: [{ sentences: [1, 2], text: '' }],
+              source_sentences: [1, 2],
+              error: true,
+            },
+          },
+        }),
+      );
+      const before = await readRecord('park-stale');
+
+      const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+      _resetJobRegistry();
+      const result = await dispatchMessage(
+        { type: 'resolveSummaryErrors', key: 'park-stale', action },
+        {},
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        error: 'The saved summary checkpoint is stale. Reprocess the record instead.',
+      });
+      expect(await readRecord('park-stale')).toEqual(before);
+      expect(updateRecord).not.toHaveBeenCalled();
+      const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+      expect(runPipeline).not.toHaveBeenCalled();
+    },
+  );
+
   it('resolveSummaryErrors skip swaps leaf error flags for acceptedFailure and forces finalize', async () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);
@@ -725,7 +776,7 @@ describe('background pipeline lifecycle', () => {
     expect(runPipeline).not.toHaveBeenCalled();
   });
 
-  it('generateRecordSummaries does not bless a stale checkpoint revision', async () => {
+  it('generateRecordSummaries refuses a stale checkpoint without mutating it', async () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);
     await seedRecord(
@@ -741,13 +792,18 @@ describe('background pipeline lifecycle', () => {
 
     const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
     _resetJobRegistry();
+    const before = await readRecord('gen-stale-revision');
     await expect(
       dispatchMessage({ type: 'generateRecordSummaries', key: 'gen-stale-revision' }, {}),
-    ).resolves.toEqual({ ok: true });
+    ).resolves.toEqual({
+      ok: false,
+      error: 'record summary checkpoint is stale — reprocess it instead',
+    });
 
-    const updated = await readRecord('gen-stale-revision');
-    expect(updated.status).toBe('summarizing');
-    expect(updated.summaryCheckpointContentRevision).toBe('old-revision');
+    expect(await readRecord('gen-stale-revision')).toEqual(before);
+    expect(updateRecord).not.toHaveBeenCalled();
+    const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+    expect(runPipeline).not.toHaveBeenCalled();
   });
 
   it('generateRecordSummaries refuses invalid sentence references without mutating the record', async () => {

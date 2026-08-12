@@ -4,6 +4,7 @@ import {
   buildTopicRangesPrompt,
   buildArticleSummaryPrompt,
   buildArticleSummaryMergePrompt,
+  buildLeafSummaryMergePrompt,
   buildSentenceSummaryPrompt,
   buildTopicSummaryFromSourcePrompt,
   buildTaggedText,
@@ -12,6 +13,7 @@ import {
   SENTENCE_SUMMARY_PROMPT_TEMPLATE,
   ARTICLE_SUMMARY_PROMPT_TEMPLATE,
   ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE,
+  LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE,
 } from './prompts.js';
 
 describe('buildSystemPrompt', () => {
@@ -84,6 +86,15 @@ describe('buildArticleSummaryMergePrompt', () => {
   it('instructs merged summaries to lead with substance', () => {
     const prompt = buildArticleSummaryMergePrompt('Chunk 1: summary one');
     expect(prompt).toContain('Begin with the substance itself');
+  });
+});
+
+describe('buildLeafSummaryMergePrompt', () => {
+  it('keeps overflow leaf output to one sentence without bullets', () => {
+    const prompt = buildLeafSummaryMergePrompt('Chunk 1: summary one');
+    expect(prompt).toContain('Chunk 1: summary one');
+    expect(prompt).toContain('single sentence, no bullets');
+    expect(prompt).not.toContain('{chunk_summaries}');
   });
 });
 
@@ -222,5 +233,9 @@ describe('prompt template constants', () => {
 
   it('ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE contains {chunk_summaries} placeholder', () => {
     expect(ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE).toContain('{chunk_summaries}');
+  });
+
+  it('LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE contains {chunk_summaries} placeholder', () => {
+    expect(LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE).toContain('{chunk_summaries}');
   });
 });

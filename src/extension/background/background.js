@@ -15,7 +15,11 @@ import {
   deleteChatHistory,
   reconcileChatStorage,
 } from '../../../worker/storage/chatStorage.js';
-import { isSummaryCheckpointComplete, runPipeline } from '../../../worker/pipeline/orchestrator.js';
+import {
+  isSummaryCheckpointComplete,
+  isSummaryCheckpointRevisionCurrent,
+  runPipeline,
+} from '../../../worker/pipeline/orchestrator.js';
 import { formatPipelineError } from '../../../worker/pipeline/pipelineRuntime.js';
 import { callLLMDirect } from '../../../worker/llm/llm.js';
 import { clearLlmMetrics, recordLlmMetric } from '../../../worker/metrics/llm.js';
@@ -511,6 +515,7 @@ export async function handleSubmit(submission) {
     rec.forceFinalize = false;
     rec.acceptedMergeFailurePaths = [];
     rec.summaryCheckpointContentRevision = null;
+    rec.summaryCheckpointPreferContentLanguage = null;
     rec.summariesIncomplete = false;
     if (Array.isArray(selectors)) rec.selectors = selectors;
   }
@@ -574,10 +579,7 @@ export const MESSAGE_HANDLERS = {
       // checkpoint is safe to resume; otherwise retain the normal fresh-run
       // retry path. Reprocess remains the explicitly destructive operation.
       const resumesSummaries =
-        typeof rec.contentRevision === 'string' &&
-        rec.contentRevision !== '' &&
-        rec.summaryCheckpointContentRevision === rec.contentRevision &&
-        isSummaryCheckpointComplete(rec);
+        isSummaryCheckpointRevisionCurrent(rec) && isSummaryCheckpointComplete(rec);
       // A Retry can be pressed after a generic failure interrupted a prior
       // Skip/force-finalize resume. Those directives are part of the saved
       // summary checkpoint: dropping them would re-run merge work the user
@@ -658,6 +660,7 @@ export const MESSAGE_HANDLERS = {
           forceFinalize: false,
           acceptedMergeFailurePaths: [],
           summaryCheckpointContentRevision: null,
+          summaryCheckpointPreferContentLanguage: null,
           summariesIncomplete: false,
         },
         {
@@ -709,6 +712,12 @@ export const MESSAGE_HANDLERS = {
           ? 'record has an incomplete summary checkpoint — reprocess it instead'
           : 'record has no topics yet — reprocess it instead';
         return { ok: false, error };
+      }
+      if (!isSummaryCheckpointRevisionCurrent(rec)) {
+        return {
+          ok: false,
+          error: 'record summary checkpoint is stale — reprocess it instead',
+        };
       }
       const updated = await updateRecord(
         msg.key,
@@ -802,6 +811,12 @@ export const MESSAGE_HANDLERS = {
         return {
           ok: false,
           error: 'The saved summary checkpoint is incomplete. Reprocess the record instead.',
+        };
+      }
+      if (!isSummaryCheckpointRevisionCurrent(rec)) {
+        return {
+          ok: false,
+          error: 'The saved summary checkpoint is stale. Reprocess the record instead.',
         };
       }
 

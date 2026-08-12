@@ -5,6 +5,11 @@
 // adds a single "active provider" selection — the pipeline calls the LLM with no
 // model, so it needs one provider designated as the one to use.
 
+import {
+  PIPELINE_MIN_CONTEXT_WINDOW_TOKENS,
+  PROVIDER_MAX_CONTEXT_WINDOW_TOKENS,
+} from '../settings/contextWindowConstraints.js';
+
 /**
  * Canonical provider type strings. Mirrors example/llm/constants.py.
  * @readonly
@@ -110,6 +115,7 @@ export const PROVIDERS_KEY = 'pagetollm:llm:providers';
  * @property {string} token       API key / bearer token (may be empty for local).
  * @property {string} [url]       Base URL — required for openai_comp.
  * @property {string} [serviceTier] Optional provider service tier.
+ * @property {number} [contextWindowTokens] Optional model context window.
  */
 
 /**
@@ -171,7 +177,7 @@ export function sanitizeProvider(provider) {
 
 /**
  * @param {ProvidersState} state
- * @returns {{providers: Array<{id: string, name: string, type: string, model: string, url: string, serviceTier: string, hasToken: boolean}>, activeId: string|null}}
+ * @returns {{providers: Array<{id: string, name: string, type: string, model: string, url: string, serviceTier: string, contextWindowTokens: number, hasToken: boolean}>, activeId: string|null}}
  */
 export function sanitizeProvidersState(state) {
   return {
@@ -223,9 +229,34 @@ export function normalizeProvider(input) {
 
   const token = String(input.token || '').trim();
   const serviceTier = normalizeServiceTier(type, input.serviceTier);
+  const contextWindowTokens = normalizeContextWindowTokens(input.contextWindowTokens);
   const id = String(input.id || '').trim() || generateId();
 
-  return { id, name, type, model, token, url: url || undefined, serviceTier };
+  return {
+    id,
+    name,
+    type,
+    model,
+    token,
+    url: url || undefined,
+    serviceTier,
+    contextWindowTokens,
+  };
+}
+
+function normalizeContextWindowTokens(value) {
+  if (value == null || String(value).trim() === '') return undefined;
+  const parsed = Number(value);
+  if (
+    !Number.isInteger(parsed) ||
+    parsed < PIPELINE_MIN_CONTEXT_WINDOW_TOKENS ||
+    parsed > PROVIDER_MAX_CONTEXT_WINDOW_TOKENS
+  ) {
+    throw new Error(
+      `Context window (tokens) must be an integer between ${PIPELINE_MIN_CONTEXT_WINDOW_TOKENS} and ${PROVIDER_MAX_CONTEXT_WINDOW_TOKENS}`,
+    );
+  }
+  return parsed;
 }
 
 function normalizeServiceTier(type, value) {

@@ -11,6 +11,7 @@ vi.mock('../storage/storage.js', () => storage);
 
 import { isCancellationError } from './cancellation.js';
 import { createPipelineRuntime, formatPipelineError } from './pipelineRuntime.js';
+import { MAX_TAGGED_CHARS, TOPIC_RANGE_INPUT_MAX_SENTENCES } from './pipelineConfig.js';
 
 describe('formatPipelineError', () => {
   it('handles missing errors and preserves a message already present in a stack', () => {
@@ -89,6 +90,23 @@ describe('createPipelineRuntime', () => {
 
   it('defaults summariesDisabled to false', () => {
     expect(createPipelineRuntime({ key: 'record-1' }).summariesDisabled).toBe(false);
+  });
+
+  it('owns default and overridden chunk limits', () => {
+    expect(createPipelineRuntime({ key: 'record-1' })).toMatchObject({
+      maxTextChunkChars: MAX_TAGGED_CHARS,
+      maxTopicRangeSentences: TOPIC_RANGE_INPUT_MAX_SENTENCES,
+    });
+    expect(
+      createPipelineRuntime({
+        key: 'record-1',
+        maxTextChunkChars: 12000,
+        maxTopicRangeSentences: 80,
+      }),
+    ).toMatchObject({
+      maxTextChunkChars: 12000,
+      maxTopicRangeSentences: 80,
+    });
   });
 
   it('suppresses verbose logs while always recording normal logs', async () => {

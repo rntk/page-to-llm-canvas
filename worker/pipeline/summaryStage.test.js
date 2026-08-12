@@ -377,6 +377,7 @@ describe('runSummaries', () => {
     expect(secondCall).toHaveBeenCalledTimes(1);
     expect(secondCall).toHaveBeenCalledWith(
       expect.objectContaining({ taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE }),
+      expect.any(Number),
     );
     expect(lastUpdate(secondRuntime)).toMatchObject({
       status: PIPELINE_STATUS.DONE,
@@ -422,7 +423,7 @@ describe('runSummaries', () => {
       ],
       forceFinalize: false,
       summariesIncomplete: false,
-      progress: { stage: PIPELINE_STAGE.NEEDS_ATTENTION, done: 1, total: 1 },
+      progress: { stage: PIPELINE_STAGE.NEEDS_ATTENTION, done: 0, total: 1 },
     });
     expect(runtime.log).toHaveBeenCalledWith('topic_summaries_needs_attention', {
       phase: 'leaf',
@@ -432,6 +433,95 @@ describe('runSummaries', () => {
     expect(runtime.update.mock.calls.some(([patch]) => patch.status === PIPELINE_STATUS.DONE)).toBe(
       false,
     );
+  });
+
+  it('fails normally when persisting a generated leaf cache unit fails', async () => {
+    const storageError = new Error('storage quota exceeded');
+    const runtime = makeRuntime();
+    runtime.update.mockImplementation(async (patch) => {
+      if (patch.source_summary_units) throw storageError;
+    });
+    const callLLMWithRetry = vi.fn(async () => 'Generated summary.');
+
+    await expect(
+      runSummaries({
+        runtime,
+        topics: [topic],
+        sentenceTexts: ['word '.repeat(70).trim()],
+        previousSummaries: {},
+        contentRevision: 'rev-1',
+        callLLMWithRetry,
+      }),
+    ).rejects.toBe(storageError);
+
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+    expect(runtime.log).not.toHaveBeenCalledWith(
+      'topic_summaries_needs_attention',
+      expect.anything(),
+    );
+    expect(runtime.log).not.toHaveBeenCalledWith('topic_summary_llm_error', expect.anything());
+  });
+
+  it('retries only the failed chunk of an oversized leaf summary', async () => {
+    const sentenceTexts = [
+      `one ${'x'.repeat(30000)}`,
+      `two ${'x'.repeat(30000)}`,
+      `three ${'x'.repeat(30000)}`,
+    ];
+    const firstRuntime = makeRuntime();
+    const firstCall = vi
+      .fn()
+      .mockResolvedValueOnce('chunk one')
+      .mockRejectedValueOnce(new Error('timed out'))
+      .mockResolvedValueOnce('chunk three');
+
+    await runSummaries({
+      runtime: firstRuntime,
+      topics: [{ name: 'A', sentences: [1, 2, 3] }],
+      sentenceTexts,
+      previousSummaries: {},
+      contentRevision: 'rev-leaf',
+      callLLMWithRetry: firstCall,
+    });
+
+    expect(
+      lastUpdate(firstRuntime, (patch) => patch.status === PIPELINE_STATUS.NEEDS_ATTENTION),
+    ).toBeDefined();
+    const failedLeafSummaries = lastUpdate(
+      firstRuntime,
+      (patch) => patch.topic_summaries,
+    ).topic_summaries;
+    const persistedUnits = firstRuntime.update.mock.calls
+      .map(([patch]) => patch.source_summary_units)
+      .filter(Boolean)
+      .at(-1);
+    expect(firstCall).toHaveBeenCalledTimes(3);
+    expect(Object.keys(persistedUnits)).toHaveLength(2);
+
+    const secondRuntime = makeRuntime();
+    const secondCall = vi
+      .fn()
+      .mockResolvedValueOnce('chunk two')
+      .mockResolvedValueOnce('merged leaf');
+    await runSummaries({
+      runtime: secondRuntime,
+      topics: [{ name: 'A', sentences: [1, 2, 3] }],
+      sentenceTexts,
+      previousSummaries: failedLeafSummaries,
+      previousSourceSummaryUnits: persistedUnits,
+      contentRevision: 'rev-leaf',
+      callLLMWithRetry: secondCall,
+    });
+
+    expect(secondCall).toHaveBeenCalledTimes(2);
+    expect(secondCall.mock.calls[0][0].taskType).toBe(LLM_TASK_TYPES.ARTICLE_SUMMARY);
+    expect(secondCall.mock.calls[1][0].taskType).toBe(LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE);
+    expect(lastUpdate(secondRuntime)).toMatchObject({
+      status: PIPELINE_STATUS.DONE,
+      topic_summaries: {
+        A: { runs: [{ sentences: [1, 2, 3], text: 'merged leaf' }] },
+      },
+    });
   });
 
   it('propagates a genuine AbortError unchanged (same object identity)', async () => {
@@ -546,6 +636,9 @@ describe('runSummaries', () => {
     await mergeOnlyRun(runtime, callLLMWithRetry);
 
     expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+    expect(runtime.update).toHaveBeenCalledWith({
+      progress: { stage: PIPELINE_STAGE.MERGING_SUMMARIES, done: 0, total: 0 },
+    });
     expect(lastUpdate(runtime)).toMatchObject({
       status: PIPELINE_STATUS.NEEDS_ATTENTION,
       summaryErrors: [
@@ -557,7 +650,7 @@ describe('runSummaries', () => {
         },
       ],
       forceFinalize: false,
-      progress: { stage: PIPELINE_STAGE.NEEDS_ATTENTION, done: 2, total: 2 },
+      progress: { stage: PIPELINE_STAGE.NEEDS_ATTENTION, done: 0, total: 0 },
     });
     expect(runtime.log).toHaveBeenCalledWith('topic_tree_merge_error', {
       path: 'A',
@@ -879,11 +972,6 @@ describe('runSummaries', () => {
     });
 
     expect(callLLMWithRetry).not.toHaveBeenCalled();
-    expect(runtime.log).toHaveBeenCalledWith(
-      'topic_tree_merge_reused',
-      { nodeCount: 6 },
-      { verbose: true },
-    );
     expect(lastUpdate(runtime)).toMatchObject({
       status: PIPELINE_STATUS.DONE,
       summariesDisabled: false,
@@ -987,6 +1075,7 @@ describe('runSummaries', () => {
     expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
     expect(callLLMWithRetry).toHaveBeenCalledWith(
       expect.objectContaining({ taskType: LLM_TASK_TYPES.TOPIC_SUMMARY_FROM_SOURCE }),
+      expect.any(Number),
     );
     expect(lastUpdate(runtime)).toMatchObject({ status: PIPELINE_STATUS.DONE });
     expect(lastUpdate(runtime).topic_summary_index.Accepted.runs).toEqual([

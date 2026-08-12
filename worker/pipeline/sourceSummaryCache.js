@@ -1,8 +1,11 @@
 import { SOURCE_SUMMARY_MAX_CHARS } from './pipelineConfig.js';
 import { makeSourceSummarizer } from './sourceSummarizer.js';
+import { markProviderFailure } from './providerFailure.js';
 
 export const SOURCE_SUMMARY_INPUT_VERSION = 'source-summary-v1';
 export const SOURCE_SUMMARY_MERGE_INPUT_VERSION = 'source-summary-merge-v1';
+export const LEAF_SUMMARY_INPUT_VERSION = 'leaf-summary-v1';
+export const LEAF_SUMMARY_MERGE_INPUT_VERSION = 'leaf-summary-merge-v1';
 
 function normalizeContentRevision(value) {
   const revision = typeof value === 'string' ? value.trim() : '';
@@ -43,14 +46,24 @@ function fingerprint(value) {
  * @param {number} input.endSentence
  * @returns {string}
  */
-export function sourceSummaryUnitId({ kind, path = '', runSentences, startSentence, endSentence }) {
+export function sourceSummaryUnitId({
+  kind,
+  path = '',
+  runSentences,
+  startSentence,
+  endSentence,
+  profile = 'topic',
+  part,
+}) {
   return JSON.stringify({
     stage: 'source_summary',
+    ...(profile !== 'topic' ? { profile } : {}),
     kind,
     path: typeof path === 'string' ? path : '',
     run: fingerprint(JSON.stringify(Array.isArray(runSentences) ? runSentences : [])),
     start: startSentence,
     end: endSentence,
+    ...(part !== undefined ? { part } : {}),
   });
 }
 
@@ -69,17 +82,26 @@ export function sourceSummaryInputFingerprint({
   source,
   preferContentLanguage,
   inputFingerprint,
+  profile = 'topic',
+  maxChars = SOURCE_SUMMARY_MAX_CHARS,
 }) {
   const version =
-    kind === 'merge' ? SOURCE_SUMMARY_MERGE_INPUT_VERSION : SOURCE_SUMMARY_INPUT_VERSION;
+    profile === 'leaf'
+      ? kind === 'merge'
+        ? LEAF_SUMMARY_MERGE_INPUT_VERSION
+        : LEAF_SUMMARY_INPUT_VERSION
+      : kind === 'merge'
+        ? SOURCE_SUMMARY_MERGE_INPUT_VERSION
+        : SOURCE_SUMMARY_INPUT_VERSION;
   return fingerprint(
     JSON.stringify({
       version,
+      ...(profile !== 'topic' ? { profile } : {}),
       kind,
       source: String(source || ''),
       preferContentLanguage: preferContentLanguage === true,
       settings: normalizeInputFingerprint(inputFingerprint),
-      maxChars: SOURCE_SUMMARY_MAX_CHARS,
+      maxChars,
     }),
   );
 }
@@ -94,15 +116,25 @@ function reusableUnit(priorUnits, unitId, contentRevision, inputFingerprint) {
 }
 
 function sourceUnit(metadata, contentRevision, inputFingerprint, result) {
-  const { kind, path, runSentences, startSentence, endSentence } = metadata;
+  const {
+    kind,
+    path,
+    runSentences,
+    startSentence,
+    endSentence,
+    profile = 'topic',
+    part,
+  } = metadata;
   const unitId = sourceSummaryUnitId(metadata);
   return {
     unitId,
     kind,
+    ...(profile !== 'topic' ? { profile } : {}),
     path: typeof path === 'string' ? path : '',
     run: [...runSentences],
     start_sentence: startSentence,
     end_sentence: endSentence,
+    ...(part !== undefined ? { part } : {}),
     contentRevision,
     inputFingerprint,
     status: 'done',
@@ -112,8 +144,9 @@ function sourceUnit(metadata, contentRevision, inputFingerprint, result) {
 
 /**
  * Adds durable request caching around the source summarizer. The summarizer
- * still owns prompt construction, chunking, provider-failure marking, and
- * response parsing; this wrapper only resolves and persists provider units.
+ * still owns prompt construction, chunking, and response parsing. This
+ * wrapper resolves and persists provider units, and marks only rejections
+ * from the actual provider call as retryable provider failures.
  *
  * @param {object} input
  * @returns {Function}
@@ -128,14 +161,23 @@ export function makeCachedSourceSummarizer({
   contentRevision,
   inputFingerprint,
   persistUnit,
+  summaryMode = 'topic',
+  maxChars = SOURCE_SUMMARY_MAX_CHARS,
 }) {
   const currentContentRevision = normalizeContentRevision(contentRevision);
   const settingsFingerprint = normalizeInputFingerprint(inputFingerprint);
 
-  const cachedCallLLMWithRetry = async (options) => {
+  const cachedCallLLMWithRetry = async (options, maxAttempts) => {
     const { sourceSummaryUnit: metadata, ...providerOptions } = options;
+    const callProvider = async () => {
+      try {
+        return await callLLMWithRetry(providerOptions, maxAttempts);
+      } catch (error) {
+        throw markProviderFailure(error);
+      }
+    };
     if (!metadata || !currentContentRevision) {
-      return await callLLMWithRetry(providerOptions);
+      return await callProvider();
     }
 
     const requestFingerprint = sourceSummaryInputFingerprint({
@@ -143,12 +185,14 @@ export function makeCachedSourceSummarizer({
       source: metadata.source,
       preferContentLanguage,
       inputFingerprint: settingsFingerprint,
+      profile: metadata.profile || summaryMode,
+      maxChars,
     });
     const unitId = sourceSummaryUnitId(metadata);
     const prior = reusableUnit(priorUnits, unitId, currentContentRevision, requestFingerprint);
     if (prior) return prior.result;
 
-    const result = await callLLMWithRetry(providerOptions);
+    const result = await callProvider();
     if (typeof result === 'string' && typeof persistUnit === 'function') {
       await persistUnit(sourceUnit(metadata, currentContentRevision, requestFingerprint, result));
     }
@@ -161,5 +205,7 @@ export function makeCachedSourceSummarizer({
     signal,
     preferContentLanguage,
     callLLMWithRetry: cachedCallLLMWithRetry,
+    summaryMode,
+    maxChars,
   });
 }

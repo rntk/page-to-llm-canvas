@@ -53,7 +53,11 @@ function normalizeLabelParts(parts) {
   for (const raw of parts) {
     const part = normalizeSegment(raw);
     if (!part) continue;
-    for (const sub of part.split(':')) {
+    // Entity decoding can introduce hierarchy delimiters after the raw topic
+    // path was split (for example, `A&gt;B`). Canonicalize both delimiters here
+    // so encoded and literal paths cannot serialize to the same topic name
+    // while retaining different deduplication keys.
+    for (const sub of part.split(/[:>]/u)) {
       const s = sub.trim();
       if (s) out.push(s);
     }

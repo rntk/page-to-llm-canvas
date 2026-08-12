@@ -30,7 +30,12 @@ const THINK_TAG_RE = /<think\b[^>]*>[\s\S]*?<\/think>/gi;
 const THINK_TAG_CAPTURE_RE = /<think\b[^>]*>([\s\S]*?)<\/think>/gi;
 const OPENAI_PROMPT_CACHE_KEY = 'pagetollm-canvas';
 const ANTHROPIC_CACHE_CONTROL = Object.freeze({ type: 'ephemeral' });
-const ANTHROPIC_CACHE_PREFIX_MARKERS = Object.freeze(['\n<content>\n', '\n<text>']);
+const ANTHROPIC_CACHE_PREFIX_MARKERS = Object.freeze([
+  '\n<content>\n',
+  '\n<text>',
+  '\n<source>',
+  '\n<chunk_summaries>',
+]);
 
 /** @param {string} text */
 export function stripThink(text) {

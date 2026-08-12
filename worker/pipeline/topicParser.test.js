@@ -493,6 +493,17 @@ describe('label normalization', () => {
     expect(groups[0].label).toEqual(['Tech', 'Claude Tag']);
   });
 
+  it('canonicalizes encoded and literal hierarchy delimiters to one topic path', () => {
+    const groups = parseTopicRanges('Tech&gt;AI: 0-1\nTech>AI: 3-4', 5);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toEqual(['Tech', 'AI']);
+    expect(groups[0].ranges).toEqual([
+      { start: 0, end: 2 },
+      { start: 3, end: 4 },
+    ]);
+  });
+
   it('collapses non-breaking-space characters inside segments', () => {
     const groups = parseTopicRanges('Tech>Claude  Tag: 0-2', 3);
     expect(groups[0].label).toEqual(['Tech', 'Claude Tag']);

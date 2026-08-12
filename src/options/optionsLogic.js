@@ -13,7 +13,7 @@ import {
 } from '../shared/runtime/contracts.js';
 
 /**
- * @returns {{id: string, name: string, type: string, model: string, token: string, url: string, serviceTier: string}}
+ * @returns {{id: string, name: string, type: string, model: string, token: string, url: string, serviceTier: string, contextWindowTokens: string}}
  */
 export function createEmptyProviderForm() {
   return {
@@ -24,6 +24,7 @@ export function createEmptyProviderForm() {
     token: '',
     url: '',
     serviceTier: '',
+    contextWindowTokens: '',
   };
 }
 
@@ -54,6 +55,7 @@ export function providerToForm(provider) {
     token: '',
     url: provider.url || '',
     serviceTier: provider.serviceTier || '',
+    contextWindowTokens: provider.contextWindowTokens ? String(provider.contextWindowTokens) : '',
   };
 }
 

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   isSummaryCheckpointComplete,
   isSummaryCheckpointRevisionCurrent,
+  planResume,
   runPipeline,
 } from './orchestrator.js';
 import {
@@ -18,9 +19,11 @@ import * as storage from '../storage/storage.js';
 import * as html from './html.js';
 import * as sentenceSplitter from './sentenceSplitter.js';
 import * as llm from '../llm/llm.js';
+import { getActiveProvider } from '../llm/providers.js';
 import * as parserMetrics from '../metrics/parser.js';
 import * as resplitMetrics from '../metrics/resplit.js';
 import { getStoredVerboseLogs } from '../settings/verboseLog.js';
+import { getStoredPreferContentLanguage } from '../settings/language.js';
 import { getStoredMaxParallelLlmRequests } from '../settings/llmConcurrency.js';
 
 const pipelineLimiter = vi.hoisted(() => ({
@@ -57,6 +60,10 @@ vi.mock('../llm/llm.js', () => ({
     }
     return results;
   }),
+}));
+
+vi.mock('../llm/providers.js', () => ({
+  getActiveProvider: vi.fn(async () => null),
 }));
 
 vi.mock('../metrics/parser.js', () => ({
@@ -124,6 +131,8 @@ beforeEach(() => {
   html.stripTagsKeepOffsets.mockReturnValue({ text: '', mapping: [0] });
   sentenceSplitter.splitSentences.mockReturnValue([]);
   llm.callLLMWithRetry.mockResolvedValue('');
+  getActiveProvider.mockResolvedValue(null);
+  getStoredPreferContentLanguage.mockResolvedValue(false);
 });
 
 describe('isSummaryCheckpointComplete', () => {
@@ -182,9 +191,7 @@ describe('isSummaryCheckpointComplete', () => {
     ).toBe(false);
   });
 
-  it('accepts a checkpoint where one topic is empty but others still summarize', () => {
-    // A fresh run could produce the same empty topic, so refusing the whole
-    // checkpoint would only throw away the summaries that did survive.
+  it('rejects a checkpoint when any topic has no sentence references', () => {
     expect(
       isSummaryCheckpointComplete({
         sentences: ['One.', 'Two.'],
@@ -193,7 +200,7 @@ describe('isSummaryCheckpointComplete', () => {
           { name: 'B', sentences: [] },
         ],
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 
@@ -213,6 +220,53 @@ describe('isSummaryCheckpointRevisionCurrent', () => {
       { summaryCheckpointContentRevision: 'rev-1' },
     ]) {
       expect(isSummaryCheckpointRevisionCurrent(record)).toBe(false);
+    }
+  });
+});
+
+describe('planResume', () => {
+  it('resumes only a complete checkpoint pinned to the current content revision', () => {
+    const record = {
+      status: 'summarizing',
+      contentRevision: 'rev-1',
+      summaryCheckpointContentRevision: 'rev-1',
+      topics: [{ name: 'Tech>AI', sentences: [1] }],
+      sentences: ['Source sentence.'],
+    };
+
+    expect(planResume(record)).toEqual({
+      resuming: true,
+      rejectionReason: null,
+    });
+  });
+
+  it('rebuilds stale checkpoints but refuses current malformed checkpoints', () => {
+    const base = {
+      status: 'summarizing',
+      contentRevision: 'rev-2',
+      topics: [{ name: 'Tech>AI', sentences: [2] }],
+      sentences: ['Only one sentence.'],
+    };
+
+    expect(planResume({ ...base, summaryCheckpointContentRevision: 'rev-1' })).toEqual({
+      resuming: false,
+      rejectionReason: 'content_revision_mismatch',
+    });
+    expect(planResume({ ...base, summaryCheckpointContentRevision: 'rev-2' })).toEqual({
+      resuming: false,
+      rejectionReason: 'incomplete_checkpoint',
+    });
+    for (const topics of [[], undefined]) {
+      expect(
+        planResume({
+          ...base,
+          topics,
+          summaryCheckpointContentRevision: 'rev-2',
+        }),
+      ).toEqual({
+        resuming: false,
+        rejectionReason: 'incomplete_checkpoint',
+      });
     }
   });
 });
@@ -266,10 +320,10 @@ describe('chunkTaggedText', () => {
     expect(chunkTaggedText('', 10)).toEqual(['']);
   });
 
-  it('does not split when a single line exceeds maxChars', () => {
+  it('bounds a single line that exceeds maxChars', () => {
     const tagged = 'verylonglinewithoutnewlines';
     const result = chunkTaggedText(tagged, 10);
-    expect(result).toEqual([tagged]);
+    expect(result).toEqual(['veryl…ines']);
   });
 });
 
@@ -312,12 +366,16 @@ describe('chunkSourceSentences', () => {
     ]);
   });
 
-  it('emits a single oversized sentence as its own chunk rather than dropping it', () => {
+  it('splits a single oversized sentence without dropping it', () => {
     const texts = ['short', 'x'.repeat(50), 'tail'];
     const chunks = chunkSourceSentences([1, 2, 3], texts, 10);
     expect(chunks).toEqual([
       { start: 1, end: 1, text: 'short' },
-      { start: 2, end: 2, text: 'x'.repeat(50) },
+      { start: 2, end: 2, text: 'x'.repeat(10), part: 0 },
+      { start: 2, end: 2, text: 'x'.repeat(10), part: 1 },
+      { start: 2, end: 2, text: 'x'.repeat(10), part: 2 },
+      { start: 2, end: 2, text: 'x'.repeat(10), part: 3 },
+      { start: 2, end: 2, text: 'x'.repeat(10), part: 4 },
       { start: 3, end: 3, text: 'tail' },
     ]);
   });
@@ -390,7 +448,7 @@ describe('buildTopicTree', () => {
     expect(nodes.get('Tech').sourceSentences).toEqual([1, 2, 3, 4]);
   });
 
-  it('skips no_topic and missing names', () => {
+  it('treats no_topic as an ordinary user-visible label and skips only missing names', () => {
     const topics = [
       { name: 'Tech>AI', sentences: [1] },
       { name: 'no_topic', sentences: [2] },
@@ -398,7 +456,7 @@ describe('buildTopicTree', () => {
     ];
     const { nodes } = buildTopicTree(topics);
     expect(nodes.has('Tech>AI')).toBe(true);
-    expect(nodes.has('no_topic')).toBe(false);
+    expect(nodes.has('no_topic')).toBe(true);
   });
 
   it('deduplicates aggregated sentences across siblings', () => {
@@ -544,6 +602,35 @@ describe('runPipeline', () => {
     await runPipeline('limited');
 
     expect(pipelineLimiter.setLimit).toHaveBeenCalledWith(2);
+  });
+
+  it('binds every request to the provider snapshot used for request sizing', async () => {
+    const provider = {
+      id: 'large-provider',
+      name: 'Large provider',
+      type: 'openai_comp',
+      model: 'large-model',
+      url: 'http://large.local',
+      token: '',
+      contextWindowTokens: 8192,
+    };
+    getActiveProvider.mockResolvedValue(provider);
+    const plainText = 'Sentence one. Sentence two.';
+    storage.readRecord.mockResolvedValue(makeRecord('provider-snapshot', `<p>${plainText}</p>`));
+    html.stripTagsKeepOffsets.mockReturnValue({ text: plainText, mapping: makeMapping(plainText) });
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'Sentence one.', start: 0, end: 13 },
+      { text: 'Sentence two.', start: 14, end: 27 },
+    ]);
+    llm.callLLMWithRetry.mockResolvedValue('Tech>All: 0-1');
+
+    await runPipeline('provider-snapshot');
+
+    expect(getActiveProvider).toHaveBeenCalledTimes(1);
+    expect(llm.callLLMWithRetry).toHaveBeenCalled();
+    for (const [options] of llm.callLLMWithRetry.mock.calls) {
+      expect(options.provider).toBe(provider);
+    }
   });
 
   it('runs the full pipeline for a single topic', async () => {
@@ -1395,6 +1482,7 @@ describe('runPipeline', () => {
         A: { runs: [{ sentences: [1], text: 'Existing A summary.' }], source_sentences: [1] },
       },
       topic_summary_index: {},
+      summaryErrors: [{ topic: 'stale-error' }],
     });
 
     const summaryPrompts = [];
@@ -1426,11 +1514,60 @@ describe('runPipeline', () => {
       (call) => call[1].status === 'summarizing' && call[1].summariesIncomplete === false,
     );
     expect(resumeCall).toBeDefined();
+    expect(resumeCall[1].summaryErrors).toEqual([]);
 
     const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
     expect(doneCall).toBeDefined();
     expect(doneCall[1].topic_summaries.A.runs[0].text).toBe('Existing A summary.');
     expect(doneCall[1].topic_summaries.B.runs[0].text).toBe('Fresh B summary.');
+  });
+
+  it('uses the checkpoint language preference when completing a resumed summary run', async () => {
+    getStoredPreferContentLanguage.mockResolvedValue(false);
+    storage.readRecord.mockResolvedValue({
+      key: 'resume-language',
+      html: '<p>ignored on resume</p>',
+      status: 'summarizing',
+      contentRevision: 'resume-language-revision',
+      summaryCheckpointContentRevision: 'resume-language-revision',
+      summaryCheckpointPreferContentLanguage: true,
+      sentences: [LONG_SUMMARY_TEXT],
+      topics: [{ name: 'A', sentences: [1], sentence_spans: [], ranges: [] }],
+      topic_summaries: {},
+      topic_summary_index: {},
+    });
+    llm.callLLMWithRetry.mockResolvedValue('Resumen.');
+
+    await runPipeline('resume-language');
+
+    expect(llm.callLLMWithRetry).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: expect.stringContaining('LANGUAGE:') }),
+      expect.any(Number),
+    );
+  });
+
+  it('refuses a current summarizing checkpoint with an empty topic list without clearing it', async () => {
+    storage.readRecord.mockResolvedValue({
+      key: 'resume-empty-topics',
+      html: '<p>Source.</p>',
+      status: 'summarizing',
+      contentRevision: 'resume-empty-revision',
+      summaryCheckpointContentRevision: 'resume-empty-revision',
+      sentences: ['Source.'],
+      topics: [],
+      topic_summaries: { A: { runs: [{ sentences: [1], text: 'Keep.' }] } },
+    });
+
+    await expect(runPipeline('resume-empty-topics')).rejects.toThrow(
+      'saved sentence checkpoint is incomplete',
+    );
+
+    expect(html.stripTagsKeepOffsets).not.toHaveBeenCalled();
+    expect(
+      storage.updateRecord.mock.calls.some(([, patch]) =>
+        Object.prototype.hasOwnProperty.call(patch, 'topics'),
+      ),
+    ).toBe(false);
   });
 
   it('refuses an incomplete resume without erasing valid summary checkpoints', async () => {
@@ -2243,6 +2380,7 @@ describe('runPipeline', () => {
       forceFinalize: false,
       acceptedMergeFailurePaths: [],
       summaryCheckpointContentRevision: null,
+      summaryCheckpointPreferContentLanguage: null,
       summariesDisabled: false,
       summariesIncomplete: false,
     });
@@ -2305,8 +2443,8 @@ describe('runPipeline', () => {
       skipSummaries: true,
       sentences: ['Alpha.', 'Beta.'],
       topics: [{ name: 'A', sentences: [1, 2], sentence_spans: [], ranges: [] }],
-      topic_summaries: {},
-      topic_summary_index: {},
+      topic_summaries: { A: { runs: [{ sentences: [1, 2], text: 'Existing summary.' }] } },
+      topic_summary_index: { A: { runs: [{ sentences: [1, 2], text: 'Existing summary.' }] } },
     });
     llm.callLLMWithRetry.mockResolvedValue('SHOULD_NOT_BE_CALLED');
 
@@ -2319,8 +2457,9 @@ describe('runPipeline', () => {
 
     const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
     expect(doneCall).toBeDefined();
-    expect(doneCall[1].topic_summaries).toEqual({});
-    expect(doneCall[1].topic_summary_index).toEqual({});
+    // Disabling a resumed stage must not erase already-paid-for summaries.
+    expect(doneCall[1].topic_summaries).toBeUndefined();
+    expect(doneCall[1].topic_summary_index).toBeUndefined();
     expect(doneCall[1].summariesDisabled).toBe(true);
   });
 

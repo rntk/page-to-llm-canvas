@@ -92,6 +92,29 @@ describe('normalizeProvider', () => {
     expect(entry.id).toBe('fixed');
   });
 
+  it('normalizes an optional context window and rejects invalid bounds', () => {
+    expect(
+      normalizeProvider({
+        type: 'openai_comp',
+        name: 'local',
+        model: 'm',
+        url: 'http://localhost:8989',
+        contextWindowTokens: '8192',
+      }).contextWindowTokens,
+    ).toBe(8192);
+    expect(
+      normalizeProvider({ type: 'openai', name: 'n', model: 'm', contextWindowTokens: '' })
+        .contextWindowTokens,
+    ).toBeUndefined();
+    expect(
+      normalizeProvider({ type: 'openai', name: 'n', model: 'm', contextWindowTokens: 4096 })
+        .contextWindowTokens,
+    ).toBe(4096);
+    expect(() =>
+      normalizeProvider({ type: 'openai', name: 'n', model: 'm', contextWindowTokens: 1024 }),
+    ).toThrow(/Context window/);
+  });
+
   it('normalizes supported service tiers and rejects unsupported provider combinations', () => {
     expect(
       normalizeProvider({

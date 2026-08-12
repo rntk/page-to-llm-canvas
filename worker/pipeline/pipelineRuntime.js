@@ -6,6 +6,7 @@ import {
 } from '../storage/storage.js';
 import { markCancellation } from './cancellation.js';
 import { createLogger } from '../../src/shared/runtime/log.js';
+import { MAX_TAGGED_CHARS, TOPIC_RANGE_INPUT_MAX_SENTENCES } from './pipelineConfig.js';
 
 const logger = createLogger('pipeline');
 
@@ -17,6 +18,8 @@ const logger = createLogger('pipeline');
  * @property {boolean} [preferContentLanguage]
  * @property {boolean} [verboseLogs]
  * @property {boolean} [summariesDisabled]
+ * @property {number} [maxTextChunkChars]
+ * @property {number} [maxTopicRangeSentences]
  */
 
 /**
@@ -27,6 +30,8 @@ const logger = createLogger('pipeline');
  * @property {boolean|undefined} preferContentLanguage
  * @property {boolean|undefined} verboseLogs
  * @property {boolean} summariesDisabled
+ * @property {number} maxTextChunkChars
+ * @property {number} maxTopicRangeSentences
  * @property {function(): void} assertActive
  * @property {function(): Promise<object|null>} read
  * @property {function(object, object=): Promise<object>} update
@@ -50,6 +55,8 @@ export function createPipelineRuntime({
   preferContentLanguage,
   verboseLogs,
   summariesDisabled = false,
+  maxTextChunkChars = MAX_TAGGED_CHARS,
+  maxTopicRangeSentences = TOPIC_RANGE_INPUT_MAX_SENTENCES,
 }) {
   const runtime = {
     key,
@@ -58,6 +65,8 @@ export function createPipelineRuntime({
     preferContentLanguage,
     verboseLogs,
     summariesDisabled,
+    maxTextChunkChars,
+    maxTopicRangeSentences,
 
     assertActive() {
       if (runtime.signal?.aborted) {

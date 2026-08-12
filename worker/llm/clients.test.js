@@ -783,6 +783,26 @@ describe('createClient dispatch', () => {
     expect(body.cache_control).toBeUndefined();
   });
 
+  it.each(['source', 'chunk_summaries'])(
+    'anthropic client caches the stable prefix before <%s> payloads',
+    async (tag) => {
+      vi.mocked(fetch).mockResolvedValue(okJson({ content: [{ type: 'text', text: 'ok' }] }));
+      const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'k' });
+      await client.complete({ prompt: `Static rules\n<${tag}>Dynamic payload</${tag}>` });
+
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+      expect(body.messages[0].content[0]).toEqual({
+        type: 'text',
+        text: `Static rules\n<${tag}>`,
+        cache_control: { type: 'ephemeral' },
+      });
+      expect(body.messages[0].content[1]).toEqual({
+        type: 'text',
+        text: `Dynamic payload</${tag}>`,
+      });
+    },
+  );
+
   it('anthropic client throws when no text blocks are returned', async () => {
     vi.mocked(fetch).mockResolvedValue(okJson({ content: [] }));
     const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'k' });

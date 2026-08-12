@@ -104,14 +104,26 @@ describe('source run helpers', () => {
 
   it('chunks at sentence boundaries and retains global sentence ranges', () => {
     expect(chunkSourceSentences([1, 2, 3], ['aa', 'bbb', 'c'], 6)).toEqual([
-      { start: 1, end: 1, text: 'aa' },
-      { start: 2, end: 3, text: 'bbb c' },
+      { start: 1, end: 2, text: 'aa bbb' },
+      { start: 3, end: 3, text: 'c' },
     ]);
     expect(chunkSourceSentences([], ['one'], 20)).toEqual([]);
     expect(chunkSourceSentences([1], [''], 20)).toEqual([]);
     expect(chunkSourceSentences([1, 4], ['one', 'two', 'three', 'four'], 20)).toEqual([
       { start: 1, end: 4, text: 'one four' },
     ]);
+  });
+
+  it('splits a single pathological sentence without exceeding or dropping source text', () => {
+    const source = 'x'.repeat(25);
+    const chunks = chunkSourceSentences([1], [source], 10);
+
+    expect(chunks).toEqual([
+      { start: 1, end: 1, text: 'x'.repeat(10), part: 0 },
+      { start: 1, end: 1, text: 'x'.repeat(10), part: 1 },
+      { start: 1, end: 1, text: 'x'.repeat(5), part: 2 },
+    ]);
+    expect(chunks.map((chunk) => chunk.text).join('')).toBe(source);
   });
 });
 
@@ -151,6 +163,7 @@ describe('makeSourceSummarizer', () => {
     expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
     expect(callLLMWithRetry).toHaveBeenCalledWith(
       expect.objectContaining({ temperature: 0.8, signal: undefined }),
+      expect.any(Number),
     );
     expect(callLLMWithRetry.mock.calls[0][0].prompt).toContain('LANGUAGE:');
   });
@@ -267,6 +280,79 @@ describe('makeSourceSummarizer', () => {
     expect(callLLMWithRetry.mock.calls.at(-1)[0].prompt).toContain('LANGUAGE:');
   });
 
+  it('stops after a singleton merge round makes no progress', async () => {
+    const sentenceTexts = Array.from({ length: 4 }, (_, index) => `${index + 1} ${'x'.repeat(78)}`);
+    let chunkCall = 0;
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      if (prompt.includes('Merge the summaries below')) return 'NO_SUMMARY';
+      chunkCall++;
+      return `chunk-${chunkCall}-${'s'.repeat(34)}`;
+    });
+    const { summarize } = make(sentenceTexts, callLLMWithRetry, { maxChars: 100 });
+
+    const result = await summarize([1, 2, 3, 4]);
+
+    expect(result.runs[0].text).toBe(
+      Array.from({ length: 4 }, (_, index) => `chunk-${index + 1}-${'s'.repeat(34)}`).join('\n'),
+    );
+    const mergeCalls = callLLMWithRetry.mock.calls.filter(([options]) =>
+      options.prompt.includes('Merge the summaries below'),
+    );
+    expect(mergeCalls).toHaveLength(4);
+  });
+
+  it('returns the latest successful records when the merge-round cap is reached', async () => {
+    const sentenceTexts = Array.from({ length: 4 }, (_, index) => `${index + 1} ${'x'.repeat(78)}`);
+    let chunkCall = 0;
+    let mergeCall = 0;
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      if (prompt.includes('Merge the summaries below')) {
+        mergeCall++;
+        return `merged-${String(mergeCall).padStart(2, '0')}-${'m'.repeat(32)}`;
+      }
+      chunkCall++;
+      return `chunk-${chunkCall}-${'s'.repeat(34)}`;
+    });
+    const persistedUnits = [];
+    const { summarize } = make(sentenceTexts, callLLMWithRetry, {
+      maxChars: 100,
+      contentRevision: 'rev-merge-rounds',
+      persistUnit: async (unit) => persistedUnits.push(unit),
+    });
+
+    const result = await summarize([1, 2, 3, 4]);
+
+    expect(mergeCall).toBe(32);
+    expect(result.runs[0].text).toContain('merged-29-');
+    expect(result.runs[0].text).toContain('merged-32-');
+    expect(result.runs[0].text).not.toContain('chunk-1-');
+    expect(persistedUnits).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'merge', part: '1:0' })]),
+    );
+  });
+
+  it('keeps oversized leaf summaries bounded and preserves the leaf output contract', async () => {
+    const sentenceTexts = Array.from({ length: 4 }, (_, index) => `${index + 1} ${'x'.repeat(78)}`);
+    const callLLMWithRetry = vi
+      .fn()
+      .mockResolvedValueOnce('chunk one')
+      .mockResolvedValueOnce('chunk two')
+      .mockResolvedValueOnce('merged leaf');
+    const { summarize } = make(sentenceTexts, callLLMWithRetry, {
+      summaryMode: 'leaf',
+      maxChars: 200,
+    });
+
+    await expect(summarize([1, 2, 3, 4], { path: 'Tech>Leaf' })).resolves.toEqual({
+      runs: [{ sentences: [1, 2, 3, 4], text: 'merged leaf' }],
+    });
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(3);
+    expect(callLLMWithRetry.mock.calls[0][0].prompt).toContain('one concise sentence');
+    expect(callLLMWithRetry.mock.calls.at(-1)[0].prompt).toContain(
+      'Return plain text only: a single sentence, no bullets.',
+    );
+  });
+
   it('preserves separated runs and skips invalid sentence ids', async () => {
     const { summarize, callLLMWithRetry } = make(['first', 'second', 'third']);
 
@@ -314,6 +400,21 @@ describe('makeSourceSummarizer', () => {
     expect(isProviderFailure(providerError)).toBe(true);
   });
 
+  it('leaves cache persistence failures unmarked after a successful provider call', async () => {
+    const storageError = new Error('storage quota exceeded');
+    const providerCall = vi.fn(async () => 'generated summary');
+    const { summarize } = make(['word '.repeat(60).trim()], providerCall, {
+      contentRevision: 'rev-1',
+      persistUnit: vi.fn(async () => {
+        throw storageError;
+      }),
+    });
+
+    await expect(summarize([1])).rejects.toBe(storageError);
+    expect(providerCall).toHaveBeenCalledTimes(1);
+    expect(isProviderFailure(storageError)).toBe(false);
+  });
+
   it('marks the chunk-merge rejection of an oversized run as a provider failure', async () => {
     const sentenceTexts = Array.from(
       { length: 3 },
@@ -357,6 +458,17 @@ describe('makeSourceSummarizer', () => {
 
     await summarize([1]);
     expect(callLLMWithRetry.mock.calls[0][0].prompt).not.toContain('LANGUAGE:');
+  });
+
+  it('rejects an unknown summary mode instead of diverging from its cache key', () => {
+    expect(() =>
+      makeSourceSummarizer({
+        sentenceTexts: ['source'],
+        limit: (work) => work(),
+        callLLMWithRetry: vi.fn(),
+        summaryMode: 'typo',
+      }),
+    ).toThrow('Unknown source summary mode: typo');
   });
 
   it('persists chunk and merge units for oversized runs, then reuses them', async () => {

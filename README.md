@@ -91,6 +91,7 @@ Provider cache support is API-specific: OpenAI prompt caching is automatic and u
 Provider service tier support is also API-specific. OpenAI and OpenRouter providers can request `flex` or `priority` service tiers when the selected upstream model supports them. Anthropic does not expose OpenAI-style `flex`; its service tier control maps Priority when available to `service_tier: "auto"` and Standard only to `service_tier: "standard_only"`.
 
 The pipeline uses the designated **active** provider and will not run until at least one provider has been configured and selected as active.
+For models with a smaller context window—especially local/custom models—set the optional context-window token count on the provider. Topic and summary inputs are then chunked to a conservative per-request budget derived from that value; providers without one use the 60,000-character fallback.
 
 ## Options page
 

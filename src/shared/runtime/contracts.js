@@ -21,6 +21,7 @@ export const PIPELINE_STAGE = Object.freeze({
   TOPIC_RANGES: 'topic_ranges',
   SUMMARIZING: 'summarizing',
   SUMMARIZING_TOPICS: 'summarizing_topics',
+  MERGING_SUMMARIES: 'merging_summaries',
   NEEDS_ATTENTION: 'needs_attention',
   DONE: 'done',
   ERROR: 'error',
@@ -192,6 +193,10 @@ export function isImportableRecord(record) {
  * @property {string|null} [summaryCheckpointContentRevision] - Content
  *   revision whose sentence/topic data reached the summarization stage. Retry
  *   only resumes a summary checkpoint when this matches `contentRevision`.
+ * @property {boolean|null} [summaryCheckpointPreferContentLanguage] - Language
+ *   preference captured when the topic checkpoint was created. Summary-only
+ *   resumes retain it so reused and newly generated summaries follow one
+ *   language policy.
  * @property {number} [createdAt] - Epoch ms when the record was first queued.
  * @property {number} [updatedAt] - Epoch ms of the most recent write.
  */
@@ -240,6 +245,7 @@ export function createQueuedRecord({
     pipelineRunId,
     skipSummaries,
     summaryCheckpointContentRevision: null,
+    summaryCheckpointPreferContentLanguage: null,
     createdAt: now,
     updatedAt: now,
   };

@@ -946,6 +946,7 @@ describe('options main.jsx', () => {
 
     setValue('provider-name', 'My OpenAI');
     setValue('provider-model', 'gpt-4o');
+    setValue('provider-context-window', '128000');
     setValue('provider-token', 'sk-123');
     setValue('provider-service-tier', 'flex');
 
@@ -961,6 +962,7 @@ describe('options main.jsx', () => {
           name: 'My OpenAI',
           type: 'openai',
           model: 'gpt-4o',
+          contextWindowTokens: '128000',
           token: 'sk-123',
           serviceTier: 'flex',
         }),

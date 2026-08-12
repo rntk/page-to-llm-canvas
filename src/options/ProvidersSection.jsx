@@ -4,6 +4,10 @@ import {
   SERVICE_TIER_DEFINITIONS,
   getProviderDefinition,
 } from '../../worker/llm/providers.js';
+import {
+  PIPELINE_MIN_CONTEXT_WINDOW_TOKENS,
+  PROVIDER_MAX_CONTEXT_WINDOW_TOKENS,
+} from '../../worker/settings/contextWindowConstraints.js';
 import { MSG } from '../shared/runtime/messages.js';
 import {
   shouldWarnTokenWipe,
@@ -260,6 +264,23 @@ export function ProvidersSection() {
                 <option key={model} value={model} />
               ))}
             </datalist>
+          </div>
+
+          <div className="field">
+            <label htmlFor="provider-context-window">Context window (tokens)</label>
+            <input
+              id="provider-context-window"
+              type="number"
+              min={PIPELINE_MIN_CONTEXT_WINDOW_TOKENS}
+              max={PROVIDER_MAX_CONTEXT_WINDOW_TOKENS}
+              step="1"
+              value={form.contextWindowTokens}
+              onChange={setField('contextWindowTokens')}
+              placeholder="Optional; defaults to a safe 60k-char input"
+            />
+            <div className="note">
+              Set this for small-context or local models so pipeline requests are sized to fit.
+            </div>
           </div>
 
           <div className="field">
