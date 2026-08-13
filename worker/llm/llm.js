@@ -478,18 +478,30 @@ function normalizeLimiterLimit(value) {
  *   in-flight items are left to finish, but the failure stops the burst from
  *   growing. The returned promise rejects with that first error as soon as it
  *   occurs.
+ *
+ *   `stopBurst` covers the callers that record a per-item failure instead of
+ *   throwing (so one bad item cannot discard the responses its siblings already
+ *   paid for). It is consulted after every settled item, warmup included, and a
+ *   truthy answer stops new items from being claimed exactly as a rejection
+ *   does — in-flight items are still awaited. This is what keeps a permanent
+ *   warmup failure (a 401, an unknown model) from fanning out the whole queue
+ *   of doomed requests. The returned promise then RESOLVES, and `results` has
+ *   holes where items were never claimed, so callers must treat a missing entry
+ *   as "not attempted" rather than as a successful empty result.
  * @param {boolean} [options.warmupFirst]
+ * @param {function(U, T, number): boolean} [options.stopBurst]
  * @returns {Promise<Array<U>>}
  */
-export async function parallelMap(items, limit, fn, { warmupFirst = false } = {}) {
+export async function parallelMap(items, limit, fn, { warmupFirst = false, stopBurst } = {}) {
   const results = new Array(items.length);
   let next = 0;
+  let failed = false;
   if (warmupFirst && items.length > 1) {
     results[next] = await fn(items[next], next);
+    if (stopBurst && stopBurst(results[next], items[next], next)) return results;
     next++;
   }
   const remaining = Math.max(items.length - next, 1);
-  let failed = false;
   const workers = new Array(Math.min(limit, remaining)).fill(0).map(async () => {
     while (true) {
       if (failed) return;
@@ -497,6 +509,10 @@ export async function parallelMap(items, limit, fn, { warmupFirst = false } = {}
       if (i >= items.length) return;
       try {
         results[i] = await fn(items[i], i);
+        // Same one-way flag as below, set from a per-item failure the caller
+        // recorded rather than threw.
+        // eslint-disable-next-line require-atomic-updates
+        if (stopBurst && stopBurst(results[i], items[i], i)) failed = true;
       } catch (e) {
         // `failed` is a one-way flag: every write is an unconditional `true`, never
         // derived from a prior read, so concurrent workers racing to set it is harmless.

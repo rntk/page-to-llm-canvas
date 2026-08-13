@@ -161,6 +161,59 @@ describe('runSummaries', () => {
     });
   });
 
+  it('stops summarizing after a permanent provider failure and parks every unsummarized topic', async () => {
+    const runtime = makeRuntime();
+    const long = (marker) => `${marker} ${'word '.repeat(45)}`.trim();
+    const sentenceTexts = Array.from({ length: 8 }, (_, index) => long(`s${index + 1}`));
+    const callLLMWithRetry = vi.fn(async () => {
+      throw Object.assign(new Error('invalid api key'), { status: 401 });
+    });
+
+    await runSummaries({
+      runtime,
+      // Two topics of two runs each: four requests would be spent without the
+      // permanent-failure stop, one with it.
+      topics: [
+        { name: 'A', sentences: [1, 2, 5, 6] },
+        { name: 'B', sentences: [3, 4, 7, 8] },
+      ],
+      sentenceTexts,
+      previousSummaries: {},
+      callLLMWithRetry,
+    });
+
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+    const parked = lastUpdate(runtime);
+    expect(parked).toMatchObject({ status: PIPELINE_STATUS.NEEDS_ATTENTION });
+    // The topic that was never claimed parks alongside the one that failed,
+    // rather than disappearing and letting the merge phase run without it.
+    expect(parked.summaryErrors.map(({ topic }) => topic).sort()).toEqual(['A', 'B']);
+  });
+
+  it('stops chunking a single run after a permanent provider failure', async () => {
+    const runtime = makeRuntime();
+    // A tiny chunk budget puts one long run through the chunk burst inside
+    // sourceSummarizer, which is the other queue a doomed warmup can fan out.
+    runtime.maxTextChunkChars = 200;
+    const sentenceTexts = Array.from({ length: 6 }, (_, index) =>
+      `s${index + 1} ${'word '.repeat(45)}`.trim(),
+    );
+    const callLLMWithRetry = vi.fn(async () => {
+      throw Object.assign(new Error('invalid api key'), { status: 401 });
+    });
+
+    await runSummaries({
+      runtime,
+      topics: [{ name: 'A', sentences: [1, 2, 3, 4, 5, 6] }],
+      sentenceTexts,
+      previousSummaries: {},
+      callLLMWithRetry,
+    });
+
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+    expect(lastUpdate(runtime)).toMatchObject({ status: PIPELINE_STATUS.NEEDS_ATTENTION });
+  });
+
   it('persists completed runs before a later run resolves', async () => {
     const runtime = makeRuntime();
     const long = (marker) => `${marker} ${'word '.repeat(45)}`.trim();

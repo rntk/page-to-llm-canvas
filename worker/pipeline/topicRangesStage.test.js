@@ -16,10 +16,13 @@ import { markCancellation } from './cancellation.js';
 import { MAX_TAGGED_CHARS, TOPIC_RANGE_INPUT_MAX_SENTENCES } from './pipelineConfig.js';
 
 vi.mock('../llm/llm.js', () => ({
-  parallelMap: async (items, _limit, fn) => {
+  // Serial stand-in that still honors `stopBurst`, so a stage relying on it to
+  // stop dequeuing is exercised here rather than silently bypassed.
+  parallelMap: async (items, _limit, fn, { stopBurst } = {}) => {
     const result = [];
     for (let index = 0; index < items.length; index++) {
       result.push(await fn(items[index], index));
+      if (stopBurst && stopBurst(result[index], items[index], index)) break;
     }
     return result;
   },
@@ -450,6 +453,32 @@ describe('topic-ranges incremental retry', () => {
     // three backoff rounds are not spent.
     expect(callLLMWithRetry).toHaveBeenCalledTimes(2);
     expect(setTimeoutSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch the queued chunks after a permanent warmup failure', async () => {
+    const runtime = makeRuntime();
+    // Three chunks, so a failed warmup still leaves a burst to (not) release.
+    splitSentences.mockReturnValue(makeSentences(TOPIC_RANGE_INPUT_MAX_SENTENCES * 2 + 1));
+    const callLLMWithRetry = vi.fn(async () => {
+      throw Object.assign(new Error('invalid api key'), { status: 401 });
+    });
+
+    await expect(
+      computeTopics({
+        runtime,
+        record: { html: '<p>x</p>', contentRevision: 'rev-1' },
+        callLLMWithRetry,
+      }),
+    ).rejects.toMatchObject({ name: 'TopicRangeChunkError', retryable: false });
+
+    // Exactly one request: the warmup's 401 condemns its siblings too, so they
+    // are never sent, and the non-retryable aggregate ends the stage.
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+    expect(runtime.log).toHaveBeenCalledWith(
+      'topic_ranges_llm_skipped',
+      expect.objectContaining({ skippedChunkCount: 2, skippedChunkIndexes: [1, 2] }),
+    );
   });
 
   it('gives up immediately when a provider configuration error is non-retryable', async () => {

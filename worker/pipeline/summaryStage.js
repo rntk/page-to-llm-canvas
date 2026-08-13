@@ -10,7 +10,7 @@ import { SUMMARY_CONCURRENCY } from './pipelineConfig.js';
 import { makeCachedSourceSummarizer } from './sourceSummaryCache.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
 import { isCancellationError, rethrowIfCancelled } from './cancellation.js';
-import { isProviderFailure } from './providerFailure.js';
+import { isPermanentProviderError, isProviderFailure } from './providerFailure.js';
 import { isFailedSummaryRun } from './summaryRunMarkers.js';
 
 export { isCancellationError };
@@ -235,10 +235,18 @@ export async function runSummaries({
     );
   }
 
+  // A permanent provider failure (401, unknown model) condemns every remaining
+  // topic as well, so the burst stops claiming them instead of spending one
+  // doomed request per topic. The unclaimed topics are recorded below with the
+  // same failure so they park for review rather than vanishing from
+  // `topic_summaries` and letting the merge phase run on missing leaves.
+  let permanentError = null;
+  const started = new Set();
   await parallelMap(
     pending,
     SUMMARY_CONCURRENCY,
     async (topic) => {
+      started.add(topic);
       await runtime.log(
         'topic_summary_llm_request',
         { topic: topic.name, sentenceCount: topic.sentences.length },
@@ -296,6 +304,7 @@ export async function runSummaries({
           // Provider failures are actionable through Retry/Skip. A prompt,
           // chunking, cache, or parsing bug is not and must fail the pipeline.
           if (!isProviderFailure(error)) throw error;
+          if (!permanentError && isPermanentProviderError(error)) permanentError = error;
           const { kind, message } = classifyLlmError(error);
           const detail = (error && error.message) || String(error);
           await runtime.log('topic_summary_llm_error', {
@@ -317,6 +326,11 @@ export async function runSummaries({
             ...runFailure,
           };
           await persistLeafCheckpoint();
+          // This topic's remaining runs are condemned by the same permanent
+          // failure. They stay in `unresolved`, so the topic still parks with
+          // its error marker — it just does not buy one rejection per run to
+          // get there.
+          if (permanentError) break;
           continue;
         }
         await persistLeafCheckpoint();
@@ -334,8 +348,34 @@ export async function runSummaries({
         progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done, total },
       });
     },
-    { warmupFirst: true },
+    { warmupFirst: true, stopBurst: () => permanentError !== null },
   );
+
+  if (permanentError) {
+    const skipped = pending.filter((topic) => !started.has(topic));
+    if (skipped.length > 0) {
+      const { kind, message } = classifyLlmError(permanentError);
+      const detail = (permanentError && permanentError.message) || String(permanentError);
+      for (const topic of skipped) {
+        topic_summaries[topic.name] = {
+          runs: topic.runResults,
+          source_sentences: topic.sentences,
+          error: true,
+          error_kind: kind,
+          error_message: message,
+          error_detail: detail,
+          ...(topic.acceptedFailure ? { acceptedFailure: true } : {}),
+        };
+      }
+      await runtime.log('topic_summaries_skipped', {
+        skippedTopicCount: skipped.length,
+        error_kind: kind,
+        error: message,
+        detail,
+      });
+      await runtime.update({ topic_summaries: { ...topic_summaries } });
+    }
+  }
 
   const leafErrors = collectSummaryErrors(topic_summaries);
   // `forceFinalize` only honors acceptedFailure markers already in the

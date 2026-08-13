@@ -21,6 +21,7 @@ import {
 } from './pipelineConfig.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
 import { isCancellationError, rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
+import { isPermanentProviderError } from './providerFailure.js';
 
 const ABORT_MESSAGE = 'pipeline aborted during topic ranging';
 
@@ -263,20 +264,6 @@ function providerCooldownMs(error) {
 }
 
 /**
- * Mirrors callLLMWithRetry's own classification (worker/llm/llm.js): a 4xx
- * other than 408 (timeout) or 429 (rate limit) reflects a request that will
- * never succeed, so it must not be retried at the stage level either.
- * @param {unknown} error Error thrown by the provider call.
- */
-function isPermanentDispatchError(error) {
-  if (error?.retryable === false) return true;
-  const status = error?.status;
-  return (
-    Number.isFinite(status) && status >= 400 && status < 500 && status !== 408 && status !== 429
-  );
-}
-
-/**
  * Builds the aggregate error for the chunks still missing segments. Retryable
  * only when EVERY failure is retryable.
  * @param {object[]} failedStates Chunk states without parsed segments.
@@ -286,7 +273,7 @@ function buildChunkFailureError(failedStates, chunkCount) {
   const retryable = failedStates.every((state) =>
     state.parseError
       ? state.parseError instanceof TopicParseError
-      : !isPermanentDispatchError(state.dispatchError),
+      : !isPermanentProviderError(state.dispatchError),
   );
   const chunkIndexes = failedStates.map((state) => state.chunkIndex);
   const errors = failedStates.map((state) => state.parseError || state.dispatchError);
@@ -466,6 +453,12 @@ async function saveTopicRangeChunkCheckpoint(runtime, record, chunkStates, sente
  * chunk, so parallelMap's fail-fast no longer discards the responses its
  * siblings already paid for; cancellation still stops the whole burst, since
  * nothing a superseded run produced is wanted.
+ *
+ * A PERMANENT failure (401, unknown model) is the exception: it condemns every
+ * sibling too, so it stops the burst from claiming further chunks. The chunks
+ * that were never claimed inherit that error, which keeps them pending, keeps
+ * the aggregate non-retryable, and keeps the parser away from their absent
+ * responses.
  * @param {object} params
  * @param {PipelineRuntime} params.runtime Pipeline runtime.
  * @param {function(object): Promise<string>} params.callLLMWithRetry Provider call.
@@ -473,10 +466,13 @@ async function saveTopicRangeChunkCheckpoint(runtime, record, chunkStates, sente
  * @param {number} params.attempt 1-based stage attempt number.
  */
 async function dispatchPendingChunks({ runtime, callLLMWithRetry, pending, attempt }) {
+  let permanentError = null;
+  const dispatched = new Set();
   await parallelMap(
     pending,
     TOPIC_RANGE_CONCURRENCY,
     async (state) => {
+      dispatched.add(state);
       state.response = null;
       state.dispatchError = null;
       state.parseError = null;
@@ -507,6 +503,7 @@ async function dispatchPendingChunks({ runtime, callLLMWithRetry, pending, attem
         // Sole owner of `state`, as above.
         // eslint-disable-next-line require-atomic-updates
         state.dispatchError = error;
+        if (!permanentError && isPermanentProviderError(error)) permanentError = error;
         await runtime.log('topic_ranges_llm_error', {
           chunkIndex: state.chunkIndex,
           attempt,
@@ -520,8 +517,27 @@ async function dispatchPendingChunks({ runtime, callLLMWithRetry, pending, attem
         { verbose: true },
       );
     },
-    { warmupFirst: true },
+    { warmupFirst: true, stopBurst: () => permanentError !== null },
   );
+  if (!permanentError) return;
+  const skipped = pending.filter((state) => !dispatched.has(state));
+  if (skipped.length === 0) return;
+  for (const state of skipped) {
+    state.response = null;
+    state.parseError = null;
+    // The chunk was never requested; it carries the failure that condemned it
+    // so the aggregate stays non-retryable instead of looking like an
+    // unexplained empty response.
+    state.dispatchError = permanentError;
+  }
+  const skippedIndexes = capForLog(skipped.map((state) => state.chunkIndex));
+  await runtime.log('topic_ranges_llm_skipped', {
+    attempt,
+    skippedChunkCount: skipped.length,
+    skippedChunkIndexes: skippedIndexes.values,
+    skippedChunkIndexesTruncated: skippedIndexes.truncated,
+    error: (permanentError && permanentError.message) || String(permanentError),
+  });
 }
 
 /**

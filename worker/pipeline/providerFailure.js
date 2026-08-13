@@ -28,6 +28,35 @@ export function markProviderFailure(error) {
   return wrapped;
 }
 
+/**
+ * Mirrors callLLMWithRetry's own classification (worker/llm/llm.js): a 4xx
+ * other than 408 (timeout) or 429 (rate limit) reflects a request that will
+ * never succeed, so re-issuing it — on a stage retry or across the siblings of
+ * a concurrent burst — only spends money to collect the same rejection.
+ *
+ * The `cause` chain is walked for the same reason `isProviderFailure` walks it:
+ * `markProviderFailure` wraps an error it cannot mutate, and the wrapper does
+ * not carry the original's `status`/`retryable`. The OUTERMOST classification
+ * wins: the first `status` found ends the walk, so a wrapper that reports its
+ * own 5xx stays retryable even over a 4xx cause.
+ * @param {unknown} error Error thrown by a provider call.
+ */
+export function isPermanentProviderError(error) {
+  let current = error;
+  const seen = new Set();
+  while (current && (typeof current === 'object' || typeof current === 'function')) {
+    if (seen.has(current)) break;
+    seen.add(current);
+    if (current.retryable === false) return true;
+    const status = current.status;
+    if (Number.isFinite(status)) {
+      return status >= 400 && status < 500 && status !== 408 && status !== 429;
+    }
+    current = current.cause;
+  }
+  return false;
+}
+
 /** Detects an error that a provider call marked as its own failure.
  * The `cause` chain is walked because a stage may wrap the original rejection
  * before it reaches the catch that decides whether to park or fail the record.

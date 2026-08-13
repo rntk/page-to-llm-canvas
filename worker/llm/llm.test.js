@@ -816,6 +816,76 @@ describe('parallelMap', () => {
     // Items 3 and 4 were never started once the failure was recorded.
     expect(calls).toEqual([1, 2]);
   });
+
+  it('never releases the burst when stopBurst reports the warmup item failed', async () => {
+    const { parallelMap } = await getLLM();
+    const calls = [];
+    const fn = vi.fn(async (x) => {
+      calls.push(x);
+      // The caller records the failure instead of throwing, exactly as the
+      // pipeline stages do to keep a sibling's paid-for response.
+      return x === 1 ? { item: x, error: new Error('401 unauthorized') } : { item: x };
+    });
+
+    const res = await parallelMap([1, 2, 3, 4], 2, fn, {
+      warmupFirst: true,
+      stopBurst: (result) => Boolean(result.error),
+    });
+
+    expect(calls).toEqual([1]);
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(res[0].error).toBeInstanceOf(Error);
+    // Unclaimed items leave holes rather than looking like empty successes.
+    expect(res.slice(1)).toEqual([undefined, undefined, undefined]);
+  });
+
+  it('stops claiming new items when stopBurst fires mid-burst, keeping in-flight results', async () => {
+    const { parallelMap } = await getLLM();
+    const calls = [];
+    let resolveFirst;
+    let resolveSecond;
+
+    const fn = vi.fn((x) => {
+      calls.push(x);
+      if (x === 1) return new Promise((resolve) => (resolveFirst = resolve));
+      if (x === 2) return new Promise((resolve) => (resolveSecond = resolve));
+      return Promise.resolve({ item: x });
+    });
+
+    const mapPromise = parallelMap([1, 2, 3, 4], 2, fn, {
+      stopBurst: (result) => Boolean(result.error),
+    });
+    expect(calls).toEqual([1, 2]);
+
+    resolveFirst({ item: 1, error: new Error('401 unauthorized') });
+    await new Promise((r) => setTimeout(r, 0));
+    resolveSecond({ item: 2 });
+
+    // The recorded failure stops the queue without rejecting: the sibling that
+    // was already in flight still lands in the results.
+    const res = await mapPromise;
+    expect(calls).toEqual([1, 2]);
+    expect(res[0].error).toBeInstanceOf(Error);
+    expect(res[1]).toEqual({ item: 2 });
+    expect(res.slice(2)).toEqual([undefined, undefined]);
+  });
+
+  it('keeps dispatching when stopBurst declines a recorded failure', async () => {
+    const { parallelMap } = await getLLM();
+    const calls = [];
+    const fn = vi.fn(async (x) => {
+      calls.push(x);
+      return x === 1 ? { item: x, retryable: true, error: new Error('429') } : { item: x };
+    });
+
+    const res = await parallelMap([1, 2, 3, 4], 2, fn, {
+      warmupFirst: true,
+      stopBurst: (result) => Boolean(result.error) && !result.retryable,
+    });
+
+    expect(calls.sort()).toEqual([1, 2, 3, 4]);
+    expect(res).toHaveLength(4);
+  });
 });
 
 describe('createLimiter', () => {

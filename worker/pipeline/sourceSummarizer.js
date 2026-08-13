@@ -8,6 +8,7 @@ import {
 } from './prompts.js';
 import { parallelMap } from '../llm/llm.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
+import { isPermanentProviderError } from './providerFailure.js';
 import { splitContiguousRuns } from './topicTreeMerge.js';
 import {
   SOURCE_SUMMARY_MAX_CHARS,
@@ -243,6 +244,7 @@ export function makeSourceSummarizer({
     }
 
     const chunks = chunkSourceSentences(runIds, sentenceTexts, requestMaxChars);
+    let permanentError = null;
     const chunkResults = await parallelMap(
       chunks,
       SUMMARY_CONCURRENCY,
@@ -261,13 +263,21 @@ export function makeSourceSummarizer({
         } catch (error) {
           // Catch per item so parallelMap waits for all in-flight siblings before
           // surfacing the first failure.
+          if (!permanentError && isPermanentProviderError(error)) permanentError = error;
           return { chunk, error };
         }
       },
-      { warmupFirst: true },
+      // A permanent failure (401, unknown model) rejects every sibling too, so
+      // stop claiming chunks rather than paying for the rest of the queue only
+      // to throw the same error below.
+      { warmupFirst: true, stopBurst: () => permanentError !== null },
     );
-    const failedChunk = chunkResults.find((result) => result.error);
-    if (failedChunk) throw failedChunk.error;
+    // Unclaimed chunks leave holes; the first recorded error always precedes
+    // them, since chunks are claimed in order.
+    const failedChunkIndex = chunkResults.findIndex((result) => !result || result.error);
+    if (failedChunkIndex !== -1) {
+      throw chunkResults[failedChunkIndex]?.error || permanentError;
+    }
 
     let records = chunkResults.map(({ chunk, text: summaryText }) => ({
       start_sentence: chunk.start,
@@ -338,6 +348,7 @@ export function makeSourceSummarizer({
         )
       : [];
     const runs = splitContiguousRuns(ids);
+    let permanentRunError = null;
     const summarized = await parallelMap(
       runs,
       SUMMARY_CONCURRENCY,
@@ -351,13 +362,18 @@ export function makeSourceSummarizer({
             text: await summarizeRun(runIds, text, typeof info?.path === 'string' ? info.path : ''),
           };
         } catch (error) {
+          if (!permanentRunError && isPermanentProviderError(error)) permanentRunError = error;
           return { sentences: runIds, error };
         }
       },
-      { warmupFirst: true },
+      // As in the chunk burst above: a permanent failure rejects every
+      // remaining run too, so stop rather than pay for them.
+      { warmupFirst: true, stopBurst: () => permanentRunError !== null },
     );
-    const failedRun = summarized.find((result) => result.error);
-    if (failedRun) throw failedRun.error;
+    const failedRunIndex = summarized.findIndex((result) => !result || result.error);
+    if (failedRunIndex !== -1) {
+      throw summarized[failedRunIndex]?.error || permanentRunError;
+    }
     return { runs: summarized };
   };
 }
