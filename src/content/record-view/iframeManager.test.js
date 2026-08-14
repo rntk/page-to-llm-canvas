@@ -7,59 +7,60 @@ vi.stubGlobal('chrome', {
   },
 });
 
-const {
-  openCanvasIframe,
-  openHierarchyIframe,
-  removeCanvasIframe,
-  getCanvasIframe,
-  setRailCloser,
-} = await import('./iframeManager.js');
+const { createRecordFrameManager } = await import('./iframeManager.js');
+let manager;
 
 describe('record-view iframe manager', () => {
   beforeEach(() => {
-    removeCanvasIframe();
-    setRailCloser(() => {});
+    manager = createRecordFrameManager({
+      document,
+      getRuntimeUrl: (path) => chrome.runtime.getURL(path),
+    });
+    manager.close();
   });
 
   afterEach(() => {
-    removeCanvasIframe();
+    manager.close();
   });
 
   it('opens a canvas iframe, tracks it, and encodes the key in the src', () => {
-    openCanvasIframe('my-key');
+    manager.open('my-key');
     const iframe = document.getElementById('pagetollm-canvas-iframe');
     expect(iframe).not.toBeNull();
     expect(iframe.parentNode).toBe(document.documentElement);
-    expect(getCanvasIframe()).toBe(iframe);
+    expect(manager.getActiveFrame()).toBe(iframe);
     expect(iframe.src).toContain('my-key');
     expect(iframe.src).not.toContain('view=hierarchy');
   });
 
   it('opens a hierarchy iframe with the view param', () => {
-    openHierarchyIframe('h key');
+    manager.open('h key', 'hierarchy');
     const iframe = document.getElementById('pagetollm-canvas-iframe');
     expect(iframe.src).toContain('h%20key');
     expect(iframe.src).toContain('view=hierarchy');
   });
 
   it('replaces an existing iframe rather than stacking a second one', () => {
-    openCanvasIframe('first');
-    openCanvasIframe('second');
+    manager.open('first');
+    manager.open('second');
     expect(document.querySelectorAll('#pagetollm-canvas-iframe')).toHaveLength(1);
-    expect(getCanvasIframe().src).toContain('second');
+    expect(manager.getActiveFrame().src).toContain('second');
   });
 
   it('removes the iframe and clears the reference', () => {
-    openCanvasIframe('gone');
-    removeCanvasIframe();
+    manager.open('gone');
+    manager.close();
     expect(document.getElementById('pagetollm-canvas-iframe')).toBeNull();
-    expect(getCanvasIframe()).toBeNull();
+    expect(manager.getActiveFrame()).toBeNull();
   });
 
-  it('invokes the injected rail closer on open (mutual exclusion)', () => {
-    const closeRail = vi.fn();
-    setRailCloser(closeRail);
-    openCanvasIframe('excl');
-    expect(closeRail).toHaveBeenCalledTimes(1);
+  it('does not share iframe ownership between manager instances', () => {
+    const other = createRecordFrameManager({ document, getRuntimeUrl: chrome.runtime.getURL });
+    manager.open('first');
+    other.open('second');
+    expect(manager.getActiveFrame().src).toContain('first');
+    expect(other.getActiveFrame().src).toContain('second');
+    manager.close();
+    other.close();
   });
 });

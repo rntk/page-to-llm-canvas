@@ -24,8 +24,22 @@ vi.mock('../shared/surfacePreferences.js', () => ({
   registerThemedSurface: vi.fn(),
 }));
 
-const { showSelectionToolbar } = await import('./controller.jsx');
+const { createSelectionController } = await import('./controller.jsx');
 const runtimeMessenger = { send: vi.fn() };
+let activeController = null;
+
+function showSelectionToolbar(messenger) {
+  activeController?.destroy();
+  activeController = createSelectionController({
+    document,
+    window,
+    runtimeMessenger: messenger,
+    dialogs: { alert },
+    onDestroy: () => {
+      activeController = null;
+    },
+  });
+}
 
 function toolbarRoot() {
   return window.__pagetollmTestSelectionToolbarRoot;
@@ -74,7 +88,19 @@ describe('selection controller', () => {
     if (cancel) {
       await act(async () => click(cancel));
     }
+    activeController?.destroy();
+    activeController = null;
     document.body.innerHTML = '';
+  });
+
+  it('uses browser-backed defaults when optional dependencies are omitted', () => {
+    let controller;
+    expect(() => {
+      controller = createSelectionController();
+    }).not.toThrow();
+
+    act(() => controller.destroy());
+    expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
   });
 
   it('creates a toolbar, replaces the existing one, and cleans it up', () => {

@@ -26,19 +26,29 @@ vi.mock('../../shared/surfacePreferences.js', () => ({
   registerThemedSurface,
 }));
 
-import { closeInPageRail, createRailSurface, railLoadingTokenHolder } from './surface.js';
+import { createRailSurfaceManager } from './surface.js';
+
+let manager;
+const preferences = {
+  applyContentTheme,
+  applyContentHighlightColor,
+  trackMountedSurface,
+  untrackMountedSurface,
+  registerThemedSurface,
+};
 
 describe('in-page rail surface', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
     document.documentElement.style.removeProperty('--pagetollm-rail-reserve');
     document.documentElement.style.removeProperty('--pagetollm-rail-width');
-    railLoadingTokenHolder.current = 'active-load';
     vi.clearAllMocks();
+    registerThemedSurface.mockReturnValue(vi.fn());
+    manager = createRailSurfaceManager({ document, rootFactory: createRoot, preferences });
   });
 
   afterEach(() => {
-    closeInPageRail();
+    manager.close();
     document.body.innerHTML = '';
     document.documentElement.style.removeProperty('--pagetollm-rail-reserve');
     document.documentElement.style.removeProperty('--pagetollm-rail-width');
@@ -47,7 +57,7 @@ describe('in-page rail surface', () => {
   it('creates a themed topic rail with the expected attributes and bookkeeping', () => {
     const state = { mode: 'topics' };
 
-    const surface = createRailSurface({ state });
+    const surface = manager.createSurface({ state });
 
     expect(surface.railEl).toBe(document.getElementById('pagetollm-in-page-rail'));
     expect(surface.railEl.tagName).toBe('ASIDE');
@@ -61,7 +71,7 @@ describe('in-page rail surface', () => {
   });
 
   it('tags YouTube rails and reserves the mode-specific width', () => {
-    const surface = createRailSurface({ state: { mode: 'summaries' }, youtube: true });
+    const surface = manager.createSurface({ state: { mode: 'summaries' }, youtube: true });
 
     expect(surface.railEl.dataset).toMatchObject({ mode: 'summaries', youtube: 'true' });
     expect(surface.railEl.style.width).toBe('340px');
@@ -71,9 +81,23 @@ describe('in-page rail surface', () => {
     expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-width')).toBe('340px');
   });
 
+  it('tears down an existing rail before mounting a replacement', () => {
+    const firstRoot = { unmount: vi.fn() };
+    createRoot.mockReturnValueOnce(firstRoot);
+    const first = manager.createSurface({ state: { mode: 'topics' } });
+
+    const second = manager.createSurface({ state: { mode: 'chat' } });
+
+    expect(firstRoot.unmount).toHaveBeenCalledOnce();
+    expect(first.isClosed()).toBe(true);
+    expect(first.railEl.isConnected).toBe(false);
+    expect(second.railEl.isConnected).toBe(true);
+    expect(document.querySelectorAll('#pagetollm-in-page-rail')).toHaveLength(1);
+  });
+
   it('uses the topics width for unknown modes and updates width when state changes', () => {
     const state = { mode: 'unknown' };
-    const surface = createRailSurface({ state });
+    const surface = manager.createSurface({ state });
 
     expect(surface.railEl.style.width).toBe('260px');
     expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe(
@@ -93,9 +117,9 @@ describe('in-page rail surface', () => {
     const onTeardown = vi.fn();
     const root = { unmount: vi.fn() };
     createRoot.mockReturnValueOnce(root);
-    const surface = createRailSurface({ state: { mode: 'chat' }, onTeardown });
+    const surface = manager.createSurface({ state: { mode: 'chat' }, onTeardown });
 
-    closeInPageRail();
+    manager.close();
 
     expect(root.unmount).toHaveBeenCalledOnce();
     expect(surface.railEl.isConnected).toBe(false);
@@ -111,14 +135,15 @@ describe('in-page rail surface', () => {
   });
 
   it('invalidates loading work and removes duplicate rail hosts when closing', () => {
-    const surface = createRailSurface({ state: { mode: 'topics' } });
+    const surface = manager.createSurface({ state: { mode: 'topics' } });
     const duplicate = document.createElement('aside');
     duplicate.id = 'pagetollm-in-page-rail';
     document.documentElement.appendChild(duplicate);
 
-    closeInPageRail();
+    const guard = manager.beginLoad();
+    manager.close();
 
-    expect(railLoadingTokenHolder.current).toBeNull();
+    expect(guard.isStale()).toBe(true);
     expect(surface.railEl.isConnected).toBe(false);
     expect(duplicate.isConnected).toBe(false);
   });
@@ -131,9 +156,9 @@ describe('in-page rail surface', () => {
     };
     createRoot.mockReturnValueOnce(root);
     const onTeardown = vi.fn();
-    createRailSurface({ state: { mode: 'topics' }, onTeardown });
+    manager.createSurface({ state: { mode: 'topics' }, onTeardown });
 
-    expect(() => closeInPageRail()).not.toThrow();
+    expect(() => manager.close()).not.toThrow();
     expect(onTeardown).not.toHaveBeenCalled();
     expect(document.body.classList.contains('pagetollm-rail-open')).toBe(false);
     expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-width')).toBe('');

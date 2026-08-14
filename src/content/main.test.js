@@ -183,6 +183,26 @@ describe('content script main.jsx', () => {
     expect(iframe.src).toContain('view=hierarchy');
   });
 
+  it('keeps selection, rail, and record-frame surfaces mutually exclusive', async () => {
+    await act(async () => {
+      messageListener({ action: 'startSelection' }, {}, vi.fn());
+    });
+    expect(document.getElementById('pagetollm-selection-toolbar')).not.toBeNull();
+
+    messageListener({ action: 'openRecordView', key: 'exclusive', mode: 'canvas' }, {}, vi.fn());
+    await Promise.resolve();
+    expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
+    expect(document.getElementById('pagetollm-canvas-iframe')).not.toBeNull();
+
+    await act(async () => {
+      messageListener({ action: 'startSelection' }, {}, vi.fn());
+    });
+    expect(document.getElementById('pagetollm-canvas-iframe')).toBeNull();
+    expect(document.getElementById('pagetollm-selection-toolbar')).not.toBeNull();
+
+    await act(async () => toolbarQuery('#pagetollm-cancel-btn').click());
+  });
+
   it('handles postMessage close events', async () => {
     messageListener({ action: 'openRecordView', key: 'test-key', mode: 'canvas' }, {}, vi.fn());
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -563,7 +583,7 @@ describe('content script main.jsx', () => {
     block.remove();
   });
 
-  it('aborts openInPageRail if closeInPageRail is called before loading finishes', async () => {
+  it('aborts a pending in-page rail when another surface opens', async () => {
     let resolveMessage = null;
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
       if (msg.type === 'getRecord' && msg.key === 'delay-key') {

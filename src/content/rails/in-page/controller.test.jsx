@@ -67,12 +67,31 @@ vi.mock('../../../highlights/sentenceHighlight.js', async (importOriginal) => {
   };
 });
 
-const { openInPageRail } = await import('./controller.jsx');
+const { createInPageRailController } = await import('./controller.jsx');
 const { fetchRecord } = await import('../shared/recordFetch.js');
 const { openCanvasIframe, openHierarchyIframe } =
   await import('../../record-view/iframeManager.js');
-const { closeInPageRail, railLoadingTokenHolder } = await import('../shared/surface.js');
+const { createRailSurfaceManager } = await import('../shared/surface.js');
+const preferences = await import('../../shared/surfacePreferences.js');
 const { buildSentenceDomRange } = await import('../../../highlights/sentenceHighlight.js');
+const surfaceManager = createRailSurfaceManager({ document, preferences });
+const closeInPageRail = surfaceManager.close;
+const { openInPageRail } = createInPageRailController({
+  surfaceManager,
+  openRecordFrame: (key, view) =>
+    view === 'hierarchy' ? openHierarchyIframe(key) : openCanvasIframe(key),
+  document,
+  window,
+  runtimeMessenger: {
+    send: vi.fn(),
+    getURL: (path) => globalThis.chrome.runtime.getURL(path),
+    openOptionsPage: () => globalThis.chrome.runtime.openOptionsPage(),
+  },
+  dialogs: {
+    alert: (...args) => globalThis.alert(...args),
+    confirm: (...args) => globalThis.confirm(...args),
+  },
+});
 
 function baseRecord(overrides = {}) {
   return {
@@ -130,7 +149,6 @@ describe('openInPageRail', () => {
 
   afterEach(() => {
     closeInPageRail();
-    railLoadingTokenHolder.current = null;
     document.getElementById('article')?.remove();
     document.getElementById('pagetollm-canvas-iframe')?.remove();
   });

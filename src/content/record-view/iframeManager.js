@@ -1,46 +1,34 @@
 import { buildRecordViewIframeSrc } from './url.js';
 
-// The record-view iframe is mutually exclusive with the in-page rail. Opening an
-// iframe must close any open rail, but this module must not import the rail
-// controllers (they import this one — that would be a cycle). main.jsx injects
-// the rail closer instead.
-let closeRail = () => {};
+/**
+ * Owns the record-view iframe for one content-script coordinator instance.
+ */
+export function createRecordFrameManager({ document: contentDocument, getRuntimeUrl } = {}) {
+  let activeIframe = null;
 
-export function setRailCloser(fn) {
-  closeRail = typeof fn === 'function' ? fn : () => {};
-}
-
-let canvasIframe = null;
-
-export function getCanvasIframe() {
-  return canvasIframe;
-}
-
-export function openRecordIframe(key, view) {
-  removeCanvasIframe();
-  closeRail();
-  const iframe = document.createElement('iframe');
-  iframe.id = 'pagetollm-canvas-iframe';
-  iframe.src = buildRecordViewIframeSrc((path) => chrome.runtime.getURL(path), key, view);
-  iframe.style.cssText =
-    'position:fixed;inset:0;width:100vw;min-width:100vw;height:100vh;min-height:100vh;border:0;z-index:2147483647;';
-  document.documentElement.appendChild(iframe);
-  canvasIframe = iframe;
-}
-
-export function openCanvasIframe(key) {
-  openRecordIframe(key);
-}
-
-export function openHierarchyIframe(key) {
-  openRecordIframe(key, 'hierarchy');
-}
-
-export function removeCanvasIframe() {
-  if (canvasIframe) {
-    canvasIframe.remove();
-    canvasIframe = null;
+  function getActiveFrame() {
+    return activeIframe;
   }
-  const existing = document.getElementById('pagetollm-canvas-iframe');
-  if (existing) existing.remove();
+
+  function close() {
+    if (activeIframe) {
+      activeIframe.remove();
+      activeIframe = null;
+    }
+    contentDocument.getElementById('pagetollm-canvas-iframe')?.remove();
+  }
+
+  function open(key, view) {
+    close();
+    const iframe = contentDocument.createElement('iframe');
+    iframe.id = 'pagetollm-canvas-iframe';
+    iframe.src = buildRecordViewIframeSrc(getRuntimeUrl, key, view);
+    iframe.style.cssText =
+      'position:fixed;inset:0;width:100vw;min-width:100vw;height:100vh;min-height:100vh;border:0;z-index:2147483647;';
+    contentDocument.documentElement.appendChild(iframe);
+    activeIframe = iframe;
+    return iframe;
+  }
+
+  return { open, close, getActiveFrame };
 }

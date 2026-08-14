@@ -1,26 +1,37 @@
-import { showSelectionToolbar } from './selection/controller.jsx';
-import {
-  openCanvasIframe,
-  openHierarchyIframe,
-  removeCanvasIframe,
-  getCanvasIframe,
-  setRailCloser,
-} from './record-view/iframeManager.js';
-import { openInPageRail } from './rails/in-page/controller.jsx';
-import { openYouTubeRail } from './rails/youtube/controller.jsx';
-import { closeInPageRail } from './rails/shared/surface.js';
+import { createRoot } from 'react-dom/client';
+import { createContentSurfaceCoordinator } from './surfaceCoordinator.js';
+import * as preferences from './shared/surfacePreferences.js';
 import { browserRuntimeMessenger } from '../utils/runtimeMessages.js';
 
-// The iframe manager and the rail controllers are mutually exclusive but must
-// not import each other. Inject the rail closer so opening an iframe can tear
-// down an open rail without a circular import.
-setRailCloser(closeInPageRail);
+const runtimeMessenger = {
+  ...browserRuntimeMessenger,
+  getURL: (path) => chrome.runtime.getURL(path),
+  openOptionsPage:
+    typeof chrome.runtime.openOptionsPage === 'function'
+      ? () => chrome.runtime.openOptionsPage()
+      : undefined,
+};
+const dialogs = {
+  alert: (...args) => globalThis.alert(...args),
+  confirm: (...args) => globalThis.confirm(...args),
+};
+const surfaces = createContentSurfaceCoordinator({
+  document,
+  rootFactory: createRoot,
+  preferences,
+  runtimeMessenger,
+  dialogs,
+});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.action) return false;
   if (message.action === 'startSelection') {
-    showSelectionToolbar(browserRuntimeMessenger);
-    sendResponse({ status: 'ready' });
+    try {
+      surfaces.openSelection();
+      sendResponse({ status: 'ready' });
+    } catch (err) {
+      sendResponse({ status: 'error', error: err?.message || String(err) });
+    }
     return true;
   }
   if (message.action === 'openRecordView') {
@@ -37,57 +48,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       );
     return true;
   }
-  // Unknown action: no response is coming, so let the channel close now rather
-  // than stranding the caller until this listener's sendResponse is collected.
   return false;
 });
 
 const extensionOrigin = new URL(chrome.runtime.getURL('')).origin;
 
 window.addEventListener('message', (event) => {
-  const canvasIframe = getCanvasIframe();
+  const recordFrame = surfaces.getRecordFrame();
   if (
-    !canvasIframe ||
-    event.source !== canvasIframe.contentWindow ||
+    !recordFrame ||
+    event.source !== recordFrame.contentWindow ||
     event.origin !== extensionOrigin
   ) {
     return;
   }
 
   const data = event.data;
-  if (data && data.type === 'pagetollm-close') {
-    removeCanvasIframe();
-  } else if (data && data.type === 'pagetollm-scroll-to-topic-sentences') {
-    removeCanvasIframe();
+  if (data?.type === 'pagetollm-close') {
+    surfaces.closeActiveSurface();
+  } else if (data?.type === 'pagetollm-scroll-to-topic-sentences') {
     const options = {
       sentenceNumbers: data.sentenceNumbers,
       level: data.level,
       topicPath: data.topicPath,
     };
-    const openRail =
-      data.rail === 'youtube'
-        ? openYouTubeRail({ key: data.key }, 'topics', options)
-        : openInPageRail({ key: data.key }, 'topics', options);
-    void openRail.catch((err) => {
+    void surfaces.openRail({ key: data.key }, 'topics', data.rail, options).catch((err) => {
       console.error('PageToLLM rail error:', err);
     });
   }
 });
 
-// ── Record view actions ───────────────────────────────────────────────────
-
 async function handleRecordViewRequest(rec, mode, rail) {
   if (mode === 'canvas') {
-    openCanvasIframe(rec.key);
+    surfaces.openRecordFrame(rec.key);
     return;
   }
   if (mode === 'hierarchy') {
-    openHierarchyIframe(rec.key);
+    surfaces.openRecordFrame(rec.key, 'hierarchy');
     return;
   }
-  if (rail === 'youtube') {
-    await openYouTubeRail(rec, mode);
-    return;
-  }
-  await openInPageRail(rec, mode);
+  await surfaces.openRail(rec, mode, rail);
 }

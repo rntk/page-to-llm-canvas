@@ -9,18 +9,19 @@
  */
 
 import { MSG } from '../../../shared/runtime/messages.js';
-import { sendRuntimeMessage } from '../../../utils/runtimeMessages.js';
+import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
 
 /**
  * Fetch a record from the background via chrome.runtime.sendMessage.
  * Resolves null on any error (lastError, exception, bad response).
  *
  * @param {string} key
+ * @param {{ send: function(object): Promise<object|null> }} runtimeMessenger
  * @returns {Promise<object|null>}
  */
-export async function fetchRecord(key) {
+export async function fetchRecord(key, runtimeMessenger = browserRuntimeMessenger) {
   try {
-    const resp = await sendRuntimeMessage({ type: MSG.getRecord, key });
+    const resp = await runtimeMessenger.send({ type: MSG.getRecord, key });
     return resp && resp.ok ? resp.record : null;
   } catch (_) {
     return null;
@@ -32,15 +33,16 @@ export async function fetchRecord(key) {
  * document.  Invalid or missing selectors are silently skipped.
  *
  * @param {string[]} selectors
+ * @param {Document} contentDocument
  * @returns {Element[]}
  */
-export function findPickedElements(selectors) {
+export function findPickedElements(selectors, contentDocument = globalThis.document) {
   if (!Array.isArray(selectors)) return [];
   const found = [];
   for (const sel of selectors) {
     if (!sel) continue;
     try {
-      const el = document.querySelector(sel);
+      const el = contentDocument.querySelector(sel);
       if (el) found.push(el);
     } catch (_) {
       /* invalid selector — skip */

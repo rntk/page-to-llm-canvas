@@ -34,10 +34,19 @@ vi.mock('./sync.js', async (importOriginal) => {
   return { ...actual, buildYouTubeRailCards: vi.fn() };
 });
 
-const { openYouTubeRail } = await import('./controller.jsx');
+const { createYouTubeRailController } = await import('./controller.jsx');
 const { fetchRecord } = await import('../shared/recordFetch.js');
 const { buildYouTubeRailCards } = await import('./sync.js');
-const { closeInPageRail, railLoadingTokenHolder } = await import('../shared/surface.js');
+const { createRailSurfaceManager } = await import('../shared/surface.js');
+const preferences = await import('../../shared/surfacePreferences.js');
+const surfaceManager = createRailSurfaceManager({ document, preferences });
+const closeInPageRail = surfaceManager.close;
+const { openYouTubeRail } = createYouTubeRailController({
+  surfaceManager,
+  document,
+  runtimeMessenger: { send: vi.fn() },
+  dialogs: { alert: (...args) => globalThis.alert(...args) },
+});
 
 function baseRecord(overrides = {}) {
   return {
@@ -115,7 +124,6 @@ describe('openYouTubeRail', () => {
 
   afterEach(() => {
     closeInPageRail();
-    railLoadingTokenHolder.current = null;
     document.querySelector('video')?.remove();
   });
 
