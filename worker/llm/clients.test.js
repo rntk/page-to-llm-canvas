@@ -122,14 +122,14 @@ describe('extractLlmUsage', () => {
 });
 
 describe('createClient dispatch', () => {
-  let consoleLogSpy;
+  let consoleInfoSpy;
 
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
-    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
   });
   afterEach(() => {
-    consoleLogSpy.mockRestore();
+    consoleInfoSpy.mockRestore();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -137,6 +137,32 @@ describe('createClient dispatch', () => {
   it('throws for unsupported types', () => {
     expect(() => createClient({ type: 'ghost', model: 'm' })).toThrow(/Unsupported/);
     expect(() => createClient(null)).toThrow(/required/);
+  });
+
+  it('uses an injected transport instead of global fetch', async () => {
+    const transport = vi
+      .fn()
+      .mockResolvedValue(okJson({ choices: [{ message: { content: 'injected' } }] }));
+    const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'sk-1' }, { transport });
+
+    await expect(client.complete({ prompt: 'hello' })).resolves.toMatchObject({
+      content: 'injected',
+    });
+    expect(transport).toHaveBeenCalledOnce();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('resolves the default transport at request time', async () => {
+    const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'sk-1' });
+    const lateFetch = vi
+      .fn()
+      .mockResolvedValue(okJson({ choices: [{ message: { content: 'late global' } }] }));
+    vi.stubGlobal('fetch', lateFetch);
+
+    await expect(client.complete({ prompt: 'hello' })).resolves.toMatchObject({
+      content: 'late global',
+    });
+    expect(lateFetch).toHaveBeenCalledOnce();
   });
 
   it('skips raw request/response dumps unless verboseLogs is enabled', async () => {
@@ -149,20 +175,20 @@ describe('createClient dispatch', () => {
     const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'sk-1' });
 
     await client.complete({ prompt: 'quiet' });
-    expect(consoleLogSpy).not.toHaveBeenCalled();
+    expect(consoleInfoSpy).not.toHaveBeenCalled();
 
     await client.complete({ prompt: 'loud', verboseLogs: true });
-    expect(consoleLogSpy).toHaveBeenCalledWith('LLM client raw prompt:', 'loud');
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      'LLM client request:',
+    expect(consoleInfoSpy).toHaveBeenCalledWith('PageToLLM Canvas LLM client raw prompt:', 'loud');
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      'PageToLLM Canvas LLM client request:',
       expect.objectContaining({ endpoint: 'https://api.openai.com/v1/chat/completions' }),
     );
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      'LLM client raw response data:',
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      'PageToLLM Canvas LLM client raw response data:',
       expect.objectContaining({ choices: expect.any(Array) }),
     );
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      'LLM cache usage:',
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      'PageToLLM Canvas LLM client cache usage:',
       expect.objectContaining({ provider: 'openai' }),
     );
   });
@@ -202,7 +228,7 @@ describe('createClient dispatch', () => {
     const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'sk-1' });
     const out = await client.complete({ prompt: 'p', temperature: 0.3, verboseLogs: true });
     expect(out.content).toBe('hi');
-    expect(consoleLogSpy).toHaveBeenCalledWith('LLM cache usage:', {
+    expect(consoleInfoSpy).toHaveBeenCalledWith('PageToLLM Canvas LLM client cache usage:', {
       provider: 'openai',
       cache_hit_tokens: 900,
       cache_miss_tokens: 300,
@@ -303,8 +329,8 @@ describe('createClient dispatch', () => {
     );
     const client = createClient({ type: 'deepseek', model: 'deepseek-v4-flash', token: 'k' });
     await client.complete({ prompt: 'p', verboseLogs: true });
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      'LLM cache usage:',
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      'PageToLLM Canvas LLM client cache usage:',
       expect.objectContaining({
         provider: 'deepseek',
         cache_hit_tokens: 640,
@@ -343,8 +369,8 @@ describe('createClient dispatch', () => {
     );
     const client = createClient({ type: 'openai_comp', model: 'm', url: 'http://host:8989' });
     await client.complete({ prompt: 'p', verboseLogs: true });
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      'LLM cache usage:',
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      'PageToLLM Canvas LLM client cache usage:',
       expect.objectContaining({
         provider: 'openai-compatible',
         cache_hit_tokens: 50,
@@ -714,8 +740,8 @@ describe('createClient dispatch', () => {
     const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'sk-ant' });
     const out = await client.complete({ prompt: 'p', temperature: 0.5, verboseLogs: true });
     expect(out.content).toBe('line1\nline2');
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      'LLM cache usage:',
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      'PageToLLM Canvas LLM client cache usage:',
       expect.objectContaining({
         provider: 'anthropic',
         cache_hit_tokens: 3000,

@@ -10,6 +10,70 @@ import { createLogger } from '../../src/shared/runtime/log.js';
 const log = createLogger('LLM');
 
 /**
+ * @typedef {Object} LLMDirectResult
+ * @property {boolean} ok Whether the request succeeded.
+ * @property {string} [content] Completion content.
+ * @property {string} [reasoning] Provider reasoning text.
+ * @property {Array<Record<string, unknown>>} [toolCalls] Normalized tool calls.
+ * @property {string} [error] Failure message.
+ * @property {boolean} [retryable] Whether retrying can succeed.
+ * @property {number} [status] HTTP status when available.
+ * @property {number} [retryAfterMs] Provider retry delay when available.
+ */
+
+const defaultScheduler = Object.freeze({
+  setTimeout: (...args) => globalThis.setTimeout(...args),
+  clearTimeout: (timeoutId) => globalThis.clearTimeout(timeoutId),
+});
+
+const defaultLLMDependencies = Object.freeze({
+  getActiveProvider,
+  clientFactory: createClient,
+  getRequestTimeoutSeconds: getStoredLlmRequestTimeoutSeconds,
+  getVerboseLogs: getStoredVerboseLogs,
+  transport: (...args) => globalThis.fetch(...args),
+  setTimeout: defaultScheduler.setTimeout,
+  clearTimeout: defaultScheduler.clearTimeout,
+  clock: Date.now,
+  random: Math.random,
+  logInfo: log.info,
+  logWarn: log.warn,
+});
+
+/**
+ * Creates an LLM boundary with all external capabilities supplied explicitly.
+ * Production exports below use the default service; focused tests and other
+ * runtimes can construct an isolated service without module mocking.
+ * Dependencies follow the repository's flat service-factory convention: each
+ * key replaces one function, so partial nested capability objects cannot drop
+ * required sibling methods.
+ * @param {object} [overrides] External LLM capabilities to replace.
+ * @param {Function} [overrides.getActiveProvider] Active-provider lookup.
+ * @param {Function} [overrides.clientFactory] Provider client factory.
+ * @param {Function} [overrides.getRequestTimeoutSeconds] Timeout setting reader.
+ * @param {Function} [overrides.getVerboseLogs] Verbose-log setting reader.
+ * @param {Function} [overrides.transport] HTTP transport.
+ * @param {Function} [overrides.setTimeout] Timeout scheduler.
+ * @param {Function} [overrides.clearTimeout] Timeout canceller.
+ * @param {function(): number} [overrides.clock] Current time in milliseconds.
+ * @param {function(): number} [overrides.random] Random value source.
+ * @param {Function} [overrides.logInfo] Informational logger.
+ * @param {Function} [overrides.logWarn] Warning logger.
+ */
+export function createLLMService(overrides = {}) {
+  const dependencies = { ...defaultLLMDependencies, ...overrides };
+  const callDirect = (options) => callLLMDirectWithDependencies(options, dependencies);
+  const call = (options) => callLLMUsing(callDirect, options);
+  const callWithRetry = (options, maxRetries) =>
+    callLLMWithRetryUsing(call, dependencies, options, maxRetries);
+  return Object.freeze({
+    callLLMDirect: callDirect,
+    callLLM: call,
+    callLLMWithRetry: callWithRetry,
+  });
+}
+
+/**
  * Makes a single completion call to the active provider.
  * Returns `{ok, content?, error?}` — the same shape used by the background
  * message handler so it can delegate here too.
@@ -28,9 +92,24 @@ const log = createLogger('LLM');
  * @param {AbortSignal} [options.signal]
  * @param {object|null} [options.provider] Provider snapshot to use instead of rereading the active provider.
  * @param {function(Record<string, unknown>): void} [options.metricsCollector]
- * @returns {Promise<{ok: boolean, content: string, reasoning: string, toolCalls: Array<Record<string, unknown>>, error: string, retryable?: boolean}>}
+ * @param {object} dependencies External LLM capabilities.
+ * @returns {Promise<LLMDirectResult>} Completion result.
  */
-export async function callLLMDirect(options) {
+async function callLLMDirectWithDependencies(options, dependencies) {
+  const {
+    getActiveProvider: readActiveProvider,
+    clientFactory,
+    getRequestTimeoutSeconds,
+    getVerboseLogs,
+    transport,
+    setTimeout: scheduleTimeout,
+    clearTimeout: cancelTimeout,
+    clock,
+    logInfo,
+    logWarn,
+  } = dependencies;
+  const scheduler = { setTimeout: scheduleTimeout, clearTimeout: cancelTimeout };
+  const clientLogger = { info: logInfo, warn: logWarn };
   const {
     prompt = '',
     messages,
@@ -45,7 +124,7 @@ export async function callLLMDirect(options) {
     provider = options.provider;
   } else {
     try {
-      provider = await getActiveProvider();
+      provider = await readActiveProvider();
     } catch (e) {
       return { ok: false, error: (e && e.message) || String(e), retryable: false };
     }
@@ -60,23 +139,23 @@ export async function callLLMDirect(options) {
 
   let client;
   try {
-    client = createClient(provider);
+    client = clientFactory(provider, { transport, logger: clientLogger });
   } catch (e) {
     return { ok: false, error: (e && e.message) || String(e), retryable: false };
   }
 
-  const startedAt = Date.now();
+  const startedAt = clock();
   // Snapshot settings per call so mid-flight options changes apply only to the
   // next request or retry attempt.
   const [requestTimeoutSeconds, verboseLogs] = await Promise.all([
-    getStoredLlmRequestTimeoutSeconds(),
-    getStoredVerboseLogs(),
+    getRequestTimeoutSeconds(),
+    getVerboseLogs(),
   ]);
   const requestTimeoutMs = requestTimeoutSeconds * 1000;
-  const timeoutSignal = createRequestTimeoutSignal(requestTimeoutMs);
+  const timeoutSignal = createRequestTimeoutSignal(requestTimeoutMs, scheduler);
   const mergedSignal = mergeAbortSignals(signal, timeoutSignal.signal);
   if (verboseLogs) {
-    log.info('request:', {
+    logInfo('request:', {
       provider: provider.name,
       type: provider.type,
       model: provider.model,
@@ -127,9 +206,9 @@ export async function callLLMDirect(options) {
       // Diagnostics must never turn a successful model response into a failure.
     }
     if (verboseLogs) {
-      log.info('response:', {
+      logInfo('response:', {
         endpoint,
-        durationMs: Date.now() - startedAt,
+        durationMs: clock() - startedAt,
         responseLength: content.length,
         toolCallCount: toolCalls?.length || 0,
       });
@@ -152,7 +231,7 @@ export async function callLLMDirect(options) {
       e && (e.name === 'AbortError' || e.name === 'TimeoutError')
         ? `LLM request timed out after ${requestTimeoutMs}ms`
         : getErrorMessage(e);
-    log.warn('request failed:', message);
+    logWarn('request failed:', message);
     return {
       ok: false,
       error: message,
@@ -228,9 +307,9 @@ export function mergeAbortSignals(...signals) {
   };
 }
 
-export function createRequestTimeoutSignal(ms) {
+export function createRequestTimeoutSignal(ms, scheduler = defaultScheduler) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
+  const timeoutId = scheduler.setTimeout(() => {
     controller.abort(
       typeof DOMException !== 'undefined'
         ? new DOMException('Timeout', 'TimeoutError')
@@ -240,12 +319,13 @@ export function createRequestTimeoutSignal(ms) {
   return {
     signal: controller.signal,
     dispose() {
-      clearTimeout(timeoutId);
+      scheduler.clearTimeout(timeoutId);
     },
   };
 }
 
 /**
+ * @param {Function} callDirect Direct LLM request function.
  * @param {object} options
  * @param {string} options.prompt
  * @param {number} [options.temperature]
@@ -253,8 +333,8 @@ export function createRequestTimeoutSignal(ms) {
  * @param {function(Record<string, unknown>): void} [options.metricsCollector]
  * @returns {Promise<string>}
  */
-export async function callLLM(options) {
-  const response = await callLLMDirect(options);
+async function callLLMUsing(callDirect, options) {
+  const response = await callDirect(options);
   if (!response.ok || typeof response.content !== 'string') {
     const message = response.error || 'LLM request failed';
     const error = new Error(message);
@@ -267,6 +347,8 @@ export async function callLLM(options) {
 }
 
 /**
+ * @param {Function} call LLM request function.
+ * @param {object} dependencies External LLM capabilities.
  * @param {object} opts
  * @param {string} opts.prompt
  * @param {number} [opts.temperature]
@@ -275,7 +357,14 @@ export async function callLLM(options) {
  * @param {number} [maxRetries]
  * @returns {Promise<string>}
  */
-export async function callLLMWithRetry(opts, maxRetries = 3) {
+async function callLLMWithRetryUsing(call, dependencies, opts, maxRetries = 3) {
+  const {
+    random,
+    logWarn,
+    setTimeout: scheduleTimeout,
+    clearTimeout: cancelTimeout,
+  } = dependencies;
+  const scheduler = { setTimeout: scheduleTimeout, clearTimeout: cancelTimeout };
   // Guard against a caller-supplied maxRetries <= 0/NaN reaching the final
   // `throw lastErr` with lastErr still undefined — always make at least one attempt.
   const attempts = Number.isFinite(maxRetries) && maxRetries >= 1 ? Math.trunc(maxRetries) : 1;
@@ -285,7 +374,7 @@ export async function callLLMWithRetry(opts, maxRetries = 3) {
       throw makeAbortError('LLM request aborted');
     }
     try {
-      return await callLLM(opts);
+      return await call(opts);
     } catch (e) {
       lastErr = e;
       if (opts.signal?.aborted || e?.name === 'AbortError') break;
@@ -302,7 +391,7 @@ export async function callLLMWithRetry(opts, maxRetries = 3) {
       ) {
         break;
       }
-      log.warn('attempt failed:', {
+      logWarn('attempt failed:', {
         attempt: attempt + 1,
         maxRetries: attempts,
         error: (e && e.message) || String(e),
@@ -310,37 +399,76 @@ export async function callLLMWithRetry(opts, maxRetries = 3) {
       if (attempt === attempts - 1) break;
       // Equal-jitter backoff spreads retries so multiple concurrent requests
       // that failed together do not all retry in lockstep.
-      let delay = 1000 * Math.pow(2, attempt) * (0.5 + Math.random());
+      let delay = 1000 * Math.pow(2, attempt) * (0.5 + random());
       if (Number.isFinite(e?.retryAfterMs) && e.retryAfterMs > 0) {
         // Honor the provider's Retry-After when present, capped at 60s.
         delay = Math.min(Math.max(e.retryAfterMs, delay), 60_000);
       }
-      await sleepWithAbort(delay, opts.signal);
+      await sleepWithAbort(delay, opts.signal, scheduler);
     }
   }
   throw lastErr;
 }
 
-export function sleepWithAbort(ms, signal) {
+export function sleepWithAbort(ms, signal, scheduler = defaultScheduler) {
   if (!signal) {
     return new Promise((resolve) => {
-      setTimeout(resolve, ms);
+      scheduler.setTimeout(resolve, ms);
     });
   }
   if (signal.aborted) {
     return Promise.reject(makeAbortError('LLM request aborted'));
   }
   return new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(() => {
+    const timeoutId = scheduler.setTimeout(() => {
       signal.removeEventListener('abort', onAbort);
       resolve();
     }, ms);
     function onAbort() {
-      clearTimeout(timeoutId);
+      scheduler.clearTimeout(timeoutId);
       reject(makeAbortError('LLM request aborted'));
     }
     signal.addEventListener('abort', onAbort, { once: true });
   });
+}
+
+const defaultLLMService = createLLMService();
+
+/**
+ * Makes one completion request using the configured provider.
+ * @param {object} options Request options.
+ * @param {string} [options.prompt] Prompt text.
+ * @param {Array<Record<string, unknown>>} [options.messages] Message history.
+ * @param {Array<Record<string, unknown>>} [options.tools] Tool definitions.
+ * @param {unknown} [options.toolChoice] Provider tool-choice policy.
+ * @param {boolean} [options.parallelToolCalls] Whether parallel tool calls are allowed.
+ * @param {number} [options.temperature] Sampling temperature.
+ * @param {AbortSignal} [options.signal] Caller cancellation signal.
+ * @param {object|null} [options.provider] Provider snapshot override.
+ * @param {function(Record<string, unknown>): void} [options.metricsCollector] Metrics sink.
+ * @returns {Promise<LLMDirectResult>} Completion result.
+ */
+export function callLLMDirect(options) {
+  return defaultLLMService.callLLMDirect(options);
+}
+
+/**
+ * Makes one completion request and throws when it fails.
+ * @param {object} options Request options accepted by callLLMDirect.
+ * @returns {Promise<string>} Completion content.
+ */
+export function callLLM(options) {
+  return defaultLLMService.callLLM(options);
+}
+
+/**
+ * Makes a completion request with provider-aware retry behavior.
+ * @param {object} options Request options accepted by callLLMDirect.
+ * @param {number} [maxRetries] Maximum provider attempts.
+ * @returns {Promise<string>} Completion content.
+ */
+export function callLLMWithRetry(options, maxRetries = 3) {
+  return defaultLLMService.callLLMWithRetry(options, maxRetries);
 }
 
 /**

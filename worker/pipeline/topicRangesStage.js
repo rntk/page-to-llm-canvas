@@ -2,14 +2,14 @@ import { stripTagsKeepOffsets } from './html.js';
 import { splitSentences } from './sentenceSplitter.js';
 import { buildTaggedText, buildTopicRangesPrompt } from './prompts.js';
 import { parseTopicRangesDetailed, groupsFromSegments, TopicParseError } from './topicParser.js';
-import { recordParserMetric } from '../metrics/parser.js';
+import { recordParserMetric as defaultRecordParserMetric } from '../metrics/parser.js';
 import {
-  RESPLIT_OUTCOMES,
-  createResplitRunStats,
-  noteResplitOutcome,
-  recordResplitRun,
+  RESPLIT_OUTCOMES as DEFAULT_RESPLIT_OUTCOMES,
+  createResplitRunStats as defaultCreateResplitRunStats,
+  noteResplitOutcome as defaultNoteResplitOutcome,
+  recordResplitRun as defaultRecordResplitRun,
 } from '../metrics/resplit.js';
-import { parallelMap } from '../llm/llm.js';
+import { parallelMap as defaultParallelMap } from '../llm/llm.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { computeBackoffDelay, queryTopicRangesWithRetry } from './topicRangeRetry.js';
 import {
@@ -22,8 +22,13 @@ import {
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
 import { isCancellationError, rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
 import { isPermanentProviderError } from './providerFailure.js';
+import {
+  TOPIC_RANGE_ABORT_MESSAGE,
+  readTopicRangeChunkCheckpoint,
+  saveTopicRangeChunkCheckpoint,
+} from './topicRangeCheckpoint.js';
 
-const ABORT_MESSAGE = 'pipeline aborted during topic ranging';
+export { readTopicRangeChunkCheckpoint } from './topicRangeCheckpoint.js';
 
 const TOPIC_RANGE_CONCURRENCY = 4;
 const TOPIC_RANGE_TEMPERATURE = 0.2;
@@ -33,6 +38,25 @@ const TOPIC_RANGE_RETRY_BASE_DELAY_MS = 2000;
 const MAX_PROVIDER_COOLDOWN_MS = 60_000;
 const TOPIC_RANGE_MAX_SENTENCES = 40;
 const TOPIC_RANGE_RESPLIT_MAX_DEPTH = 2;
+
+const defaultTopicRangeDependencies = Object.freeze({
+  parallelMap: defaultParallelMap,
+  recordParserMetric: defaultRecordParserMetric,
+  recordResplitRun: defaultRecordResplitRun,
+  createResplitRunStats: defaultCreateResplitRunStats,
+  noteResplitOutcome: defaultNoteResplitOutcome,
+  readCheckpoint: readTopicRangeChunkCheckpoint,
+  saveCheckpoint: saveTopicRangeChunkCheckpoint,
+});
+
+/**
+ * Creates the flat capability object used by the topic-ranging coordinator.
+ * @param {object} [overrides] Individual stage capabilities to replace.
+ * @returns {object} Complete topic-ranging dependencies.
+ */
+export function createTopicRangeDependencies(overrides = {}) {
+  return { ...defaultTopicRangeDependencies, ...overrides };
+}
 
 // Verbose diagnostics payloads are capped independently of the (already
 // privacy-safe) counts recorded by recordParserMetric, since they carry raw
@@ -307,147 +331,6 @@ function buildChunkFailureError(failedStates, chunkCount) {
 }
 
 /**
- * Validates a persisted topic-ranges checkpoint against the chunks just
- * derived from the current sentences, returning the per-chunk segments that
- * may be reused (null where the chunk still needs an LLM request), or null
- * when nothing is reusable.
- *
- * Deliberately all-or-nothing on any structural surprise: the checkpoint is
- * only a cost optimization, so a half-trusted one is never worth the risk of
- * feeding bogus ranges into groupsFromSegments. It also has to survive an
- * imported record, where every field is user-supplied JSON — hence the bounds
- * check of each segment against its own chunk rather than trusting `start`.
- *
- * @param {object} record Record snapshot read at pipeline start.
- * @param {object[]} chunks Chunks derived from the current sentences.
- * @returns {{segments: (object[]|null)[], reusedChunkCount: number}|null}
- */
-export function readTopicRangeChunkCheckpoint(record, chunks) {
-  const checkpoint = record?.topic_range_chunks;
-  if (!checkpoint || typeof checkpoint !== 'object') return null;
-  if (!Array.isArray(chunks) || chunks.length === 0) return null;
-  if (!Array.isArray(checkpoint.chunks) || checkpoint.chunks.length !== chunks.length) return null;
-  // Without a revision to pin it to, the checkpoint cannot be proven to
-  // describe these sentences; recomputing is the only safe answer.
-  const revision = record?.contentRevision;
-  if (typeof revision !== 'string' || !revision) return null;
-  if (checkpoint.contentRevision !== revision) return null;
-  const sentenceCount = chunks.reduce((sum, chunk) => sum + chunk.sentenceCount, 0);
-  if (checkpoint.sentenceCount !== sentenceCount) return null;
-
-  const segments = new Array(chunks.length).fill(null);
-  let reusedChunkCount = 0;
-  for (let index = 0; index < chunks.length; index++) {
-    const entry = checkpoint.chunks[index];
-    if (entry == null) continue;
-    if (typeof entry !== 'object') return null;
-    const chunk = chunks[index];
-    if (entry.start !== chunk.start || entry.sentenceCount !== chunk.sentenceCount) return null;
-    if (!Array.isArray(entry.segments)) return null;
-    // A chunk this stage completed always carries at least one segment —
-    // parseTopicRangesDetailed throws rather than return zero groups. An empty
-    // list therefore never came from our own writer, and restoring it would
-    // mark the chunk DONE with nothing in it: with every chunk like that,
-    // nothing is dispatched, groupsFromSegments throws 'No valid topic ranges'
-    // on the empty set, and the checkpoint is never cleared — so every later
-    // Retry reads it back and fails identically. Reject it instead.
-    if (entry.segments.length === 0) return null;
-    const lastSentence = chunk.start + chunk.sentenceCount - 1;
-    const restored = [];
-    for (const segment of entry.segments) {
-      if (!segment || typeof segment !== 'object') return null;
-      const { label, start, end } = segment;
-      if (!Array.isArray(label) || label.length === 0) return null;
-      if (!label.every((part) => typeof part === 'string' && part.trim() !== '')) return null;
-      if (!Number.isInteger(start) || !Number.isInteger(end) || start > end) return null;
-      if (start < chunk.start || end > lastSentence) return null;
-      restored.push({ label: [...label], start, end });
-    }
-    segments[index] = restored;
-    reusedChunkCount++;
-  }
-  if (reusedChunkCount === 0) return null;
-  return { segments, reusedChunkCount };
-}
-
-/** Serializes the completed chunks so a later run can skip re-requesting them.
- * @param {string} contentRevision Revision the checkpoint is pinned to.
- * @param {object[]} chunkStates Per-chunk stage state.
- * @param {number} sentenceCount Sentence count the chunks were derived from.
- */
-function buildTopicRangeChunkCheckpoint(contentRevision, chunkStates, sentenceCount) {
-  return {
-    contentRevision,
-    sentenceCount,
-    chunks: chunkStates.map((state) =>
-      state.segments === null
-        ? null
-        : {
-            start: state.chunk.start,
-            sentenceCount: state.chunk.sentenceCount,
-            segments: state.segments,
-          },
-    ),
-  };
-}
-
-/**
- * Persists the completed chunks of the topic-ranges stage.
- *
- * This is called both after a parse round and on the way out of a failed
- * stage.  The write is best-effort and deliberately silent: losing a cost
- * optimization must never replace the real failure the user needs to see.
- * @param {PipelineRuntime} runtime Pipeline runtime.
- * @param {object} record Record snapshot read at pipeline start.
- * @param {object[]} chunkStates Per-chunk stage state.
- * @param {number} sentenceCount Sentence count the chunks were derived from.
- * @param {unknown} error Error that ended the stage.
- */
-async function saveTopicRangeChunkCheckpoint(runtime, record, chunkStates, sentenceCount, error) {
-  // A cancelled run's partial work belongs to a superseded attempt, and a
-  // checkpoint with nothing done (or nothing left to do) saves no requests.
-  if (isCancellationError(error, runtime)) return;
-  // Same contract readTopicRangeChunkCheckpoint enforces: without a revision to
-  // pin it to, the checkpoint would be rejected on read, so writing it is a
-  // content-doc write that can never pay for itself.
-  const contentRevision = record?.contentRevision;
-  if (typeof contentRevision !== 'string' || !contentRevision) return;
-  const done = chunkStates.filter((state) => state.segments !== null).length;
-  if (done === 0) return;
-  try {
-    await runtime.update({
-      topic_range_chunks: buildTopicRangeChunkCheckpoint(
-        contentRevision,
-        chunkStates,
-        sentenceCount,
-      ),
-    });
-    // allowAborted: the write already landed, so an abort racing this log must
-    // not send us down the catch below and report a save that succeeded as
-    // failed.
-    await runtime.log(
-      'topic_ranges_checkpoint_saved',
-      { completedChunkCount: done, chunkCount: chunkStates.length },
-      { allowAborted: true },
-    );
-  } catch (writeError) {
-    // A lost expectedPipelineRunId CAS means this run no longer owns the
-    // record. Unlike an ordinary storage failure, it must stop the retry loop
-    // even when the runtime's signal was never aborted.
-    rethrowIfCancelled(writeError, runtime, ABORT_MESSAGE);
-    await runtime
-      .log(
-        'topic_ranges_checkpoint_save_failed',
-        { error: (writeError && writeError.message) || String(writeError) },
-        { allowAborted: true },
-      )
-      .catch(() => {
-        /* The stage error below is the one that matters. */
-      });
-  }
-}
-
-/**
  * Requests every chunk that still needs segments, recording the outcome on each
  * chunk state rather than throwing. A provider failure is confined to its own
  * chunk, so parallelMap's fail-fast no longer discards the responses its
@@ -465,10 +348,16 @@ async function saveTopicRangeChunkCheckpoint(runtime, record, chunkStates, sente
  * @param {object[]} params.pending Chunk states still missing segments.
  * @param {number} params.attempt 1-based stage attempt number.
  */
-async function dispatchPendingChunks({ runtime, callLLMWithRetry, pending, attempt }) {
+async function dispatchPendingChunks({
+  runtime,
+  callLLMWithRetry,
+  pending,
+  attempt,
+  dependencies,
+}) {
   let permanentError = null;
   const dispatched = new Set();
-  await parallelMap(
+  await dependencies.parallelMap(
     pending,
     TOPIC_RANGE_CONCURRENCY,
     async (state) => {
@@ -499,7 +388,7 @@ async function dispatchPendingChunks({ runtime, callLLMWithRetry, pending, attem
           TOPIC_RANGE_PROVIDER_MAX_ATTEMPTS,
         );
       } catch (error) {
-        rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
+        rethrowIfCancelled(error, runtime, TOPIC_RANGE_ABORT_MESSAGE);
         // Sole owner of `state`, as above.
         // eslint-disable-next-line require-atomic-updates
         state.dispatchError = error;
@@ -550,7 +439,14 @@ async function dispatchPendingChunks({ runtime, callLLMWithRetry, pending, attem
  * @param {number} params.attempt 1-based stage attempt number.
  * @param {Set<number>} params.failedChunkIndexes Chunks that failed to parse earlier.
  */
-async function parseDispatchedChunks({ runtime, dispatched, attempt, failedChunkIndexes }) {
+async function parseDispatchedChunks({
+  runtime,
+  dispatched,
+  attempt,
+  failedChunkIndexes,
+  dependencies,
+}) {
+  const { recordParserMetric } = dependencies;
   const successfulMetricSamples = [];
   for (const state of dispatched) {
     if (state.dispatchError) continue;
@@ -579,7 +475,7 @@ async function parseDispatchedChunks({ runtime, dispatched, attempt, failedChunk
         diagnostics: parsed.diagnostics,
       });
     } catch (error) {
-      rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
+      rethrowIfCancelled(error, runtime, TOPIC_RANGE_ABORT_MESSAGE);
       state.parseError = error;
       const diagnostics = error?.diagnostics || {};
       // One failure sample per failed CHUNK, not per attempt as before: now
@@ -604,7 +500,7 @@ async function parseDispatchedChunks({ runtime, dispatched, attempt, failedChunk
   // happen rather than being held until every chunk parses (and discarded when
   // one does not).
   for (const sample of successfulMetricSamples) {
-    throwIfCancelled(runtime, ABORT_MESSAGE);
+    throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
     await recordParserMetric(sample);
   }
 }
@@ -671,8 +567,9 @@ async function resplitSegment(
   sentenceTexts,
   depth,
   callLLMWithRetry,
-  { acceptSingle = false, stats = null } = {},
+  { acceptSingle = false, stats = null, dependencies = defaultTopicRangeDependencies } = {},
 ) {
+  const { noteResplitOutcome } = dependencies;
   const span = segment.end - segment.start + 1;
   const sliceTexts = sentenceTexts.slice(segment.start, segment.end + 1);
   const tagged = buildTaggedText(sliceTexts);
@@ -704,7 +601,7 @@ async function resplitSegment(
     subGroups = await queryTopicRangesWithRetry({
       maxRetries: 0,
       callLLM: async () => {
-        const responses = await parallelMap(
+        const responses = await dependencies.parallelMap(
           chunks,
           TOPIC_RANGE_CONCURRENCY,
           async (chunk) => {
@@ -723,7 +620,7 @@ async function resplitSegment(
                 ),
               };
             } catch (error) {
-              rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
+              rethrowIfCancelled(error, runtime, TOPIC_RANGE_ABORT_MESSAGE);
               // Keep every paid-for sibling request in flight before surfacing
               // the failure; parallelMap's default fail-fast would abandon
               // queued chunks as soon as one provider call rejects.
@@ -741,7 +638,7 @@ async function resplitSegment(
         try {
           // The request may have fulfilled just as cancellation landed. Stop
           // before attributing that superseded response to parser metrics.
-          throwIfCancelled(runtime, ABORT_MESSAGE);
+          throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
           const parsed = parseTopicRangesDetailed(raw, sliceTexts.length);
           if (hasDiagnosticQuirks(parsed.diagnostics)) {
             await logParseDiagnostics(runtime, logContext, {
@@ -749,15 +646,19 @@ async function resplitSegment(
               response: raw,
             });
           }
-          throwIfCancelled(runtime, ABORT_MESSAGE);
-          await recordParserMetric({ ok: true, scope: 'resplit', diagnostics: parsed.diagnostics });
+          throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
+          await dependencies.recordParserMetric({
+            ok: true,
+            scope: 'resplit',
+            diagnostics: parsed.diagnostics,
+          });
           return parsed.groups;
         } catch (error) {
           // An AbortError from the boundary check or runtime logging is not a
           // malformed model response and must not become a parser sample.
-          rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
+          rethrowIfCancelled(error, runtime, TOPIC_RANGE_ABORT_MESSAGE);
           const diagnostics = { ...error?.diagnostics, sentenceCount: sliceTexts.length };
-          await recordParserMetric({
+          await dependencies.recordParserMetric({
             ok: false,
             scope: 'resplit',
             diagnostics,
@@ -774,14 +675,14 @@ async function resplitSegment(
     // A cancelled run is not a resplit failure: recording it would both log a
     // phantom error on the record and bias the ERROR counts that the keep/remove
     // decision for the resplit feature rests on.
-    rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
+    rethrowIfCancelled(error, runtime, TOPIC_RANGE_ABORT_MESSAGE);
     await runtime.log('topic_ranges_resplit_error', {
       start: segment.start,
       end: segment.end,
       depth,
       error: (error && error.message) || String(error),
     });
-    noteResplitOutcome(stats, RESPLIT_OUTCOMES.ERROR);
+    noteResplitOutcome(stats, DEFAULT_RESPLIT_OUTCOMES.ERROR);
     return null;
   }
 
@@ -800,7 +701,7 @@ async function resplitSegment(
 
   if (subSegments.length <= 1) {
     if (acceptSingle && subSegments.length === 1) {
-      noteResplitOutcome(stats, RESPLIT_OUTCOMES.ACCEPTED_SINGLE);
+      noteResplitOutcome(stats, DEFAULT_RESPLIT_OUTCOMES.ACCEPTED_SINGLE);
       return subSegments;
     }
 
@@ -832,19 +733,20 @@ async function resplitSegment(
         { start: segment.start, end: segment.end, span, depth, windowCount: windows.length },
         { verbose: true },
       );
-      noteResplitOutcome(stats, RESPLIT_OUTCOMES.WINDOW_FALLBACK);
-      const windowResults = await parallelMap(
+      noteResplitOutcome(stats, DEFAULT_RESPLIT_OUTCOMES.WINDOW_FALLBACK);
+      const windowResults = await dependencies.parallelMap(
         windows,
         TOPIC_RANGE_CONCURRENCY,
         async (window) =>
           (await resplitSegment(runtime, window, sentenceTexts, depth + 1, callLLMWithRetry, {
             acceptSingle: true,
             stats,
+            dependencies,
           })) || [window],
       );
       return windowResults.flat();
     }
-    noteResplitOutcome(stats, RESPLIT_OUTCOMES.NO_PROGRESS);
+    noteResplitOutcome(stats, DEFAULT_RESPLIT_OUTCOMES.NO_PROGRESS);
     return null;
   }
 
@@ -859,23 +761,27 @@ async function resplitSegment(
     },
     { verbose: true },
   );
-  noteResplitOutcome(stats, RESPLIT_OUTCOMES.SUBDIVIDED);
+  noteResplitOutcome(stats, DEFAULT_RESPLIT_OUTCOMES.SUBDIVIDED);
 
   if (depth + 1 < TOPIC_RANGE_RESPLIT_MAX_DEPTH) {
-    const expanded = await parallelMap(subSegments, TOPIC_RANGE_CONCURRENCY, async (subSegment) => {
-      if (subSegment.end - subSegment.start + 1 > TOPIC_RANGE_MAX_SENTENCES) {
-        const deeper = await resplitSegment(
-          runtime,
-          subSegment,
-          sentenceTexts,
-          depth + 1,
-          callLLMWithRetry,
-          { stats },
-        );
-        if (deeper) return deeper;
-      }
-      return [subSegment];
-    });
+    const expanded = await dependencies.parallelMap(
+      subSegments,
+      TOPIC_RANGE_CONCURRENCY,
+      async (subSegment) => {
+        if (subSegment.end - subSegment.start + 1 > TOPIC_RANGE_MAX_SENTENCES) {
+          const deeper = await resplitSegment(
+            runtime,
+            subSegment,
+            sentenceTexts,
+            depth + 1,
+            callLLMWithRetry,
+            { stats, dependencies },
+          );
+          if (deeper) return deeper;
+        }
+        return [subSegment];
+      },
+    );
     subSegments = expanded.flat();
   }
 
@@ -887,11 +793,11 @@ async function refineOversizedRanges(
   groups,
   sentenceTexts,
   callLLMWithRetry,
-  { primaryChunkCount = 0 } = {},
+  { primaryChunkCount = 0, dependencies = defaultTopicRangeDependencies } = {},
 ) {
   // One metrics sample per call, including the no-oversize early return: that
   // is the denominator for deciding whether resplit still pays for itself.
-  const stats = createResplitRunStats();
+  const stats = dependencies.createResplitRunStats();
   stats.primaryChunkCount = primaryChunkCount;
   stats.groupCountBefore = groups.length;
   stats.groupCountAfter = groups.length;
@@ -904,6 +810,7 @@ async function refineOversizedRanges(
       sentenceTexts,
       callLLMWithRetry,
       stats,
+      dependencies,
     );
     completed = true;
     return refined;
@@ -919,7 +826,9 @@ async function refineOversizedRanges(
     // genuine provider failures that arrived after abort (`completed` is false
     // for those and `cancelled` deliberately remains false).
     const cancelledAfterSuccess = completed && runtime.signal?.aborted;
-    if (!cancelled && !cancelledAfterSuccess) await recordResplitRun(stats);
+    if (!cancelled && !cancelledAfterSuccess) {
+      await dependencies.recordResplitRun(stats);
+    }
   }
 }
 
@@ -929,6 +838,7 @@ async function refineOversizedRangesWithStats(
   sentenceTexts,
   callLLMWithRetry,
   stats,
+  dependencies = defaultTopicRangeDependencies,
 ) {
   const segments = [];
   for (const group of groups) {
@@ -960,23 +870,27 @@ async function refineOversizedRangesWithStats(
   );
 
   let changed = false;
-  const refinedParts = await parallelMap(segments, TOPIC_RANGE_CONCURRENCY, async (segment) => {
-    if (segment.end - segment.start + 1 > TOPIC_RANGE_MAX_SENTENCES) {
-      const subSegments = await resplitSegment(
-        runtime,
-        segment,
-        sentenceTexts,
-        0,
-        callLLMWithRetry,
-        { stats },
-      );
-      if (subSegments && subSegments.length > 1) {
-        changed = true;
-        return subSegments;
+  const refinedParts = await dependencies.parallelMap(
+    segments,
+    TOPIC_RANGE_CONCURRENCY,
+    async (segment) => {
+      if (segment.end - segment.start + 1 > TOPIC_RANGE_MAX_SENTENCES) {
+        const subSegments = await resplitSegment(
+          runtime,
+          segment,
+          sentenceTexts,
+          0,
+          callLLMWithRetry,
+          { stats, dependencies },
+        );
+        if (subSegments && subSegments.length > 1) {
+          changed = true;
+          return subSegments;
+        }
       }
-    }
-    return [segment];
-  });
+      return [segment];
+    },
+  );
 
   if (!changed) return groups;
   stats.changed = true;
@@ -1002,8 +916,15 @@ async function refineOversizedRangesWithStats(
  * @param {PipelineRuntime} input.runtime
  * @param {object} input.record
  * @param {Function} input.callLLMWithRetry
+ * @param {object} [input.dependencies] Telemetry, execution, and checkpoint capabilities.
  */
-export async function computeTopics({ runtime, record, callLLMWithRetry }) {
+export async function computeTopics({
+  runtime,
+  record,
+  callLLMWithRetry,
+  dependencies: overrides,
+}) {
+  const dependencies = createTopicRangeDependencies(overrides);
   await runtime.update({
     status: PIPELINE_STATUS.SPLITTING,
     progress: { stage: PIPELINE_STAGE.CLEANING_HTML, done: 0, total: 0 },
@@ -1056,7 +977,7 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
     runtime.maxTextChunkChars,
     runtime.maxTopicRangeSentences,
   );
-  const checkpoint = readTopicRangeChunkCheckpoint(record, chunks);
+  const checkpoint = dependencies.readCheckpoint(record, chunks);
 
   await runtime.update({
     sentences: sentenceTexts,
@@ -1144,28 +1065,30 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
           callLLMWithRetry,
           pending,
           attempt: parseAttempt,
+          dependencies,
         });
         return pending;
       },
       parse: async (dispatched) => {
         // Do not count a response that lost a cancellation race as a parser
         // attempt for the active pipeline.
-        throwIfCancelled(runtime, ABORT_MESSAGE);
+        throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
         await parseDispatchedChunks({
           runtime,
           dispatched,
           attempt: parseAttempt,
           failedChunkIndexes,
+          dependencies,
         });
         // A successful chunk is durable before a retry backoff (and before
         // the later refinement/topic write).  If the service worker is
         // terminated while another chunk is being retried, the next run can
         // restore every parsed sibling instead of paying for it again.
-        await saveTopicRangeChunkCheckpoint(runtime, record, chunkStates, sentenceTexts.length);
-        throwIfCancelled(runtime, ABORT_MESSAGE);
+        await dependencies.saveCheckpoint(runtime, record, chunkStates, sentenceTexts.length);
+        throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
         const failed = pendingChunkStates();
         if (failed.length > 0) throw buildChunkFailureError(failed, chunks.length);
-        throwIfCancelled(runtime, ABORT_MESSAGE);
+        throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
         return groupsFromSegments(
           chunkStates.flatMap((state) => state.segments),
           sentenceTexts.length,
@@ -1185,7 +1108,7 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
         }),
     });
   } catch (error) {
-    await saveTopicRangeChunkCheckpoint(runtime, record, chunkStates, sentenceTexts.length, error);
+    await dependencies.saveCheckpoint(runtime, record, chunkStates, sentenceTexts.length, error);
     throw error;
   }
 
@@ -1195,12 +1118,13 @@ export async function computeTopics({ runtime, record, callLLMWithRetry }) {
       // on the same article; both share LLM_TASK_TYPES.TOPIC_RANGES, so the
       // general LLM metrics cannot tell them apart.
       primaryChunkCount: chunks.length,
+      dependencies,
     });
   } catch (error) {
     // Oversize refinement is best-effort — the unrefined groups are still
     // usable — but a cancellation must propagate instead of being swallowed
     // here and letting a superseded run continue to topic building.
-    rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
+    rethrowIfCancelled(error, runtime, TOPIC_RANGE_ABORT_MESSAGE);
     await runtime.log('topic_ranges_oversize_error', {
       error: (error && error.message) || String(error),
     });

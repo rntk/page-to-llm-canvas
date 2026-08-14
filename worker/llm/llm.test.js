@@ -61,6 +61,67 @@ describe('callLLMDirect', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('can be isolated through the LLM service capabilities', async () => {
+    const { createLLMService } = await getLLM();
+    const provider = { type: 'openai', model: 'model-1', name: 'Injected' };
+    const transport = vi.fn();
+    const complete = vi.fn().mockResolvedValue({
+      content: 'result',
+      provider: 'openai',
+      model: 'model-1',
+    });
+    const clientFactory = vi.fn(() => ({ complete }));
+    const logInfo = vi.fn();
+    const logWarn = vi.fn();
+    const clearTimeout = vi.fn();
+    const service = createLLMService({
+      getActiveProvider: vi.fn().mockResolvedValue(provider),
+      clientFactory,
+      getRequestTimeoutSeconds: vi.fn().mockResolvedValue(12),
+      getVerboseLogs: vi.fn().mockResolvedValue(false),
+      transport,
+      setTimeout: vi.fn(() => 17),
+      clearTimeout,
+      clock: vi.fn(() => 100),
+      random: vi.fn(() => 0),
+      logInfo,
+      logWarn,
+    });
+
+    await expect(service.callLLMDirect({ prompt: 'hello' })).resolves.toEqual({
+      ok: true,
+      content: 'result',
+    });
+    expect(clientFactory).toHaveBeenCalledWith(provider, {
+      transport,
+      logger: { info: logInfo, warn: logWarn },
+    });
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({ prompt: 'hello' }));
+    expect(clearTimeout).toHaveBeenCalledWith(17);
+  });
+
+  it('keeps default sibling capabilities when individual dependencies are overridden', async () => {
+    const { createLLMService } = await getLLM();
+    const service = createLLMService({
+      getActiveProvider: vi.fn().mockResolvedValue(OPENAI_COMP_PROVIDER),
+      clientFactory: vi.fn(() => ({
+        complete: vi.fn().mockRejectedValue(new Error('provider failed')),
+      })),
+      getVerboseLogs: vi.fn().mockResolvedValue(false),
+      setTimeout: vi.fn(() => 17),
+      logInfo: vi.fn(),
+    });
+
+    await expect(service.callLLMDirect({ prompt: 'hello' })).resolves.toMatchObject({
+      ok: false,
+      error: 'provider failed',
+    });
+    expect(console.warn).toHaveBeenCalledWith(
+      'PageToLLM Canvas LLM request failed:',
+      'provider failed',
+    );
+  });
+
   it('returns an error when provider lookup throws', async () => {
     vi.stubGlobal('chrome', {
       runtime: { lastError: undefined },

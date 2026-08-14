@@ -25,6 +25,9 @@
 // `verboseLogs` is true (set from the options "verbose pipeline logs" toggle).
 
 import { ProviderType, ServiceTier } from './providers.js';
+import { createLogger } from '../../src/shared/runtime/log.js';
+
+const log = createLogger('LLM client');
 
 const THINK_TAG_RE = /<think\b[^>]*>[\s\S]*?<\/think>/gi;
 const THINK_TAG_CAPTURE_RE = /<think\b[^>]*>([\s\S]*?)<\/think>/gi;
@@ -320,7 +323,7 @@ export function extractLlmUsage(provider, data) {
   return Object.fromEntries(Object.entries(normalized).filter(([, value]) => value !== undefined));
 }
 
-function logCacheUsage(provider, data, verboseLogs) {
+function logCacheUsage(logger, provider, data, verboseLogs) {
   if (!verboseLogs) return;
   const usage = data?.usage || {};
   const normalized = extractLlmUsage(provider, data) || {};
@@ -333,7 +336,7 @@ function logCacheUsage(provider, data, verboseLogs) {
         (normalized.cacheMissTokens ?? 0)
       : undefined;
 
-  console.log('LLM cache usage:', {
+  logger.info('cache usage:', {
     provider,
     cache_hit_tokens: normalized.cacheReadTokens,
     cache_miss_tokens: normalized.cacheMissTokens,
@@ -346,12 +349,13 @@ function logCacheUsage(provider, data, verboseLogs) {
 }
 
 /**
+ * @param {{info: Function, warn?: Function}} logger Client logger.
  * @param {boolean} [verboseLogs] Whether verbose logging is enabled.
  * @param {...unknown} args Values to log.
  */
-function logClientVerbose(verboseLogs, ...args) {
+function logClientVerbose(logger, verboseLogs, ...args) {
   if (!verboseLogs) return;
-  console.log(...args);
+  logger.info(...args);
 }
 
 /**
@@ -369,6 +373,8 @@ function logClientVerbose(verboseLogs, ...args) {
  * @param {string} [options.promptCacheKey]
  * @param {boolean} [options.guardTemperature]
  * @param {string} [options.providerLabel]
+ * @param {Function} options.fetchImpl HTTP transport.
+ * @param {{info: Function, warn?: Function}} options.logger Client logger.
  */
 function openAICompatibleClient({
   baseUrl,
@@ -379,6 +385,8 @@ function openAICompatibleClient({
   promptCacheKey = '',
   guardTemperature = false,
   providerLabel = 'openai-compatible',
+  fetchImpl,
+  logger,
 }) {
   return {
     async complete({
@@ -415,10 +423,10 @@ function openAICompatibleClient({
         body.parallel_tool_calls = parallelToolCalls;
       }
 
-      logClientVerbose(verboseLogs, 'LLM client raw prompt:', prompt);
-      logClientVerbose(verboseLogs, 'LLM client request:', { endpoint, body });
+      logClientVerbose(logger, verboseLogs, 'raw prompt:', prompt);
+      logClientVerbose(logger, verboseLogs, 'request:', { endpoint, body });
 
-      const res = await fetch(endpoint, {
+      const res = await fetchImpl(endpoint, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
@@ -433,8 +441,8 @@ function openAICompatibleClient({
       }
 
       const data = await res.json();
-      logClientVerbose(verboseLogs, 'LLM client raw response data:', data);
-      logCacheUsage(providerLabel, data, verboseLogs);
+      logClientVerbose(logger, verboseLogs, 'raw response data:', data);
+      logCacheUsage(logger, providerLabel, data, verboseLogs);
       const message = data?.choices?.[0]?.message;
       const { content, reasoning } = responseTextAndReasoning(message);
       const toolCalls = normalizeToolCalls(message?.tool_calls);
@@ -571,8 +579,10 @@ function toAnthropicMessages(messages) {
  * @param {string} options.apiKey
  * @param {string} options.model
  * @param {string} [options.serviceTier]
+ * @param {Function} options.fetchImpl HTTP transport.
+ * @param {{info: Function, warn?: Function}} options.logger Client logger.
  */
-function anthropicClient({ apiKey, model, serviceTier }) {
+function anthropicClient({ apiKey, model, serviceTier, fetchImpl, logger }) {
   return {
     async complete({
       prompt = '',
@@ -618,10 +628,10 @@ function anthropicClient({ apiKey, model, serviceTier }) {
       if (anthropicServiceTier) body.service_tier = anthropicServiceTier;
       if (typeof temperature === 'number') body.temperature = temperature;
 
-      logClientVerbose(verboseLogs, 'LLM client raw prompt:', prompt);
-      logClientVerbose(verboseLogs, 'LLM client request:', { endpoint, body });
+      logClientVerbose(logger, verboseLogs, 'raw prompt:', prompt);
+      logClientVerbose(logger, verboseLogs, 'request:', { endpoint, body });
 
-      const res = await fetch(endpoint, {
+      const res = await fetchImpl(endpoint, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
@@ -636,8 +646,8 @@ function anthropicClient({ apiKey, model, serviceTier }) {
       }
 
       const data = await res.json();
-      logClientVerbose(verboseLogs, 'LLM client raw response data:', data);
-      logCacheUsage('anthropic', data, verboseLogs);
+      logClientVerbose(logger, verboseLogs, 'raw response data:', data);
+      logCacheUsage(logger, 'anthropic', data, verboseLogs);
       const blocks = Array.isArray(data?.content) ? data.content : [];
       const textParts = [];
       const reasoningParts = [];
@@ -708,6 +718,9 @@ function toAnthropicServiceTier(serviceTier) {
  * @param {string} provider.model
  * @param {string} [provider.token]
  * @param {string} [provider.url]
+ * @param {object} [dependencies] Client dependencies.
+ * @param {Function} [dependencies.transport] HTTP transport.
+ * @param {{info: Function, warn?: Function}} [dependencies.logger] Client logger.
  * @returns {{complete: function({
  *   prompt: string,
  *   messages: Array<{role: string, content: string, reasoning: string, toolCallId: string, toolCalls: Array<{id: string, name: string, arguments: Record<string, unknown>}>}>,
@@ -727,11 +740,15 @@ function toAnthropicServiceTier(serviceTier) {
  *   usage: Record<string, number>
  * }>}}
  */
-export function createClient(provider) {
+export function createClient(
+  provider,
+  { transport = (...args) => globalThis.fetch(...args), logger = log } = {},
+) {
   if (!provider || typeof provider !== 'object') {
     throw new Error('Provider is required');
   }
   const { type, model, token, url, serviceTier } = provider;
+  if (typeof transport !== 'function') throw new Error('LLM transport is required');
   switch (type) {
     case ProviderType.OPENAI:
       return openAICompatibleClient({
@@ -742,6 +759,8 @@ export function createClient(provider) {
         promptCacheKey: OPENAI_PROMPT_CACHE_KEY,
         guardTemperature: true,
         providerLabel: 'openai',
+        fetchImpl: transport,
+        logger,
       });
     case ProviderType.DEEPSEEK:
       return openAICompatibleClient({
@@ -749,6 +768,8 @@ export function createClient(provider) {
         apiKey: token,
         model,
         providerLabel: 'deepseek',
+        fetchImpl: transport,
+        logger,
       });
     case ProviderType.OPENROUTER:
       return openAICompatibleClient({
@@ -757,6 +778,8 @@ export function createClient(provider) {
         model,
         serviceTier,
         providerLabel: 'openrouter',
+        fetchImpl: transport,
+        logger,
       });
     case ProviderType.OPENAI_COMP:
       if (!url) throw new Error('OpenAI-compatible provider requires a base URL');
@@ -766,9 +789,11 @@ export function createClient(provider) {
         model,
         cachePrompt: true,
         providerLabel: 'openai-compatible',
+        fetchImpl: transport,
+        logger,
       });
     case ProviderType.ANTHROPIC:
-      return anthropicClient({ apiKey: token, model, serviceTier });
+      return anthropicClient({ apiKey: token, model, serviceTier, fetchImpl: transport, logger });
     default:
       throw new Error(`Unsupported provider type: ${type}`);
   }

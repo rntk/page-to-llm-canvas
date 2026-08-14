@@ -6,7 +6,6 @@ import {
   groupsToTopics,
   mapTextOffsetToHtml,
   rangesToSentenceList,
-  readTopicRangeChunkCheckpoint,
 } from './topicRangesStage.js';
 
 import { splitSentences } from './sentenceSplitter.js';
@@ -178,12 +177,6 @@ function makeCheckpoint(overrides = {}) {
   };
 }
 
-function twoChunks() {
-  return chunkTopicRangeSentences(
-    makeSentences(TWO_CHUNK_SENTENCE_COUNT).map((sentence) => sentence.text),
-  );
-}
-
 function makeRuntime() {
   return {
     signal: undefined,
@@ -268,6 +261,36 @@ describe('computeTopics', () => {
       status: 'splitting',
       source_summary_units: {},
     });
+  });
+
+  it('accepts execution, telemetry, and checkpoint capabilities without module mocks', async () => {
+    const runtime = makeRuntime();
+    const callLLMWithRetry = vi.fn(async () => 'Science: 0-1');
+    const executeInParallel = vi.fn(async (items, _limit, fn) => Promise.all(items.map(fn)));
+    const recordParser = vi.fn(async () => undefined);
+    const readCheckpoint = vi.fn(() => null);
+    const saveCheckpoint = vi.fn(async () => undefined);
+    splitSentences.mockReturnValue([
+      { text: 'Alpha.', start: 0, end: 6 },
+      { text: 'Beta.', start: 7, end: 12 },
+    ]);
+
+    await computeTopics({
+      runtime,
+      record: { html: '<p>Alpha. Beta.</p>', contentRevision: 'rev-di' },
+      callLLMWithRetry,
+      dependencies: {
+        parallelMap: executeInParallel,
+        recordParserMetric: recordParser,
+        readCheckpoint,
+        saveCheckpoint,
+      },
+    });
+
+    expect(executeInParallel).toHaveBeenCalled();
+    expect(recordParser).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    expect(readCheckpoint).toHaveBeenCalled();
+    expect(saveCheckpoint).toHaveBeenCalled();
   });
 
   it('propagates cancellation during resplit instead of recording a resplit error', async () => {
@@ -736,68 +759,5 @@ describe('topic-ranges incremental retry', () => {
       .map(([patch]) => patch)
       .find((patch) => 'sentences' in patch);
     expect(cleared.topic_range_chunks).toBeNull();
-  });
-});
-
-describe('readTopicRangeChunkCheckpoint', () => {
-  const record = (checkpoint, contentRevision = 'rev-1') => ({
-    contentRevision,
-    topic_range_chunks: checkpoint,
-  });
-
-  it('restores the completed chunks and leaves the pending ones null', () => {
-    const restored = readTopicRangeChunkCheckpoint(record(makeCheckpoint()), twoChunks());
-    expect(restored.reusedChunkCount).toBe(1);
-    expect(restored.segments[0]).toEqual(longChunkSegments());
-    expect(restored.segments[1]).toBeNull();
-  });
-
-  it.each([
-    ['a mismatched content revision', makeCheckpoint({ contentRevision: 'rev-other' })],
-    ['a mismatched sentence count', makeCheckpoint({ sentenceCount: 240 })],
-    ['a mismatched chunk count', makeCheckpoint({ chunks: [null] })],
-    [
-      'a mismatched chunk boundary',
-      makeCheckpoint({ chunks: [{ start: 1, sentenceCount: 240, segments: [] }, null] }),
-    ],
-    [
-      'a segment outside its own chunk',
-      makeCheckpoint({
-        chunks: [
-          { start: 0, sentenceCount: 240, segments: [{ label: ['Tech'], start: 0, end: 240 }] },
-          null,
-        ],
-      }),
-    ],
-    [
-      'a malformed segment label',
-      makeCheckpoint({
-        chunks: [
-          { start: 0, sentenceCount: 240, segments: [{ label: [''], start: 0, end: 1 }] },
-          null,
-        ],
-      }),
-    ],
-    ['nothing completed', makeCheckpoint({ chunks: [null, null] })],
-    [
-      // Would otherwise restore as DONE-but-empty: nothing left to dispatch and
-      // no segments to group, which poisons every later Retry identically.
-      'a completed chunk carrying no segments',
-      makeCheckpoint({
-        chunks: [
-          { start: 0, sentenceCount: 240, segments: [] },
-          { start: 240, sentenceCount: 1, segments: [] },
-        ],
-      }),
-    ],
-    ['a non-object payload', 'not-a-checkpoint'],
-  ])('refuses a checkpoint with %s', (_label, checkpoint) => {
-    expect(readTopicRangeChunkCheckpoint(record(checkpoint), twoChunks())).toBeNull();
-  });
-
-  it('refuses a checkpoint when the record has no content revision to pin it to', () => {
-    expect(
-      readTopicRangeChunkCheckpoint({ topic_range_chunks: makeCheckpoint() }, twoChunks()),
-    ).toBeNull();
   });
 });
