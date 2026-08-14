@@ -11,6 +11,10 @@ import * as llm from '../../../worker/llm/llm.js';
 
 vi.mock('../../../worker/llm/llm.js', () => ({
   callLLMWithRetry: vi.fn(),
+  // Unused by the pipeline path under test, but the worker's composition root
+  // names every dependency when it builds the chat completion service, so the
+  // mock has to carry it.
+  callLLMDirect: vi.fn(),
   createAdjustableLimiter: vi.fn(() => ({ run: vi.fn((fn) => fn()), setLimit: vi.fn() })),
   createLimiter: vi.fn(() => (fn) => fn()),
   parallelMap: vi.fn(async (items, limit, fn) => {
