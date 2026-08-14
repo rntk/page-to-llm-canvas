@@ -1,6 +1,6 @@
 // Shared helpers for locating record sentences inside a live DOM subtree and
 // painting them with the native CSS Custom Highlight API. Used by both the
-// in-page rail (src/content/rails/in-page/controller.jsx, operating on the
+// in-page rail (src/content/rails/in-page/pageHighlighter.js, operating on the
 // live page) and the canvas modal (src/canvas/App.jsx, operating on the
 // re-rendered article HTML).
 
@@ -8,7 +8,7 @@ const WORD_TOKEN_RE = /\S+/g;
 export const HIGHLIGHT_NAME = 'pagetollm-sentence';
 /** CSS Custom Highlight name for chat-driven sentence highlights, shared by
  * the canvas (src/chat/useChatHighlights.js) and the in-page rail
- * (src/content/rails/in-page/controller.jsx) so both surfaces render chat
+ * (src/content/rails/in-page/pageHighlighter.js) so both surfaces render chat
  * highlights identically via ::highlight(pagetollm-chat-sentence). */
 export const CHAT_HIGHLIGHT_NAME = 'pagetollm-chat-sentence';
 
