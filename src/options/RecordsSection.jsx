@@ -20,30 +20,11 @@ function formatDate(timestamp) {
   return new Date(timestamp).toLocaleString();
 }
 
-function readJsonFile(file) {
-  if (!file) return Promise.reject(new Error('No file selected'));
-  return file.text().then((text) => JSON.parse(text));
-}
-
-function downloadJsonFile(filename, value) {
-  const blob = new Blob([JSON.stringify(value, null, 2) + '\n'], {
-    type: 'application/json',
-  });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
 function statusClass(status) {
   return `status ${status || ''}`.trim();
 }
 
-export function RecordsSection() {
+export function RecordsSection({ fileHost, pageHost }) {
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -92,7 +73,7 @@ export function RecordsSection() {
     setError('');
     setImportMessage('');
     if (
-      !confirm(
+      !pageHost.confirm(
         'Delete ALL page data? This removes selected content, sentences, topics, summaries, processing logs, and every related chat.',
       )
     )
@@ -110,20 +91,13 @@ export function RecordsSection() {
     setImportMessage('');
 
     const confirmPrompt = actionConfirmPrompt(action);
-    if (confirmPrompt !== null && !confirm(confirmPrompt)) return;
+    if (confirmPrompt !== null && !pageHost.confirm(confirmPrompt)) return;
     const { messageType } = recordActionRouting(action);
 
     if (action === 'open') {
-      if (
-        typeof chrome !== 'undefined' &&
-        chrome.runtime &&
-        typeof chrome.runtime.getURL === 'function'
-      ) {
-        const url = chrome.runtime.getURL('modal.html') + '?key=' + encodeURIComponent(key);
-        window.open(url, '_blank');
-        return;
-      }
-      alert('Open by re-picking the same blocks on the source page.');
+      const path = 'modal.html?key=' + encodeURIComponent(key);
+      if (pageHost.openExtensionPage(path)) return;
+      pageHost.alert('Open by re-picking the same blocks on the source page.');
       return;
     }
 
@@ -148,7 +122,7 @@ export function RecordsSection() {
         setError(actionResponseError(response, action));
         return;
       }
-      downloadJsonFile(`pagetollm-data-${safeFilenamePart(key)}.json`, response.record);
+      fileHost.downloadJson(`pagetollm-data-${safeFilenamePart(key)}.json`, response.record);
     }
   };
 
@@ -200,7 +174,7 @@ export function RecordsSection() {
     setImportMessage('');
     setIsImporting(true);
     try {
-      const payload = await readJsonFile(file);
+      const payload = await fileHost.readJson(file);
       const records = dedupeImportedRecords(normalizeImportedRecords(payload));
       if (records.length === 0) {
         setError('No importable records found in that file');
@@ -210,7 +184,7 @@ export function RecordsSection() {
       const collisions = records.filter((record) => existingKeys.has(record.key));
       if (
         collisions.length > 0 &&
-        !confirm(
+        !pageHost.confirm(
           `Importing will overwrite ${collisions.length} existing ${
             collisions.length === 1 ? 'record' : 'records'
           }. Continue?`,

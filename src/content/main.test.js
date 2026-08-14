@@ -357,7 +357,9 @@ describe('content script main.jsx', () => {
   });
 
   it('steps a picked block up to its parent and supports drag reordering', async () => {
-    chrome.runtime.sendMessage.mockResolvedValueOnce({ ok: true, key: 'step-submit-key' });
+    chrome.runtime.sendMessage.mockImplementationOnce((_message, callback) =>
+      callback({ ok: true, key: 'step-submit-key' }),
+    );
 
     const sendResponse = vi.fn();
     await act(async () => {
@@ -443,6 +445,7 @@ describe('content script main.jsx', () => {
         type: 'submit',
         selectors: ['section#drag-sibling', 'article#step-parent'],
       }),
+      expect.any(Function),
     );
     expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
     parent.remove();
@@ -450,7 +453,9 @@ describe('content script main.jsx', () => {
   });
 
   it('submits only the parent selector when stepping a child up into an already picked parent', async () => {
-    chrome.runtime.sendMessage.mockResolvedValueOnce({ ok: true, key: 'dedup-submit-key' });
+    chrome.runtime.sendMessage.mockImplementationOnce((_message, callback) =>
+      callback({ ok: true, key: 'dedup-submit-key' }),
+    );
 
     const sendResponse = vi.fn();
     await act(async () => {
@@ -505,6 +510,7 @@ describe('content script main.jsx', () => {
         type: 'submit',
         selectors: ['article#dedup-parent'],
       }),
+      expect.any(Function),
     );
     expect(chrome.runtime.sendMessage.mock.calls.at(-1)[0].selectors).toHaveLength(1);
     expect(child.classList.contains('pagetollm-selected')).toBe(false);
@@ -513,7 +519,9 @@ describe('content script main.jsx', () => {
   });
 
   it('submits selected blocks without immediately opening the canvas', async () => {
-    chrome.runtime.sendMessage.mockResolvedValueOnce({ ok: true, key: 'submitted-key' });
+    chrome.runtime.sendMessage.mockImplementationOnce((_message, callback) =>
+      callback({ ok: true, key: 'submitted-key' }),
+    );
 
     const sendResponse = vi.fn();
     await act(async () => {
@@ -546,6 +554,7 @@ describe('content script main.jsx', () => {
         html: expect.stringContaining('Submitted block text.'),
         selectors: ['section#submit-block'],
       }),
+      expect.any(Function),
     );
     expect(document.getElementById('pagetollm-canvas-iframe')).toBeNull();
     expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();

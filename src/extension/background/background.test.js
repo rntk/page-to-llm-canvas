@@ -11,6 +11,7 @@ import { RESPLIT_METRICS_KEY } from '../../../worker/metrics/resplit.js';
 // service-worker tests.
 vi.mock('../../../worker/pipeline/orchestrator.js', () => ({
   runPipeline: vi.fn(() => new Promise((resolve) => setTimeout(resolve, 10))),
+  subscribeToLlmConcurrency: vi.fn(() => () => {}),
   isSummaryCheckpointRevisionCurrent: vi.fn(
     (record) =>
       typeof record?.contentRevision === 'string' &&

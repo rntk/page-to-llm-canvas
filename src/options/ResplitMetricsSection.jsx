@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   RESPLIT_METRICS_KEY,
   RESPLIT_OUTCOMES,
@@ -10,6 +10,7 @@ import {
 import { MSG } from '../shared/runtime/messages.js';
 import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 import { CollapsibleSection } from './CollapsibleSection.jsx';
+import { useStoredMetrics } from './useStoredMetrics.js';
 
 const OUTCOME_LABELS = {
   [RESPLIT_OUTCOMES.SUBDIVIDED]: 'subdivided',
@@ -48,37 +49,17 @@ function bucketsLabel(buckets) {
   );
 }
 
-export function ResplitMetricsSection() {
-  const [metrics, setMetrics] = useState(() => emptyResplitMetrics());
+export function ResplitMetricsSection({ store }) {
+  const [metrics, setMetrics] = useStoredMetrics({
+    storageKey: RESPLIT_METRICS_KEY,
+    read: getResplitMetrics,
+    normalize: normalizeResplitMetrics,
+    empty: emptyResplitMetrics,
+    subscribe: store.subscribe,
+    loadErrorMessage: 'PageToLLM Options resplit metrics load failed:',
+  });
   const [isClearing, setIsClearing] = useState(false);
   const [clearError, setClearError] = useState('');
-
-  useEffect(() => {
-    let current = true;
-    void getResplitMetrics()
-      .then((stored) => current && setMetrics(stored))
-      .catch((err) => {
-        console.warn('PageToLLM Options resplit metrics load failed:', err);
-      });
-    const onChanged = (changes, areaName) => {
-      if (areaName === 'local' && changes?.[RESPLIT_METRICS_KEY]) {
-        setMetrics(normalizeResplitMetrics(changes[RESPLIT_METRICS_KEY].newValue));
-      }
-    };
-    try {
-      chrome.storage.onChanged.addListener(onChanged);
-    } catch (_) {
-      /* noop */
-    }
-    return () => {
-      current = false;
-      try {
-        chrome.storage.onChanged.removeListener(onChanged);
-      } catch (_) {
-        /* noop */
-      }
-    };
-  }, []);
 
   const handleClear = useCallback(async () => {
     setIsClearing(true);
@@ -104,7 +85,7 @@ export function ResplitMetricsSection() {
     } finally {
       setIsClearing(false);
     }
-  }, []);
+  }, [setMetrics]);
 
   return (
     <CollapsibleSection title="Topic Range Resplit">

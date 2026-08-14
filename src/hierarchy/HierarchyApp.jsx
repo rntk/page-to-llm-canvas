@@ -12,8 +12,8 @@ import { buildTopicTree, collectNonLeafPaths } from '../utils/topicTree.js';
 import { getMaxTopicLevel } from '../domain/topicDomain.js';
 import './hierarchy.css';
 
-export default function HierarchyApp({ initialKey }) {
-  const { record, error } = useRecord(initialKey);
+export default function HierarchyApp({ initialKey, recordSource }) {
+  const { record, error } = useRecord(initialKey, recordSource);
   const bodyRef = useRef(null);
 
   const [prevInitialKey, setPrevInitialKey] = useState(initialKey);

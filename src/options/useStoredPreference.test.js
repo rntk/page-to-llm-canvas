@@ -49,17 +49,6 @@ let changeListeners;
 
 beforeEach(() => {
   changeListeners = [];
-  vi.stubGlobal('chrome', {
-    storage: {
-      onChanged: {
-        addListener: vi.fn((listener) => changeListeners.push(listener)),
-        removeListener: vi.fn((listener) => {
-          const index = changeListeners.indexOf(listener);
-          if (index !== -1) changeListeners.splice(index, 1);
-        }),
-      },
-    },
-  });
 });
 
 afterEach(() => {
@@ -68,12 +57,20 @@ afterEach(() => {
 });
 
 function setup(overrides = {}) {
+  const subscribe = vi.fn((_key, listener) => {
+    changeListeners.push(listener);
+    return vi.fn(() => {
+      const index = changeListeners.indexOf(listener);
+      if (index !== -1) changeListeners.splice(index, 1);
+    });
+  });
   const options = {
     storageKey: 'preference-key',
     defaultValue: false,
     readPreference: vi.fn().mockResolvedValue(false),
     writePreference: vi.fn().mockResolvedValue(false),
     normalize: (value) => value === true,
+    subscribe,
     ...overrides,
   };
   const rendered = renderPreferenceHook(options);
@@ -113,11 +110,7 @@ describe('useStoredPreference', () => {
     const { result } = setup({ normalize });
     const listener = changeListeners[0];
 
-    act(() => listener({ 'other-key': { newValue: 'on' } }, 'local'));
-    act(() => listener({ 'preference-key': { newValue: 'on' } }, 'sync'));
-    expect(result.current[0]).toBe(false);
-
-    act(() => listener({ 'preference-key': { newValue: 'on' } }, 'local'));
+    act(() => listener('on'));
     expect(result.current[0]).toBe(true);
     expect(normalize).toHaveBeenLastCalledWith('on');
   });
@@ -167,10 +160,7 @@ describe('useStoredPreference', () => {
       normalize,
     });
     await flush();
-    const listener = changeListeners[0];
-
     unmount();
-    expect(chrome.storage.onChanged.removeListener).toHaveBeenCalledWith(listener);
     expect(changeListeners).toHaveLength(0);
 
     pendingLoad.resolve(true);

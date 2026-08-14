@@ -25,12 +25,18 @@ let pickCounter = 0;
 let dragSrcIndex = null;
 let dragOverIndex = null;
 let isSubmitting = false;
+let runtimeMessenger = null;
 
 // Re-tag the toolbar host on theme/highlight changes. Registered once; the
 // getter returns the live host element (or null when the toolbar is closed).
 registerThemedSurface(() => selectionToolbar);
 
-export function showSelectionToolbar() {
+// `messenger` joins the other module-level toolbar-session values above: set
+// here, cleared by cleanupSelection. Deliberately not validated — throwing
+// would escape the chrome.runtime.onMessage listener that calls this, before
+// it can sendResponse, and hang the popup waiting on the reply.
+export function showSelectionToolbar(messenger) {
+  runtimeMessenger = messenger;
   const replacingToolbar = Boolean(selectionToolbar);
   if (selectionToolbar) {
     selectionToolbarRoot && selectionToolbarRoot.unmount();
@@ -238,7 +244,7 @@ async function submitSelection(event) {
   const selectors = els.map(buildCssPath);
 
   try {
-    const response = await chrome.runtime.sendMessage({
+    const response = await runtimeMessenger.send({
       type: MSG.submit,
       html,
       sourceUrl,
@@ -269,6 +275,7 @@ function cleanupSelection(event) {
     selectionToolbar.remove();
     selectionToolbar = null;
     selectionToolbarShadowRoot = null;
+    runtimeMessenger = null;
     untrackMountedSurface();
     if (import.meta.env.MODE === 'test') {
       window.__pagetollmTestSelectionToolbarRoot = null;

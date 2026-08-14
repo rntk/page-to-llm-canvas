@@ -19,6 +19,7 @@ import {
   getLlmMetrics,
 } from '../../worker/metrics/llm.js';
 import { LlmMetricsSection } from './LlmMetricsSection.jsx';
+import { createFakeStore } from '../../test/fakes/storeFake.mjs';
 
 function deferred() {
   let resolve;
@@ -110,13 +111,13 @@ function populatedMetrics() {
 }
 
 const cleanups = [];
-let storageListeners;
+let store;
 
 function renderSection() {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
-  act(() => root.render(<LlmMetricsSection />));
+  act(() => root.render(<LlmMetricsSection store={store} />));
   let mounted = true;
   const unmount = () => {
     if (!mounted) return;
@@ -143,17 +144,7 @@ function row(container, label) {
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  storageListeners = [];
-  vi.stubGlobal('chrome', {
-    storage: {
-      onChanged: {
-        addListener: vi.fn((listener) => storageListeners.push(listener)),
-        removeListener: vi.fn((listener) => {
-          storageListeners = storageListeners.filter((candidate) => candidate !== listener);
-        }),
-      },
-    },
-  });
+  store = createFakeStore();
   getLlmMetrics.mockReset().mockResolvedValue(emptyLlmMetrics());
   clearLlmMetrics.mockReset().mockResolvedValue(undefined);
 });
@@ -325,19 +316,18 @@ describe('LlmMetricsSection', () => {
     expect(container.textContent).not.toContain('Recent requests (newest first)');
   });
 
-  it('accepts only matching local storage changes and normalizes their payload', async () => {
+  it('watches the metrics key and normalizes each published value', async () => {
     const { container } = renderSection();
     await flush();
-    const listener = storageListeners[0];
 
-    act(() => listener({ [LLM_METRICS_KEY]: { newValue: { totalCount: 9 } } }, 'sync'));
-    act(() => listener(null, 'local'));
-    act(() => listener({}, 'local'));
+    expect(store.subscribedKeys).toEqual([LLM_METRICS_KEY]);
+
+    // An unset/cleared key normalizes back to the empty report rather than
+    // rendering a partial one.
+    act(() => store.publish(undefined));
     expect(container.querySelector('.empty')).not.toBeNull();
 
-    act(() =>
-      listener({ [LLM_METRICS_KEY]: { newValue: { totalCount: '2', successCount: 2 } } }, 'local'),
-    );
+    act(() => store.publish({ totalCount: '2', successCount: 2 }));
     expect(row(container, 'Total requests').querySelector('td').textContent).toBe('2');
     expect(row(container, 'Succeeded / failed').querySelector('td').textContent).toContain('2 / 0');
   });
@@ -383,32 +373,19 @@ describe('LlmMetricsSection', () => {
     expect(container.querySelector('button').disabled).toBe(false);
   });
 
-  it('removes the listener and ignores an initial load that finishes after unmount', async () => {
+  // Tolerating a missing or throwing chrome.storage.onChanged is the adapter's
+  // job, covered in src/shared/runtime/localStore.test.js. What this section
+  // owes is releasing its subscription and not setting state after unmount.
+  it('unsubscribes and ignores an initial load that finishes after unmount', async () => {
     const load = deferred();
     getLlmMetrics.mockReturnValue(load.promise);
     const { unmount } = renderSection();
-    const listener = storageListeners[0];
 
     unmount();
-    expect(chrome.storage.onChanged.removeListener).toHaveBeenCalledWith(listener);
-    expect(storageListeners).toHaveLength(0);
+    expect(store.unsubscribe).toHaveBeenCalledOnce();
+    expect(store.listenerCount).toBe(0);
 
     load.resolve(populatedMetrics());
     await flush();
-  });
-
-  it('continues loading and unmounting when storage listener APIs throw', async () => {
-    chrome.storage.onChanged.addListener.mockImplementation(() => {
-      throw new Error('unavailable');
-    });
-    chrome.storage.onChanged.removeListener.mockImplementation(() => {
-      throw new Error('unavailable');
-    });
-    getLlmMetrics.mockResolvedValue(populatedMetrics());
-    const { container, unmount } = renderSection();
-
-    await flush();
-    expect(row(container, 'Total requests').querySelector('td').textContent).toBe('3');
-    expect(() => unmount()).not.toThrow();
   });
 });

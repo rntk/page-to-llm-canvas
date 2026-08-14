@@ -83,7 +83,7 @@ export function ThemeToggle() {
 
 const HIGHLIGHT_PERSIST_DEBOUNCE_MS = 150;
 
-export function HighlightColorSection() {
+export function HighlightColorSection({ store, scheduler }) {
   const [color, setColor] = useState(DEFAULT_HIGHLIGHT_COLOR);
   const persistTimer = useRef(null);
   const pendingColor = useRef(null);
@@ -109,7 +109,7 @@ export function HighlightColorSection() {
 
   const flushPendingPersist = useCallback(() => {
     if (persistTimer.current) {
-      clearTimeout(persistTimer.current);
+      scheduler.clearTimeout(persistTimer.current);
       persistTimer.current = null;
     }
     if (pendingColor.current != null) {
@@ -117,7 +117,7 @@ export function HighlightColorSection() {
       pendingColor.current = null;
       void persistColor(next);
     }
-  }, [persistColor]);
+  }, [persistColor, scheduler]);
 
   useEffect(() => {
     let isCurrent = true;
@@ -129,55 +129,46 @@ export function HighlightColorSection() {
     }
 
     void loadHighlightColor();
-    const handleStorageChange = (changes, areaName) => {
-      if (areaName !== 'local' || !changes || !changes[HIGHLIGHT_COLOR_KEY]) return;
-      if (changes[HIGHLIGHT_COLOR_KEY].newValue === undefined) {
-        if (persistTimer.current) clearTimeout(persistTimer.current);
+    const unsubscribe = store.subscribe(HIGHLIGHT_COLOR_KEY, (newValue) => {
+      if (newValue === undefined) {
+        if (persistTimer.current) scheduler.clearTimeout(persistTimer.current);
         persistTimer.current = null;
         pendingColor.current = null;
       }
-      previewColor(changes[HIGHLIGHT_COLOR_KEY].newValue);
-    };
-    try {
-      chrome.storage.onChanged.addListener(handleStorageChange);
-    } catch (_) {
-      /* noop */
-    }
+      previewColor(newValue);
+    });
+
     return () => {
       isCurrent = false;
-      try {
-        chrome.storage.onChanged.removeListener(handleStorageChange);
-      } catch (_) {
-        /* noop */
-      }
+      unsubscribe();
       flushPendingPersist();
     };
-  }, [previewColor, flushPendingPersist]);
+  }, [previewColor, flushPendingPersist, scheduler, store]);
 
   const handleColorInput = useCallback(
     (nextColor) => {
       const normalized = previewColor(nextColor);
       pendingColor.current = normalized;
-      if (persistTimer.current) clearTimeout(persistTimer.current);
-      persistTimer.current = setTimeout(() => {
+      if (persistTimer.current) scheduler.clearTimeout(persistTimer.current);
+      persistTimer.current = scheduler.setTimeout(() => {
         persistTimer.current = null;
         const next = pendingColor.current;
         pendingColor.current = null;
         if (next != null) void persistColor(next);
       }, HIGHLIGHT_PERSIST_DEBOUNCE_MS);
     },
-    [previewColor, persistColor],
+    [previewColor, persistColor, scheduler],
   );
 
   const resetColor = useCallback(() => {
     if (persistTimer.current) {
-      clearTimeout(persistTimer.current);
+      scheduler.clearTimeout(persistTimer.current);
       persistTimer.current = null;
     }
     pendingColor.current = null;
     const normalized = previewColor(DEFAULT_HIGHLIGHT_COLOR);
     void persistColor(normalized);
-  }, [previewColor, persistColor]);
+  }, [previewColor, persistColor, scheduler]);
 
   return (
     <div className="settings-group">
@@ -205,13 +196,14 @@ export function HighlightColorSection() {
   );
 }
 
-export function ContentLanguageSection() {
+export function ContentLanguageSection({ store }) {
   const [preferContentLanguage, setPreferContentLanguage] = useStoredPreference({
     storageKey: PREFER_CONTENT_LANGUAGE_KEY,
     defaultValue: DEFAULT_PREFER_CONTENT_LANGUAGE,
     readPreference: getStoredPreferContentLanguage,
     writePreference: setStoredPreferContentLanguage,
     normalize: normalizePreferContentLanguage,
+    subscribe: store.subscribe,
   });
 
   return (
@@ -236,13 +228,14 @@ export function ContentLanguageSection() {
   );
 }
 
-export function SummaryGenerationSection() {
+export function SummaryGenerationSection({ store }) {
   const [summariesDisabled, setSummariesDisabled] = useStoredPreference({
     storageKey: SUMMARIES_DISABLED_KEY,
     defaultValue: DEFAULT_SUMMARIES_DISABLED,
     readPreference: getStoredSummariesDisabled,
     writePreference: setStoredSummariesDisabled,
     normalize: normalizeSummariesDisabled,
+    subscribe: store.subscribe,
   });
 
   return (
@@ -270,13 +263,14 @@ export function SummaryGenerationSection() {
   );
 }
 
-export function LlmConcurrencySection() {
+export function LlmConcurrencySection({ store }) {
   const [maxParallelRequests, setMaxParallelRequests] = useStoredPreference({
     storageKey: MAX_PARALLEL_LLM_REQUESTS_KEY,
     defaultValue: DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
     readPreference: getStoredMaxParallelLlmRequests,
     writePreference: setStoredMaxParallelLlmRequests,
     normalize: normalizeMaxParallelLlmRequests,
+    subscribe: store.subscribe,
   });
 
   return (
@@ -304,13 +298,14 @@ export function LlmConcurrencySection() {
   );
 }
 
-export function LlmRequestTimeoutSection() {
+export function LlmRequestTimeoutSection({ store }) {
   const [requestTimeoutSeconds, setRequestTimeoutSeconds] = useStoredPreference({
     storageKey: LLM_REQUEST_TIMEOUT_SECONDS_KEY,
     defaultValue: DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS,
     readPreference: getStoredLlmRequestTimeoutSeconds,
     writePreference: setStoredLlmRequestTimeoutSeconds,
     normalize: normalizeLlmRequestTimeoutSeconds,
+    subscribe: store.subscribe,
   });
 
   return (
@@ -338,13 +333,14 @@ export function LlmRequestTimeoutSection() {
   );
 }
 
-export function VerboseLogsSection() {
+export function VerboseLogsSection({ store }) {
   const [verboseLogs, setVerboseLogs] = useStoredPreference({
     storageKey: VERBOSE_LOGS_KEY,
     defaultValue: DEFAULT_VERBOSE_LOGS,
     readPreference: getStoredVerboseLogs,
     writePreference: setStoredVerboseLogs,
     normalize: normalizeVerboseLogs,
+    subscribe: store.subscribe,
   });
 
   return (
@@ -372,7 +368,7 @@ export function VerboseLogsSection() {
   );
 }
 
-export function GeneralSettingsPanel() {
+export function GeneralSettingsPanel({ store, scheduler }) {
   return (
     <>
       <h2>General</h2>
@@ -384,12 +380,12 @@ export function GeneralSettingsPanel() {
             <div className="note">Choose how the settings and canvas interface are displayed.</div>
           </div>
         </div>
-        <ContentLanguageSection />
-        <SummaryGenerationSection />
-        <LlmConcurrencySection />
-        <LlmRequestTimeoutSection />
-        <VerboseLogsSection />
-        <HighlightColorSection />
+        <ContentLanguageSection store={store} />
+        <SummaryGenerationSection store={store} />
+        <LlmConcurrencySection store={store} />
+        <LlmRequestTimeoutSection store={store} />
+        <VerboseLogsSection store={store} />
+        <HighlightColorSection scheduler={scheduler} store={store} />
       </div>
     </>
   );

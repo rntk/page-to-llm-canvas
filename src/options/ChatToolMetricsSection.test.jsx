@@ -17,9 +17,11 @@ import {
   getChatToolMetrics,
 } from '../../worker/metrics/chatTool.js';
 import { ChatToolMetricsSection } from './ChatToolMetricsSection.jsx';
+import { createFakeStore } from '../../test/fakes/storeFake.mjs';
 
 let root;
 let container;
+let store;
 
 function metricsWithCalls(totalCount) {
   const metrics = emptyChatToolMetrics();
@@ -39,11 +41,7 @@ async function flush() {
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  vi.stubGlobal('chrome', {
-    storage: {
-      onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
-    },
-  });
+  store = createFakeStore();
   getChatToolMetrics.mockReset();
   sendRuntimeMessage.mockReset();
 
@@ -66,7 +64,7 @@ describe('ChatToolMetricsSection', () => {
       .mockResolvedValueOnce(metricsWithCalls(3));
     sendRuntimeMessage.mockResolvedValue({ ok: false, error: 'storage unavailable' });
 
-    act(() => root.render(<ChatToolMetricsSection />));
+    act(() => root.render(<ChatToolMetricsSection store={store} />));
     await flush();
 
     await act(async () => {

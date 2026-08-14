@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   CHAT_TOOL_METRICS_KEY,
   CHAT_TOOL_OUTCOME_LABELS,
@@ -10,6 +10,7 @@ import {
 import { MSG } from '../shared/runtime/messages.js';
 import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 import { CollapsibleSection } from './CollapsibleSection.jsx';
+import { useStoredMetrics } from './useStoredMetrics.js';
 
 function formatDate(timestamp) {
   return timestamp ? new Date(timestamp).toLocaleString() : '—';
@@ -22,36 +23,16 @@ function outcomeLabel(outcome) {
 // Outcomes ordered so accepted highlights lead and error cases group at the end.
 const OUTCOME_ORDER = Object.keys(CHAT_TOOL_OUTCOME_LABELS);
 
-export function ChatToolMetricsSection() {
-  const [metrics, setMetrics] = useState(() => emptyChatToolMetrics());
+export function ChatToolMetricsSection({ store }) {
+  const [metrics, setMetrics] = useStoredMetrics({
+    storageKey: CHAT_TOOL_METRICS_KEY,
+    read: getChatToolMetrics,
+    normalize: normalizeChatToolMetrics,
+    empty: emptyChatToolMetrics,
+    subscribe: store.subscribe,
+    loadErrorMessage: 'PageToLLM Options chat tool metrics load failed:',
+  });
   const [isClearing, setIsClearing] = useState(false);
-
-  useEffect(() => {
-    let current = true;
-    void getChatToolMetrics()
-      .then((stored) => current && setMetrics(stored))
-      .catch((err) => {
-        console.warn('PageToLLM Options chat tool metrics load failed:', err);
-      });
-    const onChanged = (changes, areaName) => {
-      if (areaName === 'local' && changes?.[CHAT_TOOL_METRICS_KEY]) {
-        setMetrics(normalizeChatToolMetrics(changes[CHAT_TOOL_METRICS_KEY].newValue));
-      }
-    };
-    try {
-      chrome.storage.onChanged.addListener(onChanged);
-    } catch (_) {
-      /* noop */
-    }
-    return () => {
-      current = false;
-      try {
-        chrome.storage.onChanged.removeListener(onChanged);
-      } catch (_) {
-        /* noop */
-      }
-    };
-  }, []);
 
   const handleClear = useCallback(async () => {
     setIsClearing(true);
@@ -69,7 +50,7 @@ export function ChatToolMetricsSection() {
     } finally {
       setIsClearing(false);
     }
-  }, []);
+  }, [setMetrics]);
 
   const outcomes = OUTCOME_ORDER.filter((outcome) => metrics.byOutcome[outcome] > 0);
 

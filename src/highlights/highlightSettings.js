@@ -1,3 +1,5 @@
+import { createStoredSetting } from '../shared/runtime/localStore.js';
+
 export const HIGHLIGHT_COLOR_KEY = 'pagetollm-highlight-color';
 export const DEFAULT_HIGHLIGHT_COLOR = '#3a404d';
 export const HIGHLIGHT_BACKGROUND_ALPHA = 0.12;
@@ -60,35 +62,16 @@ export function applyHighlightColorToElement(
   );
 }
 
+const setting = createStoredSetting({
+  key: HIGHLIGHT_COLOR_KEY,
+  defaultValue: DEFAULT_HIGHLIGHT_COLOR,
+  normalize: normalizeHighlightColor,
+});
+
 export function getStoredHighlightColor() {
-  return new Promise((resolve) => {
-    try {
-      chrome.storage.local.get(HIGHLIGHT_COLOR_KEY, (items) => {
-        if (chrome.runtime && chrome.runtime.lastError) {
-          resolve(DEFAULT_HIGHLIGHT_COLOR);
-          return;
-        }
-        resolve(normalizeHighlightColor(items ? items[HIGHLIGHT_COLOR_KEY] : undefined));
-      });
-    } catch (_) {
-      resolve(DEFAULT_HIGHLIGHT_COLOR);
-    }
-  });
+  return setting.read();
 }
 
 export function setStoredHighlightColor(color) {
-  const normalized = normalizeHighlightColor(color);
-  return new Promise((resolve, reject) => {
-    try {
-      chrome.storage.local.set({ [HIGHLIGHT_COLOR_KEY]: normalized }, () => {
-        if (chrome.runtime && chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message || 'storage.set failed'));
-          return;
-        }
-        resolve(normalized);
-      });
-    } catch (err) {
-      reject(err instanceof Error ? err : new Error(String(err)));
-    }
-  });
+  return setting.write(color);
 }

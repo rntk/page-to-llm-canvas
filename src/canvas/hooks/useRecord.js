@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { MSG } from '../../shared/runtime/messages.js';
-import { sendRuntimeMessage } from '../../utils/runtimeMessages.js';
 
 /**
  * Subscribes to the record identified by `key`. The record is physically
@@ -12,9 +11,10 @@ import { sendRuntimeMessage } from '../../utils/runtimeMessages.js';
  * not a source of record data itself.
  *
  * @param {string} key - The unique storage key for the record.
+ * @param {{runtimeMessenger: {send: Function}, store: {get: Function, subscribeChanges: Function}}} source
  * @returns {{ record: object | null, error: string | null }}
  */
-export function useRecord(key) {
+export function useRecord(key, source) {
   const [record, setRecord] = useState(null);
   const [error, setError] = useState(() => (key ? null : 'missing record key'));
 
@@ -35,7 +35,7 @@ export function useRecord(key) {
     const docKeys = [metaKey, contentKey, summariesKey];
 
     const fetchViaServiceWorker = async () => {
-      const resp = await sendRuntimeMessage({ type: MSG.getRecord, key });
+      const resp = await source.runtimeMessenger.send({ type: MSG.getRecord, key });
       return resp && resp.ok && resp.record ? resp.record : null;
     };
 
@@ -49,7 +49,7 @@ export function useRecord(key) {
           setError(null);
           return;
         }
-        chrome.storage.local.get(docKeys, (items) => {
+        return source.store.get(docKeys).then((items) => {
           if (cancelled) return;
           const merged = {
             ...(items[contentKey] || {}),
@@ -71,9 +71,7 @@ export function useRecord(key) {
     // 2) live updates: any change to this record's docs re-fetches the full,
     // freshly-reassembled record through the same SW path used for the
     // initial load, instead of trying to merge partial doc changes locally.
-    const onChanged = (changes, areaName) => {
-      if (areaName !== 'local') return;
-      if (!docKeys.some((k) => hasOwn(changes, k))) return;
+    const onChanged = () => {
       fetchViaServiceWorker()
         .then((rec) => {
           if (cancelled) return;
@@ -89,25 +87,18 @@ export function useRecord(key) {
           if (!cancelled) setError(String(e && e.message ? e.message : e));
         });
     };
-    try {
-      chrome.storage.onChanged.addListener(onChanged);
-    } catch (_) {
-      /* noop */
-    }
+    const unsubscribe = source.store.subscribeChanges(docKeys, onChanged);
 
     return () => {
       cancelled = true;
-      try {
-        chrome.storage.onChanged.removeListener(onChanged);
-      } catch (_) {
-        /* noop */
-      }
+      unsubscribe();
     };
-  }, [key]);
+    // Depend on the capability members, not the wrapper object: the members
+    // stay stable when a caller builds `source` inline per render, which would
+    // otherwise resubscribe and refetch on every render. The optional chaining
+    // keeps the missing-key path (which returns above, before touching
+    // `source`) working without one, as it did before the capability existed.
+  }, [key, source?.runtimeMessenger, source?.store]);
 
   return { record, error };
-}
-
-function hasOwn(obj, key) {
-  return Object.prototype.hasOwnProperty.call(obj, key);
 }

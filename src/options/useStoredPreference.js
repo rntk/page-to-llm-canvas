@@ -4,8 +4,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * Keeps a small preference synchronized with chrome.storage.local.
  *
  * The persistence functions are injected so the hook stays independent of a
- * specific preference and the storage boundary remains easy to test.
- * @param {{storageKey: string, defaultValue: unknown, readPreference: Function, writePreference: Function, normalize: Function}} options Preference dependencies.
+ * specific preference and the storage boundary remains easy to test. That
+ * includes `subscribe`, supplied by the owning composition root as a
+ * `(key, onValue) => unsubscribe` capability.
+ * @param {{storageKey: string, defaultValue: unknown, readPreference: Function, writePreference: Function, normalize: Function, subscribe: Function}} options Preference dependencies.
  */
 export function useStoredPreference({
   storageKey,
@@ -13,6 +15,7 @@ export function useStoredPreference({
   readPreference,
   writePreference,
   normalize,
+  subscribe,
 }) {
   const [value, setValue] = useState(defaultValue);
   const mountedRef = useRef(false);
@@ -36,33 +39,18 @@ export function useStoredPreference({
         // Keep the current/default value if a different reader rejects.
       });
 
-    const handleStorageChange = (changes, areaName) => {
-      if (!mountedRef.current || areaName !== 'local' || !changes || !changes[storageKey]) {
-        return;
-      }
+    const unsubscribe = subscribe(storageKey, (newValue) => {
+      if (!mountedRef.current) return;
       revisionRef.current += 1;
-      setValue(normalize(changes[storageKey].newValue));
-    };
-
-    let listening = false;
-    try {
-      chrome.storage.onChanged.addListener(handleStorageChange);
-      listening = true;
-    } catch (_) {
-      /* noop */
-    }
+      setValue(normalize(newValue));
+    });
 
     return () => {
       mountedRef.current = false;
       revisionRef.current += 1;
-      if (!listening) return;
-      try {
-        chrome.storage.onChanged.removeListener(handleStorageChange);
-      } catch (_) {
-        /* noop */
-      }
+      unsubscribe();
     };
-  }, [normalize, readPreference, storageKey]);
+  }, [normalize, readPreference, storageKey, subscribe]);
 
   const updateValue = useCallback(
     async (nextValue) => {

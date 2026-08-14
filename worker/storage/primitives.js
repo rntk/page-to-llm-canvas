@@ -1,82 +1,28 @@
 // Low-level storage primitives shared by storage.js (records) and
-// chatStorage.js (per-article chats). Kept in a dependency-free internal module
-// so both aggregates can serialize their writes on the same global mutation
-// queue without an import cycle between them. This module must not import from
+// chatStorage.js (per-article chats). Kept in an internal module so both
+// aggregates can serialize their writes on the same global mutation queue
+// without an import cycle between them. This module must not import from
 // storage.js or chatStorage.js.
+//
+// The chrome.storage.local plumbing itself lives in the realm-neutral
+// src/shared/runtime/localStore.js adapter, which the UI bundles and shared
+// settings modules use directly; the re-exports below are the worker-facing
+// names for that one implementation.
+//
+// The aliasing is deliberate rather than transitional. getLocal/setLocal are
+// the established vocabulary at ~45 call sites across storage.js,
+// chatStorage.js, dataManagement.js, metricsStore.js and llm/providers.js;
+// renaming them to match the adapter would churn five modules to delete one
+// line here. Import the short names from this module inside worker/, and the
+// getLocalItems/... names from the adapter everywhere else.
 
-export async function getLocal(keys) {
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.get(keys, (items) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve(items || {});
-    });
-  });
-}
-
-/** Reads only keys under one namespace when StorageArea.getKeys is available
- * (Chrome 130+), avoiding deserialization of unrelated large record payloads.
- * Older browsers fall back to one full read and filter the result locally.
- * @param {string} prefix Storage-key prefix.
- */
-export async function getLocalByPrefix(prefix) {
-  if (typeof chrome.storage.local.getKeys !== 'function') {
-    const allItems = await getLocal(null);
-    return Object.fromEntries(
-      Object.entries(allItems).filter(([storageKey]) => storageKey.startsWith(prefix)),
-    );
-  }
-
-  const keys = await new Promise((resolve, reject) => {
-    chrome.storage.local.getKeys((storedKeys) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve(Array.isArray(storedKeys) ? storedKeys : []);
-    });
-  });
-  const matchingKeys = keys.filter((storageKey) => storageKey.startsWith(prefix));
-  return matchingKeys.length ? getLocal(matchingKeys) : {};
-}
-
-export async function setLocal(items) {
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.set(items, () => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve();
-    });
-  });
-}
-
-export async function removeLocal(keys) {
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.remove(keys, () => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve();
-    });
-  });
-}
-
-export async function clearLocal() {
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.clear(() => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve();
-    });
-  });
-}
+export {
+  getLocalItems as getLocal,
+  getLocalItemsByPrefix as getLocalByPrefix,
+  setLocalItems as setLocal,
+  removeLocalItems as removeLocal,
+  clearLocalItems as clearLocal,
+} from '../../src/shared/runtime/localStore.js';
 
 /**
  * Per-key promise queue. Serializes all read-modify-write operations on the

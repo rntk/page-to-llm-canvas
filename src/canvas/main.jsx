@@ -11,6 +11,8 @@ import {
   normalizeHighlightColor,
   applyHighlightColorToElement,
 } from '../highlights/highlightSettings.js';
+import { browserLocalStore } from '../shared/runtime/localStore.js';
+import { browserRuntimeMessenger } from '../utils/runtimeMessages.js';
 
 // Apply the saved light/dark/system preference to this iframe document, and
 // keep it in sync if the preference changes (from the popup/options) while a
@@ -23,19 +25,18 @@ themeController.watch();
 void getStoredHighlightColor().then((color) => {
   applyHighlightColorToElement(document.documentElement, color);
 });
-try {
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== 'local' || !changes || !changes[HIGHLIGHT_COLOR_KEY]) return;
-    applyHighlightColorToElement(
-      document.documentElement,
-      normalizeHighlightColor(changes[HIGHLIGHT_COLOR_KEY].newValue),
-    );
-  });
-} catch (_) {
-  /* noop */
-}
+browserLocalStore.subscribe(HIGHLIGHT_COLOR_KEY, (newValue) => {
+  applyHighlightColorToElement(document.documentElement, normalizeHighlightColor(newValue));
+});
 
 const { key, view } = parseModalRoute(window.location.search);
 const container = document.getElementById('pagetollm-root');
 const root = createRoot(container);
-root.render(view === 'hierarchy' ? <HierarchyApp initialKey={key} /> : <App initialKey={key} />);
+const recordSource = { runtimeMessenger: browserRuntimeMessenger, store: browserLocalStore };
+root.render(
+  view === 'hierarchy' ? (
+    <HierarchyApp initialKey={key} recordSource={recordSource} />
+  ) : (
+    <App initialKey={key} recordSource={recordSource} />
+  ),
+);

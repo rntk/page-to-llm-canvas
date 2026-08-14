@@ -126,16 +126,11 @@ const callLLMWithRetry = (opts, maxRetries) =>
   pipelineLlmLimiter.run(() => measuredCallLLMWithRetry(opts, maxRetries), opts?.signal);
 let concurrencySettingRevision = 0;
 
-try {
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== 'local' || !changes?.[MAX_PARALLEL_LLM_REQUESTS_KEY]) return;
+export function subscribeToLlmConcurrency(subscribe) {
+  return subscribe(MAX_PARALLEL_LLM_REQUESTS_KEY, (newValue) => {
     concurrencySettingRevision++;
-    pipelineLlmLimiter.setLimit(
-      normalizeMaxParallelLlmRequests(changes[MAX_PARALLEL_LLM_REQUESTS_KEY].newValue),
-    );
+    pipelineLlmLimiter.setLimit(normalizeMaxParallelLlmRequests(newValue));
   });
-} catch (_) {
-  /* The stored value is still loaded whenever a pipeline starts. */
 }
 
 /**

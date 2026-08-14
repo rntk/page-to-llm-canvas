@@ -13,6 +13,7 @@ import {
   normalizeHighlightColor,
   applyHighlightColorToElement,
 } from '../../highlights/highlightSettings.js';
+import { browserLocalStore } from '../../shared/runtime/localStore.js';
 
 // The injected toolbar/rail tokens are scoped to their host elements (not the
 // host page's :root), so we tag those elements with the saved preference and
@@ -21,7 +22,7 @@ import {
 // elements can be tagged synchronously on creation (no flash).
 let cachedThemePreference = THEME_SYSTEM;
 let cachedHighlightColor = DEFAULT_HIGHLIGHT_COLOR;
-let storagePreferenceListenerAttached = false;
+let unsubscribePreferenceStorage = null;
 let mountedContentSurfaceCount = 0;
 let preferenceStorageSyncId = 0;
 
@@ -119,8 +120,8 @@ function syncPreferenceCacheFromStorage() {
     });
 }
 
-function handlePreferenceStorageChange(changes, areaName) {
-  if (areaName !== 'local' || !changes) return;
+function handlePreferenceStorageChange(changes) {
+  if (!changes) return;
   const themeChange = changes[THEME_KEY];
   const highlightColorChange = changes[HIGHLIGHT_COLOR_KEY];
   if (!themeChange && !highlightColorChange) return;
@@ -136,25 +137,18 @@ function handlePreferenceStorageChange(changes, areaName) {
 }
 
 function attachPreferenceStorageListener() {
-  if (storagePreferenceListenerAttached) return;
-  try {
-    chrome.storage.onChanged.addListener(handlePreferenceStorageChange);
-    storagePreferenceListenerAttached = true;
-    syncPreferenceCacheFromStorage();
-  } catch (_) {
-    /* noop */
-  }
+  if (unsubscribePreferenceStorage) return;
+  unsubscribePreferenceStorage = browserLocalStore.subscribeChanges(
+    [THEME_KEY, HIGHLIGHT_COLOR_KEY],
+    handlePreferenceStorageChange,
+  );
+  syncPreferenceCacheFromStorage();
 }
 
 function detachPreferenceStorageListener() {
-  if (!storagePreferenceListenerAttached) return;
-  try {
-    chrome.storage.onChanged.removeListener(handlePreferenceStorageChange);
-  } catch (_) {
-    /* noop */
-  } finally {
-    storagePreferenceListenerAttached = false;
-  }
+  if (!unsubscribePreferenceStorage) return;
+  unsubscribePreferenceStorage();
+  unsubscribePreferenceStorage = null;
 }
 
 export function trackMountedSurface() {

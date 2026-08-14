@@ -29,11 +29,11 @@ import { useChatHighlights } from '../chat/useChatHighlights.js';
 import { buildSentenceDomRange } from '../highlights/sentenceHighlight.js';
 
 /**
- * @param {{ initialKey: string }} props
+ * @param {{ initialKey: string, recordSource: object }} props
  * @returns {JSX.Element}
  */
-export default function App({ initialKey }) {
-  const { record } = useRecord(initialKey);
+export default function App({ initialKey, recordSource }) {
+  const { record } = useRecord(initialKey, recordSource);
 
   // Canvas is a read-only view of completed data. Pipeline progress, failures,
   // retries, and summary review are handled from the popup and Options page.

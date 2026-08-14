@@ -7,6 +7,7 @@
 // avoids a flash of the wrong colors for system users on first paint.
 
 import { createLogger } from './log.js';
+import { getLocalItems, setLocalItems, subscribeLocalKey } from './localStore.js';
 
 const log = createLogger();
 
@@ -109,35 +110,20 @@ export function applyTheme(
 }
 
 export function getStoredTheme() {
-  return new Promise((resolve) => {
-    try {
-      chrome.storage.local.get(THEME_KEY, (items) => {
-        if (chrome.runtime && chrome.runtime.lastError) {
-          resolve(undefined);
-          return;
-        }
-        resolve(items ? items[THEME_KEY] : undefined);
-      });
-    } catch (_) {
-      resolve(undefined);
-    }
-  });
+  // Stored themes are normalized by the caller, so an unreadable value and an
+  // unset one are the same thing here: undefined.
+  return Promise.resolve()
+    .then(() => getLocalItems(THEME_KEY))
+    .then((items) => (items ? items[THEME_KEY] : undefined))
+    .catch(() => undefined);
 }
 
 export function setStoredTheme(preference) {
-  return new Promise((resolve, reject) => {
-    try {
-      chrome.storage.local.set({ [THEME_KEY]: preference }, () => {
-        if (chrome.runtime && chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message || 'storage.set failed'));
-          return;
-        }
-        resolve();
-      });
-    } catch (error) {
-      reject(error instanceof Error ? error : new Error(String(error)));
-    }
-  });
+  return Promise.resolve()
+    .then(() => setLocalItems({ [THEME_KEY]: preference }))
+    .catch((error) => {
+      throw error instanceof Error ? error : new Error(String(error));
+    });
 }
 
 /**
@@ -206,23 +192,10 @@ export function createThemeController({
   // Keep this document in sync when the preference is changed elsewhere (e.g.
   // the popup/options page) while this view is open. Returns an unsubscribe.
   function watch() {
-    const handler = (changes, areaName) => {
-      if (areaName !== 'local' || !changes || !changes[THEME_KEY]) return;
-      preference = normalizeTheme(changes[THEME_KEY].newValue, allowSystem);
+    return subscribeLocalKey(THEME_KEY, (newValue) => {
+      preference = normalizeTheme(newValue, allowSystem);
       render();
-    };
-    try {
-      chrome.storage.onChanged.addListener(handler);
-    } catch (_) {
-      return () => {};
-    }
-    return () => {
-      try {
-        chrome.storage.onChanged.removeListener(handler);
-      } catch (_) {
-        /* noop */
-      }
-    };
+    });
   }
 
   return { init, setPreference, cycle, current, subscribe, watch, allowSystem };

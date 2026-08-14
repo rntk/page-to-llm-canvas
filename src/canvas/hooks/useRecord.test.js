@@ -5,6 +5,38 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { useRecord } from './useRecord.js';
 
+// The hook is exercised against a fake record source rather than the
+// chrome-backed one. The browser adapters it would otherwise reach through have
+// their own tests: runtimeMessages.test.js covers lastError rejection, and
+// localStore.test.js covers the `local` area filter, the watched-key filter and
+// the addListener/removeListener plumbing. Repeating those here would assert
+// the adapter twice and leave the hook's own contract — which fetch happens
+// when, and what lands in state — untested.
+function createFakeSource() {
+  let subscription = null;
+  const unsubscribe = vi.fn(() => {
+    subscription = null;
+  });
+  return {
+    runtimeMessenger: { send: vi.fn() },
+    store: {
+      get: vi.fn(),
+      subscribeChanges: vi.fn((keys, onChange) => {
+        subscription = { keys, onChange };
+        return unsubscribe;
+      }),
+    },
+    unsubscribe,
+    get watchedKeys() {
+      return subscription ? subscription.keys : null;
+    },
+    /** Simulates one storage event for the watched docs. */
+    notifyChange() {
+      subscription.onChange({});
+    },
+  };
+}
+
 function renderHook(callback) {
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -17,6 +49,9 @@ function renderHook(callback) {
   act(() => root.render(createElement(TestComponent)));
   return {
     result,
+    rerender() {
+      act(() => root.render(createElement(TestComponent)));
+    },
     unmount() {
       act(() => root.unmount());
       container.remove();
@@ -24,267 +59,199 @@ function renderHook(callback) {
   };
 }
 
-// Every fetch (initial load and live-update refetch) now goes through a
-// promise wrapping chrome.runtime.sendMessage, so state updates land on a
-// microtask tick even when the mock's callback fires synchronously. Flush
-// that tick before asserting.
+// Every fetch (initial load and live-update refetch) resolves through at least
+// one promise, and the storage fallback adds a second. Flush both ticks before
+// asserting.
 async function flush() {
   await act(async () => {
+    await Promise.resolve();
     await Promise.resolve();
   });
 }
 
+const DOC_KEYS = [
+  'pagetollm:rec:test:meta',
+  'pagetollm:rec:test:content',
+  'pagetollm:rec:test:summaries',
+];
+
 describe('useRecord', () => {
-  let changeListeners = [];
+  let source;
 
   beforeEach(() => {
-    changeListeners = [];
-    vi.stubGlobal('chrome', {
-      runtime: {
-        sendMessage: vi.fn(),
-        lastError: null,
-      },
-      storage: {
-        local: {
-          get: vi.fn(),
-        },
-        onChanged: {
-          addListener: vi.fn((fn) => changeListeners.push(fn)),
-          removeListener: vi.fn((fn) => {
-            const idx = changeListeners.indexOf(fn);
-            if (idx !== -1) changeListeners.splice(idx, 1);
-          }),
-        },
-      },
-    });
+    source = createFakeSource();
   });
 
   it('sets error when key is missing', () => {
-    const { result } = renderHook(() => useRecord(''));
+    const { result } = renderHook(() => useRecord('', source));
     expect(result.current.error).toBe('missing record key');
     expect(result.current.record).toBeNull();
+    expect(source.store.subscribeChanges).not.toHaveBeenCalled();
   });
 
-  it('fetches record via sendMessage on mount', async () => {
+  it('fetches the record through the messenger and watches its three docs', async () => {
     const record = { key: 'test', status: 'done' };
-    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      cb({ ok: true, record });
-    });
+    source.runtimeMessenger.send.mockResolvedValue({ ok: true, record });
 
-    const { result } = renderHook(() => useRecord('test'));
+    const { result } = renderHook(() => useRecord('test', source));
     await flush();
+
+    expect(source.runtimeMessenger.send).toHaveBeenCalledWith({ type: 'getRecord', key: 'test' });
+    expect(source.watchedKeys).toEqual(DOC_KEYS);
     expect(result.current.record).toEqual(record);
     expect(result.current.error).toBeNull();
+    expect(source.store.get).not.toHaveBeenCalled();
   });
 
-  it('falls back to storage.local when sendMessage returns no record', async () => {
-    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      cb({ ok: false });
-    });
+  it('falls back to a direct store read when the messenger returns no record', async () => {
     const record = { key: 'test', status: 'done' };
-    chrome.storage.local.get.mockImplementation((keys, cb) => {
-      expect(keys).toEqual([
-        'pagetollm:rec:test:meta',
-        'pagetollm:rec:test:content',
-        'pagetollm:rec:test:summaries',
-      ]);
-      cb({ 'pagetollm:rec:test:meta': record });
-    });
+    source.runtimeMessenger.send.mockResolvedValue({ ok: false });
+    source.store.get.mockResolvedValue({ 'pagetollm:rec:test:meta': record });
 
-    const { result } = renderHook(() => useRecord('test'));
+    const { result } = renderHook(() => useRecord('test', source));
     await flush();
+
+    expect(source.store.get).toHaveBeenCalledWith(DOC_KEYS);
     expect(result.current.record).toEqual(record);
     expect(result.current.error).toBeNull();
   });
 
   it('reassembles a fallback record split across meta/content/summaries docs', async () => {
-    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      cb({ ok: false });
-    });
-    chrome.storage.local.get.mockImplementation((keys, cb) => {
-      cb({
-        'pagetollm:rec:test:meta': { key: 'test', status: 'done' },
-        'pagetollm:rec:test:content': { html: '<p>hi</p>' },
-      });
+    source.runtimeMessenger.send.mockResolvedValue({ ok: false });
+    source.store.get.mockResolvedValue({
+      'pagetollm:rec:test:meta': { key: 'test', status: 'done' },
+      'pagetollm:rec:test:content': { html: '<p>hi</p>' },
     });
 
-    const { result } = renderHook(() => useRecord('test'));
+    const { result } = renderHook(() => useRecord('test', source));
     await flush();
+
     expect(result.current.record).toEqual({ key: 'test', status: 'done', html: '<p>hi</p>' });
     expect(result.current.error).toBeNull();
   });
 
-  it('sets error when record is not found anywhere', async () => {
-    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      cb({ ok: false });
-    });
-    chrome.storage.local.get.mockImplementation((keys, cb) => {
-      cb({});
-    });
+  it('sets error when the record is not found anywhere', async () => {
+    source.runtimeMessenger.send.mockResolvedValue({ ok: false });
+    source.store.get.mockResolvedValue({});
 
-    const { result } = renderHook(() => useRecord('test'));
+    const { result } = renderHook(() => useRecord('test', source));
     await flush();
+
     expect(result.current.error).toBe('record not found');
     expect(result.current.record).toBeNull();
   });
 
-  it('handles runtime.lastError on sendMessage', async () => {
-    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      chrome.runtime.lastError = { message: 'disconnected' };
-      cb();
-      chrome.runtime.lastError = null;
+  it('refetches the whole record when a watched doc changes', async () => {
+    source.runtimeMessenger.send.mockResolvedValue({
+      ok: true,
+      record: { key: 'test', status: 'pending' },
     });
 
-    const { result } = renderHook(() => useRecord('test'));
-    await flush();
-    expect(result.current.error).toBe('disconnected');
-  });
-
-  it('updates record on storage change', async () => {
-    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      cb({ ok: true, record: { key: 'test', status: 'pending' } });
-    });
-
-    const { result } = renderHook(() => useRecord('test'));
+    const { result } = renderHook(() => useRecord('test', source));
     await flush();
     expect(result.current.record.status).toBe('pending');
 
-    // A live update re-fetches through the same SW message path rather than
-    // trusting the onChanged payload directly (the payload is only one of
-    // the three physical docs, not the full record).
-    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      cb({ ok: true, record: { key: 'test', status: 'done' } });
+    // A live update re-fetches through the same messenger path rather than
+    // trusting the change payload directly (the payload is only one of the
+    // three physical docs, not the full record).
+    source.runtimeMessenger.send.mockResolvedValue({
+      ok: true,
+      record: { key: 'test', status: 'done' },
     });
-    act(() => {
-      changeListeners.forEach((fn) =>
-        fn({ 'pagetollm:rec:test:meta': { newValue: { key: 'test', status: 'done' } } }, 'local'),
-      );
-    });
+    act(() => source.notifyChange());
     await flush();
 
     expect(result.current.record.status).toBe('done');
     expect(result.current.error).toBeNull();
   });
 
-  it('sets error when record is deleted from storage', async () => {
-    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      cb({ ok: true, record: { key: 'test', status: 'pending' } });
+  it('sets error when a refetch finds the record gone', async () => {
+    source.runtimeMessenger.send.mockResolvedValue({
+      ok: true,
+      record: { key: 'test', status: 'pending' },
     });
 
-    const { result } = renderHook(() => useRecord('test'));
+    const { result } = renderHook(() => useRecord('test', source));
     await flush();
 
-    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      cb({ ok: false });
-    });
-    act(() => {
-      changeListeners.forEach((fn) =>
-        fn(
-          {
-            'pagetollm:rec:test:meta': {
-              oldValue: { key: 'test' },
-              newValue: undefined,
-            },
-          },
-          'local',
-        ),
-      );
-    });
+    source.runtimeMessenger.send.mockResolvedValue({ ok: false });
+    act(() => source.notifyChange());
     await flush();
 
     expect(result.current.record).toBeNull();
     expect(result.current.error).toBe('record deleted');
   });
 
-  it('ignores storage changes for other keys', async () => {
-    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      cb({ ok: true, record: { key: 'test', status: 'pending' } });
-    });
+  it('surfaces a rejected send as the error message', async () => {
+    source.runtimeMessenger.send.mockRejectedValue(new Error('disconnected'));
 
-    const { result } = renderHook(() => useRecord('test'));
+    const { result } = renderHook(() => useRecord('test', source));
     await flush();
 
-    act(() => {
-      changeListeners.forEach((fn) =>
-        fn({ 'pagetollm:rec:other:meta': { newValue: { key: 'other' } } }, 'local'),
-      );
-    });
-    await flush();
-
-    expect(result.current.record.status).toBe('pending');
-  });
-
-  it('ignores storage changes for non-local area', async () => {
-    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      cb({ ok: true, record: { key: 'test', status: 'pending' } });
-    });
-
-    const { result } = renderHook(() => useRecord('test'));
-    await flush();
-
-    act(() => {
-      changeListeners.forEach((fn) =>
-        fn({ 'pagetollm:rec:test:meta': { newValue: { key: 'test', status: 'done' } } }, 'sync'),
-      );
-    });
-    await flush();
-
-    expect(result.current.record.status).toBe('pending');
-  });
-
-  it('sets error when sendMessage throws synchronously', async () => {
-    chrome.runtime.sendMessage.mockImplementation(() => {
-      throw new Error('sendMessage blew up');
-    });
-
-    const { result } = renderHook(() => useRecord('test'));
-    await flush();
-    expect(result.current.error).toBe('sendMessage blew up');
+    expect(result.current.error).toBe('disconnected');
     expect(result.current.record).toBeNull();
   });
 
-  it('removes onChanged listener on unmount', async () => {
-    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      cb({ ok: true, record: { key: 'test', status: 'pending' } });
-    });
+  it('surfaces a rejected fallback store read as the error message', async () => {
+    source.runtimeMessenger.send.mockResolvedValue({ ok: false });
+    source.store.get.mockRejectedValue(new Error('storage unavailable'));
 
-    const { unmount } = renderHook(() => useRecord('test'));
-    expect(chrome.storage.onChanged.addListener).toHaveBeenCalled();
-    unmount();
-    expect(chrome.storage.onChanged.removeListener).toHaveBeenCalled();
+    const { result } = renderHook(() => useRecord('test', source));
+    await flush();
+
+    expect(result.current.error).toBe('storage unavailable');
   });
 
-  it('resets record and fetches new record when key changes', async () => {
-    let currentKey = 'key1';
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    let result = { current: null };
-    function TestComponent() {
-      result.current = useRecord(currentKey);
-      return null;
-    }
-    const root = createRoot(container);
-
-    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      if (msg.key === 'key1') {
-        cb({ ok: true, record: { key: 'key1', val: 'a' } });
-      } else if (msg.key === 'key2') {
-        cb({ ok: true, record: { key: 'key2', val: 'b' } });
-      }
+  it('unsubscribes on unmount', async () => {
+    source.runtimeMessenger.send.mockResolvedValue({
+      ok: true,
+      record: { key: 'test', status: 'pending' },
     });
 
-    act(() => root.render(createElement(TestComponent)));
+    const { unmount } = renderHook(() => useRecord('test', source));
+    expect(source.store.subscribeChanges).toHaveBeenCalledOnce();
+    unmount();
+    expect(source.unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it('resets record and resubscribes when the key changes', async () => {
+    let currentKey = 'key1';
+    source.runtimeMessenger.send.mockImplementation((msg) =>
+      Promise.resolve({ ok: true, record: { key: msg.key, val: msg.key === 'key1' ? 'a' : 'b' } }),
+    );
+
+    const { result, rerender, unmount } = renderHook(() => useRecord(currentKey, source));
     await flush();
     expect(result.current.record).toEqual({ key: 'key1', val: 'a' });
 
-    // Change key and re-render
     currentKey = 'key2';
-    act(() => root.render(createElement(TestComponent)));
+    rerender();
     await flush();
 
     expect(result.current.record).toEqual({ key: 'key2', val: 'b' });
+    expect(source.unsubscribe).toHaveBeenCalledOnce();
+    expect(source.watchedKeys).toEqual([
+      'pagetollm:rec:key2:meta',
+      'pagetollm:rec:key2:content',
+      'pagetollm:rec:key2:summaries',
+    ]);
 
-    act(() => root.unmount());
-    container.remove();
+    unmount();
+  });
+
+  it('does not resubscribe when a caller rebuilds the source wrapper per render', async () => {
+    source.runtimeMessenger.send.mockResolvedValue({ ok: true, record: { key: 'test' } });
+
+    const { rerender, unmount } = renderHook(() =>
+      // A fresh object identity each render, same capability members.
+      useRecord('test', { runtimeMessenger: source.runtimeMessenger, store: source.store }),
+    );
+    await flush();
+    rerender();
+    rerender();
+    await flush();
+
+    expect(source.store.subscribeChanges).toHaveBeenCalledOnce();
+    unmount();
   });
 });

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   LLM_METRICS_KEY,
   emptyLlmMetrics,
@@ -16,43 +16,22 @@ import {
   listTaskTypes,
 } from '../../worker/metrics/format.js';
 import { CollapsibleSection } from './CollapsibleSection.jsx';
+import { useStoredMetrics } from './useStoredMetrics.js';
 
 function formatDate(timestamp) {
   if (!timestamp) return '';
   return new Date(timestamp).toLocaleString();
 }
 
-export function LlmMetricsSection() {
-  const [metrics, setMetrics] = useState(() => emptyLlmMetrics());
+export function LlmMetricsSection({ store }) {
+  const [metrics, setMetrics] = useStoredMetrics({
+    storageKey: LLM_METRICS_KEY,
+    read: getLlmMetrics,
+    normalize: normalizeLlmMetrics,
+    empty: emptyLlmMetrics,
+    subscribe: store.subscribe,
+  });
   const [isClearing, setIsClearing] = useState(false);
-
-  useEffect(() => {
-    let isCurrent = true;
-
-    async function loadMetrics() {
-      const stored = await getLlmMetrics();
-      if (isCurrent) setMetrics(stored);
-    }
-
-    void loadMetrics();
-    const handleStorageChange = (changes, areaName) => {
-      if (areaName !== 'local' || !changes || !changes[LLM_METRICS_KEY]) return;
-      setMetrics(normalizeLlmMetrics(changes[LLM_METRICS_KEY].newValue));
-    };
-    try {
-      chrome.storage.onChanged.addListener(handleStorageChange);
-    } catch (_) {
-      /* noop */
-    }
-    return () => {
-      isCurrent = false;
-      try {
-        chrome.storage.onChanged.removeListener(handleStorageChange);
-      } catch (_) {
-        /* noop */
-      }
-    };
-  }, []);
 
   const handleClear = useCallback(async () => {
     setIsClearing(true);
@@ -65,7 +44,7 @@ export function LlmMetricsSection() {
     } finally {
       setIsClearing(false);
     }
-  }, []);
+  }, [setMetrics]);
 
   const average = averageDurationMs(metrics);
   const taskTypes = listTaskTypes(metrics);

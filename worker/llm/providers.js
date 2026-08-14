@@ -9,6 +9,7 @@ import {
   PIPELINE_MIN_CONTEXT_WINDOW_TOKENS,
   PROVIDER_MAX_CONTEXT_WINDOW_TOKENS,
 } from '../settings/contextWindowConstraints.js';
+import { getLocal, setLocal } from '../storage/primitives.js';
 
 /**
  * Canonical provider type strings. Mirrors example/llm/constants.py.
@@ -123,33 +124,6 @@ export const PROVIDERS_KEY = 'pagetollm:llm:providers';
  * @property {ProviderEntry[]} providers
  * @property {string|null} activeId
  */
-
-/**
- * @param {string|string[]} keys Storage keys to read.
- */
-async function getLocal(keys) {
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.get(keys, (items) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve(items || {});
-    });
-  });
-}
-
-async function setLocal(items) {
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.set(items, () => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve();
-    });
-  });
-}
 
 /**
  * Reads the raw provider state, tolerating missing/corrupt data.

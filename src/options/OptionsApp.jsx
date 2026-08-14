@@ -22,7 +22,7 @@ function tabFromHash() {
   return OPTION_TABS.some((tab) => tab.id === candidate) ? candidate : OPTION_TABS[0].id;
 }
 
-export function OptionsApp() {
+export function OptionsApp({ store, scheduler, fileHost, pageHost }) {
   const [activeTab, setActiveTab] = useState(tabFromHash);
   const [dataVersion, setDataVersion] = useState(0);
 
@@ -87,7 +87,7 @@ export function OptionsApp() {
         aria-labelledby="options-tab-general"
         hidden={activeTab !== 'general'}
       >
-        <GeneralSettingsPanel />
+        <GeneralSettingsPanel scheduler={scheduler} store={store} />
       </section>
 
       <div
@@ -107,7 +107,7 @@ export function OptionsApp() {
         aria-labelledby="options-tab-records"
         hidden={activeTab !== 'records'}
       >
-        <RecordsSection key={`records-${dataVersion}`} />
+        <RecordsSection key={`records-${dataVersion}`} fileHost={fileHost} pageHost={pageHost} />
       </section>
 
       <section
@@ -127,10 +127,10 @@ export function OptionsApp() {
         aria-labelledby="options-tab-diagnostics"
         hidden={activeTab !== 'diagnostics'}
       >
-        <ParserMetricsSection />
-        <ResplitMetricsSection />
-        <LlmMetricsSection />
-        <ChatToolMetricsSection />
+        <ParserMetricsSection store={store} />
+        <ResplitMetricsSection store={store} />
+        <LlmMetricsSection store={store} />
+        <ChatToolMetricsSection store={store} />
       </div>
     </main>
   );

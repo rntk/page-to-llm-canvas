@@ -24,23 +24,8 @@ vi.mock('../shared/surfacePreferences.js', () => ({
   registerThemedSurface: vi.fn(),
 }));
 
-vi.stubGlobal('chrome', {
-  runtime: {
-    sendMessage: vi.fn(),
-    lastError: null,
-  },
-  storage: {
-    local: {
-      get: vi.fn((_key, callback) => callback({})),
-    },
-    onChanged: {
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-    },
-  },
-});
-
 const { showSelectionToolbar } = await import('./controller.jsx');
+const runtimeMessenger = { send: vi.fn() };
 
 function toolbarRoot() {
   return window.__pagetollmTestSelectionToolbarRoot;
@@ -80,8 +65,7 @@ describe('selection controller', () => {
     document.body.innerHTML = '';
     vi.stubGlobal('alert', vi.fn());
     vi.stubGlobal('console', { ...console, error: vi.fn() });
-    chrome.runtime.sendMessage.mockReset();
-    chrome.runtime.sendMessage.mockResolvedValue({ ok: true });
+    runtimeMessenger.send.mockReset().mockResolvedValue({ ok: true });
     window.history.replaceState({}, '', '/article');
   });
 
@@ -94,7 +78,7 @@ describe('selection controller', () => {
   });
 
   it('creates a toolbar, replaces the existing one, and cleans it up', () => {
-    act(() => showSelectionToolbar());
+    act(() => showSelectionToolbar(runtimeMessenger));
     const first = document.getElementById('pagetollm-selection-toolbar');
     const firstRoot = toolbarRoot();
 
@@ -102,7 +86,7 @@ describe('selection controller', () => {
     expect(firstRoot).not.toBeNull();
     expect(document.querySelectorAll('#pagetollm-selection-toolbar')).toHaveLength(1);
 
-    act(() => showSelectionToolbar());
+    act(() => showSelectionToolbar(runtimeMessenger));
     expect(document.querySelectorAll('#pagetollm-selection-toolbar')).toHaveLength(1);
     expect(document.getElementById('pagetollm-selection-toolbar')).not.toBe(first);
     expect(toolbarRoot()).not.toBe(firstRoot);
@@ -114,7 +98,7 @@ describe('selection controller', () => {
 
   it('gates blocked toolbar and page events', () => {
     const block = mountBlock('blocked');
-    act(() => showSelectionToolbar());
+    act(() => showSelectionToolbar(runtimeMessenger));
 
     click(toolbarButton('pagetollm-pick-btn'), true);
     expect(toolbarButton('pagetollm-pick-btn').textContent).toBe('Pick Block');
@@ -129,7 +113,7 @@ describe('selection controller', () => {
 
   it('enters picking mode, highlights and selects a page block', () => {
     const block = mountBlock('picked', 'Hello selection');
-    act(() => showSelectionToolbar());
+    act(() => showSelectionToolbar(runtimeMessenger));
     click(toolbarButton('pagetollm-pick-btn'));
 
     block.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
@@ -144,14 +128,14 @@ describe('selection controller', () => {
 
   it('submits selected HTML and selectors successfully, then cleans up', async () => {
     const block = mountBlock('submitted', 'Submit me');
-    act(() => showSelectionToolbar());
+    act(() => showSelectionToolbar(runtimeMessenger));
     click(toolbarButton('pagetollm-pick-btn'));
     act(() => block.dispatchEvent(event('click')));
 
     await act(async () => click(toolbarButton('pagetollm-submit-btn')));
     await flush();
 
-    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
+    expect(runtimeMessenger.send).toHaveBeenCalledWith({
       type: 'submit',
       html: '<article id="submitted" class="">Submit me</article>',
       sourceUrl: expect.stringContaining('/article'),
@@ -163,8 +147,8 @@ describe('selection controller', () => {
 
   it('alerts on submission failure and still cleans up', async () => {
     const block = mountBlock('failed', 'Fail me');
-    chrome.runtime.sendMessage.mockResolvedValue({ ok: false, error: 'network down' });
-    act(() => showSelectionToolbar());
+    runtimeMessenger.send.mockResolvedValue({ ok: false, error: 'network down' });
+    act(() => showSelectionToolbar(runtimeMessenger));
     click(toolbarButton('pagetollm-pick-btn'));
     act(() => block.dispatchEvent(event('click')));
 
@@ -176,7 +160,7 @@ describe('selection controller', () => {
   });
 
   it('alerts instead of sending when submission has no selection', async () => {
-    act(() => showSelectionToolbar());
+    act(() => showSelectionToolbar(runtimeMessenger));
     const submit = toolbarButton('pagetollm-submit-btn');
     const reactPropsKey = Object.keys(submit).find((key) => key.startsWith('__reactProps'));
 
@@ -185,7 +169,7 @@ describe('selection controller', () => {
     });
 
     expect(alert).toHaveBeenCalledWith('Please pick at least one block first.');
-    expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+    expect(runtimeMessenger.send).not.toHaveBeenCalled();
     expect(document.getElementById('pagetollm-selection-toolbar')).not.toBeNull();
   });
 });

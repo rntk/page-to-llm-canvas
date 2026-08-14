@@ -20,14 +20,16 @@ import { emptyResplitMetrics, getResplitMetrics } from '../../worker/metrics/res
 import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 import { ParserMetricsSection } from './ParserMetricsSection.jsx';
 import { ResplitMetricsSection } from './ResplitMetricsSection.jsx';
+import { createFakeStore } from '../../test/fakes/storeFake.mjs';
 
 const cleanups = [];
+let store;
 
 function renderSection(Component) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
-  act(() => root.render(<Component />));
+  act(() => root.render(<Component store={store} />));
   cleanups.push(() => {
     act(() => root.unmount());
     container.remove();
@@ -45,11 +47,7 @@ async function flush() {
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  vi.stubGlobal('chrome', {
-    storage: {
-      onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
-    },
-  });
+  store = createFakeStore();
   getParserMetrics.mockReset().mockResolvedValue(emptyParserMetrics());
   getResplitMetrics.mockReset().mockResolvedValue(emptyResplitMetrics());
   sendRuntimeMessage.mockReset().mockResolvedValue({ ok: true });

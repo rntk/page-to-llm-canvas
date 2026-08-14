@@ -9,6 +9,7 @@ import {
 import { openInPageRail } from './rails/in-page/controller.jsx';
 import { openYouTubeRail } from './rails/youtube/controller.jsx';
 import { closeInPageRail } from './rails/shared/surface.js';
+import { browserRuntimeMessenger } from '../utils/runtimeMessages.js';
 
 // The iframe manager and the rail controllers are mutually exclusive but must
 // not import each other. Inject the rail closer so opening an iframe can tear
@@ -18,7 +19,7 @@ setRailCloser(closeInPageRail);
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.action) return false;
   if (message.action === 'startSelection') {
-    showSelectionToolbar();
+    showSelectionToolbar(browserRuntimeMessenger);
     sendResponse({ status: 'ready' });
     return true;
   }

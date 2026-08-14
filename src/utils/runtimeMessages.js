@@ -57,3 +57,14 @@ export function sendTabMessage(tabId, message) {
     });
   });
 }
+
+/**
+ * Chrome-backed runtime-messaging capability for browser composition roots.
+ *
+ * Only `send` is here: the tab-directed variant is used exclusively from the
+ * service worker, which imports `sendTabMessage` directly rather than taking an
+ * injected messenger.
+ */
+export const browserRuntimeMessenger = Object.freeze({
+  send: sendRuntimeMessage,
+});

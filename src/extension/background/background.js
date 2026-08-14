@@ -19,6 +19,7 @@ import {
   isSummaryCheckpointComplete,
   isSummaryCheckpointRevisionCurrent,
   runPipeline,
+  subscribeToLlmConcurrency,
 } from '../../../worker/pipeline/orchestrator.js';
 import { formatPipelineError } from '../../../worker/pipeline/pipelineRuntime.js';
 import { callLLMDirect } from '../../../worker/llm/llm.js';
@@ -58,6 +59,7 @@ import {
   SUMMARY_GENERATION_SOURCE_STATUSES,
 } from '../../shared/runtime/contracts.js';
 import { createLogger } from '../../shared/runtime/log.js';
+import { browserLocalStore } from '../../shared/runtime/localStore.js';
 
 const log = createLogger();
 const keepaliveLog = createLogger('keepalive');
@@ -1331,5 +1333,11 @@ void (async () => {
     log.warn('storage reconciliation failed:', err);
   }
 })();
+
+// Keep the shared pipeline concurrency limit in step with the options page.
+// The subscription is intentionally never torn down: it is scoped to the
+// service worker itself, and MV3 termination drops the listener with the whole
+// realm, so there is no unsubscribe for this worker to own.
+subscribeToLlmConcurrency(browserLocalStore.subscribe);
 
 void refreshActionProgressIcon();
