@@ -191,7 +191,11 @@ describe('isSummaryCheckpointComplete', () => {
     ).toBe(false);
   });
 
-  it('rejects a checkpoint when any topic has no sentence references', () => {
+  it('tolerates a topic with no sentence references alongside a summarizable one', () => {
+    // Same tolerance as a blank-source topic: an empty `sentences` array is a
+    // topic that cannot yield a summary, not a structurally malformed one, so
+    // it must not condemn the healthy topics next to it into a hard resume
+    // failure that only Reprocess can clear.
     expect(
       isSummaryCheckpointComplete({
         sentences: ['One.', 'Two.'],
@@ -200,7 +204,7 @@ describe('isSummaryCheckpointComplete', () => {
           { name: 'B', sentences: [] },
         ],
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 

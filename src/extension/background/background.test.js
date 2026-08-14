@@ -28,7 +28,7 @@ vi.mock('../../../worker/pipeline/orchestrator.js', () => ({
     let summarizableTopics = 0;
     for (const topic of record.topics) {
       if (typeof topic?.name !== 'string' || topic.name.trim() === '') return false;
-      if (!Array.isArray(topic.sentences) || topic.sentences.length === 0) return false;
+      if (!Array.isArray(topic.sentences)) return false;
       const inRange = topic.sentences.every(
         (sentenceId) =>
           Number.isInteger(sentenceId) && sentenceId >= 1 && sentenceId <= record.sentences.length,

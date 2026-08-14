@@ -293,11 +293,31 @@ export async function runSummaries({
         const runIds = runResult.sentences;
         try {
           const summarized = await leafSummarizeSource(runIds, { path: topic.name });
-          const summarizedRun = summarized?.runs?.[0];
+          const summarizedRuns = summarized?.runs;
+          // Each pending plan item is one contiguous run, so the source
+          // summarizer must return exactly one result. Fail loudly if that
+          // contract changes instead of silently discarding later runs.
+          if (!Array.isArray(summarizedRuns) || summarizedRuns.length !== 1) {
+            throw new Error(
+              `Expected exactly one summary run for topic "${topic.name}", received ${
+                Array.isArray(summarizedRuns) ? summarizedRuns.length : 'invalid output'
+              }`,
+            );
+          }
+          const [summarizedRun] = summarizedRuns;
+          const matchesPlannedRun =
+            summarizedRun &&
+            Array.isArray(summarizedRun.sentences) &&
+            summarizedRun.sentences.length === runIds.length &&
+            summarizedRun.sentences.every((sentenceId, index) => sentenceId === runIds[index]) &&
+            typeof summarizedRun.text === 'string';
+          if (!matchesPlannedRun) {
+            throw new Error(`Summary run did not match the planned run for topic "${topic.name}"`);
+          }
           unresolved.delete(runIndex);
           runResults[runIndex] = {
             sentences: runIds,
-            text: typeof summarizedRun?.text === 'string' ? summarizedRun.text : '',
+            text: summarizedRun.text,
           };
         } catch (error) {
           rethrowIfCancelled(error, runtime, ABORT_MESSAGE);

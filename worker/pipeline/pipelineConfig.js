@@ -43,6 +43,26 @@ export const MAX_TAGGED_CHARS = PIPELINE_TEXT_CHUNK_MAX_CHARS;
 export const SOURCE_SUMMARY_MAX_CHARS = PIPELINE_TEXT_CHUNK_MAX_CHARS;
 
 /**
+ * Normalizes an optional provider context-window declaration. Absent or
+ * unusable values yield null so callers fall back to their static budget;
+ * declared-but-too-small windows are a configuration error and throw.
+ *
+ * @param {unknown} contextWindowTokens Provider context window in tokens.
+ * @returns {number|null} Whole-token context window, or null when unknown.
+ */
+function normalizeContextTokens(contextWindowTokens) {
+  const parsed = Number(contextWindowTokens);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  const contextTokens = Math.floor(parsed);
+  if (contextTokens < PIPELINE_MIN_CONTEXT_WINDOW_TOKENS) {
+    throw new Error(
+      `Active provider "Context window (tokens)" must be at least ${PIPELINE_MIN_CONTEXT_WINDOW_TOKENS}. Update it in Options > LLM Providers.`,
+    );
+  }
+  return contextTokens;
+}
+
+/**
  * Derives the source-text portion of a request from an optional provider
  * context-window declaration. Unknown windows retain the conservative 60k
  * fallback; known smaller windows reduce every pipeline stage consistently.
@@ -51,14 +71,8 @@ export const SOURCE_SUMMARY_MAX_CHARS = PIPELINE_TEXT_CHUNK_MAX_CHARS;
  * @returns {number}
  */
 export function getPipelineTextChunkMaxChars(contextWindowTokens) {
-  const parsed = Number(contextWindowTokens);
-  if (!Number.isFinite(parsed) || parsed <= 0) return PIPELINE_TEXT_CHUNK_MAX_CHARS;
-  const contextTokens = Math.floor(parsed);
-  if (contextTokens < PIPELINE_MIN_CONTEXT_WINDOW_TOKENS) {
-    throw new Error(
-      `Active provider "Context window (tokens)" must be at least ${PIPELINE_MIN_CONTEXT_WINDOW_TOKENS}. Update it in Options > LLM Providers.`,
-    );
-  }
+  const contextTokens = normalizeContextTokens(contextWindowTokens);
+  if (contextTokens === null) return PIPELINE_TEXT_CHUNK_MAX_CHARS;
   const reservedTokens = Math.max(
     PIPELINE_FIXED_PROMPT_RESERVED_TOKENS + PIPELINE_RESPONSE_RESERVED_TOKENS,
     Math.min(
@@ -81,14 +95,8 @@ export function getPipelineTextChunkMaxChars(contextWindowTokens) {
  * @returns {number}
  */
 export function getTopicRangeInputMaxSentences(contextWindowTokens) {
-  const parsed = Number(contextWindowTokens);
-  if (!Number.isFinite(parsed) || parsed <= 0) return TOPIC_RANGE_INPUT_MAX_SENTENCES;
-  const contextTokens = Math.floor(parsed);
-  if (contextTokens < PIPELINE_MIN_CONTEXT_WINDOW_TOKENS) {
-    throw new Error(
-      `Active provider "Context window (tokens)" must be at least ${PIPELINE_MIN_CONTEXT_WINDOW_TOKENS}. Update it in Options > LLM Providers.`,
-    );
-  }
+  const contextTokens = normalizeContextTokens(contextWindowTokens);
+  if (contextTokens === null) return TOPIC_RANGE_INPUT_MAX_SENTENCES;
   const payloadTokens = Math.ceil(
     getPipelineTextChunkMaxChars(contextTokens) / PIPELINE_CONTEXT_CHARS_PER_TOKEN,
   );

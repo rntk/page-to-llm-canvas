@@ -30,10 +30,12 @@ const pipelineLog = createLogger('pipeline');
 // valid summaries that survived a partial write.
 //
 // Two failure classes are handled differently. A structurally malformed
-// topic — no usable nonblank string `name`, `sentences` empty/not an array, or
-// an out-of-range sentence id — refuses the WHOLE checkpoint even if other
-// topics are healthy. A well-formed topic whose sentences resolve to blank
-// source text is tolerated per topic; the checkpoint is refused only when NO
+// topic — no usable nonblank string `name`, `sentences` not an array, or an
+// out-of-range sentence id — refuses the WHOLE checkpoint even if other
+// topics are healthy. A well-formed topic that simply cannot yield a summary
+// is tolerated per topic: that covers both an empty `sentences` array and
+// sentences resolving to blank source text, which reach summaryStage the same
+// way and finalize as an empty entry. The checkpoint is refused only when NO
 // topic can yield a summary.
 export function isSummaryCheckpointComplete(record) {
   if (!Array.isArray(record?.topics) || record.topics.length === 0) return false;
@@ -47,7 +49,7 @@ export function isSummaryCheckpointComplete(record) {
   let summarizableTopics = 0;
   for (const topic of record.topics) {
     if (typeof topic?.name !== 'string' || topic.name.trim() === '') return false;
-    if (!Array.isArray(topic.sentences) || topic.sentences.length === 0) return false;
+    if (!Array.isArray(topic.sentences)) return false;
     if (
       !topic.sentences.every(
         (oneIdx) => Number.isInteger(oneIdx) && oneIdx >= 1 && oneIdx <= sentenceCount,
