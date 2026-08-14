@@ -93,9 +93,18 @@ export default [
           paths: [
             {
               name: '../../worker/pipeline/orchestrator.js',
-              importNames: ['runPipeline'],
+              importNames: ['createPipelineRunner'],
               message:
-                'The canvas observes pipeline state; only the background service worker owns runPipeline.',
+                'The canvas observes pipeline state; only the background service worker owns the pipeline runner.',
+            },
+            {
+              // The runner is assembled from these pieces in the service
+              // worker's composition root. Blocking the runner alone would
+              // still let the canvas rebuild one out of its parts.
+              name: '../../worker/pipeline/pipelineRuntime.js',
+              importNames: ['createPipelineRuntime'],
+              message:
+                'The canvas observes pipeline state; only the background service worker constructs pipeline runtimes.',
             },
           ],
         },

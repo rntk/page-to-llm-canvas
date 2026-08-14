@@ -1,27 +1,12 @@
 // Pipeline entry point: clean HTML, split sentences, find topic ranges, and
 // generate per-topic summaries. This runs in the service-worker context.
 
-import { callLLMWithRetry as callLLMWithRetryRaw, createAdjustableLimiter } from '../llm/llm.js';
-import { getActiveProvider } from '../llm/providers.js';
-import { wrapCallLLMWithRetry } from '../metrics/llm.js';
-import {
-  DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
-  MAX_PARALLEL_LLM_REQUESTS_KEY,
-  getStoredMaxParallelLlmRequests,
-  normalizeMaxParallelLlmRequests,
-} from '../settings/llmConcurrency.js';
-import { getStoredPreferContentLanguage } from '../settings/language.js';
-import { getStoredVerboseLogs } from '../settings/verboseLog.js';
-import { createPipelineRuntime, formatPipelineError } from './pipelineRuntime.js';
+import { formatPipelineError } from './pipelineRuntime.js';
 import { computeTopics } from './topicRangesStage.js';
 import { finalizeSummariesDisabled, runSummaries } from './summaryStage.js';
 import { isCancellationError } from './cancellation.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
-import { createLogger } from '../../src/shared/runtime/log.js';
 import { getPipelineTextChunkMaxChars, getTopicRangeInputMaxSentences } from './pipelineConfig.js';
-
-const log = createLogger();
-const pipelineLog = createLogger('pipeline');
 
 // A resumable checkpoint must carry the sentence texts its topics reference.
 // If `sentences` is missing/short, out-of-range sentence ids get silently
@@ -114,193 +99,235 @@ export function planResume(record) {
   };
 }
 
-// Shared provider-facing boundary across all running page pipelines, so
-// per-stage concurrency caps don't multiply when many pages run together.
-const pipelineLlmLimiter = createAdjustableLimiter(DEFAULT_MAX_PARALLEL_LLM_REQUESTS);
-const measuredCallLLMWithRetry = wrapCallLLMWithRetry(callLLMWithRetryRaw);
-// The limiter slot is held for the whole retry loop, including backoff sleeps,
-// not just the HTTP call, so a replacement request can't hit the same
-// failing/rate-limited provider mid-backoff. The signal is passed through so a
-// queued call can still be cancelled without waiting for a slot.
-const callLLMWithRetry = (opts, maxRetries) =>
-  pipelineLlmLimiter.run(() => measuredCallLLMWithRetry(opts, maxRetries), opts?.signal);
-let concurrencySettingRevision = 0;
-
-export function subscribeToLlmConcurrency(subscribe) {
-  return subscribe(MAX_PARALLEL_LLM_REQUESTS_KEY, (newValue) => {
-    concurrencySettingRevision++;
-    pipelineLlmLimiter.setLimit(normalizeMaxParallelLlmRequests(newValue));
-  });
-}
-
 /**
- * Runs or resumes the persisted article-processing pipeline.
+ * Creates one explicitly owned pipeline runner.
  *
- * @param {string} key
- * @param {object} [options]
- * @param {string} [options.pipelineRunId]
- * @param {AbortSignal} [options.signal]
+ * Construction has two side effects, both owned by the returned instance: it
+ * builds the limiter that every run started through this runner shares, and it
+ * installs the concurrency-setting listener that mutates that limiter. Call it
+ * once per realm, not once per run; `dispose` reverses the subscription.
+ *
+ * `limiterFactory` (rather than a ready-made limiter) keeps the initial limit
+ * and the later `setLimit` corrections from drifting apart: no one outside this
+ * runner holds a reference to the limiter it mutates.
+ *
+ * @param {object} deps
+ * @param {Function} deps.runtimeFactory
+ * @param {{getPreferContentLanguage: Function, getVerboseLogs: Function,
+ *   getMaxParallelLlmRequests: Function, normalizeMaxParallelLlmRequests: Function,
+ *   subscribeToMaxParallelLlmRequests: Function}} deps.settings
+ * @param {{getActiveProvider: Function}} deps.providerRepository
+ * @param {{callLLMWithRetry: Function}} deps.llm
+ * @param {function(): {run: Function, setLimit: Function}} deps.limiterFactory
+ *   Called exactly once, and expected to seed the limiter with the same default
+ *   the settings module normalizes towards.
+ * @param {{wrapCallLLMWithRetry: Function}} deps.telemetry
+ * @param {{info: Function, error: Function}} deps.logger
+ * @returns {{runPipeline: Function, dispose: Function}}
  */
-export async function runPipeline(key, options = {}) {
-  const runtimeContext = {
-    key,
-    pipelineRunId: options.pipelineRunId,
-    signal: options.signal,
-    summariesDisabled: false,
-  };
-  // Keep a minimal runtime available so settings/provider bootstrap failures
-  // still follow the normal pipeline error and logging path.
-  let runtime = createPipelineRuntime(runtimeContext);
+export function createPipelineRunner({
+  runtimeFactory,
+  settings,
+  providerRepository,
+  llm,
+  limiterFactory,
+  telemetry,
+  logger,
+}) {
+  const limiter = limiterFactory();
+  const measuredCallLLMWithRetry = telemetry.wrapCallLLMWithRetry(llm.callLLMWithRetry);
+  // The limiter slot is held for the whole retry loop, including backoff sleeps,
+  // not just the HTTP call, so a replacement request can't hit the same
+  // failing/rate-limited provider mid-backoff. The signal is passed through so a
+  // queued call can still be cancelled without waiting for a slot.
+  const callLLMWithRetry = (opts, maxRetries) =>
+    limiter.run(() => measuredCallLLMWithRetry(opts, maxRetries), opts?.signal);
+  let concurrencySettingRevision = 0;
+  let disposed = false;
+  const unsubscribe = settings.subscribeToMaxParallelLlmRequests((newValue) => {
+    if (disposed) return;
+    concurrencySettingRevision++;
+    limiter.setLimit(settings.normalizeMaxParallelLlmRequests(newValue));
+  });
 
-  const concurrencyRevisionAtRead = concurrencySettingRevision;
-  try {
-    const [preferContentLanguage, verboseLogs, maxParallelLlmRequests, activeProvider] =
-      await Promise.all([
-        getStoredPreferContentLanguage(),
-        getStoredVerboseLogs(),
-        getStoredMaxParallelLlmRequests(),
-        // The provider snapshot sizes and handles every request in this run.
-        // A missing provider remains an ordinary request-boundary error, but an
-        // inability to read provider storage must retain its real cause.
-        getActiveProvider(),
-      ]);
-    if (concurrencySettingRevision === concurrencyRevisionAtRead) {
-      pipelineLlmLimiter.setLimit(maxParallelLlmRequests);
-    }
-    // Size and dispatch against the same snapshot. A provider selected later is
-    // picked up by the next pipeline run instead of silently changing this run's
-    // context limit between requests or retries.
-    const callRunLLMWithRetry = (opts, maxRetries) =>
-      callLLMWithRetry({ ...opts, provider: activeProvider }, maxRetries);
+  /**
+   * Runs or resumes the persisted article-processing pipeline.
+   *
+   * @param {string} key
+   * @param {object} [options]
+   * @param {string} [options.pipelineRunId]
+   * @param {AbortSignal} [options.signal]
+   */
+  async function runPipeline(key, options = {}) {
+    const runtimeContext = {
+      key,
+      pipelineRunId: options.pipelineRunId,
+      signal: options.signal,
+      summariesDisabled: false,
+    };
+    // Keep a minimal runtime available so settings/provider bootstrap failures
+    // still follow the normal pipeline error and logging path.
+    let runtime = runtimeFactory(runtimeContext);
 
-    runtime = createPipelineRuntime({
-      ...runtimeContext,
-      preferContentLanguage,
-      verboseLogs,
-      maxTextChunkChars: getPipelineTextChunkMaxChars(activeProvider?.contextWindowTokens),
-      maxTopicRangeSentences: getTopicRangeInputMaxSentences(activeProvider?.contextWindowTokens),
-    });
-    await runtime.log('pipeline_start');
-    const record = await runtime.read();
-    if (!record) throw new Error(`record not found: ${key}`);
-    runtime.setSummariesDisabled(record.skipSummaries === true);
-
-    // `topic_summaries` is the leaf checkpoint used to resume/retry summary
-    // work after service-worker recycling; UI consumers read
-    // `topic_summary_index` instead.
-    const resumePlan = planResume(record);
-    // A matching revision plus malformed structure is unsafe to consume and
-    // must preserve the checkpoint for an explicit Reprocess decision.  A
-    // stale or legacy revision is different: the saved topics are not proven
-    // to belong to this content, so rebuild them through computeTopics rather
-    // than displaying or summarizing stale data.
-    const resuming = resumePlan.resuming;
-    if (resumePlan.rejectionReason) {
-      await runtime.log('pipeline_resume_rejected', {
-        stage: PIPELINE_STAGE.SUMMARIZING,
-        reason: resumePlan.rejectionReason,
-        topicCount: Array.isArray(record.topics) ? record.topics.length : 0,
-        sentenceCount: Array.isArray(record.sentences) ? record.sentences.length : 0,
-      });
-    }
-    if (resumePlan.rejectionReason === 'incomplete_checkpoint') {
-      throw new Error(
-        'Cannot resume summaries because the saved sentence checkpoint is incomplete. Reprocess the record to rebuild it.',
-      );
-    }
-
-    let topics;
-    let sentenceTexts;
-    if (resuming) {
-      topics = record.topics;
-      sentenceTexts = Array.isArray(record.sentences) ? record.sentences : [];
-      // A resume completes one logical summary run. Keep its language policy
-      // stable even if the global preference changed while the worker was
-      // stopped, so reused and newly generated summaries cannot mix languages.
-      if (typeof record.summaryCheckpointPreferContentLanguage === 'boolean') {
-        runtime.preferContentLanguage = record.summaryCheckpointPreferContentLanguage;
+    const concurrencyRevisionAtRead = concurrencySettingRevision;
+    try {
+      const [preferContentLanguage, verboseLogs, maxParallelLlmRequests, activeProvider] =
+        await Promise.all([
+          settings.getPreferContentLanguage(),
+          settings.getVerboseLogs(),
+          settings.getMaxParallelLlmRequests(),
+          // The provider snapshot sizes and handles every request in this run.
+          // A missing provider remains an ordinary request-boundary error, but an
+          // inability to read provider storage must retain its real cause.
+          providerRepository.getActiveProvider(),
+        ]);
+      if (concurrencySettingRevision === concurrencyRevisionAtRead) {
+        limiter.setLimit(maxParallelLlmRequests);
       }
-      const existingSummaries =
-        record.topic_summaries && typeof record.topic_summaries === 'object'
+      // Size and dispatch against the same snapshot. A provider selected later is
+      // picked up by the next pipeline run instead of silently changing this run's
+      // context limit between requests or retries.
+      const callRunLLMWithRetry = (opts, maxRetries) =>
+        callLLMWithRetry({ ...opts, provider: activeProvider }, maxRetries);
+
+      runtime = runtimeFactory({
+        ...runtimeContext,
+        preferContentLanguage,
+        verboseLogs,
+        maxTextChunkChars: getPipelineTextChunkMaxChars(activeProvider?.contextWindowTokens),
+        maxTopicRangeSentences: getTopicRangeInputMaxSentences(activeProvider?.contextWindowTokens),
+      });
+      await runtime.log('pipeline_start');
+      const record = await runtime.read();
+      if (!record) throw new Error(`record not found: ${key}`);
+      runtime.setSummariesDisabled(record.skipSummaries === true);
+
+      // `topic_summaries` is the leaf checkpoint used to resume/retry summary
+      // work after service-worker recycling; UI consumers read
+      // `topic_summary_index` instead.
+      const resumePlan = planResume(record);
+      // A matching revision plus malformed structure is unsafe to consume and
+      // must preserve the checkpoint for an explicit Reprocess decision.  A
+      // stale or legacy revision is different: the saved topics are not proven
+      // to belong to this content, so rebuild them through computeTopics rather
+      // than displaying or summarizing stale data.
+      const resuming = resumePlan.resuming;
+      if (resumePlan.rejectionReason) {
+        await runtime.log('pipeline_resume_rejected', {
+          stage: PIPELINE_STAGE.SUMMARIZING,
+          reason: resumePlan.rejectionReason,
+          topicCount: Array.isArray(record.topics) ? record.topics.length : 0,
+          sentenceCount: Array.isArray(record.sentences) ? record.sentences.length : 0,
+        });
+      }
+      if (resumePlan.rejectionReason === 'incomplete_checkpoint') {
+        throw new Error(
+          'Cannot resume summaries because the saved sentence checkpoint is incomplete. Reprocess the record to rebuild it.',
+        );
+      }
+
+      let topics;
+      let sentenceTexts;
+      if (resuming) {
+        topics = record.topics;
+        sentenceTexts = Array.isArray(record.sentences) ? record.sentences : [];
+        // A resume completes one logical summary run. Keep its language policy
+        // stable even if the global preference changed while the worker was
+        // stopped, so reused and newly generated summaries cannot mix languages.
+        if (typeof record.summaryCheckpointPreferContentLanguage === 'boolean') {
+          runtime.preferContentLanguage = record.summaryCheckpointPreferContentLanguage;
+        }
+        const existingSummaries =
+          record.topic_summaries && typeof record.topic_summaries === 'object'
+            ? record.topic_summaries
+            : {};
+        await runtime.log('pipeline_resume', {
+          stage: PIPELINE_STAGE.SUMMARIZING,
+          topicCount: topics.length,
+          existingSummaryCount: Object.keys(existingSummaries).length,
+        });
+        await runtime.update({
+          status: PIPELINE_STATUS.SUMMARIZING,
+          error: null,
+          summaryErrors: [],
+          summariesIncomplete: false,
+        });
+      } else {
+        ({ topics, sentenceTexts } = await computeTopics({
+          runtime,
+          record,
+          callLLMWithRetry: callRunLLMWithRetry,
+        }));
+        if (!topics) return;
+      }
+
+      if (runtime.summariesDisabled) {
+        await finalizeSummariesDisabled(runtime, topics, {
+          preserveExistingSummaries: resuming,
+        });
+        return;
+      }
+
+      const previousSummaries =
+        resuming && record.topic_summaries && typeof record.topic_summaries === 'object'
           ? record.topic_summaries
           : {};
-      await runtime.log('pipeline_resume', {
-        stage: PIPELINE_STAGE.SUMMARIZING,
-        topicCount: topics.length,
-        existingSummaryCount: Object.keys(existingSummaries).length,
-      });
-      await runtime.update({
-        status: PIPELINE_STATUS.SUMMARIZING,
-        error: null,
-        summaryErrors: [],
-        summariesIncomplete: false,
-      });
-    } else {
-      ({ topics, sentenceTexts } = await computeTopics({
+      const previousSummaryIndex =
+        resuming && record.topic_summary_index && typeof record.topic_summary_index === 'object'
+          ? record.topic_summary_index
+          : {};
+      const forceFinalize = resuming && record.forceFinalize === true;
+      const acceptedMergeFailurePaths =
+        forceFinalize && Array.isArray(record.acceptedMergeFailurePaths)
+          ? record.acceptedMergeFailurePaths
+          : [];
+      await runSummaries({
         runtime,
-        record,
+        topics,
+        sentenceTexts,
+        previousSummaries,
+        previousSummaryIndex,
+        previousSourceSummaryUnits:
+          resuming && record.source_summary_units && typeof record.source_summary_units === 'object'
+            ? record.source_summary_units
+            : {},
+        contentRevision:
+          typeof record.contentRevision === 'string' && record.contentRevision
+            ? record.contentRevision
+            : null,
+        forceFinalize,
+        acceptedMergeFailurePaths,
         callLLMWithRetry: callRunLLMWithRetry,
-      }));
-      if (!topics) return;
-    }
-
-    if (runtime.summariesDisabled) {
-      await finalizeSummariesDisabled(runtime, topics, {
-        preserveExistingSummaries: resuming,
       });
-      return;
-    }
+    } catch (error) {
+      if (isCancellationError(error, runtime)) {
+        // A superseded run id or external cancel lands here; leave the record's
+        // status alone (a newer run owns it) but log so it's not invisible.
+        logger.info('aborted:', key, (error && error.message) || error);
+        return;
+      }
 
-    const previousSummaries =
-      resuming && record.topic_summaries && typeof record.topic_summaries === 'object'
-        ? record.topic_summaries
-        : {};
-    const previousSummaryIndex =
-      resuming && record.topic_summary_index && typeof record.topic_summary_index === 'object'
-        ? record.topic_summary_index
-        : {};
-    const forceFinalize = resuming && record.forceFinalize === true;
-    const acceptedMergeFailurePaths =
-      forceFinalize && Array.isArray(record.acceptedMergeFailurePaths)
-        ? record.acceptedMergeFailurePaths
-        : [];
-    await runSummaries({
-      runtime,
-      topics,
-      sentenceTexts,
-      previousSummaries,
-      previousSummaryIndex,
-      previousSourceSummaryUnits:
-        resuming && record.source_summary_units && typeof record.source_summary_units === 'object'
-          ? record.source_summary_units
-          : {},
-      contentRevision:
-        typeof record.contentRevision === 'string' && record.contentRevision
-          ? record.contentRevision
-          : null,
-      forceFinalize,
-      acceptedMergeFailurePaths,
-      callLLMWithRetry: callRunLLMWithRetry,
-    });
-  } catch (error) {
-    if (isCancellationError(error, runtime)) {
-      // A superseded run id or external cancel lands here; leave the record's
-      // status alone (a newer run owns it) but log so it's not invisible.
-      pipelineLog.info('aborted:', key, (error && error.message) || error);
-      return;
+      const formattedError = formatPipelineError(error);
+      // A provider failure can settle just after the signal aborts; let the
+      // run-id CAS decide ownership instead of treating it as cancellation.
+      await runtime.log('pipeline_error', { error: formattedError }, { allowAborted: true });
+      await runtime
+        .update({ status: PIPELINE_STATUS.ERROR, error: formattedError }, { allowAborted: true })
+        .catch((writeError) => {
+          logger.error('failed to persist error status to storage:', writeError);
+        });
+      throw error;
+    } finally {
+      await runtime.flushLogs();
     }
-
-    const formattedError = formatPipelineError(error);
-    // A provider failure can settle just after the signal aborts; let the
-    // run-id CAS decide ownership instead of treating it as cancellation.
-    await runtime.log('pipeline_error', { error: formattedError }, { allowAborted: true });
-    await runtime
-      .update({ status: PIPELINE_STATUS.ERROR, error: formattedError }, { allowAborted: true })
-      .catch((writeError) => {
-        log.error('failed to persist error status to storage:', writeError);
-      });
-    throw error;
-  } finally {
-    await runtime.flushLogs();
   }
+
+  return {
+    runPipeline,
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      unsubscribe?.();
+    },
+  };
 }

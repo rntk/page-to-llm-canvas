@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
+  createPipelineRunner,
   isSummaryCheckpointComplete,
   isSummaryCheckpointRevisionCurrent,
   planResume,
-  runPipeline,
 } from './orchestrator.js';
+import { createPipelineRuntime } from './pipelineRuntime.js';
 import {
   chunkTaggedText,
   chunkTopicRangeSentences,
@@ -20,11 +21,15 @@ import * as html from './html.js';
 import * as sentenceSplitter from './sentenceSplitter.js';
 import * as llm from '../llm/llm.js';
 import { getActiveProvider } from '../llm/providers.js';
+import { wrapCallLLMWithRetry } from '../metrics/llm.js';
 import * as parserMetrics from '../metrics/parser.js';
 import * as resplitMetrics from '../metrics/resplit.js';
 import { getStoredVerboseLogs } from '../settings/verboseLog.js';
 import { getStoredPreferContentLanguage } from '../settings/language.js';
-import { getStoredMaxParallelLlmRequests } from '../settings/llmConcurrency.js';
+import {
+  getStoredMaxParallelLlmRequests,
+  normalizeMaxParallelLlmRequests,
+} from '../settings/llmConcurrency.js';
 
 const pipelineLimiter = vi.hoisted(() => ({
   run: vi.fn((fn) => fn()),
@@ -93,6 +98,22 @@ vi.mock('../settings/llmConcurrency.js', () => ({
   normalizeMaxParallelLlmRequests: vi.fn((value) => Number(value) || 4),
 }));
 
+const { runPipeline } = createPipelineRunner({
+  runtimeFactory: createPipelineRuntime,
+  settings: {
+    getPreferContentLanguage: getStoredPreferContentLanguage,
+    getVerboseLogs: getStoredVerboseLogs,
+    getMaxParallelLlmRequests: getStoredMaxParallelLlmRequests,
+    normalizeMaxParallelLlmRequests,
+    subscribeToMaxParallelLlmRequests: vi.fn(() => () => {}),
+  },
+  providerRepository: { getActiveProvider },
+  llm: { callLLMWithRetry: llm.callLLMWithRetry },
+  limiterFactory: () => pipelineLimiter,
+  telemetry: { wrapCallLLMWithRetry },
+  logger: { info: vi.fn(), error: vi.fn() },
+});
+
 function makeMapping(text) {
   return Array.from({ length: text.length + 1 }, (_, i) => i);
 }
@@ -133,6 +154,47 @@ beforeEach(() => {
   llm.callLLMWithRetry.mockResolvedValue('');
   getActiveProvider.mockResolvedValue(null);
   getStoredPreferContentLanguage.mockResolvedValue(false);
+});
+
+describe('createPipelineRunner', () => {
+  it('owns one concurrency subscription and disposes it exactly once', () => {
+    let onConcurrencyChanged;
+    const unsubscribe = vi.fn();
+    const limiter = { run: vi.fn(), setLimit: vi.fn() };
+    const limiterFactory = vi.fn(() => limiter);
+    const subscribeToMaxParallelLlmRequests = vi.fn((listener) => {
+      onConcurrencyChanged = listener;
+      return unsubscribe;
+    });
+    const runner = createPipelineRunner({
+      runtimeFactory: vi.fn(),
+      settings: {
+        getPreferContentLanguage: vi.fn(),
+        getVerboseLogs: vi.fn(),
+        getMaxParallelLlmRequests: vi.fn(),
+        normalizeMaxParallelLlmRequests: (value) => Math.max(1, Number(value) || 4),
+        subscribeToMaxParallelLlmRequests,
+      },
+      providerRepository: { getActiveProvider: vi.fn() },
+      llm: { callLLMWithRetry: vi.fn() },
+      limiterFactory,
+      telemetry: { wrapCallLLMWithRetry: (call) => call },
+      logger: { info: vi.fn(), error: vi.fn() },
+    });
+
+    expect(limiterFactory).toHaveBeenCalledTimes(1);
+    expect(subscribeToMaxParallelLlmRequests).toHaveBeenCalledTimes(1);
+    onConcurrencyChanged('7');
+    expect(limiter.setLimit).toHaveBeenCalledWith(7);
+
+    runner.dispose();
+    runner.dispose();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+
+    limiter.setLimit.mockClear();
+    onConcurrencyChanged('9');
+    expect(limiter.setLimit).not.toHaveBeenCalled();
+  });
 });
 
 describe('isSummaryCheckpointComplete', () => {

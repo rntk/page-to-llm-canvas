@@ -4,14 +4,33 @@ import { LLM_METRICS_KEY } from '../../../worker/metrics/llm.js';
 import { CHAT_TOOL_METRICS_KEY } from '../../../worker/metrics/chatTool.js';
 import { PARSER_METRICS_KEY } from '../../../worker/metrics/parser.js';
 import { RESPLIT_METRICS_KEY } from '../../../worker/metrics/resplit.js';
+import {
+  DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
+  MAX_PARALLEL_LLM_REQUESTS_KEY,
+} from '../../../worker/settings/llmConcurrency.js';
 
-// The checkpoint predicate mirrors the real one in orchestrator.js (its own
-// rules are covered there); only `runPipeline` needs to be replaced, and
-// importing the real orchestrator would drag the whole LLM stack into these
-// service-worker tests.
+// The checkpoint predicates mirror the real ones in orchestrator.js (their own
+// rules are covered there); what these service-worker tests need to replace is
+// the pipeline itself, so the runner returned by `createPipelineRunner` hands
+// back a stub instead of executing real LLM work.
+//
+// `runPipeline` is exported by this mock purely as a test handle: background.js
+// no longer imports it, but the assertions below reach the same stub through
+// `await import('.../orchestrator.js')` rather than threading it through every
+// test. `vi.hoisted` keeps the two references the same object.
+//
+// The deps background.js passes to `createPipelineRunner` are discarded by this
+// stub, so the composition itself is covered separately in
+// 'pipeline runner composition' below.
+const mockedRunPipeline = vi.hoisted(() =>
+  vi.fn(() => new Promise((resolve) => setTimeout(resolve, 10))),
+);
 vi.mock('../../../worker/pipeline/orchestrator.js', () => ({
-  runPipeline: vi.fn(() => new Promise((resolve) => setTimeout(resolve, 10))),
-  subscribeToLlmConcurrency: vi.fn(() => () => {}),
+  runPipeline: mockedRunPipeline,
+  createPipelineRunner: vi.fn(() => ({
+    runPipeline: mockedRunPipeline,
+    dispose: vi.fn(),
+  })),
   isSummaryCheckpointRevisionCurrent: vi.fn(
     (record) =>
       typeof record?.contentRevision === 'string' &&
@@ -160,6 +179,87 @@ function completeSummaryCheckpoint() {
     topics: [{ name: 'Checkpoint', sentences: [1, 2], sentence_spans: [], ranges: [] }],
   };
 }
+
+// `createPipelineRunner` is mocked everywhere else in this file, which means
+// nothing else executes the dependency object background.js builds for it. A
+// typo in the watched storage key, a limiter seeded from the wrong default or a
+// missing settings reader would all be invisible. These tests run the deps the
+// composition root actually passed.
+describe('pipeline runner composition', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  async function importWithCapturedDeps() {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    const { createPipelineRunner } = await import('../../../worker/pipeline/orchestrator.js');
+    await import('./background.js');
+    expect(createPipelineRunner).toHaveBeenCalledTimes(1);
+    return { chromeMock, deps: createPipelineRunner.mock.calls[0][0] };
+  }
+
+  it('watches the real concurrency storage key and normalizes what it reads', async () => {
+    const { chromeMock, deps } = await importWithCapturedDeps();
+
+    const onValue = vi.fn();
+    deps.settings.subscribeToMaxParallelLlmRequests(onValue);
+    const [handler] = chromeMock.storage.onChanged.addListener.mock.calls.at(-1);
+
+    handler({ [MAX_PARALLEL_LLM_REQUESTS_KEY]: { newValue: 9 } }, 'local');
+    expect(onValue).toHaveBeenCalledWith(9);
+
+    // An unrelated key must not move the pipeline's concurrency.
+    onValue.mockClear();
+    handler({ 'some-other-key': { newValue: 1 } }, 'local');
+    expect(onValue).not.toHaveBeenCalled();
+
+    expect(deps.settings.normalizeMaxParallelLlmRequests('9')).toBe(9);
+  });
+
+  it('seeds the limiter with the same default the setting normalizes towards', async () => {
+    const { deps } = await importWithCapturedDeps();
+
+    const limiter = deps.limiterFactory();
+    let started = 0;
+    // Never-settling tasks: whatever starts is exactly the initial limit.
+    for (let i = 0; i < DEFAULT_MAX_PARALLEL_LLM_REQUESTS + 3; i++) {
+      void limiter.run(() => {
+        started++;
+        return new Promise(() => {});
+      });
+    }
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(started).toBe(DEFAULT_MAX_PARALLEL_LLM_REQUESTS);
+    expect(deps.settings.normalizeMaxParallelLlmRequests(undefined)).toBe(
+      DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
+    );
+  });
+
+  it('supplies every settings reader and collaborator the runner requires', async () => {
+    const { deps } = await importWithCapturedDeps();
+
+    for (const name of [
+      'getPreferContentLanguage',
+      'getVerboseLogs',
+      'getMaxParallelLlmRequests',
+      'normalizeMaxParallelLlmRequests',
+      'subscribeToMaxParallelLlmRequests',
+    ]) {
+      expect(typeof deps.settings[name], `settings.${name}`).toBe('function');
+    }
+    expect(typeof deps.runtimeFactory).toBe('function');
+    expect(typeof deps.limiterFactory).toBe('function');
+    expect(typeof deps.providerRepository.getActiveProvider).toBe('function');
+    expect(typeof deps.llm.callLLMWithRetry).toBe('function');
+    expect(typeof deps.telemetry.wrapCallLLMWithRetry).toBe('function');
+    expect(typeof deps.logger.info).toBe('function');
+    expect(typeof deps.logger.error).toBe('function');
+  });
+});
 
 describe('background pipeline lifecycle', () => {
   beforeEach(() => {

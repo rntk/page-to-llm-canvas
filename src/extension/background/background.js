@@ -27,13 +27,20 @@ import {
   reconcileChatStorage,
 } from '../../../worker/storage/chatStorage.js';
 import {
+  createPipelineRunner,
   isSummaryCheckpointComplete,
   isSummaryCheckpointRevisionCurrent,
-  runPipeline,
-  subscribeToLlmConcurrency,
 } from '../../../worker/pipeline/orchestrator.js';
-import { callLLMDirect } from '../../../worker/llm/llm.js';
-import { clearLlmMetrics, recordLlmMetric } from '../../../worker/metrics/llm.js';
+import {
+  callLLMDirect,
+  callLLMWithRetry,
+  createAdjustableLimiter,
+} from '../../../worker/llm/llm.js';
+import {
+  clearLlmMetrics,
+  recordLlmMetric,
+  wrapCallLLMWithRetry,
+} from '../../../worker/metrics/llm.js';
 import { clearChatToolMetrics, recordChatToolMetric } from '../../../worker/metrics/chatTool.js';
 import { clearParserMetrics } from '../../../worker/metrics/parser.js';
 import { clearResplitMetrics } from '../../../worker/metrics/resplit.js';
@@ -42,7 +49,16 @@ import {
   getStorageOverview,
 } from '../../../worker/storage/dataManagement.js';
 import { getStoredSummariesDisabled } from '../../../worker/settings/summary.js';
+import { getStoredPreferContentLanguage } from '../../../worker/settings/language.js';
+import { getStoredVerboseLogs } from '../../../worker/settings/verboseLog.js';
 import {
+  DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
+  MAX_PARALLEL_LLM_REQUESTS_KEY,
+  getStoredMaxParallelLlmRequests,
+  normalizeMaxParallelLlmRequests,
+} from '../../../worker/settings/llmConcurrency.js';
+import {
+  getActiveProvider,
   getProvidersState,
   sanitizeProvider,
   sanitizeProvidersState,
@@ -66,6 +82,7 @@ import { createChatHandlers } from './handlers/chatHandlers.js';
 import { createMetricsHandlers } from './handlers/metricsHandlers.js';
 import { createProviderHandlers } from './handlers/providerHandlers.js';
 import { createDataManagementHandlers } from './handlers/dataManagementHandlers.js';
+import { createPipelineRuntime } from '../../../worker/pipeline/pipelineRuntime.js';
 
 export { clearSummaryErrorFlags, getAcceptedMergeFailurePaths } from './summaryResolution.js';
 
@@ -96,6 +113,36 @@ const runtimeErrors = {
     return chrome.runtime.lastError;
   },
 };
+
+// This is the service worker's one provider-facing boundary. Every page
+// pipeline shares it, but its mutable policy and listener now belong to this
+// explicitly constructed runner rather than to an imported module instance.
+//
+// Constructing the runner subscribes to the concurrency setting, so it happens
+// at top level where MV3 requires listener registration to be synchronous. The
+// subscription is intentionally never torn down: it is scoped to the service
+// worker itself, and MV3 termination drops the listener with the whole realm,
+// so there is no unsubscribe for this worker to own. `dispose` exists for tests
+// and any future caller whose runner is shorter-lived than its realm.
+const pipelineRunner = createPipelineRunner({
+  runtimeFactory: createPipelineRuntime,
+  settings: {
+    getPreferContentLanguage: getStoredPreferContentLanguage,
+    getVerboseLogs: getStoredVerboseLogs,
+    getMaxParallelLlmRequests: getStoredMaxParallelLlmRequests,
+    normalizeMaxParallelLlmRequests,
+    subscribeToMaxParallelLlmRequests: (onValue) =>
+      browserLocalStore.subscribe(MAX_PARALLEL_LLM_REQUESTS_KEY, onValue),
+  },
+  providerRepository: { getActiveProvider },
+  llm: { callLLMWithRetry },
+  // Seeded from the same default the setting normalizes towards, in one
+  // expression, so the starting limit cannot drift from later corrections.
+  limiterFactory: () => createAdjustableLimiter(DEFAULT_MAX_PARALLEL_LLM_REQUESTS),
+  telemetry: { wrapCallLLMWithRetry },
+  logger: log.child('pipeline'),
+});
+const { runPipeline } = pipelineRunner;
 
 function isExtensionPageSender(sender) {
   const extensionRoot =
@@ -222,11 +269,5 @@ void (async () => {
     log.warn('storage reconciliation failed:', err);
   }
 })();
-
-// Keep the shared pipeline concurrency limit in step with the options page.
-// The subscription is intentionally never torn down: it is scoped to the
-// service worker itself, and MV3 termination drops the listener with the whole
-// realm, so there is no unsubscribe for this worker to own.
-subscribeToLlmConcurrency(browserLocalStore.subscribe);
 
 void refreshActionProgressIcon();
