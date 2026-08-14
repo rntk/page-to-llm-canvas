@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { runArticleChatTurn } from './articleChat.js';
-import { persistChatTurn } from './chatApi.js';
+import { browserChatRepository } from './chatApi.js';
 import { eventRange, useChatSessions } from './useChatSessions.js';
 import ChatComposer from './ChatComposer.jsx';
 import ChatEventsList from './ChatEventsList.jsx';
@@ -19,9 +19,15 @@ function createTurnId() {
  * Article chat panel: composes the persisted-session hook with the
  * presentational pieces and owns the send path. One LLM turn runs entirely
  * in memory (highlights are painted as they stream in) and is then
- * committed with one idempotent persistChatTurn call. A stable turn id makes
- * retrying safe when the storage commit succeeded but its acknowledgement was
- * lost.
+ * committed with one idempotent chatRepository.append call. A stable turn id
+ * makes retrying safe when the storage commit succeeded but its acknowledgement
+ * was lost.
+ *
+ * Storage and turn execution arrive as injected ports. They default to the
+ * production adapters because ArticleChat is itself the composition root for
+ * the content-script realm (unlike canvas/main.jsx, the rails have no place to
+ * thread them from); tests pass fakes through these props instead of mocking
+ * the modules.
  *
  * @param {object} props
  * @param {string} props.recordKey
@@ -33,6 +39,8 @@ function createTurnId() {
  * @param {?HTMLElement} [props.headerActionsTarget]
  * @param {'article' | 'video'} [props.subject]
  * @param {function(object): ?number} [props.getEventTimestamp]
+ * @param {{list: Function, get: Function, append: Function, remove: Function}} [props.chatRepository]
+ * @param {function(object): Promise<object>} [props.runTurn]
  */
 export default function ArticleChat({
   recordKey,
@@ -44,6 +52,8 @@ export default function ArticleChat({
   headerActionsTarget,
   subject = 'article',
   getEventTimestamp,
+  chatRepository = browserChatRepository,
+  runTurn = runArticleChatTurn,
 }) {
   const panelId = useId();
   const subjectLabel = subject === 'video' ? 'video' : 'article';
@@ -148,7 +158,7 @@ export default function ArticleChat({
     deleteChat,
     adoptPersistedTurn,
     reconcilePersistedTurn,
-  } = useChatSessions({ recordKey, applyEvents });
+  } = useChatSessions({ recordKey, applyEvents, chatRepository });
 
   // Unmounting the panel (chat closed) must not leave a stale highlight
   // painted on the article behind it.
@@ -333,7 +343,7 @@ export default function ArticleChat({
     try {
       try {
         // Run the whole turn first; onHighlight paints new evidence as it streams.
-        turnResult = await runArticleChatTurn({
+        turnResult = await runTurn({
           article: {
             history: messages,
             sentences,
@@ -355,7 +365,7 @@ export default function ArticleChat({
         if (!isCurrentOperation(operation)) return;
         // Persist only replayable user-visible content. Tool transcripts are
         // transient implementation detail and may contain provider reasoning.
-        const persisted = await persistChatTurn(operation.recordKey, operation.chatId, {
+        const persisted = await chatRepository.append(operation.recordKey, operation.chatId, {
           turnId,
           messages: [
             { role: 'user', content: question },
@@ -427,6 +437,7 @@ export default function ArticleChat({
     activeChatId,
     adoptPersistedTurn,
     applyEvents,
+    chatRepository,
     highlightedRanges,
     input,
     isCurrentOperation,
@@ -438,6 +449,7 @@ export default function ArticleChat({
     reconcilePersistedTurn,
     recordKey,
     refreshChats,
+    runTurn,
     sentences,
     setError,
   ]);

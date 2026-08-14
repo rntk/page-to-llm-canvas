@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getStoredChat, listStoredChats, removeStoredChat } from './chatApi.js';
 
 /** Map a stored highlight_span event to a paintable sentence range.
  * @param {object} event Stored chat event.
@@ -25,11 +24,15 @@ const USE_LATEST_EVENT = Symbol('use latest event');
  * newer selection. `applyEvents` paints the evidence belonging to the active
  * turn; the complete `events` list remains historical/auditable data.
  *
+ * Storage access goes through the injected `chatRepository` port, so this
+ * state logic can run against a plain in-memory fake outside a Chrome realm.
+ *
  * @param {object} options
  * @param {string} options.recordKey
  * @param {function(object[], object=): void} options.applyEvents events, options: {focusEvent?: object}
+ * @param {{list: Function, get: Function, remove: Function}} options.chatRepository
  */
-export function useChatSessions({ recordKey, applyEvents }) {
+export function useChatSessions({ recordKey, applyEvents, chatRepository }) {
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -39,6 +42,12 @@ export function useChatSessions({ recordKey, applyEvents }) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isMutatingHistory, setIsMutatingHistory] = useState(false);
   const [error, setError] = useState('');
+
+  // Depend on the port's members, not the wrapper object, so a caller that
+  // builds `chatRepository` inline per render does not reload history on every
+  // render (same rule as useRecord.js's `source`). Ports are plain functions,
+  // so destructuring them is safe.
+  const { list: listChats, get: getChat, remove: removeChat } = chatRepository;
 
   const mountedRef = useRef(true);
   const recordKeyRef = useRef(recordKey);
@@ -85,7 +94,7 @@ export function useChatSessions({ recordKey, applyEvents }) {
       setIsLoadingHistory(true);
       setError('');
       try {
-        const chat = await getStoredChat(requestedRecordKey, chatId);
+        const chat = await getChat(requestedRecordKey, chatId);
         if (
           !mountedRef.current ||
           generation !== loadGenerationRef.current ||
@@ -106,16 +115,16 @@ export function useChatSessions({ recordKey, applyEvents }) {
         }
       }
     },
-    [adoptChat, recordKey],
+    [adoptChat, getChat, recordKey],
   );
 
   const refreshChats = useCallback(async () => {
     if (!recordKey) return [];
     const requestedRecordKey = recordKey;
-    const nextChats = await listStoredChats(requestedRecordKey);
+    const nextChats = await listChats(requestedRecordKey);
     if (mountedRef.current && requestedRecordKey === recordKeyRef.current) setChats(nextChats);
     return nextChats;
-  }, [recordKey]);
+  }, [listChats, recordKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,12 +136,12 @@ export function useChatSessions({ recordKey, applyEvents }) {
         setError('');
       }
     });
-    listStoredChats(recordKey)
+    listChats(recordKey)
       .then(async (nextChats) => {
         if (cancelled || generation !== loadGenerationRef.current) return;
         setChats(nextChats);
         if (nextChats.length) {
-          const chat = await getStoredChat(recordKey, nextChats[0].chatId);
+          const chat = await getChat(recordKey, nextChats[0].chatId);
           if (cancelled || generation !== loadGenerationRef.current) return;
           adoptChat(chat);
         } else {
@@ -151,7 +160,7 @@ export function useChatSessions({ recordKey, applyEvents }) {
       cancelled = true;
       if (generation === loadGenerationRef.current) loadGenerationRef.current += 1;
     };
-  }, [adoptChat, recordKey]);
+  }, [adoptChat, getChat, listChats, recordKey]);
 
   const startNewChat = useCallback(() => {
     loadGenerationRef.current += 1;
@@ -192,8 +201,8 @@ export function useChatSessions({ recordKey, applyEvents }) {
           setError('');
         }
         try {
-          await removeStoredChat(requestedRecordKey, chatId);
-          const nextChats = await listStoredChats(requestedRecordKey);
+          await removeChat(requestedRecordKey, chatId);
+          const nextChats = await listChats(requestedRecordKey);
           if (!mountedRef.current || requestedRecordKey !== recordKeyRef.current) return true;
           setChats(nextChats);
           if (chatId === activeChatIdRef.current) {
@@ -208,7 +217,7 @@ export function useChatSessions({ recordKey, applyEvents }) {
           if (mountedRef.current) setIsMutatingHistory(false);
         }
       }),
-    [enqueueMutation, loadChat, startNewChat],
+    [enqueueMutation, listChats, loadChat, removeChat, startNewChat],
   );
 
   /** Adopt a persist response only if the operation still targets this session. */
@@ -231,7 +240,7 @@ export function useChatSessions({ recordKey, applyEvents }) {
     async (chatId, turnId) => {
       if (!chatId || !turnId) return false;
       try {
-        const chat = await getStoredChat(recordKey, chatId);
+        const chat = await getChat(recordKey, chatId);
         if (!chat?.messages?.some((message) => message.turnId === turnId)) return false;
         if (!mountedRef.current || activeChatIdRef.current !== chatId) return false;
         const turnEvents = chat.events.filter((event) => event.turnId === turnId);
@@ -241,7 +250,7 @@ export function useChatSessions({ recordKey, applyEvents }) {
         return false;
       }
     },
-    [adoptChat, recordKey],
+    [adoptChat, getChat, recordKey],
   );
 
   return {

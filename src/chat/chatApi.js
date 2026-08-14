@@ -23,3 +23,19 @@ export async function persistChatTurn(key, chatId, turn) {
 export async function removeStoredChat(key, chatId) {
   await request({ type: MSG.deleteChat, key, chatId });
 }
+
+/**
+ * Production adapter for the chat repository port consumed by
+ * `useChatSessions` / `ArticleChat`. It is a single frozen module-scope object
+ * so callers never build one inline per render — the hook's effects depend on
+ * this identity (see useChatSessions.js), and a fresh object each render would
+ * reload history in a loop.
+ *
+ * @type {{list: Function, get: Function, append: Function, remove: Function}}
+ */
+export const browserChatRepository = Object.freeze({
+  list: listStoredChats,
+  get: getStoredChat,
+  append: persistChatTurn,
+  remove: removeStoredChat,
+});

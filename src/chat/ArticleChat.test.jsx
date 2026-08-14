@@ -3,18 +3,22 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const api = vi.hoisted(() => ({
-  listStoredChats: vi.fn(),
-  getStoredChat: vi.fn(),
-  persistChatTurn: vi.fn(),
-  removeStoredChat: vi.fn(),
-}));
-const turnLoop = vi.hoisted(() => ({ runArticleChatTurn: vi.fn() }));
+import ArticleChatPanel from './ArticleChat.jsx';
 
-vi.mock('./chatApi.js', () => api);
-vi.mock('./articleChat.js', () => turnLoop);
+// In-memory chat repository and turn runner fakes, injected through the panel's
+// ports instead of mocking the ./chatApi.js and ./articleChat.js modules.
+const api = {
+  list: vi.fn(),
+  get: vi.fn(),
+  append: vi.fn(),
+  remove: vi.fn(),
+};
+const turnLoop = { runArticleChatTurn: vi.fn() };
 
-import ArticleChat from './ArticleChat.jsx';
+/** ArticleChat with the fake ports pre-wired; props still override freely. */
+function ArticleChat(props) {
+  return <ArticleChatPanel chatRepository={api} runTurn={turnLoop.runArticleChatTurn} {...props} />;
+}
 
 function render(element) {
   const container = document.createElement('div');
@@ -57,7 +61,7 @@ async function clickSend(container) {
 describe('ArticleChat persisted history', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.listStoredChats.mockResolvedValue([
+    api.list.mockResolvedValue([
       {
         chatId: 'chat-1',
         title: 'First chat',
@@ -73,7 +77,7 @@ describe('ArticleChat persisted history', () => {
         eventCount: 1,
       },
     ]);
-    api.getStoredChat.mockImplementation(async (_key, chatId) => ({
+    api.get.mockImplementation(async (_key, chatId) => ({
       chatId,
       messages: [
         { id: `${chatId}-u`, role: 'user', content: `Question ${chatId}` },
@@ -122,8 +126,8 @@ describe('ArticleChat persisted history', () => {
     );
     await flushAsyncWork();
 
-    expect(api.listStoredChats).toHaveBeenCalledWith('record-1');
-    expect(api.getStoredChat).toHaveBeenCalledWith('record-1', 'chat-1');
+    expect(api.list).toHaveBeenCalledWith('record-1');
+    expect(api.get).toHaveBeenCalledWith('record-1', 'chat-1');
     expect(container.textContent).toContain('Question chat-1');
     expect(onHighlight).toHaveBeenLastCalledWith({
       startLine: 1,
@@ -138,7 +142,7 @@ describe('ArticleChat persisted history', () => {
     await act(async () => secondChatButton.click());
     await flushAsyncWork();
 
-    expect(api.getStoredChat).toHaveBeenLastCalledWith('record-1', 'chat-2');
+    expect(api.get).toHaveBeenLastCalledWith('record-1', 'chat-2');
     expect(container.textContent).toContain('Question chat-2');
     expect(container.textContent).not.toContain('Question chat-1');
     expect(onHighlight).toHaveBeenLastCalledWith({
@@ -331,7 +335,7 @@ describe('ArticleChat persisted history', () => {
         };
       },
     );
-    api.persistChatTurn.mockImplementation(async (_key, _chatId, turn) => ({
+    api.append.mockImplementation(async (_key, _chatId, turn) => ({
       chat: {
         chatId: 'chat-1',
         messages: [
@@ -388,8 +392,8 @@ describe('ArticleChat persisted history', () => {
     });
     // One atomic write: only replayable visible messages + events. Provider
     // tool transcripts stay transient and are not retained in chat storage.
-    expect(api.persistChatTurn).toHaveBeenCalledTimes(1);
-    expect(api.persistChatTurn).toHaveBeenCalledWith('record-1', 'chat-1', {
+    expect(api.append).toHaveBeenCalledTimes(1);
+    expect(api.append).toHaveBeenCalledWith('record-1', 'chat-1', {
       turnId: expect.any(String),
       messages: [
         { role: 'user', content: 'What about line three?' },
@@ -429,7 +433,7 @@ describe('ArticleChat persisted history', () => {
         };
       },
     );
-    api.persistChatTurn.mockImplementation(async (_key, _chatId, turn) => ({
+    api.append.mockImplementation(async (_key, _chatId, turn) => ({
       chat: {
         chatId: 'chat-1',
         messages: [
@@ -475,7 +479,7 @@ describe('ArticleChat persisted history', () => {
       transcriptMessages: [],
       highlightRanges: [{ startLine: 3, endLine: 3, label: 'Lost evidence' }],
     });
-    api.persistChatTurn.mockRejectedValue(new Error('persist failed'));
+    api.append.mockRejectedValue(new Error('persist failed'));
     const onHighlight = vi.fn();
     const onClearHighlights = vi.fn();
     const { container, unmount } = render(
@@ -491,7 +495,7 @@ describe('ArticleChat persisted history', () => {
     typeQuestion(container, 'Doomed question');
     await clickSend(container);
 
-    expect(api.persistChatTurn).toHaveBeenCalledTimes(1);
+    expect(api.append).toHaveBeenCalledTimes(1);
     expect(container.querySelector('.pagetollm-chat-error').textContent).toBe('persist failed');
     // The question returns to the composer and the optimistic bubble is gone.
     expect(container.querySelector('.pagetollm-chat-composer textarea').value).toBe(
@@ -514,7 +518,7 @@ describe('ArticleChat persisted history', () => {
       transcriptMessages: [],
       highlightRanges: [{ startLine: 3, endLine: 3, label: 'New evidence' }],
     });
-    api.persistChatTurn.mockImplementation(async (_key, _chatId, turn) => ({
+    api.append.mockImplementation(async (_key, _chatId, turn) => ({
       chat: {
         chatId: 'chat-1',
         messages: [
@@ -538,7 +542,7 @@ describe('ArticleChat persisted history', () => {
     }));
     // Mount lists chats once (resolves); the post-turn refresh is the second
     // call and rejects — the round-trip fails after the turn was persisted.
-    api.listStoredChats
+    api.list
       .mockResolvedValueOnce([
         { chatId: 'chat-1', title: 'First chat', updatedAt: 200, messageCount: 2, eventCount: 1 },
       ])
@@ -557,7 +561,7 @@ describe('ArticleChat persisted history', () => {
     typeQuestion(container, 'What about line three?');
     await clickSend(container);
 
-    expect(api.persistChatTurn).toHaveBeenCalledTimes(1);
+    expect(api.append).toHaveBeenCalledTimes(1);
     // No rollback and no error banner: the refresh failure is swallowed.
     expect(container.querySelector('.pagetollm-chat-error')).toBeNull();
     expect(container.querySelector('.pagetollm-chat-composer textarea').value).toBe('');
@@ -570,8 +574,8 @@ describe('ArticleChat persisted history', () => {
   it('ignores a stale chat load that resolves after a newer selection', async () => {
     let resolveSecond;
     let resolveFirst;
-    api.getStoredChat.mockImplementation((_key, chatId) => {
-      if (api.getStoredChat.mock.calls.length === 1) {
+    api.get.mockImplementation((_key, chatId) => {
+      if (api.get.mock.calls.length === 1) {
         return Promise.resolve({
           chatId: 'chat-1',
           messages: [],
@@ -636,7 +640,7 @@ describe('ArticleChat persisted history', () => {
     });
     await flushAsyncWork();
 
-    expect(api.persistChatTurn).not.toHaveBeenCalled();
+    expect(api.append).not.toHaveBeenCalled();
   });
 
   it('offers a Stop action that aborts the turn and restores the question', async () => {
@@ -670,7 +674,7 @@ describe('ArticleChat persisted history', () => {
     await flushAsyncWork();
 
     expect(turnOptions.runtime.signal.aborted).toBe(true);
-    expect(api.persistChatTurn).not.toHaveBeenCalled();
+    expect(api.append).not.toHaveBeenCalled();
     expect(container.querySelector('.pagetollm-chat-composer textarea').value).toBe(
       'Please stop this',
     );

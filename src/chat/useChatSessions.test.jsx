@@ -3,15 +3,15 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const api = vi.hoisted(() => ({
-  getStoredChat: vi.fn(),
-  listStoredChats: vi.fn(),
-  removeStoredChat: vi.fn(),
-}));
-
-vi.mock('./chatApi.js', () => api);
-
 import { eventRange, useChatSessions } from './useChatSessions.js';
+
+// In-memory chat repository fake: the hook takes the port as an option, so no
+// module mocking (and no Chrome realm) is involved.
+const api = {
+  get: vi.fn(),
+  list: vi.fn(),
+  remove: vi.fn(),
+};
 
 const cleanups = [];
 
@@ -31,8 +31,8 @@ async function flushAsyncWork() {
   });
 }
 
-function setup({ recordKey = 'record-1', applyEvents = vi.fn() } = {}) {
-  let props = { recordKey, applyEvents };
+function setup({ recordKey = 'record-1', applyEvents = vi.fn(), chatRepository = api } = {}) {
+  let props = { recordKey, applyEvents, chatRepository };
   let value;
   const container = document.createElement('div');
   const root = createRoot(container);
@@ -66,9 +66,9 @@ function chat(chatId, { messages = [], events = [] } = {}) {
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
-  api.listStoredChats.mockResolvedValue([]);
-  api.getStoredChat.mockResolvedValue(null);
-  api.removeStoredChat.mockResolvedValue(undefined);
+  api.list.mockResolvedValue([]);
+  api.get.mockResolvedValue(null);
+  api.remove.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -108,8 +108,8 @@ describe('useChatSessions', () => {
       { seq: 2, turnId: 'turn-b' },
       { seq: 3, turnId: 'turn-b' },
     ];
-    api.listStoredChats.mockResolvedValue(summaries);
-    api.getStoredChat.mockResolvedValue(
+    api.list.mockResolvedValue(summaries);
+    api.get.mockResolvedValue(
       chat('chat-1', { messages: [{ role: 'assistant', content: 'answer' }], events }),
     );
     const ctx = setup();
@@ -129,8 +129,8 @@ describe('useChatSessions', () => {
   });
 
   it('adopts safe empty values from a missing chat and supports explicit selection clearing', async () => {
-    api.listStoredChats.mockResolvedValue([{ chatId: 'chat-1' }]);
-    api.getStoredChat.mockResolvedValue({ chatId: '', messages: null, events: 'invalid' });
+    api.list.mockResolvedValue([{ chatId: 'chat-1' }]);
+    api.get.mockResolvedValue({ chatId: '', messages: null, events: 'invalid' });
     const ctx = setup();
     await flushAsyncWork();
 
@@ -149,8 +149,8 @@ describe('useChatSessions', () => {
 
   it('selects one ungrouped event, selects a complete turn, and clears the paint', async () => {
     const events = [{ seq: 1, turnId: 'turn-a' }, { seq: 2 }, { seq: 3, turnId: 'turn-a' }];
-    api.listStoredChats.mockResolvedValue([{ chatId: 'chat-1' }]);
-    api.getStoredChat.mockResolvedValue(chat('chat-1', { events }));
+    api.list.mockResolvedValue([{ chatId: 'chat-1' }]);
+    api.get.mockResolvedValue(chat('chat-1', { events }));
     const ctx = setup();
     await flushAsyncWork();
     ctx.applyEvents.mockClear();
@@ -176,9 +176,9 @@ describe('useChatSessions', () => {
     const ctx = setup();
     await flushAsyncWork();
     expect(await ctx.current.loadChat('')).toBe(false);
-    expect(api.getStoredChat).not.toHaveBeenCalled();
+    expect(api.get).not.toHaveBeenCalled();
 
-    api.getStoredChat.mockResolvedValueOnce(chat('chat-2', { messages: [{ content: 'two' }] }));
+    api.get.mockResolvedValueOnce(chat('chat-2', { messages: [{ content: 'two' }] }));
     let loaded;
     await act(async () => {
       loaded = await ctx.current.loadChat('chat-2');
@@ -188,7 +188,7 @@ describe('useChatSessions', () => {
     expect(ctx.current.messages).toEqual([{ content: 'two' }]);
     expect(ctx.current.isLoadingHistory).toBe(false);
 
-    api.getStoredChat.mockRejectedValueOnce(new Error('history unavailable'));
+    api.get.mockRejectedValueOnce(new Error('history unavailable'));
     await act(async () => {
       loaded = await ctx.current.loadChat('chat-broken');
     });
@@ -196,7 +196,7 @@ describe('useChatSessions', () => {
     expect(ctx.current.error).toBe('history unavailable');
     expect(ctx.current.isLoadingHistory).toBe(false);
 
-    api.getStoredChat.mockRejectedValueOnce(null);
+    api.get.mockRejectedValueOnce(null);
     await act(async () => {
       await ctx.current.loadChat('chat-broken-again');
     });
@@ -208,7 +208,7 @@ describe('useChatSessions', () => {
     const second = deferred();
     const ctx = setup();
     await flushAsyncWork();
-    api.getStoredChat.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    api.get.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
 
     let firstResult;
     let secondResult;
@@ -233,7 +233,7 @@ describe('useChatSessions', () => {
   it('refreshes summaries and ignores the result after the record changes', async () => {
     const ctx = setup();
     await flushAsyncWork();
-    api.listStoredChats.mockResolvedValueOnce([{ chatId: 'fresh' }]);
+    api.list.mockResolvedValueOnce([{ chatId: 'fresh' }]);
     let result;
     await act(async () => {
       result = await ctx.current.refreshChats();
@@ -242,7 +242,7 @@ describe('useChatSessions', () => {
     expect(ctx.current.chats).toEqual([{ chatId: 'fresh' }]);
 
     const pending = deferred();
-    api.listStoredChats.mockReturnValueOnce(pending.promise);
+    api.list.mockReturnValueOnce(pending.promise);
     let staleResult;
     act(() => {
       void ctx.current.refreshChats().then((value) => {
@@ -250,7 +250,7 @@ describe('useChatSessions', () => {
       });
     });
     ctx.rerender({ recordKey: 'record-2' });
-    api.listStoredChats.mockResolvedValueOnce([]);
+    api.list.mockResolvedValueOnce([]);
     await act(async () => pending.resolve([{ chatId: 'stale' }]));
     await flushAsyncWork();
 
@@ -261,17 +261,17 @@ describe('useChatSessions', () => {
   it('does not request chats when refresh has no record key', async () => {
     const ctx = setup({ recordKey: '' });
     await flushAsyncWork();
-    api.listStoredChats.mockClear();
+    api.list.mockClear();
 
     expect(await ctx.current.refreshChats()).toEqual([]);
-    expect(api.listStoredChats).not.toHaveBeenCalled();
+    expect(api.list).not.toHaveBeenCalled();
   });
 
   it('deletes an inactive chat and refreshes the summaries', async () => {
-    api.listStoredChats
+    api.list
       .mockResolvedValueOnce([{ chatId: 'active' }, { chatId: 'other' }])
       .mockResolvedValueOnce([{ chatId: 'active' }]);
-    api.getStoredChat.mockResolvedValue(chat('active'));
+    api.get.mockResolvedValue(chat('active'));
     const ctx = setup();
     await flushAsyncWork();
 
@@ -280,7 +280,7 @@ describe('useChatSessions', () => {
       result = await ctx.current.deleteChat('other');
     });
     expect(result).toBe(true);
-    expect(api.removeStoredChat).toHaveBeenCalledWith('record-1', 'other');
+    expect(api.remove).toHaveBeenCalledWith('record-1', 'other');
     expect(ctx.current.chats).toEqual([{ chatId: 'active' }]);
     expect(ctx.current.activeChatId).toBe('active');
     expect(ctx.current.isMutatingHistory).toBe(false);
@@ -288,10 +288,10 @@ describe('useChatSessions', () => {
   });
 
   it('deletes the active chat and loads the next available chat', async () => {
-    api.listStoredChats
+    api.list
       .mockResolvedValueOnce([{ chatId: 'active' }, { chatId: 'next' }])
       .mockResolvedValueOnce([{ chatId: 'next' }]);
-    api.getStoredChat
+    api.get
       .mockResolvedValueOnce(chat('active'))
       .mockResolvedValueOnce(chat('next', { messages: [{ content: 'next message' }] }));
     const ctx = setup();
@@ -302,14 +302,14 @@ describe('useChatSessions', () => {
       result = await ctx.current.deleteChat('active');
     });
     expect(result).toBe(true);
-    expect(api.getStoredChat).toHaveBeenLastCalledWith('record-1', 'next');
+    expect(api.get).toHaveBeenLastCalledWith('record-1', 'next');
     expect(ctx.current.activeChatId).toBe('next');
     expect(ctx.current.messages).toEqual([{ content: 'next message' }]);
   });
 
   it('starts a new chat after deleting the final active chat', async () => {
-    api.listStoredChats.mockResolvedValueOnce([{ chatId: 'only' }]).mockResolvedValueOnce([]);
-    api.getStoredChat.mockResolvedValue(chat('only', { messages: [{ content: 'old' }] }));
+    api.list.mockResolvedValueOnce([{ chatId: 'only' }]).mockResolvedValueOnce([]);
+    api.get.mockResolvedValue(chat('only', { messages: [{ content: 'old' }] }));
     const ctx = setup();
     await flushAsyncWork();
 
@@ -324,16 +324,16 @@ describe('useChatSessions', () => {
     const ctx = setup();
     await flushAsyncWork();
     expect(await ctx.current.deleteChat(null)).toBe(false);
-    expect(api.removeStoredChat).not.toHaveBeenCalled();
+    expect(api.remove).not.toHaveBeenCalled();
 
-    api.removeStoredChat.mockRejectedValueOnce(new Error('cannot delete'));
+    api.remove.mockRejectedValueOnce(new Error('cannot delete'));
     await act(async () => {
       expect(await ctx.current.deleteChat('broken')).toBe(false);
     });
     expect(ctx.current.error).toBe('cannot delete');
     expect(ctx.current.isMutatingHistory).toBe(false);
 
-    api.removeStoredChat.mockRejectedValueOnce(undefined);
+    api.remove.mockRejectedValueOnce(undefined);
     await act(async () => {
       expect(await ctx.current.deleteChat('broken-again')).toBe(false);
     });
@@ -342,8 +342,8 @@ describe('useChatSessions', () => {
 
   it('serializes deletes even when an earlier mutation rejects internally', async () => {
     const removal = deferred();
-    api.removeStoredChat.mockReturnValueOnce(removal.promise).mockResolvedValueOnce(undefined);
-    api.listStoredChats.mockResolvedValue([]);
+    api.remove.mockReturnValueOnce(removal.promise).mockResolvedValueOnce(undefined);
+    api.list.mockResolvedValue([]);
     const ctx = setup();
     await flushAsyncWork();
 
@@ -354,7 +354,7 @@ describe('useChatSessions', () => {
       second = ctx.current.deleteChat('second');
     });
     await act(async () => Promise.resolve());
-    expect(api.removeStoredChat).toHaveBeenCalledTimes(1);
+    expect(api.remove).toHaveBeenCalledTimes(1);
     await act(async () => {
       removal.reject(new Error('first failed'));
       await first;
@@ -362,14 +362,14 @@ describe('useChatSessions', () => {
     });
 
     expect(await first).toBe(false);
-    expect(api.removeStoredChat).toHaveBeenCalledTimes(2);
-    expect(api.removeStoredChat).toHaveBeenLastCalledWith('record-1', 'second');
+    expect(api.remove).toHaveBeenCalledTimes(2);
+    expect(api.remove).toHaveBeenLastCalledWith('record-1', 'second');
   });
 
   it('adopts an authoritative persisted turn only for the active session', async () => {
     const oldEvents = [{ seq: 1, turnId: 'old' }];
-    api.listStoredChats.mockResolvedValue([{ chatId: 'chat-1' }]);
-    api.getStoredChat.mockResolvedValue(
+    api.list.mockResolvedValue([{ chatId: 'chat-1' }]);
+    api.get.mockResolvedValue(
       chat('chat-1', { messages: [{ content: 'old' }], events: oldEvents }),
     );
     const ctx = setup();
@@ -406,15 +406,15 @@ describe('useChatSessions', () => {
   });
 
   it('reconciles a committed turn and rejects incomplete, stale, and failed reconciliations', async () => {
-    api.listStoredChats.mockResolvedValue([{ chatId: 'chat-1' }]);
-    api.getStoredChat.mockResolvedValueOnce(chat('chat-1'));
+    api.list.mockResolvedValue([{ chatId: 'chat-1' }]);
+    api.get.mockResolvedValueOnce(chat('chat-1'));
     const ctx = setup();
     await flushAsyncWork();
 
     expect(await ctx.current.reconcilePersistedTurn('', 'turn-1')).toBe(false);
     expect(await ctx.current.reconcilePersistedTurn('chat-1', '')).toBe(false);
 
-    api.getStoredChat.mockResolvedValueOnce(
+    api.get.mockResolvedValueOnce(
       chat('chat-1', {
         messages: [{ turnId: 'other' }],
         events: [{ seq: 1, turnId: 'other' }],
@@ -429,7 +429,7 @@ describe('useChatSessions', () => {
         { seq: 2, turnId: 'turn-1' },
       ],
     });
-    api.getStoredChat.mockResolvedValueOnce(committed);
+    api.get.mockResolvedValueOnce(committed);
     let reconciled;
     await act(async () => {
       reconciled = await ctx.current.reconcilePersistedTurn('chat-1', 'turn-1');
@@ -440,10 +440,10 @@ describe('useChatSessions', () => {
     expect(ctx.current.selectedEventSeq).toBe(2);
 
     act(() => ctx.current.startNewChat());
-    api.getStoredChat.mockResolvedValueOnce(committed);
+    api.get.mockResolvedValueOnce(committed);
     expect(await ctx.current.reconcilePersistedTurn('chat-1', 'turn-1')).toBe(false);
 
-    api.getStoredChat.mockRejectedValueOnce(new Error('network'));
+    api.get.mockRejectedValueOnce(new Error('network'));
     expect(await ctx.current.reconcilePersistedTurn('chat-1', 'turn-1')).toBe(false);
   });
 });

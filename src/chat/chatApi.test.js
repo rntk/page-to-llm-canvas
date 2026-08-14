@@ -3,7 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const sendRuntimeMessage = vi.hoisted(() => vi.fn());
 vi.mock('../utils/runtimeMessages.js', () => ({ sendRuntimeMessage }));
 
-import { getStoredChat, listStoredChats, persistChatTurn, removeStoredChat } from './chatApi.js';
+import {
+  browserChatRepository,
+  getStoredChat,
+  listStoredChats,
+  persistChatTurn,
+  removeStoredChat,
+} from './chatApi.js';
 
 describe('chat API', () => {
   beforeEach(() => {
@@ -35,6 +41,17 @@ describe('chat API', () => {
       { type: 'appendChatTurn', key: 'article-1', chatId: 'c1', turn: { role: 'user' } },
       { type: 'deleteChat', key: 'article-1', chatId: 'c1' },
     ]);
+  });
+
+  it('exposes a frozen repository adapter bound to the runtime-backed operations', () => {
+    expect(browserChatRepository).toEqual({
+      list: listStoredChats,
+      get: getStoredChat,
+      append: persistChatTurn,
+      remove: removeStoredChat,
+    });
+    // Callers depend on this identity being stable across renders.
+    expect(Object.isFrozen(browserChatRepository)).toBe(true);
   });
 
   it('rejects all operations when the background response is not successful', async () => {
