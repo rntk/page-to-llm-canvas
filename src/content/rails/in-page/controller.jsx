@@ -256,7 +256,7 @@ export function createInPageRailController({
     });
 
     if (options && options.sentenceNumbers && options.sentenceNumbers.length > 0) {
-      requestAnimationFrame(() => {
+      contentWindow.requestAnimationFrame(() => {
         if (isClosed() || guard.isStale()) return;
         highlighter.highlightTopic(options.sentenceNumbers, true);
         highlighter.scrollToFirst(options.sentenceNumbers);
