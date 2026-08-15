@@ -43,7 +43,7 @@ export function useStoredMetrics({
     void Promise.resolve()
       .then(() => read())
       .then((stored) => {
-        if (current && revisionRef.current === loadRevision) setMetrics(stored);
+        if (current && revisionRef.current === loadRevision) setMetrics(normalize(stored));
       })
       .catch((err) => {
         if (loadErrorMessage) console.warn(loadErrorMessage, err);

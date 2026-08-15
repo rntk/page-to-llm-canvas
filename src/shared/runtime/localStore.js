@@ -11,15 +11,29 @@
 // where the API only appears later) still sees the current object.
 
 /**
+ * Builds the rejection Error for a failed `chrome.storage.local` call.
+ *
+ * Chrome usually populates `lastError.message`, but it is not guaranteed to be
+ * a non-empty string; without the fallback a failed call would surface as
+ * `Error(undefined)` and lose the only human-readable clue about what broke.
+ *
+ * @param {string} operation Operation label, e.g. `'storage.set'`.
+ * @returns {Error}
+ */
+function lastErrorAsError(operation) {
+  return new Error(chrome.runtime.lastError.message || `${operation} failed`);
+}
+
+/**
  * @param {string|string[]|null} keys Key, keys, or null for everything.
- * @returns {Promise<Object>} Resolves with the stored items, rejects with
- *   `Error(chrome.runtime.lastError.message)`.
+ * @returns {Promise<Object>} Resolves with the stored items, rejects with the
+ *   `chrome.runtime.lastError` message (see `lastErrorAsError`).
  */
 export function getLocalItems(keys) {
   return new Promise((resolve, reject) => {
     chrome.storage.local.get(keys, (items) => {
       if (chrome.runtime?.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
+        reject(lastErrorAsError('storage.get'));
         return;
       }
       resolve(items || {});
@@ -44,7 +58,7 @@ export async function getLocalItemsByPrefix(prefix) {
   const keys = await new Promise((resolve, reject) => {
     chrome.storage.local.getKeys((storedKeys) => {
       if (chrome.runtime?.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
+        reject(lastErrorAsError('storage.getKeys'));
         return;
       }
       resolve(Array.isArray(storedKeys) ? storedKeys : []);
@@ -59,7 +73,7 @@ export function setLocalItems(items) {
   return new Promise((resolve, reject) => {
     chrome.storage.local.set(items, () => {
       if (chrome.runtime?.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
+        reject(lastErrorAsError('storage.set'));
         return;
       }
       resolve();
@@ -72,7 +86,7 @@ export function removeLocalItems(keys) {
   return new Promise((resolve, reject) => {
     chrome.storage.local.remove(keys, () => {
       if (chrome.runtime?.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
+        reject(lastErrorAsError('storage.remove'));
         return;
       }
       resolve();
@@ -85,7 +99,7 @@ export function clearLocalItems() {
   return new Promise((resolve, reject) => {
     chrome.storage.local.clear(() => {
       if (chrome.runtime?.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
+        reject(lastErrorAsError('storage.clear'));
         return;
       }
       resolve();

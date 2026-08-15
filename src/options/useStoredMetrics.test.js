@@ -43,6 +43,24 @@ afterEach(() => {
 });
 
 describe('useStoredMetrics', () => {
+  it('normalizes the initial read', async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const normalize = vi.fn((value) => ({ count: Number(value?.count) || 0 }));
+    const rendered = renderMetrics({
+      storageKey: 'metrics',
+      read: async () => ({ count: '3' }),
+      normalize,
+      empty: () => ({ count: 0 }),
+      subscribe: () => () => {},
+    });
+
+    await flush();
+
+    expect(normalize).toHaveBeenCalledWith({ count: '3' });
+    expect(rendered.result.current[0]).toEqual({ count: 3 });
+    rendered.unmount();
+  });
+
   it('does not let a stale initial read overwrite a newer subscription value', async () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     const initialRead = deferred();

@@ -3,6 +3,13 @@ import { createLoadToken } from './recordFetch.js';
 
 const IN_PAGE_RAIL_WIDTHS = Object.freeze({ topics: 260, summaries: 340, chat: 380 });
 const IN_PAGE_RAIL_RESERVE_GAP = 16;
+const ownedRailElements = new WeakSet();
+
+function removeStaleRailElements(contentDocument) {
+  contentDocument.querySelectorAll('#pagetollm-in-page-rail').forEach((railEl) => {
+    if (!ownedRailElements.has(railEl)) railEl.remove();
+  });
+}
 
 /**
  * Owns rail DOM, React roots, and load generations for one coordinator.
@@ -29,6 +36,9 @@ export function createRailSurfaceManager({
       close();
       loadingTokenHolder.current = currentLoadToken;
     }
+    // A previous content-script lifetime can leave its host behind. Remove only
+    // hosts that are not owned by a live manager in this module instance.
+    removeStaleRailElements(contentDocument);
     const railEl = contentDocument.createElement('aside');
     railEl.id = 'pagetollm-in-page-rail';
     railEl.dataset.mode = state.mode;
@@ -51,20 +61,36 @@ export function createRailSurfaceManager({
     };
 
     contentDocument.documentElement.appendChild(railEl);
+    ownedRailElements.add(railEl);
     preferences.trackMountedSurface();
     railSurfaceTracked = true;
     activeRailController = {
       railEl,
       teardown() {
         railClosed = true;
-        railRoot.unmount();
+        let cleanupError = null;
+        try {
+          railRoot.unmount();
+        } catch (err) {
+          cleanupError = err;
+        }
+        ownedRailElements.delete(railEl);
         railEl.remove();
         if (railSurfaceTracked) {
           railSurfaceTracked = false;
-          preferences.untrackMountedSurface();
+          try {
+            preferences.untrackMountedSurface();
+          } catch (err) {
+            cleanupError ||= err;
+          }
         }
-        onTeardown?.();
+        try {
+          onTeardown?.();
+        } catch (err) {
+          cleanupError ||= err;
+        }
         clearPageRailState();
+        if (cleanupError) throw cleanupError;
       },
     };
 
@@ -74,6 +100,10 @@ export function createRailSurfaceManager({
   }
 
   function clearPageRailState() {
+    const hasOwnedRail = Array.from(
+      contentDocument.querySelectorAll('#pagetollm-in-page-rail'),
+    ).some((railEl) => ownedRailElements.has(railEl));
+    if (hasOwnedRail) return;
     contentDocument.body.classList.remove('pagetollm-rail-open');
     contentDocument.documentElement.style.removeProperty('--pagetollm-rail-reserve');
     contentDocument.documentElement.style.removeProperty('--pagetollm-rail-width');
@@ -89,9 +119,6 @@ export function createRailSurfaceManager({
       }
       activeRailController = null;
     }
-    contentDocument
-      .querySelectorAll('#pagetollm-in-page-rail')
-      .forEach((railEl) => railEl.remove());
     clearPageRailState();
   }
 

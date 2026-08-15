@@ -134,18 +134,36 @@ describe('in-page rail surface', () => {
     expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-width')).toBe('');
   });
 
-  it('invalidates loading work and removes duplicate rail hosts when closing', () => {
+  it('invalidates loading work without removing a rail owned by another manager', () => {
     const surface = manager.createSurface({ state: { mode: 'topics' } });
-    const duplicate = document.createElement('aside');
-    duplicate.id = 'pagetollm-in-page-rail';
-    document.documentElement.appendChild(duplicate);
+    const otherRoot = { unmount: vi.fn() };
+    createRoot.mockReturnValueOnce(otherRoot);
+    const other = createRailSurfaceManager({ document, rootFactory: createRoot, preferences });
+    const otherSurface = other.createSurface({ state: { mode: 'chat' } });
 
     const guard = manager.beginLoad();
     manager.close();
 
     expect(guard.isStale()).toBe(true);
     expect(surface.railEl.isConnected).toBe(false);
-    expect(duplicate.isConnected).toBe(false);
+    expect(otherSurface.railEl.isConnected).toBe(true);
+    expect(otherRoot.unmount).not.toHaveBeenCalled();
+    expect(otherSurface.isClosed()).toBe(false);
+    expect(document.body.classList.contains('pagetollm-rail-open')).toBe(true);
+    expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-width')).toBe('380px');
+
+    other.close();
+  });
+
+  it('removes an abandoned rail host before mounting', () => {
+    const stale = document.createElement('aside');
+    stale.id = 'pagetollm-in-page-rail';
+    document.documentElement.appendChild(stale);
+
+    const surface = manager.createSurface({ state: { mode: 'topics' } });
+
+    expect(stale.isConnected).toBe(false);
+    expect(surface.railEl.isConnected).toBe(true);
   });
 
   it('still clears global state when root unmount throws', () => {
@@ -159,7 +177,9 @@ describe('in-page rail surface', () => {
     manager.createSurface({ state: { mode: 'topics' }, onTeardown });
 
     expect(() => manager.close()).not.toThrow();
-    expect(onTeardown).not.toHaveBeenCalled();
+    expect(onTeardown).toHaveBeenCalledOnce();
+    expect(untrackMountedSurface).toHaveBeenCalledOnce();
+    expect(document.getElementById('pagetollm-in-page-rail')).toBeNull();
     expect(document.body.classList.contains('pagetollm-rail-open')).toBe(false);
     expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-width')).toBe('');
   });

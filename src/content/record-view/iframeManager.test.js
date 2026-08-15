@@ -56,11 +56,28 @@ describe('record-view iframe manager', () => {
 
   it('does not share iframe ownership between manager instances', () => {
     const other = createRecordFrameManager({ document, getRuntimeUrl: chrome.runtime.getURL });
-    manager.open('first');
-    other.open('second');
-    expect(manager.getActiveFrame().src).toContain('first');
-    expect(other.getActiveFrame().src).toContain('second');
+    const first = manager.open('first');
+    const second = other.open('second');
     manager.close();
+
+    expect(first.isConnected).toBe(false);
+    expect(second.isConnected).toBe(true);
+    expect(manager.getActiveFrame()).toBeNull();
+    expect(other.getActiveFrame()).toBe(second);
+
     other.close();
+  });
+
+  it('removes an abandoned iframe before opening', () => {
+    const stale = document.createElement('iframe');
+    stale.id = 'pagetollm-canvas-iframe';
+    document.documentElement.appendChild(stale);
+
+    const iframe = manager.open('current');
+
+    expect(stale.isConnected).toBe(false);
+    expect(iframe.isConnected).toBe(true);
+
+    manager.close();
   });
 });
