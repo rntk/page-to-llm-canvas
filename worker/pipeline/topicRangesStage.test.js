@@ -2,39 +2,41 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   chunkTaggedText,
   chunkTopicRangeSentences,
-  computeTopics,
+  computeTopics as computeTopicsWithDefaults,
   groupsToTopics,
   mapTextOffsetToHtml,
   rangesToSentenceList,
 } from './topicRangesStage.js';
 
 import { splitSentences } from './sentenceSplitter.js';
-import { recordParserMetric } from '../metrics/parser.js';
-import { recordResplitRun } from '../metrics/resplit.js';
 import { markCancellation } from './cancellation.js';
 import { MAX_TAGGED_CHARS, TOPIC_RANGE_INPUT_MAX_SENTENCES } from './pipelineConfig.js';
 
-vi.mock('../llm/llm.js', () => ({
-  // Serial stand-in that still honors `stopBurst`, so a stage relying on it to
-  // stop dequeuing is exercised here rather than silently bypassed.
-  parallelMap: async (items, _limit, fn, { stopBurst } = {}) => {
-    const result = [];
-    for (let index = 0; index < items.length; index++) {
-      result.push(await fn(items[index], index));
-      if (stopBurst && stopBurst(result[index], items[index], index)) break;
-    }
-    return result;
-  },
-}));
-
-vi.mock('../metrics/parser.js', () => ({
-  recordParserMetric: vi.fn(async () => undefined),
-}));
-
-vi.mock('../metrics/resplit.js', async () => {
-  const actual = await vi.importActual('../metrics/resplit.js');
-  return { ...actual, recordResplitRun: vi.fn(async () => undefined) };
+// Serial stand-in that still honors `stopBurst`, so a stage relying on it to
+// stop dequeuing is exercised here rather than silently bypassed.
+const parallelMap = vi.fn(async (items, _limit, fn, { stopBurst } = {}) => {
+  const result = [];
+  for (let index = 0; index < items.length; index++) {
+    result.push(await fn(items[index], index));
+    if (stopBurst && stopBurst(result[index], items[index], index)) break;
+  }
+  return result;
 });
+const recordParserMetric = vi.fn(async () => undefined);
+const recordResplitRun = vi.fn(async () => undefined);
+
+/** Exercise the production dependency seam without repeating test defaults. */
+function computeTopics(input) {
+  return computeTopicsWithDefaults({
+    ...input,
+    dependencies: {
+      parallelMap,
+      recordParserMetric,
+      recordResplitRun,
+      ...input.dependencies,
+    },
+  });
+}
 
 vi.mock('./sentenceSplitter.js', () => ({
   splitSentences: vi.fn(),
