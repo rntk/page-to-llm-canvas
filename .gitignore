@@ -6,4 +6,5 @@ docs/api/
 .stryker-tmp
 reports/mutation
 .idea
-
+.code_agents/
+scripts/build-extension-docker.sh
