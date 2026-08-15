@@ -192,6 +192,41 @@ describe('provider storage', () => {
     expect((await mod.getActiveProvider()).name).toBe('A');
   });
 
+  it('serializes concurrent provider mutations without losing updates', async () => {
+    const mod = await freshProviders();
+    const first = await mod.saveProvider({
+      id: 'first',
+      type: 'openai',
+      name: 'First',
+      model: 'gpt-4o',
+    });
+    const second = await mod.saveProvider({
+      id: 'second',
+      type: 'anthropic',
+      name: 'Second',
+      model: 'claude-haiku-4-5',
+    });
+
+    await Promise.all([
+      mod.deleteProvider(first.id),
+      mod.setActiveProvider(second.id),
+      mod.saveProvider({
+        id: 'third',
+        type: 'openai',
+        name: 'Third',
+        model: 'gpt-4o',
+      }),
+    ]);
+
+    expect(await mod.getProvidersState()).toEqual({
+      providers: [
+        expect.objectContaining({ id: 'second' }),
+        expect.objectContaining({ id: 'third' }),
+      ],
+      activeId: second.id,
+    });
+  });
+
   it('updates an existing provider without changing active', async () => {
     const mod = await freshProviders();
     const a = await mod.saveProvider({ type: 'openai', name: 'A', model: 'gpt-4o', token: 'k1' });

@@ -9,7 +9,7 @@ import {
   PIPELINE_MIN_CONTEXT_WINDOW_TOKENS,
   PROVIDER_MAX_CONTEXT_WINDOW_TOKENS,
 } from '../settings/contextWindowConstraints.js';
-import { getLocal, setLocal } from '../storage/primitives.js';
+import { getLocal, queuedUpdate, setLocal } from '../storage/primitives.js';
 
 /**
  * Canonical provider type strings. Mirrors example/llm/constants.py.
@@ -255,22 +255,24 @@ function generateId() {
  */
 export async function saveProvider(input) {
   const entry = normalizeProvider(input);
-  const state = await getProvidersState();
-  const existingIndex = state.providers.findIndex((p) => p.id === entry.id);
-  if (existingIndex === -1) {
-    state.providers.push(entry);
-  } else {
-    const existing = state.providers[existingIndex];
-    const openAiCompatibleUrlChanged =
-      entry.type === ProviderType.OPENAI_COMP && (existing.url || '') !== (entry.url || '');
-    if (!entry.token && existing.type === entry.type && !openAiCompatibleUrlChanged) {
-      entry.token = existing.token || '';
+  return queuedUpdate(PROVIDERS_KEY, async () => {
+    const state = await getProvidersState();
+    const existingIndex = state.providers.findIndex((p) => p.id === entry.id);
+    if (existingIndex === -1) {
+      state.providers.push(entry);
+    } else {
+      const existing = state.providers[existingIndex];
+      const openAiCompatibleUrlChanged =
+        entry.type === ProviderType.OPENAI_COMP && (existing.url || '') !== (entry.url || '');
+      if (!entry.token && existing.type === entry.type && !openAiCompatibleUrlChanged) {
+        entry.token = existing.token || '';
+      }
+      state.providers[existingIndex] = entry;
     }
-    state.providers[existingIndex] = entry;
-  }
-  if (!state.activeId) state.activeId = entry.id;
-  await writeProvidersState(state);
-  return entry;
+    if (!state.activeId) state.activeId = entry.id;
+    await writeProvidersState(state);
+    return entry;
+  });
 }
 
 /**
@@ -280,13 +282,15 @@ export async function saveProvider(input) {
  * @returns {Promise<ProvidersState>}
  */
 export async function deleteProvider(id) {
-  const state = await getProvidersState();
-  state.providers = state.providers.filter((p) => p.id !== id);
-  if (state.activeId === id) {
-    state.activeId = state.providers.length ? state.providers[0].id : null;
-  }
-  await writeProvidersState(state);
-  return state;
+  return queuedUpdate(PROVIDERS_KEY, async () => {
+    const state = await getProvidersState();
+    state.providers = state.providers.filter((p) => p.id !== id);
+    if (state.activeId === id) {
+      state.activeId = state.providers.length ? state.providers[0].id : null;
+    }
+    await writeProvidersState(state);
+    return state;
+  });
 }
 
 /**
@@ -294,13 +298,15 @@ export async function deleteProvider(id) {
  * @returns {Promise<ProvidersState>}
  */
 export async function setActiveProvider(id) {
-  const state = await getProvidersState();
-  if (!state.providers.some((p) => p.id === id)) {
-    throw new Error(`Unknown provider id: ${id}`);
-  }
-  state.activeId = id;
-  await writeProvidersState(state);
-  return state;
+  return queuedUpdate(PROVIDERS_KEY, async () => {
+    const state = await getProvidersState();
+    if (!state.providers.some((p) => p.id === id)) {
+      throw new Error(`Unknown provider id: ${id}`);
+    }
+    state.activeId = id;
+    await writeProvidersState(state);
+    return state;
+  });
 }
 
 /**
