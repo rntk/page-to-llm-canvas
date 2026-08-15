@@ -207,6 +207,184 @@ describe('YouTubeRail', () => {
     unmount();
   });
 
+  it('does not pause auto-scroll when a wheel gesture cannot move the list', () => {
+    const { container, unmount } = render(createElement(YouTubeRail, defaultProps));
+
+    const body = container.querySelector('.pagetollm-yt-rail-body');
+    Object.defineProperty(body, 'clientHeight', { value: 100, configurable: true });
+    Object.defineProperty(body, 'scrollHeight', { value: 100, configurable: true });
+    body.scrollTop = 0;
+
+    act(() => {
+      body.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 60 }));
+    });
+
+    expect(body.scrollTop).toBe(0);
+    expect(container.querySelector('.pagetollm-yt-rail-resume')).toBeNull();
+
+    unmount();
+  });
+
+  it('pauses auto-scroll after a manual wheel scroll and resumes on the button', () => {
+    let currentTime = 0;
+    const getCurrentTime = vi.fn(() => currentTime);
+    const { container, unmount } = render(
+      createElement(YouTubeRail, { ...defaultProps, getCurrentTime }),
+    );
+
+    const body = container.querySelector('.pagetollm-yt-rail-body');
+    const railCards = container.querySelectorAll('.pagetollm-yt-rail-card');
+    const scrollTo = vi.spyOn(body, 'scrollTo');
+    Object.defineProperty(body, 'clientHeight', { value: 200, configurable: true });
+    Object.defineProperty(body, 'scrollHeight', { value: 800, configurable: true });
+    body.getBoundingClientRect = () => ({ top: 0, height: 200 });
+    railCards[1].getBoundingClientRect = () => ({ top: 420, height: 80 });
+
+    expect(container.querySelector('.pagetollm-yt-rail-resume')).toBeNull();
+
+    act(() => {
+      body.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 60 }));
+    });
+
+    const resumeButton = container.querySelector('.pagetollm-yt-rail-resume');
+    expect(resumeButton).not.toBeNull();
+
+    // Playback moves on: the active card still updates, but the rail no longer
+    // scrolls itself while the user is browsing.
+    scrollTo.mockClear();
+    currentTime = 45;
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(container.querySelectorAll('.pagetollm-yt-rail-card')[1].className).toContain(
+      'is-active',
+    );
+
+    act(() => resumeButton.click());
+
+    // scrollTop is 60 after the wheel scroll: 60 + 420 - 200 / 2 + 80 / 2.
+    expect(scrollTo).toHaveBeenCalledWith({ top: 420, behavior: 'smooth' });
+    expect(container.querySelector('.pagetollm-yt-rail-resume')).toBeNull();
+
+    // Following playback works again after resuming.
+    scrollTo.mockClear();
+    railCards[0].getBoundingClientRect = () => ({ top: 0, height: 80 });
+    currentTime = 5;
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(scrollTo).toHaveBeenCalled();
+
+    unmount();
+  });
+
+  it('pauses auto-scroll on a scroll event but not on its own scrolling', () => {
+    let currentTime = 0;
+    const getCurrentTime = vi.fn(() => currentTime);
+    const { container, unmount } = render(
+      createElement(YouTubeRail, { ...defaultProps, getCurrentTime }),
+    );
+
+    const body = container.querySelector('.pagetollm-yt-rail-body');
+    const railCards = container.querySelectorAll('.pagetollm-yt-rail-card');
+    Object.defineProperty(body, 'clientHeight', { value: 200, configurable: true });
+    Object.defineProperty(body, 'scrollHeight', { value: 800, configurable: true });
+    body.getBoundingClientRect = () => ({ top: 0, height: 200 });
+    railCards[1].getBoundingClientRect = () => ({ top: 420, height: 80 });
+
+    // A scroll event right after the rail scrolled itself is its own doing.
+    currentTime = 45;
+    act(() => {
+      vi.advanceTimersByTime(1000);
+      body.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    expect(container.querySelector('.pagetollm-yt-rail-resume')).toBeNull();
+
+    // Once the guard window has elapsed, a scroll event is the user's.
+    act(() => {
+      vi.advanceTimersByTime(2000);
+      body.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    expect(container.querySelector('.pagetollm-yt-rail-resume')).not.toBeNull();
+
+    unmount();
+  });
+
+  it('pauses on a drag that starts before the guard window has elapsed', () => {
+    let currentTime = 0;
+    const getCurrentTime = vi.fn(() => currentTime);
+    const { container, unmount } = render(
+      createElement(YouTubeRail, { ...defaultProps, getCurrentTime }),
+    );
+
+    const body = container.querySelector('.pagetollm-yt-rail-body');
+    const railCards = container.querySelectorAll('.pagetollm-yt-rail-card');
+    Object.defineProperty(body, 'clientHeight', { value: 200, configurable: true });
+    Object.defineProperty(body, 'scrollHeight', { value: 800, configurable: true });
+    body.getBoundingClientRect = () => ({ top: 0, height: 200 });
+    railCards[1].getBoundingClientRect = () => ({ top: 420, height: 80 });
+
+    // The rail scrolls itself to 360, then its own scroll event lands there.
+    currentTime = 45;
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    act(() => {
+      body.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    expect(body.scrollTop).toBe(360);
+    expect(container.querySelector('.pagetollm-yt-rail-resume')).toBeNull();
+
+    // The user grabs the scrollbar right away, still inside the guard window:
+    // the rail's own scroll already landed, so this one is theirs.
+    act(() => {
+      body.scrollTop = 120;
+      body.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    expect(container.querySelector('.pagetollm-yt-rail-resume')).not.toBeNull();
+
+    unmount();
+  });
+
+  it('pauses on a drag that interrupts the rail scroll before it reaches its target', () => {
+    let currentTime = 0;
+    const getCurrentTime = vi.fn(() => currentTime);
+    const { container, unmount } = render(
+      createElement(YouTubeRail, { ...defaultProps, getCurrentTime }),
+    );
+
+    const body = container.querySelector('.pagetollm-yt-rail-body');
+    const railCards = container.querySelectorAll('.pagetollm-yt-rail-card');
+    Object.defineProperty(body, 'clientHeight', { value: 200, configurable: true });
+    Object.defineProperty(body, 'scrollHeight', { value: 800, configurable: true });
+    body.getBoundingClientRect = () => ({ top: 0, height: 200 });
+    railCards[1].getBoundingClientRect = () => ({ top: 420, height: 80 });
+
+    // The rail starts scrolling itself toward 360.
+    currentTime = 45;
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    // The user drags mid-flight, which aborts the smooth scroll: the events
+    // stop at 120, never reaching the target, and still inside the guard window.
+    act(() => {
+      body.scrollTop = 120;
+      body.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    expect(container.querySelector('.pagetollm-yt-rail-resume')).toBeNull();
+
+    // Once the scrolling has gone quiet somewhere other than the target, the
+    // rail concludes the user interrupted it.
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(container.querySelector('.pagetollm-yt-rail-resume')).not.toBeNull();
+
+    unmount();
+  });
+
   it('cleans up interval poll timer when unmounted', () => {
     const getCurrentTime = vi.fn(() => 0);
     const { unmount } = render(createElement(YouTubeRail, { ...defaultProps, getCurrentTime }));

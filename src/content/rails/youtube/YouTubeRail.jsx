@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import ArticleChat from '../../../chat/ArticleChat.jsx';
 import { formatTimestampLabel } from '../../../utils/youtubeTimestamp.js';
 import {
@@ -9,6 +9,19 @@ import {
 } from './viewModel.js';
 
 const DEFAULT_POLL_MS = 1000;
+
+// How long after a rail-initiated scroll we ignore `scroll` events. Smooth
+// scrolling emits events for a few hundred ms after the call, and a card
+// expanding/collapsing can nudge `scrollTop` on its own; without this window
+// the rail would read its own scrolling as a manual one and pause itself.
+const PROGRAMMATIC_SCROLL_GUARD_MS = 1200;
+
+// How long scroll events must stop before we judge an in-flight rail scroll to
+// have settled. A user gesture aborts a smooth scroll, so a scroll that goes
+// quiet somewhere other than its target was interrupted by the user. Generous
+// enough to sit out a janky frame mid-animation: a false pause costs one click,
+// a missed one silently drags the reader's position away.
+const SCROLL_SETTLE_MS = 250;
 
 function clampRailScrollTop(body, scrollTop) {
   const maxScrollTop = Math.max(0, body.scrollHeight - body.clientHeight);
@@ -101,6 +114,15 @@ export default function YouTubeRail({
   const isChat = mode === 'chat';
   const [activeId, setActiveId] = useState(null);
   const [chatActionsTarget, setChatActionsTarget] = useState(null);
+  // Auto-scroll follows playback until the user scrolls the list themselves;
+  // from then on the list is theirs to browse until they press Resume. The ref
+  // mirrors the state so scroll handlers and effects can read it without
+  // re-creating callbacks (which would re-trigger the scroll effect below).
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+  const autoScrollEnabledRef = useRef(true);
+  const programmaticScrollUntilRef = useRef(0);
+  const programmaticTargetRef = useRef(NaN);
+  const settleTimerRef = useRef(null);
   const bodyRef = useRef(null);
   const cardRefs = useRef(new Map());
 
@@ -121,52 +143,142 @@ export default function YouTubeRail({
     getCurrentTimeRef.current = getCurrentTime;
   }, [getCurrentTime]);
 
-  const scrollToCard = useCallback((id) => {
-    if (!id) return;
-    const body = bodyRef.current;
-    const el = cardRefs.current.get(id);
-    if (!body || !el || typeof body.scrollTo !== 'function') return;
-
-    const bodyRect = body.getBoundingClientRect();
-    const cardRect = el.getBoundingClientRect();
-    const nextTop =
-      body.scrollTop + cardRect.top - bodyRect.top - body.clientHeight / 2 + cardRect.height / 2;
-
-    body.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' });
+  const beginProgrammaticScroll = useCallback((targetTop = NaN) => {
+    programmaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_GUARD_MS;
+    programmaticTargetRef.current = targetTop;
+    // A new rail scroll supersedes any in flight: a settle check left over from
+    // the previous one would test a stale target and pause for no reason.
+    window.clearTimeout(settleTimerRef.current);
+    settleTimerRef.current = null;
   }, []);
 
-  const handleBodyWheel = useCallback((event) => {
-    const body = bodyRef.current;
-    if (!body) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    const pageDelta = body.clientHeight || window.innerHeight || 0;
-    const deltaMultiplier = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? pageDelta : 1;
-    body.scrollTop = clampRailScrollTop(body, body.scrollTop + event.deltaY * deltaMultiplier);
+  const pauseAutoScroll = useCallback(() => {
+    if (!autoScrollEnabledRef.current) return;
+    autoScrollEnabledRef.current = false;
+    setAutoScrollEnabled(false);
   }, []);
 
-  const handleBodyKeyDown = useCallback((event) => {
-    const body = bodyRef.current;
-    if (!body) return;
+  const scrollToCard = useCallback(
+    (id) => {
+      if (!id) return;
+      const body = bodyRef.current;
+      const el = cardRefs.current.get(id);
+      if (!body || !el || typeof body.scrollTo !== 'function') return;
 
-    const pageStep = Math.max(1, Math.floor(body.clientHeight * 0.85));
-    const keyScrollDeltas = {
-      ArrowDown: 40,
-      ArrowUp: -40,
-      PageDown: pageStep,
-      PageUp: -pageStep,
-      Home: -body.scrollTop,
-      End: body.scrollHeight - body.clientHeight - body.scrollTop,
-    };
-    const delta = keyScrollDeltas[event.key];
-    if (delta == null) return;
+      const bodyRect = body.getBoundingClientRect();
+      const cardRect = el.getBoundingClientRect();
+      const nextTop =
+        body.scrollTop + cardRect.top - bodyRect.top - body.clientHeight / 2 + cardRect.height / 2;
 
-    event.preventDefault();
-    event.stopPropagation();
-    body.scrollTop = clampRailScrollTop(body, body.scrollTop + delta);
-  }, []);
+      const targetTop = Math.max(0, nextTop);
+      // The browser clamps the target to the scrollable range, so store the
+      // clamped value: that is the scrollTop the animation will actually land
+      // on, and the guard below closes when it gets there.
+      beginProgrammaticScroll(clampRailScrollTop(body, targetTop));
+      body.scrollTo({ top: targetTop, behavior: 'smooth' });
+    },
+    [beginProgrammaticScroll],
+  );
+
+  const handleResumeAutoScroll = useCallback(() => {
+    autoScrollEnabledRef.current = true;
+    setAutoScrollEnabled(true);
+    // Open the guard before the button unmounts: losing it shrinks the list,
+    // which can clamp scrollTop and emit a scroll event that would otherwise
+    // read as the user taking over again. `scrollToCard` narrows the guard to
+    // its real target; if it bails (no active card yet), the window times out.
+    beginProgrammaticScroll();
+    scrollToCard(activeId);
+  }, [activeId, beginProgrammaticScroll, scrollToCard]);
+
+  // Scrollbar drags and touch panning surface only as `scroll` events, so any
+  // scroll the rail did not cause itself counts as the user taking over.
+  //
+  // The guard window is an upper bound on how long the rail's own smooth scroll
+  // may keep emitting events. Two things close it early, so a drag during that
+  // window is not swallowed: the scroll landing on its target, and — since a
+  // gesture aborts a smooth scroll mid-flight — the scroll going quiet anywhere
+  // else, which means the user interrupted it.
+  const handleBodyScroll = useCallback(() => {
+    if (Date.now() < programmaticScrollUntilRef.current) {
+      const body = bodyRef.current;
+      const distanceToTarget = body
+        ? Math.abs(body.scrollTop - programmaticTargetRef.current)
+        : NaN;
+      if (distanceToTarget <= 1) {
+        programmaticScrollUntilRef.current = 0;
+        window.clearTimeout(settleTimerRef.current);
+        settleTimerRef.current = null;
+        return;
+      }
+      // An unknown target (NaN distance) is not ours to judge: let the window
+      // time out rather than guess.
+      if (!Number.isFinite(distanceToTarget)) return;
+      window.clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = window.setTimeout(() => {
+        settleTimerRef.current = null;
+        const currentBody = bodyRef.current;
+        if (!currentBody) return;
+        if (Math.abs(currentBody.scrollTop - programmaticTargetRef.current) <= 1) return;
+        programmaticScrollUntilRef.current = 0;
+        pauseAutoScroll();
+      }, SCROLL_SETTLE_MS);
+      return;
+    }
+    pauseAutoScroll();
+  }, [pauseAutoScroll]);
+
+  const handleBodyWheel = useCallback(
+    (event) => {
+      const body = bodyRef.current;
+      if (!body) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const pageDelta = body.clientHeight || window.innerHeight || 0;
+      const deltaMultiplier = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? pageDelta : 1;
+      // Only a gesture that actually moves the list counts as taking over: a
+      // wheel over a list that fits, or past either end, must not pause.
+      const nextScrollTop = clampRailScrollTop(
+        body,
+        body.scrollTop + event.deltaY * deltaMultiplier,
+      );
+      if (nextScrollTop === body.scrollTop) return;
+      pauseAutoScroll();
+      body.scrollTop = nextScrollTop;
+    },
+    [pauseAutoScroll],
+  );
+
+  const handleBodyKeyDown = useCallback(
+    (event) => {
+      const body = bodyRef.current;
+      if (!body) return;
+
+      const pageStep = Math.max(1, Math.floor(body.clientHeight * 0.85));
+      const keyScrollDeltas = {
+        ArrowDown: 40,
+        ArrowUp: -40,
+        PageDown: pageStep,
+        PageUp: -pageStep,
+        Home: -body.scrollTop,
+        End: body.scrollHeight - body.clientHeight - body.scrollTop,
+      };
+      const delta = keyScrollDeltas[event.key];
+      if (delta == null) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      const nextScrollTop = clampRailScrollTop(body, body.scrollTop + delta);
+      if (nextScrollTop === body.scrollTop) return;
+      pauseAutoScroll();
+      body.scrollTop = nextScrollTop;
+    },
+    [pauseAutoScroll],
+  );
+
+  useEffect(() => () => window.clearTimeout(settleTimerRef.current), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -183,10 +295,19 @@ export default function YouTubeRail({
     };
   }, [pollIntervalMs]);
 
+  // The active card changing re-lays out the list (the summary body expands,
+  // the card grows), which can shift `scrollTop` on its own. Open the guard
+  // window before paint so that shift is not mistaken for a manual scroll.
+  useLayoutEffect(() => {
+    beginProgrammaticScroll();
+  }, [activeId, beginProgrammaticScroll]);
+
   // Scroll only on transition: when the active card changes during playback,
   // bring it into the rail's viewport. (No constant scroll — the list is
-  // otherwise free for the user to browse.)
+  // otherwise free for the user to browse.) Once the user has scrolled
+  // manually, following playback is off until they resume it.
   useEffect(() => {
+    if (!autoScrollEnabledRef.current) return;
     scrollToCard(activeId);
   }, [activeId, scrollToCard]);
 
@@ -201,6 +322,7 @@ export default function YouTubeRail({
       time == null ? NaN : time,
     );
     setActiveId(next);
+    if (!autoScrollEnabledRef.current) return undefined;
     const raf = window.requestAnimationFrame(() => scrollToCard(next));
     return () => window.cancelAnimationFrame(raf);
   }, [normalizedCards, scrollToCard]);
@@ -242,6 +364,7 @@ export default function YouTubeRail({
         tabIndex={isChat ? undefined : 0}
         onWheel={isChat ? undefined : handleBodyWheel}
         onKeyDown={isChat ? undefined : handleBodyKeyDown}
+        onScroll={isChat ? undefined : handleBodyScroll}
       >
         {isChat ? (
           <ArticleChat
@@ -259,40 +382,55 @@ export default function YouTubeRail({
             No timestamped {isSummary ? 'summaries' : 'topics'} for this video.
           </div>
         ) : (
-          normalizedCards.map((card) => {
-            const isActive = card.id === activeId;
-            return (
-              <button
-                key={card.id}
-                type="button"
-                ref={setCardRef(card.id)}
-                className={[
-                  'pagetollm-yt-rail-card',
-                  isSummary ? 'is-summary' : 'is-topic',
-                  isActive ? 'is-active' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                style={{ '--pagetollm-card-accent': card.accent }}
-                onClick={() => onSeek(card.seconds)}
-                title={`Jump to ${formatTimestampLabel(card.seconds)}`}
-              >
-                <div className="pagetollm-yt-rail-card-head">
-                  <span className="pagetollm-yt-rail-card-time">
-                    {formatTimestampLabel(card.seconds)}
-                  </span>
-                  <HierarchicalCardTitle name={card.name} path={card.path} />
-                </div>
-                {/* Only the card for the current moment shows its summary; the
-                    rest stay as titles so the surrounding topics remain visible. */}
-                {isSummary && isActive && (
-                  <div className="pagetollm-yt-rail-card-body">
-                    {getYouTubeRailCardBodyText(card)}
+          <>
+            {normalizedCards.map((card) => {
+              const isActive = card.id === activeId;
+              return (
+                <button
+                  key={card.id}
+                  type="button"
+                  ref={setCardRef(card.id)}
+                  className={[
+                    'pagetollm-yt-rail-card',
+                    isSummary ? 'is-summary' : 'is-topic',
+                    isActive ? 'is-active' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  style={{ '--pagetollm-card-accent': card.accent }}
+                  onClick={() => onSeek(card.seconds)}
+                  title={`Jump to ${formatTimestampLabel(card.seconds)}`}
+                >
+                  <div className="pagetollm-yt-rail-card-head">
+                    <span className="pagetollm-yt-rail-card-time">
+                      {formatTimestampLabel(card.seconds)}
+                    </span>
+                    <HierarchicalCardTitle name={card.name} path={card.path} />
                   </div>
-                )}
+                  {/* Only the card for the current moment shows its summary; the
+                    rest stay as titles so the surrounding topics remain visible. */}
+                  {isSummary && isActive && (
+                    <div className="pagetollm-yt-rail-card-body">
+                      {getYouTubeRailCardBodyText(card)}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+            {/* Pinned to the bottom of the list while playback tracking is
+                paused: press it to follow the video again and jump back to the
+                card for the current moment. */}
+            {!autoScrollEnabled && (
+              <button
+                type="button"
+                className="pagetollm-yt-rail-resume"
+                title="Resume auto-scroll and jump to the current topic"
+                onClick={handleResumeAutoScroll}
+              >
+                ↓ Resume auto-scroll
               </button>
-            );
-          })
+            )}
+          </>
         )}
       </div>
     </>

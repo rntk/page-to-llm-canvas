@@ -759,6 +759,35 @@ body.pagetollm-rail-open {
   scroll-behavior: smooth;
 }
 
+/* Pinned above the bottom of the list while auto-scroll is paused. */
+.pagetollm-yt-rail-resume {
+  position: sticky;
+  bottom: 4px;
+  z-index: 1;
+  align-self: center;
+  flex: 0 0 auto;
+  margin-top: 4px;
+  padding: 7px 14px;
+  background: var(--ink);
+  color: var(--surface);
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
+  transition: opacity 0.15s ease;
+}
+
+.pagetollm-yt-rail-resume:hover {
+  opacity: 0.85;
+}
+
+.pagetollm-yt-rail-resume:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
 .pagetollm-yt-rail-empty {
   padding: 24px 8px;
   color: var(--on-surface-muted);
@@ -862,7 +891,8 @@ body.pagetollm-rail-open {
   }
 
   .pagetollm-summary-topic,
-  .pagetollm-yt-rail-card {
+  .pagetollm-yt-rail-card,
+  .pagetollm-yt-rail-resume {
     transition: none;
   }
 }
