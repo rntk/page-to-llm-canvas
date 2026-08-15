@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// surfacePreferences reads storage at module load, so stub chrome before import.
+// surfacePreferences touches chrome.storage as soon as init()/a mount runs, so
+// stub chrome before import. Importing alone must not read storage (see below).
 let storageChangeListener = null;
 let themeValue;
 let highlightValue;
@@ -29,12 +30,17 @@ vi.stubGlobal('chrome', {
 });
 
 const {
+  init,
   applyContentTheme,
   applyContentHighlightColor,
   trackMountedSurface,
   untrackMountedSurface,
   registerThemedSurface,
 } = await import('./surfacePreferences.js');
+
+// Asserted before any test can call init(): the module was imported above and
+// must not have started any storage work on its own.
+const readsAtImportTime = chrome.storage.local.get.mock.calls.length;
 
 describe('surfacePreferences', () => {
   beforeEach(() => {
@@ -49,6 +55,24 @@ describe('surfacePreferences', () => {
     // Drain the refcount back to zero so listener state is clean between tests.
     untrackMountedSurface();
     untrackMountedSurface();
+  });
+
+  it('does not read storage at import time, only when init() runs', async () => {
+    expect(readsAtImportTime).toBe(0);
+
+    chrome.storage.local.get.mockClear();
+    init();
+    // The reads are dispatched on a microtask (getStoredTheme defers), so flush.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(chrome.storage.local.get).toHaveBeenCalled();
+
+    // init() is a one-shot; a second call must not re-read.
+    chrome.storage.local.get.mockClear();
+    init();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(chrome.storage.local.get).not.toHaveBeenCalled();
   });
 
   it('applies the cached (default system) theme by removing data-theme', () => {
@@ -79,6 +103,43 @@ describe('surfacePreferences', () => {
 
     untrackMountedSurface();
     expect(chrome.storage.onChanged.removeListener).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an in-flight highlight-color read alive when only the theme changes', async () => {
+    // Generations are per preference, so a theme-only change event must not
+    // discard the pending read for the highlight color (which would leave it at
+    // the default until the next mount).
+    const deferredReads = [];
+    const realGet = chrome.storage.local.get.getMockImplementation();
+    chrome.storage.local.get.mockImplementation((key, cb) => {
+      deferredReads.push(() => realGet(key, cb));
+    });
+    themeValue = 'light';
+    highlightValue = '#00ff00';
+
+    const el = document.createElement('div');
+    const unregister = registerThemedSurface(() => el);
+    try {
+      trackMountedSurface(); // attaches the listener and starts both reads
+
+      // The reads defer before touching storage, so let both get in flight
+      // before invalidating one of them.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(deferredReads.length).toBe(2);
+
+      storageChangeListener({ 'pagetollm-theme': { newValue: 'dark' } }, 'local');
+      deferredReads.forEach((resolve) => resolve());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // The newer change event wins for the theme; the untouched preference
+      // still lands from its own read.
+      expect(el.getAttribute('data-theme')).toBe('dark');
+      expect(el.style.getPropertyValue('--pagetollm-highlight-base-color')).toBe('#00ff00');
+    } finally {
+      chrome.storage.local.get.mockImplementation(realGet);
+      unregister();
+      untrackMountedSurface();
+    }
   });
 
   it('re-tags a registered surface when the theme changes via storage', () => {

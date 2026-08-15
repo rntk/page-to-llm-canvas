@@ -24,7 +24,12 @@ let cachedThemePreference = THEME_SYSTEM;
 let cachedHighlightColor = DEFAULT_HIGHLIGHT_COLOR;
 let unsubscribePreferenceStorage = null;
 let mountedContentSurfaceCount = 0;
-let preferenceStorageSyncId = 0;
+// One generation counter per preference, not one shared counter: a change event
+// for one key must only invalidate the in-flight read for THAT key, or the other
+// key's pending read is dropped and stays at its default until the next resync.
+let themeSyncId = 0;
+let highlightColorSyncId = 0;
+let didInit = false;
 
 // Controllers own their host elements; they register a getter here so a theme
 // or highlight-color change can re-tag surfaces that are already mounted
@@ -78,45 +83,38 @@ function refreshMountedHighlightColor() {
   }
 }
 
-void getStoredTheme()
-  .then((stored) => {
-    setCachedThemePreference(stored);
-    // A surface opened before this async read resolved was tagged with the
-    // default; re-tag it now that the real preference is known.
-    refreshMountedContentTheme();
-  })
-  .catch((err) => {
-    console.warn('PageToLLM content initial theme load failed:', err);
-  });
-
-void getStoredHighlightColor()
-  .then((stored) => {
-    setCachedHighlightColor(stored);
-    refreshMountedHighlightColor();
-  })
-  .catch((err) => {
-    console.warn('PageToLLM content initial highlight color load failed:', err);
-  });
+/**
+ * Kick off the initial preference reads. Called once by the coordinator during
+ * bootstrap — importing this module must not start any async work. Surfaces
+ * opened before the reads resolve are tagged with the defaults and re-tagged
+ * when the real preferences land.
+ */
+export function init() {
+  if (didInit) return;
+  didInit = true;
+  syncPreferenceCacheFromStorage();
+}
 
 function syncPreferenceCacheFromStorage() {
-  const syncId = ++preferenceStorageSyncId;
+  const themeReadId = ++themeSyncId;
+  const highlightColorReadId = ++highlightColorSyncId;
   void getStoredTheme()
     .then((stored) => {
-      if (syncId !== preferenceStorageSyncId) return;
+      if (themeReadId !== themeSyncId) return;
       setCachedThemePreference(stored);
       refreshMountedContentTheme();
     })
     .catch((err) => {
-      console.warn('PageToLLM content theme resync failed:', err);
+      console.warn('PageToLLM content theme load failed:', err);
     });
   void getStoredHighlightColor()
     .then((stored) => {
-      if (syncId !== preferenceStorageSyncId) return;
+      if (highlightColorReadId !== highlightColorSyncId) return;
       setCachedHighlightColor(stored);
       refreshMountedHighlightColor();
     })
     .catch((err) => {
-      console.warn('PageToLLM content highlight color resync failed:', err);
+      console.warn('PageToLLM content highlight color load failed:', err);
     });
 }
 
@@ -125,12 +123,13 @@ function handlePreferenceStorageChange(changes) {
   const themeChange = changes[THEME_KEY];
   const highlightColorChange = changes[HIGHLIGHT_COLOR_KEY];
   if (!themeChange && !highlightColorChange) return;
-  preferenceStorageSyncId += 1;
   if (themeChange) {
+    themeSyncId += 1;
     setCachedThemePreference(themeChange.newValue);
     refreshMountedContentTheme();
   }
   if (highlightColorChange) {
+    highlightColorSyncId += 1;
     setCachedHighlightColor(highlightColorChange.newValue);
     refreshMountedHighlightColor();
   }

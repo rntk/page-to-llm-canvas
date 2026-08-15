@@ -29,6 +29,10 @@ export function createContentSurfaceCoordinator({
 } = {}) {
   let activeSurface = null;
   let pendingRailRequest = null;
+  // Importing the preferences module must not start async work, so the initial
+  // reads are kicked off here — synchronously at bootstrap, so the cache is warm
+  // by the time any surface mounts. Optional so partial fake ports still work.
+  preferences?.init?.();
   const railManager = createRailSurfaceManager({ document, rootFactory, preferences });
   const frameManager = createRecordFrameManager({
     document,
