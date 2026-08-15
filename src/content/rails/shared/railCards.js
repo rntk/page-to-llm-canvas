@@ -1,9 +1,12 @@
-import { getHierarchyTopicAccentColor } from '../../../utils/topicColorUtils.js';
+import { getHierarchyTopicAccentColor } from '../../../domain/topicColorUtils.js';
 import {
   splitTopicPath,
-  getTopicSentenceNumbers,
+  buildTopicHierarchyTree,
+  flattenTopicHierarchy,
   computeMaxTopicLevelForRecord,
+  normalizeSummaryRuns,
   requireTopicSummaryLevel,
+  splitSentenceRuns,
 } from '../../../domain/topicDomain.js';
 
 /**
@@ -41,16 +44,7 @@ export function buildSummaryEntries(record) {
   // Emit only runs with usable summary text. Failed or skipped summaries stay
   // absent from the rail instead of creating empty placeholder cards.
   const pushRuns = ({ path, name, level, runs, sourceSentences }) => {
-    const rendered =
-      Array.isArray(runs) && runs.length > 0
-        ? runs.map((run) => ({
-            sentences: Array.isArray(run.sentences)
-              ? run.sentences.slice().sort((a, b) => a - b)
-              : [],
-            text: typeof run.text === 'string' ? run.text.trim() : '',
-          }))
-        : splitIntoContiguousRuns(sourceSentences).map((run) => ({ sentences: run, text: '' }));
-    for (const run of rendered) {
+    for (const run of normalizeSummaryRuns(runs, sourceSentences)) {
       if (!run.text) continue;
       out.push({ path, name, text: run.text, sourceSentences: run.sentences, level });
     }
@@ -77,53 +71,22 @@ export function buildSummaryEntries(record) {
   return { entries: out, sentenceNumbersByPath };
 }
 
+/**
+ * Flatten the canonical topic hierarchy into the rail's entry shape: one entry
+ * per distinct path up to `selectedLevel`, in first-seen order.
+ *
+ * @param {object} record
+ * @param {number} selectedLevel
+ * @returns {Array<{path: string, name: string, level: number, sentences: number[]}>}
+ */
 export function buildHierarchicalTopicEntries(record, selectedLevel) {
-  const topics = Array.isArray(record.topics) ? record.topics : [];
-  const nodes = new Map();
-
-  for (const t of topics) {
-    const parts = splitTopicPath(t.name);
-    const limit = Math.min(parts.length, selectedLevel + 1);
-    const sentences = getTopicSentenceNumbers(t);
-
-    for (let i = 0; i < limit; i++) {
-      const path = parts.slice(0, i + 1).join(' > ');
-      const name = parts[i];
-      if (!nodes.has(path)) {
-        nodes.set(path, {
-          path,
-          name,
-          level: i,
-          sentences: new Set(),
-        });
-      }
-      const node = nodes.get(path);
-      for (const s of sentences) {
-        node.sentences.add(s);
-      }
-    }
-  }
-
-  return Array.from(nodes.values()).map((node) => ({
-    path: node.path,
+  const tree = buildTopicHierarchyTree(record.topics, selectedLevel);
+  return flattenTopicHierarchy(tree).map((node) => ({
+    path: node.fullPath,
     name: node.name,
-    level: node.level,
+    level: node.depth,
     sentences: Array.from(node.sentences).sort((a, b) => a - b),
   }));
 }
 
-export function splitIntoContiguousRuns(sentences) {
-  const sorted = (sentences || []).slice().sort((a, b) => a - b);
-  const runs = [];
-  let cur = [];
-  for (const s of sorted) {
-    if (cur.length === 0 || s === cur[cur.length - 1] + 1) {
-      cur.push(s);
-    } else {
-      runs.push(cur);
-      cur = [s];
-    }
-  }
-  if (cur.length) runs.push(cur);
-  return runs;
-}
+export { splitSentenceRuns as splitIntoContiguousRuns };

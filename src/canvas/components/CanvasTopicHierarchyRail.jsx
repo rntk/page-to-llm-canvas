@@ -1,6 +1,6 @@
 import React from 'react';
-import { getHierarchyTopicAccentColor } from '../../utils/topicColorUtils.js';
-import { isTopicRead } from '../../utils/topicReadUtils.js';
+import { getHierarchyTopicAccentColor } from '../../domain/topicColorUtils.js';
+import { isTopicRead } from '../../domain/topicReadUtils.js';
 import {
   CARD_COMPACT_TITLE_MAX_LINES,
   getAdjustedHierarchyCards,

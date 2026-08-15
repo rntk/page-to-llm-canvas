@@ -1,25 +1,18 @@
-import { requireTopicSummaryLevel, splitSentenceRuns, splitTopicPath } from './topicDomain.js';
+import { normalizeSummaryRuns, requireTopicSummaryLevel, splitTopicPath } from './topicDomain.js';
 
 /**
- * Normalizes a summary entry's per-run list into render-ready runs. Each summary
- * carries one run per contiguous occurrence of the topic ({sentences, text}). A
- * summary with no runs (an errored/skipped topic) falls back to positioned but
- * empty runs derived from its aggregated sentences, so the topic still occupies
- * its place on the rail instead of vanishing.
+ * Applies this surface's run policy on top of the canonical normalization: the
+ * canvas summary view keeps text-less runs and guarantees at least one run per
+ * entry, so an errored/skipped topic still occupies its place on the rail
+ * instead of vanishing.
  *
  * @param {Array<{sentences: number[], text: string}>} runs
  * @param {number[]} sourceSentences
  * @returns {Array<{sentences: number[], text: string}>}
  */
 function runsForRender(runs, sourceSentences) {
-  if (Array.isArray(runs) && runs.length > 0) {
-    return runs.map((run) => ({
-      sentences: Array.isArray(run.sentences) ? run.sentences.slice().sort((a, b) => a - b) : [],
-      text: typeof run.text === 'string' ? run.text.trim() : '',
-    }));
-  }
-  const fallback = splitSentenceRuns(sourceSentences).map((run) => ({ sentences: run, text: '' }));
-  return fallback.length > 0 ? fallback : [{ sentences: [], text: '' }];
+  const normalized = normalizeSummaryRuns(runs, sourceSentences);
+  return normalized.length > 0 ? normalized : [{ sentences: [], text: '' }];
 }
 
 /**

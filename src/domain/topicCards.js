@@ -6,7 +6,12 @@
  * Cards are laid out in columns by depth level, matching the frontend canvas.
  */
 
-import { getTopicSentenceNumbers, splitSentenceRuns, splitTopicPath } from './topicDomain.js';
+import {
+  buildTopicHierarchyTree,
+  flattenTopicHierarchy,
+  splitSentenceRuns,
+  splitTopicPath,
+} from './topicDomain.js';
 import { clampScale } from '../utils/canvasMath.js';
 
 export const CARD_WIDTH = 240;
@@ -103,14 +108,7 @@ export function getTopicTitleFontSize({ scale, height }) {
   return Math.max(1, Math.min(zoomAdjusted, heightCapped));
 }
 
-/**
- * @typedef {Object} TopicTreeNode
- * @property {string} name
- * @property {string} fullPath
- * @property {number} depth
- * @property {Set<number>} sentences
- * @property {Map<string, TopicTreeNode>} children
- */
+/** @typedef {import('./topicDomain.js').TopicHierarchyNode} TopicTreeNode */
 
 /**
  * @typedef {Object} SentenceMetric
@@ -325,64 +323,14 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
 
   const level = Number.isFinite(selectedLevel) ? selectedLevel : 0;
 
-  /**
-   * @param {string} name
-   * @param {string} fullPath
-   * @param {number} depth
-   * @returns {TopicTreeNode}
-   */
-  function createTreeNode(name, fullPath, depth) {
-    return {
-      name,
-      fullPath,
-      depth,
-      sentences: new Set(),
-      children: new Map(),
-    };
-  }
-
-  const rootNode = createTreeNode('root', '', -1);
-
-  for (const topic of topics) {
-    const parts = splitTopicPath(topic.name);
-    const limit = Math.min(parts.length, level + 1);
-    const sentences = getTopicSentenceNumbers(topic);
-
-    let curr = rootNode;
-    for (let i = 0; i < limit; i += 1) {
-      const segment = parts[i];
-      const fullPath = parts.slice(0, i + 1).join(' > ');
-
-      if (!curr.children.has(segment)) {
-        curr.children.set(segment, createTreeNode(segment, fullPath, i));
-      }
-
-      const child = curr.children.get(segment);
-      for (const s of sentences) {
-        if (Number.isInteger(s)) {
-          child.sentences.add(s);
-        }
-      }
-      curr = child;
-    }
-  }
+  const rootNode = buildTopicHierarchyTree(topics, level);
 
   /** @type {Map<number, TopicTreeNode[]>} */
   const nodesByDepth = new Map();
-
-  /**
-   * @param {TopicTreeNode} node
-   */
-  function collect(node) {
-    if (node !== rootNode) {
-      if (!nodesByDepth.has(node.depth)) nodesByDepth.set(node.depth, []);
-      nodesByDepth.get(node.depth).push(node);
-    }
-    for (const child of node.children.values()) {
-      collect(child);
-    }
+  for (const node of flattenTopicHierarchy(rootNode)) {
+    if (!nodesByDepth.has(node.depth)) nodesByDepth.set(node.depth, []);
+    nodesByDepth.get(node.depth).push(node);
   }
-  collect(rootNode);
 
   // A topic with non-contiguous sentences (e.g. a newsletter header/footer
   // wrapping the body) renders as one card per contiguous run, so fallback
@@ -398,8 +346,7 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
   for (let depth = 0; depth <= level; depth += 1) {
     const nodes = nodesByDepth.get(depth) || [];
     const runEntries = nodes.flatMap((node) => {
-      const sentenceArray = Array.from(node.sentences).sort((left, right) => left - right);
-      const sentenceRuns = splitSentenceRuns(sentenceArray);
+      const sentenceRuns = splitSentenceRuns(Array.from(node.sentences));
       const runs = sentenceRuns.length > 0 ? sentenceRuns : [[]];
       const entries = runs.map((run, runIndex) => ({
         node,

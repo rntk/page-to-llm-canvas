@@ -22,7 +22,7 @@ import { useInitialView } from './hooks/useInitialView.js';
 import { useCanvasRecordViewModel } from './hooks/useCanvasRecordViewModel.js';
 import { useCanvasTopicNavigation } from './hooks/useCanvasTopicNavigation.js';
 import { useTopicSelection } from './hooks/useTopicSelection.js';
-import { selectCurrentTopicSummary } from '../utils/currentTopicSummary.js';
+import { selectCurrentTopicSummary } from '../domain/currentTopicSummary.js';
 import ArticleChat from '../chat/ArticleChat.jsx';
 import { useChatHighlights } from '../chat/useChatHighlights.js';
 import { buildSentenceDomRange } from '../highlights/sentenceHighlight.js';

@@ -164,3 +164,19 @@ describe('buildSummaryCards', () => {
     ).toThrow('Invalid topic_summary_index entry for "Topic"');
   });
 });
+
+describe('buildSummaryCards run fallback', () => {
+  it('sorts unsorted source_sentences before splitting an entry without runs', () => {
+    const cards = buildSummaryCards({
+      A: { level: 0, source_sentences: [3, 1, 2] },
+    });
+    expect(cards.map((card) => card.sourceSentences)).toEqual([[1, 2, 3]]);
+    expect(cards[0].startSentence).toBe(1);
+  });
+
+  it('keeps a placeholder card for an entry with neither runs nor sentences', () => {
+    const cards = buildSummaryCards({ A: { level: 0 } });
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ path: 'A', text: '', sourceSentences: [], startSentence: 0 });
+  });
+});

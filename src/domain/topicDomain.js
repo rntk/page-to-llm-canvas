@@ -131,21 +131,25 @@ export function buildTopicSentenceIndex(topics) {
 }
 
 /**
- * Split sorted sentence numbers into contiguous runs.
+ * Split sentence numbers into contiguous runs. The input is sorted defensively:
+ * callers receive sentence lists straight from stored records, which are not
+ * guaranteed to be ordered, and an unsorted input would otherwise be split into
+ * spurious single-sentence runs.
  *
  * @param {number[]} sentenceNumbers
  * @returns {number[][]}
  */
 export function splitSentenceRuns(sentenceNumbers) {
-  if (sentenceNumbers.length === 0) return [];
+  if (!Array.isArray(sentenceNumbers) || sentenceNumbers.length === 0) return [];
+  const sorted = sentenceNumbers.slice().sort((left, right) => left - right);
 
   /** @type {number[][]} */
   const runs = [];
-  let currentRun = [sentenceNumbers[0]];
+  let currentRun = [sorted[0]];
 
-  for (let index = 1; index < sentenceNumbers.length; index += 1) {
-    const sentenceNumber = sentenceNumbers[index];
-    const previousSentenceNumber = sentenceNumbers[index - 1];
+  for (let index = 1; index < sorted.length; index += 1) {
+    const sentenceNumber = sorted[index];
+    const previousSentenceNumber = sorted[index - 1];
     if (sentenceNumber === previousSentenceNumber + 1) {
       currentRun.push(sentenceNumber);
     } else {
@@ -156,4 +160,111 @@ export function splitSentenceRuns(sentenceNumbers) {
 
   runs.push(currentRun);
   return runs;
+}
+
+/**
+ * Canonical normalization for the per-run list carried by a topic-summary index
+ * entry. Each run becomes `{sentences (sorted), text (trimmed)}`. An entry with
+ * no runs (an errored or skipped topic) falls back to positioned but text-less
+ * runs derived from its aggregated sentences.
+ *
+ * Callers own the *policy* applied to the result: some surfaces drop text-less
+ * runs, others keep them as placeholders. This helper only normalizes shape.
+ *
+ * @param {Array<{sentences?: number[], text?: string}>} runs
+ * @param {number[]} sourceSentences
+ * @returns {Array<{sentences: number[], text: string}>}
+ */
+export function normalizeSummaryRuns(runs, sourceSentences) {
+  if (Array.isArray(runs) && runs.length > 0) {
+    return runs.map((run) => ({
+      sentences: Array.isArray(run?.sentences)
+        ? run.sentences.slice().sort((left, right) => left - right)
+        : [],
+      text: typeof run?.text === 'string' ? run.text.trim() : '',
+    }));
+  }
+  return splitSentenceRuns(sourceSentences).map((run) => ({ sentences: run, text: '' }));
+}
+
+/**
+ * @typedef {object} TopicHierarchyNode
+ * @property {string} name Last path segment ('root' for the synthetic root).
+ * @property {string} fullPath Canonical 'A > B > C' path ('' for the root).
+ * @property {number} depth Zero-based level (-1 for the root).
+ * @property {number} order Global creation index, used to restore first-seen order.
+ * @property {Set<number>} sentences Sentence numbers of this node and its descendants.
+ * @property {Map<string, TopicHierarchyNode>} children Child nodes keyed by segment.
+ */
+
+/**
+ * Build the canonical topic hierarchy tree from a flat topic list, truncated at
+ * `maxLevel`. Every hierarchy projection (canvas cards, in-page rail, YouTube
+ * rail) derives from this single accumulation of path splitting, level limiting
+ * and sentence roll-up.
+ *
+ * @param {Array<{name: string, sentences?: number[]}>} topics
+ * @param {number} maxLevel Deepest zero-based level to include.
+ * @returns {TopicHierarchyNode} The synthetic root node.
+ */
+export function buildTopicHierarchyTree(topics, maxLevel) {
+  let nextOrder = 0;
+  const createNode = (name, fullPath, depth) => ({
+    name,
+    fullPath,
+    depth,
+    order: nextOrder++,
+    sentences: new Set(),
+    children: new Map(),
+  });
+
+  const root = createNode('root', '', -1);
+  if (!Array.isArray(topics)) return root;
+
+  const level = Number.isFinite(maxLevel) ? maxLevel : 0;
+
+  for (const topic of topics) {
+    const parts = splitTopicPath(topic?.name);
+    const limit = Math.min(parts.length, level + 1);
+    const sentenceNumbers = getTopicSentenceNumbers(topic);
+
+    let current = root;
+    for (let index = 0; index < limit; index += 1) {
+      const segment = parts[index];
+      if (!current.children.has(segment)) {
+        current.children.set(
+          segment,
+          createNode(segment, parts.slice(0, index + 1).join(' > '), index),
+        );
+      }
+      const child = current.children.get(segment);
+      for (const sentenceNumber of sentenceNumbers) {
+        child.sentences.add(sentenceNumber);
+      }
+      current = child;
+    }
+  }
+
+  return root;
+}
+
+/**
+ * Flatten a topic hierarchy tree into its nodes, excluding the synthetic root.
+ * Nodes come back in the order their paths were first encountered in the topic
+ * list, which is the order rail surfaces render them in.
+ *
+ * @param {TopicHierarchyNode} root
+ * @returns {TopicHierarchyNode[]}
+ */
+export function flattenTopicHierarchy(root) {
+  /** @type {TopicHierarchyNode[]} */
+  const nodes = [];
+  const visit = (node) => {
+    for (const child of node.children.values()) {
+      nodes.push(child);
+      visit(child);
+    }
+  };
+  visit(root);
+  return nodes.sort((left, right) => left.order - right.order);
 }

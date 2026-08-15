@@ -153,7 +153,7 @@ vi.mock('./hooks/useTopicSelection.js', () => ({
     clearTopicSelection: mocks.clearTopicSelection,
   }),
 }));
-vi.mock('../utils/currentTopicSummary.js', () => ({
+vi.mock('../domain/currentTopicSummary.js', () => ({
   selectCurrentTopicSummary: vi.fn(() => ({ key: 'Topic#0', text: 'Summary' })),
 }));
 vi.mock('../highlights/sentenceHighlight.js', () => ({

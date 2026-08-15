@@ -1,10 +1,10 @@
 import React, { useMemo, useState, useCallback, useLayoutEffect, useRef } from 'react';
-import { buildTopicTree, countLeafDescendants } from '../utils/topicTree.js';
+import { buildTopicTree, countLeafDescendants } from '../domain/topicTree.js';
 import {
   getHierarchyTopicHighlightColor,
   getHierarchyTopicHighlightColorDark,
   getHierarchyTopicAccentColor,
-} from '../utils/topicColorUtils.js';
+} from '../domain/topicColorUtils.js';
 import { spacedTopicPath, buildSummaryLookup } from './topicViewUtils.js';
 import { getYouTubeTimestampLink, getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
 import YouTubeTimestampButton from '../components/YouTubeTimestampButton.jsx';

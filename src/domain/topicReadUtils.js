@@ -1,4 +1,4 @@
-import { splitTopicPath } from '../domain/topicDomain.js';
+import { splitTopicPath } from './topicDomain.js';
 
 function toReadTopicsSet(readTopics) {
   if (readTopics instanceof Set) return readTopics;

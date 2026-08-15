@@ -85,6 +85,26 @@ export default [
     },
   },
   {
+    // `src/utils/` holds generic, topic-agnostic helpers; `src/domain/` holds
+    // the topic model and the projections built on it. The dependency runs
+    // domain -> utils only. See ARCHITECTURE_LAYERS.md.
+    files: ['src/utils/**/*.js'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/domain/*'],
+              message:
+                'src/utils/ must stay topic-agnostic. Topic-specific helpers belong in src/domain/ next to topicDomain.js.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['src/canvas/App.jsx'],
     rules: {
       'no-restricted-imports': [

@@ -7,7 +7,7 @@ import YouTubeTimestampButton from '../components/YouTubeTimestampButton.jsx';
 import { splitError } from '../utils/errorUtils.js';
 import ErrorDetails from '../components/ErrorDetails.jsx';
 import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
-import { buildTopicTree, collectNonLeafPaths } from '../utils/topicTree.js';
+import { buildTopicTree, collectNonLeafPaths } from '../domain/topicTree.js';
 import { getMaxTopicLevel } from '../domain/topicDomain.js';
 import './hierarchy.css';
 
