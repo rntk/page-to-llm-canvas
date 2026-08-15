@@ -13,6 +13,7 @@ import {
 } from '../highlights/highlightSettings.js';
 import { browserLocalStore } from '../shared/runtime/localStore.js';
 import { browserRuntimeMessenger } from '../utils/runtimeMessages.js';
+import { createModalHost } from './modalHost.js';
 
 // Apply the saved light/dark/system preference to this iframe document, and
 // keep it in sync if the preference changes (from the popup/options) while a
@@ -33,10 +34,16 @@ const { key, view } = parseModalRoute(window.location.search);
 const container = document.getElementById('pagetollm-root');
 const root = createRoot(container);
 const recordSource = { runtimeMessenger: browserRuntimeMessenger, store: browserLocalStore };
+const modalHost = createModalHost();
 root.render(
   view === 'hierarchy' ? (
-    <HierarchyApp initialKey={key} recordSource={recordSource} />
+    <HierarchyApp
+      initialKey={key}
+      recordSource={recordSource}
+      onClose={modalHost.onClose}
+      onNavigateToSentences={modalHost.onNavigateToSentences}
+    />
   ) : (
-    <App initialKey={key} recordSource={recordSource} />
+    <App initialKey={key} recordSource={recordSource} onClose={modalHost.onClose} />
   ),
 );

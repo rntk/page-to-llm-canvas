@@ -4,7 +4,6 @@ import TopicHierarchyView from './TopicHierarchyView.jsx';
 import { getSentencesForNode } from './hierarchyUtils.js';
 import { getYouTubeTimestampLink, getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
 import YouTubeTimestampButton from '../components/YouTubeTimestampButton.jsx';
-import { closeModal, postMessageToParent } from '../canvas/closeModal.js';
 import { splitError } from '../utils/errorUtils.js';
 import ErrorDetails from '../components/ErrorDetails.jsx';
 import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
@@ -12,7 +11,14 @@ import { buildTopicTree, collectNonLeafPaths } from '../utils/topicTree.js';
 import { getMaxTopicLevel } from '../domain/topicDomain.js';
 import './hierarchy.css';
 
-export default function HierarchyApp({ initialKey, recordSource }) {
+const noop = () => {};
+
+export default function HierarchyApp({
+  initialKey,
+  recordSource,
+  onClose = noop,
+  onNavigateToSentences = noop,
+}) {
   const { record, error } = useRecord(initialKey, recordSource);
   const bodyRef = useRef(null);
 
@@ -46,7 +52,7 @@ export default function HierarchyApp({ initialKey, recordSource }) {
           event.preventDefault();
           setActiveSummary(null);
         } else {
-          closeModal();
+          onClose();
         }
       }
     };
@@ -54,7 +60,7 @@ export default function HierarchyApp({ initialKey, recordSource }) {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [activeSummary]);
+  }, [activeSummary, onClose]);
 
   // Serialize once per record change, not once per render: `record` is stable across
   // UI renders (only storage writes mint a new object), so keying on the reference
@@ -142,7 +148,7 @@ export default function HierarchyApp({ initialKey, recordSource }) {
           Open the Options page to retry this analysis from the Records section.
         </div>
         <div className="th-page__error-actions">
-          <button type="button" className="th-page__close-btn" onClick={closeModal}>
+          <button type="button" className="th-page__close-btn" onClick={onClose}>
             Close
           </button>
         </div>
@@ -160,7 +166,7 @@ export default function HierarchyApp({ initialKey, recordSource }) {
           or skip them from the Records section.
         </div>
         <div className="th-page__error-actions">
-          <button type="button" className="th-page__close-btn" onClick={closeModal}>
+          <button type="button" className="th-page__close-btn" onClick={onClose}>
             Close
           </button>
         </div>
@@ -179,18 +185,13 @@ export default function HierarchyApp({ initialKey, recordSource }) {
         sentences={record?.sentences}
         onTopicClick={(entry) => {
           const sentenceNumbers = getSentencesForNode(entry);
-          try {
-            postMessageToParent({
-              type: 'pagetollm-scroll-to-topic-sentences',
-              key: initialKey,
-              rail: isYouTube ? 'youtube' : 'page',
-              sentenceNumbers,
-              level: entry.node.depth,
-              topicPath: entry.node.fullPath,
-            });
-          } catch (_) {
-            /* noop */
-          }
+          onNavigateToSentences({
+            key: initialKey,
+            rail: isYouTube ? 'youtube' : 'page',
+            sentenceNumbers,
+            level: entry.node.depth,
+            topicPath: entry.node.fullPath,
+          });
         }}
         onSummaryClick={handleSummaryClick}
       />
@@ -214,7 +215,7 @@ export default function HierarchyApp({ initialKey, recordSource }) {
         <button
           type="button"
           className="th-page__close"
-          onClick={closeModal}
+          onClick={onClose}
           aria-label="Close"
           title="Close"
         >

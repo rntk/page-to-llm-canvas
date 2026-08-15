@@ -2,7 +2,7 @@
 // Values never leave the worker: the options page receives category counts and
 // byte totals only, so provider tokens and page/chat content are not exposed.
 
-import { INDEX_KEY, RECORD_STORAGE_PREFIX } from './storage.js';
+import { INDEX_KEY, RECORD_STORAGE_PREFIX, disposeProcessingLogs } from './storage.js';
 import { PROVIDERS_KEY } from '../llm/providers.js';
 import { LLM_METRICS_KEY, LLM_METRICS_EPOCH_KEY } from '../metrics/llm.js';
 import { PARSER_METRICS_KEY } from '../metrics/parser.js';
@@ -140,5 +140,11 @@ export async function getStorageOverview() {
  * record/chat mutations so an already-queued write cannot survive the reset.
  */
 export function clearAllExtensionData() {
-  return queuedUpdate(MUTATION_QUEUE_KEY, clearLocal);
+  // In-memory buffers are not reachable by clearLocal, so drop them inside the
+  // same critical section or a pending flush would re-create a meta document
+  // after the reset.
+  return queuedUpdate(MUTATION_QUEUE_KEY, async () => {
+    await clearLocal();
+    disposeProcessingLogs();
+  });
 }

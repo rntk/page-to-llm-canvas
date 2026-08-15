@@ -27,6 +27,9 @@ export {
 /**
  * Per-key promise queue. Serializes all read-modify-write operations on the
  * same record so concurrent pipeline writes cannot clobber each other.
+ *
+ * Realm-scoped module state ensures every writer shares the same queue; a
+ * second coordinator in one realm would reintroduce lost updates.
  * @type {Map<string, Promise<void>>}
  */
 const _updateQueues = new Map();

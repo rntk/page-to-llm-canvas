@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { closeModal, getParentOrigin } from './closeModal.js';
+import { createModalHost } from './modalHost.js';
 
-describe('closeModal', () => {
+describe('modalHost', () => {
   let originalParent;
   let originalClose;
 
@@ -34,7 +34,7 @@ describe('closeModal', () => {
       configurable: true,
     });
 
-    closeModal();
+    createModalHost().onClose();
 
     expect(window.close).toHaveBeenCalledTimes(1);
   });
@@ -51,7 +51,7 @@ describe('closeModal', () => {
       configurable: true,
     });
 
-    closeModal();
+    createModalHost().onClose();
 
     expect(window.close).not.toHaveBeenCalled();
     expect(postMessageMock).toHaveBeenCalledWith(
@@ -68,7 +68,21 @@ describe('closeModal', () => {
       configurable: true,
     });
 
-    expect(getParentOrigin()).toBe('https://referrer.example');
+    const postMessageMock = vi.fn();
+    Object.defineProperty(window, 'parent', {
+      value: { postMessage: postMessageMock },
+      writable: true,
+      configurable: true,
+    });
+    createModalHost().onNavigateToSentences({ key: 'k1', sentenceNumbers: [1] });
+    expect(postMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'pagetollm-scroll-to-topic-sentences',
+        key: 'k1',
+        sentenceNumbers: [1],
+      }),
+      'https://referrer.example',
+    );
 
     delete document.referrer;
   });
@@ -81,6 +95,6 @@ describe('closeModal', () => {
       configurable: true,
     });
 
-    expect(() => closeModal()).not.toThrow();
+    expect(() => createModalHost().onClose()).not.toThrow();
   });
 });

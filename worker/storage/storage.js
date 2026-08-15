@@ -78,13 +78,16 @@ function pickMetaFields(obj) {
   return out;
 }
 
-/** Clears all per-key queues and buffered log state. Exposed for testing only. */
+/**
+ * Returns this module's realm-scoped state to its initial condition. Buffered
+ * log disposal is the production lifecycle hook (`disposeProcessingLogs`); the
+ * mutation-queue and repair-throttle resets are test-only, since neither has a
+ * meaning outside a fresh realm.
+ */
 export function _resetUpdateQueues() {
   resetUpdateQueues();
   lastIndexProjectionRepairAt = null;
-  for (const timer of _logFlushTimers.values()) clearTimeout(timer);
-  _logFlushTimers.clear();
-  _logBuffers.clear();
+  disposeProcessingLogs();
 }
 
 async function readIndex() {
@@ -441,11 +444,23 @@ export async function updateRecord(key, patch, options = {}) {
 // memory per record key and flushed as a single write once the buffer has
 // been quiet for LOG_FLUSH_DELAY_MS (bounded from the first buffered entry,
 // not reset per entry, so a sustained burst still flushes periodically).
+//
+// These realm-scoped maps share the mutation queue's lifetime so every caller
+// coalesces through one buffer. Recycling may lose diagnostics; lifecycle
+// disposal below prevents them from landing in the wrong record.
 const LOG_FLUSH_DELAY_MS = 250;
-/** @type {Map<string, {entries: object[], options: object, deferred: {promise: Promise, resolve: Function, reject: Function}}>} */
+/** @type {Map<string, {entries: object[], options: object, disposed?: boolean, deferred: {promise: Promise, resolve: Function, reject: Function}}>} */
 const _logBuffers = new Map();
 /** @type {Map<string, *>} */
 const _logFlushTimers = new Map();
+// Buffers that have been detached from _logBuffers (so new entries start a
+// fresh buffer) but have not yet written: they are waiting on the mutation and
+// key queues. A key can hold more than one, because appendProcessingLog
+// detaches a stale run's buffer while the debounce flush of another may still
+// be parked. They stay tracked here so disposeProcessingLogs can cancel a flush
+// that is queued behind the very delete doing the disposing.
+/** @type {Map<string, Set<object>>} */
+const _flushingBuffers = new Map();
 
 function createDeferred() {
   let resolve, reject;
@@ -456,14 +471,36 @@ function createDeferred() {
   return { promise, resolve, reject };
 }
 
+function trackFlushing(key, buf) {
+  let inflight = _flushingBuffers.get(key);
+  if (!inflight) {
+    inflight = new Set();
+    _flushingBuffers.set(key, inflight);
+  }
+  inflight.add(buf);
+}
+
+function untrackFlushing(key, buf) {
+  const inflight = _flushingBuffers.get(key);
+  if (!inflight) return;
+  inflight.delete(buf);
+  if (inflight.size === 0) _flushingBuffers.delete(key);
+}
+
 async function doFlushProcessingLog(key) {
   const buf = _logBuffers.get(key);
-  if (!buf) return;
+  if (!buf) return null;
+  // Detach immediately so later entries start a new buffer under their own
+  // run options, but stay cancellable until this flush actually owns the key
+  // queue: deleteRecord/deleteAll dispose from inside that same critical
+  // section, so a flush parked behind a delete must not write afterwards.
   _logBuffers.delete(key);
-  const { entries, options, deferred } = buf;
+  trackFlushing(key, buf);
+  const { entries, options } = buf;
   try {
     const result = await queuedUpdate(MUTATION_QUEUE_KEY, () =>
       queuedUpdate(key, async () => {
+        if (!_flushingBuffers.get(key)?.has(buf)) return null;
         // processingLog lives in the meta doc, so a flush — the hottest write
         // path in the pipeline — only ever touches the small meta doc.
         const meta = await loadMetaForWrite(key);
@@ -478,9 +515,14 @@ async function doFlushProcessingLog(key) {
         return mergedMeta;
       }),
     );
-    deferred.resolve(result);
+    // A disposed buffer had its deferred settled by disposeProcessingLogs.
+    if (!buf.disposed) buf.deferred.resolve(result);
+    return result;
   } catch (err) {
-    deferred.reject(err);
+    if (!buf.disposed) buf.deferred.reject(err);
+    return null;
+  } finally {
+    untrackFlushing(key, buf);
   }
 }
 
@@ -500,6 +542,46 @@ export function flushProcessingLog(key) {
   }
   if (!_logBuffers.has(key)) return Promise.resolve(null);
   return doFlushProcessingLog(key);
+}
+
+/**
+ * Discards buffered entries without writing them. Called when the records they
+ * describe are being removed: a buffer that outlives its record would otherwise
+ * flush after the delete, and entries appended without an
+ * `expectedPipelineRunId` bypass the stale-run guard, so a record recreated
+ * inside the debounce window could inherit the deleted run's log.
+ *
+ * Pending `appendProcessingLog` promises resolve with `null` (the same value a
+ * flush that finds no meta document produces) rather than rejecting, so
+ * discarding cannot turn into an unhandled rejection on a diagnostic path.
+ * @param {string} [key] Record key to discard; omit to discard every buffer.
+ */
+export function disposeProcessingLogs(key) {
+  const keys =
+    key === undefined
+      ? [...new Set([..._logBuffers.keys(), ..._flushingBuffers.keys(), ..._logFlushTimers.keys()])]
+      : [key];
+  for (const k of keys) {
+    const timer = _logFlushTimers.get(k);
+    if (timer) {
+      clearTimeout(timer);
+      _logFlushTimers.delete(k);
+    }
+    const buf = _logBuffers.get(k);
+    if (buf) {
+      _logBuffers.delete(k);
+      buf.disposed = true;
+      buf.deferred.resolve(null);
+    }
+    // Cancel detached buffers too: a flush waiting on the mutation or key
+    // queue would otherwise resume after the caller's delete and write into a
+    // record that no longer exists (or was recreated in the meantime).
+    for (const inflight of _flushingBuffers.get(k) ?? []) {
+      inflight.disposed = true;
+      inflight.deferred.resolve(null);
+    }
+    _flushingBuffers.delete(k);
+  }
 }
 
 /**
@@ -649,6 +731,10 @@ export async function deleteRecord(key) {
           ...(await chatStorageKeysForRecord(key)),
         ];
         await removeLocal([...new Set(keys)]);
+        // Under the key queue and only once the documents are actually gone:
+        // a failed remove leaves the record alive, so its buffered entries
+        // must survive too.
+        disposeProcessingLogs(key);
         try {
           await writeIndex(nextIdx);
         } catch (err) {
@@ -678,6 +764,9 @@ export async function deleteAll() {
       // data is covered by the same user-facing action as visible records.
       const keys = [...(await allRecordStorageKeys()), ...(await allChatStorageKeys()), INDEX_KEY];
       await removeLocal([...new Set(keys)]);
+      // Still holding MUTATION_QUEUE_KEY, which every flush must pass through,
+      // so no buffered entry can slip in behind this removal.
+      disposeProcessingLogs();
     });
   });
 }

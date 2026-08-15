@@ -6,6 +6,7 @@ import {
   isInFlightPipelineStatus,
   isPipelineStage,
   isPipelineStatus,
+  isSummaryGenerationSourceStatus,
   PIPELINE_STAGE,
   PIPELINE_STATUS,
   SUMMARY_GENERATION_SOURCE_STATUSES,
@@ -20,8 +21,12 @@ describe('runtime contracts', () => {
     expect(isPipelineStage('unknown')).toBe(false);
     expect(isInFlightPipelineStatus(PIPELINE_STATUS.SUMMARIZING)).toBe(true);
     expect(isInFlightPipelineStatus(PIPELINE_STATUS.DONE)).toBe(false);
+    expect(isSummaryGenerationSourceStatus(PIPELINE_STATUS.ERROR)).toBe(true);
+    expect(isSummaryGenerationSourceStatus(PIPELINE_STATUS.SUMMARIZING)).toBe(false);
     expect([...IN_FLIGHT_PIPELINE_STATUSES]).toEqual(['pending', 'splitting', 'summarizing']);
     expect([...SUMMARY_GENERATION_SOURCE_STATUSES]).toEqual(['done', 'cancelled', 'error']);
+    expect(Object.isFrozen(IN_FLIGHT_PIPELINE_STATUSES)).toBe(true);
+    expect(Object.isFrozen(SUMMARY_GENERATION_SOURCE_STATUSES)).toBe(true);
   });
 
   it('shares the minimum importable-record contract', () => {

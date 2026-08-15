@@ -5,6 +5,7 @@ import {
   findPickedElements,
   assessRecordForRail,
   createLoadToken,
+  describeFetchFailure,
 } from './recordFetch.js';
 
 // ---------------------------------------------------------------------------
@@ -25,10 +26,10 @@ describe('fetchRecord', () => {
       },
     });
     const result = await fetchRecord('k1');
-    expect(result).toEqual(record);
+    expect(result).toEqual({ kind: 'found', record });
   });
 
-  it('resolves null when response ok is false', async () => {
+  it('returns not_found when response ok is false without an error', async () => {
     vi.stubGlobal('chrome', {
       runtime: {
         sendMessage: vi.fn((msg, cb) => cb({ ok: false })),
@@ -36,10 +37,10 @@ describe('fetchRecord', () => {
       },
     });
     const result = await fetchRecord('k1');
-    expect(result).toBeNull();
+    expect(result).toEqual({ kind: 'not_found' });
   });
 
-  it('resolves null when response is null/undefined', async () => {
+  it('returns invalid_response when response is null/undefined', async () => {
     vi.stubGlobal('chrome', {
       runtime: {
         sendMessage: vi.fn((msg, cb) => cb(null)),
@@ -47,10 +48,10 @@ describe('fetchRecord', () => {
       },
     });
     const result = await fetchRecord('k1');
-    expect(result).toBeNull();
+    expect(result).toMatchObject({ kind: 'invalid_response', error: expect.any(Error) });
   });
 
-  it('resolves null on chrome.runtime.lastError', async () => {
+  it('returns transport_error on chrome.runtime.lastError', async () => {
     vi.stubGlobal('chrome', {
       runtime: {
         sendMessage: vi.fn((msg, cb) => {
@@ -65,10 +66,13 @@ describe('fetchRecord', () => {
       },
     });
     const result = await fetchRecord('k1');
-    expect(result).toBeNull();
+    expect(result).toMatchObject({
+      kind: 'transport_error',
+      error: expect.objectContaining({ message: 'Extension context invalidated.' }),
+    });
   });
 
-  it('resolves null when sendMessage throws', async () => {
+  it('returns transport_error when sendMessage throws', async () => {
     vi.stubGlobal('chrome', {
       runtime: {
         sendMessage: vi.fn(() => {
@@ -78,7 +82,23 @@ describe('fetchRecord', () => {
       },
     });
     const result = await fetchRecord('k1');
-    expect(result).toBeNull();
+    expect(result).toMatchObject({
+      kind: 'transport_error',
+      error: expect.objectContaining({ message: 'no chrome' }),
+    });
+  });
+
+  it('returns service_error when the repository reports a failure', async () => {
+    const runtimeMessenger = {
+      send: vi.fn().mockResolvedValue({ ok: false, error: 'storage unavailable' }),
+    };
+
+    const result = await fetchRecord('k1', runtimeMessenger);
+
+    expect(result).toMatchObject({
+      kind: 'service_error',
+      error: expect.objectContaining({ message: 'storage unavailable' }),
+    });
   });
 
   it('passes the correct message type and key', async () => {
@@ -90,6 +110,32 @@ describe('fetchRecord', () => {
     expect(sendMessage).toHaveBeenCalledWith(
       { type: 'getRecord', key: 'abc' },
       expect.any(Function),
+    );
+  });
+});
+
+describe('describeFetchFailure', () => {
+  it('maps each failure kind and retains diagnostic errors', () => {
+    const serviceError = new Error('storage unavailable');
+    const transportError = new Error('disconnected');
+    const invalidResponseError = new Error('invalid response');
+    expect(describeFetchFailure({ kind: 'found', record: {} })).toBeNull();
+    expect(describeFetchFailure({ kind: 'not_found' })).toEqual({
+      message: 'PageToLLM: Analysis record not found.',
+    });
+    expect(describeFetchFailure({ kind: 'service_error', error: serviceError })).toEqual({
+      message: 'PageToLLM: The analysis service could not load this record.',
+      error: serviceError,
+    });
+    expect(describeFetchFailure({ kind: 'transport_error', error: transportError })).toEqual({
+      message: 'PageToLLM: Could not load the analysis record. Please try again.',
+      error: transportError,
+    });
+    expect(describeFetchFailure({ kind: 'invalid_response', error: invalidResponseError })).toEqual(
+      {
+        message: 'PageToLLM: The analysis service returned an unexpected response.',
+        error: invalidResponseError,
+      },
     );
   });
 });
@@ -172,14 +218,6 @@ describe('findPickedElements', () => {
 // ---------------------------------------------------------------------------
 
 describe('assessRecordForRail', () => {
-  it('returns not_found for null', () => {
-    expect(assessRecordForRail(null)).toEqual({ kind: 'not_found' });
-  });
-
-  it('returns not_found for undefined', () => {
-    expect(assessRecordForRail(undefined)).toEqual({ kind: 'not_found' });
-  });
-
   it('returns error for status=error', () => {
     const record = { key: 'k', status: 'error', error: 'oops' };
     const result = assessRecordForRail(record);

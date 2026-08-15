@@ -76,6 +76,7 @@ const preferences = await import('../../shared/surfacePreferences.js');
 const { buildSentenceDomRange } = await import('../../../highlights/sentenceHighlight.js');
 const surfaceManager = createRailSurfaceManager({ document, preferences });
 const closeInPageRail = surfaceManager.close;
+const logger = { warn: vi.fn() };
 const { openInPageRail } = createInPageRailController({
   surfaceManager,
   openRecordFrame: (key, view) =>
@@ -91,6 +92,7 @@ const { openInPageRail } = createInPageRailController({
     alert: (...args) => globalThis.alert(...args),
     confirm: (...args) => globalThis.confirm(...args),
   },
+  logger,
 });
 
 function baseRecord(overrides = {}) {
@@ -110,6 +112,8 @@ function baseRecord(overrides = {}) {
     ...overrides,
   };
 }
+
+const found = (record) => ({ kind: 'found', record });
 
 function mountArticle() {
   const el = document.createElement('div');
@@ -144,6 +148,7 @@ describe('openInPageRail', () => {
     openHierarchyIframe.mockClear();
     globalThis.chrome.runtime.openOptionsPage.mockClear();
     globalThis.chrome.runtime.sendMessage.mockClear();
+    logger.warn.mockClear();
     globalThis.chrome.runtime.sendMessage.mockImplementation((_msg, cb) => cb({ ok: false }));
   });
 
@@ -154,7 +159,7 @@ describe('openInPageRail', () => {
   });
 
   it('alerts when the record is not found', async () => {
-    fetchRecord.mockResolvedValue(null);
+    fetchRecord.mockResolvedValue({ kind: 'not_found' });
     await act(async () => {
       await openInPageRail({ key: 'missing' }, 'topics');
     });
@@ -162,8 +167,48 @@ describe('openInPageRail', () => {
     expect(rail()).toBeNull();
   });
 
+  it('reports a transport failure separately from a missing record', async () => {
+    fetchRecord.mockResolvedValue({ kind: 'transport_error', error: new Error('disconnected') });
+
+    await act(async () => {
+      await openInPageRail({ key: 'unavailable' }, 'topics');
+    });
+
+    expect(alert).toHaveBeenCalledWith(
+      'PageToLLM: Could not load the analysis record. Please try again.',
+    );
+    expect(logger.warn).toHaveBeenCalledWith('record fetch failed:', expect.any(Error));
+  });
+
+  it('reports a service failure without suggesting a retry', async () => {
+    const error = new Error('storage unavailable');
+    fetchRecord.mockResolvedValue({ kind: 'service_error', error });
+
+    await act(async () => {
+      await openInPageRail({ key: 'unavailable' }, 'topics');
+    });
+
+    expect(alert).toHaveBeenCalledWith(
+      'PageToLLM: The analysis service could not load this record.',
+    );
+    expect(logger.warn).toHaveBeenCalledWith('record fetch failed:', error);
+  });
+
+  it('reports an invalid repository response separately from a missing record', async () => {
+    fetchRecord.mockResolvedValue({ kind: 'invalid_response', error: new Error('invalid') });
+
+    await act(async () => {
+      await openInPageRail({ key: 'invalid' }, 'topics');
+    });
+
+    expect(alert).toHaveBeenCalledWith(
+      'PageToLLM: The analysis service returned an unexpected response.',
+    );
+    expect(logger.warn).toHaveBeenCalledWith('record fetch failed:', expect.any(Error));
+  });
+
   it('opens Options for an error record instead of retrying from the rail', async () => {
-    fetchRecord.mockResolvedValue(baseRecord({ status: 'error', error: 'Boom failed' }));
+    fetchRecord.mockResolvedValue(found(baseRecord({ status: 'error', error: 'Boom failed' })));
 
     await act(async () => {
       await openInPageRail({ key: 'rail-key' }, 'topics');
@@ -176,7 +221,7 @@ describe('openInPageRail', () => {
   });
 
   it('opens Options for needs_attention instead of opening Canvas', async () => {
-    fetchRecord.mockResolvedValue(baseRecord({ status: 'needs_attention' }));
+    fetchRecord.mockResolvedValue(found(baseRecord({ status: 'needs_attention' })));
     await act(async () => {
       await openInPageRail({ key: 'rail-key' }, 'topics');
     });
@@ -188,7 +233,7 @@ describe('openInPageRail', () => {
 
   it('alerts with the processing stage when the record is in progress', async () => {
     fetchRecord.mockResolvedValue(
-      baseRecord({ status: 'processing', progress: { stage: 'summarizing' } }),
+      found(baseRecord({ status: 'processing', progress: { stage: 'summarizing' } })),
     );
     await act(async () => {
       await openInPageRail({ key: 'rail-key' }, 'topics');
@@ -197,7 +242,7 @@ describe('openInPageRail', () => {
   });
 
   it('no_selectors: confirming opens the canvas as a fallback', async () => {
-    fetchRecord.mockResolvedValue(baseRecord({ selectors: [] }));
+    fetchRecord.mockResolvedValue(found(baseRecord({ selectors: [] })));
     confirm.mockReturnValue(true);
     await act(async () => {
       await openInPageRail({ key: 'rail-key' }, 'topics');
@@ -207,7 +252,7 @@ describe('openInPageRail', () => {
   });
 
   it('no_selectors: declining the confirm leaves nothing open', async () => {
-    fetchRecord.mockResolvedValue(baseRecord({ selectors: [] }));
+    fetchRecord.mockResolvedValue(found(baseRecord({ selectors: [] })));
     confirm.mockReturnValue(false);
     await act(async () => {
       await openInPageRail({ key: 'rail-key' }, 'topics');
@@ -218,7 +263,7 @@ describe('openInPageRail', () => {
 
   it('falls back to the canvas view when the picked elements are not found on the page', async () => {
     // No matching #article element mounted, so findPickedElements() returns [].
-    fetchRecord.mockResolvedValue(baseRecord());
+    fetchRecord.mockResolvedValue(found(baseRecord()));
     confirm.mockReturnValue(true);
     await act(async () => {
       await openInPageRail({ key: 'rail-key' }, 'topics');
@@ -239,11 +284,11 @@ describe('openInPageRail', () => {
 
     const firstCall = openInPageRail({ key: 'first' }, 'topics');
     // A second call starts loading before the first resolves, invalidating it.
-    fetchRecord.mockResolvedValueOnce(null);
+    fetchRecord.mockResolvedValueOnce({ kind: 'not_found' });
     const secondCall = openInPageRail({ key: 'second' }, 'topics');
 
     await act(async () => {
-      resolveFirst(baseRecord({ key: 'first' }));
+      resolveFirst(found(baseRecord({ key: 'first' })));
       await Promise.all([firstCall, secondCall]);
     });
 
@@ -255,7 +300,7 @@ describe('openInPageRail', () => {
   describe('ready path', () => {
     beforeEach(() => {
       mountArticle();
-      fetchRecord.mockResolvedValue(baseRecord());
+      fetchRecord.mockResolvedValue(found(baseRecord()));
     });
 
     it('renders the rail in the requested initial mode', async () => {

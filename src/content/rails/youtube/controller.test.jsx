@@ -41,11 +41,13 @@ const { createRailSurfaceManager } = await import('../shared/surface.js');
 const preferences = await import('../../shared/surfacePreferences.js');
 const surfaceManager = createRailSurfaceManager({ document, preferences });
 const closeInPageRail = surfaceManager.close;
+const logger = { warn: vi.fn() };
 const { openYouTubeRail } = createYouTubeRailController({
   surfaceManager,
   document,
   runtimeMessenger: { send: vi.fn() },
   dialogs: { alert: (...args) => globalThis.alert(...args) },
+  logger,
 });
 
 function baseRecord(overrides = {}) {
@@ -65,6 +67,8 @@ function baseRecord(overrides = {}) {
     ...overrides,
   };
 }
+
+const found = (record) => ({ kind: 'found', record });
 
 const twoCards = [
   {
@@ -118,6 +122,7 @@ describe('openYouTubeRail', () => {
     vi.stubGlobal('alert', vi.fn());
     globalThis.chrome.runtime.sendMessage.mockImplementation((_msg, cb) => cb({ ok: false }));
     fetchRecord.mockReset();
+    logger.warn.mockClear();
     buildYouTubeRailCards.mockReset();
     buildYouTubeRailCards.mockReturnValue(twoCards);
   });
@@ -128,7 +133,7 @@ describe('openYouTubeRail', () => {
   });
 
   it('alerts when the record is not found', async () => {
-    fetchRecord.mockResolvedValue(null);
+    fetchRecord.mockResolvedValue({ kind: 'not_found' });
     await act(async () => {
       await openYouTubeRail({ key: 'missing' });
     });
@@ -136,8 +141,21 @@ describe('openYouTubeRail', () => {
     expect(rail()).toBeNull();
   });
 
+  it('reports a transport failure separately from a missing record', async () => {
+    fetchRecord.mockResolvedValue({ kind: 'transport_error', error: new Error('disconnected') });
+
+    await act(async () => {
+      await openYouTubeRail({ key: 'unavailable' });
+    });
+
+    expect(alert).toHaveBeenCalledWith(
+      'PageToLLM: Could not load the analysis record. Please try again.',
+    );
+    expect(logger.warn).toHaveBeenCalledWith('record fetch failed:', expect.any(Error));
+  });
+
   it('alerts with the record status when analysis is not done', async () => {
-    fetchRecord.mockResolvedValue(baseRecord({ status: 'processing' }));
+    fetchRecord.mockResolvedValue(found(baseRecord({ status: 'processing' })));
     await act(async () => {
       await openYouTubeRail({ key: 'yt-key' });
     });
@@ -146,7 +164,7 @@ describe('openYouTubeRail', () => {
   });
 
   it('alerts when there are no transcript topics to sync with the video', async () => {
-    fetchRecord.mockResolvedValue(baseRecord({ topics: [], topic_summary_index: null }));
+    fetchRecord.mockResolvedValue(found(baseRecord({ topics: [], topic_summary_index: null })));
     await act(async () => {
       await openYouTubeRail({ key: 'yt-key' });
     });
@@ -158,7 +176,7 @@ describe('openYouTubeRail', () => {
 
   describe('ready path', () => {
     beforeEach(() => {
-      fetchRecord.mockResolvedValue(baseRecord());
+      fetchRecord.mockResolvedValue(found(baseRecord()));
     });
 
     it('renders the rail tagged as a youtube rail in topics mode', async () => {
@@ -190,9 +208,11 @@ describe('openYouTubeRail', () => {
     it('shows video chat and seeks when a stored event is clicked', async () => {
       const video = mountVideo();
       fetchRecord.mockResolvedValue(
-        baseRecord({
-          sentences: ['0:00 0 seconds Intro sentence.', '0:30 30 seconds Middle sentence.'],
-        }),
+        found(
+          baseRecord({
+            sentences: ['0:00 0 seconds Intro sentence.', '0:30 30 seconds Middle sentence.'],
+          }),
+        ),
       );
       globalThis.chrome.runtime.sendMessage.mockImplementation((message, callback) => {
         if (message.type === 'listChats') {

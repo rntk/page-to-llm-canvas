@@ -9,8 +9,14 @@ import { computeMaxTopicLevel } from '../shared/railCards.js';
 import { getScrollableAncestor, getRailOriginTop } from './geometry.js';
 import { createPageHighlighter } from './pageHighlighter.js';
 import { buildRailCards, FALLBACK_RAIL_BODY_HEIGHT } from './railProjection.js';
-import { fetchRecord, findPickedElements, assessRecordForRail } from '../shared/recordFetch.js';
+import {
+  fetchRecord,
+  findPickedElements,
+  assessRecordForRail,
+  describeFetchFailure,
+} from '../shared/recordFetch.js';
 import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
+import { createLogger } from '../../../shared/runtime/log.js';
 
 const defaultDialogs = {
   alert: (...args) => globalThis.alert(...args),
@@ -31,6 +37,7 @@ export function createInPageRailController({
   window: contentWindow = contentDocument?.defaultView ?? globalThis.window,
   runtimeMessenger = defaultRuntimeMessenger,
   dialogs = defaultDialogs,
+  logger = createLogger('in-page rail'),
   onDestroy,
 } = {}) {
   const closeRail = surfaceManager.close;
@@ -50,17 +57,20 @@ export function createInPageRailController({
     const guard = surfaceManager.beginLoad();
 
     // Always re-fetch to get the latest data even if widget data is stale.
-    const fetched = await fetchRecord(rec.key, runtimeMessenger);
+    const fetchOutcome = await fetchRecord(rec.key, runtimeMessenger);
     if (guard.isStale()) {
       // A newer rail request has started loading, abort this one!
       return false;
     }
 
-    const assessment = assessRecordForRail(fetched);
-    if (assessment.kind === 'not_found') {
-      alert('PageToLLM: Analysis record not found.');
+    const fetchFailure = describeFetchFailure(fetchOutcome);
+    if (fetchFailure) {
+      if (fetchFailure.error) logger.warn('record fetch failed:', fetchFailure.error);
+      alert(fetchFailure.message);
       return false;
     }
+
+    const assessment = assessRecordForRail(fetchOutcome.record);
     if (assessment.kind === 'error') {
       await openOptionsForRecovery();
       return false;

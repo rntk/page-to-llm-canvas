@@ -3,8 +3,9 @@ import YouTubeRail from './YouTubeRail.jsx';
 import { buildYouTubeRailCards } from './sync.js';
 import { formatTimestampLabel, getTimestampForSentences } from '../../../utils/youtubeTimestamp.js';
 import { computeMaxTopicLevel } from '../shared/railCards.js';
-import { fetchRecord } from '../shared/recordFetch.js';
+import { describeFetchFailure, fetchRecord } from '../shared/recordFetch.js';
 import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
+import { createLogger } from '../../../shared/runtime/log.js';
 
 // Prefer YouTube's main player element so we don't accidentally bind to a
 // hover-preview thumbnail or an ad's <video>. Falls back to any <video> for
@@ -24,6 +25,7 @@ export function createYouTubeRailController({
   document: contentDocument = globalThis.document,
   runtimeMessenger = browserRuntimeMessenger,
   dialogs = defaultDialogs,
+  logger = createLogger('youtube rail'),
   onDestroy,
 } = {}) {
   const closeRail = surfaceManager.close;
@@ -31,13 +33,16 @@ export function createYouTubeRailController({
 
   async function openYouTubeRail(rec, initialMode = 'topics', options = {}) {
     const guard = surfaceManager.beginLoad();
-    const record = await fetchRecord(rec.key, runtimeMessenger);
+    const fetchOutcome = await fetchRecord(rec.key, runtimeMessenger);
     if (guard.isStale()) return false;
 
-    if (!record) {
-      alert('PageToLLM: Analysis record not found.');
+    const fetchFailure = describeFetchFailure(fetchOutcome);
+    if (fetchFailure) {
+      if (fetchFailure.error) logger.warn('record fetch failed:', fetchFailure.error);
+      alert(fetchFailure.message);
       return false;
     }
+    const record = fetchOutcome.record;
     // The YouTube rail never touches the page article DOM, so the scroll rail's
     // selector/element gating does not apply — gate only on what the sync needs:
     // a finished analysis with transcript sentences and at least one topic/summary.

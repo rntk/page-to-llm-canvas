@@ -12,19 +12,74 @@ import { MSG } from '../../../shared/runtime/messages.js';
 import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
 
 /**
- * Fetch a record from the background via chrome.runtime.sendMessage.
- * Resolves null on any error (lastError, exception, bad response).
+ * Fetch a record from the background via chrome.runtime.sendMessage without
+ * collapsing repository misses, protocol failures, and transport failures.
  *
  * @param {string} key
  * @param {{ send: function(object): Promise<object|null> }} runtimeMessenger
- * @returns {Promise<object|null>}
+ * @returns {Promise<
+ *   | {kind: 'found', record: object}
+ *   | {kind: 'not_found'}
+ *   | {kind: 'service_error', error: Error}
+ *   | {kind: 'transport_error', error: Error}
+ *   | {kind: 'invalid_response', error: Error}
+ * >}
  */
 export async function fetchRecord(key, runtimeMessenger = browserRuntimeMessenger) {
   try {
     const resp = await runtimeMessenger.send({ type: MSG.getRecord, key });
-    return resp && resp.ok ? resp.record : null;
-  } catch (_) {
-    return null;
+    if (resp?.ok === false && !resp.error) return { kind: 'not_found' };
+    if (resp?.ok === false && typeof resp.error === 'string') {
+      return { kind: 'service_error', error: new Error(resp.error) };
+    }
+    if (resp?.ok === true && resp.record && typeof resp.record === 'object') {
+      return { kind: 'found', record: resp.record };
+    }
+    return {
+      kind: 'invalid_response',
+      error: new Error('The record service returned an invalid response.'),
+    };
+  } catch (error) {
+    return {
+      kind: 'transport_error',
+      error: error instanceof Error ? error : new Error(String(error)),
+    };
+  }
+}
+
+/**
+ * Maps a non-successful fetch outcome to its user-facing description. The
+ * returned error is suitable for diagnostic logging and deliberately omitted
+ * for an ordinary repository miss.
+ * @param {{kind: string, error?: Error}} outcome
+ * @returns {{message: string, error?: Error}|null}
+ */
+export function describeFetchFailure(outcome) {
+  switch (outcome.kind) {
+    case 'found':
+      return null;
+    case 'not_found':
+      return { message: 'PageToLLM: Analysis record not found.' };
+    case 'transport_error':
+      return {
+        message: 'PageToLLM: Could not load the analysis record. Please try again.',
+        error: outcome.error,
+      };
+    case 'service_error':
+      return {
+        message: 'PageToLLM: The analysis service could not load this record.',
+        error: outcome.error,
+      };
+    case 'invalid_response':
+      return {
+        message: 'PageToLLM: The analysis service returned an unexpected response.',
+        error: outcome.error,
+      };
+    default:
+      return {
+        message: 'PageToLLM: The analysis service returned an unexpected response.',
+        error: new Error(`Unknown record fetch outcome: ${String(outcome.kind)}`),
+      };
   }
 }
 
@@ -55,7 +110,6 @@ export function findPickedElements(selectors, contentDocument = globalThis.docum
  * Discriminated result shapes returned by assessRecordForRail.
  *
  *   { kind: 'ready',           record }
- *   { kind: 'not_found' }
  *   { kind: 'error',           record }
  *   { kind: 'needs_attention', record }
  *   { kind: 'in_progress',     stage }
@@ -67,13 +121,10 @@ export function findPickedElements(selectors, contentDocument = globalThis.docum
  * result that openInPageRail can switch on without any inline null/status
  * checks.
  *
- * @param {object|null} record
+ * @param {object} record
  * @returns {{ kind: string }}
  */
 export function assessRecordForRail(record) {
-  if (!record) {
-    return { kind: 'not_found' };
-  }
   if (record.status === 'error' || record.status === 'cancelled') {
     return { kind: 'error', record };
   }

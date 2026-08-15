@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { MSG } from '../shared/runtime/messages.js';
 import { isStaleActionResponse } from '../shared/runtime/actionResponses.js';
-import { IN_FLIGHT_PIPELINE_STATUSES } from '../shared/runtime/contracts.js';
+import { isInFlightPipelineStatus } from '../shared/runtime/contracts.js';
 import { resolveSummaryErrors, retryRecord } from '../utils/errorUtils.js';
 import SummaryErrorsOverlay from '../components/SummaryErrorsOverlay.jsx';
 import RecordErrorDialog from './RecordErrorDialog.jsx';
@@ -345,7 +345,7 @@ export function RecordsSection({ fileHost, pageHost }) {
                           Generate summaries
                         </button>
                       ) : null}
-                      {IN_FLIGHT_PIPELINE_STATUSES.has(item.status) ? (
+                      {isInFlightPipelineStatus(item.status) ? (
                         <button type="button" onClick={() => runAction('stop', item.key)}>
                           Stop
                         </button>

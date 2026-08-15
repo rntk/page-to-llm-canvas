@@ -5,6 +5,7 @@ import {
   updateRecord,
   appendProcessingLog,
   flushProcessingLog,
+  disposeProcessingLogs,
   listRecords,
   deleteRecord,
   deleteAll,
@@ -15,6 +16,7 @@ import {
   INDEX_REPAIR_THROTTLE_MS,
   _resetUpdateQueues,
 } from './storage.js';
+import { queuedUpdate, MUTATION_QUEUE_KEY } from './primitives.js';
 
 // ---------------------------------------------------------------------------
 // Chrome mock helpers
@@ -627,6 +629,138 @@ describe('appendProcessingLog atomicity', () => {
     const stored = await readRecord('r1');
     const stages = stored.processingLog.map((e) => e.stage);
     expect(stages).toEqual(['stage_from_runB']);
+  });
+});
+
+describe('buffered processing-log lifecycle', () => {
+  it('deleting a record discards its buffer so a recreated record cannot inherit it', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    await seedRecord(mock, makeRecord('r1'));
+    // Entry with no expectedPipelineRunId: nothing in the stale-run guard
+    // would stop this from landing on the recreated record.
+    const pending = appendProcessingLog('r1', 'stage_from_deleted_run', {});
+
+    await deleteRecord('r1');
+    await expect(pending).resolves.toBeNull();
+
+    await seedRecord(mock, makeRecord('r1'));
+    await flushProcessingLog('r1');
+
+    expect((await readRecord('r1')).processingLog ?? []).toEqual([]);
+  });
+
+  it('cancels a flush already parked on the mutation queue', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    await seedRecord(mock, makeRecord('r1'));
+    const pending = appendProcessingLog('r1', 'stage_from_deleted_run', {});
+
+    // Hold the mutation queue the way deleteRecord/deleteAll do, so the flush
+    // below detaches its buffer and then parks — the window in which a delete
+    // performs its disposal.
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const holder = queuedUpdate(MUTATION_QUEUE_KEY, () => gate);
+    const inFlight = flushProcessingLog('r1');
+
+    disposeProcessingLogs('r1');
+    release();
+    await Promise.all([holder, inFlight]);
+    await expect(pending).resolves.toBeNull();
+
+    // The record still exists here: if the parked flush were not cancellable
+    // it would have written its entries after the disposal.
+    expect((await readRecord('r1')).processingLog ?? []).toEqual([]);
+  });
+
+  it('cancels a detached flush parked behind a real deleteRecord', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    await seedRecord(mock, makeRecord('r1'));
+    const pending = appendProcessingLog('r1', 'stage_from_deleted_run', {});
+
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const holder = queuedUpdate(MUTATION_QUEUE_KEY, () => gate);
+    const deleting = deleteRecord('r1');
+    const inFlight = flushProcessingLog('r1');
+
+    release();
+    await Promise.all([holder, deleting, inFlight, pending]);
+
+    expect(await readRecord('r1')).toBeNull();
+  });
+
+  it('cancels every detached buffer for a key when deleteRecord wins the queue', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    await seedRecord(mock, makeRecord('r1', { pipelineRunId: 'runA' }));
+    const pendingA = appendProcessingLog(
+      'r1',
+      'stage_from_runA',
+      {},
+      { expectedPipelineRunId: 'runA' },
+    );
+
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const holder = queuedUpdate(MUTATION_QUEUE_KEY, () => gate);
+    const deleting = deleteRecord('r1');
+
+    // Switching run ids detaches run A. Explicitly flushing run B then leaves
+    // both buffers parked behind the real delete on the mutation queue.
+    const pendingB = appendProcessingLog(
+      'r1',
+      'stage_from_runB',
+      {},
+      { expectedPipelineRunId: 'runB' },
+    );
+    const flushB = flushProcessingLog('r1');
+
+    release();
+    await Promise.all([holder, deleting, flushB, pendingA, pendingB]);
+
+    expect(await readRecord('r1')).toBeNull();
+  });
+
+  it('keeps buffered entries when the delete itself fails', async () => {
+    const mock = makeChromeMock({ lastErrorOnRemove: true });
+    vi.stubGlobal('chrome', mock);
+
+    await seedRecord(mock, makeRecord('r1'));
+    appendProcessingLog('r1', 'stage_survives_failed_delete', {});
+
+    await expect(deleteRecord('r1')).rejects.toThrow('remove failed');
+    await flushProcessingLog('r1');
+
+    expect((await readRecord('r1')).processingLog.map((e) => e.stage)).toEqual([
+      'stage_survives_failed_delete',
+    ]);
+  });
+
+  it('clearing all data discards buffers instead of re-creating a meta document', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    await seedRecord(mock, makeRecord('r1'));
+    const pending = appendProcessingLog('r1', 'stage_before_wipe', {});
+
+    await deleteAll();
+    await expect(pending).resolves.toBeNull();
+    await flushProcessingLog('r1');
+
+    expect(await readRecord('r1')).toBeNull();
   });
 });
 

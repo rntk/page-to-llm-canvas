@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createElement } from 'react';
+import { cloneElement, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import HierarchyApp from './HierarchyApp.jsx';
@@ -10,11 +10,24 @@ vi.mock('../canvas/hooks/useRecord.js', () => ({
   useRecord: vi.fn(),
 }));
 
-function render(element) {
+const hostActions = {
+  onClose: vi.fn(),
+  onNavigateToSentences: vi.fn(),
+};
+
+function render(element, hostOverrides = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
-  act(() => root.render(element));
+  act(() =>
+    root.render(
+      cloneElement(element, {
+        ...hostActions,
+        ...element.props,
+        ...hostOverrides,
+      }),
+    ),
+  );
   return {
     container,
     unmount() {
@@ -41,6 +54,25 @@ describe('HierarchyApp', () => {
     const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
 
     expect(container.textContent).toContain('Loading…');
+    unmount();
+  });
+
+  it('uses safe no-op host actions when none are injected', () => {
+    useRecord.mockReturnValue({
+      record: { status: 'done', topics: [{ name: 'Fruit', sentences: [1] }] },
+      error: null,
+    });
+    const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }), {
+      onClose: undefined,
+      onNavigateToSentences: undefined,
+    });
+
+    expect(() =>
+      act(() => {
+        container.querySelector('.th-leaf').click();
+        container.querySelector('.th-page__close').click();
+      }),
+    ).not.toThrow();
     unmount();
   });
 
@@ -74,25 +106,18 @@ describe('HierarchyApp', () => {
     // Header close button
     const closeBtn = container.querySelector('.th-page__close');
     act(() => closeBtn.click());
-    expect(window.parent.postMessage).toHaveBeenCalledWith(
-      { type: 'pagetollm-close' },
-      'https://host.example',
-    );
+    expect(hostActions.onClose).toHaveBeenCalledTimes(1);
 
     // Topic click
     const topicLeaf = container.querySelector('.th-leaf');
     act(() => topicLeaf.click());
-    expect(window.parent.postMessage).toHaveBeenCalledWith(
-      {
-        type: 'pagetollm-scroll-to-topic-sentences',
-        key: 'key1',
-        rail: 'page',
-        sentenceNumbers: [1],
-        level: 0,
-        topicPath: 'Fruit',
-      },
-      'https://host.example',
-    );
+    expect(hostActions.onNavigateToSentences).toHaveBeenCalledWith({
+      key: 'key1',
+      rail: 'page',
+      sentenceNumbers: [1],
+      level: 0,
+      topicPath: 'Fruit',
+    });
 
     unmount();
   });
@@ -191,10 +216,7 @@ describe('HierarchyApp', () => {
       window.dispatchEvent(event);
     });
 
-    expect(window.parent.postMessage).toHaveBeenCalledWith(
-      { type: 'pagetollm-close' },
-      'https://host.example',
-    );
+    expect(hostActions.onClose).toHaveBeenCalledTimes(1);
     unmount();
   });
 
@@ -279,11 +301,8 @@ describe('HierarchyApp', () => {
     // Modal overlay should be gone
     modalOverlay = container.querySelector('.th-summary-modal-overlay');
     expect(modalOverlay).toBeNull();
-    // Verify postMessage for closing entire page was NOT called
-    expect(window.parent.postMessage).not.toHaveBeenCalledWith(
-      { type: 'pagetollm-close' },
-      'https://host.example',
-    );
+    // Verify the entire page modal was not closed.
+    expect(hostActions.onClose).not.toHaveBeenCalled();
 
     // Click again to reopen
     act(() => {

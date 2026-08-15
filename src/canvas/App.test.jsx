@@ -25,7 +25,6 @@ const mocks = vi.hoisted(() => ({
   skipNextAlignment: vi.fn(),
   refreshSentenceRanges: vi.fn(() => ({ wordEntries: [], sentenceRanges: new Map() })),
   buildSentenceDomRange: vi.fn(),
-  closeModal: vi.fn(),
   toggleTopicSelection: vi.fn(),
   clearTopicSelection: vi.fn(),
   setSelectedLevel: vi.fn(),
@@ -70,7 +69,6 @@ vi.mock('./components/CanvasZoomControls.jsx', () => ({
 vi.mock('./components/ArticleHtml.jsx', () => ({ default: captureComponent('article') }));
 vi.mock('../chat/ArticleChat.jsx', () => ({ default: captureComponent('chat') }));
 
-vi.mock('./closeModal.js', () => ({ closeModal: mocks.closeModal }));
 vi.mock('../utils/canvasMath.js', () => ({
   clampScale: (value) => Math.max(0.1, Math.min(4, value)),
 }));
@@ -176,11 +174,11 @@ const doneView = {
   showSummaryMode: false,
 };
 
-async function renderApp(initialKey = 'record-1') {
+async function renderApp(initialKey = 'record-1', props = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
-  await act(async () => root.render(<App initialKey={initialKey} />));
+  await act(async () => root.render(<App initialKey={initialKey} {...props} />));
   return { container, root };
 }
 
@@ -234,7 +232,8 @@ describe('App composition behavior', () => {
   );
 
   it('wires the completed canvas controls and topic interactions', async () => {
-    const { container, root } = await renderApp();
+    const onClose = vi.fn();
+    const { container, root } = await renderApp('record-1', { onClose });
     expect(state.vmInput.showSummaryModeRaw).toBe(false);
     expect(state.childProps.controls.showSummaryMode).toBe(false);
     expect(state.childProps.controls.showTopicHierarchy).toBe(true);
@@ -246,6 +245,7 @@ describe('App composition behavior', () => {
     expect(state.childProps.rail.currentTopicSummary).toEqual(
       expect.objectContaining({ text: 'Summary' }),
     );
+    expect(state.childProps.controls.onClose).toBe(onClose);
 
     await act(async () => state.childProps.controls.onZoomIn());
     await act(async () => state.childProps.controls.onZoomOut());

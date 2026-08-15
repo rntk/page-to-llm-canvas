@@ -35,7 +35,11 @@ describe('main.jsx entry point', () => {
 
     const HierarchyAppMock = (await import('../hierarchy/HierarchyApp.jsx')).default;
     expect(HierarchyAppMock).toHaveBeenCalledWith(
-      expect.objectContaining({ initialKey: 'key-hier' }),
+      expect.objectContaining({
+        initialKey: 'key-hier',
+        onClose: expect.any(Function),
+        onNavigateToSentences: expect.any(Function),
+      }),
       undefined,
     );
   });
@@ -51,7 +55,7 @@ describe('main.jsx entry point', () => {
 
     const AppMock = (await import('./App.jsx')).default;
     expect(AppMock).toHaveBeenCalledWith(
-      expect.objectContaining({ initialKey: 'key-app' }),
+      expect.objectContaining({ initialKey: 'key-app', onClose: expect.any(Function) }),
       undefined,
     );
   });

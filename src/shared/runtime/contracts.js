@@ -31,19 +31,21 @@ export const PIPELINE_STAGE = Object.freeze({
 
 const PIPELINE_STATUS_VALUES = new Set(Object.values(PIPELINE_STATUS));
 const PIPELINE_STAGE_VALUES = new Set(Object.values(PIPELINE_STAGE));
-export const IN_FLIGHT_PIPELINE_STATUSES = new Set([
+export const IN_FLIGHT_PIPELINE_STATUSES = Object.freeze([
   PIPELINE_STATUS.PENDING,
   PIPELINE_STATUS.SPLITTING,
   PIPELINE_STATUS.SUMMARIZING,
 ]);
+const IN_FLIGHT_PIPELINE_STATUS_VALUES = new Set(IN_FLIGHT_PIPELINE_STATUSES);
 
 // Terminal checkpoints from which the summaries-only action may safely mint a
 // replacement run. `needs_attention` has its own Retry/Skip resolution path.
-export const SUMMARY_GENERATION_SOURCE_STATUSES = new Set([
+export const SUMMARY_GENERATION_SOURCE_STATUSES = Object.freeze([
   PIPELINE_STATUS.DONE,
   PIPELINE_STATUS.CANCELLED,
   PIPELINE_STATUS.ERROR,
 ]);
+const SUMMARY_GENERATION_SOURCE_STATUS_VALUES = new Set(SUMMARY_GENERATION_SOURCE_STATUSES);
 
 /** @param {unknown} value @returns {boolean} */
 function isImportableTopicSummaryIndex(value) {
@@ -71,7 +73,12 @@ export function isPipelineStage(value) {
 
 /** @param {unknown} value @returns {boolean} */
 export function isInFlightPipelineStatus(value) {
-  return isPipelineStatus(value) && IN_FLIGHT_PIPELINE_STATUSES.has(value);
+  return IN_FLIGHT_PIPELINE_STATUS_VALUES.has(value);
+}
+
+/** @param {unknown} value @returns {boolean} */
+export function isSummaryGenerationSourceStatus(value) {
+  return SUMMARY_GENERATION_SOURCE_STATUS_VALUES.has(value);
 }
 
 /**

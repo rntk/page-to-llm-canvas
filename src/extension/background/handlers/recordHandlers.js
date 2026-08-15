@@ -2,6 +2,7 @@ import { isInFlightStatus } from '../../../../worker/pipeline/pipelineStatus.js'
 import { MSG } from '../../../shared/runtime/messages.js';
 import {
   IN_FLIGHT_PIPELINE_STATUSES,
+  isSummaryGenerationSourceStatus,
   isImportableRecord,
   PIPELINE_STAGE,
   PIPELINE_STATUS,
@@ -196,7 +197,7 @@ export function createRecordHandlers({
         // This action resumes a terminal record's saved checkpoint. It must not
         // replace an active pipeline (which could still be building that
         // checkpoint) with a summaries-only run.
-        if (!SUMMARY_GENERATION_SOURCE_STATUSES.has(rec.status)) {
+        if (!isSummaryGenerationSourceStatus(rec.status)) {
           return { ok: true, stale: true };
         }
         // The resume path needs a complete topic/sentence checkpoint. Reject

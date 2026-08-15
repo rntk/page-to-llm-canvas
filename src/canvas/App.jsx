@@ -13,7 +13,6 @@ import CanvasTopicHierarchyRail from './components/CanvasTopicHierarchyRail.jsx'
 import CanvasSummaryView from './components/CanvasSummaryView.jsx';
 import CanvasZoomControls from './components/CanvasZoomControls.jsx';
 import ArticleHtml from './components/ArticleHtml.jsx';
-import { closeModal } from './closeModal.js';
 import { useCanvasTransform } from './hooks/useCanvasTransform.js';
 import { clampScale } from '../utils/canvasMath.js';
 import { useCanvasAlignment } from './hooks/useCanvasAlignment.js';
@@ -28,21 +27,23 @@ import ArticleChat from '../chat/ArticleChat.jsx';
 import { useChatHighlights } from '../chat/useChatHighlights.js';
 import { buildSentenceDomRange } from '../highlights/sentenceHighlight.js';
 
+const noop = () => {};
+
 /**
- * @param {{ initialKey: string, recordSource: object }} props
+ * @param {{ initialKey: string, recordSource: object, onClose?: Function }} props
  * @returns {JSX.Element}
  */
-export default function App({ initialKey, recordSource }) {
+export default function App({ initialKey, recordSource, onClose = noop }) {
   const { record } = useRecord(initialKey, recordSource);
 
   // Canvas is a read-only view of completed data. Pipeline progress, failures,
   // retries, and summary review are handled from the popup and Options page.
   if (record?.status !== 'done') return null;
 
-  return <CanvasApp initialKey={initialKey} record={record} />;
+  return <CanvasApp initialKey={initialKey} record={record} onClose={onClose} />;
 }
 
-function CanvasApp({ initialKey, record }) {
+function CanvasApp({ initialKey, record, onClose }) {
   const [showSummaryModeRaw, setShowSummaryMode] = useState(false);
   const [showTopicHierarchy, setShowTopicHierarchy] = useState(true);
   const [showChat, setShowChat] = useState(false);
@@ -429,7 +430,7 @@ function CanvasApp({ initialKey, record }) {
           </div>
 
           <CanvasZoomControls
-            onClose={closeModal}
+            onClose={onClose}
             onNavigate={handleNavigate}
             onZoomIn={handleZoomIn}
             onZoomOut={handleZoomOut}
