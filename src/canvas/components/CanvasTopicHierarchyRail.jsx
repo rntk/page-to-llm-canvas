@@ -13,21 +13,6 @@ import { getSummaryAnchorTitleFontSize } from '../../domain/topicCards.js';
 import { getYouTubeTimestampLink, getYouTubeVideoId } from '../../utils/youtubeTimestamp.js';
 import YouTubeTimestampButton from '../../components/YouTubeTimestampButton.jsx';
 
-// Accent colors are a pure function of (fullPath, depth) and never change once a
-// card exists, but hashing the path on every render — for every card, on every
-// hover/zoom — is wasted work. Memoize across renders so the rail only hashes a
-// path once for its lifetime.
-const accentColorCache = new Map();
-function getCachedAccentColor(fullPath, depth) {
-  const cacheKey = `${fullPath}|${depth}`;
-  let color = accentColorCache.get(cacheKey);
-  if (color === undefined) {
-    color = getHierarchyTopicAccentColor(fullPath, depth);
-    accentColorCache.set(cacheKey, color);
-  }
-  return color;
-}
-
 function isElementVerticallyInBounds(elementRect, boundsRect) {
   return elementRect.bottom > boundsRect.top && elementRect.top < boundsRect.bottom;
 }
@@ -214,6 +199,25 @@ function CanvasTopicHierarchyRail({
         ),
     [selectedLevel, topicCards],
   );
+  const colorSignature = React.useMemo(
+    () => hierarchyCards.map((card) => `${card.fullPath}|${card.depth}`).join('\n'),
+    [hierarchyCards],
+  );
+  // Color hashing is worth memoizing across hover/zoom renders, but the cache
+  // belongs to this rail and contains only its current cards. Key the memo by
+  // the path/depth inputs so zoom-only card object changes retain the result.
+  const accentColors = React.useMemo(() => {
+    const colors = new Map();
+    hierarchyCards.forEach((card) => {
+      const key = `${card.fullPath}|${card.depth}`;
+      if (!colors.has(key)) {
+        colors.set(key, getHierarchyTopicAccentColor(card.fullPath, card.depth));
+      }
+    });
+    return colors;
+    // Intentionally use the value signature rather than the cards array.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colorSignature]);
   // Collision resolution (3 passes + sorts over every card) is the heavy part of
   // the layout, and its geometry — top/height/zIndex — depends only on the cards'
   // sentence positions and the selected level, NOT on zoom. Zoom merely changes
@@ -484,7 +488,7 @@ function CanvasTopicHierarchyRail({
                       : selectedTopicKey === card.fullPath
                   }
                   isRead={isTopicRead(card.fullPath, safeReadTopics)}
-                  accentColor={getCachedAccentColor(card.fullPath, card.depth)}
+                  accentColor={accentColors.get(`${card.fullPath}|${card.depth}`)}
                   isYouTube={isYouTube}
                   sourceUrl={sourceUrl}
                   sentences={sentences}

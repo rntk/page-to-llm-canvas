@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { writeRecord } from './storage/storage.js';
 
 function makeChromeMock() {
   const store = new Map();
@@ -52,15 +51,6 @@ function makeChromeMock() {
       setIcon: vi.fn(),
     },
   };
-}
-
-// Records are physically split across `:meta`/`:content`/`:summaries` docs
-// (see worker/storage/storage.js); seeding/reading a record for a test goes through
-// the same writeRecord/readRecord functions the pipeline itself uses, rather
-// than poking the mock store directly. Requires `chrome` to already be
-// stubbed to `chromeMock` (writeRecord/readRecord read the global).
-async function seedRecord(chromeMock, rec) {
-  await writeRecord(rec);
 }
 
 function makeRecord(key, overrides = {}) {
@@ -148,48 +138,91 @@ describe('action icon progress rendering', () => {
     expect(state.ratio).toBeCloseTo(0.5);
   });
 
+  it('keeps debounce state isolated between injected controllers', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    const { createActionIconController } = await import('./actionIcon.js');
+    const makeScheduler = () => {
+      const callbacks = new Map();
+      let nextTimer = 1;
+      return {
+        callbacks,
+        setTimeout: vi.fn((callback) => {
+          const timer = nextTimer++;
+          callbacks.set(timer, callback);
+          return timer;
+        }),
+        clearTimeout: vi.fn((timer) => callbacks.delete(timer)),
+      };
+    };
+    const schedulerA = makeScheduler();
+    const schedulerB = makeScheduler();
+    const actionApiA = {
+      setBadgeText: vi.fn(),
+      setBadgeBackgroundColor: vi.fn(),
+    };
+    const makeController = (scheduler, actionApi) =>
+      createActionIconController({
+        records: vi.fn(async () => [makeRecord('queued')]),
+        actionApi,
+        assets: { paths: {}, loadBitmap: vi.fn() },
+        canvasFactory: vi.fn(),
+        scheduler,
+        logger: { warn: vi.fn() },
+      });
+    const controllerA = makeController(schedulerA, actionApiA);
+    const controllerB = makeController(schedulerB, {
+      setBadgeText: vi.fn(),
+      setBadgeBackgroundColor: vi.fn(),
+    });
+
+    controllerA.schedule();
+    controllerA.schedule();
+    controllerB.schedule();
+
+    expect(schedulerA.clearTimeout).toHaveBeenCalledTimes(1);
+    expect(schedulerB.clearTimeout).not.toHaveBeenCalled();
+    expect(schedulerA.callbacks.size).toBe(1);
+    expect(schedulerB.callbacks.size).toBe(1);
+    await [...schedulerA.callbacks.values()][0]();
+    await vi.waitFor(() => {
+      expect(actionApiA.setBadgeText).toHaveBeenCalledWith({ text: '...' });
+    });
+
+    controllerA.dispose();
+    controllerB.dispose();
+  });
+
   it('updates the toolbar badge and progress icon for in-flight records', async () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);
-    await seedRecord(
-      chromeMock,
-      makeRecord('busy1', {
-        status: 'summarizing',
-        progress: { stage: 'summarizing_topics', done: 1, total: 2 },
+    const { ACTION_ICON_PATHS, createActionIconController } = await import('./actionIcon.js');
+    const controller = createActionIconController({
+      records: vi.fn(async () => [
+        makeRecord('busy1', {
+          status: 'summarizing',
+          progress: { stage: 'summarizing_topics', done: 1, total: 2 },
+        }),
+      ]),
+      actionApi: chromeMock.action,
+      assets: { paths: ACTION_ICON_PATHS, loadBitmap: vi.fn(async () => ({})) },
+      canvasFactory: (w, h) => ({
+        width: w,
+        height: h,
+        getContext: () => ({
+          drawImage: vi.fn(),
+          fillStyle: '',
+          beginPath: vi.fn(),
+          roundRect: vi.fn(),
+          fill: vi.fn(),
+          getImageData: () => ({ data: new Uint8ClampedArray(4) }),
+        }),
       }),
-    );
-    vi.stubGlobal(
-      'OffscreenCanvas',
-      class {
-        constructor(w, h) {
-          this.width = w;
-          this.height = h;
-        }
-        getContext() {
-          return {
-            drawImage: vi.fn(),
-            fillStyle: '',
-            beginPath: vi.fn(),
-            roundRect: vi.fn(),
-            fill: vi.fn(),
-            getImageData: () => ({ data: new Uint8ClampedArray(4) }),
-          };
-        }
-      },
-    );
-    vi.stubGlobal(
-      'createImageBitmap',
-      vi.fn(async () => ({})),
-    );
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({
-        blob: async () => new Blob(),
-      })),
-    );
+      scheduler: { setTimeout, clearTimeout },
+      logger: { warn: vi.fn() },
+    });
 
-    const { refreshActionProgressIcon } = await import('./actionIcon.js');
-    await refreshActionProgressIcon();
+    await controller.refresh();
     // vi.waitFor only retries while its callback throws — a callback that
     // merely returns a boolean (the previous form here) resolves on its very
     // first tick regardless of the value, so it never actually waited for the
@@ -201,6 +234,6 @@ describe('action icon progress rendering', () => {
 
     expect(chromeMock.action.setBadgeBackgroundColor).toHaveBeenCalled();
     expect(chromeMock.action.setBadgeText).toHaveBeenCalledWith({ text: '...' });
-    vi.unstubAllGlobals();
+    controller.dispose();
   });
 });

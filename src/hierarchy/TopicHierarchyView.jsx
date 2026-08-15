@@ -10,8 +10,6 @@ import { getYouTubeTimestampLink, getYouTubeVideoId } from '../utils/youtubeTime
 import YouTubeTimestampButton from '../components/YouTubeTimestampButton.jsx';
 import { getSentencesForNode } from './hierarchyUtils.js';
 
-const hierarchyColorCache = new Map();
-
 // Always render hierarchy timestamps as h:mm:ss (e.g. 0:58:59, 1:27:35) so every
 // label occupies the same three columns and the links never shift left/right.
 const HIERARCHY_LABEL_OPTIONS = { forceHours: true };
@@ -53,22 +51,26 @@ function buildSpanMap(roots, collapsedPaths) {
   return map;
 }
 
-function getCachedHierarchyColors(fullPath, depth) {
-  const key = `${fullPath}|${depth}`;
-  let colors = hierarchyColorCache.get(key);
+function createHierarchyColorCache(roots) {
+  return { roots, colorsByUid: new Map() };
+}
+
+function getHierarchyColors(colorCache, node) {
+  let colors = colorCache.colorsByUid.get(node.uid);
   if (!colors) {
     colors = {
-      highlightColor: getHierarchyTopicHighlightColor(fullPath, depth),
-      highlightColorDark: getHierarchyTopicHighlightColorDark(fullPath, depth),
-      accentColor: getHierarchyTopicAccentColor(fullPath, depth),
+      highlightColor: getHierarchyTopicHighlightColor(node.fullPath, node.depth),
+      highlightColorDark: getHierarchyTopicHighlightColorDark(node.fullPath, node.depth),
+      accentColor: getHierarchyTopicAccentColor(node.fullPath, node.depth),
     };
-    hierarchyColorCache.set(key, colors);
+    colorCache.colorsByUid.set(node.uid, colors);
   }
   return colors;
 }
 
 const HierarchyNode = React.memo(function HierarchyNode({
   entry,
+  colorCache,
   summaryLookup,
   selectedTopicPath,
   collapsedPaths,
@@ -83,9 +85,9 @@ const HierarchyNode = React.memo(function HierarchyNode({
   const { node } = entry;
   const children = Array.from(entry.children.values());
   const isLeaf = children.length === 0;
-  const { highlightColor, highlightColorDark, accentColor } = getCachedHierarchyColors(
-    node.fullPath,
-    node.depth,
+  const { highlightColor, highlightColorDark, accentColor } = getHierarchyColors(
+    colorCache,
+    node,
   );
   const isSelected = selectedTopicPath === node.fullPath;
 
@@ -246,6 +248,7 @@ const HierarchyNode = React.memo(function HierarchyNode({
           <HierarchyNode
             key={child.node.uid}
             entry={child}
+            colorCache={colorCache}
             summaryLookup={summaryLookup}
             selectedTopicPath={selectedTopicPath}
             collapsedPaths={collapsedPaths}
@@ -275,6 +278,10 @@ export default function TopicHierarchyView({
   sentences,
 }) {
   const roots = useMemo(() => buildTopicTree(topics, 0), [topics]);
+  // This lazy cache is owned by the current tree. Collapsed descendants do not
+  // pay the color-hashing cost until first rendered, and replacing the topics
+  // releases colors belonging to the previous tree.
+  const colorCache = useMemo(() => createHierarchyColorCache(roots), [roots]);
   const summaryLookup = useMemo(() => buildSummaryLookup(topicSummaryIndex), [topicSummaryIndex]);
 
   const [localCollapsedPaths, setLocalCollapsedPaths] = useState(() => new Set());
@@ -353,6 +360,7 @@ export default function TopicHierarchyView({
         <HierarchyNode
           key={root.node.uid}
           entry={root}
+          colorCache={colorCache}
           summaryLookup={summaryLookup}
           selectedTopicPath={selectedTopicPath}
           collapsedPaths={collapsedPaths}

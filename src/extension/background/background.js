@@ -67,8 +67,7 @@ import {
   setActiveProvider,
 } from '../../../worker/llm/providers.js';
 import {
-  refreshActionProgressIcon,
-  scheduleActionProgressIconRefresh,
+  createActionIconController,
 } from '../../../worker/actionIcon.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { browserLocalStore } from '../../shared/runtime/localStore.js';
@@ -83,10 +82,23 @@ import { createMetricsHandlers } from './handlers/metricsHandlers.js';
 import { createProviderHandlers } from './handlers/providerHandlers.js';
 import { createDataManagementHandlers } from './handlers/dataManagementHandlers.js';
 import { createPipelineRuntime } from '../../../worker/pipeline/pipelineRuntime.js';
+import { createActionIconDependencies } from './actionIconDependencies.js';
 
 export { clearSummaryErrorFlags, getAcceptedMergeFailurePaths } from './summaryResolution.js';
 
 const log = createLogger();
+
+const actionIconController = createActionIconController(
+  createActionIconDependencies({
+    records: listRecords,
+    actionApi: chrome.action,
+    runtimeApi: chrome.runtime,
+    globalScope: globalThis,
+    logger: createLogger('action icon'),
+  }),
+);
+const refreshActionProgressIcon = actionIconController.refresh;
+const scheduleActionProgressIconRefresh = actionIconController.schedule;
 
 const recordRepository = {
   readRecord,
