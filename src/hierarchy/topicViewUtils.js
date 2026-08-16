@@ -2,10 +2,10 @@
  * Pure path and summary utilities shared by TopicHierarchyView.
  */
 
-import { splitTopicPath } from '../domain/topicDomain.js';
+import { canonicalTopicPath } from '../domain/topicDomain.js';
 
 export function normalizeTopicPath(path) {
-  return splitTopicPath(path).join('>');
+  return canonicalTopicPath(path);
 }
 
 export function spacedTopicPath(path) {

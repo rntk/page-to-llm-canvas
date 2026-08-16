@@ -1,6 +1,7 @@
 import React from 'react';
 import { getHierarchyTopicAccentColor } from '../../domain/topicColorUtils.js';
 import { isTopicRead } from '../../domain/topicReadUtils.js';
+import { canonicalTopicPath } from '../../domain/topicDomain.js';
 import {
   CARD_COMPACT_TITLE_MAX_LINES,
   getAdjustedHierarchyCards,
@@ -98,13 +99,13 @@ const TopicCard = React.memo(function TopicCard({
       onClick={() => {
         onTopicClick(card.fullPath, sourceCard);
         if (onToggleRead) {
-          onToggleRead(card.fullPath);
+          onToggleRead(canonicalTopicPath(card.fullPath));
         }
       }}
       onContextMenu={(event) => {
         event.preventDefault();
         if (onToggleRead) {
-          onToggleRead(card.fullPath);
+          onToggleRead(canonicalTopicPath(card.fullPath));
         }
       }}
       title={`${card.fullPath}: sentences ${card.startSentence}-${card.endSentence}`}
@@ -151,8 +152,10 @@ const TopicCard = React.memo(function TopicCard({
  * @param {function(string, string=): void} props.onTopicLeave
  * @param {function(string, CanvasTopicCard): void} props.onTopicClick
  * @param {?function(): void} props.onCancelTopicSelection
- * @param {Set<string> | string[] | null} props.readTopics
- * @param {?function(string): void} props.onToggleRead
+ * @param {Set<string> | string[] | null} props.readTopics Canonical unspaced
+ *   topic paths (`A>B>C`) marked read. Noncanonical spaced inputs are normalized.
+ * @param {?function(string): void} props.onToggleRead Receives a canonical
+ *   unspaced topic-path key.
  * @param {?object} props.currentTopicSummary
  * @param {string} [props.currentTopicSummary.key]
  * @param {string} props.currentTopicSummary.path

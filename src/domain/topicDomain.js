@@ -18,6 +18,17 @@ export function splitTopicPath(name) {
 }
 
 /**
+ * Normalize a hierarchical topic path to the canonical storage/key form.
+ * Spacing around separators is accepted on input but never emitted.
+ *
+ * @param {string} name
+ * @returns {string} A path such as `A>B>C`, or an empty string.
+ */
+export function canonicalTopicPath(name) {
+  return splitTopicPath(name).join('>');
+}
+
+/**
  * Enforces the canonical topic-summary index entry contract at UI boundaries.
  *
  * @param {string} path
@@ -99,8 +110,8 @@ export function getTopicSentenceNumbers(topic) {
 }
 
 /**
- * Build a lookup from canonical topic path to the sentence numbers covered by
- * that path and all of its descendants.
+ * Build a lookup from normalized display path (`A > B`) to the sentence
+ * numbers covered by that path and all of its descendants.
  *
  * @param {Array<{name: string}>} topics
  * @returns {Map<string, Set<number>>}
@@ -190,7 +201,7 @@ export function normalizeSummaryRuns(runs, sourceSentences) {
 /**
  * @typedef {object} TopicHierarchyNode
  * @property {string} name Last path segment ('root' for the synthetic root).
- * @property {string} fullPath Canonical 'A > B > C' path ('' for the root).
+ * @property {string} fullPath Normalized display path (`A > B > C`; empty for the root).
  * @property {number} depth Zero-based level (-1 for the root).
  * @property {number} order Global creation index, used to restore first-seen order.
  * @property {Set<number>} sentences Sentence numbers of this node and its descendants.
@@ -198,10 +209,10 @@ export function normalizeSummaryRuns(runs, sourceSentences) {
  */
 
 /**
- * Build the canonical topic hierarchy tree from a flat topic list, truncated at
- * `maxLevel`. Every hierarchy projection (canvas cards, in-page rail, YouTube
- * rail) derives from this single accumulation of path splitting, level limiting
- * and sentence roll-up.
+ * Build the shared display-path topic hierarchy tree from a flat topic list,
+ * truncated at `maxLevel`. Every hierarchy projection (canvas cards, in-page
+ * rail, YouTube rail) derives from this single accumulation of path splitting,
+ * level limiting and sentence roll-up.
  *
  * @param {Array<{name: string, sentences?: number[]}>} topics
  * @param {number} maxLevel Deepest zero-based level to include.

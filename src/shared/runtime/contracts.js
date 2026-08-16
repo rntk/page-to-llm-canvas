@@ -142,6 +142,11 @@ export function isImportableRecord(record) {
  * @property {string} [text] - Cleaned article text extracted from `html`.
  * @property {string[]} [sentences] - Sentence-split article text.
  * @property {object[]} [topics] - Detected topic ranges over `sentences`.
+ * @property {string[]} [readTopics] - Canonical unspaced topic paths
+ *   (`A>B>C`) marked read by the user. Readers tolerate and normalize
+ *   noncanonical spaced paths, but writers must persist only this form.
+ * @property {string} [readTopicsContentRevision] - `contentRevision` these
+ *   paths were recorded against.
  * @property {object|null} [topic_range_chunks] - Resumable checkpoint for the
  *   topic-ranges stage: `{contentRevision, sentenceCount, chunks}` where
  *   `chunks[i]` is either null (that chunk still needs an LLM request) or

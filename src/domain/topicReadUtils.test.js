@@ -1,5 +1,25 @@
 import { describe, it, expect } from 'vitest';
-import { isTopicRead } from './topicReadUtils.js';
+import { isTopicRead, normalizeReadTopics } from './topicReadUtils.js';
+
+describe('normalizeReadTopics', () => {
+  it('canonicalizes, removes empty paths, and deduplicates equivalent spellings', () => {
+    expect(normalizeReadTopics(['Tech > AI', 'Tech>AI', '', null])).toEqual(new Set(['Tech>AI']));
+  });
+
+  // The live canvas path hands down a Set (`safeReadTopics`), not an array.
+  it('collapses equivalent spellings supplied as a Set', () => {
+    expect(normalizeReadTopics(new Set(['Tech > AI', 'Tech>AI', ' Tech>AI ']))).toEqual(
+      new Set(['Tech>AI']),
+    );
+  });
+
+  it('returns an empty set for inputs that are neither a Set nor an array', () => {
+    expect(normalizeReadTopics(undefined)).toEqual(new Set());
+    expect(normalizeReadTopics(null)).toEqual(new Set());
+    // A bare string is iterable, but a single path is not a collection.
+    expect(normalizeReadTopics('Tech>AI')).toEqual(new Set());
+  });
+});
 
 describe('isTopicRead', () => {
   it('returns false for empty topic name', () => {
@@ -48,5 +68,9 @@ describe('isTopicRead', () => {
 
   it('returns true when the exact multi-level path is in the set', () => {
     expect(isTopicRead('Tech > AI', new Set(['Tech>AI']))).toBe(true);
+  });
+
+  it('normalizes spaced paths already present in readTopics', () => {
+    expect(isTopicRead('Tech>AI', new Set(['Tech > AI']))).toBe(true);
   });
 });

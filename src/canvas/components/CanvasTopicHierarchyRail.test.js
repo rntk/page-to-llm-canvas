@@ -155,7 +155,7 @@ describe('CanvasTopicHierarchyRail', () => {
       'Topic A > Sub B',
       expect.objectContaining({ key: 'card2' }),
     );
-    expect(onToggleRead).toHaveBeenCalledWith('Topic A > Sub B');
+    expect(onToggleRead).toHaveBeenCalledWith('Topic A>Sub B');
 
     // right click card2 (contextmenu)
     onToggleRead.mockClear();
@@ -165,7 +165,7 @@ describe('CanvasTopicHierarchyRail', () => {
       buttons[1].dispatchEvent(contextMenuEvent);
     });
     expect(contextMenuEvent.preventDefault).toHaveBeenCalled();
-    expect(onToggleRead).toHaveBeenCalledWith('Topic A > Sub B');
+    expect(onToggleRead).toHaveBeenCalledWith('Topic A>Sub B');
 
     unmount();
   });
