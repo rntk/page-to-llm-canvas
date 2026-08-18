@@ -12,15 +12,39 @@ import { splitSentences } from './sentenceSplitter.js';
 import { markCancellation } from './cancellation.js';
 import { MAX_TAGGED_CHARS, TOPIC_RANGE_INPUT_MAX_SENTENCES } from './pipelineConfig.js';
 
-// Serial stand-in that still honors `stopBurst`, so a stage relying on it to
-// stop dequeuing is exercised here rather than silently bypassed.
-const parallelMap = vi.fn(async (items, _limit, fn, { stopBurst } = {}) => {
-  const result = [];
-  for (let index = 0; index < items.length; index++) {
-    result.push(await fn(items[index], index));
-    if (stopBurst && stopBurst(result[index], items[index], index)) break;
+// Stand-in that honors both `warmupFirst` and `stopBurst`, mirroring the real
+// parallelMap's dispatch shape. It must model `warmupFirst`: a serial-only
+// stand-in stops after the first item either way, so a stage that dropped
+// `warmupFirst: true` would still look correct here while really releasing the
+// whole burst to the provider.
+const parallelMap = vi.fn(async (items, limit, fn, { warmupFirst = false, stopBurst } = {}) => {
+  const results = new Array(items.length);
+  let next = 0;
+  let stopped = false;
+  if (warmupFirst && items.length > 1) {
+    results[0] = await fn(items[0], 0);
+    if (stopBurst && stopBurst(results[0], items[0], 0)) return results;
+    next = 1;
   }
-  return result;
+  // Without a warmup the first `limit` items are all in flight before any
+  // result can stop the burst; stopBurst only prevents the *next* dequeue.
+  const workerCount = Math.min(Math.max(limit, 1), Math.max(items.length - next, 1));
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (!stopped) {
+        const index = next++;
+        if (index >= items.length) return;
+        try {
+          results[index] = await fn(items[index], index);
+          if (stopBurst && stopBurst(results[index], items[index], index)) stopped = true;
+        } catch (error) {
+          stopped = true;
+          throw error;
+        }
+      }
+    }),
+  );
+  return results;
 });
 const recordParserMetric = vi.fn(async () => undefined);
 const recordResplitRun = vi.fn(async () => undefined);

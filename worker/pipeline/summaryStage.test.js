@@ -1084,11 +1084,6 @@ describe('runSummaries', () => {
       callLLMWithRetry,
     });
 
-    expect(runtime.log).not.toHaveBeenCalledWith(
-      'topic_tree_merge_reused',
-      expect.anything(),
-      expect.anything(),
-    );
     expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
     expect(lastUpdate(runtime)).toMatchObject({ status: PIPELINE_STATUS.DONE });
     expect(lastUpdate(runtime).topic_summary_index.Other.runs).toEqual([

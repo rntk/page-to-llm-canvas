@@ -2034,7 +2034,7 @@ describe('dispatchMessage unit tests', () => {
     const cleared = await dispatchMessage({ type: 'deleteAll' });
     expect(cleared.ok).toBe(true);
     const index = chromeMock.storage.local._store.get('pagetollm:index');
-    expect(index == null || index.keys?.length === 0).toBe(true);
+    expect(index?.keys ?? []).toEqual([]);
   });
 
   it('reports storage categories and removes all extension data, including legacy keys', async () => {
@@ -2556,7 +2556,7 @@ describe('background service-worker boundaries', () => {
       chromeMock.alarms.create.mockImplementation(() => {
         throw new Error('No matching signature');
       });
-      await expect(startPipeline('keepalive-create-throw')).resolves.not.toThrow();
+      await expect(startPipeline('keepalive-create-throw')).resolves.toBeUndefined();
       expect(warnSpy).toHaveBeenCalledWith(
         'PageToLLM Canvas: chrome.alarms.create failed:',
         expect.objectContaining({ message: 'No matching signature' }),

@@ -1,50 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
+// Neither actionIcon.js nor its only dependency (pipeline/pipelineStatus.js)
+// reads the `chrome` global; the action API is injected, so that is all this
+// fake needs to provide.
 function makeChromeMock() {
-  const store = new Map();
-  const runtime = { lastError: null };
-
-  const chromeLocal = {
-    _store: store,
-    get: vi.fn((keys, cb) => {
-      runtime.lastError = null;
-      const result = {};
-      const keyList = Array.isArray(keys) ? keys : [keys];
-      for (const k of keyList) {
-        if (store.has(k)) result[k] = store.get(k);
-      }
-      cb(result);
-    }),
-    set: vi.fn((items, cb) => {
-      runtime.lastError = null;
-      for (const [k, v] of Object.entries(items)) store.set(k, v);
-      cb();
-    }),
-    remove: vi.fn((keys, cb) => {
-      runtime.lastError = null;
-      const keyList = Array.isArray(keys) ? keys : [keys];
-      for (const k of keyList) store.delete(k);
-      cb();
-    }),
-  };
-
   return {
-    storage: {
-      local: chromeLocal,
-      onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
-    },
-    runtime: {
-      ...runtime,
-      getURL: vi.fn((path = '') => `chrome-extension://test-id/${path}`),
-      sendMessage: vi.fn(),
-      onMessage: { addListener: vi.fn() },
-    },
-    alarms: {
-      create: vi.fn(),
-      clear: vi.fn(),
-      get: vi.fn((_name, cb) => cb(undefined)),
-      onAlarm: { addListener: vi.fn() },
-    },
     action: {
       setBadgeText: vi.fn(),
       setBadgeBackgroundColor: vi.fn(),

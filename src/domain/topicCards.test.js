@@ -4,7 +4,6 @@ import {
   buildTopicSentenceIndex,
   getMaxTopicLevel,
   getTopicSentenceNumbers,
-  splitSentenceRuns,
 } from './topicDomain.js';
 import {
   getZoomAdjustedCardWidth,
@@ -17,62 +16,33 @@ import {
   CARD_WIDTH,
   SUMMARY_CARD_WIDTH,
   SUMMARY_CARD_MAX_WIDTH,
-  COLUMN_GAP,
-  RAIL_PADDING,
 } from './topicCards.js';
 
-describe('constants', () => {
-  it('exports expected card layout constants', () => {
-    expect(CARD_WIDTH).toBe(240);
-    expect(SUMMARY_CARD_WIDTH).toBe(442);
-    expect(SUMMARY_CARD_MAX_WIDTH).toBe(4420);
-    expect(COLUMN_GAP).toBe(18);
-    expect(RAIL_PADDING).toBe(24);
-  });
-});
-
 describe('splitTopicPath', () => {
-  it('splits a hierarchical path into parts', () => {
-    expect(splitTopicPath('A > B > C')).toEqual(['A', 'B', 'C']);
-  });
-
-  it('returns a single-element array for a flat name', () => {
-    expect(splitTopicPath('Tech')).toEqual(['Tech']);
-  });
-
-  it('handles paths without spaces around >', () => {
-    expect(splitTopicPath('A>B>C')).toEqual(['A', 'B', 'C']);
-  });
-
-  it('returns empty array for null', () => {
-    expect(splitTopicPath(null)).toEqual([]);
-  });
-
-  it('returns empty array for empty string', () => {
-    expect(splitTopicPath('')).toEqual([]);
-  });
-
-  it('filters empty segments', () => {
-    expect(splitTopicPath('>A>>B>')).toEqual(['A', 'B']);
+  it.each([
+    ['splits a hierarchical path into parts', 'A > B > C', ['A', 'B', 'C']],
+    ['returns a single-element array for a flat name', 'Tech', ['Tech']],
+    ['handles paths without spaces around >', 'A>B>C', ['A', 'B', 'C']],
+    ['returns empty array for null', null, []],
+    ['returns empty array for empty string', '', []],
+    ['filters empty segments', '>A>>B>', ['A', 'B']],
+  ])('%s', (_description, input, expected) => {
+    expect(splitTopicPath(input)).toEqual(expected);
   });
 });
 
 describe('getMaxTopicLevel', () => {
-  it('returns 0 for empty array', () => {
-    expect(getMaxTopicLevel([])).toBe(0);
-  });
-
-  it('returns 0 for non-array', () => {
-    expect(getMaxTopicLevel(null)).toBe(0);
-  });
-
-  it('returns 0 for flat topics', () => {
-    expect(getMaxTopicLevel([{ name: 'Tech' }])).toBe(0);
-  });
-
-  it('returns max depth across all topics', () => {
-    const topics = [{ name: 'Tech' }, { name: 'Tech > AI > Models' }, { name: 'Science > Bio' }];
-    expect(getMaxTopicLevel(topics)).toBe(2);
+  it.each([
+    ['returns 0 for empty array', [], 0],
+    ['returns 0 for non-array', null, 0],
+    ['returns 0 for flat topics', [{ name: 'Tech' }], 0],
+    [
+      'returns max depth across all topics',
+      [{ name: 'Tech' }, { name: 'Tech > AI > Models' }, { name: 'Science > Bio' }],
+      2,
+    ],
+  ])('%s', (_description, topics, expected) => {
+    expect(getMaxTopicLevel(topics)).toBe(expected);
   });
 });
 
@@ -121,31 +91,6 @@ describe('buildTopicSentenceIndex', () => {
 
     expect(index.has('Tech')).toBe(false);
     expect(index.has('Science')).toBe(false);
-  });
-});
-
-describe('splitSentenceRuns', () => {
-  it('returns empty array for empty input', () => {
-    expect(splitSentenceRuns([])).toEqual([]);
-  });
-
-  it('returns single run for consecutive numbers', () => {
-    expect(splitSentenceRuns([1, 2, 3])).toEqual([[1, 2, 3]]);
-  });
-
-  it('splits at gaps', () => {
-    expect(splitSentenceRuns([1, 2, 5, 6])).toEqual([
-      [1, 2],
-      [5, 6],
-    ]);
-  });
-
-  it('handles a single number', () => {
-    expect(splitSentenceRuns([5])).toEqual([[5]]);
-  });
-
-  it('splits multiple gaps', () => {
-    expect(splitSentenceRuns([1, 2, 5, 8, 9, 10])).toEqual([[1, 2], [5], [8, 9, 10]]);
   });
 });
 

@@ -47,7 +47,7 @@ describe('buildRailCards', () => {
     ]);
     // allSentences keeps the topic's full set, sentences only this run's.
     expect(cards[0].allSentences).toEqual([1, 2, 7, 8]);
-    expect(cards[0].accent).toBeTruthy();
+    expect(cards[0].accent).toMatch(/^hsl\(/);
   });
 
   it('keeps only entries at the selected level', () => {

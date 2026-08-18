@@ -33,7 +33,7 @@ describe('buildYouTubeRailCards', () => {
       ['First', 30],
       ['Second', 120],
     ]);
-    expect(cards[0].accent).toBeTruthy();
+    expect(cards[0].accent).toMatch(/^hsl\(/);
   });
 
   it('builds summary cards with their text', () => {

@@ -39,49 +39,64 @@ describe('TopicHierarchyView', () => {
     unmount();
   });
 
-  it('renders tree nodes and leaf rows with correct styling, summaries, and handles clicks', () => {
-    const onTopicClick = vi.fn();
-    const mockTopics = [
-      {
-        name: 'Fruit > Apple',
-        sentences: [1, 2, 3],
-      },
-      {
-        name: 'Fruit > Banana',
-        sentences: [4, 5],
-      },
-      {
-        name: 'Veggie',
-        sentences: [10],
-      },
-    ];
+  const treeMockTopics = [
+    {
+      name: 'Fruit > Apple',
+      sentences: [1, 2, 3],
+    },
+    {
+      name: 'Fruit > Banana',
+      sentences: [4, 5],
+    },
+    {
+      name: 'Veggie',
+      sentences: [10],
+    },
+  ];
 
-    const topicSummaryIndex = {
-      'Fruit>Apple': { runs: [{ text: 'An apple a day' }] },
-      'Fruit>Banana': { runs: [{ text: 'Yellow fruit summary' }] },
-      Veggie: { runs: [{ text: 'Healthy veggie' }] },
-    };
+  const treeTopicSummaryIndex = {
+    'Fruit>Apple': { runs: [{ text: 'An apple a day' }] },
+    'Fruit>Banana': { runs: [{ text: 'Yellow fruit summary' }] },
+    Veggie: { runs: [{ text: 'Healthy veggie' }] },
+  };
 
-    const { container, unmount } = render(
+  function renderTreeView(overrides = {}) {
+    return render(
       createElement(TopicHierarchyView, {
-        topics: mockTopics,
-        topicSummaryIndex,
+        topics: treeMockTopics,
+        topicSummaryIndex: treeTopicSummaryIndex,
         selectedTopicPath: 'Fruit>Apple',
-        onTopicClick,
+        onTopicClick: vi.fn(),
+        ...overrides,
       }),
     );
+  }
 
-    // root th-root element
+  it('renders the th-root element', () => {
+    const { container, unmount } = renderTreeView();
+
     const thRoot = container.querySelector('.th-root');
     expect(thRoot).not.toBeNull();
 
-    // Check veggie (root and leaf)
+    unmount();
+  });
+
+  it('renders a leaf row with its name and looked-up summary', () => {
+    const { container, unmount } = renderTreeView();
+
     const veggieLeaf = container.querySelectorAll('.th-leaf-row')[2];
     expect(veggieLeaf).not.toBeUndefined();
     expect(veggieLeaf.textContent).toContain('Veggie');
     expect(veggieLeaf.textContent).toContain('Healthy veggie');
 
-    // Click on Veggie leaf
+    unmount();
+  });
+
+  it('triggers onTopicClick when a leaf row is clicked', () => {
+    const onTopicClick = vi.fn();
+    const { container, unmount } = renderTreeView({ onTopicClick });
+
+    const veggieLeaf = container.querySelectorAll('.th-leaf-row')[2];
     const veggieBtn = veggieLeaf.querySelector('.th-leaf');
     act(() => veggieBtn.click());
     expect(onTopicClick).toHaveBeenCalledWith(
@@ -90,14 +105,26 @@ describe('TopicHierarchyView', () => {
       }),
     );
 
-    // Check Fruit node
+    unmount();
+  });
+
+  it('renders a non-leaf node label with its name', () => {
+    const { container, unmount } = renderTreeView();
+
     const fruitNode = container.querySelector('.th-node');
     expect(fruitNode).not.toBeNull();
     const fruitLabel = fruitNode.querySelector('.th-node__label');
     expect(fruitLabel.textContent).toContain('Fruit');
 
-    // Click Fruit node
-    onTopicClick.mockClear();
+    unmount();
+  });
+
+  it('triggers onTopicClick when a non-leaf node label is clicked', () => {
+    const onTopicClick = vi.fn();
+    const { container, unmount } = renderTreeView({ onTopicClick });
+
+    const fruitNode = container.querySelector('.th-node');
+    const fruitLabel = fruitNode.querySelector('.th-node__label');
     act(() => fruitLabel.click());
     expect(onTopicClick).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -105,12 +132,22 @@ describe('TopicHierarchyView', () => {
       }),
     );
 
-    // Apple leaf check - selectedTopicPath is "Fruit>Apple" (which matches)
+    unmount();
+  });
+
+  it('marks the leaf matching selectedTopicPath as selected', () => {
+    const { container, unmount } = renderTreeView({ selectedTopicPath: 'Fruit>Apple' });
+
     const appleLeaf = container.querySelectorAll('.th-leaf-row')[0];
     const appleBtn = appleLeaf.querySelector('.th-leaf');
     expect(appleBtn.className).toContain('is-selected');
 
-    // Banana leaf check - summary is looked up
+    unmount();
+  });
+
+  it('renders a sibling leaf row with its own looked-up summary', () => {
+    const { container, unmount } = renderTreeView();
+
     const bananaLeaf = container.querySelectorAll('.th-leaf-row')[1];
     expect(bananaLeaf.textContent).toContain('Banana');
     expect(bananaLeaf.textContent).toContain('Yellow fruit summary');

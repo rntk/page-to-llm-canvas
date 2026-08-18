@@ -1088,7 +1088,40 @@ describe('options main.jsx', () => {
     expect(sendMessageMock.mock.calls.some(([msg]) => msg.type === 'saveProvider')).toBe(false);
   });
 
-  it('activates and deletes providers', async () => {
+  it('activates the provider whose radio is selected', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') cb({ ok: true, items: [] });
+      else if (msg.type === 'listProviders') {
+        cb({
+          ok: true,
+          providers: [
+            { id: 'p1', name: 'Local', type: 'openai_comp', model: 'm', url: 'http://h' },
+            { id: 'p2', name: 'Remote', type: 'openai_comp', model: 'm', url: 'http://h2' },
+          ],
+          activeId: 'p1',
+        });
+      } else if (msg.type === 'setActiveProvider') cb({ ok: true });
+    });
+
+    await import('./main.jsx');
+    await waitFor(() => {
+      expect(document.querySelector('input[aria-label="Set Remote active"]')).not.toBeNull();
+    });
+
+    // The inactive provider's radio is the only one that can fire onChange; a
+    // checked radio never does.
+    const inactiveRadio = document.querySelector('input[aria-label="Set Remote active"]');
+    expect(inactiveRadio.checked).toBe(false);
+    inactiveRadio.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      { type: 'setActiveProvider', id: 'p2' },
+      expect.any(Function),
+    );
+  });
+
+  it('deletes a provider after confirmation', async () => {
     sendMessageMock.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') cb({ ok: true, items: [] });
       else if (msg.type === 'listProviders') {

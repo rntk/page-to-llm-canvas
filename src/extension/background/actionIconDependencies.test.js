@@ -59,6 +59,7 @@ describe('createActionIconDependencies', () => {
   });
 
   it('calls timer APIs with the worker global as receiver', () => {
+    expect.assertions(5);
     const globalScope = {
       setTimeout(callback, delay) {
         expect(this).toBe(globalScope);

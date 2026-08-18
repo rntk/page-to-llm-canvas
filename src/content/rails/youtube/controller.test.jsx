@@ -205,8 +205,7 @@ describe('openYouTubeRail', () => {
       );
     });
 
-    it('shows video chat and seeks when a stored event is clicked', async () => {
-      const video = mountVideo();
+    function mockChatWithStoredEvent() {
       fetchRecord.mockResolvedValue(
         found(
           baseRecord({
@@ -249,6 +248,11 @@ describe('openYouTubeRail', () => {
         }
         callback({ ok: false });
       });
+    }
+
+    async function openChatModeRail() {
+      const video = mountVideo();
+      mockChatWithStoredEvent();
 
       await act(async () => {
         await openYouTubeRail({ key: 'yt-key' });
@@ -260,6 +264,21 @@ describe('openYouTubeRail', () => {
       });
       await flushAsyncWork();
 
+      return video;
+    }
+
+    async function openEventsTab() {
+      const video = await openChatModeRail();
+      const eventsTab = Array.from(rail().querySelectorAll('.pagetollm-chat-tabs button')).find(
+        (button) => button.textContent.includes('Events'),
+      );
+      await act(async () => eventsTab.click());
+      return { video, eventsTab };
+    }
+
+    it('switches to chat mode and renders the chat header', async () => {
+      await openChatModeRail();
+
       expect(rail().dataset.mode).toBe('chat');
       expect(rail().style.position).toBe('');
       expect(rail().style.width).toBe('380px');
@@ -270,19 +289,28 @@ describe('openYouTubeRail', () => {
         rail().querySelector('.pagetollm-chat-composer textarea'),
       );
       expect(rail().querySelector('.pagetollm-rail-level-switcher')).toBeNull();
+    });
 
-      const eventsTab = Array.from(rail().querySelectorAll('.pagetollm-chat-tabs button')).find(
-        (button) => button.textContent.includes('Events'),
-      );
-      await act(async () => eventsTab.click());
+    it('selects the Events tab with the correct ARIA attributes', async () => {
+      const { eventsTab } = await openEventsTab();
+
       expect(eventsTab.getAttribute('role')).toBe('tab');
       expect(eventsTab.getAttribute('aria-selected')).toBe('true');
+    });
+
+    it('renders the rail close button and does not seek until the event is clicked', async () => {
+      const { video } = await openEventsTab();
+
       expect(rail().querySelector('.pagetollm-rail-close').getAttribute('aria-label')).toBe(
         'Close rail',
       );
       // Loading the selected event is passive; it must not jump until the user
       // clicks it.
       expect(video.currentTime).toBe(0);
+    });
+
+    it('seeks the video and shows status when a stored event is clicked', async () => {
+      const { video } = await openEventsTab();
 
       const eventButton = rail().querySelector('.pagetollm-chat-event > button');
       expect(eventButton.textContent).toContain('Jump to 0:30');
@@ -291,6 +319,14 @@ describe('openYouTubeRail', () => {
       expect(video.currentTime).toBe(30);
       expect(video.play).toHaveBeenCalled();
       expect(rail().querySelector('.pagetollm-chat-status').textContent).toBe('Jumped to 0:30.');
+    });
+
+    it('shows an error status when the video player is removed before seeking', async () => {
+      const { video } = await openEventsTab();
+
+      const eventButton = rail().querySelector('.pagetollm-chat-event > button');
+      await act(async () => eventButton.click());
+      await flushAsyncWork();
 
       video.remove();
       await act(async () => eventButton.click());
@@ -376,16 +412,6 @@ describe('openYouTubeRail', () => {
       });
       expect(video.currentTime).toBe(0);
       expect(video.play).toHaveBeenCalled();
-    });
-
-    it('seeking with no video element on the page is a harmless no-op', async () => {
-      await act(async () => {
-        await openYouTubeRail({ key: 'yt-key' });
-      });
-      const card = rail().querySelector('.pagetollm-yt-rail-card');
-      await act(async () => {
-        expect(() => card.click()).not.toThrow();
-      });
     });
   });
 });

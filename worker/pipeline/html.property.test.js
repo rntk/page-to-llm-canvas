@@ -291,9 +291,9 @@ describe('stripTagsKeepOffsets properties', () => {
         // After whitespace collapse, mapping should still point to original chars.
         for (let i = 0; i < result.text.length; i++) {
           const origIdx = result.mapping[i];
-          if (origIdx >= 0 && origIdx < html.length) {
-            expect(html[origIdx]).toBe(result.text[i]);
-          }
+          expect(origIdx).toBeGreaterThanOrEqual(0);
+          expect(origIdx).toBeLessThan(html.length);
+          expect(html[origIdx]).toBe(result.text[i]);
         }
       }),
     );

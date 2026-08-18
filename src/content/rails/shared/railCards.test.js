@@ -265,41 +265,36 @@ describe('buildHierarchicalTopicEntries', () => {
 // ── splitIntoContiguousRuns ────────────────────────────────────────────────
 
 describe('splitIntoContiguousRuns', () => {
-  it('returns empty array for empty input', () => {
-    expect(splitIntoContiguousRuns([])).toEqual([]);
-  });
-
-  it('returns empty array for null/undefined', () => {
-    expect(splitIntoContiguousRuns(null)).toEqual([]);
-    expect(splitIntoContiguousRuns(undefined)).toEqual([]);
-  });
-
-  it('returns single run for single element', () => {
-    expect(splitIntoContiguousRuns([5])).toEqual([[5]]);
-  });
-
-  it('returns single run when all elements are contiguous', () => {
-    expect(splitIntoContiguousRuns([1, 2, 3, 4])).toEqual([[1, 2, 3, 4]]);
-  });
-
-  it('splits into multiple runs for fragmented input', () => {
-    expect(splitIntoContiguousRuns([1, 2, 5, 6, 10])).toEqual([[1, 2], [5, 6], [10]]);
-  });
-
-  it('sorts input before splitting (unsorted input)', () => {
-    expect(splitIntoContiguousRuns([6, 1, 5, 2])).toEqual([
-      [1, 2],
-      [5, 6],
-    ]);
+  it.each([
+    ['returns empty array for empty input', [[]], [[]]],
+    ['returns empty array for null/undefined', [null, undefined], [[], []]],
+    ['returns single run for single element', [[5]], [[[5]]]],
+    ['returns single run when all elements are contiguous', [[1, 2, 3, 4]], [[[1, 2, 3, 4]]]],
+    [
+      'splits into multiple runs for fragmented input',
+      [[1, 2, 5, 6, 10]],
+      [[[1, 2], [5, 6], [10]]],
+    ],
+    [
+      'sorts input before splitting (unsorted input)',
+      [[6, 1, 5, 2]],
+      [
+        [
+          [1, 2],
+          [5, 6],
+        ],
+      ],
+    ],
+    ['handles gap of exactly 2 as two separate runs', [[1, 3]], [[[1], [3]]]],
+  ])('%s', (_description, inputs, expectedResults) => {
+    inputs.forEach((input, i) => {
+      expect(splitIntoContiguousRuns(input)).toEqual(expectedResults[i]);
+    });
   });
 
   it('does not mutate the original array', () => {
     const input = [3, 1, 2];
     splitIntoContiguousRuns(input);
     expect(input).toEqual([3, 1, 2]);
-  });
-
-  it('handles gap of exactly 2 as two separate runs', () => {
-    expect(splitIntoContiguousRuns([1, 3])).toEqual([[1], [3]]);
   });
 });

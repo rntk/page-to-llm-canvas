@@ -86,7 +86,7 @@ describe('source run helpers', () => {
   it('joins existing one-based sentence ids and ignores missing sentences', () => {
     expect(runSourceText([3, 1, 9], ['one', 'two', 'three'])).toBe('three one');
     expect(runSourceText([1, 3], ['  first', 'second', 'third  '])).toBe('first third');
-    expect(typeof runSourceText([1, 9], ['first'])).toBe('string');
+    expect(runSourceText([1, 9], ['first'])).toBe('first');
     expect(runSourceText([], ['one'])).toBe('');
   });
 

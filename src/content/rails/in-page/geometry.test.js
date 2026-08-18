@@ -171,34 +171,46 @@ describe('computeCardVerticalBox', () => {
   describe('computeRailTrailingPad', () => {
     const fakeWin = (innerHeight) => ({ innerHeight });
 
-    it('keeps the plain pad outside summaries mode', () => {
-      expect(
-        computeRailTrailingPad({ isSummary: false, scrollContainer: null, win: fakeWin(900) }),
-      ).toBe(RAIL_TRAILING_PAD);
-    });
-
-    it('reserves the space below the cursor line for window scroll', () => {
-      const win = fakeWin(900);
-      // cursor sits at round(0.38 * 900) = 342, so 900 - 342 = 558 stays visible.
-      expect(computeRailTrailingPad({ isSummary: true, scrollContainer: win, win })).toBe(558);
-    });
-
-    it('measures from the container box for nested scrollers', () => {
-      const win = fakeWin(900);
-      const container = {
-        clientHeight: 500,
-        getBoundingClientRect: () => ({ top: 100 }),
-      };
-      // cursor: max(112, round(100 + 500 * 0.38)) = 290; bottom 600 - 290 = 310.
-      expect(computeRailTrailingPad({ isSummary: true, scrollContainer: container, win })).toBe(310);
-    });
-
-    it('never goes below the plain pad in a short viewport', () => {
-      const win = fakeWin(150);
-      // The cursor clamps to 112px, leaving 38px — less than the base pad.
-      expect(computeRailTrailingPad({ isSummary: true, scrollContainer: win, win })).toBe(
+    it.each([
+      [
+        'keeps the plain pad outside summaries mode',
+        // cursor is irrelevant outside summaries mode.
+        () => ({ isSummary: false, scrollContainer: null, win: fakeWin(900) }),
         RAIL_TRAILING_PAD,
-      );
+      ],
+      [
+        'reserves the space below the cursor line for window scroll',
+        // cursor sits at round(0.38 * 900) = 342, so 900 - 342 = 558 stays visible.
+        () => {
+          const win = fakeWin(900);
+          return { isSummary: true, scrollContainer: win, win };
+        },
+        558,
+      ],
+      [
+        'measures from the container box for nested scrollers',
+        // cursor: max(112, round(100 + 500 * 0.38)) = 290; bottom 600 - 290 = 310.
+        () => {
+          const win = fakeWin(900);
+          const container = {
+            clientHeight: 500,
+            getBoundingClientRect: () => ({ top: 100 }),
+          };
+          return { isSummary: true, scrollContainer: container, win };
+        },
+        310,
+      ],
+      [
+        'never goes below the plain pad in a short viewport',
+        // The cursor clamps to 112px, leaving 38px — less than the base pad.
+        () => {
+          const win = fakeWin(150);
+          return { isSummary: true, scrollContainer: win, win };
+        },
+        RAIL_TRAILING_PAD,
+      ],
+    ])('%s', (_description, buildArgs, expected) => {
+      expect(computeRailTrailingPad(buildArgs())).toBe(expected);
     });
   });
 

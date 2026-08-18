@@ -33,7 +33,7 @@ describe('parser metrics', () => {
       ok: false,
       attempt: 1,
       diagnostics: { sentenceCount: 4, invalidRangeTokens: 2, missing: [0, 1, 2, 3] },
-      error: 'No valid topic ranges',
+      error: `No valid topic ranges: ${'x'.repeat(300)}`,
     });
     await recordParserMetric({
       ok: true,
@@ -59,7 +59,11 @@ describe('parser metrics', () => {
       },
     });
     expect(metrics.recent[0]).toMatchObject({ ok: true, attempt: 2, repaired: true });
-    expect(JSON.stringify(metrics)).not.toContain('No valid topic ranges found in response body');
+    // Stored errors are truncated to 160 chars (parser.js), so the raw 300-char
+    // tail never reaches storage.
+    const failureEntry = metrics.recent.find((entry) => entry.ok === false);
+    expect(failureEntry.error).toBe(`No valid topic ranges: ${'x'.repeat(300)}`.slice(0, 160));
+    expect(failureEntry.error).toHaveLength(160);
   });
 
   it('normalizes corrupt payloads and clears stored data', async () => {

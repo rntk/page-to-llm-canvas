@@ -98,26 +98,9 @@ describe('CanvasZoomControls', () => {
     unmount();
   });
 
-  it('triggers navigate and zoom callbacks in body', () => {
-    const onNavigate = vi.fn();
-    const onZoomIn = vi.fn();
-    const onZoomOut = vi.fn();
-    const onReset = vi.fn();
-    const onToggleSummaryMode = vi.fn();
+  it('renders the navigation grid buttons in the expected order', () => {
+    const { container, unmount } = render(createElement(CanvasZoomControls, defaultProps));
 
-    const { container, unmount } = render(
-      createElement(CanvasZoomControls, {
-        ...defaultProps,
-        onNavigate,
-        onZoomIn,
-        onZoomOut,
-        onReset,
-        onToggleSummaryMode,
-        onToggleChat: vi.fn(),
-      }),
-    );
-
-    const bodyBtns = container.querySelectorAll('.canvas-controls-body button');
     const navigationGrid = container.querySelector('.canvas-navigation-grid');
     expect(navigationGrid).not.toBeNull();
 
@@ -133,52 +116,86 @@ describe('CanvasZoomControls', () => {
       'Scroll to bottom',
     ]);
 
-    // First topic
-    act(() => bodyBtns[0].click());
-    expect(onNavigate).toHaveBeenCalledWith('first-topic');
+    unmount();
+  });
 
-    // Scroll to top
-    act(() => bodyBtns[1].click());
-    expect(onNavigate).toHaveBeenCalledWith('top');
+  it.each([
+    ['First topic', 'first-topic'],
+    ['Scroll to top', 'top'],
+    ['Previous topic', 'prev-topic'],
+    ['Previous page', 'prev'],
+    ['Next topic', 'next-topic'],
+    ['Next page', 'next'],
+    ['Last topic', 'last-topic'],
+    ['Scroll to bottom', 'bottom'],
+  ])('clicking the "%s" button triggers onNavigate("%s")', (title, direction) => {
+    const onNavigate = vi.fn();
+    const { container, unmount } = render(
+      createElement(CanvasZoomControls, { ...defaultProps, onNavigate }),
+    );
 
-    // Scroll to prev
-    act(() => bodyBtns[3].click());
-    expect(onNavigate).toHaveBeenCalledWith('prev');
+    const button = Array.from(container.querySelectorAll('.canvas-navigation-grid button')).find(
+      (btn) => btn.title === title,
+    );
+    act(() => button.click());
+    expect(onNavigate).toHaveBeenCalledWith(direction);
 
-    // Previous topic
-    act(() => bodyBtns[2].click());
-    expect(onNavigate).toHaveBeenCalledWith('prev-topic');
+    unmount();
+  });
 
-    // Next topic
-    act(() => bodyBtns[4].click());
-    expect(onNavigate).toHaveBeenCalledWith('next-topic');
+  it('triggers onZoomIn when the zoom in button is clicked', () => {
+    const onZoomIn = vi.fn();
+    const { container, unmount } = render(
+      createElement(CanvasZoomControls, { ...defaultProps, onZoomIn }),
+    );
 
-    // Scroll to next
-    act(() => bodyBtns[5].click());
-    expect(onNavigate).toHaveBeenCalledWith('next');
-
-    // Last topic
-    act(() => bodyBtns[6].click());
-    expect(onNavigate).toHaveBeenCalledWith('last-topic');
-
-    // Scroll to bottom
-    act(() => bodyBtns[7].click());
-    expect(onNavigate).toHaveBeenCalledWith('bottom');
-
-    // Zoom in
-    act(() => bodyBtns[8].click());
+    const zoomInBtn = Array.from(container.querySelectorAll('.canvas-zoom-btn')).find(
+      (btn) => btn.title === 'Zoom in',
+    );
+    act(() => zoomInBtn.click());
     expect(onZoomIn).toHaveBeenCalled();
 
-    // Zoom out
-    act(() => bodyBtns[9].click());
+    unmount();
+  });
+
+  it('triggers onZoomOut when the zoom out button is clicked', () => {
+    const onZoomOut = vi.fn();
+    const { container, unmount } = render(
+      createElement(CanvasZoomControls, { ...defaultProps, onZoomOut }),
+    );
+
+    const zoomOutBtn = Array.from(container.querySelectorAll('.canvas-zoom-btn')).find(
+      (btn) => btn.title === 'Zoom out',
+    );
+    act(() => zoomOutBtn.click());
     expect(onZoomOut).toHaveBeenCalled();
 
-    // Reset zoom
-    act(() => bodyBtns[10].click());
+    unmount();
+  });
+
+  it('triggers onReset when the reset zoom button is clicked', () => {
+    const onReset = vi.fn();
+    const { container, unmount } = render(
+      createElement(CanvasZoomControls, { ...defaultProps, onReset }),
+    );
+
+    const resetBtn = Array.from(container.querySelectorAll('.canvas-zoom-btn')).find(
+      (btn) => btn.title === 'Reset zoom',
+    );
+    act(() => resetBtn.click());
     expect(onReset).toHaveBeenCalled();
 
-    // Toggle summary mode (after the chat toggle)
-    act(() => bodyBtns[12].click());
+    unmount();
+  });
+
+  it('triggers onToggleSummaryMode when the summary mode toggle is clicked', () => {
+    const onToggleSummaryMode = vi.fn();
+    const { container, unmount } = render(
+      createElement(CanvasZoomControls, { ...defaultProps, onToggleSummaryMode }),
+    );
+
+    const summaryToggleBtn = container.querySelector('.canvas-view-toggle');
+    act(() => summaryToggleBtn.click());
     expect(onToggleSummaryMode).toHaveBeenCalled();
 
     unmount();

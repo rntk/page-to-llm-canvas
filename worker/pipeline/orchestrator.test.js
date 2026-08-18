@@ -2006,7 +2006,7 @@ describe('runPipeline', () => {
       },
     });
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
-      if (prompt.includes('Merge the chunk summaries')) return 'Merged.';
+      if (prompt.includes('<chunk_summaries>')) return 'Merged.';
       return '';
     });
 
@@ -2107,7 +2107,7 @@ describe('runPipeline', () => {
       },
     });
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
-      if (prompt.includes('Merge the chunk summaries')) throw new Error('LLM HTTP 429');
+      if (prompt.includes('<chunk_summaries>')) throw new Error('LLM HTTP 429');
       return '';
     });
 
@@ -2119,9 +2119,7 @@ describe('runPipeline', () => {
       false,
     );
     expect(
-      llm.callLLMWithRetry.mock.calls.some(([opts]) =>
-        opts.prompt.includes('Merge the chunk summaries'),
-      ),
+      llm.callLLMWithRetry.mock.calls.some(([opts]) => opts.prompt.includes('<chunk_summaries>')),
     ).toBe(false);
     const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
     expect(doneCall).toBeDefined();

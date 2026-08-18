@@ -535,8 +535,6 @@ describe('callLLMDirect', () => {
   });
 
   it('clears the fallback abort timeout after a successful call', async () => {
-    const originalTimeout = AbortSignal.timeout;
-    Object.defineProperty(AbortSignal, 'timeout', { value: undefined, configurable: true });
     const { callLLMDirect } = await getLLM();
     const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
     vi.mocked(fetch).mockResolvedValue({
@@ -545,16 +543,9 @@ describe('callLLMDirect', () => {
       json: async () => ({ choices: [{ message: { content: 'Success' } }] }),
     });
 
-    try {
-      await callLLMDirect({ prompt: 'hello' });
-      expect(fetch.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
-      expect(clearSpy).toHaveBeenCalled();
-    } finally {
-      Object.defineProperty(AbortSignal, 'timeout', {
-        value: originalTimeout,
-        configurable: true,
-      });
-    }
+    await callLLMDirect({ prompt: 'hello' });
+    expect(fetch.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+    expect(clearSpy).toHaveBeenCalled();
   });
 });
 

@@ -376,7 +376,120 @@ describe('content script main.jsx', () => {
     }
   });
 
-  it('steps a picked block up to its parent and supports drag reordering', async () => {
+  it('steps a picked block up to its parent', async () => {
+    const sendResponse = vi.fn();
+    await act(async () => {
+      messageListener({ action: 'startSelection' }, {}, sendResponse);
+    });
+
+    const pickBtn = toolbarQuery('#pagetollm-pick-btn');
+    expect(pickBtn).not.toBeNull();
+
+    const parent = document.createElement('article');
+    parent.id = 'step-parent';
+    const child = document.createElement('p');
+    child.id = 'step-child';
+    child.textContent = 'Child text.';
+    parent.appendChild(child);
+    document.body.appendChild(parent);
+
+    await act(async () => {
+      pickBtn.click();
+    });
+    await act(async () => {
+      child.click();
+    });
+
+    const listItems = toolbarQueryAll('.pagetollm-block-item');
+    expect(listItems).toHaveLength(1);
+    const stepUpBtn = listItems[0].querySelector('.pagetollm-stepup-btn');
+    expect(stepUpBtn.disabled).toBe(false);
+
+    await act(async () => {
+      stepUpBtn.click();
+    });
+    expect(child.classList.contains('pagetollm-selected')).toBe(false);
+    expect(parent.classList.contains('pagetollm-selected')).toBe(true);
+
+    const cancelBtn = toolbarQuery('#pagetollm-cancel-btn');
+    await act(async () => {
+      cancelBtn.click();
+    });
+    parent.remove();
+  });
+
+  it('supports drag reordering of picked blocks', async () => {
+    const sendResponse = vi.fn();
+    await act(async () => {
+      messageListener({ action: 'startSelection' }, {}, sendResponse);
+    });
+
+    const pickBtn = toolbarQuery('#pagetollm-pick-btn');
+    expect(pickBtn).not.toBeNull();
+
+    const parent = document.createElement('article');
+    parent.id = 'step-parent';
+    const child = document.createElement('p');
+    child.id = 'step-child';
+    child.textContent = 'Child text.';
+    parent.appendChild(child);
+    document.body.appendChild(parent);
+
+    const sibling = document.createElement('section');
+    sibling.id = 'drag-sibling';
+    sibling.textContent = 'Sibling text.';
+    document.body.appendChild(sibling);
+
+    await act(async () => {
+      pickBtn.click();
+    });
+    await act(async () => {
+      child.click();
+    });
+    await act(async () => {
+      pickBtn.click();
+    });
+    await act(async () => {
+      sibling.click();
+    });
+
+    let listItems = toolbarQueryAll('.pagetollm-block-item');
+    expect(listItems).toHaveLength(2);
+
+    await act(async () => {
+      listItems[0].dispatchEvent(new CustomEvent('dragstart', { bubbles: true }));
+    });
+    expect(toolbarQueryAll('.pagetollm-block-item')[0].className).toContain('pagetollm-dragging');
+
+    await act(async () => {
+      toolbarQueryAll('.pagetollm-block-item')[1].dispatchEvent(
+        new CustomEvent('dragover', { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(toolbarQueryAll('.pagetollm-block-item')[1].className).toContain('pagetollm-drag-over');
+
+    await act(async () => {
+      toolbarQueryAll('.pagetollm-block-item')[1].dispatchEvent(
+        new CustomEvent('drop', { bubbles: true, cancelable: true }),
+      );
+    });
+
+    await act(async () => {
+      toolbarQueryAll('.pagetollm-block-item')[1].dispatchEvent(
+        new CustomEvent('dragend', { bubbles: true }),
+      );
+    });
+    expect(toolbarQueryAll('.pagetollm-block-item')).toHaveLength(2);
+
+    const cancelBtn = toolbarQuery('#pagetollm-cancel-btn');
+    await act(async () => {
+      cancelBtn.click();
+    });
+    parent.remove();
+    sibling.remove();
+  });
+
+  it('submits the picked blocks after step-up and drag reordering', async () => {
     chrome.runtime.sendMessage.mockImplementationOnce((_message, callback) =>
       callback({ ok: true, key: 'step-submit-key' }),
     );
@@ -410,15 +523,11 @@ describe('content script main.jsx', () => {
     });
 
     let listItems = toolbarQueryAll('.pagetollm-block-item');
-    expect(listItems).toHaveLength(1);
     const stepUpBtn = listItems[0].querySelector('.pagetollm-stepup-btn');
-    expect(stepUpBtn.disabled).toBe(false);
 
     await act(async () => {
       stepUpBtn.click();
     });
-    expect(child.classList.contains('pagetollm-selected')).toBe(false);
-    expect(parent.classList.contains('pagetollm-selected')).toBe(true);
 
     await act(async () => {
       pickBtn.click();
@@ -433,14 +542,12 @@ describe('content script main.jsx', () => {
     await act(async () => {
       listItems[0].dispatchEvent(new CustomEvent('dragstart', { bubbles: true }));
     });
-    expect(toolbarQueryAll('.pagetollm-block-item')[0].className).toContain('pagetollm-dragging');
 
     await act(async () => {
       toolbarQueryAll('.pagetollm-block-item')[1].dispatchEvent(
         new CustomEvent('dragover', { bubbles: true, cancelable: true }),
       );
     });
-    expect(toolbarQueryAll('.pagetollm-block-item')[1].className).toContain('pagetollm-drag-over');
 
     await act(async () => {
       toolbarQueryAll('.pagetollm-block-item')[1].dispatchEvent(
@@ -453,7 +560,6 @@ describe('content script main.jsx', () => {
         new CustomEvent('dragend', { bubbles: true }),
       );
     });
-    expect(toolbarQueryAll('.pagetollm-block-item')).toHaveLength(2);
 
     const submitBtn = toolbarQuery('#pagetollm-submit-btn');
     await act(async () => {
