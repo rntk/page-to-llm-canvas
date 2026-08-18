@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
-import { stripTagsKeepOffsets } from './html.js';
+import { decodeEntities, stripTagsKeepOffsets } from './html.js';
 
 const HTML_WHITESPACE_RE = /[ \t\n\r\f\v]+/g;
 const normalizeHtmlText = (text) => text.replace(HTML_WHITESPACE_RE, ' ').trim();
@@ -112,6 +112,30 @@ const numericEntityArb = fc
 const entityArb = fc.oneof(namedEntityArb, numericEntityArb);
 
 describe('stripTagsKeepOffsets properties', () => {
+  it('classifies every supported Unicode whitespace and stripped control boundary exactly', () => {
+    const whitespaceCodePoints = [
+      0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20, 0x85, 0xa0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003,
+      0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f,
+      0x3000,
+    ];
+    for (const codePoint of whitespaceCodePoints) {
+      expect(stripTagsKeepOffsets(`a${String.fromCodePoint(codePoint)}b`)).toEqual({
+        text: 'a b',
+        mapping: [0, 1, 2, 3],
+      });
+    }
+
+    const strippedCodePoints = [
+      0x00, 0x01, 0x08, 0x0e, 0x0f, 0x1f, 0x7f, 0x80, 0x84, 0x86, 0x9f, 0xad, 0x2060,
+    ];
+    for (const codePoint of strippedCodePoints) {
+      expect(stripTagsKeepOffsets(`a${String.fromCodePoint(codePoint)}b`)).toEqual({
+        text: 'ab',
+        mapping: [0, 2, 3],
+      });
+    }
+  });
+
   it('always returns a string for text and a valid mapping array', () => {
     fc.assert(
       fc.property(fc.string(), (html) => {
@@ -181,6 +205,37 @@ describe('stripTagsKeepOffsets properties', () => {
     );
   });
 
+  it('handles self-closing and truncated script/style openers without leaking content', () => {
+    for (const tagName of ['script', 'style']) {
+      expect(stripTagsKeepOffsets(`before<${tagName}/>ignored</${tagName}>after`).text).toBe(
+        'before after',
+      );
+      expect(stripTagsKeepOffsets(`before<${tagName}`).text).toBe('before');
+      expect(stripTagsKeepOffsets(`before<${tagName} ignored`).text).toBe('before');
+    }
+  });
+
+  it('preserves short mixed zero-width runs and removes suspicious runs at the threshold', () => {
+    const zeroWidth = ['\u200b', '\u200c', '\u200d', '\ufeff'];
+    for (let length = 0; length <= 6; length++) {
+      const run = Array.from({ length }, (_, index) => zeroWidth[index % zeroWidth.length]).join(
+        '',
+      );
+      const result = stripTagsKeepOffsets(`a${run}b`);
+      expect(result.text).toBe(length < 4 ? `a${run}b` : 'ab');
+    }
+  });
+
+  it('removes orphan Unicode tag endpoints but preserves a complete flag-tag sequence', () => {
+    for (const codePoint of [0xe0000, 0xe007f]) {
+      expect(stripTagsKeepOffsets(`a${String.fromCodePoint(codePoint)}b`).text).toBe('ab');
+    }
+    const flagSequence = `${String.fromCodePoint(0x1f3f4)}${String.fromCodePoint(
+      0xe0067,
+    )}${String.fromCodePoint(0xe007f)}`;
+    expect(stripTagsKeepOffsets(`a${flagSequence}b`).text).toBe(`a${flagSequence}b`);
+  });
+
   it('decodes generated entities with exact UTF-16 offset mappings', () => {
     fc.assert(
       fc.property(safeTokenArb, entityArb, safeTokenArb, (before, entity, after) => {
@@ -198,6 +253,15 @@ describe('stripTagsKeepOffsets properties', () => {
         ]);
       }),
     );
+  });
+
+  it('preserves malformed entities and enforces numeric entity boundaries exactly', () => {
+    for (const malformed of ['&', '&amp', '&;', '&#;', '&#x;', '&#0;', '&#x0;', '&#1114112;']) {
+      expect(decodeEntities(malformed)).toBe(malformed);
+    }
+    expect(decodeEntities('&#00000065;')).toBe('A');
+    expect(decodeEntities('&#000000065;')).toBe('&#000000065;');
+    expect(decodeEntities('x&amp;y')).toBe('x&y');
   });
 
   it('maps both UTF-16 code units of a decoded non-BMP entity', () => {

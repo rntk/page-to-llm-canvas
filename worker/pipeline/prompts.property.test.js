@@ -1,10 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as fc from 'fast-check';
+import { createHash } from 'node:crypto';
 import {
   buildSystemPrompt,
   buildTopicRangesPrompt,
   buildArticleSummaryPrompt,
   buildArticleSummaryMergePrompt,
+  buildLeafSummaryMergePrompt,
   buildTopicSummaryFromSourcePrompt,
   buildSentenceSummaryPrompt,
   formatChunkSummariesForMerge,
@@ -12,6 +14,7 @@ import {
   LANGUAGE_INSTRUCTION,
   ARTICLE_SUMMARY_PROMPT_TEMPLATE,
   ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE,
+  LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE,
   TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE,
   SENTENCE_SUMMARY_PROMPT_TEMPLATE,
 } from './prompts.js';
@@ -37,6 +40,16 @@ function promptContentArb(marker, closingTag) {
 }
 
 describe('buildTaggedText properties', () => {
+  it('matches the canonical tagged-line representation exactly', () => {
+    fc.assert(
+      fc.property(fc.array(singleLineTextArb), (sentences) => {
+        expect(buildTaggedText(sentences)).toBe(
+          sentences.map((sentence, index) => `{${index}} ${sentence}`).join('\n'),
+        );
+      }),
+    );
+  });
+
   it('emits exactly one marked output line per single-line sentence', () => {
     fc.assert(
       fc.property(fc.array(singleLineTextArb), (sentences) => {
@@ -81,6 +94,32 @@ describe('buildSystemPrompt properties', () => {
     const b = buildSystemPrompt();
     expect(a).toBe(b);
     expect(a.length).toBeGreaterThan(0);
+  });
+});
+
+describe('prompt contract fingerprints', () => {
+  const sha256 = (value) => createHash('sha256').update(value).digest('hex');
+
+  it('keeps the reviewed prompt instructions byte-for-byte stable', async () => {
+    vi.resetModules();
+    const currentPrompts = await import('./prompts.js');
+    expect({
+      system: sha256(currentPrompts.buildSystemPrompt()),
+      language: sha256(currentPrompts.LANGUAGE_INSTRUCTION),
+      sentenceSummary: sha256(currentPrompts.SENTENCE_SUMMARY_PROMPT_TEMPLATE),
+      articleSummary: sha256(currentPrompts.ARTICLE_SUMMARY_PROMPT_TEMPLATE),
+      articleMerge: sha256(currentPrompts.ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE),
+      leafMerge: sha256(currentPrompts.LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE),
+      topicSource: sha256(currentPrompts.TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE),
+    }).toEqual({
+      system: 'f9d5b01433c68437ba0446c10b9bd07aca3666f5e7241144d6f359ea5897b21e',
+      language: 'e9c6cdd8dedb466e5cd5277b1ef73530747d1afaad1987b880f97fae790e9d5b',
+      sentenceSummary: '2ddf36035a37c9a8a39c93a0b0f40d64b3ee631c547f8a780baa3e71500e948a',
+      articleSummary: 'c731e87cef7b7becbfdca5703aeb05987021341e4b653b206a1463bab1406dc6',
+      articleMerge: '73a23d1108dd1242ff59fed53c4d7b04631d065d405b54cbabda276da1db0b6c',
+      leafMerge: '31fdeeace0fee490d4013b41c17f15ab3f5f5607c82ecfcbed3fed12e72daf75',
+      topicSource: '4ba6de6f6b7f792c8f79e92cd50e5ce000a57b0340a5e50896c3da7a8724aba5',
+    });
   });
 });
 
@@ -131,6 +170,36 @@ describe('buildArticleSummaryMergePrompt properties', () => {
           const prompt = buildArticleSummaryMergePrompt(summaries, { preferContentLanguage });
           const interpolated = interpolateOnce(
             ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE,
+            '{chunk_summaries}',
+            summaries,
+          );
+          const expected = preferContentLanguage
+            ? `${LANGUAGE_INSTRUCTION}\n${interpolated}`
+            : interpolated;
+          expect(prompt).toBe(expected);
+        },
+      ),
+    );
+  });
+});
+
+describe('buildLeafSummaryMergePrompt properties', () => {
+  it('does not add a language instruction when options are omitted', () => {
+    const summaries = 'Chunk 1 summary';
+    expect(buildLeafSummaryMergePrompt(summaries)).toBe(
+      interpolateOnce(LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE, '{chunk_summaries}', summaries),
+    );
+  });
+
+  it('interpolates arbitrary chunk summaries exactly', () => {
+    fc.assert(
+      fc.property(
+        promptContentArb('{chunk_summaries}', '</chunk_summaries>'),
+        fc.boolean(),
+        (summaries, preferContentLanguage) => {
+          const prompt = buildLeafSummaryMergePrompt(summaries, { preferContentLanguage });
+          const interpolated = interpolateOnce(
+            LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE,
             '{chunk_summaries}',
             summaries,
           );
