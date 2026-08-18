@@ -165,7 +165,7 @@ function CanvasZoomControls({
           {summaryModeAvailable && (
             <button
               type="button"
-              className={`canvas-read-toggle${showSummaryMode ? ' is-active' : ''}`}
+              className={`canvas-view-toggle${showSummaryMode ? ' is-active' : ''}`}
               onClick={onToggleSummaryMode}
               title={showSummaryMode ? 'Show article text' : 'Show summary view (per topic level)'}
             >
@@ -183,7 +183,7 @@ function CanvasZoomControls({
             )}
             <button
               type="button"
-              className={`canvas-read-toggle${showTopicHierarchy ? ' is-active' : ''}`}
+              className={`canvas-view-toggle${showTopicHierarchy ? ' is-active' : ''}`}
               onClick={onToggleTopicHierarchy}
               title={showTopicHierarchy ? 'Hide topic hierarchy' : 'Show topic hierarchy'}
             >

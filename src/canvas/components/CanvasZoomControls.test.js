@@ -218,7 +218,7 @@ describe('CanvasZoomControls', () => {
   it('shows the summary-mode toggle by default', () => {
     const { container, unmount } = render(createElement(CanvasZoomControls, defaultProps));
     expect(
-      Array.from(container.querySelectorAll('.canvas-read-toggle')).some(
+      Array.from(container.querySelectorAll('.canvas-view-toggle')).some(
         (button) => button.textContent === 'S',
       ),
     ).toBe(true);
@@ -237,8 +237,8 @@ describe('CanvasZoomControls', () => {
 
     // Chat and hierarchy remain; the summary ("S") toggle is gone.
     expect(container.querySelector('.canvas-chat-toggle')).not.toBeNull();
-    const readToggles = container.querySelectorAll('.canvas-read-toggle');
-    expect(Array.from(readToggles).map((button) => button.textContent)).toEqual(['H']);
+    const viewToggles = container.querySelectorAll('.canvas-view-toggle');
+    expect(Array.from(viewToggles).map((button) => button.textContent)).toEqual(['H']);
 
     unmount();
   });

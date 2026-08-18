@@ -418,8 +418,6 @@ function CanvasApp({ initialKey, record, onClose }) {
                   onTopicLeave={handleTopicLeave}
                   onTopicClick={handleTopicClick}
                   onCancelTopicSelection={clearTopicSelection}
-                  readTopics={null}
-                  onToggleRead={null}
                   currentTopicSummary={currentTopicSummary}
                   sentences={sentences}
                   sourceUrl={record?.sourceUrl}

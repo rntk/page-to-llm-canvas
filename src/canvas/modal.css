@@ -423,7 +423,7 @@ body.canvas-global-dragging * {
   border-color: var(--accent);
 }
 
-.canvas-read-toggle,
+.canvas-view-toggle,
 .canvas-chat-toggle {
   width: 32px;
   height: 32px;
@@ -443,7 +443,7 @@ body.canvas-global-dragging * {
     color 0.15s;
 }
 
-.canvas-read-toggle.is-active,
+.canvas-view-toggle.is-active,
 .canvas-chat-toggle.is-active {
   background: var(--ink);
   border-color: var(--ink);
@@ -754,23 +754,6 @@ body.canvas-global-dragging * {
 .canvas-topic-hierarchy__card.is-selected .canvas-youtube-timestamp {
   opacity: 1;
   pointer-events: auto;
-}
-
-.canvas-topic-hierarchy__card.is-read::after {
-  content: '';
-  position: absolute;
-  inset: 1px;
-  pointer-events: none;
-  border-radius: 0;
-  background-image: repeating-linear-gradient(
-    45deg,
-    rgb(0 0 0 / 13%) 0,
-    rgb(0 0 0 / 13%) 2px,
-    transparent 2px,
-    transparent 8px
-  );
-  opacity: 0.72;
-  z-index: 1;
 }
 
 /* ── Summary view ──────────────────────────────────────────────────────── */

@@ -1,7 +1,5 @@
 import React from 'react';
 import { getHierarchyTopicAccentColor } from '../../domain/topicColorUtils.js';
-import { isTopicRead } from '../../domain/topicReadUtils.js';
-import { canonicalTopicPath } from '../../domain/topicDomain.js';
 import {
   CARD_COMPACT_TITLE_MAX_LINES,
   getAdjustedHierarchyCards,
@@ -26,7 +24,6 @@ const TopicCard = React.memo(function TopicCard({
   card,
   isActive,
   isSelected,
-  isRead,
   accentColor,
   isYouTube,
   sourceUrl,
@@ -34,7 +31,6 @@ const TopicCard = React.memo(function TopicCard({
   onTopicEnter,
   onTopicLeave,
   onTopicClick,
-  onToggleRead,
   cardRef,
 }) {
   const titleLineBudget = getTitleLineBudget(card.height);
@@ -70,7 +66,6 @@ const TopicCard = React.memo(function TopicCard({
     titleLineBudget === CARD_COMPACT_TITLE_MAX_LINES ? 'is-compact' : '',
     isActive ? 'is-active' : '',
     isSelected ? 'is-selected' : '',
-    isRead ? 'is-read' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -96,18 +91,7 @@ const TopicCard = React.memo(function TopicCard({
       }}
       onMouseEnter={() => onTopicEnter(card.fullPath, sourceCard.key)}
       onMouseLeave={() => onTopicLeave(card.fullPath, sourceCard.key)}
-      onClick={() => {
-        onTopicClick(card.fullPath, sourceCard);
-        if (onToggleRead) {
-          onToggleRead(canonicalTopicPath(card.fullPath));
-        }
-      }}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        if (onToggleRead) {
-          onToggleRead(canonicalTopicPath(card.fullPath));
-        }
-      }}
+      onClick={() => onTopicClick(card.fullPath, sourceCard)}
       title={`${card.fullPath}: sentences ${card.startSentence}-${card.endSentence}`}
     >
       <div className="canvas-topic-hierarchy__card-content">
@@ -152,10 +136,6 @@ const TopicCard = React.memo(function TopicCard({
  * @param {function(string, string=): void} props.onTopicLeave
  * @param {function(string, CanvasTopicCard): void} props.onTopicClick
  * @param {?function(): void} props.onCancelTopicSelection
- * @param {Set<string> | string[] | null} props.readTopics Canonical unspaced
- *   topic paths (`A>B>C`) marked read. Noncanonical spaced inputs are normalized.
- * @param {?function(string): void} props.onToggleRead Receives a canonical
- *   unspaced topic-path key.
  * @param {?object} props.currentTopicSummary
  * @param {string} [props.currentTopicSummary.key]
  * @param {string} props.currentTopicSummary.path
@@ -179,17 +159,11 @@ function CanvasTopicHierarchyRail({
   onTopicLeave,
   onTopicClick,
   onCancelTopicSelection,
-  readTopics,
-  onToggleRead,
   currentTopicSummary,
   sentences,
   sourceUrl,
   scale,
 }) {
-  const safeReadTopics = React.useMemo(
-    () => (readTopics instanceof Set ? readTopics : new Set(readTopics || [])),
-    [readTopics],
-  );
   const hierarchyCards = React.useMemo(
     () =>
       (Array.isArray(topicCards) ? topicCards : [])
@@ -490,7 +464,6 @@ function CanvasTopicHierarchyRail({
                       ? selectedTopicCardKey === card.key
                       : selectedTopicKey === card.fullPath
                   }
-                  isRead={isTopicRead(card.fullPath, safeReadTopics)}
                   accentColor={accentColors.get(`${card.fullPath}|${card.depth}`)}
                   isYouTube={isYouTube}
                   sourceUrl={sourceUrl}
@@ -499,7 +472,6 @@ function CanvasTopicHierarchyRail({
                   onTopicEnter={onTopicEnter}
                   onTopicLeave={onTopicLeave}
                   onTopicClick={onTopicClick}
-                  onToggleRead={onToggleRead}
                 />
               ))}
             </>

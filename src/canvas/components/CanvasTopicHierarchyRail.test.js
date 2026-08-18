@@ -65,8 +65,6 @@ describe('CanvasTopicHierarchyRail', () => {
     onTopicEnter: vi.fn(),
     onTopicLeave: vi.fn(),
     onTopicClick: vi.fn(),
-    readTopics: new Set(['Topic A']),
-    onToggleRead: vi.fn(),
   };
 
   it('returns null when show is false', () => {
@@ -103,11 +101,10 @@ describe('CanvasTopicHierarchyRail', () => {
     unmount();
   });
 
-  it('renders cards, handles hover, click, right click and read state (as Set)', () => {
+  it('renders cards and handles hover and click', () => {
     const onTopicEnter = vi.fn();
     const onTopicLeave = vi.fn();
     const onTopicClick = vi.fn();
-    const onToggleRead = vi.fn();
 
     const { container, unmount } = render(
       createElement(CanvasTopicHierarchyRail, {
@@ -117,16 +114,14 @@ describe('CanvasTopicHierarchyRail', () => {
         onTopicEnter,
         onTopicLeave,
         onTopicClick,
-        onToggleRead,
       }),
     );
 
     const buttons = container.querySelectorAll('.canvas-topic-hierarchy__card');
     expect(buttons).toHaveLength(2);
 
-    // card1 (Topic A) is active and is-read (from defaultProps.readTopics Set)
+    // card1 (Topic A) is active
     expect(buttons[0].className).toContain('is-active');
-    expect(buttons[0].className).toContain('is-read');
     expect(buttons[0].className).toContain('canvas-topic-hierarchy__card--root');
 
     // card2 (Topic A > Sub B) is selected
@@ -155,18 +150,6 @@ describe('CanvasTopicHierarchyRail', () => {
       'Topic A > Sub B',
       expect.objectContaining({ key: 'card2' }),
     );
-    expect(onToggleRead).toHaveBeenCalledWith('Topic A>Sub B');
-
-    // right click card2 (contextmenu)
-    onToggleRead.mockClear();
-    const contextMenuEvent = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
-    vi.spyOn(contextMenuEvent, 'preventDefault');
-    act(() => {
-      buttons[1].dispatchEvent(contextMenuEvent);
-    });
-    expect(contextMenuEvent.preventDefault).toHaveBeenCalled();
-    expect(onToggleRead).toHaveBeenCalledWith('Topic A>Sub B');
-
     unmount();
   });
 
@@ -204,20 +187,6 @@ describe('CanvasTopicHierarchyRail', () => {
     expect(buttons[0].className).not.toContain('is-selected');
     expect(buttons[1].className).toContain('is-active');
     expect(buttons[1].className).toContain('is-selected');
-    unmount();
-  });
-
-  it('handles readTopics as array or null', () => {
-    // Array readTopics (without spaces around > as isTopicRead trims and joins them)
-    const { container, unmount } = render(
-      createElement(CanvasTopicHierarchyRail, {
-        ...defaultProps,
-        readTopics: ['Topic A>Sub B'],
-      }),
-    );
-    const buttons = container.querySelectorAll('.canvas-topic-hierarchy__card');
-    expect(buttons[0].className).not.toContain('is-read');
-    expect(buttons[1].className).toContain('is-read');
     unmount();
   });
 
@@ -597,14 +566,12 @@ describe('CanvasTopicHierarchyRail', () => {
     unmount();
   });
 
-  it('clicking the per-card YouTube link does not trigger the card click (no zoom-in)', () => {
+  it('clicking the per-card YouTube link does not trigger the card click', () => {
     const onTopicClick = vi.fn();
-    const onToggleRead = vi.fn();
     const { container, unmount } = render(
       createElement(CanvasTopicHierarchyRail, {
         ...defaultProps,
         onTopicClick,
-        onToggleRead,
         sentences: ['0:05 5 seconds Intro.', 'b', 'c', 'd'],
         sourceUrl: 'https://www.youtube.com/watch?v=abc',
       }),
@@ -616,7 +583,6 @@ describe('CanvasTopicHierarchyRail', () => {
     });
 
     expect(onTopicClick).not.toHaveBeenCalled();
-    expect(onToggleRead).not.toHaveBeenCalled();
     unmount();
   });
 });

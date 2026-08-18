@@ -18,17 +18,6 @@ export function splitTopicPath(name) {
 }
 
 /**
- * Normalize a hierarchical topic path to the canonical storage/key form.
- * Spacing around separators is accepted on input but never emitted.
- *
- * @param {string} name
- * @returns {string} A path such as `A>B>C`, or an empty string.
- */
-export function canonicalTopicPath(name) {
-  return splitTopicPath(name).join('>');
-}
-
-/**
  * Enforces the canonical topic-summary index entry contract at UI boundaries.
  *
  * @param {string} path

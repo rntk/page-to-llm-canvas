@@ -1,29 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildTopicHierarchyTree,
-  canonicalTopicPath,
   computeMaxTopicLevelForRecord,
   flattenTopicHierarchy,
   normalizeSummaryRuns,
   requireTopicSummaryLevel,
   splitSentenceRuns,
 } from './topicDomain.js';
-
-describe('canonicalTopicPath', () => {
-  it('uses unspaced separators for topic-path keys', () => {
-    expect(canonicalTopicPath(' Tech > AI> Models ')).toBe('Tech>AI>Models');
-  });
-
-  it('drops empty segments left by stray separators', () => {
-    expect(canonicalTopicPath('Tech >  > AI')).toBe('Tech>AI');
-  });
-
-  it('returns an empty string for missing or separator-only paths', () => {
-    expect(canonicalTopicPath('')).toBe('');
-    expect(canonicalTopicPath(null)).toBe('');
-    expect(canonicalTopicPath(' > ')).toBe('');
-  });
-});
 
 describe('requireTopicSummaryLevel', () => {
   it('returns a canonical non-negative integer level', () => {
