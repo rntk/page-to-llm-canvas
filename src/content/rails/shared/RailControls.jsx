@@ -26,6 +26,47 @@ export function RailModeSelect({ mode, additionalModes = [], onSelectMode }) {
   );
 }
 
+/**
+ * Shared rail header: mode select, then either the chat-action portal target
+ * or the level switcher, then the close button. Both rails render this same
+ * structure; only the extra mode entries differ.
+ */
+export function RailHead({
+  mode,
+  additionalModes,
+  onSelectMode,
+  isChat,
+  setChatActionsTarget,
+  maxLevel,
+  selectedLevel,
+  onSelectLevel,
+  onClose,
+}) {
+  return (
+    <div className="pagetollm-rail-head">
+      <RailModeSelect mode={mode} additionalModes={additionalModes} onSelectMode={onSelectMode} />
+      {isChat ? (
+        <div className="pagetollm-rail-chat-actions" ref={setChatActionsTarget} />
+      ) : (
+        <RailLevelSwitcher
+          maxLevel={maxLevel}
+          selectedLevel={selectedLevel}
+          onSelectLevel={onSelectLevel}
+        />
+      )}
+      <button
+        className="pagetollm-rail-close"
+        type="button"
+        aria-label="Close rail"
+        title="Close rail"
+        onClick={onClose}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
 export function RailLevelSwitcher({ maxLevel, selectedLevel, onSelectLevel }) {
   if (maxLevel <= 0) return null;
 

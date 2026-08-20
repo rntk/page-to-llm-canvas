@@ -47,10 +47,33 @@ const CHAT_HISTORY_MAX_MESSAGES = 20;
 const CHAT_HISTORY_MAX_CHARS = 24_000;
 let fallbackTurnSequence = 0;
 
-function createTurnId() {
+/**
+ * Random suffix for the non-`randomUUID` path. `getRandomValues` is not
+ * gated on a secure context (unlike `randomUUID`), so it is available in
+ * exactly the realms where the fallback is reached.
+ * @returns {string}
+ */
+function fallbackTurnEntropy() {
+  const values = globalThis.crypto?.getRandomValues?.(new Uint32Array(2));
+  if (values) return `${values[0].toString(36)}${values[1].toString(36)}`;
+  return Math.random().toString(36).slice(2, 10);
+}
+
+/**
+ * `crypto.randomUUID` is secure-context only, so on an http:// page the
+ * fallback below is the only path. Turn IDs key a cancellation registry that
+ * is global to the one MV3 service worker, so an ID must be unique across
+ * content-script realms, not just within one: each realm starts
+ * `fallbackTurnSequence` at zero, so two tabs reaching the same ordinal turn
+ * in the same millisecond would otherwise mint the same ID and a stop on one
+ * would abort both. The counter keeps within-realm IDs distinct even if the
+ * clock does not advance; the random suffix keeps them distinct across realms.
+ * @returns {string}
+ */
+export function createTurnId() {
   if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
   fallbackTurnSequence += 1;
-  return `chat-turn-${Date.now()}-${fallbackTurnSequence}`;
+  return `chat-turn-${Date.now()}-${fallbackTurnSequence}-${fallbackTurnEntropy()}`;
 }
 
 function abortReason(signal) {

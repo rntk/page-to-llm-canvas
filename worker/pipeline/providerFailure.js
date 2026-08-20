@@ -28,6 +28,26 @@ export function markProviderFailure(error) {
   return wrapped;
 }
 
+/** Walks an error's `cause` chain (guarding against cycles), calling `check`
+ * on each node. The first node where `check` returns a value other than
+ * `undefined` stops the walk and that value is returned. If the chain is
+ * exhausted without a definitive result, returns `false`.
+ * @param {unknown} error Error to walk.
+ * @param {(node: object) => unknown} check Per-node classifier.
+ */
+function walkCauseChain(error, check) {
+  let current = error;
+  const seen = new Set();
+  while (current && (typeof current === 'object' || typeof current === 'function')) {
+    if (seen.has(current)) break;
+    seen.add(current);
+    const result = check(current);
+    if (result !== undefined) return result;
+    current = current.cause;
+  }
+  return false;
+}
+
 /**
  * Mirrors callLLMWithRetry's own classification (worker/llm/llm.js): a 4xx
  * other than 408 (timeout) or 429 (rate limit) reflects a request that will
@@ -42,19 +62,14 @@ export function markProviderFailure(error) {
  * @param {unknown} error Error thrown by a provider call.
  */
 export function isPermanentProviderError(error) {
-  let current = error;
-  const seen = new Set();
-  while (current && (typeof current === 'object' || typeof current === 'function')) {
-    if (seen.has(current)) break;
-    seen.add(current);
+  return walkCauseChain(error, (current) => {
     if (current.retryable === false) return true;
     const status = current.status;
     if (Number.isFinite(status)) {
       return status >= 400 && status < 500 && status !== 408 && status !== 429;
     }
-    current = current.cause;
-  }
-  return false;
+    return undefined;
+  });
 }
 
 /** Detects an error that a provider call marked as its own failure.
@@ -63,13 +78,5 @@ export function isPermanentProviderError(error) {
  * @param {unknown} error Error caught by a pipeline stage.
  */
 export function isProviderFailure(error) {
-  let current = error;
-  const seen = new Set();
-  while (current && (typeof current === 'object' || typeof current === 'function')) {
-    if (seen.has(current)) break;
-    seen.add(current);
-    if (current[PROVIDER_FAILURE] === true) return true;
-    current = current.cause;
-  }
-  return false;
+  return walkCauseChain(error, (current) => (current[PROVIDER_FAILURE] === true ? true : undefined));
 }

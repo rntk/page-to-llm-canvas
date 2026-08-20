@@ -453,35 +453,26 @@ export function parseTopicRangesDetailed(response, sentenceCount) {
   }
 
   const rawGroups = order.map((key) => grouped.get(key));
+  const diagnosticsBase = {
+    sentenceCount,
+    inputLineCount: lines.length,
+    parsedLineCount,
+    ignoredLineCount: lines.length - parsedLineCount,
+    ignoredLineSamples,
+    parsedRangeCount: ordinal,
+    reversedRanges,
+  };
   let result;
   try {
     result = finalizeGroups(rawGroups, sentenceCount, invalidRangeTokens);
   } catch (error) {
     if (error instanceof TopicParseError) {
-      error.diagnostics = {
-        ...error.diagnostics,
-        sentenceCount,
-        inputLineCount: lines.length,
-        parsedLineCount,
-        ignoredLineCount: lines.length - parsedLineCount,
-        ignoredLineSamples,
-        parsedRangeCount: ordinal,
-        reversedRanges,
-      };
+      error.diagnostics = { ...error.diagnostics, ...diagnosticsBase };
     }
     throw error;
   }
   return {
     ...result,
-    diagnostics: {
-      ...result.diagnostics,
-      sentenceCount,
-      inputLineCount: lines.length,
-      parsedLineCount,
-      ignoredLineCount: lines.length - parsedLineCount,
-      ignoredLineSamples,
-      parsedRangeCount: ordinal,
-      reversedRanges,
-    },
+    diagnostics: { ...result.diagnostics, ...diagnosticsBase },
   };
 }

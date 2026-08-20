@@ -1,11 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { computeSummaryCursorState, SUMMARY_CURSOR_MIN_TOP } from './summaryCursor.js';
 import ArticleChat from '../../../chat/ArticleChat.jsx';
-import {
-  HierarchicalCardTitle,
-  RailLevelSwitcher,
-  RailModeSelect,
-} from '../shared/RailControls.jsx';
+import { HierarchicalCardTitle, RailHead } from '../shared/RailControls.jsx';
 
 const IN_PAGE_RAIL_MODES = [
   ['hierarchy', 'Hierarchy view'],
@@ -402,25 +398,17 @@ export default function InPageRail({
 
   return (
     <>
-      <div className="pagetollm-rail-head">
-        <RailModeSelect
-          mode={mode}
-          additionalModes={IN_PAGE_RAIL_MODES}
-          onSelectMode={onSelectMode}
-        />
-        {isChat ? (
-          <div className="pagetollm-rail-chat-actions" ref={setChatActionsTarget} />
-        ) : (
-          <RailLevelSwitcher
-            maxLevel={maxLevel}
-            selectedLevel={selectedLevel}
-            onSelectLevel={onSelectLevel}
-          />
-        )}
-        <button className="pagetollm-rail-close" type="button" title="Close rail" onClick={onClose}>
-          ×
-        </button>
-      </div>
+      <RailHead
+        mode={mode}
+        additionalModes={IN_PAGE_RAIL_MODES}
+        onSelectMode={onSelectMode}
+        isChat={isChat}
+        setChatActionsTarget={setChatActionsTarget}
+        maxLevel={maxLevel}
+        selectedLevel={selectedLevel}
+        onSelectLevel={onSelectLevel}
+        onClose={onClose}
+      />
       <div
         className={[
           'pagetollm-rail-body',

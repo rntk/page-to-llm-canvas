@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React from 'react';
 import {
   RESPLIT_METRICS_KEY,
   RESPLIT_OUTCOMES,
@@ -8,8 +8,9 @@ import {
   normalizeResplitMetrics,
 } from '../../worker/metrics/resplit.js';
 import { MSG } from '../shared/runtime/messages.js';
-import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 import { CollapsibleSection } from './CollapsibleSection.jsx';
+import { formatDate } from './metricsFormat.js';
+import { useMetricsClear } from './useMetricsClear.js';
 import { useStoredMetrics } from './useStoredMetrics.js';
 
 const OUTCOME_LABELS = {
@@ -27,10 +28,6 @@ const SPAN_BUCKET_LABELS = {
   le240: '121-240',
   gt240: '>240',
 };
-
-function formatDate(timestamp) {
-  return timestamp ? new Date(timestamp).toLocaleString() : '—';
-}
 
 function pct(numerator, denominator) {
   if (!denominator) return '0%';
@@ -58,34 +55,13 @@ export function ResplitMetricsSection({ store }) {
     subscribe: store.subscribe,
     loadErrorMessage: 'PageToLLM Options resplit metrics load failed:',
   });
-  const [isClearing, setIsClearing] = useState(false);
-  const [clearError, setClearError] = useState('');
-
-  const handleClear = useCallback(async () => {
-    setIsClearing(true);
-    setClearError('');
-    try {
-      const response = await sendRuntimeMessage({ type: MSG.clearResplitMetrics });
-      if (!response?.ok) {
-        throw new Error(response?.error || 'Failed to clear resplit metrics');
-      }
-      setMetrics(emptyResplitMetrics());
-    } catch (error) {
-      // A failed clear leaves the stored counters intact. Reload them so the
-      // user can see the current data and try again instead of being left in
-      // a permanently busy state.
-      let message = error?.message || 'Failed to clear resplit metrics';
-      try {
-        const stored = await getResplitMetrics();
-        setMetrics(stored);
-      } catch (reloadError) {
-        message += `. Metrics could not be reloaded: ${reloadError?.message || String(reloadError)}`;
-      }
-      setClearError(message);
-    } finally {
-      setIsClearing(false);
-    }
-  }, [setMetrics]);
+  const { isClearing, clearError, handleClear } = useMetricsClear({
+    messageType: MSG.clearResplitMetrics,
+    defaultErrorMessage: 'Failed to clear resplit metrics',
+    empty: emptyResplitMetrics,
+    read: getResplitMetrics,
+    setMetrics,
+  });
 
   return (
     <CollapsibleSection title="Topic Range Resplit">

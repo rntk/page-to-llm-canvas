@@ -1,11 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import ArticleChat from '../../../chat/ArticleChat.jsx';
 import { formatTimestampLabel } from '../../../utils/youtubeTimestamp.js';
-import {
-  HierarchicalCardTitle,
-  RailLevelSwitcher,
-  RailModeSelect,
-} from '../shared/RailControls.jsx';
+import { HierarchicalCardTitle, RailHead } from '../shared/RailControls.jsx';
 import {
   getYouTubeRailCardBodyText,
   getYouTubeRailActiveCardIdFromNormalized,
@@ -284,27 +280,16 @@ export default function YouTubeRail({
 
   return (
     <>
-      <div className="pagetollm-rail-head">
-        <RailModeSelect mode={mode} onSelectMode={onSelectMode} />
-        {isChat ? (
-          <div className="pagetollm-rail-chat-actions" ref={setChatActionsTarget} />
-        ) : (
-          <RailLevelSwitcher
-            maxLevel={maxLevel}
-            selectedLevel={selectedLevel}
-            onSelectLevel={onSelectLevel}
-          />
-        )}
-        <button
-          className="pagetollm-rail-close"
-          type="button"
-          aria-label="Close rail"
-          title="Close rail"
-          onClick={onClose}
-        >
-          ×
-        </button>
-      </div>
+      <RailHead
+        mode={mode}
+        onSelectMode={onSelectMode}
+        isChat={isChat}
+        setChatActionsTarget={setChatActionsTarget}
+        maxLevel={maxLevel}
+        selectedLevel={selectedLevel}
+        onSelectLevel={onSelectLevel}
+        onClose={onClose}
+      />
       <div
         ref={bodyRef}
         className={isChat ? 'pagetollm-rail-body is-chat' : 'pagetollm-yt-rail-body'}

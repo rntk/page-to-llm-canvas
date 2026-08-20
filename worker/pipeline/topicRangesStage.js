@@ -571,6 +571,7 @@ async function resplitSegment(
 ) {
   const { noteResplitOutcome } = dependencies;
   const span = segment.end - segment.start + 1;
+  const logCtx = { start: segment.start, end: segment.end, span, depth };
   const sliceTexts = sentenceTexts.slice(segment.start, segment.end + 1);
   const tagged = buildTaggedText(sliceTexts);
   const maxChars = runtime.maxTextChunkChars;
@@ -586,13 +587,7 @@ async function resplitSegment(
 
   await runtime.log(
     'topic_ranges_resplit_request',
-    {
-      start: segment.start,
-      end: segment.end,
-      span,
-      depth,
-      chunkCount: chunks.length,
-    },
+    { ...logCtx, chunkCount: chunks.length },
     { verbose: true },
   );
 
@@ -705,16 +700,7 @@ async function resplitSegment(
       return subSegments;
     }
 
-    await runtime.log(
-      'topic_ranges_resplit_no_progress',
-      {
-        start: segment.start,
-        end: segment.end,
-        span,
-        depth,
-      },
-      { verbose: true },
-    );
+    await runtime.log('topic_ranges_resplit_no_progress', { ...logCtx }, { verbose: true });
 
     // A single label over a large slice is often a marker-grounding failure.
     // Re-query deterministic small windows: even a single-topic answer is
@@ -730,7 +716,7 @@ async function resplitSegment(
       }
       await runtime.log(
         'topic_ranges_resplit_window_fallback',
-        { start: segment.start, end: segment.end, span, depth, windowCount: windows.length },
+        { ...logCtx, windowCount: windows.length },
         { verbose: true },
       );
       noteResplitOutcome(stats, DEFAULT_RESPLIT_OUTCOMES.WINDOW_FALLBACK);
@@ -752,13 +738,7 @@ async function resplitSegment(
 
   await runtime.log(
     'topic_ranges_resplit_response',
-    {
-      start: segment.start,
-      end: segment.end,
-      span,
-      depth,
-      subSegmentCount: subSegments.length,
-    },
+    { ...logCtx, subSegmentCount: subSegments.length },
     { verbose: true },
   );
   noteResplitOutcome(stats, DEFAULT_RESPLIT_OUTCOMES.SUBDIVIDED);

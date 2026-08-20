@@ -284,8 +284,8 @@ export async function summarizeTopicTree({
     sourceSentences.length === 0 ||
     overlaps(run, sourceSentences);
 
-  const hasFailedDependency = (path, run) => {
-    for (const [failedPath, failedRuns] of failedLeafRunsByPath) {
+  const runsMapHasFailedDependency = (runsByPath, path, run) => {
+    for (const [failedPath, failedRuns] of runsByPath) {
       if (
         isDescendantOrSelf(failedPath, path) &&
         failedRuns.some((failed) => overlaps(run, failed))
@@ -293,26 +293,22 @@ export async function summarizeTopicTree({
         return true;
       }
     }
-    for (const [failedPath, sourceSentences] of failedLeafEntryRunsByPath) {
-      if (isDescendantOrSelf(failedPath, path) && entryFailureAffectsRun(sourceSentences, run)) {
-        return true;
-      }
-    }
-    for (const [failedPath, failedRuns] of priorFailedRunsByPath) {
-      if (
-        isDescendantOrSelf(failedPath, path) &&
-        failedRuns.some((failed) => overlaps(run, failed))
-      ) {
-        return true;
-      }
-    }
-    for (const [failedPath, sourceSentences] of priorEntryFailuresByPath) {
+    return false;
+  };
+  const entryMapHasFailedDependency = (entriesByPath, path, run) => {
+    for (const [failedPath, sourceSentences] of entriesByPath) {
       if (isDescendantOrSelf(failedPath, path) && entryFailureAffectsRun(sourceSentences, run)) {
         return true;
       }
     }
     return false;
   };
+
+  const hasFailedDependency = (path, run) =>
+    runsMapHasFailedDependency(failedLeafRunsByPath, path, run) ||
+    entryMapHasFailedDependency(failedLeafEntryRunsByPath, path, run) ||
+    runsMapHasFailedDependency(priorFailedRunsByPath, path, run) ||
+    entryMapHasFailedDependency(priorEntryFailuresByPath, path, run);
 
   // Resolve a node's per-run summaries, reusing a child's run for any run that one
   // child wholly owns. Memoized by path so a reused child resolves once even when

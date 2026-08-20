@@ -33,6 +33,15 @@ export function createRecordHandlers({
 }) {
   const { readRecord, updateRecord, listRecords, writeRecord, deleteRecord, deleteAll } =
     recordRepository;
+
+  // `createDispatcher` already converts a thrown error into
+  // `{ ok: false, error: e.message }`, so throwing here produces exactly the
+  // response the repeated inline guard used to build.
+  const requireRecord = async (key) => {
+    const rec = await readRecord(key);
+    if (!rec) throw new Error('record not found');
+    return rec;
+  };
   const {
     isComplete: isSummaryCheckpointComplete,
     isRevisionCurrent: isSummaryCheckpointRevisionCurrent,
@@ -74,10 +83,7 @@ export function createRecordHandlers({
       requiresExtensionPage: false,
       validate: requireKey,
       async handle(msg) {
-        const rec = await readRecord(msg.key);
-        if (!rec) {
-          return { ok: false, error: 'record not found' };
-        }
+        const rec = await requireRecord(msg.key);
         // A generic failure can happen after the topic checkpoint and one or
         // more summaries have already been persisted (for example, a later
         // storage write). Re-enter the summarizing status only when the whole
@@ -138,10 +144,7 @@ export function createRecordHandlers({
       requiresExtensionPage: false,
       validate: requireKey,
       async handle(msg) {
-        const rec = await readRecord(msg.key);
-        if (!rec) {
-          return { ok: false, error: 'record not found' };
-        }
+        const rec = await requireRecord(msg.key);
         const updated = await updateRecord(
           msg.key,
           {
@@ -190,10 +193,7 @@ export function createRecordHandlers({
       requiresExtensionPage: false,
       validate: requireKey,
       async handle(msg) {
-        const rec = await readRecord(msg.key);
-        if (!rec) {
-          return { ok: false, error: 'record not found' };
-        }
+        const rec = await requireRecord(msg.key);
         // This action resumes a terminal record's saved checkpoint. It must not
         // replace an active pipeline (which could still be building that
         // checkpoint) with a summaries-only run.
@@ -253,10 +253,7 @@ export function createRecordHandlers({
       requiresExtensionPage: false,
       validate: requireKey,
       async handle(msg) {
-        const rec = await readRecord(msg.key);
-        if (!rec) {
-          return { ok: false, error: 'record not found' };
-        }
+        const rec = await requireRecord(msg.key);
         if (!isInFlightStatus(rec.status)) {
           return { ok: true, stale: true };
         }
@@ -292,10 +289,7 @@ export function createRecordHandlers({
         return null;
       },
       async handle(msg) {
-        const rec = await readRecord(msg.key);
-        if (!rec) {
-          return { ok: false, error: 'record not found' };
-        }
+        const rec = await requireRecord(msg.key);
         // Only a parked record can be resolved; ignore stale/double clicks.
         if (rec.status !== PIPELINE_STATUS.NEEDS_ATTENTION) {
           return { ok: true, stale: true };

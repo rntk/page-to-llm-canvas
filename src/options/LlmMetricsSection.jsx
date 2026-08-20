@@ -16,12 +16,8 @@ import {
   listTaskTypes,
 } from '../../worker/metrics/format.js';
 import { CollapsibleSection } from './CollapsibleSection.jsx';
+import { formatDate } from './metricsFormat.js';
 import { useStoredMetrics } from './useStoredMetrics.js';
-
-function formatDate(timestamp) {
-  if (!timestamp) return '';
-  return new Date(timestamp).toLocaleString();
-}
 
 export function LlmMetricsSection({ store }) {
   const [metrics, setMetrics] = useStoredMetrics({
@@ -255,7 +251,7 @@ export function LlmMetricsSection({ store }) {
                 <tbody>
                   {metrics.recent.map((entry, index) => (
                     <tr key={`${entry.at}-${index}`}>
-                      <td>{formatDate(entry.at)}</td>
+                      <td>{formatDate(entry.at, '')}</td>
                       <td>{formatTaskTypeLabel(entry.taskType)}</td>
                       <td>
                         {entry.provider || entry.model ? (

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React from 'react';
 import {
   PARSER_METRICS_KEY,
   emptyParserMetrics,
@@ -6,13 +6,10 @@ import {
   normalizeParserMetrics,
 } from '../../worker/metrics/parser.js';
 import { MSG } from '../shared/runtime/messages.js';
-import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 import { CollapsibleSection } from './CollapsibleSection.jsx';
+import { formatDate } from './metricsFormat.js';
+import { useMetricsClear } from './useMetricsClear.js';
 import { useStoredMetrics } from './useStoredMetrics.js';
-
-function formatDate(timestamp) {
-  return timestamp ? new Date(timestamp).toLocaleString() : '—';
-}
 
 function quirksLabel(quirks) {
   const parts = [];
@@ -34,34 +31,13 @@ export function ParserMetricsSection({ store }) {
     subscribe: store.subscribe,
     loadErrorMessage: 'PageToLLM Options parser metrics load failed:',
   });
-  const [isClearing, setIsClearing] = useState(false);
-  const [clearError, setClearError] = useState('');
-
-  const handleClear = useCallback(async () => {
-    setIsClearing(true);
-    setClearError('');
-    try {
-      const response = await sendRuntimeMessage({ type: MSG.clearParserMetrics });
-      if (!response?.ok) {
-        throw new Error(response?.error || 'Failed to clear parser metrics');
-      }
-      setMetrics(emptyParserMetrics());
-    } catch (error) {
-      // A failed clear leaves the stored counters intact. Reload them so the
-      // user can see the current data and try again instead of being left in
-      // a permanently busy state.
-      let message = error?.message || 'Failed to clear parser metrics';
-      try {
-        const stored = await getParserMetrics();
-        setMetrics(stored);
-      } catch (reloadError) {
-        message += `. Metrics could not be reloaded: ${reloadError?.message || String(reloadError)}`;
-      }
-      setClearError(message);
-    } finally {
-      setIsClearing(false);
-    }
-  }, [setMetrics]);
+  const { isClearing, clearError, handleClear } = useMetricsClear({
+    messageType: MSG.clearParserMetrics,
+    defaultErrorMessage: 'Failed to clear parser metrics',
+    empty: emptyParserMetrics,
+    read: getParserMetrics,
+    setMetrics,
+  });
 
   return (
     <CollapsibleSection title="Topic Parser Quality">

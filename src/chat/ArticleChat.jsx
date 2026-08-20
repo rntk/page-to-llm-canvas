@@ -1,19 +1,12 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { runArticleChatTurn } from './articleChat.js';
+import { createTurnId, runArticleChatTurn } from './articleChat.js';
 import { browserChatRepository } from './chatApi.js';
 import { eventRange, useChatSessions } from './useChatSessions.js';
 import ChatComposer from './ChatComposer.jsx';
 import ChatEventsList from './ChatEventsList.jsx';
 import ChatHistoryPanel from './ChatHistoryPanel.jsx';
 import ChatMessageList from './ChatMessageList.jsx';
-
-function createTurnId() {
-  return (
-    globalThis.crypto?.randomUUID?.() ||
-    `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`
-  );
-}
 
 function ChatHeaderActions({ disabled, onShowHistory, onNewChat }) {
   return (

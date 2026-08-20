@@ -11,6 +11,7 @@
 
 import { LLM_TASK_TYPES } from '../../src/shared/runtime/telemetry.js';
 import { createLogger } from '../../src/shared/runtime/log.js';
+import { getLocal, setLocal } from '../storage/primitives.js';
 
 export { LLM_TASK_TYPES } from '../../src/shared/runtime/telemetry.js';
 
@@ -506,47 +507,28 @@ export function recordLlmMetric(entry) {
   });
 }
 
-/** @returns {Promise<number>} */
-function getMetricsEpoch() {
-  return new Promise((resolve) => {
-    try {
-      if (typeof chrome === 'undefined' || !chrome?.storage?.local) {
-        resolve(0);
-        return;
-      }
-      chrome.storage.local.get(LLM_METRICS_EPOCH_KEY, (items) => {
-        if (chrome.runtime && chrome.runtime.lastError) {
-          resolve(0);
-          return;
-        }
-        const raw = items ? items[LLM_METRICS_EPOCH_KEY] : 0;
-        resolve(Math.max(0, Number(raw) || 0));
-      });
-    } catch (_) {
-      resolve(0);
-    }
-  });
+/**
+ * @returns {Promise<number>}
+ */
+async function getMetricsEpoch() {
+  try {
+    const items = await getLocal(LLM_METRICS_EPOCH_KEY);
+    return Math.max(0, Number(items[LLM_METRICS_EPOCH_KEY]) || 0);
+  } catch (_) {
+    return 0;
+  }
 }
 
-/** @returns {Promise<LlmMetrics>} */
-function readLlmMetricsRaw() {
-  return new Promise((resolve) => {
-    try {
-      if (typeof chrome === 'undefined' || !chrome?.storage?.local) {
-        resolve(emptyLlmMetrics());
-        return;
-      }
-      chrome.storage.local.get(LLM_METRICS_KEY, (items) => {
-        if (chrome.runtime && chrome.runtime.lastError) {
-          resolve(emptyLlmMetrics());
-          return;
-        }
-        resolve(normalizeLlmMetrics(items ? items[LLM_METRICS_KEY] : undefined));
-      });
-    } catch (_) {
-      resolve(emptyLlmMetrics());
-    }
-  });
+/**
+ * @returns {Promise<LlmMetrics>}
+ */
+async function readLlmMetricsRaw() {
+  try {
+    const items = await getLocal(LLM_METRICS_KEY);
+    return normalizeLlmMetrics(items[LLM_METRICS_KEY]);
+  } catch (_) {
+    return emptyLlmMetrics();
+  }
 }
 
 /**
@@ -555,22 +537,7 @@ function readLlmMetricsRaw() {
  */
 export async function getLlmMetrics() {
   try {
-    if (typeof chrome === 'undefined' || !chrome?.storage?.local) {
-      return emptyLlmMetrics();
-    }
-    const items = await new Promise((resolve) => {
-      try {
-        chrome.storage.local.get([LLM_METRICS_KEY, LLM_METRICS_EPOCH_KEY], (result) => {
-          if (chrome.runtime && chrome.runtime.lastError) {
-            resolve({});
-            return;
-          }
-          resolve(result || {});
-        });
-      } catch (_) {
-        resolve({});
-      }
-    });
+    const items = await getLocal([LLM_METRICS_KEY, LLM_METRICS_EPOCH_KEY]);
     const epoch = Math.max(0, Number(items[LLM_METRICS_EPOCH_KEY]) || 0);
     const metrics = normalizeLlmMetrics(items[LLM_METRICS_KEY]);
     if ((metrics.epoch || 0) !== epoch) return emptyLlmMetrics(epoch);
@@ -585,23 +552,11 @@ export async function getLlmMetrics() {
  * @returns {Promise<void>}
  */
 function writeLlmMetricsRaw(metrics) {
-  return new Promise((resolve, reject) => {
-    try {
-      if (typeof chrome === 'undefined' || !chrome?.storage?.local) {
-        resolve();
-        return;
-      }
-      chrome.storage.local.set({ [LLM_METRICS_KEY]: metrics }, () => {
-        if (chrome.runtime && chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message || 'storage.set failed'));
-          return;
-        }
-        resolve();
-      });
-    } catch (err) {
-      reject(err instanceof Error ? err : new Error(String(err)));
-    }
-  });
+  // `setLocal` reaches for `chrome` unguarded. Without this early return a
+  // chrome-less realm would reject here and surface a misleading
+  // 'metrics record failed' warning, where the write used to be a silent no-op.
+  if (typeof chrome === 'undefined' || !chrome?.storage?.local) return Promise.resolve();
+  return setLocal({ [LLM_METRICS_KEY]: metrics });
 }
 
 /**
@@ -611,30 +566,15 @@ function writeLlmMetricsRaw(metrics) {
  */
 export function clearLlmMetrics() {
   return enqueueWrite(async () => {
+    if (typeof chrome === 'undefined' || !chrome?.storage?.local) {
+      return;
+    }
     try {
-      if (typeof chrome === 'undefined' || !chrome?.storage?.local) {
-        return;
-      }
       const epoch = Date.now();
-      await new Promise((resolve, reject) => {
-        try {
-          // Atomic multi-key set: epoch + empty payload together.
-          chrome.storage.local.set(
-            {
-              [LLM_METRICS_EPOCH_KEY]: epoch,
-              [LLM_METRICS_KEY]: emptyLlmMetrics(epoch),
-            },
-            () => {
-              if (chrome.runtime && chrome.runtime.lastError) {
-                reject(new Error(chrome.runtime.lastError.message || 'storage.set failed'));
-                return;
-              }
-              resolve();
-            },
-          );
-        } catch (err) {
-          reject(err instanceof Error ? err : new Error(String(err)));
-        }
+      // Atomic multi-key set: epoch + empty payload together.
+      await setLocal({
+        [LLM_METRICS_EPOCH_KEY]: epoch,
+        [LLM_METRICS_KEY]: emptyLlmMetrics(epoch),
       });
     } catch (err) {
       log.warn('metrics clear failed:', err);

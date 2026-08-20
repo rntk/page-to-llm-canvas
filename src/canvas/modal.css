@@ -1,18 +1,28 @@
 /* PageToLLM Canvas modal — "The Editorial Absolute" design system. */
 
+/* One source of truth per token: `light-dark()` picks the value from the
+   element's used color-scheme, so the palette is declared once instead of
+   being repeated in a [data-theme='dark'] rule and a prefers-color-scheme
+   clone. `data-theme` now only has to flip color-scheme; absent means
+   "system", which `light dark` resolves against the OS preference. */
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
 
   /* Ink & page */
-  --ink: #000;
-  --accent: #3a404d; /* The Editor's Mark — used sparingly */
-  --surface: #fff;
-  --surface-low: #f2f3f5; /* paper stock: insets, canvas */
-  --surface-highest: #e4e7eb; /* weight: nav / footer */
-  --on-surface: #141414;
-  --on-surface-muted: #5f646b;
-  --ghost: rgb(0 0 0 / 20%); /* outline-variant @ 20% */
-  --surface-frost: rgb(255 255 255 / 82%); /* frosted-glass canvas controls */
+  --ink: light-dark(#000, #f4f5f7);
+  --accent: light-dark(#3a404d, #aab2c0); /* The Editor's Mark — used sparingly */
+  --surface: light-dark(#fff, #1b1d22);
+  --surface-low: light-dark(#f2f3f5, #141519); /* paper stock: insets, canvas */
+  --surface-highest: light-dark(#e4e7eb, #24272e); /* weight: nav / footer */
+  --on-surface: light-dark(#141414, #ececec);
+  --on-surface-muted: light-dark(#5f646b, #a0a6af);
+  --ghost: light-dark(rgb(0 0 0 / 20%), rgb(255 255 255 / 22%)); /* outline-variant */
+  --surface-frost: light-dark(
+    rgb(255 255 255 / 82%),
+    rgb(27 29 34 / 82%)
+  ); /* frosted-glass canvas controls */
+
+  /* Highlight tokens are theme-independent; JS overrides them inline. */
   --pagetollm-highlight-base-color: #3a404d;
   --pagetollm-highlight-color: rgb(58 64 77 / 12%);
   --pagetollm-highlight-hover-color: rgb(58 64 77 / 8%);
@@ -24,36 +34,12 @@
     'Work Sans', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, oxygen, ubuntu, sans-serif;
 }
 
-/* Dark palette. Applied when `data-theme="dark"` is set, or when no explicit
-   preference is set ("system") and the OS prefers dark. */
-:root[data-theme='dark'] {
-  color-scheme: dark;
-
-  --ink: #f4f5f7;
-  --accent: #aab2c0;
-  --surface: #1b1d22;
-  --surface-low: #141519;
-  --surface-highest: #24272e;
-  --on-surface: #ececec;
-  --on-surface-muted: #a0a6af;
-  --ghost: rgb(255 255 255 / 22%);
-  --surface-frost: rgb(27 29 34 / 82%);
+:root[data-theme='light'] {
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light'], [data-theme='dark']) {
-    color-scheme: dark;
-
-    --ink: #f4f5f7;
-    --accent: #aab2c0;
-    --surface: #1b1d22;
-    --surface-low: #141519;
-    --surface-highest: #24272e;
-    --on-surface: #ececec;
-    --on-surface-muted: #a0a6af;
-    --ghost: rgb(255 255 255 / 22%);
-    --surface-frost: rgb(27 29 34 / 82%);
-  }
+:root[data-theme='dark'] {
+  color-scheme: dark;
 }
 
 html,

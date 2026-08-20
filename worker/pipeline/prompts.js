@@ -210,39 +210,32 @@ export const TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE =
   '- Do not return JSON, markdown fences, headings, labels, or commentary.\n\n' +
   'Source:\n<source>{source}</source>\n';
 
-export function buildArticleSummaryPrompt(text, { preferContentLanguage = false } = {}) {
-  return withLanguageInstruction(
-    ARTICLE_SUMMARY_PROMPT_TEMPLATE.replace('{text}', () => text),
-    preferContentLanguage,
-  );
+// Factory for prompt builders that substitute a single slot into a template
+// via a function replacer. Using a function replacer (not a plain string)
+// prevents `$&`/`$'`-style special replacement patterns in article text from
+// corrupting the prompt.
+function makePromptBuilder(template, slot) {
+  return function buildPrompt(value, { preferContentLanguage = false } = {}) {
+    return withLanguageInstruction(template.replace(slot, () => value), preferContentLanguage);
+  };
 }
 
-export function buildTopicSummaryFromSourcePrompt(source, { preferContentLanguage = false } = {}) {
-  return withLanguageInstruction(
-    TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE.replace('{source}', () => source),
-    preferContentLanguage,
-  );
-}
+export const buildArticleSummaryPrompt = makePromptBuilder(ARTICLE_SUMMARY_PROMPT_TEMPLATE, '{text}');
 
-export function buildArticleSummaryMergePrompt(
-  chunkSummaries,
-  { preferContentLanguage = false } = {},
-) {
-  return withLanguageInstruction(
-    ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE.replace('{chunk_summaries}', () => chunkSummaries),
-    preferContentLanguage,
-  );
-}
+export const buildTopicSummaryFromSourcePrompt = makePromptBuilder(
+  TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE,
+  '{source}',
+);
 
-export function buildLeafSummaryMergePrompt(
-  chunkSummaries,
-  { preferContentLanguage = false } = {},
-) {
-  return withLanguageInstruction(
-    LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE.replace('{chunk_summaries}', () => chunkSummaries),
-    preferContentLanguage,
-  );
-}
+export const buildArticleSummaryMergePrompt = makePromptBuilder(
+  ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE,
+  '{chunk_summaries}',
+);
+
+export const buildLeafSummaryMergePrompt = makePromptBuilder(
+  LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE,
+  '{chunk_summaries}',
+);
 
 export function formatChunkSummariesForMerge(records) {
   return records.map(formatChunkSummaryForMerge).join('\n\n');
@@ -256,12 +249,10 @@ export function formatChunkSummaryForMerge(rec, index) {
   );
 }
 
-export function buildSentenceSummaryPrompt(sentence, { preferContentLanguage = false } = {}) {
-  return withLanguageInstruction(
-    SENTENCE_SUMMARY_PROMPT_TEMPLATE.replace('{sentence}', () => sentence),
-    preferContentLanguage,
-  );
-}
+export const buildSentenceSummaryPrompt = makePromptBuilder(
+  SENTENCE_SUMMARY_PROMPT_TEMPLATE,
+  '{sentence}',
+);
 
 // BracketMarker port: prefixes each sentence with {N}.
 export function buildTaggedText(sentences) {

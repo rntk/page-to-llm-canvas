@@ -8,17 +8,29 @@
   --pagetollm-highlight-active-color: rgb(58 64 77 / 20%);
 }
 
+/* One source of truth per token. `light-dark()` resolves against the host
+   element's own color-scheme, so declaring `light dark` here also pins these
+   injected hosts to the OS preference instead of inheriting whatever
+   color-scheme the surrounding page happens to set. Tokens are inherited into
+   the toolbar's shadow tree; the shadow toolbar needs no extra styles.
+   `data-theme` (set by the content script) only flips color-scheme; absent
+   means "system". */
 #pagetollm-selection-toolbar,
 #pagetollm-in-page-rail {
-  --ink: #000;
-  --accent: #3a404d;
-  --surface: #fff;
-  --surface-low: #f2f3f5;
-  --surface-highest: #e4e7eb;
-  --on-surface: #141414;
-  --on-surface-muted: #5f646b;
-  --ghost: rgb(0 0 0 / 20%);
-  --surface-frost: rgb(255 255 255 / 82%); /* frosted-glass chrome (toolbar/rail) */
+  color-scheme: light dark;
+
+  --ink: light-dark(#000, #f4f5f7);
+  --accent: light-dark(#3a404d, #aab2c0);
+  --surface: light-dark(#fff, #1b1d22);
+  --surface-low: light-dark(#f2f3f5, #141519);
+  --surface-highest: light-dark(#e4e7eb, #24272e);
+  --on-surface: light-dark(#141414, #ececec);
+  --on-surface-muted: light-dark(#5f646b, #a0a6af);
+  --ghost: light-dark(rgb(0 0 0 / 20%), rgb(255 255 255 / 22%));
+  --surface-frost: light-dark(
+    rgb(255 255 255 / 82%),
+    rgb(27 29 34 / 82%)
+  ); /* frosted-glass chrome (toolbar/rail) */
 
   /* highlight tokens inherit from :root (set above / overridden inline by JS) */
   --font-voice: 'Newsreader', georgia, 'Times New Roman', serif;
@@ -29,45 +41,19 @@
   text-rendering: optimizelegibility;
 }
 
-#pagetollm-in-page-rail[data-youtube='true'][data-mode='chat'] {
-  position: fixed;
-  inset-block: 0;
+#pagetollm-selection-toolbar[data-theme='light'],
+#pagetollm-in-page-rail[data-theme='light'] {
+  color-scheme: light;
 }
 
-/* Dark palette. The content script sets `data-theme` on the injected hosts;
-   tokens are inherited into the toolbar's shadow tree. "system" leaves the
-   attribute off and lets the prefers-color-scheme media query decide. The
-   shadow toolbar only consumes these tokens, so it needs no extra styles. */
 #pagetollm-selection-toolbar[data-theme='dark'],
 #pagetollm-in-page-rail[data-theme='dark'] {
   color-scheme: dark;
-
-  --ink: #f4f5f7;
-  --accent: #aab2c0;
-  --surface: #1b1d22;
-  --surface-low: #141519;
-  --surface-highest: #24272e;
-  --on-surface: #ececec;
-  --on-surface-muted: #a0a6af;
-  --ghost: rgb(255 255 255 / 22%);
-  --surface-frost: rgb(27 29 34 / 82%);
 }
 
-@media (prefers-color-scheme: dark) {
-  #pagetollm-selection-toolbar:not([data-theme='light'], [data-theme='dark']),
-  #pagetollm-in-page-rail:not([data-theme='light'], [data-theme='dark']) {
-    color-scheme: dark;
-
-    --ink: #f4f5f7;
-    --accent: #aab2c0;
-    --surface: #1b1d22;
-    --surface-low: #141519;
-    --surface-highest: #24272e;
-    --on-surface: #ececec;
-    --on-surface-muted: #a0a6af;
-    --ghost: rgb(255 255 255 / 22%);
-    --surface-frost: rgb(27 29 34 / 82%);
-  }
+#pagetollm-in-page-rail[data-youtube='true'][data-mode='chat'] {
+  position: fixed;
+  inset-block: 0;
 }
 
 /* Selection toolbar: floating frosted vellum. The host element (this rule)

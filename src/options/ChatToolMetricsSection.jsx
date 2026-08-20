@@ -10,11 +10,8 @@ import {
 import { MSG } from '../shared/runtime/messages.js';
 import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 import { CollapsibleSection } from './CollapsibleSection.jsx';
+import { formatDate } from './metricsFormat.js';
 import { useStoredMetrics } from './useStoredMetrics.js';
-
-function formatDate(timestamp) {
-  return timestamp ? new Date(timestamp).toLocaleString() : '—';
-}
 
 function outcomeLabel(outcome) {
   return CHAT_TOOL_OUTCOME_LABELS[outcome] || outcome;
