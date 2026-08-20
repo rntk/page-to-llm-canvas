@@ -68,6 +68,34 @@ function getHierarchyColors(colorCache, node) {
   return colors;
 }
 
+function TopicSummary({ className, entry, summary, onSummaryClick }) {
+  const openSummary = (event) => {
+    event.stopPropagation();
+    onSummaryClick?.({
+      path: spacedTopicPath(entry.node.fullPath),
+      text: summary,
+      sourceSentences: getSentencesForNode(entry),
+    });
+  };
+
+  return (
+    <div
+      className={className}
+      role="button"
+      tabIndex={0}
+      title="Click to view full summary"
+      onClick={openSummary}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        openSummary(event);
+      }}
+    >
+      {summary}
+    </div>
+  );
+}
+
 const HierarchyNode = React.memo(function HierarchyNode({
   entry,
   colorCache,
@@ -85,10 +113,7 @@ const HierarchyNode = React.memo(function HierarchyNode({
   const { node } = entry;
   const children = Array.from(entry.children.values());
   const isLeaf = children.length === 0;
-  const { highlightColor, highlightColorDark, accentColor } = getHierarchyColors(
-    colorCache,
-    node,
-  );
+  const { highlightColor, highlightColorDark, accentColor } = getHierarchyColors(colorCache, node);
   const isSelected = selectedTopicPath === node.fullPath;
 
   const youtubeLink = useMemo(() => {
@@ -105,20 +130,6 @@ const HierarchyNode = React.memo(function HierarchyNode({
 
   if (isLeaf) {
     const summary = getNodeSummary(node, summaryLookup);
-    const handleSummaryClick = (e) => {
-      e.stopPropagation();
-      onSummaryClick?.({
-        path: spacedTopicPath(node.fullPath),
-        text: summary,
-        sourceSentences: getSentencesForNode(entry),
-      });
-    };
-    const handleSummaryKeyDown = (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        handleSummaryClick(e);
-      }
-    };
     return (
       <div className="th-leaf-row">
         <div
@@ -137,16 +148,12 @@ const HierarchyNode = React.memo(function HierarchyNode({
           <YouTubeTimestampButton link={youtubeLink} />
         </div>
         {summary && (
-          <div
+          <TopicSummary
             className="th-leaf-summary"
-            role="button"
-            tabIndex={0}
-            title="Click to view full summary"
-            onClick={handleSummaryClick}
-            onKeyDown={handleSummaryKeyDown}
-          >
-            {summary}
-          </div>
+            entry={entry}
+            summary={summary}
+            onSummaryClick={onSummaryClick}
+          />
         )}
       </div>
     );
@@ -182,20 +189,6 @@ const HierarchyNode = React.memo(function HierarchyNode({
 
   if (isCollapsed) {
     const summary = getNodeSummary(node, summaryLookup);
-    const handleSummaryClick = (e) => {
-      e.stopPropagation();
-      onSummaryClick?.({
-        path: spacedTopicPath(node.fullPath),
-        text: summary,
-        sourceSentences: getSentencesForNode(entry),
-      });
-    };
-    const handleSummaryKeyDown = (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        handleSummaryClick(e);
-      }
-    };
     return (
       <div className="th-node th-node--collapsed" style={{ '--th-row-span': 1 }}>
         <div
@@ -211,16 +204,12 @@ const HierarchyNode = React.memo(function HierarchyNode({
           </span>
         </div>
         {summary && (
-          <div
+          <TopicSummary
             className="th-node__summary"
-            role="button"
-            tabIndex={0}
-            title="Click to view full summary"
-            onClick={handleSummaryClick}
-            onKeyDown={handleSummaryKeyDown}
-          >
-            {summary}
-          </div>
+            entry={entry}
+            summary={summary}
+            onSummaryClick={onSummaryClick}
+          />
         )}
       </div>
     );

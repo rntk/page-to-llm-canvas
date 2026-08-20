@@ -320,6 +320,7 @@ body.pagetollm-rail-open {
 }
 
 .pagetollm-rail-card-title {
+  display: block;
   flex: 0 0 auto;
   font-family: var(--font-data);
   font-size: 18px;
@@ -505,6 +506,7 @@ body.pagetollm-rail-open {
 }
 
 .pagetollm-summary-topic-title {
+  display: block;
   font-family: var(--font-data);
   font-size: 12px;
   font-weight: 700;
@@ -608,6 +610,7 @@ body.pagetollm-rail-open {
 }
 
 .pagetollm-summary-active-card-title {
+  display: block;
   flex: 0 0 auto;
   margin-bottom: 7px;
   font-family: var(--font-data);

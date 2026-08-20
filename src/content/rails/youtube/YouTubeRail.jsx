@@ -2,6 +2,11 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallba
 import ArticleChat from '../../../chat/ArticleChat.jsx';
 import { formatTimestampLabel } from '../../../utils/youtubeTimestamp.js';
 import {
+  HierarchicalCardTitle,
+  RailLevelSwitcher,
+  RailModeSelect,
+} from '../shared/RailControls.jsx';
+import {
   getYouTubeRailCardBodyText,
   getYouTubeRailActiveCardIdFromNormalized,
   getYouTubeRailNextActiveIdFromNormalized,
@@ -26,64 +31,6 @@ const SCROLL_SETTLE_MS = 250;
 function clampRailScrollTop(body, scrollTop) {
   const maxScrollTop = Math.max(0, body.scrollHeight - body.clientHeight);
   return Math.max(0, Math.min(maxScrollTop, scrollTop));
-}
-
-function ModeDropdown({ mode, onSelectMode }) {
-  const activeMode = mode === 'summaries' || mode === 'chat' ? mode : 'topics';
-  return (
-    <select
-      className="pagetollm-rail-mode-select pagetollm-rail-title"
-      aria-label="Rail view"
-      value={activeMode}
-      onChange={(event) => onSelectMode(event.target.value)}
-    >
-      <option value="topics">Topics</option>
-      <option value="summaries">Summaries</option>
-      <option value="chat">Chat</option>
-    </select>
-  );
-}
-
-function LevelSwitcher({ maxLevel, selectedLevel, onSelectLevel }) {
-  if (maxLevel <= 0) return null;
-  return (
-    <div className="pagetollm-rail-level-switcher">
-      <div className="pagetollm-rail-level-buttons">
-        {Array.from({ length: maxLevel + 1 }, (_, level) => (
-          <button
-            key={level}
-            type="button"
-            className={`pagetollm-rail-level-btn${selectedLevel === level ? ' active' : ''}`}
-            title={`Switch to level ${level}`}
-            onClick={() => onSelectLevel(level)}
-          >
-            L{level}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function HierarchicalCardTitle({ name, path }) {
-  const parts =
-    typeof path === 'string'
-      ? path
-          .split(' > ')
-          .map((part) => part.trim())
-          .filter(Boolean)
-      : [];
-  const parentTopics = parts.slice(0, -1);
-  const currentTopic = name || parts.at(-1) || '';
-
-  return (
-    <span className="pagetollm-yt-rail-card-title" title={path || currentTopic} lang="en">
-      {parentTopics.length > 0 ? (
-        <span className="pagetollm-rail-card-parent-topics">{parentTopics.join(' › ')}</span>
-      ) : null}
-      <span className="pagetollm-rail-card-current-topic">{currentTopic}</span>
-    </span>
-  );
 }
 
 /**
@@ -338,11 +285,11 @@ export default function YouTubeRail({
   return (
     <>
       <div className="pagetollm-rail-head">
-        <ModeDropdown mode={mode} onSelectMode={onSelectMode} />
+        <RailModeSelect mode={mode} onSelectMode={onSelectMode} />
         {isChat ? (
           <div className="pagetollm-rail-chat-actions" ref={setChatActionsTarget} />
         ) : (
-          <LevelSwitcher
+          <RailLevelSwitcher
             maxLevel={maxLevel}
             selectedLevel={selectedLevel}
             onSelectLevel={onSelectLevel}
@@ -405,7 +352,11 @@ export default function YouTubeRail({
                     <span className="pagetollm-yt-rail-card-time">
                       {formatTimestampLabel(card.seconds)}
                     </span>
-                    <HierarchicalCardTitle name={card.name} path={card.path} />
+                    <HierarchicalCardTitle
+                      className="pagetollm-yt-rail-card-title"
+                      name={card.name}
+                      path={card.path}
+                    />
                   </div>
                   {/* Only the card for the current moment shows its summary; the
                     rest stay as titles so the surrounding topics remain visible. */}

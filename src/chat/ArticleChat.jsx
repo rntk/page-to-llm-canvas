@@ -15,6 +15,19 @@ function createTurnId() {
   );
 }
 
+function ChatHeaderActions({ disabled, onShowHistory, onNewChat }) {
+  return (
+    <div className="pagetollm-chat-actions">
+      <button type="button" onClick={onShowHistory} disabled={disabled}>
+        History
+      </button>
+      <button type="button" onClick={onNewChat} disabled={disabled}>
+        New
+      </button>
+    </div>
+  );
+}
+
 /**
  * Article chat panel: composes the persisted-session hook with the
  * presentational pieces and owns the send path. One LLM turn runs entirely
@@ -470,18 +483,11 @@ export default function ArticleChat({
     >
       {headerActionsTarget === undefined ? (
         <header className="pagetollm-chat-header">
-          <div className="pagetollm-chat-actions">
-            <button
-              type="button"
-              onClick={() => setShowHistory((value) => !value)}
-              disabled={isLoading || isMutatingHistory}
-            >
-              History
-            </button>
-            <button type="button" onClick={handleNewChat} disabled={isLoading || isMutatingHistory}>
-              New
-            </button>
-          </div>
+          <ChatHeaderActions
+            disabled={isLoading || isMutatingHistory}
+            onShowHistory={() => setShowHistory((value) => !value)}
+            onNewChat={handleNewChat}
+          />
           {onClose ? (
             <button
               className="pagetollm-chat-close"
@@ -497,18 +503,11 @@ export default function ArticleChat({
         </header>
       ) : headerActionsTarget ? (
         createPortal(
-          <div className="pagetollm-chat-actions">
-            <button
-              type="button"
-              onClick={() => setShowHistory((value) => !value)}
-              disabled={isLoading || isMutatingHistory}
-            >
-              History
-            </button>
-            <button type="button" onClick={handleNewChat} disabled={isLoading || isMutatingHistory}>
-              New
-            </button>
-          </div>,
+          <ChatHeaderActions
+            disabled={isLoading || isMutatingHistory}
+            onShowHistory={() => setShowHistory((value) => !value)}
+            onNewChat={handleNewChat}
+          />,
           headerActionsTarget,
         )
       ) : null}

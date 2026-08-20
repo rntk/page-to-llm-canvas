@@ -1,71 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { computeSummaryCursorState, SUMMARY_CURSOR_MIN_TOP } from './summaryCursor.js';
 import ArticleChat from '../../../chat/ArticleChat.jsx';
+import {
+  HierarchicalCardTitle,
+  RailLevelSwitcher,
+  RailModeSelect,
+} from '../shared/RailControls.jsx';
 
-const RAIL_MODE_OPTIONS = new Set(['topics', 'summaries', 'chat', 'hierarchy', 'canvas']);
-
-function ModeDropdown({ mode, onSelectMode }) {
-  const activeMode = RAIL_MODE_OPTIONS.has(mode) ? mode : 'topics';
-
-  return (
-    <select
-      className="pagetollm-rail-mode-select pagetollm-rail-title"
-      aria-label="Rail view"
-      value={activeMode}
-      onChange={(event) => onSelectMode(event.target.value)}
-    >
-      <option value="topics">Topics</option>
-      <option value="summaries">Summaries</option>
-      <option value="chat">Chat</option>
-      <option value="hierarchy">Hierarchy view</option>
-      <option value="canvas">Canvas view</option>
-    </select>
-  );
-}
-
-function LevelSwitcher({ maxLevel, selectedLevel, onSelectLevel }) {
-  if (maxLevel <= 0) return null;
-
-  return (
-    <div className="pagetollm-rail-level-switcher">
-      <div className="pagetollm-rail-level-buttons">
-        {Array.from({ length: maxLevel + 1 }, (_, level) => (
-          <button
-            key={level}
-            type="button"
-            className={`pagetollm-rail-level-btn${selectedLevel === level ? ' active' : ''}`}
-            title={`Switch to level ${level}`}
-            data-level={level}
-            onClick={() => onSelectLevel(level)}
-          >
-            L{level}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function HierarchicalCardTitle({ name, path, className }) {
-  const parts =
-    typeof path === 'string'
-      ? path
-          .split(' > ')
-          .map((part) => part.trim())
-          .filter(Boolean)
-      : [];
-  const parentTopics = parts.slice(0, -1);
-  const currentTopic = name || parts.at(-1) || '';
-
-  return (
-    <div className={className} title={path || currentTopic} lang="en">
-      {parentTopics.length > 0 ? (
-        <span className="pagetollm-rail-card-parent-topics">{parentTopics.join(' › ')}</span>
-      ) : null}
-      <span className="pagetollm-rail-card-current-topic">{currentTopic}</span>
-    </div>
-  );
-}
+const IN_PAGE_RAIL_MODES = [
+  ['hierarchy', 'Hierarchy view'],
+  ['canvas', 'Canvas view'],
+];
 
 function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen }) {
   const style = {
@@ -458,11 +403,15 @@ export default function InPageRail({
   return (
     <>
       <div className="pagetollm-rail-head">
-        <ModeDropdown mode={mode} onSelectMode={onSelectMode} />
+        <RailModeSelect
+          mode={mode}
+          additionalModes={IN_PAGE_RAIL_MODES}
+          onSelectMode={onSelectMode}
+        />
         {isChat ? (
           <div className="pagetollm-rail-chat-actions" ref={setChatActionsTarget} />
         ) : (
-          <LevelSwitcher
+          <RailLevelSwitcher
             maxLevel={maxLevel}
             selectedLevel={selectedLevel}
             onSelectLevel={onSelectLevel}

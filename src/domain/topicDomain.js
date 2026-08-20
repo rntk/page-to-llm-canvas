@@ -67,12 +67,7 @@ export function getMaxTopicLevel(topics) {
  * @returns {number} The maximum 0-based level.
  */
 export function computeMaxTopicLevelForRecord(record) {
-  let maxLevel = 0;
-  const topics = Array.isArray(record?.topics) ? record.topics : [];
-  for (const topic of topics) {
-    const depth = splitTopicPath(topic.name).length - 1;
-    if (depth > maxLevel) maxLevel = depth;
-  }
+  let maxLevel = getMaxTopicLevel(record?.topics);
   const index = record?.topic_summary_index;
   if (index && typeof index === 'object') {
     for (const [rawPath, entry] of Object.entries(index)) {
