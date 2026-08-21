@@ -20,6 +20,7 @@ import {
   TOPIC_RANGE_STAGE_MAX_RETRIES,
 } from './pipelineConfig.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
+import { joinTopicPath } from '../../src/shared/runtime/topicPath.js';
 import { isCancellationError, rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
 import { isPermanentProviderError } from './providerFailure.js';
 import {
@@ -524,7 +525,7 @@ export function mapTextOffsetToHtml(mapping, textOffset) {
 
 export function groupsToTopics(groups, sentenceObjs, mapping) {
   return groups.map((group) => {
-    const name = group.label.join('>');
+    const name = joinTopicPath(group.label);
     const oneBased = rangesToSentenceList(group.ranges);
     const sentence_spans = oneBased.map((oneIdx) => {
       const sentence = sentenceObjs[oneIdx - 1];

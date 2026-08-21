@@ -12,6 +12,7 @@ import {
   splitSentenceRuns,
   splitTopicPath,
 } from './topicDomain.js';
+import { formatTopicPath } from '../shared/runtime/topicPath.js';
 import { clampScale } from '../utils/canvasMath.js';
 
 export const CARD_WIDTH = 240;
@@ -200,7 +201,7 @@ function getPathPrefixes(path) {
   const parts = splitTopicPath(path);
   const prefixes = [];
   for (let depth = 1; depth <= parts.length; depth += 1) {
-    prefixes.push(parts.slice(0, depth).join(' > '));
+    prefixes.push(formatTopicPath(parts.slice(0, depth)));
   }
   return prefixes;
 }

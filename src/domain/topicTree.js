@@ -1,4 +1,5 @@
 import { splitTopicPath } from './topicDomain.js';
+import { joinTopicPath } from '../shared/runtime/topicPath.js';
 
 /**
  * Build a nested tree from a flat list of topics whose `name` encodes a
@@ -28,7 +29,7 @@ export function buildTopicTree(topics, startDepth = 0) {
     let parent = null;
     for (let i = startDepth; i < parts.length; i += 1) {
       const name = parts[i];
-      const fullPath = parts.slice(0, i + 1).join('>');
+      const fullPath = joinTopicPath(parts.slice(0, i + 1));
       let entry = level.get(name);
       if (!entry) {
         entry = {

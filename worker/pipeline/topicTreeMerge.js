@@ -48,6 +48,10 @@ import {
   migrateLegacySummaryRunMarkers,
   publicSummaryRun,
 } from './summaryRunMarkers.js';
+import {
+  TOPIC_PATH_DELIMITER,
+  isCanonicalDescendantPath,
+} from '../../src/shared/runtime/topicPath.js';
 
 /**
  * Builds the worker's summary tree from flat hierarchical topic paths and
@@ -68,8 +72,11 @@ export function buildTopicTree(topics) {
 
   function getOrCreate(path) {
     if (nodes.has(path)) return nodes.get(path);
-    const parts = path.split('>');
-    const parentPath = parts.slice(0, -1).join('>');
+    // Deliberately NOT splitTopicPath: `parts.length` is the node level and the
+    // shrink guard below must fail loudly on a malformed path. Dropping blank
+    // segments would reshape the tree for "A>" / "A>>B" and defeat the guard.
+    const parts = path.split(TOPIC_PATH_DELIMITER);
+    const parentPath = parts.slice(0, -1).join(TOPIC_PATH_DELIMITER);
     // Every recursive step must move toward the root. Besides documenting the
     // path invariant, this turns a malformed derivation into a local error
     // instead of unbounded self/growing recursion and a crashed worker.
@@ -278,7 +285,7 @@ export async function summarizeTopicTree({
   }
 
   const isDescendantOrSelf = (candidate, path) =>
-    candidate === path || candidate.startsWith(`${path}>`);
+    candidate === path || isCanonicalDescendantPath(candidate, path);
   const entryFailureAffectsRun = (sourceSentences, run) =>
     !Array.isArray(sourceSentences) ||
     sourceSentences.length === 0 ||

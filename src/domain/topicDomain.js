@@ -4,18 +4,12 @@
  * Topic names encode their hierarchy as paths such as "A > B > C".
  */
 
-/**
- * Split a hierarchical topic path into normalized path segments.
- *
- * @param {string} name
- * @returns {string[]}
- */
-export function splitTopicPath(name) {
-  return String(name || '')
-    .split('>')
-    .map((part) => part.trim())
-    .filter(Boolean);
-}
+// The delimiter itself is owned by src/shared/runtime/topicPath.js so the
+// worker pipeline and the frontend cannot drift apart. splitTopicPath is
+// re-exported here because it is part of the topic model's public vocabulary.
+import { formatTopicPath, splitTopicPath } from '../shared/runtime/topicPath.js';
+
+export { splitTopicPath };
 
 /**
  * Enforces the canonical topic-summary index entry contract at UI boundaries.
@@ -113,7 +107,7 @@ export function buildTopicSentenceIndex(topics) {
     if (sentenceNumbers.length === 0) continue;
 
     for (let depth = 1; depth <= parts.length; depth += 1) {
-      const path = parts.slice(0, depth).join(' > ');
+      const path = formatTopicPath(parts.slice(0, depth));
       const pathSentences = index.get(path) || new Set();
       for (const sentenceNumber of sentenceNumbers) {
         pathSentences.add(sentenceNumber);
@@ -229,7 +223,7 @@ export function buildTopicHierarchyTree(topics, maxLevel) {
       if (!current.children.has(segment)) {
         current.children.set(
           segment,
-          createNode(segment, parts.slice(0, index + 1).join(' > '), index),
+          createNode(segment, formatTopicPath(parts.slice(0, index + 1)), index),
         );
       }
       const child = current.children.get(segment);

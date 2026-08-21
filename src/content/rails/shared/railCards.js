@@ -8,6 +8,7 @@ import {
   requireTopicSummaryLevel,
   splitSentenceRuns,
 } from '../../../domain/topicDomain.js';
+import { formatTopicPath } from '../../../shared/runtime/topicPath.js';
 
 /**
  * Compute the deepest topic level present in a record, considering both the
@@ -54,7 +55,7 @@ export function buildSummaryEntries(record) {
   for (const [rawPath, entry] of Object.entries(index)) {
     if (!rawPath) continue;
     const parts = splitTopicPath(rawPath);
-    const path = parts.join(' > ');
+    const path = formatTopicPath(parts);
     const level = requireTopicSummaryLevel(rawPath, entry);
     const sourceSentences = Array.isArray(entry.source_sentences)
       ? entry.source_sentences.slice().sort((a, b) => a - b)

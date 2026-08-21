@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { buildSentenceDomRange } from '../../highlights/sentenceHighlight.js';
 import { buildCanvasTopicPan, resolveCanvasTopicNavigation } from '../../domain/topicNavigation.js';
+import { isDescendantPath } from '../../shared/runtime/topicPath.js';
 
 /**
  * Coordinates topic navigation with the canvas transform and live DOM ranges.
@@ -41,7 +42,7 @@ export function useCanvasTopicNavigation({
           summaryCardRefs.current[topicKey] ||
           Object.entries(summaryCardRefs.current).find(([key]) => {
             const path = key.split('#')[0];
-            return path === topicKey || path.startsWith(topicKey + ' > ');
+            return path === topicKey || isDescendantPath(path, topicKey);
           })?.[1];
         if (summaryEl) zoomToTarget(summaryEl.getBoundingClientRect());
         return;

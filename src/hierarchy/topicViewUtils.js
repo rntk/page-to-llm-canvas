@@ -2,14 +2,18 @@
  * Pure path and summary utilities shared by TopicHierarchyView.
  */
 
-import { splitTopicPath } from '../domain/topicDomain.js';
+import {
+  formatTopicPath,
+  joinTopicPath,
+  splitTopicPath,
+} from '../shared/runtime/topicPath.js';
 
 export function normalizeTopicPath(path) {
-  return splitTopicPath(path).join('>');
+  return joinTopicPath(splitTopicPath(path));
 }
 
 export function spacedTopicPath(path) {
-  return normalizeTopicPath(path).split('>').join(' > ');
+  return formatTopicPath(splitTopicPath(path));
 }
 
 function getSummaryText(summary) {

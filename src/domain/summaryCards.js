@@ -1,4 +1,5 @@
 import { normalizeSummaryRuns, requireTopicSummaryLevel, splitTopicPath } from './topicDomain.js';
+import { ancestorPaths, formatTopicPath } from '../shared/runtime/topicPath.js';
 
 /**
  * Applies this surface's run policy on top of the canonical normalization: the
@@ -32,11 +33,7 @@ export function filterSummaryCardsByLevel(allSummaryCards, selectedLevel) {
   // Build the ancestor set in O(n·d) where d = average path depth, not O(n²).
   const hasDescendant = new Set();
   for (const p of paths) {
-    let sep = p.indexOf(' > ');
-    while (sep !== -1) {
-      hasDescendant.add(p.slice(0, sep));
-      sep = p.indexOf(' > ', sep + 3);
-    }
+    for (const ancestor of ancestorPaths(p)) hasDescendant.add(ancestor);
   }
   return eligible
     .filter((card) => !hasDescendant.has(card.path))
@@ -59,7 +56,7 @@ export function buildSummaryCards(topicSummaryIndex) {
   for (const [rawPath, entry] of Object.entries(index)) {
     if (!rawPath) continue;
     const parts = splitTopicPath(rawPath);
-    const path = parts.join(' > ') || rawPath;
+    const path = formatTopicPath(parts) || rawPath;
     const name = parts[parts.length - 1] || path;
     const levelIndex = requireTopicSummaryLevel(rawPath, entry);
     const sourceSentences = Array.isArray(entry.source_sentences) ? entry.source_sentences : [];

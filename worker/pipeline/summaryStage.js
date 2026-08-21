@@ -9,6 +9,7 @@ import {
 import { SUMMARY_CONCURRENCY } from './pipelineConfig.js';
 import { makeCachedSourceSummarizer } from './sourceSummaryCache.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
+import { isCanonicalDescendantPath } from '../../src/shared/runtime/topicPath.js';
 import { isCancellationError, rethrowIfCancelled } from './cancellation.js';
 import { isPermanentProviderError, isProviderFailure } from './providerFailure.js';
 import { isFailedSummaryRun } from './summaryRunMarkers.js';
@@ -108,7 +109,7 @@ function makeForceFinalizeSummarizer(summarizeSource, leafSummaries, acceptedMer
 
     const excludedSentenceIds = new Set();
     for (const acceptedLeaf of acceptedLeaves) {
-      if (acceptedLeaf.path === path || acceptedLeaf.path.startsWith(`${path}>`)) {
+      if (acceptedLeaf.path === path || isCanonicalDescendantPath(acceptedLeaf.path, path)) {
         for (const sentenceId of acceptedLeaf.sentenceIds) excludedSentenceIds.add(sentenceId);
       }
     }

@@ -11,6 +11,14 @@
 // which still raises TopicParseError so the orchestrator can retry.
 
 import { decodeEntities } from './html.js';
+import { splitTopicPath } from '../../src/shared/runtime/topicPath.js';
+
+// Entity decoding can re-introduce a hierarchy delimiter inside a segment, so
+// normalizeLabelParts re-splits on it (and on ':') after decoding. Kept as a
+// literal rather than interpolating TOPIC_PATH_DELIMITER: inside a character
+// class a delimiter like '-' or '^' would change the class's meaning instead of
+// tracking it. If TOPIC_PATH_DELIMITER ever changes, update this too.
+const LABEL_SEGMENT_SPLIT_RE = /[:>]/u;
 
 const TOPIC_LINE_RE = /^(.+):\s*(\d[\d\s,-]*)\s*$/;
 const RANGE_TOKEN_RE = /^(\d+)\s*-\s*(\d+)$/;
@@ -57,7 +65,7 @@ function normalizeLabelParts(parts) {
     // path was split (for example, `A&gt;B`). Canonicalize both delimiters here
     // so encoded and literal paths cannot serialize to the same topic name
     // while retaining different deduplication keys.
-    for (const sub of part.split(/[:>]/u)) {
+    for (const sub of part.split(LABEL_SEGMENT_SPLIT_RE)) {
       const s = sub.trim();
       if (s) out.push(s);
     }
@@ -419,7 +427,7 @@ export function parseTopicRangesDetailed(response, sentenceCount) {
       continue;
     }
 
-    let label = normalizeLabelParts(topicPath.split('>'));
+    let label = normalizeLabelParts(splitTopicPath(topicPath));
     if (!label.length) {
       recordIgnoredLine(ln);
       continue;

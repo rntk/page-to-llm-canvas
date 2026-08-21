@@ -1,3 +1,5 @@
+import { ancestorPaths } from '../shared/runtime/topicPath.js';
+
 const TOPIC_DIRECTION_BY_POSITION = {
   'first-topic': 'first',
   'prev-topic': 'prev',
@@ -24,11 +26,7 @@ export function buildTopicNavigationList({
   const hasDescendant = new Set();
 
   for (const path of paths) {
-    let sep = path.indexOf(' > ');
-    while (sep !== -1) {
-      hasDescendant.add(path.slice(0, sep));
-      sep = path.indexOf(' > ', sep + 3);
-    }
+    for (const ancestor of ancestorPaths(path)) hasDescendant.add(ancestor);
   }
 
   return eligible

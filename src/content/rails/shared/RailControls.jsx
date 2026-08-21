@@ -1,4 +1,5 @@
 import React from 'react';
+import { splitTopicPath } from '../../../shared/runtime/topicPath.js';
 
 const STANDARD_RAIL_MODES = [
   ['topics', 'Topics'],
@@ -91,13 +92,7 @@ export function RailLevelSwitcher({ maxLevel, selectedLevel, onSelectLevel }) {
 }
 
 export function HierarchicalCardTitle({ name, path, className }) {
-  const parts =
-    typeof path === 'string'
-      ? path
-          .split(' > ')
-          .map((part) => part.trim())
-          .filter(Boolean)
-      : [];
+  const parts = typeof path === 'string' ? splitTopicPath(path) : [];
   const parentTopics = parts.slice(0, -1);
   const currentTopic = name || parts.at(-1) || '';
 
