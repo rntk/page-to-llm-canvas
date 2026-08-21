@@ -17,7 +17,7 @@ import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
  *   defaultErrorMessage: string,
  *   empty: function(): *,
  *   read: function(): Promise<*>,
- *   setMetrics: function(*): void,
+ *   setMetrics: function(*): void
  * }} options
  * @returns {{ isClearing: boolean, clearError: string, handleClear: function(): Promise<void> }}
  */

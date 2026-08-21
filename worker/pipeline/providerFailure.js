@@ -33,7 +33,7 @@ export function markProviderFailure(error) {
  * `undefined` stops the walk and that value is returned. If the chain is
  * exhausted without a definitive result, returns `false`.
  * @param {unknown} error Error to walk.
- * @param {(node: object) => unknown} check Per-node classifier.
+ * @param {function(object): *} check Per-node classifier.
  */
 function walkCauseChain(error, check) {
   let current = error;
@@ -78,5 +78,7 @@ export function isPermanentProviderError(error) {
  * @param {unknown} error Error caught by a pipeline stage.
  */
 export function isProviderFailure(error) {
-  return walkCauseChain(error, (current) => (current[PROVIDER_FAILURE] === true ? true : undefined));
+  return walkCauseChain(error, (current) =>
+    current[PROVIDER_FAILURE] === true ? true : undefined,
+  );
 }
