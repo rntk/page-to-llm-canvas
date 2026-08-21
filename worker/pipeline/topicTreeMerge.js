@@ -284,25 +284,25 @@ export async function summarizeTopicTree({
     sourceSentences.length === 0 ||
     overlaps(run, sourceSentences);
 
-  const runsMapHasFailedDependency = (runsByPath, path, run) => {
-    for (const [failedPath, failedRuns] of runsByPath) {
-      if (
-        isDescendantOrSelf(failedPath, path) &&
-        failedRuns.some((failed) => overlaps(run, failed))
-      ) {
+  // Shared traversal: scan a path->value map for an entry whose path is a
+  // descendant of (or equal to) `path` and whose value the caller's predicate
+  // accepts. Run-map and entry-map lookups differ only in what "accepts" means.
+  const mapHasFailedDependency = (mapByPath, path, valueMatches) => {
+    for (const [failedPath, value] of mapByPath) {
+      if (isDescendantOrSelf(failedPath, path) && valueMatches(value)) {
         return true;
       }
     }
     return false;
   };
-  const entryMapHasFailedDependency = (entriesByPath, path, run) => {
-    for (const [failedPath, sourceSentences] of entriesByPath) {
-      if (isDescendantOrSelf(failedPath, path) && entryFailureAffectsRun(sourceSentences, run)) {
-        return true;
-      }
-    }
-    return false;
-  };
+  const runsMapHasFailedDependency = (runsByPath, path, run) =>
+    mapHasFailedDependency(runsByPath, path, (failedRuns) =>
+      failedRuns.some((failed) => overlaps(run, failed)),
+    );
+  const entryMapHasFailedDependency = (entriesByPath, path, run) =>
+    mapHasFailedDependency(entriesByPath, path, (sourceSentences) =>
+      entryFailureAffectsRun(sourceSentences, run),
+    );
 
   const hasFailedDependency = (path, run) =>
     runsMapHasFailedDependency(failedLeafRunsByPath, path, run) ||

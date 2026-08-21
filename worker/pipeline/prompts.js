@@ -216,11 +216,17 @@ export const TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE =
 // corrupting the prompt.
 function makePromptBuilder(template, slot) {
   return function buildPrompt(value, { preferContentLanguage = false } = {}) {
-    return withLanguageInstruction(template.replace(slot, () => value), preferContentLanguage);
+    return withLanguageInstruction(
+      template.replace(slot, () => value),
+      preferContentLanguage,
+    );
   };
 }
 
-export const buildArticleSummaryPrompt = makePromptBuilder(ARTICLE_SUMMARY_PROMPT_TEMPLATE, '{text}');
+export const buildArticleSummaryPrompt = makePromptBuilder(
+  ARTICLE_SUMMARY_PROMPT_TEMPLATE,
+  '{text}',
+);
 
 export const buildTopicSummaryFromSourcePrompt = makePromptBuilder(
   TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE,
