@@ -23,6 +23,7 @@ import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contra
 import { joinTopicPath } from '../../src/shared/runtime/topicPath.js';
 import { isCancellationError, rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
 import { isPermanentProviderError } from './providerFailure.js';
+import { runProviderBurst } from './providerBurst.js';
 import {
   TOPIC_RANGE_ABORT_MESSAGE,
   readTopicRangeChunkCheckpoint,
@@ -356,13 +357,10 @@ async function dispatchPendingChunks({
   attempt,
   dependencies,
 }) {
-  let permanentError = null;
-  const dispatched = new Set();
-  await dependencies.parallelMap(
+  const { permanentError, unclaimed: skipped } = await runProviderBurst(
     pending,
     TOPIC_RANGE_CONCURRENCY,
-    async (state) => {
-      dispatched.add(state);
+    async ({ item: state }) => {
       state.response = null;
       state.dispatchError = null;
       state.parseError = null;
@@ -393,24 +391,23 @@ async function dispatchPendingChunks({
         // Sole owner of `state`, as above.
         // eslint-disable-next-line require-atomic-updates
         state.dispatchError = error;
-        if (!permanentError && isPermanentProviderError(error)) permanentError = error;
         await runtime.log('topic_ranges_llm_error', {
           chunkIndex: state.chunkIndex,
           attempt,
           error: (error && error.message) || String(error),
         });
-        return;
+        return { error };
       }
       await runtime.log(
         'topic_ranges_llm_response',
         { chunkIndex: state.chunkIndex, responseLength: state.response.length, attempt },
         { verbose: true },
       );
+      return {};
     },
-    { warmupFirst: true, stopBurst: () => permanentError !== null },
+    { parallelMap: dependencies.parallelMap },
   );
   if (!permanentError) return;
-  const skipped = pending.filter((state) => !dispatched.has(state));
   if (skipped.length === 0) return;
   for (const state of skipped) {
     state.response = null;

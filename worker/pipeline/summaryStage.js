@@ -1,4 +1,4 @@
-import { createLimiter, parallelMap } from '../llm/llm.js';
+import { createLimiter } from '../llm/llm.js';
 import { planSummaryWork } from './summaryPlanning.js';
 import {
   buildPartialTopicSummaryIndex,
@@ -12,6 +12,7 @@ import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contra
 import { isCanonicalDescendantPath } from '../../src/shared/runtime/topicPath.js';
 import { isCancellationError, rethrowIfCancelled } from './cancellation.js';
 import { isPermanentProviderError, isProviderFailure } from './providerFailure.js';
+import { runProviderBurst } from './providerBurst.js';
 import { isFailedSummaryRun } from './summaryRunMarkers.js';
 
 export { isCancellationError };
@@ -241,13 +242,10 @@ export async function runSummaries({
   // doomed request per topic. The unclaimed topics are recorded below with the
   // same failure so they park for review rather than vanishing from
   // `topic_summaries` and letting the merge phase run on missing leaves.
-  let permanentError = null;
-  const started = new Set();
-  await parallelMap(
+  const { permanentError, unclaimed: skipped } = await runProviderBurst(
     pending,
     SUMMARY_CONCURRENCY,
-    async (topic) => {
-      started.add(topic);
+    async ({ item: topic }) => {
       await runtime.log(
         'topic_summary_llm_request',
         { topic: topic.name, sentenceCount: topic.sentences.length },
@@ -260,6 +258,7 @@ export async function runSummaries({
       // backward-compatible while making each successful slot durable.
       const unresolved = new Set(pendingRunIndexes);
       let failure = null;
+      let providerError = null;
       const pendingFailure = previousFailure;
 
       const buildLeafSummaryEntry = () => {
@@ -325,7 +324,8 @@ export async function runSummaries({
           // Provider failures are actionable through Retry/Skip. A prompt,
           // chunking, cache, or parsing bug is not and must fail the pipeline.
           if (!isProviderFailure(error)) throw error;
-          if (!permanentError && isPermanentProviderError(error)) permanentError = error;
+          const isPermanentFailure = isPermanentProviderError(error);
+          if (!providerError || isPermanentFailure) providerError = error;
           const { kind, message } = classifyLlmError(error);
           const detail = (error && error.message) || String(error);
           await runtime.log('topic_summary_llm_error', {
@@ -351,7 +351,7 @@ export async function runSummaries({
           // failure. They stay in `unresolved`, so the topic still parks with
           // its error marker — it just does not buy one rejection per run to
           // get there.
-          if (permanentError) break;
+          if (isPermanentFailure) break;
           continue;
         }
         await persistLeafCheckpoint();
@@ -368,12 +368,11 @@ export async function runSummaries({
         topic_summaries: { ...topic_summaries },
         progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done, total },
       });
+      return { error: providerError };
     },
-    { warmupFirst: true, stopBurst: () => permanentError !== null },
   );
 
   if (permanentError) {
-    const skipped = pending.filter((topic) => !started.has(topic));
     if (skipped.length > 0) {
       const { kind, message } = classifyLlmError(permanentError);
       const detail = (permanentError && permanentError.message) || String(permanentError);
