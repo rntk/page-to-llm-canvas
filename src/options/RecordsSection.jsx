@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { MSG } from '../shared/runtime/messages.js';
 import { isStaleActionResponse } from '../shared/runtime/actionResponses.js';
-import { isInFlightPipelineStatus } from '../shared/runtime/contracts.js';
+import { isInFlightPipelineStatus, PIPELINE_STATUS } from '../shared/runtime/contracts.js';
 import { resolveSummaryErrors, retryRecord } from '../utils/errorUtils.js';
 import SummaryErrorsOverlay from '../components/SummaryErrorsOverlay.jsx';
 import RecordErrorDialog from './RecordErrorDialog.jsx';
@@ -214,7 +214,8 @@ export function RecordsSection({ fileHost, pageHost }) {
   const errorDialogItem = errorDialogKey
     ? items.find(
         (item) =>
-          item.key === errorDialogKey && (item.status === 'error' || item.status === 'cancelled'),
+          item.key === errorDialogKey &&
+          (item.status === PIPELINE_STATUS.ERROR || item.status === PIPELINE_STATUS.CANCELLED),
       )
     : null;
   const importUnavailable = isLoading || Boolean(loadError);
@@ -300,24 +301,27 @@ export function RecordsSection({ fileHost, pageHost }) {
                   </td>
                   <td>{formatDate(item.createdAt)}</td>
                   <td>
-                    {item.status === 'error' ||
-                    item.status === 'cancelled' ||
-                    item.status === 'needs_attention' ? (
+                    {item.status === PIPELINE_STATUS.ERROR ||
+                    item.status === PIPELINE_STATUS.CANCELLED ||
+                    item.status === PIPELINE_STATUS.NEEDS_ATTENTION ? (
                       <button
                         type="button"
                         className={`${statusClass(item.status)} status-button`}
                         title={
-                          item.status === 'needs_attention'
+                          item.status === PIPELINE_STATUS.NEEDS_ATTENTION
                             ? 'Review failed summaries and retry or skip'
                             : 'View error details and retry'
                         }
                         onClick={() =>
-                          item.status === 'needs_attention'
+                          item.status === PIPELINE_STATUS.NEEDS_ATTENTION
                             ? void openSummaryErrorsDialog(item)
                             : setErrorDialogKey(item.key)
                         }
                       >
-                        {item.status === 'needs_attention' ? 'needs attention' : item.status} ⚠️
+                        {item.status === PIPELINE_STATUS.NEEDS_ATTENTION
+                          ? 'needs attention'
+                          : item.status}{' '}
+                        ⚠️
                       </button>
                     ) : (
                       <span className={statusClass(item.status)} title={item.error || undefined}>
@@ -327,7 +331,7 @@ export function RecordsSection({ fileHost, pageHost }) {
                   </td>
                   <td>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                      {item.status === 'done' ? (
+                      {item.status === PIPELINE_STATUS.DONE ? (
                         <button type="button" onClick={() => runAction('open', item.key)}>
                           Open
                         </button>
@@ -335,7 +339,7 @@ export function RecordsSection({ fileHost, pageHost }) {
                       <button type="button" onClick={() => runAction('reprocess', item.key)}>
                         Reprocess
                       </button>
-                      {item.status === 'done' &&
+                      {item.status === PIPELINE_STATUS.DONE &&
                       (item.summariesDisabled || item.summariesIncomplete) ? (
                         <button
                           type="button"

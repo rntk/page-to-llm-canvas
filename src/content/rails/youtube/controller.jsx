@@ -6,6 +6,7 @@ import { computeMaxTopicLevel } from '../shared/railCards.js';
 import { describeFetchFailure, fetchRecord } from '../shared/recordFetch.js';
 import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
 import { createLogger } from '../../../shared/runtime/log.js';
+import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../../shared/runtime/contracts.js';
 
 // Prefer YouTube's main player element so we don't accidentally bind to a
 // hover-preview thumbnail or an ad's <video>. Falls back to any <video> for
@@ -46,9 +47,9 @@ export function createYouTubeRailController({
     // The YouTube rail never touches the page article DOM, so the scroll rail's
     // selector/element gating does not apply — gate only on what the sync needs:
     // a finished analysis with transcript sentences and at least one topic/summary.
-    if (record.status !== 'done') {
+    if (record.status !== PIPELINE_STATUS.DONE) {
       alert(
-        `PageToLLM: Analysis is not ready yet (status: ${record.status || 'queued'}). Please wait a moment and try again.`,
+        `PageToLLM: Analysis is not ready yet (status: ${record.status || PIPELINE_STAGE.QUEUED}). Please wait a moment and try again.`,
       );
       return false;
     }

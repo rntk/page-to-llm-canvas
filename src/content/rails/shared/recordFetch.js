@@ -9,6 +9,7 @@
  */
 
 import { MSG } from '../../../shared/runtime/messages.js';
+import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../../shared/runtime/contracts.js';
 import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
 
 /**
@@ -125,7 +126,7 @@ export function findPickedElements(selectors, contentDocument = globalThis.docum
  * @returns {{ kind: string }}
  */
 export function assessRecordForRail(record) {
-  if (record.status === 'error' || record.status === 'cancelled') {
+  if (record.status === PIPELINE_STATUS.ERROR || record.status === PIPELINE_STATUS.CANCELLED) {
     return { kind: 'error', record };
   }
   // Parked awaiting a user retry/skip decision. This is deliberately not an
@@ -133,11 +134,11 @@ export function assessRecordForRail(record) {
   // progress (which would tell the user to "wait"). In-page surfaces are
   // read-only, so the caller routes this to the Options page, the only place
   // the retry/skip resolution lives.
-  if (record.status === 'needs_attention') {
+  if (record.status === PIPELINE_STATUS.NEEDS_ATTENTION) {
     return { kind: 'needs_attention', record };
   }
-  if (record.status !== 'done') {
-    const stage = record.progress?.stage || record.status || 'queued';
+  if (record.status !== PIPELINE_STATUS.DONE) {
+    const stage = record.progress?.stage || record.status || PIPELINE_STAGE.QUEUED;
     return { kind: 'in_progress', stage };
   }
   const selectors = Array.isArray(record.selectors) ? record.selectors : [];

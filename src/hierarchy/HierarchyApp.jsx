@@ -9,6 +9,7 @@ import ErrorDetails from '../components/ErrorDetails.jsx';
 import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
 import { buildTopicTree, collectNonLeafPaths } from '../domain/topicTree.js';
 import { getMaxTopicLevel } from '../domain/topicDomain.js';
+import { PIPELINE_STATUS } from '../shared/runtime/contracts.js';
 import './hierarchy.css';
 
 const noop = () => {};
@@ -69,9 +70,10 @@ export default function HierarchyApp({
   const topicsJson = useMemo(() => JSON.stringify(record?.topics || null), [record?.topics]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const topics = useMemo(() => (Array.isArray(record?.topics) ? record.topics : []), [topicsJson]);
-  const isDone = record?.status === 'done';
-  const isRecordError = record?.status === 'error' || record?.status === 'cancelled';
-  const isNeedsAttention = record?.status === 'needs_attention';
+  const isDone = record?.status === PIPELINE_STATUS.DONE;
+  const isRecordError =
+    record?.status === PIPELINE_STATUS.ERROR || record?.status === PIPELINE_STATUS.CANCELLED;
+  const isNeedsAttention = record?.status === PIPELINE_STATUS.NEEDS_ATTENTION;
 
   const handleSummaryClick = useCallback((summaryData) => {
     setActiveSummary(summaryData);

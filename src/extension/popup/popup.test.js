@@ -95,6 +95,7 @@ describe('popup pure functions', () => {
     expect(popup.statusLabel('splitting')).toBe('Processing');
     expect(popup.statusLabel('summarizing')).toBe('Processing');
     expect(popup.statusLabel('error')).toBe('Error');
+    expect(popup.statusLabel('cancelled')).toBe('Cancelled');
     expect(popup.statusLabel('needs_attention')).toBe('Needs attention');
     expect(popup.statusLabel('unknown')).toBe('unknown');
     expect(popup.statusLabel('')).toBe('Unknown');

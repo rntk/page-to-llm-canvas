@@ -26,6 +26,7 @@ import { selectCurrentTopicSummary } from '../domain/currentTopicSummary.js';
 import ArticleChat from '../chat/ArticleChat.jsx';
 import { useChatHighlights } from '../chat/useChatHighlights.js';
 import { buildSentenceDomRange } from '../highlights/sentenceHighlight.js';
+import { PIPELINE_STATUS } from '../shared/runtime/contracts.js';
 
 const noop = () => {};
 
@@ -38,7 +39,7 @@ export default function App({ initialKey, recordSource, onClose = noop }) {
 
   // Canvas is a read-only view of completed data. Pipeline progress, failures,
   // retries, and summary review are handled from the popup and Options page.
-  if (record?.status !== 'done') return null;
+  if (record?.status !== PIPELINE_STATUS.DONE) return null;
 
   return <CanvasApp initialKey={initialKey} record={record} onClose={onClose} />;
 }

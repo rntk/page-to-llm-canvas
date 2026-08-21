@@ -2,6 +2,7 @@ import { createThemeController, themeIcon, themeLabel } from '../../shared/runti
 import { getYouTubeVideoId } from '../../utils/youtubeTimestamp.js';
 import { sendRuntimeMessage, sendTabMessage } from '../../utils/runtimeMessages.js';
 import { MSG } from '../../shared/runtime/messages.js';
+import { PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
 import {
   isStaleActionResponse,
   STALE_ACTION_MESSAGE,
@@ -89,12 +90,13 @@ export function labelFromUrl(url) {
 
 export function statusLabel(status) {
   const map = {
-    done: 'Done',
-    pending: 'Pending',
-    splitting: 'Processing',
-    summarizing: 'Processing',
-    error: 'Error',
-    needs_attention: 'Needs attention',
+    [PIPELINE_STATUS.DONE]: 'Done',
+    [PIPELINE_STATUS.PENDING]: 'Pending',
+    [PIPELINE_STATUS.SPLITTING]: 'Processing',
+    [PIPELINE_STATUS.SUMMARIZING]: 'Processing',
+    [PIPELINE_STATUS.ERROR]: 'Error',
+    [PIPELINE_STATUS.CANCELLED]: 'Cancelled',
+    [PIPELINE_STATUS.NEEDS_ATTENTION]: 'Needs attention',
   };
   return map[status] || status || 'Unknown';
 }
@@ -142,7 +144,7 @@ export function providerReadinessState(response, error) {
 export function getRecordActions(record) {
   const useYouTubeRail = isYouTubeUrl(record && record.sourceUrl);
   const viewActions = [];
-  if (record && record.status === 'done') {
+  if (record && record.status === PIPELINE_STATUS.DONE) {
     viewActions.push(
       {
         label: 'Canvas',
@@ -191,7 +193,7 @@ export function getRecordActions(record) {
   // topics without redoing clean/split/topic-ranges — same path as Options.
   if (
     record &&
-    record.status === 'done' &&
+    record.status === PIPELINE_STATUS.DONE &&
     (record.summariesDisabled || record.summariesIncomplete)
   ) {
     manageActions.push({
@@ -446,9 +448,9 @@ function renderRecords(records, { force = false } = {}) {
     copy.appendChild(meta);
 
     const isClickableStatus =
-      display.status === 'needs_attention' ||
-      display.status === 'error' ||
-      display.status === 'cancelled';
+      display.status === PIPELINE_STATUS.NEEDS_ATTENTION ||
+      display.status === PIPELINE_STATUS.ERROR ||
+      display.status === PIPELINE_STATUS.CANCELLED;
     const badge = document.createElement(isClickableStatus ? 'button' : 'span');
     badge.className = `badge ${display.status}`;
     badge.textContent = display.badge;
@@ -456,7 +458,7 @@ function renderRecords(records, { force = false } = {}) {
       badge.type = 'button';
       badge.classList.add('status-button');
       badge.title =
-        display.status === 'needs_attention'
+        display.status === PIPELINE_STATUS.NEEDS_ATTENTION
           ? 'Open Options to review failed summaries and retry or skip'
           : 'Open Options to view the error and retry';
       badge.addEventListener('click', () => void openOptionsPage('#records'));
