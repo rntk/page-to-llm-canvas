@@ -120,3 +120,8 @@ export const SUMMARY_MAX_MERGE_ROUNDS = 8;
 // Leaf summaries and internal-node source summaries share one concurrency cap;
 // together they form the provider-facing summary workload.
 export const SUMMARY_CONCURRENCY = 4;
+
+// The primary chunk dispatch and the oversize re-split share these: both are
+// the same provider-facing topic-ranging workload and must be tuned together.
+export const TOPIC_RANGE_CONCURRENCY = 4;
+export const TOPIC_RANGE_TEMPERATURE = 0.2;
