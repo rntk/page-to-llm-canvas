@@ -69,6 +69,7 @@ vi.mock('../../../highlights/sentenceHighlight.js', async (importOriginal) => {
 
 const { createInPageRailController } = await import('./controller.jsx');
 const { fetchRecord } = await import('../shared/recordFetch.js');
+const { getRailOriginTop } = await import('./geometry.js');
 const { openCanvasIframe, openHierarchyIframe } =
   await import('../../record-view/iframeManager.js');
 const { createRailSurfaceManager } = await import('../shared/surface.js');
@@ -144,6 +145,8 @@ describe('openInPageRail', () => {
     vi.stubGlobal('Highlight', FakeHighlight);
     window.scrollTo = vi.fn();
     fetchRecord.mockReset();
+    getRailOriginTop.mockReset();
+    getRailOriginTop.mockReturnValue(100);
     openCanvasIframe.mockClear();
     openHierarchyIframe.mockClear();
     globalThis.chrome.runtime.openOptionsPage.mockClear();
@@ -310,6 +313,52 @@ describe('openInPageRail', () => {
       expect(rail()).not.toBeNull();
       expect(rail().dataset.mode).toBe('topics');
       expect(rail().style.position).toBe('absolute');
+    });
+
+    it('renders the picked topic when the measured rail origin is zero', async () => {
+      getRailOriginTop.mockReturnValue(0);
+
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'topics', {
+          sentenceNumbers: [1],
+          level: 1,
+          topicPath: 'Parent > Child',
+        });
+      });
+
+      const cards = rail().querySelectorAll('.pagetollm-rail-card');
+      expect(cards).toHaveLength(1);
+      expect(cards[0].textContent).toContain('Child');
+    });
+
+    it('re-measures the rail origin when a resize may have reflowed the article', async () => {
+      getRailOriginTop.mockReturnValueOnce(100).mockReturnValueOnce(250);
+
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'topics');
+      });
+      expect(getRailOriginTop).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        window.dispatchEvent(new Event('resize'));
+      });
+
+      expect(getRailOriginTop).toHaveBeenCalledTimes(2);
+    });
+
+    it('re-measures the rail origin when a resize occurs in summaries mode', async () => {
+      getRailOriginTop.mockReturnValueOnce(100).mockReturnValueOnce(250);
+
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'summaries');
+      });
+      expect(getRailOriginTop).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        window.dispatchEvent(new Event('resize'));
+      });
+
+      expect(getRailOriginTop).toHaveBeenCalledTimes(2);
     });
 
     it('keeps the chat rail fixed while switching between rail modes', async () => {

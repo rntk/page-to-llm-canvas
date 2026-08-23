@@ -146,7 +146,7 @@ export function createInPageRailController({
     };
     syncRailPosition();
 
-    let railOriginTop = 0;
+    let railOriginTop;
 
     const projectRail = () =>
       buildRailCards({
@@ -213,7 +213,7 @@ export function createInPageRailController({
 
     function renderRail({ measureOnly = false } = {}) {
       if (isClosed() || guard.isStale()) return;
-      const { cards, bodyHeight } = railOriginTop
+      const { cards, bodyHeight } = Number.isFinite(railOriginTop)
         ? projectRail()
         : { cards: [], bodyHeight: FALLBACK_RAIL_BODY_HEIGHT };
       flushSync(() => {
@@ -240,18 +240,27 @@ export function createInPageRailController({
       });
     }
 
+    const measureRailOrigin = () => {
+      const railBody = railEl.querySelector('.pagetollm-rail-body');
+      railOriginTop = railBody
+        ? getRailOriginTop(railBody.getBoundingClientRect(), scrollContainer)
+        : undefined;
+    };
+
     renderRail({ measureOnly: true });
     if (isClosed() || guard.isStale()) return false;
-    const bodyRect = railEl.querySelector('.pagetollm-rail-body').getBoundingClientRect();
-    railOriginTop = getRailOriginTop(bodyRect, scrollContainer);
+    measureRailOrigin();
     renderRail();
 
-    // In summaries mode the rail height reserves a viewport-sized run below the
-    // last card (computeRailTrailingPad), so a resize leaves it stale — too short
-    // when the window grows, which is exactly the "summary floats past the rail"
-    // case. Re-render to re-measure.
+    // A viewport resize can reflow the article and move the rail's document
+    // origin. Re-measure it before rebuilding card geometry. In summaries
+    // mode the rail height also reserves a viewport-sized run below the last
+    // card (computeRailTrailingPad), so a resize leaves that reserve stale —
+    // too short when the window grows, which is exactly the "summary floats
+    // past the rail" case.
     highlighter.onViewportResize(() => {
-      if (isClosed() || guard.isStale() || state.mode !== 'summaries') return;
+      if (isClosed() || guard.isStale() || state.mode === 'chat') return;
+      measureRailOrigin();
       renderRail();
     });
 
