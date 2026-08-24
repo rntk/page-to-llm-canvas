@@ -9,7 +9,6 @@
 export function hasSummaryRunMarker(run) {
   return (
     run?.error === true ||
-    run?.status === 'failed' ||
     run?.forcedEmpty === true ||
     run?.acceptedFailure === true
   );
@@ -24,7 +23,7 @@ export function hasSummaryRunMarker(run) {
  * @returns {boolean}
  */
 export function isFailedSummaryRun(run) {
-  return run?.error === true || run?.status === 'failed' || run?.forcedEmpty === true;
+  return run?.error === true || run?.forcedEmpty === true;
 }
 
 /**
@@ -70,7 +69,6 @@ export function acceptFailedSummaryRun(run) {
   if (!isFailedSummaryRun(run)) return run;
   const {
     error: _error,
-    status: _status,
     forcedEmpty: _forcedEmpty,
     error_kind: _errorKind,
     error_message: _errorMessage,
@@ -93,7 +91,6 @@ export function publicSummaryRun(run) {
     sentences: run?.sentences,
     text: typeof run?.text === 'string' ? run.text : '',
     ...(run?.error === true ? { error: true } : {}),
-    ...(run?.status === 'failed' ? { status: 'failed' } : {}),
     ...(run?.forcedEmpty === true ? { forcedEmpty: true } : {}),
   };
 }
