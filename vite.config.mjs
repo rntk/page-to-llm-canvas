@@ -16,16 +16,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'json-summary'],
-      include: [
-        'src/**/*.{js,jsx,ts,tsx,mjs}',
-        'worker/**/*.js',
-        'src/extension/background/background.js',
-        'src/extension/popup/popup.js',
-        'src/shared/runtime/theme.js',
-        'src/shared/runtime/verboseLogSettings.js',
-        'src/shared/runtime/messages.js',
-        'src/shared/runtime/telemetry.js',
-      ],
+      include: ['src/**/*.{js,jsx,ts,tsx,mjs}', 'worker/**/*.js'],
       exclude: ['**/*.test.{js,jsx,ts,tsx,mjs}', '**/*.spec.{js,jsx,ts,tsx,mjs}', 'dist/**'],
       // Ratchet floors. `test:coverage` fails if global coverage drops below
       // these, preventing silent regressions. Raise them as coverage improves

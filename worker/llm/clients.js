@@ -1,6 +1,6 @@
 // Provider client SDKs for the PageToLLM Canvas pipeline.
 //
-// JS port of the clients in `example/llm`. The pipeline still uses the simple
+// The pipeline uses the simple
 // `{ prompt, temperature } -> text` form, while article chat passes complete
 // message history and function tools. Tools and messages use one strict
 // internal shape everywhere ({name, description, parameters} in,
@@ -203,8 +203,8 @@ export function parseRetryAfterMs(headerValue) {
   return undefined;
 }
 
-// Models that reject the `temperature` parameter (mirrors the guard in
-// example/llm/openai_client.py). Sending temperature to these yields a 400.
+// Models that reject the `temperature` parameter. Sending temperature to these
+// yields a 400.
 const NO_TEMPERATURE_MODELS = new Set(['gpt-5-mini', 'gpt-5-nano']);
 
 function finiteNumber(value) {

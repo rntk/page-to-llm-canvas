@@ -1,9 +1,8 @@
 // User-configurable LLM provider storage for the PageToLLM Canvas extension.
 //
-// Mirrors the provider taxonomy from `example/llm` (ProviderType +
-// RemoteProviderConfigEntry) but persists providers in chrome.storage.local and
-// adds a single "active provider" selection — the pipeline calls the LLM with no
-// model, so it needs one provider designated as the one to use.
+// Providers are persisted in chrome.storage.local with a single "active
+// provider" selection — the pipeline calls the LLM with no model, so it needs
+// one provider designated as the one to use.
 
 import {
   PIPELINE_MIN_CONTEXT_WINDOW_TOKENS,
@@ -12,7 +11,7 @@ import {
 import { getLocal, queuedUpdate, setLocal } from '../storage/primitives.js';
 
 /**
- * Canonical provider type strings. Mirrors example/llm/constants.py.
+ * Canonical provider type strings.
  * @readonly
  */
 export const ProviderType = Object.freeze({
@@ -51,7 +50,7 @@ export const SERVICE_TIER_DEFINITIONS = Object.freeze({
 
 /**
  * Default model suggestions per provider type, used to seed the options-page
- * dropdowns. Ported from example/llm/base.py DEFAULT_PROVIDER_DEFINITIONS.
+ * dropdowns.
  * @type {ReadonlyArray<{type: string, displayName: string, models: string[], defaultModel: string, requiresUrl: boolean}>}
  */
 export const PROVIDER_DEFINITIONS = Object.freeze([
