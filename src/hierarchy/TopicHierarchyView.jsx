@@ -22,9 +22,7 @@ const MIN_CARD_WIDTH = 180;
 const CARD_WIDTH_CAP_INSET = 24;
 
 function getNodeSummary(node, summaryLookup) {
-  return (
-    summaryLookup.get(node.fullPath) || summaryLookup.get(spacedTopicPath(node.fullPath)) || ''
-  );
+  return summaryLookup.get(node.fullPath) || '';
 }
 
 /**

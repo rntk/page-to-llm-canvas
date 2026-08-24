@@ -70,7 +70,6 @@ describe('buildSummaryLookup', () => {
     const index = { 'Sci>Bio': { runs: [{ text: 'Biology notes' }] } };
     const lookup = buildSummaryLookup(index);
     expect(lookup.get('Sci>Bio')).toBe('Biology notes');
-    expect(lookup.get('Sci > Bio')).toBe('Biology notes');
   });
 
   it('concatenates per-run text from a runs-shaped index entry', () => {
@@ -79,15 +78,13 @@ describe('buildSummaryLookup', () => {
     };
     const lookup = buildSummaryLookup(index);
     expect(lookup.get('Sci>Bio')).toBe('Cells. Genes.');
-    expect(lookup.get('Sci > Bio')).toBe('Cells. Genes.');
   });
 
-  it('normalises paths with spaces when building keys', () => {
+  it('normalises a display-form index key to the canonical lookup key', () => {
     const index = { 'Tech > AI': { runs: [{ text: 'AI summary' }] } };
     const lookup = buildSummaryLookup(index);
-    // Both normalised (no spaces) and spaced variants should resolve
     expect(lookup.get('Tech>AI')).toBe('AI summary');
-    expect(lookup.get('Tech > AI')).toBe('AI summary');
+    expect(lookup.get('Tech > AI')).toBeUndefined();
   });
 
   it('skips entries with empty summary text', () => {

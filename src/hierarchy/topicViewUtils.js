@@ -36,7 +36,6 @@ export function buildSummaryLookup(topicSummaryIndex) {
     const normalizedPath = normalizeTopicPath(path);
     if (!text || !normalizedPath) return;
     lookup.set(normalizedPath, text);
-    lookup.set(spacedTopicPath(normalizedPath), text);
   };
 
   if (topicSummaryIndex && typeof topicSummaryIndex === 'object') {
