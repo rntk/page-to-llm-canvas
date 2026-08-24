@@ -7,7 +7,6 @@
 // not included here.
 export const MSG = Object.freeze({
   submit: 'submit',
-  ensurePipeline: 'ensurePipeline',
   retryRecord: 'retryRecord',
   reprocessRecord: 'reprocessRecord',
   generateRecordSummaries: 'generateRecordSummaries',

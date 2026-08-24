@@ -2258,11 +2258,9 @@ describe('dispatchMessage unit tests', () => {
     expect(stored.progress).toEqual({ stage: 'imported', done: 1, total: 1 });
   });
 
-  it('validates ensurePipeline and llmChatCompletion inputs', async () => {
+  it('validates llmChatCompletion inputs', async () => {
     const chromeMock = makeChromeMock();
     const dispatchMessage = await loadDispatchMessage(chromeMock);
-
-    expect((await dispatchMessage({ type: 'ensurePipeline' })).error).toBe('missing key');
 
     const llm = await dispatchMessage({ type: 'llmChatCompletion', prompt: '' });
     expect(llm.ok).toBe(false);

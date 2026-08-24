@@ -115,7 +115,6 @@ describe('message handler registry (no chrome global)', () => {
     expect(Object.keys(merged).sort()).toEqual(
       [
         MSG.submit,
-        MSG.ensurePipeline,
         MSG.retryRecord,
         MSG.reprocessRecord,
         MSG.generateRecordSummaries,

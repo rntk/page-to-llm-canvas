@@ -70,15 +70,6 @@ export function createRecordHandlers({
       },
     },
 
-    [MSG.ensurePipeline]: {
-      requiresExtensionPage: false,
-      validate: requireKey,
-      async handle(msg) {
-        await startPipeline(msg.key);
-        return { ok: true };
-      },
-    },
-
     [MSG.retryRecord]: {
       requiresExtensionPage: false,
       validate: requireKey,
