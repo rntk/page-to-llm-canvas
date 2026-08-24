@@ -412,20 +412,14 @@ function CanvasTopicHierarchyRail({
             <header className="canvas-summary-view__card-header canvas-summary-view__card-header--stacked">
               <div className="canvas-summary-view__card-title-block">
                 <span className="canvas-summary-view__card-kicker">Summary</span>
-                <span
-                  key={currentTopicSummary.key}
-                  className="canvas-summary-view__card-path"
-                >
+                <span key={currentTopicSummary.key} className="canvas-summary-view__card-path">
                   {currentTopicSummary.path}
                 </span>
               </div>
               <YouTubeTimestampButton link={summaryYouTubeLink} />
             </header>
             {currentTopicSummary.text && (
-              <p
-                key={currentTopicSummary.key}
-                className="canvas-summary-view__card-text"
-              >
+              <p key={currentTopicSummary.key} className="canvas-summary-view__card-text">
                 {currentTopicSummary.text}
               </p>
             )}

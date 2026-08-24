@@ -423,10 +423,10 @@ function CanvasSummaryView({
     (card) => {
       // A pending open should not survive the cursor leaving the card.
       clearShowPreviewTimer();
-      if (lockedPreviewKeyRef.current === (card.key)) return;
+      if (lockedPreviewKeyRef.current === card.key) return;
       clearHidePreviewTimer();
       hidePreviewTimerRef.current = window.setTimeout(() => {
-        setHoveredSummaryKey((current) => (current === (card.key) ? null : current));
+        setHoveredSummaryKey((current) => (current === card.key ? null : current));
       }, SENTENCE_PREVIEW_HIDE_DELAY_MS);
     },
     [clearHidePreviewTimer, clearShowPreviewTimer],

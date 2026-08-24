@@ -7,11 +7,7 @@
  * @returns {boolean}
  */
 export function hasSummaryRunMarker(run) {
-  return (
-    run?.error === true ||
-    run?.forcedEmpty === true ||
-    run?.acceptedFailure === true
-  );
+  return run?.error === true || run?.forcedEmpty === true || run?.acceptedFailure === true;
 }
 
 /**
