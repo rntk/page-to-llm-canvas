@@ -311,6 +311,46 @@ describe('YouTubeRail', () => {
     unmount();
   });
 
+  it('does not pause on a trailing scroll event that lands on the same target again', () => {
+    // A real smooth scroll can emit more than one 'scroll' event once it's
+    // within a pixel of its target (easing slows to sub-pixel deltas right
+    // before the animation ends). The first such event closes the guard
+    // immediately (so a drag right on its heels isn't swallowed); a second
+    // event for that same landing must not be mistaken for that drag.
+    let currentTime = 0;
+    const getCurrentTime = vi.fn(() => currentTime);
+    const { container, unmount } = render(
+      createElement(YouTubeRail, { ...defaultProps, getCurrentTime }),
+    );
+
+    const body = container.querySelector('.pagetollm-yt-rail-body');
+    const railCards = container.querySelectorAll('.pagetollm-yt-rail-card');
+    Object.defineProperty(body, 'clientHeight', { value: 200, configurable: true });
+    Object.defineProperty(body, 'scrollHeight', { value: 800, configurable: true });
+    body.getBoundingClientRect = () => ({ top: 0, height: 200 });
+    railCards[1].getBoundingClientRect = () => ({ top: 420, height: 80 });
+
+    currentTime = 45;
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    // First event: the rail's own scroll landing on its target.
+    act(() => {
+      body.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    expect(body.scrollTop).toBe(360);
+    expect(container.querySelector('.pagetollm-yt-rail-resume')).toBeNull();
+
+    // Second event: the same animation's trailing frame, still at the same
+    // spot — not a drag, so it must not pause auto-scroll.
+    act(() => {
+      body.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    expect(container.querySelector('.pagetollm-yt-rail-resume')).toBeNull();
+
+    unmount();
+  });
+
   it('pauses on a drag that starts before the guard window has elapsed', () => {
     let currentTime = 0;
     const getCurrentTime = vi.fn(() => currentTime);

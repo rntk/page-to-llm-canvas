@@ -65,6 +65,13 @@ export default function YouTubeRail({
   const autoScrollEnabledRef = useRef(true);
   const programmaticScrollUntilRef = useRef(0);
   const programmaticTargetRef = useRef(NaN);
+  // When a scroll lands on its target, we close the guard immediately (see
+  // handleBodyScroll) so a drag right on its heels isn't swallowed for the
+  // rest of the window. That immediate close means a trailing same-animation
+  // 'scroll' event — one more frame at (or near) the same spot — would read
+  // as the user taking over; this records when we saw the landing so such an
+  // event can still be told apart from a real one for a brief moment after.
+  const settledAtRef = useRef(0);
   const settleTimerRef = useRef(null);
   const bodyRef = useRef(null);
   const cardRefs = useRef(new Map());
@@ -150,6 +157,7 @@ export default function YouTubeRail({
         : NaN;
       if (distanceToTarget <= 1) {
         programmaticScrollUntilRef.current = 0;
+        settledAtRef.current = Date.now();
         window.clearTimeout(settleTimerRef.current);
         settleTimerRef.current = null;
         return;
@@ -166,6 +174,23 @@ export default function YouTubeRail({
         programmaticScrollUntilRef.current = 0;
         pauseAutoScroll();
       }, SCROLL_SETTLE_MS);
+      return;
+    }
+    // The guard is closed, but a scroll landing exactly on its target can
+    // still fire a trailing 'scroll' event for the same animation frame or
+    // two after we already saw it land (easing slows to sub-pixel deltas
+    // right at the end). Forgive only that: an event arriving right after
+    // the landing, at the same spot the rail put it. Anything that's moved
+    // away from the target, or arrives well after the landing, is the
+    // user's, guard or no guard.
+    const body = bodyRef.current;
+    const settledRecently = Date.now() - settledAtRef.current <= SCROLL_SETTLE_MS;
+    if (
+      settledRecently &&
+      body &&
+      Number.isFinite(programmaticTargetRef.current) &&
+      Math.abs(body.scrollTop - programmaticTargetRef.current) <= 1
+    ) {
       return;
     }
     pauseAutoScroll();
