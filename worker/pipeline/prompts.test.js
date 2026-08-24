@@ -5,12 +5,10 @@ import {
   buildArticleSummaryPrompt,
   buildArticleSummaryMergePrompt,
   buildLeafSummaryMergePrompt,
-  buildSentenceSummaryPrompt,
   buildTopicSummaryFromSourcePrompt,
   buildTaggedText,
   formatChunkSummariesForMerge,
   LANGUAGE_INSTRUCTION,
-  SENTENCE_SUMMARY_PROMPT_TEMPLATE,
   ARTICLE_SUMMARY_PROMPT_TEMPLATE,
   ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE,
   LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE,
@@ -98,19 +96,6 @@ describe('buildLeafSummaryMergePrompt', () => {
   });
 });
 
-describe('buildSentenceSummaryPrompt', () => {
-  it('replaces {sentence} placeholder', () => {
-    const prompt = buildSentenceSummaryPrompt('The quick brown fox.');
-    expect(prompt).toContain('The quick brown fox.');
-    expect(prompt).not.toContain('{sentence}');
-  });
-
-  it('instructs sentence summaries to lead with substance', () => {
-    const prompt = buildSentenceSummaryPrompt('The quick brown fox.');
-    expect(prompt).toContain('Begin with the substance itself');
-  });
-});
-
 describe('buildTaggedText', () => {
   it('prefixes each sentence with {N}', () => {
     const result = buildTaggedText(['Hello.', 'World.']);
@@ -163,7 +148,6 @@ describe('preferContentLanguage option', () => {
       'buildTopicSummaryFromSourcePrompt',
       (opts) => buildTopicSummaryFromSourcePrompt('fuente', opts),
     ],
-    ['buildSentenceSummaryPrompt', (opts) => buildSentenceSummaryPrompt('una frase.', opts)],
   ];
 
   for (const [name, build] of builders) {
@@ -223,10 +207,6 @@ describe('preferContentLanguage option', () => {
 });
 
 describe('prompt template constants', () => {
-  it('SENTENCE_SUMMARY_PROMPT_TEMPLATE contains {sentence} placeholder', () => {
-    expect(SENTENCE_SUMMARY_PROMPT_TEMPLATE).toContain('{sentence}');
-  });
-
   it('ARTICLE_SUMMARY_PROMPT_TEMPLATE contains {text} placeholder', () => {
     expect(ARTICLE_SUMMARY_PROMPT_TEMPLATE).toContain('{text}');
   });

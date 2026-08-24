@@ -8,7 +8,6 @@ import {
   buildArticleSummaryMergePrompt,
   buildLeafSummaryMergePrompt,
   buildTopicSummaryFromSourcePrompt,
-  buildSentenceSummaryPrompt,
   formatChunkSummariesForMerge,
   buildTaggedText,
   LANGUAGE_INSTRUCTION,
@@ -16,7 +15,6 @@ import {
   ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE,
   LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE,
   TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE,
-  SENTENCE_SUMMARY_PROMPT_TEMPLATE,
 } from './prompts.js';
 
 const singleLineTextArb = fc.string().map((text) => text.replace(/[\r\n]/g, ' '));
@@ -106,7 +104,6 @@ describe('prompt contract fingerprints', () => {
     expect({
       system: sha256(currentPrompts.buildSystemPrompt()),
       language: sha256(currentPrompts.LANGUAGE_INSTRUCTION),
-      sentenceSummary: sha256(currentPrompts.SENTENCE_SUMMARY_PROMPT_TEMPLATE),
       articleSummary: sha256(currentPrompts.ARTICLE_SUMMARY_PROMPT_TEMPLATE),
       articleMerge: sha256(currentPrompts.ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE),
       leafMerge: sha256(currentPrompts.LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE),
@@ -114,7 +111,6 @@ describe('prompt contract fingerprints', () => {
     }).toEqual({
       system: 'f9d5b01433c68437ba0446c10b9bd07aca3666f5e7241144d6f359ea5897b21e',
       language: 'e9c6cdd8dedb466e5cd5277b1ef73530747d1afaad1987b880f97fae790e9d5b',
-      sentenceSummary: '2ddf36035a37c9a8a39c93a0b0f40d64b3ee631c547f8a780baa3e71500e948a',
       articleSummary: 'c731e87cef7b7becbfdca5703aeb05987021341e4b653b206a1463bab1406dc6',
       articleMerge: '73a23d1108dd1242ff59fed53c4d7b04631d065d405b54cbabda276da1db0b6c',
       leafMerge: '31fdeeace0fee490d4013b41c17f15ab3f5f5607c82ecfcbed3fed12e72daf75',
@@ -225,29 +221,6 @@ describe('buildTopicSummaryFromSourcePrompt properties', () => {
             TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE,
             '{source}',
             source,
-          );
-          const expected = preferContentLanguage
-            ? `${LANGUAGE_INSTRUCTION}\n${interpolated}`
-            : interpolated;
-          expect(prompt).toBe(expected);
-        },
-      ),
-    );
-  });
-});
-
-describe('buildSentenceSummaryPrompt properties', () => {
-  it('interpolates arbitrary sentence content exactly', () => {
-    fc.assert(
-      fc.property(
-        promptContentArb('{sentence}', '</text>'),
-        fc.boolean(),
-        (sentence, preferContentLanguage) => {
-          const prompt = buildSentenceSummaryPrompt(sentence, { preferContentLanguage });
-          const interpolated = interpolateOnce(
-            SENTENCE_SUMMARY_PROMPT_TEMPLATE,
-            '{sentence}',
-            sentence,
           );
           const expected = preferContentLanguage
             ? `${LANGUAGE_INSTRUCTION}\n${interpolated}`
