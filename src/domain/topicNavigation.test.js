@@ -190,9 +190,9 @@ describe('topic navigation helpers', () => {
   });
 
   it('normalizes navigation card identity by mode', () => {
-    expect(getTopicNavigationCardKey({ key: 'A#0#0', path: 'A' }, true)).toBe('A#0#0');
+    expect(getTopicNavigationCardKey({ key: 'A#0#0', path: 'A' })).toBe('A#0#0');
     expect(getTopicNavigationTopicKey({ key: 'A#0#0', path: 'A' }, true)).toBe('A');
-    expect(getTopicNavigationCardKey({ key: 'A#0#0', fullPath: 'A' }, false)).toBe('A#0#0');
+    expect(getTopicNavigationCardKey({ key: 'A#0#0', fullPath: 'A' })).toBe('A#0#0');
     expect(getTopicNavigationTopicKey({ key: 'A#0#0', fullPath: 'A' }, false)).toBe('A');
   });
 

@@ -145,7 +145,7 @@ export function useCanvasTopicNavigation({
       skipNextAlignment();
       pendingZoomSentenceRef.current = card.startSentence;
       setSelectedTopicKey(card.path);
-      setSelectedTopicCardKey(card.key || card.path);
+      setSelectedTopicCardKey(card.key);
       setShowSummaryMode(false);
     },
     [skipNextAlignment, setSelectedTopicKey, setSelectedTopicCardKey, setShowSummaryMode],

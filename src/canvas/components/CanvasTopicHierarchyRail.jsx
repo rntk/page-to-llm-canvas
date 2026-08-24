@@ -413,7 +413,7 @@ function CanvasTopicHierarchyRail({
               <div className="canvas-summary-view__card-title-block">
                 <span className="canvas-summary-view__card-kicker">Summary</span>
                 <span
-                  key={currentTopicSummary.key || currentTopicSummary.path}
+                  key={currentTopicSummary.key}
                   className="canvas-summary-view__card-path"
                 >
                   {currentTopicSummary.path}
@@ -423,7 +423,7 @@ function CanvasTopicHierarchyRail({
             </header>
             {currentTopicSummary.text && (
               <p
-                key={currentTopicSummary.key || currentTopicSummary.path}
+                key={currentTopicSummary.key}
                 className="canvas-summary-view__card-text"
               >
                 {currentTopicSummary.text}

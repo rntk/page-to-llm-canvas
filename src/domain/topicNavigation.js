@@ -39,9 +39,9 @@ export function buildTopicNavigationList({
     });
 }
 
-export function getTopicNavigationCardKey(card, showSummaryMode) {
+export function getTopicNavigationCardKey(card) {
   if (!card) return null;
-  return showSummaryMode ? card.key || card.path || null : card.key || card.fullPath || null;
+  return card.key || null;
 }
 
 export function getTopicNavigationTopicKey(card, showSummaryMode) {
@@ -51,7 +51,7 @@ export function getTopicNavigationTopicKey(card, showSummaryMode) {
 
 export function getTopicNavigationCardTop(card, showSummaryMode, summaryMetricsState = new Map()) {
   if (!showSummaryMode) return card.top ?? 0;
-  return summaryMetricsState.get(card.key)?.top ?? summaryMetricsState.get(card.path)?.top ?? null;
+  return summaryMetricsState.get(card.key)?.top ?? null;
 }
 
 function findClosestCardIndex(indices, list, showSummaryMode, summaryMetricsState, currentY) {
@@ -87,7 +87,7 @@ export function findTopicNavigationTarget({
   let targetIndex = -1;
   if (selectedNavigationKey) {
     targetIndex = list.findIndex(
-      (card) => getTopicNavigationCardKey(card, showSummaryMode) === selectedNavigationKey,
+      (card) => getTopicNavigationCardKey(card) === selectedNavigationKey,
     );
     if (targetIndex !== -1) {
       targetIndex =
@@ -179,7 +179,7 @@ export function resolveCanvasTopicNavigation({
     handled: true,
     targetCard,
     topicKey: getTopicNavigationTopicKey(targetCard, showSummaryMode),
-    cardKey: getTopicNavigationCardKey(targetCard, showSummaryMode),
+    cardKey: getTopicNavigationCardKey(targetCard),
   };
 }
 

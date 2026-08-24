@@ -158,14 +158,14 @@ function CanvasSummaryView({
   const summaryCardByKey = React.useMemo(() => {
     const map = new Map();
     summaryViewCards.forEach((card) => {
-      map.set(card.key || card.path, card);
+      map.set(card.key, card);
     });
     return map;
   }, [summaryViewCards]);
   const summaryCardIndexByKey = React.useMemo(() => {
     const map = new Map();
     summaryViewCards.forEach((card, index) => {
-      map.set(card.key || card.path, index);
+      map.set(card.key, index);
     });
     return map;
   }, [summaryViewCards]);
@@ -321,7 +321,7 @@ function CanvasSummaryView({
     if (!isYouTube) return map;
     summaryViewCards.forEach((card) => {
       map.set(
-        card.key || card.path,
+        card.key,
         getYouTubeTimestampLink({ sourceUrl, sentences, sourceSentences: card.sourceSentences }),
       );
     });
@@ -396,7 +396,7 @@ function CanvasSummaryView({
     (card, { immediate = false } = {}) => {
       clearHidePreviewTimer();
       clearShowPreviewTimer();
-      const key = card.key || card.path;
+      const key = card.key;
       const hasSource = card.sourceSentences.length > 0;
       // Defer BOTH the parent hovered-topic key and the local preview key. The
       // topic key must go through the same timer rather than being set eagerly in
@@ -423,10 +423,10 @@ function CanvasSummaryView({
     (card) => {
       // A pending open should not survive the cursor leaving the card.
       clearShowPreviewTimer();
-      if (lockedPreviewKeyRef.current === (card.key || card.path)) return;
+      if (lockedPreviewKeyRef.current === (card.key)) return;
       clearHidePreviewTimer();
       hidePreviewTimerRef.current = window.setTimeout(() => {
-        setHoveredSummaryKey((current) => (current === (card.key || card.path) ? null : current));
+        setHoveredSummaryKey((current) => (current === (card.key) ? null : current));
       }, SENTENCE_PREVIEW_HIDE_DELAY_MS);
     },
     [clearHidePreviewTimer, clearShowPreviewTimer],
@@ -434,7 +434,7 @@ function CanvasSummaryView({
 
   const handleSummaryCardLeave = React.useCallback(
     (card) => {
-      const cardKey = card.key || card.path;
+      const cardKey = card.key;
       setHoveredTopicKey((current) => (current === card.path ? null : current));
       setHoveredTopicCardKey?.((current) => (current === cardKey ? null : current));
       schedulePreviewHide(card);
@@ -445,7 +445,7 @@ function CanvasSummaryView({
   const handleSummaryCardClick = React.useCallback(
     (card) => {
       if (card.sourceSentences.length === 0) return;
-      const cardKey = card.key || card.path;
+      const cardKey = card.key;
       setLockedPreviewKey((current) => {
         if (current === cardKey) {
           setHoveredSummaryKey(null);
@@ -528,7 +528,7 @@ function CanvasSummaryView({
         <div className="canvas-summary-view__cards">
           {summaryViewCards.map((card) => {
             const isActive = summaryViewActivePath === card.path;
-            const cardKey = card.key || card.path;
+            const cardKey = card.key;
             const isCardActive = hasActiveSummaryCardKey
               ? summaryViewActiveCardKey === cardKey
               : isActive;

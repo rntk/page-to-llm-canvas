@@ -144,7 +144,7 @@ export function useInitialView({
     });
     if (targetCard) {
       setSelectedTopicKey(getTopicNavigationTopicKey(targetCard, showSummaryMode));
-      setSelectedTopicCardKey(getTopicNavigationCardKey(targetCard, showSummaryMode));
+      setSelectedTopicCardKey(getTopicNavigationCardKey(targetCard));
       panToTopic(targetCard);
     }
     dispatch('done');
