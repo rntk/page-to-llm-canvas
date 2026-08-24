@@ -346,20 +346,42 @@
       .footer {
         margin-top: auto;
         padding: 11px 14px 14px;
-        text-align: center;
         font-size: 12px;
         border-top: 1px solid var(--ink);
         background: var(--surface-highest);
       }
 
-      a {
+      .footer-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .footer-action {
+        min-width: 0;
+        text-align: center;
+      }
+
+      /* Footer actions run a command instead of navigating, so they are buttons
+         that borrow the link look. */
+      .link-button {
+        padding: 0;
+        border: 0;
+        background: none;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      a,
+      .link-button {
         color: var(--ink);
         font-weight: 700;
         text-decoration: none;
         border-bottom: 1px solid var(--ink);
       }
 
-      a:hover {
+      a:hover,
+      .link-button:hover {
         color: var(--accent);
         border-color: var(--accent);
       }
@@ -417,15 +439,34 @@
       <div class="error" id="error" hidden></div>
 
       <footer class="footer">
-        <a
-          href="#"
-          id="open-options"
-          title="Configure LLM providers and extension settings."
-          aria-describedby="options-hint"
-        >
-          Open Options
-        </a>
-        <div class="footer-hint" id="options-hint">Configure providers and extension settings.</div>
+        <div class="footer-actions">
+          <div class="footer-action">
+            <button
+              class="link-button"
+              id="open-options"
+              type="button"
+              title="Configure LLM providers and extension settings."
+              aria-describedby="options-hint"
+            >
+              Open Options
+            </button>
+            <div class="footer-hint" id="options-hint">
+              Configure providers and extension settings.
+            </div>
+          </div>
+          <div class="footer-action">
+            <button
+              class="link-button"
+              id="open-records"
+              type="button"
+              title="View all saved analyses."
+              aria-describedby="records-hint"
+            >
+              Open Records
+            </button>
+            <div class="footer-hint" id="records-hint">View all saved analyses.</div>
+          </div>
+        </div>
       </footer>
     </main>
     <script type="module" src="popup.js"></script>

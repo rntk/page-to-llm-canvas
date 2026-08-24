@@ -1,17 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-const ELEMENT_IDS = [
-  'pick-btn',
-  'refresh-btn',
-  'theme-btn',
-  'open-options',
-  'active-host',
-  'records',
-  'empty',
-  'error',
-  'record-count',
-];
+import { installPopupDom } from '../../../test/fakes/popupDomFake.mjs';
 
 const records = [
   {
@@ -27,15 +16,6 @@ const records = [
     status: 'done',
   },
 ];
-
-function installDom() {
-  document.body.replaceChildren();
-  for (const id of ELEMENT_IDS) {
-    const element = document.createElement(id.endsWith('-btn') ? 'button' : 'div');
-    element.id = id;
-    document.body.appendChild(element);
-  }
-}
 
 function installChrome() {
   vi.stubGlobal('chrome', {
@@ -74,7 +54,7 @@ async function waitForText(id, expected) {
 describe('popup refresh integration', () => {
   beforeEach(() => {
     vi.resetModules();
-    installDom();
+    installPopupDom();
     installChrome();
   });
 
@@ -146,9 +126,7 @@ describe('popup refresh integration', () => {
     document.getElementById('refresh-btn').click();
     await waitForText('active-host', 'new.example');
     await vi.waitFor(() =>
-      expect(document.querySelector('#records .label')?.title).toBe(
-        'https://new.example/article',
-      ),
+      expect(document.querySelector('#records .label')?.title).toBe('https://new.example/article'),
     );
 
     resolveStaleQuery([{ id: 99, url: 'https://stale.example/article' }]);

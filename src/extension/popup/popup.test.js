@@ -1,22 +1,9 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { installPopupDom } from '../../../test/fakes/popupDomFake.mjs';
 
 beforeAll(() => {
-  for (const id of [
-    'pick-btn',
-    'refresh-btn',
-    'theme-btn',
-    'open-options',
-    'active-host',
-    'records',
-    'empty',
-    'error',
-    'record-count',
-  ]) {
-    const el = document.createElement('div');
-    el.id = id;
-    document.body.appendChild(el);
-  }
+  installPopupDom();
 
   vi.stubGlobal('chrome', {
     runtime: {
@@ -46,6 +33,12 @@ beforeAll(() => {
     },
   });
 });
+
+function clickRecordsLink() {
+  document
+    .getElementById('open-records')
+    .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+}
 
 describe('popup pure functions', () => {
   let popup;
@@ -830,5 +823,52 @@ describe('popup UI integration', () => {
       .getElementById('open-options')
       .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     expect(chrome.runtime.openOptionsPage).toHaveBeenCalled();
+  });
+
+  it('opens the records tab from the records link when options is closed', () => {
+    chrome.tabs.create.mockClear();
+    clickRecordsLink();
+    expect(chrome.tabs.create).toHaveBeenCalledWith({ url: 'options.html#records' });
+  });
+
+  it('reuses an already-open options tab instead of stacking a duplicate', () => {
+    chrome.tabs.create.mockClear();
+    chrome.runtime.openOptionsPage.mockClear();
+    const optionsView = { location: { pathname: '/options.html', hash: '' } };
+    chrome.extension = { getViews: vi.fn(() => [optionsView]) };
+    try {
+      clickRecordsLink();
+      expect(optionsView.location.hash).toBe('#records');
+      expect(chrome.runtime.openOptionsPage).toHaveBeenCalled();
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+    } finally {
+      delete chrome.extension;
+    }
+  });
+
+  it('falls back to a new tab when the only extension view is not options', () => {
+    chrome.tabs.create.mockClear();
+    chrome.extension = { getViews: vi.fn(() => [{ location: { pathname: '/modal.html' } }]) };
+    try {
+      clickRecordsLink();
+      expect(chrome.tabs.create).toHaveBeenCalledWith({ url: 'options.html#records' });
+    } finally {
+      delete chrome.extension;
+    }
+  });
+
+  it('falls back to a new tab when reading extension views throws', () => {
+    chrome.tabs.create.mockClear();
+    chrome.extension = {
+      getViews: vi.fn(() => {
+        throw new Error('views unavailable');
+      }),
+    };
+    try {
+      clickRecordsLink();
+      expect(chrome.tabs.create).toHaveBeenCalledWith({ url: 'options.html#records' });
+    } finally {
+      delete chrome.extension;
+    }
   });
 });

@@ -15,6 +15,7 @@ const pickBtn = document.getElementById('pick-btn');
 const refreshBtn = document.getElementById('refresh-btn');
 const themeBtn = document.getElementById('theme-btn');
 const optionsLink = document.getElementById('open-options');
+const recordsLink = document.getElementById('open-records');
 const hostEl = document.getElementById('active-host');
 const recordsEl = document.getElementById('records');
 const emptyEl = document.getElementById('empty');
@@ -263,8 +264,35 @@ function setLoading() {
   setError('');
 }
 
+/**
+ * Finds the window of an already-open options tab, if there is one.
+ *
+ * `chrome.tabs.query({ url })` cannot see extension pages without the "tabs"
+ * permission, but `chrome.extension.getViews` reaches our own pages without
+ * requesting one.
+ *
+ * @returns {Window | null} The live options page window, or null when closed.
+ */
+function findOpenOptionsView() {
+  try {
+    const views = chrome.extension?.getViews?.({ type: 'tab' }) || [];
+    return views.find((view) => view?.location?.pathname?.endsWith('/options.html')) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 function openOptionsPage(hash = '') {
   if (hash) {
+    // Reuse an open options tab rather than stacking a duplicate on every
+    // click: the options page re-reads the hash on `hashchange`, so updating
+    // it switches that tab to the requested section, and openOptionsPage()
+    // focuses the tab it already lives in.
+    const openView = findOpenOptionsView();
+    if (openView && chrome.runtime.openOptionsPage) {
+      openView.location.hash = hash;
+      return chrome.runtime.openOptionsPage();
+    }
     const url = chrome.runtime.getURL(`options.html${hash}`);
     if (chrome.tabs?.create) return chrome.tabs.create({ url });
     window.open(url);
@@ -589,9 +617,12 @@ refreshBtn.addEventListener('click', () =>
   refreshRecords({ showLoading: true, forceRender: true }),
 );
 
-optionsLink.addEventListener('click', (e) => {
-  e.preventDefault();
+optionsLink.addEventListener('click', () => {
   void openOptionsPage();
+});
+
+recordsLink.addEventListener('click', () => {
+  void openOptionsPage('#records');
 });
 
 try {
