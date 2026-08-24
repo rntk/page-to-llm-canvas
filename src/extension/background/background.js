@@ -66,9 +66,7 @@ import {
   deleteProvider,
   setActiveProvider,
 } from '../../../worker/llm/providers.js';
-import {
-  createActionIconController,
-} from '../../../worker/actionIcon.js';
+import { createActionIconController } from '../../../worker/actionIcon.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { browserLocalStore } from '../../shared/runtime/localStore.js';
 import { createPipelineSupervisor } from './pipelineSupervisor.js';

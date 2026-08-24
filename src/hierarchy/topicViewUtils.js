@@ -2,11 +2,7 @@
  * Pure path and summary utilities shared by TopicHierarchyView.
  */
 
-import {
-  formatTopicPath,
-  joinTopicPath,
-  splitTopicPath,
-} from '../shared/runtime/topicPath.js';
+import { formatTopicPath, joinTopicPath, splitTopicPath } from '../shared/runtime/topicPath.js';
 
 export function normalizeTopicPath(path) {
   return joinTopicPath(splitTopicPath(path));
