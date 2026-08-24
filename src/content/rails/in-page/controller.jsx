@@ -191,12 +191,12 @@ export function createInPageRailController({
     };
 
     const handleHighlightCard = (card, on) => {
-      const sentenceList = card.sentences || card.sourceSentences || [];
+      const sentenceList = card.sentences || [];
       highlighter.highlightTopic(sentenceList, on);
     };
 
     const handleScrollToCard = (card) => {
-      const sentenceList = card.sentences || card.sourceSentences || [];
+      const sentenceList = card.sentences || [];
       highlighter.scrollToFirst(sentenceList);
     };
 

@@ -14,7 +14,8 @@ vi.mock('../highlights/sentenceHighlight.js', () => ({
   paintSentenceHighlight: highlightApi.paintSentenceHighlight,
 }));
 
-import { CHAT_HIGHLIGHT_NAME, useChatHighlights } from './useChatHighlights.js';
+import { CHAT_HIGHLIGHT_NAME } from '../highlights/sentenceHighlight.js';
+import { useChatHighlights } from './useChatHighlights.js';
 
 const cleanups = [];
 

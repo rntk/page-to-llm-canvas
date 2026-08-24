@@ -5,9 +5,6 @@ import {
   supportsHighlightApi,
 } from '../highlights/sentenceHighlight.js';
 
-// Re-exported for callers that still import the constant from this module.
-export { CHAT_HIGHLIGHT_NAME };
-
 export function useChatHighlights({
   showSummaryMode,
   sentenceNumbers,
