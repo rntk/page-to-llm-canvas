@@ -17,20 +17,16 @@ export const PIPELINE_STAGE = Object.freeze({
   QUEUED: 'queued',
   CLEANING_HTML: 'cleaning_html',
   SPLITTING_SENTENCES: 'splitting_sentences',
-  TOKENISING: 'tokenising',
   TOPIC_RANGES: 'topic_ranges',
   SUMMARIZING: 'summarizing',
   SUMMARIZING_TOPICS: 'summarizing_topics',
   MERGING_SUMMARIES: 'merging_summaries',
   NEEDS_ATTENTION: 'needs_attention',
   DONE: 'done',
-  ERROR: 'error',
   CANCELLED: 'cancelled',
   IMPORTED: 'imported',
 });
 
-const PIPELINE_STATUS_VALUES = new Set(Object.values(PIPELINE_STATUS));
-const PIPELINE_STAGE_VALUES = new Set(Object.values(PIPELINE_STAGE));
 export const IN_FLIGHT_PIPELINE_STATUSES = Object.freeze([
   PIPELINE_STATUS.PENDING,
   PIPELINE_STATUS.SPLITTING,
@@ -59,16 +55,6 @@ function isImportableTopicSummaryIndex(value) {
       Number.isInteger(entry.level) &&
       entry.level >= 0,
   );
-}
-
-/** @param {unknown} value @returns {boolean} */
-export function isPipelineStatus(value) {
-  return typeof value === 'string' && PIPELINE_STATUS_VALUES.has(value);
-}
-
-/** @param {unknown} value @returns {boolean} */
-export function isPipelineStage(value) {
-  return typeof value === 'string' && PIPELINE_STAGE_VALUES.has(value);
 }
 
 /** @param {unknown} value @returns {boolean} */

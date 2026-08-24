@@ -4,21 +4,13 @@ import {
   IN_FLIGHT_PIPELINE_STATUSES,
   isImportableRecord,
   isInFlightPipelineStatus,
-  isPipelineStage,
-  isPipelineStatus,
   isSummaryGenerationSourceStatus,
-  PIPELINE_STAGE,
   PIPELINE_STATUS,
   SUMMARY_GENERATION_SOURCE_STATUSES,
 } from './contracts.js';
 
 describe('runtime contracts', () => {
   it('recognizes persisted pipeline statuses and stages', () => {
-    expect(isPipelineStatus(PIPELINE_STATUS.DONE)).toBe(true);
-    expect(isPipelineStatus('unknown')).toBe(false);
-    expect(isPipelineStage(PIPELINE_STAGE.TOPIC_RANGES)).toBe(true);
-    expect(isPipelineStage(PIPELINE_STAGE.MERGING_SUMMARIES)).toBe(true);
-    expect(isPipelineStage('unknown')).toBe(false);
     expect(isInFlightPipelineStatus(PIPELINE_STATUS.SUMMARIZING)).toBe(true);
     expect(isInFlightPipelineStatus(PIPELINE_STATUS.DONE)).toBe(false);
     expect(isSummaryGenerationSourceStatus(PIPELINE_STATUS.ERROR)).toBe(true);
