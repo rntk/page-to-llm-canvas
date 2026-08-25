@@ -1,3 +1,25 @@
+import {
+  CARD_BASE_TITLE_FONT_SIZE,
+  CARD_COMPACT_HEIGHT_THRESHOLD,
+  CARD_COMPACT_TITLE_MAX_LINES,
+  CARD_CONTENT_GAP_PX,
+  CARD_META_LINE_HEIGHT_PX,
+  CARD_TITLE_LINE_HEIGHT,
+  CARD_TITLE_MAX_LINES,
+  CARD_VERTICAL_PADDING_PX,
+} from './cardTitleGeometry.js';
+
+// Re-exported so existing importers of this module keep their import paths.
+export {
+  CARD_COMPACT_HEIGHT_THRESHOLD,
+  CARD_COMPACT_TITLE_MAX_LINES,
+  CARD_CONTENT_GAP_PX,
+  CARD_META_LINE_HEIGHT_PX,
+  CARD_TITLE_LINE_HEIGHT,
+  CARD_TITLE_MAX_LINES,
+  CARD_VERTICAL_PADDING_PX,
+} from './cardTitleGeometry.js';
+
 /**
  * Pure collision-resolution and layout helpers for the dense card rail view.
  *
@@ -10,14 +32,7 @@ export const DENSE_CARD_MIN_HEIGHT = 56;
 export const DENSE_CARD_MAX_COMPACT_HEIGHT = 96;
 export const DENSE_CARD_HEIGHT_REDUCTION = 16;
 export const DENSE_CARD_MAX_NUDGE = 18;
-export const CARD_TITLE_LINE_HEIGHT = 1.2;
-export const CARD_TITLE_MAX_LINES = 2;
-export const CARD_COMPACT_TITLE_MAX_LINES = 1;
-export const CARD_COMPACT_HEIGHT_THRESHOLD = 88;
-export const CARD_VERTICAL_PADDING_PX = 16;
-export const CARD_META_LINE_HEIGHT_PX = 12;
-export const CARD_CONTENT_GAP_PX = 3;
-export const BASE_TOPIC_TITLE_FONT_SIZE = 12;
+export const BASE_TOPIC_TITLE_FONT_SIZE = CARD_BASE_TITLE_FONT_SIZE;
 export const SUMMARY_KICKER_FONT_SIZE = 10;
 export const SUMMARY_TITLE_FONT_SIZE = 16;
 export const SUMMARY_TEXT_FONT_SIZE = 14;

@@ -14,6 +14,16 @@ import {
 } from './topicDomain.js';
 import { formatTopicPath } from '../shared/runtime/topicPath.js';
 import { clampScale } from '../utils/canvasMath.js';
+import {
+  CARD_BASE_TITLE_FONT_SIZE,
+  CARD_COMPACT_HEIGHT_THRESHOLD,
+  CARD_COMPACT_TITLE_MAX_LINES,
+  CARD_CONTENT_GAP_PX,
+  CARD_META_LINE_HEIGHT_PX,
+  CARD_TITLE_LINE_HEIGHT,
+  CARD_TITLE_MAX_LINES,
+  CARD_VERTICAL_PADDING_PX,
+} from '../utils/cardTitleGeometry.js';
 
 export const CARD_WIDTH = 240;
 export const SUMMARY_CARD_WIDTH = 442;
@@ -27,14 +37,6 @@ export const RAIL_PADDING = 24;
 const CARD_HEIGHT = 72;
 const CARD_VERTICAL_GAP = 8;
 const CARD_MIN_CLAMPED_HEIGHT = 56;
-const CARD_TITLE_FONT_SIZE = 12;
-const CARD_TITLE_LINE_HEIGHT = 1.2;
-const CARD_TITLE_MAX_LINES = 2;
-const CARD_COMPACT_TITLE_MAX_LINES = 1;
-const CARD_COMPACT_HEIGHT_THRESHOLD = 88;
-const CARD_VERTICAL_PADDING_PX = 16;
-const CARD_META_LINE_HEIGHT_PX = 12;
-const CARD_CONTENT_GAP_PX = 3;
 
 /**
  * Card width that grows on zoom-out (1/scale, capped at 1) so titles have
@@ -87,7 +89,7 @@ function getZoomFontMultiplier(scale) {
  */
 export function getSummaryAnchorTitleFontSize(scale) {
   const maxMultiplier = SUMMARY_CARD_MAX_WIDTH / SUMMARY_CARD_WIDTH;
-  return CARD_TITLE_FONT_SIZE * Math.min(getZoomFontMultiplier(scale), maxMultiplier);
+  return CARD_BASE_TITLE_FONT_SIZE * Math.min(getZoomFontMultiplier(scale), maxMultiplier);
 }
 
 /**
@@ -98,7 +100,7 @@ export function getSummaryAnchorTitleFontSize(scale) {
  * @returns {number}
  */
 export function getTopicTitleFontSize({ scale, height }) {
-  const zoomAdjusted = CARD_TITLE_FONT_SIZE * getZoomFontMultiplier(scale);
+  const zoomAdjusted = CARD_BASE_TITLE_FONT_SIZE * getZoomFontMultiplier(scale);
   const safeHeight = Number.isFinite(height) ? height : CARD_HEIGHT;
   const titleLines = getTitleLineBudget(safeHeight);
   const availableTitleHeight = Math.max(
@@ -416,7 +418,7 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
         endSentence,
         top: layout.top,
         height: layout.height,
-        titleFontSize: CARD_TITLE_FONT_SIZE,
+        titleFontSize: CARD_BASE_TITLE_FONT_SIZE,
         depth: node.depth,
         levelIndex: node.depth,
         right: RAIL_PADDING + node.depth * (CARD_WIDTH + COLUMN_GAP),
