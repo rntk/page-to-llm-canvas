@@ -3,6 +3,7 @@ import { getYouTubeVideoId } from '../../utils/youtubeTimestamp.js';
 import { sendRuntimeMessage, sendTabMessage } from '../../utils/runtimeMessages.js';
 import { MSG } from '../../shared/runtime/messages.js';
 import { PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
+import { browserFileHost } from '../../shared/runtime/browserHosts.js';
 import {
   isStaleActionResponse,
   STALE_ACTION_MESSAGE,
@@ -346,28 +347,18 @@ export function safeFilenamePart(value) {
   return cleaned || 'record';
 }
 
-function downloadJsonFile(filename, value) {
-  const blob = new Blob([JSON.stringify(value, null, 2) + '\n'], {
-    type: 'application/json',
-  });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
-export async function handleExportAction(action, key, { runtimeMessage, onError }) {
+export async function handleExportAction(
+  action,
+  key,
+  { runtimeMessage, onError, fileHost = browserFileHost },
+) {
   try {
     const response = await runtimeMessage({ type: action.messageType, key });
     if (!response || !response.ok || !response.record) {
       onError(responseErrorMessage(response, action.failureMessage));
       return;
     }
-    downloadJsonFile(`pagetollm-data-${safeFilenamePart(key)}.json`, response.record);
+    fileHost.downloadJson(`pagetollm-data-${safeFilenamePart(key)}.json`, response.record);
   } catch (err) {
     onError(err.message || String(err));
   }

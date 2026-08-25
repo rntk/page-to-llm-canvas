@@ -570,6 +570,78 @@ describe('handleMessageAction', () => {
   });
 });
 
+describe('handleExportAction', () => {
+  let popup;
+
+  beforeAll(async () => {
+    popup = await import('./popup.js');
+  });
+
+  const action = { messageType: 'exportRecord', failureMessage: 'Export failed' };
+
+  it('downloads the record under a sanitized filename', async () => {
+    const record = { key: 'https://example.com/a', text: 'hi' };
+    const runtimeMessage = vi.fn().mockResolvedValue({ ok: true, record });
+    const fileHost = { downloadJson: vi.fn() };
+    const onError = vi.fn();
+
+    await popup.handleExportAction(action, 'https://example.com/a', {
+      runtimeMessage,
+      onError,
+      fileHost,
+    });
+
+    expect(runtimeMessage).toHaveBeenCalledWith({
+      type: 'exportRecord',
+      key: 'https://example.com/a',
+    });
+    expect(onError).not.toHaveBeenCalled();
+    expect(fileHost.downloadJson).toHaveBeenCalledTimes(1);
+    const [filename, value] = fileHost.downloadJson.mock.calls[0];
+    expect(filename).toBe(`pagetollm-data-${popup.safeFilenamePart('https://example.com/a')}.json`);
+    // The point of safeFilenamePart: a URL key must not smuggle path
+    // separators or drive/scheme colons into the download name.
+    expect(filename).not.toMatch(/[/\\:?*"<>|]/);
+    expect(value).toBe(record);
+  });
+
+  it('reports the failure and downloads nothing when the response is not ok', async () => {
+    const runtimeMessage = vi.fn().mockResolvedValue({ ok: false, error: 'no such record' });
+    const fileHost = { downloadJson: vi.fn() };
+    const onError = vi.fn();
+
+    await popup.handleExportAction(action, 'k1', { runtimeMessage, onError, fileHost });
+
+    expect(fileHost.downloadJson).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][0]).toContain('no such record');
+  });
+
+  it('reports the failure when the response is ok but carries no record', async () => {
+    const runtimeMessage = vi.fn().mockResolvedValue({ ok: true });
+    const fileHost = { downloadJson: vi.fn() };
+    const onError = vi.fn();
+
+    await popup.handleExportAction(action, 'k1', { runtimeMessage, onError, fileHost });
+
+    expect(fileHost.downloadJson).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith('Export failed');
+  });
+
+  it('reports a thrown message error instead of rejecting', async () => {
+    const runtimeMessage = vi.fn().mockRejectedValue(new Error('worker disconnected'));
+    const fileHost = { downloadJson: vi.fn() };
+    const onError = vi.fn();
+
+    await expect(
+      popup.handleExportAction(action, 'k1', { runtimeMessage, onError, fileHost }),
+    ).resolves.toBeUndefined();
+
+    expect(fileHost.downloadJson).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith('worker disconnected');
+  });
+});
+
 describe('buildRecordDisplayData', () => {
   let popup;
 
