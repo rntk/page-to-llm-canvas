@@ -76,8 +76,30 @@ describe('ChatToolMetricsSection', () => {
     expect(sendRuntimeMessage).toHaveBeenCalledWith({ type: 'clearChatToolMetrics' });
     expect(getChatToolMetrics).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain('3 (3 / 0)');
+    expect(container.querySelector('[role="alert"]').textContent).toContain('storage unavailable');
     expect(container.querySelector('.empty')).toBeNull();
     expect(container.querySelector('button').textContent).toBe('Clear chat tool metrics');
+    expect(container.querySelector('button').disabled).toBe(false);
+  });
+
+  it('preserves metrics and reports both errors when recovery reload also fails', async () => {
+    getChatToolMetrics
+      .mockResolvedValueOnce(metricsWithCalls(2))
+      .mockRejectedValueOnce(new Error('reload unavailable'));
+    sendRuntimeMessage.mockRejectedValueOnce(new Error('worker disconnected'));
+
+    act(() => root.render(<ChatToolMetricsSection store={store} />));
+    await flush();
+
+    await act(async () => {
+      container.querySelector('button').click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain('2 (2 / 0)');
+    expect(container.querySelector('[role="alert"]').textContent).toContain('worker disconnected');
+    expect(container.querySelector('[role="alert"]').textContent).toContain('reload unavailable');
     expect(container.querySelector('button').disabled).toBe(false);
   });
 });

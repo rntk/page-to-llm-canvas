@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React from 'react';
 import {
   CHAT_TOOL_METRICS_KEY,
   CHAT_TOOL_OUTCOME_LABELS,
@@ -8,9 +8,9 @@ import {
   normalizeChatToolMetrics,
 } from '../../worker/metrics/chatTool.js';
 import { MSG } from '../shared/runtime/messages.js';
-import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 import { CollapsibleSection } from './CollapsibleSection.jsx';
 import { formatDate } from './metricsFormat.js';
+import { useMetricsClear } from './useMetricsClear.js';
 import { useStoredMetrics } from './useStoredMetrics.js';
 
 function outcomeLabel(outcome) {
@@ -29,25 +29,13 @@ export function ChatToolMetricsSection({ store }) {
     subscribe: store.subscribe,
     loadErrorMessage: 'PageToLLM Options chat tool metrics load failed:',
   });
-  const [isClearing, setIsClearing] = useState(false);
-
-  const handleClear = useCallback(async () => {
-    setIsClearing(true);
-    try {
-      // Route through the worker so the clear serializes with worker-side
-      // records on one writeChain (see the clearChatToolMetrics handler).
-      const response = await sendRuntimeMessage({ type: MSG.clearChatToolMetrics });
-      if (!response?.ok) {
-        throw new Error(response?.error || 'Failed to clear chat tool metrics');
-      }
-      setMetrics(emptyChatToolMetrics());
-    } catch (_) {
-      const stored = await getChatToolMetrics();
-      setMetrics(stored);
-    } finally {
-      setIsClearing(false);
-    }
-  }, [setMetrics]);
+  const { isClearing, clearError, handleClear } = useMetricsClear({
+    messageType: MSG.clearChatToolMetrics,
+    defaultErrorMessage: 'Failed to clear chat tool metrics',
+    empty: emptyChatToolMetrics,
+    read: getChatToolMetrics,
+    setMetrics,
+  });
 
   const outcomes = OUTCOME_ORDER.filter((outcome) => metrics.byOutcome[outcome] > 0);
 
@@ -63,6 +51,11 @@ export function ChatToolMetricsSection({ store }) {
           {isClearing ? 'Clearing...' : 'Clear chat tool metrics'}
         </button>
       </div>
+      {clearError ? (
+        <div className="form-error form-error--stacked" role="alert">
+          {clearError}
+        </div>
+      ) : null}
       {!metrics.totalCount ? (
         <div className="empty">No chat tool calls recorded yet.</div>
       ) : (
