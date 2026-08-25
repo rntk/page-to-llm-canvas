@@ -182,6 +182,23 @@ async function readErrorText(res) {
   return `LLM HTTP ${res.status}: ${txt.slice(0, 300)}`;
 }
 
+async function postJson(fetchImpl, endpoint, headers, body, signal) {
+  const response = await fetchImpl(endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!response.ok) {
+    const error = new Error(await readErrorText(response));
+    error.status = response.status;
+    const retryAfterMs = parseRetryAfterMs(response.headers?.get?.('Retry-After'));
+    if (Number.isFinite(retryAfterMs)) error.retryAfterMs = retryAfterMs;
+    throw error;
+  }
+  return response.json();
+}
+
 /**
  * Parses a `Retry-After` header value into milliseconds. Accepts either an
  * integer-seconds value or an HTTP-date value; returns undefined when the
@@ -426,21 +443,7 @@ function openAICompatibleClient({
       logClientVerbose(logger, verboseLogs, 'raw prompt:', prompt);
       logClientVerbose(logger, verboseLogs, 'request:', { endpoint, body });
 
-      const res = await fetchImpl(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal,
-      });
-      if (!res.ok) {
-        const error = new Error(await readErrorText(res));
-        error.status = res.status;
-        const retryAfterMs = parseRetryAfterMs(res.headers?.get?.('Retry-After'));
-        if (Number.isFinite(retryAfterMs)) error.retryAfterMs = retryAfterMs;
-        throw error;
-      }
-
-      const data = await res.json();
+      const data = await postJson(fetchImpl, endpoint, headers, body, signal);
       logClientVerbose(logger, verboseLogs, 'raw response data:', data);
       logCacheUsage(logger, providerLabel, data, verboseLogs);
       const message = data?.choices?.[0]?.message;
@@ -631,21 +634,7 @@ function anthropicClient({ apiKey, model, serviceTier, fetchImpl, logger }) {
       logClientVerbose(logger, verboseLogs, 'raw prompt:', prompt);
       logClientVerbose(logger, verboseLogs, 'request:', { endpoint, body });
 
-      const res = await fetchImpl(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal,
-      });
-      if (!res.ok) {
-        const error = new Error(await readErrorText(res));
-        error.status = res.status;
-        const retryAfterMs = parseRetryAfterMs(res.headers?.get?.('Retry-After'));
-        if (Number.isFinite(retryAfterMs)) error.retryAfterMs = retryAfterMs;
-        throw error;
-      }
-
-      const data = await res.json();
+      const data = await postJson(fetchImpl, endpoint, headers, body, signal);
       logClientVerbose(logger, verboseLogs, 'raw response data:', data);
       logCacheUsage(logger, 'anthropic', data, verboseLogs);
       const blocks = Array.isArray(data?.content) ? data.content : [];
