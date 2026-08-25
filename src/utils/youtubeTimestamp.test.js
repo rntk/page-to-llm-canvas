@@ -120,6 +120,27 @@ describe('getTimestampForSentences', () => {
     expect(getTimestampForSentences([], [1])).toBeNull();
     expect(getTimestampForSentences(sentences, [])).toBeNull();
   });
+
+  it.each([
+    ['non-array sentences', null, [1]],
+    ['non-array source sentence numbers', sentences, null],
+    ['source sentence numbers without a positive integer', sentences, [0, -1, 1.5]],
+  ])('returns null for %s', (_name, sentenceInput, sourceInput) => {
+    expect(getTimestampForSentences(sentenceInput, sourceInput)).toBeNull();
+  });
+
+  // The internal index clamp is a loop bound, not observable behaviour: an
+  // unclamped scan walks down through undefined entries, which
+  // parseTimestampSeconds rejects, and reaches the same sentence. So this
+  // pins the reachable contract -- an out-of-range card still resolves to the
+  // last timestamp in the transcript rather than returning null.
+  it('resolves an out-of-range source sentence to the last transcript timestamp', () => {
+    expect(getTimestampForSentences(sentences, [999])).toBe(26);
+  });
+
+  it('ignores invalid source sentence numbers when a valid one is present', () => {
+    expect(getTimestampForSentences(sentences, [0, -1, 1.5, 4])).toBe(26);
+  });
 });
 
 describe('buildYouTubeTimestampUrl', () => {

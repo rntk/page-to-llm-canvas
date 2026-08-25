@@ -278,6 +278,27 @@ describe('decodeEntities', () => {
 
   it('leaves unknown or malformed entities untouched', () => {
     expect(decodeEntities('a&bogus;b & c &#x110000;')).toBe('a&bogus;b & c &#x110000;');
+    expect(decodeEntities('&amp')).toBe('&amp');
+    expect(decodeEntities('&#65')).toBe('&#65');
+  });
+
+  it('does not decode entity-like text that lacks an ampersand while scanning a later entity', () => {
+    expect(decodeEntities('x#65; &amp;')).toBe('x#65; &');
+  });
+
+  // NOTE: '&#000000065;' is a well-formed reference that a browser decodes to
+  // 'A'. It survives here only because decodeEntityAt gives up once the ';' is
+  // more than 10 chars away (html.js), a scan bound rather than a spec rule.
+  // This asserts the bound, so a change to it is a deliberate decision and not
+  // a silent regression -- it is not a claim that leading zeros are invalid.
+  it('leaves a numeric reference longer than the entity scan bound intact', () => {
+    expect(decodeEntities('&#000000065;')).toBe('&#000000065;');
+    expect(decodeEntities('&#65 padding &amp;')).toBe('&#65 padding &');
+  });
+
+  it('decodes a numeric reference at the edge of the scan bound', () => {
+    // Body is exactly at the limit, so this one still decodes.
+    expect(decodeEntities('&#00000065;')).toBe('A');
   });
 
   it('returns strings without ampersands unchanged', () => {

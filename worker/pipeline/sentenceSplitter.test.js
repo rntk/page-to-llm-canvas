@@ -54,6 +54,34 @@ describe('splitSentences', () => {
     expect(drSentence).toBeDefined();
   });
 
+  it('keeps an abbreviation with its sentence when short-span merging is disabled', () => {
+    const result = splitSentences('Dr. Smith arrived at noon. Then everyone went inside.', {
+      minSentenceWords: 1,
+    });
+    expect(result.map(({ text }) => text)).toEqual([
+      'Dr. Smith arrived at noon.',
+      'Then everyone went inside.',
+    ]);
+  });
+
+  it('does not split before a lowercase continuation', () => {
+    const text = 'This clause ends here. but the thought continues after it.';
+    expect(splitSentences(text, { minSentenceWords: 1 })).toEqual([
+      { text, start: 0, end: text.length },
+    ]);
+  });
+
+  it('trims both ends while preserving exact source offsets', () => {
+    const text = '  This sentence has padding.  ';
+    expect(splitSentences(text, { minSentenceWords: 1 })).toEqual([
+      {
+        text: 'This sentence has padding.',
+        start: 2,
+        end: text.length - 2,
+      },
+    ]);
+  });
+
   it('each result has text, start, and end properties', () => {
     const result = splitSentences('First sentence here. Second sentence here too.');
     for (const s of result) {
