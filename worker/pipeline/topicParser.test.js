@@ -5,6 +5,8 @@ import {
   groupsFromSegments,
   TopicParseError,
 } from './topicParser.js';
+import { buildTopicTree } from './topicTreeMerge.js';
+import { joinTopicPath } from '../../src/shared/runtime/topicPath.js';
 
 // Helpers -------------------------------------------------------------------
 
@@ -507,6 +509,121 @@ describe('label normalization', () => {
   it('collapses non-breaking-space characters inside segments', () => {
     const groups = parseTopicRanges('Tech>Claude  Tag: 0-2', 3);
     expect(groups[0].label).toEqual(['Tech', 'Claude Tag']);
+  });
+  it('unifies a parent segment that differs only in case across distinct leaves', () => {
+    const groups = parseTopicRanges(
+      [
+        'Tech>AI Models>DeepSeek V4 Flash>Hardware: 0-1',
+        'Tech>AI models>DeepSeek v4 Flash>Performance: 2-3',
+        'Tech>AI Models>Deepseek V4 Flash>Community: 4-5',
+      ].join('\n'),
+      6,
+    );
+
+    expect(groups.map((g) => g.label.join('>'))).toEqual([
+      'Tech>AI Models>DeepSeek V4 Flash>Hardware',
+      'Tech>AI Models>DeepSeek V4 Flash>Performance',
+      'Tech>AI Models>DeepSeek V4 Flash>Community',
+    ]);
+  });
+
+  it('unifies segments that differ only in internal spacing', () => {
+    const groups = parseTopicRanges(
+      [
+        'Tech>DeepSeek V4 Flash>Intro: 0-1',
+        'Tech>DeepSeekV4 Flash>Community: 2-3',
+        'Tech>Deep Seek V4 Flash>Wrap Up: 4-5',
+      ].join('\n'),
+      6,
+    );
+
+    expect(groups.map((g) => g.label[1])).toEqual([
+      'DeepSeek V4 Flash',
+      'DeepSeek V4 Flash',
+      'DeepSeek V4 Flash',
+    ]);
+  });
+
+  it('keeps the first spelling of a segment as the display label', () => {
+    const groups = parseTopicRanges('Tech>deepseek v4>A: 0-1\nTech>DeepSeek V4>B: 2-3', 4);
+
+    expect(groups.map((g) => g.label.join('>'))).toEqual([
+      'Tech>deepseek v4>A',
+      'Tech>deepseek v4>B',
+    ]);
+  });
+
+  it('merges whole paths that differ only in case and spacing', () => {
+    const groups = parseTopicRanges('Tech>DeepSeek V4 Flash: 0-1\nTech>deepseekv4flash: 3-4', 5);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toEqual(['Tech', 'DeepSeek V4 Flash']);
+  });
+
+  it('does not merge segments that differ in more than case and spacing', () => {
+    const groups = parseTopicRanges('Tech>DeepSeek V4 Flash: 0-1\nTech>DeepSeek 4 Flash: 2-3', 4);
+
+    expect(groups.map((g) => g.label.join('>'))).toEqual([
+      'Tech>DeepSeek V4 Flash',
+      'Tech>DeepSeek 4 Flash',
+    ]);
+  });
+
+  it('canonicalizes same-named segments under different parents independently', () => {
+    const groups = parseTopicRanges('Tech>Models: 0-1\nFashion>models: 2-3', 4);
+
+    expect(groups.map((g) => g.label.join('>'))).toEqual(['Tech>Models', 'Fashion>models']);
+  });
+
+  it('unifies segment spellings across chunk segments', () => {
+    const groups = groupsFromSegments(
+      [
+        { label: ['Tech', 'DeepSeek V4 Flash', 'Intro'], start: 0, end: 1 },
+        { label: ['Tech', 'DeepSeekV4 Flash', 'Community'], start: 2, end: 3 },
+        { label: ['Tech', 'deepseek v4 flash', 'Intro'], start: 4, end: 5 },
+      ],
+      6,
+    );
+
+    expect(groups.map((g) => g.label.join('>'))).toEqual([
+      'Tech>DeepSeek V4 Flash>Intro',
+      'Tech>DeepSeek V4 Flash>Community',
+    ]);
+    expect(groups[0].ranges).toEqual([
+      { start: 0, end: 1 },
+      { start: 4, end: 5 },
+    ]);
+  });
+  it('collapses spelling variants into one topic-tree branch', () => {
+    // The six spellings one article produced for the same subtopic. Only
+    // "DeepSeek 4 Flash" differs by more than case/spacing (no "V"), so it
+    // stays its own branch.
+    const groups = parseTopicRanges(
+      [
+        'Technology>AI Models>DeepSeek V4 Flash>Hardware Acquisition: 0-1',
+        'Technology>AI Models>DeepSeekV4 Flash>Community: 2-3',
+        'Technology>AI Models>DeepSeek 4 Flash>Use Cases: 4-5',
+        'Technology>AI Models>Deepseek V4 Flash>Local Models: 6-7',
+        'Technology>AI Models>DeepSeek v4 Flash>Performance: 8-9',
+        'Technology>AI Models>Deep Seek V4 Flash>Wrap Up: 10-11',
+      ].join('\n'),
+      12,
+    );
+
+    const { nodes } = buildTopicTree(
+      groups.map((group) => ({ name: joinTopicPath(group.label), sentences: [] })),
+    );
+    const branches = nodes.get('Technology>AI Models').children;
+
+    expect(branches.map((child) => child.name)).toEqual(['DeepSeek V4 Flash', 'DeepSeek 4 Flash']);
+    expect(branches[0].children.map((child) => child.name)).toEqual([
+      'Hardware Acquisition',
+      'Community',
+      'Local Models',
+      'Performance',
+      'Wrap Up',
+    ]);
+    expect(branches[1].children.map((child) => child.name)).toEqual(['Use Cases']);
   });
 });
 

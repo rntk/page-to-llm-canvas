@@ -73,10 +73,69 @@ function normalizeLabelParts(parts) {
   return out;
 }
 
-function normalizeLabelKey(label) {
-  return label
-    .map((p) => p.normalize('NFKC').trim().toLocaleLowerCase().replace(/\s+/gu, ' '))
-    .join('|');
+/**
+ * Dedup key for ONE label segment: NFKC-folded, case-folded, and with every
+ * whitespace run removed. Case and spacing are the two axes an LLM varies
+ * freely when it re-states the same topic ("DeepSeek V4 Flash" / "DeepSeek v4
+ * Flash" / "DeepSeekV4 Flash" / "Deep Seek V4 Flash"), so neither may survive
+ * into the key. Everything else stays significant — punctuation especially, so
+ * "C++" and "C#" remain distinct topics.
+ *
+ * Keys are for comparison only: the spelling users see is always an original
+ * segment, never this folded form.
+ *
+ * @param {string} segment Display-normalized label segment.
+ */
+function normalizeSegmentKey(segment) {
+  const key = segment.normalize('NFKC').toLocaleLowerCase().replace(/\s+/gu, '');
+  // Whitespace-only segments are dropped upstream; fall back to the raw segment
+  // rather than let an empty key collapse unrelated siblings into one topic.
+  return key || segment;
+}
+
+/**
+ * Per-parse registry that pins every label segment to ONE display spelling.
+ *
+ * Dedup used to be keyed on the whole label array, which merges two lines only
+ * when they agree at every level. Sibling leaves under a differently-spelled
+ * parent ("...>DeepSeek V4 Flash>Performance" vs "...>DeepSeek v4 Flash>Use
+ * Cases") therefore kept both spellings of the parent, and buildTopicTree then
+ * materialized one parent node per spelling — the same topic split into several
+ * sibling branches. Canonicalizing segment by segment collapses them.
+ *
+ * The scope of a segment is its FOLDED parent key, so "Models" under
+ * "Technology" and "Models" under "Fashion" are canonicalized independently:
+ * same-named segments are unified only where the tree would place them together
+ * anyway.
+ *
+ * First spelling seen wins and is what users see; later variants merge into it
+ * but never rewrite it. Callers therefore register only the labels they keep, so
+ * an ignored line cannot name a topic.
+ */
+function createLabelCanonicalizer() {
+  // `${parentKey}\u0000${segmentKey}` -> display spelling. NUL cannot appear in
+  // a segment, so the chained key is unambiguous.
+  const canonicalBySegment = new Map();
+
+  /**
+   * @param {string[]} parts Display-normalized, non-empty label segments.
+   * @returns {{label: string[], key: string}} Canonical label and its dedup key.
+   */
+  return function canonicalizeLabel(parts) {
+    const label = [];
+    let key = '';
+    for (const part of parts) {
+      key = `${key}\u0000${normalizeSegmentKey(part)}`;
+      const known = canonicalBySegment.get(key);
+      if (known === undefined) {
+        canonicalBySegment.set(key, part);
+        label.push(part);
+      } else {
+        label.push(known);
+      }
+    }
+    return { label, key };
+  };
 }
 
 function parseRangeString(str) {
@@ -347,15 +406,15 @@ export function groupsFromSegments(segments, sentenceCount) {
 
   const grouped = new Map();
   const order = [];
-  const keyToCanonical = new Map();
+  const canonicalizeLabel = createLabelCanonicalizer();
   let ordinal = 0;
   for (const seg of segments) {
     if (!seg.label || !seg.label.length) continue;
-    const key = normalizeLabelKey(seg.label);
-    if (!keyToCanonical.has(key)) keyToCanonical.set(key, seg.label);
-    const label = keyToCanonical.get(key);
     const range = clampRange(seg.start, seg.end, maxIndex);
+    // Canonicalize only what survives clamping, so a dropped segment cannot
+    // claim the display spelling of a topic it contributes nothing to.
     if (range === null) continue;
+    const { label, key } = canonicalizeLabel(seg.label);
     if (!grouped.has(key)) {
       grouped.set(key, { label, ranges: [] });
       order.push(key);
@@ -393,7 +452,7 @@ export function parseTopicRangesDetailed(response, sentenceCount) {
 
   const grouped = new Map(); // key -> { label, ranges[] }
   const order = [];
-  const keyToCanonical = new Map();
+  const canonicalizeLabel = createLabelCanonicalizer();
   let ordinal = 0;
   let invalidRangeTokens = 0;
   let reversedRanges = 0;
@@ -427,14 +486,11 @@ export function parseTopicRangesDetailed(response, sentenceCount) {
       continue;
     }
 
-    let label = normalizeLabelParts(splitTopicPath(topicPath));
-    if (!label.length) {
+    const parts = normalizeLabelParts(splitTopicPath(topicPath));
+    if (!parts.length) {
       recordIgnoredLine(ln);
       continue;
     }
-    const key = normalizeLabelKey(label);
-    if (!keyToCanonical.has(key)) keyToCanonical.set(key, label);
-    label = keyToCanonical.get(key);
 
     const parsed = parseRangeString(rangesStr);
     invalidRangeTokens += parsed.invalidCount;
@@ -453,6 +509,9 @@ export function parseTopicRangesDetailed(response, sentenceCount) {
     }
     parsedLineCount++;
 
+    // Canonicalized after the line is known to contribute ranges: an ignored
+    // line must not get to pick the spelling users see.
+    const { label, key } = canonicalizeLabel(parts);
     if (!grouped.has(key)) {
       grouped.set(key, { label, ranges: [] });
       order.push(key);
