@@ -22,6 +22,46 @@ export const LLM_METRICS_KEY = 'pagetollm-llm-metrics';
 export const LLM_METRICS_EPOCH_KEY = 'pagetollm-llm-metrics-epoch';
 export const LLM_METRICS_MAX_RECENT = 40;
 
+const CACHE_USAGE_KEYS = ['cacheReadTokens', 'cacheWriteTokens', 'cacheMissTokens'];
+
+/**
+ * Canonical persisted totals schema. Initializing, normalizing, merging, and
+ * accumulating totals all derive from this table, so adding a counter here is
+ * enough for every runtime path to pick it up.
+ *
+ * The one place a new counter still needs a manual edit is the LlmMetricTotals
+ * typedef above: JSDoc cannot be derived from a runtime object.
+ *
+ * - op is how two values for the field combine: summed, or the smaller/larger
+ *   of the two. It also fixes the empty value (0 for sums, null for min/max,
+ *   since "no sample yet" is not the same as a duration of 0).
+ * - contribute is what a single metric entry offers the field: an amount to add
+ *   for sum, or a candidate value to compare for min/max.
+ */
+const LLM_METRIC_TOTAL_FIELDS = Object.freeze({
+  totalCount: { op: 'sum', contribute: () => 1 },
+  successCount: { op: 'sum', contribute: (entry) => (entry.ok ? 1 : 0) },
+  failureCount: { op: 'sum', contribute: (entry) => (entry.ok ? 0 : 1) },
+  totalDurationMs: { op: 'sum', contribute: (entry) => entry.durationMs },
+  minDurationMs: { op: 'min', contribute: (entry) => entry.durationMs },
+  maxDurationMs: { op: 'max', contribute: (entry) => entry.durationMs },
+  usageSampleCount: { op: 'sum', contribute: (entry) => (entry.usage ? 1 : 0) },
+  cacheSampleCount: {
+    op: 'sum',
+    contribute: (entry) =>
+      entry.usage && CACHE_USAGE_KEYS.some((key) => entry.usage[key] !== undefined) ? 1 : 0,
+  },
+  totalInputTokens: { op: 'sum', contribute: (_entry, usage) => usage.inputTokens || 0 },
+  totalOutputTokens: { op: 'sum', contribute: (_entry, usage) => usage.outputTokens || 0 },
+  totalTokens: { op: 'sum', contribute: (_entry, usage) => usage.totalTokens || 0 },
+  totalReasoningTokens: { op: 'sum', contribute: (_entry, usage) => usage.reasoningTokens || 0 },
+  totalCacheReadTokens: { op: 'sum', contribute: (_entry, usage) => usage.cacheReadTokens || 0 },
+  totalCacheWriteTokens: { op: 'sum', contribute: (_entry, usage) => usage.cacheWriteTokens || 0 },
+  totalCacheMissTokens: { op: 'sum', contribute: (_entry, usage) => usage.cacheMissTokens || 0 },
+  totalRequestChars: { op: 'sum', contribute: (entry) => entry.requestChars || 0 },
+  totalResponseChars: { op: 'sum', contribute: (entry) => entry.responseChars || 0 },
+});
+
 /** Human-readable labels for known task types (UI). */
 export const LLM_TASK_TYPE_LABELS = Object.freeze({
   [LLM_TASK_TYPES.TOPIC_RANGES]: 'Topic ranges',
@@ -127,25 +167,12 @@ export function normalizeTaskType(value) {
 
 /** @returns {LlmMetricTotals} */
 export function emptyLlmMetricTotals() {
-  return {
-    totalCount: 0,
-    successCount: 0,
-    failureCount: 0,
-    totalDurationMs: 0,
-    minDurationMs: null,
-    maxDurationMs: null,
-    usageSampleCount: 0,
-    cacheSampleCount: 0,
-    totalInputTokens: 0,
-    totalOutputTokens: 0,
-    totalTokens: 0,
-    totalReasoningTokens: 0,
-    totalCacheReadTokens: 0,
-    totalCacheWriteTokens: 0,
-    totalCacheMissTokens: 0,
-    totalRequestChars: 0,
-    totalResponseChars: 0,
-  };
+  return Object.fromEntries(
+    Object.entries(LLM_METRIC_TOTAL_FIELDS).map(([field, { op }]) => [
+      field,
+      op === 'sum' ? 0 : null,
+    ]),
+  );
 }
 
 /** @param {number} [epoch]
@@ -166,27 +193,14 @@ export function emptyLlmMetrics(epoch = 0) {
 function normalizeTotals(value) {
   if (!value || typeof value !== 'object') return emptyLlmMetricTotals();
   const v = /** @type {Record<string, unknown>} */ (value);
-  const minRaw = v.minDurationMs;
-  const maxRaw = v.maxDurationMs;
-  return {
-    totalCount: Math.max(0, Number(v.totalCount) || 0),
-    successCount: Math.max(0, Number(v.successCount) || 0),
-    failureCount: Math.max(0, Number(v.failureCount) || 0),
-    totalDurationMs: Math.max(0, Number(v.totalDurationMs) || 0),
-    minDurationMs: minRaw == null || minRaw === '' ? null : Math.max(0, Number(minRaw) || 0),
-    maxDurationMs: maxRaw == null || maxRaw === '' ? null : Math.max(0, Number(maxRaw) || 0),
-    usageSampleCount: Math.max(0, Number(v.usageSampleCount) || 0),
-    cacheSampleCount: Math.max(0, Number(v.cacheSampleCount) || 0),
-    totalInputTokens: Math.max(0, Number(v.totalInputTokens) || 0),
-    totalOutputTokens: Math.max(0, Number(v.totalOutputTokens) || 0),
-    totalTokens: Math.max(0, Number(v.totalTokens) || 0),
-    totalReasoningTokens: Math.max(0, Number(v.totalReasoningTokens) || 0),
-    totalCacheReadTokens: Math.max(0, Number(v.totalCacheReadTokens) || 0),
-    totalCacheWriteTokens: Math.max(0, Number(v.totalCacheWriteTokens) || 0),
-    totalCacheMissTokens: Math.max(0, Number(v.totalCacheMissTokens) || 0),
-    totalRequestChars: Math.max(0, Number(v.totalRequestChars) || 0),
-    totalResponseChars: Math.max(0, Number(v.totalResponseChars) || 0),
-  };
+  return Object.fromEntries(
+    Object.entries(LLM_METRIC_TOTAL_FIELDS).map(([field, { op }]) => {
+      const raw = v[field];
+      // A missing min/max stays null ("no sample yet"); a missing sum is 0.
+      if (op !== 'sum' && (raw == null || raw === '')) return [field, null];
+      return [field, Math.max(0, Number(raw) || 0)];
+    }),
+  );
 }
 
 /** @param {unknown} value
@@ -239,39 +253,14 @@ function normalizeByTaskType(value) {
  * @returns {LlmMetricTotals}
  */
 function mergeTotals(a, b) {
-  const totalCount = a.totalCount + b.totalCount;
-  const successCount = a.successCount + b.successCount;
-  const failureCount = a.failureCount + b.failureCount;
-  const totalDurationMs = a.totalDurationMs + b.totalDurationMs;
-  let minDurationMs = a.minDurationMs;
-  if (b.minDurationMs != null) {
-    minDurationMs =
-      minDurationMs == null ? b.minDurationMs : Math.min(minDurationMs, b.minDurationMs);
-  }
-  let maxDurationMs = a.maxDurationMs;
-  if (b.maxDurationMs != null) {
-    maxDurationMs =
-      maxDurationMs == null ? b.maxDurationMs : Math.max(maxDurationMs, b.maxDurationMs);
-  }
-  return {
-    totalCount,
-    successCount,
-    failureCount,
-    totalDurationMs,
-    minDurationMs,
-    maxDurationMs,
-    usageSampleCount: a.usageSampleCount + b.usageSampleCount,
-    cacheSampleCount: a.cacheSampleCount + b.cacheSampleCount,
-    totalInputTokens: a.totalInputTokens + b.totalInputTokens,
-    totalOutputTokens: a.totalOutputTokens + b.totalOutputTokens,
-    totalTokens: a.totalTokens + b.totalTokens,
-    totalReasoningTokens: a.totalReasoningTokens + b.totalReasoningTokens,
-    totalCacheReadTokens: a.totalCacheReadTokens + b.totalCacheReadTokens,
-    totalCacheWriteTokens: a.totalCacheWriteTokens + b.totalCacheWriteTokens,
-    totalCacheMissTokens: a.totalCacheMissTokens + b.totalCacheMissTokens,
-    totalRequestChars: a.totalRequestChars + b.totalRequestChars,
-    totalResponseChars: a.totalResponseChars + b.totalResponseChars,
-  };
+  return Object.fromEntries(
+    Object.entries(LLM_METRIC_TOTAL_FIELDS).map(([field, { op }]) => {
+      if (op === 'sum') return [field, a[field] + b[field]];
+      if (a[field] == null) return [field, b[field]];
+      if (b[field] == null) return [field, a[field]];
+      return [field, Math[op](a[field], b[field])];
+    }),
+  );
 }
 
 /**
@@ -387,38 +376,14 @@ function enqueueWrite(fn) {
  */
 function applyTotals(current, entry) {
   const usage = entry.usage || {};
-  return {
-    totalCount: current.totalCount + 1,
-    successCount: current.successCount + (entry.ok ? 1 : 0),
-    failureCount: current.failureCount + (entry.ok ? 0 : 1),
-    totalDurationMs: current.totalDurationMs + entry.durationMs,
-    minDurationMs:
-      current.minDurationMs == null
-        ? entry.durationMs
-        : Math.min(current.minDurationMs, entry.durationMs),
-    maxDurationMs:
-      current.maxDurationMs == null
-        ? entry.durationMs
-        : Math.max(current.maxDurationMs, entry.durationMs),
-    usageSampleCount: current.usageSampleCount + (entry.usage ? 1 : 0),
-    cacheSampleCount:
-      current.cacheSampleCount +
-      (entry.usage &&
-      ['cacheReadTokens', 'cacheWriteTokens', 'cacheMissTokens'].some(
-        (key) => entry.usage[key] !== undefined,
-      )
-        ? 1
-        : 0),
-    totalInputTokens: current.totalInputTokens + (usage.inputTokens || 0),
-    totalOutputTokens: current.totalOutputTokens + (usage.outputTokens || 0),
-    totalTokens: current.totalTokens + (usage.totalTokens || 0),
-    totalReasoningTokens: current.totalReasoningTokens + (usage.reasoningTokens || 0),
-    totalCacheReadTokens: current.totalCacheReadTokens + (usage.cacheReadTokens || 0),
-    totalCacheWriteTokens: current.totalCacheWriteTokens + (usage.cacheWriteTokens || 0),
-    totalCacheMissTokens: current.totalCacheMissTokens + (usage.cacheMissTokens || 0),
-    totalRequestChars: current.totalRequestChars + (entry.requestChars || 0),
-    totalResponseChars: current.totalResponseChars + (entry.responseChars || 0),
-  };
+  return Object.fromEntries(
+    Object.entries(LLM_METRIC_TOTAL_FIELDS).map(([field, { op, contribute }]) => {
+      const value = contribute(entry, usage);
+      if (op === 'sum') return [field, current[field] + value];
+      // First sample seeds the min/max instead of comparing against null.
+      return [field, current[field] == null ? value : Math[op](current[field], value)];
+    }),
+  );
 }
 
 /**

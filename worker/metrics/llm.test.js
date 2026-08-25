@@ -138,6 +138,60 @@ describe('normalizeLlmMetrics / helpers', () => {
       cacheWriteTokens: 0,
     });
   });
+
+  it('merges every totals field when task labels normalize to the same key', () => {
+    const first = {
+      ...emptyLlmMetrics(),
+      totalCount: 1,
+      successCount: 1,
+      totalDurationMs: 10,
+      minDurationMs: 10,
+      maxDurationMs: 10,
+      usageSampleCount: 1,
+      cacheSampleCount: 1,
+      totalInputTokens: 2,
+      totalOutputTokens: 3,
+      totalTokens: 5,
+      totalReasoningTokens: 1,
+      totalCacheReadTokens: 2,
+      totalCacheWriteTokens: 3,
+      totalCacheMissTokens: 4,
+      totalRequestChars: 5,
+      totalResponseChars: 6,
+    };
+    const second = {
+      ...first,
+      successCount: 0,
+      failureCount: 1,
+      totalDurationMs: 20,
+      minDurationMs: 20,
+      maxDurationMs: 20,
+    };
+
+    const normalized = normalizeLlmMetrics({
+      byTaskType: { 'Custom Task': first, custom_task: second },
+    });
+
+    expect(normalized.byTaskType.custom_task).toEqual({
+      totalCount: 2,
+      successCount: 1,
+      failureCount: 1,
+      totalDurationMs: 30,
+      minDurationMs: 10,
+      maxDurationMs: 20,
+      usageSampleCount: 2,
+      cacheSampleCount: 2,
+      totalInputTokens: 4,
+      totalOutputTokens: 6,
+      totalTokens: 10,
+      totalReasoningTokens: 2,
+      totalCacheReadTokens: 4,
+      totalCacheWriteTokens: 6,
+      totalCacheMissTokens: 8,
+      totalRequestChars: 10,
+      totalResponseChars: 12,
+    });
+  });
 });
 
 describe('wrapCallLLMWithRetry', () => {
