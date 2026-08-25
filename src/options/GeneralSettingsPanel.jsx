@@ -196,176 +196,137 @@ export function HighlightColorSection({ store, scheduler }) {
   );
 }
 
-export function ContentLanguageSection({ store }) {
-  const [preferContentLanguage, setPreferContentLanguage] = useStoredPreference({
-    storageKey: PREFER_CONTENT_LANGUAGE_KEY,
-    defaultValue: DEFAULT_PREFER_CONTENT_LANGUAGE,
-    readPreference: getStoredPreferContentLanguage,
-    writePreference: setStoredPreferContentLanguage,
-    normalize: normalizePreferContentLanguage,
+const CONTENT_LANGUAGE_PREFERENCE = {
+  title: 'Language',
+  id: 'prefer-content-language',
+  type: 'checkbox',
+  label: 'Prefer the language of the content',
+  note: 'When enabled, topic labels and summaries are written in the dominant language of the analyzed content instead of always defaulting to English.',
+  storageKey: PREFER_CONTENT_LANGUAGE_KEY,
+  defaultValue: DEFAULT_PREFER_CONTENT_LANGUAGE,
+  readPreference: getStoredPreferContentLanguage,
+  writePreference: setStoredPreferContentLanguage,
+  normalize: normalizePreferContentLanguage,
+};
+
+const SUMMARY_GENERATION_PREFERENCE = {
+  title: 'Summaries',
+  id: 'disable-summaries',
+  type: 'checkbox',
+  label: 'Disable summary generation',
+  note: 'When enabled, processing stops after topic detection: topic labels and article structure are still computed, but no summaries are generated. Existing records keep their summaries until reprocessed. Records processed without summaries get a "Generate summaries" action below, which fills in the summaries from the already-computed topics without reprocessing the page.',
+  storageKey: SUMMARIES_DISABLED_KEY,
+  defaultValue: DEFAULT_SUMMARIES_DISABLED,
+  readPreference: getStoredSummariesDisabled,
+  writePreference: setStoredSummariesDisabled,
+  normalize: normalizeSummariesDisabled,
+};
+
+const LLM_CONCURRENCY_PREFERENCE = {
+  title: 'LLM concurrency',
+  id: 'max-parallel-llm-requests',
+  type: 'number',
+  label: 'Maximum parallel requests',
+  note: 'Limits LLM calls across all pages being processed at the same time. Extra calls wait in a shared queue. Changes apply to queued and future calls.',
+  min: MIN_PARALLEL_LLM_REQUESTS,
+  max: MAX_PARALLEL_LLM_REQUESTS,
+  storageKey: MAX_PARALLEL_LLM_REQUESTS_KEY,
+  defaultValue: DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
+  readPreference: getStoredMaxParallelLlmRequests,
+  writePreference: setStoredMaxParallelLlmRequests,
+  normalize: normalizeMaxParallelLlmRequests,
+};
+
+const LLM_TIMEOUT_PREFERENCE = {
+  title: 'LLM request timeout',
+  id: 'llm-request-timeout-seconds',
+  type: 'number',
+  label: 'Timeout (seconds)',
+  note: 'Maximum time allowed for each LLM request. The default is 120 seconds. Changes apply to new requests and retry attempts.',
+  min: MIN_LLM_REQUEST_TIMEOUT_SECONDS,
+  max: MAX_LLM_REQUEST_TIMEOUT_SECONDS,
+  storageKey: LLM_REQUEST_TIMEOUT_SECONDS_KEY,
+  defaultValue: DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS,
+  readPreference: getStoredLlmRequestTimeoutSeconds,
+  writePreference: setStoredLlmRequestTimeoutSeconds,
+  normalize: normalizeLlmRequestTimeoutSeconds,
+};
+
+const VERBOSE_LOGS_PREFERENCE = {
+  title: 'Diagnostics',
+  id: 'verbose-logs',
+  type: 'checkbox',
+  label: 'Verbose pipeline and chat logs',
+  note: "When enabled, each pipeline stage and chat turn — including every per-chunk, per-topic, and chat LLM request and response — is written to the relevant console. Pipeline events are also written to the record's processing log. Leave off for quieter runs; only lifecycle and error events are recorded then. Applies to the next pipeline or chat turn after the toggle changes.",
+  storageKey: VERBOSE_LOGS_KEY,
+  defaultValue: DEFAULT_VERBOSE_LOGS,
+  readPreference: getStoredVerboseLogs,
+  writePreference: setStoredVerboseLogs,
+  normalize: normalizeVerboseLogs,
+};
+
+function StoredPreferenceSection({ store, preference }) {
+  const [value, setValue] = useStoredPreference({
+    storageKey: preference.storageKey,
+    defaultValue: preference.defaultValue,
+    readPreference: preference.readPreference,
+    writePreference: preference.writePreference,
+    normalize: preference.normalize,
     subscribe: store.subscribe,
   });
+  const input = (
+    <input
+      id={preference.id}
+      type={preference.type}
+      min={preference.min}
+      max={preference.max}
+      step={preference.type === 'number' ? '1' : undefined}
+      checked={preference.type === 'checkbox' ? value : undefined}
+      value={preference.type === 'number' ? value : undefined}
+      onChange={(event) =>
+        setValue(preference.type === 'checkbox' ? event.target.checked : event.target.value)
+      }
+    />
+  );
 
   return (
     <div className="settings-group">
-      <h3>Language</h3>
+      <h3>{preference.title}</h3>
       <div className="field">
-        <label htmlFor="prefer-content-language">
-          <input
-            id="prefer-content-language"
-            type="checkbox"
-            checked={preferContentLanguage}
-            onChange={(event) => setPreferContentLanguage(event.target.checked)}
-          />{' '}
-          Prefer the language of the content
-        </label>
-        <div className="note">
-          When enabled, topic labels and summaries are written in the dominant language of the
-          analyzed content instead of always defaulting to English.
-        </div>
+        {preference.type === 'checkbox' ? (
+          <label htmlFor={preference.id}>
+            {input} {preference.label}
+          </label>
+        ) : (
+          <>
+            <label htmlFor={preference.id}>{preference.label}</label>
+            <div>{input}</div>
+          </>
+        )}
+        <div className="note">{preference.note}</div>
       </div>
     </div>
   );
+}
+
+export function ContentLanguageSection({ store }) {
+  return <StoredPreferenceSection preference={CONTENT_LANGUAGE_PREFERENCE} store={store} />;
 }
 
 export function SummaryGenerationSection({ store }) {
-  const [summariesDisabled, setSummariesDisabled] = useStoredPreference({
-    storageKey: SUMMARIES_DISABLED_KEY,
-    defaultValue: DEFAULT_SUMMARIES_DISABLED,
-    readPreference: getStoredSummariesDisabled,
-    writePreference: setStoredSummariesDisabled,
-    normalize: normalizeSummariesDisabled,
-    subscribe: store.subscribe,
-  });
-
-  return (
-    <div className="settings-group">
-      <h3>Summaries</h3>
-      <div className="field">
-        <label htmlFor="disable-summaries">
-          <input
-            id="disable-summaries"
-            type="checkbox"
-            checked={summariesDisabled}
-            onChange={(event) => setSummariesDisabled(event.target.checked)}
-          />{' '}
-          Disable summary generation
-        </label>
-        <div className="note">
-          When enabled, processing stops after topic detection: topic labels and article structure
-          are still computed, but no summaries are generated. Existing records keep their summaries
-          until reprocessed. Records processed without summaries get a &quot;Generate
-          summaries&quot; action below, which fills in the summaries from the already-computed
-          topics without reprocessing the page.
-        </div>
-      </div>
-    </div>
-  );
+  return <StoredPreferenceSection preference={SUMMARY_GENERATION_PREFERENCE} store={store} />;
 }
 
 export function LlmConcurrencySection({ store }) {
-  const [maxParallelRequests, setMaxParallelRequests] = useStoredPreference({
-    storageKey: MAX_PARALLEL_LLM_REQUESTS_KEY,
-    defaultValue: DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
-    readPreference: getStoredMaxParallelLlmRequests,
-    writePreference: setStoredMaxParallelLlmRequests,
-    normalize: normalizeMaxParallelLlmRequests,
-    subscribe: store.subscribe,
-  });
-
-  return (
-    <div className="settings-group">
-      <h3>LLM concurrency</h3>
-      <div className="field">
-        <label htmlFor="max-parallel-llm-requests">Maximum parallel requests</label>
-        <div>
-          <input
-            id="max-parallel-llm-requests"
-            type="number"
-            min={MIN_PARALLEL_LLM_REQUESTS}
-            max={MAX_PARALLEL_LLM_REQUESTS}
-            step="1"
-            value={maxParallelRequests}
-            onChange={(event) => setMaxParallelRequests(event.target.value)}
-          />
-        </div>
-        <div className="note">
-          Limits LLM calls across all pages being processed at the same time. Extra calls wait in a
-          shared queue. Changes apply to queued and future calls.
-        </div>
-      </div>
-    </div>
-  );
+  return <StoredPreferenceSection preference={LLM_CONCURRENCY_PREFERENCE} store={store} />;
 }
 
 export function LlmRequestTimeoutSection({ store }) {
-  const [requestTimeoutSeconds, setRequestTimeoutSeconds] = useStoredPreference({
-    storageKey: LLM_REQUEST_TIMEOUT_SECONDS_KEY,
-    defaultValue: DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS,
-    readPreference: getStoredLlmRequestTimeoutSeconds,
-    writePreference: setStoredLlmRequestTimeoutSeconds,
-    normalize: normalizeLlmRequestTimeoutSeconds,
-    subscribe: store.subscribe,
-  });
-
-  return (
-    <div className="settings-group">
-      <h3>LLM request timeout</h3>
-      <div className="field">
-        <label htmlFor="llm-request-timeout-seconds">Timeout (seconds)</label>
-        <div>
-          <input
-            id="llm-request-timeout-seconds"
-            type="number"
-            min={MIN_LLM_REQUEST_TIMEOUT_SECONDS}
-            max={MAX_LLM_REQUEST_TIMEOUT_SECONDS}
-            step="1"
-            value={requestTimeoutSeconds}
-            onChange={(event) => setRequestTimeoutSeconds(event.target.value)}
-          />
-        </div>
-        <div className="note">
-          Maximum time allowed for each LLM request. The default is 120 seconds. Changes apply to
-          new requests and retry attempts.
-        </div>
-      </div>
-    </div>
-  );
+  return <StoredPreferenceSection preference={LLM_TIMEOUT_PREFERENCE} store={store} />;
 }
 
 export function VerboseLogsSection({ store }) {
-  const [verboseLogs, setVerboseLogs] = useStoredPreference({
-    storageKey: VERBOSE_LOGS_KEY,
-    defaultValue: DEFAULT_VERBOSE_LOGS,
-    readPreference: getStoredVerboseLogs,
-    writePreference: setStoredVerboseLogs,
-    normalize: normalizeVerboseLogs,
-    subscribe: store.subscribe,
-  });
-
-  return (
-    <div className="settings-group">
-      <h3>Diagnostics</h3>
-      <div className="field">
-        <label htmlFor="verbose-logs">
-          <input
-            id="verbose-logs"
-            type="checkbox"
-            checked={verboseLogs}
-            onChange={(event) => setVerboseLogs(event.target.checked)}
-          />{' '}
-          Verbose pipeline and chat logs
-        </label>
-        <div className="note">
-          When enabled, each pipeline stage and chat turn — including every per-chunk, per-topic,
-          and chat LLM request and response — is written to the relevant console. Pipeline events
-          are also written to the record&apos;s processing log. Leave off for quieter runs; only
-          lifecycle and error events are recorded then. Applies to the next pipeline or chat turn
-          after the toggle changes.
-        </div>
-      </div>
-    </div>
-  );
+  return <StoredPreferenceSection preference={VERBOSE_LOGS_PREFERENCE} store={store} />;
 }
 
 export function GeneralSettingsPanel({ store, scheduler }) {
