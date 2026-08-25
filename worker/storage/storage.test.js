@@ -346,6 +346,48 @@ describe('updateRecord basic correctness', () => {
       nowSpy.mockRestore();
     }
   });
+
+  // updateRecord splits a record across a meta doc and one doc per payload
+  // schema, then reassembles them for the caller. Assert the resolved value
+  // carries fields from every doc, not just the meta one: a payload that is
+  // written but dropped from the return would leave callers acting on a record
+  // that silently disagrees with storage.
+  it('returns meta plus every touched payload doc, merged', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('r1'));
+
+    const result = await updateRecord('r1', {
+      status: 'done',
+      sentences: ['one', 'two'],
+      topic_summaries: { Topic: { runs: [{ sentences: [1], text: 'Summary.' }] } },
+    });
+
+    // meta doc
+    expect(result.status).toBe('done');
+    expect(result.key).toBe('r1');
+    // content doc
+    expect(result.sentences).toEqual(['one', 'two']);
+    // summaries doc
+    expect(result.topic_summaries).toEqual({
+      Topic: { runs: [{ sentences: [1], text: 'Summary.' }] },
+    });
+    expect(result).toEqual(await readRecord('r1'));
+  });
+
+  it('leaves untouched payload docs out of the return without dropping them from storage', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('r1', { text: 'original text' }));
+
+    const result = await updateRecord('r1', {
+      topic_summaries: { Topic: { runs: [] } },
+    });
+
+    expect(result.topic_summaries).toEqual({ Topic: { runs: [] } });
+    expect(result.text).toBeUndefined();
+    expect((await readRecord('r1')).text).toBe('original text');
+  });
 });
 
 // ---------------------------------------------------------------------------

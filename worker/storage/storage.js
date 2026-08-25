@@ -46,6 +46,10 @@ let lastIndexProjectionRepairAt = null;
 //     stay load-bearing even though UI code never reads them directly.
 const CONTENT_FIELDS = ['html', 'text', 'sentences', 'topics', 'topic_range_chunks'];
 const SUMMARY_FIELDS = ['topic_summaries', 'topic_summary_index', 'source_summary_units'];
+const RECORD_PAYLOAD_SCHEMAS = Object.freeze([
+  { name: 'content', fields: CONTENT_FIELDS, storageKey: contentStorageKey },
+  { name: 'summaries', fields: SUMMARY_FIELDS, storageKey: summariesStorageKey },
+]);
 
 function hasOwn(obj, field) {
   return Object.prototype.hasOwnProperty.call(obj, field);
@@ -57,14 +61,6 @@ function pickFields(obj, fields) {
     if (hasOwn(obj, f)) out[f] = obj[f];
   }
   return out;
-}
-
-function pickContentFields(obj) {
-  return pickFields(obj, CONTENT_FIELDS);
-}
-
-function pickSummaryFields(obj) {
-  return pickFields(obj, SUMMARY_FIELDS);
 }
 
 /** Everything that isn't explicitly content or summaries lives in meta.
@@ -248,14 +244,13 @@ async function repairIndexedRecordProjection(key) {
  */
 export async function readRecord(key) {
   const metaKey = metaStorageKey(key);
-  const contentKey = contentStorageKey(key);
-  const summariesKey = summariesStorageKey(key);
-  const items = await getLocal([metaKey, contentKey, summariesKey]);
-  const meta = items[metaKey];
-  const content = items[contentKey];
-  const summaries = items[summariesKey];
-  if (!meta && !content && !summaries) return null;
-  return { ...(content || {}), ...(summaries || {}), ...(meta || {}) };
+  const payloadKeys = RECORD_PAYLOAD_SCHEMAS.map(({ storageKey }) => storageKey(key));
+  const docKeys = [metaKey, ...payloadKeys];
+  const items = await getLocal(docKeys);
+  if (!docKeys.some((docKey) => items[docKey])) return null;
+  // Meta is applied last so its fields win over any stale copy of the same
+  // field left behind in a payload doc by an older record layout.
+  return Object.assign({}, ...payloadKeys.map((docKey) => items[docKey] || {}), items[metaKey]);
 }
 
 /**
@@ -269,25 +264,25 @@ export async function writeRecord(rec, options = {}) {
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
     return queuedUpdate(rec.key, async () => {
       const metaKey = metaStorageKey(rec.key);
-      const contentKey = contentStorageKey(rec.key);
-      const summariesKey = summariesStorageKey(rec.key);
+      const payloadKeys = RECORD_PAYLOAD_SCHEMAS.map(({ storageKey }) => storageKey(rec.key));
+      const docKeys = [metaKey, ...payloadKeys];
       const existingMeta = await loadMetaForWrite(rec.key);
       // Snapshot what is about to be overwritten so the index-failure path
       // below can put it back. Only for a record that already exists: a
       // brand-new key has nothing to restore, and skipping the read keeps the
       // common submit path from pulling in the (possibly large) content doc.
-      const priorDocs = existingMeta ? await getLocal([metaKey, contentKey, summariesKey]) : null;
+      const priorDocs = existingMeta ? await getLocal(docKeys) : null;
       const contentRevision =
         options.bumpContentRevision === true
           ? createContentRevision()
           : typeof rec.contentRevision === 'string' && rec.contentRevision
             ? rec.contentRevision
             : existingMeta?.contentRevision || createContentRevision();
-      await setLocal({
-        [metaKey]: { ...pickMetaFields(rec), contentRevision },
-        [contentKey]: pickContentFields(rec),
-        [summariesKey]: pickSummaryFields(rec),
+      const documents = { [metaKey]: { ...pickMetaFields(rec), contentRevision } };
+      RECORD_PAYLOAD_SCHEMAS.forEach(({ fields, storageKey }) => {
+        documents[storageKey(rec.key)] = pickFields(rec, fields);
       });
+      await setLocal(documents);
 
       try {
         await queuedUpdate(INDEX_KEY, async () => {
@@ -306,16 +301,14 @@ export async function writeRecord(rec, options = {}) {
         // merely replacing — a rollback that loses more than the write would
         // have. Restore the snapshot instead, removing only the docs that did
         // not exist before.
-        await rollbackRecordDocs(rec.key, priorDocs, [metaKey, contentKey, summariesKey]).catch(
-          (rollbackErr) => {
-            log.warn(
-              'writeRecord rollback failed for',
-              rec.key,
-              'after index write error:',
-              rollbackErr,
-            );
-          },
-        );
+        await rollbackRecordDocs(rec.key, priorDocs, docKeys).catch((rollbackErr) => {
+          log.warn(
+            'writeRecord rollback failed for',
+            rec.key,
+            'after index write error:',
+            rollbackErr,
+          );
+        });
         throw err;
       }
       if (existingMeta && options.bumpContentRevision === true) {
@@ -400,23 +393,15 @@ export async function updateRecord(key, patch, options = {}) {
       if (isStaleRun(meta, options)) return null;
 
       const touchesContent = CONTENT_FIELDS.some((f) => hasOwn(patch, f));
-      const touchesSummaries = SUMMARY_FIELDS.some((f) => hasOwn(patch, f));
-
       const writes = {};
-      let mergedContent;
-      let mergedSummaries;
-
-      if (touchesContent) {
-        const contentKey = contentStorageKey(key);
-        const currentContent = (await getLocal(contentKey))[contentKey] || {};
-        mergedContent = { ...currentContent, ...pickContentFields(patch) };
-        writes[contentKey] = mergedContent;
-      }
-      if (touchesSummaries) {
-        const summariesKey = summariesStorageKey(key);
-        const currentSummaries = (await getLocal(summariesKey))[summariesKey] || {};
-        mergedSummaries = { ...currentSummaries, ...pickSummaryFields(patch) };
-        writes[summariesKey] = mergedSummaries;
+      const mergedPayloads = {};
+      for (const { name, fields, storageKey } of RECORD_PAYLOAD_SCHEMAS) {
+        if (!fields.some((field) => hasOwn(patch, field))) continue;
+        const documentKey = storageKey(key);
+        const current = (await getLocal(documentKey))[documentKey] || {};
+        const merged = { ...current, ...pickFields(patch, fields) };
+        writes[documentKey] = merged;
+        mergedPayloads[name] = merged;
       }
 
       const mergedMeta = { ...meta, ...pickMetaFields(patch), updatedAt: Date.now() };
@@ -433,7 +418,12 @@ export async function updateRecord(key, patch, options = {}) {
         });
       }
 
-      return { ...mergedMeta, ...(mergedContent || {}), ...(mergedSummaries || {}) };
+      // Derived from the schema list rather than naming payloads inline, so a
+      // new payload doc reaches callers as well as storage.
+      return Object.assign(
+        { ...mergedMeta },
+        ...RECORD_PAYLOAD_SCHEMAS.map(({ name }) => mergedPayloads[name] || {}),
+      );
     });
   });
 }
