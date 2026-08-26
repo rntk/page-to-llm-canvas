@@ -196,6 +196,19 @@ export default function YouTubeRail({
     pauseAutoScroll();
   }, [pauseAutoScroll]);
 
+  // Applies a manual scroll delta to the list. A gesture that cannot move it
+  // (the list fits, or it is already at that end) is not the user taking
+  // over, so it must not pause.
+  const scrollRailBy = useCallback(
+    (body, delta) => {
+      const nextScrollTop = clampRailScrollTop(body, body.scrollTop + delta);
+      if (nextScrollTop === body.scrollTop) return;
+      pauseAutoScroll();
+      body.scrollTop = nextScrollTop;
+    },
+    [pauseAutoScroll],
+  );
+
   const handleBodyWheel = useCallback(
     (event) => {
       const body = bodyRef.current;
@@ -206,17 +219,9 @@ export default function YouTubeRail({
 
       const pageDelta = body.clientHeight || window.innerHeight || 0;
       const deltaMultiplier = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? pageDelta : 1;
-      // Only a gesture that actually moves the list counts as taking over: a
-      // wheel over a list that fits, or past either end, must not pause.
-      const nextScrollTop = clampRailScrollTop(
-        body,
-        body.scrollTop + event.deltaY * deltaMultiplier,
-      );
-      if (nextScrollTop === body.scrollTop) return;
-      pauseAutoScroll();
-      body.scrollTop = nextScrollTop;
+      scrollRailBy(body, event.deltaY * deltaMultiplier);
     },
-    [pauseAutoScroll],
+    [scrollRailBy],
   );
 
   const handleBodyKeyDown = useCallback(
@@ -238,12 +243,9 @@ export default function YouTubeRail({
 
       event.preventDefault();
       event.stopPropagation();
-      const nextScrollTop = clampRailScrollTop(body, body.scrollTop + delta);
-      if (nextScrollTop === body.scrollTop) return;
-      pauseAutoScroll();
-      body.scrollTop = nextScrollTop;
+      scrollRailBy(body, delta);
     },
-    [pauseAutoScroll],
+    [scrollRailBy],
   );
 
   useEffect(() => () => window.clearTimeout(settleTimerRef.current), []);
