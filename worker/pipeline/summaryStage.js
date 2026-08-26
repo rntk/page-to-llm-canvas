@@ -1,4 +1,4 @@
-import { createLimiter } from '../llm/llm.js';
+import { createLimiter } from '../llm/concurrency.js';
 import { planSummaryWork } from './summaryPlanning.js';
 import {
   buildPartialTopicSummaryIndex,

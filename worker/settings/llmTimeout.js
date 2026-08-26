@@ -2,7 +2,7 @@
 // seconds because that is the unit shown on the options page, then converted to
 // milliseconds at the request boundary.
 
-import { createStoredSetting } from '../../src/shared/runtime/localStore.js';
+import { createStoredSetting, normalizeClampedInt } from '../../src/shared/runtime/localStore.js';
 
 export const LLM_REQUEST_TIMEOUT_SECONDS_KEY = 'pagetollm-llm-request-timeout-seconds';
 export const DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS = 120;
@@ -10,12 +10,11 @@ export const MIN_LLM_REQUEST_TIMEOUT_SECONDS = 1;
 export const MAX_LLM_REQUEST_TIMEOUT_SECONDS = 86_400;
 
 export function normalizeLlmRequestTimeoutSeconds(value) {
-  const parsed = typeof value === 'number' ? Math.trunc(value) : Number.parseInt(String(value), 10);
-  if (!Number.isFinite(parsed)) return DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS;
-  return Math.min(
-    MAX_LLM_REQUEST_TIMEOUT_SECONDS,
-    Math.max(MIN_LLM_REQUEST_TIMEOUT_SECONDS, parsed),
-  );
+  return normalizeClampedInt(value, {
+    min: MIN_LLM_REQUEST_TIMEOUT_SECONDS,
+    max: MAX_LLM_REQUEST_TIMEOUT_SECONDS,
+    fallback: DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS,
+  });
 }
 
 const setting = createStoredSetting({

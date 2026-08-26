@@ -1,8 +1,5 @@
 import { MSG } from '../../../shared/runtime/messages.js';
-
-function isSafeChatId(chatId) {
-  return typeof chatId === 'string' && !!chatId && !chatId.includes(':');
-}
+import { isSafeChatId } from '../../../../worker/storage/keys.js';
 
 /**
  * Handlers for article chat: provider completions, turn cancellation, and the

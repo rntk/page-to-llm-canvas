@@ -1,5 +1,6 @@
 import { createThemeController, themeIcon, themeLabel } from '../../shared/runtime/theme.js';
 import { getYouTubeVideoId } from '../../utils/youtubeTimestamp.js';
+import { safeFilenamePart } from '../../utils/safeFilenamePart.js';
 import { sendRuntimeMessage, sendTabMessage } from '../../utils/runtimeMessages.js';
 import { MSG } from '../../shared/runtime/messages.js';
 import { PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
@@ -8,9 +9,6 @@ import {
   isStaleActionResponse,
   STALE_ACTION_MESSAGE,
 } from '../../shared/runtime/actionResponses.js';
-
-// Re-exported so popup.test.js (and other importers) keep resolving it from here.
-export { getYouTubeVideoId };
 
 const pickBtn = document.getElementById('pick-btn');
 const refreshBtn = document.getElementById('refresh-btn');
@@ -38,17 +36,6 @@ let providerReady = false;
 let refreshRequestId = 0;
 let storageRefreshTimer = null;
 let lastRenderedRecordsSignature = '';
-
-// Thin re-exports so popup.test.js (and other importers) keep resolving
-// these names from popup.js; the actual promise/lastError plumbing lives in
-// the shared src/utils/runtimeMessages.js helper.
-export function runtimeMessage(message) {
-  return sendRuntimeMessage(message);
-}
-
-export function tabMessage(tabId, message) {
-  return sendTabMessage(tabId, message);
-}
 
 export async function getActiveTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -311,7 +298,7 @@ async function openRecordView(key, mode, rail) {
   try {
     const message = { action: 'openRecordView', key, mode };
     if (rail) message.rail = rail;
-    const response = await tabMessage(activeTab.id, message);
+    const response = await sendTabMessage(activeTab.id, message);
     if (response && response.status === 'error') {
       setError(responseErrorMessage(response, 'Unable to open saved analysis'));
       return;
@@ -337,14 +324,6 @@ function makeAction(label, key, mode, description, isPrimary = false, rail) {
   addActionHint(button, label, description);
   button.addEventListener('click', () => openRecordView(key, mode, rail));
   return button;
-}
-
-export function safeFilenamePart(value) {
-  const cleaned = String(value || 'record')
-    .replace(/[^a-z0-9._-]+/gi, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80);
-  return cleaned || 'record';
 }
 
 export async function handleExportAction(
@@ -391,7 +370,7 @@ function makeExportAction(action, key) {
   button.textContent = action.label;
   addActionHint(button, action.label, action.description);
   button.addEventListener('click', () =>
-    handleExportAction(action, key, { runtimeMessage, onError: setError }),
+    handleExportAction(action, key, { runtimeMessage: sendRuntimeMessage, onError: setError }),
   );
   return button;
 }
@@ -405,7 +384,7 @@ function makeMessageAction(action, key) {
   button.addEventListener('click', () =>
     handleMessageAction(action, key, {
       confirm,
-      runtimeMessage,
+      runtimeMessage: sendRuntimeMessage,
       onSuccess: () => refreshRecords(),
       onError: setError,
     }),
@@ -527,7 +506,7 @@ function renderRecords(records, { force = false } = {}) {
 
 async function refreshProviderReadiness() {
   try {
-    const response = await runtimeMessage({ type: MSG.listProviders });
+    const response = await sendRuntimeMessage({ type: MSG.listProviders });
     const state = providerReadinessState(response);
     applyProviderReadinessState(state);
   } catch (err) {
@@ -544,7 +523,7 @@ function applyProviderReadinessState(state) {
 
 async function loadProviderReadinessState() {
   try {
-    return providerReadinessState(await runtimeMessage({ type: MSG.listProviders }));
+    return providerReadinessState(await sendRuntimeMessage({ type: MSG.listProviders }));
   } catch (err) {
     return providerReadinessState(null, err);
   }
@@ -564,7 +543,7 @@ async function refreshRecords({ showLoading = false, forceRender = false } = {})
     hostEl.textContent = activeHostname || 'Current page';
     hostEl.title = activeTab && activeTab.url ? activeTab.url : '';
 
-    const response = await runtimeMessage({ type: MSG.listRecords });
+    const response = await sendRuntimeMessage({ type: MSG.listRecords });
     if (requestId !== refreshRequestId) return;
 
     if (!response || !response.ok || !Array.isArray(response.items)) {
@@ -596,7 +575,7 @@ pickBtn.addEventListener('click', async () => {
   try {
     await refreshProviderReadiness();
     if (!providerReady) return;
-    await tabMessage(tab.id, { action: 'startSelection' });
+    await sendTabMessage(tab.id, { action: 'startSelection' });
     window.close();
   } catch (err) {
     setError('Unable to start selection on this page.');

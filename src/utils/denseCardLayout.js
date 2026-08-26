@@ -9,17 +9,6 @@ import {
   CARD_VERTICAL_PADDING_PX,
 } from './cardTitleGeometry.js';
 
-// Re-exported so existing importers of this module keep their import paths.
-export {
-  CARD_COMPACT_HEIGHT_THRESHOLD,
-  CARD_COMPACT_TITLE_MAX_LINES,
-  CARD_CONTENT_GAP_PX,
-  CARD_META_LINE_HEIGHT_PX,
-  CARD_TITLE_LINE_HEIGHT,
-  CARD_TITLE_MAX_LINES,
-  CARD_VERTICAL_PADDING_PX,
-} from './cardTitleGeometry.js';
-
 /**
  * Pure collision-resolution and layout helpers for the dense card rail view.
  *

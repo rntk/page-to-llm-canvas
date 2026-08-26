@@ -6,13 +6,12 @@ import {
   planResume,
 } from './orchestrator.js';
 import { createPipelineRuntime } from './pipelineRuntime.js';
+import { chunkTaggedText, chunkTopicRangeSentences } from './topicRangeChunking.js';
 import {
-  chunkTaggedText,
-  chunkTopicRangeSentences,
   groupsToTopics,
-  rangesToSentenceList,
   mapTextOffsetToHtml,
-} from './topicRangesStage.js';
+  rangesToSentenceList,
+} from './topicRangeMapping.js';
 import { parseSummaryResponse, shouldInlineRun, chunkSourceSentences } from './sourceSummarizer.js';
 import { classifyLlmError } from './summaryStage.js';
 import { buildTopicTree, splitContiguousRuns } from './topicTreeMerge.js';
@@ -24,7 +23,7 @@ import { getActiveProvider } from '../llm/providers.js';
 import { wrapCallLLMWithRetry } from '../metrics/llm.js';
 import * as parserMetrics from '../metrics/parser.js';
 import * as resplitMetrics from '../metrics/resplit.js';
-import { getStoredVerboseLogs } from '../settings/verboseLog.js';
+import { getStoredVerboseLogs } from '../../src/shared/runtime/verboseLogSettings.js';
 import { getStoredPreferContentLanguage } from '../settings/language.js';
 import {
   getStoredMaxParallelLlmRequests,
@@ -56,6 +55,9 @@ vi.mock('./sentenceSplitter.js', () => ({
 
 vi.mock('../llm/llm.js', () => ({
   callLLMWithRetry: vi.fn(),
+}));
+
+vi.mock('../llm/concurrency.js', () => ({
   createAdjustableLimiter: vi.fn(() => pipelineLimiter),
   createLimiter: vi.fn(() => (fn) => fn()),
   parallelMap: vi.fn(async (items, limit, fn) => {
@@ -83,7 +85,8 @@ vi.mock('../metrics/resplit.js', async () => {
   };
 });
 
-vi.mock('../settings/verboseLog.js', () => ({
+vi.mock('../../src/shared/runtime/verboseLogSettings.js', async (importOriginal) => ({
+  ...(await importOriginal()),
   getStoredVerboseLogs: vi.fn(async () => false),
 }));
 

@@ -28,6 +28,19 @@ describe('getYouTubeVideoId', () => {
     expect(getYouTubeVideoId('https://music.youtube.com/watch?v=xyz')).toBe('xyz');
   });
 
+  it('extracts ids without depending on unrelated query params', () => {
+    expect(getYouTubeVideoId('https://www.youtube.com/watch?v=VZTmS4B840k&t=420s')).toBe(
+      'VZTmS4B840k',
+    );
+    expect(getYouTubeVideoId('https://www.youtube.com/watch?t=420s&v=VZTmS4B840k')).toBe(
+      'VZTmS4B840k',
+    );
+    expect(
+      getYouTubeVideoId('https://www.youtube.com/watch?v=VZTmS4B840k&list=playlist-id'),
+    ).toBe('VZTmS4B840k');
+    expect(getYouTubeVideoId('https://youtu.be/VZTmS4B840k?t=420')).toBe('VZTmS4B840k');
+  });
+
   it('returns null for non-YouTube or invalid URLs', () => {
     expect(getYouTubeVideoId('https://example.com/watch?v=xyz')).toBeNull();
     expect(getYouTubeVideoId('not a url')).toBeNull();

@@ -4,7 +4,7 @@ import {
   noteResplitOutcome as defaultNoteResplitOutcome,
   recordResplitRun as defaultRecordResplitRun,
 } from '../metrics/resplit.js';
-import { parallelMap as defaultParallelMap } from '../llm/llm.js';
+import { parallelMap as defaultParallelMap } from '../llm/concurrency.js';
 import {
   readTopicRangeChunkCheckpoint,
   saveTopicRangeChunkCheckpoint,

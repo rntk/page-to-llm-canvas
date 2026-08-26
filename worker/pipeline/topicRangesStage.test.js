@@ -1,12 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { computeTopics as computeTopicsWithDefaults } from './topicRangesStage.js';
+import { chunkTaggedText, chunkTopicRangeSentences } from './topicRangeChunking.js';
 import {
-  chunkTaggedText,
-  chunkTopicRangeSentences,
-  computeTopics as computeTopicsWithDefaults,
   groupsToTopics,
   mapTextOffsetToHtml,
   rangesToSentenceList,
-} from './topicRangesStage.js';
+} from './topicRangeMapping.js';
 
 import { splitSentences } from './sentenceSplitter.js';
 import { markCancellation } from './cancellation.js';

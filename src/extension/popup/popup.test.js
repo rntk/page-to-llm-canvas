@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { installPopupDom } from '../../../test/fakes/popupDomFake.mjs';
+import { safeFilenamePart } from '../../utils/safeFilenamePart.js';
 
 beforeAll(() => {
   installPopupDom();
@@ -275,20 +276,6 @@ describe('popup pure functions', () => {
     expect(popup.isYouTubeUrl('')).toBe(false);
   });
 
-  it('getYouTubeVideoId extracts ids without depending on unrelated params', () => {
-    expect(popup.getYouTubeVideoId('https://www.youtube.com/watch?v=VZTmS4B840k&t=420s')).toBe(
-      'VZTmS4B840k',
-    );
-    expect(popup.getYouTubeVideoId('https://www.youtube.com/watch?t=420s&v=VZTmS4B840k')).toBe(
-      'VZTmS4B840k',
-    );
-    expect(
-      popup.getYouTubeVideoId('https://www.youtube.com/watch?v=VZTmS4B840k&list=playlist-id'),
-    ).toBe('VZTmS4B840k');
-    expect(popup.getYouTubeVideoId('https://youtu.be/VZTmS4B840k?t=420')).toBe('VZTmS4B840k');
-    expect(popup.getYouTubeVideoId('https://example.com/watch?v=VZTmS4B840k')).toBeNull();
-  });
-
   it('filterRecordsForActivePage matches hash-normalized source URLs', () => {
     const records = [
       { key: 'a', sourceUrl: 'https://example.com/page#one' },
@@ -348,40 +335,6 @@ describe('popup pure functions', () => {
     chrome.tabs.query.mockResolvedValue([]);
     const tab = await popup.getActiveTab();
     expect(tab).toBeNull();
-  });
-
-  it('runtimeMessage resolves on success', async () => {
-    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      cb({ ok: true });
-    });
-    const res = await popup.runtimeMessage({ type: 'test' });
-    expect(res.ok).toBe(true);
-  });
-
-  it('runtimeMessage rejects on lastError', async () => {
-    chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      chrome.runtime.lastError = { message: 'fail' };
-      cb();
-      chrome.runtime.lastError = null;
-    });
-    await expect(popup.runtimeMessage({ type: 'test' })).rejects.toThrow('fail');
-  });
-
-  it('tabMessage resolves on success', async () => {
-    chrome.tabs.sendMessage.mockImplementation((tabId, msg, cb) => {
-      cb({ status: 'ok' });
-    });
-    const res = await popup.tabMessage(1, { action: 'test' });
-    expect(res.status).toBe('ok');
-  });
-
-  it('tabMessage rejects on lastError', async () => {
-    chrome.tabs.sendMessage.mockImplementation((tabId, msg, cb) => {
-      chrome.runtime.lastError = { message: 'closed' };
-      cb();
-      chrome.runtime.lastError = null;
-    });
-    await expect(popup.tabMessage(1, { action: 'test' })).rejects.toThrow('closed');
   });
 
   it('responseErrorMessage prefers response.error then fallback', () => {
@@ -598,7 +551,7 @@ describe('handleExportAction', () => {
     expect(onError).not.toHaveBeenCalled();
     expect(fileHost.downloadJson).toHaveBeenCalledTimes(1);
     const [filename, value] = fileHost.downloadJson.mock.calls[0];
-    expect(filename).toBe(`pagetollm-data-${popup.safeFilenamePart('https://example.com/a')}.json`);
+    expect(filename).toBe(`pagetollm-data-${safeFilenamePart('https://example.com/a')}.json`);
     // The point of safeFilenamePart: a URL key must not smuggle path
     // separators or drive/scheme colons into the download name.
     expect(filename).not.toMatch(/[/\\:?*"<>|]/);

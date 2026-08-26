@@ -15,6 +15,9 @@ vi.mock('../../../worker/llm/llm.js', () => ({
   // names every dependency when it builds the chat completion service, so the
   // mock has to carry it.
   callLLMDirect: vi.fn(),
+}));
+
+vi.mock('../../../worker/llm/concurrency.js', () => ({
   createAdjustableLimiter: vi.fn(() => ({ run: vi.fn((fn) => fn()), setLimit: vi.fn() })),
   createLimiter: vi.fn(() => (fn) => fn()),
   parallelMap: vi.fn(async (items, limit, fn) => {

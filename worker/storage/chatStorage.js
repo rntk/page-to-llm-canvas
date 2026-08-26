@@ -9,7 +9,12 @@ import {
   queuedUpdate,
   MUTATION_QUEUE_KEY,
 } from './primitives.js';
-import { recordMetaStorageKey, chatIndexStorageKey, chatDocumentStorageKey } from './keys.js';
+import {
+  recordMetaStorageKey,
+  chatIndexStorageKey,
+  chatDocumentStorageKey,
+  isSafeChatId,
+} from './keys.js';
 
 const CHAT_TITLE_MAX_CHARS = 60;
 export const MAX_CHAT_TURNS = 50;
@@ -58,10 +63,6 @@ function chatSummary(chat) {
     eventCount: chat.events.length,
     contentRevision: chat.contentRevision,
   };
-}
-
-function isSafeChatId(value) {
-  return typeof value === 'string' && !!value && !value.includes(':');
 }
 
 function isStoredChatDocument(value) {

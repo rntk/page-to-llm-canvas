@@ -146,18 +146,6 @@ export function normalizeImportedRecords(payload) {
 }
 
 /**
- * @param {string|number|null|undefined} value
- * @returns {string}
- */
-export function safeFilenamePart(value) {
-  const cleaned = String(value || 'record')
-    .replace(/[^a-z0-9._-]+/gi, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80);
-  return cleaned || 'record';
-}
-
-/**
  * Returns the runtime message type and error fallback for a record action.
  * @param {'delete'|'reprocess'|'stop'|'open'|'exportData'|string} action
  * @returns {{messageType: string|null, errorMessage: string}}

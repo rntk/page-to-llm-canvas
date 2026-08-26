@@ -1,7 +1,7 @@
 import React from 'react';
 import { getHierarchyTopicAccentColor } from '../../domain/topicColorUtils.js';
+import { CARD_COMPACT_TITLE_MAX_LINES } from '../../utils/cardTitleGeometry.js';
 import {
-  CARD_COMPACT_TITLE_MAX_LINES,
   getAdjustedHierarchyCards,
   getAdjustedTitleFontSize,
   getCardLabelHeight,

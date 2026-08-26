@@ -34,7 +34,7 @@ import {
   getStoredVerboseLogs,
   setStoredVerboseLogs,
   normalizeVerboseLogs,
-} from '../../worker/settings/verboseLog.js';
+} from '../shared/runtime/verboseLogSettings.js';
 import {
   MAX_PARALLEL_LLM_REQUESTS_KEY,
   DEFAULT_MAX_PARALLEL_LLM_REQUESTS,

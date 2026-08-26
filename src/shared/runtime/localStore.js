@@ -209,3 +209,19 @@ export function createStoredSetting({ key, defaultValue, normalize }) {
     },
   };
 }
+
+/**
+ * Parses a stored value into an integer inside `[min, max]`, falling back to
+ * `fallback` when it is not a finite number. Shared by the numeric settings
+ * built on `createStoredSetting` so the parse/clamp semantics (truncate, then
+ * clamp, never throw) stay identical across them.
+ *
+ * @param {unknown} value Raw stored or user-supplied value.
+ * @param {{min: number, max: number, fallback: number}} bounds
+ * @returns {number}
+ */
+export function normalizeClampedInt(value, { min, max, fallback }) {
+  const parsed = typeof value === 'number' ? Math.trunc(value) : Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}

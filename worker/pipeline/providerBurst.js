@@ -1,4 +1,4 @@
-import { parallelMap as defaultParallelMap } from '../llm/llm.js';
+import { parallelMap as defaultParallelMap } from '../llm/concurrency.js';
 import { isPermanentProviderError } from './providerFailure.js';
 
 /**

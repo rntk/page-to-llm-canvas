@@ -31,11 +31,8 @@ import {
   isSummaryCheckpointComplete,
   isSummaryCheckpointRevisionCurrent,
 } from '../../../worker/pipeline/orchestrator.js';
-import {
-  callLLMDirect,
-  callLLMWithRetry,
-  createAdjustableLimiter,
-} from '../../../worker/llm/llm.js';
+import { callLLMDirect, callLLMWithRetry } from '../../../worker/llm/llm.js';
+import { createAdjustableLimiter } from '../../../worker/llm/concurrency.js';
 import {
   clearLlmMetrics,
   recordLlmMetric,
@@ -50,7 +47,7 @@ import {
 } from '../../../worker/storage/dataManagement.js';
 import { getStoredSummariesDisabled } from '../../../worker/settings/summary.js';
 import { getStoredPreferContentLanguage } from '../../../worker/settings/language.js';
-import { getStoredVerboseLogs } from '../../../worker/settings/verboseLog.js';
+import { getStoredVerboseLogs } from '../../shared/runtime/verboseLogSettings.js';
 import {
   DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
   MAX_PARALLEL_LLM_REQUESTS_KEY,

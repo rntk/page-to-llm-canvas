@@ -2,7 +2,7 @@
 // The orchestrator applies one shared limit across every page being processed,
 // preventing per-page parallelism from multiplying into an unbounded burst.
 
-import { createStoredSetting } from '../../src/shared/runtime/localStore.js';
+import { createStoredSetting, normalizeClampedInt } from '../../src/shared/runtime/localStore.js';
 
 export const MAX_PARALLEL_LLM_REQUESTS_KEY = 'pagetollm-max-parallel-llm-requests';
 export const DEFAULT_MAX_PARALLEL_LLM_REQUESTS = 4;
@@ -10,9 +10,11 @@ export const MIN_PARALLEL_LLM_REQUESTS = 1;
 export const MAX_PARALLEL_LLM_REQUESTS = 16;
 
 export function normalizeMaxParallelLlmRequests(value) {
-  const parsed = typeof value === 'number' ? Math.trunc(value) : Number.parseInt(String(value), 10);
-  if (!Number.isFinite(parsed)) return DEFAULT_MAX_PARALLEL_LLM_REQUESTS;
-  return Math.min(MAX_PARALLEL_LLM_REQUESTS, Math.max(MIN_PARALLEL_LLM_REQUESTS, parsed));
+  return normalizeClampedInt(value, {
+    min: MIN_PARALLEL_LLM_REQUESTS,
+    max: MAX_PARALLEL_LLM_REQUESTS,
+    fallback: DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
+  });
 }
 
 const setting = createStoredSetting({

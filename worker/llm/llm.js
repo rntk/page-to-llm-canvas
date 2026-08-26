@@ -3,7 +3,7 @@
 
 import { getActiveProvider } from './providers.js';
 import { createClient } from './clients.js';
-import { getStoredVerboseLogs } from '../settings/verboseLog.js';
+import { getStoredVerboseLogs } from '../../src/shared/runtime/verboseLogSettings.js';
 import { getStoredLlmRequestTimeoutSeconds } from '../settings/llmTimeout.js';
 import { createLogger } from '../../src/shared/runtime/log.js';
 import {
@@ -14,12 +14,6 @@ import {
   mergeAbortSignals,
   sleepWithAbort,
 } from './abortSignals.js';
-
-// The abort/timeout plumbing and the concurrency primitives moved to their own
-// modules; this entrypoint stays their public surface so existing importers are
-// unaffected.
-export { createRequestTimeoutSignal, mergeAbortSignals, sleepWithAbort } from './abortSignals.js';
-export { createAdjustableLimiter, createLimiter, parallelMap } from './concurrency.js';
 
 const log = createLogger('LLM');
 

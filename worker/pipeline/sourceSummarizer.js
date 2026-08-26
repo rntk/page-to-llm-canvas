@@ -6,7 +6,7 @@ import {
   formatChunkSummaryForMerge,
   formatChunkSummariesForMerge,
 } from './prompts.js';
-import { parallelMap } from '../llm/llm.js';
+import { parallelMap } from '../llm/concurrency.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { runProviderBurst } from './providerBurst.js';
 import { splitContiguousRuns } from './topicTreeMerge.js';

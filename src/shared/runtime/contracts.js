@@ -135,7 +135,7 @@ export function isImportableRecord(record) {
  *   absolute segments for chunk `i`. Updated after successful parse rounds
  *   and cleared when the stage succeeds, so a Retry re-requests only chunks
  *   that never landed. Validated structurally on read (see
- *   `readTopicRangeChunkCheckpoint` in `worker/pipeline/topicRangesStage.js`)
+ *   `readTopicRangeChunkCheckpoint` in `worker/pipeline/topicRangeCheckpoint.js`)
  *   and discarded whole unless `contentRevision` still matches, since an
  *   imported record can carry an arbitrary user-supplied value here.
  * @property {Record<string, object>} [topic_summaries] - Resumable per-topic

@@ -21,7 +21,7 @@ vi.mock('../../worker/settings/summary.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../../worker/settings/verboseLog.js', async (importOriginal) => {
+vi.mock('../shared/runtime/verboseLogSettings.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
@@ -62,7 +62,7 @@ import {
   DEFAULT_VERBOSE_LOGS,
   getStoredVerboseLogs,
   setStoredVerboseLogs,
-} from '../../worker/settings/verboseLog.js';
+} from '../shared/runtime/verboseLogSettings.js';
 import {
   DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
   MIN_PARALLEL_LLM_REQUESTS,

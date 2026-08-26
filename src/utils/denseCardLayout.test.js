@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
-  BASE_TOPIC_TITLE_FONT_SIZE,
   CARD_COMPACT_HEIGHT_THRESHOLD,
   CARD_COMPACT_TITLE_MAX_LINES,
   CARD_TITLE_MAX_LINES,
+} from './cardTitleGeometry.js';
+import {
+  BASE_TOPIC_TITLE_FONT_SIZE,
   DENSE_CARD_GAP,
   DENSE_CARD_MIN_HEIGHT,
   adjustCrowdedLevelCards,

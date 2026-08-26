@@ -7,12 +7,12 @@ import SummaryErrorsOverlay from '../components/SummaryErrorsOverlay.jsx';
 import RecordErrorDialog from './RecordErrorDialog.jsx';
 import {
   actionConfirmPrompt,
-  safeFilenamePart,
   actionResponseError,
   recordActionRouting,
   normalizeImportedRecords,
   dedupeImportedRecords,
 } from './optionsLogic.js';
+import { safeFilenamePart } from '../utils/safeFilenamePart.js';
 import { listRecords, sendMessage } from './optionsApi.js';
 
 function formatDate(timestamp) {

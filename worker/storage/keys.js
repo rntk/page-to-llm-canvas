@@ -20,3 +20,11 @@ export function chatIndexStorageKey(key) {
 export function chatDocumentStorageKey(key, chatId) {
   return `pagetollm:chats:${key}:${chatId}`;
 }
+
+// Guards the `:` separator that `chatDocumentStorageKey` composes with: a
+// chatId containing a colon could otherwise forge a different record's key.
+// Shared by the storage layer and the message-handler validation so the two
+// cannot drift apart.
+export function isSafeChatId(value) {
+  return typeof value === 'string' && !!value && !value.includes(':');
+}

@@ -26,13 +26,6 @@ import { isPermanentProviderError } from './providerFailure.js';
 import { runProviderBurst } from './providerBurst.js';
 import { TOPIC_RANGE_ABORT_MESSAGE } from './topicRangeCheckpoint.js';
 
-export { readTopicRangeChunkCheckpoint } from './topicRangeCheckpoint.js';
-// The chunking, range→topic, and dependency helpers moved to their own modules;
-// this stage stays their public entry point so existing importers are unaffected.
-export { chunkTaggedText, chunkTopicRangeSentences } from './topicRangeChunking.js';
-export { groupsToTopics, mapTextOffsetToHtml, rangesToSentenceList } from './topicRangeMapping.js';
-export { createTopicRangeDependencies } from './topicRangeDependencies.js';
-
 const TOPIC_RANGE_RETRY_BASE_DELAY_MS = 2000;
 // Same ceiling callLLMWithRetry applies to a provider's Retry-After, so a
 // hostile or misconfigured header cannot park the stage indefinitely.
