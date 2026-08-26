@@ -49,8 +49,8 @@ function buildSpanMap(roots, collapsedPaths) {
   return map;
 }
 
-function createHierarchyColorCache(roots) {
-  return { roots, colorsByUid: new Map() };
+function createHierarchyColorCache(_tree) {
+  return { colorsByUid: new Map() };
 }
 
 function getHierarchyColors(colorCache, node) {
