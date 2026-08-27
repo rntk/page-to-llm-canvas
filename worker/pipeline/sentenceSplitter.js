@@ -4,8 +4,12 @@
 // short list, and signal-kind merging refinements.
 
 const CLOSING = `"'”’)\\]»`;
+// Stateful (`g`): reset `lastIndex` before every `exec` scan.
 const TERMINAL_RE = new RegExp(`([.!?…])[${CLOSING}]*(\\s+)`, 'g');
 const SENTENCE_START_RE = /[A-Z0-9À-ɏ"'([{“‘«]/;
+const WHITESPACE_RE = /\s/;
+// Stateful (`g`): reset `lastIndex` before every `exec` scan.
+const WORD_RE = /\S+/g;
 const ABBREVS = new Set([
   'Mr.',
   'Mrs.',
@@ -22,20 +26,20 @@ const ABBREVS = new Set([
 function countWords(text, start, end) {
   let n = 0;
   const slice = text.slice(start, end);
-  const re = /\S+/g;
-  while (re.exec(slice)) n++;
+  WORD_RE.lastIndex = 0;
+  while (WORD_RE.exec(slice)) n++;
   return n;
 }
 
 function trimWs(text, start, end) {
-  while (start < end && /\s/.test(text[start])) start++;
-  while (end > start && /\s/.test(text[end - 1])) end--;
+  while (start < end && WHITESPACE_RE.test(text[start])) start++;
+  while (end > start && WHITESPACE_RE.test(text[end - 1])) end--;
   return [start, end];
 }
 
 function precededByAbbrev(text, punctPos) {
   let s = punctPos - 1;
-  while (s >= 0 && !/\s/.test(text[s])) s--;
+  while (s >= 0 && !WHITESPACE_RE.test(text[s])) s--;
   s++;
   return ABBREVS.has(text.slice(s, punctPos + 1));
 }
@@ -72,11 +76,10 @@ function splitSpans(text, boundaries) {
 
 function anchorLongSpan(text, start, end, anchorEvery, longThreshold, minWords) {
   const wordPositions = [];
-  const re = /\S+/g;
-  re.lastIndex = 0;
+  WORD_RE.lastIndex = 0;
   const slice = text.slice(start, end);
   let m;
-  while ((m = re.exec(slice)) !== null) {
+  while ((m = WORD_RE.exec(slice)) !== null) {
     wordPositions.push([start + m.index, start + m.index + m[0].length]);
   }
   if (wordPositions.length <= longThreshold) return [[start, end]];
@@ -101,7 +104,7 @@ function anchorLongSpan(text, start, end, anchorEvery, longThreshold, minWords) 
     // Find whitespace cut at/after wordEnd.
     let cut = -1;
     for (let p = wordEnd; p < end; p++) {
-      if (/\s/.test(text[p])) {
+      if (WHITESPACE_RE.test(text[p])) {
         cut = p;
         break;
       }

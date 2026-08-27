@@ -4,7 +4,10 @@
 // live page) and the canvas modal (src/canvas/App.jsx, operating on the
 // re-rendered article HTML).
 
+// Stateful (`g`): reset `lastIndex` before every `exec` scan.
 const WORD_TOKEN_RE = /\S+/g;
+// Stateful (`g`), but String#replace resets it before matching.
+const NORMALIZE_RE = /[^a-z0-9]+/gi;
 export const HIGHLIGHT_NAME = 'pagetollm-sentence';
 /** CSS Custom Highlight name for chat-driven sentence highlights, shared by
  * the canvas (src/chat/useChatHighlights.js) and the in-page rail
@@ -144,7 +147,7 @@ export function buildSentenceWordRanges(sentences, wordEntries) {
   const normalize = (s) =>
     String(s)
       .toLowerCase()
-      .replace(/[^a-z0-9]+/gi, '');
+      .replace(NORMALIZE_RE, '');
   const norm = wordEntries.map((e) => normalize(e.word));
   const START_WINDOW = 80;
   const END_WINDOW = 12;
