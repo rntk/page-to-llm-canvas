@@ -62,7 +62,7 @@ vi.mock('./components/CanvasTopicHierarchyRail.jsx', () => ({
 vi.mock('./components/CanvasSummaryView.jsx', () => ({
   default: captureComponent('summary'),
 }));
-vi.mock('./components/CanvasZoomControls.jsx', () => ({
+vi.mock('./components/CanvasToolbar.jsx', () => ({
   default: captureComponent('controls'),
 }));
 vi.mock('./components/ArticleHtml.jsx', () => ({ default: captureComponent('article') }));

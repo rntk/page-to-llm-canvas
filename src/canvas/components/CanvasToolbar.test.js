@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import CanvasZoomControls from './CanvasZoomControls.jsx';
+import CanvasToolbar from './CanvasToolbar.jsx';
 
 function render(element) {
   const container = document.createElement('div');
@@ -22,7 +22,7 @@ function render(element) {
   };
 }
 
-describe('CanvasZoomControls', () => {
+describe('CanvasToolbar', () => {
   const defaultProps = {
     onNavigate: vi.fn(),
     onZoomIn: vi.fn(),
@@ -39,7 +39,7 @@ describe('CanvasZoomControls', () => {
   };
 
   it('renders with default classes, and stopPropagation onMouseDown works', () => {
-    const { container, unmount } = render(createElement(CanvasZoomControls, defaultProps));
+    const { container, unmount } = render(createElement(CanvasToolbar, defaultProps));
 
     const mainDiv = container.querySelector('.canvas-controls');
     expect(mainDiv).not.toBeNull();
@@ -56,7 +56,7 @@ describe('CanvasZoomControls', () => {
   });
 
   it('can toggle folded and horizontal classes', () => {
-    const { container, unmount } = render(createElement(CanvasZoomControls, defaultProps));
+    const { container, unmount } = render(createElement(CanvasToolbar, defaultProps));
 
     const mainDiv = container.querySelector('.canvas-controls');
 
@@ -86,7 +86,7 @@ describe('CanvasZoomControls', () => {
   it('triggers onClose', () => {
     const onClose = vi.fn();
     const { container, unmount } = render(
-      createElement(CanvasZoomControls, { ...defaultProps, onClose }),
+      createElement(CanvasToolbar, { ...defaultProps, onClose }),
     );
 
     const closeBtn = container.querySelector('.canvas-close-btn');
@@ -99,7 +99,7 @@ describe('CanvasZoomControls', () => {
   });
 
   it('renders the navigation grid buttons in the expected order', () => {
-    const { container, unmount } = render(createElement(CanvasZoomControls, defaultProps));
+    const { container, unmount } = render(createElement(CanvasToolbar, defaultProps));
 
     const navigationGrid = container.querySelector('.canvas-navigation-grid');
     expect(navigationGrid).not.toBeNull();
@@ -131,7 +131,7 @@ describe('CanvasZoomControls', () => {
   ])('clicking the "%s" button triggers onNavigate("%s")', (title, direction) => {
     const onNavigate = vi.fn();
     const { container, unmount } = render(
-      createElement(CanvasZoomControls, { ...defaultProps, onNavigate }),
+      createElement(CanvasToolbar, { ...defaultProps, onNavigate }),
     );
 
     const button = Array.from(container.querySelectorAll('.canvas-navigation-grid button')).find(
@@ -146,7 +146,7 @@ describe('CanvasZoomControls', () => {
   it('triggers onZoomIn when the zoom in button is clicked', () => {
     const onZoomIn = vi.fn();
     const { container, unmount } = render(
-      createElement(CanvasZoomControls, { ...defaultProps, onZoomIn }),
+      createElement(CanvasToolbar, { ...defaultProps, onZoomIn }),
     );
 
     const zoomInBtn = Array.from(container.querySelectorAll('.canvas-zoom-btn')).find(
@@ -161,7 +161,7 @@ describe('CanvasZoomControls', () => {
   it('triggers onZoomOut when the zoom out button is clicked', () => {
     const onZoomOut = vi.fn();
     const { container, unmount } = render(
-      createElement(CanvasZoomControls, { ...defaultProps, onZoomOut }),
+      createElement(CanvasToolbar, { ...defaultProps, onZoomOut }),
     );
 
     const zoomOutBtn = Array.from(container.querySelectorAll('.canvas-zoom-btn')).find(
@@ -176,7 +176,7 @@ describe('CanvasZoomControls', () => {
   it('triggers onReset when the reset zoom button is clicked', () => {
     const onReset = vi.fn();
     const { container, unmount } = render(
-      createElement(CanvasZoomControls, { ...defaultProps, onReset }),
+      createElement(CanvasToolbar, { ...defaultProps, onReset }),
     );
 
     const resetBtn = Array.from(container.querySelectorAll('.canvas-zoom-btn')).find(
@@ -191,7 +191,7 @@ describe('CanvasZoomControls', () => {
   it('triggers onToggleSummaryMode when the summary mode toggle is clicked', () => {
     const onToggleSummaryMode = vi.fn();
     const { container, unmount } = render(
-      createElement(CanvasZoomControls, { ...defaultProps, onToggleSummaryMode }),
+      createElement(CanvasToolbar, { ...defaultProps, onToggleSummaryMode }),
     );
 
     const summaryToggleBtn = container.querySelector('.canvas-view-toggle');
@@ -205,7 +205,7 @@ describe('CanvasZoomControls', () => {
     const onLevelChange = vi.fn();
     const onToggleTopicHierarchy = vi.fn();
     const { container, unmount } = render(
-      createElement(CanvasZoomControls, {
+      createElement(CanvasToolbar, {
         ...defaultProps,
         showTopicHierarchy: true,
         onLevelChange,
@@ -233,7 +233,7 @@ describe('CanvasZoomControls', () => {
   });
 
   it('shows the summary-mode toggle by default', () => {
-    const { container, unmount } = render(createElement(CanvasZoomControls, defaultProps));
+    const { container, unmount } = render(createElement(CanvasToolbar, defaultProps));
     expect(
       Array.from(container.querySelectorAll('.canvas-view-toggle')).some(
         (button) => button.textContent === 'S',
@@ -245,7 +245,7 @@ describe('CanvasZoomControls', () => {
   it('hides the summary-mode toggle when summaryModeAvailable is false', () => {
     const onToggleSummaryMode = vi.fn();
     const { container, unmount } = render(
-      createElement(CanvasZoomControls, {
+      createElement(CanvasToolbar, {
         ...defaultProps,
         summaryModeAvailable: false,
         onToggleSummaryMode,
@@ -263,7 +263,7 @@ describe('CanvasZoomControls', () => {
   it('toggles article chat', () => {
     const onToggleChat = vi.fn();
     const { container, unmount } = render(
-      createElement(CanvasZoomControls, { ...defaultProps, onToggleChat, showChat: true }),
+      createElement(CanvasToolbar, { ...defaultProps, onToggleChat, showChat: true }),
     );
     const chatButton = container.querySelector('.canvas-chat-toggle');
     expect(chatButton.textContent).toBe('C');

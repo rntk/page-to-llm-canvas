@@ -11,7 +11,7 @@ import {
 } from '../domain/topicCards.js';
 import CanvasTopicHierarchyRail from './components/CanvasTopicHierarchyRail.jsx';
 import CanvasSummaryView from './components/CanvasSummaryView.jsx';
-import CanvasZoomControls from './components/CanvasZoomControls.jsx';
+import CanvasToolbar from './components/CanvasToolbar.jsx';
 import ArticleHtml from './components/ArticleHtml.jsx';
 import { useCanvasTransform } from './hooks/useCanvasTransform.js';
 import { clampScale } from '../utils/canvasMath.js';
@@ -418,7 +418,7 @@ function CanvasApp({ initialKey, record, onClose }) {
             </div>
           </div>
 
-          <CanvasZoomControls
+          <CanvasToolbar
             onClose={onClose}
             onNavigate={handleNavigate}
             onZoomIn={handleZoomIn}
