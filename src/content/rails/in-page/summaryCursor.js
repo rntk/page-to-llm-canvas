@@ -19,11 +19,23 @@ export function computeSummaryCursorState({
     Math.round(containerTop + containerHeight * SUMMARY_CURSOR_VIEWPORT_RATIO),
   );
   const relativeY = isWindowScroll ? cursorTop - bodyTop : scrollTop + cursorTop - bodyTop;
-  const matching = currentCards
-    .filter((card) => relativeY >= card.box.top && relativeY <= card.box.top + card.box.height)
-    .sort((a, b) => a.box.height - b.box.height || a.box.top - b.box.top);
 
   // `relativeY` is the cursor's position in card-box space; callers use it to
   // order cards around the cursor even when it falls in a gap between boxes.
-  return { cursorTop, activeCardId: matching[0]?.id || null, relativeY };
+  // Scan once for the smallest (height, top) match instead of sorting the
+  // whole matching set, since only the first item is ever needed.
+  let best = null;
+  for (const card of currentCards) {
+    const { top, height } = card.box;
+    if (relativeY < top || relativeY > top + height) continue;
+    if (
+      best === null ||
+      height < best.box.height ||
+      (height === best.box.height && top < best.box.top)
+    ) {
+      best = card;
+    }
+  }
+
+  return { cursorTop, activeCardId: best?.id || null, relativeY };
 }
