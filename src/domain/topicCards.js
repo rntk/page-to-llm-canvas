@@ -112,8 +112,12 @@ function getMeasuredRunLayout(sentenceRun, sentenceMetrics) {
     .filter(Boolean);
   if (metrics.length === 0) return null;
 
-  const top = Math.min(...metrics.map((metric) => metric.top));
-  const bottom = Math.max(...metrics.map((metric) => metric.bottom));
+  let top = Infinity;
+  let bottom = -Infinity;
+  for (const metric of metrics) {
+    top = Math.min(top, metric.top);
+    bottom = Math.max(bottom, metric.bottom);
+  }
   return {
     top,
     height: Math.max(CARD_HEIGHT, bottom - top),
@@ -362,8 +366,12 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
         .filter(Boolean);
       if (childLayouts.length === 0) return;
 
-      const top = Math.min(...childLayouts.map((layout) => layout.top));
-      const bottom = Math.max(...childLayouts.map((layout) => layout.top + layout.height));
+      let top = Infinity;
+      let bottom = -Infinity;
+      for (const childLayout of childLayouts) {
+        top = Math.min(top, childLayout.top);
+        bottom = Math.max(bottom, childLayout.top + childLayout.height);
+      }
       layoutByRunKey.set(entry.runKey, {
         top,
         height: Math.max(CARD_HEIGHT, bottom - top),
@@ -384,8 +392,10 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
         height: CARD_HEIGHT,
       };
       const layout = measuredLayout || fallbackLayout;
-      const startSentence = run.length ? Math.min(...run) : 0;
-      const endSentence = run.length ? Math.max(...run) : 0;
+      // splitSentenceRuns returns ascending, contiguous runs, so their bounds
+      // are available directly without spreading a potentially long array.
+      const startSentence = run.length ? run[0] : 0;
+      const endSentence = run.length ? run[run.length - 1] : 0;
 
       cards.push({
         key: `${node.fullPath}#${node.depth}#${runIndex}`,
