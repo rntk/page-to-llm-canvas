@@ -116,6 +116,20 @@ export default function HierarchyApp({
     [roots],
   );
 
+  const handleTopicClick = useCallback(
+    (entry) => {
+      const sentenceNumbers = getSentencesForNode(entry);
+      onNavigateToSentences({
+        key: initialKey,
+        rail: isYouTube ? 'youtube' : 'page',
+        sentenceNumbers,
+        level: entry.node.depth,
+        topicPath: entry.node.fullPath,
+      });
+    },
+    [onNavigateToSentences, initialKey, isYouTube],
+  );
+
   const handleToggleCollapse = useCallback((fullPath) => {
     setCollapsedPaths((prev) => {
       const next = new Set(prev);
@@ -185,16 +199,7 @@ export default function HierarchyApp({
         onToggleCollapse={handleToggleCollapse}
         sourceUrl={record?.sourceUrl}
         sentences={record?.sentences}
-        onTopicClick={(entry) => {
-          const sentenceNumbers = getSentencesForNode(entry);
-          onNavigateToSentences({
-            key: initialKey,
-            rail: isYouTube ? 'youtube' : 'page',
-            sentenceNumbers,
-            level: entry.node.depth,
-            topicPath: entry.node.fullPath,
-          });
-        }}
+        onTopicClick={handleTopicClick}
         onSummaryClick={handleSummaryClick}
       />
     );
