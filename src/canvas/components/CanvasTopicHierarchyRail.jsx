@@ -8,7 +8,6 @@ import {
   getSummaryFontSizes,
   getTitleLineBudget,
 } from '../../utils/denseCardLayout.js';
-import { getSummaryAnchorTitleFontSize } from '../../domain/topicCards.js';
 import { getYouTubeTimestampLink, getYouTubeVideoId } from '../../utils/youtubeTimestamp.js';
 import YouTubeTimestampButton from '../../components/YouTubeTimestampButton.jsx';
 
@@ -263,14 +262,14 @@ function CanvasTopicHierarchyRail({
   );
   const hasCurrentTopicSummary = Boolean(currentTopicSummary);
   const summaryTop = summaryAnchorCard ? summaryAnchorCard.top : 0;
-  // Zoom-only, deliberately NOT derived from `summaryAnchorCard`: the anchor's
-  // titleFontSize is capped to its own (possibly compacted) card height, which
-  // made the floating summary render at a different size — sometimes too small
-  // to read — depending on which topic it described at one and the same zoom
-  // level. See getSummaryAnchorTitleFontSize.
+  // Follow the matched topic card's already zoom-adjusted title size. This keeps
+  // the floating summary in the same visual scale as its rail anchor, including
+  // the height cap applied to dense topic cards. Deriving this from `scale`
+  // alone lets the summary keep growing after the topic title has stopped and
+  // makes the summary look permanently oversized at low canvas scales.
   const summaryFontSizes = React.useMemo(
-    () => getSummaryFontSizes({ titleFontSize: getSummaryAnchorTitleFontSize(scale) }),
-    [scale],
+    () => getSummaryFontSizes(summaryAnchorCard),
+    [summaryAnchorCard],
   );
   const isYouTube = React.useMemo(() => Boolean(getYouTubeVideoId(sourceUrl)), [sourceUrl]);
   const summaryYouTubeLink = React.useMemo(

@@ -278,11 +278,13 @@ describe('CanvasTopicHierarchyRail', () => {
     unmount();
   });
 
-  it('scales the current-topic summary card fonts from the canvas zoom scale', () => {
+  it('scales the current-topic summary card fonts with its topic-card title', () => {
     const { container, unmount } = render(
       createElement(CanvasTopicHierarchyRail, {
         ...defaultProps,
-        scale: 0.5,
+        topicCards: defaultProps.topicCards.map((card) =>
+          card.fullPath === 'Topic A > Sub B' ? { ...card, height: 120, titleFontSize: 24 } : card,
+        ),
         currentTopicSummary: {
           path: 'Topic A > Sub B',
           text: 'A short summary of Sub B.',
@@ -290,15 +292,15 @@ describe('CanvasTopicHierarchyRail', () => {
       }),
     );
 
-    // scale 0.5 -> multiplier 1.25 / 0.5 - 0.25 = 2.25
+    // The topic title is 2x the 12px base, so every summary metric is 2x too.
     const summary = container.querySelector('.canvas-topic-current-summary');
-    expect(summary.style.getPropertyValue('--current-summary-kicker-font-size')).toBe('22.5px');
-    expect(summary.style.getPropertyValue('--current-summary-title-font-size')).toBe('36px');
-    expect(summary.style.getPropertyValue('--current-summary-text-font-size')).toBe('31.5px');
+    expect(summary.style.getPropertyValue('--current-summary-kicker-font-size')).toBe('20px');
+    expect(summary.style.getPropertyValue('--current-summary-title-font-size')).toBe('32px');
+    expect(summary.style.getPropertyValue('--current-summary-text-font-size')).toBe('28px');
     unmount();
   });
 
-  it('keeps the summary card fonts identical for anchor cards of different sizes', () => {
+  it('keeps the summary card capped with a dense topic-card title', () => {
     const renderForAnchor = (anchorOverrides) => {
       const { container, unmount } = render(
         createElement(CanvasTopicHierarchyRail, {
@@ -323,11 +325,12 @@ describe('CanvasTopicHierarchyRail', () => {
       return fonts;
     };
 
-    // A short, crowded card used to cap the summary's fonts far below a tall
-    // card's at the same zoom, making some summaries unreadable.
-    expect(renderForAnchor({ height: 56, titleFontSize: 20 })).toEqual(
-      renderForAnchor({ height: 220, titleFontSize: 40 }),
-    );
+    const denseFonts = renderForAnchor({ height: 56, titleFontSize: 20 });
+    const tallFonts = renderForAnchor({ height: 220, titleFontSize: 40 });
+
+    expect(Number.parseFloat(denseFonts[1])).toBeCloseTo(16 * (20 / 12));
+    expect(Number.parseFloat(tallFonts[1])).toBeCloseTo(16 * (40 / 12));
+    expect(Number.parseFloat(denseFonts[1])).toBeLessThan(Number.parseFloat(tallFonts[1]));
   });
 
   it('renders compact cards with one larger title line and matching label height', () => {

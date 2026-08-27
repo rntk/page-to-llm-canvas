@@ -9,7 +9,6 @@ import {
   getZoomAdjustedCardWidth,
   getZoomAdjustedSummaryCardWidth,
   getTopicTitleFontSize,
-  getSummaryAnchorTitleFontSize,
   buildTopicCards,
   resolveColumnOverlaps,
   patchTopicCardsFromSummaryMetrics,
@@ -123,25 +122,6 @@ describe('getZoomAdjustedSummaryCardWidth', () => {
 
   it('returns SUMMARY_CARD_WIDTH when zoomed in', () => {
     expect(getZoomAdjustedSummaryCardWidth(2)).toBe(SUMMARY_CARD_WIDTH);
-  });
-});
-
-describe('getSummaryAnchorTitleFontSize', () => {
-  it('returns the base title size at scale 1', () => {
-    expect(getSummaryAnchorTitleFontSize(1)).toBe(12);
-  });
-
-  it('grows when zoomed out', () => {
-    expect(getSummaryAnchorTitleFontSize(0.5)).toBe(27);
-  });
-
-  it('does not grow past the point where the summary card stops widening', () => {
-    const maxMultiplier = SUMMARY_CARD_MAX_WIDTH / SUMMARY_CARD_WIDTH;
-    expect(getSummaryAnchorTitleFontSize(0.1)).toBe(12 * maxMultiplier);
-  });
-
-  it('falls back to the base size for a non-finite scale', () => {
-    expect(getSummaryAnchorTitleFontSize(NaN)).toBe(12);
   });
 });
 
