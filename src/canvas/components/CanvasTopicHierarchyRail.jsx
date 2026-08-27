@@ -123,6 +123,16 @@ const TopicCard = React.memo(function TopicCard({
 /**
  * @param {object} props
  * @param {boolean} props.show
+ */
+function CanvasTopicHierarchyRail({ show, ...props }) {
+  // The rail stays in App's tree so it can be shown immediately, but its card
+  // layout is expensive. Do not mount the hook-heavy body until it is visible.
+  if (!show) return null;
+  return <CanvasTopicHierarchyRailBody {...props} />;
+}
+
+/**
+ * @param {object} props
  * @param {number} props.selectedLevel
  * @param {Array<CanvasTopicCard>} props.topicCards
  * @param {number} props.railWidth
@@ -142,8 +152,7 @@ const TopicCard = React.memo(function TopicCard({
  * @param {string} [props.sourceUrl]
  * @param {number} [props.scale] canvas zoom scale; drives the summary card fonts
  */
-function CanvasTopicHierarchyRail({
-  show,
+const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRailBody({
   selectedLevel,
   topicCards,
   railWidth,
@@ -306,7 +315,7 @@ function CanvasTopicHierarchyRail({
     // A missing anchor can occur briefly while the card list is changing. Keep
     // the existing summary visible until there is a real canvas/card pair to
     // measure, rather than flashing it out on a transient render.
-    if (!show || !summaryAnchorCard || !anchor || !canvasArea) {
+    if (!summaryAnchorCard || !anchor || !canvasArea) {
       setIsSummaryAnchorInView(true);
       return undefined;
     }
@@ -347,7 +356,7 @@ function CanvasTopicHierarchyRail({
       resizeObserver?.disconnect();
       window.removeEventListener('resize', scheduleVisibilityUpdate);
     };
-  }, [show, summaryAnchorCard]);
+  }, [summaryAnchorCard]);
 
   React.useLayoutEffect(() => {
     const el = summaryRef.current;
@@ -365,7 +374,7 @@ function CanvasTopicHierarchyRail({
   ]);
 
   React.useEffect(() => {
-    if (!show || !onCancelTopicSelection || (!selectedTopic && !hasCurrentTopicSummary)) {
+    if (!onCancelTopicSelection || (!selectedTopic && !hasCurrentTopicSummary)) {
       return undefined;
     }
 
@@ -377,9 +386,7 @@ function CanvasTopicHierarchyRail({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [show, selectedTopic, hasCurrentTopicSummary, onCancelTopicSelection]);
-
-  if (!show) return null;
+  }, [selectedTopic, hasCurrentTopicSummary, onCancelTopicSelection]);
 
   return (
     <>
@@ -469,6 +476,6 @@ function CanvasTopicHierarchyRail({
       </aside>
     </>
   );
-}
+});
 
-export default React.memo(CanvasTopicHierarchyRail);
+export default CanvasTopicHierarchyRail;

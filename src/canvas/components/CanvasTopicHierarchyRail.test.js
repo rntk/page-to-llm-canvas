@@ -3,6 +3,22 @@ import { describe, it, expect, vi } from 'vitest';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
+
+const layoutMocks = vi.hoisted(() => ({
+  getAdjustedHierarchyCards: vi.fn(),
+}));
+
+vi.mock('../../utils/denseCardLayout.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    getAdjustedHierarchyCards: (...args) => {
+      layoutMocks.getAdjustedHierarchyCards(...args);
+      return actual.getAdjustedHierarchyCards(...args);
+    },
+  };
+});
+
 import CanvasTopicHierarchyRail from './CanvasTopicHierarchyRail.jsx';
 
 function render(element) {
@@ -65,11 +81,50 @@ describe('CanvasTopicHierarchyRail', () => {
     onTopicClick: vi.fn(),
   };
 
-  it('returns null when show is false', () => {
-    const { container, unmount } = render(
+  it('returns null without running the card layout when show is false', () => {
+    layoutMocks.getAdjustedHierarchyCards.mockClear();
+    const { container, rerender, unmount } = render(
       createElement(CanvasTopicHierarchyRail, { ...defaultProps, show: false }),
     );
     expect(container.firstChild).toBeNull();
+    expect(layoutMocks.getAdjustedHierarchyCards).not.toHaveBeenCalled();
+
+    rerender(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        show: false,
+        topicCards: [...defaultProps.topicCards, { ...defaultProps.topicCards[0], key: 'card3' }],
+      }),
+    );
+    expect(layoutMocks.getAdjustedHierarchyCards).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('restores cards and the current-topic summary after a hide-show cycle', () => {
+    const props = {
+      ...defaultProps,
+      currentTopicSummary: {
+        key: 'card2',
+        path: 'Topic A > Sub B',
+        text: 'A short summary of Sub B.',
+      },
+    };
+    const { container, rerender, unmount } = render(createElement(CanvasTopicHierarchyRail, props));
+
+    expect(container.querySelectorAll('.canvas-topic-hierarchy__card')).toHaveLength(2);
+    expect(container.querySelector('.canvas-topic-current-summary')).not.toBeNull();
+
+    rerender(createElement(CanvasTopicHierarchyRail, { ...props, show: false }));
+    expect(container.firstChild).toBeNull();
+
+    rerender(createElement(CanvasTopicHierarchyRail, props));
+    expect(container.querySelectorAll('.canvas-topic-hierarchy__card')).toHaveLength(2);
+    const summary = container.querySelector('.canvas-topic-current-summary');
+    expect(summary).not.toBeNull();
+    expect(summary.style.getPropertyValue('--current-summary-top')).toBe('80px');
+    expect(summary.querySelector('.canvas-summary-view__card-text').textContent).toBe(
+      'A short summary of Sub B.',
+    );
     unmount();
   });
 
