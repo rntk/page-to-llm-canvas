@@ -185,9 +185,13 @@ describe('InPageRail', () => {
 
   it('offsets topic titles for nested scroll containers', () => {
     const mockScrollContainer = document.createElement('div');
-    Object.defineProperty(mockScrollContainer, 'scrollTop', { value: 120, configurable: true });
+    let scrollTop = 120;
+    Object.defineProperty(mockScrollContainer, 'scrollTop', {
+      get: () => scrollTop,
+      configurable: true,
+    });
 
-    const { container, unmount } = render(
+    const { container, rerender, unmount } = render(
       createElement(InPageRail, {
         ...defaultProps,
         scrollContainer: mockScrollContainer,
@@ -203,6 +207,20 @@ describe('InPageRail', () => {
     expect(firstCard.className).toContain('is-topic');
     expect(firstCard.style.getPropertyValue('--pagetollm-card-top')).toBe('100px');
     expect(firstCard.style.getPropertyValue('--pagetollm-card-height')).toBe('200px');
+
+    scrollTop = 240;
+    act(() => mockScrollContainer.dispatchEvent(new Event('scroll')));
+    expect(railBody.style.transform).toBe('translateY(-240px)');
+    expect(railBody.style.getPropertyValue('--pagetollm-scroll-offset')).toBe('240px');
+
+    rerender(
+      createElement(InPageRail, {
+        ...defaultProps,
+        mode: 'summaries',
+        scrollContainer: mockScrollContainer,
+      }),
+    );
+    expect(railBody.style.transform).toBe('');
 
     unmount();
   });

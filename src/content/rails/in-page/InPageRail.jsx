@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { computeSummaryCursorState, SUMMARY_CURSOR_MIN_TOP } from './summaryCursor.js';
 import ArticleChat from '../../../chat/ArticleChat.jsx';
 import { HierarchicalCardTitle, RailHead } from '../shared/RailControls.jsx';
@@ -337,7 +337,6 @@ export default function InPageRail({
 }) {
   const [frontCardId, setFrontCardId] = useState(null);
   const [chatActionsTarget, setChatActionsTarget] = useState(null);
-  const [scrollOffset, setScrollOffset] = useState(() => getScrollContainerTop(scrollContainer));
   const bodyRef = useRef(null);
   const isSummary = mode === 'summaries';
   const isChat = mode === 'chat';
@@ -345,12 +344,17 @@ export default function InPageRail({
   const normalizedHeight = useMemo(() => `${bodyHeight}px`, [bodyHeight]);
   const isNestedScroll = scrollContainer && scrollContainer !== window;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const target = scrollContainer || window;
     let frameId = 0;
     const updateScrollOffset = () => {
       frameId = 0;
-      setScrollOffset(getScrollContainerTop(scrollContainer));
+      const scrollOffset = getScrollContainerTop(scrollContainer);
+
+      const body = bodyRef.current;
+      if (!body) return;
+      body.style.transform = isNestedScroll && !isSummary ? `translateY(${-scrollOffset}px)` : '';
+      body.style.setProperty('--pagetollm-scroll-offset', `${scrollOffset}px`);
     };
     const scheduleUpdate = () => {
       if (frameId) return;
@@ -363,7 +367,7 @@ export default function InPageRail({
       if (frameId) window.cancelAnimationFrame(frameId);
       target.removeEventListener('scroll', scheduleUpdate);
     };
-  }, [scrollContainer]);
+  }, [isNestedScroll, isSummary, scrollContainer]);
 
   const bringForward = useCallback((card) => setFrontCardId(card.id), []);
 
@@ -392,8 +396,6 @@ export default function InPageRail({
 
   const bodyStyle = {
     height: normalizedHeight,
-    transform: isNestedScroll && !isSummary ? `translateY(${-scrollOffset}px)` : undefined,
-    '--pagetollm-scroll-offset': `${scrollOffset}px`,
   };
 
   return (
