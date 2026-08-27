@@ -159,13 +159,9 @@ function CanvasApp({ initialKey, record, onClose }) {
     allSummaryCards,
   ]);
 
-  const cardWidth = useMemo(() => getZoomAdjustedCardWidth(scale), [scale]);
-  const currentSummaryWidth = useMemo(() => getZoomAdjustedSummaryCardWidth(scale), [scale]);
-
-  const railWidth = useMemo(
-    () => (selectedLevel + 1) * cardWidth + selectedLevel * COLUMN_GAP + RAIL_PADDING * 2,
-    [selectedLevel, cardWidth],
-  );
+  const cardWidth = getZoomAdjustedCardWidth(scale);
+  const currentSummaryWidth = getZoomAdjustedSummaryCardWidth(scale);
+  const railWidth = (selectedLevel + 1) * cardWidth + selectedLevel * COLUMN_GAP + RAIL_PADDING * 2;
 
   // Only `titleFontSize` and `right` are zoom-dependent here; `top`/`height` come
   // straight from the (scale-independent) sentence layout. The rail relies on
