@@ -23,14 +23,31 @@ async function waitFor(assertion, timeout = 1000) {
   throw lastError;
 }
 
+// Panels other than the default (General) tab only mount their subtree once
+// their tab has been activated at least once (see OptionsApp.jsx). Tests that
+// exercise those panels must switch to them first, once the tab strip itself
+// has rendered (createRoot().render() schedules asynchronously).
+async function goToTab(tabId) {
+  await waitFor(() => {
+    expect(document.getElementById(`options-tab-${tabId}`)).not.toBeNull();
+  });
+  document.getElementById(`options-tab-${tabId}`).click();
+}
+
 describe('options main.jsx', () => {
   let sendMessageMock;
   let confirmMock;
   let alertMock;
+  // Every `import('./main.jsx')` below creates a fresh React root. Without
+  // unmounting the previous one, its effects (e.g. OptionsApp's `hashchange`
+  // listener) keep running against later tests and can mount panels or fire
+  // storage calls that belong to a prior, already-finished case.
+  let currentRoot;
 
   beforeEach(() => {
     vi.resetModules();
     window.history.replaceState(null, '', window.location.pathname);
+    currentRoot = null;
 
     const rootEl = document.createElement('div');
     rootEl.id = 'options-root';
@@ -55,6 +72,7 @@ describe('options main.jsx', () => {
   });
 
   afterEach(() => {
+    currentRoot?.unmount();
     const rootEl = document.getElementById('options-root');
     if (rootEl) rootEl.remove();
   });
@@ -69,7 +87,7 @@ describe('options main.jsx', () => {
       if (msg.type === 'listProviders') cb({ ok: true, providers: [], activeId: null });
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
 
     await waitFor(() => {
       expect(document.querySelectorAll('[role="tab"]')).toHaveLength(5);
@@ -103,13 +121,78 @@ describe('options main.jsx', () => {
     });
   });
 
+  // Non-default panels must not do any storage I/O until their tab has been
+  // opened at least once - the whole point of gating them behind
+  // `visitedTabs` in OptionsApp.jsx.
+  it('does not mount non-default panels before their tab is visited', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') cb({ ok: true, items: [] });
+      else if (msg.type === 'listProviders') cb({ ok: true, providers: [], activeId: null });
+    });
+
+    currentRoot = (await import('./main.jsx')).root;
+    await waitFor(() => {
+      expect(document.getElementById('llm-request-timeout-seconds')).not.toBeNull();
+    });
+    // Give any (incorrectly) eagerly-mounted panel's initial-load effect a
+    // chance to fire before asserting it never did.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const sent = sendMessageMock.mock.calls.map(([msg]) => msg.type);
+    expect(sent).not.toContain('listRecords');
+    expect(sent).not.toContain('listProviders');
+    expect(sent).not.toContain('getStorageOverview');
+  });
+
+  // A deep link into a non-default tab must mount that panel on first render
+  // rather than requiring a manual tab switch first.
+  it('mounts the panel for a hash deep link on first render', async () => {
+    window.history.replaceState(null, '', '#records');
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') cb({ ok: true, items: [] });
+      else if (msg.type === 'listProviders') cb({ ok: true, providers: [], activeId: null });
+    });
+
+    currentRoot = (await import('./main.jsx')).root;
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledWith({ type: 'listRecords' }, expect.any(Function));
+    });
+  });
+
+  // Once a panel has been visited it stays mounted (only `hidden` toggles),
+  // so navigating away and back must not repeat its initial storage read.
+  it('does not repeat a panel initial load on returning to an already-visited tab', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') cb({ ok: true, items: [] });
+      else if (msg.type === 'listProviders') cb({ ok: true, providers: [], activeId: null });
+    });
+
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
+    await waitFor(() => {
+      expect(sendMessageMock.mock.calls.filter(([msg]) => msg.type === 'listRecords')).toHaveLength(
+        1,
+      );
+    });
+
+    await goToTab('general');
+    await goToTab('records');
+    // Give a wrongly-remounted panel's effect a chance to fire again.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(sendMessageMock.mock.calls.filter(([msg]) => msg.type === 'listRecords')).toHaveLength(
+      1,
+    );
+  });
+
   it('reveals the provider form only while adding a provider', async () => {
     sendMessageMock.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') cb({ ok: true, items: [] });
       if (msg.type === 'listProviders') cb({ ok: true, providers: [], activeId: null });
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('providers');
     await waitFor(() => {
       expect(document.querySelector('[role="tab"]')).not.toBeNull();
     });
@@ -150,7 +233,8 @@ describe('options main.jsx', () => {
       }
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
 
     await waitFor(() => {
       expect(sendMessageMock).toHaveBeenCalledWith({ type: 'listRecords' }, expect.any(Function));
@@ -205,7 +289,8 @@ describe('options main.jsx', () => {
       }
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
     await waitFor(() => {
       expect(document.querySelector('tbody tr')).not.toBeNull();
     });
@@ -243,7 +328,8 @@ describe('options main.jsx', () => {
       }
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
     await waitFor(() => {
       expect(document.querySelector('.status.cancelled.status-button')).not.toBeNull();
     });
@@ -296,7 +382,8 @@ describe('options main.jsx', () => {
       }
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
     await waitFor(() => {
       expect(document.querySelector('tbody tr')).not.toBeNull();
     });
@@ -365,7 +452,8 @@ describe('options main.jsx', () => {
       }
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
     await waitFor(() => {
       expect(document.querySelectorAll('tbody tr')).toHaveLength(3);
     });
@@ -411,7 +499,8 @@ describe('options main.jsx', () => {
       }
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
     await waitFor(() => {
       expect(document.querySelector('tbody tr')).not.toBeNull();
     });
@@ -476,7 +565,8 @@ describe('options main.jsx', () => {
         }
       });
 
-      await import('./main.jsx');
+      currentRoot = (await import('./main.jsx')).root;
+      await goToTab('records');
       await waitFor(() => {
         expect(document.querySelector('tbody tr')).not.toBeNull();
       });
@@ -533,7 +623,8 @@ describe('options main.jsx', () => {
       }
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
     await waitFor(() => {
       expect(document.querySelector('input[type="file"]')).not.toBeNull();
       const importButton = Array.from(document.querySelectorAll('button')).find(
@@ -609,7 +700,8 @@ describe('options main.jsx', () => {
       }
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
     await waitFor(() => {
       expect(document.querySelector('input[type="file"]')).not.toBeNull();
       expect(document.querySelector('tbody tr')).not.toBeNull();
@@ -639,7 +731,8 @@ describe('options main.jsx', () => {
       else if (msg.type === 'listProviders') cb({ ok: true, providers: [], activeId: null });
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
     await waitFor(() => {
       expect(document.querySelector('#content').textContent).toContain("Couldn't load records");
     });
@@ -681,7 +774,8 @@ describe('options main.jsx', () => {
       }
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
     await waitFor(() => {
       expect(document.querySelector('tbody tr')).not.toBeNull();
     });
@@ -706,7 +800,8 @@ describe('options main.jsx', () => {
       }
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
     await waitFor(() => {
       const empty = document.querySelector('#content .empty');
       expect(empty).not.toBeNull();
@@ -722,7 +817,8 @@ describe('options main.jsx', () => {
       if (msg.type === 'listRecords') cb({ ok: false, error: 'storage read failed' });
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
     await waitFor(() => {
       expect(document.querySelector('#content').textContent).toContain(
         "Couldn't load records: storage read failed",
@@ -756,7 +852,8 @@ describe('options main.jsx', () => {
       else if (msg.type === 'listProviders') cb({ ok: false, error: 'storage read failed' });
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('providers');
     await waitFor(() => {
       const providersPanel = document.getElementById('options-panel-providers');
       expect(providersPanel.textContent).toContain("Couldn't load providers: storage read failed");
@@ -784,7 +881,8 @@ describe('options main.jsx', () => {
       }
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('providers');
     let deleteBtn;
     await waitFor(() => {
       const providerTable = document.querySelectorAll('table')[0];
@@ -824,7 +922,8 @@ describe('options main.jsx', () => {
       }
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
     let deleteAllBtn;
     await waitFor(() => {
       deleteAllBtn = Array.from(document.querySelectorAll('button')).find(
@@ -860,7 +959,8 @@ describe('options main.jsx', () => {
       } else if (msg.type === 'deleteAllExtensionData') cb({ ok: true });
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('data');
     await waitFor(() => {
       expect(document.querySelector('[aria-label="Extension storage categories"]')).not.toBeNull();
     });
@@ -894,7 +994,8 @@ describe('options main.jsx', () => {
       }
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('providers');
     await waitFor(() => {
       const tables = document.querySelectorAll('table');
       expect(tables.length).toBeGreaterThan(0);
@@ -918,7 +1019,8 @@ describe('options main.jsx', () => {
       else if (msg.type === 'saveProvider') cb({ ok: true, provider: msg.provider });
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('providers');
     await waitFor(() => {
       const addButton = Array.from(document.querySelectorAll('button')).find(
         (button) => button.textContent === 'Add provider',
@@ -992,7 +1094,8 @@ describe('options main.jsx', () => {
       } else if (msg.type === 'saveProvider') cb({ ok: true, provider: msg.provider });
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('providers');
     await waitFor(() => {
       const editBtn = Array.from(document.querySelectorAll('button')).find(
         (b) => b.textContent === 'Edit',
@@ -1058,7 +1161,8 @@ describe('options main.jsx', () => {
       } else if (msg.type === 'saveProvider') cb({ ok: true, provider: msg.provider });
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('providers');
     await waitFor(() => {
       const editBtn = Array.from(document.querySelectorAll('button')).find(
         (b) => b.textContent === 'Edit',
@@ -1103,7 +1207,8 @@ describe('options main.jsx', () => {
       } else if (msg.type === 'setActiveProvider') cb({ ok: true });
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('providers');
     await waitFor(() => {
       expect(document.querySelector('input[aria-label="Set Remote active"]')).not.toBeNull();
     });
@@ -1135,7 +1240,8 @@ describe('options main.jsx', () => {
       } else if (msg.type === 'deleteProvider') cb({ ok: true, providers: [], activeId: null });
     });
 
-    await import('./main.jsx');
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('providers');
     await waitFor(() => {
       const tables = document.querySelectorAll('table');
       expect(tables.length).toBeGreaterThan(0);
