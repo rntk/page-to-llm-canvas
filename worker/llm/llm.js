@@ -122,6 +122,14 @@ async function callLLMDirectWithDependencies(options, dependencies) {
     temperature = 0.8,
     signal,
   } = options;
+  // Snapshot settings per call (independent of provider resolution below, so
+  // overlap them instead of chaining after it) so mid-flight options changes
+  // apply only to the next request or retry attempt. This extra handler keeps
+  // an early return below from surfacing an unhandled rejection; it doesn't
+  // suppress the failure, since the later `await settingsPromise` still
+  // throws normally on the paths that reach it.
+  const settingsPromise = Promise.all([getRequestTimeoutSeconds(), getVerboseLogs()]);
+  settingsPromise.catch((e) => logWarn('settings read failed:', getErrorMessage(e)));
   let provider;
   if (options.provider !== undefined) {
     provider = options.provider;
@@ -148,12 +156,7 @@ async function callLLMDirectWithDependencies(options, dependencies) {
   }
 
   const startedAt = clock();
-  // Snapshot settings per call so mid-flight options changes apply only to the
-  // next request or retry attempt.
-  const [requestTimeoutSeconds, verboseLogs] = await Promise.all([
-    getRequestTimeoutSeconds(),
-    getVerboseLogs(),
-  ]);
+  const [requestTimeoutSeconds, verboseLogs] = await settingsPromise;
   const requestTimeoutMs = requestTimeoutSeconds * 1000;
   const timeoutSignal = createRequestTimeoutSignal(requestTimeoutMs, scheduler);
   const mergedSignal = mergeAbortSignals(signal, timeoutSignal.signal);
