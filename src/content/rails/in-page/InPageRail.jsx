@@ -341,7 +341,6 @@ export default function InPageRail({
   const isSummary = mode === 'summaries';
   const isChat = mode === 'chat';
   const showSummariesDisabledNotice = isSummary && summariesDisabled;
-  const normalizedHeight = useMemo(() => `${bodyHeight}px`, [bodyHeight]);
   const isNestedScroll = scrollContainer && scrollContainer !== window;
 
   useLayoutEffect(() => {
@@ -395,7 +394,7 @@ export default function InPageRail({
   );
 
   const bodyStyle = {
-    height: normalizedHeight,
+    height: `${bodyHeight}px`,
   };
 
   return (
