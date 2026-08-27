@@ -134,6 +134,11 @@ export function stripTagsKeepOffsets(html) {
   let lastWasSpace = true; // suppress leading whitespace
   let i = 0;
   const n = html.length;
+  // `html` is immutable throughout the scan. Cache a lower-cased copy on
+  // demand for case-insensitive closing script/style tag searches, avoiding
+  // repeated full-document normalization without penalizing documents that
+  // contain neither tag.
+  let htmlLower = null;
 
   const pushChar = (ch, origPos) => {
     if (isWhitespace(ch)) {
@@ -185,8 +190,8 @@ export function stripTagsKeepOffsets(html) {
           break;
         }
         // Find closing tag (case-insensitive).
-        const restLower = html.toLowerCase();
-        const closeIdx = restLower.indexOf(closing, tagEnd + 1);
+        if (htmlLower === null) htmlLower = html.toLowerCase();
+        const closeIdx = htmlLower.indexOf(closing, tagEnd + 1);
         if (closeIdx < 0) {
           i = n;
           break;
