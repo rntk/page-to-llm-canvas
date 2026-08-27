@@ -21,8 +21,7 @@ describe('selectCurrentTopicSummary', () => {
     expect(
       selectCurrentTopicSummary({
         showSummaryMode: false,
-        activeTopicKey: 'Technology',
-        activeTopicCardKey: 'Technology#0#1',
+        activeTopic: { path: 'Technology', cardKey: 'Technology#0#1' },
         allSummaryCards: cards,
       }),
     ).toBe(cards[1]);
@@ -32,8 +31,7 @@ describe('selectCurrentTopicSummary', () => {
     expect(
       selectCurrentTopicSummary({
         showSummaryMode: false,
-        activeTopicKey: 'Technology',
-        activeTopicCardKey: null,
+        activeTopic: { path: 'Technology', cardKey: null },
         allSummaryCards: cards,
       }),
     ).toBe(cards[0]);
@@ -43,8 +41,7 @@ describe('selectCurrentTopicSummary', () => {
     expect(
       selectCurrentTopicSummary({
         showSummaryMode: true,
-        activeTopicKey: 'Technology',
-        activeTopicCardKey: 'Technology#0#1',
+        activeTopic: { path: 'Technology', cardKey: 'Technology#0#1' },
         allSummaryCards: cards,
       }),
     ).toBeNull();

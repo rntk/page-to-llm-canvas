@@ -21,6 +21,7 @@ import { useSentenceHighlights } from './hooks/useSentenceHighlights.js';
 import { useInitialView } from './hooks/useInitialView.js';
 import { useCanvasRecordViewModel } from './hooks/useCanvasRecordViewModel.js';
 import { useCanvasTopicNavigation } from './hooks/useCanvasTopicNavigation.js';
+import { useSummaryCardRegistry } from './hooks/useSummaryCardRegistry.js';
 import { useTopicSelection } from './hooks/useTopicSelection.js';
 import { selectCurrentTopicSummary } from '../domain/currentTopicSummary.js';
 import ArticleChat from '../chat/ArticleChat.jsx';
@@ -50,27 +51,21 @@ function CanvasApp({ initialKey, record, onClose }) {
   const [showChat, setShowChat] = useState(false);
   const [chatSentenceNumbers, setChatSentenceNumbers] = useState([]);
   const {
-    selectedTopicKey,
-    selectedTopicCardKey,
-    hoveredTopicKey,
-    hoveredTopicCardKey,
+    selectedTarget,
+    hoveredTarget,
+    activeTarget,
     selectedLevel,
-    activeTopicKey,
-    activeTopicCardKey,
-    setSelectedTopicKey,
-    setSelectedTopicCardKey,
-    setHoveredTopicKey,
-    setHoveredTopicCardKey,
     setSelectedLevel,
-    handleTopicEnter,
-    handleTopicLeave,
-    toggleTopicSelection,
-    clearTopicSelection,
+    enterTopic,
+    leaveTopic,
+    toggleTopic,
+    selectTopic,
+    clearSelection,
   } = useTopicSelection();
 
   const articleTextRef = useRef(null);
   const summaryWrapRef = useRef(null);
-  const summaryCardRefs = useRef({});
+  const summaryCardRegistry = useSummaryCardRegistry();
   const pendingChatHighlightLineRef = useRef(null);
 
   const {
@@ -128,7 +123,7 @@ function CanvasApp({ initialKey, record, onClose }) {
   const { sentenceMetrics, summaryMetricsState, refreshSentenceRanges } = useSentenceMetrics({
     articleTextRef,
     summaryWrapRef,
-    summaryCardRefs,
+    summaryCardRegistry,
     // Measurement only reads the live scale — handing it the whole viewport
     // handle would widen its surface for nothing.
     scaleRef,
@@ -138,6 +133,11 @@ function CanvasApp({ initialKey, record, onClose }) {
     summaryCards,
     articleHtml,
   });
+
+  const sourceDocument = useMemo(
+    () => ({ html: articleHtml, sentences, sourceUrl: record?.sourceUrl }),
+    [articleHtml, sentences, record?.sourceUrl],
+  );
 
   const topicCards = useMemo(() => {
     if (showSummaryMode) {
@@ -201,17 +201,16 @@ function CanvasApp({ initialKey, record, onClose }) {
     if (summariesDisabled) return null;
     return selectCurrentTopicSummary({
       showSummaryMode,
-      activeTopicKey,
-      activeTopicCardKey,
+      activeTopic: activeTarget,
       allSummaryCards,
     });
-  }, [summariesDisabled, showSummaryMode, activeTopicKey, activeTopicCardKey, allSummaryCards]);
+  }, [summariesDisabled, showSummaryMode, activeTarget, allSummaryCards]);
 
   useSentenceHighlights({
     showSummaryMode,
     topicSentenceIndex,
-    selectedTopicKey,
-    hoveredTopicKey,
+    selectedTopicKey: selectedTarget?.path ?? null,
+    hoveredTopicKey: hoveredTarget?.path ?? null,
     articleHtml,
     refreshSentenceRanges,
   });
@@ -257,15 +256,13 @@ function CanvasApp({ initialKey, record, onClose }) {
     useCanvasTopicNavigation({
       showSummaryMode,
       setShowSummaryMode,
-      summaryCardRefs,
+      summaryCardRegistry,
       summaryCards,
       summaryMetricsState,
       zoomAdjustedTopicCards,
       selectedLevel,
-      selectedTopicKey,
-      selectedTopicCardKey,
-      setSelectedTopicKey,
-      setSelectedTopicCardKey,
+      selectedTarget,
+      selectTopic,
       refreshSentenceRanges,
       viewport,
       flashFocus,
@@ -274,11 +271,11 @@ function CanvasApp({ initialKey, record, onClose }) {
     });
 
   const handleTopicClick = useCallback(
-    (topicKey, card) => {
-      toggleTopicSelection(topicKey, card);
-      zoomToTopic(topicKey, card);
+    (target, card) => {
+      toggleTopic(target);
+      zoomToTopic(target.path, card);
     },
-    [toggleTopicSelection, zoomToTopic],
+    [toggleTopic, zoomToTopic],
   );
 
   // ── Focus & Keyboard Shortcuts ──────────────────────────────────────────
@@ -335,9 +332,9 @@ function CanvasApp({ initialKey, record, onClose }) {
       if (level === selectedLevel) return;
       captureAnchor(false);
       setSelectedLevel(level);
-      clearTopicSelection();
+      clearSelection();
     },
-    [captureAnchor, clearTopicSelection, selectedLevel, setSelectedLevel],
+    [captureAnchor, clearSelection, selectedLevel, setSelectedLevel],
   );
 
   // ── Opening view: leaf level, zoomed out ~3 clicks, first topic's summary ──
@@ -356,8 +353,7 @@ function CanvasApp({ initialKey, record, onClose }) {
     zoomAdjustedTopicCards,
     summaryMetricsState,
     panToTopic,
-    setSelectedTopicKey,
-    setSelectedTopicCardKey,
+    selectTopic,
   });
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -386,19 +382,15 @@ function CanvasApp({ initialKey, record, onClose }) {
               >
                 {showSummaryMode ? (
                   <CanvasSummaryView
-                    summaryViewCards={summaryCards}
-                    summaryViewActivePath={activeTopicKey}
-                    summaryViewActiveCardKey={activeTopicCardKey}
-                    summaryViewHoveredPath={hoveredTopicKey}
-                    summaryViewHoveredCardKey={hoveredTopicCardKey}
-                    summaryCardRefs={summaryCardRefs}
-                    setHoveredTopicKey={setHoveredTopicKey}
-                    setHoveredTopicCardKey={setHoveredTopicCardKey}
-                    articleTextRef={articleTextRef}
-                    onShowSourceSentences={handleShowSourceSentences}
-                    articleHtml={articleHtml}
-                    sentences={sentences}
-                    sourceUrl={record?.sourceUrl}
+                    cards={summaryCards}
+                    activeTopic={activeTarget}
+                    hoveredTopic={hoveredTarget}
+                    cardRegistry={summaryCardRegistry}
+                    contentRef={articleTextRef}
+                    onTopicEnter={enterTopic}
+                    onTopicLeave={leaveTopic}
+                    onShowSource={handleShowSourceSentences}
+                    source={sourceDocument}
                     previewWidth={currentSummaryWidth}
                   />
                 ) : (
@@ -411,14 +403,12 @@ function CanvasApp({ initialKey, record, onClose }) {
                   topicCards={zoomAdjustedTopicCards}
                   railWidth={railWidth}
                   cardWidth={cardWidth}
-                  activeTopicKey={activeTopicKey}
-                  activeTopicCardKey={activeTopicCardKey}
-                  selectedTopicKey={selectedTopicKey}
-                  selectedTopicCardKey={selectedTopicCardKey}
-                  onTopicEnter={handleTopicEnter}
-                  onTopicLeave={handleTopicLeave}
+                  activeTopic={activeTarget}
+                  selectedTopic={selectedTarget}
+                  onTopicEnter={enterTopic}
+                  onTopicLeave={leaveTopic}
                   onTopicClick={handleTopicClick}
-                  onCancelTopicSelection={clearTopicSelection}
+                  onCancelTopicSelection={clearSelection}
                   currentTopicSummary={currentTopicSummary}
                   sentences={sentences}
                   sourceUrl={record?.sourceUrl}

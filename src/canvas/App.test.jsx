@@ -25,11 +25,10 @@ const mocks = vi.hoisted(() => ({
   skipNextAlignment: vi.fn(),
   refreshSentenceRanges: vi.fn(() => ({ wordEntries: [], sentenceRanges: new Map() })),
   buildSentenceDomRange: vi.fn(),
-  toggleTopicSelection: vi.fn(),
-  clearTopicSelection: vi.fn(),
+  toggleTopic: vi.fn(),
+  clearSelection: vi.fn(),
+  selectTopic: vi.fn(),
   setSelectedLevel: vi.fn(),
-  setSelectedTopicKey: vi.fn(),
-  setSelectedTopicCardKey: vi.fn(),
   zoomToTopic: vi.fn(),
   panToTopic: vi.fn(),
   handleNavigate: vi.fn(),
@@ -135,22 +134,16 @@ vi.mock('./hooks/useCanvasTopicNavigation.js', () => ({
 }));
 vi.mock('./hooks/useTopicSelection.js', () => ({
   useTopicSelection: () => ({
-    selectedTopicKey: 'Topic',
-    selectedTopicCardKey: 'Topic#0',
-    hoveredTopicKey: null,
-    hoveredTopicCardKey: null,
+    selectedTarget: { path: 'Topic', cardKey: 'Topic#0' },
+    hoveredTarget: null,
+    activeTarget: { path: 'Topic', cardKey: 'Topic#0' },
     selectedLevel: 0,
-    activeTopicKey: 'Topic',
-    activeTopicCardKey: 'Topic#0',
-    setSelectedTopicKey: mocks.setSelectedTopicKey,
-    setSelectedTopicCardKey: mocks.setSelectedTopicCardKey,
-    setHoveredTopicKey: vi.fn(),
-    setHoveredTopicCardKey: vi.fn(),
     setSelectedLevel: mocks.setSelectedLevel,
-    handleTopicEnter: vi.fn(),
-    handleTopicLeave: vi.fn(),
-    toggleTopicSelection: mocks.toggleTopicSelection,
-    clearTopicSelection: mocks.clearTopicSelection,
+    enterTopic: vi.fn(),
+    leaveTopic: vi.fn(),
+    toggleTopic: mocks.toggleTopic,
+    selectTopic: mocks.selectTopic,
+    clearSelection: mocks.clearSelection,
   }),
 }));
 vi.mock('../domain/currentTopicSummary.js', () => ({
@@ -264,8 +257,8 @@ describe('App composition behavior', () => {
     expect(mocks.captureAnchor).toHaveBeenCalledWith(false);
     expect(mocks.setSelectedLevel).toHaveBeenCalledWith(1);
 
-    state.childProps.rail.onTopicClick('Topic', { key: 'Topic#0' });
-    expect(mocks.toggleTopicSelection).toHaveBeenCalled();
+    state.childProps.rail.onTopicClick({ path: 'Topic', cardKey: 'Topic#0' }, { key: 'Topic#0' });
+    expect(mocks.toggleTopic).toHaveBeenCalledWith({ path: 'Topic', cardKey: 'Topic#0' });
     expect(mocks.zoomToTopic).toHaveBeenCalled();
 
     const focusCallsBeforeMouseDown = mocks.canvasFocus.mock.calls.length;

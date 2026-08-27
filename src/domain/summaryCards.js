@@ -41,7 +41,7 @@ export function filterSummaryCardsByLevel(allSummaryCards, selectedLevel) {
 }
 
 /**
- * Pure helper that turns record.topic_summary_index into the summaryViewCards[]
+ * Pure helper that turns record.topic_summary_index into summary cards.
  * array consumed by CanvasSummaryView.
  *
  * @param {object} topicSummaryIndex

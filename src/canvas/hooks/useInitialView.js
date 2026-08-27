@@ -64,8 +64,7 @@ function initialViewReducer(phase, action) {
  * @param {Array<unknown>} params.zoomAdjustedTopicCards
  * @param {Map<string, unknown>} params.summaryMetricsState
  * @param {function(unknown): void} params.panToTopic
- * @param {function(?string): void} params.setSelectedTopicKey
- * @param {function(?string): void} params.setSelectedTopicCardKey
+ * @param {function({path: string, cardKey: string}): void} params.selectTopic
  * @returns {void}
  */
 export function useInitialView({
@@ -80,8 +79,7 @@ export function useInitialView({
   zoomAdjustedTopicCards,
   summaryMetricsState,
   panToTopic,
-  setSelectedTopicKey,
-  setSelectedTopicCardKey,
+  selectTopic,
 }) {
   // The opening view only reads the live transform and moves it once, so it takes
   // the imperative viewport handle rather than the render-state scale/translate.
@@ -143,8 +141,10 @@ export function useInitialView({
       summaryMetricsState,
     });
     if (targetCard) {
-      setSelectedTopicKey(getTopicNavigationTopicKey(targetCard, showSummaryMode));
-      setSelectedTopicCardKey(getTopicNavigationCardKey(targetCard));
+      selectTopic({
+        path: getTopicNavigationTopicKey(targetCard, showSummaryMode),
+        cardKey: getTopicNavigationCardKey(targetCard),
+      });
       panToTopic(targetCard);
     }
     dispatch('done');
@@ -156,7 +156,6 @@ export function useInitialView({
     selectedLevel,
     summaryMetricsState,
     panToTopic,
-    setSelectedTopicKey,
-    setSelectedTopicCardKey,
+    selectTopic,
   ]);
 }

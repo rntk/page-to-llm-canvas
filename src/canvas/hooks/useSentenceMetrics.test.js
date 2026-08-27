@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
+import { createCardElementRegistry } from './useSummaryCardRegistry.js';
 import { useSentenceMetrics } from './useSentenceMetrics.js';
 
 const SENTENCES = ['One two three', 'four five six'];
@@ -54,7 +55,7 @@ function setup(overrides = {}) {
   const props = {
     articleTextRef: { current: article },
     summaryWrapRef: { current: wrap },
-    summaryCardRefs: { current: {} },
+    summaryCardRegistry: createCardElementRegistry({ current: {} }),
     scaleRef: { current: 1 },
     showSummaryMode: false,
     isZoomingToTarget: false,
@@ -156,7 +157,9 @@ describe('useSentenceMetrics', () => {
     document.body.appendChild(card);
     const ctx = setup({
       showSummaryMode: true,
-      summaryCardRefs: { current: { 'topic/a': card, 'topic/missing': null } },
+      summaryCardRegistry: createCardElementRegistry({
+        current: { 'topic/a': card, 'topic/missing': null },
+      }),
     });
     ctx.flushRafs();
     const summary = ctx.result.current.summaryMetricsState;

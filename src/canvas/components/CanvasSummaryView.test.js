@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import React, { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
+import { createCardElementRegistry } from '../hooks/useSummaryCardRegistry.js';
 import CanvasSummaryView from './CanvasSummaryView.jsx';
 
 function render(element) {
@@ -19,6 +20,28 @@ function render(element) {
     rerender(newElement) {
       act(() => root.render(newElement));
     },
+  };
+}
+
+// Built on the production factory so the double cannot drift from the real
+// registry's behavior; `elements` just exposes the backing store for assertions.
+function createCardRegistry() {
+  const store = { current: {} };
+  return { ...createCardElementRegistry(store), elements: store.current };
+}
+
+function createProps(overrides = {}) {
+  return {
+    cards: [],
+    activeTopic: null,
+    hoveredTopic: null,
+    cardRegistry: createCardRegistry(),
+    contentRef: React.createRef(),
+    onTopicEnter: vi.fn(),
+    onTopicLeave: vi.fn(),
+    onShowSource: vi.fn(),
+    source: { html: '', sentences: [], sourceUrl: null },
+    ...overrides,
   };
 }
 
@@ -40,48 +63,46 @@ describe('CanvasSummaryView', () => {
     },
   ];
 
-  it('renders empty state when summaryViewCards is empty', () => {
-    const articleTextRef = React.createRef();
+  it('renders empty state when cards is empty', () => {
+    const contentRef = React.createRef();
     const { container, unmount } = render(
-      createElement(CanvasSummaryView, {
-        summaryViewCards: [],
-        summaryViewActivePath: null,
-        summaryCardRefs: { current: {} },
-        setHoveredTopicKey: vi.fn(),
-        articleTextRef,
-        onShowSourceSentences: vi.fn(),
-      }),
+      createElement(CanvasSummaryView, createProps({ contentRef })),
     );
 
     const emptyMsg = container.querySelector('.canvas-summary-view__empty');
     expect(emptyMsg).not.toBeNull();
     expect(emptyMsg.textContent).toContain('No summaries available');
-    expect(articleTextRef.current).not.toBeNull();
+    expect(contentRef.current).not.toBeNull();
 
     unmount();
   });
 
   it('renders summary cards and triggers callbacks', () => {
     vi.useFakeTimers();
-    const setHoveredTopicKey = vi.fn();
-    const onShowSourceSentences = vi.fn();
-    const summaryCardRefs = { current: {} };
-    const articleTextRef = React.createRef();
+    const onTopicEnter = vi.fn();
+    const onTopicLeave = vi.fn();
+    const onShowSource = vi.fn();
+    const cardRegistry = createCardRegistry();
+    const contentRef = React.createRef();
 
     const { container, unmount } = render(
-      createElement(CanvasSummaryView, {
-        summaryViewCards: mockCards,
-        summaryViewActivePath: 'Topic A > Subtopic B',
-        summaryCardRefs,
-        setHoveredTopicKey,
-        articleTextRef,
-        onShowSourceSentences,
-      }),
+      createElement(
+        CanvasSummaryView,
+        createProps({
+          cards: mockCards,
+          activeTopic: { path: 'Topic A > Subtopic B', cardKey: 'card1' },
+          cardRegistry,
+          contentRef,
+          onTopicEnter,
+          onTopicLeave,
+          onShowSource,
+        }),
+      ),
     );
 
-    expect(articleTextRef.current).not.toBeNull();
-    expect(Object.keys(summaryCardRefs.current)).toContain('card1');
-    expect(Object.keys(summaryCardRefs.current)).toContain('card2');
+    expect(contentRef.current).not.toBeNull();
+    expect(Object.keys(cardRegistry.elements)).toContain('card1');
+    expect(Object.keys(cardRegistry.elements)).toContain('card2');
 
     const articles = container.querySelectorAll('.canvas-summary-view__card');
     expect(articles).toHaveLength(2);
@@ -96,21 +117,19 @@ describe('CanvasSummaryView', () => {
     act(() => {
       articles[0].dispatchEvent(mouseOverEvent);
     });
-    expect(setHoveredTopicKey).not.toHaveBeenCalled();
+    expect(onTopicEnter).not.toHaveBeenCalled();
     act(() => {
       vi.advanceTimersByTime(120);
     });
-    expect(setHoveredTopicKey).toHaveBeenCalledWith('Topic A > Subtopic B');
+    expect(onTopicEnter).toHaveBeenCalledWith({ path: 'Topic A > Subtopic B', cardKey: 'card1' });
 
-    // mouse leave trigger: when current hovered equals path
-    setHoveredTopicKey.mockClear();
+    // The parent owns conditional clearing for a leave intent.
+    onTopicLeave.mockClear();
     const mouseOutEvent = new MouseEvent('mouseout', { bubbles: true });
     act(() => {
       articles[0].dispatchEvent(mouseOutEvent);
     });
-    const stateUpdater = setHoveredTopicKey.mock.calls[0][0];
-    expect(stateUpdater('Topic A > Subtopic B')).toBeNull();
-    expect(stateUpdater('Other')).toBe('Other');
+    expect(onTopicLeave).toHaveBeenCalledWith({ path: 'Topic A > Subtopic B', cardKey: 'card1' });
 
     // Show source sentences click and stopPropagation
     const button = container.querySelector('.canvas-summary-view__summary-tooltip-button');
@@ -129,18 +148,17 @@ describe('CanvasSummaryView', () => {
       button.dispatchEvent(onClickEvent);
     });
     expect(onClickEvent.stopPropagation).toHaveBeenCalled();
-    expect(onShowSourceSentences).toHaveBeenCalledWith(mockCards[0]);
+    expect(onShowSource).toHaveBeenCalledWith(mockCards[0]);
 
     unmount();
     // refs should be deleted on unmount
-    expect(summaryCardRefs.current).toEqual({});
+    expect(cardRegistry.elements).toEqual({});
     vi.useRealTimers();
   });
 
   it('renders a floating source preview with highlighted original sentences on hover', () => {
     vi.useFakeTimers();
-    const summaryCardRefs = { current: {} };
-    const articleTextRef = React.createRef();
+    const cardRegistry = createCardRegistry();
     const cards = [
       {
         key: 'card1',
@@ -152,17 +170,17 @@ describe('CanvasSummaryView', () => {
     ];
 
     const { container, unmount } = render(
-      createElement(CanvasSummaryView, {
-        summaryViewCards: cards,
-        summaryViewActivePath: null,
-        summaryCardRefs,
-        setHoveredTopicKey: vi.fn(),
-        articleTextRef,
-        onShowSourceSentences: vi.fn(),
-        articleHtml:
-          '<article><h2>Original heading</h2><p>Alpha sentence. <strong>Beta sentence.</strong> Gamma sentence.</p></article>',
-        sentences: ['Alpha sentence.', 'Beta sentence.', 'Gamma sentence.'],
-      }),
+      createElement(
+        CanvasSummaryView,
+        createProps({
+          cards,
+          cardRegistry,
+          source: {
+            html: '<article><h2>Original heading</h2><p>Alpha sentence. <strong>Beta sentence.</strong> Gamma sentence.</p></article>',
+            sentences: ['Alpha sentence.', 'Beta sentence.', 'Gamma sentence.'],
+          },
+        }),
+      ),
     );
 
     act(() => {
@@ -199,8 +217,7 @@ describe('CanvasSummaryView', () => {
   });
 
   it('renders neighboring topic sentences while highlighting only the active topic', () => {
-    const summaryCardRefs = { current: {} };
-    const articleTextRef = React.createRef();
+    const cardRegistry = createCardRegistry();
     const cards = [
       {
         key: 'card1',
@@ -219,16 +236,18 @@ describe('CanvasSummaryView', () => {
     ];
 
     const { container, unmount } = render(
-      createElement(CanvasSummaryView, {
-        summaryViewCards: cards,
-        summaryViewActivePath: 'Topic B',
-        summaryCardRefs,
-        setHoveredTopicKey: vi.fn(),
-        articleTextRef,
-        onShowSourceSentences: vi.fn(),
-        articleHtml: '<p>Alpha sentence. Beta sentence.</p>',
-        sentences: ['Alpha sentence.', 'Beta sentence.'],
-      }),
+      createElement(
+        CanvasSummaryView,
+        createProps({
+          cards,
+          activeTopic: { path: 'Topic B', cardKey: 'card2' },
+          cardRegistry,
+          source: {
+            html: '<p>Alpha sentence. Beta sentence.</p>',
+            sentences: ['Alpha sentence.', 'Beta sentence.'],
+          },
+        }),
+      ),
     );
 
     const preview = container.querySelector('.canvas-summary-source-preview');
@@ -244,8 +263,7 @@ describe('CanvasSummaryView', () => {
 
   it('includes previous and next summary topics as unhighlighted preview context', () => {
     vi.useFakeTimers();
-    const summaryCardRefs = { current: {} };
-    const articleTextRef = React.createRef();
+    const cardRegistry = createCardRegistry();
     const cards = [
       {
         key: 'card1',
@@ -278,17 +296,17 @@ describe('CanvasSummaryView', () => {
     ];
 
     const { container, unmount } = render(
-      createElement(CanvasSummaryView, {
-        summaryViewCards: cards,
-        summaryViewActivePath: null,
-        summaryCardRefs,
-        setHoveredTopicKey: vi.fn(),
-        articleTextRef,
-        onShowSourceSentences: vi.fn(),
-        articleHtml:
-          '<article><p>Alpha sentence. Beta sentence. Gamma sentence. Delta sentence.</p></article>',
-        sentences: ['Alpha sentence.', 'Beta sentence.', 'Gamma sentence.', 'Delta sentence.'],
-      }),
+      createElement(
+        CanvasSummaryView,
+        createProps({
+          cards,
+          cardRegistry,
+          source: {
+            html: '<article><p>Alpha sentence. Beta sentence. Gamma sentence. Delta sentence.</p></article>',
+            sentences: ['Alpha sentence.', 'Beta sentence.', 'Gamma sentence.', 'Delta sentence.'],
+          },
+        }),
+      ),
     );
 
     act(() => {
@@ -316,8 +334,7 @@ describe('CanvasSummaryView', () => {
   });
 
   it('updates the preview from topic hover even when another summary was clicked', () => {
-    const summaryCardRefs = { current: {} };
-    const articleTextRef = React.createRef();
+    const cardRegistry = createCardRegistry();
     const cards = [
       {
         key: 'card1',
@@ -335,17 +352,14 @@ describe('CanvasSummaryView', () => {
       },
     ];
 
-    const props = {
-      summaryViewCards: cards,
-      summaryViewActivePath: null,
-      summaryViewHoveredPath: null,
-      summaryCardRefs,
-      setHoveredTopicKey: vi.fn(),
-      articleTextRef,
-      onShowSourceSentences: vi.fn(),
-      articleHtml: '<article><p>Alpha sentence. Beta sentence.</p></article>',
-      sentences: ['Alpha sentence.', 'Beta sentence.'],
-    };
+    const props = createProps({
+      cards,
+      cardRegistry,
+      source: {
+        html: '<article><p>Alpha sentence. Beta sentence.</p></article>',
+        sentences: ['Alpha sentence.', 'Beta sentence.'],
+      },
+    });
 
     const { container, rerender, unmount } = render(createElement(CanvasSummaryView, props));
 
@@ -362,8 +376,8 @@ describe('CanvasSummaryView', () => {
     rerender(
       createElement(CanvasSummaryView, {
         ...props,
-        summaryViewActivePath: 'Topic B',
-        summaryViewHoveredPath: 'Topic B',
+        activeTopic: { path: 'Topic B', cardKey: 'card2' },
+        hoveredTopic: { path: 'Topic B', cardKey: 'card2' },
       }),
     );
 
@@ -377,8 +391,7 @@ describe('CanvasSummaryView', () => {
   });
 
   it('does not reuse cached preview HTML after the source article changes', () => {
-    const summaryCardRefs = { current: {} };
-    const articleTextRef = React.createRef();
+    const cardRegistry = createCardRegistry();
     const cards = [
       {
         key: 'card1',
@@ -388,20 +401,16 @@ describe('CanvasSummaryView', () => {
         startSentence: 0,
       },
     ];
-    const props = {
-      summaryViewCards: cards,
-      summaryViewActivePath: 'Topic A',
-      summaryCardRefs,
-      setHoveredTopicKey: vi.fn(),
-      articleTextRef,
-      onShowSourceSentences: vi.fn(),
-      sentences: ['Original sentence.'],
-    };
+    const props = createProps({
+      cards,
+      activeTopic: { path: 'Topic A', cardKey: 'card1' },
+      cardRegistry,
+    });
 
     const { container, rerender, unmount } = render(
       createElement(CanvasSummaryView, {
         ...props,
-        articleHtml: '<p>Original sentence.</p>',
+        source: { html: '<p>Original sentence.</p>', sentences: ['Original sentence.'] },
       }),
     );
 
@@ -412,8 +421,7 @@ describe('CanvasSummaryView', () => {
     rerender(
       createElement(CanvasSummaryView, {
         ...props,
-        articleHtml: '<p>Updated sentence.</p>',
-        sentences: ['Updated sentence.'],
+        source: { html: '<p>Updated sentence.</p>', sentences: ['Updated sentence.'] },
       }),
     );
 
@@ -425,8 +433,6 @@ describe('CanvasSummaryView', () => {
   });
 
   it('renders a YouTube timestamp link on summary cards for YouTube records', () => {
-    const summaryCardRefs = { current: {} };
-    const articleTextRef = React.createRef();
     const cards = [
       {
         key: 'card1',
@@ -438,16 +444,17 @@ describe('CanvasSummaryView', () => {
     ];
 
     const { container, unmount } = render(
-      createElement(CanvasSummaryView, {
-        summaryViewCards: cards,
-        summaryViewActivePath: null,
-        summaryCardRefs,
-        setHoveredTopicKey: vi.fn(),
-        articleTextRef,
-        onShowSourceSentences: vi.fn(),
-        sentences: ['a', 'b', 'c', '0:26 26 seconds Blackwell is a card.'],
-        sourceUrl: 'https://www.youtube.com/watch?v=abc',
-      }),
+      createElement(
+        CanvasSummaryView,
+        createProps({
+          cards,
+          source: {
+            html: '',
+            sentences: ['a', 'b', 'c', '0:26 26 seconds Blackwell is a card.'],
+            sourceUrl: 'https://www.youtube.com/watch?v=abc',
+          },
+        }),
+      ),
     );
 
     const link = container.querySelector('a.canvas-youtube-timestamp');
@@ -459,8 +466,6 @@ describe('CanvasSummaryView', () => {
   });
 
   it('does not render a YouTube link on summary cards for non-YouTube records', () => {
-    const summaryCardRefs = { current: {} };
-    const articleTextRef = React.createRef();
     const cards = [
       {
         key: 'card1',
@@ -472,16 +477,17 @@ describe('CanvasSummaryView', () => {
     ];
 
     const { container, unmount } = render(
-      createElement(CanvasSummaryView, {
-        summaryViewCards: cards,
-        summaryViewActivePath: null,
-        summaryCardRefs,
-        setHoveredTopicKey: vi.fn(),
-        articleTextRef,
-        onShowSourceSentences: vi.fn(),
-        sentences: ['a', 'b', 'c', '0:26 26 seconds Blackwell is a card.'],
-        sourceUrl: 'https://example.com/post',
-      }),
+      createElement(
+        CanvasSummaryView,
+        createProps({
+          cards,
+          source: {
+            html: '',
+            sentences: ['a', 'b', 'c', '0:26 26 seconds Blackwell is a card.'],
+            sourceUrl: 'https://example.com/post',
+          },
+        }),
+      ),
     );
 
     expect(container.querySelector('a.canvas-youtube-timestamp')).toBeNull();

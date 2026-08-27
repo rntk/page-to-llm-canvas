@@ -15,15 +15,13 @@ import { isDescendantPath } from '../../shared/runtime/topicPath.js';
 export function useCanvasTopicNavigation({
   showSummaryMode,
   setShowSummaryMode,
-  summaryCardRefs,
+  summaryCardRegistry,
   summaryCards,
   summaryMetricsState,
   zoomAdjustedTopicCards,
   selectedLevel,
-  selectedTopicKey,
-  selectedTopicCardKey,
-  setSelectedTopicKey,
-  setSelectedTopicCardKey,
+  selectedTarget,
+  selectTopic,
   refreshSentenceRanges,
   viewport,
   flashFocus,
@@ -32,15 +30,17 @@ export function useCanvasTopicNavigation({
 }) {
   const { zoomToTarget, canvasWrapElRef, scaleRef, translateRef, setTransformNow } = viewport;
   const pendingZoomSentenceRef = useRef(null);
+  const selectedTopicKey = selectedTarget?.path ?? null;
+  const selectedTopicCardKey = selectedTarget?.cardKey ?? null;
 
   const zoomToTopic = useCallback(
     (topicKey, card) => {
       if (!topicKey) return;
       if (showSummaryMode) {
         const summaryEl =
-          (card && summaryCardRefs.current[card.key]) ||
-          summaryCardRefs.current[topicKey] ||
-          Object.entries(summaryCardRefs.current).find(([key]) => {
+          (card && summaryCardRegistry.get(card.key)) ||
+          summaryCardRegistry.get(topicKey) ||
+          summaryCardRegistry.entries().find(([key]) => {
             const path = key.split('#')[0];
             return path === topicKey || isDescendantPath(path, topicKey);
           })?.[1];
@@ -56,7 +56,7 @@ export function useCanvasTopicNavigation({
           : null;
       if (domRange) zoomToTarget(domRange.getBoundingClientRect());
     },
-    [showSummaryMode, summaryCardRefs, zoomToTarget, refreshSentenceRanges],
+    [showSummaryMode, summaryCardRegistry, zoomToTarget, refreshSentenceRanges],
   );
 
   useEffect(() => {
@@ -117,8 +117,7 @@ export function useCanvasTopicNavigation({
         return;
       }
       if (!navigation.targetCard) return;
-      setSelectedTopicKey(navigation.topicKey);
-      setSelectedTopicCardKey(navigation.cardKey);
+      selectTopic({ path: navigation.topicKey, cardKey: navigation.cardKey });
       panToTopic(navigation.targetCard);
     },
     [
@@ -128,8 +127,7 @@ export function useCanvasTopicNavigation({
       selectedLevel,
       selectedTopicCardKey,
       selectedTopicKey,
-      setSelectedTopicCardKey,
-      setSelectedTopicKey,
+      selectTopic,
       showSummaryMode,
       summaryCards,
       summaryMetricsState,
@@ -144,11 +142,10 @@ export function useCanvasTopicNavigation({
       // alignment to avoid a glide followed by an immediate correction.
       skipNextAlignment();
       pendingZoomSentenceRef.current = card.startSentence;
-      setSelectedTopicKey(card.path);
-      setSelectedTopicCardKey(card.key);
+      selectTopic({ path: card.path, cardKey: card.key });
       setShowSummaryMode(false);
     },
-    [skipNextAlignment, setSelectedTopicKey, setSelectedTopicCardKey, setShowSummaryMode],
+    [skipNextAlignment, selectTopic, setShowSummaryMode],
   );
 
   return { zoomToTopic, panToTopic, handleNavigate, handleShowSourceSentences };

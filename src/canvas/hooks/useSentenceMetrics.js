@@ -51,7 +51,7 @@ function areSummaryMetricsEqual(prevMetrics, nextMetrics) {
  * @param {object} params
  * @param {object} params.articleTextRef
  * @param {object} params.summaryWrapRef
- * @param {object} params.summaryCardRefs
+ * @param {{get: function(string): ?Element, entries: function(): Array<[string, Element]>, register: function(string, ?Element): void}} params.summaryCardRegistry
  * @param {object} params.scaleRef
  * @param {boolean} params.showSummaryMode
  * @param {boolean} params.isZoomingToTarget
@@ -63,7 +63,7 @@ function areSummaryMetricsEqual(prevMetrics, nextMetrics) {
 export function useSentenceMetrics({
   articleTextRef,
   summaryWrapRef,
-  summaryCardRefs,
+  summaryCardRegistry,
   scaleRef,
   showSummaryMode,
   isZoomingToTarget,
@@ -147,7 +147,7 @@ export function useSentenceMetrics({
     const wrapRect = wrap.getBoundingClientRect();
     const s = scaleRef.current || 1;
     const next = new Map();
-    Object.entries(summaryCardRefs.current).forEach(([path, el]) => {
+    summaryCardRegistry.entries().forEach(([path, el]) => {
       if (!el) return;
       const r = el.getBoundingClientRect();
       next.set(path, {
@@ -158,7 +158,7 @@ export function useSentenceMetrics({
     // The triple-rAF measurement schedule calls this up to 3x per layout pass;
     // bail the render when geometry is unchanged so we don't thrash the rail.
     setSummaryMetricsState((prev) => (areSummaryMetricsEqual(prev, next) ? prev : next));
-  }, [summaryWrapRef, summaryCardRefs, scaleRef, showSummaryMode]);
+  }, [summaryWrapRef, summaryCardRegistry, scaleRef, showSummaryMode]);
 
   // When leaving summary mode (e.g. via "Show source sentences"), ensure we
   // (re)measure sentence positions against the freshly mounted article DOM so

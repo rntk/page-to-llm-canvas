@@ -29,8 +29,7 @@ function makeProps({ viewport: viewportOverrides, ...overrides } = {}) {
     zoomAdjustedTopicCards: [{ fullPath: 'A', levelIndex: 0, startSentence: 1, key: 'kA' }],
     summaryMetricsState: new Map(),
     panToTopic: vi.fn(),
-    setSelectedTopicKey: vi.fn(),
-    setSelectedTopicCardKey: vi.fn(),
+    selectTopic: vi.fn(),
     ...overrides,
   };
 }
@@ -77,8 +76,7 @@ describe('useInitialView', () => {
       y: 40,
     });
     // Phase 3 selected the first topic.
-    expect(props.setSelectedTopicKey).toHaveBeenCalledWith('A');
-    expect(props.setSelectedTopicCardKey).toHaveBeenCalledWith('kA');
+    expect(props.selectTopic).toHaveBeenCalledWith({ path: 'A', cardKey: 'kA' });
     expect(props.panToTopic).toHaveBeenCalledTimes(1);
     ctx.cleanup();
   });
@@ -132,7 +130,7 @@ describe('useInitialView', () => {
     const ctx = setup(props);
     // Phase 2 still zoomed; phase 3 found no target so made no selection.
     expect(props.viewport.setTransformNow).toHaveBeenCalledTimes(1);
-    expect(props.setSelectedTopicKey).not.toHaveBeenCalled();
+    expect(props.selectTopic).not.toHaveBeenCalled();
     expect(props.panToTopic).not.toHaveBeenCalled();
     ctx.cleanup();
   });

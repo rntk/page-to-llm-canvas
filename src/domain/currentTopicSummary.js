@@ -1,13 +1,8 @@
-export function selectCurrentTopicSummary({
-  showSummaryMode,
-  activeTopicKey,
-  activeTopicCardKey,
-  allSummaryCards,
-}) {
-  if (showSummaryMode || !activeTopicKey) return null;
+export function selectCurrentTopicSummary({ showSummaryMode, activeTopic, allSummaryCards }) {
+  if (showSummaryMode || !activeTopic) return null;
   const cards = Array.isArray(allSummaryCards) ? allSummaryCards : [];
   const card =
-    (activeTopicCardKey && cards.find((c) => c.key === activeTopicCardKey)) ||
-    cards.find((c) => c.path === activeTopicKey);
+    (activeTopic.cardKey && cards.find((c) => c.key === activeTopic.cardKey)) ||
+    cards.find((c) => c.path === activeTopic.path);
   return card && card.text ? card : null;
 }

@@ -11,6 +11,7 @@ const sentenceHighlightMocks = vi.hoisted(() => ({
 
 vi.mock('../../highlights/sentenceHighlight.js', () => sentenceHighlightMocks);
 
+import { createCardElementRegistry } from './useSummaryCardRegistry.js';
 import { useCanvasTopicNavigation } from './useCanvasTopicNavigation.js';
 
 const cleanups = [];
@@ -19,15 +20,13 @@ function setup(overrides = {}) {
   const props = {
     showSummaryMode: false,
     setShowSummaryMode: vi.fn(),
-    summaryCardRefs: { current: {} },
+    summaryCardRegistry: createCardElementRegistry({ current: {} }),
     summaryCards: [],
     summaryMetricsState: new Map(),
     zoomAdjustedTopicCards: [],
     selectedLevel: 0,
-    selectedTopicKey: null,
-    selectedTopicCardKey: null,
-    setSelectedTopicKey: vi.fn(),
-    setSelectedTopicCardKey: vi.fn(),
+    selectedTarget: null,
+    selectTopic: vi.fn(),
     refreshSentenceRanges: vi.fn(() => ({ wordEntries: [], sentenceRanges: new Map() })),
     // The transform hook's single imperative handle (stable identity, as in the
     // real hook) rather than six loose members.
@@ -91,7 +90,9 @@ describe('useCanvasTopicNavigation', () => {
 
     const ctx = setup({
       showSummaryMode: true,
-      summaryCardRefs: { current: { 'Parent > Child#0': summaryEl } },
+      summaryCardRegistry: createCardElementRegistry({
+        current: { 'Parent > Child#0': summaryEl },
+      }),
     });
 
     act(() => ctx.result.current.zoomToTopic('Parent'));
@@ -129,16 +130,14 @@ describe('useCanvasTopicNavigation', () => {
     ];
     const ctx = setup({
       zoomAdjustedTopicCards: cards,
-      selectedTopicKey: 'A',
-      selectedTopicCardKey: 'A#0',
+      selectedTarget: { path: 'A', cardKey: 'A#0' },
     });
 
     act(() => ctx.result.current.handleNavigate('left'));
     expect(ctx.props.navigateCanvas).toHaveBeenCalledWith('left');
 
     act(() => ctx.result.current.handleNavigate('next-topic'));
-    expect(ctx.props.setSelectedTopicKey).toHaveBeenCalledWith('B');
-    expect(ctx.props.setSelectedTopicCardKey).toHaveBeenCalledWith('B#0');
+    expect(ctx.props.selectTopic).toHaveBeenCalledWith({ path: 'B', cardKey: 'B#0' });
     expect(ctx.props.viewport.setTransformNow).toHaveBeenCalledWith(2, { x: 42, y: -40 });
     expect(ctx.props.flashFocus).toHaveBeenCalledOnce();
   });
@@ -152,8 +151,7 @@ describe('useCanvasTopicNavigation', () => {
 
     act(() => ctx.result.current.handleShowSourceSentences(card));
     expect(ctx.props.skipNextAlignment).toHaveBeenCalledOnce();
-    expect(ctx.props.setSelectedTopicKey).toHaveBeenCalledWith('Topic');
-    expect(ctx.props.setSelectedTopicCardKey).toHaveBeenCalledWith('Topic#0');
+    expect(ctx.props.selectTopic).toHaveBeenCalledWith({ path: 'Topic', cardKey: 'Topic#0' });
     expect(ctx.props.setShowSummaryMode).toHaveBeenCalledWith(false);
     expect(ctx.props.viewport.zoomToTarget).not.toHaveBeenCalled();
 

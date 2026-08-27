@@ -58,10 +58,8 @@ describe('CanvasTopicHierarchyRail', () => {
     ],
     railWidth: 200,
     cardWidth: 180,
-    activeTopicKey: null,
-    activeTopicCardKey: null,
-    selectedTopicKey: null,
-    selectedTopicCardKey: null,
+    activeTopic: null,
+    selectedTopic: null,
     onTopicEnter: vi.fn(),
     onTopicLeave: vi.fn(),
     onTopicClick: vi.fn(),
@@ -109,8 +107,8 @@ describe('CanvasTopicHierarchyRail', () => {
     const { container, unmount } = render(
       createElement(CanvasTopicHierarchyRail, {
         ...defaultProps,
-        activeTopicKey: 'Topic A',
-        selectedTopicKey: 'Topic A > Sub B',
+        activeTopic: { path: 'Topic A', cardKey: 'card1' },
+        selectedTopic: { path: 'Topic A > Sub B', cardKey: 'card2' },
         onTopicEnter,
         onTopicLeave,
         onTopicClick,
@@ -133,21 +131,21 @@ describe('CanvasTopicHierarchyRail', () => {
     act(() => {
       buttons[1].dispatchEvent(mouseOverEvent);
     });
-    expect(onTopicEnter).toHaveBeenCalledWith('Topic A > Sub B', 'card2');
+    expect(onTopicEnter).toHaveBeenCalledWith({ path: 'Topic A > Sub B', cardKey: 'card2' });
 
     // leave card2
     const mouseOutEvent = new MouseEvent('mouseout', { bubbles: true });
     act(() => {
       buttons[1].dispatchEvent(mouseOutEvent);
     });
-    expect(onTopicLeave).toHaveBeenCalledWith('Topic A > Sub B', 'card2');
+    expect(onTopicLeave).toHaveBeenCalledWith({ path: 'Topic A > Sub B', cardKey: 'card2' });
 
     // click card2
     act(() => {
       buttons[1].click();
     });
     expect(onTopicClick).toHaveBeenCalledWith(
-      'Topic A > Sub B',
+      { path: 'Topic A > Sub B', cardKey: 'card2' },
       expect.objectContaining({ key: 'card2' }),
     );
     unmount();
@@ -175,10 +173,8 @@ describe('CanvasTopicHierarchyRail', () => {
       createElement(CanvasTopicHierarchyRail, {
         ...defaultProps,
         topicCards: duplicatePathCards,
-        activeTopicKey: 'Topic A > Sub B',
-        activeTopicCardKey: 'sub-b-run-2',
-        selectedTopicKey: 'Topic A > Sub B',
-        selectedTopicCardKey: 'sub-b-run-2',
+        activeTopic: { path: 'Topic A > Sub B', cardKey: 'sub-b-run-2' },
+        selectedTopic: { path: 'Topic A > Sub B', cardKey: 'sub-b-run-2' },
       }),
     );
 
@@ -372,7 +368,7 @@ describe('CanvasTopicHierarchyRail', () => {
     const { unmount } = render(
       createElement(CanvasTopicHierarchyRail, {
         ...defaultProps,
-        selectedTopicKey: 'Topic A > Sub B',
+        selectedTopic: { path: 'Topic A > Sub B', cardKey: 'card2' },
         currentTopicSummary: {
           path: 'Topic A > Sub B',
           text: 'A short summary of Sub B.',

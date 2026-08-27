@@ -34,19 +34,14 @@ function getOrBuildPreviewSourceModel(instanceKey, articleHtml, sentences) {
   return model;
 }
 
-function getPreviewHtmlCache(instanceKey, previewSourceModel, summaryViewCards) {
+function getPreviewHtmlCache(instanceKey, previewSourceModel, cards) {
   const cached = previewHtmlCacheByInstance.get(instanceKey);
-  if (cached?.sourceModel === previewSourceModel && cached.summaryViewCards === summaryViewCards) {
+  if (cached?.sourceModel === previewSourceModel && cached.cards === cards) {
     return cached.cache;
   }
-  const next = { sourceModel: previewSourceModel, summaryViewCards, cache: new Map() };
+  const next = { sourceModel: previewSourceModel, cards, cache: new Map() };
   previewHtmlCacheByInstance.set(instanceKey, next);
   return next.cache;
-}
-
-function setSummaryCardRef(summaryCardRefs, cardKey, el) {
-  if (el) summaryCardRefs.current[cardKey] = el;
-  else delete summaryCardRefs.current[cardKey];
 }
 
 const SummaryCard = React.memo(function SummaryCard({
@@ -120,21 +115,18 @@ const SummaryCard = React.memo(function SummaryCard({
 });
 
 function CanvasSummaryView({
-  summaryViewCards,
-  summaryViewActivePath,
-  summaryViewActiveCardKey,
-  summaryViewHoveredPath,
-  summaryViewHoveredCardKey,
-  summaryCardRefs,
-  setHoveredTopicKey,
-  setHoveredTopicCardKey,
-  articleTextRef,
-  onShowSourceSentences,
-  articleHtml,
-  sentences,
-  sourceUrl,
+  cards,
+  activeTopic,
+  hoveredTopic,
+  cardRegistry,
+  contentRef,
+  onTopicEnter,
+  onTopicLeave,
+  onShowSource,
+  source,
   previewWidth,
 }) {
+  const { html: articleHtml, sentences, sourceUrl } = source;
   const [lockedPreviewKey, setLockedPreviewKey] = React.useState(null);
   const [hoveredSummaryKey, setHoveredSummaryKey] = React.useState(null);
   const [previewLeft, setPreviewLeft] = React.useState(0);
@@ -157,64 +149,62 @@ function CanvasSummaryView({
   );
   const summaryCardByKey = React.useMemo(() => {
     const map = new Map();
-    summaryViewCards.forEach((card) => {
+    cards.forEach((card) => {
       map.set(card.key, card);
     });
     return map;
-  }, [summaryViewCards]);
+  }, [cards]);
   const summaryCardIndexByKey = React.useMemo(() => {
     const map = new Map();
-    summaryViewCards.forEach((card, index) => {
+    cards.forEach((card, index) => {
       map.set(card.key, index);
     });
     return map;
-  }, [summaryViewCards]);
+  }, [cards]);
   const summaryCardByPath = React.useMemo(() => {
     const map = new Map();
-    summaryViewCards.forEach((card) => {
+    cards.forEach((card) => {
       map.set(card.path, card);
     });
     return map;
-  }, [summaryViewCards]);
+  }, [cards]);
   const hasActiveSummaryCardKey = Boolean(
-    summaryViewActiveCardKey && summaryCardByKey.has(summaryViewActiveCardKey),
+    activeTopic?.cardKey && summaryCardByKey.has(activeTopic.cardKey),
   );
   const findCardByPath = React.useCallback(
     (path) => {
       if (summaryCardByPath.has(path)) return summaryCardByPath.get(path);
       return (
-        summaryViewCards.find(
+        cards.find(
           (card) => card.path.startsWith(`${path} > `) || path.startsWith(`${card.path} > `),
         ) || null
       );
     },
-    [summaryCardByPath, summaryViewCards],
+    [summaryCardByPath, cards],
   );
   const activePreviewCard = React.useMemo(() => {
-    if (summaryViewHoveredCardKey && summaryCardByKey.has(summaryViewHoveredCardKey)) {
-      return summaryCardByKey.get(summaryViewHoveredCardKey);
+    if (hoveredTopic?.cardKey && summaryCardByKey.has(hoveredTopic.cardKey)) {
+      return summaryCardByKey.get(hoveredTopic.cardKey);
     }
-    if (summaryViewHoveredPath) return findCardByPath(summaryViewHoveredPath);
+    if (hoveredTopic?.path) return findCardByPath(hoveredTopic.path);
     if (hoveredSummaryKey && summaryCardByKey.has(hoveredSummaryKey)) {
       return summaryCardByKey.get(hoveredSummaryKey);
     }
     if (lockedPreviewKey && summaryCardByKey.has(lockedPreviewKey)) {
       return summaryCardByKey.get(lockedPreviewKey);
     }
-    if (summaryViewActiveCardKey && summaryCardByKey.has(summaryViewActiveCardKey)) {
-      return summaryCardByKey.get(summaryViewActiveCardKey);
+    if (activeTopic?.cardKey && summaryCardByKey.has(activeTopic.cardKey)) {
+      return summaryCardByKey.get(activeTopic.cardKey);
     }
-    if (summaryViewActivePath) return findCardByPath(summaryViewActivePath);
+    if (activeTopic?.path) return findCardByPath(activeTopic.path);
     return null;
   }, [
     findCardByPath,
     hoveredSummaryKey,
     lockedPreviewKey,
     summaryCardByKey,
-    summaryViewActiveCardKey,
-    summaryViewActivePath,
-    summaryViewHoveredCardKey,
-    summaryViewHoveredPath,
+    activeTopic,
+    hoveredTopic,
   ]);
   const previewCard = activePreviewCard?.sourceSentences?.length ? activePreviewCard : null;
   const previewCardKey = previewCard?.key || previewCard?.path || null;
@@ -222,12 +212,12 @@ function CanvasSummaryView({
     if (!previewCard) return [];
     const previewCardIndex = summaryCardIndexByKey.get(previewCardKey) ?? -1;
     const contextCards = [
-      summaryViewCards[previewCardIndex - 1],
+      cards[previewCardIndex - 1],
       previewCard,
-      summaryViewCards[previewCardIndex + 1],
+      cards[previewCardIndex + 1],
     ].filter((card) => Array.isArray(card?.sourceSentences) && card.sourceSentences.length > 0);
     return Array.from(new Set(contextCards.flatMap((card) => card.sourceSentences)));
-  }, [previewCard, previewCardKey, summaryCardIndexByKey, summaryViewCards]);
+  }, [previewCard, previewCardKey, summaryCardIndexByKey, cards]);
   // Indexing the whole article (clone + word/sentence ranges) is the heaviest
   // step in this view and is needed only once a source preview is shown. Gate
   // the build behind `previewModelReady` so summary-mode entry isn't blocked by
@@ -275,11 +265,7 @@ function CanvasSummaryView({
   );
   const previewHtml = React.useMemo(() => {
     if (!previewCard || !previewSourceModel) return '';
-    const cache = getPreviewHtmlCache(
-      previewCacheInstanceKey,
-      previewSourceModel,
-      summaryViewCards,
-    );
+    const cache = getPreviewHtmlCache(previewCacheInstanceKey, previewSourceModel, cards);
     const cacheKey = [
       previewCardKey,
       previewSentenceNumbers.join(','),
@@ -309,9 +295,9 @@ function CanvasSummaryView({
     previewCardKey,
     previewSentenceNumbers,
     previewSourceModel,
-    summaryViewCards,
+    cards,
   ]);
-  const previewTop = summaryCardRefs.current[previewCardKey]?.offsetTop || 0;
+  const previewTop = cardRegistry.get(previewCardKey)?.offsetTop || 0;
   const isYouTube = React.useMemo(() => Boolean(getYouTubeVideoId(sourceUrl)), [sourceUrl]);
   // Resolving a YouTube deep-link scans the sentence array; doing it per card
   // inside the render map re-ran it for every card on every hover/zoom. Compute
@@ -319,34 +305,27 @@ function CanvasSummaryView({
   const youTubeLinkByKey = React.useMemo(() => {
     const map = new Map();
     if (!isYouTube) return map;
-    summaryViewCards.forEach((card) => {
+    cards.forEach((card) => {
       map.set(
         card.key,
         getYouTubeTimestampLink({ sourceUrl, sentences, sourceSentences: card.sourceSentences }),
       );
     });
     return map;
-  }, [isYouTube, summaryViewCards, sourceUrl, sentences]);
+  }, [isYouTube, cards, sourceUrl, sentences]);
   const previewYouTubeLink = previewCardKey ? youTubeLinkByKey.get(previewCardKey) || null : null;
 
   const setSummaryViewRefs = React.useCallback(
     (el) => {
       summaryViewRef.current = el;
-      if (articleTextRef && typeof articleTextRef === 'object') {
-        articleTextRef.current = el;
-      } else if (typeof articleTextRef === 'function') {
-        articleTextRef(el);
+      if (contentRef && typeof contentRef === 'object') {
+        contentRef.current = el;
+      } else if (typeof contentRef === 'function') {
+        contentRef(el);
       }
     },
-    [articleTextRef],
+    [contentRef],
   );
-  const registerSummaryCardRef = React.useCallback(
-    (cardKey, el) => {
-      setSummaryCardRef(summaryCardRefs, cardKey, el);
-    },
-    [summaryCardRefs],
-  );
-
   React.useLayoutEffect(() => {
     const el = previewRef.current;
     if (!el) return;
@@ -398,16 +377,11 @@ function CanvasSummaryView({
       clearShowPreviewTimer();
       const key = card.key;
       const hasSource = card.sourceSentences.length > 0;
-      // Defer BOTH the parent hovered-topic key and the local preview key. The
-      // topic key must go through the same timer rather than being set eagerly in
-      // onMouseEnter: activePreviewCard prioritizes summaryViewHoveredPath (driven
-      // by that parent key), so setting it immediately would rebuild the expensive
-      // preview HTML before this debounce fires — defeating it for every card
-      // crossed during a fast sweep. Rail hovers still set the topic key directly
-      // in the parent, so that path stays immediate.
+      // Defer both the parent hover intent and the local preview key. Calling the
+      // parent on entry would make hoveredTopic take precedence before the
+      // debounce, rebuilding preview HTML for every card crossed in a fast sweep.
       const apply = () => {
-        setHoveredTopicKey(card.path);
-        setHoveredTopicCardKey?.(key);
+        onTopicEnter({ path: card.path, cardKey: key });
         if (hasSource) setHoveredSummaryKey(key);
       };
       if (immediate) {
@@ -416,7 +390,7 @@ function CanvasSummaryView({
       }
       showPreviewTimerRef.current = window.setTimeout(apply, SENTENCE_PREVIEW_SHOW_DELAY_MS);
     },
-    [clearHidePreviewTimer, clearShowPreviewTimer, setHoveredTopicCardKey, setHoveredTopicKey],
+    [clearHidePreviewTimer, clearShowPreviewTimer, onTopicEnter],
   );
 
   const schedulePreviewHide = React.useCallback(
@@ -434,12 +408,10 @@ function CanvasSummaryView({
 
   const handleSummaryCardLeave = React.useCallback(
     (card) => {
-      const cardKey = card.key;
-      setHoveredTopicKey((current) => (current === card.path ? null : current));
-      setHoveredTopicCardKey?.((current) => (current === cardKey ? null : current));
+      onTopicLeave({ path: card.path, cardKey: card.key });
       schedulePreviewHide(card);
     },
-    [schedulePreviewHide, setHoveredTopicCardKey, setHoveredTopicKey],
+    [onTopicLeave, schedulePreviewHide],
   );
 
   const handleSummaryCardClick = React.useCallback(
@@ -474,9 +446,9 @@ function CanvasSummaryView({
     [],
   );
 
-  if (summaryViewCards.length === 0) {
+  if (cards.length === 0) {
     return (
-      <div className="canvas-summary-view" ref={articleTextRef}>
+      <div className="canvas-summary-view" ref={contentRef}>
         <p className="canvas-summary-view__empty">No summaries available at this level.</p>
       </div>
     );
@@ -526,11 +498,11 @@ function CanvasSummaryView({
       )}
       <div className="canvas-summary-view" ref={setSummaryViewRefs}>
         <div className="canvas-summary-view__cards">
-          {summaryViewCards.map((card) => {
-            const isActive = summaryViewActivePath === card.path;
+          {cards.map((card) => {
+            const isActive = activeTopic?.path === card.path;
             const cardKey = card.key;
             const isCardActive = hasActiveSummaryCardKey
-              ? summaryViewActiveCardKey === cardKey
+              ? activeTopic.cardKey === cardKey
               : isActive;
             const cardYouTubeLink = youTubeLinkByKey.get(cardKey) || null;
             const isPreviewActive = previewCardKey === cardKey;
@@ -539,7 +511,7 @@ function CanvasSummaryView({
                 key={cardKey}
                 card={card}
                 cardKey={cardKey}
-                registerSummaryCardRef={registerSummaryCardRef}
+                registerSummaryCardRef={cardRegistry.register}
                 isCardActive={isCardActive}
                 isPreviewActive={isPreviewActive}
                 cardYouTubeLink={cardYouTubeLink}
@@ -547,7 +519,7 @@ function CanvasSummaryView({
                 onCardLeave={handleSummaryCardLeave}
                 onCardClick={handleSummaryCardClick}
                 onCardKeyDown={handleSummaryCardKeyDown}
-                onShowSourceSentences={onShowSourceSentences}
+                onShowSourceSentences={onShowSource}
               />
             );
           })}

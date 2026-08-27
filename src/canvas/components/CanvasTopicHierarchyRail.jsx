@@ -89,9 +89,9 @@ const TopicCard = React.memo(function TopicCard({
         }),
         zIndex: isSelected ? 60 : isActive ? 50 : card.zIndex,
       }}
-      onMouseEnter={() => onTopicEnter(card.fullPath, sourceCard.key)}
-      onMouseLeave={() => onTopicLeave(card.fullPath, sourceCard.key)}
-      onClick={() => onTopicClick(card.fullPath, sourceCard)}
+      onMouseEnter={() => onTopicEnter({ path: card.fullPath, cardKey: sourceCard.key })}
+      onMouseLeave={() => onTopicLeave({ path: card.fullPath, cardKey: sourceCard.key })}
+      onClick={() => onTopicClick({ path: card.fullPath, cardKey: sourceCard.key }, sourceCard)}
       title={`${card.fullPath}: sentences ${card.startSentence}-${card.endSentence}`}
     >
       <div className="canvas-topic-hierarchy__card-content">
@@ -128,13 +128,11 @@ const TopicCard = React.memo(function TopicCard({
  * @param {Array<CanvasTopicCard>} props.topicCards
  * @param {number} props.railWidth
  * @param {number} props.cardWidth
- * @param {?string} props.activeTopicKey
- * @param {?string} [props.activeTopicCardKey]
- * @param {?string} props.selectedTopicKey
- * @param {?string} [props.selectedTopicCardKey]
- * @param {function(string, string=): void} props.onTopicEnter
- * @param {function(string, string=): void} props.onTopicLeave
- * @param {function(string, CanvasTopicCard): void} props.onTopicClick
+ * @param {{path: string, cardKey: ?string}|null} props.activeTopic
+ * @param {{path: string, cardKey: ?string}|null} props.selectedTopic
+ * @param {function({path: string, cardKey: ?string}): void} props.onTopicEnter
+ * @param {function({path: string, cardKey: ?string}): void} props.onTopicLeave
+ * @param {function({path: string, cardKey: ?string}, CanvasTopicCard): void} props.onTopicClick
  * @param {?function(): void} props.onCancelTopicSelection
  * @param {?object} props.currentTopicSummary
  * @param {string} [props.currentTopicSummary.key]
@@ -151,10 +149,8 @@ function CanvasTopicHierarchyRail({
   topicCards,
   railWidth,
   cardWidth,
-  activeTopicKey,
-  activeTopicCardKey,
-  selectedTopicKey,
-  selectedTopicCardKey,
+  activeTopic,
+  selectedTopic,
   onTopicEnter,
   onTopicLeave,
   onTopicClick,
@@ -224,10 +220,10 @@ function CanvasTopicHierarchyRail({
     return map;
   }, [hierarchyCards]);
   const hasActiveTopicCardKey = Boolean(
-    activeTopicCardKey && hierarchyCardsByKey.has(activeTopicCardKey),
+    activeTopic?.cardKey && hierarchyCardsByKey.has(activeTopic.cardKey),
   );
   const hasSelectedTopicCardKey = Boolean(
-    selectedTopicCardKey && hierarchyCardsByKey.has(selectedTopicCardKey),
+    selectedTopic?.cardKey && hierarchyCardsByKey.has(selectedTopic.cardKey),
   );
   // Re-apply the zoom-dependent fields onto the cached geometry. `titleFontSize`
   // is the parent's already zoom-scaled base, re-capped to the final (possibly
@@ -370,7 +366,7 @@ function CanvasTopicHierarchyRail({
   ]);
 
   React.useEffect(() => {
-    if (!show || !onCancelTopicSelection || (!selectedTopicKey && !hasCurrentTopicSummary)) {
+    if (!show || !onCancelTopicSelection || (!selectedTopic && !hasCurrentTopicSummary)) {
       return undefined;
     }
 
@@ -382,7 +378,7 @@ function CanvasTopicHierarchyRail({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [show, selectedTopicKey, hasCurrentTopicSummary, onCancelTopicSelection]);
+  }, [show, selectedTopic, hasCurrentTopicSummary, onCancelTopicSelection]);
 
   if (!show) return null;
 
@@ -450,13 +446,13 @@ function CanvasTopicHierarchyRail({
                   card={card}
                   isActive={
                     hasActiveTopicCardKey
-                      ? activeTopicCardKey === card.key
-                      : activeTopicKey === card.fullPath
+                      ? activeTopic.cardKey === card.key
+                      : activeTopic?.path === card.fullPath
                   }
                   isSelected={
                     hasSelectedTopicCardKey
-                      ? selectedTopicCardKey === card.key
-                      : selectedTopicKey === card.fullPath
+                      ? selectedTopic.cardKey === card.key
+                      : selectedTopic?.path === card.fullPath
                   }
                   accentColor={accentColors.get(`${card.fullPath}|${card.depth}`)}
                   isYouTube={isYouTube}
