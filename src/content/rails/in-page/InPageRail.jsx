@@ -8,6 +8,13 @@ const IN_PAGE_RAIL_MODES = [
   ['canvas', 'Canvas view'],
 ];
 
+const SUMMARIES_DISABLED_NOTICE = (
+  <div className="pagetollm-rail-empty">
+    Summaries are disabled. Enable them in the extension settings and reprocess this page to see them
+    here.
+  </div>
+);
+
 function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen }) {
   const style = {
     top: `${card.box.top}px`,
@@ -431,10 +438,7 @@ export default function InPageRail({
             headerActionsTarget={chatActionsTarget}
           />
         ) : showSummariesDisabledNotice ? (
-          <div className="pagetollm-rail-empty">
-            Summaries are disabled. Enable them in the extension settings and reprocess this page to
-            see them here.
-          </div>
+          SUMMARIES_DISABLED_NOTICE
         ) : isSummary ? (
           <SummaryCursorView
             cards={cards}
