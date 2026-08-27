@@ -331,6 +331,8 @@ function CanvasApp({ initialKey, record, onClose }) {
     setShowTopicHierarchy((v) => !v);
   }, [captureAnchor]);
 
+  const handleToggleChat = useCallback(() => setShowChat((value) => !value), []);
+
   const handleLevelChange = useCallback(
     (level) => {
       // Clicking the already-selected level is a no-op; skip so we never strand
@@ -440,7 +442,7 @@ function CanvasApp({ initialKey, record, onClose }) {
             maxLevel={maxLevel}
             onLevelChange={handleLevelChange}
             showChat={showChat}
-            onToggleChat={() => setShowChat((value) => !value)}
+            onToggleChat={handleToggleChat}
           />
           <Activity mode={showChat ? 'visible' : 'hidden'}>
             <div className="canvas-chat-panel">
