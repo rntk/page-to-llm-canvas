@@ -66,10 +66,57 @@ describe('popup refresh integration', () => {
     await waitForText('error', 'Unable to inspect the active tab');
     expect(document.getElementById('error').hidden).toBe(false);
     expect(document.getElementById('records').children).toHaveLength(0);
-    expect(chrome.runtime.sendMessage).not.toHaveBeenCalledWith(
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'listRecords' }),
       expect.any(Function),
     );
+  });
+
+  it('starts tab, record, and provider lookups before any of them resolves', async () => {
+    let resolveTabQuery;
+    chrome.tabs.query.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveTabQuery = resolve;
+        }),
+    );
+
+    await import('./popup.js');
+
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'listRecords' }),
+      expect.any(Function),
+    );
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'listProviders' }),
+      expect.any(Function),
+    );
+
+    resolveTabQuery([{ id: 1, url: 'https://new.example/article' }]);
+    await waitForText('active-host', 'new.example');
+  });
+
+  it('updates the hostname before reporting a records request failure', async () => {
+    chrome.tabs.query.mockResolvedValueOnce([{ id: 1, url: 'https://old.example/article' }]);
+    await import('./popup.js');
+    await waitForText('active-host', 'old.example');
+
+    chrome.tabs.query.mockResolvedValueOnce([{ id: 2, url: 'https://new.example/article' }]);
+    chrome.runtime.sendMessage.mockImplementation((message, callback) => {
+      if (message.type === 'listRecords') {
+        chrome.runtime.lastError = { message: 'Records request failed' };
+        callback();
+        chrome.runtime.lastError = null;
+      } else if (message.type === 'listProviders') {
+        callback({ ok: true, providers: [{ id: 'provider-1' }], activeId: 'provider-1' });
+      }
+    });
+
+    document.getElementById('refresh-btn').click();
+
+    await waitForText('error', 'Records request failed');
+    expect(document.getElementById('active-host').textContent).toBe('new.example');
+    expect(document.getElementById('active-host').title).toBe('https://new.example/article');
   });
 
   it('renders the no-active-tab fallback without treating it as an error', async () => {

@@ -534,7 +534,14 @@ async function refreshRecords({ showLoading = false, forceRender = false } = {})
   if (showLoading) setLoading();
 
   try {
-    const nextActiveTab = await getActiveTab();
+    const tabPromise = getActiveTab();
+    const recordsPromise = sendRuntimeMessage({ type: MSG.listRecords });
+    const providerPromise = loadProviderReadinessState();
+    // Register rejection handlers now: tab lookup can take longer than a
+    // failed background request, and the tab result should still be painted.
+    const resultsPromise = Promise.allSettled([tabPromise, recordsPromise, providerPromise]);
+
+    const nextActiveTab = await tabPromise;
     if (requestId !== refreshRequestId) return;
 
     activeTab = nextActiveTab;
@@ -543,17 +550,19 @@ async function refreshRecords({ showLoading = false, forceRender = false } = {})
     hostEl.textContent = activeHostname || 'Current page';
     hostEl.title = activeTab && activeTab.url ? activeTab.url : '';
 
-    const response = await sendRuntimeMessage({ type: MSG.listRecords });
+    const [, recordsResult, providerResult] = await resultsPromise;
     if (requestId !== refreshRequestId) return;
+    if (recordsResult.status === 'rejected') throw recordsResult.reason;
+    if (providerResult.status === 'rejected') throw providerResult.reason;
 
+    const response = recordsResult.value;
+    const providerState = providerResult.value;
     if (!response || !response.ok || !Array.isArray(response.items)) {
       setError(responseErrorMessage(response, 'Unable to load saved analyses'));
       return;
     }
     const matching = filterRecordsForActivePage(response.items, activePageUrl);
     renderRecords(matching, { force: forceRender });
-    const providerState = await loadProviderReadinessState();
-    if (requestId !== refreshRequestId) return;
     applyProviderReadinessState(providerState);
   } catch (err) {
     if (requestId !== refreshRequestId) return;
