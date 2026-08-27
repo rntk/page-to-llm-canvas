@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { Activity, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createTurnId, runArticleChatTurn } from './articleChat.js';
 import { browserChatRepository } from './chatApi.js';
@@ -180,6 +180,14 @@ export default function ArticleChat({
       operationRef.current = null;
       focusAttemptRef.current += 1;
       onClearHighlightsRef.current?.();
+      // Real unmount: these are no-ops. Deactivated by <Activity> (chat panel
+      // hidden mid-turn): the panel's state survives, so without this the
+      // in-flight turn's own cleanup can never run (its `finally` guard sees
+      // mountedRef.current === false and bails), leaving isLoading stuck true
+      // — composer permanently disabled and Stop unable to find an operation.
+      setIsLoading(false);
+      setPendingQuestion('');
+      setNotice(null);
     };
   }, []);
 
@@ -547,7 +555,7 @@ export default function ArticleChat({
         </div>
       </div>
 
-      {activeTab === 'events' ? (
+      <Activity mode={activeTab === 'events' ? 'visible' : 'hidden'}>
         <div
           id={`${panelId}-events-panel`}
           className="pagetollm-chat-tab-panel"
@@ -565,7 +573,8 @@ export default function ArticleChat({
             getEventTimestamp={getEventTimestamp}
           />
         </div>
-      ) : (
+      </Activity>
+      <Activity mode={activeTab === 'events' ? 'hidden' : 'visible'}>
         <div
           id={`${panelId}-chat-panel`}
           className="pagetollm-chat-tab-panel"
@@ -588,7 +597,7 @@ export default function ArticleChat({
             placeholder={`Ask about this ${subjectLabel}…`}
           />
         </div>
-      )}
+      </Activity>
 
       {notice ? (
         <div

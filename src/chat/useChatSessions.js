@@ -60,6 +60,13 @@ export function useChatSessions({ recordKey, applyEvents, chatRepository }) {
     return () => {
       mountedRef.current = false;
       loadGenerationRef.current += 1;
+      // Real unmount: these are no-ops. Deactivated by <Activity> (chat panel
+      // hidden mid-load or mid-mutation): state survives, so without this a
+      // pending loadChat()/deleteChat() finally (gated on mountedRef.current)
+      // can never clear these flags — controls stay disabled forever after
+      // reopening.
+      setIsLoadingHistory(false);
+      setIsMutatingHistory(false);
     };
   }, []);
 

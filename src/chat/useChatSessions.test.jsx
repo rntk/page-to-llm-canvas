@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import React, { act } from 'react';
+import React, { Activity, act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -338,6 +338,69 @@ describe('useChatSessions', () => {
       expect(await ctx.current.deleteChat('broken-again')).toBe(false);
     });
     expect(ctx.current.error).toBe('Failed to delete chat.');
+  });
+
+  it('resets isMutatingHistory if the panel is hidden mid-delete via Activity', async () => {
+    const removal = deferred();
+    api.list
+      .mockResolvedValueOnce([{ chatId: 'active' }, { chatId: 'other' }])
+      .mockResolvedValue([{ chatId: 'active' }]);
+    api.get.mockResolvedValue(chat('active'));
+    api.remove.mockReturnValueOnce(removal.promise);
+
+    let value;
+    const applyEvents = vi.fn();
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    function Harness() {
+      value = useChatSessions({ recordKey: 'record-1', applyEvents, chatRepository: api });
+      return null;
+    }
+    act(() =>
+      root.render(
+        <Activity mode="visible">
+          <Harness />
+        </Activity>,
+      ),
+    );
+    await flushAsyncWork();
+
+    let deletePromise;
+    act(() => {
+      deletePromise = value.deleteChat('other');
+    });
+    await act(async () => Promise.resolve());
+    expect(value.isMutatingHistory).toBe(true);
+
+    // Toolbar toggle hides the panel (e.g. via <Activity mode="hidden">) while
+    // the delete is still in flight — the hook stays mounted, only hidden.
+    act(() =>
+      root.render(
+        <Activity mode="hidden">
+          <Harness />
+        </Activity>,
+      ),
+    );
+    await flushAsyncWork();
+    expect(value.isMutatingHistory).toBe(false);
+
+    await act(async () => {
+      removal.resolve(undefined);
+      await deletePromise;
+    });
+
+    // Reopen: the flag must not be stuck disabled by the deferred completion.
+    act(() =>
+      root.render(
+        <Activity mode="visible">
+          <Harness />
+        </Activity>,
+      ),
+    );
+    await flushAsyncWork();
+    expect(value.isMutatingHistory).toBe(false);
+
+    act(() => root.unmount());
   });
 
   it('serializes deletes even when an earlier mutation rejects internally', async () => {

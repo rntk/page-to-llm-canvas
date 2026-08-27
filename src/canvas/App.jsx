@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Activity, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRecord } from './hooks/useRecord.js';
 import {
   buildTopicCards,
@@ -446,7 +446,7 @@ function CanvasApp({ initialKey, record, onClose }) {
             showChat={showChat}
             onToggleChat={() => setShowChat((value) => !value)}
           />
-          {showChat ? (
+          <Activity mode={showChat ? 'visible' : 'hidden'}>
             <div className="canvas-chat-panel">
               <ArticleChat
                 recordKey={initialKey}
@@ -456,7 +456,7 @@ function CanvasApp({ initialKey, record, onClose }) {
                 onClose={() => setShowChat(false)}
               />
             </div>
-          ) : null}
+          </Activity>
         </div>
       </main>
     </div>

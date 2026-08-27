@@ -231,7 +231,10 @@ describe('App composition behavior', () => {
     expect(state.childProps.controls.showSummaryMode).toBe(false);
     expect(state.childProps.controls.showTopicHierarchy).toBe(true);
     expect(state.childProps.controls.showChat).toBe(false);
-    expect(state.childProps.chat).toBeUndefined();
+    // ArticleChat stays mounted (via Activity) even while hidden, so its local
+    // state (draft input, tab, scroll position) survives toggling the panel.
+    expect(state.childProps.chat).toBeDefined();
+    expect(state.childProps.chat.recordKey).toBe('record-1');
     expect(mocks.canvasFocus).toHaveBeenCalledWith({ preventScroll: true });
     expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
     expect(state.childProps.article.html).toBe(doneView.articleHtml);

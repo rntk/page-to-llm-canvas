@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import React, { act } from 'react';
+import React, { Activity, act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -223,9 +223,9 @@ describe('ArticleChat persisted history', () => {
     const tabs = tabList.querySelectorAll('[role="tab"]');
     expect(tabs).toHaveLength(2);
     expect(tabs[0].getAttribute('aria-selected')).toBe('true');
-    expect(container.querySelector('[role="tabpanel"]').getAttribute('aria-labelledby')).toBe(
-      tabs[0].id,
-    );
+    const activePanel = container.querySelector(`#${tabs[0].getAttribute('aria-controls')}`);
+    expect(activePanel.getAttribute('aria-labelledby')).toBe(tabs[0].id);
+    expect(activePanel.style.display).not.toBe('none');
 
     const textarea = container.querySelector('.pagetollm-chat-composer textarea');
     const label = container.querySelector('.pagetollm-chat-composer label');
@@ -711,6 +711,48 @@ describe('ArticleChat persisted history', () => {
     expect(view.container.querySelector('.pagetollm-chat-composer button').textContent).toBe(
       'Send',
     );
+    view.unmount();
+  });
+
+  it('resets loading if the panel is hidden mid-turn via Activity, so reopening it is usable', async () => {
+    turnLoop.runArticleChatTurn.mockReturnValue(new Promise(() => {}));
+    const view = render(
+      <Activity mode="visible">
+        <ArticleChat recordKey="record-1" sentences={['One']} onClearHighlights={vi.fn()} />
+      </Activity>,
+    );
+    await flushAsyncWork();
+    typeQuestion(view.container, 'Question while chat is open');
+    await clickSend(view.container);
+    const turnOptions = turnLoop.runArticleChatTurn.mock.calls[0][0];
+    expect(turnOptions.runtime.signal.aborted).toBe(false);
+
+    // Toolbar toggle hides the panel (e.g. via <Activity mode="hidden">) while
+    // the turn is still in flight — the panel stays mounted, only hidden.
+    view.rerender(
+      <Activity mode="hidden">
+        <ArticleChat recordKey="record-1" sentences={['One']} onClearHighlights={vi.fn()} />
+      </Activity>,
+    );
+    await flushAsyncWork();
+    expect(turnOptions.runtime.signal.aborted).toBe(true);
+
+    // Reopen the panel: it must not be stuck disabled in the "Thinking…" state.
+    view.rerender(
+      <Activity mode="visible">
+        <ArticleChat recordKey="record-1" sentences={['One']} onClearHighlights={vi.fn()} />
+      </Activity>,
+    );
+    await flushAsyncWork();
+    expect(view.container.querySelector('.pagetollm-chat-composer textarea').disabled).toBe(
+      false,
+    );
+    expect(view.container.querySelector('.pagetollm-chat-composer button').textContent).toBe(
+      'Send',
+    );
+    expect(view.container.querySelector('.pagetollm-chat-status.is-error')).toBeNull();
+    expect(api.append).not.toHaveBeenCalled();
+
     view.unmount();
   });
 });
