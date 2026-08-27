@@ -319,4 +319,44 @@ describe('HierarchyApp', () => {
 
     unmount();
   });
+
+  it('does not re-register its Escape listener when the summary modal toggles', () => {
+    const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
+    const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener');
+    useRecord.mockReturnValue({
+      record: {
+        status: 'done',
+        topics: [{ name: 'Fruit', sentences: [1] }],
+        topic_summary_index: {
+          Fruit: { runs: [{ text: 'A delicious collection of fruits.' }] },
+        },
+      },
+      error: null,
+    });
+
+    const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
+    const summaryEl = container.querySelector('.th-leaf-summary');
+    const listenerCount = (spy) =>
+      spy.mock.calls.filter(([eventType]) => eventType === 'keydown').length;
+
+    expect(listenerCount(addEventListenerSpy)).toBe(1);
+    expect(listenerCount(removeEventListenerSpy)).toBe(0);
+
+    act(() => summaryEl.click());
+    expect(container.querySelector('.th-summary-modal-overlay')).not.toBeNull();
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect(container.querySelector('.th-summary-modal-overlay')).toBeNull();
+    expect(hostActions.onClose).not.toHaveBeenCalled();
+
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect(hostActions.onClose).toHaveBeenCalledTimes(1);
+
+    expect(listenerCount(addEventListenerSpy)).toBe(1);
+    expect(listenerCount(removeEventListenerSpy)).toBe(0);
+
+    unmount();
+    expect(listenerCount(removeEventListenerSpy)).toBe(1);
+    addEventListenerSpy.mockRestore();
+    removeEventListenerSpy.mockRestore();
+  });
 });

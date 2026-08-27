@@ -30,6 +30,12 @@ export default function HierarchyApp({
   // important because `topics` (and thus maxLevel) load asynchronously.
   const [selectedLevel, setSelectedLevel] = useState(null);
   const [activeSummary, setActiveSummary] = useState(null);
+  // Keep the latest state available to the long-lived Escape listener below.
+  const activeSummaryRef = useRef(null);
+
+  useEffect(() => {
+    activeSummaryRef.current = activeSummary;
+  }, [activeSummary]);
 
   useEffect(() => {
     // The hierarchy runs inside an iframe. Pull focus into the iframe and onto
@@ -49,7 +55,7 @@ export default function HierarchyApp({
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
-        if (activeSummary) {
+        if (activeSummaryRef.current) {
           event.preventDefault();
           setActiveSummary(null);
         } else {
@@ -61,7 +67,7 @@ export default function HierarchyApp({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [activeSummary, onClose]);
+  }, [onClose]);
 
   // Serialize once per record change, not once per render: `record` is stable across
   // UI renders (only storage writes mint a new object), so keying on the reference
