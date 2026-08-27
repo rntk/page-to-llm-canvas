@@ -83,6 +83,7 @@ function CanvasSummaryView({
   onTopicEnter,
   onTopicLeave,
   onShowSource,
+  onZoomToCard,
   source,
   previewWidth,
 }) {
@@ -130,6 +131,18 @@ function CanvasSummaryView({
     return map;
   }, [isYouTube, cards, sourceUrl, sentences]);
   const previewYouTubeLink = previewCardKey ? youTubeLinkByKey.get(previewCardKey) || null : null;
+  // A card click both toggles its source preview (the hook's job) and zooms the
+  // canvas onto the card, mirroring a topic-card click in the rail. The zoom is
+  // composed here rather than inside the hook so it also fires for cards with
+  // no source sentences, which the preview handler ignores. The in-card link and
+  // button stop propagation, so they never trigger a zoom.
+  const handleCardClick = React.useCallback(
+    (card) => {
+      handleSummaryCardClick(card);
+      onZoomToCard?.(card);
+    },
+    [handleSummaryCardClick, onZoomToCard],
+  );
 
   if (cards.length === 0) {
     return (
@@ -175,7 +188,7 @@ function CanvasSummaryView({
                 cardYouTubeLink={cardYouTubeLink}
                 onCardEnter={showPreviewForCard}
                 onCardLeave={handleSummaryCardLeave}
-                onCardClick={handleSummaryCardClick}
+                onCardClick={handleCardClick}
                 onCardKeyDown={handleSummaryCardKeyDown}
                 onShowSourceSentences={onShowSource}
               />

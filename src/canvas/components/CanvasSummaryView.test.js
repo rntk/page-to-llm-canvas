@@ -493,4 +493,41 @@ describe('CanvasSummaryView', () => {
     expect(container.querySelector('a.canvas-youtube-timestamp')).toBeNull();
     unmount();
   });
+
+  it('zooms to a clicked summary card, including cards without source sentences', () => {
+    const onZoomToCard = vi.fn();
+    const onShowSource = vi.fn();
+
+    const { container, unmount } = render(
+      createElement(
+        CanvasSummaryView,
+        createProps({ cards: mockCards, onZoomToCard, onShowSource }),
+      ),
+    );
+
+    const articles = container.querySelectorAll('.canvas-summary-view__card');
+    act(() => {
+      articles[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(onZoomToCard).toHaveBeenCalledWith(mockCards[0]);
+
+    // The preview handler ignores a card with no source sentences; the zoom
+    // must still fire for it.
+    act(() => {
+      articles[1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(onZoomToCard).toHaveBeenCalledWith(mockCards[1]);
+    expect(onZoomToCard).toHaveBeenCalledTimes(2);
+
+    // The in-card action button stops propagation, so it shows the source
+    // without also zooming.
+    const button = container.querySelector('.canvas-summary-view__summary-tooltip-button');
+    act(() => {
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(onShowSource).toHaveBeenCalledWith(mockCards[0]);
+    expect(onZoomToCard).toHaveBeenCalledTimes(2);
+
+    unmount();
+  });
 });

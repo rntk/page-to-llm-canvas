@@ -278,6 +278,16 @@ function CanvasApp({ initialKey, record, onClose }) {
     [toggleTopic, zoomToTopic],
   );
 
+  // Summary cards zoom on click like the rail's topic cards, but without
+  // toggling selection: in summary mode `selectedTarget` feeds the preview's
+  // active card, so selecting here would latch a preview open.
+  const handleSummaryCardZoom = useCallback(
+    (card) => {
+      zoomToTopic(card.path, card);
+    },
+    [zoomToTopic],
+  );
+
   // ── Focus & Keyboard Shortcuts ──────────────────────────────────────────
   // The modal runs inside an iframe. Keyboard listeners on the iframe's
   // window only fire when the iframe itself has focus, so pull focus in as
@@ -390,6 +400,7 @@ function CanvasApp({ initialKey, record, onClose }) {
                     onTopicEnter={enterTopic}
                     onTopicLeave={leaveTopic}
                     onShowSource={handleShowSourceSentences}
+                    onZoomToCard={handleSummaryCardZoom}
                     source={sourceDocument}
                     previewWidth={currentSummaryWidth}
                   />
