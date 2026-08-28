@@ -24,6 +24,29 @@ describe('articleHtml helpers', () => {
       expect(out).not.toContain('javascript:');
     });
 
+    it('drops javascript: URLs hidden behind ignored URL characters', () => {
+      const out = sanitizeArticleHtml(
+        '<a href="jav&#9;ascript:evil()">tabbed</a>' +
+          '<img src="&#1;javascript:evil()">' +
+          '<a xlink:href="java&#10;script:evil()">newline</a>',
+      );
+
+      expect(out).not.toContain('href');
+      expect(out).not.toContain('src');
+    });
+
+    it('unwraps forms and removes javascript: form actions', () => {
+      const out = sanitizeArticleHtml(
+        '<form action="https://attacker.example"><p>article body</p></form>' +
+          '<button formaction="javascript:evil()">submit</button>',
+      );
+
+      expect(out).not.toContain('<form');
+      expect(out).not.toContain('attacker.example');
+      expect(out).not.toContain('formaction');
+      expect(out).toContain('<p>article body</p>');
+    });
+
     it('returns empty string when DOMParser throws', () => {
       const OriginalDOMParser = globalThis.DOMParser;
       vi.stubGlobal(

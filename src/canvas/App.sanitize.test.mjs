@@ -19,7 +19,29 @@ describe('sanitizeArticleHtml', () => {
 
   it('drops javascript: URLs on href/src', () => {
     const out = sanitizeArticleHtml('<a href="javascript:alert(1)">x</a>');
-    expect(out).not.toMatch(/javascript:/i);
+    expect(out).not.toMatch(/href/i);
+  });
+
+  // The scheme check must survive the characters browsers ignore while parsing
+  // a URL. Assert on `href` rather than the literal `javascript:` string: a
+  // surviving attribute serializes with the tab/control byte still embedded,
+  // so a `/javascript:/` assertion would pass even when the attribute leaks.
+  it('drops javascript: URLs obfuscated with tabs and control characters', () => {
+    const out = sanitizeArticleHtml(
+      '<a href="jav&#9;ascript:alert(1)">tab</a>' +
+        '<a href="&#1;javascript:alert(1)">control</a>' +
+        '<a href="java&#10;script:alert(1)">newline</a>',
+    );
+    expect(out).not.toMatch(/href/i);
+  });
+
+  it('unwraps forms and removes form submission attributes', () => {
+    const out = sanitizeArticleHtml(
+      '<form action="https://attacker.example"><p>article body</p></form>' +
+        '<button formaction="javascript:alert(1)">submit</button>',
+    );
+    expect(out).not.toMatch(/<form|attacker\.example|formaction/i);
+    expect(out).toContain('<p>article body</p>');
   });
 
   it('removes embedding/loading tags (iframe, object, embed, link, style, meta)', () => {

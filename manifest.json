@@ -6,7 +6,7 @@
   "permissions": ["storage", "unlimitedStorage", "activeTab", "scripting", "alarms"],
   "host_permissions": ["<all_urls>"],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https: http://localhost:* http://127.0.0.1:*"
+    "extension_pages": "default-src 'self'; script-src 'self'; object-src 'self'; connect-src 'self' https: http://localhost:* http://127.0.0.1:*; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; form-action 'none'; base-uri 'none'; frame-src 'none'"
   },
   "background": {
     "service_worker": "background.js",
