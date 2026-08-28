@@ -17,6 +17,12 @@ function getYouTubeVideoElement(contentDocument) {
   );
 }
 
+// The rail only renders these three modes; anything else (stale storage, a
+// bad message payload) falls back to the default topics view.
+function normalizeYouTubeMode(mode) {
+  return mode === 'summaries' || mode === 'chat' ? mode : 'topics';
+}
+
 const defaultDialogs = {
   alert: (...args) => globalThis.alert(...args),
 };
@@ -63,7 +69,7 @@ export function createYouTubeRailController({
     }
 
     const state = {
-      mode: initialMode === 'summaries' || initialMode === 'chat' ? initialMode : 'topics',
+      mode: normalizeYouTubeMode(initialMode),
       selectedLevel: options && typeof options.level === 'number' ? options.level : 0,
     };
 
@@ -119,7 +125,7 @@ export function createYouTubeRailController({
 
     const handleSelectMode = (mode) => {
       if (isClosed()) return;
-      const next = mode === 'summaries' || mode === 'chat' ? mode : 'topics';
+      const next = normalizeYouTubeMode(mode);
       if (state.mode === next) return;
       state.mode = next;
       railEl.dataset.mode = state.mode;
