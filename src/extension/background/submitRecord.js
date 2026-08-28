@@ -12,7 +12,7 @@ import { sha256Hex } from './summaryResolution.js';
  * supervisor.
  *
  * @param {object} deps
- * @param {{readRecord: Function, writeRecord: Function, findRecordByUrl: Function}} deps.recordRepository
+ * @param {{readRecord: Function, writeRecord: Function, updateRecord: Function, findRecordByUrl: Function}} deps.recordRepository
  * @param {function(): Promise<boolean>} deps.getStoredSummariesDisabled
  * @param {{startPipeline: Function, isActive: Function, createPipelineRunId: Function}} deps.pipelineSupervisor
  * @param {function(): number} [deps.clock]
@@ -27,7 +27,7 @@ export function createSubmitRecord({
   logger = createLogger(),
   hashContent = sha256Hex,
 }) {
-  const { readRecord, writeRecord, findRecordByUrl } = recordRepository;
+  const { readRecord, writeRecord, updateRecord, findRecordByUrl } = recordRepository;
   const backgroundLog = logger.child('background');
 
   /**
@@ -71,46 +71,61 @@ export function createSubmitRecord({
     // orchestrator only ever reads the record, so the decision survives mid-run
     // toggle flips and service-worker restarts (see runPipeline).
     const skipSummaries = await getStoredSummariesDisabled();
-    const rec =
-      existing ||
-      createQueuedRecord({
-        key,
-        sourceUrl: sourceUrl || '',
-        html,
-        selectors,
-        pipelineRunId,
-        skipSummaries,
-        now,
-      });
     if (existing) {
-      rec.pipelineRunId = pipelineRunId;
-      rec.status = PIPELINE_STATUS.PENDING;
-      rec.error = null;
-      rec.progress = { stage: PIPELINE_STAGE.QUEUED, done: 0, total: 0 };
-      rec.updatedAt = now;
-      rec.sourceUrl = sourceUrl || rec.sourceUrl;
-      rec.html = html;
-      rec.processingLog = [];
-      rec.skipSummaries = skipSummaries;
-      // A submission for a non-terminal URL replaces its HTML and therefore
-      // invalidates every checkpoint derived from the previous content. Keep
-      // this in sync with reprocessRecord: retry may otherwise mistake the old
-      // topics/sentences for a checkpoint belonging to this new revision.
-      rec.topics = [];
-      rec.topic_summaries = {};
-      rec.topic_summary_index = {};
-      rec.source_summary_units = {};
-      rec.sentences = [];
-      rec.text = '';
-      rec.summaryErrors = [];
-      rec.forceFinalize = false;
-      rec.acceptedMergeFailurePaths = [];
-      rec.summaryCheckpointContentRevision = null;
-      rec.summaryCheckpointPreferContentLanguage = null;
-      rec.summariesIncomplete = false;
-      if (Array.isArray(selectors)) rec.selectors = selectors;
+      // Reusing a record goes through updateRecord, not writeRecord: the read
+      // above is separated from this write by awaits, so a retry/reprocess/Skip
+      // issued from the options page can take the record over in between. Every
+      // other mutation path guards that with the run-id CAS; writeRecord has
+      // none by design (import must be able to write unconditionally), so the
+      // reuse path borrows updateRecord's guard instead.
+      const patch = {
+        pipelineRunId,
+        status: PIPELINE_STATUS.PENDING,
+        error: null,
+        progress: { stage: PIPELINE_STAGE.QUEUED, done: 0, total: 0 },
+        sourceUrl: sourceUrl || existing.sourceUrl,
+        html,
+        processingLog: [],
+        skipSummaries,
+        // A submission for a non-terminal URL replaces its HTML and therefore
+        // invalidates every checkpoint derived from the previous content. Keep
+        // this in sync with reprocessRecord: retry may otherwise mistake the old
+        // topics/sentences for a checkpoint belonging to this new revision.
+        topics: [],
+        topic_summaries: {},
+        topic_summary_index: {},
+        source_summary_units: {},
+        sentences: [],
+        text: '',
+        summaryErrors: [],
+        forceFinalize: false,
+        acceptedMergeFailurePaths: [],
+        summaryCheckpointContentRevision: null,
+        summaryCheckpointPreferContentLanguage: null,
+        summariesIncomplete: false,
+      };
+      if (Array.isArray(selectors)) patch.selectors = selectors;
+      const updated = await updateRecord(key, patch, {
+        bumpContentRevision: true,
+        expectedPipelineRunId: existing.pipelineRunId,
+      });
+      // Rejected CAS (or a record deleted since the read): another writer owns
+      // this key and is starting its own run, so leave it alone — the same
+      // answer the isActive guard above gives.
+      if (!updated) return { ok: true, key };
+    } else {
+      await writeRecord(
+        createQueuedRecord({
+          key,
+          sourceUrl: sourceUrl || '',
+          html,
+          selectors,
+          pipelineRunId,
+          skipSummaries,
+          now,
+        }),
+      );
     }
-    await writeRecord(rec, { bumpContentRevision: !!existing });
 
     // Start the pipeline in the background; do not await.
     pipelineSupervisor.startPipeline(key).catch((err) => {
