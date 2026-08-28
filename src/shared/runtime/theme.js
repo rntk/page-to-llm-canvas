@@ -7,7 +7,7 @@
 // avoids a flash of the wrong colors for system users on first paint.
 
 import { createLogger } from './log.js';
-import { getLocalItems, setLocalItems, subscribeLocalKey } from './localStore.js';
+import { createStoredSetting, subscribeLocalKey } from './localStore.js';
 
 const log = createLogger();
 
@@ -19,6 +19,14 @@ export const THEME_KEY = 'pagetollm-theme';
 export const THEME_LIGHT = 'light';
 export const THEME_DARK = 'dark';
 export const THEME_SYSTEM = 'system';
+
+// Identity-normalize on purpose: normalizeTheme() needs `allowSystem`, which
+// is per-view, not per-module. Callers normalize; this pair only persists.
+const themeSetting = createStoredSetting({
+  key: THEME_KEY,
+  defaultValue: undefined,
+  normalize: (value) => value,
+});
 
 const DARK_MEDIA_QUERY = '(prefers-color-scheme: dark)';
 
@@ -110,20 +118,11 @@ export function applyTheme(
 }
 
 export function getStoredTheme() {
-  // Stored themes are normalized by the caller, so an unreadable value and an
-  // unset one are the same thing here: undefined.
-  return Promise.resolve()
-    .then(() => getLocalItems(THEME_KEY))
-    .then((items) => (items ? items[THEME_KEY] : undefined))
-    .catch(() => undefined);
+  return themeSetting.read();
 }
 
 export function setStoredTheme(preference) {
-  return Promise.resolve()
-    .then(() => setLocalItems({ [THEME_KEY]: preference }))
-    .catch((error) => {
-      throw error instanceof Error ? error : new Error(String(error));
-    });
+  return themeSetting.write(preference);
 }
 
 /**
