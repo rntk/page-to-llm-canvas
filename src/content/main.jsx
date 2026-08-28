@@ -1,4 +1,5 @@
 import { createContentSurfaceCoordinator } from './surfaceCoordinator.js';
+import { observePageNavigation } from './pageNavigation.js';
 import { browserRuntimeMessenger } from '../utils/runtimeMessages.js';
 
 const runtimeMessenger = {
@@ -26,6 +27,12 @@ const surfaces = createContentSurfaceCoordinator({
     youTubeRail: () => loadContentModule('content-youtube-rail.js'),
     recordFrame: () => loadContentModule('content-record-frame.js'),
   },
+});
+
+observePageNavigation({
+  document,
+  window,
+  onPageChange: () => surfaces.closeActiveSurface(),
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
