@@ -9,7 +9,7 @@ import React, { useEffect, useRef } from 'react';
  * @param {boolean} props.isLoadingHistory
  * @param {string} [props.emptyPrompt]
  */
-export default function ChatMessageList({
+function ChatMessageList({
   messages,
   isLoading,
   isLoadingHistory,
@@ -43,3 +43,5 @@ export default function ChatMessageList({
     </div>
   );
 }
+
+export default React.memo(ChatMessageList);
