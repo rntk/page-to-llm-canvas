@@ -37,7 +37,18 @@
   "options_page": "options.html",
   "web_accessible_resources": [
     {
-      "resources": ["modal.html", "modal.js", "chat.css", "modal.css"],
+      "resources": [
+        "modal.html",
+        "modal.js",
+        "chat.css",
+        "modal.css",
+        "content-selection.js",
+        "content-in-page-rail.js",
+        "content-youtube-rail.js",
+        "content-record-frame.js",
+        "content-chunks/*.js",
+        "content-assets/*"
+      ],
       "matches": ["<all_urls>"]
     }
   ]

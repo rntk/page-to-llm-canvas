@@ -584,7 +584,11 @@ pickBtn.addEventListener('click', async () => {
   try {
     await refreshProviderReadiness();
     if (!providerReady) return;
-    await sendTabMessage(tab.id, { action: 'startSelection' });
+    const response = await sendTabMessage(tab.id, { action: 'startSelection' });
+    if (response && response.status === 'error') {
+      setError(responseErrorMessage(response, 'Unable to start selection'));
+      return;
+    }
     window.close();
   } catch (err) {
     setError('Unable to start selection on this page.');

@@ -89,6 +89,37 @@ function configForEntry({ name, input, emptyOutDir }) {
   });
 }
 
+function configForContentFeatures() {
+  return defineConfig({
+    configFile: false,
+    root,
+    plugins: [react()],
+    build: {
+      outDir: 'dist',
+      emptyOutDir: false,
+      assetsDir: '.',
+      cssCodeSplit: false,
+      cssMinify: false,
+      ...(watch ? { watch: {} } : {}),
+      rollupOptions: {
+        preserveEntrySignatures: 'strict',
+        input: {
+          'content-selection': path.join(root, 'src/content/lazy/selectionSurface.js'),
+          'content-in-page-rail': path.join(root, 'src/content/lazy/inPageRailSurface.js'),
+          'content-youtube-rail': path.join(root, 'src/content/lazy/youTubeRailSurface.js'),
+          'content-record-frame': path.join(root, 'src/content/lazy/recordFrameSurface.js'),
+        },
+        output: {
+          format: 'es',
+          entryFileNames: '[name].js',
+          chunkFileNames: 'content-chunks/[name]-[hash].js',
+          assetFileNames: 'content-assets/[name]-[hash][extname]',
+        },
+      },
+    },
+  });
+}
+
 const entries = [
   {
     name: 'content',
@@ -121,3 +152,6 @@ for (const entry of entries) {
   await build(configForEntry(entry));
   copyExtensionStaticAssets();
 }
+
+await build(configForContentFeatures());
+copyExtensionStaticAssets();

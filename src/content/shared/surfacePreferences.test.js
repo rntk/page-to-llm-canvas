@@ -61,17 +61,12 @@ describe('surfacePreferences', () => {
     expect(readsAtImportTime).toBe(0);
 
     chrome.storage.local.get.mockClear();
-    init();
-    // The reads are dispatched on a microtask (getStoredTheme defers), so flush.
-    await Promise.resolve();
-    await Promise.resolve();
+    await init();
     expect(chrome.storage.local.get).toHaveBeenCalled();
 
     // init() is a one-shot; a second call must not re-read.
     chrome.storage.local.get.mockClear();
-    init();
-    await Promise.resolve();
-    await Promise.resolve();
+    await init();
     expect(chrome.storage.local.get).not.toHaveBeenCalled();
   });
 

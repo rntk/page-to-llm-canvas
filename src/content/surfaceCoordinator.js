@@ -1,124 +1,149 @@
-import { createSelectionController } from './selection/controller.jsx';
-import { createRailSurfaceManager } from './rails/shared/surface.js';
-import { createInPageRailController } from './rails/in-page/controller.jsx';
-import { createYouTubeRailController } from './rails/youtube/controller.jsx';
-import { createRecordFrameManager } from './record-view/iframeManager.js';
-import { browserRuntimeMessenger } from '../utils/runtimeMessages.js';
-
-const defaultRuntimeMessenger = {
-  ...browserRuntimeMessenger,
-  getURL: (path) => globalThis.chrome.runtime.getURL(path),
-  ...(typeof globalThis.chrome?.runtime?.openOptionsPage === 'function'
-    ? { openOptionsPage: () => globalThis.chrome.runtime.openOptionsPage() }
-    : {}),
-};
-const defaultDialogs = {
-  alert: (...args) => globalThis.alert(...args),
-  confirm: (...args) => globalThis.confirm(...args),
-};
-
 /**
  * Coordinates the mutually-exclusive UI surfaces owned by a content script.
+ * Surface implementations are async loaders so the always-injected bundle
+ * does not parse React or surface code until it is requested.
  */
 export function createContentSurfaceCoordinator({
   document,
-  rootFactory,
-  preferences,
-  runtimeMessenger = defaultRuntimeMessenger,
-  dialogs = defaultDialogs,
+  runtimeMessenger,
+  dialogs,
+  loaders,
 } = {}) {
   let activeSurface = null;
-  let pendingRailRequest = null;
-  // Importing the preferences module must not start async work, so the initial
-  // reads are kicked off here — synchronously at bootstrap, so the cache is warm
-  // by the time any surface mounts. Optional so partial fake ports still work.
-  preferences?.init?.();
-  const railManager = createRailSurfaceManager({ document, rootFactory, preferences });
-  const frameManager = createRecordFrameManager({
-    document,
-    getRuntimeUrl: runtimeMessenger.getURL,
-  });
+  let pendingRequest = null;
+  let selectionController = null;
+  const railSurfaces = {
+    inPage: { current: null, pending: null },
+    youtube: { current: null, pending: null },
+  };
+  let frameManager = null;
 
   function closeActiveSurface() {
-    const surface = activeSurface;
     activeSurface = null;
-    pendingRailRequest = null;
-    if (surface?.kind === 'selection') surface.controller.destroy();
-    // Managers own their resources and close idempotently. Closing both also
-    // invalidates an in-flight rail load that has not mounted a surface yet.
-    railManager.close();
-    frameManager.close();
+    pendingRequest = null;
+    selectionController?.destroy();
+    selectionController = null;
+    // Closing both managers also invalidates a rail fetch that has not mounted.
+    railSurfaces.inPage.current?.close();
+    railSurfaces.youtube.current?.close();
+    frameManager?.close();
   }
 
-  function openSelection() {
+  async function openSelection() {
     closeActiveSurface();
-    const controller = createSelectionController({
+    const request = {};
+    pendingRequest = request;
+    const { createSelectionSurface } = await loaders.selection();
+    if (pendingRequest !== request) return false;
+
+    let controller;
+    controller = await createSelectionSurface({
       document,
-      window: document.defaultView,
-      rootFactory,
-      preferences,
       runtimeMessenger,
       dialogs,
       onDestroy: () => {
+        if (selectionController === controller) selectionController = null;
         if (activeSurface?.controller === controller) activeSurface = null;
       },
     });
+    if (pendingRequest !== request) {
+      controller.destroy();
+      return false;
+    }
+    selectionController = controller;
+    pendingRequest = null;
     activeSurface = { kind: 'selection', controller };
     return controller;
   }
 
-  function openRecordFrame(key, view) {
+  async function openRecordFrame(key, view) {
     closeActiveSurface();
+    const request = {};
+    pendingRequest = request;
+    const { createRecordFrameSurface } = await loaders.recordFrame();
+    if (pendingRequest !== request) return false;
+
+    frameManager ??= createRecordFrameSurface({ document, runtimeMessenger });
     const frame = frameManager.open(key, view);
+    pendingRequest = null;
     activeSurface = { kind: 'record-frame' };
     return frame;
   }
 
-  const { openInPageRail } = createInPageRailController({
-    surfaceManager: railManager,
-    openRecordFrame,
-    document,
-    window: document.defaultView,
-    runtimeMessenger,
-    dialogs,
-    onDestroy: () => {
-      // Self-initiated rail closes arrive after mounting and reconcile the
-      // coordinator's state here; coordinator-initiated closes clear it first.
-      if (activeSurface?.kind === 'rail') activeSurface = null;
-    },
-  });
-  const { openYouTubeRail } = createYouTubeRailController({
-    surfaceManager: railManager,
-    document,
-    runtimeMessenger,
-    dialogs,
-    onDestroy: () => {
-      if (activeSurface?.kind === 'rail') activeSurface = null;
-    },
-  });
+  function getRailSurface(kind) {
+    const isYouTube = kind === 'youtube';
+    const state = isYouTube ? railSurfaces.youtube : railSurfaces.inPage;
+    if (state.current) return Promise.resolve(state.current);
+
+    if (!state.pending) {
+      const load = isYouTube ? loaders.youTubeRail : loaders.inPageRail;
+      state.pending = Promise.resolve()
+        .then(load)
+        .then((module) => {
+          const onDestroy = () => {
+            if (activeSurface?.kind === 'rail') activeSurface = null;
+          };
+          return isYouTube
+            ? module.createYouTubeRailSurface({
+                document,
+                runtimeMessenger,
+                dialogs,
+                onDestroy,
+              })
+            : module.createInPageRailSurface({
+                document,
+                runtimeMessenger,
+                dialogs,
+                openRecordFrame: (...args) => {
+                  void openRecordFrame(...args).catch((err) => {
+                    console.error('PageToLLM record view error:', err);
+                    dialogs?.alert?.(
+                      'PageToLLM: Unable to open this view. Reload the page and try again.',
+                    );
+                  });
+                },
+                onDestroy,
+              });
+        })
+        .then((surface) => {
+          state.current = surface;
+          return surface;
+        })
+        .catch((err) => {
+          // A transient extension update/import failure must not poison this
+          // page for the remainder of its lifetime.
+          state.pending = null;
+          throw err;
+        });
+    }
+    return state.pending;
+  }
 
   async function openRail(rec, mode, rail, options = {}) {
     closeActiveSurface();
     const request = {};
-    pendingRailRequest = request;
+    pendingRequest = request;
     try {
-      const mounted =
-        rail === 'youtube'
-          ? await openYouTubeRail(rec, mode, options)
-          : await openInPageRail(rec, mode, options);
-      if (pendingRailRequest !== request) return false;
-      pendingRailRequest = null;
+      const surface = await getRailSurface(rail);
+      if (pendingRequest !== request) return false;
+      const mounted = await surface.open(rec, mode, options);
+      if (pendingRequest !== request) return false;
+      pendingRequest = null;
       if (mounted) activeSurface = { kind: 'rail' };
       return mounted;
     } catch (err) {
-      if (pendingRailRequest === request) pendingRailRequest = null;
+      if (pendingRequest === request) pendingRequest = null;
       throw err;
     }
   }
 
   function destroy() {
     closeActiveSurface();
-    railManager.dispose();
+    railSurfaces.inPage.current?.destroy();
+    railSurfaces.youtube.current?.destroy();
+    railSurfaces.inPage = { current: null, pending: null };
+    railSurfaces.youtube = { current: null, pending: null };
+    frameManager = null;
   }
 
   return {
@@ -126,7 +151,7 @@ export function createContentSurfaceCoordinator({
     openRail,
     openRecordFrame,
     closeActiveSurface,
-    getRecordFrame: frameManager.getActiveFrame,
+    getRecordFrame: () => frameManager?.getActiveFrame() ?? null,
     destroy,
   };
 }

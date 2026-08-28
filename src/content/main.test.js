@@ -7,6 +7,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let messageListener = null;
 let postMessageListener = null;
 let storageChangeListener = null;
+let loadContentModule = null;
 
 function toolbarRoot() {
   return window.__pagetollmTestSelectionToolbarRoot;
@@ -20,7 +21,25 @@ function toolbarQueryAll(selector) {
   return toolbarRoot()?.querySelectorAll(selector) ?? [];
 }
 
-beforeAll(() => {
+beforeAll(async () => {
+  const [selection, inPageRail, youTubeRail, recordFrame] = await Promise.all([
+    import('./lazy/selectionSurface.js'),
+    import('./lazy/inPageRailSurface.js'),
+    import('./lazy/youTubeRailSurface.js'),
+    import('./lazy/recordFrameSurface.js'),
+  ]);
+  const lazyModules = {
+    'content-selection.js': selection,
+    'content-in-page-rail.js': inPageRail,
+    'content-youtube-rail.js': youTubeRail,
+    'content-record-frame.js': recordFrame,
+  };
+  loadContentModule = vi.fn((path) => {
+    const module = lazyModules[path];
+    if (module) return module;
+    throw new Error(`Unexpected content module: ${path}`);
+  });
+  vi.stubGlobal('__pagetollmLoadContentModule', loadContentModule);
   vi.stubGlobal('chrome', {
     runtime: {
       onMessage: {
@@ -77,6 +96,7 @@ describe('content script main.jsx', () => {
     expect(messageListener).not.toBeNull();
     expect(postMessageListener).not.toBeNull();
     expect(chrome.storage.onChanged.addListener).not.toHaveBeenCalled();
+    expect(loadContentModule).not.toHaveBeenCalled();
   });
 
   it('listens for preference storage changes only while content UI is mounted', async () => {
@@ -715,9 +735,13 @@ describe('content script main.jsx', () => {
       sendResponse,
     );
 
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
     expect(document.getElementById('pagetollm-in-page-rail')).toBeNull();
 
     messageListener({ action: 'openRecordView', key: 'canvas-key', mode: 'canvas' }, {}, vi.fn());
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(document.getElementById('pagetollm-canvas-iframe')).not.toBeNull();
 

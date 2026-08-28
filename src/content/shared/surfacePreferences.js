@@ -30,6 +30,7 @@ let mountedContentSurfaceCount = 0;
 let themeSyncId = 0;
 let highlightColorSyncId = 0;
 let didInit = false;
+let initPromise = null;
 
 // Controllers own their host elements; they register a getter here so a theme
 // or highlight-color change can re-tag surfaces that are already mounted
@@ -84,21 +85,23 @@ function refreshMountedHighlightColor() {
 }
 
 /**
- * Kick off the initial preference reads. Called once by the coordinator during
- * bootstrap — importing this module must not start any async work. Surfaces
- * opened before the reads resolve are tagged with the defaults and re-tagged
- * when the real preferences land.
+ * Kick off the initial preference reads. Importing this module must not start
+ * async work. Lazy surface factories await the returned promise so their first
+ * render is tagged with the stored preferences rather than briefly flashing
+ * the defaults.
  */
 export function init() {
-  if (didInit) return;
-  didInit = true;
-  syncPreferenceCacheFromStorage();
+  if (!didInit) {
+    didInit = true;
+    initPromise = syncPreferenceCacheFromStorage();
+  }
+  return initPromise;
 }
 
 function syncPreferenceCacheFromStorage() {
   const themeReadId = ++themeSyncId;
   const highlightColorReadId = ++highlightColorSyncId;
-  void getStoredTheme()
+  const themeRead = getStoredTheme()
     .then((stored) => {
       if (themeReadId !== themeSyncId) return;
       setCachedThemePreference(stored);
@@ -107,7 +110,7 @@ function syncPreferenceCacheFromStorage() {
     .catch((err) => {
       console.warn('PageToLLM content theme load failed:', err);
     });
-  void getStoredHighlightColor()
+  const highlightColorRead = getStoredHighlightColor()
     .then((stored) => {
       if (highlightColorReadId !== highlightColorSyncId) return;
       setCachedHighlightColor(stored);
@@ -116,6 +119,7 @@ function syncPreferenceCacheFromStorage() {
     .catch((err) => {
       console.warn('PageToLLM content highlight color load failed:', err);
     });
+  return Promise.all([themeRead, highlightColorRead]);
 }
 
 function handlePreferenceStorageChange(changes) {
@@ -141,7 +145,7 @@ function attachPreferenceStorageListener() {
     [THEME_KEY, HIGHLIGHT_COLOR_KEY],
     handlePreferenceStorageChange,
   );
-  syncPreferenceCacheFromStorage();
+  void syncPreferenceCacheFromStorage();
 }
 
 function detachPreferenceStorageListener() {
