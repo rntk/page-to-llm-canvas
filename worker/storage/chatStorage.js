@@ -31,7 +31,7 @@ const CHAT_INDEX_SUFFIX = ':index';
 // record writes, so a chat write and a cascade-delete of the same record can
 // never interleave. The queue already serializes every caller, so no per-key
 // sub-queue is needed.
-function queuedChatUpdate(key, fn) {
+function queuedChatUpdate(fn) {
   return queuedUpdate(MUTATION_QUEUE_KEY, fn);
 }
 
@@ -289,7 +289,7 @@ export async function appendChatTurn(key, chatId, turn = {}) {
   if (inputMessages.length > MAX_TURN_MESSAGES || inputEvents.length > MAX_TURN_EVENTS) {
     throw new Error('appendChatTurn: turn exceeds persistence limits');
   }
-  return queuedChatUpdate(key, async () => {
+  return queuedChatUpdate(async () => {
     const contentRevision = await readRecordContentRevision(key);
     if (!contentRevision) throw new Error('record not found');
     const turnId =
@@ -364,7 +364,7 @@ export async function appendChatTurn(key, chatId, turn = {}) {
 }
 
 export async function deleteChatHistory(key, chatId) {
-  return queuedChatUpdate(key, async () => {
+  return queuedChatUpdate(async () => {
     const index = await readChatIndex(key);
     const nextChats = index.chats.filter((chat) => chat.chatId !== chatId);
     const nextTurns = index.turns.filter((turn) => turn.chatId !== chatId);
@@ -483,7 +483,7 @@ export async function allChatStorageKeys() {
  * the remaining documents are still discoverable by the next scan.
  */
 export async function reconcileChatStorage() {
-  return queuedChatUpdate(MUTATION_QUEUE_KEY, async () => {
+  return queuedChatUpdate(async () => {
     const allItems = await getLocalByPrefix(CHAT_STORAGE_PREFIX);
     const groups = new Map();
     const invalidKeys = [];

@@ -301,7 +301,7 @@ export async function writeRecord(rec, options = {}) {
         // merely replacing — a rollback that loses more than the write would
         // have. Restore the snapshot instead, removing only the docs that did
         // not exist before.
-        await rollbackRecordDocs(rec.key, priorDocs, docKeys).catch((rollbackErr) => {
+        await rollbackRecordDocs(priorDocs, docKeys).catch((rollbackErr) => {
           log.warn(
             'writeRecord rollback failed for',
             rec.key,
@@ -324,11 +324,10 @@ export async function writeRecord(rec, options = {}) {
  * Restores the record docs captured before a `writeRecord` overwrite.
  * `priorDocs` is null when the record did not exist, in which case removing
  * every doc is the correct rollback.
- * @param {string} key Record key.
  * @param {object|null} priorDocs Snapshot taken before the overwrite.
  * @param {string[]} docKeys Meta, content and summaries storage keys.
  */
-async function rollbackRecordDocs(key, priorDocs, docKeys) {
+async function rollbackRecordDocs(priorDocs, docKeys) {
   if (!priorDocs) {
     await removeLocal(docKeys);
     return;
