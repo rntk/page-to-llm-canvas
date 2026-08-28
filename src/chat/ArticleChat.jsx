@@ -48,7 +48,7 @@ function ChatHeaderActions({ disabled, onShowHistory, onNewChat }) {
  * @param {{list: Function, get: Function, append: Function, remove: Function}} [props.chatRepository]
  * @param {function(object): Promise<object>} [props.runTurn]
  */
-export default function ArticleChat({
+function ArticleChat({
   recordKey,
   sentences,
   onHighlight,
@@ -617,3 +617,9 @@ export default function ArticleChat({
     </section>
   );
 }
+
+// Chat lives beside the canvas's own render-heavy transform state (pan/zoom
+// mint new scale/translate on every frame while the panel is open); without
+// this, every canvas re-render would also reconcile the whole chat subtree.
+// Props are kept referentially stable by callers for this to hold.
+export default React.memo(ArticleChat);

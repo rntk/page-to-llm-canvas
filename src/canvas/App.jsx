@@ -333,6 +333,8 @@ function CanvasApp({ initialKey, record, onClose }) {
 
   const handleToggleChat = useCallback(() => setShowChat((value) => !value), []);
 
+  const handleCloseChat = useCallback(() => setShowChat(false), []);
+
   const handleLevelChange = useCallback(
     (level) => {
       // Clicking the already-selected level is a no-op; skip so we never strand
@@ -451,7 +453,7 @@ function CanvasApp({ initialKey, record, onClose }) {
                 sentences={sentences}
                 onHighlight={handleChatHighlight}
                 onClearHighlights={handleClearChatHighlights}
-                onClose={() => setShowChat(false)}
+                onClose={handleCloseChat}
               />
             </div>
           </Activity>
