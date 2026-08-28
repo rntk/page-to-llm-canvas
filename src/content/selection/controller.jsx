@@ -139,7 +139,6 @@ export function createSelectionController({
     disableSelection();
 
     renderSelectionToolbar();
-    updateSubmitState();
   }
 
   function renderSelectionToolbar() {
@@ -173,7 +172,6 @@ export function createSelectionController({
     syncSelectedMarker(entry?.el);
     pickCounter = selectedElements.length;
     renderSelectionToolbar();
-    updateSubmitState();
   }
 
   function stepUpBlock(event, index) {
@@ -189,7 +187,6 @@ export function createSelectionController({
     // The selected outline now follows the parent on the page, so the
     // user can see exactly which (larger) block will be captured.
     renderSelectionToolbar();
-    updateSubmitState();
   }
 
   function onDragStart(event, index) {
@@ -223,17 +220,12 @@ export function createSelectionController({
     dragOverIndex = null;
 
     renderSelectionToolbar();
-    updateSubmitState();
   }
 
   function onDragEnd(event) {
     if (!guardTrustedUserEvent(event)) return;
     dragSrcIndex = null;
     dragOverIndex = null;
-    renderSelectionToolbar();
-  }
-
-  function updateSubmitState() {
     renderSelectionToolbar();
   }
 
@@ -258,7 +250,7 @@ export function createSelectionController({
     }
 
     isSubmitting = true;
-    updateSubmitState();
+    renderSelectionToolbar();
 
     const sourceUrl = window.location.href;
     const els = selectedElements.map(({ el }) => el);
