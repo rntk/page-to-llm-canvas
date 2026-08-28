@@ -22,9 +22,17 @@ export function normalizeYouTubeRailCards(cards) {
     .filter((card) => card && card.id && Number.isFinite(card.seconds));
 }
 
-export function getYouTubeRailActiveCardIdFromNormalized(normalizedCards, currentTime) {
-  const starts = normalizedCards.map((card) => card.seconds);
-  const index = findActiveCardIndex(starts, currentTime);
+// Start seconds in card order. Split out so the poll loop can build it once
+// per card-list change instead of re-mapping the cards on every tick.
+export function getYouTubeRailCardStarts(normalizedCards) {
+  return normalizedCards.map((card) => card.seconds);
+}
+
+export function getYouTubeRailActiveCardIdFromNormalized(normalizedCards, currentTime, starts) {
+  const index = findActiveCardIndex(
+    starts || getYouTubeRailCardStarts(normalizedCards),
+    currentTime,
+  );
   return index >= 0 ? (normalizedCards[index]?.id ?? null) : null;
 }
 
@@ -32,8 +40,13 @@ export function getYouTubeRailNextActiveIdFromNormalized(
   normalizedCards,
   currentTime,
   previousActiveId,
+  starts,
 ) {
-  const nextActiveId = getYouTubeRailActiveCardIdFromNormalized(normalizedCards, currentTime);
+  const nextActiveId = getYouTubeRailActiveCardIdFromNormalized(
+    normalizedCards,
+    currentTime,
+    starts,
+  );
   return nextActiveId === previousActiveId ? previousActiveId : nextActiveId;
 }
 

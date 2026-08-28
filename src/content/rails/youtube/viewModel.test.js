@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   getYouTubeRailActiveCardIdFromNormalized,
   getYouTubeRailCardBodyText,
+  getYouTubeRailCardStarts,
   getYouTubeRailNextActiveIdFromNormalized,
   normalizeYouTubeRailCard,
   normalizeYouTubeRailCards,
@@ -73,6 +74,25 @@ describe('getYouTubeRailActiveCardIdFromNormalized', () => {
     );
     expect(getYouTubeRailActiveCardIdFromNormalized([], 100)).toBeNull();
   });
+
+  it('accepts a precomputed starts array matching the on-the-fly result', () => {
+    const normalizedCards = normalizeYouTubeRailCards(cards);
+    const starts = getYouTubeRailCardStarts(normalizedCards);
+    expect(getYouTubeRailActiveCardIdFromNormalized(normalizedCards, 45, starts)).toBe(
+      getYouTubeRailActiveCardIdFromNormalized(normalizedCards, 45),
+    );
+  });
+});
+
+describe('getYouTubeRailCardStarts', () => {
+  it('extracts seconds in card order', () => {
+    const normalizedCards = normalizeYouTubeRailCards([
+      { id: 'intro', seconds: 0 },
+      { id: 'middle', seconds: 30 },
+      { id: 'outro', seconds: 120 },
+    ]);
+    expect(getYouTubeRailCardStarts(normalizedCards)).toEqual([0, 30, 120]);
+  });
 });
 
 describe('getYouTubeRailNextActiveIdFromNormalized', () => {
@@ -86,6 +106,14 @@ describe('getYouTubeRailNextActiveIdFromNormalized', () => {
     const normalizedCards = normalizeYouTubeRailCards(cards);
     expect(getYouTubeRailNextActiveIdFromNormalized(normalizedCards, 45, 'intro')).toBe('middle');
     expect(getYouTubeRailNextActiveIdFromNormalized(normalizedCards, 45, 'middle')).toBe('middle');
+  });
+
+  it('uses a precomputed starts array when given one', () => {
+    const normalizedCards = normalizeYouTubeRailCards(cards);
+    const starts = getYouTubeRailCardStarts(normalizedCards);
+    expect(getYouTubeRailNextActiveIdFromNormalized(normalizedCards, 45, 'intro', starts)).toBe(
+      'middle',
+    );
   });
 });
 

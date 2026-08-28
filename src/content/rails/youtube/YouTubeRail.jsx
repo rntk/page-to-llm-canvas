@@ -6,6 +6,7 @@ import {
   getYouTubeRailCardBodyText,
   getYouTubeRailActiveCardIdFromNormalized,
   getYouTubeRailNextActiveIdFromNormalized,
+  getYouTubeRailCardStarts,
   normalizeYouTubeRailCards,
 } from './viewModel.js';
 
@@ -81,13 +82,20 @@ export default function YouTubeRail({
     [cards, isChat],
   );
 
+  // Start-second lookup for the current card list. Card timestamps change far
+  // less often than the poll tick runs, so this is memoized alongside the
+  // cards rather than rebuilt (and linearly rescanned) on every tick.
+  const starts = useMemo(() => getYouTubeRailCardStarts(normalizedCards), [normalizedCards]);
+
   // Poll the player position and resolve the active card. Reading time and
   // resolving the index are cheap; we only re-render when the active card
   // actually changes (the setState bails on an equal value).
   const cardsRef = useRef(normalizedCards);
+  const startsRef = useRef(starts);
   useEffect(() => {
     cardsRef.current = normalizedCards;
-  }, [normalizedCards]);
+    startsRef.current = starts;
+  }, [normalizedCards, starts]);
   const getCurrentTimeRef = useRef(getCurrentTime);
   useEffect(() => {
     getCurrentTimeRef.current = getCurrentTime;
@@ -256,7 +264,9 @@ export default function YouTubeRail({
       if (cancelled) return;
       const time = getCurrentTimeRef.current ? getCurrentTimeRef.current() : null;
       if (time == null) return;
-      setActiveId((prev) => getYouTubeRailNextActiveIdFromNormalized(cardsRef.current, time, prev));
+      setActiveId((prev) =>
+        getYouTubeRailNextActiveIdFromNormalized(cardsRef.current, time, prev, startsRef.current),
+      );
     };
     const id = window.setInterval(tick, pollIntervalMs);
     return () => {
@@ -290,12 +300,13 @@ export default function YouTubeRail({
     const next = getYouTubeRailActiveCardIdFromNormalized(
       normalizedCards,
       time == null ? NaN : time,
+      starts,
     );
     setActiveId(next);
     if (!autoScrollEnabledRef.current) return undefined;
     const raf = window.requestAnimationFrame(() => scrollToCard(next));
     return () => window.cancelAnimationFrame(raf);
-  }, [normalizedCards, scrollToCard]);
+  }, [normalizedCards, starts, scrollToCard]);
 
   const setCardRef = useCallback(
     (id) => (el) => {
