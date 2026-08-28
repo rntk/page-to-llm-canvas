@@ -505,14 +505,7 @@ function renderRecords(records, { force = false } = {}) {
 }
 
 async function refreshProviderReadiness() {
-  try {
-    const response = await sendRuntimeMessage({ type: MSG.listProviders });
-    const state = providerReadinessState(response);
-    applyProviderReadinessState(state);
-  } catch (err) {
-    const state = providerReadinessState(null, err);
-    applyProviderReadinessState(state);
-  }
+  applyProviderReadinessState(await loadProviderReadinessState());
 }
 
 function applyProviderReadinessState(state) {
