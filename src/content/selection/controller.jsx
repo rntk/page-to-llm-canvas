@@ -7,6 +7,12 @@ import { moveSelectedEntry, removeSelectedEntry, selectedBlocksForToolbar } from
 import { canStepUpElement, stepUpSelectedEntry } from './elementTraversal.js';
 import { buildCssPath } from './cssPath.js';
 import { buildHtml } from './html.js';
+import {
+  HIGHLIGHTED_ELEMENT_SELECTOR,
+  isElementSelected,
+  setElementHighlighted,
+  setElementSelected,
+} from './markers.js';
 import { TOOLBAR_SHADOW_STYLES } from './SelectionToolbar.styles.js';
 import { browserRuntimeMessenger } from '../../utils/runtimeMessages.js';
 import {
@@ -93,8 +99,8 @@ export function createSelectionController({
     document.removeEventListener('mouseover', highlightElement);
     document.removeEventListener('mouseout', unhighlightElement);
     document.removeEventListener('click', selectElement, true);
-    document.querySelectorAll('.pagetollm-element-highlight').forEach((el) => {
-      el.classList.remove('pagetollm-element-highlight');
+    document.querySelectorAll(HIGHLIGHTED_ELEMENT_SELECTOR).forEach((el) => {
+      setElementHighlighted(el, false);
     });
   }
 
@@ -103,7 +109,7 @@ export function createSelectionController({
     if (event.target.closest('#pagetollm-selection-toolbar')) return;
     const el = event.target;
     if (el && el !== document.body && el !== document.documentElement) {
-      el.classList.add('pagetollm-element-highlight');
+      setElementHighlighted(el, true);
     }
   }
 
@@ -111,8 +117,8 @@ export function createSelectionController({
     if (!selectionMode) return;
     if (event.target.closest('#pagetollm-selection-toolbar')) return;
     const el = event.target;
-    if (el && !selectedElements.some((entry) => entry.el === el)) {
-      el.classList.remove('pagetollm-element-highlight');
+    if (el && !isElementSelected(el)) {
+      setElementHighlighted(el, false);
     }
   }
 
@@ -125,7 +131,7 @@ export function createSelectionController({
     event.stopPropagation();
 
     const el = event.target;
-    el.classList.add('pagetollm-selected');
+    setElementSelected(el, true);
     pickCounter += 1;
     selectedElements.push({ el, originalNumber: pickCounter });
 
@@ -163,10 +169,8 @@ export function createSelectionController({
   function removeBlock(event, index) {
     if (!guardTrustedUserEvent(event)) return;
     const entry = selectedElements[index];
-    if (entry) {
-      entry.el.classList.remove('pagetollm-selected');
-    }
     selectedElements = removeSelectedEntry(selectedElements, index);
+    syncSelectedMarker(entry?.el);
     pickCounter = selectedElements.length;
     renderSelectionToolbar();
     updateSubmitState();
@@ -177,12 +181,12 @@ export function createSelectionController({
     const result = stepUpSelectedEntry(selectedElements, index);
     if (result.oldElement === null || result.newElement === null) return;
 
-    result.oldElement.classList.remove('pagetollm-selected');
-    result.newElement.classList.add('pagetollm-selected');
     selectedElements = result.entries;
+    syncSelectedMarker(result.oldElement);
+    syncSelectedMarker(result.newElement);
     pickCounter = selectedElements.length;
 
-    // The .pagetollm-selected outline now follows the parent on the page, so the
+    // The selected outline now follows the parent on the page, so the
     // user can see exactly which (larger) block will be captured.
     renderSelectionToolbar();
     updateSubmitState();
@@ -231,6 +235,14 @@ export function createSelectionController({
 
   function updateSubmitState() {
     renderSelectionToolbar();
+  }
+
+  function syncSelectedMarker(el) {
+    if (!el) return;
+    setElementSelected(
+      el,
+      selectedElements.some((entry) => entry.el === el),
+    );
   }
 
   async function submitSelection(event) {
@@ -297,7 +309,7 @@ export function createSelectionController({
       }
     }
 
-    selectedElements.forEach(({ el }) => el.classList.remove('pagetollm-selected'));
+    selectedElements.forEach(({ el }) => setElementSelected(el, false));
     selectedElements = [];
     pickCounter = 0;
     dragSrcIndex = null;

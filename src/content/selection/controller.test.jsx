@@ -152,6 +152,55 @@ describe('selection controller', () => {
     expect(toolbarRoot().querySelectorAll('.pagetollm-block-item')).toHaveLength(1);
   });
 
+  it('keeps selected markers in sync after stepping up and removing a block', () => {
+    const parent = mountBlock('parent');
+    const child = document.createElement('div');
+    parent.appendChild(child);
+    act(() => showSelectionToolbar(runtimeMessenger));
+
+    click(toolbarButton('pagetollm-pick-btn'));
+    act(() => child.dispatchEvent(event('click')));
+    click(toolbarButton('pagetollm-pick-btn'));
+
+    child.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    child.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+    expect(child.classList.contains('pagetollm-element-highlight')).toBe(true);
+
+    click(toolbarRoot().querySelector('.pagetollm-stepup-btn'));
+    child.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+    parent.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    parent.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+    expect(child.classList.contains('pagetollm-element-highlight')).toBe(false);
+    expect(parent.classList.contains('pagetollm-element-highlight')).toBe(true);
+
+    click(toolbarRoot().querySelector('.pagetollm-remove-btn'));
+    parent.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+    expect(parent.classList.contains('pagetollm-element-highlight')).toBe(false);
+  });
+
+  it('keeps the selected marker until the last duplicate entry is removed', () => {
+    const block = mountBlock('duplicate');
+    act(() => showSelectionToolbar(runtimeMessenger));
+
+    click(toolbarButton('pagetollm-pick-btn'));
+    act(() => block.dispatchEvent(event('click')));
+    click(toolbarButton('pagetollm-pick-btn'));
+    act(() => block.dispatchEvent(event('click')));
+    expect(toolbarButton('pagetollm-submit-btn').textContent).toBe('Submit (2)');
+
+    click(toolbarButton('pagetollm-pick-btn'));
+    block.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    click(toolbarRoot().querySelector('.pagetollm-remove-btn'));
+    block.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+    expect(block.classList.contains('pagetollm-selected')).toBe(true);
+    expect(block.classList.contains('pagetollm-element-highlight')).toBe(true);
+
+    click(toolbarRoot().querySelector('.pagetollm-remove-btn'));
+    block.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+    expect(block.classList.contains('pagetollm-selected')).toBe(false);
+    expect(block.classList.contains('pagetollm-element-highlight')).toBe(false);
+  });
+
   it('submits selected HTML and selectors successfully, then cleans up', async () => {
     const block = mountBlock('submitted', 'Submit me');
     act(() => showSelectionToolbar(runtimeMessenger));

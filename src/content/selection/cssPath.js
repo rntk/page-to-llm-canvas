@@ -1,3 +1,5 @@
+import { SELECTION_MARKER_CLASSES, SELECTION_MARKER_SELECTOR } from './markers.js';
+
 export function buildCssPath(el) {
   if (!(el instanceof Element)) return '';
   const parts = [];
@@ -23,10 +25,10 @@ export function buildCssPath(el) {
 
 export function stripHighlightClasses(clone) {
   if (clone.classList) {
-    clone.classList.remove('pagetollm-selected', 'pagetollm-element-highlight');
+    clone.classList.remove(...SELECTION_MARKER_CLASSES);
   }
   clone.querySelectorAll &&
-    clone.querySelectorAll('.pagetollm-selected, .pagetollm-element-highlight').forEach((c) => {
-      c.classList.remove('pagetollm-selected', 'pagetollm-element-highlight');
+    clone.querySelectorAll(SELECTION_MARKER_SELECTOR).forEach((c) => {
+      c.classList.remove(...SELECTION_MARKER_CLASSES);
     });
 }
