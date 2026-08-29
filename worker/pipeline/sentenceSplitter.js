@@ -1,27 +1,28 @@
 // Simplified port of txt_splitt/sentences/splitters.py SparseRegexSentenceSplitter.
 // Faithful to terminal-boundary + anchor-long-sentence + merge-short behavior;
-// drops html_aware, quote_aware, paired-region, abbreviation handling beyond a
-// short list, and signal-kind merging refinements.
+// drops html_aware, quote_aware, paired-region, abbreviation handling, and
+// signal-kind merging refinements. Script-agnostic within that scope: Latin,
+// Cyrillic, Greek, CJK, Hebrew, Arabic and Devanagari all reach the same
+// terminal-boundary path.
 
-const CLOSING = `"'”’)\\]»`;
+const CLOSING = `"'”’)\\]»›」』）】》〉〕`;
+const TERMINAL = `.!?…。！？؟।॥`;
+// CJK full-width stops are written without a following space, so they may end a
+// sentence with an empty gap; every other mark still requires whitespace.
+const SPACELESS_TERMINAL_RE = /[。！？]/u;
 // Stateful (`g`): reset `lastIndex` before every `exec` scan.
-const TERMINAL_RE = new RegExp(`([.!?…])[${CLOSING}]*(\\s+)`, 'g');
-const SENTENCE_START_RE = /[A-Z0-9À-ɏ"'([{“‘«]/;
+const TERMINAL_RE = new RegExp(`([${TERMINAL}])[${CLOSING}]*(\\s*)`, 'gu');
+// Uppercase/titlecase where a script has case, any letter where it does not
+// (Han, kana, Hebrew, Arabic, Devanagari, ... are all `Lo`), plus openers.
+const SENTENCE_START_RE = /[\p{Lu}\p{Lt}\p{Lo}\p{N}"'([{“‘«‹„¿¡「『（【《〈]/u;
 const WHITESPACE_RE = /\s/;
+// Han and kana are written without spaces, so each character counts as its own
+// word; otherwise word counts for CJK text collapse to ~1 per sentence and the
+// short-span merge folds the whole document back together. Korean is
+// space-delimited and so is left to the whitespace-run branch.
+const UNSPACED = '\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}';
 // Stateful (`g`): reset `lastIndex` before every `exec` scan.
-const WORD_RE = /\S+/g;
-const ABBREVS = new Set([
-  'Mr.',
-  'Mrs.',
-  'Ms.',
-  'Dr.',
-  'Prof.',
-  'Gen.',
-  'Gov.',
-  'Sgt.',
-  'Col.',
-  'Capt.',
-]);
+const WORD_RE = new RegExp(`[${UNSPACED}]|[^\\s${UNSPACED}]+`, 'gu');
 
 function countWords(text, start, end) {
   let n = 0;
@@ -37,25 +38,17 @@ function trimWs(text, start, end) {
   return [start, end];
 }
 
-function precededByAbbrev(text, punctPos) {
-  let s = punctPos - 1;
-  while (s >= 0 && !WHITESPACE_RE.test(text[s])) s--;
-  s++;
-  return ABBREVS.has(text.slice(s, punctPos + 1));
-}
-
 function collectTerminalBoundaries(text) {
   const out = [];
   TERMINAL_RE.lastIndex = 0;
   let m;
   while ((m = TERMINAL_RE.exec(text)) !== null) {
-    const punctEnd = m.index + 1;
     const gapStart = m.index + m[0].length - m[2].length;
     const gapEnd = m.index + m[0].length;
     if (gapEnd >= text.length) continue;
-    const nextCh = text[gapEnd];
+    if (m[2].length === 0 && !SPACELESS_TERMINAL_RE.test(m[1])) continue;
+    const nextCh = String.fromCodePoint(text.codePointAt(gapEnd));
     if (!SENTENCE_START_RE.test(nextCh)) continue;
-    if (text[punctEnd - 1] === '.' && precededByAbbrev(text, punctEnd - 1)) continue;
     out.push([gapStart, gapEnd]);
   }
   return out;

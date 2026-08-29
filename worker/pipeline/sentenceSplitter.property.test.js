@@ -12,6 +12,34 @@ const plainWordArb = fc.string({
   maxLength: 8,
 });
 
+// Mixes spaced and unspaced scripts with terminal punctuation of both kinds, so
+// zero-width and whitespace boundaries are both exercised.
+const mixedScriptArb = fc.string({
+  unit: fc.constantFrom(
+    'a',
+    'B',
+    'é',
+    'Ж',
+    '这',
+    '是',
+    'の',
+    '。',
+    '！',
+    '.',
+    '?',
+    '"',
+    '」',
+    ' ',
+    '\n',
+  ),
+  maxLength: 60,
+});
+
+// The mixed-script unit set is deliberately small, so it never generates the
+// brackets and quotes that exercise the opener/closing classes. Keep full ASCII
+// in the pool alongside it.
+const anyTextArb = fc.oneof(fc.string({ unit: 'grapheme-ascii' }), mixedScriptArb);
+
 const optsArb = fc.option(
   fc.record({
     anchorEveryWords: fc.integer({ min: 1, max: 100 }),
@@ -24,7 +52,7 @@ const optsArb = fc.option(
 describe('splitSentences properties', () => {
   it('never throws and always returns valid, non-overlapping spans within bounds', () => {
     fc.assert(
-      fc.property(fc.string(), optsArb, (text, opts) => {
+      fc.property(anyTextArb, optsArb, (text, opts) => {
         const result = splitSentences(text, opts);
 
         expect(Array.isArray(result)).toBe(true);
@@ -63,14 +91,28 @@ describe('splitSentences properties', () => {
     expect(splitSentences(undefined)).toEqual([]);
   });
 
-  it('preserves the exact sequence of non-whitespace tokens (no word deleted, altered, or reordered)', () => {
+  // Only holds for whitespace-delimited scripts: an unspaced CJK stop produces a
+  // zero-width boundary that splits a whitespace-delimited token in two by design.
+  it('preserves the exact sequence of non-whitespace tokens for spaced scripts', () => {
     fc.assert(
-      fc.property(fc.string(), optsArb, (text, opts) => {
+      fc.property(fc.string({ unit: 'grapheme-ascii' }), optsArb, (text, opts) => {
         const result = splitSentences(text, opts);
         const inputTokens = text.match(/\S+/g) || [];
         const outputTokens = result.flatMap((s) => s.text.match(/\S+/g) || []);
         // Concatenating the spans' tokens reconstructs the input's tokens exactly.
         expect(outputTokens).toEqual(inputTokens);
+      }),
+    );
+  });
+
+  it('preserves every non-whitespace character in order for any script', () => {
+    const strip = (s) => s.replace(/\s+/gu, '');
+    fc.assert(
+      fc.property(anyTextArb, optsArb, (text, opts) => {
+        const result = splitSentences(text, opts);
+        // Weaker than token equality but script-agnostic: still catches any
+        // character deleted, altered, duplicated, or reordered.
+        expect(strip(result.map((s) => s.text).join(''))).toBe(strip(text));
       }),
     );
   });

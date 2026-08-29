@@ -34,32 +34,23 @@ describe('splitSentences', () => {
     expect(result.length).toBe(2);
   });
 
-  it('does not split on Mr. abbreviation', () => {
+  it('short-span merging absorbs the fragment left by an abbreviation', () => {
     const result = splitSentences(
       'Mr. Smith went to the store yesterday. He bought milk and bread for the whole family.',
     );
-    const texts = result.map((s) => s.text);
-    const mrSentence = texts.find((t) => t.includes('Mr.'));
-    expect(mrSentence).toBeDefined();
-    expect(mrSentence).toContain('Smith went to the store yesterday');
-    expect(mrSentence).not.toMatch(/^Mr\.\s*$/);
+    expect(result.map(({ text }) => text)).toEqual([
+      'Mr. Smith went to the store yesterday.',
+      'He bought milk and bread for the whole family.',
+    ]);
   });
 
-  it('does not split on Dr. abbreviation', () => {
-    const result = splitSentences(
-      'Dr. Jones arrived at the hospital early. She performed the surgery with great care today.',
-    );
-    const texts = result.map((s) => s.text);
-    const drSentence = texts.find((t) => t.includes('Dr.'));
-    expect(drSentence).toBeDefined();
-  });
-
-  it('keeps an abbreviation with its sentence when short-span merging is disabled', () => {
+  it('splits after an abbreviation period when short-span merging is disabled', () => {
     const result = splitSentences('Dr. Smith arrived at noon. Then everyone went inside.', {
       minSentenceWords: 1,
     });
     expect(result.map(({ text }) => text)).toEqual([
-      'Dr. Smith arrived at noon.',
+      'Dr.',
+      'Smith arrived at noon.',
       'Then everyone went inside.',
     ]);
   });
@@ -79,6 +70,71 @@ describe('splitSentences', () => {
         start: 2,
         end: text.length - 2,
       },
+    ]);
+  });
+
+  it('splits Cyrillic text on a terminal boundary', () => {
+    const result = splitSentences('Это первое предложение здесь. Это второе предложение тоже.');
+    expect(result.map(({ text }) => text)).toEqual([
+      'Это первое предложение здесь.',
+      'Это второе предложение тоже.',
+    ]);
+  });
+
+  it('splits Greek text on a terminal boundary', () => {
+    const result = splitSentences('Αυτή είναι η πρώτη πρόταση. Αυτή είναι η δεύτερη πρόταση.');
+    expect(result).toHaveLength(2);
+  });
+
+  it('splits Arabic text after a full-width question mark', () => {
+    const result = splitSentences('هذه هي الجملة الأولى هنا؟ هذه هي الجملة الثانية هنا.');
+    expect(result.map(({ text }) => text)).toEqual([
+      'هذه هي الجملة الأولى هنا؟',
+      'هذه هي الجملة الثانية هنا.',
+    ]);
+  });
+
+  it('splits Hebrew text on an ASCII period', () => {
+    const result = splitSentences('זהו המשפט הראשון כאן. זהו המשפט השני כאן.');
+    expect(result.map(({ text }) => text)).toEqual([
+      'זהו המשפט הראשון כאן.',
+      'זהו המשפט השני כאן.',
+    ]);
+  });
+
+  it('splits Devanagari text on a danda', () => {
+    const result = splitSentences('यह पहला वाक्य है। यह दूसरा वाक्य है।');
+    expect(result.map(({ text }) => text)).toEqual(['यह पहला वाक्य है।', 'यह दूसरा वाक्य है।']);
+  });
+
+  it('splits Chinese text on an ideographic full stop with no following space', () => {
+    const result = splitSentences('这是第一个句子。这是第二个句子。');
+    expect(result.map(({ text }) => text)).toEqual(['这是第一个句子。', '这是第二个句子。']);
+  });
+
+  it('splits Japanese text on a full-width exclamation mark', () => {
+    const result = splitSentences('これは最初の文です！これは二番目の文です。');
+    expect(result).toHaveLength(2);
+  });
+
+  it('counts Han characters individually so CJK sentences survive short-span merging', () => {
+    // With whitespace-run counting each clause would be one "word" and the two
+    // would merge back into a single span.
+    const result = splitSentences('这是第一个句子。这是第二个句子。', { minSentenceWords: 4 });
+    expect(result).toHaveLength(2);
+  });
+
+  it('does not split before a lowercase accented continuation', () => {
+    const text = 'Le café est ici. élan continue ici encore.';
+    expect(splitSentences(text, { minSentenceWords: 1 })).toEqual([
+      { text, start: 0, end: text.length },
+    ]);
+  });
+
+  it('does not split on a period with no following whitespace', () => {
+    const text = 'The build is version 3.5 and it works well.';
+    expect(splitSentences(text, { minSentenceWords: 1 })).toEqual([
+      { text, start: 0, end: text.length },
     ]);
   });
 
