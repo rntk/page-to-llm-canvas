@@ -161,6 +161,22 @@ describe('popup pure functions', () => {
     expect(popup.getRecordActions({ status: 'summarizing' }).map((action) => action.label)).toEqual(
       ['Reprocess', 'Export data', 'Delete'],
     );
+    expect(popup.getRecordActions({ status: 'error' }).map((action) => action.label)).toEqual([
+      'Retry',
+      'Reprocess',
+      'Export data',
+      'Delete',
+    ]);
+    expect(
+      popup
+        .getRecordActions({ status: 'needs_attention' })
+        .find((action) => action.label === 'Retry'),
+    ).toEqual(
+      expect.objectContaining({
+        messageType: 'resolveSummaryErrors',
+        message: { action: 'retry' },
+      }),
+    );
   });
 
   it('getRecordActions keeps stable modes and message types', () => {
@@ -443,6 +459,30 @@ describe('handleMessageAction', () => {
     expect(runtimeMessage).toHaveBeenCalledWith({ type: 'doSomething', key: 'k1' });
     expect(onSuccess).toHaveBeenCalledTimes(1);
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('adds action payload fields without allowing them to override routing', async () => {
+    const runtimeMessage = vi.fn().mockResolvedValue({ ok: true });
+    await popup.handleMessageAction(
+      makeAction({
+        confirmMessage: undefined,
+        messageType: 'resolveSummaryErrors',
+        message: { action: 'retry', type: 'wrongType', key: 'wrongKey' },
+      }),
+      'attention-1',
+      {
+        confirm: vi.fn(),
+        runtimeMessage,
+        onSuccess: vi.fn(),
+        onError: vi.fn(),
+      },
+    );
+
+    expect(runtimeMessage).toHaveBeenCalledWith({
+      action: 'retry',
+      type: 'resolveSummaryErrors',
+      key: 'attention-1',
+    });
   });
 
   it('calls onError with derived message when response is not ok', async () => {
@@ -795,6 +835,60 @@ describe('popup UI integration', () => {
 
     expect(chrome.tabs.create).toHaveBeenCalledWith({ url: 'options.html#records' });
     expect(chrome.tabs.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('retries an error record directly from its actions', async () => {
+    const errorRecord = {
+      ...sampleRecord,
+      key: 'error-retry',
+      status: 'error',
+      error: 'Pipeline execution failed',
+    };
+    stubListResponses([errorRecord]);
+    document.getElementById('refresh-btn').click();
+
+    const record = await waitForRecord();
+    const retryButton = Array.from(record.querySelectorAll('.action')).find(
+      (button) => button.textContent === 'Retry',
+    );
+    expect(retryButton).not.toBeUndefined();
+    chrome.runtime.sendMessage.mockClear();
+    retryButton.click();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      { type: 'retryRecord', key: 'error-retry' },
+      expect.any(Function),
+    );
+  });
+
+  it('retries failed summaries directly from a needs-attention record', async () => {
+    const attentionRecord = {
+      ...sampleRecord,
+      key: 'attention-retry',
+      status: 'needs_attention',
+      summaryErrors: [{ topic: 'Tech>AI', error_message: 'Timed out' }],
+    };
+    stubListResponses([attentionRecord]);
+    document.getElementById('refresh-btn').click();
+
+    let retryButton;
+    for (let i = 0; i < 50; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      retryButton = Array.from(document.querySelectorAll('#records .action')).find(
+        (button) => button.textContent === 'Retry',
+      );
+      if (retryButton) break;
+    }
+    expect(retryButton).not.toBeUndefined();
+    chrome.runtime.sendMessage.mockClear();
+    retryButton.click();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      { action: 'retry', type: 'resolveSummaryErrors', key: 'attention-retry' },
+      expect.any(Function),
+    );
   });
 
   it('shows an error when listRecords returns a failed response', async () => {

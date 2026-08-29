@@ -177,6 +177,30 @@ export function getRecordActions(record) {
     },
   ];
 
+  if (
+    record &&
+    (record.status === PIPELINE_STATUS.ERROR || record.status === PIPELINE_STATUS.CANCELLED)
+  ) {
+    manageActions.unshift({
+      kind: 'message',
+      label: 'Retry',
+      className: 'primary-action',
+      messageType: MSG.retryRecord,
+      failureMessage: 'Retry failed',
+      description: 'Resume this analysis from the point where processing stopped.',
+    });
+  } else if (record && record.status === PIPELINE_STATUS.NEEDS_ATTENTION) {
+    manageActions.unshift({
+      kind: 'message',
+      label: 'Retry',
+      className: 'primary-action',
+      messageType: MSG.resolveSummaryErrors,
+      message: { action: 'retry' },
+      failureMessage: 'Retry failed',
+      description: 'Retry the summaries that failed without opening the error details.',
+    });
+  }
+
   // Records finished with no summaries (global toggle) or a skipped failed
   // summary get a one-shot action that fills only missing work from stored
   // topics without redoing clean/split/topic-ranges — same path as Options.
@@ -352,7 +376,11 @@ export async function handleMessageAction(
   // Generate summaries) skip the dialog, matching the Options page UX.
   if (action.confirmMessage && !confirm(action.confirmMessage)) return;
   try {
-    const response = await runtimeMessage({ type: action.messageType, key });
+    const response = await runtimeMessage({
+      ...(action.message || {}),
+      type: action.messageType,
+      key,
+    });
     if (!response || !response.ok || isStaleActionResponse(response)) {
       onError(responseErrorMessage(response, action.failureMessage));
       return;

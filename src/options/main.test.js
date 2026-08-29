@@ -308,6 +308,44 @@ describe('options main.jsx', () => {
     );
   });
 
+  it('retries a cancelled record directly from the records list', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') {
+        cb({
+          ok: true,
+          items: [
+            {
+              key: 'cancelled-1',
+              sourceUrl: 'https://example.com',
+              createdAt: 1716972000000,
+              status: 'cancelled',
+              error: 'Processing stopped.',
+            },
+          ],
+        });
+      } else if (msg.type === 'retryRecord') {
+        cb({ ok: true });
+      }
+    });
+
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
+    await waitFor(() => {
+      expect(document.querySelector('.status.cancelled.status-button')).not.toBeNull();
+    });
+    const quickRetryButton = Array.from(document.querySelectorAll('tbody tr button')).find(
+      (button) => button.textContent === 'Retry',
+    );
+    expect(quickRetryButton).not.toBeUndefined();
+    quickRetryButton.click();
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledWith(
+        { type: 'retryRecord', key: 'cancelled-1' },
+        expect.any(Function),
+      );
+    });
+  });
+
   it('offers the same retry dialog for a cancelled record', async () => {
     sendMessageMock.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') {
@@ -333,6 +371,7 @@ describe('options main.jsx', () => {
     await waitFor(() => {
       expect(document.querySelector('.status.cancelled.status-button')).not.toBeNull();
     });
+
     expect(
       Array.from(document.querySelectorAll('tbody tr button')).some(
         (button) => button.textContent === 'Open',
@@ -347,6 +386,45 @@ describe('options main.jsx', () => {
     await waitFor(() => {
       expect(sendMessageMock).toHaveBeenCalledWith(
         { type: 'retryRecord', key: 'cancelled-1' },
+        expect.any(Function),
+      );
+    });
+  });
+
+  it('retries failed summaries directly from the records list', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') {
+        cb({
+          ok: true,
+          items: [
+            {
+              key: 'attention-retry',
+              sourceUrl: 'https://example.com/attention',
+              createdAt: 1716972000000,
+              status: 'needs_attention',
+              summaryErrors: [{ topic: 'Tech>AI', error_message: 'Timed out' }],
+            },
+          ],
+        });
+      } else if (msg.type === 'resolveSummaryErrors') {
+        cb({ ok: true });
+      }
+    });
+
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
+    await waitFor(() => {
+      expect(document.querySelector('.status.needs_attention.status-button')).not.toBeNull();
+    });
+    const quickRetryButton = Array.from(document.querySelectorAll('tbody tr button')).find(
+      (button) => button.textContent === 'Retry',
+    );
+    expect(quickRetryButton).not.toBeUndefined();
+    quickRetryButton.click();
+
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledWith(
+        { type: 'resolveSummaryErrors', key: 'attention-retry', action: 'retry' },
         expect.any(Function),
       );
     });

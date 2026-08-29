@@ -31,6 +31,7 @@ export function RecordsSection({ fileHost, pageHost }) {
   const [loadError, setLoadError] = useState(null);
   const [importMessage, setImportMessage] = useState('');
   const [isImporting, setIsImporting] = useState(false);
+  const [retryingKey, setRetryingKey] = useState(null);
   const [errorDialogKey, setErrorDialogKey] = useState(null);
   const [summaryErrorsDialogItem, setSummaryErrorsDialogItem] = useState(null);
   const importInputRef = useRef(null);
@@ -131,6 +132,25 @@ export function RecordsSection({ fileHost, pageHost }) {
     await retryRecord(errorDialogKey, 'Options');
     setErrorDialogKey(null);
     await loadRecords();
+  };
+
+  const quickRetry = async (item) => {
+    if (retryingKey) return;
+    setError('');
+    setImportMessage('');
+    setRetryingKey(item.key);
+    try {
+      if (item.status === PIPELINE_STATUS.NEEDS_ATTENTION) {
+        await resolveSummaryErrors(item.key, 'retry', 'Options');
+      } else {
+        await retryRecord(item.key, 'Options');
+      }
+      await loadRecords();
+    } catch (caughtError) {
+      setError(caughtError?.message || 'Retry failed');
+    } finally {
+      setRetryingKey(null);
+    }
   };
 
   const resolveSummaryErrorsFromDialog = async (action) => {
@@ -334,6 +354,22 @@ export function RecordsSection({ fileHost, pageHost }) {
                       {item.status === PIPELINE_STATUS.DONE ? (
                         <button type="button" onClick={() => runAction('open', item.key)}>
                           Open
+                        </button>
+                      ) : null}
+                      {item.status === PIPELINE_STATUS.ERROR ||
+                      item.status === PIPELINE_STATUS.CANCELLED ||
+                      item.status === PIPELINE_STATUS.NEEDS_ATTENTION ? (
+                        <button
+                          type="button"
+                          title={
+                            item.status === PIPELINE_STATUS.NEEDS_ATTENTION
+                              ? 'Retry the summaries that failed'
+                              : 'Resume processing from where it stopped'
+                          }
+                          disabled={retryingKey !== null}
+                          onClick={() => void quickRetry(item)}
+                        >
+                          {retryingKey === item.key ? 'Retrying...' : 'Retry'}
                         </button>
                       ) : null}
                       <button type="button" onClick={() => runAction('reprocess', item.key)}>
