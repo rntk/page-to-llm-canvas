@@ -150,8 +150,11 @@ const entries = [
 
 for (const entry of entries) {
   await build(configForEntry(entry));
-  copyExtensionStaticAssets();
 }
 
 await build(configForContentFeatures());
+
+// Only the first entry build (emptyOutDir: true) clears dist, so a single
+// copy after all builds have run produces the same result as copying after
+// each one, with less filesystem work.
 copyExtensionStaticAssets();
