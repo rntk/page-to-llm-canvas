@@ -17,118 +17,14 @@ import {
   _resetUpdateQueues,
 } from './storage.js';
 import { queuedUpdate, MUTATION_QUEUE_KEY } from './primitives.js';
-
-// ---------------------------------------------------------------------------
-// Chrome mock helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Builds a minimal in-memory chrome.storage.local mock.
- *
- * @param {{ lastErrorOnSet?: boolean, lastErrorOnGet?: boolean,
- *            lastErrorOnRemove?: boolean, setDelay?: number,
- *            failSetOnCall?: number, failIndexSet?: boolean }} [opts]
- */
-function makeChromeMock(opts = {}) {
-  // Kept as a live (mutable) object, rather than destructured consts, so
-  // tests can seed data first and flip a failure flag on afterwards (e.g.
-  // "seed successfully, then make the next set() call fail").
-  const state = {
-    lastErrorOnSet: false,
-    lastErrorOnGet: false,
-    lastErrorOnRemove: false,
-    setDelay: 0,
-    failSetOnCall: 0,
-    failIndexSet: false,
-    ...opts,
-  };
-  const store = new Map();
-  const runtime = { lastError: null };
-  let setCalls = 0;
-
-  const chromeLocal = {
-    _store: store,
-    getKeys: vi.fn((cb) => cb([...store.keys()])),
-    get: vi.fn((keys, cb) => {
-      if (state.lastErrorOnGet) {
-        runtime.lastError = { message: 'get failed' };
-        cb({});
-        runtime.lastError = null;
-        return;
-      }
-      runtime.lastError = null;
-      const result = {};
-      const keyList =
-        keys === null || keys === undefined
-          ? [...store.keys()]
-          : Array.isArray(keys)
-            ? keys
-            : [keys];
-      for (const k of keyList) {
-        if (store.has(k)) result[k] = store.get(k);
-      }
-      cb(result);
-    }),
-    set: vi.fn((items, cb) => {
-      const doSet = () => {
-        setCalls += 1;
-        if (
-          state.lastErrorOnSet ||
-          setCalls === state.failSetOnCall ||
-          (state.failIndexSet && Object.hasOwn(items, INDEX_KEY))
-        ) {
-          runtime.lastError = { message: 'QuotaExceededError' };
-          cb();
-          runtime.lastError = null;
-          return;
-        }
-        runtime.lastError = null;
-        for (const [k, v] of Object.entries(items)) store.set(k, v);
-        cb();
-      };
-      if (state.setDelay > 0) setTimeout(doSet, state.setDelay);
-      else doSet();
-    }),
-    remove: vi.fn((keys, cb) => {
-      if (state.lastErrorOnRemove) {
-        runtime.lastError = { message: 'remove failed' };
-        cb();
-        runtime.lastError = null;
-        return;
-      }
-      runtime.lastError = null;
-      const keyList = Array.isArray(keys) ? keys : [keys];
-      for (const k of keyList) store.delete(k);
-      cb();
-    }),
-  };
-
-  return { storage: { local: chromeLocal }, runtime, _state: state };
-}
+import {
+  createChromeStorageFake as makeChromeMock,
+  createStorageRecord as makeRecord,
+} from '../../test/fakes/chromeStorageFake.mjs';
 
 /** Seeds a record into the mock store (via writeRecord) so tests start with known data. */
 async function seedRecord(chromeMock, rec) {
   await writeRecord(rec);
-}
-
-function makeRecord(key, overrides = {}) {
-  return {
-    key,
-    sourceUrl: 'https://example.com',
-    html: '<p>hello</p>',
-    text: 'hello',
-    status: 'pending',
-    error: null,
-    progress: { stage: 'queued', done: 0, total: 0 },
-    sentences: [],
-    topics: [],
-    topic_summaries: {},
-    topic_summary_index: {},
-    processingLog: [],
-    createdAt: 1000,
-    updatedAt: 1000,
-    ...overrides,
-  };
 }
 
 // ---------------------------------------------------------------------------
