@@ -37,6 +37,10 @@ export const RAIL_PADDING = 24;
 const CARD_HEIGHT = 72;
 const CARD_VERTICAL_GAP = 8;
 const CARD_MIN_CLAMPED_HEIGHT = 56;
+// How far a card may be pushed below the sentences it covers to clear the card
+// above it. Mirrors the rail's own `DENSE_CARD_MAX_NUDGE` (they bound the same
+// kind of correction at the same magnitude, but neither constrains the other).
+const CARD_MAX_PUSH = 18;
 
 /**
  * Card width that grows on zoom-out (1/scale, capped at 1) so titles have
@@ -125,14 +129,29 @@ function getMeasuredRunLayout(sentenceRun, sentenceMetrics) {
 }
 
 /**
- * Hard layout invariant: within a column (levelIndex), cards laid out in
- * document order (by start sentence) never overlap vertically.
+ * Layout invariant: within a column (levelIndex), cards laid out in document
+ * order (by start sentence) do not overlap vertically — as far as that is
+ * possible without breaking their alignment with the article.
  *
  * Measured sentence positions can be wrong — e.g. emails with repeated
  * invisible preheader sentences or clipped footers fuzzy-match the wrong DOM
  * text, stretching one card's rect across its neighbours. A card whose extent
  * runs past the next card's top is clipped to end above it; a card overlapped
- * from above is pushed down. The result is always a clean vertical stack.
+ * from above is pushed down.
+ *
+ * The push is bounded by `CARD_MAX_PUSH`, because a card's whole purpose is to
+ * sit beside the sentences it covers. A column denser than
+ * `CARD_MIN_CLAMPED_HEIGHT + CARD_VERTICAL_GAP` per card — routine at leaf
+ * level, where a topic can be a single sentence — cannot satisfy both
+ * alignment and no-overlap, and an unbounded push resolves that by stacking
+ * every card below the previous one's *pushed* bottom: the error then
+ * compounds card over card and the bottom of a long article ends up thousands
+ * of px below its text. Alignment wins; the remaining overlap is expected and
+ * is handled downstream by the rail's dense layout (see `denseCardLayout.js`,
+ * which compacts heights, nudges within ±`DENSE_CARD_MAX_NUDGE`, and layers
+ * crowded cards by z-index). The one position not worth preserving is a card
+ * measured above its own predecessor — that is a mis-measurement rather than a
+ * dense column, and it is still stacked without a bound.
  *
  * @template {{key: string, levelIndex: number, startSentence: number, top: number, height: number, fullPath: string}} T
  * @param {T[]} cards
@@ -158,8 +177,29 @@ export function resolveColumnOverlaps(cards) {
     );
 
     let prevBottom = -Infinity;
+    // Highest measured top seen so far in document order. Cards below it are
+    // measured consistently with their predecessors; cards above it are not.
+    let measuredFloor = -Infinity;
+    // The previous card's *resolved* top. Cards are emitted in document order,
+    // so none may be laid out above the one before it — including after a
+    // correction, whose result is not a measured position and so is not
+    // represented in `measuredFloor`.
+    let resolvedFloor = -Infinity;
     ordered.forEach((card, index) => {
-      const top = Math.max(card.top, prevBottom + CARD_VERTICAL_GAP);
+      const stackedTop = Math.max(card.top, prevBottom + CARD_VERTICAL_GAP);
+      // A card measured *above* a card that precedes it in document order is
+      // mis-measured, not merely crowded — its position carries no information
+      // worth preserving, so it is stacked without a bound. A card measured
+      // below the floor and overlapping its predecessor is where the bound
+      // applies: it keeps its measured position, give or take `CARD_MAX_PUSH`.
+      const boundedTop =
+        card.top < measuredFloor ? stackedTop : Math.min(stackedTop, card.top + CARD_MAX_PUSH);
+      // Whatever the branch, a card never rises above its predecessor: once an
+      // inversion has forced a correction, the cards after it stay below that
+      // corrected position until their own measurements climb past it again.
+      const top = Math.max(boundedTop, resolvedFloor);
+      measuredFloor = Math.max(measuredFloor, card.top);
+      resolvedFloor = top;
       let bottom = Math.max(card.top + card.height, top + CARD_MIN_CLAMPED_HEIGHT);
 
       // Clip to the next card's measured top when there is room for at least a

@@ -34,10 +34,12 @@ export function useCanvasRecordViewModel({ record, selectedLevel, showSummaryMod
     [sentenceCount],
   );
 
+  // The source URL resolves the article's relative image/link URLs; without it
+  // they would resolve against the extension origin and 404.
   const articleHtml = useMemo(() => {
     const html = record?.html;
-    return html ? sanitizeArticleHtml(html) : '';
-  }, [record?.html]);
+    return html ? sanitizeArticleHtml(html, record?.sourceUrl) : '';
+  }, [record?.html, record?.sourceUrl]);
 
   const maxLevel = useMemo(() => getMaxTopicLevel(topics), [topics]);
   const summaryIndexJson = useMemo(

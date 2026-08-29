@@ -73,10 +73,12 @@ export function buildRailCards({
     }
   }
 
-  // Mirror the canvas hierarchy rail: cards in a column must never overlap.
+  // Mirror the canvas hierarchy rail: cards in a column should not overlap.
   // Each card already spans one contiguous sentence run, but a mis-measured
   // run can stretch a card across its neighbours and hide the cards in
-  // between. resolveColumnOverlaps clips/pushes them into a clean stack.
+  // between. resolveColumnOverlaps clips those back and pushes overlapped
+  // cards down — by a bounded amount, so a column too dense to stack keeps
+  // its cards beside their sentences rather than drifting below them.
   const resolved = resolveColumnOverlaps(
     cardSpecs.map((card) => ({
       key: card.id,

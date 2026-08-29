@@ -86,7 +86,7 @@ describe('buildRailCards', () => {
     expect(cards.map((c) => c.id)).toEqual(['Parent-1']);
   });
 
-  it('resolves overlapping boxes within a level into a clean stack', () => {
+  it('pushes an overlapped box down without unpinning it from its sentences', () => {
     // Both runs measure as tall, overlapping boxes at the same level.
     computeCardVerticalBox.mockImplementation((run) => ({ top: run[0] * 10, height: 400 }));
     const { cards } = project({
@@ -100,7 +100,12 @@ describe('buildRailCards', () => {
 
     expect(cards).toHaveLength(2);
     const [top, bottom] = cards;
-    expect(top.box.top + top.box.height).toBeLessThanOrEqual(bottom.box.top);
+    // The second box (measured at 50) is pushed clear of the first, but only
+    // within the push bound: clearing a 400px-tall neighbour completely would
+    // strand the card hundreds of px below the sentence it annotates.
+    expect(bottom.box.top).toBeGreaterThan(50);
+    expect(bottom.box.top).toBeLessThanOrEqual(50 + 18);
+    expect(top.box.top).toBe(10);
   });
 
   it('pads the rail body below the lowest card in topics mode', () => {

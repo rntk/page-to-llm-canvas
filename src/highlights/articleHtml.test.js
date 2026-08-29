@@ -47,6 +47,80 @@ describe('articleHtml helpers', () => {
       expect(out).toContain('<p>article body</p>');
     });
 
+    it('leaves URLs untouched without a source URL', () => {
+      const out = sanitizeArticleHtml('<img src="/img/a.png"><a href="page.html">x</a>');
+
+      expect(out).toContain('src="/img/a.png"');
+      expect(out).toContain('href="page.html"');
+    });
+
+    it('resolves relative and protocol-relative URLs against the source URL', () => {
+      const out = sanitizeArticleHtml(
+        '<img src="/img/a.png"><img src="b.png"><img src="//cdn.example.com/c.png">' +
+          '<a href="page.html">x</a><img src="https://other.example/d.png">',
+        'https://news.example/section/story.html',
+      );
+
+      expect(out).toContain('src="https://news.example/img/a.png"');
+      expect(out).toContain('src="https://news.example/section/b.png"');
+      expect(out).toContain('src="https://cdn.example.com/c.png"');
+      expect(out).toContain('href="https://news.example/section/page.html"');
+      expect(out).toContain('src="https://other.example/d.png"');
+    });
+
+    it('resolves every srcset candidate and keeps its descriptor', () => {
+      const out = sanitizeArticleHtml(
+        '<img srcset="a.png 1x, /b.png 2x">',
+        'https://news.example/section/story.html',
+      );
+
+      expect(out).toContain(
+        'srcset="https://news.example/section/a.png 1x, https://news.example/b.png 2x"',
+      );
+    });
+
+    it('keeps commas that belong to a srcset candidate URL', () => {
+      const out = sanitizeArticleHtml(
+        '<img srcset="data:image/png;base64,AAAA 1x, /b,c.png 2x">' +
+          '<img srcset="/one.png, /two.png">',
+        'https://news.example/section/story.html',
+      );
+
+      expect(out).toContain(
+        'srcset="data:image/png;base64,AAAA 1x, https://news.example/b,c.png 2x"',
+      );
+      expect(out).toContain('srcset="https://news.example/one.png, https://news.example/two.png"');
+    });
+
+    it('promotes lazy-loading sources over an absent or placeholder src', () => {
+      const out = sanitizeArticleHtml(
+        '<img data-src="/a.png"><img src="data:image/gif;base64,R0lGOD" data-src="/b.png">' +
+          '<img src="/real.png" data-src="/ignored.png"><img data-srcset="/c.png 2x">',
+        'https://news.example/story.html',
+      );
+
+      expect(out).toContain('src="https://news.example/a.png"');
+      expect(out).toContain('src="https://news.example/b.png"');
+      expect(out).toContain('src="https://news.example/real.png"');
+      expect(out).not.toContain('ignored.png');
+      expect(out).toContain('srcset="https://news.example/c.png 2x"');
+    });
+
+    it('still drops a javascript: URL promoted out of a lazy attribute', () => {
+      const out = sanitizeArticleHtml(
+        '<img data-src="javascript:evil()">',
+        'https://news.example/story.html',
+      );
+
+      expect(out).not.toContain('javascript:');
+    });
+
+    it('ignores an unusable source URL', () => {
+      const out = sanitizeArticleHtml('<img src="/img/a.png">', 'not a url');
+
+      expect(out).toContain('src="/img/a.png"');
+    });
+
     it('returns empty string when DOMParser throws', () => {
       const OriginalDOMParser = globalThis.DOMParser;
       vi.stubGlobal(

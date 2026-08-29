@@ -334,9 +334,62 @@ describe('resolveColumnOverlaps', () => {
       makeCard({ key: 'A#0#0', fullPath: 'A', startSentence: 1, top: 0, height: 72 }),
       makeCard({ key: 'B#0#0', fullPath: 'B', startSentence: 5, top: 10, height: 72 }),
     ];
-    const [a, b] = resolveColumnOverlaps(cards);
-    expect(b.top).toBeGreaterThanOrEqual(a.top + a.height);
+    const [, b] = resolveColumnOverlaps(cards);
+    expect(b.top).toBeGreaterThan(10);
   });
+
+  it('never pushes a card more than the maximum away from its measured top', () => {
+    const cards = [
+      makeCard({ key: 'A#0#0', fullPath: 'A', startSentence: 1, top: 0, height: 72 }),
+      makeCard({ key: 'B#0#0', fullPath: 'B', startSentence: 5, top: 10, height: 72 }),
+    ];
+    const [, b] = resolveColumnOverlaps(cards);
+    expect(b.top).toBeLessThanOrEqual(10 + 18);
+  });
+
+  // Regression: pushing each card below the previous one's *pushed* bottom made
+  // the correction compound, so a dense column (leaf topics of one or two
+  // sentences) drifted hundreds of px below the article it annotates.
+  it('does not accumulate the push down a dense column', () => {
+    const cards = Array.from({ length: 40 }, (_, index) =>
+      makeCard({
+        key: `T${index}#0#0`,
+        fullPath: `T${index}`,
+        startSentence: index + 1,
+        top: index * 30,
+        height: 72,
+      }),
+    );
+    const resolved = resolveColumnOverlaps(cards);
+    for (const card of resolved) {
+      const measuredTop = cards.find((c) => c.key === card.key).top;
+      expect(card.top - measuredTop).toBeLessThanOrEqual(18);
+    }
+  });
+
+  // Regression: the bounded push must not let the card after a corrected
+  // inversion jump back above it — whether its own measurement resumes below
+  // the inverted card's (100, 0, 10) or above it (100, 0, 110), since the
+  // corrected position is higher than either.
+  it.each([[[100, 0, 10]], [[100, 0, 110]]])(
+    'keeps document order after correcting an inverted measurement (%j)',
+    (measuredTops) => {
+      const cards = measuredTops.map((top, index) =>
+        makeCard({
+          key: `T${index}#0#0`,
+          fullPath: `T${index}`,
+          startSentence: index + 1,
+          top,
+          height: 72,
+        }),
+      );
+      const [first, second, third] = resolveColumnOverlaps(cards);
+
+      expect(first.top).toBe(100);
+      expect(second.top).toBeGreaterThan(first.top);
+      expect(third.top).toBeGreaterThanOrEqual(second.top);
+    },
+  );
 
   it('only resolves overlaps within the same column', () => {
     const cards = [
@@ -522,7 +575,7 @@ describe('patchTopicCardsFromSummaryMetrics', () => {
     expect(result[0].height).toBe(80);
   });
 
-  it('re-runs overlap resolution after patching to eliminate collisions', () => {
+  it('re-runs overlap resolution after patching', () => {
     const card1 = makeTopicCard({
       key: 'A#0#0',
       fullPath: 'A',
@@ -550,7 +603,12 @@ describe('patchTopicCardsFromSummaryMetrics', () => {
     const result = patchTopicCardsFromSummaryMetrics([card1, card2], [sA, sB], metrics);
     const sorted = result.slice().sort((a, b) => a.top - b.top);
     const [r1, r2] = sorted;
-    expect(r2.top).toBeGreaterThanOrEqual(r1.top + r1.height);
+    // The patched cards collide (10 is inside the first card's 0-72 extent), so
+    // the second is pushed down — but only as far as the push bound allows, so
+    // it stays beside the summary card it was measured from.
+    expect(r2.top).toBeGreaterThan(10);
+    expect(r2.top).toBeLessThanOrEqual(10 + 18);
+    expect(r1).toMatchObject({ top: 0 });
   });
 
   it('does not patch a card when no metric path matches its fullPath', () => {
