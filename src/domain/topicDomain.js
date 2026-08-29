@@ -43,7 +43,7 @@ export function getMaxTopicLevel(topics) {
   if (!Array.isArray(topics) || topics.length === 0) return 0;
   let max = 0;
   for (const topic of topics) {
-    const depth = splitTopicPath(topic.name).length - 1;
+    const depth = splitTopicPath(topic?.name).length - 1;
     if (depth > max) max = depth;
   }
   return max;

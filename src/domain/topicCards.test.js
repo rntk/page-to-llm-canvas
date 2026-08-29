@@ -34,7 +34,9 @@ describe('getMaxTopicLevel', () => {
   it.each([
     ['returns 0 for empty array', [], 0],
     ['returns 0 for non-array', null, 0],
+    ['returns 0 for null topic entries', [null], 0],
     ['returns 0 for flat topics', [{ name: 'Tech' }], 0],
+    ['ignores null entries among valid topics', [null, { name: 'Tech > AI' }], 1],
     [
       'returns max depth across all topics',
       [{ name: 'Tech' }, { name: 'Tech > AI > Models' }, { name: 'Science > Bio' }],
