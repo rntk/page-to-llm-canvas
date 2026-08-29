@@ -23,12 +23,72 @@ export function tokenizeText(text) {
   return String(text || '').match(WORD_TOKEN_RE) || [];
 }
 
+// Tags whose whole subtree the browser never lays out (plus the ones whose
+// contents are markup-free), so no word inside them can ever be measured.
+const UNRENDERED_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
+
+// Same declarations worker/pipeline/html.js prunes from the record text.
+const HIDING_DECLARATION_RE =
+  /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse)|content-visibility\s*:\s*hidden)\s*(?:;|$)/i;
+
+/**
+ * Whether a node's whole subtree is invisible to the word walk.
+ *
+ * The rules mirror `isUnrenderedTag` in worker/pipeline/html.js, which prunes
+ * the same subtrees from the record's `text` (and therefore its sentences): a
+ * word the pipeline dropped must not appear here either, or `buildSentenceWordRanges`
+ * maps every later sentence onto the wrong DOM words and the canvas rail loses
+ * their positions entirely. Only attribute-level hiding counts — the UA
+ * stylesheet, `hidden`, and inline `style`. Content hidden by a CSS *class* is
+ * visible again in the canvas (which re-renders the article without the page's
+ * stylesheet) and the pipeline keeps it, so it must stay here too.
+ *
+ * A closed `<details>` is deliberately not skippable: it still renders its
+ * `<summary>`. Its remaining contents are excluded by the walk in
+ * `collectWordEntries` instead.
+ * @param {Node} node Candidate ancestor of a text node.
+ * @returns {boolean}
+ */
 export function isSkippableContainer(node) {
   if (!node || node.nodeType !== 1) return false;
   const tag = node.tagName;
-  if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return true;
+  if (UNRENDERED_TAGS.has(tag)) return true;
   if (node.id === 'pagetollm-in-page-rail') return true;
-  return false;
+  if (typeof node.hasAttribute !== 'function') return false;
+  // `hidden` is a boolean attribute: its presence hides, whatever the value.
+  if (node.hasAttribute('hidden')) return true;
+  if (tag === 'DIALOG' && !node.hasAttribute('open')) return true;
+  return HIDING_DECLARATION_RE.test(node.getAttribute('style') || '');
+}
+
+/**
+ * The `<summary>` a collapsed `<details>` still renders: the first one the
+ * element owns (a nested `<details>` brings its own).
+ * @param {Element} details A `details` element.
+ * @param {Map<Element, ?Element>} cache Per-walk memo, since this is asked once
+ *   per text node below a collapsed subtree.
+ * @returns {?Element}
+ */
+function getOwnSummary(details, cache) {
+  if (cache.has(details)) return cache.get(details);
+  const summary = details.querySelector('summary');
+  const own = summary && summary.closest('details') === details ? summary : null;
+  cache.set(details, own);
+  return own;
+}
+
+/**
+ * Whether `ancestor` is a collapsed `<details>` that hides `node` — i.e. `node`
+ * lives outside the `<summary>` the widget keeps on screen.
+ * @param {Element} ancestor Element on the path from `node` to the walk root.
+ * @param {Node} node The text node being filtered.
+ * @param {Map<Element, ?Element>} cache Per-walk summary memo.
+ * @returns {boolean}
+ */
+function isCollapsedDetailsContent(ancestor, node, cache) {
+  if (ancestor.tagName !== 'DETAILS' || ancestor.hasAttribute('open')) return false;
+  const summary = getOwnSummary(ancestor, cache);
+  return !summary || !summary.contains(node);
 }
 
 /**
@@ -41,12 +101,15 @@ export function isSkippableContainer(node) {
 export function collectWordEntries(roots) {
   const entries = [];
   const textNodes = [];
+  const summaryCache = new Map();
   const walker = (root) => {
     const tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
         let p = node.parentNode;
         while (p && p !== root.parentNode) {
-          if (isSkippableContainer(p)) return NodeFilter.FILTER_REJECT;
+          if (isSkippableContainer(p) || isCollapsedDetailsContent(p, node, summaryCache)) {
+            return NodeFilter.FILTER_REJECT;
+          }
           p = p.parentNode;
         }
         if (!node.nodeValue || !node.nodeValue.trim()) {

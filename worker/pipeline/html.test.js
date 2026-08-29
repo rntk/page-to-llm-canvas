@@ -107,6 +107,91 @@ describe('stripTagsKeepOffsets', () => {
     expect(result.text).toBe('link');
   });
 
+  it('drops the contents of a closed details element but keeps its summary', () => {
+    const result = stripTagsKeepOffsets(
+      '<p>before</p><details><summary>Question</summary><p>collapsed answer</p></details><p>after</p>',
+    );
+    expect(result.text).toBe('before Question after');
+  });
+
+  it('keeps the contents of an open details element', () => {
+    const result = stripTagsKeepOffsets(
+      '<details open><summary>Question</summary><p>answer</p></details>',
+    );
+    expect(result.text).toBe('Question answer');
+  });
+
+  it('drops a closed details element that has no summary', () => {
+    const result = stripTagsKeepOffsets(
+      '<p>before</p><details><p>hidden</p></details><p>after</p>',
+    );
+    expect(result.text).toBe('before after');
+  });
+
+  it('keeps only the outer summary when a closed details nests another', () => {
+    const result = stripTagsKeepOffsets(
+      '<details><summary>Outer</summary><details><summary>Inner</summary><p>deep</p></details></details>after',
+    );
+    expect(result.text).toBe('Outer after');
+  });
+
+  it('drops elements hidden by the hidden attribute whatever its value', () => {
+    expect(stripTagsKeepOffsets('<p>a</p><div hidden>gone</div><p>b</p>').text).toBe('a b');
+    expect(stripTagsKeepOffsets('<p>a</p><div hidden="false">gone</div><p>b</p>').text).toBe('a b');
+    expect(stripTagsKeepOffsets('<p>a</p><div hidden="until-found">gone</div><p>b</p>').text).toBe(
+      'a b',
+    );
+  });
+
+  it('drops elements hidden by an inline style declaration', () => {
+    expect(stripTagsKeepOffsets('<p>a</p><div style="display:none">gone</div><p>b</p>').text).toBe(
+      'a b',
+    );
+    expect(
+      stripTagsKeepOffsets('<p>a</p><div style="color:red; visibility: hidden;">gone</div>b').text,
+    ).toBe('a b');
+  });
+
+  it('keeps elements whose inline style only resembles a hiding declaration', () => {
+    const result = stripTagsKeepOffsets(
+      '<div style="background:url(a.png#display:none)">kept</div>',
+    );
+    expect(result.text).toBe('kept');
+  });
+
+  it('drops template and noscript contents but keeps a closed dialog out of the text', () => {
+    expect(stripTagsKeepOffsets('<template><a>chrome</a></template><p>text</p>').text).toBe('text');
+    expect(stripTagsKeepOffsets('<noscript><p>enable js</p></noscript><p>text</p>').text).toBe(
+      'text',
+    );
+    expect(stripTagsKeepOffsets('<dialog><p>modal</p></dialog><p>text</p>').text).toBe('text');
+    expect(stripTagsKeepOffsets('<dialog open><p>modal</p></dialog>').text).toBe('modal');
+  });
+
+  it('does not end a hidden element early on a > inside a quoted attribute', () => {
+    const result = stripTagsKeepOffsets('<div title="a>b" hidden>gone</div><p>after</p>');
+    expect(result.text).toBe('after');
+  });
+
+  it('ignores a hidden attribute inside script content', () => {
+    const result = stripTagsKeepOffsets('<script>var s = "<div hidden>";</script><p>after</p>');
+    expect(result.text).toBe('after');
+  });
+
+  it('keeps void elements carrying a hidden attribute from swallowing later text', () => {
+    const result = stripTagsKeepOffsets('<p>before</p><img hidden src="a.png"><p>after</p>');
+    expect(result.text).toBe('before after');
+  });
+
+  it('maps text after a dropped hidden subtree back to its original offsets', () => {
+    const html = 'a<div hidden>gone</div>b';
+    const result = stripTagsKeepOffsets(html);
+    expect(result.text).toBe('a b');
+    expect(html[result.mapping[0]]).toBe('a');
+    expect(html[result.mapping[2]]).toBe('b');
+    expect(result.mapping.length).toBe(result.text.length + 1);
+  });
+
   it('leaves invalid numeric entities unchanged when they cannot be decoded', () => {
     const result = stripTagsKeepOffsets('&#x110000; valid');
     expect(result.text).toBe('&#x110000; valid');

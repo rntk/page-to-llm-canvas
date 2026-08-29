@@ -1,5 +1,6 @@
 // HTML cleaning with offset mapping back to the original HTML string.
-// Single linear pass: strips <script>/<style> blocks, removes other tags,
+// Single linear pass: strips <script>/<style> blocks and the subtrees the
+// browser never lays out (see findUnrenderedRanges), removes other tags,
 // decodes entities, collapses whitespace runs. mapping[i] = original offset
 // of output[i] (and mapping[output.length] = end offset for safety).
 
@@ -128,6 +129,248 @@ function isStrippableFormatChar(ch) {
   );
 }
 
+// Elements with no end tag: searching for one would run to the end of the
+// document and swallow the rest of the article.
+const VOID_TAGS = new Set([
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'param',
+  'source',
+  'track',
+  'wbr',
+]);
+
+// Contents are text, not markup, so they are never searched for hidden
+// elements. The scanner in stripTagsKeepOffsets drops them on its own.
+const RAW_TEXT_TAGS = new Set(['script', 'style']);
+
+// Subtrees the browser never renders regardless of the page's own CSS.
+const UNRENDERED_TAGS = new Set(['noscript', 'template']);
+
+// Native disclosure/dialog widgets keep their contents unrendered until the
+// `open` attribute is present.
+const CLOSED_BY_DEFAULT_TAGS = new Set(['details', 'dialog']);
+
+const HIDING_DECLARATION_RE =
+  /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse)|content-visibility\s*:\s*hidden)\s*(?:;|$)/i;
+
+const ATTRIBUTE_RE = /([^\s"'/=<>]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s"'=<>`]*))?/g;
+
+/**
+ * Read the tag that starts at `index`, ending it on the first `>` that is not
+ * inside a quoted attribute value.
+ *
+ * The scanner's own `indexOf('>')` is deliberately naive, which is harmless
+ * when a mis-parse only drops a tag. It is not harmless here: a `>` inside an
+ * attribute would truncate the attribute list and could flip a skip decision
+ * over a whole subtree, so this reader is quote-aware.
+ * @param {string} html Original HTML.
+ * @param {number} index Offset of the opening `<`.
+ * @returns {?{name: string, closing: boolean, selfClosing: boolean, attrs: string, end: number}}
+ *   Null when this is not a tag (`<!--`, a bare `<`) or it is never terminated.
+ */
+function readTagAt(html, index) {
+  let i = index + 1;
+  const closing = html[i] === '/';
+  if (closing) i += 1;
+  const nameStart = i;
+  while (i < html.length && /[a-zA-Z0-9-]/.test(html[i])) i += 1;
+  const name = html.slice(nameStart, i).toLowerCase();
+  if (!name) return null;
+
+  let quote = '';
+  while (i < html.length) {
+    const ch = html[i];
+    if (quote) {
+      if (ch === quote) quote = '';
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === '>') {
+      const attrs = html.slice(nameStart + name.length, i);
+      return { name, closing, selfClosing: attrs.endsWith('/'), attrs, end: i + 1 };
+    }
+    i += 1;
+  }
+  return null;
+}
+
+/**
+ * @param {string} attrs Raw attribute text of a tag.
+ * @returns {Map<string, string>} Lower-cased attribute names to unquoted values.
+ */
+function parseAttributes(attrs) {
+  const parsed = new Map();
+  if (!attrs.trim()) return parsed;
+  ATTRIBUTE_RE.lastIndex = 0;
+  let match;
+  while ((match = ATTRIBUTE_RE.exec(attrs))) {
+    const name = match[1].toLowerCase();
+    if (name === '/') continue;
+    const raw = match[2] || '';
+    const value =
+      (raw[0] === '"' && raw.endsWith('"')) || (raw[0] === "'" && raw.endsWith("'"))
+        ? raw.slice(1, -1)
+        : raw;
+    if (!parsed.has(name)) parsed.set(name, value);
+  }
+  return parsed;
+}
+
+/**
+ * Whether the browser leaves this element's subtree unrendered.
+ *
+ * The predicate is deliberately limited to the ways of hiding content that
+ * survive `sanitizeArticleHtml` (which drops `<style>`/`<link>`, so the page's
+ * own stylesheet never applies in the canvas): UA-stylesheet behaviour, the
+ * `hidden` attribute, and inline `style` declarations. Content hidden by a CSS
+ * class is *visible* once the article is re-rendered without that stylesheet,
+ * so pruning it here would drop sentences the reader can actually see.
+ * @param {{name: string, attrs: string}} tag Tag as returned by readTagAt.
+ * @returns {boolean}
+ */
+function isUnrenderedTag(tag) {
+  if (UNRENDERED_TAGS.has(tag.name)) return true;
+  const attributes = parseAttributes(tag.attrs);
+  // `hidden` is a boolean attribute: its presence hides, whatever the value.
+  if (attributes.has('hidden')) return true;
+  if (CLOSED_BY_DEFAULT_TAGS.has(tag.name) && !attributes.has('open')) return true;
+  return HIDING_DECLARATION_RE.test(attributes.get('style') || '');
+}
+
+/**
+ * Offset just past the end tag matching an element opened at `from`, counting
+ * nested elements of the same name and ignoring comments and raw-text content.
+ * @param {string} html Original HTML.
+ * @param {string} name Lower-cased tag name.
+ * @param {number} from Offset just past the opening tag.
+ * @returns {{closeStart: number, end: number}} Both are `html.length` when the
+ *   element is never closed, which drops the remainder — the same lenient
+ *   choice the scanner already makes for an unclosed `<script>`.
+ */
+function findElementEnd(html, name, from) {
+  let depth = 1;
+  let i = from;
+  while (i < html.length) {
+    const lt = html.indexOf('<', i);
+    if (lt < 0) break;
+    if (html.startsWith('<!--', lt)) {
+      const commentEnd = html.indexOf('-->', lt + 4);
+      i = commentEnd < 0 ? html.length : commentEnd + 3;
+      continue;
+    }
+    const tag = readTagAt(html, lt);
+    if (!tag) {
+      i = lt + 1;
+      continue;
+    }
+    if (tag.name === name) {
+      if (tag.closing) {
+        depth -= 1;
+        if (depth === 0) return { closeStart: lt, end: tag.end };
+      } else if (!tag.selfClosing && !VOID_TAGS.has(name)) {
+        depth += 1;
+      }
+    } else if (!tag.closing && RAW_TEXT_TAGS.has(tag.name)) {
+      i = findElementEnd(html, tag.name, tag.end).end;
+      continue;
+    }
+    i = tag.end;
+  }
+  return { closeStart: html.length, end: html.length };
+}
+
+/**
+ * Locate the `<summary>` a closed `<details>` still renders: the first one that
+ * is not owned by a nested `<details>`.
+ * @param {string} html Original HTML.
+ * @param {number} from Offset just past the `<details>` opening tag.
+ * @param {number} until Offset of the matching `</details>`.
+ * @returns {?{start: number, end: number}}
+ */
+function findSummaryRange(html, from, until) {
+  let nested = 0;
+  let i = from;
+  while (i < until) {
+    const lt = html.indexOf('<', i);
+    if (lt < 0 || lt >= until) break;
+    if (html.startsWith('<!--', lt)) {
+      const commentEnd = html.indexOf('-->', lt + 4);
+      i = commentEnd < 0 ? until : commentEnd + 3;
+      continue;
+    }
+    const tag = readTagAt(html, lt);
+    if (!tag) {
+      i = lt + 1;
+      continue;
+    }
+    if (tag.name === 'details' && !tag.selfClosing) {
+      nested += tag.closing ? -1 : 1;
+    } else if (tag.name === 'summary' && !tag.closing && nested === 0) {
+      const { end } = findElementEnd(html, 'summary', tag.end);
+      return { start: lt, end: Math.min(end, until) };
+    }
+    i = tag.end;
+  }
+  return null;
+}
+
+/**
+ * Ranges of `html` that the browser never lays out, as sorted, non-overlapping
+ * `[start, end)` offsets.
+ *
+ * Text inside them must not become a sentence: the canvas positions its topic
+ * cards from the measured on-screen rect of each sentence, and a sentence that
+ * resolves to no rect falls back to a synthetic ladder position, mixing two
+ * coordinate spaces in one rail column.
+ * @param {string} html Original HTML.
+ * @returns {Array<{start: number, end: number}>}
+ */
+export function findUnrenderedRanges(html) {
+  const ranges = [];
+  let i = 0;
+  while (i < html.length) {
+    const lt = html.indexOf('<', i);
+    if (lt < 0) break;
+    if (html.startsWith('<!--', lt)) {
+      const commentEnd = html.indexOf('-->', lt + 4);
+      i = commentEnd < 0 ? html.length : commentEnd + 3;
+      continue;
+    }
+    const tag = readTagAt(html, lt);
+    if (!tag) {
+      i = lt + 1;
+      continue;
+    }
+    if (!tag.closing && RAW_TEXT_TAGS.has(tag.name) && !tag.selfClosing) {
+      i = findElementEnd(html, tag.name, tag.end).end;
+      continue;
+    }
+    if (tag.closing || tag.selfClosing || VOID_TAGS.has(tag.name) || !isUnrenderedTag(tag)) {
+      i = tag.end;
+      continue;
+    }
+    const { closeStart, end } = findElementEnd(html, tag.name, tag.end);
+    // A collapsed <details> still renders its summary, which on a FAQ-style
+    // page carries real content (the question), so it is kept in place.
+    const summary = tag.name === 'details' ? findSummaryRange(html, tag.end, closeStart) : null;
+    if (summary) {
+      ranges.push({ start: lt, end: summary.start }, { start: summary.end, end });
+    } else {
+      ranges.push({ start: lt, end });
+    }
+    i = end;
+  }
+  return ranges;
+}
+
 export function stripTagsKeepOffsets(html) {
   const out = [];
   const mapping = [];
@@ -139,6 +382,11 @@ export function stripTagsKeepOffsets(html) {
   // repeated full-document normalization without penalizing documents that
   // contain neither tag.
   let htmlLower = null;
+  // Subtrees the browser never lays out, consumed in order as the scan reaches
+  // them. Text inside them would otherwise become sentences that no on-screen
+  // rect can ever be measured for.
+  const unrenderedRanges = findUnrenderedRanges(html);
+  let nextRange = 0;
 
   const pushChar = (ch, origPos) => {
     if (isWhitespace(ch)) {
@@ -156,6 +404,19 @@ export function stripTagsKeepOffsets(html) {
   };
 
   while (i < n) {
+    // Ranges already behind the cursor (e.g. one nested inside a <script>
+    // block the branch below jumped over) are dropped rather than re-applied,
+    // so a skip can never rewind or swallow text the cursor has passed.
+    while (nextRange < unrenderedRanges.length && unrenderedRanges[nextRange].start < i) {
+      nextRange += 1;
+    }
+    if (nextRange < unrenderedRanges.length && unrenderedRanges[nextRange].start === i) {
+      i = unrenderedRanges[nextRange].end;
+      nextRange += 1;
+      // Treat as a whitespace separator, exactly as for a <script> block.
+      pushChar(' ', i);
+      continue;
+    }
     const ch = html[i];
     if (ch === '<') {
       // Detect <script> or <style> blocks (skip including content).

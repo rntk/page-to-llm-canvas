@@ -46,6 +46,39 @@ describe('sentenceHighlight pure helpers', () => {
     expect(isSkippableContainer({ nodeType: 3 })).toBe(false);
   });
 
+  it('isSkippableContainer rejects the subtrees the pipeline prunes from record text', () => {
+    const template = document.createElement('template');
+    const hidden = document.createElement('div');
+    hidden.setAttribute('hidden', '');
+    const hiddenFalse = document.createElement('div');
+    // Boolean attribute: even "false" hides.
+    hiddenFalse.setAttribute('hidden', 'false');
+    const styled = document.createElement('div');
+    styled.setAttribute('style', 'color: red; display : none');
+    const invisible = document.createElement('div');
+    invisible.setAttribute('style', 'visibility:collapse');
+    const closedDialog = document.createElement('dialog');
+    const openDialog = document.createElement('dialog');
+    openDialog.setAttribute('open', '');
+    // Hidden by a CSS class only: the canvas re-renders without the page's
+    // stylesheet, so this content is visible there and the pipeline keeps it.
+    const classHidden = document.createElement('div');
+    classHidden.className = 'hidden';
+    expect(isSkippableContainer(template)).toBe(true);
+    expect(isSkippableContainer(hidden)).toBe(true);
+    expect(isSkippableContainer(hiddenFalse)).toBe(true);
+    expect(isSkippableContainer(styled)).toBe(true);
+    expect(isSkippableContainer(invisible)).toBe(true);
+    expect(isSkippableContainer(closedDialog)).toBe(true);
+    expect(isSkippableContainer(openDialog)).toBe(false);
+    expect(isSkippableContainer(classHidden)).toBe(false);
+  });
+
+  it('isSkippableContainer keeps a collapsed <details>, whose summary still renders', () => {
+    const details = document.createElement('details');
+    expect(isSkippableContainer(details)).toBe(false);
+  });
+
   it('supportsHighlightApi reflects global CSS.highlights/Highlight presence', () => {
     // The helper returns the result of a && chain and may yield boolean or the last falsy value (undefined).
     // Just ensure it does not throw and yields a usable truthy/falsy indicator.
@@ -80,6 +113,38 @@ describe('collectWordEntries and buildSentenceDomRange', () => {
     expect(entries[0]).toMatchObject({ word: 'Alpha', node: t1, start: 0, end: 5 });
     expect(entries[1]).toMatchObject({ word: 'beta', node: t1, start: 6, end: 10 });
     expect(entries[2]).toMatchObject({ word: 'gamma', node: t2, start: 1, end: 6 });
+  });
+
+  it('collectWordEntries skips subtrees the browser never lays out', () => {
+    container.innerHTML = [
+      '<p>Alpha</p>',
+      '<div hidden>hidden words</div>',
+      '<div style="display:none">inline hidden words</div>',
+      '<template>template words</template>',
+      '<dialog>closed dialog words</dialog>',
+      '<p>Omega</p>',
+    ].join('');
+    expect(collectWordEntries([container]).map((e) => e.word)).toEqual(['Alpha', 'Omega']);
+  });
+
+  it('collectWordEntries keeps a collapsed details summary but drops its hidden contents', () => {
+    container.innerHTML = [
+      '<details><summary><span>Question</span></summary><p>Collapsed answer</p></details>',
+      '<details open><summary>Open question</summary><p>Open answer</p></details>',
+    ].join('');
+    expect(collectWordEntries([container]).map((e) => e.word)).toEqual([
+      'Question',
+      'Open',
+      'question',
+      'Open',
+      'answer',
+    ]);
+  });
+
+  it('collectWordEntries gives a nested details its own summary', () => {
+    container.innerHTML =
+      '<details><summary>Outer</summary><details><summary>Inner</summary>body</details></details>';
+    expect(collectWordEntries([container]).map((e) => e.word)).toEqual(['Outer']);
   });
 
   it('buildSentenceDomRange returns a live Range when entries exist', () => {
