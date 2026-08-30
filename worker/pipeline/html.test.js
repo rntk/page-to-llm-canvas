@@ -1,5 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { decodeEntities, stripTagsKeepOffsets } from './html.js';
+import { decodeEntities, normalizePlainTextKeepOffsets, stripTagsKeepOffsets } from './html.js';
+
+describe('normalizePlainTextKeepOffsets', () => {
+  it('preserves literal markup-looking characters from captured DOM text', () => {
+    const input = 'a <b> &amp; b';
+    const result = normalizePlainTextKeepOffsets(input);
+    expect(result.text).toBe('a <b> &amp; b');
+    expect(result.mapping).toEqual(
+      Array.from({ length: result.text.length }, (_, i) => i).concat(input.length),
+    );
+  });
+
+  it('applies the same whitespace, control, and suspicious zero-width policy', () => {
+    const input = '  before\n\n\u0001\u200b\u200b\u200b\u200b after  ';
+    const result = normalizePlainTextKeepOffsets(input);
+    expect(result.text).toBe('before after');
+    expect(result.mapping.at(-1)).toBe(input.length);
+    expect(result.mapping.length).toBe(result.text.length + 1);
+  });
+
+  it('does not decode entity-looking text', () => {
+    expect(normalizePlainTextKeepOffsets('&lt; &amp; &#65;').text).toBe('&lt; &amp; &#65;');
+  });
+});
 
 describe('stripTagsKeepOffsets', () => {
   it('returns empty text for empty string', () => {
@@ -197,8 +220,9 @@ describe('stripTagsKeepOffsets', () => {
       'a b',
     );
     expect(
-      stripTagsKeepOffsets('<p>a</p><div style="color:red; content-visibility: hidden;">gone</div>b')
-        .text,
+      stripTagsKeepOffsets(
+        '<p>a</p><div style="color:red; content-visibility: hidden;">gone</div>b',
+      ).text,
     ).toBe('a b');
   });
 
@@ -207,7 +231,8 @@ describe('stripTagsKeepOffsets', () => {
       stripTagsKeepOffsets('<p>a</p><div style="display:none !important">gone</div><p>b</p>').text,
     ).toBe('a b');
     expect(
-      stripTagsKeepOffsets('<p>a</p><div style="display:none!important;color:red">gone</div>b').text,
+      stripTagsKeepOffsets('<p>a</p><div style="display:none!important;color:red">gone</div>b')
+        .text,
     ).toBe('a b');
   });
 
@@ -243,9 +268,9 @@ describe('stripTagsKeepOffsets', () => {
 
   it('does not split declarations at semicolons inside strings or parentheses', () => {
     // A custom property whose value is a string containing `;display:none;`.
-    expect(
-      stripTagsKeepOffsets(`<p>a</p><div style="--x:';display:none;'">shown</div>`).text,
-    ).toBe('a shown');
+    expect(stripTagsKeepOffsets(`<p>a</p><div style="--x:';display:none;'">shown</div>`).text).toBe(
+      'a shown',
+    );
     expect(
       stripTagsKeepOffsets('<p>a</p><div style="background:url(a;b);color:red">shown</div>').text,
     ).toBe('a shown');

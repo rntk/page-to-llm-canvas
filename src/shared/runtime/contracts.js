@@ -125,9 +125,12 @@ export function isImportableRecord(record) {
  * @property {string} pipelineRunId - Id of the run currently allowed to
  *   write this record; guards against stale/superseded runs.
  * @property {string} [sourceUrl] - Origin URL of the captured page ('' if none).
- * @property {string} [text] - Cleaned article text extracted from `html`.
+ * @property {string} [text] - Normalized article text. Capture v2 derives it
+ *   from `capturedText`; legacy records derive it from `html`.
  * @property {string[]} [sentences] - Sentence-split article text.
  * @property {object[]} [topics] - Detected topic ranges over `sentences`.
+ *   Newly computed topics carry `offset_basis: "captured_text"|"html"` to
+ *   identify what their persisted `start`/`end` offsets index.
  * @property {object|null} [topic_range_chunks] - Resumable checkpoint for the
  *   topic-ranges stage: `{contentRevision, sentenceCount, chunks}` where
  *   `chunks[i]` is either null (that chunk still needs an LLM request) or
@@ -164,6 +167,8 @@ export function isImportableRecord(record) {
  * @property {object[]} [processingLog] - Buffered diagnostic log entries
  *   (capped; see `MAX_PROCESSING_LOG_ENTRIES` in storage.js).
  * @property {string[]} [selectors] - CSS selectors used to capture the page.
+ * @property {number|null} [captureVersion] - Browser-side capture schema version.
+ * @property {string|null} [capturedText] - Text extracted while source CSS/layout was available.
  * @property {boolean} [skipSummaries] - Run directive: summaries disabled for
  *   this run (decided at kickoff from the global toggle).
  * @property {boolean} [summariesDisabled] - Outcome flag: summary generation
@@ -203,6 +208,8 @@ export function isImportableRecord(record) {
  * @param {string} input.html
  * @param {string} [input.sourceUrl]
  * @param {string[]} [input.selectors]
+ * @param {number} [input.captureVersion]
+ * @param {string} [input.capturedText]
  * @param {string} input.pipelineRunId
  * @param {boolean} [input.skipSummaries]
  * @param {number} [input.now]
@@ -212,6 +219,8 @@ export function createQueuedRecord({
   html,
   sourceUrl = '',
   selectors = [],
+  captureVersion,
+  capturedText,
   pipelineRunId,
   skipSummaries = false,
   now = Date.now(),
@@ -235,6 +244,8 @@ export function createQueuedRecord({
     source_summary_units: {},
     processingLog: [],
     selectors: Array.isArray(selectors) ? selectors : [],
+    captureVersion: Number.isInteger(captureVersion) ? captureVersion : null,
+    capturedText: typeof capturedText === 'string' ? capturedText : null,
     pipelineRunId,
     skipSummaries,
     summaryCheckpointContentRevision: null,

@@ -11,8 +11,9 @@
  * `img-src` allows `https:` for exactly that reason, which means opening a
  * record does issue image requests to the original host.
  *
- * The stored markup is a verbatim `outerHTML` clone of the picked elements, so
- * its URLs are still relative to the *source page*. Re-rendered inside the
+ * The stored markup is a source-page snapshot of the picked elements (with
+ * non-rendered text pruned for versioned captures), so its URLs are still
+ * relative to the *source page*. Re-rendered inside the
  * extension origin they would resolve against `chrome-extension://<id>/` and
  * 404, which is why `sourceUrl` is resolved in here.
  * @param {string} html Stored article HTML.

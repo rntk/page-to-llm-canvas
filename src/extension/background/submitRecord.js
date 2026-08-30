@@ -6,6 +6,12 @@ import {
 import { createLogger } from '../../shared/runtime/log.js';
 import { sha256Hex } from './summaryResolution.js';
 
+function comparableCapturedText(value) {
+  return String(value ?? '')
+    .replace(/\s+/gu, ' ')
+    .trim();
+}
+
 /**
  * Builds the submission entry point: dedupe by URL or content hash, reset a
  * reused record back to a queued state, persist it, then hand it to the
@@ -35,10 +41,12 @@ export function createSubmitRecord({
    * @param {string} [submission.html]
    * @param {string} [submission.sourceUrl]
    * @param {string[]} [submission.selectors]
+   * @param {number} [submission.captureVersion]
+   * @param {string} [submission.capturedText]
    * @returns {Promise<{ok: boolean, key: string, error: string}>}
    */
   return async function handleSubmit(submission) {
-    const { html, sourceUrl, selectors } = submission;
+    const { html, sourceUrl, selectors, captureVersion, capturedText } = submission;
     if (!html) return { ok: false, error: 'missing html' };
 
     let existing = null;
@@ -55,7 +63,30 @@ export function createSubmitRecord({
       existing = await readRecord(key);
     }
 
-    if (existing && existing.status === PIPELINE_STATUS.DONE) {
+    const hasVersionedCapture = captureVersion >= 2 && typeof capturedText === 'string';
+    const existingHasVersionedCapture =
+      existing?.captureVersion >= 2 && typeof existing?.capturedText === 'string';
+    const comparableIncomingText = hasVersionedCapture ? comparableCapturedText(capturedText) : '';
+    const sameCapturedContent = existing
+      ? hasVersionedCapture
+        ? existingHasVersionedCapture
+          ? comparableCapturedText(existing.capturedText) === comparableIncomingText
+          : comparableIncomingText.length > 0 &&
+            comparableCapturedText(existing.text) === comparableIncomingText
+        : existing.html === html
+      : false;
+    if (existing && existing.status === PIPELINE_STATUS.DONE && sameCapturedContent) {
+      // Refresh the browser snapshot and selectors without invalidating the
+      // analysis when their canonical text is unchanged. This also upgrades a
+      // completed legacy record to capture v2 without paying for another LLM
+      // run merely because visibility pruning changed its serialized HTML.
+      const patch = {
+        ...(hasVersionedCapture ? { html, captureVersion, capturedText } : {}),
+        ...(Array.isArray(selectors) ? { selectors } : {}),
+      };
+      if (Object.keys(patch).length > 0) {
+        await updateRecord(key, patch, { expectedPipelineRunId: existing.pipelineRunId });
+      }
       return { ok: true, key };
     }
 
@@ -85,6 +116,8 @@ export function createSubmitRecord({
         progress: { stage: PIPELINE_STAGE.QUEUED, done: 0, total: 0 },
         sourceUrl: sourceUrl || existing.sourceUrl,
         html,
+        captureVersion: Number.isInteger(captureVersion) ? captureVersion : null,
+        capturedText: typeof capturedText === 'string' ? capturedText : null,
         processingLog: [],
         skipSummaries,
         // A submission for a non-terminal URL replaces its HTML and therefore
@@ -120,6 +153,8 @@ export function createSubmitRecord({
           sourceUrl: sourceUrl || '',
           html,
           selectors,
+          captureVersion,
+          capturedText,
           pipelineRunId,
           skipSummaries,
           now,

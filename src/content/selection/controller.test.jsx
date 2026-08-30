@@ -213,6 +213,8 @@ describe('selection controller', () => {
     expect(runtimeMessenger.send).toHaveBeenCalledWith({
       type: 'submit',
       html: '<article id="submitted" class="">Submit me</article>',
+      capturedText: 'Submit me',
+      captureVersion: 2,
       sourceUrl: expect.stringContaining('/article'),
       selectors: ['article#submitted'],
     });

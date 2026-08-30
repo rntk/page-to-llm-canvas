@@ -297,6 +297,8 @@ describe('record storage split (meta/content/summaries)', () => {
     await writeRecord(
       makeRecord('r1', {
         html: '<p>hi</p>',
+        capturedText: 'hi',
+        captureVersion: 2,
         text: 'hi',
         source_summary_units: {
           unit1: { unitId: 'unit1', status: 'done', result: 'cached merge' },
@@ -309,6 +311,9 @@ describe('record storage split (meta/content/summaries)', () => {
     expect(store.has('pagetollm:rec:r1:content')).toBe(true);
     expect(store.has('pagetollm:rec:r1:summaries')).toBe(true);
     expect(store.get('pagetollm:rec:r1:content').html).toBe('<p>hi</p>');
+    expect(store.get('pagetollm:rec:r1:content').capturedText).toBe('hi');
+    expect(store.get('pagetollm:rec:r1:meta').capturedText).toBeUndefined();
+    expect(store.get('pagetollm:rec:r1:meta').captureVersion).toBe(2);
     expect(store.get('pagetollm:rec:r1:summaries').source_summary_units).toEqual({
       unit1: { unitId: 'unit1', status: 'done', result: 'cached merge' },
     });
@@ -317,6 +322,7 @@ describe('record storage split (meta/content/summaries)', () => {
     const rec = await readRecord('r1');
     expect(rec.status).toBe('pending');
     expect(rec.html).toBe('<p>hi</p>');
+    expect(rec.capturedText).toBe('hi');
     expect(rec.source_summary_units).toEqual({
       unit1: { unitId: 'unit1', status: 'done', result: 'cached merge' },
     });

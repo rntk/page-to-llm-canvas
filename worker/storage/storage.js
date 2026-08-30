@@ -35,7 +35,8 @@ let lastIndexProjectionRepairAt = null;
 //   - meta: everything else — the hot path, written on nearly every pipeline
 //     step.
 //   - content: html/text/sentences/topics/topic_range_chunks — written a
-//     handful of times per run (essentially write-once). topic_range_chunks is
+//     handful of times per run (essentially write-once). capturedText is the
+//     browser-derived analysis source for versioned captures; topic_range_chunks is
 //     the topic-ranges chunk checkpoint; it lives here rather than in meta
 //     because every meta write re-serializes on the hot path. It is updated
 //     after successful topic-range parse rounds and cleared when that stage
@@ -44,7 +45,14 @@ let lastIndexProjectionRepairAt = null;
 //     topic_summary_index is the canonical UI projection; source_summary_units
 //     is the optional per-request source-summary checkpoint. The checkpoints
 //     stay load-bearing even though UI code never reads them directly.
-const CONTENT_FIELDS = ['html', 'text', 'sentences', 'topics', 'topic_range_chunks'];
+const CONTENT_FIELDS = [
+  'html',
+  'capturedText',
+  'text',
+  'sentences',
+  'topics',
+  'topic_range_chunks',
+];
 const SUMMARY_FIELDS = ['topic_summaries', 'topic_summary_index', 'source_summary_units'];
 const RECORD_PAYLOAD_SCHEMAS = Object.freeze([
   { name: 'content', fields: CONTENT_FIELDS, storageKey: contentStorageKey },

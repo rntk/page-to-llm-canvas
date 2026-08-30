@@ -6,7 +6,7 @@ import { MSG } from '../../shared/runtime/messages.js';
 import { moveSelectedEntry, removeSelectedEntry, selectedBlocksForToolbar } from './state.js';
 import { canStepUpElement, stepUpSelectedEntry } from './elementTraversal.js';
 import { buildCssPath } from './cssPath.js';
-import { buildHtml } from './html.js';
+import { buildCapture } from './html.js';
 import {
   HIGHLIGHTED_ELEMENT_SELECTOR,
   isElementSelected,
@@ -254,13 +254,15 @@ export function createSelectionController({
 
     const sourceUrl = window.location.href;
     const els = selectedElements.map(({ el }) => el);
-    const html = buildHtml(els);
-    const selectors = els.map(buildCssPath);
+    const capture = buildCapture(els, window);
+    const selectors = capture.elements.map(buildCssPath);
 
     try {
       const response = await runtimeMessenger.send({
         type: MSG.submit,
-        html,
+        html: capture.html,
+        capturedText: capture.capturedText,
+        captureVersion: capture.captureVersion,
         sourceUrl,
         selectors,
       });

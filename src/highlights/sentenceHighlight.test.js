@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   tokenizeText,
   isSkippableContainer,
@@ -139,6 +139,55 @@ describe('collectWordEntries and buildSentenceDomRange', () => {
     expect(entries[2]).toMatchObject({ word: 'gamma', node: t2, start: 1, end: 6 });
   });
 
+  it('joins a word split across adjacent inline text nodes and ranges it correctly', () => {
+    const first = document.createElement('span');
+    first.textContent = 'hel';
+    const second = document.createElement('span');
+    second.textContent = 'lo';
+    container.append(first, second);
+
+    const entries = collectWordEntries([container]);
+    expect(entries.map((entry) => entry.word)).toEqual(['hello']);
+    expect(entries[0]).toMatchObject({ node: first.firstChild, start: 0 });
+    expect(entries[0].endNode).toBe(second.firstChild);
+    expect(entries[0].end).toBe(2);
+    const range = buildSentenceDomRange(buildSentenceWordRanges(['hello'], entries), entries, 1);
+    expect(range.startContainer).toBe(first.firstChild);
+    expect(range.startOffset).toBe(0);
+    expect(range.endContainer).toBe(second.firstChild);
+    expect(range.endOffset).toBe(2);
+  });
+
+  it('keeps visible whitespace-only text nodes as word separators', () => {
+    container.innerHTML = '<p><b>foo</b> <i>bar</i></p>';
+    expect(collectWordEntries([container]).map((entry) => entry.word)).toEqual(['foo', 'bar']);
+
+    container.innerHTML = '<p><span>foo</span>\n<span>bar</span></p>';
+    expect(collectWordEntries([container]).map((entry) => entry.word)).toEqual(['foo', 'bar']);
+  });
+
+  it('does not let whitespace in a hidden subtree split visible inline text', () => {
+    container.innerHTML =
+      '<p><span>foo</span><span style="display:none"> </span><span>bar</span></p>';
+    expect(collectWordEntries([container]).map((entry) => entry.word)).toEqual(['foobar']);
+  });
+
+  it('keeps words in separate block elements separate', () => {
+    const first = document.createElement('p');
+    first.style.display = 'block';
+    first.textContent = 'first';
+    const second = document.createElement('p');
+    second.style.display = 'block';
+    second.textContent = 'second';
+    container.append(first, second);
+
+    const entries = collectWordEntries([container]);
+    expect(entries.map((entry) => entry.word)).toEqual(['first', 'second']);
+    const ranges = buildSentenceWordRanges(['first', 'second'], entries);
+    expect(ranges.get(1)).toEqual({ startIdx: 0, endIdx: 0 });
+    expect(ranges.get(2)).toEqual({ startIdx: 1, endIdx: 1 });
+  });
+
   it('collectWordEntries skips subtrees the browser never lays out', () => {
     container.innerHTML = [
       '<p>Alpha</p>',
@@ -150,6 +199,39 @@ describe('collectWordEntries and buildSentenceDomRange', () => {
       '<p>Omega</p>',
     ].join('');
     expect(collectWordEntries([container]).map((e) => e.word)).toEqual(['Alpha', 'Omega']);
+  });
+
+  it('collectWordEntries honors computed class hiding, visibility, and ancestor opacity', () => {
+    container.innerHTML = [
+      '<p>Keep</p>',
+      '<div class="computed-display-none">class hidden</div>',
+      '<span class="computed-visibility-hidden">visibility hidden</span>',
+      '<div class="computed-visibility-ancestor"><span class="computed-visibility-visible">visible override</span><span>inherited hidden</span></div>',
+      '<div class="computed-opacity-zero"><span>opacity hidden</span></div>',
+      '<p>Keep again</p>',
+    ].join('');
+    const getComputedStyle = vi.spyOn(window, 'getComputedStyle').mockImplementation((node) => ({
+      display: node.classList?.contains('computed-display-none') ? 'none' : 'block',
+      contentVisibility: 'visible',
+      visibility:
+        node.classList?.contains('computed-visibility-hidden') ||
+        (node.closest?.('.computed-visibility-ancestor') &&
+          !node.classList?.contains('computed-visibility-visible'))
+          ? 'hidden'
+          : 'visible',
+      opacity: node.classList?.contains('computed-opacity-zero') ? '0' : '1',
+    }));
+    try {
+      expect(collectWordEntries([container]).map((e) => e.word)).toEqual([
+        'Keep',
+        'visible',
+        'override',
+        'Keep',
+        'again',
+      ]);
+    } finally {
+      getComputedStyle.mockRestore();
+    }
   });
 
   it('collectWordEntries keeps a collapsed details summary but drops its hidden contents', () => {
@@ -284,6 +366,34 @@ describe('buildSentenceWordRanges (anchoring logic)', () => {
     const ranges = buildSentenceWordRanges(['Hello', 'world test'], entries);
     expect(ranges.get(1)).toEqual({ startIdx: 0, endIdx: 0 });
     expect(ranges.get(2)).toEqual({ startIdx: 1, endIdx: 2 });
+  });
+
+  it('leaves an unmatched sentence unmapped and lets a later sentence resynchronize', () => {
+    const entries = [{ word: 'Alpha' }, { word: 'Beta' }, { word: 'Gamma' }];
+    const ranges = buildSentenceWordRanges(['Missing sentence', 'Beta Gamma'], entries);
+    expect(ranges.has(1)).toBe(false);
+    expect(ranges.get(2)).toEqual({ startIdx: 1, endIdx: 2 });
+  });
+
+  it('does not fabricate an end range when the sentence end cannot be found', () => {
+    const entries = [{ word: 'Alpha' }, { word: 'Beta' }, { word: 'Gamma' }];
+    const ranges = buildSentenceWordRanges(['Alpha Missing', 'Gamma'], entries);
+    expect(ranges.has(1)).toBe(false);
+    expect(ranges.get(2)).toEqual({ startIdx: 2, endIdx: 2 });
+  });
+
+  it('does not map punctuation-only sentences', () => {
+    const entries = [{ word: 'Alpha' }];
+    const ranges = buildSentenceWordRanges(['---', 'Alpha'], entries);
+    expect(ranges.has(1)).toBe(false);
+    expect(ranges.get(2)).toEqual({ startIdx: 0, endIdx: 0 });
+  });
+
+  it('anchors sentences written outside the ASCII alphabet', () => {
+    const entries = [{ word: 'Привет' }, { word: 'мир' }, { word: '再见' }];
+    const ranges = buildSentenceWordRanges(['Привет мир', '再见'], entries);
+    expect(ranges.get(1)).toEqual({ startIdx: 0, endIdx: 1 });
+    expect(ranges.get(2)).toEqual({ startIdx: 2, endIdx: 2 });
   });
 });
 

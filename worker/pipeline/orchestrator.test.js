@@ -7,11 +7,7 @@ import {
 } from './orchestrator.js';
 import { createPipelineRuntime } from './pipelineRuntime.js';
 import { chunkTaggedText, chunkTopicRangeSentences } from './topicRangeChunking.js';
-import {
-  groupsToTopics,
-  mapTextOffsetToHtml,
-  rangesToSentenceList,
-} from './topicRangeMapping.js';
+import { groupsToTopics, mapTextOffsetToHtml, rangesToSentenceList } from './topicRangeMapping.js';
 import { parseSummaryResponse, shouldInlineRun, chunkSourceSentences } from './sourceSummarizer.js';
 import { classifyLlmError } from './summaryStage.js';
 import { buildTopicTree, splitContiguousRuns } from './topicTreeMerge.js';
@@ -44,6 +40,10 @@ vi.mock('../storage/storage.js', () => ({
 
 vi.mock('./html.js', () => ({
   stripTagsKeepOffsets: vi.fn(),
+  normalizePlainTextKeepOffsets: vi.fn((text) => ({
+    text,
+    mapping: Array.from({ length: String(text).length + 1 }, (_, index) => index),
+  })),
   // topicParser.js uses the real decodeEntities to canonicalize label
   // segments; the passthrough keeps entity-free fixture labels intact.
   decodeEntities: vi.fn((s) => s),

@@ -421,13 +421,83 @@ describe('background pipeline lifecycle', () => {
     const result = await handleSubmit({
       html: '<p>hello</p>',
       sourceUrl: 'https://example.com',
+      selectors: ['main'],
     });
 
     expect(result.ok).toBe(true);
     expect(result.key).toBe('done1');
+    expect((await readRecord('done1')).selectors).toEqual(['main']);
 
     const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
     expect(runPipeline).not.toHaveBeenCalled();
+  });
+
+  it('upgrades an equivalent done legacy record to capture v2 without clearing analysis', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(
+      chromeMock,
+      makeRecord('done-legacy', {
+        status: 'done',
+        sourceUrl: 'https://example.com/legacy',
+        html: '<main><p>Same article</p><div hidden>old hidden text</div></main>',
+        text: 'Same article',
+        sentences: ['Same article'],
+        topics: [{ name: 'Article', sentences: [1] }],
+      }),
+    );
+
+    const { handleSubmit, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+    const result = await handleSubmit({
+      html: '<main><p>Same article</p></main>',
+      capturedText: 'Same\narticle',
+      captureVersion: 2,
+      sourceUrl: 'https://example.com/legacy',
+      selectors: ['main'],
+    });
+
+    expect(result).toEqual({ ok: true, key: 'done-legacy' });
+    const stored = await readRecord('done-legacy');
+    expect(stored).toMatchObject({
+      html: '<main><p>Same article</p></main>',
+      capturedText: 'Same\narticle',
+      captureVersion: 2,
+      sentences: ['Same article'],
+      topics: [{ name: 'Article', sentences: [1] }],
+      status: 'done',
+    });
+    const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+    expect(runPipeline).not.toHaveBeenCalled();
+  });
+
+  it('reprocesses a done URL when the newly captured content differs', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    const rec = makeRecord('done-changed', {
+      status: 'done',
+      sourceUrl: 'https://example.com/changed',
+      html: '<p>old</p>',
+      capturedText: 'old',
+      captureVersion: 2,
+    });
+    await seedRecord(chromeMock, rec);
+
+    const { handleSubmit, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const result = await handleSubmit({
+      html: '<p>new</p>',
+      capturedText: 'new',
+      captureVersion: 2,
+      sourceUrl: 'https://example.com/changed',
+    });
+
+    expect(result).toEqual({ ok: true, key: 'done-changed' });
+    expect((await readRecord('done-changed')).capturedText).toBe('new');
+    const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+    expect(runPipeline).toHaveBeenCalledTimes(1);
   });
 
   it('resolveSummaryErrors retry resumes the pipeline and keeps leaf error flags', async () => {

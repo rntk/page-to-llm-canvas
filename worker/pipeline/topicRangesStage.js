@@ -1,4 +1,4 @@
-import { stripTagsKeepOffsets } from './html.js';
+import { normalizePlainTextKeepOffsets, stripTagsKeepOffsets } from './html.js';
 import { splitSentences } from './sentenceSplitter.js';
 import { buildTopicRangesPrompt } from './prompts.js';
 import { parseTopicRangesDetailed, groupsFromSegments, TopicParseError } from './topicParser.js';
@@ -310,16 +310,32 @@ export async function computeTopics({
     summariesDisabled: false,
     summariesIncomplete: false,
   });
+  const useCapturedText = record?.captureVersion >= 2 && typeof record?.capturedText === 'string';
   await runtime.log(
     'cleaning_html_start',
-    { htmlLength: String(record.html || '').length },
+    {
+      htmlLength: String(record.html || '').length,
+      capturedTextLength: useCapturedText ? record.capturedText.length : 0,
+      source: useCapturedText ? 'captured_text' : 'html',
+    },
     { verbose: true },
   );
 
-  const { text, mapping } = stripTagsKeepOffsets(record.html || '');
+  // Version 2 captures text in the page context, while CSS/layout are still
+  // available. Treat it as plain text: parsing it as HTML would corrupt
+  // literal `<`, `>` and `&` characters (and could reintroduce content that
+  // capture-side visibility filtering removed). Legacy records retain the
+  // HTML scanner and its HTML-offset mapping.
+  const { text, mapping } = useCapturedText
+    ? normalizePlainTextKeepOffsets(record.capturedText)
+    : stripTagsKeepOffsets(record.html || '');
   await runtime.log(
     'cleaning_html_done',
-    { textLength: text.length, mappingLength: mapping.length },
+    {
+      textLength: text.length,
+      mappingLength: mapping.length,
+      source: useCapturedText ? 'captured_text' : 'html',
+    },
     { verbose: true },
   );
 
@@ -497,7 +513,12 @@ export async function computeTopics({
 
   await runtime.log('topic_ranges_done', { groupCount: groups.length }, { verbose: true });
 
-  const topics = groupsToTopics(groups, sentenceObjs, mapping);
+  const topics = groupsToTopics(
+    groups,
+    sentenceObjs,
+    mapping,
+    useCapturedText ? 'captured_text' : 'html',
+  );
   await runtime.update({
     topics,
     // The chunk checkpoint has served its purpose; clearing it here rides along

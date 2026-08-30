@@ -508,6 +508,147 @@ export function findUnrenderedRanges(html) {
   return ranges;
 }
 
+/**
+ * Apply the shared post-scan filtering and normalization to text and its
+ * source-offset mapping. Both the legacy HTML scanner and the v2 plain-text
+ * scanner build the same intermediate arrays, so keeping this work here
+ * prevents their Unicode, zero-width, whitespace, and sentinel behavior from
+ * drifting apart.
+ *
+ * @param {string[]} out Text code units collected by a scanner.
+ * @param {number[]} mapping Source offset for each collected code unit.
+ * @param {number} sourceLength Length of the scanner's source string.
+ * @returns {{text: string, mapping: number[]}}
+ */
+function finalizeStrippedText(out, mapping, sourceLength) {
+  // Keep this filtering in lockstep for all text extraction paths. Unicode
+  // Tags characters are an invisible prompt-injection channel, except when
+  // they form a valid subdivision-flag sequence.
+  const flagFilteredOut = [];
+  const flagFilteredMapping = [];
+  let inFlagContext = false;
+  for (let i = 0; i < out.length; ) {
+    const cu = out[i].charCodeAt(0);
+    let cp = cu;
+    let unitLen = 1;
+    if (cu >= 0xd800 && cu <= 0xdbff && i + 1 < out.length) {
+      const lo = out[i + 1].charCodeAt(0);
+      if (lo >= 0xdc00 && lo <= 0xdfff) {
+        cp = (cu - 0xd800) * 0x400 + (lo - 0xdc00) + 0x10000;
+        unitLen = 2;
+      }
+    }
+    const isTag = cp >= 0xe0000 && cp <= 0xe007f;
+    let keep = true;
+    if (cp === 0x1f3f4) {
+      inFlagContext = true;
+    } else if (isTag) {
+      if (inFlagContext) {
+        if (cp === 0xe007f) inFlagContext = false;
+      } else {
+        keep = false;
+      }
+    } else {
+      inFlagContext = false;
+    }
+    if (keep) {
+      flagFilteredOut.push(out[i]);
+      flagFilteredMapping.push(mapping[i]);
+      if (unitLen === 2) {
+        flagFilteredOut.push(out[i + 1]);
+        flagFilteredMapping.push(mapping[i + 1]);
+      }
+    }
+    i += unitLen;
+  }
+
+  // Strip suspicious runs of zero-width formatting characters, preserving
+  // short runs used by legitimate scripts/emoji shaping.
+  const targetChars = new Set(['\u200b', '\u200c', '\u200d', '\ufeff']);
+  const filteredOut = [];
+  const filteredMapping = [];
+  for (let i = 0; i < flagFilteredOut.length; ) {
+    if (!targetChars.has(flagFilteredOut[i])) {
+      filteredOut.push(flagFilteredOut[i]);
+      filteredMapping.push(flagFilteredMapping[i]);
+      i += 1;
+      continue;
+    }
+    let end = i + 1;
+    while (end < flagFilteredOut.length && targetChars.has(flagFilteredOut[end])) end += 1;
+    if (end - i < 4) {
+      for (let k = i; k < end; k += 1) {
+        filteredOut.push(flagFilteredOut[k]);
+        filteredMapping.push(flagFilteredMapping[k]);
+      }
+    }
+    i = end;
+  }
+
+  // Collapse consecutive spaces that might have been left adjacent after
+  // stripping.
+  const collapsedOut = [];
+  const collapsedMapping = [];
+  let lastWasSpace = true; // suppress revealed leading whitespace
+  for (let i = 0; i < filteredOut.length; i += 1) {
+    if (filteredOut[i] === ' ') {
+      if (lastWasSpace) continue;
+      collapsedOut.push(' ');
+      collapsedMapping.push(filteredMapping[i]);
+      lastWasSpace = true;
+    } else {
+      collapsedOut.push(filteredOut[i]);
+      collapsedMapping.push(filteredMapping[i]);
+      lastWasSpace = false;
+    }
+  }
+  while (collapsedOut.length > 0 && collapsedOut[collapsedOut.length - 1] === ' ') {
+    collapsedOut.pop();
+    collapsedMapping.pop();
+  }
+  collapsedMapping.push(sourceLength);
+  return { text: collapsedOut.join(''), mapping: collapsedMapping };
+}
+
+/**
+ * Normalize text captured from the live DOM while preserving its literal
+ * characters. Unlike `stripTagsKeepOffsets`, this function deliberately does
+ * not interpret `<`, `>` or `&` as markup/entity syntax: those characters are
+ * already text by the time the browser exposes `Text#nodeValue`.
+ *
+ * The returned mapping uses UTF-16 offsets into the input string, matching the
+ * mapping contract of `stripTagsKeepOffsets`. For capture-version 2 records,
+ * downstream range offsets are therefore relative to `capturedText`; legacy
+ * records continue to produce HTML-relative offsets.
+ *
+ * @param {string} input Plain text extracted in the page context.
+ * @returns {{text: string, mapping: number[]}}
+ */
+export function normalizePlainTextKeepOffsets(input) {
+  const plain = String(input ?? '');
+  const out = [];
+  const mapping = [];
+  let lastWasSpace = true;
+  const pushChar = (ch, origPos) => {
+    if (isWhitespace(ch)) {
+      if (lastWasSpace) return;
+      out.push(' ');
+      mapping.push(origPos);
+      lastWasSpace = true;
+    } else if (isStrippableFormatChar(ch)) {
+      return;
+    } else {
+      // In particular, do not decode entities here. A literal `&lt;` in a
+      // Text node is four visible characters and must stay four characters.
+      out.push(ch);
+      mapping.push(origPos);
+      lastWasSpace = false;
+    }
+  };
+  for (let i = 0; i < plain.length; i += 1) pushChar(plain[i], i);
+  return finalizeStrippedText(out, mapping, plain.length);
+}
+
 export function stripTagsKeepOffsets(html) {
   const out = [];
   const mapping = [];
@@ -631,105 +772,5 @@ export function stripTagsKeepOffsets(html) {
     i++;
   }
 
-  // Strip Unicode Tags-block characters (U+E0000-U+E007F) unless they are part
-  // of a legitimate flag sequence (immediately preceded by U+1F3F4 WAVING BLACK
-  // FLAG and forming a contiguous Tags-block run). This is an invisible
-  // prompt-injection channel, but subdivision-flag emoji (e.g. England,
-  // Scotland, Wales) legitimately use it, so those must be preserved.
-  const flagFilteredOut = [];
-  const flagFilteredMapping = [];
-  let inFlagContext = false;
-  let k = 0;
-  while (k < out.length) {
-    const cu = out[k].charCodeAt(0);
-    let cp = cu;
-    let unitLen = 1;
-    if (cu >= 0xd800 && cu <= 0xdbff && k + 1 < out.length) {
-      const lo = out[k + 1].charCodeAt(0);
-      if (lo >= 0xdc00 && lo <= 0xdfff) {
-        cp = (cu - 0xd800) * 0x400 + (lo - 0xdc00) + 0x10000;
-        unitLen = 2;
-      }
-    }
-    const isTag = cp >= 0xe0000 && cp <= 0xe007f;
-    let keep = true;
-    if (cp === 0x1f3f4) {
-      inFlagContext = true;
-    } else if (isTag) {
-      if (inFlagContext) {
-        if (cp === 0xe007f) inFlagContext = false;
-      } else {
-        keep = false;
-      }
-    } else {
-      inFlagContext = false;
-    }
-    if (keep) {
-      flagFilteredOut.push(out[k]);
-      flagFilteredMapping.push(mapping[k]);
-      if (unitLen === 2) {
-        flagFilteredOut.push(out[k + 1]);
-        flagFilteredMapping.push(mapping[k + 1]);
-      }
-    }
-    k += unitLen;
-  }
-
-  // Filter out runs of target zero-width characters (ZWSP, ZWNJ, ZWJ, BOM) >= 4 in length.
-  const targetChars = new Set(['\u200b', '\u200c', '\u200d', '\ufeff']);
-  const filteredOut = [];
-  const filteredMapping = [];
-  let startIdx = 0;
-  const len = flagFilteredOut.length;
-
-  while (startIdx < len) {
-    if (targetChars.has(flagFilteredOut[startIdx])) {
-      let endIdx = startIdx + 1;
-      while (endIdx < len && targetChars.has(flagFilteredOut[endIdx])) {
-        endIdx++;
-      }
-      const runLength = endIdx - startIdx;
-      if (runLength >= 4) {
-        // Suspicious run of zero-width characters: strip completely.
-      } else {
-        // Legitimate run of zero-width characters: keep all of them.
-        for (let k2 = startIdx; k2 < endIdx; k2++) {
-          filteredOut.push(flagFilteredOut[k2]);
-          filteredMapping.push(flagFilteredMapping[k2]);
-        }
-      }
-      startIdx = endIdx;
-    } else {
-      filteredOut.push(flagFilteredOut[startIdx]);
-      filteredMapping.push(flagFilteredMapping[startIdx]);
-      startIdx++;
-    }
-  }
-
-  // Collapse consecutive spaces that might have been left adjacent after stripping.
-  const collapsedOut = [];
-  const collapsedMapping = [];
-  let lastWasSpaceFiltered = true; // suppress revealed leading whitespace
-  for (let k = 0; k < filteredOut.length; k++) {
-    const ch = filteredOut[k];
-    if (ch === ' ') {
-      if (lastWasSpaceFiltered) continue;
-      collapsedOut.push(' ');
-      collapsedMapping.push(filteredMapping[k]);
-      lastWasSpaceFiltered = true;
-    } else {
-      collapsedOut.push(ch);
-      collapsedMapping.push(filteredMapping[k]);
-      lastWasSpaceFiltered = false;
-    }
-  }
-
-  // Trim trailing whitespace.
-  while (collapsedOut.length > 0 && collapsedOut[collapsedOut.length - 1] === ' ') {
-    collapsedOut.pop();
-    collapsedMapping.pop();
-  }
-  // Sentinel for end offset.
-  collapsedMapping.push(n);
-  return { text: collapsedOut.join(''), mapping: collapsedMapping };
+  return finalizeStrippedText(out, mapping, n);
 }

@@ -11,13 +11,18 @@ export function rangesToSentenceList(ranges) {
     .map((i) => i + 1);
 }
 
-export function mapTextOffsetToHtml(mapping, textOffset) {
+export function mapTextOffsetToSource(mapping, textOffset) {
   if (textOffset < 0) textOffset = 0;
   if (textOffset >= mapping.length) textOffset = mapping.length - 1;
   return mapping[textOffset];
 }
 
-export function groupsToTopics(groups, sentenceObjs, mapping) {
+// Backward-compatible export for callers outside this repository. Versioned
+// captures map into capturedText rather than HTML, so new code should use the
+// source-neutral name above.
+export const mapTextOffsetToHtml = mapTextOffsetToSource;
+
+export function groupsToTopics(groups, sentenceObjs, mapping, offsetBasis) {
   return groups.map((group) => {
     const name = joinTopicPath(group.label);
     const oneBased = rangesToSentenceList(group.ranges);
@@ -25,8 +30,8 @@ export function groupsToTopics(groups, sentenceObjs, mapping) {
       const sentence = sentenceObjs[oneIdx - 1];
       return {
         sentence: oneIdx,
-        start: mapTextOffsetToHtml(mapping, sentence.start),
-        end: mapTextOffsetToHtml(mapping, sentence.end),
+        start: mapTextOffsetToSource(mapping, sentence.start),
+        end: mapTextOffsetToSource(mapping, sentence.end),
       };
     });
     const ranges = group.ranges.map((range) => {
@@ -35,10 +40,16 @@ export function groupsToTopics(groups, sentenceObjs, mapping) {
       return {
         sentence_start: startIndex + 1,
         sentence_end: endIndex + 1,
-        start: mapTextOffsetToHtml(mapping, sentenceObjs[startIndex].start),
-        end: mapTextOffsetToHtml(mapping, sentenceObjs[endIndex].end),
+        start: mapTextOffsetToSource(mapping, sentenceObjs[startIndex].start),
+        end: mapTextOffsetToSource(mapping, sentenceObjs[endIndex].end),
       };
     });
-    return { name, sentences: oneBased, sentence_spans, ranges };
+    return {
+      name,
+      sentences: oneBased,
+      sentence_spans,
+      ranges,
+      ...(offsetBasis ? { offset_basis: offsetBasis } : {}),
+    };
   });
 }

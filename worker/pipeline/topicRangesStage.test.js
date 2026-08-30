@@ -4,6 +4,7 @@ import { chunkTaggedText, chunkTopicRangeSentences } from './topicRangeChunking.
 import {
   groupsToTopics,
   mapTextOffsetToHtml,
+  mapTextOffsetToSource,
   rangesToSentenceList,
 } from './topicRangeMapping.js';
 
@@ -116,6 +117,17 @@ describe('range and offset helpers', () => {
     expect(mapTextOffsetToHtml([10, 20, 30], 1)).toBe(20);
     expect(mapTextOffsetToHtml([10, 20, 30], -1)).toBe(10);
     expect(mapTextOffsetToHtml([10, 20, 30], 99)).toBe(30);
+    expect(mapTextOffsetToSource([10, 20, 30], 1)).toBe(20);
+  });
+
+  it('records the source basis when one is supplied', () => {
+    const topics = groupsToTopics(
+      [{ label: ['A'], ranges: [{ start: 0, end: 0 }] }],
+      [{ text: 'A.', start: 0, end: 2 }],
+      [0, 1, 2],
+      'captured_text',
+    );
+    expect(topics[0].offset_basis).toBe('captured_text');
   });
 });
 
@@ -252,6 +264,34 @@ describe('computeTopics', () => {
         topics: [],
         progress: { stage: 'done', done: 0, total: 0 },
       }),
+    );
+  });
+
+  it('uses versioned captured text as the canonical source and preserves literals', async () => {
+    const runtime = makeRuntime();
+    const callLLMWithRetry = vi.fn(async () => 'Topic: 0-0');
+    const capturedText = 'Literal <b> &amp; text.';
+    splitSentences.mockReturnValue([{ text: capturedText, start: 0, end: capturedText.length }]);
+
+    await computeTopics({
+      runtime,
+      record: {
+        html: '<p>stale or differently encoded source</p>',
+        captureVersion: 2,
+        capturedText,
+      },
+      callLLMWithRetry,
+    });
+
+    expect(splitSentences).toHaveBeenCalledWith(capturedText);
+    expect(runtime.update).toHaveBeenCalledWith(expect.objectContaining({ text: capturedText }));
+    expect(runtime.update).toHaveBeenCalledWith(
+      expect.objectContaining({ sentences: [capturedText] }),
+    );
+    expect(runtime.log).toHaveBeenCalledWith(
+      'cleaning_html_start',
+      expect.objectContaining({ source: 'captured_text', capturedTextLength: capturedText.length }),
+      { verbose: true },
     );
   });
 
