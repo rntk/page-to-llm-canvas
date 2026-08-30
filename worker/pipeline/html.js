@@ -152,6 +152,11 @@ const VOID_TAGS = new Set([
 // elements. The scanner in stripTagsKeepOffsets drops them on its own.
 const RAW_TEXT_TAGS = new Set(['script', 'style']);
 
+// RCDATA elements: entities are decoded inside them but markup is not, so a
+// `<b>` in their content is text. Only the direct-child depth scan needs this —
+// the tag scanner treats their contents as ordinary text either way.
+const RCDATA_TAGS = new Set(['textarea', 'title']);
+
 // Subtrees the browser never renders regardless of the page's own CSS.
 const UNRENDERED_TAGS = new Set(['noscript', 'template']);
 
@@ -159,8 +164,100 @@ const UNRENDERED_TAGS = new Set(['noscript', 'template']);
 // `open` attribute is present.
 const CLOSED_BY_DEFAULT_TAGS = new Set(['details', 'dialog']);
 
-const HIDING_DECLARATION_RE =
-  /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse)|content-visibility\s*:\s*hidden)\s*(?:;|$)/i;
+// Properties whose value can suppress layout entirely and that a descendant
+// cannot override. `visibility` is deliberately absent: `visibility:hidden`
+// still generates line boxes, so its text measures to a real rect, and a
+// descendant can turn itself back on with `visibility:visible` — pruning the
+// ancestor's subtree would drop sentences the reader can see.
+const HIDING_VALUES = new Map([
+  ['display', 'none'],
+  ['content-visibility', 'hidden'],
+]);
+
+const IMPORTANT_SUFFIX_RE = /!\s*important$/;
+
+/**
+ * Split an inline `style` attribute into its declarations.
+ *
+ * A plain `split(';')` cuts inside quoted values and `url(...)`, inventing
+ * declarations that were never written — `--x:';display:none;'` would hide a
+ * visible element. Quotes, CSS comments and parentheses are therefore tracked,
+ * and only a top-level `;` outside all of them ends a declaration.
+ *
+ * Two imprecisions remain, both erring towards *keeping* text (a false positive
+ * would drop content the reader can see, which is the failure that matters): a
+ * comment interrupting a property name leaves that comment in the name, so the
+ * declaration never matches, and an unterminated quote swallows the rest of the
+ * attribute into one declaration.
+ * @param {string} style Raw inline style attribute value.
+ * @returns {string[]} Declaration texts, `property: value` still unparsed.
+ */
+function splitDeclarations(style) {
+  const segments = [];
+  let start = 0;
+  let quote = '';
+  let parens = 0;
+  for (let i = 0; i < style.length; i++) {
+    const ch = style[i];
+    if (quote) {
+      if (ch === '\\') i += 1;
+      else if (ch === quote) quote = '';
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === '/' && style[i + 1] === '*') {
+      const commentEnd = style.indexOf('*/', i + 2);
+      i = commentEnd < 0 ? style.length : commentEnd + 1;
+    } else if (ch === '(') {
+      parens += 1;
+    } else if (ch === ')') {
+      if (parens > 0) parens -= 1;
+    } else if (ch === ';' && parens === 0) {
+      segments.push(style.slice(start, i));
+      start = i + 1;
+    }
+  }
+  segments.push(style.slice(start));
+  return segments;
+}
+
+/**
+ * Whether an inline `style` attribute resolves to a layout-suppressing value.
+ *
+ * A declaration cannot be read in isolation: the cascade lets a later one win,
+ * so `display:none;display:block` renders. `!important` inverts that for a
+ * later *normal* declaration but not for a later important one.
+ *
+ * Mirrored by `hasHidingDeclaration` in src/highlights/sentenceHighlight.js;
+ * the two must agree exactly on which text survives.
+ * @param {string} style Raw inline style attribute value.
+ * @returns {boolean}
+ */
+function hasHidingDeclaration(style) {
+  if (!style || !style.includes(':')) return false;
+  const winners = new Map();
+  for (const segment of splitDeclarations(style)) {
+    const colon = segment.indexOf(':');
+    if (colon < 0) continue;
+    const property = segment.slice(0, colon).trim().toLowerCase();
+    if (!HIDING_VALUES.has(property)) continue;
+    let value = segment
+      .slice(colon + 1)
+      .trim()
+      .toLowerCase();
+    const important = IMPORTANT_SUFFIX_RE.test(value);
+    if (important) value = value.replace(IMPORTANT_SUFFIX_RE, '').trim();
+    const previous = winners.get(property);
+    // A normal declaration never overrides an important one, whatever the order.
+    if (previous && previous.important && !important) continue;
+    winners.set(property, { value, important });
+  }
+  for (const [property, hidingValue] of HIDING_VALUES) {
+    if (winners.get(property)?.value === hidingValue) return true;
+  }
+  return false;
+}
 
 const ATTRIBUTE_RE = /([^\s"'/=<>]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s"'=<>`]*))?/g;
 
@@ -242,7 +339,30 @@ function isUnrenderedTag(tag) {
   // `hidden` is a boolean attribute: its presence hides, whatever the value.
   if (attributes.has('hidden')) return true;
   if (CLOSED_BY_DEFAULT_TAGS.has(tag.name) && !attributes.has('open')) return true;
-  return HIDING_DECLARATION_RE.test(attributes.get('style') || '');
+  return hasHidingDeclaration(attributes.get('style') || '');
+}
+
+/**
+ * Offset just past the end tag closing a raw-text or RCDATA element.
+ *
+ * Their content is text, not markup, so the *first* end tag closes them and a
+ * same-name start tag inside does not nest. Depth counting here would run past
+ * `</script>` on ordinary code such as `var s = "<script>"`, swallowing the rest
+ * of the document — `stripTagsKeepOffsets`' own block scanner has always used
+ * these first-end-tag semantics.
+ * @param {string} html Original HTML.
+ * @param {string} name Lower-cased tag name, from a fixed set.
+ * @param {number} from Offset just past the opening tag.
+ * @returns {number} `html.length` when the element is never closed, the same
+ *   lenient choice `findElementEnd` makes.
+ */
+function findRawTextEnd(html, name, from) {
+  const endTag = new RegExp(`</${name}(?=[\\s/>]|$)`, 'ig');
+  endTag.lastIndex = from;
+  const match = endTag.exec(html);
+  if (!match) return html.length;
+  const gt = html.indexOf('>', match.index);
+  return gt < 0 ? html.length : gt + 1;
 }
 
 /**
@@ -279,7 +399,7 @@ function findElementEnd(html, name, from) {
         depth += 1;
       }
     } else if (!tag.closing && RAW_TEXT_TAGS.has(tag.name)) {
-      i = findElementEnd(html, tag.name, tag.end).end;
+      i = findRawTextEnd(html, tag.name, tag.end);
       continue;
     }
     i = tag.end;
@@ -288,15 +408,17 @@ function findElementEnd(html, name, from) {
 }
 
 /**
- * Locate the `<summary>` a closed `<details>` still renders: the first one that
- * is not owned by a nested `<details>`.
+ * Locate the `<summary>` a closed `<details>` still renders: its first *direct*
+ * `<summary>` child. A `<summary>` nested inside another element (or inside a
+ * nested `<details>`) is not the widget's summary and stays hidden.
  * @param {string} html Original HTML.
  * @param {number} from Offset just past the `<details>` opening tag.
  * @param {number} until Offset of the matching `</details>`.
  * @returns {?{start: number, end: number}}
  */
 function findSummaryRange(html, from, until) {
-  let nested = 0;
+  // Element nesting depth below the <details>; a direct child sits at 0.
+  let depth = 0;
   let i = from;
   while (i < until) {
     const lt = html.indexOf('<', i);
@@ -311,11 +433,26 @@ function findSummaryRange(html, from, until) {
       i = lt + 1;
       continue;
     }
-    if (tag.name === 'details' && !tag.selfClosing) {
-      nested += tag.closing ? -1 : 1;
-    } else if (tag.name === 'summary' && !tag.closing && nested === 0) {
+    // Raw-text and RCDATA content is text, not markup. A `<` inside script or
+    // textarea text would otherwise parse as a tag and inflate the depth,
+    // hiding the real direct <summary> — the DOM walk in sentenceHighlight.js
+    // still sees it, and the two must agree on which text survives.
+    if (
+      !tag.closing &&
+      !tag.selfClosing &&
+      (RAW_TEXT_TAGS.has(tag.name) || RCDATA_TAGS.has(tag.name))
+    ) {
+      i = Math.min(findRawTextEnd(html, tag.name, tag.end), until);
+      continue;
+    }
+    if (tag.name === 'summary' && !tag.closing && depth === 0) {
       const { end } = findElementEnd(html, 'summary', tag.end);
       return { start: lt, end: Math.min(end, until) };
+    }
+    if (!VOID_TAGS.has(tag.name) && !tag.selfClosing) {
+      // Clamp at 0 so unbalanced markup (a stray `</p>`) cannot drive the depth
+      // negative and make a genuinely nested <summary> look like a direct child.
+      depth = tag.closing ? Math.max(0, depth - 1) : depth + 1;
     }
     i = tag.end;
   }
@@ -350,7 +487,7 @@ export function findUnrenderedRanges(html) {
       continue;
     }
     if (!tag.closing && RAW_TEXT_TAGS.has(tag.name) && !tag.selfClosing) {
-      i = findElementEnd(html, tag.name, tag.end).end;
+      i = findRawTextEnd(html, tag.name, tag.end);
       continue;
     }
     if (tag.closing || tag.selfClosing || VOID_TAGS.has(tag.name) || !isUnrenderedTag(tag)) {

@@ -135,6 +135,55 @@ describe('stripTagsKeepOffsets', () => {
     expect(result.text).toBe('Outer after');
   });
 
+  it('drops a summary the closed details does not own as a direct child', () => {
+    // Browsers only expose a direct <summary> child; a wrapped one stays hidden.
+    const result = stripTagsKeepOffsets(
+      '<p>before</p><details><div><summary>wrapped</summary></div><p>answer</p></details><p>after</p>',
+    );
+    expect(result.text).toBe('before after');
+  });
+
+  it('keeps the direct summary even when a wrapped one comes first', () => {
+    const result = stripTagsKeepOffsets(
+      '<details><div><summary>wrapped</summary></div><summary>Real</summary><p>answer</p></details>',
+    );
+    expect(result.text).toBe('Real');
+  });
+
+  it('keeps the summary when script text before it contains a bare <', () => {
+    const result = stripTagsKeepOffsets(
+      '<details><script>if(a<b){x>y}</script><summary>Question</summary><p>answer</p></details>after',
+    );
+    expect(result.text).toBe('Question after');
+  });
+
+  it('keeps the summary when RCDATA text before it looks like markup', () => {
+    // The browser reads `<b>` inside a textarea as text, so <summary> is still
+    // the details' direct child.
+    const result = stripTagsKeepOffsets(
+      '<details><textarea><b>x</textarea><summary>Real</summary><p>a</p></details>after',
+    );
+    expect(result.text).toBe('Real after');
+  });
+
+  it('ends raw-text and RCDATA elements at their first end tag', () => {
+    // A same-name start tag inside them is text, so it must not nest: counting
+    // it would swallow the summary, and for <script> the whole document.
+    expect(
+      stripTagsKeepOffsets(
+        '<details><textarea><textarea>x</textarea><summary>Real</summary><p>a</p></details>after',
+      ).text,
+    ).toBe('Real after');
+    expect(
+      stripTagsKeepOffsets(
+        '<details><script>var s = "<script>";</script><summary>Real</summary></details>after',
+      ).text,
+    ).toBe('Real after');
+    expect(stripTagsKeepOffsets('<p>a</p><script>var s = "<script>";</script><p>b</p>').text).toBe(
+      'a b',
+    );
+  });
+
   it('drops elements hidden by the hidden attribute whatever its value', () => {
     expect(stripTagsKeepOffsets('<p>a</p><div hidden>gone</div><p>b</p>').text).toBe('a b');
     expect(stripTagsKeepOffsets('<p>a</p><div hidden="false">gone</div><p>b</p>').text).toBe('a b');
@@ -148,8 +197,58 @@ describe('stripTagsKeepOffsets', () => {
       'a b',
     );
     expect(
-      stripTagsKeepOffsets('<p>a</p><div style="color:red; visibility: hidden;">gone</div>b').text,
+      stripTagsKeepOffsets('<p>a</p><div style="color:red; content-visibility: hidden;">gone</div>b')
+        .text,
     ).toBe('a b');
+  });
+
+  it('drops elements whose hiding declaration carries !important', () => {
+    expect(
+      stripTagsKeepOffsets('<p>a</p><div style="display:none !important">gone</div><p>b</p>').text,
+    ).toBe('a b');
+    expect(
+      stripTagsKeepOffsets('<p>a</p><div style="display:none!important;color:red">gone</div>b').text,
+    ).toBe('a b');
+  });
+
+  it('keeps text under visibility:hidden, which a descendant can override', () => {
+    // visibility still generates line boxes, so the text measures to a real
+    // rect; a `visibility:visible` descendant is painted normally.
+    const result = stripTagsKeepOffsets(
+      '<div style="visibility:hidden"><span style="visibility:visible">shown</span></div>',
+    );
+    expect(result.text).toBe('shown');
+  });
+
+  it('resolves repeated display declarations in cascade order', () => {
+    // A later declaration wins, so the element renders.
+    expect(
+      stripTagsKeepOffsets('<p>a</p><div style="display:none;display:block">shown</div>').text,
+    ).toBe('a shown');
+    expect(
+      stripTagsKeepOffsets(
+        '<p>a</p><div style="display:none!important;display:block!important">shown</div>',
+      ).text,
+    ).toBe('a shown');
+    // ...but a normal declaration never overrides an important one.
+    expect(
+      stripTagsKeepOffsets('<p>a</p><div style="display:none!important;display:block">gone</div>b')
+        .text,
+    ).toBe('a b');
+    expect(
+      stripTagsKeepOffsets('<p>a</p><div style="display:block;display:none">gone</div><p>b</p>')
+        .text,
+    ).toBe('a b');
+  });
+
+  it('does not split declarations at semicolons inside strings or parentheses', () => {
+    // A custom property whose value is a string containing `;display:none;`.
+    expect(
+      stripTagsKeepOffsets(`<p>a</p><div style="--x:';display:none;'">shown</div>`).text,
+    ).toBe('a shown');
+    expect(
+      stripTagsKeepOffsets('<p>a</p><div style="background:url(a;b);color:red">shown</div>').text,
+    ).toBe('a shown');
   });
 
   it('keeps elements whose inline style only resembles a hiding declaration', () => {

@@ -55,6 +55,13 @@ describe('sentenceHighlight pure helpers', () => {
     hiddenFalse.setAttribute('hidden', 'false');
     const styled = document.createElement('div');
     styled.setAttribute('style', 'color: red; display : none');
+    const important = document.createElement('div');
+    important.setAttribute('style', 'display:none !important');
+    const contentVisibility = document.createElement('div');
+    contentVisibility.setAttribute('style', 'content-visibility:hidden');
+    // visibility still generates line boxes (so the text measures to a real
+    // rect) and a descendant can override it back to visible, so the pipeline
+    // keeps this content and the walk must too.
     const invisible = document.createElement('div');
     invisible.setAttribute('style', 'visibility:collapse');
     const closedDialog = document.createElement('dialog');
@@ -68,7 +75,24 @@ describe('sentenceHighlight pure helpers', () => {
     expect(isSkippableContainer(hidden)).toBe(true);
     expect(isSkippableContainer(hiddenFalse)).toBe(true);
     expect(isSkippableContainer(styled)).toBe(true);
-    expect(isSkippableContainer(invisible)).toBe(true);
+    // Cascade order decides: a later declaration wins unless the earlier one is
+    // important. Mirrors the pipeline's parser in worker/pipeline/html.js.
+    const overridden = document.createElement('div');
+    overridden.setAttribute('style', 'display:none;display:block');
+    const overriddenImportant = document.createElement('div');
+    overriddenImportant.setAttribute('style', 'display:none!important;display:block!important');
+    const stillImportant = document.createElement('div');
+    stillImportant.setAttribute('style', 'display:none!important;display:block');
+    expect(isSkippableContainer(overridden)).toBe(false);
+    expect(isSkippableContainer(overriddenImportant)).toBe(false);
+    expect(isSkippableContainer(stillImportant)).toBe(true);
+    // A semicolon inside a quoted value is not a declaration boundary.
+    const stringValue = document.createElement('div');
+    stringValue.setAttribute('style', `--x:';display:none;'`);
+    expect(isSkippableContainer(stringValue)).toBe(false);
+    expect(isSkippableContainer(important)).toBe(true);
+    expect(isSkippableContainer(contentVisibility)).toBe(true);
+    expect(isSkippableContainer(invisible)).toBe(false);
     expect(isSkippableContainer(closedDialog)).toBe(true);
     expect(isSkippableContainer(openDialog)).toBe(false);
     expect(isSkippableContainer(classHidden)).toBe(false);
@@ -120,6 +144,7 @@ describe('collectWordEntries and buildSentenceDomRange', () => {
       '<p>Alpha</p>',
       '<div hidden>hidden words</div>',
       '<div style="display:none">inline hidden words</div>',
+      '<div style="display:none !important">important hidden words</div>',
       '<template>template words</template>',
       '<dialog>closed dialog words</dialog>',
       '<p>Omega</p>',
@@ -139,6 +164,47 @@ describe('collectWordEntries and buildSentenceDomRange', () => {
       'Open',
       'answer',
     ]);
+  });
+
+  it('collectWordEntries drops a summary the collapsed details does not own directly', () => {
+    container.innerHTML =
+      '<p>Alpha</p><details><div><summary>wrapped</summary></div><p>answer</p></details><p>Omega</p>';
+    expect(collectWordEntries([container]).map((e) => e.word)).toEqual(['Alpha', 'Omega']);
+  });
+
+  it('collectWordEntries keeps the summary when script text precedes it', () => {
+    // Mirrors the pipeline fixture: raw-text content must not affect which
+    // <summary> a collapsed <details> is considered to own.
+    container.innerHTML =
+      '<details><script>if(a<b){x>y}</script><summary>Question</summary><p>answer</p></details>';
+    expect(collectWordEntries([container]).map((e) => e.word)).toEqual(['Question']);
+  });
+
+  it('collectWordEntries keeps the summary when RCDATA text precedes it', () => {
+    // The parser reads `<b>x` inside the textarea as a literal text node, so
+    // <summary> remains a direct child. The textarea's own text is dropped
+    // because it is collapsed-details content outside the summary.
+    container.innerHTML =
+      '<details><textarea><b>x</textarea><summary>Real</summary><p>a</p></details>';
+    expect(collectWordEntries([container]).map((e) => e.word)).toEqual(['Real']);
+  });
+
+  it('collectWordEntries keeps the summary past a same-name RCDATA start tag', () => {
+    // A browser ends the textarea at its first </textarea>, so `<textarea>x` is
+    // its text and <summary> is a direct child of the details. happy-dom's
+    // parser nests the inner start tag instead, burying the summary, so the
+    // tree is built by hand to pin the shape the pipeline's scanner assumes for
+    // '<details><textarea><textarea>x</textarea><summary>Real</summary>...'.
+    const details = document.createElement('details');
+    const textarea = document.createElement('textarea');
+    textarea.appendChild(document.createTextNode('<textarea>x'));
+    const summary = document.createElement('summary');
+    summary.appendChild(document.createTextNode('Real'));
+    const body = document.createElement('p');
+    body.appendChild(document.createTextNode('a'));
+    details.append(textarea, summary, body);
+    container.appendChild(details);
+    expect(collectWordEntries([container]).map((e) => e.word)).toEqual(['Real']);
   });
 
   it('collectWordEntries gives a nested details its own summary', () => {

@@ -27,9 +27,93 @@ export function tokenizeText(text) {
 // contents are markup-free), so no word inside them can ever be measured.
 const UNRENDERED_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
 
-// Same declarations worker/pipeline/html.js prunes from the record text.
-const HIDING_DECLARATION_RE =
-  /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse)|content-visibility\s*:\s*hidden)\s*(?:;|$)/i;
+// Same properties worker/pipeline/html.js prunes from the record text; see the
+// note there on why `visibility` is not one of them (`visibility:hidden` still
+// generates measurable line boxes and a descendant can override it).
+const HIDING_VALUES = new Map([
+  ['display', 'none'],
+  ['content-visibility', 'hidden'],
+]);
+
+const IMPORTANT_SUFFIX_RE = /!\s*important$/;
+
+/**
+ * Split an inline `style` attribute into its declarations.
+ *
+ * Mirrors `splitDeclarations` in worker/pipeline/html.js: a plain `split(';')`
+ * cuts inside quoted values and `url(...)`, inventing declarations that were
+ * never written, so `--x:';display:none;'` would hide a visible element.
+ *
+ * `node.style` (CSSOM) would parse this exactly, but it only exists on this
+ * side — the worker has no DOM. Using it here would make the two
+ * implementations disagree on every input they parse imprecisely, which is the
+ * one failure mode that corrupts sentence-to-word alignment.
+ * @param {string} style Raw inline style attribute value.
+ * @returns {string[]} Declaration texts, `property: value` still unparsed.
+ */
+function splitDeclarations(style) {
+  const segments = [];
+  let start = 0;
+  let quote = '';
+  let parens = 0;
+  for (let i = 0; i < style.length; i++) {
+    const ch = style[i];
+    if (quote) {
+      if (ch === '\\') i += 1;
+      else if (ch === quote) quote = '';
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === '/' && style[i + 1] === '*') {
+      const commentEnd = style.indexOf('*/', i + 2);
+      i = commentEnd < 0 ? style.length : commentEnd + 1;
+    } else if (ch === '(') {
+      parens += 1;
+    } else if (ch === ')') {
+      if (parens > 0) parens -= 1;
+    } else if (ch === ';' && parens === 0) {
+      segments.push(style.slice(start, i));
+      start = i + 1;
+    }
+  }
+  segments.push(style.slice(start));
+  return segments;
+}
+
+/**
+ * Whether an inline `style` attribute resolves to a layout-suppressing value.
+ *
+ * Mirrors `hasHidingDeclaration` in worker/pipeline/html.js, including its
+ * cascade handling: a later declaration wins (`display:none;display:block`
+ * renders), except that a normal declaration never overrides an important one.
+ * The two must agree exactly on which text survives.
+ * @param {string} style Raw inline style attribute value.
+ * @returns {boolean}
+ */
+function hasHidingDeclaration(style) {
+  if (!style || !style.includes(':')) return false;
+  const winners = new Map();
+  for (const segment of splitDeclarations(style)) {
+    const colon = segment.indexOf(':');
+    if (colon < 0) continue;
+    const property = segment.slice(0, colon).trim().toLowerCase();
+    if (!HIDING_VALUES.has(property)) continue;
+    let value = segment
+      .slice(colon + 1)
+      .trim()
+      .toLowerCase();
+    const important = IMPORTANT_SUFFIX_RE.test(value);
+    if (important) value = value.replace(IMPORTANT_SUFFIX_RE, '').trim();
+    const previous = winners.get(property);
+    if (previous && previous.important && !important) continue;
+    winners.set(property, { value, important });
+  }
+  for (const [property, hidingValue] of HIDING_VALUES) {
+    if (winners.get(property)?.value === hidingValue) return true;
+  }
+  return false;
+}
 
 /**
  * Whether a node's whole subtree is invisible to the word walk.
@@ -58,12 +142,14 @@ export function isSkippableContainer(node) {
   // `hidden` is a boolean attribute: its presence hides, whatever the value.
   if (node.hasAttribute('hidden')) return true;
   if (tag === 'DIALOG' && !node.hasAttribute('open')) return true;
-  return HIDING_DECLARATION_RE.test(node.getAttribute('style') || '');
+  return hasHidingDeclaration(node.getAttribute('style') || '');
 }
 
 /**
- * The `<summary>` a collapsed `<details>` still renders: the first one the
- * element owns (a nested `<details>` brings its own).
+ * The `<summary>` a collapsed `<details>` still renders: its first *direct*
+ * child. A `<summary>` deeper in the subtree (wrapped in a `<div>`, or owned by
+ * a nested `<details>`) is not this widget's summary and stays hidden, so the
+ * scan is over `children` rather than a descendant query.
  * @param {Element} details A `details` element.
  * @param {Map<Element, ?Element>} cache Per-walk memo, since this is asked once
  *   per text node below a collapsed subtree.
@@ -71,8 +157,13 @@ export function isSkippableContainer(node) {
  */
 function getOwnSummary(details, cache) {
   if (cache.has(details)) return cache.get(details);
-  const summary = details.querySelector('summary');
-  const own = summary && summary.closest('details') === details ? summary : null;
+  let own = null;
+  for (const child of details.children) {
+    if (child.tagName === 'SUMMARY') {
+      own = child;
+      break;
+    }
+  }
   cache.set(details, own);
   return own;
 }
