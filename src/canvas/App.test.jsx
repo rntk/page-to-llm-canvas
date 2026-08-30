@@ -12,6 +12,8 @@ const state = vi.hoisted(() => ({
   vmInput: null,
   canvasWrapElement: null,
   childProps: {},
+  // Gate for the opening overlay; tests flip it to inspect the covered state.
+  hasSettledLayout: true,
 }));
 
 const mocks = vi.hoisted(() => ({
@@ -113,11 +115,16 @@ vi.mock('./hooks/useSentenceMetrics.js', () => ({
     sentenceMetrics: new Map(),
     summaryMetricsState: new Map(),
     refreshSentenceRanges: mocks.refreshSentenceRanges,
+    hasSettledLayout: state.hasSettledLayout,
   }),
 }));
 vi.mock('./hooks/useSentenceHighlights.js', () => ({ useSentenceHighlights: vi.fn() }));
 vi.mock('../chat/useChatHighlights.js', () => ({ useChatHighlights: vi.fn() }));
-vi.mock('./hooks/useInitialView.js', () => ({ useInitialView: vi.fn() }));
+// Stubbed out; App only reads the settled flag it returns (the opening overlay
+// gate), so report the sequence as already finished.
+vi.mock('./hooks/useInitialView.js', () => ({
+  useInitialView: vi.fn(() => ({ isSettled: true })),
+}));
 vi.mock('./hooks/useCanvasRecordViewModel.js', () => ({
   useCanvasRecordViewModel: (input) => {
     state.vmInput = input;
@@ -176,6 +183,33 @@ async function renderApp(initialKey = 'record-1', props = {}) {
 }
 
 describe('App composition behavior', () => {
+  it('covers the canvas with the opening overlay without unmounting anything', async () => {
+    // The gate has to be purely visual: measurement runs off getClientRects, so
+    // unmounting (or display:none-ing) the article while waiting would starve
+    // the very measurement the overlay is waiting for.
+    state.hasSettledLayout = false;
+    const { container, root } = await renderApp();
+    const overlay = container.querySelector('.canvas-startup');
+    expect(overlay).toBeTruthy();
+    expect(overlay.className).not.toContain('is-leaving');
+    expect(container.querySelector('.canvas-viewport')).toBeTruthy();
+    expect(state.childProps.article).toBeTruthy();
+    expect(state.childProps.rail).toBeTruthy();
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it('reveals the canvas once measurement and the opening view have settled', async () => {
+    const { container, root } = await renderApp();
+    // Revealed on mount: the overlay is only still in the tree to fade out over
+    // the live canvas, and the rail plays its entrance.
+    const overlay = container.querySelector('.canvas-startup');
+    expect(overlay.className).toContain('is-leaving');
+    expect(state.childProps.rail.isEntering).toBe(true);
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   beforeEach(() => {
     state.record = {
       key: 'record-1',
@@ -187,6 +221,7 @@ describe('App composition behavior', () => {
     state.vmInput = null;
     state.canvasWrapElement = { focus: mocks.canvasFocus, clientHeight: 500 };
     state.childProps = {};
+    state.hasSettledLayout = true;
     // The shared viewport handle is stateful across tests now that it is a single
     // stable object; reset the members App writes to.
     viewportMock.scaleRef.current = 1;

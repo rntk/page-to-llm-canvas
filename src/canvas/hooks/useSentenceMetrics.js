@@ -4,6 +4,12 @@ import {
   buildSentenceDomRange,
   buildSentenceWordRanges,
 } from '../../highlights/sentenceHighlight.js';
+import { ENTRANCE_SETTLE_MS } from '../../utils/cardEntrance.js';
+
+// Measurement stops as soon as two consecutive passes agree. The cap bounds the
+// retries when a layout never settles (a background animation, a never-loading
+// image) so measurement can never spin once per frame forever.
+const MAX_MEASURE_PASSES = 4;
 
 function areSentenceMetricsEqual(prevMetrics, nextMetrics) {
   if (prevMetrics === nextMetrics) return true;
@@ -58,7 +64,7 @@ function areSummaryMetricsEqual(prevMetrics, nextMetrics) {
  * @param {Array<unknown>} params.sentences
  * @param {Array<unknown>} params.summaryCards
  * @param {string} params.articleHtml
- * @returns {{sentenceMetrics: Map<number, {top: number, bottom: number}>, summaryMetricsState: Map<string, {top: number, height: number}>, refreshSentenceRanges: function(): {wordEntries: Array<unknown>, sentenceRanges: Map<number, unknown>}}}
+ * @returns {{sentenceMetrics: Map<number, {top: number, bottom: number}>, summaryMetricsState: Map<string, {top: number, height: number}>, refreshSentenceRanges: function(): {wordEntries: Array<unknown>, sentenceRanges: Map<number, unknown>}, hasSettledLayout: boolean}}
  */
 export function useSentenceMetrics({
   articleTextRef,
@@ -77,25 +83,55 @@ export function useSentenceMetrics({
   // Topic-card positions in summary mode are derived from the rendered
   // summary cards' bounding rects (measured by an effect below).
   const [summaryMetricsState, setSummaryMetricsState] = useState(() => new Map());
+  const summaryMetricsRef = useRef(summaryMetricsState);
+
+  // "The first measurement run has converged (or hit its pass cap)", and
+  // nothing more: this is the opening reveal's gate, not a live is-the-layout-
+  // settled flag. It latches on the first settle and stays true for the rest of
+  // the component's life — a late re-measurement (a slow image) or a later
+  // summary-mode switch must not pull the curtain back down.
+  const [hasSettledLayout, setHasSettledLayout] = useState(false);
+  const hasSettledLayoutRef = useRef(false);
 
   const wordEntriesRef = useRef([]);
   const sentenceRangesRef = useRef(new Map());
+
+  // Identity of the article DOM the cached walk below was built from.
+  const rangeCacheRef = useRef({ el: null, html: null, sentences: null });
 
   // Rebuild word entries + sentence ranges from the *current* article DOM.
   // The Highlight API and measurement hold live Ranges into text nodes; if those
   // nodes are ever replaced by a re-render, the stale Ranges resolve to nothing
   // (getClientRects() returns empty). Rebuilding on demand keeps them pinned to
-  // the live, laid-out nodes. Collecting ~1k words is cheap.
+  // the live, laid-out nodes.
+  //
+  // The walk is the expensive half of measurement on a long article — it visits
+  // every text node and reads computed styles — and callers ask for ranges
+  // several times per layout pass, so the result is cached against the inputs
+  // that can invalidate it: the container element, the HTML rendered into it,
+  // and the sentence list. None of those change when the canvas merely pans,
+  // zooms, or re-highlights: highlighting goes through the Highlight API and
+  // never touches the article's nodes. The liveness probe covers the remaining
+  // case — a re-render that swapped the text nodes underneath an unchanged
+  // container, which would leave every cached Range resolving to nothing.
   const refreshSentenceRanges = useCallback(() => {
     const articleEl = articleTextRef.current;
     if (!articleEl)
       return { wordEntries: wordEntriesRef.current, sentenceRanges: sentenceRangesRef.current };
+    const cache = rangeCacheRef.current;
+    if (cache.el === articleEl && cache.html === articleHtml && cache.sentences === sentences) {
+      const sampleNode = wordEntriesRef.current[0]?.node;
+      if (sampleNode && sampleNode.isConnected) {
+        return { wordEntries: wordEntriesRef.current, sentenceRanges: sentenceRangesRef.current };
+      }
+    }
     const wordEntries = collectWordEntries([articleEl]);
     const sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
     wordEntriesRef.current = wordEntries;
     sentenceRangesRef.current = sentenceRanges;
+    rangeCacheRef.current = { el: articleEl, html: articleHtml, sentences };
     return { wordEntries, sentenceRanges };
-  }, [articleTextRef, sentences]);
+  }, [articleTextRef, sentences, articleHtml]);
 
   // Re-build word entries and sentence ranges synchronously before paint whenever layout changes.
   useLayoutEffect(() => {
@@ -114,9 +150,9 @@ export function useSentenceMetrics({
     // to false re-runs the measurement effects with the final layout. (Ordinary
     // pan only flashes the focus glow and never sets this flag, so pan no longer
     // recreates this callback or reschedules the remeasure.)
-    if (!wrap || showSummaryMode || isZoomingToTarget) return;
+    if (!wrap || showSummaryMode || isZoomingToTarget) return null;
     const { wordEntries, sentenceRanges } = refreshSentenceRanges();
-    if (!sentenceRanges.size) return;
+    if (!sentenceRanges.size) return sentences.length === 0;
 
     const wrapRect = wrap.getBoundingClientRect();
     const s = scaleRef.current || 1;
@@ -133,17 +169,26 @@ export function useSentenceMetrics({
       const bottom = (Math.max(...rects.map((r) => r.bottom)) - wrapRect.top) / s;
       nextMetrics.set(n, { top, bottom });
     }
-    if (nextMetrics.size > 0) {
-      if (!areSentenceMetricsEqual(sentenceMetricsRef.current, nextMetrics)) {
-        sentenceMetricsRef.current = nextMetrics;
-        setSentenceMetrics(nextMetrics);
-      }
-    }
-  }, [summaryWrapRef, scaleRef, showSummaryMode, isZoomingToTarget, refreshSentenceRanges]);
+    // Nothing has a laid-out rect yet (the article was only just injected):
+    // report "not settled" so the caller schedules another pass instead of
+    // treating the synthetic fallback layout as final.
+    if (nextMetrics.size === 0) return sentences.length === 0;
+    if (areSentenceMetricsEqual(sentenceMetricsRef.current, nextMetrics)) return true;
+    sentenceMetricsRef.current = nextMetrics;
+    setSentenceMetrics(nextMetrics);
+    return false;
+  }, [
+    summaryWrapRef,
+    scaleRef,
+    showSummaryMode,
+    isZoomingToTarget,
+    refreshSentenceRanges,
+    sentences,
+  ]);
 
   const measureSummaryPositions = useCallback(() => {
     const wrap = summaryWrapRef.current;
-    if (!wrap || !showSummaryMode) return;
+    if (!wrap || !showSummaryMode) return null;
     const wrapRect = wrap.getBoundingClientRect();
     const s = scaleRef.current || 1;
     const next = new Map();
@@ -155,10 +200,16 @@ export function useSentenceMetrics({
         height: r.height / s,
       });
     });
-    // The triple-rAF measurement schedule calls this up to 3x per layout pass;
-    // bail the render when geometry is unchanged so we don't thrash the rail.
-    setSummaryMetricsState((prev) => (areSummaryMetricsEqual(prev, next) ? prev : next));
-  }, [summaryWrapRef, summaryCardRegistry, scaleRef, showSummaryMode]);
+    // Cards mount a render before they register their elements, so an empty
+    // read while cards are expected means "too early", not "settled and empty".
+    if (next.size === 0 && summaryCards.length > 0) return false;
+    // The convergence schedule calls this more than once per layout pass; bail
+    // the render when geometry is unchanged so we don't thrash the rail.
+    if (areSummaryMetricsEqual(summaryMetricsRef.current, next)) return true;
+    summaryMetricsRef.current = next;
+    setSummaryMetricsState(next);
+    return false;
+  }, [summaryWrapRef, summaryCardRegistry, scaleRef, showSummaryMode, summaryCards]);
 
   // When leaving summary mode (e.g. via "Show source sentences"), ensure we
   // (re)measure sentence positions against the freshly mounted article DOM so
@@ -179,34 +230,59 @@ export function useSentenceMetrics({
   }, [showSummaryMode, measureSentencePositions]);
 
   useLayoutEffect(() => {
-    let raf1 = 0;
-    let raf2 = 0;
-    let raf3 = 0;
+    let raf = 0;
+    let passes = 0;
+
+    // One measurement pass. "Settled" means every applicable measurement read
+    // back the geometry it already had, i.e. the layout stopped moving.
     const measure = () => {
-      measureSentencePositions();
-      measureSummaryPositions();
+      const sentenceResult = measureSentencePositions();
+      const summaryResult = measureSummaryPositions();
+      const results = [sentenceResult, summaryResult].filter((result) => result !== null);
+      // Nothing was applicable — article mode mid-zoom-to-target, where sentence
+      // measurement is suppressed and there is no summary column. Before the
+      // first settle that means "keep trying" (the zoom may be what is holding
+      // the opening view up); afterwards it means "nothing to do", and retrying
+      // would burn the full pass budget on every zoom the user triggers.
+      if (results.length === 0) return hasSettledLayoutRef.current;
+      return results.every(Boolean);
     };
-    // Triple rAF on layout changes (incl. summary<->article switches): gives the
-    // injected article (or summary cards) time to lay out before we sample
-    // sentence/summary rects for rail card positioning. Extra attempts guard
-    // against races where early passes see no client rects and would otherwise
-    // leave topic cards stuck in the small synthetic fallback layout.
-    // Track and cancel the third rAF callback: when the effect is cleaned up
-    // after the second animation frame has scheduled this third measurement,
-    // cleanup must cancel it too. Otherwise it can still run after a mode switch
-    // or unmount, using stale showSummaryMode / measure* closures and writing
-    // metrics for the wrong DOM.
-    const schedule = () => {
-      window.cancelAnimationFrame(raf1);
-      window.cancelAnimationFrame(raf2);
-      window.cancelAnimationFrame(raf3);
-      raf1 = window.requestAnimationFrame(() => {
-        measure();
-        raf2 = window.requestAnimationFrame(() => {
-          measure();
-          raf3 = window.requestAnimationFrame(measure);
-        });
+
+    const markSettled = () => {
+      if (hasSettledLayoutRef.current) return;
+      hasSettledLayoutRef.current = true;
+      setHasSettledLayout(true);
+    };
+
+    // Measure on layout changes (incl. summary<->article switches) until two
+    // consecutive frames agree: the injected article (or the summary column)
+    // needs a frame or more to lay out, and sampling too early sees no client
+    // rects, which would leave topic cards stuck in the small synthetic fallback
+    // layout. This replaces a fixed triple-rAF: a settled layout now costs two
+    // passes instead of three, an unsettled one gets up to MAX_MEASURE_PASSES,
+    // and convergence — rather than a frame count — is what tells the opening
+    // overlay the cards have stopped moving.
+    //
+    // The in-flight frame is tracked so cleanup can cancel it: without that, a
+    // queued pass can still run after a mode switch or unmount, measuring the
+    // wrong DOM through stale showSummaryMode / measure* closures.
+    const runPass = () => {
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        passes += 1;
+        const settled = measure();
+        if (settled || passes >= MAX_MEASURE_PASSES) {
+          markSettled();
+          return;
+        }
+        runPass();
       });
+    };
+    const schedule = () => {
+      if (raf) window.cancelAnimationFrame(raf);
+      raf = 0;
+      passes = 0;
+      runPass();
     };
     schedule();
     window.addEventListener('resize', schedule);
@@ -228,6 +304,15 @@ export function useSentenceMetrics({
       img.addEventListener('load', schedule);
       img.addEventListener('error', schedule);
     });
+    // Summary cards mount with a staggered appear animation, and its
+    // `translateY` is part of every card's bounding rect — measuring mid-flight
+    // stores each card ~8px below where it lands, which offsets the rail cards
+    // pinned to them. An animation ending changes no box size, so neither the
+    // ResizeObserver nor any other signal here fires for it: schedule one pass
+    // past the last card's animation instead. Article mode has no such
+    // animation, so it pays nothing.
+    const entranceTimer = showSummaryMode ? setTimeout(schedule, ENTRANCE_SETTLE_MS) : 0;
+
     let fontsCancelled = false;
     if (document.fonts && typeof document.fonts.ready?.then === 'function') {
       document.fonts.ready.then(() => {
@@ -236,9 +321,8 @@ export function useSentenceMetrics({
     }
 
     return () => {
-      window.cancelAnimationFrame(raf1);
-      window.cancelAnimationFrame(raf2);
-      window.cancelAnimationFrame(raf3);
+      if (raf) window.cancelAnimationFrame(raf);
+      if (entranceTimer) clearTimeout(entranceTimer);
       window.removeEventListener('resize', schedule);
       if (resizeObserver) resizeObserver.disconnect();
       pending.forEach((img) => {
@@ -258,5 +342,5 @@ export function useSentenceMetrics({
     articleTextRef,
   ]);
 
-  return { sentenceMetrics, summaryMetricsState, refreshSentenceRanges };
+  return { sentenceMetrics, summaryMetricsState, refreshSentenceRanges, hasSettledLayout };
 }

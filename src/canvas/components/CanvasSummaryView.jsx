@@ -2,6 +2,7 @@ import React from 'react';
 import { getYouTubeTimestampLink, getYouTubeVideoId } from '../../utils/youtubeTimestamp.js';
 import YouTubeTimestampButton from '../../components/YouTubeTimestampButton.jsx';
 import useSummaryPreview from '../hooks/useSummaryPreview.js';
+import { getCardEnterDelay } from '../../utils/cardEntrance.js';
 import SummarySourcePreview from './SummarySourcePreview.jsx';
 
 const SummaryCard = React.memo(function SummaryCard({
@@ -16,6 +17,7 @@ const SummaryCard = React.memo(function SummaryCard({
   onCardClick,
   onCardKeyDown,
   onShowSourceSentences,
+  enterDelay,
 }) {
   const hasSummaryContent = Boolean(card.text);
   const canShowSourceSentences = card.sourceSentences.length > 0;
@@ -30,6 +32,9 @@ const SummaryCard = React.memo(function SummaryCard({
     <article
       ref={cardRef}
       className={`canvas-summary-view__card${isCardActive ? ' is-active' : ''}${isPreviewActive ? ' is-source-preview-active' : ''}`}
+      // The column mounts as a block on every summary-mode switch; staggering
+      // the shared appear animation turns that from one hard flash into a sweep.
+      style={enterDelay ? { '--summary-card-enter-delay': `${enterDelay}ms` } : undefined}
       onMouseEnter={() => onCardEnter(card)}
       onMouseLeave={() => onCardLeave(card)}
       onClick={() => onCardClick(card)}
@@ -169,7 +174,7 @@ function CanvasSummaryView({
       )}
       <div className="canvas-summary-view" ref={setSummaryViewRefs}>
         <div className="canvas-summary-view__cards">
-          {cards.map((card) => {
+          {cards.map((card, index) => {
             const isActive = activeTopic?.path === card.path;
             const cardKey = card.key;
             const isCardActive = hasActiveSummaryCardKey
@@ -191,6 +196,7 @@ function CanvasSummaryView({
                 onCardClick={handleCardClick}
                 onCardKeyDown={handleSummaryCardKeyDown}
                 onShowSourceSentences={onShowSource}
+                enterDelay={getCardEnterDelay(index, cards.length)}
               />
             );
           })}

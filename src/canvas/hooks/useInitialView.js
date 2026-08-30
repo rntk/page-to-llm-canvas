@@ -65,7 +65,8 @@ function initialViewReducer(phase, action) {
  * @param {Map<string, unknown>} params.summaryMetricsState
  * @param {function(unknown): void} params.panToTopic
  * @param {function({path: string, cardKey: string}): void} params.selectTopic
- * @returns {void}
+ * @returns {{isSettled: boolean}} `isSettled` once the machine has finished (or
+ *   skipped) every phase, i.e. the canvas will not move itself again.
  */
 export function useInitialView({
   topics,
@@ -91,7 +92,14 @@ export function useInitialView({
   // level switcher straight to the leaf level (mirrors clicking it manually).
   useEffect(() => {
     if (initialViewPhase !== 'pending') return;
-    if (topics.length === 0 || sentenceMetrics.size === 0) return;
+    // No topics at all: there is no opening view to stage, and every later phase
+    // would wait on cards that will never exist. Retire the machine so callers
+    // waiting on it (the opening overlay) are not held behind a dead phase.
+    if (topics.length === 0) {
+      dispatch('skip');
+      return;
+    }
+    if (sentenceMetrics.size === 0) return;
     // The user already touched the canvas (panned/zoomed/switched level) while
     // this settled — don't yank their view out from under them.
     if (userMovedCanvasRef.current || selectedLevel !== 0) {
@@ -158,4 +166,6 @@ export function useInitialView({
     panToTopic,
     selectTopic,
   ]);
+
+  return { isSettled: initialViewPhase === 'done' };
 }

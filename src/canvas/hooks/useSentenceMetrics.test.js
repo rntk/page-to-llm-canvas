@@ -181,6 +181,34 @@ describe('useSentenceMetrics', () => {
     ctx.cleanup();
   });
 
+  it('remeasures summary cards once their staggered entrance has finished', () => {
+    vi.useFakeTimers();
+    const card = document.createElement('div');
+    // The appear animation's translateY is part of the rect, so the first
+    // passes see the card 8px below where it comes to rest.
+    let top = 48;
+    card.getBoundingClientRect = () => ({ top, left: 0, width: 100, height: 60 });
+    document.body.appendChild(card);
+    const ctx = setup({
+      showSummaryMode: true,
+      summaryCards: [{ key: 'topic/a' }],
+      summaryCardRegistry: createCardElementRegistry({ current: { 'topic/a': card } }),
+    });
+    ctx.flushRafs();
+    expect(ctx.result.current.summaryMetricsState.get('topic/a').top).toBe(48);
+
+    // Nothing fires when an animation ends — no resize, no layout change — so
+    // without the scheduled pass the rail would stay pinned to the offset.
+    top = 40;
+    act(() => vi.advanceTimersByTime(600));
+    ctx.flushRafs();
+    expect(ctx.result.current.summaryMetricsState.get('topic/a').top).toBe(40);
+
+    card.remove();
+    ctx.cleanup();
+    vi.useRealTimers();
+  });
+
   it('reschedules measurement when a pending image finishes loading', () => {
     const article = makeArticle();
     const img = document.createElement('img');
@@ -196,6 +224,60 @@ describe('useSentenceMetrics', () => {
     expect(ctx.result.current.sentenceMetrics.size).toBe(SENTENCES.length);
     ctx.cleanup();
     article.remove();
+  });
+
+  it('reports a settled layout once two consecutive passes agree', () => {
+    const ctx = setup();
+    expect(ctx.result.current.hasSettledLayout).toBe(false);
+    ctx.flushRafs();
+    expect(ctx.result.current.hasSettledLayout).toBe(true);
+    ctx.cleanup();
+  });
+
+  it('settles even when nothing can be measured, so the reveal is never stranded', () => {
+    // No laid-out rects at all: convergence can never happen, and the pass cap
+    // is what stops the schedule (and releases the opening overlay).
+    rectsSpy.mockReturnValue([]);
+    const ctx = setup();
+    ctx.flushRafs();
+    expect(ctx.result.current.sentenceMetrics.size).toBe(0);
+    expect(ctx.result.current.hasSettledLayout).toBe(true);
+    ctx.cleanup();
+  });
+
+  it('stops re-walking the article once the cached ranges are still live', () => {
+    const ctx = setup();
+    ctx.flushRafs();
+    const first = ctx.result.current.refreshSentenceRanges();
+    const second = ctx.result.current.refreshSentenceRanges();
+    // Same DOM, same html, same sentences: the walk is reused wholesale.
+    expect(second.wordEntries).toBe(first.wordEntries);
+    expect(second.sentenceRanges).toBe(first.sentenceRanges);
+    ctx.cleanup();
+  });
+
+  it('rebuilds the ranges when the article DOM is replaced underneath it', () => {
+    const ctx = setup();
+    ctx.flushRafs();
+    const first = ctx.result.current.refreshSentenceRanges();
+    // A re-render swapping the article's text nodes leaves the cached Ranges
+    // resolving to nothing, so the cache must not be trusted on node identity
+    // of the container alone.
+    ctx.article.textContent = SENTENCES.join(' ');
+    const second = ctx.result.current.refreshSentenceRanges();
+    expect(second.wordEntries).not.toBe(first.wordEntries);
+    expect(second.wordEntries.length).toBe(first.wordEntries.length);
+    ctx.cleanup();
+  });
+
+  it('rebuilds the ranges when the article html changes', () => {
+    const ctx = setup();
+    ctx.flushRafs();
+    const first = ctx.result.current.refreshSentenceRanges();
+    ctx.rerender({ articleHtml: '<p>different</p>' });
+    const second = ctx.result.current.refreshSentenceRanges();
+    expect(second.wordEntries).not.toBe(first.wordEntries);
+    ctx.cleanup();
   });
 
   it('reschedules once web fonts become ready', async () => {

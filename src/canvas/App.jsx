@@ -12,6 +12,7 @@ import {
 import CanvasTopicHierarchyRail from './components/CanvasTopicHierarchyRail.jsx';
 import CanvasSummaryView from './components/CanvasSummaryView.jsx';
 import CanvasToolbar from './components/CanvasToolbar.jsx';
+import CanvasStartupOverlay from './components/CanvasStartupOverlay.jsx';
 import ArticleHtml from './components/ArticleHtml.jsx';
 import { useCanvasTransform } from './hooks/useCanvasTransform.js';
 import { clampScale } from '../utils/canvasMath.js';
@@ -20,6 +21,7 @@ import { useSentenceMetrics } from './hooks/useSentenceMetrics.js';
 import { useSentenceHighlights } from './hooks/useSentenceHighlights.js';
 import { useInitialView } from './hooks/useInitialView.js';
 import { useCanvasRecordViewModel } from './hooks/useCanvasRecordViewModel.js';
+import { useCanvasStartup } from './hooks/useCanvasStartup.js';
 import { useCanvasTopicNavigation } from './hooks/useCanvasTopicNavigation.js';
 import { useSummaryCardRegistry } from './hooks/useSummaryCardRegistry.js';
 import { useTopicSelection } from './hooks/useTopicSelection.js';
@@ -121,19 +123,20 @@ function CanvasApp({ initialKey, record, onClose }) {
     showSummaryMode,
   } = useCanvasRecordViewModel({ record, selectedLevel, showSummaryModeRaw });
 
-  const { sentenceMetrics, summaryMetricsState, refreshSentenceRanges } = useSentenceMetrics({
-    articleTextRef,
-    summaryWrapRef,
-    summaryCardRegistry,
-    // Measurement only reads the live scale — handing it the whole viewport
-    // handle would widen its surface for nothing.
-    scaleRef,
-    showSummaryMode,
-    isZoomingToTarget,
-    sentences,
-    summaryCards,
-    articleHtml,
-  });
+  const { sentenceMetrics, summaryMetricsState, refreshSentenceRanges, hasSettledLayout } =
+    useSentenceMetrics({
+      articleTextRef,
+      summaryWrapRef,
+      summaryCardRegistry,
+      // Measurement only reads the live scale — handing it the whole viewport
+      // handle would widen its surface for nothing.
+      scaleRef,
+      showSummaryMode,
+      isZoomingToTarget,
+      sentences,
+      summaryCards,
+      articleHtml,
+    });
 
   const sourceDocument = useMemo(
     () => ({ html: articleHtml, sentences, sourceUrl: record?.sourceUrl }),
@@ -352,7 +355,7 @@ function CanvasApp({ initialKey, record, onClose }) {
   // Owned by useInitialView: a one-time three-phase state machine that runs once
   // the article and topic hierarchy are measured. See the hook for why the steps
   // are split across separate committed renders.
-  useInitialView({
+  const { isSettled: isInitialViewSettled } = useInitialView({
     topics,
     sentenceMetrics,
     maxLevel,
@@ -365,6 +368,20 @@ function CanvasApp({ initialKey, record, onClose }) {
     summaryMetricsState,
     panToTopic,
     selectTopic,
+  });
+
+  // ── Opening sequence ─────────────────────────────────────────────────────
+  // Measurement and the opening view both move the canvas several times before
+  // it settles — on a long article with many topics that reads as cards popping
+  // in and jumping around. Keep the (fully rendered, fully measurable) canvas
+  // behind an opaque progress overlay until both have settled, then reveal it
+  // once with a short entrance animation. See useCanvasStartup for the reveal
+  // races that keep the overlay from outstaying its welcome.
+  const hasCanvasContent = topics.length > 0 || sentences.length > 0;
+  const { isEntering, showOverlay, isOverlayLeaving, progress, statusLabel } = useCanvasStartup({
+    hasContent: hasCanvasContent,
+    layoutSettled: hasSettledLayout,
+    viewSettled: isInitialViewSettled,
   });
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -425,9 +442,18 @@ function CanvasApp({ initialKey, record, onClose }) {
                   sentences={sentences}
                   sourceUrl={record?.sourceUrl}
                   scale={scale}
+                  isEntering={isEntering}
+                  layoutKey={`${showSummaryMode ? 'summary' : 'article'}:${selectedLevel}`}
                 />
               </div>
             </div>
+            {showOverlay && (
+              <CanvasStartupOverlay
+                progress={progress}
+                label={statusLabel}
+                isLeaving={isOverlayLeaving}
+              />
+            )}
           </div>
 
           <CanvasToolbar

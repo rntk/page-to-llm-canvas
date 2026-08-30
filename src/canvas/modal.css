@@ -106,6 +106,87 @@ body {
   cursor: grabbing;
 }
 
+/* Opening overlay.
+ *
+ * Deliberately an opaque *cover* rather than a way of hiding the canvas: the
+ * measurement engine behind it needs live client rects, which `display: none`,
+ * `visibility: hidden` and `opacity: 0` on the content would all destroy. It
+ * repeats the canvas surface (including the dot grid) so the reveal reads as the
+ * cards fading up through the paper, not as a panel being pulled away.
+ */
+.canvas-startup {
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-low) radial-gradient(circle, rgb(0 0 0 / 6%) 1px, transparent 1px) 0 0 /
+    28px 28px;
+  cursor: default;
+  transition: opacity 0.26s ease-out;
+}
+
+/* Fades out over the already-live canvas; pointer events go to the canvas the
+   moment the reveal starts, so a click during the fade is not swallowed. */
+.canvas-startup.is-leaving {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.canvas-startup__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  width: min(280px, 60%);
+}
+
+.canvas-startup__label {
+  font-family: var(--font-data);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--on-surface-muted);
+}
+
+.canvas-startup__track {
+  position: relative;
+  width: 100%;
+  height: 2px;
+  overflow: hidden;
+  background: var(--ghost);
+}
+
+.canvas-startup__bar {
+  height: 100%;
+  background: var(--ink);
+
+  /* The width steps between phases; the transition is what makes a handful of
+     discrete milestones read as continuous progress. */
+  transition: width 0.36s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/* A slow sweep over the track so a long measurement pass still looks alive. */
+.canvas-startup__track::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--surface) 50%, transparent);
+  opacity: 0.5;
+  animation: canvas-startup-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes canvas-startup-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(100%);
+  }
+}
+
 .canvas-area:focus,
 .canvas-area:focus-visible {
   outline: none;
@@ -616,6 +697,37 @@ body.canvas-global-dragging * {
   box-sizing: border-box;
 }
 
+/* Staggered entrance, played once when the canvas is revealed. The delay is
+   computed per card (see utils/cardEntrance.js) and capped so the whole column
+   lands within ~240ms regardless of how many topics there are. */
+.canvas-topic-hierarchy__body.is-entering .canvas-topic-hierarchy__card {
+  animation: topic-card-appear 0.28s cubic-bezier(0.25, 1, 0.5, 1) both;
+  animation-delay: var(--topic-card-enter-delay, 0ms);
+}
+
+@keyframes topic-card-appear {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Short-lived glide for a remeasure that lands after the reveal (a late image
+   reflowing the article). Applied through a class that the rail removes again
+   after ~320ms: animating `top`/`height` on every card permanently would run a
+   layout pass per frame on every zoom and level switch. */
+.canvas-topic-hierarchy__body.is-settling .canvas-topic-hierarchy__card {
+  transition:
+    top 0.32s cubic-bezier(0.25, 1, 0.5, 1),
+    height 0.32s cubic-bezier(0.25, 1, 0.5, 1),
+    border-color 0.18s ease;
+}
+
 .canvas-topic-hierarchy__card.is-compact {
   padding-top: 6px;
   padding-bottom: 6px;
@@ -826,6 +938,7 @@ body.canvas-global-dragging * {
    current-topic summary aside's own appear animation. */
 .canvas-summary-view__cards > .canvas-summary-view__card {
   animation: summary-card-appear 0.3s cubic-bezier(0.25, 1, 0.5, 1) both;
+  animation-delay: var(--summary-card-enter-delay, 0ms);
 }
 
 .canvas-summary-view__card:hover {
@@ -1062,12 +1175,17 @@ body.canvas-global-dragging * {
   .canvas-topic-current-summary,
   .canvas-summary-source-preview,
   .canvas-topic-hierarchy__card,
+  .canvas-topic-hierarchy__body.is-settling .canvas-topic-hierarchy__card,
+  .canvas-startup,
+  .canvas-startup__bar,
   .canvas-area.is-pan-smoothing .canvas-topic-hierarchy__card-content,
   .canvas-viewport.is-focusing-highlight .canvas-topic-hierarchy__card-content {
     transition: none;
   }
 
   .canvas-summary-view__cards > .canvas-summary-view__card,
+  .canvas-topic-hierarchy__body.is-entering .canvas-topic-hierarchy__card,
+  .canvas-startup__track::after,
   .canvas-summary-source-preview__card,
   .canvas-topic-current-summary .canvas-summary-view__card,
   .canvas-topic-current-summary .canvas-summary-view__card-path,

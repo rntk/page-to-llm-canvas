@@ -6,8 +6,9 @@ import { act } from 'react';
 import { useInitialView } from './useInitialView.js';
 import { clampScale } from '../../utils/canvasMath.js';
 
-// The hook returns void; its behaviour is observed through the callbacks and
-// refs it drives across the three phases (level-set → zoomed → first topic).
+// Beyond the `isSettled` flag it returns, the hook's behaviour is observed
+// through the callbacks and refs it drives across the three phases
+// (level-set → zoomed → first topic).
 function makeProps({ viewport: viewportOverrides, ...overrides } = {}) {
   return {
     topics: [{ title: 'T' }],
@@ -38,14 +39,16 @@ function setup(initialProps) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   let props = initialProps;
+  const result = { current: null };
   function Harness() {
-    useInitialView(props);
+    result.current = useInitialView(props);
     return null;
   }
   const root = createRoot(container);
   act(() => root.render(createElement(Harness)));
   return {
     props,
+    result,
     rerender(overrides) {
       props = { ...props, ...overrides };
       act(() => root.render(createElement(Harness)));
@@ -58,6 +61,28 @@ function setup(initialProps) {
 }
 
 describe('useInitialView', () => {
+  it('reports settled only once the sequence has finished', () => {
+    const ctx = setup(makeProps());
+    // Phases commit across separate renders; the harness re-renders on each.
+    ctx.rerender({});
+    ctx.rerender({});
+    ctx.rerender({});
+    expect(ctx.result.current.isSettled).toBe(true);
+    ctx.cleanup();
+  });
+
+  it('retires immediately when the record has no topics', () => {
+    // Nothing to stage and nothing to wait for: leaving the machine pending
+    // would hold the opening overlay behind a phase that can never advance.
+    const props = makeProps({ topics: [], sentenceMetrics: new Map() });
+    const ctx = setup(props);
+    ctx.rerender({});
+    expect(ctx.result.current.isSettled).toBe(true);
+    expect(props.setSelectedLevel).not.toHaveBeenCalled();
+    expect(props.panToTopic).not.toHaveBeenCalled();
+    ctx.cleanup();
+  });
+
   beforeEach(() => {
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((fn) => setTimeout(fn, 0));
     vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => clearTimeout(id));

@@ -9,7 +9,14 @@ import {
   getTitleLineBudget,
 } from '../../utils/denseCardLayout.js';
 import { getYouTubeTimestampLink, getYouTubeVideoId } from '../../utils/youtubeTimestamp.js';
+import { getCardEnterDelay } from '../../utils/cardEntrance.js';
 import YouTubeTimestampButton from '../../components/YouTubeTimestampButton.jsx';
+
+// Glide window for a geometry change that lands after the canvas is revealed
+// (a late image reflowing the article). Deliberately short-lived and applied
+// through a class: a permanent `transition: top` on every card would animate
+// layout on every level switch and zoom, costing far more than it buys.
+const SETTLE_TRANSITION_MS = 320;
 
 function isElementVerticallyInBounds(elementRect, boundsRect) {
   return elementRect.bottom > boundsRect.top && elementRect.top < boundsRect.bottom;
@@ -31,6 +38,7 @@ const TopicCard = React.memo(function TopicCard({
   onTopicLeave,
   onTopicClick,
   cardRef,
+  enterDelay,
 }) {
   const titleLineBudget = getTitleLineBudget(card.height);
   // Scoped to startSentence (not the whole card object, which gets a fresh
@@ -83,6 +91,7 @@ const TopicCard = React.memo(function TopicCard({
         '--topic-card-label-height': `${getCardLabelHeight(card)}px`,
         '--topic-card-right': `${card.right}px`,
         '--topic-accent-color': accentColor,
+        ...(enterDelay ? { '--topic-card-enter-delay': `${enterDelay}ms` } : {}),
         ...(youtubeFontSize != null && {
           '--topic-card-youtube-font-size': `${youtubeFontSize}px`,
         }),
@@ -151,6 +160,10 @@ function CanvasTopicHierarchyRail({ show, ...props }) {
  * @param {string[]} [props.sentences]
  * @param {string} [props.sourceUrl]
  * @param {number} [props.scale] canvas zoom scale; drives the summary card fonts
+ * @param {boolean} [props.isEntering] true while the canvas is being revealed;
+ *   plays the staggered card entrance and suppresses the settle transition
+ * @param {string} [props.layoutKey] identity of the current mode/level layout;
+ *   a change means the card set was swapped deliberately, not remeasured
  */
 const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRailBody({
   selectedLevel,
@@ -167,6 +180,8 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
   sentences,
   sourceUrl,
   scale,
+  isEntering = false,
+  layoutKey = '',
 }) {
   const hierarchyCards = React.useMemo(
     () =>
@@ -261,6 +276,40 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
         : 'auto',
     [geometryCards],
   );
+  // A remeasure that lands *after* the reveal (late image, font swap, window
+  // resize) moves cards the user is already looking at. Glide them into their
+  // new places for one short window instead of teleporting, then drop the
+  // transition again so panning and zooming stay cheap.
+  const [isSettling, setIsSettling] = React.useState(false);
+  const previousLayoutRef = React.useRef(null);
+  React.useEffect(() => {
+    const previous = previousLayoutRef.current;
+    previousLayoutRef.current = { geometrySignature, layoutKey };
+    const shouldSettle =
+      // First layout, an unchanged one, or the entrance itself: nothing to
+      // glide — the entrance animation owns the reveal.
+      previous !== null &&
+      !isEntering &&
+      previous.geometrySignature !== geometrySignature &&
+      // A deliberate mode/level switch swaps the whole card set and is already
+      // animated by the canvas alignment pass. Transitioning every card's `top`
+      // underneath that would race it — and run a layout per frame for cards
+      // that did not merely move. Only same-layout remeasures glide.
+      previous.layoutKey === layoutKey;
+    if (!shouldSettle) {
+      // A switch arriving mid-glide re-runs this effect, and its cleanup has
+      // already cancelled the timer that would have cleared the flag. Clearing
+      // it here too is what keeps `is-settling` from latching on forever and
+      // silently turning the short-lived glide into a permanent transition.
+      // (Re-setting the same `false` bails out of the render in React.)
+      setIsSettling(false);
+      return undefined;
+    }
+    setIsSettling(true);
+    const timer = setTimeout(() => setIsSettling(false), SETTLE_TRANSITION_MS);
+    return () => clearTimeout(timer);
+  }, [geometrySignature, layoutKey, isEntering]);
+
   const summaryAnchorCard = React.useMemo(
     () =>
       currentTopicSummary
@@ -441,15 +490,23 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
           '--topic-card-width': `${cardWidth}px`,
         }}
       >
-        <div className="canvas-topic-hierarchy__body" style={{ height: bodyHeight }}>
+        <div
+          className={`canvas-topic-hierarchy__body${isEntering ? ' is-entering' : ''}${
+            isSettling ? ' is-settling' : ''
+          }`}
+          style={{ height: bodyHeight }}
+        >
           {hierarchyCards.length === 0 ? (
             <p className="canvas-topic-hierarchy__empty">No topics at this level.</p>
           ) : (
             <>
-              {adjustedHierarchyCards.map((card) => (
+              {adjustedHierarchyCards.map((card, index) => (
                 <TopicCard
                   key={card.key}
                   card={card}
+                  enterDelay={
+                    isEntering ? getCardEnterDelay(index, adjustedHierarchyCards.length) : 0
+                  }
                   isActive={
                     hasActiveTopicCardKey
                       ? activeTopic.cardKey === card.key

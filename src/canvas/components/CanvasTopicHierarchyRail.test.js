@@ -620,6 +620,88 @@ describe('CanvasTopicHierarchyRail', () => {
     unmount();
   });
 
+  it('staggers the card entrance within a capped window while revealing', () => {
+    const { container, rerender, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, { ...defaultProps, isEntering: true }),
+    );
+
+    const body = container.querySelector('.canvas-topic-hierarchy__body');
+    expect(body.className).toContain('is-entering');
+    const delays = [...container.querySelectorAll('.canvas-topic-hierarchy__card')].map((card) =>
+      Number.parseInt(card.style.getPropertyValue('--topic-card-enter-delay') || '0', 10),
+    );
+    expect(delays[0]).toBe(0);
+    expect(delays[delays.length - 1]).toBeGreaterThan(0);
+    expect(Math.max(...delays)).toBeLessThanOrEqual(240);
+
+    // Once the entrance is over the class goes away and no card keeps a delay.
+    rerender(createElement(CanvasTopicHierarchyRail, { ...defaultProps, isEntering: false }));
+    expect(container.querySelector('.canvas-topic-hierarchy__body').className).not.toContain(
+      'is-entering',
+    );
+    unmount();
+  });
+
+  it('glides a same-layout remeasure but not a level switch', () => {
+    vi.useFakeTimers();
+    const props = { ...defaultProps, layoutKey: 'article:1' };
+    const { container, rerender, unmount } = render(createElement(CanvasTopicHierarchyRail, props));
+    const body = () => container.querySelector('.canvas-topic-hierarchy__body');
+    expect(body().className).not.toContain('is-settling');
+
+    // A late image reflowing the article moves the cards under the same layout:
+    // glide them.
+    const movedCards = props.topicCards.map((card) => ({ ...card, top: card.top + 40 }));
+    rerender(createElement(CanvasTopicHierarchyRail, { ...props, topicCards: movedCards }));
+    expect(body().className).toContain('is-settling');
+    act(() => vi.advanceTimersByTime(400));
+    expect(body().className).not.toContain('is-settling');
+
+    // A level switch swaps the card set deliberately and the canvas alignment
+    // pass already animates it — no competing per-card transition.
+    const nextLevelCards = movedCards.map((card) => ({ ...card, top: card.top + 100 }));
+    rerender(
+      createElement(CanvasTopicHierarchyRail, {
+        ...props,
+        topicCards: nextLevelCards,
+        layoutKey: 'article:0',
+      }),
+    );
+    expect(body().className).not.toContain('is-settling');
+    unmount();
+    vi.useRealTimers();
+  });
+
+  it('drops the glide when a layout switch interrupts it mid-flight', () => {
+    vi.useFakeTimers();
+    const props = { ...defaultProps, layoutKey: 'article:1' };
+    const { container, rerender, unmount } = render(createElement(CanvasTopicHierarchyRail, props));
+    const body = () => container.querySelector('.canvas-topic-hierarchy__body');
+
+    const movedCards = props.topicCards.map((card) => ({ ...card, top: card.top + 40 }));
+    rerender(createElement(CanvasTopicHierarchyRail, { ...props, topicCards: movedCards }));
+    expect(body().className).toContain('is-settling');
+
+    // A level switch part-way through the glide cancels the timer that would
+    // have cleared the flag; if it latched here, every later geometry change
+    // would animate forever.
+    act(() => vi.advanceTimersByTime(100));
+    const switchedCards = movedCards.map((card) => ({ ...card, top: card.top + 100 }));
+    rerender(
+      createElement(CanvasTopicHierarchyRail, {
+        ...props,
+        topicCards: switchedCards,
+        layoutKey: 'article:0',
+      }),
+    );
+    expect(body().className).not.toContain('is-settling');
+    act(() => vi.advanceTimersByTime(400));
+    expect(body().className).not.toContain('is-settling');
+
+    unmount();
+    vi.useRealTimers();
+  });
+
   it('clicking the per-card YouTube link does not trigger the card click', () => {
     const onTopicClick = vi.fn();
     const { container, unmount } = render(
