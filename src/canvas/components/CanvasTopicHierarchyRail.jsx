@@ -41,6 +41,13 @@ const TopicCard = React.memo(function TopicCard({
   enterDelay,
 }) {
   const titleLineBudget = getTitleLineBudget(card.height);
+  // Zoomed-out titles switch to one line, so cap against one line rather than
+  // the normal two-line budget. The old two-line cap stopped the font growth at
+  // roughly 15px on a standard card, making titles shrink with the canvas even
+  // though the live inverse-scale value was increasing correctly.
+  const titleFontCap =
+    getAdjustedTitleFontSize({ titleFontSize: Number.MAX_SAFE_INTEGER }, card.height) *
+    titleLineBudget;
   // Scoped to startSentence (not the whole card object, which gets a fresh
   // reference every zoom step) so the backward timestamp scan only reruns
   // when the card or transcript actually changes.
@@ -65,6 +72,9 @@ const TopicCard = React.memo(function TopicCard({
   const youtubeFontSize = youtubeLink
     ? getSummaryFontSizes({ titleFontSize: card.titleFontSize }).youtube
     : null;
+  const youtubeFontCap = youtubeLink
+    ? getSummaryFontSizes({ titleFontSize: titleFontCap }).youtube
+    : null;
   const classes = [
     'canvas-topic-hierarchy__card',
     card.levelIndex === 0
@@ -87,13 +97,16 @@ const TopicCard = React.memo(function TopicCard({
         '--topic-card-top': `${card.top}px`,
         '--topic-card-height': `${card.height}px`,
         '--topic-card-title-font-size': `${card.titleFontSize}px`,
+        '--topic-card-title-max-font-size': `${titleFontCap}px`,
         '--topic-card-title-line-clamp': titleLineBudget,
         '--topic-card-label-height': `${getCardLabelHeight(card)}px`,
         '--topic-card-right': `${card.right}px`,
+        '--topic-card-live-right': `var(--topic-card-level-${card.levelIndex}-right, ${card.right}px)`,
         '--topic-accent-color': accentColor,
         ...(enterDelay ? { '--topic-card-enter-delay': `${enterDelay}ms` } : {}),
         ...(youtubeFontSize != null && {
           '--topic-card-youtube-font-size': `${youtubeFontSize}px`,
+          '--topic-card-youtube-max-font-size': `${youtubeFontCap}px`,
         }),
         zIndex: isSelected ? 60 : isActive ? 50 : card.zIndex,
       }}
@@ -486,8 +499,8 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
           }
         }}
         style={{
-          '--canvas-topic-hierarchy-width': `${railWidth}px`,
-          '--topic-card-width': `${cardWidth}px`,
+          '--canvas-topic-hierarchy-width-fallback': `${railWidth}px`,
+          '--topic-card-width-fallback': `${cardWidth}px`,
         }}
       >
         <div

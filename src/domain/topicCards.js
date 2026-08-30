@@ -75,6 +75,18 @@ function getZoomFontMultiplier(scale) {
 }
 
 /**
+ * Title size driven only by zoom, before an individual card's height cap.
+ * Used by the live CSS-variable zoom path so the shared value keeps growing
+ * throughout zoom-out and each card can apply its own physical fit limit.
+ *
+ * @param {number} scale
+ * @returns {number}
+ */
+export function getZoomAdjustedTitleFontSize(scale) {
+  return CARD_BASE_TITLE_FONT_SIZE * getZoomFontMultiplier(scale);
+}
+
+/**
  * Per-card title font size that grows on zoom-out (1/scale, capped at 1) and
  * shrinks if the card is too short to fit two lines.
  *
@@ -82,7 +94,7 @@ function getZoomFontMultiplier(scale) {
  * @returns {number}
  */
 export function getTopicTitleFontSize({ scale, height }) {
-  const zoomAdjusted = CARD_BASE_TITLE_FONT_SIZE * getZoomFontMultiplier(scale);
+  const zoomAdjusted = getZoomAdjustedTitleFontSize(scale);
   const safeHeight = Number.isFinite(height) ? height : CARD_HEIGHT;
   const titleLines = getTitleLineBudget(safeHeight);
   const availableTitleHeight = Math.max(

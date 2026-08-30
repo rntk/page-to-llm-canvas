@@ -47,6 +47,7 @@ vi.mock('../domain/topicCards.js', () => ({
   buildTopicCards: vi.fn(() => [{ key: 'Topic#0', path: 'Topic', levelIndex: 0, height: 20 }]),
   patchTopicCardsFromSummaryMetrics: vi.fn((cards) => cards),
   getTopicTitleFontSize: vi.fn(() => 12),
+  getZoomAdjustedTitleFontSize: vi.fn(() => 12),
   getZoomAdjustedCardWidth: vi.fn(() => 100),
   getZoomAdjustedSummaryCardWidth: vi.fn(() => 220),
 }));
@@ -87,6 +88,7 @@ const viewportMock = vi.hoisted(() => ({
   translateRef: { current: { x: 3, y: 4 } },
   userMovedCanvasRef: { current: false },
   setTransformNow: mocks.setTransformNow,
+  zoomAtPoint: vi.fn(),
   zoomToTarget: mocks.zoomToTarget,
 }));
 
@@ -95,6 +97,7 @@ vi.mock('./hooks/useCanvasTransform.js', () => ({
     scale: 1,
     isCanvasDragging: false,
     isFocusingHighlight: false,
+    isCardZoomSmoothing: false,
     isZoomingToTarget: false,
     canvasWrapRef: { current: null },
     canvasViewportRef: { current: null },
@@ -219,7 +222,7 @@ describe('App composition behavior', () => {
     state.error = null;
     state.vm = { ...doneView };
     state.vmInput = null;
-    state.canvasWrapElement = { focus: mocks.canvasFocus, clientHeight: 500 };
+    state.canvasWrapElement = { focus: mocks.canvasFocus, clientWidth: 800, clientHeight: 500 };
     state.childProps = {};
     state.hasSettledLayout = true;
     // The shared viewport handle is stateful across tests now that it is a single
@@ -227,6 +230,7 @@ describe('App composition behavior', () => {
     viewportMock.scaleRef.current = 1;
     viewportMock.translateRef.current = { x: 3, y: 4 };
     viewportMock.userMovedCanvasRef.current = false;
+    viewportMock.zoomAtPoint.mockClear();
     vi.clearAllMocks();
     mocks.refreshSentenceRanges.mockReturnValue({ wordEntries: [], sentenceRanges: new Map() });
     mocks.buildSentenceDomRange.mockReturnValue(null);
@@ -281,9 +285,9 @@ describe('App composition behavior', () => {
     await act(async () => state.childProps.controls.onZoomIn());
     await act(async () => state.childProps.controls.onZoomOut());
     await act(async () => state.childProps.controls.onReset());
-    expect(mocks.setTransformNow).toHaveBeenNthCalledWith(1, 1.2, { x: 3, y: 4 });
-    expect(mocks.setTransformNow).toHaveBeenNthCalledWith(2, 1 / 1.2, { x: 3, y: 4 });
-    expect(mocks.setTransformNow).toHaveBeenNthCalledWith(3, 1, { x: 40, y: 40 });
+    expect(viewportMock.zoomAtPoint).toHaveBeenNthCalledWith(1, { x: 400, y: 250 }, 1.2);
+    expect(viewportMock.zoomAtPoint).toHaveBeenNthCalledWith(2, { x: 400, y: 250 }, 1 / 1.2);
+    expect(mocks.setTransformNow).toHaveBeenNthCalledWith(1, 1, { x: 40, y: 40 });
 
     await act(async () => state.childProps.controls.onToggleSummaryMode());
     expect(state.vmInput.showSummaryModeRaw).toBe(true);

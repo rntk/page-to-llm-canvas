@@ -143,6 +143,43 @@ describe('useCanvasTransform', () => {
     expect(result.current.translate).toEqual({ x: 100, y: 200 });
   });
 
+  it('keeps the reading surface fixed when scale-dependent layout reflows', () => {
+    const content = document.createElement('div');
+    const contentRef = { current: content };
+    const hook = renderHook(() => useCanvasTransform({ contentRef }));
+    const viewport = document.createElement('div');
+
+    // Model the inverse-scaled left gutter: committing scale 2 moves the
+    // article from layout-x 100 to layout-x 50.
+    const localContentX = () => (hook.result.current.scale === 2 ? 50 : 100);
+    viewport.getBoundingClientRect = () => ({
+      left: hook.result.current.viewport.translateRef.current.x,
+      top: hook.result.current.viewport.translateRef.current.y,
+      width: 800,
+      height: 600,
+    });
+    content.getBoundingClientRect = () => ({
+      left:
+        hook.result.current.viewport.translateRef.current.x +
+        localContentX() * hook.result.current.viewport.scaleRef.current,
+      top: hook.result.current.viewport.translateRef.current.y,
+      width: 680,
+      height: 1000,
+    });
+    vi.spyOn(window, 'getComputedStyle').mockImplementation(() => ({
+      transform: `matrix(${hook.result.current.viewport.scaleRef.current}, 0, 0, ${hook.result.current.viewport.scaleRef.current}, 0, 0)`,
+    }));
+
+    act(() => hook.result.current.canvasViewportRef(viewport));
+    act(() => hook.result.current.viewport.zoomAtPoint({ x: 100, y: 100 }, 2));
+
+    expect(hook.result.current.scale).toBe(2);
+    expect(hook.result.current.isCardZoomSmoothing).toBe(true);
+    // The raw cursor transform would be x=-20. Correcting the 50px layout
+    // reflow places the article at the same predicted screen-x (180px).
+    expect(hook.result.current.translate.x).toBe(80);
+  });
+
   it('keeps the viewport handle stable and limited to the imperative surface', () => {
     const { result } = renderHook(() => useCanvasTransform());
     const first = result.current.viewport;
@@ -160,6 +197,7 @@ describe('useCanvasTransform', () => {
       'setTransformNow',
       'translateRef',
       'userMovedCanvasRef',
+      'zoomAtPoint',
       'zoomToTarget',
     ]);
     // Bundled, not duplicated: the handle's members are gone from the flat return.
@@ -509,47 +547,144 @@ describe('useCanvasTransform', () => {
     expect(result.current.translate.y).toBe(-340);
   });
 
-  it('wheel zoom on the wrap updates scale and translate via schedule path', async () => {
-    const { result } = renderHook(() => useCanvasTransform());
+  it('wheel zoom stays cursor-anchored and commits after the input burst', async () => {
+    const onVisualScaleChange = vi.fn();
+    const { result } = renderHook(() => useCanvasTransform({ onVisualScaleChange }));
     const wrap = document.createElement('div');
-    wrap.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
+    wrap.getBoundingClientRect = () => ({ left: 25, top: 40, width: 800, height: 600 });
+    const viewport = document.createElement('div');
     document.body.appendChild(wrap);
+    document.body.appendChild(viewport);
     act(() => {
       result.current.canvasWrapRef(wrap);
+      result.current.canvasViewportRef(viewport);
     });
 
-    // Dispatch a wheel "out" (deltaY > 0) which should zoom out (apply WHEEL_OUT)
+    const cursor = { x: 100 - 25, y: 100 - 40 };
+    const originalCanvasPoint = {
+      x: (cursor.x - 40) / 1,
+      y: (cursor.y - 40) / 1,
+    };
     const wheelOut = new WheelEvent('wheel', {
       deltaY: 120,
-      clientX: 100,
-      clientY: 100,
       bubbles: true,
+    });
+    // happy-dom does not currently copy pointer coordinates from WheelEventInit.
+    Object.defineProperties(wheelOut, {
+      clientX: { value: 100 },
+      clientY: { value: 100 },
     });
     act(() => {
       wrap.dispatchEvent(wheelOut);
     });
-    // Flush the rAF scheduled inside scheduleTransform (mocked to setTimeout 0)
+    const liveScale = result.current.viewport.scaleRef.current;
+    const liveTranslate = result.current.viewport.translateRef.current;
+    expect((cursor.x - liveTranslate.x) / liveScale).toBeCloseTo(originalCanvasPoint.x);
+    expect((cursor.y - liveTranslate.y) / liveScale).toBeCloseTo(originalCanvasPoint.y);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 5));
     });
-    // scale should have changed (clamped)
+    expect(onVisualScaleChange).toHaveBeenLastCalledWith(liveScale);
+    // React state is intentionally deferred so the expensive canvas subtree is
+    // not rendered once per wheel event.
+    expect(result.current.scale).toBe(1);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 100));
+    });
     expect(result.current.scale).toBeLessThan(1);
+    // Wheel cards track the live scale directly; no delayed settle transition
+    // should remain to create a second movement after the gesture.
+    expect(result.current.isCardZoomSmoothing).toBe(false);
+    expect(viewport.style.getPropertyValue('--canvas-scale')).toBe(`${liveScale}`);
 
-    // Dispatch a wheel "in"
     const wheelIn = new WheelEvent('wheel', {
       deltaY: -120,
-      clientX: 100,
-      clientY: 100,
       bubbles: true,
+    });
+    Object.defineProperties(wheelIn, {
+      clientX: { value: 100 },
+      clientY: { value: 100 },
     });
     act(() => {
       wrap.dispatchEvent(wheelIn);
     });
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 5));
+      await new Promise((r) => setTimeout(r, 100));
     });
-    // scale should have increased again (but still >= MIN)
     expect(result.current.scale).toBeGreaterThanOrEqual(0.1);
+  });
+
+  it('preserves fine-grained trackpad wheel deltas', () => {
+    const { result } = renderHook(() => useCanvasTransform());
+    const wrap = document.createElement('div');
+    wrap.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
+    document.body.appendChild(wrap);
+    act(() => result.current.canvasWrapRef(wrap));
+
+    const trackpadWheel = new WheelEvent('wheel', { deltaY: -1 });
+    Object.defineProperties(trackpadWheel, {
+      clientX: { value: 200 },
+      clientY: { value: 150 },
+    });
+    act(() => wrap.dispatchEvent(trackpadWheel));
+
+    expect(result.current.viewport.scaleRef.current).toBeCloseTo(Math.exp(0.0008), 8);
+  });
+
+  it('corrects live card reflow in the same wheel frame', async () => {
+    let localContentX = 100;
+    const content = document.createElement('div');
+    const contentRef = { current: content };
+    const onVisualScaleChange = vi.fn((visualScale) => {
+      if (visualScale !== 1) localContentX = 150;
+    });
+    const { result } = renderHook(() => useCanvasTransform({ contentRef, onVisualScaleChange }));
+    const wrap = document.createElement('div');
+    const viewport = document.createElement('div');
+    wrap.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
+    viewport.getBoundingClientRect = () => ({
+      left: result.current.viewport.translateRef.current.x,
+      top: result.current.viewport.translateRef.current.y,
+      width: 800,
+      height: 600,
+    });
+    content.getBoundingClientRect = () => ({
+      left:
+        result.current.viewport.translateRef.current.x +
+        localContentX * result.current.viewport.scaleRef.current,
+      top: result.current.viewport.translateRef.current.y,
+      width: 680,
+      height: 1000,
+    });
+    vi.spyOn(window, 'getComputedStyle').mockImplementation(() => ({
+      transform: `matrix(${result.current.viewport.scaleRef.current}, 0, 0, ${result.current.viewport.scaleRef.current}, 0, 0)`,
+    }));
+    document.body.append(wrap, viewport, content);
+    act(() => {
+      result.current.canvasWrapRef(wrap);
+      result.current.canvasViewportRef(viewport);
+    });
+
+    const wheel = new WheelEvent('wheel', { deltaY: 120 });
+    Object.defineProperties(wheel, {
+      clientX: { value: 100 },
+      clientY: { value: 100 },
+    });
+    act(() => wrap.dispatchEvent(wheel));
+    const visualScale = result.current.viewport.scaleRef.current;
+    const expectedContentLeft =
+      cursorAnchoredTranslate({
+        cursor: { x: 100, y: 100 },
+        translate: { x: 40, y: 40 },
+        currentScale: 1,
+        nextScale: visualScale,
+      }).x +
+      100 * visualScale;
+
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 5)));
+
+    expect(content.getBoundingClientRect().left).toBeCloseTo(expectedContentLeft);
+    expect(result.current.scale).toBe(1);
   });
 
   it('wheel with no effective scale change early returns without updating', () => {

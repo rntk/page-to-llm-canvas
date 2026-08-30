@@ -3,6 +3,7 @@ import { useRecord } from './hooks/useRecord.js';
 import {
   buildTopicCards,
   getTopicTitleFontSize,
+  getZoomAdjustedTitleFontSize,
   getZoomAdjustedCardWidth,
   getZoomAdjustedSummaryCardWidth,
   patchTopicCardsFromSummaryMetrics,
@@ -26,6 +27,7 @@ import { useCanvasTopicNavigation } from './hooks/useCanvasTopicNavigation.js';
 import { useSummaryCardRegistry } from './hooks/useSummaryCardRegistry.js';
 import { useTopicSelection } from './hooks/useTopicSelection.js';
 import { selectCurrentTopicSummary } from '../domain/currentTopicSummary.js';
+import { getSummaryFontSizes } from '../utils/denseCardLayout.js';
 import ArticleChat from '../chat/ArticleChat.jsx';
 import { useChatHighlights } from '../chat/useChatHighlights.js';
 import { buildSentenceDomRange } from '../highlights/sentenceHighlight.js';
@@ -70,11 +72,80 @@ function CanvasApp({ initialKey, record, onClose }) {
   const summaryCardRegistry = useSummaryCardRegistry();
   const pendingChatHighlightLineRef = useRef(null);
 
+  const applyVisualCardScale = useCallback(
+    (visualScale) => {
+      const group = summaryWrapRef.current;
+      if (!group) return;
+      const visualCardWidth = getZoomAdjustedCardWidth(visualScale);
+      const visualSummaryWidth = getZoomAdjustedSummaryCardWidth(visualScale);
+      const visualRailWidth =
+        (selectedLevel + 1) * visualCardWidth + selectedLevel * COLUMN_GAP + RAIL_PADDING * 2;
+      const visualTitleSize = getZoomAdjustedTitleFontSize(visualScale);
+
+      group.classList.toggle('is-live-zoomed-out', visualScale < 1);
+
+      group.style.setProperty('--topic-card-width', `${visualCardWidth}px`);
+      group.style.setProperty('--current-summary-width', `${visualSummaryWidth}px`);
+      group.style.setProperty('--canvas-topic-hierarchy-width', `${visualRailWidth}px`);
+      group.style.setProperty('--canvas-zoom-title-font-size', `${visualTitleSize}px`);
+      group.style.setProperty(
+        '--canvas-zoom-youtube-font-size',
+        `${getSummaryFontSizes({ titleFontSize: visualTitleSize }).youtube}px`,
+      );
+      for (let level = 0; level <= selectedLevel; level += 1) {
+        group.style.setProperty(
+          `--topic-card-level-${level}-right`,
+          `${RAIL_PADDING + level * (visualCardWidth + COLUMN_GAP)}px`,
+        );
+      }
+
+      // The floating summary follows the active rail card's height cap, just as
+      // the React-derived settled layout does, but now on every visual frame.
+      const summaryAnchor = group.querySelector(
+        '.canvas-topic-hierarchy__card.is-selected, .canvas-topic-hierarchy__card.is-active',
+      );
+      const titleCap = Number.parseFloat(
+        summaryAnchor?.style.getPropertyValue('--topic-card-title-max-font-size'),
+      );
+      const summaryFontSizes = getSummaryFontSizes({
+        titleFontSize: Number.isFinite(titleCap)
+          ? Math.min(visualTitleSize, titleCap)
+          : visualTitleSize,
+      });
+      group.style.setProperty('--current-summary-kicker-font-size', `${summaryFontSizes.kicker}px`);
+      group.style.setProperty('--current-summary-title-font-size', `${summaryFontSizes.title}px`);
+      group.style.setProperty('--current-summary-text-font-size', `${summaryFontSizes.text}px`);
+      group.style.setProperty(
+        '--current-summary-youtube-font-size',
+        `${summaryFontSizes.youtube}px`,
+      );
+      const currentSummary = group.querySelector('.canvas-topic-current-summary');
+      currentSummary?.style.setProperty(
+        '--current-summary-kicker-font-size',
+        `${summaryFontSizes.kicker}px`,
+      );
+      currentSummary?.style.setProperty(
+        '--current-summary-title-font-size',
+        `${summaryFontSizes.title}px`,
+      );
+      currentSummary?.style.setProperty(
+        '--current-summary-text-font-size',
+        `${summaryFontSizes.text}px`,
+      );
+      currentSummary?.style.setProperty(
+        '--current-summary-youtube-font-size',
+        `${summaryFontSizes.youtube}px`,
+      );
+    },
+    [selectedLevel],
+  );
+
   const {
     scale,
     isCanvasDragging,
     isPanSmoothing,
     isFocusingHighlight,
+    isCardZoomSmoothing,
     isZoomingToTarget,
     canvasWrapRef,
     canvasViewportRef,
@@ -85,13 +156,16 @@ function CanvasApp({ initialKey, record, onClose }) {
     // zoomToTarget) handed to the hooks that move the canvas; stable identity,
     // so it is safe as a lone effect dependency.
     viewport,
-  } = useCanvasTransform({ contentRef: articleTextRef });
+  } = useCanvasTransform({
+    contentRef: articleTextRef,
+    onVisualScaleChange: applyVisualCardScale,
+  });
   // The handle travels whole to the hooks below; App's own reads of the live
   // transform pull the ref containers out here because the React Compiler only
   // recognises a ref as a ref when it is destructured off the hook result
   // (reading `viewport.someRef.current` in a callback trips its immutability /
   // memoization checks). They are stable for the component's lifetime either way.
-  const { canvasWrapElRef, scaleRef, translateRef, userMovedCanvasRef } = viewport;
+  const { canvasWrapElRef, scaleRef, userMovedCanvasRef } = viewport;
 
   const handleCanvasMouseDown = useCallback(
     (e) => {
@@ -307,15 +381,26 @@ function CanvasApp({ initialKey, record, onClose }) {
     }
   }, [canvasWrapElRef]);
 
-  const handleZoomIn = useCallback(() => {
-    userMovedCanvasRef.current = true;
-    viewport.setTransformNow(clampScale((scaleRef.current || 1) * 1.2), translateRef.current);
-  }, [viewport, scaleRef, translateRef, userMovedCanvasRef]);
+  const zoomFromViewportCenter = useCallback(
+    (factor) => {
+      const wrap = canvasWrapElRef.current;
+      if (!wrap) return;
+      const currentScale = scaleRef.current || 1;
+      const nextScale = clampScale(currentScale * factor);
+      if (nextScale === currentScale) return;
+      const cursor = { x: wrap.clientWidth / 2, y: wrap.clientHeight / 2 };
+      viewport.zoomAtPoint(cursor, nextScale);
+      flashFocus();
+    },
+    [canvasWrapElRef, flashFocus, scaleRef, viewport],
+  );
 
-  const handleZoomOut = useCallback(() => {
-    userMovedCanvasRef.current = true;
-    viewport.setTransformNow(clampScale((scaleRef.current || 1) / 1.2), translateRef.current);
-  }, [viewport, scaleRef, translateRef, userMovedCanvasRef]);
+  const handleZoomIn = useCallback(() => zoomFromViewportCenter(1.2), [zoomFromViewportCenter]);
+
+  const handleZoomOut = useCallback(
+    () => zoomFromViewportCenter(1 / 1.2),
+    [zoomFromViewportCenter],
+  );
 
   const handleReset = useCallback(() => {
     userMovedCanvasRef.current = true;
@@ -398,14 +483,13 @@ function CanvasApp({ initialKey, record, onClose }) {
           >
             <div
               ref={canvasViewportRef}
-              className={`canvas-viewport${isFocusingHighlight ? ' is-focusing-highlight' : ''}`}
+              className={`canvas-viewport${isFocusingHighlight ? ' is-focusing-highlight' : ''}${isCardZoomSmoothing ? ' is-card-zoom-smoothing' : ''}`}
             >
               <div
                 ref={summaryWrapRef}
                 className={`canvas-article-with-summaries${showTopicHierarchy || showSummaryMode ? ' has-topic-hierarchy' : ''}${showSummaryMode ? ' is-summary-mode' : ''}`}
                 style={{
-                  '--canvas-topic-hierarchy-width': `${railWidth}px`,
-                  '--current-summary-width': `${currentSummaryWidth}px`,
+                  '--current-summary-width-fallback': `${currentSummaryWidth}px`,
                 }}
               >
                 {showSummaryMode ? (

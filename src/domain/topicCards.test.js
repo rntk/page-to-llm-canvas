@@ -7,6 +7,7 @@ import {
 } from './topicDomain.js';
 import {
   getZoomAdjustedCardWidth,
+  getZoomAdjustedTitleFontSize,
   getZoomAdjustedSummaryCardWidth,
   getTopicTitleFontSize,
   buildTopicCards,
@@ -154,6 +155,13 @@ describe('getTopicTitleFontSize', () => {
     const withHeight = getTopicTitleFontSize({ scale: 1, height: 72 });
     const withoutHeight = getTopicTitleFontSize({ scale: 1, height: NaN });
     expect(withHeight).toBe(withoutHeight);
+  });
+});
+
+describe('getZoomAdjustedTitleFontSize', () => {
+  it('keeps increasing throughout deep zoom-out without a generic card-height cap', () => {
+    expect(getZoomAdjustedTitleFontSize(0.5)).toBeGreaterThan(getZoomAdjustedTitleFontSize(1));
+    expect(getZoomAdjustedTitleFontSize(0.1)).toBeGreaterThan(getZoomAdjustedTitleFontSize(0.5));
   });
 });
 

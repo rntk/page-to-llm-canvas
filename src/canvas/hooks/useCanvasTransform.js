@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { clampScale, cursorAnchoredTranslate } from '../../utils/canvasMath.js';
 
-const WHEEL_IN = 1.1;
-const WHEEL_OUT = 1 / 1.1;
+// Exponential scaling makes wheel input independent of event frequency and
+// preserves the fine-grained deltas emitted by trackpads. 120px (a common
+// mouse-wheel notch) remains close to the old 10% step.
+const WHEEL_ZOOM_SENSITIVITY = 0.0008;
+const MAX_WHEEL_DELTA_PX = 240;
+const WHEEL_COMMIT_DELAY = 80;
+// Outlast the longest scoped CSS transition (280ms) so removing the class can
+// never cancel the final interpolated frame and snap to the target value.
+const CARD_ZOOM_SMOOTHING_HOLD = 340;
 const ARROW_STEP = 80;
 // Keep the canvas content this far inside the viewport edges. Mirrors the
 // alignment hook's margin of the same name.
@@ -87,8 +94,9 @@ function zoomPinnedTranslateX({
  * draw it. See the `viewport` memo below for why it is bundled.
  * @param {object} [options] Hook options.
  * @param {object} [options.contentRef]
+ * @param {(scale: number) => void} [options.onVisualScaleChange]
  */
-export function useCanvasTransform({ contentRef } = {}) {
+export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
   const [translate, setTranslate] = useState({ x: 40, y: 40 });
   const [scale, setScale] = useState(1);
   const [isCanvasDragging, setIsCanvasDragging] = useState(false);
@@ -101,6 +109,7 @@ export function useCanvasTransform({ contentRef } = {}) {
   // which is exactly when the most labels are mid-glide.
   const [isPanSmoothing, setIsPanSmoothing] = useState(false);
   const [isFocusingHighlight, setIsFocusingHighlight] = useState(false);
+  const [isCardZoomSmoothing, setIsCardZoomSmoothing] = useState(false);
   // Distinct from `isFocusingHighlight` (a purely visual focus glow that any
   // pan/zoom flashes). This flips true only for an actual zoom-to-target, where
   // the *scale* changes mid-transition; sentence measurement must be suppressed
@@ -129,6 +138,12 @@ export function useCanvasTransform({ contentRef } = {}) {
   const userMovedCanvasRef = useRef(false);
   const rafRef = useRef(0);
   const pendingRef = useRef(null);
+  const wheelCommitTimerRef = useRef(null);
+  const cardZoomSmoothingTimerRef = useRef(null);
+  // Scale-dependent gutter and rail widths reflow when React commits the final
+  // wheel scale. Keep the reading surface at the screen position predicted by
+  // the compositor transform so that reflow cannot cause an end-of-gesture jump.
+  const pendingScaleLayoutAnchorRef = useRef(null);
   const focusTimerRef = useRef(null);
   const zoomingTimerRef = useRef(null);
   const panSettleTimerRef = useRef(null);
@@ -141,39 +156,154 @@ export function useCanvasTransform({ contentRef } = {}) {
   const dragRafRef = useRef(0);
   const dragPendingRef = useRef(null);
 
-  useEffect(() => {
-    scaleRef.current = scale;
-  }, [scale]);
-  useEffect(() => {
-    translateRef.current = translate;
-  }, [translate]);
-
   const setTransformNow = useCallback((nextScale, nextTranslate) => {
     if (rafRef.current) {
       window.cancelAnimationFrame(rafRef.current);
       rafRef.current = 0;
     }
+    if (wheelCommitTimerRef.current) {
+      clearTimeout(wheelCommitTimerRef.current);
+      wheelCommitTimerRef.current = null;
+    }
     pendingRef.current = null;
+    pendingScaleLayoutAnchorRef.current = null;
     scaleRef.current = nextScale;
     translateRef.current = nextTranslate;
     setScale(nextScale);
     setTranslate(nextTranslate);
   }, []);
 
-  const scheduleTransform = useCallback((nextScale, nextTranslate) => {
-    scaleRef.current = nextScale;
-    translateRef.current = nextTranslate;
-    pendingRef.current = { scale: nextScale, translate: nextTranslate };
-    if (rafRef.current) return;
-    rafRef.current = window.requestAnimationFrame(() => {
-      rafRef.current = 0;
-      const pending = pendingRef.current;
-      pendingRef.current = null;
-      if (!pending) return;
-      setScale(pending.scale);
-      setTranslate(pending.translate);
-    });
+  const captureScaleLayoutAnchor = useCallback(
+    (nextScale, nextTranslate, reuseCurrentLayout = false) => {
+      const viewportEl = canvasViewportElRef.current;
+      const content = contentRef?.current;
+      if (!viewportEl || !content) return null;
+
+      let localContentX;
+      let localContentY;
+      const currentAnchor = pendingScaleLayoutAnchorRef.current;
+      if (reuseCurrentLayout && currentAnchor) {
+        ({ localContentX, localContentY } = currentAnchor);
+      } else {
+        const viewportRect = viewportEl.getBoundingClientRect();
+        const contentRect = content.getBoundingClientRect();
+        const appliedScale = readAppliedScale(viewportEl, scaleRef.current || 1);
+        localContentX = (contentRect.left - viewportRect.left) / appliedScale;
+        localContentY = (contentRect.top - viewportRect.top) / appliedScale;
+      }
+
+      return {
+        scale: nextScale,
+        localContentX,
+        localContentY,
+        targetContentX: nextTranslate.x + localContentX * nextScale,
+        targetContentY: nextTranslate.y + localContentY * nextScale,
+      };
+    },
+    [contentRef],
+  );
+
+  const startCardZoomSmoothing = useCallback(() => {
+    setIsCardZoomSmoothing(true);
+    if (cardZoomSmoothingTimerRef.current) clearTimeout(cardZoomSmoothingTimerRef.current);
+    cardZoomSmoothingTimerRef.current = setTimeout(() => {
+      cardZoomSmoothingTimerRef.current = null;
+      setIsCardZoomSmoothing(false);
+    }, CARD_ZOOM_SMOOTHING_HOLD);
   }, []);
+
+  const stopCardZoomSmoothing = useCallback(() => {
+    if (cardZoomSmoothingTimerRef.current) {
+      clearTimeout(cardZoomSmoothingTimerRef.current);
+      cardZoomSmoothingTimerRef.current = null;
+    }
+    canvasViewportElRef.current?.classList.remove('is-card-zoom-smoothing');
+    setIsCardZoomSmoothing(false);
+  }, []);
+
+  // Wheel input updates the compositor-facing CSS variables on the next frame,
+  // then reconciles React after the input burst. Re-rendering the article,
+  // summary gutter and topic rail for every wheel event is both unnecessary for
+  // the visual transform and the main source of dropped zoom frames.
+  const scheduleTransform = useCallback(
+    (nextScale, nextTranslate) => {
+      pendingScaleLayoutAnchorRef.current = captureScaleLayoutAnchor(
+        nextScale,
+        nextTranslate,
+        true,
+      );
+      scaleRef.current = nextScale;
+      translateRef.current = nextTranslate;
+      pendingRef.current = { scale: nextScale, translate: nextTranslate };
+      if (rafRef.current) return;
+      rafRef.current = window.requestAnimationFrame(() => {
+        rafRef.current = 0;
+        const pending = pendingRef.current;
+        pendingRef.current = null;
+        if (!pending) return;
+        const viewportEl = canvasViewportElRef.current;
+        if (viewportEl) {
+          viewportEl.style.setProperty('--canvas-translate-x', `${pending.translate.x}px`);
+          viewportEl.style.setProperty('--canvas-translate-y', `${pending.translate.y}px`);
+          viewportEl.style.setProperty('--canvas-scale', `${pending.scale}`);
+        }
+        onVisualScaleChange?.(pending.scale);
+
+        // The live card variables above can change the reading surface's local
+        // x-coordinate (notably the inverse-scaled left summary gutter). Apply
+        // the matching translation correction in this same frame so the DOM
+        // point under the cursor remains fixed while card geometry tracks zoom.
+        const layoutAnchor = pendingScaleLayoutAnchorRef.current;
+        const content = contentRef?.current;
+        if (layoutAnchor && viewportEl && content) {
+          const viewportRect = viewportEl.getBoundingClientRect();
+          const contentRect = content.getBoundingClientRect();
+          const appliedScale = readAppliedScale(viewportEl, pending.scale);
+          const localContentX = (contentRect.left - viewportRect.left) / appliedScale;
+          const localContentY = (contentRect.top - viewportRect.top) / appliedScale;
+          const correctedTranslate = {
+            x: layoutAnchor.targetContentX - localContentX * pending.scale,
+            y: layoutAnchor.targetContentY - localContentY * pending.scale,
+          };
+          layoutAnchor.localContentX = localContentX;
+          layoutAnchor.localContentY = localContentY;
+          translateRef.current = correctedTranslate;
+          viewportEl.style.setProperty('--canvas-translate-x', `${correctedTranslate.x}px`);
+          viewportEl.style.setProperty('--canvas-translate-y', `${correctedTranslate.y}px`);
+        }
+      });
+
+      if (wheelCommitTimerRef.current) clearTimeout(wheelCommitTimerRef.current);
+      wheelCommitTimerRef.current = setTimeout(() => {
+        wheelCommitTimerRef.current = null;
+        const committedScale = scaleRef.current;
+        const committedTranslate = translateRef.current;
+        setScale(committedScale);
+        setTranslate(committedTranslate);
+      }, WHEEL_COMMIT_DELAY);
+    },
+    [captureScaleLayoutAnchor, contentRef, onVisualScaleChange],
+  );
+
+  const zoomAtPoint = useCallback(
+    (cursor, nextScale) => {
+      const currentScale = scaleRef.current || 1;
+      const clampedScale = clampScale(nextScale);
+      if (clampedScale === currentScale) return;
+      const nextTranslate = cursorAnchoredTranslate({
+        cursor,
+        translate: translateRef.current,
+        currentScale,
+        nextScale: clampedScale,
+      });
+      const layoutAnchor = captureScaleLayoutAnchor(clampedScale, nextTranslate);
+      userMovedCanvasRef.current = true;
+      startCardZoomSmoothing();
+      setTransformNow(clampedScale, nextTranslate);
+      pendingScaleLayoutAnchorRef.current = layoutAnchor;
+    },
+    [captureScaleLayoutAnchor, setTransformNow, startCardZoomSmoothing],
+  );
 
   const flashFocus = useCallback(() => {
     setIsFocusingHighlight(true);
@@ -211,10 +341,56 @@ export function useCanvasTransform({ contentRef } = {}) {
   // transform.
   useLayoutEffect(() => {
     if (!canvasViewportEl) return;
+    // A wheel frame may already be ahead of the deferred React commit. Never
+    // let that older commit overwrite the newer compositor transform.
+    if (
+      scale !== scaleRef.current ||
+      translate.x !== translateRef.current.x ||
+      translate.y !== translateRef.current.y
+    ) {
+      return;
+    }
     canvasViewportEl.style.setProperty('--canvas-translate-x', `${translate.x}px`);
     canvasViewportEl.style.setProperty('--canvas-translate-y', `${translate.y}px`);
     canvasViewportEl.style.setProperty('--canvas-scale', `${scale}`);
   }, [canvasViewportEl, scale, translate.x, translate.y]);
+
+  // Keep inverse-scaled card geometry tied to the same visual scale as the
+  // compositor transform. This is deliberately imperative: a CSS-variable
+  // update is much cheaper than rendering the complete canvas tree per frame.
+  useLayoutEffect(() => {
+    onVisualScaleChange?.(scale);
+  }, [onVisualScaleChange, scale]);
+
+  // React's scale commit changes inverse-scaled gutter/rail dimensions. Resolve
+  // that layout change before paint by moving the viewport just enough to keep
+  // the article at the position produced by the cursor-anchored transform.
+  useLayoutEffect(() => {
+    const anchor = pendingScaleLayoutAnchorRef.current;
+    if (!anchor || anchor.scale !== scale) return;
+    pendingScaleLayoutAnchorRef.current = null;
+
+    const viewportEl = canvasViewportElRef.current;
+    const content = contentRef?.current;
+    if (!viewportEl || !content) return;
+    const viewportRect = viewportEl.getBoundingClientRect();
+    const contentRect = content.getBoundingClientRect();
+    const appliedScale = readAppliedScale(viewportEl, scale);
+    const localContentX = (contentRect.left - viewportRect.left) / appliedScale;
+    const localContentY = (contentRect.top - viewportRect.top) / appliedScale;
+    const nextTranslate = {
+      x: anchor.targetContentX - localContentX * scale,
+      y: anchor.targetContentY - localContentY * scale,
+    };
+    const currentTranslate = translateRef.current;
+    if (
+      Math.abs(nextTranslate.x - currentTranslate.x) < MIN_DELTA &&
+      Math.abs(nextTranslate.y - currentTranslate.y) < MIN_DELTA
+    ) {
+      return;
+    }
+    setTransformNow(scale, nextTranslate);
+  }, [contentRef, scale, setTransformNow]);
 
   // Track the canvas wrap's height so sticky titles can clamp to the
   // visible viewport (the sticky CSS reads --canvas-area-height).
@@ -252,6 +428,7 @@ export function useCanvasTransform({ contentRef } = {}) {
       // release-and-re-grab inside the settle window lets the stale timer strip
       // the class mid-drag and reintroduce the snap it exists to prevent.
       if (panSettleTimerRef.current) clearTimeout(panSettleTimerRef.current);
+      if (cardZoomSmoothingTimerRef.current) clearTimeout(cardZoomSmoothingTimerRef.current);
       setIsPanSmoothing(true);
       isDragging.current = true;
       userMovedCanvasRef.current = true;
@@ -305,13 +482,31 @@ export function useCanvasTransform({ contentRef } = {}) {
   // Wheel zoom (re-binds when the wrap element mounts).
   useEffect(() => {
     if (!canvasWrapEl) return undefined;
+    let wrapRect = canvasWrapEl.getBoundingClientRect();
+    const refreshWrapRect = () => {
+      wrapRect = canvasWrapEl.getBoundingClientRect();
+    };
+    const resizeObserver =
+      typeof window.ResizeObserver === 'undefined'
+        ? null
+        : new window.ResizeObserver(refreshWrapRect);
+    resizeObserver?.observe(canvasWrapEl);
     const handleWheel = (e) => {
       e.preventDefault();
+      stopCardZoomSmoothing();
       const currentScale = scaleRef.current || 1;
-      const delta = e.deltaY > 0 ? WHEEL_OUT : WHEEL_IN;
-      const nextScale = clampScale(currentScale * delta);
+      // WheelEvent deltas may be pixels, lines, or pages. Normalize before
+      // applying a continuous curve so a trackpad pinch stays precise while a
+      // mouse wheel still advances by a useful amount.
+      const deltaPixels =
+        e.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? e.deltaY * 16
+          : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? e.deltaY * Math.max(1, wrapRect.height)
+            : e.deltaY;
+      const boundedDelta = Math.max(-MAX_WHEEL_DELTA_PX, Math.min(MAX_WHEEL_DELTA_PX, deltaPixels));
+      const nextScale = clampScale(currentScale * Math.exp(-boundedDelta * WHEEL_ZOOM_SENSITIVITY));
       if (nextScale === currentScale) return;
-      const wrapRect = canvasWrapEl.getBoundingClientRect();
       const nextTranslate = cursorAnchoredTranslate({
         cursor: { x: e.clientX - wrapRect.left, y: e.clientY - wrapRect.top },
         translate: translateRef.current,
@@ -323,8 +518,15 @@ export function useCanvasTransform({ contentRef } = {}) {
       scheduleTransform(nextScale, nextTranslate);
     };
     canvasWrapEl.addEventListener('wheel', handleWheel, { passive: false });
-    return () => canvasWrapEl.removeEventListener('wheel', handleWheel);
-  }, [canvasWrapEl, scheduleTransform]);
+    window.addEventListener('resize', refreshWrapRect);
+    window.addEventListener('scroll', refreshWrapRect, true);
+    return () => {
+      canvasWrapEl.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('resize', refreshWrapRect);
+      window.removeEventListener('scroll', refreshWrapRect, true);
+      resizeObserver?.disconnect();
+    };
+  }, [canvasWrapEl, scheduleTransform, stopCardZoomSmoothing]);
 
   const panBy = useCallback(
     (dx, dy) => {
@@ -535,9 +737,10 @@ export function useCanvasTransform({ contentRef } = {}) {
       canvasWrapElRef,
       userMovedCanvasRef,
       setTransformNow,
+      zoomAtPoint,
       zoomToTarget,
     }),
-    [setTransformNow, zoomToTarget],
+    [setTransformNow, zoomAtPoint, zoomToTarget],
   );
 
   // Clean up the focus/zoom/pan-settle timers on unmount.
@@ -546,6 +749,8 @@ export function useCanvasTransform({ contentRef } = {}) {
       if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
       if (zoomingTimerRef.current) clearTimeout(zoomingTimerRef.current);
       if (panSettleTimerRef.current) clearTimeout(panSettleTimerRef.current);
+      if (wheelCommitTimerRef.current) clearTimeout(wheelCommitTimerRef.current);
+      if (rafRef.current) window.cancelAnimationFrame(rafRef.current);
     },
     [],
   );
@@ -556,6 +761,7 @@ export function useCanvasTransform({ contentRef } = {}) {
     isCanvasDragging,
     isPanSmoothing,
     isFocusingHighlight,
+    isCardZoomSmoothing,
     isZoomingToTarget,
     canvasWrapRef,
     canvasViewportRef,
