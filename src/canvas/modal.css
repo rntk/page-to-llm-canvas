@@ -647,6 +647,12 @@ body.canvas-global-dragging * {
  *   --canvas-area-height  set on .canvas-viewport via ResizeObserver
  *   --topic-card-top      set on the parent .canvas-topic-hierarchy__card
  *   --topic-card-height   set on the parent .canvas-topic-hierarchy__card
+ *
+ * Every var() below needs a fallback: --canvas-translate-y and --canvas-scale
+ * are written by a layout effect, so they are unset on the first paint. A bare
+ * var() would make the whole calc() invalid at computed-value time, --_offset
+ * would resolve to nothing, and the label would paint unshifted for one frame
+ * before snapping into place.
  */
 .canvas-topic-hierarchy__card-content {
   display: flex;
@@ -657,13 +663,13 @@ body.canvas-global-dragging * {
   --_p: 6px;
   --_vis-top: max(
     0px,
-    calc(-1 * var(--canvas-translate-y) / var(--canvas-scale) - var(--topic-card-top))
+    calc(-1 * var(--canvas-translate-y, 0px) / var(--canvas-scale, 1) - var(--topic-card-top, 0px))
   );
   --_vis-bot: min(
     var(--topic-card-height),
     calc(
-      (var(--canvas-area-height, 100dvh) - var(--canvas-translate-y)) / var(--canvas-scale) -
-        var(--topic-card-top)
+      (var(--canvas-area-height, 100dvh) - var(--canvas-translate-y, 0px)) /
+        var(--canvas-scale, 1) - var(--topic-card-top, 0px)
     )
   );
   --_vis-center: calc((var(--_vis-top) + var(--_vis-bot)) / 2);
@@ -674,6 +680,42 @@ body.canvas-global-dragging * {
   );
 
   transform: translateY(var(--_offset));
+}
+
+/* Smoothing, scoped to the two paths where the canvas itself is moving
+ * continuously. Both keep the label in step with the card underneath it; a
+ * transition on any other path would let the two drift apart.
+ *
+ * Drag-pan: --_offset is a step function of the pan, holding the label still
+ * while the card is fully in view and tracking the viewport once an edge is
+ * clipped. Crossing between those regimes flips the label's speed, which reads
+ * as a jump. Browsers retarget a running transition from its current computed
+ * value, so re-triggering this on every drag frame damps the label into a glide
+ * rather than stuttering it. During a pure pan the card height and label height
+ * are fixed, so both ends of the interpolation sit inside the clamp range and
+ * the lag can never carry the title outside the card.
+ *
+ * is-pan-smoothing, not is-dragging: CSS cancels a running transition as soon
+ * as the declaration stops matching, snapping the property straight to its end
+ * value. The class therefore has to outlast this duration past mouse-up, or
+ * releasing mid-glide would jerk every catching-up label into place.
+ *
+ * Wheel zoom is deliberately excluded: it moves the canvas in instant steps
+ * with no viewport transition, so easing the label would leave it swimming
+ * behind its card, and --topic-card-label-height counter-scales on zoom, which
+ * could carry a mid-transition label past the card's overflow: hidden edge. */
+.canvas-area.is-pan-smoothing .canvas-topic-hierarchy__card-content {
+  transition: transform 130ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* Programmatic pans and zoom-to-target glide the whole viewport over 320ms but
+   set --canvas-translate-y to its final value immediately, so the label used to
+   race ahead to its destination offset and sit there while the canvas caught
+   up. Matching the viewport transition exactly keeps label and card as one.
+   Declared after the drag rule (equal specificity) so the result never depends
+   on a drag and a focus glide staying mutually exclusive in the hook. */
+.canvas-viewport.is-focusing-highlight .canvas-topic-hierarchy__card-content {
+  transition: transform 320ms ease;
 }
 
 .canvas-topic-hierarchy__card-name {
@@ -1019,7 +1061,9 @@ body.canvas-global-dragging * {
 
   .canvas-topic-current-summary,
   .canvas-summary-source-preview,
-  .canvas-topic-hierarchy__card {
+  .canvas-topic-hierarchy__card,
+  .canvas-area.is-pan-smoothing .canvas-topic-hierarchy__card-content,
+  .canvas-viewport.is-focusing-highlight .canvas-topic-hierarchy__card-content {
     transition: none;
   }
 

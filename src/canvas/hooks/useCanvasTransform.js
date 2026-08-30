@@ -92,6 +92,14 @@ export function useCanvasTransform({ contentRef } = {}) {
   const [translate, setTranslate] = useState({ x: 40, y: 40 });
   const [scale, setScale] = useState(1);
   const [isCanvasDragging, setIsCanvasDragging] = useState(false);
+  // Drives the sticky topic-label smoothing (see .canvas-area.is-pan-smoothing
+  // in modal.css). Deliberately outlives `isCanvasDragging`: the label's
+  // transition lives entirely in that class, and CSS cancels a running
+  // transition the moment the declaration stops matching, snapping the property
+  // to its end value. Dropping the class on mouse-up would therefore jerk every
+  // still-catching-up label to its final offset — worst after a quick flick,
+  // which is exactly when the most labels are mid-glide.
+  const [isPanSmoothing, setIsPanSmoothing] = useState(false);
   const [isFocusingHighlight, setIsFocusingHighlight] = useState(false);
   // Distinct from `isFocusingHighlight` (a purely visual focus glow that any
   // pan/zoom flashes). This flips true only for an actual zoom-to-target, where
@@ -123,6 +131,7 @@ export function useCanvasTransform({ contentRef } = {}) {
   const pendingRef = useRef(null);
   const focusTimerRef = useRef(null);
   const zoomingTimerRef = useRef(null);
+  const panSettleTimerRef = useRef(null);
   // Set by zoomToTarget when its placement must be redone once the new scale's
   // layout has committed; consumed by the layout effect below.
   const pendingZoomPinRef = useRef(null);
@@ -239,6 +248,11 @@ export function useCanvasTransform({ contentRef } = {}) {
       if (e.button !== 0) return;
       setIsFocusingHighlight(false);
       setIsCanvasDragging(true);
+      // Cancel any settle still pending from a previous drag. Without this, a
+      // release-and-re-grab inside the settle window lets the stale timer strip
+      // the class mid-drag and reintroduce the snap it exists to prevent.
+      if (panSettleTimerRef.current) clearTimeout(panSettleTimerRef.current);
+      setIsPanSmoothing(true);
       isDragging.current = true;
       userMovedCanvasRef.current = true;
       lastMouse.current = { x: e.clientX, y: e.clientY };
@@ -263,6 +277,12 @@ export function useCanvasTransform({ contentRef } = {}) {
       const onUp = () => {
         isDragging.current = false;
         setIsCanvasDragging(false);
+        // Hold the smoothing class past the 130ms label transition so the last
+        // retarget — which `applyTranslateImperative` below can start at
+        // mouse-up — runs to completion instead of being cancelled. Mirrors the
+        // 320ms/380ms margin the focus and zoom flashes use.
+        if (panSettleTimerRef.current) clearTimeout(panSettleTimerRef.current);
+        panSettleTimerRef.current = setTimeout(() => setIsPanSmoothing(false), 200);
         if (dragRafRef.current) {
           window.cancelAnimationFrame(dragRafRef.current);
           dragRafRef.current = 0;
@@ -520,11 +540,12 @@ export function useCanvasTransform({ contentRef } = {}) {
     [setTransformNow, zoomToTarget],
   );
 
-  // Clean up the focus/zoom timers on unmount.
+  // Clean up the focus/zoom/pan-settle timers on unmount.
   useEffect(
     () => () => {
       if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
       if (zoomingTimerRef.current) clearTimeout(zoomingTimerRef.current);
+      if (panSettleTimerRef.current) clearTimeout(panSettleTimerRef.current);
     },
     [],
   );
@@ -533,6 +554,7 @@ export function useCanvasTransform({ contentRef } = {}) {
     translate,
     scale,
     isCanvasDragging,
+    isPanSmoothing,
     isFocusingHighlight,
     isZoomingToTarget,
     canvasWrapRef,

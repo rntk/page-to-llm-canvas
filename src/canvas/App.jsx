@@ -71,6 +71,7 @@ function CanvasApp({ initialKey, record, onClose }) {
   const {
     scale,
     isCanvasDragging,
+    isPanSmoothing,
     isFocusingHighlight,
     isZoomingToTarget,
     canvasWrapRef,
@@ -374,7 +375,7 @@ function CanvasApp({ initialKey, record, onClose }) {
         <div className="pagetollm-canvas-main">
           <div
             ref={canvasWrapRef}
-            className={`canvas-area${isCanvasDragging ? ' is-dragging' : ''}`}
+            className={`canvas-area${isCanvasDragging ? ' is-dragging' : ''}${isPanSmoothing ? ' is-pan-smoothing' : ''}`}
             onMouseDown={handleCanvasMouseDown}
             tabIndex={0}
           >
