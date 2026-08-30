@@ -214,6 +214,11 @@ body.canvas-global-dragging * {
   position: relative;
   display: flex;
   align-items: flex-start;
+
+  /* Width of the summary column in summary mode, shared with the source
+     preview that floats beside it. Fixed (not zoom-adjusted): both hold 13px
+     body text that does not grow on zoom-out. */
+  --summary-column-width: 680px;
 }
 
 .canvas-article-with-summaries.has-topic-hierarchy {
@@ -391,7 +396,7 @@ body.canvas-global-dragging * {
 }
 
 .canvas-article-with-summaries.is-summary-mode .canvas-summary-view {
-  width: 680px;
+  width: var(--summary-column-width, 680px);
   background: var(--surface);
   border: 2px solid var(--ink);
   border-radius: 0;
@@ -1159,7 +1164,17 @@ body.canvas-global-dragging * {
   position: absolute;
   top: var(--summary-source-preview-top, 0);
   left: var(--summary-source-preview-left, 0);
-  width: var(--current-summary-width, var(--current-summary-width-fallback, 442px));
+
+  /* --current-summary-width is an article-mode measurement: it grows up to ~10x
+     on zoom-out because .canvas-topic-current-summary scales its fonts to match.
+     The preview's body text stays at 13px, so past a point the extra width only
+     buys a wide empty right side (short previews) or unreadable line lengths.
+     Cap it at the summary column it sits beside, which is fixed for the same
+     reason. */
+  width: min(
+    var(--current-summary-width, var(--current-summary-width-fallback, 442px)),
+    var(--summary-column-width, 680px)
+  );
   z-index: 70;
   pointer-events: auto;
   transition: top 0.28s cubic-bezier(0.25, 1, 0.5, 1);
