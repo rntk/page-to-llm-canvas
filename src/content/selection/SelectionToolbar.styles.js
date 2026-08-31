@@ -8,6 +8,37 @@ export const TOOLBAR_SHADOW_STYLES = `
     align-items: center;
   }
 
+  #pagetollm-submit-progress {
+    height: 3px;
+    overflow: hidden;
+    background: var(--ghost);
+  }
+
+  #pagetollm-submit-progress span {
+    display: block;
+    width: 40%;
+    height: 100%;
+    background: var(--accent);
+    animation: pagetollm-submit-progress 0.9s ease-in-out infinite;
+  }
+
+  @keyframes pagetollm-submit-progress {
+    from {
+      transform: translateX(-100%);
+    }
+
+    to {
+      transform: translateX(350%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #pagetollm-submit-progress span {
+      width: 100%;
+      animation: none;
+    }
+  }
+
   button {
     padding: 6px 12px;
     border: 1px solid var(--ink);

@@ -252,12 +252,17 @@ export function createSelectionController({
     isSubmitting = true;
     renderSelectionToolbar();
 
-    const sourceUrl = window.location.href;
-    const els = selectedElements.map(({ el }) => el);
-    const capture = buildCapture(els, window);
-    const selectors = capture.elements.map(buildCssPath);
-
     try {
+      // HTML capture can keep the main thread busy on large pages. Continue in a
+      // new task so React and the browser can paint the submitting state first.
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 0);
+      });
+
+      const sourceUrl = window.location.href;
+      const els = selectedElements.map(({ el }) => el);
+      const capture = buildCapture(els, window);
+      const selectors = capture.elements.map(buildCssPath);
       const response = await runtimeMessenger.send({
         type: MSG.submit,
         html: capture.html,

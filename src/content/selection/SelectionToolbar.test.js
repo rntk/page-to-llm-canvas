@@ -104,6 +104,29 @@ describe('SelectionToolbar', () => {
     unmount();
   });
 
+  it('shows submission progress and disables toolbar actions while submitting', () => {
+    const { container, unmount } = render(
+      createElement(SelectionToolbar, {
+        ...defaultProps,
+        isSubmitting: true,
+        selectedBlocks: [{ id: 'b1', originalNumber: 1, canStepUp: true }],
+      }),
+    );
+
+    expect(container.querySelector('#pagetollm-submit-btn').textContent).toBe('Submitting...');
+    expect(container.querySelector('#pagetollm-submit-btn').disabled).toBe(true);
+    expect(container.querySelector('#pagetollm-pick-btn').disabled).toBe(true);
+    expect(container.querySelector('#pagetollm-cancel-btn').disabled).toBe(true);
+    expect(container.querySelector('.pagetollm-remove-btn').disabled).toBe(true);
+    expect(container.querySelector('.pagetollm-stepup-btn').disabled).toBe(true);
+    expect(container.querySelector('#pagetollm-toolbar-top').getAttribute('aria-busy')).toBe(
+      'true',
+    );
+    expect(container.querySelector('[role="progressbar"]')).not.toBeNull();
+
+    unmount();
+  });
+
   it('renders the step-up button and triggers onStepUpBlock', () => {
     const onStepUpBlock = vi.fn();
 

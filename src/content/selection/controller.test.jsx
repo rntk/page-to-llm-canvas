@@ -222,6 +222,30 @@ describe('selection controller', () => {
     expect(block.classList.contains('pagetollm-selected')).toBe(false);
   });
 
+  it('shows progress before preprocessing and sending the capture', async () => {
+    const block = mountBlock('progress', 'Wait for me');
+    let resolveSubmission;
+    runtimeMessenger.send.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSubmission = resolve;
+      }),
+    );
+    act(() => showSelectionToolbar(runtimeMessenger));
+    click(toolbarButton('pagetollm-pick-btn'));
+    act(() => block.dispatchEvent(event('click')));
+
+    click(toolbarButton('pagetollm-submit-btn'));
+
+    expect(toolbarButton('pagetollm-submit-btn').textContent).toBe('Submitting...');
+    expect(toolbarButton('pagetollm-submit-btn').disabled).toBe(true);
+    expect(toolbarRoot().querySelector('[role="progressbar"]')).not.toBeNull();
+    expect(runtimeMessenger.send).not.toHaveBeenCalled();
+
+    await vi.waitFor(() => expect(runtimeMessenger.send).toHaveBeenCalledOnce());
+    resolveSubmission({ ok: true });
+    await flush();
+  });
+
   it('alerts on submission failure and still cleans up', async () => {
     const block = mountBlock('failed', 'Fail me');
     runtimeMessenger.send.mockResolvedValue({ ok: false, error: 'network down' });

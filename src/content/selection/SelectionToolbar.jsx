@@ -24,15 +24,16 @@ export default function SelectionToolbar({
   const pickHint = isPicking
     ? 'Stop picking page blocks'
     : 'Pick page blocks to include in the summary';
-  const submitHint =
-    selectedBlocks.length > 0
+  const submitHint = isSubmitting
+    ? 'Preparing and submitting the selected blocks'
+    : selectedBlocks.length > 0
       ? 'Submit the selected blocks for processing'
       : 'Select at least one block before submitting';
   const cancelHint = 'Cancel selection and close this toolbar';
 
   return (
     <>
-      <div id="pagetollm-toolbar-top">
+      <div id="pagetollm-toolbar-top" aria-busy={isSubmitting}>
         <button
           id="pagetollm-pick-btn"
           className={isPicking ? 'active' : ''}
@@ -65,6 +66,15 @@ export default function SelectionToolbar({
           Cancel
         </button>
       </div>
+      {isSubmitting && (
+        <div
+          id="pagetollm-submit-progress"
+          role="progressbar"
+          aria-label="Preparing selected page content"
+        >
+          <span />
+        </div>
+      )}
       <ul id="pagetollm-block-list">
         {selectedBlocks.map((block, index) => {
           const classes = [
