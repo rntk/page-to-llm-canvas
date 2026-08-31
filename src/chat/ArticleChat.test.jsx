@@ -14,10 +14,20 @@ const api = {
   remove: vi.fn(),
 };
 const turnLoop = { runArticleChatTurn: vi.fn() };
+const chatLimits = {
+  getChatLimits: vi.fn(async () => ({ maxChunkChars: 1258, maxHistoryChars: 628 })),
+};
 
 /** ArticleChat with the fake ports pre-wired; props still override freely. */
 function ArticleChat(props) {
-  return <ArticleChatPanel chatRepository={api} runTurn={turnLoop.runArticleChatTurn} {...props} />;
+  return (
+    <ArticleChatPanel
+      chatRepository={api}
+      runTurn={turnLoop.runArticleChatTurn}
+      getChatLimits={chatLimits.getChatLimits}
+      {...props}
+    />
+  );
 }
 
 function render(element) {
@@ -61,6 +71,7 @@ async function clickSend(container) {
 describe('ArticleChat persisted history', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    chatLimits.getChatLimits.mockResolvedValue({ maxChunkChars: 1258, maxHistoryChars: 628 });
     api.list.mockResolvedValue([
       {
         chatId: 'chat-1',
@@ -380,6 +391,7 @@ describe('ArticleChat persisted history', () => {
     expect(turnLoop.runArticleChatTurn).toHaveBeenCalledWith(
       expect.objectContaining({
         question: 'What about line three?',
+        limits: { maxChunkChars: 1258, maxHistoryChars: 628 },
         article: expect.objectContaining({
           highlightedRanges: [{ startLine: 1, endLine: 2, label: 'First evidence' }],
         }),
@@ -744,9 +756,7 @@ describe('ArticleChat persisted history', () => {
       </Activity>,
     );
     await flushAsyncWork();
-    expect(view.container.querySelector('.pagetollm-chat-composer textarea').disabled).toBe(
-      false,
-    );
+    expect(view.container.querySelector('.pagetollm-chat-composer textarea').disabled).toBe(false);
     expect(view.container.querySelector('.pagetollm-chat-composer button').textContent).toBe(
       'Send',
     );

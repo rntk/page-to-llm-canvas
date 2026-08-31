@@ -698,3 +698,161 @@ describe('article chat tool-call outcome metrics', () => {
     });
   });
 });
+
+describe('article chat synthesis budgeting', () => {
+  const SMALL_WINDOW = { maxChunkChars: 1258, maxHistoryChars: 628 };
+  const SYNTHESIS_CAPACITY = SMALL_WINDOW.maxChunkChars + SMALL_WINDOW.maxHistoryChars;
+
+  /** An article long enough to need many chunks at a small window. */
+  function longArticle(sentenceCount = 40) {
+    return Array.from({ length: sentenceCount }, (_, i) => `Sentence ${i + 1} ${'x'.repeat(100)}`);
+  }
+
+  /** Records every request so payload sizes and counts can be asserted. */
+  function recordingSend(content = `Finding. ${'y'.repeat(1200)}`) {
+    const calls = [];
+    const send = vi.fn(async (payload) => {
+      calls.push(payload);
+      return { ok: true, content };
+    });
+    return { send, calls };
+  }
+
+  function synthesisCalls(calls) {
+    return calls.filter((call) => call.taskType === 'chat_synthesis');
+  }
+
+  it('completes a multi-chunk turn when the question is long relative to the window', async () => {
+    const { send, calls } = recordingSend();
+
+    const result = await runArticleChatTurn({
+      article: { history: [], sentences: longArticle(), highlightedRanges: [] },
+      // A question this long previously made every synthesis group a singleton,
+      // which stalled the merge and failed the turn.
+      question: `Please explain in detail ${'q'.repeat(500)}`,
+      limits: SMALL_WINDOW,
+      dependencies: { send },
+    });
+
+    expect(result.reply).toContain('Finding.');
+    expect(synthesisCalls(calls).length).toBeGreaterThan(0);
+  });
+
+  it('keeps every synthesis payload inside the source-plus-history budget', async () => {
+    const { send, calls } = recordingSend();
+
+    await runArticleChatTurn({
+      article: { history: [], sentences: longArticle(), highlightedRanges: [] },
+      question: `Summarize this ${'q'.repeat(300)}`,
+      limits: SMALL_WINDOW,
+      dependencies: { send },
+    });
+
+    for (const call of synthesisCalls(calls)) {
+      const findings = call.messages.at(-1).content;
+      expect(findings.length).toBeLessThanOrEqual(SYNTHESIS_CAPACITY);
+    }
+  });
+
+  it('marks a finding that had to be truncated to fit', async () => {
+    const { send, calls } = recordingSend();
+
+    await runArticleChatTurn({
+      article: { history: [], sentences: longArticle(), highlightedRanges: [] },
+      question: 'What is this about?',
+      limits: SMALL_WINDOW,
+      dependencies: { send },
+    });
+
+    expect(synthesisCalls(calls)[0].messages.at(-1).content).toContain('[truncated]');
+  });
+
+  it('merges findings in at most one request per findings pair', async () => {
+    const { send, calls } = recordingSend();
+
+    await runArticleChatTurn({
+      article: { history: [], sentences: longArticle(), highlightedRanges: [] },
+      question: 'What is this about?',
+      limits: SMALL_WINDOW,
+      dependencies: { send },
+    });
+
+    const chunkCalls = calls.length - synthesisCalls(calls).length;
+    // The turn-wide limit reserves exactly chunkCount - 1 requests for merging.
+    expect(synthesisCalls(calls).length).toBeLessThanOrEqual(chunkCalls - 1);
+  });
+
+  it('stops at an explicit turn-wide request limit', async () => {
+    const { send, calls } = recordingSend();
+
+    // Chunk requests may not spend the budget the merge still needs, so the
+    // turn stops at the limit rather than issuing uncounted synthesis calls.
+    await expect(
+      runArticleChatTurn({
+        article: { history: [], sentences: longArticle(), highlightedRanges: [] },
+        question: 'What is this about?',
+        limits: { ...SMALL_WINDOW, maxLlmRequests: 5 },
+        dependencies: { send },
+      }),
+    ).rejects.toThrow('turn-wide request limit');
+    expect(calls.length).toBeLessThanOrEqual(5);
+  });
+
+  it('keeps source, history and question inside one derived variable budget', async () => {
+    const history = [
+      { role: 'user', content: 'u'.repeat(400) },
+      { role: 'assistant', content: 'a'.repeat(400) },
+    ];
+    const { send, calls } = recordingSend();
+
+    await runArticleChatTurn({
+      article: { history, sentences: longArticle(), highlightedRanges: [] },
+      // Long enough that a floored source share would overflow the window.
+      question: 'q'.repeat(1000),
+      limits: SMALL_WINDOW,
+      dependencies: { send },
+    });
+
+    for (const call of calls.filter((entry) => entry.taskType !== 'chat_synthesis')) {
+      const source = JSON.parse(call.messages[1].content).numberedText.length;
+      const replayed = call.messages.slice(2).reduce((total, message) => {
+        const content = message.content || '';
+        try {
+          return total + (JSON.parse(content).text ?? content).length;
+        } catch {
+          return total + content.length;
+        }
+      }, 0);
+      expect(source + replayed).toBeLessThanOrEqual(SYNTHESIS_CAPACITY);
+    }
+  });
+
+  it('rejects a question that leaves no room to merge findings', async () => {
+    const { send, calls } = recordingSend();
+
+    // Fits the window on its own, but not alongside two minimum-size findings.
+    await expect(
+      runArticleChatTurn({
+        article: { history: [], sentences: longArticle(), highlightedRanges: [] },
+        question: 'q'.repeat(1700),
+        limits: SMALL_WINDOW,
+        dependencies: { send },
+      }),
+    ).rejects.toThrow('too long for the active provider');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('rejects a question that cannot fit the window without calling the provider', async () => {
+    const { send, calls } = recordingSend();
+
+    await expect(
+      runArticleChatTurn({
+        article: { history: [], sentences: longArticle(), highlightedRanges: [] },
+        question: 'q'.repeat(SYNTHESIS_CAPACITY + 1),
+        limits: SMALL_WINDOW,
+        dependencies: { send },
+      }),
+    ).rejects.toThrow('too long for the active provider');
+    expect(calls).toHaveLength(0);
+  });
+});

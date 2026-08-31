@@ -19,6 +19,7 @@ export const MSG = Object.freeze({
   deleteAll: 'deleteAll',
   getStorageOverview: 'getStorageOverview',
   deleteAllExtensionData: 'deleteAllExtensionData',
+  getArticleChatLimits: 'getArticleChatLimits',
   llmChatCompletion: 'llmChatCompletion',
   cancelChatTurn: 'cancelChatTurn',
   recordChatToolMetric: 'recordChatToolMetric',

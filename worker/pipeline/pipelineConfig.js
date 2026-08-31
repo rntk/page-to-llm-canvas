@@ -13,7 +13,7 @@ import { PIPELINE_MIN_CONTEXT_WINDOW_TOKENS } from '../settings/contextWindowCon
 // pipeline. Providers may declare a smaller context window; the per-run budget
 // is then derived by getPipelineTextChunkMaxChars instead of blindly using this
 // fallback.
-const PIPELINE_TEXT_CHUNK_MAX_CHARS = 60000;
+export const PIPELINE_TEXT_CHUNK_MAX_CHARS = 60000;
 
 // Reserve room for provider tokenization variance and the response in addition
 // to the largest static pipeline prompt. Character counts are deliberately

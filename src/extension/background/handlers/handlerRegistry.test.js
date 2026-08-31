@@ -57,6 +57,7 @@ function buildGroups() {
         deleteChatHistory: vi.fn(),
       },
       chatService: stubChatService(),
+      providerRepository: { getActiveProvider: vi.fn(async () => null) },
     }),
     metrics: createMetricsHandlers({
       recordChatToolMetric: vi.fn(),
@@ -125,6 +126,7 @@ describe('message handler registry (no chrome global)', () => {
         MSG.importRecords,
         MSG.deleteRecord,
         MSG.deleteAll,
+        MSG.getArticleChatLimits,
         MSG.llmChatCompletion,
         MSG.cancelChatTurn,
         MSG.listChats,

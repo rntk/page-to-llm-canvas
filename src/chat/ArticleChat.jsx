@@ -1,7 +1,7 @@
 import React, { Activity, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createTurnId, runArticleChatTurn } from './articleChat.js';
-import { browserChatRepository } from './chatApi.js';
+import { browserChatRepository, getArticleChatLimits } from './chatApi.js';
 import { eventRange, useChatSessions } from './useChatSessions.js';
 import ChatComposer from './ChatComposer.jsx';
 import ChatEventsList from './ChatEventsList.jsx';
@@ -47,6 +47,7 @@ function ChatHeaderActions({ disabled, onShowHistory, onNewChat }) {
  * @param {function(object): ?number} [props.getEventTimestamp]
  * @param {{list: Function, get: Function, append: Function, remove: Function}} [props.chatRepository]
  * @param {function(object): Promise<object>} [props.runTurn]
+ * @param {function(): Promise<{maxChunkChars: number, maxHistoryChars: number}>} [props.getChatLimits]
  */
 function ArticleChat({
   recordKey,
@@ -60,6 +61,7 @@ function ArticleChat({
   getEventTimestamp,
   chatRepository = browserChatRepository,
   runTurn = runArticleChatTurn,
+  getChatLimits = getArticleChatLimits,
 }) {
   const panelId = useId();
   const subjectLabel = subject === 'video' ? 'video' : 'article';
@@ -357,6 +359,12 @@ function ArticleChat({
     try {
       try {
         // Run the whole turn first; onHighlight paints new evidence as it streams.
+        // The content-script splits source text, but the active provider (and
+        // its context window) live in the background worker. Read the resulting
+        // budget immediately before the turn so small-window providers do not
+        // receive the static 60k-character fallback.
+        const limits = await getChatLimits();
+        if (!isCurrentOperation(operation)) return;
         turnResult = await runTurn({
           article: {
             history: messages,
@@ -364,6 +372,7 @@ function ArticleChat({
             highlightedRanges,
           },
           question,
+          limits,
           runtime: {
             turnId,
             signal: operation.controller.signal,
@@ -452,6 +461,7 @@ function ArticleChat({
     adoptPersistedTurn,
     applyEvents,
     chatRepository,
+    getChatLimits,
     highlightedRanges,
     input,
     isCurrentOperation,

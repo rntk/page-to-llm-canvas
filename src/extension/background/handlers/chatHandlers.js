@@ -1,5 +1,6 @@
 import { MSG } from '../../../shared/runtime/messages.js';
 import { isSafeChatId } from '../../../../worker/storage/keys.js';
+import { getArticleChatLimits } from '../../../../worker/llm/articleChatLimits.js';
 
 /**
  * Handlers for article chat: provider completions, turn cancellation, and the
@@ -8,11 +9,21 @@ import { isSafeChatId } from '../../../../worker/storage/keys.js';
  * @param {object} deps
  * @param {{listChats: Function, readChat: Function, appendChatTurn: Function, deleteChatHistory: Function}} deps.chatRepository
  * @param {{complete: Function, cancelTurn: Function}} deps.chatService
+ * @param {{getActiveProvider: Function}} deps.providerRepository
  */
-export function createChatHandlers({ chatRepository, chatService }) {
+export function createChatHandlers({ chatRepository, chatService, providerRepository }) {
   const { listChats, readChat, appendChatTurn, deleteChatHistory } = chatRepository;
 
   return {
+    [MSG.getArticleChatLimits]: {
+      requiresExtensionPage: false,
+      validate: () => null,
+      async handle() {
+        const activeProvider = await providerRepository.getActiveProvider();
+        return { ok: true, ...getArticleChatLimits(activeProvider?.contextWindowTokens) };
+      },
+    },
+
     [MSG.llmChatCompletion]: {
       requiresExtensionPage: false,
       validate: () => null,

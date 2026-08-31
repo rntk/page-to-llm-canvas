@@ -5,6 +5,7 @@ vi.mock('../utils/runtimeMessages.js', () => ({ sendRuntimeMessage }));
 
 import {
   browserChatRepository,
+  getArticleChatLimits,
   getStoredChat,
   listStoredChats,
   persistChatTurn,
@@ -23,6 +24,23 @@ describe('chat API', () => {
 
     sendRuntimeMessage.mockResolvedValueOnce({ ok: true });
     await expect(listStoredChats('article-1')).resolves.toEqual([]);
+  });
+
+  it('reads and validates the article-chat limits from the runtime boundary', async () => {
+    sendRuntimeMessage.mockResolvedValueOnce({
+      ok: true,
+      maxChunkChars: 1258.9,
+      maxHistoryChars: 628.1,
+    });
+    await expect(getArticleChatLimits()).resolves.toEqual({
+      maxChunkChars: 1258,
+      maxHistoryChars: 628,
+    });
+
+    sendRuntimeMessage.mockResolvedValueOnce({ ok: true, maxChunkChars: 0, maxHistoryChars: 1 });
+    await expect(getArticleChatLimits()).rejects.toThrow('chat context limit is invalid');
+    sendRuntimeMessage.mockResolvedValueOnce({ ok: true, maxChunkChars: 1, maxHistoryChars: -1 });
+    await expect(getArticleChatLimits()).rejects.toThrow('chat context limit is invalid');
   });
 
   it('gets, appends to, and removes a chat through the runtime boundary', async () => {

@@ -165,7 +165,10 @@ const pipelineSupervisor = createPipelineSupervisor({
   logger: log,
 });
 
-const chatService = createChatCompletionService({ callLLMDirect, recordLlmMetric });
+const chatService = createChatCompletionService({
+  callLLMDirect,
+  recordLlmMetric,
+});
 
 const handleSubmitImpl = createSubmitRecord({
   recordRepository,
@@ -200,7 +203,11 @@ export const MESSAGE_HANDLERS = {
     },
     logger: log,
   }),
-  ...createChatHandlers({ chatRepository, chatService }),
+  ...createChatHandlers({
+    chatRepository,
+    chatService,
+    providerRepository: { getActiveProvider },
+  }),
   ...createMetricsHandlers({
     recordChatToolMetric,
     clearChatToolMetrics,
