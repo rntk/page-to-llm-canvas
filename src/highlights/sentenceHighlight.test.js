@@ -375,6 +375,55 @@ describe('buildSentenceWordRanges (anchoring logic)', () => {
     expect(ranges.get(2)).toEqual({ startIdx: 1, endIdx: 2 });
   });
 
+  it('resynchronizes after live DOM drift larger than the nearby search window', () => {
+    const inserted = Array.from({ length: 100 }, (_, i) => ({ word: `promo${i}` }));
+    const entries = [
+      { word: 'Alpha' },
+      ...inserted,
+      { word: 'Beta' },
+      { word: 'Gamma' },
+      { word: 'Delta' },
+    ];
+    const ranges = buildSentenceWordRanges(['Alpha', 'Beta Gamma', 'Delta'], entries);
+
+    expect(ranges.get(1)).toEqual({ startIdx: 0, endIdx: 0 });
+    expect(ranges.get(2)).toEqual({ startIdx: 101, endIdx: 102 });
+    expect(ranges.get(3)).toEqual({ startIdx: 103, endIdx: 103 });
+  });
+
+  it('does not let a distant false match skip a valid later sentence', () => {
+    const inserted = Array.from({ length: 100 }, (_, i) => ({ word: `filler${i}` }));
+    const entries = [
+      { word: 'Alpha' },
+      { word: 'one' },
+      { word: 'two' },
+      { word: 'three' },
+      { word: 'Beta' },
+      { word: 'gamma' },
+      { word: 'delta' },
+      { word: 'epsilon' },
+      ...inserted,
+      { word: 'The' },
+      { word: 'council' },
+      { word: 'met' },
+      { word: 'on' },
+      { word: 'Tuesday' },
+      { word: 'morning' },
+    ];
+    const ranges = buildSentenceWordRanges(
+      [
+        'Alpha one two three',
+        'The story continues on the next morning',
+        'Beta gamma delta epsilon',
+      ],
+      entries,
+    );
+
+    expect(ranges.get(1)).toEqual({ startIdx: 0, endIdx: 3 });
+    expect(ranges.has(2)).toBe(false);
+    expect(ranges.get(3)).toEqual({ startIdx: 4, endIdx: 7 });
+  });
+
   it('does not fabricate an end range when the sentence end cannot be found', () => {
     const entries = [{ word: 'Alpha' }, { word: 'Beta' }, { word: 'Gamma' }];
     const ranges = buildSentenceWordRanges(['Alpha Missing', 'Gamma'], entries);

@@ -373,8 +373,10 @@ export function paintSentenceHighlight(name, sentenceNumbers, { wordEntries, sen
  *
  * Both ends are anchored to actual DOM words instead of trusting a 1:1 token
  * count to handle tokenization drift (e.g. punctuation, em-dashes). Start matches
- * the first token in a forward window; end matches the last token in a window near
- * the expected end. Anchoring the end prevents highlights from overshooting.
+ * the first token in a forward window; if that fails, a distant fallback requires
+ * the first two tokens to match consecutively. The end matches the last token in a
+ * window near the expected end. These guards keep distant false positives from
+ * advancing the cursor past later sentences while still tolerating large DOM drift.
  * @param {string[]} sentences Article sentences.
  * @param {object[]} wordEntries Ordered DOM word entries.
  */
@@ -395,13 +397,29 @@ export function buildSentenceWordRanges(sentences, wordEntries) {
     const normalizedTokens = tokens.map(normalize).filter(Boolean);
     if (normalizedTokens.length === 0) return;
 
-    // Anchor the start: first token within a forward window from the cursor.
+    // Anchor the start near the cursor first. Live pages can insert arbitrarily
+    // large blocks after capture, though, so a fixed window cannot be the only
+    // recovery path: once the drift exceeds it, every later sentence would
+    // otherwise remain permanently unmapped. Fall back to the rest of the
+    // document only with stronger corroboration than the nearby search needs.
     const targetFirst = normalizedTokens[0];
     let startIdx = -1;
-    for (let k = cursor; k < Math.min(norm.length, cursor + START_WINDOW); k++) {
+    const nearbyEnd = Math.min(norm.length, cursor + START_WINDOW);
+    for (let k = cursor; k < nearbyEnd; k++) {
       if (norm[k] === targetFirst) {
         startIdx = k;
         break;
+      }
+    }
+    // A distant single-token match is too weak to move the cursor safely. For
+    // longer sentences, require a consecutive two-token prefix before the
+    // existing end-anchor check supplies the final corroboration.
+    if (startIdx === -1 && normalizedTokens.length >= 2) {
+      for (let k = nearbyEnd; k < norm.length; k++) {
+        if (norm[k] === targetFirst && norm[k + 1] === normalizedTokens[1]) {
+          startIdx = k;
+          break;
+        }
       }
     }
     // A failed anchor is an unmapped sentence. Crucially, leave cursor where it
