@@ -1143,7 +1143,7 @@ describe('background pipeline lifecycle', () => {
     );
   });
 
-  it('aborts a stale registered job before restarting it', async () => {
+  it('does not evict a registered job when its storage record is old', async () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);
 
@@ -1181,79 +1181,12 @@ describe('background pipeline lifecycle', () => {
 
     await startPipeline('stale-running');
 
-    expect(oldOptions.signal.aborted).toBe(true);
-    expect(runPipeline).toHaveBeenCalledTimes(2);
-    // The takeover run must not inherit the evicted run's id: that id is the
-    // only thing standing between a late failure from the aborted run and this
-    // run's own writes.
-    expect(runPipeline.mock.calls[1][1].pipelineRunId).not.toBe('run-same');
-    expect(runPipeline.mock.calls[1][1].pipelineRunId).toEqual(expect.any(String));
-    expect((await readRecord('stale-running')).pipelineRunId).toBe(
-      runPipeline.mock.calls[1][1].pipelineRunId,
-    );
+    expect(oldOptions.signal.aborted).toBe(false);
+    expect(runPipeline).toHaveBeenCalledTimes(1);
+    expect((await readRecord('stale-running')).pipelineRunId).toBe('run-same');
 
     resolvePipeline();
     await first;
-  });
-
-  it('keeps a takeover run DONE when the run it evicted fails afterwards', async () => {
-    const chromeMock = makeChromeMock();
-    vi.stubGlobal('chrome', chromeMock);
-
-    await seedRecord(
-      chromeMock,
-      makeRecord('overlap', {
-        status: 'summarizing',
-        pipelineRunId: 'run-old',
-        updatedAt: Date.now(),
-      }),
-    );
-
-    const { startPipeline, _resetJobRegistry } = await import('./background.js');
-    const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
-    _resetJobRegistry();
-
-    // The evicted run is still parked inside a provider call when it is
-    // aborted, so its genuine failure settles only after the takeover run has
-    // already finished — the overlap the two halves of this race miss when
-    // tested separately.
-    let rejectEvictedRun;
-    runPipeline.mockImplementationOnce(
-      () =>
-        new Promise((_resolve, reject) => {
-          rejectEvictedRun = reject;
-        }),
-    );
-
-    const evictedRun = startPipeline('overlap');
-    await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(1));
-    expect(runPipeline.mock.calls[0][1].pipelineRunId).toBe('run-old');
-
-    const metaKey = 'pagetollm:rec:overlap:meta';
-    chromeMock.storage.local._store.set(metaKey, {
-      ...chromeMock.storage.local._store.get(metaKey),
-      updatedAt: Date.now() - STALE_MS - 1000,
-    });
-
-    await startPipeline('overlap');
-    const takeoverRunId = runPipeline.mock.calls[1][1].pipelineRunId;
-
-    // The replacement run finishes successfully...
-    await updateRecord(
-      'overlap',
-      { status: 'done', error: null },
-      { expectedPipelineRunId: takeoverRunId },
-    );
-
-    // ...and only then does the evicted run's provider call reject. Its error
-    // write (orchestrator's, and the background fallback's) is guarded by the
-    // run id it started with, which no longer owns the record.
-    rejectEvictedRun(new Error('provider 500'));
-    await evictedRun;
-
-    const finished = await readRecord('overlap');
-    expect(finished.status).toBe('done');
-    expect(finished.error).toBeNull();
   });
 
   it('arms the keepalive alarm before the bootstrap read', async () => {

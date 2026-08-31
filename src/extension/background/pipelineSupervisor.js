@@ -8,8 +8,6 @@ export const KEEPALIVE_ALARM = 'pipeline-keepalive';
 /** Chrome MV3 enforces a minimum of 30 s (0.5 min) for alarm periods. */
 export const KEEPALIVE_PERIOD_MINUTES = 0.5;
 
-const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
-
 function defaultIdFactory() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -19,7 +17,7 @@ function defaultIdFactory() {
 
 /**
  * Owns everything about *running* pipelines: the in-memory job registry, the
- * keepalive alarm, takeover of stale runs, and storage-driven recovery.
+ * keepalive alarm, and storage-driven recovery of orphaned runs.
  *
  * Every browser touchpoint arrives through `alarms` and `runtime`, so this
  * module can be constructed and exercised without a `chrome` global. Callers
@@ -35,7 +33,6 @@ function defaultIdFactory() {
  * @param {function(): number} [deps.clock]
  * @param {function(): string} [deps.idFactory]
  * @param {object} [deps.logger] Base logger; scoped children are derived here.
- * @param {number} [deps.staleThresholdMs]
  */
 export function createPipelineSupervisor({
   recordRepository,
@@ -45,7 +42,6 @@ export function createPipelineSupervisor({
   clock = Date.now,
   idFactory = defaultIdFactory,
   logger = createLogger(),
-  staleThresholdMs = STALE_THRESHOLD_MS,
 }) {
   const { readRecord, updateRecord, listRecords } = recordRepository;
   const keepaliveLog = logger.child('keepalive');
@@ -137,21 +133,10 @@ export function createPipelineSupervisor({
   }
 
   /**
-   * @param {object} rec
-   * @returns {boolean}
-   */
-  function isStaleRecord(rec) {
-    if (!rec) return false;
-    if (!isInFlightStatus(rec.status)) return false;
-    const age = clock() - (rec.updatedAt || 0);
-    return age > staleThresholdMs;
-  }
-
-  /**
    * Starts the pipeline for a key if it is not already running.
-   * Resumes stale or orphaned in-flight records (e.g. after a SW restart).
-   * If a job is already in the registry but the record is stale (updatedAt older
-   * than STALE_THRESHOLD_MS), the hung promise is evicted and the job is restarted.
+   * Resumes orphaned in-flight records (e.g. after a service-worker restart).
+   * Registry presence proves this worker still owns the run; storage may remain
+   * unchanged for the full duration of a long-running provider request.
    *
    * @param {string} key
    * @returns {Promise<void>}
@@ -176,37 +161,12 @@ export function createPipelineSupervisor({
 
       if (!isInFlightStatus(rec.status)) return;
 
-      // Skip if a healthy (non-stale) job is already in the registry.
-      if (jobRegistry.has(key) && !isStaleRecord(rec)) return;
+      // An entry here is stronger evidence than storage timestamps: provider
+      // calls can legitimately produce no writes for many hours. Orphaned jobs
+      // are still recovered because the registry is empty after worker restart.
+      if (jobRegistry.has(key)) return;
 
-      // Taking a record over from a hung job needs a new run id, and needs it
-      // before that job is aborted. Aborting is a request, not synchronous
-      // ownership: the evicted run can still be parked inside a provider call and
-      // settle afterwards. Since the orchestrator deliberately no longer launders
-      // a post-abort provider failure into a cancellation, that late failure
-      // persists ERROR guarded only by the run-id CAS — so sharing the record's
-      // current id would give it a passing CAS against work this takeover has
-      // since finished, flipping a DONE record back to ERROR. Rotating first
-      // makes every write from the evicted run fail that CAS instead, which the
-      // orchestrator already treats as a superseded run.
-      let pipelineRunId = rec.pipelineRunId;
-      if (jobRegistry.has(key)) {
-        const rotatedRunId = idFactory();
-        const rotated = await updateRecord(
-          key,
-          { pipelineRunId: rotatedRunId },
-          { expectedPipelineRunId: rec.pipelineRunId },
-        );
-        // Rejected CAS: another writer (a retry/reprocess minting its own id, or
-        // a deletion) took ownership between the read and here. It cancels and
-        // restarts the record itself, so leave the current job alone rather than
-        // aborting a run this call no longer owns.
-        if (!rotated) return;
-        pipelineRunId = rotatedRunId;
-      }
-
-      // Evict and abort any hung/stale promise before starting fresh.
-      cancelActivePipeline(key);
+      const pipelineRunId = rec.pipelineRunId;
 
       const controller = new AbortController();
       const promise = runPipeline(key, {

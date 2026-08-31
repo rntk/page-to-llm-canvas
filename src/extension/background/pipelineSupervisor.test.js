@@ -165,12 +165,10 @@ describe('createPipelineSupervisor (no chrome global)', () => {
     expect(supervisor.isActive('k1')).toBe(true);
   });
 
-  it('rotates the run id before taking over a stale job', async () => {
+  it('does not evict a registered job when its storage record is old', async () => {
     const runPipeline = vi.fn(() => new Promise(() => {}));
-    const ids = ['rotated-1', 'rotated-2'];
     const { supervisor, records, advance, recordRepository } = makeSupervisor({
       runPipeline,
-      idFactory: () => ids.shift(),
       records: [
         [
           'k1',
@@ -185,21 +183,14 @@ describe('createPipelineSupervisor (no chrome global)', () => {
     });
 
     await startWithoutAwaiting(supervisor, 'k1', runPipeline);
-    // Push the record past the 10-minute stale threshold.
+    // Push the record past the old 10-minute stale threshold.
     advance(11 * 60 * 1000);
-    await startWithoutAwaiting(supervisor, 'k1', runPipeline, 2);
+    await supervisor.startPipeline('k1');
 
-    // The rotation write is guarded by the run id read from the snapshot.
-    expect(recordRepository.updateRecord).toHaveBeenCalledWith(
-      'k1',
-      { pipelineRunId: 'rotated-1' },
-      { expectedPipelineRunId: 'run-1' },
-    );
-    expect(records.get('k1').pipelineRunId).toBe('rotated-1');
-    // The takeover run carries the rotated id, so writes from the evicted run
-    // fail their compare-and-swap.
-    expect(runPipeline).toHaveBeenCalledTimes(2);
-    expect(runPipeline.mock.calls[1][1].pipelineRunId).toBe('rotated-1');
+    expect(recordRepository.updateRecord).not.toHaveBeenCalled();
+    expect(records.get('k1').pipelineRunId).toBe('run-1');
+    expect(runPipeline).toHaveBeenCalledTimes(1);
+    expect(supervisor.isActive('k1')).toBe(true);
   });
 
   it('persists an ERROR status, guarded by run id, when the pipeline rejects', async () => {
