@@ -159,7 +159,7 @@ describe('popup pure functions', () => {
       'Delete',
     ]);
     expect(popup.getRecordActions({ status: 'summarizing' }).map((action) => action.label)).toEqual(
-      ['Reprocess', 'Export data', 'Delete'],
+      ['Reprocess', 'Stop', 'Export data', 'Delete'],
     );
     expect(popup.getRecordActions({ status: 'error' }).map((action) => action.label)).toEqual([
       'Retry',
@@ -194,6 +194,27 @@ describe('popup pure functions', () => {
       expect.objectContaining({ kind: 'export', label: 'Export data', messageType: 'getRecord' }),
       expect.objectContaining({ kind: 'message', label: 'Delete', messageType: 'deleteRecord' }),
     ]);
+  });
+
+  it('getRecordActions offers Stop only while a record is processing', () => {
+    for (const status of ['pending', 'splitting', 'summarizing']) {
+      expect(popup.getRecordActions({ status })).toContainEqual(
+        expect.objectContaining({
+          kind: 'message',
+          label: 'Stop',
+          className: 'danger',
+          messageType: 'cancelRecordProcessing',
+          confirmMessage:
+            'Stop processing this record? Current queued work for this page will be cancelled.',
+        }),
+      );
+    }
+
+    for (const status of ['done', 'error', 'cancelled', 'needs_attention']) {
+      expect(popup.getRecordActions({ status }).map((action) => action.label)).not.toContain(
+        'Stop',
+      );
+    }
   });
 
   it('getRecordActions offers Generate summaries for done records with missing summary work', () => {

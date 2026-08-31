@@ -3,7 +3,7 @@ import { getYouTubeVideoId } from '../../utils/youtubeTimestamp.js';
 import { safeFilenamePart } from '../../utils/safeFilenamePart.js';
 import { sendRuntimeMessage, sendTabMessage } from '../../utils/runtimeMessages.js';
 import { MSG } from '../../shared/runtime/messages.js';
-import { PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
+import { isInFlightPipelineStatus, PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
 import { browserFileHost } from '../../shared/runtime/browserHosts.js';
 import {
   isStaleActionResponse,
@@ -216,6 +216,19 @@ export function getRecordActions(record) {
       failureMessage: 'Generate summaries failed',
       description:
         'Generate summaries from the already-computed topics, without reprocessing the page.',
+    });
+  }
+
+  if (record && isInFlightPipelineStatus(record.status)) {
+    manageActions.push({
+      kind: 'message',
+      label: 'Stop',
+      className: 'danger',
+      messageType: MSG.cancelRecordProcessing,
+      confirmMessage:
+        'Stop processing this record? Current queued work for this page will be cancelled.',
+      failureMessage: 'Failed to stop processing record',
+      description: 'Cancel the processing currently queued for this page.',
     });
   }
 
