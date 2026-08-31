@@ -109,12 +109,12 @@ describe('prompt contract fingerprints', () => {
       leafMerge: sha256(currentPrompts.LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE),
       topicSource: sha256(currentPrompts.TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE),
     }).toEqual({
-      system: 'f9d5b01433c68437ba0446c10b9bd07aca3666f5e7241144d6f359ea5897b21e',
+      system: 'ce93e60e740ccefbf1f8d97b1d943a454a7c638e5475bc245d9ca56875b96c78',
       language: 'e9c6cdd8dedb466e5cd5277b1ef73530747d1afaad1987b880f97fae790e9d5b',
-      articleSummary: 'c731e87cef7b7becbfdca5703aeb05987021341e4b653b206a1463bab1406dc6',
-      articleMerge: '73a23d1108dd1242ff59fed53c4d7b04631d065d405b54cbabda276da1db0b6c',
-      leafMerge: '31fdeeace0fee490d4013b41c17f15ab3f5f5607c82ecfcbed3fed12e72daf75',
-      topicSource: '4ba6de6f6b7f792c8f79e92cd50e5ce000a57b0340a5e50896c3da7a8724aba5',
+      articleSummary: '7b5d58d265ec7152dffc02383d45474b42d03b5cad287f8a45497101b544f532',
+      articleMerge: '961a04988a6d2b5db17c631abe6594db3c2f554a1d925967c81b3811bf0c96d2',
+      leafMerge: '550d952113b442f53683c5299817fb8075f8f61879c9875c47722023232dc31b',
+      topicSource: 'a172e5ce7c7e935e31f07eb50d6a2b68db660a35cb9e7f9e911fd20e621bd831',
     });
   });
 });
@@ -122,12 +122,12 @@ describe('prompt contract fingerprints', () => {
 describe('buildTopicRangesPrompt properties', () => {
   it('preserves arbitrary tagged content as the final content block', () => {
     fc.assert(
-      fc.property(promptContentArb('{0}', '</content>'), (taggedText) => {
+      fc.property(promptContentArb('{0}', '</pagetollm_input>'), (taggedText) => {
         const prompt = buildTopicRangesPrompt(taggedText);
         const languagePrompt = buildTopicRangesPrompt(taggedText, {
           preferContentLanguage: true,
         });
-        const contentBlock = `<content>\n${taggedText}\n</content>\n`;
+        const contentBlock = `<pagetollm_input>\n${taggedText}\n</pagetollm_input>\n`;
         const promptPrefix = prompt.slice(0, -contentBlock.length);
         expect(prompt.startsWith(buildSystemPrompt())).toBe(true);
         expect(prompt.endsWith(contentBlock)).toBe(true);
@@ -141,7 +141,7 @@ describe('buildArticleSummaryPrompt properties', () => {
   it('interpolates arbitrary content once without confusing content for a template token', () => {
     fc.assert(
       fc.property(
-        promptContentArb('{text}', '</text>'),
+        promptContentArb('{text}', '</pagetollm_input>'),
         fc.boolean(),
         (text, preferContentLanguage) => {
           const prompt = buildArticleSummaryPrompt(text, { preferContentLanguage });
@@ -160,7 +160,7 @@ describe('buildArticleSummaryMergePrompt properties', () => {
   it('interpolates arbitrary chunk summaries exactly', () => {
     fc.assert(
       fc.property(
-        promptContentArb('{chunk_summaries}', '</chunk_summaries>'),
+        promptContentArb('{chunk_summaries}', '</pagetollm_input>'),
         fc.boolean(),
         (summaries, preferContentLanguage) => {
           const prompt = buildArticleSummaryMergePrompt(summaries, { preferContentLanguage });
@@ -190,7 +190,7 @@ describe('buildLeafSummaryMergePrompt properties', () => {
   it('interpolates arbitrary chunk summaries exactly', () => {
     fc.assert(
       fc.property(
-        promptContentArb('{chunk_summaries}', '</chunk_summaries>'),
+        promptContentArb('{chunk_summaries}', '</pagetollm_input>'),
         fc.boolean(),
         (summaries, preferContentLanguage) => {
           const prompt = buildLeafSummaryMergePrompt(summaries, { preferContentLanguage });
@@ -213,7 +213,7 @@ describe('buildTopicSummaryFromSourcePrompt properties', () => {
   it('interpolates arbitrary source content exactly', () => {
     fc.assert(
       fc.property(
-        promptContentArb('{source}', '</source>'),
+        promptContentArb('{source}', '</pagetollm_input>'),
         fc.boolean(),
         (source, preferContentLanguage) => {
           const prompt = buildTopicSummaryFromSourcePrompt(source, { preferContentLanguage });

@@ -13,6 +13,7 @@ import {
   ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE,
   LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE,
 } from './prompts.js';
+import { PROMPT_DELIMITER } from '../promptDelimiters.js';
 
 describe('buildSystemPrompt', () => {
   it('returns a non-empty string', () => {
@@ -44,7 +45,7 @@ describe('buildTopicRangesPrompt', () => {
   it('includes the tagged text in content tags', () => {
     const tagged = '{0} hello world';
     const prompt = buildTopicRangesPrompt(tagged);
-    expect(prompt).toContain(`<content>\n${tagged}\n</content>`);
+    expect(prompt).toContain(`<pagetollm_input>\n${tagged}\n</pagetollm_input>`);
   });
 
   it('includes output format instructions', () => {
@@ -84,6 +85,25 @@ describe('buildArticleSummaryMergePrompt', () => {
   it('instructs merged summaries to lead with substance', () => {
     const prompt = buildArticleSummaryMergePrompt('Chunk 1: summary one');
     expect(prompt).toContain('Begin with the substance itself');
+  });
+});
+
+describe('prompt payload delimiters', () => {
+  // Every prompt embeds exactly one payload block under the same delimiter, so
+  // the Anthropic cache split (clients.js) always lands on the first occurrence
+  // of the boundary marker. Prose may name the tag freely; only the payload
+  // opener sits on its own line.
+  it.each([
+    ['topic ranges', '{0} payload', buildTopicRangesPrompt],
+    ['article summary', 'payload', buildArticleSummaryPrompt],
+    ['article merge', 'payload', buildArticleSummaryMergePrompt],
+    ['leaf merge', 'payload', buildLeafSummaryMergePrompt],
+    ['topic source', 'payload', buildTopicSummaryFromSourcePrompt],
+  ])('the %s prompt opens exactly one payload block', (_name, payload, build) => {
+    const prompt = build(payload);
+    expect(prompt.split(PROMPT_DELIMITER.boundaryMarker)).toHaveLength(2);
+    expect(prompt.trimEnd().endsWith(PROMPT_DELIMITER.close)).toBe(true);
+    expect(prompt).toContain(PROMPT_DELIMITER.boundaryMarker + payload);
   });
 });
 
@@ -180,7 +200,7 @@ describe('preferContentLanguage option', () => {
 
   it('preserves the strict topic-ranges content block when enabled', () => {
     const prompt = buildTopicRangesPrompt('{0} hola mundo', { preferContentLanguage: true });
-    expect(prompt).toContain('<content>\n{0} hola mundo\n</content>');
+    expect(prompt).toContain('<pagetollm_input>\n{0} hola mundo\n</pagetollm_input>');
     expect(prompt).toContain('OUTPUT FORMAT');
   });
 
@@ -197,9 +217,8 @@ describe('preferContentLanguage option', () => {
     // Closest-to-generation placement beats the English example categories above.
     const languageIdx = prompt.indexOf('LANGUAGE:');
     const formatIdx = prompt.indexOf('OUTPUT FORMAT');
-    // The SYSTEM_PROMPT mentions "<content>" in its SECURITY section, so target
-    // the actual content block (the last occurrence) rather than that mention.
-    const contentIdx = prompt.lastIndexOf('<content>');
+    // Locate the literal opening tag; prose references use only the quoted block name.
+    const contentIdx = prompt.lastIndexOf('<pagetollm_input>');
     expect(formatIdx).toBeGreaterThanOrEqual(0);
     expect(languageIdx).toBeGreaterThan(formatIdx);
     expect(contentIdx).toBeGreaterThan(languageIdx);

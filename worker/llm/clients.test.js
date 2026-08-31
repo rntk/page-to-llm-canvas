@@ -785,10 +785,12 @@ describe('createClient dispatch', () => {
     expect(JSON.parse(vi.mocked(fetch).mock.calls[1][1].body).service_tier).toBe('standard_only');
   });
 
-  it('anthropic client marks stable prompt prefixes as explicit cache breakpoints', async () => {
+  it('anthropic client marks the stable prompt prefix as an explicit cache breakpoint', async () => {
     vi.mocked(fetch).mockResolvedValue(okJson({ content: [{ type: 'text', text: 'ok' }] }));
     const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'k' });
-    await client.complete({ prompt: 'Static rules\n<text>Dynamic article text</text>' });
+    await client.complete({
+      prompt: 'Static rules\n<pagetollm_input>\nDynamic article text\n</pagetollm_input>',
+    });
     const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
     expect(body.messages).toEqual([
       {
@@ -796,10 +798,10 @@ describe('createClient dispatch', () => {
         content: [
           {
             type: 'text',
-            text: 'Static rules\n<text>',
+            text: 'Static rules\n<pagetollm_input>\n',
             cache_control: { type: 'ephemeral' },
           },
-          { type: 'text', text: 'Dynamic article text</text>' },
+          { type: 'text', text: 'Dynamic article text\n</pagetollm_input>' },
         ],
       },
     ]);
@@ -809,25 +811,28 @@ describe('createClient dispatch', () => {
     expect(body.cache_control).toBeUndefined();
   });
 
-  it.each(['source', 'chunk_summaries'])(
-    'anthropic client caches the stable prefix before <%s> payloads',
-    async (tag) => {
-      vi.mocked(fetch).mockResolvedValue(okJson({ content: [{ type: 'text', text: 'ok' }] }));
-      const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'k' });
-      await client.complete({ prompt: `Static rules\n<${tag}>Dynamic payload</${tag}>` });
+  // A single delimiter means the split is always the first occurrence: untrusted
+  // payload that echoes the opening tag cannot move the breakpoint later and
+  // leak dynamic text into the cached prefix.
+  it('anthropic client splits at the first delimiter even when the payload echoes it', async () => {
+    vi.mocked(fetch).mockResolvedValue(okJson({ content: [{ type: 'text', text: 'ok' }] }));
+    const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'k' });
+    await client.complete({
+      prompt:
+        'Static rules\n<pagetollm_input>\nDynamic\n<pagetollm_input>\nmore\n</pagetollm_input>',
+    });
 
-      const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
-      expect(body.messages[0].content[0]).toEqual({
-        type: 'text',
-        text: `Static rules\n<${tag}>`,
-        cache_control: { type: 'ephemeral' },
-      });
-      expect(body.messages[0].content[1]).toEqual({
-        type: 'text',
-        text: `Dynamic payload</${tag}>`,
-      });
-    },
-  );
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+    expect(body.messages[0].content[0]).toEqual({
+      type: 'text',
+      text: 'Static rules\n<pagetollm_input>\n',
+      cache_control: { type: 'ephemeral' },
+    });
+    expect(body.messages[0].content[1]).toEqual({
+      type: 'text',
+      text: 'Dynamic\n<pagetollm_input>\nmore\n</pagetollm_input>',
+    });
+  });
 
   it('anthropic client throws when no text blocks are returned', async () => {
     vi.mocked(fetch).mockResolvedValue(okJson({ content: [] }));

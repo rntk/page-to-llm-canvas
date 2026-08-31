@@ -716,7 +716,8 @@ describe('runPipeline', () => {
 
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary text.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary text.';
       return '';
     });
 
@@ -729,7 +730,7 @@ describe('runPipeline', () => {
     expect(final.topic_summary_index['Tech>All'].runs[0].text).toBe(plainText);
     expect(
       llm.callLLMWithRetry.mock.calls.some(([opts]) =>
-        opts.prompt.includes('Summarize the text within the <text> tags'),
+        opts.prompt.includes('Summarize the text within the <pagetollm_input> tags'),
       ),
     ).toBe(false);
 
@@ -776,7 +777,8 @@ describe('runPipeline', () => {
         if (attempt === 1) return 'Invalid response';
         return 'Tech>All: 0-2';
       }
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary.';
       return '';
     });
 
@@ -806,7 +808,8 @@ describe('runPipeline', () => {
         if (attempt === 1) return 'Invalid response';
         return 'Tech>All: 0-2';
       }
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary.';
       return '';
     });
 
@@ -889,7 +892,8 @@ describe('runPipeline', () => {
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary text.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary text.';
       return '';
     });
 
@@ -919,7 +923,8 @@ describe('runPipeline', () => {
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary text.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary text.';
       return '';
     });
 
@@ -956,7 +961,8 @@ describe('runPipeline', () => {
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary text.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary text.';
       return '';
     });
 
@@ -984,7 +990,8 @@ describe('runPipeline', () => {
     // step fills, which should surface as a diagnostics quirk.
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary text.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary text.';
       return '';
     });
 
@@ -1031,7 +1038,8 @@ describe('runPipeline', () => {
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return response;
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary text.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary text.';
       return '';
     });
 
@@ -1065,7 +1073,7 @@ describe('runPipeline', () => {
         return 'Tech>AI: 0-1\nTech>Hardware: 2-3';
       }
       // The parent topic is summarized from its full source text.
-      if (prompt.includes('Summarize the source text')) {
+      if (prompt.includes('Summarize the source text within the <pagetollm_input> tags')) {
         sourcePrompt = prompt;
         return parentSummary;
       }
@@ -1103,7 +1111,7 @@ describe('runPipeline', () => {
 
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
-      if (prompt.includes('Summarize the text within the <text> tags')) {
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags')) {
         throw new Error('LLM request timed out after 120000ms');
       }
       return '';
@@ -1134,7 +1142,7 @@ describe('runPipeline', () => {
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
-      if (prompt.includes('Summarize the text within the <text> tags')) {
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags')) {
         controller.abort();
         throw providerError;
       }
@@ -1171,7 +1179,8 @@ describe('runPipeline', () => {
 
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'NO_SUMMARY';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'NO_SUMMARY';
       return '';
     });
 
@@ -1209,7 +1218,8 @@ describe('runPipeline', () => {
         }
         return ranges.join('\n');
       }
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary.';
       return '';
     });
 
@@ -1247,7 +1257,8 @@ describe('runPipeline', () => {
         }
         return 'Tech>Last: 0-4';
       }
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary.';
       return '';
     });
 
@@ -1292,7 +1303,8 @@ describe('runPipeline', () => {
         shortChunkCalls++;
         return shortChunkCalls === 1 ? 'not parseable' : 'Tech>Last: 0';
       }
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary.';
       return '';
     });
 
@@ -1332,7 +1344,8 @@ describe('runPipeline', () => {
         if (partitionCalls === 1) return `Tech>All: 0-${n - 1}`;
         return 'Tech>FirstHalf: 0-29\nTech>SecondHalf: 30-59';
       }
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary.';
       return '';
     });
 
@@ -1391,7 +1404,8 @@ describe('runPipeline', () => {
         partitionCalls++;
         return `Tech>All: 0-${n - 1}`;
       }
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary.';
       return '';
     });
 
@@ -1461,7 +1475,8 @@ describe('runPipeline', () => {
         // Second-level re-split of the 60-sentence tail slice (local 0-59).
         return 'Tech>TailA: 0-29\nTech>TailB: 30-59';
       }
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary.';
       return '';
     });
 
@@ -1496,7 +1511,8 @@ describe('runPipeline', () => {
       if (prompt.includes('Partition the markers')) {
         throw new TypeError('Unexpected');
       }
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary.';
       return '';
     });
 
@@ -1515,7 +1531,8 @@ describe('runPipeline', () => {
 
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary.';
       return '';
     });
 
@@ -1557,7 +1574,7 @@ describe('runPipeline', () => {
     const summaryPrompts = [];
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'SHOULD_NOT_BE_CALLED: 0-1';
-      if (prompt.includes('Summarize the text within the <text> tags')) {
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags')) {
         summaryPrompts.push(prompt);
         return 'Fresh B summary.';
       }
@@ -1671,7 +1688,8 @@ describe('runPipeline', () => {
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary.';
       return '';
     });
 
@@ -1789,7 +1807,8 @@ describe('runPipeline', () => {
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary.';
       return '';
     });
 
@@ -1840,7 +1859,7 @@ describe('runPipeline', () => {
     // and each run keeps its own source text and sentences.
     expect(
       llm.callLLMWithRetry.mock.calls.some(([opts]) =>
-        opts.prompt.includes('Summarize the text within the <text> tags'),
+        opts.prompt.includes('Summarize the text within the <pagetollm_input> tags'),
       ),
     ).toBe(false);
 
@@ -1887,7 +1906,7 @@ describe('runPipeline', () => {
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       // The parent would use the source-summary prompt; under per-run delegation it
       // must never be reached for Tech.
-      if (prompt.includes('Summarize the source text')) {
+      if (prompt.includes('Summarize the source text within the <pagetollm_input> tags')) {
         sourceSummaryCalls++;
         return 'should not be used';
       }
@@ -1931,7 +1950,7 @@ describe('runPipeline', () => {
 
     const summaryPrompts = [];
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
-      if (prompt.includes('Summarize the text within the <text> tags')) {
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags')) {
         summaryPrompts.push(prompt);
         return 'Recovered C.';
       }
@@ -1962,7 +1981,8 @@ describe('runPipeline', () => {
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
-      if (prompt.includes('Summarize the text within the <text> tags')) throw new Error('LLM down');
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        throw new Error('LLM down');
       return '';
     });
 
@@ -2009,7 +2029,7 @@ describe('runPipeline', () => {
       },
     });
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
-      if (prompt.includes('<chunk_summaries>')) return 'Merged.';
+      if (prompt.includes('Merge the summaries')) return 'Merged.';
       return '';
     });
 
@@ -2033,7 +2053,7 @@ describe('runPipeline', () => {
     // No new summary LLM call happened — skip reuses the empty leaf as-is.
     expect(
       llm.callLLMWithRetry.mock.calls.some(([opts]) =>
-        opts.prompt.includes('Summarize the text within the <text> tags'),
+        opts.prompt.includes('Summarize the text within the <pagetollm_input> tags'),
       ),
     ).toBe(false);
   });
@@ -2052,7 +2072,7 @@ describe('runPipeline', () => {
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       // Two sibling topics under "Tech" → the parent is summarized from source.
       if (prompt.includes('Partition the markers')) return 'Tech>AI: 0-1\nTech>Hardware: 2-3';
-      if (prompt.includes('Summarize the source text')) {
+      if (prompt.includes('Summarize the source text within the <pagetollm_input> tags')) {
         throw new Error('LLM HTTP 429: too many requests');
       }
       return 'Leaf summary.';
@@ -2110,7 +2130,7 @@ describe('runPipeline', () => {
       },
     });
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
-      if (prompt.includes('<chunk_summaries>')) throw new Error('LLM HTTP 429');
+      if (prompt.includes('Merge the summaries')) throw new Error('LLM HTTP 429');
       return '';
     });
 
@@ -2122,7 +2142,7 @@ describe('runPipeline', () => {
       false,
     );
     expect(
-      llm.callLLMWithRetry.mock.calls.some(([opts]) => opts.prompt.includes('<chunk_summaries>')),
+      llm.callLLMWithRetry.mock.calls.some(([opts]) => opts.prompt.includes('Merge the summaries')),
     ).toBe(false);
     const doneCall = storage.updateRecord.mock.calls.find((c) => c[1].status === 'done');
     expect(doneCall).toBeDefined();
@@ -2165,7 +2185,8 @@ describe('runPipeline', () => {
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
-      if (prompt.includes('Summarize the text within the <text> tags')) throw new Error('LLM down');
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        throw new Error('LLM down');
       return '';
     });
 
@@ -2239,7 +2260,8 @@ describe('runPipeline', () => {
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
-      if (prompt.includes('Summarize the text within the <text> tags')) throw new Error('LLM down');
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        throw new Error('LLM down');
       return '';
     });
 
@@ -2275,7 +2297,7 @@ describe('runPipeline', () => {
     let sourceCalls = 0;
     let mergeCalls = 0;
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
-      if (prompt.includes('Summarize the source text')) {
+      if (prompt.includes('Summarize the source text within the <pagetollm_input> tags')) {
         sourceCalls++;
         return 'Chunk summary.';
       }
@@ -2317,7 +2339,8 @@ describe('runPipeline', () => {
     });
 
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
-      if (prompt.includes('Summarize the source text')) return 'Chunk summary.';
+      if (prompt.includes('Summarize the source text within the <pagetollm_input> tags'))
+        return 'Chunk summary.';
       if (prompt.includes('Merge the summaries below')) return 'NO_SUMMARY';
       return 'Leaf.';
     });
@@ -2353,7 +2376,8 @@ describe('runPipeline', () => {
     });
 
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
-      if (prompt.includes('Summarize the source text')) return 'NO_SUMMARY';
+      if (prompt.includes('Summarize the source text within the <pagetollm_input> tags'))
+        return 'NO_SUMMARY';
       return 'Leaf.';
     });
 
@@ -2388,7 +2412,8 @@ describe('runPipeline', () => {
     });
 
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
-      if (prompt.includes('Summarize the source text')) return 'NO_SUMMARY';
+      if (prompt.includes('Summarize the source text within the <pagetollm_input> tags'))
+        return 'NO_SUMMARY';
       if (prompt.includes('Merge the summaries below')) return 'NO_SUMMARY';
       return 'Leaf.';
     });
@@ -2427,7 +2452,8 @@ describe('runPipeline', () => {
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Fresh summary.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Fresh summary.';
       return '';
     });
 
@@ -2487,8 +2513,8 @@ describe('runPipeline', () => {
     expect(
       llm.callLLMWithRetry.mock.calls.some(
         ([opts]) =>
-          opts.prompt.includes('Summarize the text within the <text> tags') ||
-          opts.prompt.includes('Summarize the source text'),
+          opts.prompt.includes('Summarize the text within the <pagetollm_input> tags') ||
+          opts.prompt.includes('Summarize the source text within the <pagetollm_input> tags'),
       ),
     ).toBe(false);
 
@@ -2543,7 +2569,8 @@ describe('runPipeline', () => {
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) return 'Tech>All: 0-1';
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Summary text.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Summary text.';
       return '';
     });
 
@@ -2573,7 +2600,8 @@ describe('runPipeline', () => {
       topic_summary_index: {},
     });
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
-      if (prompt.includes('Summarize the text within the <text> tags')) return 'Generated summary.';
+      if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
+        return 'Generated summary.';
       return '';
     });
 

@@ -26,6 +26,7 @@
 
 import { ProviderType, ServiceTier } from './providers.js';
 import { createLogger } from '../../src/shared/runtime/log.js';
+import { PROMPT_DELIMITER } from '../promptDelimiters.js';
 
 const log = createLogger('LLM client');
 
@@ -33,12 +34,7 @@ const THINK_TAG_RE = /<think\b[^>]*>[\s\S]*?<\/think>/gi;
 const THINK_TAG_CAPTURE_RE = /<think\b[^>]*>([\s\S]*?)<\/think>/gi;
 const OPENAI_PROMPT_CACHE_KEY = 'pagetollm-canvas';
 const ANTHROPIC_CACHE_CONTROL = Object.freeze({ type: 'ephemeral' });
-const ANTHROPIC_CACHE_PREFIX_MARKERS = Object.freeze([
-  '\n<content>\n',
-  '\n<text>',
-  '\n<source>',
-  '\n<chunk_summaries>',
-]);
+const ANTHROPIC_CACHE_PREFIX_MARKER = PROMPT_DELIMITER.boundaryMarker;
 
 /** @param {string} text */
 export function stripThink(text) {
@@ -464,10 +460,10 @@ function openAICompatibleClient({
 }
 
 function anthropicCacheableContent(prompt) {
-  const marker = ANTHROPIC_CACHE_PREFIX_MARKERS.find((oneMarker) => prompt.includes(oneMarker));
-  if (!marker) return prompt;
+  const markerAt = prompt.indexOf(ANTHROPIC_CACHE_PREFIX_MARKER);
+  if (markerAt === -1) return prompt;
 
-  const splitAt = prompt.indexOf(marker) + marker.length;
+  const splitAt = markerAt + ANTHROPIC_CACHE_PREFIX_MARKER.length;
   const prefix = prompt.slice(0, splitAt);
   const suffix = prompt.slice(splitAt);
   if (!prefix || !suffix) return prompt;
