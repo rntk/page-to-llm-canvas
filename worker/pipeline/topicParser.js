@@ -1,5 +1,5 @@
 // Port of txt_splitt/sentences/parsers.py TopicRangeParser (text mode only) +
-// RepairingGapHandler (deterministic coverage repair) + AdjacentSameTopicJoiner.
+// RepairingGapHandler (deterministic coverage repair).
 //
 // Robustness contract (matches the Python txt_splitt library, not split_text.py's
 // specific handler choice): the parser is permissive — it CLAMPS ranges to
@@ -340,9 +340,9 @@ function collectDiagnostics(rawGroups, sentenceCount, invalidRangeTokens = 0) {
 
 /**
  * Shared tail of parseTopicRanges: takes label-grouped ranges (in first-appearance
- * order, labels already deduped) and produces the final continuous, non-overlapping,
- * adjacent-joined groups. Extracted so oversized-range refinement can rebuild the
- * same shape from re-split segments without re-parsing a raw LLM response.
+ * order, labels already deduped) and produces final groups with continuous,
+ * non-overlapping coverage. Extracted so oversized-range refinement can rebuild
+ * the same shape from re-split segments without re-parsing a raw LLM response.
  *
  * @param {Array<{label: string[], ranges: Array<{start: number, end: number}>}>} rawGroups
  * @param {number} sentenceCount
@@ -373,28 +373,14 @@ function finalizeGroups(rawGroups, sentenceCount, invalidRangeTokens = 0) {
   diagnostics.repairs = repairs.slice(0, MAX_REPAIRS);
   diagnostics.repairsTruncated = Boolean(repairs.truncated);
 
-  // AdjacentSameTopicJoiner: merge consecutive groups with identical labels.
-  const joined = [];
-  for (const g of groups) {
-    const last = joined[joined.length - 1];
-    if (
-      last &&
-      last.label.length === g.label.length &&
-      last.label.every((p, i) => p === g.label[i])
-    ) {
-      last.ranges = mergeRanges(last.ranges.concat(g.ranges));
-    } else {
-      joined.push({ label: g.label.slice(), ranges: g.ranges.slice() });
-    }
-  }
-  return { groups: joined, diagnostics };
+  return { groups, diagnostics };
 }
 
 /**
  * Rebuild final groups from a flat list of labeled segments (e.g. produced by
  * re-splitting an oversized range). Segments sharing a normalized label key are
  * merged into one group — preserving the invariant that every topic name is
- * unique — and coverage is repaired/joined exactly like parseTopicRanges.
+ * unique — and coverage is repaired exactly like parseTopicRanges.
  *
  * @param {Array<{label: string[], start: number, end: number}>} segments
  * @param {number} sentenceCount
