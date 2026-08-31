@@ -75,6 +75,16 @@ export const TOOLBAR_SHADOW_STYLES = `
     cursor: not-allowed;
   }
 
+  /* While actively submitting, keep the button's filled/active look instead of
+     the "nothing selected" disabled look above, so the "Submitting..." label
+     stays legible instead of flashing to a near-blank button. */
+  #pagetollm-submit-btn.submitting:disabled {
+    background: var(--ink);
+    color: var(--surface);
+    border-color: var(--ink);
+    cursor: progress;
+  }
+
   #pagetollm-cancel-btn {
     background: var(--surface);
     color: var(--accent);

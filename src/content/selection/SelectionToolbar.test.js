@@ -115,6 +115,7 @@ describe('SelectionToolbar', () => {
 
     expect(container.querySelector('#pagetollm-submit-btn').textContent).toBe('Submitting...');
     expect(container.querySelector('#pagetollm-submit-btn').disabled).toBe(true);
+    expect(container.querySelector('#pagetollm-submit-btn').className).toContain('submitting');
     expect(container.querySelector('#pagetollm-pick-btn').disabled).toBe(true);
     expect(container.querySelector('#pagetollm-cancel-btn').disabled).toBe(true);
     expect(container.querySelector('.pagetollm-remove-btn').disabled).toBe(true);

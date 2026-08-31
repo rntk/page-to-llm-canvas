@@ -47,6 +47,7 @@ export default function SelectionToolbar({
         </button>
         <button
           id="pagetollm-submit-btn"
+          className={isSubmitting ? 'submitting' : ''}
           type="button"
           disabled={selectedBlocks.length === 0 || isSubmitting}
           title={submitHint}
