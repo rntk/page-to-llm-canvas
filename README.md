@@ -11,8 +11,10 @@ Select content from any page, then review its topics, summaries, and highlighted
 - Extracts topics and subtopics from selected page content
 - Writes a summary for each topic
 - Shows the results as inline tags, a topic hierarchy, or a pan/zoom canvas
-- For YouTube videos, opens a sidebar that follows video playback and shows the topic/summary for the current timestamp
-- Lets you reprocess or delete a saved analysis from the popup, or stop an in-progress one from the Options page; topics whose summaries keep failing get a "needs attention" state with a retry/skip option in the canvas view
+- For YouTube videos with an available transcript, opens a sidebar that follows video playback, lets you jump to a topic's timestamp, and shows the topic/summary for the current moment
+- Includes article chat for saved pages and transcripts; answers can cite and highlight the source sentences they use
+- Saves analyses so work can resume after the extension's background worker restarts; you can reprocess or delete an analysis from the popup, or stop an in-progress one from the Options page
+- Keeps completed summaries when an individual topic fails, marking it as "needs attention" so you can retry or skip it from the canvas
 - Shows processing progress on the toolbar icon (progress bar and badge count)
 - Supports keyboard navigation on the canvas (arrow keys pan, Home/End/PageUp/PageDown jump between cards)
 - Has light, dark, and system themes for the popup and options page
@@ -27,45 +29,17 @@ Select content from any page, then review its topics, summaries, and highlighted
 6. Open one of the views (inline topics, inline summaries, hierarchy, canvas, or YouTube sync).
 7. Review the summary, topics, and highlighted text.
 
-## Who it is for
+## Article chat and saved analyses
 
-PageToLLM Canvas is useful for readers, researchers, students, and anyone who wants to understand web articles, documents, or dense pages more quickly.
+Open article chat from the canvas or an in-page view to ask questions about a saved page or video transcript. Its answers can include source evidence; select that evidence to highlight the matching text or, for a video, seek to the relevant timestamp.
 
-## Status
+Analyses are saved in the extension, so you can return to them later. If processing is interrupted, the extension can continue from its saved progress. You can also reprocess an analysis if the page has changed or if you want to use different provider settings. Chats are managed separately from analyses and are not included when you export an analysis.
 
-This project is a release candidate: the extension is feature-complete and is being stabilized for release. You must still configure an LLM provider manually in Options before using it.
+## YouTube support
 
-Build is owned by `scripts/build-extension.mjs`, which runs Vite once per React entrypoint so extension scripts stay self-contained browser files. Produces a `dist/` directory containing:
+YouTube is a special case: analysis uses the transcript shown on the video page, not the video itself. Open the video's transcript, use **Pick Blocks** to select the transcript as the source, and submit it for analysis. When the transcript's timestamps are available, the extension can turn topics and chat evidence into links that seek to the matching moment and can keep the YouTube rail synchronized with playback.
 
-- `manifest.json`, `background.js`, `content.js`, `content.css`, `popup.html`, `popup.js`, `options.html`, `options.js`, `icons/`
-- `modal.html`, `modal.js`, `modal.css` (React bundle)
-
-Source entrypoints:
-
-- `src/content/main.jsx` -> `dist/content.js`
-- `src/options/main.jsx` -> `dist/options.js`
-- `src/canvas/main.jsx` -> `dist/modal.js`
-- `src/extension/background/background.js` -> `dist/background.js`
-- `src/extension/popup/popup.js` -> `dist/popup.js`
-
-Extension-only source is grouped under `src/extension/`: entrypoints live in
-`background/` and `popup/`, static templates in `pages/`, and delivery-scoped
-styles in `styles/`. Browser-safe contracts shared by extension surfaces and
-the service worker live in `src/shared/runtime/`. The build maps these sources
-back to the flat filenames required by `manifest.json`.
-
-From the repository root, build with Docker (no local Node.js install needed):
-
-```bash
-docker run --rm --user "${UID:-1000}:${GID:-1000}" --workdir /app -v "$PWD:/app" node:24-alpine sh -lc "npm ci && npm run build"
-```
-
-Or build locally from this directory:
-
-```bash
-npm ci
-npm run build
-```
+A transcript must be available for the video. The extension does not process video frames or audio directly.
 
 ## Load unpacked
 
@@ -93,11 +67,16 @@ Provider service tier support is also API-specific. OpenAI and OpenRouter provid
 The pipeline uses the designated **active** provider and will not run until at least one provider has been configured and selected as active.
 For models with a smaller context window—especially local/custom models—set the optional context-window token count on the provider. Topic and summary inputs are then chunked to a conservative per-request budget derived from that value; providers without one use the 60,000-character fallback.
 
+## Data and privacy
+
+Provider settings, saved analyses, and preferences are stored in the browser's local extension storage. To generate topics, summaries, or chat answers, the extension sends the relevant selected content or transcript to the active provider. Review that provider's data-handling policy before submitting sensitive content.
+
 ## Options page
 
 Besides LLM providers, the Options page also lets you:
 
 - Export a saved analysis to a JSON file, and import analyses back in (importing asks for confirmation before overwriting an existing record)
+- Reprocess, delete, or stop processing saved analyses; manage or delete saved chat sessions separately
 - Turn on "Prefer the language of the content" so topic labels and summaries are written in the content's dominant language instead of English
 - Pick the highlight color used for picked blocks and highlighted sentences
 - Choose a light, dark, or system theme
