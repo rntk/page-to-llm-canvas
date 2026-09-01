@@ -4,7 +4,7 @@
 import { createMetricsStore } from './metricsStore.js';
 
 export const PARSER_METRICS_KEY = 'pagetollm-parser-metrics';
-export const PARSER_METRICS_MAX_RECENT = 60;
+const PARSER_METRICS_MAX_RECENT = 60;
 
 const QUIRK_KEYS = [
   'invalidRangeTokens',
@@ -31,7 +31,7 @@ function nonNegative(value) {
   return Math.max(0, Number(value) || 0);
 }
 
-export function summarizeParserDiagnostics(diagnostics = {}) {
+function summarizeParserDiagnostics(diagnostics = {}) {
   return {
     invalidRangeTokens: nonNegative(diagnostics.invalidRangeTokens),
     outOfRangeRanges: Array.isArray(diagnostics.outOfRange)

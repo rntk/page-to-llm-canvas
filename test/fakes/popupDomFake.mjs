@@ -6,7 +6,7 @@
  * time. Keeping one list here means adding an element to `popup.html` is a
  * single-line change instead of an edit duplicated across every popup spec.
  */
-export const POPUP_ELEMENT_IDS = [
+const POPUP_ELEMENT_IDS = [
   'pick-btn',
   'refresh-btn',
   'theme-btn',

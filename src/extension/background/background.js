@@ -191,7 +191,7 @@ const handleSubmitImpl = createSubmitRecord({
  *   handle: function(object, object): Promise<object>
  * }>}
  */
-export const MESSAGE_HANDLERS = {
+const MESSAGE_HANDLERS = {
   ...createRecordHandlers({
     recordRepository,
     handleSubmit: handleSubmitImpl,

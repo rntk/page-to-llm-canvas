@@ -2,10 +2,10 @@ import { SOURCE_SUMMARY_MAX_CHARS } from './pipelineConfig.js';
 import { makeSourceSummarizer } from './sourceSummarizer.js';
 import { markProviderFailure } from './providerFailure.js';
 
-export const SOURCE_SUMMARY_INPUT_VERSION = 'source-summary-v1';
-export const SOURCE_SUMMARY_MERGE_INPUT_VERSION = 'source-summary-merge-v1';
-export const LEAF_SUMMARY_INPUT_VERSION = 'leaf-summary-v1';
-export const LEAF_SUMMARY_MERGE_INPUT_VERSION = 'leaf-summary-merge-v1';
+const SOURCE_SUMMARY_INPUT_VERSION = 'source-summary-v1';
+const SOURCE_SUMMARY_MERGE_INPUT_VERSION = 'source-summary-merge-v1';
+const LEAF_SUMMARY_INPUT_VERSION = 'leaf-summary-v1';
+const LEAF_SUMMARY_MERGE_INPUT_VERSION = 'leaf-summary-merge-v1';
 
 function normalizeContentRevision(value) {
   const revision = typeof value === 'string' ? value.trim() : '';
@@ -77,7 +77,7 @@ export function sourceSummaryUnitId({
  * @param {string} [input.inputFingerprint]
  * @returns {string}
  */
-export function sourceSummaryInputFingerprint({
+function sourceSummaryInputFingerprint({
   kind,
   source,
   preferContentLanguage,

@@ -7,7 +7,7 @@ const STANDARD_RAIL_MODES = [
   ['chat', 'Chat'],
 ];
 
-export function RailModeSelect({ mode, additionalModes = [], onSelectMode }) {
+function RailModeSelect({ mode, additionalModes = [], onSelectMode }) {
   const modes = [...STANDARD_RAIL_MODES, ...additionalModes];
   const activeMode = modes.some(([value]) => value === mode) ? mode : modes[0][0];
 
@@ -68,7 +68,7 @@ export function RailHead({
   );
 }
 
-export function RailLevelSwitcher({ maxLevel, selectedLevel, onSelectLevel }) {
+function RailLevelSwitcher({ maxLevel, selectedLevel, onSelectLevel }) {
   if (maxLevel <= 0) return null;
 
   return (

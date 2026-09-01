@@ -19,7 +19,7 @@ import { createMetricsStore } from './metricsStore.js';
 export { CHAT_TOOL_OUTCOMES } from '../../src/shared/runtime/telemetry.js';
 
 export const CHAT_TOOL_METRICS_KEY = 'pagetollm-chat-tool-metrics';
-export const CHAT_TOOL_METRICS_MAX_RECENT = 60;
+const CHAT_TOOL_METRICS_MAX_RECENT = 60;
 
 /** Human-readable labels for the diagnostics UI. */
 export const CHAT_TOOL_OUTCOME_LABELS = Object.freeze({
@@ -49,7 +49,7 @@ const ERROR_OUTCOMES = new Set([
  * @param {unknown} outcome
  * @returns {string | null} the outcome if recognized, otherwise null
  */
-export function normalizeOutcome(outcome) {
+function normalizeOutcome(outcome) {
   return typeof outcome === 'string' && OUTCOME_KEYS.includes(outcome) ? outcome : null;
 }
 

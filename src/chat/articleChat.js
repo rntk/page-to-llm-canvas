@@ -22,7 +22,7 @@ function postToolMetric(sample) {
   }
 }
 
-export const ARTICLE_CHAT_SYSTEM_PROMPT = `You are an intelligent assistant helping a user explore one article.
+const ARTICLE_CHAT_SYSTEM_PROMPT = `You are an intelligent assistant helping a user explore one article.
 The current article is supplied as a JSON data message. Each sentence is prefixed with its 1-based line number.
 Answer in the same language as the article and ground claims in the supplied text.
 
@@ -39,21 +39,21 @@ Answer in 1-2 short sentences unless the question genuinely requires more.
 The text answer should contain only what the article does not state directly: the direct answer to the question, connections between passages, or caveats.
 If the highlighted passages fully answer the question, a one-sentence pointer is enough.`;
 
-export const CHAT_TEMPERATURE = 0.4;
+const CHAT_TEMPERATURE = 0.4;
 // Keep an individual chat request comfortably below the source-sized prompts
 // used elsewhere in the pipeline. Chunks always break at sentence boundaries
 // and retain their original line numbers, so highlight ranges remain global.
-export const ARTICLE_CHAT_CHUNK_MAX_CHARS = ARTICLE_CHAT_MAX_CHUNK_CHARS;
+const ARTICLE_CHAT_CHUNK_MAX_CHARS = ARTICLE_CHAT_MAX_CHUNK_CHARS;
 // Long articles may require many distinct highlight passes before the model can
 // compose its answer. Keep a finite guard against runaway tool loops, while
 // allowing enough rounds for large content.
-export const MAX_TOOL_ROUNDS = 50;
+const MAX_TOOL_ROUNDS = 50;
 // A floor, not a ceiling: a small context window splits an article into many
 // chunks, and each chunk needs its own requests. The effective per-turn limit
 // is derived from the chunk count (see runArticleChatTurn) and never drops
 // below this, so short articles keep the established budget.
-export const MIN_TURN_LLM_REQUESTS = 50;
-export const ARTICLE_CHAT_CHUNK_CONCURRENCY = 3;
+const MIN_TURN_LLM_REQUESTS = 50;
+const ARTICLE_CHAT_CHUNK_CONCURRENCY = 3;
 const CHAT_HISTORY_MAX_MESSAGES = 20;
 const CHAT_HISTORY_MAX_CHARS = ARTICLE_CHAT_MAX_HISTORY_CHARS;
 // Each synthesis group merges at least this many findings, so every level at
@@ -135,7 +135,7 @@ function postCancelChatTurn({ turnId }) {
   return sendRuntimeMessage({ type: MSG.cancelChatTurn, turnId });
 }
 
-export const HIGHLIGHT_SPAN_TOOL = Object.freeze({
+const HIGHLIGHT_SPAN_TOOL = Object.freeze({
   name: 'highlight_span',
   description:
     'Highlight one or more consecutive article sentences. Use the 1-based line numbers shown in the article context.',

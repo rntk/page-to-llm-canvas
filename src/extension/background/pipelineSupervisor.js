@@ -6,7 +6,7 @@ import { createLogger } from '../../shared/runtime/log.js';
 /** Alarm name used to keep the service worker alive while pipelines are running. */
 export const KEEPALIVE_ALARM = 'pipeline-keepalive';
 /** Chrome MV3 enforces a minimum of 30 s (0.5 min) for alarm periods. */
-export const KEEPALIVE_PERIOD_MINUTES = 0.5;
+const KEEPALIVE_PERIOD_MINUTES = 0.5;
 
 function defaultIdFactory() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {

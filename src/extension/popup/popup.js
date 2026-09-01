@@ -23,10 +23,10 @@ const countEl = document.getElementById('record-count');
 
 const STORAGE_REFRESH_DEBOUNCE_MS = 300;
 
-export const NO_LLM_PROVIDER_MESSAGE =
+const NO_LLM_PROVIDER_MESSAGE =
   'No LLM provider configured. Add one in Options before picking blocks so PageToLLM can process the selected data.';
 
-export const NO_ACTIVE_LLM_PROVIDER_MESSAGE =
+const NO_ACTIVE_LLM_PROVIDER_MESSAGE =
   'No active LLM provider selected. Choose an active provider in Options before picking blocks.';
 
 let activeTab = null;
@@ -259,7 +259,7 @@ export function filterRecordsForActivePage(records, activePageUrl) {
   return items.filter((record) => urlsMatchActivePage(record && record.sourceUrl, activePageUrl));
 }
 
-export function urlsMatchActivePage(sourceUrl, activePageUrl) {
+function urlsMatchActivePage(sourceUrl, activePageUrl) {
   const normalizedSourceUrl = normalizePageUrl(sourceUrl);
   const normalizedActivePageUrl = normalizePageUrl(activePageUrl);
   if (!normalizedSourceUrl || !normalizedActivePageUrl) return false;

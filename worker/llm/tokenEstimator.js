@@ -2,7 +2,7 @@
 
 export const CONSERVATIVE_CHARS_PER_TOKEN = 2;
 export const CONSERVATIVE_BYTES_PER_TOKEN = 3;
-export const ESTIMATOR_SAFETY_FACTOR = 1.1;
+const ESTIMATOR_SAFETY_FACTOR = 1.1;
 // Max UTF-8 bytes per UTF-16 code unit (BMP U+0800–U+FFFF). Astral code points
 // are 4 bytes over 2 code units = 2 bytes/unit, so 3 is the per-unit worst case.
 export const WORST_CASE_BYTES_PER_CODE_UNIT = 3;

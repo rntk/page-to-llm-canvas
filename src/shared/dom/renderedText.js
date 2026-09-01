@@ -20,7 +20,7 @@ export const CLOSED_BY_DEFAULT_TAGS = new Set(['DIALOG']);
 // Keep this list in step with the capture-side text walker. A boundary is
 // inserted around these elements, while inline elements remain one logical
 // text stream.
-export const BLOCK_TAGS = new Set([
+const BLOCK_TAGS = new Set([
   'ADDRESS',
   'ARTICLE',
   'ASIDE',

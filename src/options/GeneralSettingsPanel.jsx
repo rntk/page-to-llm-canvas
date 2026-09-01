@@ -54,7 +54,7 @@ import {
   normalizeLlmRequestTimeoutSeconds,
 } from '../../worker/settings/llmTimeout.js';
 
-export function ThemeToggle() {
+function ThemeToggle() {
   const [controller] = useState(() => createThemeController());
   const [state, setState] = useState(() => controller.current());
 
@@ -83,7 +83,7 @@ export function ThemeToggle() {
 
 const HIGHLIGHT_PERSIST_DEBOUNCE_MS = 150;
 
-export function HighlightColorSection({ store, scheduler }) {
+function HighlightColorSection({ store, scheduler }) {
   const [color, setColor] = useState(DEFAULT_HIGHLIGHT_COLOR);
   const persistTimer = useRef(null);
   const pendingColor = useRef(null);

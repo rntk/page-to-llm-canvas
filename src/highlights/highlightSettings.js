@@ -2,11 +2,11 @@ import { createStoredSetting } from '../shared/runtime/localStore.js';
 
 export const HIGHLIGHT_COLOR_KEY = 'pagetollm-highlight-color';
 export const DEFAULT_HIGHLIGHT_COLOR = '#3a404d';
-export const HIGHLIGHT_BACKGROUND_ALPHA = 0.12;
-export const HIGHLIGHT_HOVER_BACKGROUND_ALPHA = 0.08;
+const HIGHLIGHT_BACKGROUND_ALPHA = 0.12;
+const HIGHLIGHT_HOVER_BACKGROUND_ALPHA = 0.08;
 // Stronger tint for the "active"/hovered sentence highlight, which must read as
 // more prominent than the resting highlight (HIGHLIGHT_BACKGROUND_ALPHA).
-export const HIGHLIGHT_ACTIVE_BACKGROUND_ALPHA = 0.2;
+const HIGHLIGHT_ACTIVE_BACKGROUND_ALPHA = 0.2;
 
 const HEX_COLOR_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 

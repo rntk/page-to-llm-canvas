@@ -7,7 +7,7 @@ import {
   propertyValue,
 } from '../../shared/dom/renderedText.js';
 
-export const CAPTURE_VERSION = 2;
+const CAPTURE_VERSION = 2;
 
 function normalizeRoots(elements) {
   const unique = [];

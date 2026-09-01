@@ -18,14 +18,14 @@ import {
 
 export const DENSE_CARD_GAP = 4;
 export const DENSE_CARD_MIN_HEIGHT = 56;
-export const DENSE_CARD_MAX_COMPACT_HEIGHT = 96;
-export const DENSE_CARD_HEIGHT_REDUCTION = 16;
-export const DENSE_CARD_MAX_NUDGE = 18;
+const DENSE_CARD_MAX_COMPACT_HEIGHT = 96;
+const DENSE_CARD_HEIGHT_REDUCTION = 16;
+const DENSE_CARD_MAX_NUDGE = 18;
 export const BASE_TOPIC_TITLE_FONT_SIZE = CARD_BASE_TITLE_FONT_SIZE;
-export const SUMMARY_KICKER_FONT_SIZE = 10;
-export const SUMMARY_TITLE_FONT_SIZE = 16;
-export const SUMMARY_TEXT_FONT_SIZE = 14;
-export const SUMMARY_YOUTUBE_FONT_SIZE = 11;
+const SUMMARY_KICKER_FONT_SIZE = 10;
+const SUMMARY_TITLE_FONT_SIZE = 16;
+const SUMMARY_TEXT_FONT_SIZE = 14;
+const SUMMARY_YOUTUBE_FONT_SIZE = 11;
 
 /**
  * Returns `value` if it is a finite number, otherwise `fallback`.

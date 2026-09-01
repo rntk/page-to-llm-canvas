@@ -1,6 +1,6 @@
-export const SELECTED_ELEMENT_CLASS = 'pagetollm-selected';
-export const HIGHLIGHTED_ELEMENT_CLASS = 'pagetollm-element-highlight';
-export const SELECTED_ELEMENT_SELECTOR = `.${SELECTED_ELEMENT_CLASS}`;
+const SELECTED_ELEMENT_CLASS = 'pagetollm-selected';
+const HIGHLIGHTED_ELEMENT_CLASS = 'pagetollm-element-highlight';
+const SELECTED_ELEMENT_SELECTOR = `.${SELECTED_ELEMENT_CLASS}`;
 export const HIGHLIGHTED_ELEMENT_SELECTOR = `.${HIGHLIGHTED_ELEMENT_CLASS}`;
 
 export const SELECTION_MARKER_CLASSES = Object.freeze([

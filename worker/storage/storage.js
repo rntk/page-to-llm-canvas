@@ -706,7 +706,7 @@ export function buildRecordSnippet(record) {
 }
 
 /** Returns all physical page-record documents, including unindexed orphans. */
-export async function allRecordStorageKeys() {
+async function allRecordStorageKeys() {
   return Object.keys(await getLocalByPrefix(RECORD_STORAGE_PREFIX));
 }
 

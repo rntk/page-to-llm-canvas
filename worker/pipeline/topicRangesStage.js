@@ -39,7 +39,7 @@ const MAX_PROVIDER_COOLDOWN_MS = 60_000;
  * the stage immediately instead of burning three more backoff rounds — no
  * amount of retrying can complete coverage without it.
  */
-export class TopicRangeChunkError extends Error {
+class TopicRangeChunkError extends Error {
   constructor(message, { chunkIndexes = [], errors = [], retryable = true } = {}) {
     super(message);
     this.name = 'TopicRangeChunkError';

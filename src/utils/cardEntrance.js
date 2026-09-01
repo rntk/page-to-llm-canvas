@@ -9,7 +9,7 @@ export const MAX_STAGGER_STEP_MS = 14;
 
 // Duration of the card appear animations in modal.css. Kept here so the code
 // that has to wait for them out-lives a tweak to one of the two call sites.
-export const CARD_APPEAR_MS = 300;
+const CARD_APPEAR_MS = 300;
 // When the last staggered card has finished moving, plus a frame of slack.
 export const ENTRANCE_SETTLE_MS = STAGGER_WINDOW_MS + CARD_APPEAR_MS + 32;
 
