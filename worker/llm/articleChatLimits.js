@@ -8,12 +8,11 @@ import {
 } from '../settings/articleChatBudget.js';
 
 /**
- * Derives the variable-text budgets for one article-chat request. The pipeline
- * function supplies the conservative provider/context calculation; chat then
- * divides that budget between source and replayed conversation so their sum,
- * rather than either field independently, fits a small context window. A
- * provider that declares no window keeps the established defaults, which the
- * pipeline signals by returning its own full-budget fallback.
+ * Derives article-chat budgets from the pipeline budget. The pipeline budget
+ * is already estimator-derived; chat splits it between source and history so
+ * their sum fits the same window. Fixed overhead and response sizes differ
+ * from the pipeline, but the variable-text estimator is shared.
+ * Without a declared window the static 60k/24k defaults are used.
  * @param {unknown} contextWindowTokens
  * @returns {{maxChunkChars: number, maxHistoryChars: number}}
  */

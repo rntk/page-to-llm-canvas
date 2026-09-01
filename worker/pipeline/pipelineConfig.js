@@ -6,6 +6,12 @@ import {
   buildTopicSummaryFromSourcePrompt,
 } from './prompts.js';
 import { PIPELINE_MIN_CONTEXT_WINDOW_TOKENS } from '../settings/contextWindowConstraints.js';
+import {
+  estimateMaxCharsForTokens,
+  estimateTokens,
+  estimateTokensForCharCount,
+  WORST_CASE_BYTES_PER_CODE_UNIT,
+} from '../llm/tokenEstimator.js';
 
 // Topic-range input includes sentence markers while source-summary input is raw
 // text, so the stages keep distinct semantic names. They intentionally share
@@ -16,29 +22,27 @@ import { PIPELINE_MIN_CONTEXT_WINDOW_TOKENS } from '../settings/contextWindowCon
 export const PIPELINE_TEXT_CHUNK_MAX_CHARS = 60000;
 
 // Reserve room for provider tokenization variance and the response in addition
-// to the largest static pipeline prompt. Character counts are deliberately
-// converted at only two chars per token: this is conservative for ordinary
-// prose and much safer for code, minified data, and non-Latin text than the
-// usual four-char approximation.
+// to the largest static pipeline prompt.
 const PIPELINE_CONTEXT_ADAPTIVE_RESERVE_MAX_TOKENS = 4096;
 const PIPELINE_CONTEXT_RESERVED_RATIO = 0.75;
-const PIPELINE_CONTEXT_CHARS_PER_TOKEN = 2;
 const PIPELINE_RESPONSE_RESERVED_TOKENS = 1024;
 // A topic response may legitimately contain one distinct hierarchical path
 // per input sentence. Budget enough output for that worst-case shape instead
 // of letting the character budget admit hundreds of short, unrelated lines.
 const TOPIC_RANGE_RESPONSE_TOKENS_PER_SENTENCE = 32;
 export const TOPIC_RANGE_INPUT_MAX_SENTENCES = 240;
-const PIPELINE_FIXED_PROMPT_MAX_CHARS = Math.max(
-  buildTopicRangesPrompt('', { preferContentLanguage: true }).length,
-  buildArticleSummaryPrompt('', { preferContentLanguage: true }).length,
-  buildTopicSummaryFromSourcePrompt('', { preferContentLanguage: true }).length,
-  buildArticleSummaryMergePrompt('', { preferContentLanguage: true }).length,
-  buildLeafSummaryMergePrompt('', { preferContentLanguage: true }).length,
+
+// Largest static prompt among pipeline stages, measured with the shared
+// estimator (UTF-8-aware with safety factor). This is the fixed overhead
+// used in all budget calculations.
+export const PIPELINE_FIXED_PROMPT_TOKENS = Math.max(
+  estimateTokens(buildTopicRangesPrompt('', { preferContentLanguage: true })),
+  estimateTokens(buildArticleSummaryPrompt('', { preferContentLanguage: true })),
+  estimateTokens(buildTopicSummaryFromSourcePrompt('', { preferContentLanguage: true })),
+  estimateTokens(buildArticleSummaryMergePrompt('', { preferContentLanguage: true })),
+  estimateTokens(buildLeafSummaryMergePrompt('', { preferContentLanguage: true })),
 );
-const PIPELINE_FIXED_PROMPT_RESERVED_TOKENS = Math.ceil(
-  PIPELINE_FIXED_PROMPT_MAX_CHARS / PIPELINE_CONTEXT_CHARS_PER_TOKEN,
-);
+
 export const MAX_TAGGED_CHARS = PIPELINE_TEXT_CHUNK_MAX_CHARS;
 export const SOURCE_SUMMARY_MAX_CHARS = PIPELINE_TEXT_CHUNK_MAX_CHARS;
 
@@ -74,22 +78,32 @@ export function getPipelineTextChunkMaxChars(contextWindowTokens) {
   const contextTokens = normalizeContextTokens(contextWindowTokens);
   if (contextTokens === null) return PIPELINE_TEXT_CHUNK_MAX_CHARS;
   const reservedTokens = Math.max(
-    PIPELINE_FIXED_PROMPT_RESERVED_TOKENS + PIPELINE_RESPONSE_RESERVED_TOKENS,
+    PIPELINE_FIXED_PROMPT_TOKENS + PIPELINE_RESPONSE_RESERVED_TOKENS,
     Math.min(
       PIPELINE_CONTEXT_ADAPTIVE_RESERVE_MAX_TOKENS,
       Math.floor(contextTokens * PIPELINE_CONTEXT_RESERVED_RATIO),
     ),
   );
   const availableTokens = contextTokens - reservedTokens;
-  return Math.min(
-    PIPELINE_TEXT_CHUNK_MAX_CHARS,
-    availableTokens * PIPELINE_CONTEXT_CHARS_PER_TOKEN,
-  );
+  if (availableTokens <= 0) {
+    throw new Error(
+      `Active provider "Context window (tokens)" must be at least ${PIPELINE_MIN_CONTEXT_WINDOW_TOKENS}. Update it in Options > LLM Providers.`,
+    );
+  }
+  const maxChars = estimateMaxCharsForTokens(availableTokens);
+  return Math.min(PIPELINE_TEXT_CHUNK_MAX_CHARS, maxChars);
 }
 
 /**
  * Caps topic-range markers by the response space reserved for the configured
  * context. Unknown provider windows retain the established 240-marker limit.
+ *
+ * The payload reserve assumes worst-case density (WORST_CASE_BYTES_PER_CODE_UNIT)
+ * so the same ratio that sized maxChars is reused here; otherwise the payload
+ * budget would be counted twice. This makes the sentence cap flat at 54 for
+ * mid-size windows (8k–33k) — safe but ~4x more topic-ranging calls than
+ * before at those sizes. If throughput matters, the orchestrator could measure
+ * the actual chunk text at dispatch instead of assuming uniform worst-case density.
  *
  * @param {unknown} contextWindowTokens Provider context window in tokens.
  * @returns {number}
@@ -97,10 +111,11 @@ export function getPipelineTextChunkMaxChars(contextWindowTokens) {
 export function getTopicRangeInputMaxSentences(contextWindowTokens) {
   const contextTokens = normalizeContextTokens(contextWindowTokens);
   if (contextTokens === null) return TOPIC_RANGE_INPUT_MAX_SENTENCES;
-  const payloadTokens = Math.ceil(
-    getPipelineTextChunkMaxChars(contextTokens) / PIPELINE_CONTEXT_CHARS_PER_TOKEN,
-  );
-  const responseTokens = contextTokens - PIPELINE_FIXED_PROMPT_RESERVED_TOKENS - payloadTokens;
+  const maxChars = getPipelineTextChunkMaxChars(contextTokens);
+  const payloadTokens = estimateTokensForCharCount(maxChars, {
+    bytesPerChar: WORST_CASE_BYTES_PER_CODE_UNIT,
+  });
+  const responseTokens = contextTokens - PIPELINE_FIXED_PROMPT_TOKENS - payloadTokens;
   return Math.min(
     TOPIC_RANGE_INPUT_MAX_SENTENCES,
     Math.max(1, Math.floor(responseTokens / TOPIC_RANGE_RESPONSE_TOKENS_PER_SENTENCE)),
