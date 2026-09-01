@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import { useRecord } from './useRecord.js';
+import { RECORD_REFRESH_DEBOUNCE_MS, useRecord } from './useRecord.js';
 
 // The hook is exercised against a fake record source rather than the
 // chrome-backed one. The browser adapters it would otherwise reach through have
@@ -82,6 +82,10 @@ describe('useRecord', () => {
     source = createFakeSource();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('sets error when key is missing', () => {
     const { result } = renderHook(() => useRecord('', source));
     expect(result.current.error).toBe('missing record key');
@@ -116,6 +120,21 @@ describe('useRecord', () => {
     expect(result.current.error).toBeNull();
   });
 
+  it('surfaces an initial record-service error without treating it as deletion', async () => {
+    source.runtimeMessenger.send.mockResolvedValue({
+      ok: false,
+      error: 'storage temporarily unavailable',
+    });
+
+    const { result } = renderHook(() => useRecord('test', source));
+    await flush();
+
+    expect(result.current.error).toBe('storage temporarily unavailable');
+    expect(result.current.record).toBeNull();
+    expect(result.current.isDeleted).toBe(false);
+    expect(source.store.get).not.toHaveBeenCalled();
+  });
+
   it('reassembles a fallback record split across meta/content/summaries docs', async () => {
     source.runtimeMessenger.send.mockResolvedValue({ ok: false });
     source.store.get.mockResolvedValue({
@@ -139,9 +158,11 @@ describe('useRecord', () => {
 
     expect(result.current.error).toBe('record not found');
     expect(result.current.record).toBeNull();
+    expect(result.current.isDeleted).toBe(true);
   });
 
-  it('refetches the whole record when a watched doc changes', async () => {
+  it('debounces watched-doc changes before refetching the whole record', async () => {
+    vi.useFakeTimers();
     source.runtimeMessenger.send.mockResolvedValue({
       ok: true,
       record: { key: 'test', status: 'pending' },
@@ -159,13 +180,24 @@ describe('useRecord', () => {
       record: { key: 'test', status: 'done' },
     });
     act(() => source.notifyChange());
+    act(() => source.notifyChange());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RECORD_REFRESH_DEBOUNCE_MS - 1);
+    });
+    expect(source.runtimeMessenger.send).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
     await flush();
 
+    expect(source.runtimeMessenger.send).toHaveBeenCalledTimes(2);
     expect(result.current.record.status).toBe('done');
     expect(result.current.error).toBeNull();
   });
 
   it('sets error when a refetch finds the record gone', async () => {
+    vi.useFakeTimers();
     source.runtimeMessenger.send.mockResolvedValue({
       ok: true,
       record: { key: 'test', status: 'pending' },
@@ -176,10 +208,36 @@ describe('useRecord', () => {
 
     source.runtimeMessenger.send.mockResolvedValue({ ok: false });
     act(() => source.notifyChange());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RECORD_REFRESH_DEBOUNCE_MS);
+    });
     await flush();
 
     expect(result.current.record).toBeNull();
     expect(result.current.error).toBe('record deleted');
+    expect(result.current.isDeleted).toBe(true);
+  });
+
+  it('keeps the current record open when a refresh returns a service error', async () => {
+    vi.useFakeTimers();
+    const record = { key: 'test', status: 'done' };
+    source.runtimeMessenger.send.mockResolvedValue({ ok: true, record });
+
+    const { result } = renderHook(() => useRecord('test', source));
+    await flush();
+    source.runtimeMessenger.send.mockResolvedValue({
+      ok: false,
+      error: 'storage temporarily unavailable',
+    });
+    act(() => source.notifyChange());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RECORD_REFRESH_DEBOUNCE_MS);
+    });
+    await flush();
+
+    expect(result.current.record).toEqual(record);
+    expect(result.current.error).toBe('storage temporarily unavailable');
+    expect(result.current.isDeleted).toBe(false);
   });
 
   it('surfaces a rejected send as the error message', async () => {
@@ -212,6 +270,55 @@ describe('useRecord', () => {
     expect(source.store.subscribeChanges).toHaveBeenCalledOnce();
     unmount();
     expect(source.unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it('cancels a pending refresh on unmount', async () => {
+    vi.useFakeTimers();
+    source.runtimeMessenger.send.mockResolvedValue({
+      ok: true,
+      record: { key: 'test', status: 'done' },
+    });
+
+    const { unmount } = renderHook(() => useRecord('test', source));
+    await flush();
+    act(() => source.notifyChange());
+    unmount();
+    await vi.advanceTimersByTimeAsync(RECORD_REFRESH_DEBOUNCE_MS);
+
+    expect(source.runtimeMessenger.send).toHaveBeenCalledOnce();
+  });
+
+  it('ignores an initial response invalidated by a newer storage revision', async () => {
+    vi.useFakeTimers();
+    let resolveInitial;
+    let resolveRefresh;
+    source.runtimeMessenger.send
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveInitial = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveRefresh = resolve;
+          }),
+      );
+
+    const { result, unmount } = renderHook(() => useRecord('test', source));
+    act(() => source.notifyChange());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RECORD_REFRESH_DEBOUNCE_MS);
+    });
+
+    resolveRefresh({ ok: true, record: { key: 'test', version: 'new' } });
+    await flush();
+    resolveInitial({ ok: true, record: { key: 'test', version: 'old' } });
+    await flush();
+
+    expect(result.current.record).toEqual({ key: 'test', version: 'new' });
+    unmount();
   });
 
   it('resets record and resubscribes when the key changes', async () => {

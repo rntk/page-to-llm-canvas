@@ -40,7 +40,18 @@ const noop = () => {};
  * @returns {JSX.Element}
  */
 export default function App({ initialKey, recordSource, onClose = noop }) {
-  const { record } = useRecord(initialKey, recordSource);
+  const { record, isDeleted } = useRecord(initialKey, recordSource);
+  const deletionCloseSentRef = useRef(false);
+
+  useEffect(() => {
+    if (!isDeleted) {
+      deletionCloseSentRef.current = false;
+      return;
+    }
+    if (deletionCloseSentRef.current) return;
+    deletionCloseSentRef.current = true;
+    onClose();
+  }, [isDeleted, onClose]);
 
   // Canvas is a read-only view of completed data. Pipeline progress, failures,
   // retries, and summary review are handled from the popup and Options page.

@@ -20,8 +20,19 @@ export default function HierarchyApp({
   onClose = noop,
   onNavigateToSentences = noop,
 }) {
-  const { record, error } = useRecord(initialKey, recordSource);
+  const { record, error, isDeleted } = useRecord(initialKey, recordSource);
   const bodyRef = useRef(null);
+  const deletionCloseSentRef = useRef(false);
+
+  useEffect(() => {
+    if (!isDeleted) {
+      deletionCloseSentRef.current = false;
+      return;
+    }
+    if (deletionCloseSentRef.current) return;
+    deletionCloseSentRef.current = true;
+    onClose();
+  }, [isDeleted, onClose]);
 
   const [prevInitialKey, setPrevInitialKey] = useState(initialKey);
   const [collapsedPaths, setCollapsedPaths] = useState(() => new Set());
@@ -210,6 +221,10 @@ export default function HierarchyApp({
       />
     );
   }
+
+  // The host removes the iframe asynchronously after the effect above. Avoid
+  // painting a transient "record not found" state in the meantime.
+  if (isDeleted) return null;
 
   return (
     <div className="th-page">

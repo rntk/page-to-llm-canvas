@@ -8,6 +8,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const state = vi.hoisted(() => ({
   record: null,
   error: null,
+  isDeleted: false,
   vm: {},
   vmInput: null,
   canvasWrapElement: null,
@@ -38,7 +39,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('./hooks/useRecord.js', () => ({
-  useRecord: () => ({ record: state.record, error: state.error }),
+  useRecord: () => ({ record: state.record, error: state.error, isDeleted: state.isDeleted }),
 }));
 
 vi.mock('../domain/topicCards.js', () => ({
@@ -220,6 +221,7 @@ describe('App composition behavior', () => {
       sourceUrl: 'https://example.com',
     };
     state.error = null;
+    state.isDeleted = false;
     state.vm = { ...doneView };
     state.vmInput = null;
     state.canvasWrapElement = { focus: mocks.canvasFocus, clientWidth: 800, clientHeight: 500 };
@@ -262,6 +264,34 @@ describe('App composition behavior', () => {
       await act(async () => root.unmount());
     },
   );
+
+  it('closes the canvas when its record is deleted', async () => {
+    const onClose = vi.fn();
+    state.record = null;
+    state.error = 'record deleted';
+    state.isDeleted = true;
+
+    const { container, root } = await renderApp('record-1', { onClose });
+
+    expect(container.childElementCount).toBe(0);
+    expect(onClose).toHaveBeenCalledOnce();
+    await act(async () => root.unmount());
+  });
+
+  it('sends the deletion close only once when onClose changes identity', async () => {
+    state.record = null;
+    state.error = 'record not found';
+    state.isDeleted = true;
+    const firstOnClose = vi.fn();
+    const secondOnClose = vi.fn();
+    const { root } = await renderApp('record-1', { onClose: firstOnClose });
+
+    await act(async () => root.render(<App initialKey="record-1" onClose={secondOnClose} />));
+
+    expect(firstOnClose).toHaveBeenCalledOnce();
+    expect(secondOnClose).not.toHaveBeenCalled();
+    await act(async () => root.unmount());
+  });
 
   it('wires the completed canvas controls and topic interactions', async () => {
     const onClose = vi.fn();

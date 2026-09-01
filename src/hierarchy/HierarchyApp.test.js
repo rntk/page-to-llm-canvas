@@ -84,6 +84,16 @@ describe('HierarchyApp', () => {
     unmount();
   });
 
+  it('closes the hierarchy when its record is deleted', () => {
+    useRecord.mockReturnValue({ record: null, error: 'record deleted', isDeleted: true });
+
+    const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
+
+    expect(hostActions.onClose).toHaveBeenCalledOnce();
+    expect(container.childElementCount).toBe(0);
+    unmount();
+  });
+
   it('renders processing state when record status is not done', () => {
     useRecord.mockReturnValue({ record: { status: 'pending' }, error: null });
     const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
