@@ -1,11 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeTopics as computeTopicsWithDefaults } from './topicRangesStage.js';
 import { chunkTaggedText, chunkTopicRangeSentences } from './topicRangeChunking.js';
-import {
-  groupsToTopics,
-  mapTextOffsetToSource,
-  rangesToSentenceList,
-} from './topicRangeMapping.js';
+import { groupsToTopics, rangesToSentenceList } from './topicRangeMapping.js';
 
 import { splitSentences } from './sentenceSplitter.js';
 import { markCancellation } from './cancellation.js';
@@ -111,56 +107,24 @@ describe('range and offset helpers', () => {
       ]),
     ).toEqual([1, 2, 3, 4, 5]);
   });
-
-  it('clamps text offsets to the mapping bounds', () => {
-    expect(mapTextOffsetToSource([10, 20, 30], 1)).toBe(20);
-  });
-
-  it('records the source basis when one is supplied', () => {
-    const topics = groupsToTopics(
-      [{ label: ['A'], ranges: [{ start: 0, end: 0 }] }],
-      [{ text: 'A.', start: 0, end: 2 }],
-      [0, 1, 2],
-    );
-    expect(topics[0].offset_basis).toBe('captured_text');
-  });
 });
 
 describe('groupsToTopics', () => {
-  it('creates hierarchical names, unique sentence lists, spans, and ranges', () => {
-    const sentenceObjs = [
-      { text: 'A.', start: 0, end: 2 },
-      { text: 'B.', start: 3, end: 5 },
-      { text: 'C.', start: 6, end: 8 },
-    ];
-    const topics = groupsToTopics(
-      [
-        {
-          label: ['Science', 'AI'],
-          ranges: [
-            { start: 0, end: 1 },
-            { start: 1, end: 2 },
-          ],
-        },
-      ],
-      sentenceObjs,
-      [100, 101, 102, 103, 104, 105, 106, 107, 108],
-    );
+  it('creates hierarchical names and unique sentence lists', () => {
+    const topics = groupsToTopics([
+      {
+        label: ['Science', 'AI'],
+        ranges: [
+          { start: 0, end: 1 },
+          { start: 1, end: 2 },
+        ],
+      },
+    ]);
 
     expect(topics).toEqual([
       {
         name: 'Science>AI',
         sentences: [1, 2, 3],
-        sentence_spans: [
-          { sentence: 1, start: 100, end: 102 },
-          { sentence: 2, start: 103, end: 105 },
-          { sentence: 3, start: 106, end: 108 },
-        ],
-        ranges: [
-          { sentence_start: 1, sentence_end: 2, start: 100, end: 105 },
-          { sentence_start: 2, sentence_end: 3, start: 103, end: 108 },
-        ],
-        offset_basis: 'captured_text',
       },
     ]);
   });
@@ -309,7 +273,6 @@ describe('computeTopics', () => {
     expect(result.topics[0]).toMatchObject({
       name: 'Science>AI',
       sentences: [1, 2],
-      offset_basis: 'captured_text',
     });
     expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
     expect(runtime.update).toHaveBeenLastCalledWith(

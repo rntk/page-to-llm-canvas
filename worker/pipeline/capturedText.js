@@ -31,25 +31,20 @@ function isStrippableFormatChar(ch) {
   );
 }
 
-function filterUnicodeTags(out, mapping) {
+function filterUnicodeTags(out) {
   const filteredOut = [];
-  const filteredMapping = [];
   let inFlagContext = false;
   const pendingTagOut = [];
-  const pendingTagMapping = [];
 
   function flushPendingTags() {
     for (let k = 0; k < pendingTagOut.length; k += 1) {
       filteredOut.push(pendingTagOut[k]);
-      filteredMapping.push(pendingTagMapping[k]);
     }
     pendingTagOut.length = 0;
-    pendingTagMapping.length = 0;
   }
 
   function discardPendingTags() {
     pendingTagOut.length = 0;
-    pendingTagMapping.length = 0;
   }
 
   for (let i = 0; i < out.length; ) {
@@ -72,13 +67,11 @@ function filterUnicodeTags(out, mapping) {
       inFlagContext = true;
       for (let offset = 0; offset < unitLength; offset += 1) {
         filteredOut.push(out[i + offset]);
-        filteredMapping.push(mapping[i + offset]);
       }
     } else if (isTag) {
       if (inFlagContext) {
         for (let offset = 0; offset < unitLength; offset += 1) {
           pendingTagOut.push(out[i + offset]);
-          pendingTagMapping.push(mapping[i + offset]);
         }
         if (codePoint === 0xe007f) {
           flushPendingTags();
@@ -93,41 +86,36 @@ function filterUnicodeTags(out, mapping) {
       inFlagContext = false;
       for (let offset = 0; offset < unitLength; offset += 1) {
         filteredOut.push(out[i + offset]);
-        filteredMapping.push(mapping[i + offset]);
       }
     }
     i += unitLength;
   }
   // Trailing tags without a terminator are discarded (buffer not flushed).
-  return { out: filteredOut, mapping: filteredMapping };
+  return filteredOut;
 }
 
-function finalizeCapturedText(out, mapping, sourceLength) {
-  const tagFiltered = filterUnicodeTags(out, mapping);
+function finalizeCapturedText(out) {
+  const tagFiltered = filterUnicodeTags(out);
   const filteredOut = [];
-  const filteredMapping = [];
   const zeroWidthChars = new Set(['\u200b', '\u200c', '\u200d', '\ufeff']);
 
-  for (let i = 0; i < tagFiltered.out.length; ) {
-    if (!zeroWidthChars.has(tagFiltered.out[i])) {
-      filteredOut.push(tagFiltered.out[i]);
-      filteredMapping.push(tagFiltered.mapping[i]);
+  for (let i = 0; i < tagFiltered.length; ) {
+    if (!zeroWidthChars.has(tagFiltered[i])) {
+      filteredOut.push(tagFiltered[i]);
       i += 1;
       continue;
     }
     let end = i + 1;
-    while (end < tagFiltered.out.length && zeroWidthChars.has(tagFiltered.out[end])) end += 1;
+    while (end < tagFiltered.length && zeroWidthChars.has(tagFiltered[end])) end += 1;
     if (end - i < 4) {
       for (let offset = i; offset < end; offset += 1) {
-        filteredOut.push(tagFiltered.out[offset]);
-        filteredMapping.push(tagFiltered.mapping[offset]);
+        filteredOut.push(tagFiltered[offset]);
       }
     }
     i = end;
   }
 
   const collapsedOut = [];
-  const collapsedMapping = [];
   let lastWasSpace = true;
   for (let i = 0; i < filteredOut.length; i += 1) {
     if (filteredOut[i] === ' ') {
@@ -137,26 +125,22 @@ function finalizeCapturedText(out, mapping, sourceLength) {
       lastWasSpace = false;
     }
     collapsedOut.push(filteredOut[i]);
-    collapsedMapping.push(filteredMapping[i]);
   }
   if (collapsedOut.at(-1) === ' ') {
     collapsedOut.pop();
-    collapsedMapping.pop();
   }
-  collapsedMapping.push(sourceLength);
-  return { text: collapsedOut.join(''), mapping: collapsedMapping };
+  return collapsedOut.join('');
 }
 
 /**
- * Normalize browser-captured plain text and retain UTF-16 source offsets.
+ * Normalize browser-captured plain text.
  * Literal markup-looking and entity-looking characters are not interpreted.
  * @param {string} input Text extracted in the page context.
- * @returns {{text: string, mapping: number[]}}
+ * @returns {string}
  */
-export function normalizeCapturedTextKeepOffsets(input) {
+export function normalizeCapturedText(input) {
   const plain = String(input ?? '');
   const out = [];
-  const mapping = [];
   let lastWasSpace = true;
 
   for (let i = 0; i < plain.length; i += 1) {
@@ -164,13 +148,11 @@ export function normalizeCapturedTextKeepOffsets(input) {
     if (isWhitespace(ch)) {
       if (lastWasSpace) continue;
       out.push(' ');
-      mapping.push(i);
       lastWasSpace = true;
     } else if (!isStrippableFormatChar(ch)) {
       out.push(ch);
-      mapping.push(i);
       lastWasSpace = false;
     }
   }
-  return finalizeCapturedText(out, mapping, plain.length);
+  return finalizeCapturedText(out);
 }

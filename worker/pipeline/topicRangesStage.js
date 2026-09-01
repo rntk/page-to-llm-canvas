@@ -1,4 +1,4 @@
-import { normalizeCapturedTextKeepOffsets } from './capturedText.js';
+import { normalizeCapturedText } from './capturedText.js';
 import { splitSentences } from './sentenceSplitter.js';
 import { buildTopicRangesPrompt } from './prompts.js';
 import { parseTopicRangesDetailed, groupsFromSegments, TopicParseError } from './topicParser.js';
@@ -324,12 +324,11 @@ export async function computeTopics({
   // Treat it as plain text: parsing it as HTML would corrupt literal `<`, `>`
   // and `&` characters and could reintroduce content removed by capture-side
   // visibility filtering.
-  const { text, mapping } = normalizeCapturedTextKeepOffsets(capturedText);
+  const text = normalizeCapturedText(capturedText);
   await runtime.log(
     'normalizing_text_done',
     {
       textLength: text.length,
-      mappingLength: mapping.length,
       source: 'captured_text',
     },
     { verbose: true },
@@ -509,7 +508,7 @@ export async function computeTopics({
 
   await runtime.log('topic_ranges_done', { groupCount: groups.length }, { verbose: true });
 
-  const topics = groupsToTopics(groups, sentenceObjs, mapping);
+  const topics = groupsToTopics(groups);
   await runtime.update({
     topics,
     // The chunk checkpoint has served its purpose; clearing it here rides along

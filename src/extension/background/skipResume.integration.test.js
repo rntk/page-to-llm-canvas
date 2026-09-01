@@ -99,9 +99,9 @@ const SENTENCES = [
 ];
 
 const TOPICS = [
-  { name: 'A>x', sentences: [1, 2], sentence_spans: [], ranges: [] },
-  { name: 'A>y', sentences: [3, 4], sentence_spans: [], ranges: [] },
-  { name: 'A>z', sentences: [10, 11], sentence_spans: [], ranges: [] },
+  { name: 'A>x', sentences: [1, 2] },
+  { name: 'A>y', sentences: [3, 4] },
+  { name: 'A>z', sentences: [10, 11] },
 ];
 
 function makeParkedRecord(key) {

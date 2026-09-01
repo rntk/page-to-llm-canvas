@@ -176,7 +176,7 @@ function completeSummaryCheckpoint() {
     contentRevision: 'checkpoint-revision',
     summaryCheckpointContentRevision: 'checkpoint-revision',
     sentences: ['One.', 'Two.'],
-    topics: [{ name: 'Checkpoint', sentences: [1, 2], sentence_spans: [], ranges: [] }],
+    topics: [{ name: 'Checkpoint', sentences: [1, 2] }],
   };
 }
 
@@ -553,7 +553,7 @@ describe('background pipeline lifecycle', () => {
           pipelineRunId: 'imported-run',
           status: 'needs_attention',
           sentences: [],
-          topics: [{ name: 'A', sentences: [1], sentence_spans: [], ranges: [] }],
+          topics: [{ name: 'A', sentences: [1] }],
           summaryErrors: [{ topic: 'A', error_kind: 'timeout', error_message: 'x' }],
           topic_summaries: {
             A: {
@@ -897,7 +897,7 @@ describe('background pipeline lifecycle', () => {
         summariesDisabled: true,
         summariesIncomplete: true,
         sentences: ['Alpha.', 'Beta.'],
-        topics: [{ name: 'Tech>All', sentences: [1, 2], sentence_spans: [], ranges: [] }],
+        topics: [{ name: 'Tech>All', sentences: [1, 2] }],
         pipelineRunId: 'old-run',
         acceptedMergeFailurePaths: ['Stale'],
       }),
@@ -957,7 +957,7 @@ describe('background pipeline lifecycle', () => {
         contentRevision: 'new-revision',
         summaryCheckpointContentRevision: 'old-revision',
         sentences: ['Old sentence.'],
-        topics: [{ name: 'Old', sentences: [1], sentence_spans: [], ranges: [] }],
+        topics: [{ name: 'Old', sentences: [1] }],
       }),
     );
 
@@ -985,7 +985,7 @@ describe('background pipeline lifecycle', () => {
       makeRecord('gen-invalid', {
         status: 'done',
         sentences: ['One.'],
-        topics: [{ name: 'A', sentences: [2], sentence_spans: [], ranges: [] }],
+        topics: [{ name: 'A', sentences: [2] }],
         topic_summaries: {
           A: { runs: [{ sentences: [1], text: 'Keep me.' }], source_sentences: [1] },
         },

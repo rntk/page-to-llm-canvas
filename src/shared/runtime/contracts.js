@@ -127,9 +127,9 @@ export function isImportableRecord(record) {
  * @property {string} [sourceUrl] - Origin URL of the captured page ('' if none).
  * @property {string} [text] - Normalized article text derived from `capturedText`.
  * @property {string[]} [sentences] - Sentence-split article text.
- * @property {object[]} [topics] - Detected topic ranges over `sentences`.
- *   Newly computed topics carry `offset_basis: "captured_text"` to identify
- *   what their persisted `start`/`end` offsets index.
+ * @property {object[]} [topics] - Detected topic ranges over `sentences`,
+ *   each containing `{ name: string, sentences: number[] }` where `sentences`
+ *   is an ordered, 1-based unique list of sentence indices.
  * @property {object|null} [topic_range_chunks] - Resumable checkpoint for the
  *   topic-ranges stage: `{contentRevision, sentenceCount, chunks}` where
  *   `chunks[i]` is either null (that chunk still needs an LLM request) or

@@ -7,11 +7,7 @@ import {
 } from './orchestrator.js';
 import { createPipelineRuntime } from './pipelineRuntime.js';
 import { chunkTaggedText, chunkTopicRangeSentences } from './topicRangeChunking.js';
-import {
-  groupsToTopics,
-  mapTextOffsetToSource,
-  rangesToSentenceList,
-} from './topicRangeMapping.js';
+import { groupsToTopics, rangesToSentenceList } from './topicRangeMapping.js';
 import { parseSummaryResponse, shouldInlineRun, chunkSourceSentences } from './sourceSummarizer.js';
 import { classifyLlmError } from './summaryStage.js';
 import { buildTopicTree, splitContiguousRuns } from './topicTreeMerge.js';
@@ -43,10 +39,7 @@ vi.mock('../storage/storage.js', () => ({
 }));
 
 vi.mock('./capturedText.js', () => ({
-  normalizeCapturedTextKeepOffsets: vi.fn((text) => ({
-    text,
-    mapping: Array.from({ length: String(text).length + 1 }, (_, index) => index),
-  })),
+  normalizeCapturedText: vi.fn((text) => String(text || '')),
 }));
 
 vi.mock('./htmlEntities.js', () => ({
@@ -123,10 +116,6 @@ const { runPipeline } = createPipelineRunner({
   logger: { info: vi.fn(), error: vi.fn() },
 });
 
-function makeMapping(text) {
-  return Array.from({ length: text.length + 1 }, (_, i) => i);
-}
-
 function makeRecord(key, htmlContent) {
   return {
     key,
@@ -158,7 +147,7 @@ beforeEach(() => {
   }));
   storage.appendProcessingLog.mockResolvedValue(undefined);
   storage.flushProcessingLog.mockResolvedValue(undefined);
-  capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: '', mapping: [0] });
+  capturedText.normalizeCapturedText.mockReturnValue('');
   sentenceSplitter.splitSentences.mockReturnValue([]);
   llm.callLLMWithRetry.mockResolvedValue('');
   getActiveProvider.mockResolvedValue(null);
@@ -555,56 +544,29 @@ describe('buildTopicTree', () => {
 // ---------------------------------------------------------------------------
 
 describe('groupsToTopics', () => {
-  it('converts parsed groups into stored topic records with captured-text offsets', () => {
-    const sentenceObjs = [
-      { text: 'AB.', start: 0, end: 3 },
-      { text: 'CD.', start: 4, end: 7 },
-      { text: 'EF.', start: 8, end: 11 },
-    ];
-    const mapping = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110];
-    const topics = groupsToTopics(
-      [{ label: ['Tech', 'AI'], ranges: [{ start: 0, end: 1 }] }],
-      sentenceObjs,
-      mapping,
-    );
+  it('converts parsed groups into stored topic records', () => {
+    const topics = groupsToTopics([{ label: ['Tech', 'AI'], ranges: [{ start: 0, end: 1 }] }]);
 
     expect(topics).toEqual([
       {
         name: 'Tech>AI',
         sentences: [1, 2],
-        sentence_spans: [
-          { sentence: 1, start: 0, end: 30 },
-          { sentence: 2, start: 40, end: 70 },
-        ],
-        ranges: [{ sentence_start: 1, sentence_end: 2, start: 0, end: 70 }],
-        offset_basis: 'captured_text',
       },
     ]);
   });
 
-  it('deduplicates overlapping sentence ranges while preserving range records', () => {
-    const sentenceObjs = [
-      { text: 'A.', start: 0, end: 2 },
-      { text: 'B.', start: 3, end: 5 },
-      { text: 'C.', start: 6, end: 8 },
-    ];
-    const topics = groupsToTopics(
-      [
-        {
-          label: ['Overlap'],
-          ranges: [
-            { start: 0, end: 1 },
-            { start: 1, end: 2 },
-          ],
-        },
-      ],
-      sentenceObjs,
-      makeMapping('A. B. C.'),
-    );
+  it('deduplicates overlapping sentence ranges', () => {
+    const topics = groupsToTopics([
+      {
+        label: ['Overlap'],
+        ranges: [
+          { start: 0, end: 1 },
+          { start: 1, end: 2 },
+        ],
+      },
+    ]);
 
     expect(topics[0].sentences).toEqual([1, 2, 3]);
-    expect(topics[0].sentence_spans.map((span) => span.sentence)).toEqual([1, 2, 3]);
-    expect(topics[0].ranges).toHaveLength(2);
   });
 });
 
@@ -646,27 +608,6 @@ describe('rangesToSentenceList', () => {
 });
 
 // ---------------------------------------------------------------------------
-// mapTextOffsetToSource
-// ---------------------------------------------------------------------------
-
-describe('mapTextOffsetToSource', () => {
-  it('maps valid offset directly', () => {
-    const mapping = [10, 20, 30, 40];
-    expect(mapTextOffsetToSource(mapping, 1)).toBe(20);
-  });
-
-  it('clamps negative offset to 0', () => {
-    const mapping = [10, 20, 30];
-    expect(mapTextOffsetToSource(mapping, -5)).toBe(10);
-  });
-
-  it('clamps overflow offset to last mapping entry', () => {
-    const mapping = [10, 20, 30];
-    expect(mapTextOffsetToSource(mapping, 10)).toBe(30);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // runPipeline
 // ---------------------------------------------------------------------------
 
@@ -693,10 +634,7 @@ describe('runPipeline', () => {
     getActiveProvider.mockResolvedValue(provider);
     const plainText = 'Sentence one. Sentence two.';
     storage.readRecord.mockResolvedValue(makeRecord('provider-snapshot', `<p>${plainText}</p>`));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({
-      text: plainText,
-      mapping: makeMapping(plainText),
-    });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'Sentence one.', start: 0, end: 13 },
       { text: 'Sentence two.', start: 14, end: 27 },
@@ -715,10 +653,9 @@ describe('runPipeline', () => {
   it('runs the full pipeline for a single topic', async () => {
     const htmlText = '<p>Sentence one. Sentence two.</p>';
     const plainText = 'Sentence one. Sentence two.';
-    const mapping = makeMapping(plainText);
 
     storage.readRecord.mockResolvedValue(makeRecord('key1', htmlText));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'Sentence one.', start: 0, end: 13 },
       { text: 'Sentence two.', start: 14, end: 27 },
@@ -752,7 +689,7 @@ describe('runPipeline', () => {
 
   it('marks done with empty topics when no sentences are found', async () => {
     storage.readRecord.mockResolvedValue(makeRecord('key2', '<p></p>'));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: '', mapping: [0] });
+    capturedText.normalizeCapturedText.mockReturnValue('');
     sentenceSplitter.splitSentences.mockReturnValue([]);
 
     await runPipeline('key2');
@@ -771,9 +708,8 @@ describe('runPipeline', () => {
 
   it('retries topic parsing on TopicParseError and eventually succeeds', async () => {
     const plainText = 'A. B. C.';
-    const mapping = makeMapping(plainText);
     storage.readRecord.mockResolvedValue(makeRecord('key3', '<p>A. B. C.</p>'));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'A.', start: 0, end: 2 },
       { text: 'B.', start: 3, end: 5 },
@@ -802,9 +738,8 @@ describe('runPipeline', () => {
   it('emits topic_ranges_parse_diagnostics and raw_response on a failed parse attempt', async () => {
     getStoredVerboseLogs.mockResolvedValue(true);
     const plainText = 'A. B. C.';
-    const mapping = makeMapping(plainText);
     storage.readRecord.mockResolvedValue(makeRecord('key3-verbose', '<p>A. B. C.</p>'));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'A.', start: 0, end: 2 },
       { text: 'B.', start: 3, end: 5 },
@@ -848,7 +783,7 @@ describe('runPipeline', () => {
 
   it('stores error status and re-throws on pipeline failure', async () => {
     storage.readRecord.mockResolvedValue(makeRecord('key4', '<p>text</p>'));
-    capturedText.normalizeCapturedTextKeepOffsets.mockImplementation(() => {
+    capturedText.normalizeCapturedText.mockImplementation(() => {
       throw new Error('HTML parse failed');
     });
 
@@ -867,7 +802,7 @@ describe('runPipeline', () => {
   it('persists an unrelated error that settles after the signal is aborted', async () => {
     const controller = new AbortController();
     storage.readRecord.mockResolvedValue(makeRecord('cancelled-plain-error', '<p>text</p>'));
-    capturedText.normalizeCapturedTextKeepOffsets.mockImplementation(() => {
+    capturedText.normalizeCapturedText.mockImplementation(() => {
       controller.abort();
       throw new Error('transport closed while aborting');
     });
@@ -890,12 +825,11 @@ describe('runPipeline', () => {
   it('skips verbose processing-log stages when the setting is off', async () => {
     getStoredVerboseLogs.mockResolvedValue(false);
     const plainText = 'Sentence one. Sentence two.';
-    const mapping = makeMapping(plainText);
 
     storage.readRecord.mockResolvedValue(
       makeRecord('key-quiet', '<p>Sentence one. Sentence two.</p>'),
     );
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'Sentence one.', start: 0, end: 13 },
       { text: 'Sentence two.', start: 14, end: 27 },
@@ -921,12 +855,11 @@ describe('runPipeline', () => {
   it('records verbose processing-log stages when the setting is on', async () => {
     getStoredVerboseLogs.mockResolvedValue(true);
     const plainText = 'Sentence one. Sentence two.';
-    const mapping = makeMapping(plainText);
 
     storage.readRecord.mockResolvedValue(
       makeRecord('key-verbose', '<p>Sentence one. Sentence two.</p>'),
     );
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'Sentence one.', start: 0, end: 13 },
       { text: 'Sentence two.', start: 14, end: 27 },
@@ -959,12 +892,11 @@ describe('runPipeline', () => {
   it('does not emit topic_ranges_parse_diagnostics/raw_response for a clean parse', async () => {
     getStoredVerboseLogs.mockResolvedValue(true);
     const plainText = 'Sentence one. Sentence two.';
-    const mapping = makeMapping(plainText);
 
     storage.readRecord.mockResolvedValue(
       makeRecord('key-verbose-clean', '<p>Sentence one. Sentence two.</p>'),
     );
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'Sentence one.', start: 0, end: 13 },
       { text: 'Sentence two.', start: 14, end: 27 },
@@ -986,12 +918,11 @@ describe('runPipeline', () => {
   it('emits topic_ranges_parse_diagnostics and topic_ranges_raw_response when the parse has quirks', async () => {
     getStoredVerboseLogs.mockResolvedValue(true);
     const plainText = 'Sentence one. Sentence two.';
-    const mapping = makeMapping(plainText);
 
     storage.readRecord.mockResolvedValue(
       makeRecord('key-verbose-quirky', '<p>Sentence one. Sentence two.</p>'),
     );
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'Sentence one.', start: 0, end: 13 },
       { text: 'Sentence two.', start: 14, end: 27 },
@@ -1041,10 +972,7 @@ describe('runPipeline', () => {
     storage.readRecord.mockResolvedValue(
       makeRecord(`key-verbose-${_label}`, '<p>Sentence one. Sentence two.</p>'),
     );
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({
-      text: plainText,
-      mapping: makeMapping(plainText),
-    });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'Sentence one.', start: 0, end: 13 },
       { text: 'Sentence two.', start: 14, end: 27 },
@@ -1069,9 +997,8 @@ describe('runPipeline', () => {
 
   it('summarizes a parent topic from its own source text, not by merging child summaries', async () => {
     const plainText = 'AI chip launched. It costs $5. Robot ships Tuesday. It weighs 2kg.';
-    const mapping = makeMapping(plainText);
     storage.readRecord.mockResolvedValue(makeRecord('key5', `<p>${plainText}</p>`));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'AI chip launched.', start: 0, end: 17 },
       { text: 'It costs $5.', start: 18, end: 30 },
@@ -1115,9 +1042,8 @@ describe('runPipeline', () => {
 
   it('parks for review with a helpful error when a topic summary keeps failing', async () => {
     const plainText = LONG_SUMMARY_TEXT;
-    const mapping = makeMapping(plainText);
     storage.readRecord.mockResolvedValue(makeRecord('key6', `<p>${plainText}</p>`));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: plainText, start: 0, end: plainText.length },
     ]);
@@ -1149,10 +1075,7 @@ describe('runPipeline', () => {
     const providerError = new Error('provider failed while cancellation raced');
     const plainText = LONG_SUMMARY_TEXT;
     storage.readRecord.mockResolvedValue(makeRecord('provider-abort-race', `<p>${plainText}</p>`));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({
-      text: plainText,
-      mapping: makeMapping(plainText),
-    });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: plainText, start: 0, end: plainText.length },
     ]);
@@ -1185,10 +1108,7 @@ describe('runPipeline', () => {
   it('uses source text when the summary model returns NO_SUMMARY', async () => {
     const plainText = LONG_SUMMARY_TEXT;
     storage.readRecord.mockResolvedValue(makeRecord('nosummary', `<p>${plainText}</p>`));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({
-      text: plainText,
-      mapping: makeMapping(plainText),
-    });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: plainText, start: 0, end: plainText.length },
     ]);
@@ -1210,10 +1130,9 @@ describe('runPipeline', () => {
   it('chunks primary topic input into bounded sentence windows', async () => {
     const htmlText = '<p>x</p>';
     const plainText = 'x'.repeat(30000);
-    const mapping = makeMapping(plainText);
 
     storage.readRecord.mockResolvedValue(makeRecord('key7', htmlText));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
 
     const sentences = Array.from({ length: 3000 }, (_, i) => ({
       text: `Sentence ${i} with enough extra padding to make each line fairly long indeed.`,
@@ -1252,10 +1171,7 @@ describe('runPipeline', () => {
     const n = 245;
     const plainText = Array.from({ length: n }, (_, i) => `S${i}.`).join(' ');
     storage.readRecord.mockResolvedValue(makeRecord('key-local-chunks', `<p>${plainText}</p>`));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({
-      text: plainText,
-      mapping: makeMapping(plainText),
-    });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue(
       Array.from({ length: n }, (_, i) => ({ text: `S${i}.`, start: i * 5, end: i * 5 + 3 })),
     );
@@ -1303,10 +1219,7 @@ describe('runPipeline', () => {
     const n = 241;
     const plainText = Array.from({ length: n }, (_, i) => `S${i}.`).join(' ');
     storage.readRecord.mockResolvedValue(makeRecord('key-metric-retry', `<p>${plainText}</p>`));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({
-      text: plainText,
-      mapping: makeMapping(plainText),
-    });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue(
       Array.from({ length: n }, (_, i) => ({ text: `S${i}.`, start: i * 5, end: i * 5 + 3 })),
     );
@@ -1350,9 +1263,8 @@ describe('runPipeline', () => {
     // them into one topic, the re-split call subdivides into two.
     const n = 60;
     const plainText = Array.from({ length: n }, (_, i) => `S${i}.`).join(' ');
-    const mapping = makeMapping(plainText);
     storage.readRecord.mockResolvedValue(makeRecord('keyBig', `<p>${plainText}</p>`));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue(
       Array.from({ length: n }, (_, i) => ({ text: `S${i}.`, start: i * 4, end: i * 4 + 3 })),
     );
@@ -1413,9 +1325,8 @@ describe('runPipeline', () => {
     // then queries two <=40-sentence windows before accepting that answer.
     const n = 60;
     const plainText = Array.from({ length: n }, (_, i) => `S${i}.`).join(' ');
-    const mapping = makeMapping(plainText);
     storage.readRecord.mockResolvedValue(makeRecord('keyBig2', `<p>${plainText}</p>`));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue(
       Array.from({ length: n }, (_, i) => ({ text: `S${i}.`, start: i * 4, end: i * 4 + 3 })),
     );
@@ -1478,9 +1389,8 @@ describe('runPipeline', () => {
     // re-split subdivides — exercising the depth recursion.
     const n = 90;
     const plainText = Array.from({ length: n }, (_, i) => `S${i}.`).join(' ');
-    const mapping = makeMapping(plainText);
     storage.readRecord.mockResolvedValue(makeRecord('keyDeep', `<p>${plainText}</p>`));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue(
       Array.from({ length: n }, (_, i) => ({ text: `S${i}.`, start: i * 4, end: i * 4 + 3 })),
     );
@@ -1521,9 +1431,8 @@ describe('runPipeline', () => {
 
   it('propagates non-TopicParseError immediately without retry', async () => {
     const plainText = 'A. B.';
-    const mapping = makeMapping(plainText);
     storage.readRecord.mockResolvedValue(makeRecord('key8', '<p>A. B.</p>'));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'A.', start: 0, end: 2 },
       { text: 'B.', start: 3, end: 5 },
@@ -1541,11 +1450,10 @@ describe('runPipeline', () => {
     await expect(runPipeline('key8')).rejects.toThrow('Unexpected');
   });
 
-  it('sets topic spans with correct HTML offsets', async () => {
+  it('sets topic records with correct sentence mappings', async () => {
     const plainText = 'AB. CD.';
-    const mapping = [0, 10, 20, 30, 40, 50, 60, 70];
     storage.readRecord.mockResolvedValue(makeRecord('key9', '<p>AB. CD.</p>'));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'AB.', start: 0, end: 3 },
       { text: 'CD.', start: 4, end: 7 },
@@ -1565,11 +1473,7 @@ describe('runPipeline', () => {
     );
     expect(topicCall).toBeDefined();
     const topics = topicCall[1].topics;
-    expect(topics[0].sentence_spans).toEqual([
-      { sentence: 1, start: 0, end: 30 },
-      { sentence: 2, start: 40, end: 70 },
-    ]);
-    expect(topics[0].ranges).toEqual([{ sentence_start: 1, sentence_end: 2, start: 0, end: 70 }]);
+    expect(topics[0]).toEqual({ name: 'Tech>All', sentences: [1, 2] });
   });
 
   it('resumes a summarizing record without redoing topic ranges and only summarizes missing topics', async () => {
@@ -1583,8 +1487,8 @@ describe('runPipeline', () => {
       summaryCheckpointContentRevision: 'resume-1-revision',
       sentences: ['Alpha.', LONG_SUMMARY_TEXT],
       topics: [
-        { name: 'A', sentences: [1], sentence_spans: [], ranges: [] },
-        { name: 'B', sentences: [2], sentence_spans: [], ranges: [] },
+        { name: 'A', sentences: [1] },
+        { name: 'B', sentences: [2] },
       ],
       topic_summaries: {
         A: { runs: [{ sentences: [1], text: 'Existing A summary.' }], source_sentences: [1] },
@@ -1611,7 +1515,7 @@ describe('runPipeline', () => {
     );
     expect(topicRangeCalls).toHaveLength(0);
     // Captured-text normalization / sentence splitting must be skipped too.
-    expect(capturedText.normalizeCapturedTextKeepOffsets).not.toHaveBeenCalled();
+    expect(capturedText.normalizeCapturedText).not.toHaveBeenCalled();
     expect(sentenceSplitter.splitSentences).not.toHaveBeenCalled();
 
     // Only the missing topic (B) should be summarized; A is reused.
@@ -1640,7 +1544,7 @@ describe('runPipeline', () => {
       summaryCheckpointContentRevision: 'resume-language-revision',
       summaryCheckpointPreferContentLanguage: true,
       sentences: [LONG_SUMMARY_TEXT],
-      topics: [{ name: 'A', sentences: [1], sentence_spans: [], ranges: [] }],
+      topics: [{ name: 'A', sentences: [1] }],
       topic_summaries: {},
       topic_summary_index: {},
     });
@@ -1670,7 +1574,7 @@ describe('runPipeline', () => {
       'saved sentence checkpoint is incomplete',
     );
 
-    expect(capturedText.normalizeCapturedTextKeepOffsets).not.toHaveBeenCalled();
+    expect(capturedText.normalizeCapturedText).not.toHaveBeenCalled();
     expect(
       storage.updateRecord.mock.calls.some(([, patch]) =>
         Object.prototype.hasOwnProperty.call(patch, 'topics'),
@@ -1683,7 +1587,6 @@ describe('runPipeline', () => {
     // The stale topics reference sentence ids that no longer resolve to any
     // text, so resuming would silently produce blank summaries.
     const plainText = 'AB. CD.';
-    const mapping = makeMapping(plainText);
     storage.readRecord.mockResolvedValue({
       key: 'resumeNoSentences',
       html: '<p>AB. CD.</p>',
@@ -1691,7 +1594,7 @@ describe('runPipeline', () => {
       contentRevision: 'resume-invalid-revision',
       summaryCheckpointContentRevision: 'resume-invalid-revision',
       sentences: [],
-      topics: [{ name: 'A', sentences: [1], sentence_spans: [], ranges: [] }],
+      topics: [{ name: 'A', sentences: [1] }],
       topic_summaries: {
         A: { runs: [{ sentences: [1], text: 'Keep this summary.' }], source_sentences: [1] },
       },
@@ -1703,7 +1606,7 @@ describe('runPipeline', () => {
         },
       },
     });
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'AB.', start: 0, end: 3 },
       { text: 'CD.', start: 4, end: 7 },
@@ -1721,7 +1624,7 @@ describe('runPipeline', () => {
 
     // Refusal may update status/error, but it must not enter computeTopics,
     // whose first write clears every topic and summary checkpoint.
-    expect(capturedText.normalizeCapturedTextKeepOffsets).not.toHaveBeenCalled();
+    expect(capturedText.normalizeCapturedText).not.toHaveBeenCalled();
     expect(sentenceSplitter.splitSentences).not.toHaveBeenCalled();
     expect(llm.callLLMWithRetry).not.toHaveBeenCalled();
     expect(
@@ -1765,7 +1668,7 @@ describe('runPipeline', () => {
       status: 'summarizing',
       ...revisions,
       sentences: ['Old sentence.'],
-      topics: [{ name: 'Old', sentences: [1], sentence_spans: [], ranges: [] }],
+      topics: [{ name: 'Old', sentences: [1] }],
       topic_summaries: {
         Old: { runs: [{ sentences: [1], text: 'Old summary.' }], source_sentences: [1] },
       },
@@ -1777,10 +1680,7 @@ describe('runPipeline', () => {
         },
       },
     });
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({
-      text: freshText,
-      mapping: makeMapping(freshText),
-    });
+    capturedText.normalizeCapturedText.mockReturnValue(freshText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: freshText, start: 0, end: freshText.length },
     ]);
@@ -1791,7 +1691,7 @@ describe('runPipeline', () => {
 
     await runPipeline('stale-summary-checkpoint');
 
-    expect(capturedText.normalizeCapturedTextKeepOffsets).toHaveBeenCalled();
+    expect(capturedText.normalizeCapturedText).toHaveBeenCalled();
     expect(sentenceSplitter.splitSentences).toHaveBeenCalled();
     expect(
       llm.callLLMWithRetry.mock.calls.some(([opts]) =>
@@ -1812,7 +1712,6 @@ describe('runPipeline', () => {
 
   it('refuses a resume when a topic references an out-of-range sentence id', async () => {
     const plainText = 'AB. CD.';
-    const mapping = makeMapping(plainText);
     storage.readRecord.mockResolvedValue({
       key: 'resumeOutOfRange',
       html: '<p>AB. CD.</p>',
@@ -1821,11 +1720,11 @@ describe('runPipeline', () => {
       summaryCheckpointContentRevision: 'resume-invalid-revision',
       // Only one sentence persisted, but the stale topic references sentence 2.
       sentences: ['Alpha.'],
-      topics: [{ name: 'A', sentences: [1, 2], sentence_spans: [], ranges: [] }],
+      topics: [{ name: 'A', sentences: [1, 2] }],
       topic_summaries: {},
       topic_summary_index: {},
     });
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'AB.', start: 0, end: 3 },
       { text: 'CD.', start: 4, end: 7 },
@@ -1841,7 +1740,7 @@ describe('runPipeline', () => {
       'saved sentence checkpoint is incomplete',
     );
 
-    expect(capturedText.normalizeCapturedTextKeepOffsets).not.toHaveBeenCalled();
+    expect(capturedText.normalizeCapturedText).not.toHaveBeenCalled();
     expect(sentenceSplitter.splitSentences).not.toHaveBeenCalled();
     expect(llm.callLLMWithRetry).not.toHaveBeenCalled();
     expect(
@@ -1873,7 +1772,7 @@ describe('runPipeline', () => {
       contentRevision: 'runs-1-revision',
       summaryCheckpointContentRevision: 'runs-1-revision',
       sentences: ['One.', 'Two.', 'Skip three.', 'Skip four.', 'Five.', 'Six.'],
-      topics: [{ name: 'A', sentences: [1, 2, 5, 6], sentence_spans: [], ranges: [] }],
+      topics: [{ name: 'A', sentences: [1, 2, 5, 6] }],
       topic_summaries: {},
       topic_summary_index: {},
     });
@@ -1920,8 +1819,8 @@ describe('runPipeline', () => {
       summaryCheckpointContentRevision: 'multi-run-parent-revision',
       sentences,
       topics: [
-        { name: 'Tech>A', sentences: [1, 2], sentence_spans: [], ranges: [] },
-        { name: 'Tech>B', sentences: [10, 11], sentence_spans: [], ranges: [] },
+        { name: 'Tech>A', sentences: [1, 2] },
+        { name: 'Tech>B', sentences: [10, 11] },
       ],
       topic_summaries: {},
       topic_summary_index: {},
@@ -1959,9 +1858,9 @@ describe('runPipeline', () => {
       summaryCheckpointContentRevision: 'resume-2-revision',
       sentences: ['Alpha.', 'Beta.', LONG_SUMMARY_TEXT],
       topics: [
-        { name: 'A', sentences: [1], sentence_spans: [], ranges: [] },
-        { name: 'B', sentences: [2], sentence_spans: [], ranges: [] },
-        { name: 'C', sentences: [3], sentence_spans: [], ranges: [] },
+        { name: 'A', sentences: [1] },
+        { name: 'B', sentences: [2] },
+        { name: 'C', sentences: [3] },
       ],
       topic_summaries: {
         A: { runs: [{ sentences: [1], text: 'Good A.' }], source_sentences: [1] },
@@ -1997,10 +1896,7 @@ describe('runPipeline', () => {
 
   it('flags a failed summary with error:true while summarizing, then parks instead of finishing', async () => {
     storage.readRecord.mockResolvedValue(makeRecord('failmark', `<p>${LONG_SUMMARY_TEXT}</p>`));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({
-      text: LONG_SUMMARY_TEXT,
-      mapping: makeMapping(LONG_SUMMARY_TEXT),
-    });
+    capturedText.normalizeCapturedText.mockReturnValue(LONG_SUMMARY_TEXT);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: LONG_SUMMARY_TEXT, start: 0, end: LONG_SUMMARY_TEXT.length },
     ]);
@@ -2043,7 +1939,7 @@ describe('runPipeline', () => {
       ...makeRecord('skip1', '<p>One. Two.</p>'),
       status: 'summarizing',
       forceFinalize: true,
-      topics: [{ name: 'Tech>All', sentences: [1, 2], sentence_spans: [], ranges: [] }],
+      topics: [{ name: 'Tech>All', sentences: [1, 2] }],
       sentences: ['One.', 'Two.'],
       topic_summaries: {
         'Tech>All': {
@@ -2085,9 +1981,8 @@ describe('runPipeline', () => {
 
   it('parks for review when a tree-merge keeps failing (merge phase)', async () => {
     const plainText = 'A. B. C. D.';
-    const mapping = makeMapping(plainText);
     storage.readRecord.mockResolvedValue(makeRecord('mergefail', '<p>A. B. C. D.</p>'));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'A.', start: 0, end: 2 },
       { text: 'B.', start: 3, end: 5 },
@@ -2125,8 +2020,8 @@ describe('runPipeline', () => {
       forceFinalize: true,
       acceptedMergeFailurePaths: ['Tech'],
       topics: [
-        { name: 'Tech>AI', sentences: [1, 2], sentence_spans: [], ranges: [] },
-        { name: 'Tech>Hardware', sentences: [3, 4], sentence_spans: [], ranges: [] },
+        { name: 'Tech>AI', sentences: [1, 2] },
+        { name: 'Tech>Hardware', sentences: [3, 4] },
       ],
       sentences: ['A.', 'B.', 'C.', 'D.'],
       topic_summaries: {
@@ -2193,7 +2088,7 @@ describe('runPipeline', () => {
       forceFinalize: true,
       acceptedMergeFailurePaths: ['Old>Accepted'],
       sentences: [],
-      topics: [{ name: 'Tech>All', sentences: [1], sentence_spans: [], ranges: [] }],
+      topics: [{ name: 'Tech>All', sentences: [1] }],
       topic_summaries: {
         'Tech>All': {
           runs: [{ sentences: [1], text: 'Keep this partial summary.' }],
@@ -2201,10 +2096,7 @@ describe('runPipeline', () => {
         },
       },
     });
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({
-      text: LONG_SUMMARY_TEXT,
-      mapping: makeMapping(LONG_SUMMARY_TEXT),
-    });
+    capturedText.normalizeCapturedText.mockReturnValue(LONG_SUMMARY_TEXT);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: LONG_SUMMARY_TEXT, start: 0, end: LONG_SUMMARY_TEXT.length },
     ]);
@@ -2219,7 +2111,7 @@ describe('runPipeline', () => {
       'saved sentence checkpoint is incomplete',
     );
 
-    expect(capturedText.normalizeCapturedTextKeepOffsets).not.toHaveBeenCalled();
+    expect(capturedText.normalizeCapturedText).not.toHaveBeenCalled();
     expect(sentenceSplitter.splitSentences).not.toHaveBeenCalled();
     expect(llm.callLLMWithRetry).not.toHaveBeenCalled();
     const rejectionLog = storage.appendProcessingLog.mock.calls.find(
@@ -2250,7 +2142,7 @@ describe('runPipeline', () => {
       status: 'summarizing',
       forceFinalize: true,
       sentences: ['One.'],
-      topics: [{ name: 'Tech>All', sentences: [1], sentence_spans: [], ranges: [] }],
+      topics: [{ name: 'Tech>All', sentences: [1] }],
       topic_summaries: {},
     });
     llm.callLLMWithRetry.mockImplementation(async () => {
@@ -2260,7 +2152,7 @@ describe('runPipeline', () => {
     await runPipeline('skipValid');
 
     // A valid checkpoint is resumed: no HTML/sentence recompute.
-    expect(capturedText.normalizeCapturedTextKeepOffsets).not.toHaveBeenCalled();
+    expect(capturedText.normalizeCapturedText).not.toHaveBeenCalled();
     expect(sentenceSplitter.splitSentences).not.toHaveBeenCalled();
     const resumeLog = storage.appendProcessingLog.mock.calls.find(
       (call) => call[1] === 'pipeline_resume',
@@ -2276,10 +2168,7 @@ describe('runPipeline', () => {
 
   it('does not set forceFinalize for a fresh record, so a summary failure parks for review', async () => {
     storage.readRecord.mockResolvedValue(makeRecord('freshNoForce', `<p>${LONG_SUMMARY_TEXT}</p>`));
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({
-      text: LONG_SUMMARY_TEXT,
-      mapping: makeMapping(LONG_SUMMARY_TEXT),
-    });
+    capturedText.normalizeCapturedText.mockReturnValue(LONG_SUMMARY_TEXT);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: LONG_SUMMARY_TEXT, start: 0, end: LONG_SUMMARY_TEXT.length },
     ]);
@@ -2312,8 +2201,8 @@ describe('runPipeline', () => {
       ...makeRecord('overflow', '<p>x</p>'),
       status: 'summarizing',
       topics: [
-        { name: 'Tech>A', sentences: ids.slice(0, 100), sentence_spans: [], ranges: [] },
-        { name: 'Tech>B', sentences: ids.slice(100), sentence_spans: [], ranges: [] },
+        { name: 'Tech>A', sentences: ids.slice(0, 100) },
+        { name: 'Tech>B', sentences: ids.slice(100) },
       ],
       sentences,
       topic_summaries: {},
@@ -2356,8 +2245,8 @@ describe('runPipeline', () => {
       ...makeRecord('overflow-nosummary', '<p>x</p>'),
       status: 'summarizing',
       topics: [
-        { name: 'Tech>A', sentences: ids.slice(0, 100), sentence_spans: [], ranges: [] },
-        { name: 'Tech>B', sentences: ids.slice(100), sentence_spans: [], ranges: [] },
+        { name: 'Tech>A', sentences: ids.slice(0, 100) },
+        { name: 'Tech>B', sentences: ids.slice(100) },
       ],
       sentences,
       topic_summaries: {},
@@ -2387,8 +2276,8 @@ describe('runPipeline', () => {
       ...makeRecord('parent-nosummary', '<p>x</p>'),
       status: 'summarizing',
       topics: [
-        { name: 'Tech>A', sentences: [1], sentence_spans: [], ranges: [] },
-        { name: 'Tech>B', sentences: [2], sentence_spans: [], ranges: [] },
+        { name: 'Tech>A', sentences: [1] },
+        { name: 'Tech>B', sentences: [2] },
       ],
       // Each sentence is long enough that the parent's combined run exceeds the
       // inline thresholds, forcing the single-call source-summary path (where the
@@ -2429,8 +2318,8 @@ describe('runPipeline', () => {
       ...makeRecord('overflow-chunk-nosummary', '<p>x</p>'),
       status: 'summarizing',
       topics: [
-        { name: 'Tech>A', sentences: ids.slice(0, 100), sentence_spans: [], ranges: [] },
-        { name: 'Tech>B', sentences: ids.slice(100), sentence_spans: [], ranges: [] },
+        { name: 'Tech>A', sentences: ids.slice(0, 100) },
+        { name: 'Tech>B', sentences: ids.slice(100) },
       ],
       sentences,
       topic_summaries: {},
@@ -2460,7 +2349,7 @@ describe('runPipeline', () => {
       key: 'fresh1',
       html: `<p>${LONG_SUMMARY_TEXT}</p>`,
       status: 'pending',
-      topics: [{ name: 'StaleTopic', sentences: [1], sentence_spans: [], ranges: [] }],
+      topics: [{ name: 'StaleTopic', sentences: [1] }],
       topic_summaries: {
         StaleTopic: { text: 'Old summary.', source_sentences: [1] },
       },
@@ -2468,10 +2357,7 @@ describe('runPipeline', () => {
       source_summary_units: { old: { unitId: 'old', status: 'done' } },
     });
 
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({
-      text: LONG_SUMMARY_TEXT,
-      mapping: makeMapping(LONG_SUMMARY_TEXT),
-    });
+    capturedText.normalizeCapturedText.mockReturnValue(LONG_SUMMARY_TEXT);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: LONG_SUMMARY_TEXT, start: 0, end: LONG_SUMMARY_TEXT.length },
     ]);
@@ -2515,12 +2401,11 @@ describe('runPipeline', () => {
 
   it('skips all summary work and finalizes to done when the run skips summaries (fresh path)', async () => {
     const plainText = 'Sentence one. Sentence two.';
-    const mapping = makeMapping(plainText);
     storage.readRecord.mockResolvedValue({
       ...makeRecord('disabled1', '<p>Sentence one. Sentence two.</p>'),
       skipSummaries: true,
     });
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'Sentence one.', start: 0, end: 13 },
       { text: 'Sentence two.', start: 14, end: 27 },
@@ -2560,7 +2445,7 @@ describe('runPipeline', () => {
       summaryCheckpointContentRevision: 'disabled-2-revision',
       skipSummaries: true,
       sentences: ['Alpha.', 'Beta.'],
-      topics: [{ name: 'A', sentences: [1, 2], sentence_spans: [], ranges: [] }],
+      topics: [{ name: 'A', sentences: [1, 2] }],
       topic_summaries: { A: { runs: [{ sentences: [1, 2], text: 'Existing summary.' }] } },
       topic_summary_index: { A: { runs: [{ sentences: [1, 2], text: 'Existing summary.' }] } },
     });
@@ -2570,7 +2455,7 @@ describe('runPipeline', () => {
 
     expect(llm.callLLMWithRetry).not.toHaveBeenCalled();
     // The resume path must not redo captured-text normalization / sentence splitting either.
-    expect(capturedText.normalizeCapturedTextKeepOffsets).not.toHaveBeenCalled();
+    expect(capturedText.normalizeCapturedText).not.toHaveBeenCalled();
     expect(sentenceSplitter.splitSentences).not.toHaveBeenCalled();
 
     const doneCall = storage.updateRecord.mock.calls.find((call) => call[1].status === 'done');
@@ -2583,11 +2468,10 @@ describe('runPipeline', () => {
 
   it('finalizes with summariesDisabled: false when the record has no skipSummaries directive (default)', async () => {
     const plainText = 'Sentence one. Sentence two.';
-    const mapping = makeMapping(plainText);
     storage.readRecord.mockResolvedValue(
       makeRecord('enabled1', '<p>Sentence one. Sentence two.</p>'),
     );
-    capturedText.normalizeCapturedTextKeepOffsets.mockReturnValue({ text: plainText, mapping });
+    capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
       { text: 'Sentence one.', start: 0, end: 13 },
       { text: 'Sentence two.', start: 14, end: 27 },
@@ -2620,7 +2504,7 @@ describe('runPipeline', () => {
       skipSummaries: false,
       summariesDisabled: true,
       sentences: [LONG_SUMMARY_TEXT],
-      topics: [{ name: 'Tech>All', sentences: [1], sentence_spans: [], ranges: [] }],
+      topics: [{ name: 'Tech>All', sentences: [1] }],
       topic_summaries: {},
       topic_summary_index: {},
     });
@@ -2634,7 +2518,7 @@ describe('runPipeline', () => {
 
     // No reprocessing: captured-text normalization, sentence splitting, and topic ranges are
     // all reused from the stored record.
-    expect(capturedText.normalizeCapturedTextKeepOffsets).not.toHaveBeenCalled();
+    expect(capturedText.normalizeCapturedText).not.toHaveBeenCalled();
     expect(sentenceSplitter.splitSentences).not.toHaveBeenCalled();
     expect(
       llm.callLLMWithRetry.mock.calls.some(([opts]) =>
