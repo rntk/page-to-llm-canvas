@@ -6,6 +6,8 @@ A documentation site with screenshots and screencasts is available at https://rn
 
 Select content from any page, then review its topics, summaries, and highlighted sentences without losing the connection to the original text.
 
+> **Experimental — provided as is.** This extension is experimental software provided "as is" without any guarantees or warranties of any kind, express or implied, including but not limited to warranties of merchantability, fitness for a particular purpose, or non-infringement. No guarantees are made regarding correctness, completeness, availability, or suitability for any purpose. Use at your own risk. The authors and contributors accept no responsibility or liability for any issues, data loss, damages, or other consequences arising from its use.
+
 ## What it does
 
 - Extracts topics and subtopics from selected page content
@@ -49,6 +51,8 @@ A transcript must be available for the video. The extension does not process vid
 4. Click "Load unpacked" and pick the `dist/` directory.
 
 ## LLM configuration
+
+> **Recommended model: GPT-OSS 20B with `medium` reasoning.** Fast and smart enough to process texts with pretty good quality while keeping latency and cost low. Good default choice if you are unsure which model to pick.
 
 The extension supports multiple user-configurable LLM providers, which are stored in the browser's local storage and managed via the Options page.
 
