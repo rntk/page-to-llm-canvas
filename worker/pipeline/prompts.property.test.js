@@ -111,10 +111,10 @@ describe('prompt contract fingerprints', () => {
     }).toEqual({
       system: 'ce93e60e740ccefbf1f8d97b1d943a454a7c638e5475bc245d9ca56875b96c78',
       language: 'e9c6cdd8dedb466e5cd5277b1ef73530747d1afaad1987b880f97fae790e9d5b',
-      articleSummary: '7b5d58d265ec7152dffc02383d45474b42d03b5cad287f8a45497101b544f532',
-      articleMerge: '961a04988a6d2b5db17c631abe6594db3c2f554a1d925967c81b3811bf0c96d2',
-      leafMerge: '550d952113b442f53683c5299817fb8075f8f61879c9875c47722023232dc31b',
-      topicSource: 'a172e5ce7c7e935e31f07eb50d6a2b68db660a35cb9e7f9e911fd20e621bd831',
+      articleSummary: '78a69fb1fa2d4f65dac38a56d59c6f4c69fbfc733e28fd81b0394a0cdb2e0270',
+      articleMerge: 'a9fb4e06cb44c2dba5d81f75730a922395d4994ef63557055cdb35e1a18df568',
+      leafMerge: 'f5452ed341bd821f6c2e35e21d4790ebb33ba3c4e2f8273f44088be6ad5a5603',
+      topicSource: 'a8a17a2f95f6ecb70364d99fcf55b49cb134fe824b09c40e9353268759180de1',
     });
   });
 });

@@ -89,6 +89,7 @@ describe('content script main.jsx', () => {
   afterEach(() => {
     document.getElementById('pagetollm-canvas-iframe')?.remove();
     document.getElementById('pagetollm-in-page-rail')?.remove();
+    chrome.runtime.sendMessage.mockReset();
   });
 
   it('registers chrome runtime onMessage listener and window message listener', () => {
@@ -599,9 +600,10 @@ describe('content script main.jsx', () => {
   });
 
   it('submits only the parent selector when stepping a child up into an already picked parent', async () => {
-    chrome.runtime.sendMessage.mockImplementationOnce((_message, callback) =>
-      callback({ ok: true, key: 'dedup-submit-key' }),
-    );
+    chrome.runtime.sendMessage.mockImplementation((message, callback) => {
+      if (message?.type === 'submit') callback({ ok: true, key: 'dedup-submit-key' });
+      else if (typeof callback === 'function') callback({ ok: false });
+    });
 
     const sendResponse = vi.fn();
     await act(async () => {
@@ -649,7 +651,9 @@ describe('content script main.jsx', () => {
     await act(async () => {
       submitBtn.click();
       await Promise.resolve();
+      await Promise.resolve();
     });
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -665,9 +669,10 @@ describe('content script main.jsx', () => {
   });
 
   it('submits selected blocks without immediately opening the canvas', async () => {
-    chrome.runtime.sendMessage.mockImplementationOnce((_message, callback) =>
-      callback({ ok: true, key: 'submitted-key' }),
-    );
+    chrome.runtime.sendMessage.mockImplementation((message, callback) => {
+      if (message?.type === 'submit') callback({ ok: true, key: 'submitted-key' });
+      else if (typeof callback === 'function') callback({ ok: false });
+    });
 
     const sendResponse = vi.fn();
     await act(async () => {
@@ -692,7 +697,10 @@ describe('content script main.jsx', () => {
     await act(async () => {
       submitBtn.click();
       await Promise.resolve();
+      await Promise.resolve();
     });
+    // Allow the surface's async module load to settle before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -735,7 +743,12 @@ describe('content script main.jsx', () => {
       sendResponse,
     );
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The surface loads asynchronously; poll briefly until getRecord is observed
+    // instead of relying on a single 0ms tick.
+    for (let i = 0; i < 10 && !resolveMessage; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
+    }
 
     expect(document.getElementById('pagetollm-in-page-rail')).toBeNull();
 
