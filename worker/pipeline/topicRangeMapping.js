@@ -17,12 +17,7 @@ export function mapTextOffsetToSource(mapping, textOffset) {
   return mapping[textOffset];
 }
 
-// Backward-compatible export for callers outside this repository. Versioned
-// captures map into capturedText rather than HTML, so new code should use the
-// source-neutral name above.
-export const mapTextOffsetToHtml = mapTextOffsetToSource;
-
-export function groupsToTopics(groups, sentenceObjs, mapping, offsetBasis) {
+export function groupsToTopics(groups, sentenceObjs, mapping) {
   return groups.map((group) => {
     const name = joinTopicPath(group.label);
     const oneBased = rangesToSentenceList(group.ranges);
@@ -49,7 +44,7 @@ export function groupsToTopics(groups, sentenceObjs, mapping, offsetBasis) {
       sentences: oneBased,
       sentence_spans,
       ranges,
-      ...(offsetBasis ? { offset_basis: offsetBasis } : {}),
+      offset_basis: 'captured_text',
     };
   });
 }

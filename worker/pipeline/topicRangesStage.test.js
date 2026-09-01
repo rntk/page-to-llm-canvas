@@ -3,7 +3,6 @@ import { computeTopics as computeTopicsWithDefaults } from './topicRangesStage.j
 import { chunkTaggedText, chunkTopicRangeSentences } from './topicRangeChunking.js';
 import {
   groupsToTopics,
-  mapTextOffsetToHtml,
   mapTextOffsetToSource,
   rangesToSentenceList,
 } from './topicRangeMapping.js';
@@ -114,9 +113,6 @@ describe('range and offset helpers', () => {
   });
 
   it('clamps text offsets to the mapping bounds', () => {
-    expect(mapTextOffsetToHtml([10, 20, 30], 1)).toBe(20);
-    expect(mapTextOffsetToHtml([10, 20, 30], -1)).toBe(10);
-    expect(mapTextOffsetToHtml([10, 20, 30], 99)).toBe(30);
     expect(mapTextOffsetToSource([10, 20, 30], 1)).toBe(20);
   });
 
@@ -125,7 +121,6 @@ describe('range and offset helpers', () => {
       [{ label: ['A'], ranges: [{ start: 0, end: 0 }] }],
       [{ text: 'A.', start: 0, end: 2 }],
       [0, 1, 2],
-      'captured_text',
     );
     expect(topics[0].offset_basis).toBe('captured_text');
   });
@@ -165,6 +160,7 @@ describe('groupsToTopics', () => {
           { sentence_start: 1, sentence_end: 2, start: 100, end: 105 },
           { sentence_start: 2, sentence_end: 3, start: 103, end: 108 },
         ],
+        offset_basis: 'captured_text',
       },
     ]);
   });
@@ -242,7 +238,7 @@ describe('computeTopics', () => {
     setTimeoutSpy.mockRestore();
   });
 
-  it('finalizes an HTML record with no sentences without calling the LLM', async () => {
+  it('finalizes an empty capture without calling the LLM', async () => {
     const runtime = makeRuntime();
     const callLLMWithRetry = vi.fn();
     splitSentences.mockReturnValue([]);
@@ -267,7 +263,7 @@ describe('computeTopics', () => {
     );
   });
 
-  it('uses versioned captured text as the canonical source and preserves literals', async () => {
+  it('uses captured text as the canonical source and preserves literals', async () => {
     const runtime = makeRuntime();
     const callLLMWithRetry = vi.fn(async () => 'Topic: 0-0');
     const capturedText = 'Literal <b> &amp; text.';
@@ -289,7 +285,7 @@ describe('computeTopics', () => {
       expect.objectContaining({ sentences: [capturedText] }),
     );
     expect(runtime.log).toHaveBeenCalledWith(
-      'cleaning_html_start',
+      'normalizing_text_start',
       expect.objectContaining({ source: 'captured_text', capturedTextLength: capturedText.length }),
       { verbose: true },
     );
@@ -313,6 +309,7 @@ describe('computeTopics', () => {
     expect(result.topics[0]).toMatchObject({
       name: 'Science>AI',
       sentences: [1, 2],
+      offset_basis: 'captured_text',
     });
     expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
     expect(runtime.update).toHaveBeenLastCalledWith(

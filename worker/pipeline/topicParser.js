@@ -10,7 +10,7 @@
 // remaining hard failure is a response with no parseable topic ranges at all,
 // which still raises TopicParseError so the orchestrator can retry.
 
-import { decodeEntities } from './html.js';
+import { decodeEntities } from './htmlEntities.js';
 import { splitTopicPath } from '../../src/shared/runtime/topicPath.js';
 
 // Entity decoding can re-introduce a hierarchy delimiter inside a segment, so

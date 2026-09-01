@@ -15,7 +15,7 @@ export const PIPELINE_STATUS = Object.freeze({
 
 export const PIPELINE_STAGE = Object.freeze({
   QUEUED: 'queued',
-  CLEANING_HTML: 'cleaning_html',
+  NORMALIZING_TEXT: 'normalizing_text',
   SPLITTING_SENTENCES: 'splitting_sentences',
   TOPIC_RANGES: 'topic_ranges',
   SUMMARIZING: 'summarizing',
@@ -125,12 +125,11 @@ export function isImportableRecord(record) {
  * @property {string} pipelineRunId - Id of the run currently allowed to
  *   write this record; guards against stale/superseded runs.
  * @property {string} [sourceUrl] - Origin URL of the captured page ('' if none).
- * @property {string} [text] - Normalized article text. Capture v2 derives it
- *   from `capturedText`; legacy records derive it from `html`.
+ * @property {string} [text] - Normalized article text derived from `capturedText`.
  * @property {string[]} [sentences] - Sentence-split article text.
  * @property {object[]} [topics] - Detected topic ranges over `sentences`.
- *   Newly computed topics carry `offset_basis: "captured_text"|"html"` to
- *   identify what their persisted `start`/`end` offsets index.
+ *   Newly computed topics carry `offset_basis: "captured_text"` to identify
+ *   what their persisted `start`/`end` offsets index.
  * @property {object|null} [topic_range_chunks] - Resumable checkpoint for the
  *   topic-ranges stage: `{contentRevision, sentenceCount, chunks}` where
  *   `chunks[i]` is either null (that chunk still needs an LLM request) or

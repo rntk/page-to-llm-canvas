@@ -1,4 +1,4 @@
-import { normalizePlainTextKeepOffsets, stripTagsKeepOffsets } from './html.js';
+import { normalizeCapturedTextKeepOffsets } from './capturedText.js';
 import { splitSentences } from './sentenceSplitter.js';
 import { buildTopicRangesPrompt } from './prompts.js';
 import { parseTopicRangesDetailed, groupsFromSegments, TopicParseError } from './topicParser.js';
@@ -292,7 +292,7 @@ export async function computeTopics({
   const dependencies = createTopicRangeDependencies(overrides);
   await runtime.update({
     status: PIPELINE_STATUS.SPLITTING,
-    progress: { stage: PIPELINE_STAGE.CLEANING_HTML, done: 0, total: 0 },
+    progress: { stage: PIPELINE_STAGE.NORMALIZING_TEXT, done: 0, total: 0 },
     error: null,
     topics: [],
     topic_summaries: {},
@@ -310,31 +310,27 @@ export async function computeTopics({
     summariesDisabled: false,
     summariesIncomplete: false,
   });
-  const useCapturedText = record?.captureVersion >= 2 && typeof record?.capturedText === 'string';
+  const capturedText = String(record?.capturedText ?? '');
   await runtime.log(
-    'cleaning_html_start',
+    'normalizing_text_start',
     {
-      htmlLength: String(record.html || '').length,
-      capturedTextLength: useCapturedText ? record.capturedText.length : 0,
-      source: useCapturedText ? 'captured_text' : 'html',
+      capturedTextLength: capturedText.length,
+      source: 'captured_text',
     },
     { verbose: true },
   );
 
-  // Version 2 captures text in the page context, while CSS/layout are still
-  // available. Treat it as plain text: parsing it as HTML would corrupt
-  // literal `<`, `>` and `&` characters (and could reintroduce content that
-  // capture-side visibility filtering removed). Legacy records retain the
-  // HTML scanner and its HTML-offset mapping.
-  const { text, mapping } = useCapturedText
-    ? normalizePlainTextKeepOffsets(record.capturedText)
-    : stripTagsKeepOffsets(record.html || '');
+  // Text is captured in the page context while CSS/layout are still available.
+  // Treat it as plain text: parsing it as HTML would corrupt literal `<`, `>`
+  // and `&` characters and could reintroduce content removed by capture-side
+  // visibility filtering.
+  const { text, mapping } = normalizeCapturedTextKeepOffsets(capturedText);
   await runtime.log(
-    'cleaning_html_done',
+    'normalizing_text_done',
     {
       textLength: text.length,
       mappingLength: mapping.length,
-      source: useCapturedText ? 'captured_text' : 'html',
+      source: 'captured_text',
     },
     { verbose: true },
   );
@@ -513,12 +509,7 @@ export async function computeTopics({
 
   await runtime.log('topic_ranges_done', { groupCount: groups.length }, { verbose: true });
 
-  const topics = groupsToTopics(
-    groups,
-    sentenceObjs,
-    mapping,
-    useCapturedText ? 'captured_text' : 'html',
-  );
+  const topics = groupsToTopics(groups, sentenceObjs, mapping);
   await runtime.update({
     topics,
     // The chunk checkpoint has served its purpose; clearing it here rides along

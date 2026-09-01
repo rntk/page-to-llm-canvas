@@ -47,14 +47,10 @@ const IMPORTANT_SUFFIX_RE = /!\s*important$/;
 /**
  * Split an inline `style` attribute into its declarations.
  *
- * Mirrors `splitDeclarations` in worker/pipeline/html.js: a plain `split(';')`
- * cuts inside quoted values and `url(...)`, inventing declarations that were
- * never written, so `--x:';display:none;'` would hide a visible element.
- *
- * `node.style` (CSSOM) would parse this exactly, but it only exists on this
- * side — the worker has no DOM. Using it here would make the two
- * implementations disagree on every input they parse imprecisely, which is the
- * one failure mode that corrupts sentence-to-word alignment.
+ * A plain `split(';')` cuts inside quoted values and `url(...)`, inventing
+ * declarations that were never written, so `--x:';display:none;'` would hide
+ * a visible element. This fallback is used when a complete computed style is
+ * unavailable (notably in DOM-only test environments).
  * @param {string} style Raw inline style attribute value.
  * @returns {string[]} Declaration texts, `property: value` still unparsed.
  */
@@ -91,10 +87,8 @@ function splitDeclarations(style) {
 /**
  * Whether an inline `style` attribute resolves to a layout-suppressing value.
  *
- * Mirrors `hasHidingDeclaration` in worker/pipeline/html.js, including its
- * cascade handling: a later declaration wins (`display:none;display:block`
- * renders), except that a normal declaration never overrides an important one.
- * The two must agree exactly on which text survives.
+ * A later declaration wins (`display:none;display:block` renders), except that
+ * a normal declaration never overrides an important one.
  * @param {string} style Raw inline style attribute value.
  * @returns {boolean}
  */
@@ -125,13 +119,11 @@ function hasHidingDeclaration(style) {
 /**
  * Whether a node's whole subtree is invisible to the word walk.
  *
- * The rules mirror `isUnrenderedTag` in worker/pipeline/html.js, which prunes
- * the same subtrees from the record's `text` (and therefore its sentences): a
- * word the pipeline dropped must not appear here either, or `buildSentenceWordRanges`
- * maps every later sentence onto the wrong DOM words and the canvas rail loses
- * their positions entirely. Computed `display` and `content-visibility` are
- * included when the browser exposes them, so class-based hiding is handled on
- * the live page; the attribute and inline checks remain the fallback.
+ * The rules align the live-page word walk with browser-side capture filtering:
+ * a word omitted from `capturedText` must not appear here, or
+ * `buildSentenceWordRanges` maps later sentences onto the wrong DOM words.
+ * Computed `display` and `content-visibility` are included when the browser
+ * exposes them; attribute and inline checks remain the fallback.
  *
  * A closed `<details>` is deliberately not skippable: it still renders its
  * `<summary>`. Its remaining contents are excluded by the walk in

@@ -76,7 +76,7 @@ describe('sentenceHighlight pure helpers', () => {
     expect(isSkippableContainer(hiddenFalse)).toBe(true);
     expect(isSkippableContainer(styled)).toBe(true);
     // Cascade order decides: a later declaration wins unless the earlier one is
-    // important. Mirrors the pipeline's parser in worker/pipeline/html.js.
+    // important.
     const overridden = document.createElement('div');
     overridden.setAttribute('style', 'display:none;display:block');
     const overriddenImportant = document.createElement('div');
