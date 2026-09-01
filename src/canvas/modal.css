@@ -29,9 +29,10 @@
   --pagetollm-highlight-active-color: rgb(58 64 77 / 20%);
 
   /* Voice (serif) vs Data (sans) */
-  --font-voice: 'Newsreader', georgia, 'Times New Roman', serif;
+  --font-voice: georgia, 'Times New Roman', times, serif;
   --font-data:
-    'Work Sans', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, oxygen, ubuntu, sans-serif;
+    -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, oxygen, ubuntu, cantarell,
+    'Helvetica Neue', helvetica, arial, sans-serif;
 }
 
 :root[data-theme='light'] {

@@ -28,17 +28,7 @@
   margin: 0;
   background: var(--th-page-bg);
   color: var(--th-fg);
-  font-family: var(
-    --font-data,
-    'Work Sans',
-    -apple-system,
-    blinkmacsystemfont,
-    'Segoe UI',
-    roboto,
-    oxygen,
-    ubuntu,
-    sans-serif
-  );
+  font-family: var(--font-data, sans-serif);
   box-sizing: border-box;
 }
 
@@ -625,17 +615,7 @@
 }
 
 .th-summary-modal__card-path {
-  font-family: var(
-    --font-data,
-    'Work Sans',
-    -apple-system,
-    blinkmacsystemfont,
-    'Segoe UI',
-    roboto,
-    oxygen,
-    ubuntu,
-    sans-serif
-  );
+  font-family: var(--font-data, sans-serif);
   font-size: 16px;
   font-weight: 700;
   line-height: 1.2;

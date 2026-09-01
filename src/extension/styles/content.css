@@ -32,9 +32,11 @@
     rgb(27 29 34 / 82%)
   ); /* frosted-glass chrome (toolbar/rail) */
 
-  /* highlight tokens inherit from :root (set above / overridden inline by JS) */
-  --font-voice: 'Newsreader', georgia, 'Times New Roman', serif;
-  --font-data: 'Work Sans', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-serif;
+  /* Voice (serif) vs Data (sans) — injected into host pages, so system stack avoids inheriting host @font-face */
+  --font-voice: georgia, 'Times New Roman', times, serif;
+  --font-data:
+    -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, oxygen, ubuntu, cantarell,
+    'Helvetica Neue', helvetica, arial, sans-serif;
 
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

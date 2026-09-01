@@ -10,9 +10,13 @@
   --on-surface: #141414;
   --on-surface-muted: #5f646b;
   --ghost: rgb(0 0 0 / 20%); /* Outline variant @ 20% */
-  --font-voice: 'Newsreader', georgia, 'Times New Roman', serif;
-  --font-data: 'Work Sans', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Voice (serif) vs Data (sans) — system font stacks */
+  --font-voice: georgia, 'Times New Roman', times, serif;
+  --font-data:
+    -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, oxygen, ubuntu, cantarell,
+    'Helvetica Neue', helvetica, arial, sans-serif;
+  --font-mono: ui-monospace, sfmono-regular, menlo, monaco, consolas, monospace;
 
   /* Transitions */
   --transition-fast: 0.15s ease;
