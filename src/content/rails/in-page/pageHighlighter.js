@@ -45,10 +45,9 @@ export function createPageHighlighter({
   let resizeFrameId = 0;
   let detachResize = null;
 
-  function rebuild() {
+  function rebuild(name, activeSentences) {
     if (!supportsHighlightApi()) return;
-    paintSentenceHighlight(HIGHLIGHT_NAME, activeTopicSentences, { wordEntries, sentenceRanges });
-    paintSentenceHighlight(CHAT_HIGHLIGHT_NAME, activeChatSentences, {
+    paintSentenceHighlight(name, activeSentences, {
       wordEntries,
       sentenceRanges,
     });
@@ -57,7 +56,8 @@ export function createPageHighlighter({
   function clearAll() {
     activeTopicSentences.clear();
     activeChatSentences.clear();
-    rebuild();
+    rebuild(HIGHLIGHT_NAME, activeTopicSentences);
+    rebuild(CHAT_HIGHLIGHT_NAME, activeChatSentences);
   }
 
   function highlightTopic(sentenceList, on) {
@@ -65,19 +65,19 @@ export function createPageHighlighter({
       if (on) activeTopicSentences.add(sNum);
       else activeTopicSentences.delete(sNum);
     }
-    rebuild();
+    rebuild(HIGHLIGHT_NAME, activeTopicSentences);
   }
 
   function highlightChatRange(startLine, endLine) {
     for (let line = startLine; line <= endLine; line += 1) {
       activeChatSentences.add(line);
     }
-    rebuild();
+    rebuild(CHAT_HIGHLIGHT_NAME, activeChatSentences);
   }
 
   function clearChatHighlights() {
     activeChatSentences.clear();
-    rebuild();
+    rebuild(CHAT_HIGHLIGHT_NAME, activeChatSentences);
   }
 
   function scrollToFirst(sentenceList) {

@@ -96,6 +96,30 @@ describe('createPageHighlighter', () => {
     expect(paintedCount(CHAT_HIGHLIGHT_NAME)).toBe(3);
   });
 
+  it('does not rebuild chat ranges when topic highlights change', () => {
+    const highlighter = makeHighlighter();
+
+    highlighter.highlightChatRange(4, 6);
+    const chatHighlight = CSS.highlights.get(CHAT_HIGHLIGHT_NAME);
+
+    highlighter.highlightTopic([1, 2], true);
+    highlighter.highlightTopic([1, 2], false);
+
+    expect(CSS.highlights.get(CHAT_HIGHLIGHT_NAME)).toBe(chatHighlight);
+  });
+
+  it('does not rebuild topic ranges when chat highlights change', () => {
+    const highlighter = makeHighlighter();
+
+    highlighter.highlightTopic([1, 2], true);
+    const topicHighlight = CSS.highlights.get(HIGHLIGHT_NAME);
+
+    highlighter.highlightChatRange(4, 6);
+    highlighter.clearChatHighlights();
+
+    expect(CSS.highlights.get(HIGHLIGHT_NAME)).toBe(topicHighlight);
+  });
+
   it('highlightChatRange covers the range inclusively', () => {
     const highlighter = makeHighlighter();
 
