@@ -63,6 +63,7 @@ describe('InPageRail', () => {
     onHighlightCard: vi.fn(),
     onScrollToCard: vi.fn(),
     scrollContainer: null,
+    isNestedScroll: false,
   };
 
   it('renders topics mode layout, close button and switcher', () => {
@@ -195,6 +196,7 @@ describe('InPageRail', () => {
       createElement(InPageRail, {
         ...defaultProps,
         scrollContainer: mockScrollContainer,
+        isNestedScroll: true,
       }),
     );
 
@@ -218,11 +220,95 @@ describe('InPageRail', () => {
         ...defaultProps,
         mode: 'summaries',
         scrollContainer: mockScrollContainer,
+        isNestedScroll: true,
       }),
     );
     expect(railBody.style.transform).toBe('');
 
     unmount();
+  });
+
+  it('compensates when outer-page scrolling moves a nested scroll container', () => {
+    const mockScrollContainer = document.createElement('div');
+    document.body.appendChild(mockScrollContainer);
+    let containerTop = 300;
+    mockScrollContainer.getBoundingClientRect = () => ({ top: containerTop });
+    Object.defineProperty(mockScrollContainer, 'scrollTop', { value: 120, configurable: true });
+
+    const { container, unmount } = render(
+      createElement(InPageRail, {
+        ...defaultProps,
+        scrollContainer: mockScrollContainer,
+        isNestedScroll: true,
+        projectedScrollContainerTop: 300,
+      }),
+    );
+    const railBody = container.querySelector('.pagetollm-rail-body');
+    expect(railBody.style.transform).toBe('translateY(-120px)');
+
+    containerTop = 250;
+    act(() => window.dispatchEvent(new Event('scroll')));
+    expect(railBody.style.transform).toBe('translateY(-170px)');
+    expect(railBody.style.getPropertyValue('--pagetollm-scroll-offset')).toBe('170px');
+
+    unmount();
+    mockScrollContainer.remove();
+  });
+
+  it('keeps the active summary stable when outer-page scrolling moves a nested container', async () => {
+    const rafCallbacks = [];
+    vi.stubGlobal('requestAnimationFrame', (cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+    const flushFrames = () => {
+      while (rafCallbacks.length) rafCallbacks.shift()();
+    };
+
+    const cards = [
+      { ...mockCards[0], id: 'before', name: 'Before', box: { top: 180, height: 50 } },
+      { ...mockCards[1], id: 'active', name: 'Active', box: { top: 240, height: 50 } },
+    ];
+    const mockScrollContainer = document.createElement('div');
+    document.body.appendChild(mockScrollContainer);
+    let containerTop = 100;
+    mockScrollContainer.getBoundingClientRect = () => ({ top: containerTop, height: 800 });
+    Object.defineProperty(mockScrollContainer, 'clientHeight', { value: 800, configurable: true });
+    Object.defineProperty(mockScrollContainer, 'scrollTop', { value: 0, configurable: true });
+
+    const { container, unmount } = render(
+      createElement(InPageRail, {
+        ...defaultProps,
+        mode: 'summaries',
+        cards,
+        scrollContainer: mockScrollContainer,
+        isNestedScroll: true,
+        projectedScrollContainerTop: 100,
+      }),
+    );
+    container.querySelector('.pagetollm-rail-body').getBoundingClientRect = () => ({ top: 150 });
+
+    act(() => {
+      mockScrollContainer.dispatchEvent(new Event('scroll'));
+      flushFrames();
+    });
+    await Promise.resolve();
+    expect(container.querySelector('.pagetollm-summary-active-card-title').textContent).toContain(
+      'Active',
+    );
+
+    containerTop = 50;
+    act(() => {
+      window.dispatchEvent(new Event('scroll'));
+      flushFrames();
+    });
+    await Promise.resolve();
+    expect(container.querySelector('.pagetollm-summary-active-card-title').textContent).toContain(
+      'Active',
+    );
+
+    unmount();
+    mockScrollContainer.remove();
   });
 
   it('handles SummaryCursorView logic in summaries mode', async () => {

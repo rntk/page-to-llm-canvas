@@ -53,7 +53,7 @@
   color-scheme: dark;
 }
 
-#pagetollm-in-page-rail[data-youtube='true'][data-mode='chat'] {
+#pagetollm-in-page-rail[data-mode='chat'] {
   position: fixed;
   inset-block: 0;
 }
@@ -184,6 +184,15 @@ body.pagetollm-rail-open {
   border-left: 2px solid var(--ink);
   min-height: 100vh;
   isolation: isolate;
+}
+
+/* Card geometry for an inner scroller is expressed in that scroller's content
+   coordinates and can be much taller than the document. Keep that projected
+   height inside a viewport-sized host so it cannot grow the page scrollbar. */
+#pagetollm-in-page-rail.is-nested-scroll {
+  position: fixed;
+  inset-block: 0;
+  overflow: hidden;
 }
 
 .pagetollm-rail-head {

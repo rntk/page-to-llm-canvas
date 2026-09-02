@@ -114,6 +114,7 @@ export function createInPageRailController({
       body: contentDocument.body,
       docEl: contentDocument.documentElement,
     });
+    const isNestedScroll = Boolean(scrollContainer && scrollContainer !== contentWindow);
 
     const state = {
       mode: initialMode,
@@ -143,17 +144,7 @@ export function createInPageRailController({
       return false;
     }
     const { railEl, railRoot, setRailWidthForMode, isClosed } = surface;
-
-    // The chat body is viewport-sticky. Keep its host fixed as well; otherwise
-    // the absolute rail's viewport-sized containing block bounds the sticky
-    // child and the whole chat scrolls away with the article.
-    const syncRailPosition = () => {
-      railEl.style.position = state.mode === 'chat' ? 'fixed' : 'absolute';
-      railEl.style.top = '0';
-      if (state.mode === 'chat') railEl.style.bottom = '0';
-      else railEl.style.removeProperty('bottom');
-    };
-    syncRailPosition();
+    railEl.classList.toggle('is-nested-scroll', isNestedScroll);
 
     let railOriginTop;
 
@@ -186,7 +177,6 @@ export function createInPageRailController({
       // with the topic set, so no per-mode special-casing is needed here.
       state.mode = mode;
       railEl.dataset.mode = state.mode;
-      syncRailPosition();
       setRailWidthForMode();
       highlighter.clearAll();
       renderRail();
@@ -223,6 +213,12 @@ export function createInPageRailController({
 
     function renderRail({ measureOnly = false } = {}) {
       if (isClosed() || guard.isStale()) return;
+      // Card boxes measured below include the inner scroller's current
+      // viewport position. Preserve that projection origin so the component
+      // can compensate if the outer document subsequently moves the scroller.
+      const projectedScrollContainerTop = isNestedScroll
+        ? scrollContainer.getBoundingClientRect().top
+        : 0;
       const { cards, bodyHeight } = Number.isFinite(railOriginTop)
         ? projectRail()
         : { cards: [], bodyHeight: FALLBACK_RAIL_BODY_HEIGHT };
@@ -240,6 +236,9 @@ export function createInPageRailController({
             onHighlightCard={handleHighlightCard}
             onScrollToCard={handleScrollToCard}
             scrollContainer={scrollContainer}
+            scrollWindow={contentWindow}
+            isNestedScroll={isNestedScroll}
+            projectedScrollContainerTop={projectedScrollContainerTop}
             summariesDisabled={record.summariesDisabled === true}
             sentences={sentences}
             onChatHighlight={handleChatHighlight}

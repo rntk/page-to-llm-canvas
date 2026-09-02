@@ -63,19 +63,33 @@ function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen 
 
 const MemoizedRailCard = React.memo(RailCard);
 
-function getScrollContainerTop(scrollContainer) {
-  if (!scrollContainer || scrollContainer === window) return window.scrollY;
+function getScrollContainerTop(scrollContainer, scrollWindow = window) {
+  if (!scrollContainer || scrollContainer === scrollWindow) return scrollWindow.scrollY;
   return scrollContainer.scrollTop;
 }
 
-function getScrollContainerViewportHeight(scrollContainer) {
-  if (!scrollContainer || scrollContainer === window) return window.innerHeight;
-  return scrollContainer.clientHeight || window.innerHeight;
+function getScrollContainerViewportHeight(scrollContainer, scrollWindow = window) {
+  if (!scrollContainer || scrollContainer === scrollWindow) return scrollWindow.innerHeight;
+  return scrollContainer.clientHeight || scrollWindow.innerHeight;
 }
 
-function getScrollContainerViewportTop(scrollContainer) {
-  if (!scrollContainer || scrollContainer === window) return 0;
+function getScrollContainerViewportTop(scrollContainer, scrollWindow = window) {
+  if (!scrollContainer || scrollContainer === scrollWindow) return 0;
   return scrollContainer.getBoundingClientRect().top;
+}
+
+function getEffectiveScrollOffset({
+  scrollContainer,
+  scrollWindow,
+  isNestedScroll,
+  projectedScrollContainerTop,
+}) {
+  const scrollOffset = getScrollContainerTop(scrollContainer, scrollWindow);
+  if (!isNestedScroll) return scrollOffset;
+  // Card boxes retain the container's viewport top from projection time.
+  // Treat later outer-page movement as additional content-space scrolling.
+  const currentContainerTop = scrollContainer.getBoundingClientRect().top;
+  return scrollOffset - (currentContainerTop - projectedScrollContainerTop);
 }
 
 function SummaryTopicTitle({ card, onEnter, onLeave, onOpen }) {
@@ -118,6 +132,9 @@ function SummaryCursorView({
   bodyRef,
   bodyHeight,
   scrollContainer,
+  scrollWindow,
+  isNestedScroll,
+  projectedScrollContainerTop,
   onHighlightCard,
   onScrollToCard,
 }) {
@@ -172,10 +189,15 @@ function SummaryCursorView({
     const nextState = computeSummaryCursorState({
       cards: currentCards,
       bodyTop: body.getBoundingClientRect().top,
-      containerTop: getScrollContainerViewportTop(scrollContainer),
-      containerHeight: getScrollContainerViewportHeight(scrollContainer),
-      scrollTop: getScrollContainerTop(scrollContainer),
-      isWindowScroll: !scrollContainer || scrollContainer === window,
+      containerTop: getScrollContainerViewportTop(scrollContainer, scrollWindow),
+      containerHeight: getScrollContainerViewportHeight(scrollContainer, scrollWindow),
+      scrollTop: getEffectiveScrollOffset({
+        scrollContainer,
+        scrollWindow,
+        isNestedScroll,
+        projectedScrollContainerTop,
+      }),
+      isWindowScroll: !scrollContainer || scrollContainer === scrollWindow,
     });
     const nextCursorTop = nextState.cursorTop;
     setCursorTop(nextCursorTop);
@@ -197,34 +219,34 @@ function SummaryCursorView({
     }
     setDisplayIndex(nextIndex);
     setActiveCardId(nextState.activeCardId);
-  }, [bodyRef, scrollContainer]);
+  }, [bodyRef, isNestedScroll, projectedScrollContainerTop, scrollContainer, scrollWindow]);
 
   useEffect(() => {
     let frameId = 0;
     const scheduleUpdate = () => {
       if (frameId) return;
-      frameId = window.requestAnimationFrame(() => {
+      frameId = scrollWindow.requestAnimationFrame(() => {
         frameId = 0;
         updateActiveCard();
       });
     };
 
     updateActiveCard();
-    const target = scrollContainer || window;
+    const target = scrollContainer || scrollWindow;
     target.addEventListener('scroll', scheduleUpdate, { passive: true });
-    if (target !== window) {
-      window.addEventListener('scroll', scheduleUpdate, { passive: true });
+    if (target !== scrollWindow) {
+      scrollWindow.addEventListener('scroll', scheduleUpdate, { passive: true });
     }
-    window.addEventListener('resize', scheduleUpdate);
+    scrollWindow.addEventListener('resize', scheduleUpdate);
     return () => {
-      if (frameId) window.cancelAnimationFrame(frameId);
+      if (frameId) scrollWindow.cancelAnimationFrame(frameId);
       target.removeEventListener('scroll', scheduleUpdate);
-      if (target !== window) {
-        window.removeEventListener('scroll', scheduleUpdate);
+      if (target !== scrollWindow) {
+        scrollWindow.removeEventListener('scroll', scheduleUpdate);
       }
-      window.removeEventListener('resize', scheduleUpdate);
+      scrollWindow.removeEventListener('resize', scheduleUpdate);
     };
-  }, [updateActiveCard, scrollContainer]);
+  }, [updateActiveCard, scrollContainer, scrollWindow]);
 
   useEffect(() => {
     updateActiveCard();
@@ -336,6 +358,9 @@ export default function InPageRail({
   onHighlightCard,
   onScrollToCard,
   scrollContainer,
+  scrollWindow = window,
+  isNestedScroll = Boolean(scrollContainer && scrollContainer !== scrollWindow),
+  projectedScrollContainerTop = isNestedScroll ? scrollContainer.getBoundingClientRect().top : 0,
   summariesDisabled = false,
   sentences = [],
   onChatHighlight,
@@ -348,32 +373,46 @@ export default function InPageRail({
   const isSummary = mode === 'summaries';
   const isChat = mode === 'chat';
   const showSummariesDisabledNotice = isSummary && summariesDisabled;
-  const isNestedScroll = scrollContainer && scrollContainer !== window;
 
   useLayoutEffect(() => {
-    const target = scrollContainer || window;
+    const target = scrollContainer || scrollWindow;
     let frameId = 0;
     const updateScrollOffset = () => {
       frameId = 0;
-      const scrollOffset = getScrollContainerTop(scrollContainer);
+      const effectiveScrollOffset = getEffectiveScrollOffset({
+        scrollContainer,
+        scrollWindow,
+        isNestedScroll,
+        projectedScrollContainerTop,
+      });
 
       const body = bodyRef.current;
       if (!body) return;
-      body.style.transform = isNestedScroll && !isSummary ? `translateY(${-scrollOffset}px)` : '';
-      body.style.setProperty('--pagetollm-scroll-offset', `${scrollOffset}px`);
+      // Nested card positions live in the inner scroller's content space. The
+      // fixed/clipped host prevents page overflow; this translation still maps
+      // those positions back into the viewport as the inner scroller moves.
+      body.style.transform =
+        isNestedScroll && !isSummary ? `translateY(${-effectiveScrollOffset}px)` : '';
+      body.style.setProperty('--pagetollm-scroll-offset', `${effectiveScrollOffset}px`);
     };
     const scheduleUpdate = () => {
       if (frameId) return;
-      frameId = window.requestAnimationFrame(updateScrollOffset);
+      frameId = scrollWindow.requestAnimationFrame(updateScrollOffset);
     };
 
     updateScrollOffset();
     target.addEventListener('scroll', scheduleUpdate, { passive: true });
+    if (target !== scrollWindow) {
+      scrollWindow.addEventListener('scroll', scheduleUpdate, { passive: true });
+    }
     return () => {
-      if (frameId) window.cancelAnimationFrame(frameId);
+      if (frameId) scrollWindow.cancelAnimationFrame(frameId);
       target.removeEventListener('scroll', scheduleUpdate);
+      if (target !== scrollWindow) {
+        scrollWindow.removeEventListener('scroll', scheduleUpdate);
+      }
     };
-  }, [isNestedScroll, isSummary, scrollContainer]);
+  }, [isNestedScroll, isSummary, projectedScrollContainerTop, scrollContainer, scrollWindow]);
 
   const bringForward = useCallback((card) => setFrontCardId(card.id), []);
 
@@ -445,6 +484,9 @@ export default function InPageRail({
             bodyRef={bodyRef}
             bodyHeight={bodyHeight}
             scrollContainer={scrollContainer}
+            scrollWindow={scrollWindow}
+            isNestedScroll={isNestedScroll}
+            projectedScrollContainerTop={projectedScrollContainerTop}
             onHighlightCard={onHighlightCard}
             onScrollToCard={onScrollToCard}
           />

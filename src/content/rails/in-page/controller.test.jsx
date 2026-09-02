@@ -69,7 +69,7 @@ vi.mock('../../../highlights/sentenceHighlight.js', async (importOriginal) => {
 
 const { createInPageRailController } = await import('./controller.jsx');
 const { fetchRecord } = await import('../shared/recordFetch.js');
-const { getRailOriginTop } = await import('./geometry.js');
+const { getScrollableAncestor, getRailOriginTop } = await import('./geometry.js');
 const { openCanvasIframe, openHierarchyIframe } =
   await import('../../record-view/iframeManager.js');
 const { createRailSurfaceManager } = await import('../shared/surface.js');
@@ -145,6 +145,8 @@ describe('openInPageRail', () => {
     vi.stubGlobal('Highlight', FakeHighlight);
     window.scrollTo = vi.fn();
     fetchRecord.mockReset();
+    getScrollableAncestor.mockReset();
+    getScrollableAncestor.mockReturnValue(window);
     getRailOriginTop.mockReset();
     getRailOriginTop.mockReturnValue(100);
     openCanvasIframe.mockClear();
@@ -312,7 +314,30 @@ describe('openInPageRail', () => {
       });
       expect(rail()).not.toBeNull();
       expect(rail().dataset.mode).toBe('topics');
-      expect(rail().style.position).toBe('absolute');
+      expect(rail().classList).not.toContain('is-nested-scroll');
+    });
+
+    it('marks the rail host when article content uses an inner scroller', async () => {
+      const innerScroller = document.createElement('div');
+      document.body.appendChild(innerScroller);
+      getScrollableAncestor.mockReturnValue(innerScroller);
+
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'topics');
+      });
+
+      expect(rail().classList).toContain('is-nested-scroll');
+      innerScroller.remove();
+    });
+
+    it('does not mark the rail host when scroll-container detection returns null', async () => {
+      getScrollableAncestor.mockReturnValue(null);
+
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'topics');
+      });
+
+      expect(rail().classList).not.toContain('is-nested-scroll');
     });
 
     it('renders the picked topic when the measured rail origin is zero', async () => {
@@ -361,27 +386,24 @@ describe('openInPageRail', () => {
       expect(getRailOriginTop).toHaveBeenCalledTimes(2);
     });
 
-    it('keeps the chat rail fixed while switching between rail modes', async () => {
+    it('updates the mode attribute used to fix chat while switching rail modes', async () => {
       await act(async () => {
         await openInPageRail({ key: 'rail-key' }, 'chat');
       });
-      expect(rail().style.position).toBe('fixed');
-      expect(rail().style.bottom).toBe('0px');
+      expect(rail().dataset.mode).toBe('chat');
 
       const select = rail().querySelector('.pagetollm-rail-mode-select');
       await act(async () => {
         select.value = 'topics';
         select.dispatchEvent(new Event('change', { bubbles: true }));
       });
-      expect(rail().style.position).toBe('absolute');
-      expect(rail().style.bottom).toBe('');
+      expect(rail().dataset.mode).toBe('topics');
 
       await act(async () => {
         select.value = 'chat';
         select.dispatchEvent(new Event('change', { bubbles: true }));
       });
-      expect(rail().style.position).toBe('fixed');
-      expect(rail().style.bottom).toBe('0px');
+      expect(rail().dataset.mode).toBe('chat');
     });
 
     it('switching to canvas mode closes the rail and opens the canvas iframe', async () => {
