@@ -126,13 +126,46 @@ describe('installBackgroundRuntime (no chrome global)', () => {
   // surfaces as an unhandled rejection instead, which a test cannot observe
   // without failing the run on the very error it is asserting.
 
-  it('resumes orphaned records on browser start and on install/update', () => {
+  it('resumes orphaned records on browser start and on install/update', async () => {
     const ctx = setup();
 
     ctx.startupListener();
     ctx.installedListener();
 
-    expect(ctx.pipelineSupervisor.resumeInFlightRecords).toHaveBeenCalledTimes(2);
+    // Both resumes are deferred behind the bootstrap, so they land a microtask
+    // after the synchronous listener call.
+    await vi.waitFor(() =>
+      expect(ctx.pipelineSupervisor.resumeInFlightRecords).toHaveBeenCalledTimes(2),
+    );
+  });
+
+  it('waits for the cold-start bootstrap before resuming', async () => {
+    let releaseBootstrap;
+    const bootstrapReady = () => new Promise((resolve) => (releaseBootstrap = resolve));
+    const ctx = setup({ bootstrapReady });
+
+    ctx.startupListener();
+    await Promise.resolve();
+    // Reconciliation is still in flight: resuming now could read records it has
+    // not repaired yet.
+    expect(ctx.pipelineSupervisor.resumeInFlightRecords).not.toHaveBeenCalled();
+
+    releaseBootstrap();
+    await vi.waitFor(() =>
+      expect(ctx.pipelineSupervisor.resumeInFlightRecords).toHaveBeenCalledTimes(1),
+    );
+  });
+
+  it('still resumes when the bootstrap rejects', async () => {
+    const ctx = setup({ bootstrapReady: () => Promise.reject(new Error('reconcile boom')) });
+
+    ctx.startupListener();
+    // A failed bootstrap must not strand in-flight records forever: the
+    // reconcile-first ordering is a preference, resuming at all is the
+    // requirement.
+    await vi.waitFor(() =>
+      expect(ctx.pipelineSupervisor.resumeInFlightRecords).toHaveBeenCalledTimes(1),
+    );
   });
 
   it('skips the startup hooks on a runtime that does not expose them', () => {

@@ -2403,7 +2403,11 @@ describe('background service-worker boundaries', () => {
     vi.stubGlobal('chrome', chromeMock);
     await seedRecord(chromeMock, makeRecord('keepalive-new', { status: 'pending' }));
 
-    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    const { startPipeline, _resetJobRegistry, backgroundReady } = await import('./background.js');
+    // Drain the cold-start resume of the seeded record before clearing: an
+    // in-flight bootstrap would otherwise land its own `alarms.create` in the
+    // middle of the exact-count assertions below.
+    await backgroundReady;
     _resetJobRegistry();
     chromeMock.alarms.create.mockClear();
 
@@ -2437,7 +2441,9 @@ describe('background service-worker boundaries', () => {
       chromeMock.runtime.lastError = null;
     });
 
-    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    const { startPipeline, _resetJobRegistry, backgroundReady } = await import('./background.js');
+    // See above: settle the bootstrap so this test observes only its own call.
+    await backgroundReady;
     _resetJobRegistry();
 
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -2476,8 +2482,13 @@ describe('background service-worker boundaries', () => {
       chromeMock.runtime.lastError = null;
     });
 
-    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    const { startPipeline, _resetJobRegistry, backgroundReady } = await import('./background.js');
+    // The cold-start bootstrap resumes these seeded in-flight records itself.
+    // Let it finish before counting creates, so the counts below belong to the
+    // explicit startPipeline calls only.
+    await backgroundReady;
     _resetJobRegistry();
+    chromeMock.alarms.create.mockClear();
 
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
@@ -2581,8 +2592,11 @@ describe('background service-worker boundaries', () => {
       chromeMock.runtime.lastError = null;
     });
 
-    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    const { startPipeline, _resetJobRegistry, backgroundReady } = await import('./background.js');
+    // See above: drain the bootstrap's own resume before counting creates.
+    await backgroundReady;
     _resetJobRegistry();
+    chromeMock.alarms.create.mockClear();
 
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(2_000_000);

@@ -357,9 +357,10 @@ export function createPipelineSupervisor({
    * in-flight status is (re)started and the keepalive alarm is (re)armed. The
    * job registry does not survive service-worker termination, and the keepalive
    * alarm can be lost across a browser restart or extension update, so this scan
-   * is what repairs records that would otherwise be orphaned mid-pipeline (see
-   * onStartup/onInstalled in background.js). startPipeline dedupes against the
-   * registry, so calling this when jobs are already healthy is a no-op.
+   * is what repairs records that would otherwise be orphaned mid-pipeline. It
+   * runs on every cold start plus onStartup/onInstalled (see background.js).
+   * startPipeline dedupes against the registry, so calling this when jobs are
+   * already healthy is a no-op.
    */
   async function resumeInFlightRecords() {
     let items;

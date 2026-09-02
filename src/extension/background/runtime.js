@@ -15,6 +15,9 @@ export const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
  * @param {function(object, object): Promise<object>} deps.dispatchMessage
  * @param {{handleKeepAliveAlarm: Function, resumeInFlightRecords: Function}} deps.pipelineSupervisor
  * @param {Function} deps.scheduleActionProgressIconRefresh
+ * @param {function(): Promise<void>} [deps.bootstrapReady] Resolves once cold-start
+ *   storage reconciliation has finished. Read lazily (a thunk, not the promise)
+ *   because the entrypoint creates it after this call returns.
  */
 export function installBackgroundRuntime({
   chromeRuntime,
@@ -23,6 +26,7 @@ export function installBackgroundRuntime({
   dispatchMessage,
   pipelineSupervisor,
   scheduleActionProgressIconRefresh,
+  bootstrapReady,
 }) {
   chromeAlarms.onAlarm.addListener((alarm) => {
     pipelineSupervisor.handleKeepAliveAlarm(alarm);
@@ -57,16 +61,34 @@ export function installBackgroundRuntime({
 
   // Resume orphaned in-flight records when the browser starts or the extension is
   // installed/updated — the two events that can drop the keepalive alarm the
-  // running-pipeline resume otherwise depends on. Guarded because not every
-  // runtime (or test harness) exposes these events.
+  // running-pipeline resume otherwise depends on. The entrypoint also resumes
+  // once per cold start, so these matter for the warm-worker case: an update or
+  // restart delivered to an already-running worker, which re-evaluates no module.
+  //
+  // Both wait on the cold-start bootstrap so a resumed pipeline cannot read
+  // records that storage reconciliation has not repaired yet. On a warm worker
+  // the bootstrap settled long ago and this adds only a microtask.
+  const resumeAfterBootstrap = async () => {
+    try {
+      // A bootstrap that fails must not strand in-flight records: the ordering
+      // is a preference, resuming at all is the requirement. (`backgroundReady`
+      // already swallows its own errors; this covers any other provider.)
+      await Promise.resolve(bootstrapReady?.()).catch(() => {});
+      await pipelineSupervisor.resumeInFlightRecords();
+    } catch (_) {
+      /* resumeInFlightRecords logs its own failures; nothing to add here. */
+    }
+  };
+
+  // Guarded because not every runtime (or test harness) exposes these events.
   if (chromeRuntime?.onStartup?.addListener) {
     chromeRuntime.onStartup.addListener(() => {
-      void pipelineSupervisor.resumeInFlightRecords();
+      void resumeAfterBootstrap();
     });
   }
   if (chromeRuntime?.onInstalled?.addListener) {
     chromeRuntime.onInstalled.addListener(() => {
-      void pipelineSupervisor.resumeInFlightRecords();
+      void resumeAfterBootstrap();
     });
   }
 }

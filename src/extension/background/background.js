@@ -273,6 +273,10 @@ installBackgroundRuntime({
   dispatchMessage,
   pipelineSupervisor,
   scheduleActionProgressIconRefresh,
+  // Thunk, not the promise: `backgroundReady` is initialised below and is in
+  // its temporal dead zone right now. The listeners only call this once an
+  // event fires, which cannot happen before module evaluation completes.
+  bootstrapReady: () => backgroundReady,
 });
 
 // Repair interrupted page/index writes before reconciling their dependent
@@ -280,12 +284,36 @@ installBackgroundRuntime({
 // including fields added by newer versions, so no separate schema migration is
 // needed. Both routines are idempotent and share the global mutation queue with
 // normal writes, so startup races cannot resurrect deleted data.
-void (async () => {
+//
+// The resume scan then runs on *every* cold start, not just onStartup/
+// onInstalled. Those two events cover a browser restart and an update, but the
+// common MV3 wake is an ordinary runtime message after an idle termination; if
+// the keepalive alarm was lost as well, nothing else would ever repair a record
+// left in an in-flight status. resumeInFlightRecords re-arms the alarm and
+// dedupes against the job registry, so the redundant call on a startup/install
+// cold start is a no-op. Sequenced after reconciliation so a resumed pipeline
+// cannot race the repair of its own interrupted writes — the onStartup/
+// onInstalled handlers hold the same ordering by awaiting `backgroundReady`.
+/**
+ * Settles once the cold-start bootstrap above has finished. Never rejects.
+ *
+ * The onStartup/onInstalled handlers await this before resuming, so that the
+ * "reconcile, then resume" ordering holds on every path rather than only on the
+ * cold-start one. Tests also await it to synchronise with the import-time work
+ * instead of racing it on a timer.
+ * @type {Promise<void>}
+ */
+export const backgroundReady = (async () => {
   try {
     await reconcileRecordStorage();
     await reconcileChatStorage();
   } catch (err) {
     log.warn('storage reconciliation failed:', err);
+  }
+  try {
+    await pipelineSupervisor.resumeInFlightRecords();
+  } catch (err) {
+    log.warn('cold-start resume failed:', err);
   }
 })();
 
