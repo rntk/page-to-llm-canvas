@@ -99,14 +99,14 @@
 .pagetollm-element-highlight {
   outline: 2px solid var(--pagetollm-highlight-base-color) !important;
   outline-offset: 2px;
-  background: var(--pagetollm-highlight-hover-color) !important;
+  background-color: var(--pagetollm-highlight-hover-color) !important;
   cursor: pointer !important;
 }
 
 .pagetollm-selected {
   outline: 3px solid var(--pagetollm-highlight-base-color) !important;
   outline-offset: 2px;
-  background: var(--pagetollm-highlight-color) !important;
+  background-color: var(--pagetollm-highlight-color) !important;
 }
 
 /* ErrorBoundary fallback rendered inside the rail. Not absolutely positioned:
