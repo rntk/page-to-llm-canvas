@@ -103,6 +103,21 @@ describe('selection controller', () => {
     expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
   });
 
+  it('does not mount a toolbar when the document has no body', () => {
+    const body = document.body;
+    body.remove();
+    try {
+      let controller;
+      expect(() => {
+        controller = createSelectionController({ document, window });
+      }).not.toThrow();
+      expect(controller).toEqual({ destroy: expect.any(Function) });
+      expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
+    } finally {
+      document.documentElement.appendChild(body);
+    }
+  });
+
   it('creates a toolbar, replaces the existing one, and cleans it up', () => {
     act(() => showSelectionToolbar(runtimeMessenger));
     const first = document.getElementById('pagetollm-selection-toolbar');
@@ -208,6 +223,7 @@ describe('selection controller', () => {
     act(() => block.dispatchEvent(event('click')));
 
     await act(async () => click(toolbarButton('pagetollm-submit-btn')));
+    await vi.waitFor(() => expect(runtimeMessenger.send).toHaveBeenCalledOnce());
     await flush();
 
     expect(runtimeMessenger.send).toHaveBeenCalledWith({
@@ -254,9 +270,11 @@ describe('selection controller', () => {
     act(() => block.dispatchEvent(event('click')));
 
     await act(async () => click(toolbarButton('pagetollm-submit-btn')));
+    await vi.waitFor(() =>
+      expect(alert).toHaveBeenCalledWith('PageToLLM error: network down'),
+    );
     await flush();
 
-    expect(alert).toHaveBeenCalledWith('PageToLLM error: network down');
     expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
   });
 

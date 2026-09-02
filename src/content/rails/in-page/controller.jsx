@@ -109,7 +109,11 @@ export function createInPageRailController({
     const wordEntries = collectWordEntries(elements);
     const sentences = Array.isArray(record.sentences) ? record.sentences : [];
     const sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
-    const scrollContainer = getScrollableAncestor(elements);
+    const scrollContainer = getScrollableAncestor(elements, {
+      win: contentWindow,
+      body: contentDocument.body,
+      docEl: contentDocument.documentElement,
+    });
 
     const state = {
       mode: initialMode,
@@ -127,13 +131,18 @@ export function createInPageRailController({
       window: contentWindow,
     });
 
-    const { railEl, railRoot, setRailWidthForMode, isClosed } = surfaceManager.createSurface({
+    const surface = surfaceManager.createSurface({
       state,
       onTeardown: () => {
         highlighter.destroy();
         onDestroy?.();
       },
     });
+    if (!surface) {
+      highlighter.destroy();
+      return false;
+    }
+    const { railEl, railRoot, setRailWidthForMode, isClosed } = surface;
 
     // The chat body is viewport-sticky. Keep its host fixed as well; otherwise
     // the absolute rail's viewport-sized containing block bounds the sticky
@@ -157,6 +166,7 @@ export function createInPageRailController({
         wordEntries,
         railOriginTop,
         scrollContainer,
+        win: contentWindow,
       });
 
     const handleSelectMode = (mode) => {
@@ -243,7 +253,7 @@ export function createInPageRailController({
     const measureRailOrigin = () => {
       const railBody = railEl.querySelector('.pagetollm-rail-body');
       railOriginTop = railBody
-        ? getRailOriginTop(railBody.getBoundingClientRect(), scrollContainer)
+        ? getRailOriginTop(railBody.getBoundingClientRect(), scrollContainer, contentWindow)
         : undefined;
     };
 

@@ -319,7 +319,12 @@ export function buildSentenceDomRange(sentenceRanges, wordEntries, sNum) {
   const endEntry = wordEntries[range.endIdx];
   if (!startEntry || !endEntry) return null;
   try {
-    const domRange = document.createRange();
+    // The entries come from the live document being highlighted. Constructing
+    // through the node's ownerDocument keeps this helper correct for embedded
+    // or otherwise non-global documents (e.g. an iframe or SVG/XML surface).
+    const ownerDocument = startEntry.node?.ownerDocument;
+    if (!ownerDocument?.createRange) return null;
+    const domRange = ownerDocument.createRange();
     domRange.setStart(startEntry.node, startEntry.start);
     domRange.setEnd(endEntry.endNode || endEntry.node, endEntry.end);
     return domRange;

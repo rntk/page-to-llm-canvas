@@ -11,12 +11,6 @@ import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../../shared/runtime/contrac
 // Prefer YouTube's main player element so we don't accidentally bind to a
 // hover-preview thumbnail or an ad's <video>. Falls back to any <video> for
 // non-standard embeds.
-function getYouTubeVideoElement(contentDocument) {
-  return (
-    contentDocument.querySelector('.html5-main-video') || contentDocument.querySelector('video')
-  );
-}
-
 // The rail only renders these three modes; anything else (stale storage, a
 // bad message payload) falls back to the default topics view.
 function normalizeYouTubeMode(mode) {
@@ -37,6 +31,14 @@ export function createYouTubeRailController({
 } = {}) {
   const closeRail = surfaceManager.close;
   const { alert } = { ...defaultDialogs, ...(dialogs ?? {}) };
+  let videoElement = null;
+
+  const getYouTubeVideoElement = () => {
+    if (videoElement?.isConnected) return videoElement;
+    videoElement =
+      contentDocument.querySelector('.html5-main-video') || contentDocument.querySelector('video');
+    return videoElement;
+  };
 
   async function openYouTubeRail(rec, initialMode = 'topics', options = {}) {
     const guard = surfaceManager.beginLoad();
@@ -75,21 +77,23 @@ export function createYouTubeRailController({
 
     const maxLevel = computeMaxTopicLevel(record);
 
-    const { railEl, railRoot, setRailWidthForMode, isClosed } = surfaceManager.createSurface({
+    const surface = surfaceManager.createSurface({
       state,
       youtube: true,
       onTeardown: onDestroy,
     });
+    if (!surface) return false;
+    const { railEl, railRoot, setRailWidthForMode, isClosed } = surface;
 
     const getCurrentTime = () => {
-      const video = getYouTubeVideoElement(contentDocument);
+      const video = getYouTubeVideoElement();
       if (!video) return null;
       const time = video.currentTime;
       return Number.isFinite(time) ? time : null;
     };
 
     const seekTo = async (seconds) => {
-      const video = getYouTubeVideoElement(contentDocument);
+      const video = getYouTubeVideoElement();
       if (!Number.isFinite(seconds)) {
         return { ok: false, message: 'This evidence has no usable video timestamp.' };
       }

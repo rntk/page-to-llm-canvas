@@ -41,6 +41,7 @@ export function buildRailCards({
   wordEntries,
   railOriginTop,
   scrollContainer,
+  win = window,
 }) {
   const isSummary = mode === 'summaries';
   const entries = isSummary
@@ -59,6 +60,7 @@ export function buildRailCards({
         wordEntries,
         railOriginTop,
         scrollContainer,
+        { win },
       );
       if (!box) continue;
       const accent = topicAccentColor(e.path, e.level || 0);
@@ -96,7 +98,7 @@ export function buildRailCards({
   }
   cardSpecs.sort((a, b) => a.box.top - b.box.top);
 
-  const trailingPad = computeRailTrailingPad({ isSummary, scrollContainer });
+  const trailingPad = computeRailTrailingPad({ isSummary, scrollContainer, win });
   const railHeight = cardSpecs.length
     ? Math.max(...cardSpecs.map((c) => c.box.top + c.box.height)) + trailingPad
     : FALLBACK_RAIL_BODY_HEIGHT;

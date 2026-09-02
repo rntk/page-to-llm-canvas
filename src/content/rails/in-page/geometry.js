@@ -19,16 +19,17 @@ export function getRailOriginTop(bodyRect, scrollContainer, win = window) {
 export function getScrollableAncestor(
   elements,
   {
+    win = window,
     // Wrap to preserve the Window receiver. Bare `window.getComputedStyle` as a default
     // would be invoked detached in strict mode (ES modules), and Chrome brand-checks
     // WebIDL operations like getComputedStyle (same as requestAnimationFrame etc.).
-    getComputedStyle = (el) => window.getComputedStyle(el),
-    body = document.body,
-    docEl = document.documentElement,
+    getComputedStyle = (el) => win.getComputedStyle(el),
+    body = win.document.body,
+    docEl = win.document.documentElement,
   } = {},
 ) {
   const picked = Array.isArray(elements) ? elements.filter(Boolean) : [];
-  if (picked.length === 0) return window;
+  if (picked.length === 0) return win;
 
   const containsPickedElements = (candidate) =>
     picked.every((el) => candidate === el || candidate.contains(el));
@@ -45,7 +46,7 @@ export function getScrollableAncestor(
     node = node.parentElement;
   }
 
-  return window;
+  return win;
 }
 
 /** Slack kept below the last card so the rail doesn't end flush with it. */
@@ -89,13 +90,13 @@ export function computeCardVerticalBox(
   wordEntries,
   railOriginTop,
   scrollContainer,
-  { buildRange = buildSentenceDomRange } = {},
+  { buildRange = buildSentenceDomRange, win = window } = {},
 ) {
   if (!sentences || sentences.length === 0) return null;
   let top = Infinity,
     bottom = -Infinity;
   const isLaidOut = (rect) => rect && (rect.width > 0 || rect.height > 0);
-  const scrollTop = getScrollTop(scrollContainer);
+  const scrollTop = getScrollTop(scrollContainer, win);
   for (const sNum of sentences) {
     const domRange = buildRange(sentenceRanges, wordEntries, sNum);
     if (!domRange) continue;

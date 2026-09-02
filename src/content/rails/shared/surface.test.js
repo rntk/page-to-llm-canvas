@@ -70,6 +70,19 @@ describe('in-page rail surface', () => {
     expect(document.body.classList.contains('pagetollm-rail-open')).toBe(true);
   });
 
+  it('does not mount a rail when the document has no body', () => {
+    const body = document.body;
+    body.remove();
+    try {
+      expect(manager.createSurface({ state: { mode: 'topics' } })).toBeNull();
+      expect(document.getElementById('pagetollm-in-page-rail')).toBeNull();
+      expect(createRoot).not.toHaveBeenCalled();
+      expect(trackMountedSurface).not.toHaveBeenCalled();
+    } finally {
+      document.documentElement.appendChild(body);
+    }
+  });
+
   it('tags YouTube rails and reserves the mode-specific width', () => {
     const surface = manager.createSurface({ state: { mode: 'summaries' }, youtube: true });
 

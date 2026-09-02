@@ -63,6 +63,18 @@ describe('getScrollableAncestor', () => {
     expect(getScrollableAncestor([])).toBe(window);
   });
 
+  it('returns the injected window for an empty or non-scrollable selection', () => {
+    const injectedWindow = {
+      document: { body: document.body, documentElement: document.documentElement },
+      getComputedStyle: () => ({ overflowY: 'visible', overflow: 'visible' }),
+    };
+    expect(getScrollableAncestor([], { win: injectedWindow })).toBe(injectedWindow);
+
+    const picked = makeEl('span');
+    container.appendChild(picked);
+    expect(getScrollableAncestor([picked], { win: injectedWindow })).toBe(injectedWindow);
+  });
+
   it('returns the first scrollable ancestor that contains all picked elements', () => {
     const outer = makeEl('div', { overflow: 'auto' });
     const inner = makeEl('div');

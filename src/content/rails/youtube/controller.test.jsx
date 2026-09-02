@@ -389,6 +389,23 @@ describe('openYouTubeRail', () => {
       expect(video.play).toHaveBeenCalled();
     });
 
+    it('reuses the connected video element instead of querying on every read', async () => {
+      mountVideo();
+      await act(async () => {
+        await openYouTubeRail({ key: 'yt-key' });
+      });
+      const querySelector = vi.spyOn(document, 'querySelector');
+      querySelector.mockClear();
+
+      const secondCard = rail().querySelectorAll('.pagetollm-yt-rail-card')[1];
+      await act(async () => {
+        secondCard.click();
+      });
+
+      expect(querySelector).not.toHaveBeenCalled();
+      querySelector.mockRestore();
+    });
+
     it('clamps a negative seek target to 0', async () => {
       const video = mountVideo();
       video.currentTime = 10;

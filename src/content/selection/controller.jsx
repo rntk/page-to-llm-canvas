@@ -44,6 +44,8 @@ export function createSelectionController({
   dialogs = defaultDialogs,
   onDestroy,
 } = {}) {
+  if (!contentDocument?.body) return { destroy() {} };
+
   let selectionToolbar = null;
   let selectionToolbarRoot = null;
   let selectionToolbarShadowRoot = null;
@@ -192,7 +194,6 @@ export function createSelectionController({
   function onDragStart(event, index) {
     if (!guardTrustedUserEvent(event)) return;
     dragSrcIndex = Number.isInteger(index) ? index : parseInt(event.currentTarget.dataset.index);
-    event.currentTarget.classList.add('pagetollm-dragging');
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
     renderSelectionToolbar();
   }

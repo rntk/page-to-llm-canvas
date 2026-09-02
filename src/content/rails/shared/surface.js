@@ -29,6 +29,10 @@ export function createRailSurfaceManager({
   }
 
   function createSurface({ state, youtube = false, onTeardown } = {}) {
+    // XML/SVG documents do not expose a body. Bail out before creating or
+    // appending anything so an unsuccessful mount cannot leak a rail host.
+    if (!contentDocument.body) return null;
+
     // A controller should normally close through the coordinator first, but
     // keep this ownership boundary safe for direct/future callers as well.
     if (activeRailController) {
@@ -104,7 +108,7 @@ export function createRailSurfaceManager({
       contentDocument.querySelectorAll('#pagetollm-in-page-rail'),
     ).some((railEl) => ownedRailElements.has(railEl));
     if (hasOwnedRail) return;
-    contentDocument.body.classList.remove('pagetollm-rail-open');
+    contentDocument.body?.classList.remove('pagetollm-rail-open');
     contentDocument.documentElement.style.removeProperty('--pagetollm-rail-reserve');
     contentDocument.documentElement.style.removeProperty('--pagetollm-rail-width');
   }

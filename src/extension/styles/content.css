@@ -887,3 +887,17 @@ body.pagetollm-rail-open {
     transition: none;
   }
 }
+
+/* Injected surfaces and their page layout adjustments do not belong in print
+   output. The record-view iframe is full-viewport and must be suppressed too. */
+@media print {
+  #pagetollm-selection-toolbar,
+  #pagetollm-in-page-rail,
+  #pagetollm-canvas-iframe {
+    display: none !important;
+  }
+
+  body.pagetollm-rail-open {
+    padding-right: 0 !important;
+  }
+}
