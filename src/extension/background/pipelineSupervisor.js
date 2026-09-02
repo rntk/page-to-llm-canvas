@@ -326,6 +326,7 @@ export function createPipelineSupervisor({
       .then(async (items) => {
         const inFlight = items.filter(isInFlightRecord);
         if (inFlight.length === 0) {
+          if (jobRegistry.size > 0 || starting.size > 0) return;
           alarms.clear(KEEPALIVE_ALARM);
           return;
         }
@@ -336,6 +337,7 @@ export function createPipelineSupervisor({
           if (!openStateFromSnapshot(rec, snapshot)) resumable.push(rec);
         }
         if (resumable.length === 0) {
+          if (jobRegistry.size > 0 || starting.size > 0) return;
           alarms.clear(KEEPALIVE_ALARM);
           return;
         }
@@ -369,6 +371,7 @@ export function createPipelineSupervisor({
     }
     const inFlight = (Array.isArray(items) ? items : []).filter(isInFlightRecord);
     if (inFlight.length === 0) {
+      if (jobRegistry.size > 0 || starting.size > 0) return;
       alarms.clear(KEEPALIVE_ALARM);
       return;
     }
@@ -383,6 +386,7 @@ export function createPipelineSupervisor({
       if (!openStateFromSnapshot(rec, snapshot)) resumable.push(rec);
     }
     if (resumable.length === 0) {
+      if (jobRegistry.size > 0 || starting.size > 0) return;
       alarms.clear(KEEPALIVE_ALARM);
       return;
     }
