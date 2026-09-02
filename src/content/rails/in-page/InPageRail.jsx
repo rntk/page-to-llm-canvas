@@ -377,6 +377,12 @@ export default function InPageRail({
   useLayoutEffect(() => {
     const target = scrollContainer || scrollWindow;
     let frameId = 0;
+    // Only the nested-scroll topic titles read the offset variable, and writing
+    // it invalidates style for the whole rail body subtree. In summaries mode
+    // that write is a no-op that would also force a synchronous layout, since
+    // SummaryCursorView measures the same body from its own scroll frame.
+    const tracksOffset = isNestedScroll && !isSummary;
+    let lastOffsetValue = null;
     const updateScrollOffset = () => {
       frameId = 0;
       const effectiveScrollOffset = getEffectiveScrollOffset({
@@ -391,14 +397,26 @@ export default function InPageRail({
       // Nested card positions live in the inner scroller's content space. The
       // fixed/clipped host prevents page overflow; this translation still maps
       // those positions back into the viewport as the inner scroller moves.
-      body.style.transform =
-        isNestedScroll && !isSummary ? `translateY(${-effectiveScrollOffset}px)` : '';
-      body.style.setProperty('--pagetollm-scroll-offset', `${effectiveScrollOffset}px`);
+      body.style.transform = `translateY(${-effectiveScrollOffset}px)`;
+      const offsetValue = `${effectiveScrollOffset}px`;
+      if (offsetValue !== lastOffsetValue) {
+        lastOffsetValue = offsetValue;
+        body.style.setProperty('--pagetollm-scroll-offset', offsetValue);
+      }
     };
     const scheduleUpdate = () => {
       if (frameId) return;
       frameId = scrollWindow.requestAnimationFrame(updateScrollOffset);
     };
+
+    if (!tracksOffset) {
+      const body = bodyRef.current;
+      if (body) {
+        body.style.transform = '';
+        body.style.removeProperty('--pagetollm-scroll-offset');
+      }
+      return undefined;
+    }
 
     updateScrollOffset();
     target.addEventListener('scroll', scheduleUpdate, { passive: true });
