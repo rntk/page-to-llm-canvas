@@ -10,7 +10,7 @@ export async function createInPageRailSurface({
   openRecordFrame,
   onDestroy,
 }) {
-  await preferences.init();
+  await preferences.init(document);
   const manager = createRailSurfaceManager({ document, rootFactory: createRoot, preferences });
   const controller = createInPageRailController({
     surfaceManager: manager,

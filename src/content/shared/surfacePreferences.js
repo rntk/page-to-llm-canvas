@@ -12,6 +12,7 @@ import {
   getStoredHighlightColor,
   normalizeHighlightColor,
   applyHighlightColorToElement,
+  clearHighlightColorFromElement,
 } from '../../highlights/highlightSettings.js';
 import { browserLocalStore } from '../../shared/runtime/localStore.js';
 
@@ -31,6 +32,7 @@ let themeSyncId = 0;
 let highlightColorSyncId = 0;
 let didInit = false;
 let initPromise = null;
+let contentDocumentRef = null;
 
 // Controllers own their host elements; they register a getter here so a theme
 // or highlight-color change can re-tag surfaces that are already mounted
@@ -76,12 +78,30 @@ function refreshMountedContentTheme() {
   }
 }
 
+function getHighlightTargetDocument() {
+  if (contentDocumentRef) return contentDocumentRef;
+  if (typeof document !== 'undefined') return document;
+  return null;
+}
+
+function getHighlightTargetElement() {
+  const doc = getHighlightTargetDocument();
+  return doc ? doc.documentElement : null;
+}
+
 function refreshMountedHighlightColor() {
-  applyHighlightColorToElement(document.documentElement, cachedHighlightColor);
+  if (mountedContentSurfaceCount === 0) return;
+  const target = getHighlightTargetElement();
+  if (target) applyHighlightColorToElement(target, cachedHighlightColor);
   for (const getEl of themedSurfaceProviders) {
     const el = getEl();
     if (el) applyContentHighlightColor(el);
   }
+}
+
+function clearMountedHighlightColor() {
+  const target = getHighlightTargetElement();
+  if (target) clearHighlightColorFromElement(target);
 }
 
 /**
@@ -90,7 +110,8 @@ function refreshMountedHighlightColor() {
  * render is tagged with the stored preferences rather than briefly flashing
  * the defaults.
  */
-export function init() {
+export function init(contentDocument) {
+  if (contentDocument) contentDocumentRef = contentDocument;
   if (!didInit) {
     didInit = true;
     initPromise = syncPreferenceCacheFromStorage();
@@ -154,12 +175,24 @@ function detachPreferenceStorageListener() {
   unsubscribePreferenceStorage = null;
 }
 
-export function trackMountedSurface() {
+export function trackMountedSurface(contentDocument) {
+  if (contentDocument) contentDocumentRef = contentDocument;
+  const wasZero = mountedContentSurfaceCount === 0;
   mountedContentSurfaceCount += 1;
+  if (wasZero) {
+    const target = getHighlightTargetElement();
+    if (target) applyHighlightColorToElement(target, cachedHighlightColor);
+  }
   attachPreferenceStorageListener();
 }
 
 export function untrackMountedSurface() {
+  const prevCount = mountedContentSurfaceCount;
   mountedContentSurfaceCount = Math.max(0, mountedContentSurfaceCount - 1);
-  if (mountedContentSurfaceCount === 0) detachPreferenceStorageListener();
+  if (prevCount > 0 && mountedContentSurfaceCount === 0) {
+    detachPreferenceStorageListener();
+    highlightColorSyncId += 1;
+    clearMountedHighlightColor();
+    contentDocumentRef = null;
+  }
 }

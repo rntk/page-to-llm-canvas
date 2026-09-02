@@ -83,7 +83,7 @@ export function createRailSurfaceManager({
 
     contentDocument.documentElement.appendChild(railEl);
     ownedRailElements.add(railEl);
-    preferences.trackMountedSurface();
+    preferences.trackMountedSurface(contentDocument);
     railSurfaceTracked = true;
     activeRailController = {
       railEl,

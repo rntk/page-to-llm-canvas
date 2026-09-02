@@ -4,7 +4,7 @@ import { createYouTubeRailController } from '../rails/youtube/controller.jsx';
 import * as preferences from '../shared/surfacePreferences.js';
 
 export async function createYouTubeRailSurface({ document, runtimeMessenger, dialogs, onDestroy }) {
-  await preferences.init();
+  await preferences.init(document);
   const manager = createRailSurfaceManager({ document, rootFactory: createRoot, preferences });
   const controller = createYouTubeRailController({
     surfaceManager: manager,

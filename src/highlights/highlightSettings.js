@@ -36,6 +36,13 @@ export function highlightColorWithAlpha(color, alpha = HIGHLIGHT_BACKGROUND_ALPH
   return `rgb(${r} ${g} ${b} / ${safeAlpha})`;
 }
 
+export const HIGHLIGHT_CSS_VARS = [
+  '--pagetollm-highlight-base-color',
+  '--pagetollm-highlight-color',
+  '--pagetollm-highlight-hover-color',
+  '--pagetollm-highlight-active-color',
+];
+
 export function applyHighlightColorToElement(
   el,
   color,
@@ -47,19 +54,24 @@ export function applyHighlightColorToElement(
 ) {
   if (!el || !el.style || typeof el.style.setProperty !== 'function') return;
   const normalized = normalizeHighlightColor(color);
-  el.style.setProperty('--pagetollm-highlight-base-color', normalized);
+  el.style.setProperty(HIGHLIGHT_CSS_VARS[0], normalized);
   el.style.setProperty(
-    '--pagetollm-highlight-color',
+    HIGHLIGHT_CSS_VARS[1],
     highlightColorWithAlpha(normalized, backgroundAlpha),
   );
   el.style.setProperty(
-    '--pagetollm-highlight-hover-color',
+    HIGHLIGHT_CSS_VARS[2],
     highlightColorWithAlpha(normalized, hoverBackgroundAlpha),
   );
   el.style.setProperty(
-    '--pagetollm-highlight-active-color',
+    HIGHLIGHT_CSS_VARS[3],
     highlightColorWithAlpha(normalized, activeBackgroundAlpha),
   );
+}
+
+export function clearHighlightColorFromElement(el) {
+  if (!el || !el.style || typeof el.style.removeProperty !== 'function') return;
+  for (const prop of HIGHLIGHT_CSS_VARS) el.style.removeProperty(prop);
 }
 
 const setting = createStoredSetting({

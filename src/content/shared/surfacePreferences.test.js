@@ -156,4 +156,82 @@ describe('surfacePreferences', () => {
     unregister();
     untrackMountedSurface();
   });
+
+  it('clears the highlight vars from documentElement only when the last surface unmounts', () => {
+    // The vars live on the host page's documentElement (that is where
+    // ::highlight(pagetollm-sentence) resolves them), so they are the one piece
+    // of our styling that outlives the surfaces unless teardown removes it.
+    const docStyle = document.documentElement.style;
+    const HIGHLIGHT_VARS = [
+      '--pagetollm-highlight-base-color',
+      '--pagetollm-highlight-color',
+      '--pagetollm-highlight-hover-color',
+      '--pagetollm-highlight-active-color',
+    ];
+
+    trackMountedSurface(document);
+    HIGHLIGHT_VARS.forEach((prop) => expect(docStyle.getPropertyValue(prop)).not.toBe(''));
+
+    // A second surface is still mounted, so dropping the first must not strip
+    // the page's highlight palette out from under it.
+    trackMountedSurface(document);
+    untrackMountedSurface();
+    HIGHLIGHT_VARS.forEach((prop) => expect(docStyle.getPropertyValue(prop)).not.toBe(''));
+
+    untrackMountedSurface();
+    HIGHLIGHT_VARS.forEach((prop) => expect(docStyle.getPropertyValue(prop)).toBe(''));
+  });
+
+  it('does not repaint documentElement when a storage read resolves after teardown', async () => {
+    // Mount-then-close leaves a read in flight past the moment the vars are
+    // cleared. Without a generation bump on teardown that read would re-apply
+    // the palette to the host page permanently, since nothing clears it again.
+    const deferredReads = [];
+    const realGet = chrome.storage.local.get.getMockImplementation();
+    chrome.storage.local.get.mockImplementation((key, cb) => {
+      deferredReads.push(() => realGet(key, cb));
+    });
+    highlightValue = '#00ff00';
+
+    try {
+      trackMountedSurface(document); // attaches the listener and starts both reads
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(deferredReads.length).toBe(2);
+
+      untrackMountedSurface(); // last surface: clears the vars
+      deferredReads.forEach((resolve) => resolve());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(
+        document.documentElement.style.getPropertyValue('--pagetollm-highlight-base-color'),
+      ).toBe('');
+    } finally {
+      chrome.storage.local.get.mockImplementation(realGet);
+    }
+  });
+
+  it('repaints documentElement synchronously on remount, before any read resolves', async () => {
+    // Teardown clears the vars, so a remount that waited for a fresh storage
+    // read would flash the CSS default color at anyone with a custom one. The
+    // cache is still warm, so the repaint must happen on the mount itself.
+    const docStyle = document.documentElement.style;
+    highlightValue = '#00ff00';
+    trackMountedSurface(document);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(docStyle.getPropertyValue('--pagetollm-highlight-base-color')).toBe('#00ff00');
+
+    untrackMountedSurface();
+    expect(docStyle.getPropertyValue('--pagetollm-highlight-base-color')).toBe('');
+
+    // Storage never answers, so only a synchronous repaint can satisfy this.
+    const realGet = chrome.storage.local.get.getMockImplementation();
+    chrome.storage.local.get.mockImplementation(() => {});
+    try {
+      trackMountedSurface(document);
+      expect(docStyle.getPropertyValue('--pagetollm-highlight-base-color')).toBe('#00ff00');
+    } finally {
+      chrome.storage.local.get.mockImplementation(realGet);
+      untrackMountedSurface();
+    }
+  });
 });

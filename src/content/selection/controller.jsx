@@ -77,7 +77,7 @@ export function createSelectionController({
   if (import.meta.env.MODE === 'test') {
     window.__pagetollmTestSelectionToolbarRoot = selectionToolbarShadowRoot;
   }
-  preferences.trackMountedSurface();
+  preferences.trackMountedSurface(contentDocument);
   renderSelectionToolbar();
 
   function toggleSelectionMode(event) {
