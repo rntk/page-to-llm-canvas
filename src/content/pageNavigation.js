@@ -23,8 +23,9 @@ export function getPageIdentity(href) {
 
 /**
  * Observe navigation events that do not replace the content-script document.
- * YouTube emits `yt-navigate-finish` for its pushState-driven navigation;
- * popstate covers browser back/forward navigation as a fallback.
+ * The Navigation API reports successful pushState/replaceState navigations
+ * and browser traversals on browsers that expose it. YouTube's custom event
+ * and popstate remain as fallbacks for older browsers.
  *
  * @param {object} options
  * @param {Document} options.document
@@ -39,18 +40,22 @@ export function observePageNavigation({
 } = {}) {
   let pageIdentity = getPageIdentity(contentWindow.location.href);
 
-  const handleNavigation = () => {
+  const handleCommittedNavigation = () => {
     const nextIdentity = getPageIdentity(contentWindow.location.href);
     if (nextIdentity === pageIdentity) return;
     pageIdentity = nextIdentity;
     onPageChange?.();
   };
 
-  contentDocument.addEventListener('yt-navigate-finish', handleNavigation);
-  contentWindow.addEventListener('popstate', handleNavigation);
+  const navigation = contentWindow.navigation;
+  navigation?.addEventListener('navigatesuccess', handleCommittedNavigation);
+
+  contentDocument.addEventListener('yt-navigate-finish', handleCommittedNavigation);
+  contentWindow.addEventListener('popstate', handleCommittedNavigation);
 
   return () => {
-    contentDocument.removeEventListener('yt-navigate-finish', handleNavigation);
-    contentWindow.removeEventListener('popstate', handleNavigation);
+    navigation?.removeEventListener('navigatesuccess', handleCommittedNavigation);
+    contentDocument.removeEventListener('yt-navigate-finish', handleCommittedNavigation);
+    contentWindow.removeEventListener('popstate', handleCommittedNavigation);
   };
 }
