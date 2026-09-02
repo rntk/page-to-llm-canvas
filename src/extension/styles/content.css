@@ -156,7 +156,17 @@
 
 body.pagetollm-rail-open {
   padding-right: var(--pagetollm-rail-reserve, 0) !important;
-  box-sizing: border-box;
+}
+
+/* The reserve padding only widens the page when the body has an explicit width
+   under content-box. The rail manager detects that case and adds this class, so
+   every other page keeps its own box model. Scoped away from print because the
+   print styles drop the padding entirely, and there is no reserve left to
+   absorb; the page must keep the box model it would have had without us. */
+@media not print {
+  body.pagetollm-rail-open.pagetollm-rail-fit {
+    box-sizing: border-box;
+  }
 }
 
 #pagetollm-in-page-rail {
@@ -897,6 +907,8 @@ body.pagetollm-rail-open {
     display: none !important;
   }
 
+  /* The box model is left alone here: .pagetollm-rail-fit is scoped to
+     non-print media, so nothing needs to be undone. */
   body.pagetollm-rail-open {
     padding-right: 0 !important;
   }

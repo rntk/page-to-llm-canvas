@@ -52,6 +52,22 @@ export function createRailSurfaceManager({
     const railRoot = rootFactory(railEl);
     let railClosed = false;
     let railSurfaceTracked = false;
+    // Captured before the reserve padding is applied, so overflow the page had
+    // on its own is never mistaken for overflow we caused.
+    let overflowedBeforeReserve = false;
+
+    // A body with an explicit width under content-box grows by the reserve
+    // padding instead of yielding space to the rail. Flip its box model only
+    // while the padding is what pushes the page into horizontal overflow, and
+    // re-evaluate whenever the reserve width changes.
+    const syncRailReserveFit = () => {
+      const body = contentDocument.body;
+      if (railClosed || overflowedBeforeReserve) return;
+      if (!body?.classList.contains('pagetollm-rail-open')) return;
+      body.classList.remove('pagetollm-rail-fit');
+      const docEl = contentDocument.documentElement;
+      if (docEl.scrollWidth > docEl.clientWidth) body.classList.add('pagetollm-rail-fit');
+    };
 
     const setRailWidthForMode = () => {
       if (railClosed) return;
@@ -62,6 +78,7 @@ export function createRailSurfaceManager({
         `${railWidth + IN_PAGE_RAIL_RESERVE_GAP}px`,
       );
       contentDocument.documentElement.style.setProperty('--pagetollm-rail-width', `${railWidth}px`);
+      syncRailReserveFit();
     };
 
     contentDocument.documentElement.appendChild(railEl);
@@ -98,8 +115,11 @@ export function createRailSurfaceManager({
       },
     };
 
+    overflowedBeforeReserve =
+      contentDocument.documentElement.scrollWidth > contentDocument.documentElement.clientWidth;
     setRailWidthForMode();
     contentDocument.body.classList.add('pagetollm-rail-open');
+    syncRailReserveFit();
     return { railEl, railRoot, setRailWidthForMode, isClosed: () => railClosed };
   }
 
@@ -108,7 +128,7 @@ export function createRailSurfaceManager({
       contentDocument.querySelectorAll('#pagetollm-in-page-rail'),
     ).some((railEl) => ownedRailElements.has(railEl));
     if (hasOwnedRail) return;
-    contentDocument.body?.classList.remove('pagetollm-rail-open');
+    contentDocument.body?.classList.remove('pagetollm-rail-open', 'pagetollm-rail-fit');
     contentDocument.documentElement.style.removeProperty('--pagetollm-rail-reserve');
     contentDocument.documentElement.style.removeProperty('--pagetollm-rail-width');
   }

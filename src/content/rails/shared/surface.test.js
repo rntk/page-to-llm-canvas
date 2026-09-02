@@ -196,4 +196,172 @@ describe('in-page rail surface', () => {
     expect(document.body.classList.contains('pagetollm-rail-open')).toBe(false);
     expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-width')).toBe('');
   });
+
+  describe('rail reserve fit class (overflow-driven)', () => {
+    const mockMetrics = (scrollWidth, clientWidth) => {
+      Object.defineProperty(document.documentElement, 'scrollWidth', {
+        configurable: true,
+        get: () => scrollWidth,
+      });
+      Object.defineProperty(document.documentElement, 'clientWidth', {
+        configurable: true,
+        get: () => clientWidth,
+      });
+    };
+
+    const mockReserveAwareMetrics = (baseWidth, clientWidth) => {
+      Object.defineProperty(document.documentElement, 'scrollWidth', {
+        configurable: true,
+        get: () => {
+          const reserve =
+            document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve') || '';
+          const parsed = parseInt(reserve, 10);
+          const extra = Number.isFinite(parsed) ? parsed : 0;
+          return baseWidth + extra;
+        },
+      });
+      Object.defineProperty(document.documentElement, 'clientWidth', {
+        configurable: true,
+        get: () => clientWidth,
+      });
+    };
+
+    const clearMetrics = () => {
+      // Deleting the own property re-exposes the prototype getter (0 in happy-dom).
+      delete document.documentElement.scrollWidth;
+      delete document.documentElement.clientWidth;
+    };
+
+    afterEach(() => {
+      clearMetrics();
+      document.body.classList.remove('pagetollm-rail-fit', 'pagetollm-rail-open');
+    });
+
+    it('adds pagetollm-rail-fit when the reserve padding pushes a content-box body into overflow', () => {
+      // No overflow before the reserve, but any reserve widens a fixed-width body past the viewport.
+      mockReserveAwareMetrics(900, 1000);
+
+      const surface = manager.createSurface({ state: { mode: 'topics' } });
+
+      expect(document.body.classList.contains('pagetollm-rail-open')).toBe(true);
+      expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(true);
+      expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe('276px');
+
+      // Falsy path: clearing the injected overflow restores the normal box model.
+      mockMetrics(1000, 1000);
+      surface.setRailWidthForMode();
+      expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
+
+      clearMetrics();
+      manager.close();
+    });
+
+    it('never adds fit when the page already overflowed before the reserve', () => {
+      // Pre-existing overflow must not be mistaken for overflow we caused.
+      mockMetrics(1200, 1000);
+
+      const surface = manager.createSurface({ state: { mode: 'topics' } });
+
+      expect(document.body.classList.contains('pagetollm-rail-open')).toBe(true);
+      expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
+
+      // Even when the mode (and therefore the reserve) changes, the guard stays latched.
+      surface.setRailWidthForMode();
+      expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
+
+      const state = { mode: 'topics' };
+      // Create a second surface via the same manager to prove the per-surface capture.
+      // First close the overflowed surface cleanly before opening with a new state object
+      // so width-change logic is exercised through the state reference.
+      manager.close();
+      clearMetrics();
+      mockMetrics(1200, 1000);
+      const secondState = { mode: 'chat' };
+      const second = manager.createSurface({ state: secondState });
+      secondState.mode = 'summaries';
+      second.setRailWidthForMode();
+      expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
+
+      clearMetrics();
+      manager.close();
+    });
+
+    it('re-evaluates fit whenever the reserve width changes across modes', () => {
+      // Reserve-aware overflow: topics (276px) keeps 724+276=1000 within 1000px, but chat (396px) pushes it over.
+      mockReserveAwareMetrics(724, 1000);
+      const state = { mode: 'topics' };
+
+      const surface = manager.createSurface({ state });
+
+      expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
+      expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe('276px');
+
+      state.mode = 'chat';
+      surface.setRailWidthForMode();
+      expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe('396px');
+      expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(true);
+
+      state.mode = 'summaries';
+      surface.setRailWidthForMode();
+      expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe('356px');
+      expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(true);
+
+      state.mode = 'topics';
+      surface.setRailWidthForMode();
+      expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe('276px');
+      expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
+
+      // Explicit overflow without reserve-awareness also toggles on every width change.
+      mockMetrics(1100, 1000);
+      state.mode = 'chat';
+      surface.setRailWidthForMode();
+      expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(true);
+
+      mockMetrics(1000, 1000);
+      state.mode = 'summaries';
+      surface.setRailWidthForMode();
+      expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
+
+      clearMetrics();
+      manager.close();
+    });
+
+    it('clears fit on close and does not leak it to the next surface', () => {
+      mockReserveAwareMetrics(900, 1000);
+      const first = manager.createSurface({ state: { mode: 'chat' } });
+      expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(true);
+
+      manager.close();
+      expect(document.body.classList.contains('pagetollm-rail-open')).toBe(false);
+      expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
+      expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe('');
+
+      // Next surface starts fresh: even with the same overflow, pre-overflow is re-captured.
+      mockMetrics(1000, 1000);
+      const second = manager.createSurface({ state: { mode: 'topics' } });
+      expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
+      expect(first.isClosed()).toBe(true);
+      expect(second.isClosed()).toBe(false);
+
+      clearMetrics();
+      manager.close();
+    });
+
+    it('does not re-add fit after the rail is closed (railClosed guard)', () => {
+      mockReserveAwareMetrics(900, 1000);
+      const surface = manager.createSurface({ state: { mode: 'topics' } });
+      expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(true);
+
+      manager.close();
+      expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
+
+      // Mutating mocked overflow and calling the stale handle must not resurrect the class.
+      mockMetrics(1200, 1000);
+      surface.setRailWidthForMode();
+      expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
+      expect(document.body.classList.contains('pagetollm-rail-open')).toBe(false);
+
+      clearMetrics();
+    });
+  });
 });
