@@ -300,6 +300,46 @@ describe('createLimiter', () => {
 });
 
 describe('createAdjustableLimiter', () => {
+  it('reserves capacity for priority work without exceeding the aggregate cap', async () => {
+    const { createAdjustableLimiter } = await getConcurrency();
+    const limiter = createAdjustableLimiter(4, { reservedPrioritySlots: 1 });
+    const releases = [];
+    const started = [];
+    const run = (id, priority = false) =>
+      limiter.run(
+        () =>
+          new Promise((resolve) => {
+            started.push(id);
+            releases.push(resolve);
+          }),
+        undefined,
+        { priority },
+      );
+
+    const standardTasks = [run('pipeline-1'), run('pipeline-2'), run('pipeline-3')];
+    const queuedStandard = run('pipeline-4');
+    await vi.waitFor(() => expect(started).toEqual(['pipeline-1', 'pipeline-2', 'pipeline-3']));
+
+    const chatTask = run('chat', true);
+    await vi.waitFor(() =>
+      expect(started).toEqual(['pipeline-1', 'pipeline-2', 'pipeline-3', 'chat']),
+    );
+
+    // Four tasks are active: the shared aggregate limit is still enforced.
+    expect(started).not.toContain('pipeline-4');
+    releases.shift()();
+    await vi.waitFor(() => expect(started).toContain('pipeline-4'));
+    releases.forEach((release) => release());
+    await Promise.all([...standardTasks, queuedStandard, chatTask]);
+  });
+
+  it('keeps standard work enabled when a one-slot limit cannot reserve capacity', async () => {
+    const { createAdjustableLimiter } = await getConcurrency();
+    const limiter = createAdjustableLimiter(1, { reservedPrioritySlots: 1 });
+
+    await expect(limiter.run(async () => 'pipeline')).resolves.toBe('pipeline');
+  });
+
   it('applies a lower limit to queued tasks without replacing the queue', async () => {
     const { createAdjustableLimiter } = await getConcurrency();
     const limiter = createAdjustableLimiter(2);
@@ -415,4 +455,3 @@ describe('createAdjustableLimiter', () => {
     expect(fnB).toHaveBeenCalledTimes(1);
   });
 });
-

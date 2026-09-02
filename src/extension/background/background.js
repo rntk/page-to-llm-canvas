@@ -122,9 +122,9 @@ const runtimeErrors = {
   },
 };
 
-// This is the service worker's one provider-facing boundary. Every page
-// pipeline shares it, but its mutable policy and listener now belong to this
-// explicitly constructed runner rather than to an imported module instance.
+// This is the service worker's one provider-facing boundary. Pipelines and
+// article-chat turns share the same queue, so the configured cap applies to the
+// active provider as a whole rather than independently to each LLM surface.
 //
 // Constructing the runner subscribes to the concurrency setting, so it happens
 // at top level where MV3 requires listener registration to be synchronous. The
@@ -132,6 +132,12 @@ const runtimeErrors = {
 // worker itself, and MV3 termination drops the listener with the whole realm,
 // so there is no unsubscribe for this worker to own. `dispose` exists for tests
 // and any future caller whose runner is shorter-lived than its realm.
+// Reserve one slot for interactive work whenever the configured limit is at
+// least two. Pipeline calls may still use the other slots during retry/backoff,
+// while chat can start without waiting behind the whole background workload.
+const providerLimiter = createAdjustableLimiter(DEFAULT_MAX_PARALLEL_LLM_REQUESTS, {
+  reservedPrioritySlots: 1,
+});
 const pipelineRunner = createPipelineRunner({
   runtimeFactory: createPipelineRuntime,
   settings: {
@@ -146,7 +152,7 @@ const pipelineRunner = createPipelineRunner({
   llm: { callLLMWithRetry },
   // Seeded from the same default the setting normalizes towards, in one
   // expression, so the starting limit cannot drift from later corrections.
-  limiterFactory: () => createAdjustableLimiter(DEFAULT_MAX_PARALLEL_LLM_REQUESTS),
+  limiterFactory: () => providerLimiter,
   telemetry: { wrapCallLLMWithRetry },
   logger: log.child('pipeline'),
 });
@@ -173,6 +179,7 @@ const pipelineSupervisor = createPipelineSupervisor({
 const chatService = createChatCompletionService({
   callLLMDirect,
   recordLlmMetric,
+  limit: (task, signal) => providerLimiter.run(task, signal, { priority: true }),
 });
 
 const handleSubmitImpl = createSubmitRecord({

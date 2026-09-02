@@ -102,14 +102,15 @@ export function planResume(record) {
 /**
  * Creates one explicitly owned pipeline runner.
  *
- * Construction has two side effects, both owned by the returned instance: it
- * builds the limiter that every run started through this runner shares, and it
- * installs the concurrency-setting listener that mutates that limiter. Call it
- * once per realm, not once per run; `dispose` reverses the subscription.
+ * Construction resolves the limiter once and installs the concurrency-setting
+ * listener that mutates it. Call the runner once per realm, not once per run.
+ * `dispose` reverses only that subscription; it deliberately neither resets nor
+ * destroys an externally shared limiter, whose lifetime belongs to the
+ * composition root and may include article-chat consumers.
  *
- * `limiterFactory` (rather than a ready-made limiter) keeps the initial limit
- * and the later `setLimit` corrections from drifting apart: no one outside this
- * runner holds a reference to the limiter it mutates.
+ * `limiterFactory` keeps limiter construction at the composition root. The
+ * returned limiter may also gate other provider-facing surfaces (article chat)
+ * so one setting controls the provider's aggregate concurrency.
  *
  * @param {object} deps
  * @param {Function} deps.runtimeFactory
@@ -119,8 +120,9 @@ export function planResume(record) {
  * @param {{getActiveProvider: Function}} deps.providerRepository
  * @param {{callLLMWithRetry: Function}} deps.llm
  * @param {function(): {run: Function, setLimit: Function}} deps.limiterFactory
- *   Called exactly once, and expected to seed the limiter with the same default
- *   the settings module normalizes towards.
+ *   Called exactly once per runner. A realm-level composition root may return
+ *   its existing shared limiter; otherwise the factory may create one seeded
+ *   with the same default the settings module normalizes towards.
  * @param {{wrapCallLLMWithRetry: Function}} deps.telemetry
  * @param {{info: Function, error: Function}} deps.logger
  * @returns {{runPipeline: Function, dispose: Function}}

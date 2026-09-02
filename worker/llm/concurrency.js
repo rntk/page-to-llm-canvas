@@ -61,42 +61,59 @@ export function createLimiter(limit) {
 }
 
 /**
- * Returns a FIFO concurrency limiter whose cap can be changed without replacing
- * the queue. When the cap is lowered below the current active count, active
- * tasks finish normally and no queued task starts until the new cap allows it.
+ * Returns a concurrency limiter whose cap can be changed without replacing the
+ * queue. Each priority lane remains FIFO. Optional reserved priority capacity
+ * keeps background work from occupying every slot, while priority work may use
+ * any free slot. When the limit is one, normal work remains enabled and strict
+ * reservation is impossible.
  *
  * @param {number} initialLimit
- * @returns {{run: function(function(): Promise<*>, AbortSignal): Promise<*>, setLimit: function(number): void}}
+ * @param {object} [options]
+ * @param {number} [options.reservedPrioritySlots=0]
+ * @returns {{run: function(function(): Promise<*>, AbortSignal, object=): Promise<*>, setLimit: function(number): void}}
  */
-export function createAdjustableLimiter(initialLimit) {
+export function createAdjustableLimiter(initialLimit, { reservedPrioritySlots = 0 } = {}) {
   let limit = normalizeLimiterLimit(initialLimit);
+  const priorityReserve = Math.max(0, Math.floor(Number(reservedPrioritySlots)) || 0);
   let active = 0;
+  let activeStandard = 0;
   const queue = [];
 
   function drain() {
     while (active < limit && queue.length > 0) {
-      const next = queue.shift();
+      const priorityIndex = queue.findIndex((entry) => entry.priority);
+      let next;
+      if (priorityIndex >= 0) {
+        next = queue.splice(priorityIndex, 1)[0];
+      } else {
+        const standardLimit =
+          limit === 1 ? 1 : Math.max(1, limit - Math.min(priorityReserve, limit - 1));
+        if (activeStandard >= standardLimit) return;
+        next = queue.shift();
+      }
       // The entry has started now; its abort listener (if any) no longer
       // needs to watch the queue — the running fn handles its own abort.
       if (next.signal) next.signal.removeEventListener('abort', next.onAbort);
       active++;
+      if (!next.priority) activeStandard++;
       Promise.resolve()
         .then(next.fn)
         .then(next.resolve, next.reject)
         .finally(() => {
           active--;
+          if (!next.priority) activeStandard--;
           drain();
         });
     }
   }
 
   return {
-    run(fn, signal) {
+    run(fn, signal, { priority = false } = {}) {
       if (signal?.aborted) {
         return Promise.reject(makeAbortError('LLM request aborted'));
       }
       return new Promise((resolve, reject) => {
-        const entry = { fn, resolve, reject, signal };
+        const entry = { fn, resolve, reject, signal, priority: priority === true };
         if (signal) {
           entry.onAbort = () => {
             const index = queue.indexOf(entry);

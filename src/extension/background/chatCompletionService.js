@@ -6,12 +6,16 @@
  * @param {object} deps
  * @param {Function} deps.callLLMDirect
  * @param {Function} deps.recordLlmMetric
+ * @param {function(Function, AbortSignal=): Promise<*>} [deps.limit]
+ *   Shared provider-scoped limiter. Defaults to direct execution for isolated
+ *   consumers and tests.
  * @param {function(): number} [deps.clock]
  * @param {function(): AbortController} [deps.abortControllerFactory]
  */
 export function createChatCompletionService({
   callLLMDirect,
   recordLlmMetric,
+  limit = (task) => task(),
   clock = Date.now,
   abortControllerFactory = () => new AbortController(),
 }) {
@@ -68,18 +72,22 @@ export function createChatCompletionService({
       registerChatRequest(chatTurnId, controller);
       let result;
       try {
-        result = await callLLMDirect({
-          prompt,
-          messages,
-          tools,
-          toolChoice,
-          parallelToolCalls,
-          temperature,
-          signal: controller?.signal,
-          metricsCollector: (collected) => {
-            if (collected && typeof collected === 'object') sample = collected;
-          },
-        });
+        result = await limit(
+          () =>
+            callLLMDirect({
+              prompt,
+              messages,
+              tools,
+              toolChoice,
+              parallelToolCalls,
+              temperature,
+              signal: controller?.signal,
+              metricsCollector: (collected) => {
+                if (collected && typeof collected === 'object') sample = collected;
+              },
+            }),
+          controller?.signal,
+        );
       } finally {
         unregisterChatRequest(chatTurnId, controller);
       }

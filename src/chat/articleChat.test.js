@@ -32,8 +32,63 @@ describe('article chat tool loop', () => {
     expect(chunkNumberedArticle(['First.', '', 'Second.', 'A very long sentence.'], 19)).toEqual([
       { startLine: 1, endLine: 1, text: '1: First.' },
       { startLine: 3, endLine: 3, text: '3: Second.' },
-      { startLine: 4, endLine: 4, text: '4: A very long sentence.' },
+      { startLine: 4, endLine: 4, text: '4: A very long ' },
+      { startLine: 4, endLine: 4, text: '4: sentence.' },
     ]);
+  });
+
+  it('bounds oversized sentence parts with the shared splitter', () => {
+    const sentence = 'one  two three four five six';
+    const chunks = chunkNumberedArticle([sentence], 14);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((chunk) => chunk.text.length <= 14)).toBe(true);
+    expect(chunks.every((chunk) => chunk.startLine === 1 && chunk.endLine === 1)).toBe(true);
+    expect(chunks.map((chunk) => chunk.text.slice(3)).join('')).toBe(sentence);
+  });
+
+  it('fails loudly when the limit cannot contain a numbered-line prefix', () => {
+    expect(() => chunkNumberedArticle(['text'], 3)).toThrow(
+      'maxChars must exceed the numbered line prefix',
+    );
+  });
+
+  it('allows a following sentence to share the final oversized-part chunk', () => {
+    expect(chunkNumberedArticle(['one two three four', 'x'], 20)).toEqual([
+      { startLine: 1, endLine: 1, text: '1: one two three ' },
+      { startLine: 1, endLine: 2, text: '1: four\n2: x' },
+    ]);
+  });
+
+  it('deduplicates highlights from sibling pieces of one oversized sentence', async () => {
+    const send = vi.fn(async ({ messages, tools }) => {
+      if (!tools) return { ok: true, content: 'Combined answer.' };
+      if (messages.at(-1)?.role === 'tool') return { ok: true, content: 'Chunk finding.' };
+      return {
+        ok: true,
+        content: '',
+        toolCalls: [
+          {
+            name: 'highlight_span',
+            arguments: { start_line: 1, end_line: 1 },
+          },
+        ],
+      };
+    });
+    const onHighlight = vi.fn();
+
+    const result = await runArticleChatTurn(
+      buildTurnOptions({
+        question: 'What matters?',
+        sentences: ['one two three four five six'],
+        maxChunkChars: 14,
+        onHighlight,
+        send,
+      }),
+    );
+
+    expect(result.highlightRanges).toEqual([{ startLine: 1, endLine: 1, label: '' }]);
+    expect(onHighlight).toHaveBeenCalledTimes(1);
   });
 
   it('detects overlapping ranges', () => {

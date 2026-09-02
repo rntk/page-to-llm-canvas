@@ -7,6 +7,7 @@ import {
   formatChunkSummariesForMerge,
 } from './prompts.js';
 import { parallelMap } from '../llm/concurrency.js';
+import { splitTextToMaxChars } from '../llm/textChunking.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { runProviderBurst } from './providerBurst.js';
 import { splitContiguousRuns } from './topicTreeMerge.js';
@@ -129,20 +130,6 @@ export function chunkSourceSentences(sourceSentenceIds, sentenceTexts, maxChars)
   }
   flush();
   return chunks;
-}
-
-function splitTextToMaxChars(text, maxChars) {
-  const parts = [];
-  let remaining = String(text || '');
-  while (remaining.length > maxChars) {
-    let splitAt = remaining.lastIndexOf(' ', maxChars);
-    if (splitAt < Math.floor(maxChars / 2)) splitAt = maxChars;
-    const part = remaining.slice(0, splitAt).trim();
-    if (part) parts.push(part);
-    remaining = remaining.slice(splitAt).trimStart();
-  }
-  if (remaining) parts.push(remaining);
-  return parts;
 }
 
 function chunkSummaryRecordsForMerge(records, maxChars) {

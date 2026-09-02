@@ -6,6 +6,7 @@ import {
   buildTopicSummaryFromSourcePrompt,
 } from './prompts.js';
 import { PIPELINE_MIN_CONTEXT_WINDOW_TOKENS } from '../settings/contextWindowConstraints.js';
+import { LLM_TEXT_FALLBACK_MAX_CHARS } from '../settings/textBudget.js';
 import {
   estimateMaxCharsForTokens,
   estimateTokens,
@@ -19,7 +20,7 @@ import {
 // pipeline. Providers may declare a smaller context window; the per-run budget
 // is then derived by getPipelineTextChunkMaxChars instead of blindly using this
 // fallback.
-export const PIPELINE_TEXT_CHUNK_MAX_CHARS = 60000;
+export const PIPELINE_TEXT_CHUNK_MAX_CHARS = LLM_TEXT_FALLBACK_MAX_CHARS;
 
 // Reserve room for provider tokenization variance and the response in addition
 // to the largest static pipeline prompt.

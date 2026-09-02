@@ -28,9 +28,7 @@ describe('getArticleChatLimits', () => {
   });
 
   it('agrees with the pipeline fallback that signals an unknown window', () => {
-    // getArticleChatLimits detects "no declared window" by comparing against
-    // the pipeline budget; a drift between the two constants would silently
-    // give every unknown provider a small-window split.
-    expect(ARTICLE_CHAT_MAX_CHUNK_CHARS).toBe(PIPELINE_TEXT_CHUNK_MAX_CHARS);
+    const limits = getArticleChatLimits(undefined);
+    expect(limits.maxChunkChars + limits.maxHistoryChars).toBe(PIPELINE_TEXT_CHUNK_MAX_CHARS);
   });
 });

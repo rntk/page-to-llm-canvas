@@ -10,7 +10,7 @@ import {
 } from './tokenEstimator.js';
 import { getPipelineTextChunkMaxChars } from '../pipeline/pipelineConfig.js';
 import { getArticleChatLimits } from './articleChatLimits.js';
-import { ARTICLE_CHAT_MAX_CHUNK_CHARS, ARTICLE_CHAT_MAX_HISTORY_CHARS } from '../settings/articleChatBudget.js';
+import { ARTICLE_CHAT_MAX_CHUNK_CHARS } from '../settings/articleChatBudget.js';
 
 // Helper: BMP char that is 3 bytes in UTF-8 (U+0800) – worst case per code unit.
 const THREE_BYTE_CHAR = '\u0800';
@@ -28,7 +28,9 @@ describe('tokenEstimator', () => {
     const tokens = estimateTokens(cjk);
     expect(tokens).toBeGreaterThan(Math.ceil(cjk.length / 4));
     expect(utf8ByteLength(cjk)).toBe(cjk.length * 3);
-    expect(tokens).toBeGreaterThanOrEqual(Math.ceil(utf8ByteLength(cjk) / CONSERVATIVE_BYTES_PER_TOKEN));
+    expect(tokens).toBeGreaterThanOrEqual(
+      Math.ceil(utf8ByteLength(cjk) / CONSERVATIVE_BYTES_PER_TOKEN),
+    );
   });
 
   it('estimates Cyrillic with multi-byte awareness', () => {
@@ -118,12 +120,7 @@ describe('budget safety invariants', () => {
     for (const windowTokens of [4096, 8192, 16384]) {
       const maxChars = getPipelineTextChunkMaxChars(windowTokens);
       const limits = getArticleChatLimits(windowTokens);
-      if (maxChars >= ARTICLE_CHAT_MAX_CHUNK_CHARS) {
-        expect(limits.maxChunkChars).toBe(ARTICLE_CHAT_MAX_CHUNK_CHARS);
-        expect(limits.maxHistoryChars).toBe(ARTICLE_CHAT_MAX_HISTORY_CHARS);
-      } else {
-        expect(limits.maxChunkChars + limits.maxHistoryChars).toBeLessThanOrEqual(maxChars);
-      }
+      expect(limits.maxChunkChars + limits.maxHistoryChars).toBeLessThanOrEqual(maxChars);
     }
   });
 

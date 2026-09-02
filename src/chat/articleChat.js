@@ -7,6 +7,7 @@ import {
   ARTICLE_CHAT_MAX_HISTORY_CHARS,
 } from '../../worker/settings/articleChatBudget.js';
 import { UNTRUSTED_CONTENT_TAIL } from '../shared/runtime/promptSecurity.js';
+import { splitTextToMaxChars } from '../../worker/llm/textChunking.js';
 
 /**
  * Default transport for one tool-call outcome metric. Fire-and-forget: the
@@ -164,8 +165,9 @@ const HIGHLIGHT_SPAN_TOOL = Object.freeze({
 /**
  * Split an article into bounded, sentence-aligned contexts. The text is
  * numbered before chunking: a model can therefore refer to the same global
- * line number regardless of which chunk it received. An oversized sentence is
- * intentionally kept whole in its own chunk rather than silently truncated.
+ * line number regardless of which chunk it received. Oversized sentences use
+ * the pipeline's shared text splitter; every part repeats its global line
+ * number so highlight references remain valid.
  *
  * @param {Array<string>} sentences Article sentences in display order.
  * @param {number} [maxChars] Maximum characters per chunk.
@@ -192,13 +194,27 @@ export function chunkNumberedArticle(sentences, maxChars = ARTICLE_CHAT_CHUNK_MA
     const value = String(sentence || '').trim();
     if (!value) return;
     const lineNumber = index + 1;
-    const line = `${lineNumber}: ${value}`;
-    const nextLength = length + (lines.length ? 1 : 0) + line.length;
-    if (lines.length && nextLength > limit) flush();
-    if (!lines.length) startLine = lineNumber;
-    lines.push(line);
-    length += (length ? 1 : 0) + line.length;
-    endLine = lineNumber;
+    const prefix = `${lineNumber}: `;
+    if (limit <= prefix.length) {
+      throw new Error(`maxChars must exceed the numbered line prefix (${prefix.length})`);
+    }
+    const partLimit = limit - prefix.length;
+    const parts =
+      prefix.length + value.length > limit
+        ? splitTextToMaxChars(value, partLimit, { preserveWhitespace: true })
+        : [value];
+    parts.forEach((part, partIndex) => {
+      const line = `${prefix}${part}`;
+      const nextLength = length + (lines.length ? 1 : 0) + line.length;
+      if (lines.length && nextLength > limit) flush();
+      if (!lines.length) startLine = lineNumber;
+      lines.push(line);
+      length += (length ? 1 : 0) + line.length;
+      endLine = lineNumber;
+      // A split source unit must remain independently bounded. Otherwise two
+      // parts of the same original sentence can be joined back over the cap.
+      if (partIndex < parts.length - 1) flush();
+    });
   });
   flush();
   return chunks;
@@ -800,6 +816,14 @@ export async function runArticleChatTurn(options = {}) {
       return sendRequest(payload);
     };
     const results = new Array(chunks.length);
+    // Highlight validation is turn-wide. Oversized source units can now appear
+    // in multiple bounded chunks with the same global line number, so sibling
+    // loops must see each other's accepted ranges and avoid duplicate paints.
+    // The overlap check and push are synchronous before onHighlight is awaited,
+    // which makes this shared array safe across the async chunk workers.
+    // A losing sibling intentionally records OVERLAP_SKIPPED: it made a real
+    // redundant tool call, even though only the winning highlight is painted.
+    const acceptedRanges = [...highlightedRanges];
     let nextChunkIndex = 0;
     const worker = async () => {
       try {
@@ -816,7 +840,7 @@ export async function runArticleChatTurn(options = {}) {
             maxHistoryChars: historyBudget,
             question,
             sentenceCount: Array.isArray(sentences) ? sentences.length : 0,
-            ranges: [...highlightedRanges],
+            ranges: acceptedRanges,
             newRanges: chunkRanges,
             transcriptMessages: chunkTranscript,
             onHighlight,

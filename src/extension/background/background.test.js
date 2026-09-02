@@ -223,7 +223,8 @@ describe('pipeline runner composition', () => {
 
     const limiter = deps.limiterFactory();
     let started = 0;
-    // Never-settling tasks: whatever starts is exactly the initial limit.
+    // Standard pipeline work leaves one of the aggregate slots available for
+    // priority chat work.
     for (let i = 0; i < DEFAULT_MAX_PARALLEL_LLM_REQUESTS + 3; i++) {
       void limiter.run(() => {
         started++;
@@ -233,7 +234,7 @@ describe('pipeline runner composition', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(started).toBe(DEFAULT_MAX_PARALLEL_LLM_REQUESTS);
+    expect(started).toBe(DEFAULT_MAX_PARALLEL_LLM_REQUESTS - 1);
     expect(deps.settings.normalizeMaxParallelLlmRequests(undefined)).toBe(
       DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
     );

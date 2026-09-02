@@ -100,6 +100,20 @@ describe('createChatCompletionService (no chrome global)', () => {
     expect(() => service.cancelTurn(undefined)).not.toThrow();
   });
 
+  it('runs provider work through the injected shared limiter', async () => {
+    const limit = vi.fn(async (task) => task());
+    const { service, callLLMDirect } = makeService({
+      callLLMDirect: vi.fn(async () => ({ ok: true })),
+      serviceOptions: { limit },
+    });
+
+    await service.complete({ prompt: 'hello', chatTurnId: 'turn-a' });
+
+    expect(limit).toHaveBeenCalledTimes(1);
+    expect(limit.mock.calls[0][1]).toBeInstanceOf(AbortSignal);
+    expect(callLLMDirect).toHaveBeenCalledTimes(1);
+  });
+
   it('aborts only the requested turn, including its fanned-out requests', async () => {
     const { service, deferred } = makeService();
 
