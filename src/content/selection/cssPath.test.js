@@ -87,6 +87,58 @@ describe('buildCssPath', () => {
     const found = document.querySelector(path);
     expect(found).toBe(em);
   });
+
+  it('falls back to a structural path when an id is not unique', () => {
+    const first = document.createElement('div');
+    first.id = 'dupe';
+    first.appendChild(document.createElement('span'));
+    const second = document.createElement('div');
+    second.id = 'dupe';
+    const target = document.createElement('span');
+    second.appendChild(target);
+    container.appendChild(first);
+    container.appendChild(second);
+
+    const path = buildCssPath(target);
+    expect(path).not.toContain('#dupe');
+    expect(document.querySelector(path)).toBe(target);
+  });
+
+  it('returns empty string for an element inside a shadow root', () => {
+    const host = document.createElement('div');
+    container.appendChild(host);
+    const root = host.attachShadow({ mode: 'open' });
+    const inner = document.createElement('span');
+    root.appendChild(inner);
+
+    expect(buildCssPath(inner)).toBe('');
+  });
+
+  it('returns empty string for a detached element', () => {
+    const orphan = document.createElement('div');
+    expect(buildCssPath(orphan)).toBe('');
+  });
+
+  it('builds a path for a connected element in a non-global document', () => {
+    const alt = document.implementation.createHTMLDocument('alt');
+    const host = alt.createElement('div');
+    host.id = 'alt-host';
+    const target = alt.createElement('span');
+    host.appendChild(target);
+    alt.body.appendChild(host);
+
+    const path = buildCssPath(target);
+    expect(path).not.toBe('');
+    expect(alt.querySelector(path)).toBe(target);
+  });
+
+  it('returns empty string instead of throwing on an unparseable type name', () => {
+    const weird = document.createElementNS('http://example.com/ns', 'ns:thing');
+    container.appendChild(weird);
+
+    expect(() => buildCssPath(weird)).not.toThrow();
+    expect(buildCssPath(weird)).toBe('');
+  });
 });
 
 // ── stripHighlightClasses ──────────────────────────────────────────────────
