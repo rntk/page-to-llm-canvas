@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { createLoadToken } from './recordFetch.js';
+import { ensureRailStyles, removeRailStyles } from './railStyles.js';
 
 const IN_PAGE_RAIL_WIDTHS = Object.freeze({ topics: 260, summaries: 340, chat: 380 });
 const IN_PAGE_RAIL_RESERVE_GAP = 16;
@@ -43,6 +44,7 @@ export function createRailSurfaceManager({
     // A previous content-script lifetime can leave its host behind. Remove only
     // hosts that are not owned by a live manager in this module instance.
     removeStaleRailElements(contentDocument);
+    ensureRailStyles(contentDocument);
     const railEl = contentDocument.createElement('aside');
     railEl.id = 'pagetollm-in-page-rail';
     railEl.dataset.mode = state.mode;
@@ -128,6 +130,7 @@ export function createRailSurfaceManager({
       contentDocument.querySelectorAll('#pagetollm-in-page-rail'),
     ).some((railEl) => ownedRailElements.has(railEl));
     if (hasOwnedRail) return;
+    removeRailStyles(contentDocument);
     contentDocument.body?.classList.remove('pagetollm-rail-open', 'pagetollm-rail-fit');
     contentDocument.documentElement.style.removeProperty('--pagetollm-rail-reserve');
     contentDocument.documentElement.style.removeProperty('--pagetollm-rail-width');

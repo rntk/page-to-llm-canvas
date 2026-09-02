@@ -70,6 +70,23 @@ describe('in-page rail surface', () => {
     expect(document.body.classList.contains('pagetollm-rail-open')).toBe(true);
   });
 
+  it('injects the rail stylesheet on mount and removes it on close', () => {
+    expect(document.getElementById('pagetollm-rail-styles')).toBeNull();
+
+    manager.createSurface({ state: { mode: 'topics' } });
+    const styleEl = document.getElementById('pagetollm-rail-styles');
+
+    expect(styleEl).not.toBeNull();
+    expect(styleEl.tagName).toBe('STYLE');
+
+    // Re-mounting reuses the sheet rather than stacking duplicates.
+    manager.createSurface({ state: { mode: 'chat' } });
+    expect(document.querySelectorAll('#pagetollm-rail-styles')).toHaveLength(1);
+
+    manager.close();
+    expect(document.getElementById('pagetollm-rail-styles')).toBeNull();
+  });
+
   it('does not mount a rail when the document has no body', () => {
     const body = document.body;
     body.remove();
