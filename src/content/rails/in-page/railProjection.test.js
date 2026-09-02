@@ -154,6 +154,7 @@ describe('buildRailCards', () => {
       expect.anything(),
       250,
       scrollContainer,
+      expect.objectContaining({ win: expect.anything() }),
     );
   });
 });

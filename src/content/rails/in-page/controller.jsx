@@ -251,9 +251,27 @@ export function createInPageRailController({
 
     const measureRailOrigin = () => {
       const railBody = railEl.querySelector('.pagetollm-rail-body');
-      railOriginTop = railBody
-        ? getRailOriginTop(railBody.getBoundingClientRect(), scrollContainer, contentWindow)
-        : undefined;
+      if (!railBody) {
+        railOriginTop = undefined;
+        return;
+      }
+      // InPageRail's layout effect for nested scroll has already translated
+      // the body by -effectiveScrollOffset (visual only). Boxes are computed
+      // from the untransformed position, so measure without the transform.
+      const prevTransform = railBody.style.transform;
+      const prevOffset = railBody.style.getPropertyValue('--pagetollm-scroll-offset');
+      const hadTransform = Boolean(prevTransform || prevOffset);
+      if (hadTransform) {
+        railBody.style.transform = '';
+        railBody.style.removeProperty('--pagetollm-scroll-offset');
+      }
+      const rect = railBody.getBoundingClientRect();
+      railOriginTop = getRailOriginTop(rect, scrollContainer, contentWindow);
+      if (hadTransform) {
+        railBody.style.transform = prevTransform;
+        if (prevOffset) railBody.style.setProperty('--pagetollm-scroll-offset', prevOffset);
+        else railBody.style.removeProperty('--pagetollm-scroll-offset');
+      }
     };
 
     renderRail({ measureOnly: true });
