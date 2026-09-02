@@ -101,6 +101,23 @@ describe('fetchRecord', () => {
     });
   });
 
+  it('returns service_error for a separately transported pipeline failure', async () => {
+    const runtimeMessenger = {
+      send: vi.fn().mockResolvedValue({
+        ok: true,
+        record: { key: 'k1', status: 'summarizing' },
+        pipelineFailure: { message: 'Storage unavailable. Retry processing.' },
+      }),
+    };
+
+    const result = await fetchRecord('k1', runtimeMessenger);
+
+    expect(result).toMatchObject({
+      kind: 'service_error',
+      error: expect.objectContaining({ message: 'Storage unavailable. Retry processing.' }),
+    });
+  });
+
   it('passes the correct message type and key', async () => {
     const sendMessage = vi.fn((msg, cb) => cb({ ok: true, record: { key: 'abc' } }));
     vi.stubGlobal('chrome', {

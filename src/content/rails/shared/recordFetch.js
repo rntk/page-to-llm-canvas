@@ -33,6 +33,9 @@ export async function fetchRecord(key, runtimeMessenger = browserRuntimeMessenge
     if (resp?.ok === false && typeof resp.error === 'string') {
       return { kind: 'service_error', error: new Error(resp.error) };
     }
+    if (resp?.pipelineFailure?.message) {
+      return { kind: 'service_error', error: new Error(resp.pipelineFailure.message) };
+    }
     if (resp?.ok === true && resp.record && typeof resp.record === 'object') {
       return { kind: 'found', record: resp.record };
     }

@@ -268,6 +268,7 @@ export function createRecordHandlers({
           return { ok: true, stale: true };
         }
         cancelActivePipeline(msg.key, { expectedPipelineRunId: rec.pipelineRunId });
+        await pipelineSupervisor.clearPipelineFailuresForKey(msg.key);
         return { ok: true };
       },
     },
@@ -366,7 +367,14 @@ export function createRecordHandlers({
       validate: () => null,
       async handle(msg) {
         const rec = await readRecord(msg.key);
-        if (rec) return { ok: true, record: rec };
+        if (rec) {
+          const runtimeState = await pipelineSupervisor.getPipelineFailures([rec]);
+          return {
+            ok: true,
+            record: rec,
+            pipelineFailure: runtimeState.failures[rec.key] || null,
+          };
+        }
         return { ok: false };
       },
     },
@@ -376,7 +384,12 @@ export function createRecordHandlers({
       validate: () => null,
       async handle() {
         const items = await listRecords();
-        return { ok: true, items };
+        const runtimeState = await pipelineSupervisor.getPipelineFailures(items);
+        return {
+          ok: true,
+          items,
+          pipelineFailures: runtimeState.failures,
+        };
       },
     },
 
@@ -416,6 +429,7 @@ export function createRecordHandlers({
             },
             { bumpContentRevision: true },
           );
+          await pipelineSupervisor.clearPipelineFailuresForKey(key);
           count += 1;
         }
 
@@ -430,6 +444,7 @@ export function createRecordHandlers({
       async handle(msg) {
         cancelActivePipeline(msg.key);
         await deleteRecord(msg.key);
+        await pipelineSupervisor.clearPipelineFailuresForKey(msg.key);
         return { ok: true };
       },
     },
@@ -440,6 +455,7 @@ export function createRecordHandlers({
       async handle() {
         pipelineSupervisor.cancelAll();
         await deleteAll();
+        await pipelineSupervisor.clearPipelineFailuresForKey();
         return { ok: true };
       },
     },

@@ -50,6 +50,9 @@ export function useRecord(key, source) {
       if (resp?.ok === false && typeof resp.error === 'string') {
         throw new Error(resp.error);
       }
+      if (resp?.pipelineFailure?.message) {
+        throw new Error(resp.pipelineFailure.message);
+      }
       return resp?.ok === true && resp.record ? resp.record : null;
     };
 

@@ -1,6 +1,7 @@
 import { MSG } from '../shared/runtime/messages.js';
 import { normalizeProvidersResponse } from './optionsLogic.js';
 import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
+import { applyPipelineFailures } from '../shared/runtime/pipelineFailures.js';
 
 // Delegates to the shared sendRuntimeMessage helper but keeps the options
 // surface's swallow semantics: transport errors (chrome.runtime.lastError)
@@ -54,5 +55,9 @@ export async function listRecords() {
   if (!result.ok) {
     return { items: null, error: result.error, transportError: result.transportError };
   }
-  return { items: result.response.items || [], error: null, transportError: false };
+  return {
+    items: applyPipelineFailures(result.response.items || [], result.response.pipelineFailures),
+    error: null,
+    transportError: false,
+  };
 }

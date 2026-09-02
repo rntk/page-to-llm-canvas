@@ -5,6 +5,7 @@ import { sendRuntimeMessage, sendTabMessage } from '../../utils/runtimeMessages.
 import { MSG } from '../../shared/runtime/messages.js';
 import { isInFlightPipelineStatus, PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
 import { browserFileHost } from '../../shared/runtime/browserHosts.js';
+import { applyPipelineFailures } from '../../shared/runtime/pipelineFailures.js';
 import {
   isStaleActionResponse,
   STALE_ACTION_MESSAGE,
@@ -446,6 +447,7 @@ export function buildRecordDisplayData(records) {
       date: formatDate(record.createdAt),
       status: record.status || 'unknown',
       badge: statusLabel(record.status),
+      notice: record.pipelineFailure?.message || '',
       actions: getRecordActions(record),
     })),
   };
@@ -474,7 +476,7 @@ function renderRecords(records, { force = false } = {}) {
 
     const meta = document.createElement('div');
     meta.className = 'meta';
-    meta.textContent = display.date;
+    meta.textContent = [display.date, display.notice].filter(Boolean).join(' · ');
 
     copy.appendChild(label);
     if (display.snippet) {
@@ -595,7 +597,8 @@ async function refreshRecords({ showLoading = false, forceRender = false } = {})
       setError(responseErrorMessage(response, 'Unable to load saved analyses'));
       return;
     }
-    const matching = filterRecordsForActivePage(response.items, activePageUrl);
+    const visibleItems = applyPipelineFailures(response.items, response.pipelineFailures);
+    const matching = filterRecordsForActivePage(visibleItems, activePageUrl);
     renderRecords(matching, { force: forceRender });
     applyProviderReadinessState(providerState);
   } catch (err) {

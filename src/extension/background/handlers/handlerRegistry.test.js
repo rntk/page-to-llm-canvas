@@ -23,6 +23,8 @@ const stubSupervisor = () => ({
   isActive: vi.fn(() => false),
   activeJobPromises: vi.fn(() => []),
   cancelAll: vi.fn(),
+  getPipelineFailures: vi.fn(async () => ({ failures: {}, unavailable: false })),
+  clearPipelineFailuresForKey: vi.fn(async () => {}),
 });
 
 const stubChatService = () => ({

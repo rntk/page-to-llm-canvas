@@ -39,6 +39,29 @@ describe('options API', () => {
     });
   });
 
+  it('composes pipeline failures for display without changing the response record', async () => {
+    const record = { key: 'r1', status: 'summarizing', error: null };
+    const pipelineFailure = {
+      kind: 'storage_unavailable',
+      message: 'Storage unavailable. Retry processing.',
+      retryable: true,
+    };
+    sendRuntimeMessage.mockResolvedValueOnce({
+      ok: true,
+      items: [record],
+      pipelineFailures: { r1: pipelineFailure },
+    });
+
+    const result = await listRecords();
+
+    expect(result.items[0]).toMatchObject({
+      status: 'error',
+      error: pipelineFailure.message,
+      pipelineFailure,
+    });
+    expect(record).toEqual({ key: 'r1', status: 'summarizing', error: null });
+  });
+
   // Was: an `{ok:false}` response silently resolved to an empty list,
   // indistinguishable from "there really are no records". Now the caller gets
   // an explicit error so it can render a retry affordance instead of "No

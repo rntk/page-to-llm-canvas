@@ -135,6 +135,21 @@ describe('useRecord', () => {
     expect(source.store.get).not.toHaveBeenCalled();
   });
 
+  it('surfaces a pipeline runtime failure without using the raw in-flight record', async () => {
+    source.runtimeMessenger.send.mockResolvedValue({
+      ok: true,
+      record: { key: 'test', status: 'summarizing' },
+      pipelineFailure: { message: 'Storage unavailable. Retry processing.' },
+    });
+
+    const { result } = renderHook(() => useRecord('test', source));
+    await flush();
+
+    expect(result.current.error).toBe('Storage unavailable. Retry processing.');
+    expect(result.current.record).toBeNull();
+    expect(source.store.get).not.toHaveBeenCalled();
+  });
+
   it('reassembles a fallback record split across meta/content/summaries docs', async () => {
     source.runtimeMessenger.send.mockResolvedValue({ ok: false });
     source.store.get.mockResolvedValue({

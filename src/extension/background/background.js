@@ -67,6 +67,7 @@ import { createActionIconController } from '../../../worker/actionIcon.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { browserLocalStore } from '../../shared/runtime/localStore.js';
 import { createPipelineSupervisor } from './pipelineSupervisor.js';
+import { createPipelineFailureBreaker } from './pipelineFailureBreaker.js';
 import { createChatCompletionService } from './chatCompletionService.js';
 import { createSubmitRecord } from './submitRecord.js';
 import { createDispatcher } from './dispatch.js';
@@ -162,6 +163,10 @@ const pipelineSupervisor = createPipelineSupervisor({
   runPipeline,
   alarms,
   runtime: runtimeErrors,
+  failureBreaker: createPipelineFailureBreaker({
+    getStorageArea: () => chrome.storage.session,
+    runtime: runtimeErrors,
+  }),
   logger: log,
 });
 

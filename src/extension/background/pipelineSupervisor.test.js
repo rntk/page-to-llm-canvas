@@ -51,6 +51,7 @@ function makeSupervisor(overrides = {}) {
     runPipeline,
     alarms,
     runtime,
+    failureBreaker: overrides.failureBreaker,
     clock: () => now,
     idFactory: overrides.idFactory || (() => 'run-generated'),
     logger: silentLogger(),
@@ -282,6 +283,116 @@ describe('createPipelineSupervisor (no chrome global)', () => {
 
     await expect(supervisor.resumeInFlightRecords()).resolves.toBeUndefined();
     expect(alarms.create).not.toHaveBeenCalled();
+  });
+
+  it('fails closed before provider work when an automatic resume cannot claim storage', async () => {
+    const failures = new Map();
+    const failureBreaker = {
+      getAll: vi.fn(async () => Object.fromEntries(failures)),
+      recordFailure: vi.fn(async ({ pipelineRunId }) => {
+        const state = { pipelineRunId, failures: 1, open: false };
+        failures.set(pipelineRunId, state);
+        return state;
+      }),
+      clear: vi.fn(async () => {}),
+      clearForKey: vi.fn(async () => {}),
+    };
+    const { supervisor, recordRepository, runPipeline } = makeSupervisor({
+      failureBreaker,
+      records: [['k1', { key: 'k1', status: PIPELINE_STATUS.PENDING, pipelineRunId: 'run-1' }]],
+    });
+    recordRepository.updateRecord.mockRejectedValue(new Error('disk full'));
+
+    await supervisor.startPipeline('k1', { automatic: true });
+
+    expect(runPipeline).not.toHaveBeenCalled();
+    expect(failureBreaker.recordFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'k1', pipelineRunId: 'run-1' }),
+    );
+  });
+
+  it('records a breaker failure when the fallback ERROR write also fails', async () => {
+    const failureBreaker = {
+      getAll: vi.fn(async () => ({})),
+      recordFailure: vi.fn(async () => ({ failures: 1, open: false })),
+      clear: vi.fn(async () => {}),
+      clearForKey: vi.fn(async () => {}),
+    };
+    const runPipeline = vi.fn(async () => {
+      throw new Error('provider failed');
+    });
+    const { supervisor, recordRepository } = makeSupervisor({
+      failureBreaker,
+      runPipeline,
+      records: [['k1', { key: 'k1', status: PIPELINE_STATUS.PENDING, pipelineRunId: 'run-1' }]],
+    });
+    recordRepository.updateRecord.mockRejectedValue(new Error('disk full'));
+
+    await supervisor.startPipeline('k1');
+
+    expect(failureBreaker.recordFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'k1', pipelineRunId: 'run-1' }),
+    );
+  });
+
+  it('skips an open run breaker and exposes separate runtime failure metadata', async () => {
+    const state = {
+      pipelineRunId: 'run-1',
+      failures: 3,
+      open: true,
+      message: 'Storage unavailable; automatic processing paused.',
+    };
+    const failureBreaker = {
+      getAll: vi.fn(async () => ({ 'run-1': state })),
+      recordFailure: vi.fn(),
+      clear: vi.fn(),
+      clearForKey: vi.fn(),
+    };
+    const record = { key: 'k1', status: PIPELINE_STATUS.PENDING, pipelineRunId: 'run-1' };
+    const { supervisor, runPipeline, alarms } = makeSupervisor({
+      failureBreaker,
+      records: [['k1', record]],
+    });
+
+    await supervisor.startPipeline('k1', { automatic: true });
+    expect(runPipeline).not.toHaveBeenCalled();
+
+    const runtimeState = await supervisor.getPipelineFailures([record]);
+    expect(runtimeState).toEqual({
+      failures: {
+        k1: {
+          kind: 'storage_unavailable',
+          message: state.message,
+          retryable: true,
+          pipelineRunId: 'run-1',
+        },
+      },
+      unavailable: false,
+    });
+
+    supervisor.handleKeepAliveAlarm({ name: KEEPALIVE_ALARM });
+    await vi.waitFor(() => expect(alarms.clear).toHaveBeenCalledWith(KEEPALIVE_ALARM));
+  });
+
+  it('leaves the keepalive armed when the breaker snapshot read fails transiently', async () => {
+    const failureBreaker = {
+      getAll: vi.fn(async () => {
+        throw new Error('session backend busy');
+      }),
+      recordFailure: vi.fn(),
+      clear: vi.fn(),
+      clearForKey: vi.fn(),
+    };
+    const { supervisor, runPipeline, alarms } = makeSupervisor({
+      failureBreaker,
+      records: [['k1', { key: 'k1', status: PIPELINE_STATUS.PENDING, pipelineRunId: 'run-1' }]],
+    });
+
+    supervisor.handleKeepAliveAlarm({ name: KEEPALIVE_ALARM });
+    await vi.waitFor(() => expect(failureBreaker.getAll).toHaveBeenCalled());
+
+    expect(runPipeline).not.toHaveBeenCalled();
+    expect(alarms.clear).not.toHaveBeenCalled();
   });
 
   it('keeps its keepalive throttle out of sibling supervisors', () => {

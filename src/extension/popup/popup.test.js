@@ -718,6 +718,19 @@ describe('buildRecordDisplayData', () => {
     expect(r.badge).toBe('weird');
   });
 
+  it('includes a visible runtime failure notice in display data', () => {
+    const message = 'Storage unavailable. Retry processing.';
+    const result = popup.buildRecordDisplayData([
+      {
+        key: 'blocked',
+        status: 'error',
+        pipelineFailure: { kind: 'storage_unavailable', message, retryable: true },
+      },
+    ]);
+
+    expect(result.records[0].notice).toBe(message);
+  });
+
   it('handles non-array input gracefully', () => {
     const result = popup.buildRecordDisplayData(null);
     expect(result.count).toBe(0);
