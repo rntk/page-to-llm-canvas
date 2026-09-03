@@ -40,6 +40,17 @@ describe('fetchRecord', () => {
     expect(result).toEqual({ kind: 'not_found' });
   });
 
+  it('returns not_found for the uniform record-not-found error', async () => {
+    vi.stubGlobal('chrome', {
+      runtime: {
+        sendMessage: vi.fn((msg, cb) => cb({ ok: false, error: 'record not found' })),
+        lastError: undefined,
+      },
+    });
+    const result = await fetchRecord('k1');
+    expect(result).toEqual({ kind: 'not_found' });
+  });
+
   it('returns invalid_response when response is null/undefined', async () => {
     vi.stubGlobal('chrome', {
       runtime: {

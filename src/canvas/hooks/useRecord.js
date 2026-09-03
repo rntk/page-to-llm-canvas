@@ -47,6 +47,14 @@ export function useRecord(key, source) {
 
     const fetchViaServiceWorker = async () => {
       const resp = await source.runtimeMessenger.send({ type: MSG.getRecord, key });
+      // A repository miss carries `error: 'record not found'` (uniform
+      // `{ok:false, error}` contract) but is not a service failure: return
+      // null so the initial load falls back to a direct store read and live
+      // refetches report deletion. The bare `{ok:false}` shape is still
+      // accepted for backward compatibility.
+      if (resp?.ok === false && resp?.error === 'record not found') {
+        return null;
+      }
       if (resp?.ok === false && typeof resp.error === 'string') {
         throw new Error(resp.error);
       }

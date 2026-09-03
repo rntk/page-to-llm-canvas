@@ -2010,6 +2010,7 @@ describe('dispatchMessage unit tests', () => {
 
     const missing = await dispatchMessage({ type: 'getRecord', key: 'nope' });
     expect(missing.ok).toBe(false);
+    expect(missing.error).toBe('record not found');
 
     const createdChat = await dispatchMessage({
       type: 'appendChatTurn',

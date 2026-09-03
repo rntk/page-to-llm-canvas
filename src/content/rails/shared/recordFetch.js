@@ -30,6 +30,7 @@ export async function fetchRecord(key, runtimeMessenger = browserRuntimeMessenge
   try {
     const resp = await runtimeMessenger.send({ type: MSG.getRecord, key });
     if (resp?.ok === false && !resp.error) return { kind: 'not_found' };
+    if (resp?.ok === false && resp?.error === 'record not found') return { kind: 'not_found' };
     if (resp?.ok === false && typeof resp.error === 'string') {
       return { kind: 'service_error', error: new Error(resp.error) };
     }

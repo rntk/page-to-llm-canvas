@@ -375,7 +375,7 @@ export function createRecordHandlers({
             pipelineFailure: runtimeState.failures[rec.key] || null,
           };
         }
-        return { ok: false };
+        return { ok: false, error: 'record not found' };
       },
     },
 

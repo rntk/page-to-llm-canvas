@@ -120,6 +120,19 @@ describe('useRecord', () => {
     expect(result.current.error).toBeNull();
   });
 
+  it('falls back to a direct store read on the uniform record-not-found error', async () => {
+    const record = { key: 'test', status: 'done' };
+    source.runtimeMessenger.send.mockResolvedValue({ ok: false, error: 'record not found' });
+    source.store.get.mockResolvedValue({ 'pagetollm:rec:test:meta': record });
+
+    const { result } = renderHook(() => useRecord('test', source));
+    await flush();
+
+    expect(source.store.get).toHaveBeenCalledWith(DOC_KEYS);
+    expect(result.current.record).toEqual(record);
+    expect(result.current.error).toBeNull();
+  });
+
   it('surfaces an initial record-service error without treating it as deletion', async () => {
     source.runtimeMessenger.send.mockResolvedValue({
       ok: false,
