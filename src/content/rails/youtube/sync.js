@@ -11,17 +11,32 @@ import { getTimestampForSentences } from '../../../utils/youtubeTimestamp.js';
 import {
   buildSummaryEntries,
   buildHierarchicalTopicEntries,
+  splitIntoContiguousRuns,
   topicAccentColor,
 } from '../shared/railCards.js';
 
 /**
  * Build the ordered, timestamped card list for the YouTube rail.
  *
- * Each entry's start second is derived from the nearest preceding inline
+ * Each card's start second is derived from the nearest preceding inline
  * transcript timestamp for its source sentences. Entries without a resolvable
  * timestamp are dropped (they cannot be synced to a moment in the video), and
  * the rest are sorted ascending by time so the list reads top-to-bottom in
  * playback order.
+ *
+ * In 'topics' mode, hierarchical topic entries represent aggregated sentences
+ * across the video. We split each entry into contiguous sentence runs so that
+ * recurring topics yield one card per occurrence. Multiple runs of the same
+ * topic resolving to the identical start second are merged into a single card.
+ *
+ * In 'summaries' mode, buildSummaryEntries already produces one entry per
+ * summary run with distinct location-specific summary text. Each summary entry
+ * yields at most one card to prevent repeating the same summary text blob across
+ * gaps on the linear timeline.
+ *
+ * Card IDs are keyed on `${path}-${sentences.join('-')}` (mirroring the in-page
+ * rail) to prevent React key collisions when distinct summary runs share a
+ * timestamp.
  *
  * @param {object} input Record and selected rail mode/level.
  * @param {object} [input.record] Article record supplying sentences.
@@ -47,19 +62,42 @@ export function buildYouTubeRailCards({ record, mode, selectedLevel = 0 }) {
 
   const cards = [];
   for (const entry of entries) {
-    const sourceSentences = isSummary ? entry.sourceSentences : entry.sentences;
-    const seconds = getTimestampForSentences(sentences, sourceSentences);
-    if (seconds == null) continue;
-    cards.push({
-      id: `${entry.path}-${seconds}`,
-      name: entry.name,
-      text: (entry.text || '').trim(),
-      path: entry.path,
-      level: entry.level || 0,
-      seconds,
-      accent: topicAccentColor(entry.path, entry.level || 0),
-      sentences: Array.isArray(sourceSentences) ? sourceSentences.slice() : [],
-    });
+    const allSentences = isSummary ? entry.sourceSentences : entry.sentences;
+    // Summaries already emit one entry per summary run with its own summary text;
+    // splitting summary entries further would duplicate identical text blobs on
+    // the timeline. Topics represent aggregated document-level coverage, so we
+    // split them into contiguous runs to surface recurring topics.
+    const runs = isSummary ? [allSentences] : splitIntoContiguousRuns(allSentences);
+    const entryCardsBySeconds = new Map();
+
+    for (const run of runs) {
+      const seconds = getTimestampForSentences(sentences, run);
+      if (seconds == null) continue;
+
+      // In topics mode, multiple runs within the same topic entry that map to the
+      // same second (e.g. separated by an untimed interjection) are merged to avoid
+      // duplicate identical cards at the same timestamp.
+      const existing = entryCardsBySeconds.get(seconds);
+      if (existing) {
+        existing.sentences.push(...run);
+        existing.sentences.sort((a, b) => a - b);
+        existing.id = `${entry.path}-${existing.sentences.join('-')}`;
+      } else {
+        const cardSentences = Array.isArray(run) ? run.slice().sort((a, b) => a - b) : [];
+        const card = {
+          id: `${entry.path}-${cardSentences.join('-')}`,
+          name: entry.name,
+          text: (entry.text || '').trim(),
+          path: entry.path,
+          level: entry.level || 0,
+          seconds,
+          accent: topicAccentColor(entry.path, entry.level || 0),
+          sentences: cardSentences,
+        };
+        entryCardsBySeconds.set(seconds, card);
+        cards.push(card);
+      }
+    }
   }
 
   cards.sort((a, b) => a.seconds - b.seconds);
