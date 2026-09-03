@@ -163,7 +163,7 @@ describe('youtubeTimestamp properties', () => {
       );
     });
 
-    it('uses the timestamp at the smallest valid one-based source sentence', () => {
+    it('uses the smallest valid one-based source sentence or rejects it past the transcript', () => {
       fc.assert(
         fc.property(
           fc.array(fc.integer({ min: 0, max: 359999 }), { minLength: 1, maxLength: 30 }),
@@ -179,9 +179,9 @@ describe('youtubeTimestamp properties', () => {
           ),
           (timestamps, target, invalidReferences) => {
             const sentences = timestamps.map((seconds) => formatTimestampLabel(seconds));
-            const expectedIndex = Math.min(target - 1, sentences.length - 1);
+            const expected = target <= sentences.length ? timestamps[target - 1] : null;
             expect(getTimestampForSentences(sentences, [...invalidReferences, target])).toBe(
-              timestamps[expectedIndex],
+              expected,
             );
           },
         ),

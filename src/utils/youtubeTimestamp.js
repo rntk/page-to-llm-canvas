@@ -60,7 +60,10 @@ export function parseTimestampSeconds(text) {
  * sentences by scanning backward from the card's first sentence to the nearest
  * preceding inline timestamp.
  *
- * Source sentence numbers use the canonical one-based record contract.
+ * Source sentence numbers use the canonical one-based record contract. A card
+ * whose earliest source sentence lies past the end of the transcript is not
+ * locatable in the video (a stale or hallucinated reference), so it resolves to
+ * null and gets dropped rather than being pinned to the last transcript cue.
  *
  * When the card's first sentence sits at the very start of the transcript but
  * that opening line carries no inline timestamp (e.g. a title or greeting before
@@ -79,7 +82,9 @@ export function getTimestampForSentences(sentences, sourceSentences) {
   if (!Array.isArray(sourceSentences) || sourceSentences.length === 0) return null;
   const numbers = sourceSentences.filter((n) => Number.isInteger(n) && n > 0);
   if (numbers.length === 0) return null;
-  const startIndex = Math.max(0, Math.min(Math.min(...numbers) - 1, sentences.length - 1));
+  const startSentence = Math.min(...numbers);
+  if (startSentence > sentences.length) return null;
+  const startIndex = startSentence - 1;
   for (let i = startIndex; i >= 0; i -= 1) {
     const seconds = parseTimestampSeconds(sentences[i]);
     if (seconds != null) return seconds;

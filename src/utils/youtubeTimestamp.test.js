@@ -142,17 +142,17 @@ describe('getTimestampForSentences', () => {
     expect(getTimestampForSentences(sentenceInput, sourceInput)).toBeNull();
   });
 
-  // The internal index clamp is a loop bound, not observable behaviour: an
-  // unclamped scan walks down through undefined entries, which
-  // parseTimestampSeconds rejects, and reaches the same sentence. So this
-  // pins the reachable contract -- an out-of-range card still resolves to the
-  // last timestamp in the transcript rather than returning null.
-  it('resolves an out-of-range source sentence to the last transcript timestamp', () => {
-    expect(getTimestampForSentences(sentences, [999])).toBe(26);
+  it('returns null when the earliest source sentence is beyond the transcript', () => {
+    expect(getTimestampForSentences(sentences, [sentences.length + 1])).toBeNull();
+    expect(getTimestampForSentences(sentences, [999])).toBeNull();
   });
 
   it('ignores invalid source sentence numbers when a valid one is present', () => {
     expect(getTimestampForSentences(sentences, [0, -1, 1.5, 4])).toBe(26);
+  });
+
+  it('uses an in-range earliest source sentence when later references are out of range', () => {
+    expect(getTimestampForSentences(sentences, [4, 999])).toBe(26);
   });
 });
 
