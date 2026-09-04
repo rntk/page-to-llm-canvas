@@ -32,8 +32,13 @@ const pipelineLimiter = vi.hoisted(() => ({
 }));
 
 vi.mock('../storage/storage.js', () => ({
+  SOURCE_SUMMARY_UNIT_REVISION_MISMATCH: Object.freeze({
+    reason: 'content_revision_mismatch',
+  }),
   readRecord: vi.fn(),
   updateRecord: vi.fn(),
+  putTopicSummaryCheckpoint: vi.fn(),
+  putSourceSummaryUnit: vi.fn(),
   appendProcessingLog: vi.fn(),
   flushProcessingLog: vi.fn(),
 }));
@@ -145,6 +150,16 @@ beforeEach(() => {
     ...patch,
     updatedAt: Date.now(),
   }));
+  const topicSummaries = {};
+  const sourceSummaryUnits = {};
+  storage.putTopicSummaryCheckpoint.mockImplementation(async (key, topicPath, summary) => {
+    topicSummaries[topicPath] = summary;
+    return storage.updateRecord(key, { topic_summaries: { ...topicSummaries } });
+  });
+  storage.putSourceSummaryUnit.mockImplementation(async (key, unit) => {
+    sourceSummaryUnits[unit.unitId] = unit;
+    return storage.updateRecord(key, { source_summary_units: { ...sourceSummaryUnits } });
+  });
   storage.appendProcessingLog.mockResolvedValue(undefined);
   storage.flushProcessingLog.mockResolvedValue(undefined);
   capturedText.normalizeCapturedText.mockReturnValue('');
@@ -1867,7 +1882,11 @@ describe('runPipeline', () => {
         // A NO_SUMMARY response is persisted as the source text, so it has a
         // valid run layout and can be distinguished from a damaged entry.
         B: { runs: [{ sentences: [2], text: 'Beta.' }], source_sentences: [2] },
-        C: { runs: [{ sentences: [3], text: '' }], source_sentences: [3], error: true },
+        C: {
+          runs: [{ sentences: [3], text: '', error: true }],
+          source_sentences: [3],
+          error: true,
+        },
       },
       topic_summary_index: {},
     });
@@ -1943,9 +1962,8 @@ describe('runPipeline', () => {
       sentences: ['One.', 'Two.'],
       topic_summaries: {
         'Tech>All': {
-          runs: [{ sentences: [1, 2], text: '' }],
+          runs: [{ sentences: [1, 2], text: '', acceptedFailure: true }],
           source_sentences: [1, 2],
-          acceptedFailure: true,
         },
       },
     });

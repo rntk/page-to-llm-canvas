@@ -11,6 +11,7 @@
 // keep working; new tests should construct the factories directly.
 import {
   readRecord,
+  readRecordView,
   writeRecord,
   updateRecord,
   listRecords,
@@ -98,6 +99,7 @@ const scheduleActionProgressIconRefresh = actionIconController.schedule;
 
 const recordRepository = {
   readRecord,
+  readRecordView,
   writeRecord,
   updateRecord,
   listRecords,
@@ -287,10 +289,8 @@ installBackgroundRuntime({
 });
 
 // Repair interrupted page/index writes before reconciling their dependent
-// chats. Reconciliation rebuilds projections from authoritative record meta,
-// including fields added by newer versions, so no separate schema migration is
-// needed. Both routines are idempotent and share the global mutation queue with
-// normal writes, so startup races cannot resurrect deleted data.
+// chats. Both routines are idempotent and share the global mutation queue with
+// normal writes.
 //
 // The resume scan then runs on *every* cold start, not just onStartup/
 // onInstalled. Those two events cover a browser restart and an update, but the
@@ -312,7 +312,8 @@ installBackgroundRuntime({
  */
 export const backgroundReady = (async () => {
   try {
-    await reconcileRecordStorage();
+    const reconciliation = await reconcileRecordStorage();
+    log.info('record storage reconciliation:', reconciliation);
     await reconcileChatStorage();
   } catch (err) {
     log.warn('storage reconciliation failed:', err);

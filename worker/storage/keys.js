@@ -1,16 +1,59 @@
 // Realm-neutral key helpers shared by the record and chat repositories. Keep
 // this module dependency-free so repository dependency direction stays acyclic.
 
+// Record keys may come from imported files and therefore cannot be assumed to
+// exclude `:`, the separator used by every physical storage namespace. Encoding
+// the segment keeps keys such as `a` and `a:b` in disjoint namespaces.
+export function encodeRecordStorageSegment(key) {
+  return encodeURIComponent(key);
+}
+
+export function decodeRecordStorageSegment(segment) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+}
+
+export function recordStoragePrefix(key) {
+  return `pagetollm:rec:${encodeRecordStorageSegment(key)}:`;
+}
+
 export function recordMetaStorageKey(key) {
-  return `pagetollm:rec:${key}:meta`;
+  return `${recordStoragePrefix(key)}meta`;
 }
 
 export function recordContentStorageKey(key) {
-  return `pagetollm:rec:${key}:content`;
+  return `${recordStoragePrefix(key)}content`;
 }
 
-export function recordSummariesStorageKey(key) {
-  return `pagetollm:rec:${key}:summaries`;
+export function recordSummaryOutputStorageKey(key) {
+  return `${recordStoragePrefix(key)}summary-output`;
+}
+
+export function recordTopicRangeCheckpointStorageKey(key) {
+  return `${recordStoragePrefix(key)}topic-range-work`;
+}
+
+export function recordDiagnosticsStorageKey(key) {
+  return `${recordStoragePrefix(key)}diagnostics`;
+}
+
+export function recordSummaryLeafStoragePrefix(key) {
+  return `${recordStoragePrefix(key)}summary-leaf:`;
+}
+
+export function recordSummaryLeafStorageKey(key, topicPath) {
+  return `${recordSummaryLeafStoragePrefix(key)}${encodeURIComponent(topicPath)}`;
+}
+
+export function recordSourceSummaryUnitStoragePrefix(key) {
+  return `${recordStoragePrefix(key)}summary-unit:`;
+}
+
+export function recordSourceSummaryUnitStorageKey(key, unitId) {
+  return `${recordSourceSummaryUnitStoragePrefix(key)}${encodeURIComponent(unitId)}`;
 }
 
 export function chatIndexStorageKey(key) {

@@ -4,6 +4,7 @@ import {
   clearLocal,
   getLocal,
   getLocalByPrefix,
+  getLocalKeysByPrefix,
   queuedUpdate,
   removeLocal,
   resetUpdateQueues,
@@ -55,7 +56,7 @@ describe('storage primitives', () => {
   it('uses getKeys when available and only reads matching keys', async () => {
     const { local } = installChrome({
       items: { 'pagetollm:a': 1, 'pagetollm:b': 2, unrelated: 3 },
-      getKeys: (callback) => callback(['pagetollm:a', 'unrelated', 'pagetollm:b']),
+      getKeys: () => Promise.resolve(['pagetollm:a', 'unrelated', 'pagetollm:b']),
     });
     await expect(getLocalByPrefix('pagetollm:')).resolves.toEqual({
       'pagetollm:a': 1,
@@ -66,8 +67,18 @@ describe('storage primitives', () => {
   });
 
   it('returns an empty object without reading when getKeys finds no matches', async () => {
-    const { local } = installChrome({ getKeys: (callback) => callback(['other']) });
+    const { local } = installChrome({ getKeys: () => Promise.resolve(['other']) });
     await expect(getLocalByPrefix('pagetollm:')).resolves.toEqual({});
+    expect(local.get).not.toHaveBeenCalled();
+  });
+
+  it('lists matching keys without loading their values', async () => {
+    const { local } = installChrome({
+      items: { 'prefix:large': { html: 'large' }, other: 2 },
+      getKeys: () => Promise.resolve(['prefix:large', 'other']),
+    });
+    await expect(getLocalKeysByPrefix('prefix:')).resolves.toEqual(['prefix:large']);
+    expect(local.getKeys).toHaveBeenCalledOnce();
     expect(local.get).not.toHaveBeenCalled();
   });
 
@@ -78,14 +89,27 @@ describe('storage primitives', () => {
   });
 
   it('rejects getKeys errors and treats a non-array key result as empty', async () => {
-    const { runtime } = installChrome({ getKeys: (callback) => callback(['prefix:key']) });
-    runtime.lastError = { message: 'getKeys failed' };
+    installChrome({ getKeys: () => Promise.reject(new Error('getKeys failed')) });
     await expect(getLocalByPrefix('prefix:')).rejects.toThrow('getKeys failed');
 
-    runtime.lastError = null;
-    const { local } = installChrome({ getKeys: (callback) => callback(null) });
+    const { local } = installChrome({ getKeys: () => Promise.resolve(null) });
     await expect(getLocalByPrefix('prefix:')).resolves.toEqual({});
     expect(local.get).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the callback form when getKeys returns no promise', async () => {
+    const { local, runtime } = installChrome({
+      items: { 'prefix:one': 1, other: 2 },
+      getKeys: (callback) => {
+        if (typeof callback !== 'function') throw new TypeError('No matching signature');
+        callback(['prefix:one', 'other']);
+      },
+    });
+    await expect(getLocalByPrefix('prefix:')).resolves.toEqual({ 'prefix:one': 1 });
+    expect(local.get).toHaveBeenCalledWith(['prefix:one'], expect.any(Function));
+
+    runtime.lastError = { message: 'getKeys failed' };
+    await expect(getLocalByPrefix('prefix:')).rejects.toThrow('getKeys failed');
   });
 
   it('serializes updates per key while allowing different keys to run independently', async () => {

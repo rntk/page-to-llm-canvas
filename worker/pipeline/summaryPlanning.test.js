@@ -35,6 +35,27 @@ describe('planSummaryWork', () => {
     expect(plan.pendingCount).toBe(2);
   });
 
+  it('narrows reused summaries idempotently when stored documents retain stale markers', () => {
+    const stale = {
+      runs: [{ sentences: [1], text: 'Done A' }],
+      source_sentences: [1],
+      error: true,
+      error_kind: 'timeout',
+      error_message: 'old failure',
+      forcedEmpty: true,
+    };
+
+    const first = planSummaryWork([{ name: 'A', sentences: [1] }], { A: stale });
+    const second = planSummaryWork([{ name: 'A', sentences: [1] }], first.reused);
+
+    expect(first.pending).toEqual([]);
+    expect(first.reused.A).toEqual({
+      runs: [{ sentences: [1], text: 'Done A' }],
+      source_sentences: [1],
+    });
+    expect(second).toEqual(first);
+  });
+
   it('reuses a stored NO_SUMMARY fallback but retries error-flagged entries', () => {
     const plan = planSummaryWork(topics, {
       A: { runs: [{ sentences: [1], text: 'Good A' }] },
@@ -42,7 +63,7 @@ describe('planSummaryWork', () => {
       // an empty run list (which would otherwise be indistinguishable from a
       // damaged checkpoint).
       B: { runs: [{ sentences: [2], text: 'Beta.' }] },
-      C: { runs: [{ sentences: [3], text: '' }], error: true }, // failed — retry
+      C: { runs: [{ sentences: [3], text: '', error: true }] }, // failed — retry
     });
     expect(Object.keys(plan.reused).sort()).toEqual(['A', 'B']);
     expect(plan.reused.B).toEqual({
@@ -58,7 +79,7 @@ describe('planSummaryWork', () => {
     const plan = planSummaryWork(topics, {
       A: { runs: [{ sentences: [1], text: 'Good A' }] },
       B: { runs: [{ sentences: [2], text: 'Beta.' }] }, // valid — reuse
-      C: { runs: [{ sentences: [3], text: '' }], forcedEmpty: true }, // retry
+      C: { runs: [{ sentences: [3], text: '', forcedEmpty: true }] }, // retry
     });
     expect(Object.keys(plan.reused).sort()).toEqual(['A', 'B']);
     expect(plan.pending.map((t) => t.name)).toEqual(['C']);
@@ -72,10 +93,8 @@ describe('planSummaryWork', () => {
     const plan = planSummaryWork(topics, {
       A: { runs: [{ sentences: [1], text: 'Good A' }] },
       C: {
-        runs: [{ sentences: [3], text: '' }],
+        runs: [{ sentences: [3], text: '', acceptedFailure: true }],
         source_sentences: [3],
-        acceptedFailure: true,
-        error_kind: 'timeout',
       },
     });
     expect(plan.pending.map((t) => t.name)).toEqual(['B']);

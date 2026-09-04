@@ -1,13 +1,10 @@
-import {
-  acceptFailedSummaryRun,
-  migrateLegacySummaryRunMarkers,
-} from '../../../worker/pipeline/summaryRunMarkers.js';
+import { acceptFailedSummaryRun } from '../../../worker/pipeline/summaryRunMarkers.js';
 
 /**
  * Returns a copy of the topic-summaries map with in-flight error markers
  * replaced by per-run `acceptedFailure: true` markers, so successful sibling
  * runs remain reusable while only the explicitly failed runs are accepted as-is
- * on the next resume. Legacy topic-level markers are migrated conservatively.
+ * on the next resume.
  *
  * @param {Record<string, object>} topicSummaries
  * @returns {Record<string, object>}
@@ -17,29 +14,25 @@ export function clearSummaryErrorFlags(topicSummaries) {
   const out = {};
   for (const [name, s] of Object.entries(src)) {
     if (s && typeof s === 'object') {
-      const { error, error_kind, error_message, error_detail, ...rest } = s;
+      const {
+        error: _error,
+        error_kind: _errorKind,
+        error_message: _errorMessage,
+        error_detail: _errorDetail,
+        ...rest
+      } = s;
       // Replace the stripped flags with the transient `acceptedFailure` marker:
       // the resumed run must still recognize the leaf as failed (so ancestor
       // summaries skip its source and finalization stamps `forcedEmpty`), while
       // `planSummaryWork` deliberately ignores the marker and reuses the leaf
       // as-is — no re-query, which is the whole point of "skip".
-      const hadError = error || error_kind || error_message || error_detail;
-      if (Array.isArray(rest.runs)) {
-        const migrated = migrateLegacySummaryRunMarkers({
-          ...rest,
-          ...(hadError ? { error: true } : {}),
-        });
-        const runs = migrated.runs.map(acceptFailedSummaryRun);
-        const acceptedRun = runs.some((run) => run?.acceptedFailure === true);
-        out[name] = {
-          ...rest,
-          runs,
-          ...(acceptedRun ? { acceptedFailure: true } : {}),
-        };
-      } else {
-        // Legacy/imported entries may predate the per-run `runs` shape.
-        out[name] = hadError ? { ...rest, acceptedFailure: true } : rest;
-      }
+      const runs = (Array.isArray(rest.runs) ? rest.runs : []).map(acceptFailedSummaryRun);
+      const acceptedRun = runs.some((run) => run?.acceptedFailure === true);
+      out[name] = {
+        ...rest,
+        runs,
+        ...(acceptedRun ? { acceptedFailure: true } : {}),
+      };
     } else {
       out[name] = s;
     }

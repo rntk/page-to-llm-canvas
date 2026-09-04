@@ -89,19 +89,18 @@ export function isImportableRecord(record) {
 
 /**
  * The persisted shape of a page record (see `worker/storage/storage.js`,
- * which physically splits this object across meta/content/summaries storage
- * docs and reassembles it on read). Field names mix camelCase (`sourceUrl`,
+ * which persists immutable data, final output, diagnostics, and individual
+ * work checkpoints independently and reassembles them on worker reads).
+ * Field names mix camelCase (`sourceUrl`,
  * `createdAt`, `pipelineRunId`, `contentRevision`) with snake_case
  * (`topic_summaries`, `topic_summary_index`, and the per-chunk
  * `start_sentence`/`end_sentence` keys nested inside `topic_summaries`
- * entries). This inconsistency is intentional/historical — the shape is
- * persisted in user storage, so renaming any of these keys would require a
- * storage migration, not just a code change.
+ * entries). This is the canonical current shape persisted in user storage.
  *
  * Optionality here is the intersection of the TWO paths that create records,
  * because both write through `writeRecord` and neither backfills defaults
- * (`pickMetaFields`/`pickContentFields`/`pickSummaryFields` copy only the keys
- * actually present, and `readRecord` merges the three docs as-is):
+ * (the storage partitioners copy only the keys actually present, and
+ * `readRecord` reassembles the normalized documents):
  *
  *   1. `createQueuedRecord` (pipeline kickoff) — populates every field below.
  *   2. Record import (`MSG.importRecords` in background.js, and
@@ -161,8 +160,8 @@ export function isImportableRecord(record) {
  *   resumable source-summary units keyed by stable request-kind/path/run/chunk
  *   bounds. A unit is reusable only when it is marked `done`, carries a
  *   non-empty matching `contentRevision`, and its input fingerprint matches
- *   the current source/prompt/settings input. Legacy/imported records may
- *   omit this field.
+ *   the current source/prompt/settings input. Imported records may omit this
+ *   field.
  * @property {object[]} [processingLog] - Buffered diagnostic log entries
  *   (capped; see `MAX_PROCESSING_LOG_ENTRIES` in storage.js).
  * @property {string[]} [selectors] - CSS selectors used to capture the page.

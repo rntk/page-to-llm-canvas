@@ -19,6 +19,8 @@
 export {
   getLocalItems as getLocal,
   getLocalItemsByPrefix as getLocalByPrefix,
+  getLocalItemsByPrefixes as getLocalByPrefixes,
+  getLocalKeysByPrefix,
   setLocalItems as setLocal,
   removeLocalItems as removeLocal,
   clearLocalItems as clearLocal,

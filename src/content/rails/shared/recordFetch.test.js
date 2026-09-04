@@ -136,7 +136,7 @@ describe('fetchRecord', () => {
     });
     await fetchRecord('abc');
     expect(sendMessage).toHaveBeenCalledWith(
-      { type: 'getRecord', key: 'abc' },
+      { type: 'getRecordView', key: 'abc' },
       expect.any(Function),
     );
   });

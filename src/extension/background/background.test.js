@@ -89,7 +89,7 @@ function makeChromeMock() {
 
   const chromeLocal = {
     _store: store,
-    getKeys: vi.fn((cb) => cb([...store.keys()])),
+    getKeys: vi.fn(() => Promise.resolve([...store.keys()])),
     get: vi.fn((keys, cb) => {
       runtime.lastError = null;
       const result = {};
@@ -142,13 +142,23 @@ function makeChromeMock() {
   };
 }
 
-// Records are physically split across `:meta`/`:content`/`:summaries` docs
+// Records are physically normalized across independently updated documents
 // (see worker/storage/storage.js); seeding/reading a record for a test goes through
 // the same writeRecord/readRecord functions background.js itself uses,
 // rather than poking the mock store directly. Requires `chrome` to already
 // be stubbed to `chromeMock` (writeRecord/readRecord read the global).
 async function seedRecord(chromeMock, rec) {
   await writeRecord(rec);
+}
+
+// Cold-start recovery dispatches startPipeline without awaiting it, so a
+// settled `backgroundReady` does not mean that detached work has finished.
+// Yield the macrotask queue a few times so a test can clear the registry and
+// its spies without racing the bootstrap.
+async function drainBootstrapResume() {
+  for (let i = 0; i < 5; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
 }
 
 function makeRecord(key, overrides = {}) {
@@ -413,7 +423,12 @@ describe('background pipeline lifecycle', () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);
 
-    const rec = makeRecord('done1', { status: 'done', updatedAt: Date.now() });
+    const rec = makeRecord('done1', {
+      status: 'done',
+      updatedAt: Date.now(),
+      captureVersion: 2,
+      capturedText: 'hello',
+    });
     await seedRecord(chromeMock, rec);
 
     const { handleSubmit, _resetJobRegistry } = await import('./background.js');
@@ -421,6 +436,8 @@ describe('background pipeline lifecycle', () => {
 
     const result = await handleSubmit({
       html: '<p>hello</p>',
+      captureVersion: 2,
+      capturedText: 'hello',
       sourceUrl: 'https://example.com',
       selectors: ['main'],
     });
@@ -429,45 +446,6 @@ describe('background pipeline lifecycle', () => {
     expect(result.key).toBe('done1');
     expect((await readRecord('done1')).selectors).toEqual(['main']);
 
-    const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
-    expect(runPipeline).not.toHaveBeenCalled();
-  });
-
-  it('upgrades an equivalent done legacy record to capture v2 without clearing analysis', async () => {
-    const chromeMock = makeChromeMock();
-    vi.stubGlobal('chrome', chromeMock);
-    await seedRecord(
-      chromeMock,
-      makeRecord('done-legacy', {
-        status: 'done',
-        sourceUrl: 'https://example.com/legacy',
-        html: '<main><p>Same article</p><div hidden>old hidden text</div></main>',
-        text: 'Same article',
-        sentences: ['Same article'],
-        topics: [{ name: 'Article', sentences: [1] }],
-      }),
-    );
-
-    const { handleSubmit, _resetJobRegistry } = await import('./background.js');
-    _resetJobRegistry();
-    const result = await handleSubmit({
-      html: '<main><p>Same article</p></main>',
-      capturedText: 'Same\narticle',
-      captureVersion: 2,
-      sourceUrl: 'https://example.com/legacy',
-      selectors: ['main'],
-    });
-
-    expect(result).toEqual({ ok: true, key: 'done-legacy' });
-    const stored = await readRecord('done-legacy');
-    expect(stored).toMatchObject({
-      html: '<main><p>Same article</p></main>',
-      capturedText: 'Same\narticle',
-      captureVersion: 2,
-      sentences: ['Same article'],
-      topics: [{ name: 'Article', sentences: [1] }],
-      status: 'done',
-    });
     const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
     expect(runPipeline).not.toHaveBeenCalled();
   });
@@ -647,7 +625,15 @@ describe('background pipeline lifecycle', () => {
         summaryErrors: [{ topic: 'Tech>All', error_kind: 'timeout', error_message: 'x' }],
         topic_summaries: {
           'Tech>All': {
-            text: '',
+            runs: [
+              {
+                sentences: [1],
+                text: '',
+                error: true,
+                error_kind: 'timeout',
+                error_message: 'x',
+              },
+            ],
             source_sentences: [1],
             error: true,
             error_kind: 'timeout',
@@ -677,7 +663,7 @@ describe('background pipeline lifecycle', () => {
     // scope ancestor summaries and stamp `forcedEmpty`, but `planSummaryWork`
     // ignores it so the leaf is reused without a re-query.
     expect(leaf.acceptedFailure).toBe(true);
-    expect(leaf.text).toBe('');
+    expect(leaf.runs).toEqual([{ sentences: [1], text: '', acceptedFailure: true }]);
     expect(leaf.source_sentences).toEqual([1]);
   });
 
@@ -1022,16 +1008,24 @@ describe('background pipeline lifecycle', () => {
         ...completeSummaryCheckpoint(),
       });
       await seedRecord(chromeMock, record);
-
-      const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+      const { dispatchMessage, _resetJobRegistry, backgroundReady } =
+        await import('./background.js');
+      // Cold-start recovery legitimately resumes in-flight records. Drain and
+      // discard that bootstrap activity so this assertion isolates the user
+      // action handled below.
+      await backgroundReady;
+      await drainBootstrapResume();
       _resetJobRegistry();
+      const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+      runPipeline.mockClear();
+      updateRecord.mockClear();
+      const before = await readRecord(record.key);
 
       await expect(
         dispatchMessage({ type: 'generateRecordSummaries', key: record.key }, {}),
       ).resolves.toEqual({ ok: true, stale: true });
-      expect(await readRecord(record.key)).toEqual(record);
+      expect(await readRecord(record.key)).toEqual(before);
       expect(updateRecord).not.toHaveBeenCalled();
-      const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
       expect(runPipeline).not.toHaveBeenCalled();
     },
   );
@@ -1222,8 +1216,13 @@ describe('background pipeline lifecycle', () => {
     const rec = makeRecord('running1', { status: 'pending' });
     await seedRecord(chromeMock, rec);
 
-    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    const { startPipeline, _resetJobRegistry, backgroundReady } = await import('./background.js');
+    // The seeded record is in-flight, so cold-start recovery resumes it too.
+    // Let that settle and discard it before counting this test's own starts.
+    await backgroundReady;
+    await drainBootstrapResume();
     _resetJobRegistry();
+    (await import('../../../worker/pipeline/orchestrator.js')).runPipeline.mockClear();
 
     // Start a job but do not await its completion.
     const p1 = startPipeline('running1');
@@ -1550,7 +1549,8 @@ describe('background pipeline lifecycle', () => {
   it('reuses an existing record matched by sourceUrl on submit', async () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);
-    const { handleSubmit, _resetJobRegistry } = await import('./background.js');
+    const { handleSubmit, _resetJobRegistry, backgroundReady } = await import('./background.js');
+    await backgroundReady;
     _resetJobRegistry();
 
     await seedRecord(
@@ -1640,32 +1640,6 @@ describe('background pipeline lifecycle', () => {
 });
 
 describe('clearSummaryErrorFlags (pure)', () => {
-  it('swaps error markers for acceptedFailure while preserving other fields', async () => {
-    const { clearSummaryErrorFlags } = await import('./background.js');
-    const input = {
-      'A>B': {
-        text: 't',
-        source_sentences: [1],
-        error: true,
-        error_kind: 'timeout',
-        error_message: 'x',
-        error_detail: 'y',
-        other: 42,
-      },
-      C: { text: 'ok', source_sentences: [3] },
-      bad: null,
-    };
-    const out = clearSummaryErrorFlags(input);
-    expect(out).toEqual({
-      // The failed leaf keeps a transient marker so the resumed run can still
-      // scope ancestor summaries around it and stamp `forcedEmpty`; an entry
-      // that never failed is untouched.
-      'A>B': { text: 't', source_sentences: [1], other: 42, acceptedFailure: true },
-      C: { text: 'ok', source_sentences: [3] },
-      bad: null,
-    });
-  });
-
   it('handles non-object and empty input', async () => {
     const { clearSummaryErrorFlags } = await import('./background.js');
     expect(clearSummaryErrorFlags(null)).toEqual({});

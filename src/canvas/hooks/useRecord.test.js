@@ -18,17 +18,14 @@ function createFakeSource() {
     subscription = null;
   });
   return {
-    runtimeMessenger: { send: vi.fn() },
-    store: {
-      get: vi.fn(),
-      subscribeChanges: vi.fn((keys, onChange) => {
-        subscription = { keys, onChange };
-        return unsubscribe;
-      }),
-    },
+    fetch: vi.fn(),
+    subscribe: vi.fn((key, onChange) => {
+      subscription = { key, onChange };
+      return unsubscribe;
+    }),
     unsubscribe,
-    get watchedKeys() {
-      return subscription ? subscription.keys : null;
+    get subscribedKey() {
+      return subscription ? subscription.key : null;
     },
     /** Simulates one storage event for the watched docs. */
     notifyChange() {
@@ -59,21 +56,13 @@ function renderHook(callback) {
   };
 }
 
-// Every fetch (initial load and live-update refetch) resolves through at least
-// one promise, and the storage fallback adds a second. Flush both ticks before
-// asserting.
+// Every fetch (initial load and live-update refetch) resolves through a promise.
 async function flush() {
   await act(async () => {
     await Promise.resolve();
     await Promise.resolve();
   });
 }
-
-const DOC_KEYS = [
-  'pagetollm:rec:test:meta',
-  'pagetollm:rec:test:content',
-  'pagetollm:rec:test:summaries',
-];
 
 describe('useRecord', () => {
   let source;
@@ -90,51 +79,31 @@ describe('useRecord', () => {
     const { result } = renderHook(() => useRecord('', source));
     expect(result.current.error).toBe('missing record key');
     expect(result.current.record).toBeNull();
-    expect(source.store.subscribeChanges).not.toHaveBeenCalled();
+    expect(source.subscribe).not.toHaveBeenCalled();
   });
 
-  it('fetches the record through the messenger and watches its three docs', async () => {
+  it('reports an unusable source instead of throwing out of the effect', () => {
+    const { result } = renderHook(() => useRecord('test', undefined));
+    expect(result.current.error).toBe('record source unavailable');
+    expect(result.current.record).toBeNull();
+    expect(result.current.isDeleted).toBe(false);
+  });
+
+  it('fetches the record through the messenger and watches its view documents', async () => {
     const record = { key: 'test', status: 'done' };
-    source.runtimeMessenger.send.mockResolvedValue({ ok: true, record });
+    source.fetch.mockResolvedValue({ ok: true, record });
 
     const { result } = renderHook(() => useRecord('test', source));
     await flush();
 
-    expect(source.runtimeMessenger.send).toHaveBeenCalledWith({ type: 'getRecord', key: 'test' });
-    expect(source.watchedKeys).toEqual(DOC_KEYS);
-    expect(result.current.record).toEqual(record);
-    expect(result.current.error).toBeNull();
-    expect(source.store.get).not.toHaveBeenCalled();
-  });
-
-  it('falls back to a direct store read when the messenger returns no record', async () => {
-    const record = { key: 'test', status: 'done' };
-    source.runtimeMessenger.send.mockResolvedValue({ ok: false });
-    source.store.get.mockResolvedValue({ 'pagetollm:rec:test:meta': record });
-
-    const { result } = renderHook(() => useRecord('test', source));
-    await flush();
-
-    expect(source.store.get).toHaveBeenCalledWith(DOC_KEYS);
-    expect(result.current.record).toEqual(record);
-    expect(result.current.error).toBeNull();
-  });
-
-  it('falls back to a direct store read on the uniform record-not-found error', async () => {
-    const record = { key: 'test', status: 'done' };
-    source.runtimeMessenger.send.mockResolvedValue({ ok: false, error: 'record not found' });
-    source.store.get.mockResolvedValue({ 'pagetollm:rec:test:meta': record });
-
-    const { result } = renderHook(() => useRecord('test', source));
-    await flush();
-
-    expect(source.store.get).toHaveBeenCalledWith(DOC_KEYS);
+    expect(source.fetch).toHaveBeenCalledWith('test');
+    expect(source.subscribedKey).toBe('test');
     expect(result.current.record).toEqual(record);
     expect(result.current.error).toBeNull();
   });
 
   it('surfaces an initial record-service error without treating it as deletion', async () => {
-    source.runtimeMessenger.send.mockResolvedValue({
+    source.fetch.mockResolvedValue({
       ok: false,
       error: 'storage temporarily unavailable',
     });
@@ -145,11 +114,10 @@ describe('useRecord', () => {
     expect(result.current.error).toBe('storage temporarily unavailable');
     expect(result.current.record).toBeNull();
     expect(result.current.isDeleted).toBe(false);
-    expect(source.store.get).not.toHaveBeenCalled();
   });
 
   it('surfaces a pipeline runtime failure without using the raw in-flight record', async () => {
-    source.runtimeMessenger.send.mockResolvedValue({
+    source.fetch.mockResolvedValue({
       ok: true,
       record: { key: 'test', status: 'summarizing' },
       pipelineFailure: { message: 'Storage unavailable. Retry processing.' },
@@ -160,26 +128,10 @@ describe('useRecord', () => {
 
     expect(result.current.error).toBe('Storage unavailable. Retry processing.');
     expect(result.current.record).toBeNull();
-    expect(source.store.get).not.toHaveBeenCalled();
   });
 
-  it('reassembles a fallback record split across meta/content/summaries docs', async () => {
-    source.runtimeMessenger.send.mockResolvedValue({ ok: false });
-    source.store.get.mockResolvedValue({
-      'pagetollm:rec:test:meta': { key: 'test', status: 'done' },
-      'pagetollm:rec:test:content': { html: '<p>hi</p>' },
-    });
-
-    const { result } = renderHook(() => useRecord('test', source));
-    await flush();
-
-    expect(result.current.record).toEqual({ key: 'test', status: 'done', html: '<p>hi</p>' });
-    expect(result.current.error).toBeNull();
-  });
-
-  it('sets error when the record is not found anywhere', async () => {
-    source.runtimeMessenger.send.mockResolvedValue({ ok: false });
-    source.store.get.mockResolvedValue({});
+  it('sets deletion state when the worker reports the record is absent', async () => {
+    source.fetch.mockResolvedValue({ ok: false, code: 'not_found', error: 'record not found' });
 
     const { result } = renderHook(() => useRecord('test', source));
     await flush();
@@ -191,7 +143,7 @@ describe('useRecord', () => {
 
   it('debounces watched-doc changes before refetching the whole record', async () => {
     vi.useFakeTimers();
-    source.runtimeMessenger.send.mockResolvedValue({
+    source.fetch.mockResolvedValue({
       ok: true,
       record: { key: 'test', status: 'pending' },
     });
@@ -203,7 +155,7 @@ describe('useRecord', () => {
     // A live update re-fetches through the same messenger path rather than
     // trusting the change payload directly (the payload is only one of the
     // three physical docs, not the full record).
-    source.runtimeMessenger.send.mockResolvedValue({
+    source.fetch.mockResolvedValue({
       ok: true,
       record: { key: 'test', status: 'done' },
     });
@@ -212,21 +164,21 @@ describe('useRecord', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(RECORD_REFRESH_DEBOUNCE_MS - 1);
     });
-    expect(source.runtimeMessenger.send).toHaveBeenCalledOnce();
+    expect(source.fetch).toHaveBeenCalledOnce();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     await flush();
 
-    expect(source.runtimeMessenger.send).toHaveBeenCalledTimes(2);
+    expect(source.fetch).toHaveBeenCalledTimes(2);
     expect(result.current.record.status).toBe('done');
     expect(result.current.error).toBeNull();
   });
 
   it('sets error when a refetch finds the record gone', async () => {
     vi.useFakeTimers();
-    source.runtimeMessenger.send.mockResolvedValue({
+    source.fetch.mockResolvedValue({
       ok: true,
       record: { key: 'test', status: 'pending' },
     });
@@ -234,7 +186,7 @@ describe('useRecord', () => {
     const { result } = renderHook(() => useRecord('test', source));
     await flush();
 
-    source.runtimeMessenger.send.mockResolvedValue({ ok: false });
+    source.fetch.mockResolvedValue({ ok: false, code: 'not_found', error: 'record not found' });
     act(() => source.notifyChange());
     await act(async () => {
       await vi.advanceTimersByTimeAsync(RECORD_REFRESH_DEBOUNCE_MS);
@@ -249,11 +201,11 @@ describe('useRecord', () => {
   it('keeps the current record open when a refresh returns a service error', async () => {
     vi.useFakeTimers();
     const record = { key: 'test', status: 'done' };
-    source.runtimeMessenger.send.mockResolvedValue({ ok: true, record });
+    source.fetch.mockResolvedValue({ ok: true, record });
 
     const { result } = renderHook(() => useRecord('test', source));
     await flush();
-    source.runtimeMessenger.send.mockResolvedValue({
+    source.fetch.mockResolvedValue({
       ok: false,
       error: 'storage temporarily unavailable',
     });
@@ -269,7 +221,7 @@ describe('useRecord', () => {
   });
 
   it('surfaces a rejected send as the error message', async () => {
-    source.runtimeMessenger.send.mockRejectedValue(new Error('disconnected'));
+    source.fetch.mockRejectedValue(new Error('disconnected'));
 
     const { result } = renderHook(() => useRecord('test', source));
     await flush();
@@ -278,31 +230,21 @@ describe('useRecord', () => {
     expect(result.current.record).toBeNull();
   });
 
-  it('surfaces a rejected fallback store read as the error message', async () => {
-    source.runtimeMessenger.send.mockResolvedValue({ ok: false });
-    source.store.get.mockRejectedValue(new Error('storage unavailable'));
-
-    const { result } = renderHook(() => useRecord('test', source));
-    await flush();
-
-    expect(result.current.error).toBe('storage unavailable');
-  });
-
   it('unsubscribes on unmount', async () => {
-    source.runtimeMessenger.send.mockResolvedValue({
+    source.fetch.mockResolvedValue({
       ok: true,
       record: { key: 'test', status: 'pending' },
     });
 
     const { unmount } = renderHook(() => useRecord('test', source));
-    expect(source.store.subscribeChanges).toHaveBeenCalledOnce();
+    expect(source.subscribe).toHaveBeenCalledOnce();
     unmount();
     expect(source.unsubscribe).toHaveBeenCalledOnce();
   });
 
   it('cancels a pending refresh on unmount', async () => {
     vi.useFakeTimers();
-    source.runtimeMessenger.send.mockResolvedValue({
+    source.fetch.mockResolvedValue({
       ok: true,
       record: { key: 'test', status: 'done' },
     });
@@ -313,14 +255,14 @@ describe('useRecord', () => {
     unmount();
     await vi.advanceTimersByTimeAsync(RECORD_REFRESH_DEBOUNCE_MS);
 
-    expect(source.runtimeMessenger.send).toHaveBeenCalledOnce();
+    expect(source.fetch).toHaveBeenCalledOnce();
   });
 
   it('ignores an initial response invalidated by a newer storage revision', async () => {
     vi.useFakeTimers();
     let resolveInitial;
     let resolveRefresh;
-    source.runtimeMessenger.send
+    source.fetch
       .mockImplementationOnce(
         () =>
           new Promise((resolve) => {
@@ -351,8 +293,8 @@ describe('useRecord', () => {
 
   it('resets record and resubscribes when the key changes', async () => {
     let currentKey = 'key1';
-    source.runtimeMessenger.send.mockImplementation((msg) =>
-      Promise.resolve({ ok: true, record: { key: msg.key, val: msg.key === 'key1' ? 'a' : 'b' } }),
+    source.fetch.mockImplementation((key) =>
+      Promise.resolve({ ok: true, record: { key, val: key === 'key1' ? 'a' : 'b' } }),
     );
 
     const { result, rerender, unmount } = renderHook(() => useRecord(currentKey, source));
@@ -365,28 +307,24 @@ describe('useRecord', () => {
 
     expect(result.current.record).toEqual({ key: 'key2', val: 'b' });
     expect(source.unsubscribe).toHaveBeenCalledOnce();
-    expect(source.watchedKeys).toEqual([
-      'pagetollm:rec:key2:meta',
-      'pagetollm:rec:key2:content',
-      'pagetollm:rec:key2:summaries',
-    ]);
+    expect(source.subscribedKey).toBe('key2');
 
     unmount();
   });
 
   it('does not resubscribe when a caller rebuilds the source wrapper per render', async () => {
-    source.runtimeMessenger.send.mockResolvedValue({ ok: true, record: { key: 'test' } });
+    source.fetch.mockResolvedValue({ ok: true, record: { key: 'test' } });
 
     const { rerender, unmount } = renderHook(() =>
       // A fresh object identity each render, same capability members.
-      useRecord('test', { runtimeMessenger: source.runtimeMessenger, store: source.store }),
+      useRecord('test', { fetch: source.fetch, subscribe: source.subscribe }),
     );
     await flush();
     rerender();
     rerender();
     await flush();
 
-    expect(source.store.subscribeChanges).toHaveBeenCalledOnce();
+    expect(source.subscribe).toHaveBeenCalledOnce();
     unmount();
   });
 });

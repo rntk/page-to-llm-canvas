@@ -164,7 +164,7 @@ export function createPipelineSupervisor({
     if (!job) return false;
     // A handler that read an earlier snapshot must not abort a job subsequently
     // started by the writer that won ownership of this record. Property presence
-    // deliberately distinguishes an unguarded cancel from a legacy record whose
+    // deliberately distinguishes an unguarded cancel from a record whose
     // expected run id is explicitly `undefined`.
     if (
       Object.hasOwn(options, 'expectedPipelineRunId') &&

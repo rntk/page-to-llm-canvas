@@ -63,25 +63,22 @@ export function createSubmitRecord({
       existing = await readRecord(key);
     }
 
-    const hasVersionedCapture = captureVersion >= 2 && typeof capturedText === 'string';
-    const existingHasVersionedCapture =
-      existing?.captureVersion >= 2 && typeof existing?.capturedText === 'string';
-    const comparableIncomingText = hasVersionedCapture ? comparableCapturedText(capturedText) : '';
+    const hasCurrentCapture = captureVersion === 2 && typeof capturedText === 'string';
+    const existingHasCurrentCapture =
+      existing?.captureVersion === 2 && typeof existing?.capturedText === 'string';
+    const comparableIncomingText = hasCurrentCapture ? comparableCapturedText(capturedText) : '';
     const sameCapturedContent = existing
-      ? hasVersionedCapture
-        ? existingHasVersionedCapture
-          ? comparableCapturedText(existing.capturedText) === comparableIncomingText
-          : comparableIncomingText.length > 0 &&
-            comparableCapturedText(existing.text) === comparableIncomingText
-        : existing.html === html
+      ? hasCurrentCapture &&
+        existingHasCurrentCapture &&
+        comparableCapturedText(existing.capturedText) === comparableIncomingText
       : false;
     if (existing && existing.status === PIPELINE_STATUS.DONE && sameCapturedContent) {
       // Refresh the browser snapshot and selectors without invalidating the
-      // analysis when their canonical text is unchanged. This also upgrades a
-      // completed legacy record to capture v2 without paying for another LLM
-      // run merely because visibility pruning changed its serialized HTML.
+      // analysis when their canonical text is unchanged.
       const patch = {
-        ...(hasVersionedCapture ? { html, captureVersion, capturedText } : {}),
+        html,
+        captureVersion,
+        capturedText,
         ...(Array.isArray(selectors) ? { selectors } : {}),
       };
       if (Object.keys(patch).length > 0) {

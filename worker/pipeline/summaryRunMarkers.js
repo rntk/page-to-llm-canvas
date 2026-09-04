@@ -1,7 +1,6 @@
 /**
  * Returns whether a run carries a durable marker that identifies its outcome.
- * Topic-level markers are retained for UI/status compatibility, but retry and
- * skip decisions are made from these per-run markers.
+ * Retry and skip decisions are made from these per-run markers.
  *
  * @param {object} run
  * @returns {boolean}
@@ -20,39 +19,6 @@ export function hasSummaryRunMarker(run) {
  */
 export function isFailedSummaryRun(run) {
   return run?.error === true || run?.forcedEmpty === true;
-}
-
-/**
- * Stamps old topic-level markers onto concrete runs once. Older checkpoints
- * did not identify the failed run; empty runs are the best available evidence.
- * If a malformed checkpoint has no empty run, mark every run conservatively.
- *
- * @param {object} summary
- * @returns {object}
- */
-export function migrateLegacySummaryRunMarkers(summary) {
-  if (!summary || typeof summary !== 'object' || !Array.isArray(summary.runs)) return summary;
-  if (summary.runs.some(hasSummaryRunMarker)) return summary;
-
-  const marker = summary.acceptedFailure
-    ? 'acceptedFailure'
-    : summary.error === true || summary.error_kind || summary.error_message || summary.error_detail
-      ? 'error'
-      : summary.forcedEmpty === true
-        ? 'forcedEmpty'
-        : null;
-  if (!marker || summary.runs.length === 0) return summary;
-
-  const emptyRuns = summary.runs.filter((run) => run && typeof run === 'object' && run.text === '');
-  const targets = new Set(
-    emptyRuns.length ? emptyRuns : summary.runs.filter((run) => run && typeof run === 'object'),
-  );
-  if (targets.size === 0) return summary;
-
-  return {
-    ...summary,
-    runs: summary.runs.map((run) => (targets.has(run) ? { ...run, [marker]: true } : run)),
-  };
 }
 
 /**

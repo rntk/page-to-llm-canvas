@@ -240,40 +240,6 @@ describe('summarizeTopicTree', () => {
     ]);
   });
 
-  it('scopes an entry-level descendant failure to its recorded source sentences', async () => {
-    const topics = [
-      { name: 'Tech', sentences: [1] },
-      { name: 'Tech>AI', sentences: [5] },
-    ];
-    const { nodes } = buildTopicTree(topics);
-    const summarizeSource = vi.fn();
-
-    const index = await summarizeTopicTree({
-      nodes,
-      leafSummaries: {
-        Tech: oneRun([1], 'tech own leaf'),
-        'Tech>AI': { runs: [], source_sentences: [5], error: true },
-      },
-      previousSummaryIndex: {
-        Tech: {
-          runs: [
-            { sentences: [1], text: 'keep unaffected ancestor run' },
-            { sentences: [5], text: 'stale failed descendant' },
-          ],
-          source_sentences: [1, 5],
-        },
-      },
-      reusePriorSummaries: true,
-      summarizeSource,
-    });
-
-    expect(summarizeSource).not.toHaveBeenCalled();
-    expect(index.Tech.runs).toEqual([
-      { sentences: [1], text: 'keep unaffected ancestor run' },
-      { sentences: [5], text: '' },
-    ]);
-  });
-
   it('does not reuse a mixed-child ancestor run when one leaf failure was accepted', async () => {
     const topics = [
       { name: 'Tech>AI', sentences: [1] },

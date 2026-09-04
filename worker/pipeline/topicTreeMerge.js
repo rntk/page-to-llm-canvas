@@ -42,12 +42,7 @@
 // (LLM calls, logging) are injected, so this module performs no storage I/O and
 // is unit-testable with fakes.
 
-import {
-  hasSummaryRunMarker,
-  isFailedSummaryRun,
-  migrateLegacySummaryRunMarkers,
-  publicSummaryRun,
-} from './summaryRunMarkers.js';
+import { hasSummaryRunMarker, isFailedSummaryRun, publicSummaryRun } from './summaryRunMarkers.js';
 import {
   TOPIC_PATH_DELIMITER,
   isCanonicalDescendantPath,
@@ -220,34 +215,21 @@ export async function summarizeTopicTree({
     return run.every((s) => childSet.has(s)) ? child : null;
   };
 
-  // Failure markers are scoped to the source run whenever the checkpoint tells
-  // us which run failed.  Keep an entry-level fallback for legacy/corrupt
-  // markers that cannot be tied to a run; those remain conservative and block
-  // reuse of the whole path (and dependent ancestor runs).
+  // Failure markers are scoped to the source run that failed.
   const priorFailedRunsByPath = new Map();
-  const priorEntryFailuresByPath = new Map();
   const priorRunsByPath = new Map();
   if (reusePriorSummaries && previousSummaryIndex && typeof previousSummaryIndex === 'object') {
     for (const [path, prior] of Object.entries(previousSummaryIndex)) {
       if (!prior || !Array.isArray(prior.runs)) continue;
-      const migratedPrior = migrateLegacySummaryRunMarkers(prior);
       const byFirst = new Map();
       const failedRuns = [];
-      for (const run of migratedPrior.runs) {
+      for (const run of prior.runs) {
         if (run && Array.isArray(run.sentences) && typeof run.text === 'string') {
           byFirst.set(run.sentences[0], run);
-          if (isFailedSummaryRun(run)) {
-            if (run.sentences.length > 0) failedRuns.push(run.sentences);
-            else priorEntryFailuresByPath.set(path, migratedPrior.source_sentences || null);
-          }
+          if (isFailedSummaryRun(run) && run.sentences.length > 0) failedRuns.push(run.sentences);
         }
       }
       if (failedRuns.length > 0) priorFailedRunsByPath.set(path, failedRuns);
-      // An entry-level marker with no identifiable failed run is retained as a
-      // conservative path-level failure for legacy/imported checkpoints.
-      if (prior.error === true && failedRuns.length === 0) {
-        priorEntryFailuresByPath.set(path, migratedPrior.source_sentences || null);
-      }
       priorRunsByPath.set(path, byFirst);
     }
   }
@@ -258,10 +240,8 @@ export async function summarizeTopicTree({
   };
 
   const failedLeafRunsByPath = new Map();
-  const failedLeafEntryRunsByPath = new Map();
   for (const [path, leaf] of Object.entries(leafSummaries || {})) {
-    const migratedLeaf = migrateLegacySummaryRunMarkers(leaf);
-    const failedRuns = (Array.isArray(migratedLeaf?.runs) ? migratedLeaf.runs : [])
+    const failedRuns = (Array.isArray(leaf?.runs) ? leaf.runs : [])
       .filter(
         (run) =>
           run &&
@@ -274,26 +254,11 @@ export async function summarizeTopicTree({
       )
       .map((run) => run.sentences);
     if (failedRuns.length > 0) failedLeafRunsByPath.set(path, failedRuns);
-    if (
-      failedRuns.length === 0 &&
-      (migratedLeaf?.error === true ||
-        migratedLeaf?.forcedEmpty === true ||
-        migratedLeaf?.acceptedFailure === true)
-    ) {
-      failedLeafEntryRunsByPath.set(path, migratedLeaf.source_sentences || null);
-    }
   }
 
   const isDescendantOrSelf = (candidate, path) =>
     candidate === path || isCanonicalDescendantPath(candidate, path);
-  const entryFailureAffectsRun = (sourceSentences, run) =>
-    !Array.isArray(sourceSentences) ||
-    sourceSentences.length === 0 ||
-    overlaps(run, sourceSentences);
-
-  // Shared traversal: scan a path->value map for an entry whose path is a
-  // descendant of (or equal to) `path` and whose value the caller's predicate
-  // accepts. Run-map and entry-map lookups differ only in what "accepts" means.
+  // Scan a path->failed-runs map for a descendant failure overlapping `run`.
   const mapHasFailedDependency = (mapByPath, path, valueMatches) => {
     for (const [failedPath, value] of mapByPath) {
       if (isDescendantOrSelf(failedPath, path) && valueMatches(value)) {
@@ -306,16 +271,9 @@ export async function summarizeTopicTree({
     mapHasFailedDependency(runsByPath, path, (failedRuns) =>
       failedRuns.some((failed) => overlaps(run, failed)),
     );
-  const entryMapHasFailedDependency = (entriesByPath, path, run) =>
-    mapHasFailedDependency(entriesByPath, path, (sourceSentences) =>
-      entryFailureAffectsRun(sourceSentences, run),
-    );
-
   const hasFailedDependency = (path, run) =>
     runsMapHasFailedDependency(failedLeafRunsByPath, path, run) ||
-    entryMapHasFailedDependency(failedLeafEntryRunsByPath, path, run) ||
-    runsMapHasFailedDependency(priorFailedRunsByPath, path, run) ||
-    entryMapHasFailedDependency(priorEntryFailuresByPath, path, run);
+    runsMapHasFailedDependency(priorFailedRunsByPath, path, run);
 
   // Resolve a node's per-run summaries, reusing a child's run for any run that one
   // child wholly owns. Memoized by path so a reused child resolves once even when
@@ -339,7 +297,6 @@ export async function summarizeTopicTree({
         const prior = priorRuns?.get(run[0]);
         const priorMatches =
           reusePriorSummaries &&
-          !priorEntryFailuresByPath.has(node.path) &&
           prior &&
           Array.isArray(prior.sentences) &&
           sameSource(prior.sentences, run) &&

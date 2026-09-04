@@ -202,7 +202,7 @@ export async function runSummaries({
       : {};
   const persistSourceSummaryUnit = async (unit) => {
     source_summary_units[unit.unitId] = unit;
-    await runtime.update({ source_summary_units: { ...source_summary_units } });
+    await runtime.checkpointSourceSummaryUnit(unit);
   };
   const leafSummarizeSource = makeCachedSourceSummarizer({
     sentenceTexts,
@@ -254,8 +254,8 @@ export async function runSummaries({
 
       const { runResults, pendingRunIndexes, acceptedFailure, previousFailure } = topic;
       // A pending run is represented by its structurally valid empty slot plus
-      // the topic-level error marker. This keeps the UI/index run shape
-      // backward-compatible while making each successful slot durable.
+      // the topic-level error marker used by the UI/index, while each
+      // successful slot remains durable.
       const unresolved = new Set(pendingRunIndexes);
       let failure = null;
       let providerError = null;
@@ -281,11 +281,11 @@ export async function runSummaries({
       };
 
       const persistLeafCheckpoint = async () => {
+        // Only pending topics need a physical write. Reused entries were
+        // narrowed by planSummaryWork for this run but may retain harmless
+        // error fields in storage until that leaf is next rewritten.
         topic_summaries[topic.name] = buildLeafSummaryEntry();
-        await runtime.update({
-          topic_summaries: { ...topic_summaries },
-          progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done, total },
-        });
+        await runtime.checkpointTopicSummary(topic.name, topic_summaries[topic.name]);
       };
 
       for (const [runIndex, runResult] of runResults.entries()) {
@@ -365,7 +365,6 @@ export async function runSummaries({
         { verbose: true },
       );
       await runtime.update({
-        topic_summaries: { ...topic_summaries },
         progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done, total },
       });
       return { error: providerError };
@@ -386,6 +385,7 @@ export async function runSummaries({
           error_detail: detail,
           ...(topic.acceptedFailure ? { acceptedFailure: true } : {}),
         };
+        await runtime.checkpointTopicSummary(topic.name, topic_summaries[topic.name]);
       }
       await runtime.log('topic_summaries_skipped', {
         skippedTopicCount: skipped.length,
@@ -393,7 +393,6 @@ export async function runSummaries({
         error: message,
         detail,
       });
-      await runtime.update({ topic_summaries: { ...topic_summaries } });
     }
   }
 

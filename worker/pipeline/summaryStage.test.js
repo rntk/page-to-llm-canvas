@@ -9,12 +9,23 @@ import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contra
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
 
 function makeRuntime() {
-  return {
+  const topicSummaries = {};
+  const sourceSummaryUnits = {};
+  const runtime = {
     signal: undefined,
     preferContentLanguage: false,
     update: vi.fn(async () => undefined),
     log: vi.fn(async () => undefined),
   };
+  runtime.checkpointTopicSummary = vi.fn(async (topicPath, summary) => {
+    topicSummaries[topicPath] = summary;
+    return runtime.update({ topic_summaries: { ...topicSummaries } });
+  });
+  runtime.checkpointSourceSummaryUnit = vi.fn(async (unit) => {
+    sourceSummaryUnits[unit.unitId] = unit;
+    return runtime.update({ source_summary_units: { ...sourceSummaryUnits } });
+  });
+  return runtime;
 }
 
 function lastUpdate(runtime, predicate = () => true) {
@@ -109,6 +120,30 @@ describe('finalizeSummariesDisabled', () => {
 
 describe('runSummaries', () => {
   const topic = { name: 'A', sentences: [1] };
+
+  it('checkpoints each leaf independently and only writes the full map at finalization', async () => {
+    const runtime = makeRuntime();
+    runtime.checkpointTopicSummary = vi.fn(async () => undefined);
+    runtime.checkpointSourceSummaryUnit = vi.fn(async () => undefined);
+
+    await runSummaries({
+      runtime,
+      topics: [
+        { name: 'A', sentences: [1] },
+        { name: 'B', sentences: [2] },
+        { name: 'C', sentences: [3] },
+      ],
+      sentenceTexts: ['short A', 'short B', 'short C'],
+      previousSummaries: {},
+      callLLMWithRetry: vi.fn(),
+    });
+
+    expect(runtime.checkpointTopicSummary).toHaveBeenCalledTimes(3);
+    expect(runtime.update.mock.calls.filter(([patch]) => patch.topic_summaries)).toHaveLength(1);
+    expect(runtime.update.mock.calls.filter(([patch]) => patch.source_summary_units)).toHaveLength(
+      1,
+    );
+  });
 
   it('inlines short source runs without calling the LLM', async () => {
     const runtime = makeRuntime();
@@ -836,9 +871,8 @@ describe('runSummaries', () => {
         'A>x': { runs: [{ sentences: [1, 2], text: 'X' }], source_sentences: [1, 2] },
         'A>y': { runs: [{ sentences: [3, 4], text: 'Y' }], source_sentences: [3, 4] },
         'A>z': {
-          runs: [{ sentences: [10, 11], text: '' }],
+          runs: [{ sentences: [10, 11], text: '', acceptedFailure: true }],
           source_sentences: [10, 11],
-          acceptedFailure: true,
         },
       },
       forceFinalize: true,
@@ -877,9 +911,8 @@ describe('runSummaries', () => {
           source_sentences: [1],
         },
         'A>failed': {
-          runs: [{ sentences: [2], text: '' }],
+          runs: [{ sentences: [2], text: '', acceptedFailure: true }],
           source_sentences: [2],
-          acceptedFailure: true,
         },
       },
       forceFinalize: true,
@@ -933,9 +966,8 @@ describe('runSummaries', () => {
         'A>x': { runs: [{ sentences: [1, 2], text: 'LEAF' }], source_sentences: [1, 2] },
         'A>y': { runs: [{ sentences: [3, 4], text: 'LEAF' }], source_sentences: [3, 4] },
         'A>z': {
-          runs: [{ sentences: [10, 11], text: '' }],
+          runs: [{ sentences: [10, 11], text: '', acceptedFailure: true }],
           source_sentences: [10, 11],
-          acceptedFailure: true,
         },
       },
       forceFinalize: true,
@@ -1153,9 +1185,8 @@ describe('runSummaries', () => {
       sentenceTexts,
       previousSummaries: {
         'Accepted>Failed': {
-          runs: [{ sentences: [1], text: '' }],
+          runs: [{ sentences: [1], text: '', acceptedFailure: true }],
           source_sentences: [1],
-          acceptedFailure: true,
         },
         'Accepted>Good': { runs: [{ sentences: [2], text: 'Good' }], source_sentences: [2] },
         'Retried>One': { runs: [{ sentences: [3], text: 'One' }], source_sentences: [3] },
@@ -1218,9 +1249,8 @@ describe('runSummaries', () => {
       sentenceTexts: ['word '.repeat(70).trim(), 'A short second sentence.'],
       previousSummaries: {
         A: {
-          runs: [{ sentences: [1], text: '' }],
+          runs: [{ sentences: [1], text: '', acceptedFailure: true }],
           source_sentences: [1],
-          acceptedFailure: true,
         },
       },
       forceFinalize: true,

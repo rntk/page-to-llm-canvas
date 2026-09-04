@@ -1,7 +1,10 @@
 import {
   appendProcessingLog,
   flushProcessingLog,
+  putSourceSummaryUnit,
+  putTopicSummaryCheckpoint,
   readRecord,
+  SOURCE_SUMMARY_UNIT_REVISION_MISMATCH,
   updateRecord,
 } from '../storage/storage.js';
 import { markCancellation } from './cancellation.js';
@@ -35,6 +38,8 @@ const logger = createLogger('pipeline');
  * @property {function(): void} assertActive
  * @property {function(): Promise<object|null>} read
  * @property {function(object, object=): Promise<object>} update
+ * @property {function(string, object): Promise<object>} checkpointTopicSummary
+ * @property {function(object): Promise<object>} checkpointSourceSummaryUnit
  * @property {function(boolean): void} setSummariesDisabled
  * @property {function(string, object, object=): Promise<void>} log
  * @property {function(): Promise<void>} flushLogs
@@ -101,6 +106,31 @@ export function createPipelineRuntime({
       return updated;
     },
 
+    async checkpointTopicSummary(topicPath, summary) {
+      runtime.assertActive();
+      const persisted = await putTopicSummaryCheckpoint(runtime.key, topicPath, summary, {
+        expectedPipelineRunId: runtime.pipelineRunId,
+      });
+      if (!persisted) throwLostRun();
+      return persisted;
+    },
+
+    async checkpointSourceSummaryUnit(unit) {
+      runtime.assertActive();
+      const persisted = await putSourceSummaryUnit(runtime.key, unit, {
+        expectedPipelineRunId: runtime.pipelineRunId,
+      });
+      if (persisted === SOURCE_SUMMARY_UNIT_REVISION_MISMATCH) {
+        // The provider result is still valid for this run; only the optional
+        // cache entry lost a narrow revision race. Do not abandon the rest of
+        // the summary pipeline over a failed cache write.
+        logger.warn('source summary cache checkpoint skipped after a content revision race');
+        return unit;
+      }
+      if (!persisted) throwLostRun();
+      return persisted;
+    },
+
     setSummariesDisabled(disabled) {
       runtime.summariesDisabled = disabled === true;
     },
@@ -139,6 +169,12 @@ export function createPipelineRuntime({
   };
 
   return runtime;
+}
+
+function throwLostRun() {
+  const err = new Error('Pipeline run is no longer current');
+  err.name = 'AbortError';
+  throw markCancellation(err);
 }
 
 /**

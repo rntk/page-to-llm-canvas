@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { MSG } from '../../shared/runtime/messages.js';
 
 // Pipeline metadata (especially the buffered processing log) can change several
 // times per second. Canvas and Hierarchy only need the settled record, so wait
@@ -8,18 +7,20 @@ export const RECORD_REFRESH_DEBOUNCE_MS = 300;
 
 /**
  * Subscribes to the record identified by `key`. The record is physically
- * split across `pagetollm:rec:${key}:meta` / `:content` / `:summaries` docs
+ * split across independently updated record documents
  * (see worker/storage/storage.js), so a single storage key's `onChanged` payload is
  * not the full record. Initial fetch and every live update go through the
- * service worker's `getRecord` message, which reassembles the full record
+ * service worker's view-record message, which reassembles the UI projection
  * from the split docs; the storage listener here is only a refetch trigger,
  * not a source of record data itself.
  *
  * @param {string} key - The unique storage key for the record.
- * @param {{runtimeMessenger: {send: Function}, store: {get: Function, subscribeChanges: Function}}} source
+ * @param {{fetch: Function, subscribe: Function}} source
  * @returns {{ record: object | null, error: string | null, isDeleted: boolean }}
  */
 export function useRecord(key, source) {
+  const fetchRecord = source?.fetch;
+  const subscribeToRecord = source?.subscribe;
   const [record, setRecord] = useState(null);
   const [error, setError] = useState(() => (key ? null : 'missing record key'));
   const [isDeleted, setIsDeleted] = useState(false);
@@ -34,27 +35,23 @@ export function useRecord(key, source) {
 
   useEffect(() => {
     if (!key) return undefined;
+    // A missing capability is a wiring bug rather than a runtime condition, but
+    // it must not throw out of the effect and tear the whole modal down: report
+    // it the way any other unusable record is reported.
+    if (typeof fetchRecord !== 'function' || typeof subscribeToRecord !== 'function') {
+      setError('record source unavailable');
+      return undefined;
+    }
 
     let cancelled = false;
     let refreshTimer = null;
     // Invalidated as soon as storage changes, so an older request cannot land
     // after a newer document revision and overwrite the current record.
     let recordRevision = 0;
-    const metaKey = `pagetollm:rec:${key}:meta`;
-    const contentKey = `pagetollm:rec:${key}:content`;
-    const summariesKey = `pagetollm:rec:${key}:summaries`;
-    const docKeys = [metaKey, contentKey, summariesKey];
-
     const fetchViaServiceWorker = async () => {
-      const resp = await source.runtimeMessenger.send({ type: MSG.getRecord, key });
-      // A repository miss carries `error: 'record not found'` (uniform
-      // `{ok:false, error}` contract) but is not a service failure: return
-      // null so the initial load falls back to a direct store read and live
-      // refetches report deletion. The bare `{ok:false}` shape is still
-      // accepted for backward compatibility.
-      if (resp?.ok === false && resp?.error === 'record not found') {
+      const resp = await fetchRecord(key);
+      if (resp?.ok === false && (resp.code === 'not_found' || resp.error === 'record not found'))
         return null;
-      }
       if (resp?.ok === false && typeof resp.error === 'string') {
         throw new Error(resp.error);
       }
@@ -64,8 +61,8 @@ export function useRecord(key, source) {
       return resp?.ok === true && resp.record ? resp.record : null;
     };
 
-    // 1) initial load via SW, falling back to a direct (one-off) multi-doc
-    // read in case the SW hasn't registered a message listener yet.
+    // Initial and live reads are worker-owned. Runtime messaging wakes a cold
+    // MV3 worker, whose listener waits for storage bootstrap before dispatch.
     const initialRevision = recordRevision;
     fetchViaServiceWorker()
       .then((rec) => {
@@ -76,25 +73,8 @@ export function useRecord(key, source) {
           setIsDeleted(false);
           return;
         }
-        return source.store.get(docKeys).then((items) => {
-          if (cancelled || initialRevision !== recordRevision) return;
-          const merged = {
-            ...(items[contentKey] || {}),
-            ...(items[summariesKey] || {}),
-            ...(items[metaKey] || {}),
-          };
-          if (items[contentKey] || items[summariesKey] || items[metaKey]) {
-            setRecord(merged);
-            setError(null);
-            setIsDeleted(false);
-          } else {
-            setError('record not found');
-            // The service worker lookup and the authoritative direct-storage
-            // fallback both missed. Treat a modal opened or reloaded with this
-            // key as stale and let its host remove the orphaned iframe.
-            setIsDeleted(true);
-          }
-        });
+        setError('record not found');
+        setIsDeleted(true);
       })
       .catch((e) => {
         if (!cancelled && initialRevision === recordRevision) {
@@ -132,7 +112,7 @@ export function useRecord(key, source) {
       if (refreshTimer !== null) clearTimeout(refreshTimer);
       refreshTimer = setTimeout(refreshRecord, RECORD_REFRESH_DEBOUNCE_MS);
     };
-    const unsubscribe = source.store.subscribeChanges(docKeys, onChanged);
+    const unsubscribe = subscribeToRecord(key, onChanged);
 
     return () => {
       cancelled = true;
@@ -144,7 +124,7 @@ export function useRecord(key, source) {
     // otherwise resubscribe and refetch on every render. The optional chaining
     // keeps the missing-key path (which returns above, before touching
     // `source`) working without one, as it did before the capability existed.
-  }, [key, source?.runtimeMessenger, source?.store]);
+  }, [key, fetchRecord, subscribeToRecord]);
 
   return { record, error, isDeleted };
 }

@@ -37,9 +37,10 @@ export function createChromeStorageFake(opts = {}) {
 
   const local = {
     _store: store,
-    getKeys: vi.fn((callback) => {
+    // Promise-only, matching Chrome 130+: a callback passed here is ignored.
+    getKeys: vi.fn(() => {
       runtime.lastError = null;
-      callback([...store.keys()]);
+      return Promise.resolve([...store.keys()]);
     }),
     get: vi.fn((keys, callback) => {
       if (state.lastErrorOnGet) {

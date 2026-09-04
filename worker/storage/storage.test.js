@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   readRecord,
+  readRecordView,
   writeRecord,
   updateRecord,
   appendProcessingLog,
@@ -12,11 +13,15 @@ import {
   findRecordByUrl,
   buildRecordSnippet,
   reconcileRecordStorage,
+  putSourceSummaryUnit,
+  putTopicSummaryCheckpoint,
+  SOURCE_SUMMARY_UNIT_REVISION_MISMATCH,
   INDEX_KEY,
   INDEX_REPAIR_THROTTLE_MS,
   _resetUpdateQueues,
 } from './storage.js';
 import { queuedUpdate, MUTATION_QUEUE_KEY } from './primitives.js';
+import { makeCachedSourceSummarizer } from '../pipeline/sourceSummaryCache.js';
 import {
   createChromeStorageFake as makeChromeMock,
   createStorageRecord as makeRecord,
@@ -268,7 +273,7 @@ describe('updateRecord basic correctness', () => {
     expect(result.topic_summaries).toEqual({
       Topic: { runs: [{ sentences: [1], text: 'Summary.' }] },
     });
-    expect(result).toEqual(await readRecord('r1'));
+    expect((await readRecord('r1')).topic_summaries).toEqual(result.topic_summaries);
   });
 
   it('leaves untouched payload docs out of the return without dropping them from storage', async () => {
@@ -287,21 +292,27 @@ describe('updateRecord basic correctness', () => {
 });
 
 // ---------------------------------------------------------------------------
-// meta/content/summaries split — hot-path doc isolation
+// normalized record documents — hot-path isolation
 // ---------------------------------------------------------------------------
 
-describe('record storage split (meta/content/summaries)', () => {
-  it('writeRecord splits a record across meta/content/summaries docs', async () => {
+describe('normalized record storage', () => {
+  it('writeRecord separates final output and individual work entries', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
     await writeRecord(
       makeRecord('r1', {
+        contentRevision: 'rev-1',
         html: '<p>hi</p>',
         capturedText: 'hi',
         captureVersion: 2,
         text: 'hi',
         source_summary_units: {
-          unit1: { unitId: 'unit1', status: 'done', result: 'cached merge' },
+          unit1: {
+            unitId: 'unit1',
+            contentRevision: 'rev-1',
+            status: 'done',
+            result: 'cached merge',
+          },
         },
       }),
     );
@@ -309,13 +320,16 @@ describe('record storage split (meta/content/summaries)', () => {
     const store = mock.storage.local._store;
     expect(store.has('pagetollm:rec:r1:meta')).toBe(true);
     expect(store.has('pagetollm:rec:r1:content')).toBe(true);
-    expect(store.has('pagetollm:rec:r1:summaries')).toBe(true);
+    expect(store.has('pagetollm:rec:r1:summary-output')).toBe(true);
+    expect(store.has('pagetollm:rec:r1:diagnostics')).toBe(false);
+    expect(store.has('pagetollm:rec:r1:topic-range-work')).toBe(false);
     expect(store.get('pagetollm:rec:r1:content').html).toBe('<p>hi</p>');
     expect(store.get('pagetollm:rec:r1:content').capturedText).toBe('hi');
     expect(store.get('pagetollm:rec:r1:meta').capturedText).toBeUndefined();
     expect(store.get('pagetollm:rec:r1:meta').captureVersion).toBe(2);
-    expect(store.get('pagetollm:rec:r1:summaries').source_summary_units).toEqual({
-      unit1: { unitId: 'unit1', status: 'done', result: 'cached merge' },
+    expect(store.get('pagetollm:rec:r1:summary-unit:unit1')).toMatchObject({
+      unitId: 'unit1',
+      result: 'cached merge',
     });
 
     // readRecord reassembles the full logical record transparently.
@@ -324,15 +338,21 @@ describe('record storage split (meta/content/summaries)', () => {
     expect(rec.html).toBe('<p>hi</p>');
     expect(rec.capturedText).toBe('hi');
     expect(rec.source_summary_units).toEqual({
-      unit1: { unitId: 'unit1', status: 'done', result: 'cached merge' },
+      unit1: {
+        unitId: 'unit1',
+        contentRevision: 'rev-1',
+        status: 'done',
+        result: 'cached merge',
+      },
     });
   });
 
-  it('summary-doc updates can add source_summary_units without clobbering other summaries', async () => {
+  it('source-unit updates do not clobber leaf checkpoints or final output', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
     await writeRecord(
       makeRecord('r1', {
+        contentRevision: 'rev-1',
         topic_summaries: {
           Topic: { runs: [{ sentences: [1], text: 'existing summary' }], source_sentences: [1] },
         },
@@ -344,7 +364,12 @@ describe('record storage split (meta/content/summaries)', () => {
 
     await updateRecord('r1', {
       source_summary_units: {
-        unit1: { unitId: 'unit1', status: 'done', result: 'cached merge' },
+        unit1: {
+          unitId: 'unit1',
+          contentRevision: 'rev-1',
+          status: 'done',
+          result: 'cached merge',
+        },
       },
     });
 
@@ -356,8 +381,82 @@ describe('record storage split (meta/content/summaries)', () => {
       Topic: { level: 0, runs: [{ sentences: [1], text: 'existing summary' }] },
     });
     expect(stored.source_summary_units).toEqual({
-      unit1: { unitId: 'unit1', status: 'done', result: 'cached merge' },
+      unit1: {
+        unitId: 'unit1',
+        contentRevision: 'rev-1',
+        status: 'done',
+        result: 'cached merge',
+      },
     });
+  });
+
+  it('does not resurrect removed topic leaves when physical cleanup is interrupted', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(
+      makeRecord('r1', {
+        contentRevision: 'rev-1',
+        topic_summaries: {
+          Keep: { runs: [{ text: 'new' }] },
+          Remove: { runs: [{ text: 'stale' }] },
+        },
+        source_summary_units: {
+          keep: { unitId: 'keep', contentRevision: 'rev-1', result: 'new' },
+          remove: { unitId: 'remove', contentRevision: 'rev-1', result: 'stale' },
+        },
+      }),
+    );
+
+    mock._state.lastErrorOnRemove = true;
+    await expect(
+      updateRecord('r1', {
+        topic_summaries: { Keep: { runs: [{ text: 'new' }] } },
+        source_summary_units: {
+          keep: { unitId: 'keep', contentRevision: 'rev-1', result: 'new' },
+        },
+      }),
+    ).rejects.toThrow('remove failed');
+
+    expect(mock.storage.local._store.has('pagetollm:rec:r1:summary-leaf:Remove')).toBe(true);
+    expect(mock.storage.local._store.has('pagetollm:rec:r1:summary-unit:remove')).toBe(true);
+    const stored = await readRecord('r1');
+    expect(stored.topic_summaries).toEqual({
+      Keep: { runs: [{ text: 'new' }] },
+    });
+    expect(stored.source_summary_units).toEqual({
+      keep: { unitId: 'keep', contentRevision: 'rev-1', result: 'new' },
+    });
+  });
+
+  it('does not resurrect old leaves when writeRecord cleanup is interrupted', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(
+      makeRecord('r1', { topic_summaries: { Old: { runs: [{ text: 'stale' }] } } }),
+    );
+
+    mock._state.lastErrorOnRemove = true;
+    await expect(writeRecord(makeRecord('r1', { topic_summaries: {} }))).rejects.toThrow(
+      'remove failed',
+    );
+
+    expect(mock.storage.local._store.has('pagetollm:rec:r1:summary-leaf:Old')).toBe(true);
+    expect((await readRecord('r1')).topic_summaries).toEqual({});
+  });
+
+  it('removes orphaned work documents when recreating a missing record', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    mock.storage.local._store.set('pagetollm:rec:r1:summary-leaf:Orphan', {
+      topicPath: 'Orphan',
+      contentRevision: 'old-content',
+      collectionRevision: 'old-collection',
+      summary: { runs: [{ text: 'orphan' }] },
+    });
+
+    await writeRecord(makeRecord('r1'));
+
+    expect(mock.storage.local._store.has('pagetollm:rec:r1:summary-leaf:Orphan')).toBe(false);
   });
 
   it('a status/progress-only update on an already-written record never touches the content or summaries docs', async () => {
@@ -374,12 +473,12 @@ describe('record storage split (meta/content/summaries)', () => {
 
     const touchedKeys = mock.storage.local.set.mock.calls.flatMap(([items]) => Object.keys(items));
     expect(touchedKeys).not.toContain('pagetollm:rec:r1:content');
-    expect(touchedKeys).not.toContain('pagetollm:rec:r1:summaries');
+    expect(touchedKeys).not.toContain('pagetollm:rec:r1:summary-output');
     const readKeys = mock.storage.local.get.mock.calls.flatMap(([keys]) =>
       Array.isArray(keys) ? keys : [keys],
     );
     expect(readKeys).not.toContain('pagetollm:rec:r1:content');
-    expect(readKeys).not.toContain('pagetollm:rec:r1:summaries');
+    expect(readKeys).not.toContain('pagetollm:rec:r1:summary-output');
   });
 
   it('a processingLog flush on an already-written record never touches the content or summaries docs', async () => {
@@ -394,7 +493,121 @@ describe('record storage split (meta/content/summaries)', () => {
 
     const touchedKeys = mock.storage.local.set.mock.calls.flatMap(([items]) => Object.keys(items));
     expect(touchedKeys).not.toContain('pagetollm:rec:r1:content');
-    expect(touchedKeys).not.toContain('pagetollm:rec:r1:summaries');
+    expect(touchedKeys).not.toContain('pagetollm:rec:r1:summary-output');
+    expect(touchedKeys).not.toContain('pagetollm:rec:r1:meta');
+  });
+
+  it('updates topic-range work without rewriting immutable content', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(makeRecord('r1', { html: '<p>large</p>', text: 'large' }));
+    mock.storage.local.set.mockClear();
+
+    await updateRecord('r1', {
+      topic_range_chunks: { contentRevision: 'rev-1', sentenceCount: 1, chunks: [null] },
+    });
+
+    const touchedKeys = mock.storage.local.set.mock.calls.flatMap(([items]) => Object.keys(items));
+    expect(touchedKeys).toContain('pagetollm:rec:r1:topic-range-work');
+    expect(touchedKeys).not.toContain('pagetollm:rec:r1:content');
+  });
+
+  it('collects old summary work when content revision changes', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(
+      makeRecord('r1', {
+        contentRevision: 'old-content',
+        topic_summaries: { Old: { runs: [{ sentences: [1], text: 'old' }] } },
+        source_summary_units: {
+          unit: { unitId: 'unit', contentRevision: 'old-content', result: 'old' },
+        },
+      }),
+    );
+
+    await updateRecord('r1', { html: '<p>new</p>' }, { bumpContentRevision: true });
+
+    const keys = [...mock.storage.local._store.keys()];
+    expect(keys.some((key) => key.includes(':summary-leaf:'))).toBe(false);
+    expect(keys.some((key) => key.includes(':summary-unit:'))).toBe(false);
+  });
+
+  it('persists leaf and source-unit checkpoints as constant-sized writes', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(makeRecord('r1', { contentRevision: 'rev-1', pipelineRunId: 'run-1' }));
+    mock.storage.local.set.mockClear();
+
+    await putTopicSummaryCheckpoint(
+      'r1',
+      'A>B',
+      { runs: [{ sentences: [1], text: 'leaf' }] },
+      { expectedPipelineRunId: 'run-1' },
+    );
+    await putSourceSummaryUnit(
+      'r1',
+      { unitId: 'unit-1', contentRevision: 'rev-1', status: 'done', result: 'chunk' },
+      { expectedPipelineRunId: 'run-1' },
+    );
+
+    const writes = mock.storage.local.set.mock.calls.map(([items]) => Object.keys(items));
+    expect(writes).toEqual([
+      ['pagetollm:rec:r1:summary-leaf:A%3EB'],
+      ['pagetollm:rec:r1:summary-unit:unit-1'],
+    ]);
+    expect((await readRecord('r1')).topic_summaries['A>B'].runs[0].text).toBe('leaf');
+    expect((await readRecord('r1')).source_summary_units['unit-1'].result).toBe('chunk');
+  });
+
+  it('distinguishes a source-unit revision race from a stale pipeline run', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(makeRecord('r1', { contentRevision: 'rev-current', pipelineRunId: 'run-1' }));
+
+    await expect(
+      putSourceSummaryUnit(
+        'r1',
+        { unitId: 'unit-1', contentRevision: 'rev-stale', status: 'done', result: 'paid' },
+        { expectedPipelineRunId: 'run-1' },
+      ),
+    ).resolves.toBe(SOURCE_SUMMARY_UNIT_REVISION_MISMATCH);
+    expect(mock.storage.local._store.has('pagetollm:rec:r1:summary-unit:unit-1')).toBe(false);
+  });
+
+  it('persists and reuses a real source-cache unit through record storage', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(makeRecord('r1', { contentRevision: 'rev-1', pipelineRunId: 'run-1' }));
+    const source = 'word '.repeat(60).trim();
+    const provider = vi.fn(async () => 'paid summary');
+    const summarize = makeCachedSourceSummarizer({
+      sentenceTexts: [source],
+      limit: (work) => work(),
+      callLLMWithRetry: provider,
+      contentRevision: 'rev-1',
+      inputFingerprint: 'settings-a',
+      persistUnit: (unit) => putSourceSummaryUnit('r1', unit, { expectedPipelineRunId: 'run-1' }),
+    });
+
+    await expect(summarize([1], { path: 'Topic' })).resolves.toEqual({
+      runs: [{ sentences: [1], text: 'paid summary' }],
+    });
+    const stored = await readRecord('r1');
+    const reusedProvider = vi.fn();
+    const resumed = makeCachedSourceSummarizer({
+      sentenceTexts: [source],
+      limit: (work) => work(),
+      callLLMWithRetry: reusedProvider,
+      contentRevision: 'rev-1',
+      inputFingerprint: 'settings-a',
+      priorUnits: stored.source_summary_units,
+    });
+
+    await expect(resumed([1], { path: 'Topic' })).resolves.toEqual({
+      runs: [{ sentences: [1], text: 'paid summary' }],
+    });
+    expect(provider).toHaveBeenCalledOnce();
+    expect(reusedProvider).not.toHaveBeenCalled();
   });
 });
 
@@ -439,13 +652,22 @@ describe('concurrent updateRecord writes do not lose data', () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
 
-    const rec = makeRecord('r1', { topic_summaries: {}, source_summary_units: {} });
+    const rec = makeRecord('r1', {
+      contentRevision: 'rev-1',
+      topic_summaries: {},
+      source_summary_units: {},
+    });
     await seedRecord(mock, rec);
 
     await Promise.all([
       updateRecord('r1', {
         source_summary_units: {
-          unit1: { unitId: 'unit1', status: 'done', result: 'cached merge' },
+          unit1: {
+            unitId: 'unit1',
+            contentRevision: 'rev-1',
+            status: 'done',
+            result: 'cached merge',
+          },
         },
       }),
       updateRecord('r1', {
@@ -457,7 +679,12 @@ describe('concurrent updateRecord writes do not lose data', () => {
 
     const stored = await readRecord('r1');
     expect(stored.source_summary_units).toEqual({
-      unit1: { unitId: 'unit1', status: 'done', result: 'cached merge' },
+      unit1: {
+        unitId: 'unit1',
+        contentRevision: 'rev-1',
+        status: 'done',
+        result: 'cached merge',
+      },
     });
     expect(stored.topic_summaries).toEqual({
       Topic: { runs: [{ sentences: [1], text: 'fresh summary' }], source_sentences: [1] },
@@ -786,8 +1013,14 @@ describe('deleteRecord', () => {
 
     const rec = makeRecord('r1');
     await seedRecord(mock, rec);
+    mock.storage.local.get.mockClear();
 
     await deleteRecord('r1');
+
+    const loadedKeyLists = mock.storage.local.get.mock.calls
+      .map(([keys]) => keys)
+      .filter(Array.isArray);
+    expect(loadedKeyLists.flat()).not.toContain('pagetollm:rec:r1:content');
 
     const stored = await readRecord('r1');
     expect(stored).toBeNull();
@@ -805,6 +1038,39 @@ describe('deleteRecord', () => {
 
     const items = await listRecords();
     expect(items.map((i) => i.key)).toEqual(['r1']);
+  });
+
+  it('does not delete records whose imported keys extend the deleted key', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(
+      makeRecord('a', {
+        topic_summaries: { Root: { runs: [{ text: 'short key' }] } },
+      }),
+    );
+    await writeRecord(
+      makeRecord('a:b', {
+        topic_summaries: { Root: { runs: [{ text: 'colon key' }] } },
+      }),
+    );
+    await writeRecord(
+      makeRecord('a:summary-leaf:x', {
+        topic_summaries: { Root: { runs: [{ text: 'marker key' }] } },
+      }),
+    );
+
+    await deleteRecord('a');
+
+    expect(await readRecord('a')).toBeNull();
+    expect(await readRecord('a:b')).toMatchObject({
+      key: 'a:b',
+      topic_summaries: { Root: { runs: [{ text: 'colon key' }] } },
+    });
+    expect(await readRecord('a:summary-leaf:x')).toMatchObject({
+      key: 'a:summary-leaf:x',
+      topic_summaries: { Root: { runs: [{ text: 'marker key' }] } },
+    });
+    expect((await listRecords()).map((record) => record.key)).toEqual(['a:summary-leaf:x', 'a:b']);
   });
 });
 
@@ -856,8 +1122,174 @@ describe('deleteAll', () => {
   });
 });
 
+describe('storage schema boundary', () => {
+  it('removes records outside the current schema without migrating them', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    mock.storage.local._store.set('pagetollm:rec:old:meta', {
+      key: 'old',
+      status: 'done',
+    });
+    mock.storage.local._store.set('pagetollm:rec:old:content', {
+      html: '<p>old</p>',
+    });
+    mock.storage.local._store.set('pagetollm:rec:old:summaries', {
+      topic_summaries: { Old: { text: 'old' } },
+    });
+    mock.storage.local._store.set(INDEX_KEY, { keys: ['old'], meta: { old: {} } });
+
+    expect(await readRecord('old')).toBeNull();
+    await expect(reconcileRecordStorage()).resolves.toMatchObject({
+      recordCount: 0,
+      recoveredCount: 0,
+      removedKeys: 3,
+    });
+    expect([...mock.storage.local._store.keys()]).not.toEqual(
+      expect.arrayContaining([
+        'pagetollm:rec:old:meta',
+        'pagetollm:rec:old:content',
+        'pagetollm:rec:old:summaries',
+      ]),
+    );
+  });
+});
+
+describe('record view reads', () => {
+  it('loads metadata and static payload documents in one storage snapshot', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(makeRecord('snapshot'));
+    _resetUpdateQueues();
+    mock.storage.local.get.mockClear();
+
+    await readRecord('snapshot');
+
+    const [staticKeys] = mock.storage.local.get.mock.calls[0];
+    expect(staticKeys).toEqual(
+      expect.arrayContaining([
+        'pagetollm:rec:snapshot:meta',
+        'pagetollm:rec:snapshot:content',
+        'pagetollm:rec:snapshot:summary-output',
+        'pagetollm:rec:snapshot:topic-range-work',
+        'pagetollm:rec:snapshot:diagnostics',
+      ]),
+    );
+  });
+
+  it('reads the UI projection without scanning variable checkpoint keys', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(
+      makeRecord('view', {
+        topic_summaries: { HiddenWork: { runs: [{ text: 'checkpoint' }] } },
+      }),
+    );
+    _resetUpdateQueues();
+    mock.storage.local.getKeys.mockClear();
+
+    const result = await readRecordView('view');
+
+    expect(result.html).toBe('<p>hello</p>');
+    expect(result.topic_summaries).toBeUndefined();
+    expect(result.topic_range_chunks).toBeUndefined();
+    expect(mock.storage.local.getKeys).not.toHaveBeenCalled();
+  });
+
+  it('retries a full read when a summary replacement lands between its two reads', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(
+      makeRecord('raced', { topic_summaries: { Old: { runs: [{ text: 'old' }] } } }),
+    );
+    _resetUpdateQueues();
+
+    const scanKeys = mock.storage.local.getKeys.getMockImplementation();
+    let replaced = false;
+    mock.storage.local.getKeys.mockImplementation(async (...args) => {
+      if (!replaced) {
+        replaced = true;
+        await writeRecord(
+          makeRecord('raced', { topic_summaries: { New: { runs: [{ text: 'new' }] } } }),
+          { bumpContentRevision: true },
+        );
+      }
+      return scanKeys(...args);
+    });
+
+    const record = await readRecord('raced');
+
+    expect(Object.keys(record.topic_summaries)).toEqual(['New']);
+  });
+
+  it('fails a full read when summary generations never stabilize', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(makeRecord('unstable'));
+    const metaKey = 'pagetollm:rec:unstable:meta';
+    const read = mock.storage.local.get.getMockImplementation();
+    let revision = 0;
+    mock.storage.local.get.mockImplementation((keys, callback) => {
+      if (Array.isArray(keys) && keys.length === 1 && keys[0] === metaKey) {
+        mock.storage.local._store.set(metaKey, {
+          ...mock.storage.local._store.get(metaKey),
+          topicSummariesRevision: `moving-${revision++}`,
+        });
+      }
+      return read(keys, callback);
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(readRecord('unstable')).rejects.toThrow('summary generations kept changing');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('summary generations kept changing'));
+  });
+
+  it('re-scans work keys on each full read instead of retaining a realm-wide mirror', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(makeRecord('cached'));
+    _resetUpdateQueues();
+    mock.storage.local.getKeys.mockClear();
+
+    await readRecord('cached');
+    await readRecord('cached');
+
+    expect(mock.storage.local.getKeys).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('reconcileRecordStorage', () => {
-  it('recovers unindexed meta records and removes ownerless payload documents', async () => {
+  it('keeps current leaf checkpoints during the startup scan', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(
+      mock,
+      makeRecord('lean-scan', {
+        topic_summaries: { Topic: { runs: [{ sentences: [1], text: 'checkpoint' }] } },
+      }),
+    );
+    await reconcileRecordStorage();
+
+    expect(mock.storage.local._store.has('pagetollm:rec:lean-scan:summary-leaf:Topic')).toBe(true);
+  });
+
+  it('removes work documents from superseded generations', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('stale-work'));
+    mock.storage.local._store.set('pagetollm:rec:stale-work:summary-leaf:Old', {
+      topicPath: 'Old',
+      contentRevision: 'superseded',
+      collectionRevision: 'superseded',
+      summary: { runs: [{ text: 'old' }] },
+    });
+
+    const result = await reconcileRecordStorage();
+
+    expect(result.removedKeys).toBe(1);
+    expect(mock.storage.local._store.has('pagetollm:rec:stale-work:summary-leaf:Old')).toBe(false);
+  });
+
+  it('recovers unindexed records and removes owned corruption and unknown documents', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
     const record = makeRecord('recovered', { status: 'done', text: 'Recovered page text' });
@@ -871,10 +1303,12 @@ describe('reconcileRecordStorage', () => {
       topic_summaries: { Hidden: { text: 'orphan' } },
     });
     mock.storage.local._store.set('pagetollm:rec:corrupt:meta', 'not a record');
+    mock.storage.local._store.set('pagetollm:rec:corrupt:content', { html: '<p>private</p>' });
+    mock.storage.local._store.set('pagetollm:rec:recovered:extension-field', { keep: true });
 
     const result = await reconcileRecordStorage();
 
-    expect(result).toMatchObject({ recordCount: 1, recoveredCount: 1, removedKeys: 3 });
+    expect(result).toMatchObject({ recordCount: 1, recoveredCount: 1, removedKeys: 5 });
     expect((await listRecords()).map((item) => item.key)).toEqual(['recovered']);
     expect((await listRecords())[0].snippet).toBe('Recovered page text');
     expect((await listRecords())[0].summariesDisabled).toBe(false);
@@ -882,6 +1316,8 @@ describe('reconcileRecordStorage', () => {
     expect(mock.storage.local._store.has('pagetollm:rec:ownerless:content')).toBe(false);
     expect(mock.storage.local._store.has('pagetollm:rec:ownerless:summaries')).toBe(false);
     expect(mock.storage.local._store.has('pagetollm:rec:corrupt:meta')).toBe(false);
+    expect(mock.storage.local._store.has('pagetollm:rec:corrupt:content')).toBe(false);
+    expect(mock.storage.local._store.has('pagetollm:rec:recovered:extension-field')).toBe(false);
   });
 });
 

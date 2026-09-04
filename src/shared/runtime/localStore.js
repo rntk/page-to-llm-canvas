@@ -48,24 +48,79 @@ export function getLocalItems(keys) {
  * @param {string} prefix Storage-key prefix.
  */
 export async function getLocalItemsByPrefix(prefix) {
-  if (typeof chrome.storage.local.getKeys !== 'function') {
-    const allItems = await getLocalItems(null);
-    return Object.fromEntries(
-      Object.entries(allItems).filter(([storageKey]) => storageKey.startsWith(prefix)),
-    );
-  }
+  return getLocalItemsByPrefixes([prefix]);
+}
 
-  const keys = await new Promise((resolve, reject) => {
+/**
+ * Reads keys belonging to any of the supplied namespaces with a single key
+ * inventory pass. This is used by normalized record aggregates whose
+ * checkpoint entries are stored independently.
+ * @param {string[]} prefixes
+ */
+export async function getLocalItemsByPrefixes(prefixes) {
+  const matchingKeys = await getLocalKeysByPrefixes(prefixes);
+  return matchingKeys.length ? getLocalItems(matchingKeys) : {};
+}
+
+/**
+ * Reads the whole key inventory. `StorageArea.getKeys` is promise-only in the
+ * Chrome versions that ship it and never invokes a callback, so the promise it
+ * returns is consumed first; the callback form is only used by implementations
+ * that hand back nothing (or reject the no-argument call outright).
+ * @returns {Promise<string[]>}
+ */
+function readAllLocalKeys() {
+  const asKeyArray = (storedKeys) => (Array.isArray(storedKeys) ? storedKeys : []);
+  let pending;
+  try {
+    pending = chrome.storage.local.getKeys();
+  } catch {
+    pending = undefined;
+  }
+  if (pending && typeof pending.then === 'function') {
+    return Promise.resolve(pending).then(asKeyArray);
+  }
+  return new Promise((resolve, reject) => {
     chrome.storage.local.getKeys((storedKeys) => {
       if (chrome.runtime?.lastError) {
         reject(lastErrorAsError('storage.getKeys'));
         return;
       }
-      resolve(Array.isArray(storedKeys) ? storedKeys : []);
+      resolve(asKeyArray(storedKeys));
     });
   });
-  const matchingKeys = keys.filter((storageKey) => storageKey.startsWith(prefix));
-  return matchingKeys.length ? getLocalItems(matchingKeys) : {};
+}
+
+/**
+ * Lists keys under one namespace without deserializing their values when
+ * `StorageArea.getKeys` is available. Older browsers fall back to one full
+ * read because they expose no keys-only API.
+ * @param {string} prefix Storage-key prefix.
+ * @returns {Promise<string[]>}
+ */
+export async function getLocalKeysByPrefix(prefix) {
+  return getLocalKeysByPrefixes([prefix]);
+}
+
+/**
+ * Lists keys belonging to any supplied namespace.
+ * @param {string[]} prefixes
+ * @returns {Promise<string[]>}
+ */
+export async function getLocalKeysByPrefixes(prefixes) {
+  const wanted = Array.isArray(prefixes)
+    ? prefixes.filter((prefix) => typeof prefix === 'string')
+    : [];
+  if (wanted.length === 0) return [];
+  if (typeof chrome.storage.local.getKeys !== 'function') {
+    const allItems = await getLocalItems(null);
+    return Object.keys(allItems).filter((storageKey) =>
+      wanted.some((prefix) => storageKey.startsWith(prefix)),
+    );
+  }
+
+  const keys = await readAllLocalKeys();
+  return keys.filter((storageKey) => wanted.some((prefix) => storageKey.startsWith(prefix)));
 }
 
 /** @param {Object} items @returns {Promise<void>} */

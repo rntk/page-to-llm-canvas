@@ -28,7 +28,7 @@ import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
  */
 export async function fetchRecord(key, runtimeMessenger = browserRuntimeMessenger) {
   try {
-    const resp = await runtimeMessenger.send({ type: MSG.getRecord, key });
+    const resp = await runtimeMessenger.send({ type: MSG.getRecordView, key });
     if (resp?.ok === false && !resp.error) return { kind: 'not_found' };
     if (resp?.ok === false && resp?.error === 'record not found') return { kind: 'not_found' };
     if (resp?.ok === false && typeof resp.error === 'string') {

@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const storage = vi.hoisted(() => ({
   appendProcessingLog: vi.fn(() => Promise.resolve()),
   flushProcessingLog: vi.fn(() => Promise.resolve()),
+  SOURCE_SUMMARY_UNIT_REVISION_MISMATCH: Object.freeze({ reason: 'content_revision_mismatch' }),
+  putSourceSummaryUnit: vi.fn(async (_key, unit) => unit),
+  putTopicSummaryCheckpoint: vi.fn(async (_key, _topicPath, summary) => summary),
   readRecord: vi.fn(async () => ({ key: 'record-1' })),
   updateRecord: vi.fn(async (_key, patch) => ({ key: 'record-1', ...patch })),
 }));
@@ -56,6 +59,21 @@ describe('createPipelineRuntime', () => {
     );
   });
 
+  it('persists summary work through granular run-guarded operations', async () => {
+    const runtime = createPipelineRuntime({ key: 'record-1', pipelineRunId: 'run-7' });
+    const summary = { runs: [{ sentences: [1], text: 'leaf' }] };
+    const unit = { unitId: 'unit-1', result: 'chunk' };
+
+    await expect(runtime.checkpointTopicSummary('A>B', summary)).resolves.toBe(summary);
+    await expect(runtime.checkpointSourceSummaryUnit(unit)).resolves.toBe(unit);
+    expect(storage.putTopicSummaryCheckpoint).toHaveBeenCalledWith('record-1', 'A>B', summary, {
+      expectedPipelineRunId: 'run-7',
+    });
+    expect(storage.putSourceSummaryUnit).toHaveBeenCalledWith('record-1', unit, {
+      expectedPipelineRunId: 'run-7',
+    });
+  });
+
   it('turns a superseded update and cancellation into AbortErrors', async () => {
     storage.updateRecord.mockResolvedValueOnce(null);
     const runtime = createPipelineRuntime({ key: 'record-1', pipelineRunId: 'run-7' });
@@ -77,6 +95,31 @@ describe('createPipelineRuntime', () => {
       expect.objectContaining({ name: 'AbortError', message: 'Pipeline run was cancelled' }),
     );
     await expect(cancelled.read()).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('turns a stale source-unit checkpoint into normal pipeline cancellation', async () => {
+    storage.putSourceSummaryUnit.mockResolvedValueOnce(null);
+    const runtime = createPipelineRuntime({ key: 'record-1', pipelineRunId: 'run-7' });
+
+    await expect(
+      runtime.checkpointSourceSummaryUnit({ unitId: 'paid-unit' }),
+    ).rejects.toMatchObject({
+      name: 'AbortError',
+      message: 'Pipeline run is no longer current',
+    });
+  });
+
+  it('skips a source-unit cache write when its content revision races', async () => {
+    storage.putSourceSummaryUnit.mockResolvedValueOnce(
+      storage.SOURCE_SUMMARY_UNIT_REVISION_MISMATCH,
+    );
+    const runtime = createPipelineRuntime({ key: 'record-1', pipelineRunId: 'run-7' });
+
+    const unit = { unitId: 'paid-unit' };
+    await expect(runtime.checkpointSourceSummaryUnit(unit)).resolves.toBe(unit);
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining('source summary cache checkpoint skipped'),
+    );
   });
 
   it('stores the summaries-disabled flag as a strict boolean', () => {

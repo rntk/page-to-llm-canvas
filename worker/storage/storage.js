@@ -1,6 +1,7 @@
 import {
   getLocal,
-  getLocalByPrefix,
+  getLocalByPrefixes,
+  getLocalKeysByPrefix,
   setLocal,
   removeLocal,
   queuedUpdate,
@@ -15,7 +16,15 @@ import {
 import {
   recordMetaStorageKey as metaStorageKey,
   recordContentStorageKey as contentStorageKey,
-  recordSummariesStorageKey as summariesStorageKey,
+  recordSummaryOutputStorageKey as summaryOutputStorageKey,
+  recordTopicRangeCheckpointStorageKey as topicRangeCheckpointStorageKey,
+  recordDiagnosticsStorageKey as diagnosticsStorageKey,
+  recordSummaryLeafStoragePrefix as summaryLeafStoragePrefix,
+  recordSummaryLeafStorageKey as summaryLeafStorageKey,
+  recordSourceSummaryUnitStoragePrefix as sourceSummaryUnitStoragePrefix,
+  recordSourceSummaryUnitStorageKey as sourceSummaryUnitStorageKey,
+  recordStoragePrefix,
+  decodeRecordStorageSegment,
 } from './keys.js';
 import { createLogger } from '../../src/shared/runtime/log.js';
 
@@ -26,37 +35,30 @@ const MAX_PROCESSING_LOG_ENTRIES = 80;
 const RECORD_SNIPPET_MAX_CHARS = 500;
 export const INDEX_REPAIR_THROTTLE_MS = 5 * 60 * 1000;
 export const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
+export const RECORD_STORAGE_SCHEMA_VERSION = 2;
+export const SOURCE_SUMMARY_UNIT_REVISION_MISMATCH = Object.freeze({
+  reason: 'content_revision_mismatch',
+});
 let lastIndexProjectionRepairAt = null;
 
-// A record is physically split across three storage keys so that the
-// high-frequency writes (status/progress/log ticks) never have to
-// re-serialize the large, rarely-changing payload (html/text/sentences/
-// topics) or the moderately-changing per-topic summaries:
-//   - meta: everything else — the hot path, written on nearly every pipeline
-//     step.
-//   - content: html/text/sentences/topics/topic_range_chunks — written a
-//     handful of times per run (essentially write-once). capturedText is the
-//     browser-derived analysis source for versioned captures; topic_range_chunks is
-//     the topic-ranges chunk checkpoint; it lives here rather than in meta
-//     because every meta write re-serializes on the hot path. It is updated
-//     after successful topic-range parse rounds and cleared when that stage
-//     succeeds.
-//   - summaries: topic_summaries is the resumable leaf-work checkpoint;
-//     topic_summary_index is the canonical UI projection; source_summary_units
-//     is the optional per-request source-summary checkpoint. The checkpoints
-//     stay load-bearing even though UI code never reads them directly.
-const CONTENT_FIELDS = [
-  'html',
-  'capturedText',
-  'text',
-  'sentences',
-  'topics',
+// Storage is organized by mutation unit, not by the old monolithic logical
+// ArticleRecord shape. Large immutable content and final UI output have one
+// document each. Topic-range work and diagnostics have independent documents.
+// Leaf summaries and source-summary units use one key per entry, so completing
+// one paid provider request never reserializes all previously completed work.
+const CONTENT_FIELDS = ['html', 'capturedText', 'text', 'sentences', 'topics'];
+const SUMMARY_OUTPUT_FIELDS = ['topic_summary_index'];
+const SPECIAL_FIELDS = [
+  ...CONTENT_FIELDS,
+  ...SUMMARY_OUTPUT_FIELDS,
   'topic_range_chunks',
+  'topic_summaries',
+  'source_summary_units',
+  'processingLog',
 ];
-const SUMMARY_FIELDS = ['topic_summaries', 'topic_summary_index', 'source_summary_units'];
 const RECORD_PAYLOAD_SCHEMAS = Object.freeze([
   { name: 'content', fields: CONTENT_FIELDS, storageKey: contentStorageKey },
-  { name: 'summaries', fields: SUMMARY_FIELDS, storageKey: summariesStorageKey },
+  { name: 'summaryOutput', fields: SUMMARY_OUTPUT_FIELDS, storageKey: summaryOutputStorageKey },
 ]);
 
 function hasOwn(obj, field) {
@@ -71,15 +73,87 @@ function pickFields(obj, fields) {
   return out;
 }
 
-/** Everything that isn't explicitly content or summaries lives in meta.
+/** Everything that isn't assigned to another document lives in meta.
  * @param {object} obj Record-like object.
  */
 function pickMetaFields(obj) {
   const out = {};
   for (const [k, v] of Object.entries(obj)) {
-    if (!CONTENT_FIELDS.includes(k) && !SUMMARY_FIELDS.includes(k)) out[k] = v;
+    if (!SPECIAL_FIELDS.includes(k)) out[k] = v;
   }
   return out;
+}
+
+function summaryLeafDocuments(key, summaries, contentRevision, collectionRevision) {
+  const documents = {};
+  // Final/leaf summaries describe the imported article and are intentionally
+  // re-scoped when an import collision mints a new content revision. Source
+  // units are request-cache artifacts and are retained only on an exact
+  // revision match (see sourceSummaryUnitDocuments below).
+  for (const [topicPath, summary] of Object.entries(summaries || {})) {
+    documents[summaryLeafStorageKey(key, topicPath)] = {
+      topicPath,
+      contentRevision,
+      collectionRevision,
+      summary,
+    };
+  }
+  return documents;
+}
+
+function sourceSummaryUnitDocuments(key, units, contentRevision, collectionRevision) {
+  const documents = {};
+  for (const [unitId, unit] of Object.entries(units || {})) {
+    if (unit?.contentRevision !== contentRevision) continue;
+    documents[sourceSummaryUnitStorageKey(key, unitId)] = { ...unit, collectionRevision };
+  }
+  return documents;
+}
+
+function staticRecordDocumentKeys(key) {
+  return [
+    metaStorageKey(key),
+    contentStorageKey(key),
+    summaryOutputStorageKey(key),
+    topicRangeCheckpointStorageKey(key),
+    diagnosticsStorageKey(key),
+  ];
+}
+
+async function readSummaryWorkDocuments(key) {
+  // Prefix discovery is intentionally repeated. A module-level mirror becomes
+  // stale when a read overlaps a mutation and grows without bound in a
+  // long-lived worker. Callers inside the mutation queue therefore always see
+  // the authoritative set of work keys, while view-only reads skip this scan.
+  return getLocalByPrefixes([summaryLeafStoragePrefix(key), sourceSummaryUnitStoragePrefix(key)]);
+}
+
+function assembleSummaryWork(key, documents, meta) {
+  const topicSummaries = {};
+  const sourceSummaryUnits = {};
+  const leafPrefix = summaryLeafStoragePrefix(key);
+  const unitPrefix = sourceSummaryUnitStoragePrefix(key);
+  for (const [storageKey, value] of Object.entries(documents)) {
+    if (
+      storageKey.startsWith(leafPrefix) &&
+      value?.topicPath &&
+      value?.contentRevision === meta.contentRevision &&
+      value.collectionRevision === meta.topicSummariesRevision &&
+      value?.summary
+    ) {
+      topicSummaries[value.topicPath] = value.summary;
+    } else if (
+      storageKey.startsWith(unitPrefix) &&
+      value?.unitId &&
+      value?.contentRevision === meta.contentRevision &&
+      value.collectionRevision === meta.sourceSummaryUnitsRevision
+    ) {
+      const unit = { ...value };
+      delete unit.collectionRevision;
+      sourceSummaryUnits[value.unitId] = unit;
+    }
+  }
+  return { topic_summaries: topicSummaries, source_summary_units: sourceSummaryUnits };
 }
 
 /**
@@ -219,6 +293,10 @@ function isRecordMeta(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function isCurrentRecordMeta(value) {
+  return isRecordMeta(value) && value.storageSchemaVersion === RECORD_STORAGE_SCHEMA_VERSION;
+}
+
 /**
  * Rebuilds one already-indexed record's lightweight projection from its
  * authoritative metadata. This is intentionally narrow: it is the recovery
@@ -234,7 +312,7 @@ async function repairIndexedRecordProjection(key) {
     if (!idx.keys.includes(key)) return;
     const meta = (await getLocal(metaStorageKey(key)))[metaStorageKey(key)];
     const next = { keys: [...idx.keys], meta: { ...idx.meta } };
-    if (!isRecordMeta(meta)) {
+    if (!isCurrentRecordMeta(meta)) {
       next.keys = next.keys.filter((item) => item !== key);
       delete next.meta[key];
     } else {
@@ -244,21 +322,85 @@ async function repairIndexedRecordProjection(key) {
   });
 }
 
+// A full read pairs one static read with a later work-document scan. A summary
+// replacement committed between the two invalidates the pairing; retrying is
+// cheap and a replacement cannot keep winning the race indefinitely.
+const READ_RECORD_GENERATION_RETRIES = 3;
+
 /**
- * Reads and reassembles the full logical record from its three physical docs.
+ * Reports whether the summary generations a record's meta points at moved
+ * between two reads of that meta.
+ * @param {object} before
+ * @param {object} [after]
+ * @returns {boolean}
+ */
+function summaryGenerationsChanged(before, after) {
+  if (!after) return true;
+  return (
+    before.contentRevision !== after.contentRevision ||
+    before.topicSummariesRevision !== after.topicSummariesRevision ||
+    before.sourceSummaryUnitsRevision !== after.sourceSummaryUnitsRevision
+  );
+}
+
+/**
+ * Reads and reassembles the full logical record from its normalized documents.
  * Returns `null` if none of them hold anything.
  * @param {string} key
  * @returns {Promise<ArticleRecord | null>}
  */
-export async function readRecord(key) {
+async function readRecordDocuments(key, { includeWork = true } = {}) {
   const metaKey = metaStorageKey(key);
   const payloadKeys = RECORD_PAYLOAD_SCHEMAS.map(({ storageKey }) => storageKey(key));
-  const docKeys = [metaKey, ...payloadKeys];
-  const items = await getLocal(docKeys);
-  if (!docKeys.some((docKey) => items[docKey])) return null;
-  // Meta is applied last so its fields win over any stale copy of the same
-  // field left behind in a payload doc by an older record layout.
-  return Object.assign({}, ...payloadKeys.map((docKey) => items[docKey] || {}), items[metaKey]);
+  const checkpointKey = topicRangeCheckpointStorageKey(key);
+  const logKey = diagnosticsStorageKey(key);
+  // Static record documents are committed together. Read them together too,
+  // so a concurrent content replacement cannot pair one generation's meta
+  // with another generation's payload.
+  const docKeys = [metaKey, ...payloadKeys, ...(includeWork ? [checkpointKey] : []), logKey];
+  for (let attempt = 0; ; attempt += 1) {
+    const items = await getLocal(docKeys);
+    const meta = items[metaKey];
+    if (!isCurrentRecordMeta(meta)) return null;
+    let workItems = {};
+    if (includeWork) {
+      workItems = await readSummaryWorkDocuments(key);
+      // The work documents are read after (and outside of) the static read, so
+      // a summary replacement landing in between would pair this meta with the
+      // next generation's leaves, and assembleSummaryWork would then discard
+      // every one of them by revision. Re-read the metadata and start over
+      // when that happened, rather than reporting an empty summary set.
+      const currentMeta = (await getLocal([metaKey]))[metaKey];
+      if (summaryGenerationsChanged(meta, currentMeta)) {
+        if (attempt < READ_RECORD_GENERATION_RETRIES) continue;
+        const error = new Error(
+          `readRecord: summary generations kept changing for ${key} after ${
+            READ_RECORD_GENERATION_RETRIES + 1
+          } attempts`,
+        );
+        log.warn(error.message);
+        throw error;
+      }
+    }
+    // Meta is applied last so its authoritative fields win over payload data.
+    const record = Object.assign(
+      {},
+      ...payloadKeys.map((docKey) => items[docKey] || {}),
+      includeWork ? { topic_range_chunks: items[checkpointKey]?.topic_range_chunks ?? null } : {},
+      { processingLog: items[logKey]?.processingLog ?? [] },
+      includeWork ? assembleSummaryWork(key, workItems, meta) : {},
+      meta,
+    );
+    return record;
+  }
+}
+
+export async function readRecord(key) {
+  return readRecordDocuments(key);
+}
+
+export async function readRecordView(key) {
+  return readRecordDocuments(key, { includeWork: false });
 }
 
 /**
@@ -272,25 +414,71 @@ export async function writeRecord(rec, options = {}) {
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
     return queuedUpdate(rec.key, async () => {
       const metaKey = metaStorageKey(rec.key);
-      const payloadKeys = RECORD_PAYLOAD_SCHEMAS.map(({ storageKey }) => storageKey(rec.key));
-      const docKeys = [metaKey, ...payloadKeys];
+      const docKeys = staticRecordDocumentKeys(rec.key);
       const existingMeta = await loadMetaForWrite(rec.key);
+      // Always discover work documents, including for a missing meta. A prior
+      // interrupted delete can leave owner-shaped leaves behind; a new record
+      // with the same key must replace, not silently adopt, those documents.
+      const existingWorkDocuments = await readSummaryWorkDocuments(rec.key);
       // Snapshot what is about to be overwritten so the index-failure path
       // below can put it back. Only for a record that already exists: a
       // brand-new key has nothing to restore, and skipping the read keeps the
       // common submit path from pulling in the (possibly large) content doc.
-      const priorDocs = existingMeta ? await getLocal(docKeys) : null;
+      const priorDocs = existingMeta
+        ? {
+            ...(await getLocal(docKeys)),
+            ...existingWorkDocuments,
+          }
+        : null;
       const contentRevision =
         options.bumpContentRevision === true
           ? createContentRevision()
           : typeof rec.contentRevision === 'string' && rec.contentRevision
             ? rec.contentRevision
             : existingMeta?.contentRevision || createContentRevision();
-      const documents = { [metaKey]: { ...pickMetaFields(rec), contentRevision } };
+      // These generation markers are committed atomically with their new
+      // leaves. If the worker dies before stale physical keys are removed,
+      // the old generation remains unreadable and cannot be resurrected.
+      const topicSummariesRevision = createContentRevision();
+      const sourceSummaryUnitsRevision = createContentRevision();
+      const documents = {
+        [metaKey]: {
+          ...pickMetaFields(rec),
+          storageSchemaVersion: RECORD_STORAGE_SCHEMA_VERSION,
+          contentRevision,
+          topicSummariesRevision,
+          sourceSummaryUnitsRevision,
+        },
+        ...summaryLeafDocuments(
+          rec.key,
+          rec.topic_summaries,
+          contentRevision,
+          topicSummariesRevision,
+        ),
+        ...sourceSummaryUnitDocuments(
+          rec.key,
+          rec.source_summary_units,
+          contentRevision,
+          sourceSummaryUnitsRevision,
+        ),
+      };
+      if (rec.topic_range_chunks != null) {
+        documents[topicRangeCheckpointStorageKey(rec.key)] = {
+          topic_range_chunks: rec.topic_range_chunks,
+        };
+      }
+      if (Array.isArray(rec.processingLog) && rec.processingLog.length > 0) {
+        documents[diagnosticsStorageKey(rec.key)] = { processingLog: rec.processingLog };
+      }
       RECORD_PAYLOAD_SCHEMAS.forEach(({ fields, storageKey }) => {
         documents[storageKey(rec.key)] = pickFields(rec, fields);
       });
+      const priorKeys = [
+        ...new Set([...Object.keys(priorDocs || {}), ...Object.keys(existingWorkDocuments)]),
+      ];
+      const staleKeys = priorKeys.filter((storageKey) => !hasOwn(documents, storageKey));
       await setLocal(documents);
+      if (staleKeys.length) await removeLocal(staleKeys);
 
       try {
         await queuedUpdate(INDEX_KEY, async () => {
@@ -302,14 +490,16 @@ export async function writeRecord(rec, options = {}) {
           await writeIndex(idx);
         });
       } catch (err) {
-        // The three docs were already replaced above, so a failed index write
-        // has to undo them. Deleting is only correct for a record this call
-        // created: for an existing key (an import collision, a resubmission)
+        // The aggregate documents were already replaced above, so a failed
+        // index write has to undo them. Deleting is only correct for a record
+        // this call created: for an existing key (an import collision, a resubmission)
         // deletion would destroy the HTML, topics and summaries this write was
         // merely replacing — a rollback that loses more than the write would
         // have. Restore the snapshot instead, removing only the docs that did
         // not exist before.
-        await rollbackRecordDocs(priorDocs, docKeys).catch((rollbackErr) => {
+        await rollbackRecordDocs(priorDocs, [
+          ...new Set([...docKeys, ...Object.keys(documents), ...priorKeys]),
+        ]).catch((rollbackErr) => {
           log.warn(
             'writeRecord rollback failed for',
             rec.key,
@@ -333,7 +523,7 @@ export async function writeRecord(rec, options = {}) {
  * `priorDocs` is null when the record did not exist, in which case removing
  * every doc is the correct rollback.
  * @param {object|null} priorDocs Snapshot taken before the overwrite.
- * @param {string[]} docKeys Meta, content and summaries storage keys.
+ * @param {string[]} docKeys Every document owned by the aggregate.
  */
 async function rollbackRecordDocs(priorDocs, docKeys) {
   if (!priorDocs) {
@@ -360,7 +550,8 @@ async function rollbackRecordDocs(priorDocs, docKeys) {
 async function loadMetaForWrite(key) {
   const metaKey = metaStorageKey(key);
   const items = await getLocal(metaKey);
-  return items[metaKey] || null;
+  const meta = items[metaKey];
+  return isCurrentRecordMeta(meta) ? meta : null;
 }
 
 function createContentRevision() {
@@ -401,7 +592,19 @@ export async function updateRecord(key, patch, options = {}) {
 
       const touchesContent = CONTENT_FIELDS.some((f) => hasOwn(patch, f));
       const writes = {};
+      const removes = [];
       const mergedPayloads = {};
+      const replacesContentGeneration = touchesContent && options.bumpContentRevision === true;
+      const workDocuments =
+        replacesContentGeneration ||
+        hasOwn(patch, 'topic_summaries') ||
+        hasOwn(patch, 'source_summary_units')
+          ? await readSummaryWorkDocuments(key)
+          : {};
+      const mergedMeta = { ...meta, ...pickMetaFields(patch), updatedAt: Date.now() };
+      if (replacesContentGeneration) {
+        mergedMeta.contentRevision = createContentRevision();
+      }
       for (const { name, fields, storageKey } of RECORD_PAYLOAD_SCHEMAS) {
         if (!fields.some((field) => hasOwn(patch, field))) continue;
         const documentKey = storageKey(key);
@@ -411,13 +614,81 @@ export async function updateRecord(key, patch, options = {}) {
         mergedPayloads[name] = merged;
       }
 
-      const mergedMeta = { ...meta, ...pickMetaFields(patch), updatedAt: Date.now() };
-      if (touchesContent && options.bumpContentRevision === true) {
-        mergedMeta.contentRevision = createContentRevision();
+      if (hasOwn(patch, 'topic_range_chunks')) {
+        const documentKey = topicRangeCheckpointStorageKey(key);
+        if (patch.topic_range_chunks == null) removes.push(documentKey);
+        else writes[documentKey] = { topic_range_chunks: patch.topic_range_chunks };
+        mergedPayloads.topicRangeCheckpoint = {
+          topic_range_chunks: patch.topic_range_chunks ?? null,
+        };
       }
+      if (hasOwn(patch, 'processingLog')) {
+        const documentKey = diagnosticsStorageKey(key);
+        const processingLog = Array.isArray(patch.processingLog) ? patch.processingLog : [];
+        if (processingLog.length === 0) removes.push(documentKey);
+        else writes[documentKey] = { processingLog };
+        const value = { processingLog };
+        mergedPayloads.diagnostics = value;
+      }
+      if (hasOwn(patch, 'topic_summaries')) {
+        const current = Object.fromEntries(
+          Object.entries(workDocuments).filter(([storageKey]) =>
+            storageKey.startsWith(summaryLeafStoragePrefix(key)),
+          ),
+        );
+        mergedMeta.topicSummariesRevision = createContentRevision();
+        const replacement = summaryLeafDocuments(
+          key,
+          patch.topic_summaries,
+          mergedMeta.contentRevision,
+          mergedMeta.topicSummariesRevision,
+        );
+        Object.assign(writes, replacement);
+        removes.push(
+          ...Object.keys(current).filter((storageKey) => !hasOwn(replacement, storageKey)),
+        );
+        mergedPayloads.topicSummaries = {
+          topic_summaries:
+            patch.topic_summaries && typeof patch.topic_summaries === 'object'
+              ? patch.topic_summaries
+              : {},
+        };
+      }
+      if (hasOwn(patch, 'source_summary_units')) {
+        const current = Object.fromEntries(
+          Object.entries(workDocuments).filter(([storageKey]) =>
+            storageKey.startsWith(sourceSummaryUnitStoragePrefix(key)),
+          ),
+        );
+        mergedMeta.sourceSummaryUnitsRevision = createContentRevision();
+        const replacement = sourceSummaryUnitDocuments(
+          key,
+          patch.source_summary_units,
+          mergedMeta.contentRevision,
+          mergedMeta.sourceSummaryUnitsRevision,
+        );
+        Object.assign(writes, replacement);
+        removes.push(
+          ...Object.keys(current).filter((storageKey) => !hasOwn(replacement, storageKey)),
+        );
+        mergedPayloads.sourceSummaryUnits = {
+          source_summary_units:
+            patch.source_summary_units && typeof patch.source_summary_units === 'object'
+              ? patch.source_summary_units
+              : {},
+        };
+      }
+
+      if (replacesContentGeneration) {
+        removes.push(
+          ...Object.keys(workDocuments).filter((storageKey) => !hasOwn(writes, storageKey)),
+        );
+      }
+
       writes[metaStorageKey(key)] = mergedMeta;
 
       await setLocal(writes);
+      if (removes.length) await removeLocal([...new Set(removes)]);
       await syncIndexMeta(key, patch, mergedMeta);
       if (touchesContent && options.bumpContentRevision === true) {
         await pruneChatsForContentRevision(key, mergedMeta.contentRevision).catch((err) => {
@@ -430,9 +701,73 @@ export async function updateRecord(key, patch, options = {}) {
       return Object.assign(
         { ...mergedMeta },
         ...RECORD_PAYLOAD_SCHEMAS.map(({ name }) => mergedPayloads[name] || {}),
+        mergedPayloads.topicRangeCheckpoint || {},
+        mergedPayloads.diagnostics || {},
+        mergedPayloads.topicSummaries || {},
+        mergedPayloads.sourceSummaryUnits || {},
       );
     });
   });
+}
+
+/**
+ * Persists one leaf checkpoint without reading or rewriting sibling leaves.
+ * The current meta document is read only for the run-ownership guard.
+ * @param {string} key
+ * @param {string} topicPath
+ * @param {object} summary
+ * @param {object} [options]
+ * @returns {Promise<object|null>}
+ */
+export async function putTopicSummaryCheckpoint(key, topicPath, summary, options = {}) {
+  if (typeof topicPath !== 'string' || !topicPath) {
+    throw new Error('putTopicSummaryCheckpoint: topicPath required');
+  }
+  return queuedUpdate(MUTATION_QUEUE_KEY, () =>
+    queuedUpdate(key, async () => {
+      const meta = await loadMetaForWrite(key);
+      if (!meta || isStaleRun(meta, options)) return null;
+      await setLocal({
+        [summaryLeafStorageKey(key, topicPath)]: {
+          topicPath,
+          contentRevision: meta.contentRevision,
+          collectionRevision: meta.topicSummariesRevision,
+          summary,
+        },
+      });
+      return summary;
+    }),
+  );
+}
+
+/**
+ * Persists one completed source-summary provider unit in its own document.
+ * @param {string} key
+ * @param {object} unit
+ * @param {object} [options]
+ * @returns {Promise<object|null>} The unit, the exported revision-mismatch
+ *   sentinel, or null when the record/run is no longer current.
+ */
+export async function putSourceSummaryUnit(key, unit, options = {}) {
+  if (!unit || typeof unit.unitId !== 'string' || !unit.unitId) {
+    throw new Error('putSourceSummaryUnit: unit.unitId required');
+  }
+  return queuedUpdate(MUTATION_QUEUE_KEY, () =>
+    queuedUpdate(key, async () => {
+      const meta = await loadMetaForWrite(key);
+      if (!meta || isStaleRun(meta, options)) return null;
+      if (unit.contentRevision !== meta.contentRevision) {
+        return SOURCE_SUMMARY_UNIT_REVISION_MISMATCH;
+      }
+      await setLocal({
+        [sourceSummaryUnitStorageKey(key, unit.unitId)]: {
+          ...unit,
+          collectionRevision: meta.sourceSummaryUnitsRevision,
+        },
+      });
+      return unit;
+    }),
+  );
 }
 
 // Pipeline stages fire a processingLog entry on nearly every LLM request and
@@ -498,18 +833,18 @@ async function doFlushProcessingLog(key) {
     const result = await queuedUpdate(MUTATION_QUEUE_KEY, () =>
       queuedUpdate(key, async () => {
         if (!_flushingBuffers.get(key)?.has(buf)) return null;
-        // processingLog lives in the meta doc, so a flush — the hottest write
-        // path in the pipeline — only ever touches the small meta doc.
         const meta = await loadMetaForWrite(key);
         if (!meta) return null;
         if (isStaleRun(meta, options)) return null;
 
-        const existing = Array.isArray(meta.processingLog) ? meta.processingLog : [];
+        const documentKey = diagnosticsStorageKey(key);
+        const diagnostics = (await getLocal(documentKey))[documentKey] || {};
+        const existing = Array.isArray(diagnostics.processingLog) ? diagnostics.processingLog : [];
         const processingLog = [...existing, ...entries].slice(-MAX_PROCESSING_LOG_ENTRIES);
-        const mergedMeta = { ...meta, processingLog, updatedAt: Date.now() };
+        const mergedDiagnostics = { processingLog };
 
-        await setLocal({ [metaStorageKey(key)]: mergedMeta });
-        return mergedMeta;
+        await setLocal({ [documentKey]: mergedDiagnostics });
+        return mergedDiagnostics;
       }),
     );
     // A disposed buffer had its deferred settled by disposeProcessingLogs.
@@ -636,9 +971,10 @@ async function repairAllIndexProjections() {
     const next = { keys: [], meta: {} };
     for (const key of current.keys) {
       const authoritativeMeta = currentMetas[metaStorageKey(key)];
-      if (!isRecordMeta(authoritativeMeta)) continue;
-      next.keys.push(key);
-      next.meta[key] = mergeAuthoritativeMetaIntoProjection(authoritativeMeta, current.meta[key]);
+      if (isCurrentRecordMeta(authoritativeMeta)) {
+        next.keys.push(key);
+        next.meta[key] = mergeAuthoritativeMetaIntoProjection(authoritativeMeta, current.meta[key]);
+      }
     }
     if (JSON.stringify(next) !== JSON.stringify(current)) await writeIndex(next);
   }).catch((err) => {
@@ -685,7 +1021,7 @@ export async function listRecords() {
   const repaired = { keys: [], meta: {} };
   for (const k of idx.keys) {
     const authoritativeMeta = metas[metaStorageKey(k)];
-    if (!isRecordMeta(authoritativeMeta)) continue;
+    if (!isCurrentRecordMeta(authoritativeMeta)) continue;
     const meta = mergeAuthoritativeMetaIntoProjection(authoritativeMeta, idx.meta[k]);
     repaired.keys.push(k);
     repaired.meta[k] = meta;
@@ -707,7 +1043,7 @@ export function buildRecordSnippet(record) {
 
 /** Returns all physical page-record documents, including unindexed orphans. */
 async function allRecordStorageKeys() {
-  return Object.keys(await getLocalByPrefix(RECORD_STORAGE_PREFIX));
+  return getLocalKeysByPrefix(RECORD_STORAGE_PREFIX);
 }
 
 export async function deleteRecord(key) {
@@ -721,12 +1057,8 @@ export async function deleteRecord(key) {
         // Gather all keys before mutating anything. One remove call makes the
         // cascade atomic from this repository's perspective: a failure cannot
         // leave an indexed record whose documents were already removed.
-        const keys = [
-          metaStorageKey(key),
-          contentStorageKey(key),
-          summariesStorageKey(key),
-          ...(await chatStorageKeysForRecord(key)),
-        ];
+        const recordKeys = await getLocalKeysByPrefix(recordStoragePrefix(key));
+        const keys = [...recordKeys, ...(await chatStorageKeysForRecord(key))];
         await removeLocal([...new Set(keys)]);
         // Under the key queue and only once the documents are actually gone:
         // a failed remove leaves the record alive, so its buffered entries
@@ -770,51 +1102,105 @@ export async function deleteAll() {
 
 function recordKeyFromStorageDocument(storageKey, suffix) {
   if (!storageKey.startsWith(RECORD_STORAGE_PREFIX) || !storageKey.endsWith(suffix)) return null;
-  const key = storageKey.slice(RECORD_STORAGE_PREFIX.length, -suffix.length);
-  return key || null;
+  const segment = storageKey.slice(RECORD_STORAGE_PREFIX.length, -suffix.length);
+  return segment ? decodeRecordStorageSegment(segment) : null;
+}
+
+function recordKeyFromWorkDocument(storageKey, marker) {
+  if (!storageKey.startsWith(RECORD_STORAGE_PREFIX)) return null;
+  const markerIndex = storageKey.lastIndexOf(marker);
+  if (
+    markerIndex < RECORD_STORAGE_PREFIX.length ||
+    markerIndex + marker.length >= storageKey.length
+  ) {
+    return null;
+  }
+  return decodeRecordStorageSegment(storageKey.slice(RECORD_STORAGE_PREFIX.length, markerIndex));
+}
+
+function recognizedRecordDocumentOwner(storageKey) {
+  for (const suffix of [
+    ':meta',
+    ':content',
+    ':summary-output',
+    ':topic-range-work',
+    ':diagnostics',
+  ]) {
+    const key = recordKeyFromStorageDocument(storageKey, suffix);
+    if (key) return key;
+  }
+  return (
+    recordKeyFromWorkDocument(storageKey, ':summary-leaf:') ||
+    recordKeyFromWorkDocument(storageKey, ':summary-unit:')
+  );
+}
+
+function workDocumentMatchesOwnerGeneration(storageKey, value, ownerMeta) {
+  if (storageKey.startsWith(summaryLeafStoragePrefix(ownerMeta.key))) {
+    return (
+      value?.contentRevision === ownerMeta.contentRevision &&
+      value?.collectionRevision === ownerMeta.topicSummariesRevision
+    );
+  }
+  if (storageKey.startsWith(sourceSummaryUnitStoragePrefix(ownerMeta.key))) {
+    return (
+      value?.contentRevision === ownerMeta.contentRevision &&
+      value?.collectionRevision === ownerMeta.sourceSummaryUnitsRevision
+    );
+  }
+  return true;
 }
 
 /**
- * Repairs page records after interrupted multi-key writes. Meta documents are
- * authoritative: a meta document missing from the index is made visible again
- * so the user can inspect/delete it, ghost index entries are removed, and
- * content/summary documents without an owning meta document are deleted.
+ * Removes invalid or ownerless record documents, then rebuilds the index from
+ * records written in the current storage schema.
  */
 export async function reconcileRecordStorage() {
   return queuedUpdate(MUTATION_QUEUE_KEY, () =>
     queuedUpdate(INDEX_KEY, async () => {
-      const documents = await getLocalByPrefix(RECORD_STORAGE_PREFIX);
+      const storageKeys = await getLocalKeysByPrefix(RECORD_STORAGE_PREFIX);
+      // Work-document values are needed to collect checkpoints from superseded
+      // content/collection generations. Static payloads still participate by
+      // key only, except content which supplies the index snippet.
+      const documents = await getLocal(
+        storageKeys.filter(
+          (storageKey) =>
+            storageKey.endsWith(':meta') ||
+            storageKey.endsWith(':content') ||
+            storageKey.includes(':summary-leaf:') ||
+            storageKey.includes(':summary-unit:'),
+        ),
+      );
       const groups = new Map();
-      const invalidKeys = [];
+      const currentKeys = new Set();
+      const obsoleteKeys = new Set();
 
-      const groupFor = (key) => {
-        let group = groups.get(key);
-        if (!group) {
-          group = {};
-          groups.set(key, group);
+      for (const storageKey of storageKeys.filter((key) => key.endsWith(':meta'))) {
+        const key = recordKeyFromStorageDocument(storageKey, ':meta');
+        const meta = documents[storageKey];
+        if (!key || metaStorageKey(key) !== storageKey || !isCurrentRecordMeta(meta)) {
+          obsoleteKeys.add(storageKey);
+          continue;
         }
-        return group;
-      };
+        currentKeys.add(key);
+        groups.set(key, { meta, content: documents[contentStorageKey(key)] || {} });
+      }
 
-      for (const [storageKey, value] of Object.entries(documents)) {
-        const metaKey = recordKeyFromStorageDocument(storageKey, ':meta');
-        if (metaKey && metaStorageKey(metaKey) === storageKey) {
-          groupFor(metaKey).meta = value;
-          groupFor(metaKey).metaStorageKey = storageKey;
-          continue;
+      for (const storageKey of storageKeys) {
+        if (storageKey.endsWith(':meta')) continue;
+        const owner = recognizedRecordDocumentOwner(storageKey);
+        if (
+          !owner ||
+          !storageKey.startsWith(recordStoragePrefix(owner)) ||
+          !currentKeys.has(owner) ||
+          !workDocumentMatchesOwnerGeneration(
+            storageKey,
+            documents[storageKey],
+            groups.get(owner).meta,
+          )
+        ) {
+          obsoleteKeys.add(storageKey);
         }
-        const contentKey = recordKeyFromStorageDocument(storageKey, ':content');
-        if (contentKey && contentStorageKey(contentKey) === storageKey) {
-          groupFor(contentKey).content = value;
-          continue;
-        }
-        const summariesKey = recordKeyFromStorageDocument(storageKey, ':summaries');
-        if (summariesKey && summariesStorageKey(summariesKey) === storageKey) {
-          groupFor(summariesKey).summaries = value;
-          continue;
-        }
-        // Unknown record-namespace documents may belong to a newer extension
-        // version. Leave them for explicit per-page/all-page cleanup.
       }
 
       const current = await readIndex();
@@ -833,24 +1219,17 @@ export async function reconcileRecordStorage() {
         next.meta[key] = buildRecordMeta({ ...(group.content || {}), ...group.meta, key });
       };
 
-      // Preserve current ordering, then append records recovered from storage.
       for (const key of current.keys) addRecord(key, groups.get(key));
       for (const [key, group] of groups) addRecord(key, group);
 
-      for (const [key, group] of groups) {
-        if (group.meta && typeof group.meta === 'object' && !Array.isArray(group.meta)) continue;
-        if (group.metaStorageKey) invalidKeys.push(group.metaStorageKey);
-        if (group.content) invalidKeys.push(contentStorageKey(key));
-        if (group.summaries) invalidKeys.push(summariesStorageKey(key));
-      }
-
-      if (invalidKeys.length) await removeLocal(invalidKeys);
+      const uniqueObsoleteKeys = [...obsoleteKeys];
+      if (uniqueObsoleteKeys.length) await removeLocal(uniqueObsoleteKeys);
       if (JSON.stringify(current) !== JSON.stringify(next)) await writeIndex(next);
 
       return {
         recordCount: next.keys.length,
         recoveredCount: next.keys.filter((key) => !current.keys.includes(key)).length,
-        removedKeys: invalidKeys.length,
+        removedKeys: uniqueObsoleteKeys.length,
       };
     }),
   );
@@ -871,7 +1250,7 @@ export async function findRecordByUrl(url) {
   const items = await getLocal(idx.keys.map(metaStorageKey));
   for (const k of idx.keys) {
     const meta = items[metaStorageKey(k)];
-    if (meta && meta.sourceUrl === url) {
+    if (isCurrentRecordMeta(meta) && meta.sourceUrl === url) {
       return readRecord(k);
     }
   }

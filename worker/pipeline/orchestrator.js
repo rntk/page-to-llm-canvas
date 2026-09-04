@@ -50,7 +50,7 @@ export function isSummaryCheckpointComplete(record) {
 /**
  * A summary checkpoint is tied to the content revision whose sentences and
  * topics it references.  Missing revisions are deliberately not treated as
- * compatible: imported/legacy records cannot prove that their checkpoint was
+ * compatible: records without revisions cannot prove that their checkpoint was
  * derived from the current content, so they take the fresh topic-building
  * path instead of reusing potentially stale summaries.
  *
@@ -210,7 +210,7 @@ export function createPipelineRunner({
       const resumePlan = planResume(record);
       // A matching revision plus malformed structure is unsafe to consume and
       // must preserve the checkpoint for an explicit Reprocess decision.  A
-      // stale or legacy revision is different: the saved topics are not proven
+      // A stale or missing revision is different: the saved topics are not proven
       // to belong to this content, so rebuild them through computeTopics rather
       // than displaying or summarizing stale data.
       const resuming = resumePlan.resuming;

@@ -124,6 +124,7 @@ describe('message handler registry (no chrome global)', () => {
         MSG.cancelRecordProcessing,
         MSG.resolveSummaryErrors,
         MSG.getRecord,
+        MSG.getRecordView,
         MSG.listRecords,
         MSG.importRecords,
         MSG.deleteRecord,

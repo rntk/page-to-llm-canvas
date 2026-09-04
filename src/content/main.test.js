@@ -720,7 +720,7 @@ describe('content script main.jsx', () => {
   it('aborts a pending in-page rail when another surface opens', async () => {
     let resolveMessage = null;
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      if (msg.type === 'getRecord' && msg.key === 'delay-key') {
+      if (msg.type === 'getRecordView' && msg.key === 'delay-key') {
         resolveMessage = () =>
           cb({
             ok: true,
@@ -776,7 +776,7 @@ describe('content script main.jsx', () => {
     document.body.appendChild(host);
 
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      if (msg.type === 'getRecord' && msg.key === 'switch-key') {
+      if (msg.type === 'getRecordView' && msg.key === 'switch-key') {
         cb({
           ok: true,
           record: {
@@ -846,7 +846,7 @@ describe('content script main.jsx', () => {
     document.body.appendChild(video);
 
     chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
-      if (msg.type === 'getRecord' && msg.key === 'youtube-key') {
+      if (msg.type === 'getRecordView' && msg.key === 'youtube-key') {
         cb({
           ok: true,
           record: {

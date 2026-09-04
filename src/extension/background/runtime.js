@@ -1,4 +1,19 @@
 export const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
+export const BOOTSTRAP_WAIT_TIMEOUT_MS = 10_000;
+
+async function waitForBootstrap(bootstrapReady, timeoutMs) {
+  let timeoutId;
+  try {
+    await Promise.race([
+      Promise.resolve().then(() => bootstrapReady?.()),
+      new Promise((resolve) => {
+        timeoutId = setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 /**
  * Installs every browser listener the worker owns.
@@ -18,6 +33,8 @@ export const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
  * @param {function(): Promise<void>} [deps.bootstrapReady] Resolves once cold-start
  *   storage reconciliation has finished. Read lazily (a thunk, not the promise)
  *   because the entrypoint creates it after this call returns.
+ * @param {number} [deps.bootstrapWaitTimeoutMs] Maximum time to preserve bootstrap
+ *   ordering before dispatching anyway.
  */
 export function installBackgroundRuntime({
   chromeRuntime,
@@ -27,6 +44,7 @@ export function installBackgroundRuntime({
   pipelineSupervisor,
   scheduleActionProgressIconRefresh,
   bootstrapReady,
+  bootstrapWaitTimeoutMs = BOOTSTRAP_WAIT_TIMEOUT_MS,
 }) {
   chromeAlarms.onAlarm.addListener((alarm) => {
     pipelineSupervisor.handleKeepAliveAlarm(alarm);
@@ -52,9 +70,12 @@ export function installBackgroundRuntime({
     // Two-arg form on purpose: a trailing .catch would also catch a throw from
     // sendResponse itself and then call it a second time, so a failed send would
     // rethrow into an unhandled rejection and leave the sender hanging.
-    dispatchMessage(msg, sender).then(sendResponse, (err) => {
-      sendResponse({ ok: false, error: (err && err.message) || String(err) });
-    });
+    Promise.resolve()
+      .then(() => waitForBootstrap(bootstrapReady, bootstrapWaitTimeoutMs))
+      .then(() => dispatchMessage(msg, sender))
+      .then(sendResponse, (err) => {
+        sendResponse({ ok: false, error: (err && err.message) || String(err) });
+      });
 
     return true;
   });
@@ -73,7 +94,7 @@ export function installBackgroundRuntime({
       // A bootstrap that fails must not strand in-flight records: the ordering
       // is a preference, resuming at all is the requirement. (`backgroundReady`
       // already swallows its own errors; this covers any other provider.)
-      await Promise.resolve(bootstrapReady?.()).catch(() => {});
+      await waitForBootstrap(bootstrapReady, bootstrapWaitTimeoutMs).catch(() => {});
       await pipelineSupervisor.resumeInFlightRecords();
     } catch (_) {
       /* resumeInFlightRecords logs its own failures; nothing to add here. */

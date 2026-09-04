@@ -17,7 +17,7 @@
 // resulting state mutation and logging.
 
 import { splitContiguousRuns } from './topicTreeMerge.js';
-import { isFailedSummaryRun, migrateLegacySummaryRunMarkers } from './summaryRunMarkers.js';
+import { isFailedSummaryRun } from './summaryRunMarkers.js';
 
 /**
  * A single summarization attempt's stored output.
@@ -101,11 +101,10 @@ const sameRun = (a, b) =>
 const runKey = (sentences) => sentences.join(',');
 
 /**
- * Plans each expected run independently. This also migrates the old shape,
- * where one topic-level `error`/`forcedEmpty` marker invalidated every run.
- * Structurally valid non-empty runs are retained; only failed/missing runs
- * become pending. `acceptedFailure` is intentionally reusable and is carried
- * as a topic marker for the force-finalize tree pass.
+ * Plans each expected run independently. Structurally valid non-empty runs are
+ * retained; only failed/missing runs become pending. `acceptedFailure` is
+ * intentionally reusable and is carried as a topic marker for the
+ * force-finalize tree pass.
  *
  * @param {{name: string, sentences?: number[]}} topic
  * @param {PreviousSummaryEntry|undefined} previous
@@ -113,30 +112,14 @@ const runKey = (sentences) => sentences.join(',');
  */
 function planSummaryRuns(topic, previous) {
   const expectedRuns = splitContiguousRuns(topic?.sentences);
-  const legacyRuns =
-    previous &&
-    !Array.isArray(previous.runs) &&
-    Array.isArray(previous.source_sentences) &&
-    typeof previous.text === 'string' &&
-    expectedRuns.length === 1 &&
-    previous.source_sentences.length === expectedRuns[0].length &&
-    previous.source_sentences.every((id, index) => id === expectedRuns[0][index])
-      ? [{ sentences: expectedRuns[0], text: previous.text }]
-      : null;
   const validPrevious =
     previous &&
     typeof previous === 'object' &&
     !Array.isArray(previous) &&
-    (Array.isArray(previous.runs) || legacyRuns);
-  const migratedPrevious = validPrevious
-    ? migrateLegacySummaryRunMarkers({
-        ...previous,
-        runs: previous.runs || legacyRuns,
-      })
-    : null;
+    Array.isArray(previous.runs);
   const previousByKey = new Map();
   if (validPrevious) {
-    for (const run of migratedPrevious.runs) {
+    for (const run of previous.runs) {
       if (run && Array.isArray(run.sentences)) previousByKey.set(runKey(run.sentences), run);
     }
   }
@@ -160,9 +143,9 @@ function planSummaryRuns(topic, previous) {
       runResults.push(prior);
       pendingRunIndexes.push(index);
       previousFailure ||= {
-        error_kind: prior.error_kind || migratedPrevious?.error_kind,
-        error_message: prior.error_message || migratedPrevious?.error_message,
-        error_detail: prior.error_detail || migratedPrevious?.error_detail,
+        error_kind: prior.error_kind,
+        error_message: prior.error_message,
+        error_detail: prior.error_detail,
       };
     } else {
       runResults.push(prior);
@@ -174,14 +157,6 @@ function planSummaryRuns(topic, previous) {
     pendingRunIndexes,
     acceptedFailure,
     // Preserve useful error details while the failed run is being retried.
-    previousFailure:
-      previousFailure ||
-      (migratedPrevious?.error === true
-        ? {
-            error_kind: migratedPrevious.error_kind,
-            error_message: migratedPrevious.error_message,
-            error_detail: migratedPrevious.error_detail,
-          }
-        : null),
+    previousFailure,
   };
 }

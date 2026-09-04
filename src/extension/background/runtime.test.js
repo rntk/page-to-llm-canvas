@@ -102,9 +102,32 @@ describe('installBackgroundRuntime (no chrome global)', () => {
 
     expect(ctx.messageListener(msg, sender, sendResponse)).toBe(true);
 
-    expect(ctx.dispatchMessage).toHaveBeenCalledWith(msg, sender);
+    await vi.waitFor(() => expect(ctx.dispatchMessage).toHaveBeenCalledWith(msg, sender));
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true, items: [] }));
     expect(sendResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('dispatches after the bootstrap wait times out', async () => {
+    vi.useFakeTimers();
+    try {
+      const ctx = setup({
+        bootstrapReady: () => new Promise(() => {}),
+        bootstrapWaitTimeoutMs: 25,
+      });
+      const sendResponse = vi.fn();
+      const msg = { type: 'listRecords' };
+
+      ctx.messageListener(msg, {}, sendResponse);
+      await Promise.resolve();
+      expect(ctx.dispatchMessage).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(25);
+
+      expect(ctx.dispatchMessage).toHaveBeenCalledWith(msg, {});
+      expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('answers exactly once when dispatch rejects', async () => {

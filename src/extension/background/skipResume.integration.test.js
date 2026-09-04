@@ -32,7 +32,7 @@ function makeChromeMock() {
   const runtime = { lastError: null };
   const local = {
     _store: store,
-    getKeys: vi.fn((cb) => cb([...store.keys()])),
+    getKeys: vi.fn(() => Promise.resolve([...store.keys()])),
     get: vi.fn((keys, cb) => {
       runtime.lastError = null;
       const keyList =
@@ -122,7 +122,16 @@ function makeParkedRecord(key) {
       'A>x': { runs: [{ sentences: [1, 2], text: 'LEAF x' }], source_sentences: [1, 2] },
       'A>y': { runs: [{ sentences: [3, 4], text: 'LEAF y' }], source_sentences: [3, 4] },
       'A>z': {
-        runs: [{ sentences: [10, 11], text: '' }],
+        runs: [
+          {
+            sentences: [10, 11],
+            text: '',
+            error: true,
+            error_kind: 'timeout',
+            error_message: 'The model timed out.',
+            error_detail: 'timed out',
+          },
+        ],
         source_sentences: [10, 11],
         error: true,
         error_kind: 'timeout',

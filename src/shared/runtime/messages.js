@@ -13,6 +13,7 @@ export const MSG = Object.freeze({
   cancelRecordProcessing: 'cancelRecordProcessing',
   resolveSummaryErrors: 'resolveSummaryErrors',
   getRecord: 'getRecord',
+  getRecordView: 'getRecordView',
   listRecords: 'listRecords',
   importRecords: 'importRecords',
   deleteRecord: 'deleteRecord',

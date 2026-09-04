@@ -31,8 +31,15 @@ export function createRecordHandlers({
   summaryCheckpoint,
   logger = createLogger(),
 }) {
-  const { readRecord, updateRecord, listRecords, writeRecord, deleteRecord, deleteAll } =
-    recordRepository;
+  const {
+    readRecord,
+    readRecordView,
+    updateRecord,
+    listRecords,
+    writeRecord,
+    deleteRecord,
+    deleteAll,
+  } = recordRepository;
 
   // `createDispatcher` already converts a thrown error into
   // `{ ok: false, error: e.message }`, so throwing here produces exactly the
@@ -107,13 +114,8 @@ export function createRecordHandlers({
             // already paid for. Applying a newly enabled global "skip
             // summaries" preference here would finalize it by clearing those
             // saved summaries. Fresh retries retain the directive chosen when
-            // the failed run was submitted; only legacy records without one
-            // fall back to the current global setting.
-            skipSummaries: resumesSummaries
-              ? false
-              : typeof rec.skipSummaries === 'boolean'
-                ? rec.skipSummaries
-                : await getStoredSummariesDisabled(),
+            // the failed run was submitted.
+            skipSummaries: resumesSummaries ? false : rec.skipSummaries === true,
             forceFinalize,
             acceptedMergeFailurePaths,
             summariesIncomplete: false,
@@ -364,18 +366,31 @@ export function createRecordHandlers({
 
     [MSG.getRecord]: {
       requiresExtensionPage: false,
-      validate: () => null,
+      validate: requireKey,
       async handle(msg) {
-        const rec = await readRecord(msg.key);
-        if (rec) {
-          const runtimeState = await pipelineSupervisor.getPipelineFailures([rec]);
-          return {
-            ok: true,
-            record: rec,
-            pipelineFailure: runtimeState.failures[rec.key] || null,
-          };
-        }
-        return { ok: false, error: 'record not found' };
+        const record = await readRecord(msg.key);
+        if (!record) return { ok: false, code: 'not_found', error: 'record not found' };
+        const runtimeState = await pipelineSupervisor.getPipelineFailures([record]);
+        return {
+          ok: true,
+          record,
+          pipelineFailure: runtimeState.failures[record.key] || null,
+        };
+      },
+    },
+
+    [MSG.getRecordView]: {
+      requiresExtensionPage: false,
+      validate: requireKey,
+      async handle(msg) {
+        const record = await readRecordView(msg.key);
+        if (!record) return { ok: false, code: 'not_found', error: 'record not found' };
+        const runtimeState = await pipelineSupervisor.getPipelineFailures([record]);
+        return {
+          ok: true,
+          record,
+          pipelineFailure: runtimeState.failures[record.key] || null,
+        };
       },
     },
 
