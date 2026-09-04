@@ -1236,23 +1236,60 @@ export async function reconcileRecordStorage() {
 }
 
 /**
+ * Normalizes a record's picked-block selector list for identity comparison.
+ * Order is not part of a selection's identity: the capture walks the DOM, so
+ * the same picked blocks can arrive in a different order between submissions.
+ * @param {*} value Raw `selectors` value from a record or submission.
+ * @returns {string[]} Sorted, de-duplicated, non-empty selector strings.
+ */
+function normalizeSelectors(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((sel) => typeof sel === 'string' && sel))].sort();
+}
+
+/**
+ * @param {string[]} a Normalized selector list.
+ * @param {string[]} b Normalized selector list.
+ */
+function selectorsEqual(a, b) {
+  return a.length === b.length && a.every((sel, i) => sel === b[i]);
+}
+
+/**
  * Finds a record in storage by its source URL. Only reads the small meta doc
- * for each indexed key — never the content/summaries docs — since
- * `sourceUrl` never lives there; the full record is only read once, for the
- * actual match.
+ * for each indexed key — never the content/summaries docs — since neither
+ * `sourceUrl` nor `selectors` lives there; the full record is only read once,
+ * for the actual match.
+ *
+ * A single page can hold several independently picked blocks (chapter 1 and
+ * chapter 2 of one long article), and each is its own record. The URL alone
+ * therefore does not identify a record: when the caller names the blocks it
+ * picked, a record only matches if it was built from the same selection.
+ * Selectors are compared only when both sides have them — records written
+ * without a selection (imports, pre-selector records) stay reachable by URL
+ * alone, so they keep being refreshed in place rather than duplicated.
+ *
  * @param {string} url - The URL of the source page to match.
+ * @param {object} [options]
+ * @param {string[]} [options.selectors] - Picked-block selectors to match on.
  * @returns {Promise<ArticleRecord | null>} The matching record, or null if not found.
  */
-export async function findRecordByUrl(url) {
+export async function findRecordByUrl(url, { selectors } = {}) {
   if (!url) return null;
   const idx = await readIndex();
   if (!idx.keys.length) return null;
   const items = await getLocal(idx.keys.map(metaStorageKey));
+  const wanted = normalizeSelectors(selectors);
+  // Only used when the caller named a selection: the first selector-less
+  // record on this URL, taken as a match when no record carries that selection.
+  let fallbackKey = null;
   for (const k of idx.keys) {
     const meta = items[metaStorageKey(k)];
-    if (isCurrentRecordMeta(meta) && meta.sourceUrl === url) {
-      return readRecord(k);
-    }
+    if (!isCurrentRecordMeta(meta) || meta.sourceUrl !== url) continue;
+    if (!wanted.length) return readRecord(k);
+    const found = normalizeSelectors(meta.selectors);
+    if (selectorsEqual(found, wanted)) return readRecord(k);
+    if (!found.length && fallbackKey === null) fallbackKey = k;
   }
-  return null;
+  return fallbackKey === null ? null : readRecord(fallbackKey);
 }

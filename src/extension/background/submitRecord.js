@@ -13,9 +13,9 @@ function comparableCapturedText(value) {
 }
 
 /**
- * Builds the submission entry point: dedupe by URL or content hash, reset a
- * reused record back to a queued state, persist it, then hand it to the
- * supervisor.
+ * Builds the submission entry point: dedupe by URL + selection or content
+ * hash, reset a reused record back to a queued state, persist it, then hand
+ * it to the supervisor.
  *
  * @param {object} deps
  * @param {{readRecord: Function, writeRecord: Function, updateRecord: Function, findRecordByUrl: Function}} deps.recordRepository
@@ -51,7 +51,11 @@ export function createSubmitRecord({
 
     let existing = null;
     if (sourceUrl) {
-      existing = await findRecordByUrl(sourceUrl);
+      // Selection-aware on purpose: one page can hold several independently
+      // picked blocks, so a URL match only counts when it carries the same
+      // selection (see findRecordByUrl). Matching on the URL alone would let a
+      // second pick on the same page overwrite the first one's analysis.
+      existing = await findRecordByUrl(sourceUrl, { selectors });
     }
 
     let key;

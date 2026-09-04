@@ -397,6 +397,45 @@ describe('background pipeline lifecycle', () => {
     expect(storedB.sourceUrl).toBe('https://example.com/page-b');
   });
 
+  it('keeps separate blocks picked from one page as independent records', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    const { handleSubmit, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const url = 'https://example.com/long-article';
+    const chapter1 = await handleSubmit({
+      html: '<p>chapter one</p>',
+      capturedText: 'chapter one',
+      captureVersion: 2,
+      sourceUrl: url,
+      selectors: ['#chapter-1'],
+    });
+    const chapter2 = await handleSubmit({
+      html: '<p>chapter two</p>',
+      capturedText: 'chapter two',
+      captureVersion: 2,
+      sourceUrl: url,
+      selectors: ['#chapter-2'],
+    });
+
+    expect(chapter1.key).not.toBe(chapter2.key);
+    expect((await readRecord(chapter1.key)).capturedText).toBe('chapter one');
+    expect((await readRecord(chapter2.key)).capturedText).toBe('chapter two');
+
+    // Re-picking the first block still reuses its own record.
+    const again = await handleSubmit({
+      html: '<p>chapter one revised</p>',
+      capturedText: 'chapter one revised',
+      captureVersion: 2,
+      sourceUrl: url,
+      selectors: ['#chapter-1'],
+    });
+    expect(again.key).toBe(chapter1.key);
+    expect((await readRecord(chapter2.key)).capturedText).toBe('chapter two');
+  });
+
   it('does not start duplicate jobs for the same key', async () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);

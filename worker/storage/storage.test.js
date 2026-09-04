@@ -1445,4 +1445,48 @@ describe('findRecordByUrl', () => {
     expect(found).not.toBeNull();
     expect(found.key).toBe('k2');
   });
+
+  it('matches the record built from the same selection on a shared URL', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    const url = 'https://example.com/long-article';
+    await seedRecord(mock, makeRecord('chapter1', { sourceUrl: url, selectors: ['#c1'] }));
+    await seedRecord(mock, makeRecord('chapter2', { sourceUrl: url, selectors: ['#c2'] }));
+
+    expect((await findRecordByUrl(url, { selectors: ['#c1'] })).key).toBe('chapter1');
+    expect((await findRecordByUrl(url, { selectors: ['#c2'] })).key).toBe('chapter2');
+  });
+
+  it('ignores selector order and duplicates when matching a selection', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    const url = 'https://example.com/two-blocks';
+    await seedRecord(mock, makeRecord('both', { sourceUrl: url, selectors: ['#a', '#b'] }));
+
+    const found = await findRecordByUrl(url, { selectors: ['#b', '#a', '#b'] });
+    expect(found.key).toBe('both');
+  });
+
+  it('returns null for a new selection on an already captured URL', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    const url = 'https://example.com/long-article';
+    await seedRecord(mock, makeRecord('chapter1', { sourceUrl: url, selectors: ['#c1'] }));
+
+    expect(await findRecordByUrl(url, { selectors: ['#c3'] })).toBeNull();
+  });
+
+  it('falls back to a selector-less record on the same URL', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+
+    const url = 'https://example.com/imported';
+    await seedRecord(mock, makeRecord('imported', { sourceUrl: url }));
+
+    const found = await findRecordByUrl(url, { selectors: ['#c1'] });
+    expect(found.key).toBe('imported');
+  });
 });
