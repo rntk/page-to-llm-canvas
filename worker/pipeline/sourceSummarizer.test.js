@@ -162,7 +162,7 @@ describe('makeSourceSummarizer', () => {
     });
     expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
     expect(callLLMWithRetry).toHaveBeenCalledWith(
-      expect.objectContaining({ temperature: 0.8, signal: undefined }),
+      expect.objectContaining({ signal: undefined }),
       expect.any(Number),
     );
     expect(callLLMWithRetry.mock.calls[0][0].prompt).toContain('LANGUAGE:');
@@ -275,7 +275,7 @@ describe('makeSourceSummarizer', () => {
     expect(callLLMWithRetry).toHaveBeenCalledTimes(4);
     expect(limit).toHaveBeenCalledTimes(4);
     expect(callLLMWithRetry.mock.calls.at(-1)[0]).toEqual(
-      expect.objectContaining({ temperature: 0.8 }),
+      expect.objectContaining({ taskType: 'article_summary_merge' }),
     );
     expect(callLLMWithRetry.mock.calls.at(-1)[0].prompt).toContain('LANGUAGE:');
   });

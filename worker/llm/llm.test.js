@@ -169,11 +169,43 @@ describe('callLLMDirect', () => {
         body: JSON.stringify({
           model: 'gpt-oss-20B',
           messages: [{ role: 'user', content: 'hello' }],
-          temperature: 0.8,
           cache_prompt: true,
         }),
       }),
     );
+  });
+
+  it('sends the provider temperature configured for the request task', async () => {
+    stubActiveProvider({
+      ...OPENAI_COMP_PROVIDER,
+      temperatures: { summaries: 0.8, splitting: 0.2 },
+    });
+    const { callLLMDirect } = await getLLM();
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
+    });
+
+    await callLLMDirect({ prompt: 'hello', taskType: 'topic_ranges' });
+
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+    expect(body.temperature).toBe(0.2);
+  });
+
+  it('omits temperature when the task has no configured provider temperature', async () => {
+    stubActiveProvider({ ...OPENAI_COMP_PROVIDER, temperatures: { summaries: 0.8 } });
+    const { callLLMDirect } = await getLLM();
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
+    });
+
+    await callLLMDirect({ prompt: 'hello', taskType: 'chat_answer' });
+
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+    expect('temperature' in body).toBe(false);
   });
 
   it('uses an explicit provider snapshot instead of rereading the active provider', async () => {

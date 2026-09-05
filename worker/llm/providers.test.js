@@ -69,6 +69,32 @@ describe('normalizeProvider', () => {
     expect(() => normalizeProvider({ type: 'openai', name: 'n' })).toThrow(/model/);
   });
 
+  it('keeps per-task temperatures and drops the empty ones', () => {
+    const entry = normalizeProvider({
+      type: 'openai',
+      name: 'n',
+      model: 'm',
+      temperatures: { summaries: '0.8', chat: 0, splitting: '' },
+    });
+    expect(entry.temperatures).toEqual({ summaries: 0.8, chat: 0 });
+  });
+
+  it('leaves temperatures unset when no field is filled in', () => {
+    const entry = normalizeProvider({
+      type: 'openai',
+      name: 'n',
+      model: 'm',
+      temperatures: { summaries: '', chat: '', splitting: '' },
+    });
+    expect(entry.temperatures).toBeUndefined();
+  });
+
+  it('rejects an out-of-range temperature', () => {
+    expect(() =>
+      normalizeProvider({ type: 'openai', name: 'n', model: 'm', temperatures: { chat: '3' } }),
+    ).toThrow(/Temperature \(chat\)/);
+  });
+
   it('requires a url for openai_comp', () => {
     expect(() => normalizeProvider({ type: 'openai_comp', name: 'n', model: 'm' })).toThrow(/URL/);
   });

@@ -40,7 +40,6 @@ Answer in 1-2 short sentences unless the question genuinely requires more.
 The text answer should contain only what the article does not state directly: the direct answer to the question, connections between passages, or caveats.
 If the highlighted passages fully answer the question, a one-sentence pointer is enough.`;
 
-const CHAT_TEMPERATURE = 0.4;
 // Keep an individual chat request comfortably below the source-sized prompts
 // used elsewhere in the pipeline. Chunks always break at sentence boundaries
 // and retain their original line numbers, so highlight ranges remain global.
@@ -562,7 +561,6 @@ async function runArticleChatChunk({
       chatTurnId: turnId,
       messages,
       tools: [HIGHLIGHT_SPAN_TOOL],
-      temperature: CHAT_TEMPERATURE,
       taskType: LLM_TASK_TYPES.CHAT_ANSWER,
     });
     throwIfAborted(signal);
@@ -909,7 +907,6 @@ export async function runArticleChatTurn(options = {}) {
         const synthesis = await sendRequest({
           type: MSG.llmChatCompletion,
           messages: buildSynthesisMessages(question, group),
-          temperature: CHAT_TEMPERATURE,
           taskType: LLM_TASK_TYPES.CHAT_SYNTHESIS,
         });
         if (!synthesis?.ok) throw new Error(synthesis?.error || 'LLM request failed');

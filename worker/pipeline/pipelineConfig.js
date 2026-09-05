@@ -137,7 +137,8 @@ export const SUMMARY_MAX_MERGE_ROUNDS = 8;
 // together they form the provider-facing summary workload.
 export const SUMMARY_CONCURRENCY = 4;
 
-// The primary chunk dispatch and the oversize re-split share these: both are
+// The primary chunk dispatch and the oversize re-split share this: both are
 // the same provider-facing topic-ranging workload and must be tuned together.
+// Sampling temperature is not set here — it comes from the active provider's
+// per-task configuration, and stays unset (unsent) unless configured.
 export const TOPIC_RANGE_CONCURRENCY = 4;
-export const TOPIC_RANGE_TEMPERATURE = 0.2;

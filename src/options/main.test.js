@@ -1151,6 +1151,66 @@ describe('options main.jsx', () => {
     );
   });
 
+  it('sends only the filled-in per-task temperatures and notes the empty ones', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') cb({ ok: true, items: [] });
+      else if (msg.type === 'listProviders') cb({ ok: true, providers: [], activeId: null });
+      else if (msg.type === 'saveProvider') cb({ ok: true, provider: msg.provider });
+    });
+
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('providers');
+    await waitFor(() => {
+      const addButton = Array.from(document.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Add provider',
+      );
+      expect(addButton).not.toBeUndefined();
+    });
+    Array.from(document.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Add provider')
+      .click();
+    await waitFor(() => {
+      expect(document.getElementById('provider-temperature-chat')).not.toBeNull();
+    });
+
+    // Every field starts empty, so each one explains that nothing is sent.
+    for (const task of ['summaries', 'chat', 'splitting']) {
+      expect(document.getElementById(`provider-temperature-${task}-note`).textContent).toContain(
+        'no temperature parameter is sent',
+      );
+    }
+
+    const setValue = (id, value) => {
+      const el = document.getElementById(id);
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, value);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    setValue('provider-name', 'My OpenAI');
+    setValue('provider-model', 'o3');
+    setValue('provider-temperature-chat', '0.4');
+    await waitFor(() => {
+      expect(document.getElementById('provider-temperature-chat-note').textContent).not.toContain(
+        'no temperature parameter is sent',
+      );
+    });
+
+    document
+      .querySelector('.provider-form')
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'saveProvider',
+        provider: expect.objectContaining({
+          temperatures: { summaries: '', chat: '0.4', splitting: '' },
+        }),
+      }),
+      expect.any(Function),
+    );
+  });
+
   it('warns and wipes the stored token when an openai_comp URL changes with a blank token', async () => {
     sendMessageMock.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') cb({ ok: true, items: [] });

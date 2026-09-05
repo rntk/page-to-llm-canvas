@@ -56,7 +56,6 @@ export function createChatCompletionService({
         tools,
         toolChoice,
         parallelToolCalls,
-        temperature = 0.8,
         taskType,
         chatTurnId,
       } = msg;
@@ -80,7 +79,7 @@ export function createChatCompletionService({
               tools,
               toolChoice,
               parallelToolCalls,
-              temperature,
+              taskType,
               signal: controller?.signal,
               metricsCollector: (collected) => {
                 if (collected && typeof collected === 'object') sample = collected;

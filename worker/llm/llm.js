@@ -2,6 +2,7 @@
 // Runs in the service worker context; dispatches to the active provider's client.
 
 import { getActiveProvider } from './providers.js';
+import { resolveProviderTemperature } from './temperatures.js';
 import { createClient } from './clients.js';
 import { getStoredVerboseLogs } from '../../src/shared/runtime/verboseLogSettings.js';
 import { getStoredLlmRequestTimeoutSeconds } from '../settings/llmTimeout.js';
@@ -91,7 +92,7 @@ export function createLLMService(overrides = {}) {
  * @param {Array<Record<string, unknown>>} [options.tools]
  * @param {unknown} [options.toolChoice]
  * @param {boolean} [options.parallelToolCalls]
- * @param {number} [options.temperature]
+ * @param {string} [options.taskType] Telemetry task type; selects the provider temperature.
  * @param {AbortSignal} [options.signal]
  * @param {object|null} [options.provider] Provider snapshot to use instead of rereading the active provider.
  * @param {function(Record<string, unknown>): void} [options.metricsCollector]
@@ -113,15 +114,7 @@ async function callLLMDirectWithDependencies(options, dependencies) {
   } = dependencies;
   const scheduler = { setTimeout: scheduleTimeout, clearTimeout: cancelTimeout };
   const clientLogger = { info: logInfo, warn: logWarn };
-  const {
-    prompt = '',
-    messages,
-    tools,
-    toolChoice,
-    parallelToolCalls,
-    temperature = 0.8,
-    signal,
-  } = options;
+  const { prompt = '', messages, tools, toolChoice, parallelToolCalls, signal } = options;
   // Snapshot settings per call (independent of provider resolution below, so
   // overlap them instead of chaining after it) so mid-flight options changes
   // apply only to the next request or retry attempt. This extra handler keeps
@@ -147,6 +140,10 @@ async function callLLMDirectWithDependencies(options, dependencies) {
       retryable: false,
     };
   }
+
+  // Provider-configured, per-task temperature. Undefined leaves the parameter
+  // out of the request entirely — the only shape some models accept.
+  const temperature = resolveProviderTemperature(provider, options.taskType);
 
   let client;
   try {
@@ -267,7 +264,7 @@ function getErrorMessage(error) {
  * @param {Function} callDirect Direct LLM request function.
  * @param {object} options
  * @param {string} options.prompt
- * @param {number} [options.temperature]
+ * @param {string} [options.taskType]
  * @param {AbortSignal} [options.signal]
  * @param {function(Record<string, unknown>): void} [options.metricsCollector]
  * @returns {Promise<string>}
@@ -290,7 +287,7 @@ async function callLLMUsing(callDirect, options) {
  * @param {object} dependencies External LLM capabilities.
  * @param {object} opts
  * @param {string} opts.prompt
- * @param {number} [opts.temperature]
+ * @param {string} [opts.taskType]
  * @param {AbortSignal} [opts.signal]
  * @param {function(Record<string, unknown>): void} [opts.metricsCollector]
  * @param {number} [maxRetries]
@@ -359,7 +356,7 @@ const defaultLLMService = createLLMService();
  * @param {Array<Record<string, unknown>>} [options.tools] Tool definitions.
  * @param {unknown} [options.toolChoice] Provider tool-choice policy.
  * @param {boolean} [options.parallelToolCalls] Whether parallel tool calls are allowed.
- * @param {number} [options.temperature] Sampling temperature.
+ * @param {string} [options.taskType] Telemetry task type; picks the provider-configured temperature.
  * @param {AbortSignal} [options.signal] Caller cancellation signal.
  * @param {object|null} [options.provider] Provider snapshot override.
  * @param {function(Record<string, unknown>): void} [options.metricsCollector] Metrics sink.

@@ -216,10 +216,6 @@ export function parseRetryAfterMs(headerValue) {
   return undefined;
 }
 
-// Models that reject the `temperature` parameter. Sending temperature to these
-// yields a 400.
-const NO_TEMPERATURE_MODELS = new Set(['gpt-5-mini', 'gpt-5-nano']);
-
 function finiteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
@@ -375,8 +371,9 @@ function logClientVerbose(logger, verboseLogs, ...args) {
  * OpenAI-compatible `/chat/completions` client. Covers openai, openrouter and
  * openai_comp (custom URL). `cachePrompt` adds the llama.cpp-specific
  * `cache_prompt` flag — only safe for local OpenAI-compatible servers.
- * `guardTemperature` drops the temperature field for models that reject it
- * (OpenAI-hosted only).
+ * An unset temperature is never sent: the provider's per-task temperature
+ * setting decides, and leaving it unset is how a model that rejects the
+ * parameter is served.
  * @param {object} options Client options.
  * @param {string} options.baseUrl
  * @param {string} [options.apiKey]
@@ -384,7 +381,6 @@ function logClientVerbose(logger, verboseLogs, ...args) {
  * @param {string} [options.serviceTier]
  * @param {boolean} [options.cachePrompt]
  * @param {string} [options.promptCacheKey]
- * @param {boolean} [options.guardTemperature]
  * @param {string} [options.providerLabel]
  * @param {Function} options.fetchImpl HTTP transport.
  * @param {{info: Function, warn?: Function}} options.logger Client logger.
@@ -396,7 +392,6 @@ function openAICompatibleClient({
   serviceTier,
   cachePrompt = false,
   promptCacheKey = '',
-  guardTemperature = false,
   providerLabel = 'openai-compatible',
   fetchImpl,
   logger,
@@ -408,7 +403,7 @@ function openAICompatibleClient({
       tools,
       toolChoice,
       parallelToolCalls,
-      temperature = 0.8,
+      temperature,
       signal,
       verboseLogs = false,
     }) {
@@ -423,9 +418,8 @@ function openAICompatibleClient({
             ? messages.map(toProviderMessage)
             : [{ role: 'user', content: prompt }],
       };
-      if (!(guardTemperature && NO_TEMPERATURE_MODELS.has(model))) {
-        body.temperature = temperature;
-      }
+      // An unset temperature is left out of the body entirely.
+      if (Number.isFinite(temperature)) body.temperature = temperature;
       if (serviceTier) body.service_tier = serviceTier;
       if (promptCacheKey) body.prompt_cache_key = promptCacheKey;
       if (cachePrompt) body.cache_prompt = true;
@@ -712,7 +706,7 @@ function toAnthropicServiceTier(serviceTier) {
  *   tools: Array<{name: string, description: string, parameters: Record<string, unknown>}>,
  *   toolChoice: unknown,
  *   parallelToolCalls: boolean,
- *   temperature: number,
+ *   temperature: number|undefined,
  *   signal: AbortSignal,
  *   verboseLogs: boolean
  * }): Promise<{
@@ -742,7 +736,6 @@ export function createClient(
         model,
         serviceTier,
         promptCacheKey: OPENAI_PROMPT_CACHE_KEY,
-        guardTemperature: true,
         providerLabel: 'openai',
         fetchImpl: transport,
         logger,

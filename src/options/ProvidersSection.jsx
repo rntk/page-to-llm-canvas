@@ -8,12 +8,18 @@ import {
   PIPELINE_MIN_CONTEXT_WINDOW_TOKENS,
   PROVIDER_MAX_CONTEXT_WINDOW_TOKENS,
 } from '../../worker/settings/contextWindowConstraints.js';
+import {
+  PROVIDER_MAX_TEMPERATURE,
+  PROVIDER_MIN_TEMPERATURE,
+  TEMPERATURE_TASK_DEFINITIONS,
+} from '../../worker/llm/temperatures.js';
 import { MSG } from '../shared/runtime/messages.js';
 import {
   shouldWarnTokenWipe,
   createEmptyProviderForm,
   providerToForm,
   updateProviderFormField,
+  updateProviderFormTemperature,
   updateProviderFormType,
 } from './optionsLogic.js';
 import { listProviders, sendMessage } from './optionsApi.js';
@@ -75,6 +81,11 @@ export function ProvidersSection() {
   const setField = (key) => (event) => {
     const value = event.target.value;
     setForm((current) => updateProviderFormField(current, key, value));
+  };
+
+  const setTemperature = (task) => (event) => {
+    const value = event.target.value;
+    setForm((current) => updateProviderFormTemperature(current, task, value));
   };
 
   const submit = async (event) => {
@@ -331,6 +342,46 @@ export function ProvidersSection() {
               </select>
             </div>
           ) : null}
+
+          <fieldset className="field-group">
+            <legend>Sampling temperature</legend>
+            <div className="field-group__fields">
+              {TEMPERATURE_TASK_DEFINITIONS.map(({ task, label, hint }) => {
+                const value = form.temperatures?.[task] ?? '';
+                const inputId = `provider-temperature-${task}`;
+                const noteId = `${inputId}-note`;
+                return (
+                  <div className="field" key={task}>
+                    <label htmlFor={inputId}>{label}</label>
+                    <input
+                      id={inputId}
+                      type="number"
+                      min={PROVIDER_MIN_TEMPERATURE}
+                      max={PROVIDER_MAX_TEMPERATURE}
+                      step="0.1"
+                      value={value}
+                      onChange={setTemperature(task)}
+                      placeholder="Not sent"
+                      aria-describedby={noteId}
+                    />
+                    <div id={noteId} className="note">
+                      {hint}{' '}
+                      {value === '' ? (
+                        <strong>
+                          Optional — empty, so no temperature parameter is sent for these requests
+                          and the model&apos;s own default applies.
+                        </strong>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="note">
+              Leave a field empty for models that reject <code>temperature</code>, such as OpenAI
+              reasoning models — sending it there fails the request outright.
+            </div>
+          </fieldset>
 
           {error ? <div className="form-error">{error}</div> : null}
 

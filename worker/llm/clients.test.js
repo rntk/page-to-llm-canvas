@@ -257,17 +257,25 @@ describe('createClient dispatch', () => {
     expect(body.cache_prompt).toBeUndefined();
   });
 
-  it('openai client omits temperature for gpt-5-mini / gpt-5-nano', async () => {
+  it('openai client omits temperature when the caller leaves it unset', async () => {
     vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'hi' } }] }));
-    const client = createClient({ type: 'openai', model: 'gpt-5-nano', token: 'k' });
-    await client.complete({ prompt: 'p', temperature: 0.7 });
+    const client = createClient({ type: 'openai', model: 'o3', token: 'k' });
+    await client.complete({ prompt: 'p' });
     const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
     expect(body).toEqual({
-      model: 'gpt-5-nano',
+      model: 'o3',
       messages: [{ role: 'user', content: 'p' }],
       prompt_cache_key: 'pagetollm-canvas',
     });
     expect('temperature' in body).toBe(false);
+  });
+
+  it('openai client sends the configured temperature for any model', async () => {
+    vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'hi' } }] }));
+    const client = createClient({ type: 'openai', model: 'gpt-5-nano', token: 'k' });
+    await client.complete({ prompt: 'p', temperature: 0 });
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+    expect(body.temperature).toBe(0);
   });
 
   it('openai client forwards configured flex service tier', async () => {
@@ -283,7 +291,7 @@ describe('createClient dispatch', () => {
     expect(body.service_tier).toBe('flex');
   });
 
-  it('openai_comp client keeps temperature even for gpt-5-nano-named models', async () => {
+  it('openai_comp client sends the temperature it is given', async () => {
     vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'hi' } }] }));
     const client = createClient({ type: 'openai_comp', model: 'gpt-5-nano', url: 'http://h' });
     await client.complete({ prompt: 'p', temperature: 0.2 });

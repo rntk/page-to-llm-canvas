@@ -6,7 +6,6 @@ import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
 import {
   TOPIC_RANGE_CONCURRENCY,
   TOPIC_RANGE_RESPLIT_PROVIDER_MAX_ATTEMPTS,
-  TOPIC_RANGE_TEMPERATURE,
 } from './pipelineConfig.js';
 import { isCancellationError, rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
 import { hasDiagnosticQuirks, logParseDiagnostics } from './topicRangeDiagnosticsLog.js';
@@ -76,7 +75,6 @@ async function resplitSegment(
                     prompt: buildTopicRangesPrompt(chunk, {
                       preferContentLanguage: runtime.preferContentLanguage,
                     }),
-                    temperature: TOPIC_RANGE_TEMPERATURE,
                     signal: runtime.signal,
                     taskType: LLM_TASK_TYPES.TOPIC_RANGES,
                   },

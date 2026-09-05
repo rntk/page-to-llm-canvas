@@ -4,6 +4,7 @@
  */
 
 import { MSG } from '../shared/runtime/messages.js';
+import { TEMPERATURE_TASKS } from '../../worker/llm/temperatures.js';
 import { isStaleActionResponse, STALE_ACTION_MESSAGE } from '../shared/runtime/actionResponses.js';
 import {
   isImportableRecord,
@@ -13,7 +14,22 @@ import {
 } from '../shared/runtime/contracts.js';
 
 /**
- * @returns {{id: string, name: string, type: string, model: string, token: string, url: string, serviceTier: string, contextWindowTokens: string}}
+ * Temperature form fields, one per task group. Values stay strings so an empty
+ * field can mean "unset" (the temperature parameter is then not sent at all).
+ * @param {Record<string, number>} [stored]
+ * @returns {Record<string, string>}
+ */
+function temperaturesToForm(stored) {
+  return Object.fromEntries(
+    TEMPERATURE_TASKS.map((task) => [
+      task,
+      typeof stored?.[task] === 'number' ? String(stored[task]) : '',
+    ]),
+  );
+}
+
+/**
+ * @returns {{id: string, name: string, type: string, model: string, token: string, url: string, serviceTier: string, contextWindowTokens: string, temperatures: Record<string, string>}}
  */
 export function createEmptyProviderForm() {
   return {
@@ -25,6 +41,7 @@ export function createEmptyProviderForm() {
     url: '',
     serviceTier: '',
     contextWindowTokens: '',
+    temperatures: temperaturesToForm(),
   };
 }
 
@@ -56,6 +73,7 @@ export function providerToForm(provider) {
     url: provider.url || '',
     serviceTier: provider.serviceTier || '',
     contextWindowTokens: provider.contextWindowTokens ? String(provider.contextWindowTokens) : '',
+    temperatures: temperaturesToForm(provider.temperatures),
   };
 }
 
@@ -67,6 +85,16 @@ export function providerToForm(provider) {
  */
 export function updateProviderFormField(form, key, value) {
   return { ...form, [key]: value };
+}
+
+/**
+ * Applies a per-task temperature update to provider form state.
+ * @param {object} form
+ * @param {string} task One of TEMPERATURE_TASKS.
+ * @param {string} value Raw input value; empty means "do not send".
+ */
+export function updateProviderFormTemperature(form, task, value) {
+  return { ...form, temperatures: { ...form.temperatures, [task]: value } };
 }
 
 /**

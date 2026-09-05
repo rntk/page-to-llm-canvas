@@ -32,6 +32,7 @@ describe('provider form helpers', () => {
       url: '',
       serviceTier: '',
       contextWindowTokens: '',
+      temperatures: { summaries: '', chat: '', splitting: '' },
     });
   });
 
@@ -55,6 +56,7 @@ describe('provider form helpers', () => {
         url: '',
         serviceTier: 'auto',
         contextWindowTokens: 128000,
+        temperatures: { summaries: 0.8 },
       }),
     ).toEqual({
       id: 'p1',
@@ -65,6 +67,7 @@ describe('provider form helpers', () => {
       url: '',
       serviceTier: 'auto',
       contextWindowTokens: '128000',
+      temperatures: { summaries: '0.8', chat: '', splitting: '' },
     });
   });
 
@@ -90,6 +93,7 @@ describe('provider form helpers', () => {
       url: '',
       serviceTier: '',
       contextWindowTokens: '',
+      temperatures: { summaries: '', chat: '', splitting: '' },
     });
   });
 
@@ -105,6 +109,7 @@ describe('provider form helpers', () => {
       url: '',
       serviceTier: '',
       contextWindowTokens: '',
+      temperatures: { summaries: '', chat: '', splitting: '' },
     });
   });
 });

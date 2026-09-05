@@ -207,7 +207,6 @@ export function makeSourceSummarizer({
       callLLMWithRetry(
         {
           prompt: profile.buildPrompt(text, { preferContentLanguage }),
-          temperature: 0.8,
           signal,
           taskType: profile.taskType,
           sourceSummaryUnit: { ...sourceSummaryUnit, profile: summaryMode },
@@ -275,7 +274,6 @@ export function makeSourceSummarizer({
             callLLMWithRetry(
               {
                 prompt: profile.buildMergePrompt(mergeSource, { preferContentLanguage }),
-                temperature: 0.8,
                 signal,
                 taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE,
                 sourceSummaryUnit: {

@@ -18,7 +18,6 @@ import {
   TOPIC_RANGE_CONCURRENCY,
   TOPIC_RANGE_PROVIDER_MAX_ATTEMPTS,
   TOPIC_RANGE_STAGE_MAX_RETRIES,
-  TOPIC_RANGE_TEMPERATURE,
 } from './pipelineConfig.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
 import { rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
@@ -150,7 +149,6 @@ async function dispatchPendingChunks({
         state.response = await callLLMWithRetry(
           {
             prompt,
-            temperature: TOPIC_RANGE_TEMPERATURE,
             signal: runtime.signal,
             taskType: LLM_TASK_TYPES.TOPIC_RANGES,
           },

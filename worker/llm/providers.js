@@ -9,6 +9,7 @@ import {
   PROVIDER_MAX_CONTEXT_WINDOW_TOKENS,
 } from '../settings/contextWindowConstraints.js';
 import { getLocal, queuedUpdate, setLocal } from '../storage/primitives.js';
+import { normalizeProviderTemperatures } from './temperatures.js';
 
 /**
  * Canonical provider type strings.
@@ -116,6 +117,9 @@ export const PROVIDERS_KEY = 'pagetollm:llm:providers';
  * @property {string} [url]       Base URL — required for openai_comp.
  * @property {string} [serviceTier] Optional provider service tier.
  * @property {number} [contextWindowTokens] Optional model context window.
+ * @property {{summaries?: number, chat?: number, splitting?: number}} [temperatures] Optional
+ *   per-task sampling temperatures. A task with no value omits the
+ *   `temperature` parameter from that task's requests.
  */
 
 /**
@@ -203,6 +207,7 @@ export function normalizeProvider(input) {
   const token = String(input.token || '').trim();
   const serviceTier = normalizeServiceTier(type, input.serviceTier);
   const contextWindowTokens = normalizeContextWindowTokens(input.contextWindowTokens);
+  const temperatures = normalizeProviderTemperatures(input.temperatures);
   const id = String(input.id || '').trim() || generateId();
 
   return {
@@ -214,6 +219,7 @@ export function normalizeProvider(input) {
     url: url || undefined,
     serviceTier,
     contextWindowTokens,
+    temperatures,
   };
 }
 
