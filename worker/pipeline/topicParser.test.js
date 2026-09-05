@@ -159,6 +159,39 @@ describe('empty group', () => {
 
 // Malformed numbering --------------------------------------------------------
 
+describe('colons in topic paths', () => {
+  it.each([
+    ['History: The Cold War: 0-12', 0],
+    ['History: The Cold War: 0-12, invalid', 1],
+    ['History:: The Cold War::: 0-12, invalid', 1],
+    // Trailing prose carries its own colon: the split must land on the colon
+    // before the ranges, not on the last one in the line.
+    ['History: The Cold War: 0-12, note: unclear', 1],
+  ])('keeps the full topic path in %s', (response, invalidRangeTokens) => {
+    const result = parseTopicRangesDetailed(response, 13);
+    expect(result.groups).toEqual([
+      { label: ['History', 'The Cold War'], ranges: [{ start: 0, end: 12 }] },
+    ]);
+    expect(result.diagnostics).toMatchObject({
+      parsedLineCount: 1,
+      ignoredLineCount: 0,
+      invalidRangeTokens,
+    });
+  });
+
+  it('keeps ranges when trailing prose after them contains a colon', () => {
+    const result = parseTopicRangesDetailed('Tech>AI: 0-5, 7-9, note: unclear', 10);
+    expect(result.groups).toEqual([
+      { label: ['Tech', 'AI'], ranges: [{ start: 0, end: 6 }, { start: 7, end: 9 }] },
+    ]);
+    expect(result.diagnostics).toMatchObject({
+      parsedLineCount: 1,
+      ignoredLineCount: 0,
+      invalidRangeTokens: 1,
+    });
+  });
+});
+
 describe('malformed numbering', () => {
   it('throws when markers are letters, not numbers', () => {
     // No valid ranges parsed → missing all → TopicParseError

@@ -460,7 +460,23 @@ export function parseTopicRangesDetailed(response, sentenceCount) {
       topicPath = m[1].trim();
       rangesStr = m[2].trim();
     } else if (ln.includes(':')) {
-      const idx = ln.indexOf(':');
+      // TOPIC_LINE_RE splits at the rightmost colon whose tail is entirely a
+      // range list; no colon here qualifies, so approximate it by the tail that
+      // yields the MOST valid range tokens, earliest colon winning ties. That
+      // keeps earlier colons in the topic path ("History: The Cold War: 0-12,
+      // invalid") while trailing prose carrying its own colon ("0-5, 7-9, note:
+      // unclear") cannot swallow the ranges. Ties resolve left so a colon
+      // *inside* the range list ("0-5 (source: wire), 6-9") loses to the real
+      // separator, which sees the same tokens from further left.
+      let idx = ln.indexOf(':');
+      let bestValidTokens = -1;
+      for (let i = idx; i !== -1; i = ln.indexOf(':', i + 1)) {
+        const validTokens = parseRangeString(ln.slice(i + 1)).ranges.length;
+        if (validTokens > bestValidTokens) {
+          bestValidTokens = validTokens;
+          idx = i;
+        }
+      }
       topicPath = ln.slice(0, idx).trim();
       rangesStr = ln.slice(idx + 1).trim();
     } else {
