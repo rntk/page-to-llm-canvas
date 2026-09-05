@@ -79,6 +79,7 @@ function makeChromeMock() {
   // those callbacks — real Chrome scopes `lastError` to the callback that is
   // running, so a stale one would leak into unrelated calls.
   const runtime = {
+    id: 'test-id',
     lastError: null,
     getURL: vi.fn((path = '') => `chrome-extension://test-id/${path}`),
     sendMessage: vi.fn(),
@@ -1727,7 +1728,7 @@ describe('provider message handlers', () => {
     vi.stubGlobal('chrome', chromeMock);
     await import('./background.js');
     const listener = chromeMock.runtime.onMessage.addListener.mock.calls[0][0];
-    return (msg, sender = { url: 'chrome-extension://test-id/options.html' }) =>
+    return (msg, sender = { id: 'test-id', url: 'chrome-extension://test-id/options.html' }) =>
       new Promise((resolve) => {
         const returned = listener(msg, sender, resolve);
         expect(returned).toBe(true);
@@ -1838,7 +1839,11 @@ describe('dispatchMessage unit tests', () => {
   async function loadDispatchMessage(chromeMock) {
     vi.stubGlobal('chrome', chromeMock);
     const { dispatchMessage } = await import('./background.js');
-    return dispatchMessage;
+    return (
+      msg,
+      sender = { id: 'test-id', url: 'chrome-extension://test-id/options.html' },
+      handlers,
+    ) => dispatchMessage(msg, sender, handlers);
   }
 
   it('returns unknown-type error for unregistered type', async () => {
@@ -1919,12 +1924,79 @@ describe('dispatchMessage unit tests', () => {
     };
     const res = await dispatchMessage(
       { type: 'secret' },
-      { url: 'chrome-extension://test-id/options.html' },
+      { id: 'test-id', url: 'chrome-extension://test-id/options.html' },
       fakeHandlers,
     );
     expect(res).toEqual({ ok: true, data: 42 });
     expect(fakeHandlers.secret.handle).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    undefined,
+    {},
+    { url: 'chrome-extension://test-id/options.html' },
+    { id: 'other-id', url: 'chrome-extension://test-id/options.html' },
+    { id: 'test-id', url: 'https://example.com/page', tab: { id: 1 } },
+    { id: 'test-id', url: 'chrome-extension://other-id/options.html' },
+    { id: 'test-id', url: 'chrome-extension://test-id/modal.html?key=private' },
+    { id: 'test-id', url: 'chrome-extension://test-id/options.html/extra' },
+    { id: 'test-id', url: 'chrome-extension://test-id/options.html.evil' },
+    { id: 'test-id', url: 'invalid url' },
+  ])('rejects privileged actions for untrusted sender %j', async (sender) => {
+    vi.stubGlobal('chrome', makeChromeMock());
+    const { dispatchMessage } = await import('./background.js');
+    for (const type of [
+      'getRecord',
+      'listRecords',
+      'deleteRecord',
+      'deleteAll',
+      'importRecords',
+      'clearParserMetrics',
+      'clearResplitMetrics',
+      'clearChatToolMetrics',
+      'listProviders',
+      'saveProvider',
+      'deleteProvider',
+      'setActiveProvider',
+      'getStorageOverview',
+      'deleteAllExtensionData',
+    ]) {
+      await expect(dispatchMessage({ type, key: 'private' }, sender)).resolves.toEqual({
+        ok: false,
+        error: 'this action is only available to trusted extension pages',
+      });
+    }
+    const entry = { requiresExtensionPage: true, validate: vi.fn(), handle: vi.fn() };
+    await dispatchMessage({ type: 'secret' }, sender, { secret: entry });
+    expect(entry.validate).not.toHaveBeenCalled();
+    expect(entry.handle).not.toHaveBeenCalled();
+  });
+
+  it.each(['options.html', 'popup.html', 'options.html?section=data#records'])(
+    'allows management from %s',
+    async (page) => {
+      const dispatchMessage = await loadDispatchMessage(makeChromeMock());
+      const sender = { id: 'test-id', url: 'chrome-extension://test-id/' + page };
+      expect((await dispatchMessage({ type: 'listRecords' }, sender)).ok).toBe(true);
+      expect((await dispatchMessage({ type: 'clearParserMetrics' }, sender)).ok).toBe(true);
+      expect((await dispatchMessage({ type: 'deleteAll' }, sender)).ok).toBe(true);
+    },
+  );
+
+  it.each(['https://example.com/article', 'chrome-extension://test-id/modal.html?key=viewable'])(
+    'keeps the record view available to %s',
+    async (url) => {
+      const chromeMock = makeChromeMock();
+      const dispatchMessage = await loadDispatchMessage(chromeMock);
+      await seedRecord(chromeMock, makeRecord('viewable'));
+      const response = await dispatchMessage(
+        { type: 'getRecordView', key: 'viewable' },
+        { id: 'test-id', url },
+      );
+      expect(response.ok).toBe(true);
+      expect(response.record.key).toBe('viewable');
+    },
+  );
 
   it('wraps handler exceptions into { ok: false, error } response', async () => {
     const chromeMock = makeChromeMock();
@@ -1955,7 +2027,7 @@ describe('dispatchMessage unit tests', () => {
       },
     };
     const msg = { type: 'ping' };
-    const sender = { url: 'chrome-extension://test-id/popup.html' };
+    const sender = { id: 'test-id', url: 'chrome-extension://test-id/popup.html' };
     const res = await dispatchMessage(msg, sender, fakeHandlers);
     expect(res).toEqual({ ok: true, pong: true });
     expect(fakeHandlers.ping.handle).toHaveBeenCalledWith(msg, sender);
@@ -1974,7 +2046,7 @@ describe('dispatchMessage unit tests', () => {
     };
     const res = await dispatchMessage(
       { type: 'echo' },
-      { url: 'chrome-extension://test-id/options.html' },
+      { id: 'test-id', url: 'chrome-extension://test-id/options.html' },
       fakeHandlers,
     );
     expect(res).toEqual({
@@ -1988,7 +2060,7 @@ describe('dispatchMessage unit tests', () => {
     const chromeMock = makeChromeMock();
     const dispatchMessage = await loadDispatchMessage(chromeMock);
 
-    const res = await dispatchMessage({ type: 'listRecords' }, {});
+    const res = await dispatchMessage({ type: 'listRecords' });
     expect(res.ok).toBe(true);
     expect(Array.isArray(res.items)).toBe(true);
   });
@@ -2064,7 +2136,7 @@ describe('dispatchMessage unit tests', () => {
       activeId: 'provider',
     });
     chromeMock.storage.local._store.set('legacy-unknown-key', { old: true });
-    const sender = { url: 'chrome-extension://test-id/options.html' };
+    const sender = { id: 'test-id', url: 'chrome-extension://test-id/options.html' };
 
     const inspected = await dispatchMessage({ type: 'getStorageOverview' }, sender);
     expect(inspected.ok).toBe(true);
@@ -2083,7 +2155,7 @@ describe('dispatchMessage unit tests', () => {
     const chromeMock = makeChromeMock();
     const dispatchMessage = await loadDispatchMessage(chromeMock);
     chromeMock.storage.local._store.set('legacy-unknown-key', { old: true });
-    const sender = { url: 'chrome-extension://test-id/options.html' };
+    const sender = { id: 'test-id', url: 'chrome-extension://test-id/options.html' };
 
     // The first preliminary clear is LLM metrics. Its rejected write must not
     // skip the authoritative storage.local.clear() that follows all queues.
@@ -2170,7 +2242,7 @@ describe('dispatchMessage unit tests', () => {
   it('imports only valid records, dedupes duplicate keys, and reports the stored count', async () => {
     const chromeMock = makeChromeMock();
     const dispatchMessage = await loadDispatchMessage(chromeMock);
-    const sender = { url: 'chrome-extension://test-id/options.html' };
+    const sender = { id: 'test-id', url: 'chrome-extension://test-id/options.html' };
 
     const res = await dispatchMessage(
       {
@@ -2201,7 +2273,7 @@ describe('dispatchMessage unit tests', () => {
   it('archives chat history when an import replaces record content', async () => {
     const chromeMock = makeChromeMock();
     const dispatchMessage = await loadDispatchMessage(chromeMock);
-    const sender = { url: 'chrome-extension://test-id/options.html' };
+    const sender = { id: 'test-id', url: 'chrome-extension://test-id/options.html' };
     await seedRecord(chromeMock, makeRecord('replace-me', { text: 'old content' }));
     const created = await dispatchMessage({
       type: 'appendChatTurn',
@@ -2228,7 +2300,7 @@ describe('dispatchMessage unit tests', () => {
   it('rejects import batches with no importable records', async () => {
     const chromeMock = makeChromeMock();
     const dispatchMessage = await loadDispatchMessage(chromeMock);
-    const sender = { url: 'chrome-extension://test-id/options.html' };
+    const sender = { id: 'test-id', url: 'chrome-extension://test-id/options.html' };
 
     const res = await dispatchMessage(
       { type: 'importRecords', records: [{ key: 'empty', sourceUrl: 'https://example.com' }] },
@@ -2242,7 +2314,7 @@ describe('dispatchMessage unit tests', () => {
   it('imports records with a fresh pipelineRunId so stale pipeline writes cannot match', async () => {
     const chromeMock = makeChromeMock();
     const dispatchMessage = await loadDispatchMessage(chromeMock);
-    const sender = { url: 'chrome-extension://test-id/options.html' };
+    const sender = { id: 'test-id', url: 'chrome-extension://test-id/options.html' };
 
     await seedRecord(
       chromeMock,
@@ -2312,7 +2384,7 @@ describe('dispatchMessage unit tests', () => {
   it('cancels every in-flight provider request belonging to a chat turn', async () => {
     const chromeMock = makeChromeMock();
     const dispatchMessage = await loadDispatchMessage(chromeMock);
-    const sender = { url: 'chrome-extension://test-id/options.html' };
+    const sender = { id: 'test-id', url: 'chrome-extension://test-id/options.html' };
     await dispatchMessage(
       {
         type: 'saveProvider',
@@ -2986,7 +3058,8 @@ describe('record import and submission boundaries', () => {
   async function loadDispatch(chromeMock) {
     vi.stubGlobal('chrome', chromeMock);
     const { dispatchMessage } = await import('./background.js');
-    return (msg) => dispatchMessage(msg, { url: 'chrome-extension://test-id/options.html' });
+    return (msg) =>
+      dispatchMessage(msg, { id: 'test-id', url: 'chrome-extension://test-id/options.html' });
   }
 
   it.each([undefined, null, '', false, 0])(

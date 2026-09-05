@@ -174,8 +174,24 @@ describe('message handler registry (no chrome global)', () => {
         expect(entry.requiresExtensionPage, type).toBe(true);
       }
     }
-    // importRecords is the one record action with the same restriction.
-    expect(groups.record[MSG.importRecords].requiresExtensionPage).toBe(true);
+    for (const type of [
+      MSG.importRecords,
+      MSG.getRecord,
+      MSG.listRecords,
+      MSG.deleteRecord,
+      MSG.deleteAll,
+    ]) {
+      expect(groups.record[type].requiresExtensionPage, type).toBe(true);
+    }
+    for (const type of [
+      MSG.clearParserMetrics,
+      MSG.clearResplitMetrics,
+      MSG.clearChatToolMetrics,
+    ]) {
+      expect(groups.metrics[type].requiresExtensionPage, type).toBe(true);
+    }
+    expect(groups.record[MSG.getRecordView].requiresExtensionPage).toBe(false);
+    expect(groups.metrics[MSG.recordChatToolMetric].requiresExtensionPage).toBe(false);
     expect(groups.record[MSG.submit].requiresExtensionPage).toBe(false);
   });
 });

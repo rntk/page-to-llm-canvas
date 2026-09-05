@@ -34,7 +34,7 @@ export function createMetricsHandlers({
     // same writeChain as recordChatToolMetric — otherwise an in-flight worker
     // record could restore the pre-clear aggregate after an options-side clear.
     [MSG.clearChatToolMetrics]: {
-      requiresExtensionPage: false,
+      requiresExtensionPage: true,
       validate: () => null,
       async handle() {
         await clearChatToolMetrics();
@@ -46,7 +46,7 @@ export function createMetricsHandlers({
     // clears through this realm so each clear shares the same serialized metrics
     // queue as its in-flight record writes.
     [MSG.clearParserMetrics]: {
-      requiresExtensionPage: false,
+      requiresExtensionPage: true,
       validate: () => null,
       async handle() {
         await clearParserMetrics();
@@ -55,7 +55,7 @@ export function createMetricsHandlers({
     },
 
     [MSG.clearResplitMetrics]: {
-      requiresExtensionPage: false,
+      requiresExtensionPage: true,
       validate: () => null,
       async handle() {
         await clearResplitMetrics();

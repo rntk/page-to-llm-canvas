@@ -29,7 +29,7 @@ export function createDispatcher({ handlers: defaultHandlers, isExtensionPageSen
     }
 
     if (entry.requiresExtensionPage && !isExtensionPageSender(sender)) {
-      return { ok: false, error: 'provider settings are only available to extension pages' };
+      return { ok: false, error: 'this action is only available to trusted extension pages' };
     }
 
     const validationError = entry.validate(msg);

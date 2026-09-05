@@ -365,7 +365,7 @@ export function createRecordHandlers({
     },
 
     [MSG.getRecord]: {
-      requiresExtensionPage: false,
+      requiresExtensionPage: true,
       validate: requireKey,
       async handle(msg) {
         const record = await readRecord(msg.key);
@@ -395,7 +395,7 @@ export function createRecordHandlers({
     },
 
     [MSG.listRecords]: {
-      requiresExtensionPage: false,
+      requiresExtensionPage: true,
       validate: () => null,
       async handle() {
         const items = await listRecords();
@@ -454,7 +454,7 @@ export function createRecordHandlers({
     },
 
     [MSG.deleteRecord]: {
-      requiresExtensionPage: false,
+      requiresExtensionPage: true,
       validate: () => null,
       async handle(msg) {
         cancelActivePipeline(msg.key);
@@ -465,7 +465,7 @@ export function createRecordHandlers({
     },
 
     [MSG.deleteAll]: {
-      requiresExtensionPage: false,
+      requiresExtensionPage: true,
       validate: () => null,
       async handle() {
         pipelineSupervisor.cancelAll();

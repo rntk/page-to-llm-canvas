@@ -161,9 +161,18 @@ const pipelineRunner = createPipelineRunner({
 const { runPipeline } = pipelineRunner;
 
 function isExtensionPageSender(sender) {
-  const extensionRoot =
-    typeof chrome.runtime.getURL === 'function' ? chrome.runtime.getURL('') : '';
-  return !!sender?.url && !!extensionRoot && sender.url.startsWith(extensionRoot);
+  if (!chrome.runtime.id || sender?.id !== chrome.runtime.id || !sender?.url) return false;
+  if (typeof chrome.runtime.getURL !== 'function') return false;
+  try {
+    const url = new URL(sender.url);
+    url.search = '';
+    url.hash = '';
+    // The web-accessible modal renders inside arbitrary sites. Only the private
+    // management surfaces need provider settings, exports, or destructive actions.
+    return ['options.html', 'popup.html'].some((page) => url.href === chrome.runtime.getURL(page));
+  } catch {
+    return false;
+  }
 }
 
 const pipelineSupervisor = createPipelineSupervisor({
