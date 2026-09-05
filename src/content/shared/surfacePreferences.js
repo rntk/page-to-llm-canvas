@@ -109,6 +109,7 @@ function clearMountedHighlightColor() {
  * async work. Lazy surface factories await the returned promise so their first
  * render is tagged with the stored preferences rather than briefly flashing
  * the defaults.
+ * @param {Document} [contentDocument]
  */
 export function init(contentDocument) {
   if (contentDocument) contentDocumentRef = contentDocument;
