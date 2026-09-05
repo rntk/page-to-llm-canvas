@@ -172,9 +172,46 @@ describe('runSummaries', () => {
     });
   });
 
+  it.each([
+    [150, 0],
+    [151, 1],
+  ])(
+    'applies the parent source threshold when short leaves total %i words',
+    async (wordCount, expectedCalls) => {
+      const runtime = makeRuntime();
+      // Every leaf stays inside the 70-word leaf inline budget, so only the
+      // parent's aggregated source can cross the 150-word topic threshold.
+      const leafWords = 34;
+      const leafCount = Math.ceil(wordCount / leafWords);
+      const sentenceTexts = Array.from({ length: leafCount }, (_, index) => {
+        const words = index === leafCount - 1 ? wordCount - leafWords * (leafCount - 1) : leafWords;
+        return `${String.fromCharCode(97 + index)} `.repeat(words).trim();
+      });
+      const callLLMWithRetry = vi.fn(async () => 'parent summary');
+
+      await runSummaries({
+        runtime,
+        topics: sentenceTexts.map((_, index) => ({
+          name: `A>${String.fromCharCode(88 + (index % 3))}${index}`,
+          sentences: [index + 1],
+        })),
+        sentenceTexts,
+        previousSummaries: {},
+        callLLMWithRetry,
+      });
+
+      expect(callLLMWithRetry).toHaveBeenCalledTimes(expectedCalls);
+      if (expectedCalls) {
+        expect(callLLMWithRetry.mock.calls[0][0].taskType).toBe(
+          LLM_TASK_TYPES.TOPIC_SUMMARY_FROM_SOURCE,
+        );
+      }
+    },
+  );
+
   it('uses the source text when the LLM returns NO_SUMMARY', async () => {
     const runtime = makeRuntime();
-    const source = 'word '.repeat(70).trim();
+    const source = 'word '.repeat(120).trim();
     const callLLMWithRetry = vi.fn(async () => ' NO_SUMMARY. ');
 
     await runSummaries({
@@ -198,7 +235,7 @@ describe('runSummaries', () => {
 
   it('stops summarizing after a permanent provider failure and parks every unsummarized topic', async () => {
     const runtime = makeRuntime();
-    const long = (marker) => `${marker} ${'word '.repeat(45)}`.trim();
+    const long = (marker) => `${marker} ${'word '.repeat(220)}`.trim();
     const sentenceTexts = Array.from({ length: 8 }, (_, index) => long(`s${index + 1}`));
     const callLLMWithRetry = vi.fn(async () => {
       throw Object.assign(new Error('invalid api key'), { status: 401 });
@@ -231,7 +268,7 @@ describe('runSummaries', () => {
     // sourceSummarizer, which is the other queue a doomed warmup can fan out.
     runtime.maxTextChunkChars = 200;
     const sentenceTexts = Array.from({ length: 6 }, (_, index) =>
-      `s${index + 1} ${'word '.repeat(45)}`.trim(),
+      `s${index + 1} ${'word '.repeat(120)}`.trim(),
     );
     const callLLMWithRetry = vi.fn(async () => {
       throw Object.assign(new Error('invalid api key'), { status: 401 });
@@ -251,7 +288,7 @@ describe('runSummaries', () => {
 
   it('persists completed runs before a later run resolves', async () => {
     const runtime = makeRuntime();
-    const long = (marker) => `${marker} ${'word '.repeat(45)}`.trim();
+    const long = (marker) => `${marker} ${'word '.repeat(120)}`.trim();
     const sentenceTexts = [
       long('first-1'),
       long('first-2'),
@@ -296,7 +333,7 @@ describe('runSummaries', () => {
 
   it('retries only the failed run in a partially completed topic', async () => {
     const runtime = makeRuntime();
-    const long = (marker) => `${marker} ${'word '.repeat(45)}`.trim();
+    const long = (marker) => `${marker} ${'word '.repeat(120)}`.trim();
     const firstSource = `${long('first-1')} ${long('first-2')}`;
     const secondSource = `${long('second-5')} ${long('second-6')}`;
     const callLLMWithRetry = vi.fn(async () => 'recovered second run');
@@ -336,7 +373,7 @@ describe('runSummaries', () => {
 
   it('reuses successful merge paths and retries only a failed parent path', async () => {
     const runtime = makeRuntime();
-    const long = (marker) => `${marker} ${'word '.repeat(45)}`.trim();
+    const long = (marker) => `${marker} ${'word '.repeat(120)}`.trim();
     const sentenceTexts = [
       long('tech-a1'),
       long('tech-a2'),
@@ -487,7 +524,7 @@ describe('runSummaries', () => {
     await runSummaries({
       runtime,
       topics: [topic],
-      sentenceTexts: ['word '.repeat(70).trim()],
+      sentenceTexts: ['word '.repeat(120).trim()],
       previousSummaries: {},
       callLLMWithRetry,
     });
@@ -535,7 +572,7 @@ describe('runSummaries', () => {
       runSummaries({
         runtime,
         topics: [topic],
-        sentenceTexts: ['word '.repeat(70).trim()],
+        sentenceTexts: ['word '.repeat(120).trim()],
         previousSummaries: {},
         contentRevision: 'rev-1',
         callLLMWithRetry,
@@ -625,7 +662,7 @@ describe('runSummaries', () => {
       runSummaries({
         runtime,
         topics: [topic],
-        sentenceTexts: ['word '.repeat(70).trim()],
+        sentenceTexts: ['word '.repeat(120).trim()],
         previousSummaries: {},
         callLLMWithRetry,
       }),
@@ -652,7 +689,7 @@ describe('runSummaries', () => {
       runSummaries({
         runtime,
         topics: [topic],
-        sentenceTexts: ['word '.repeat(70).trim()],
+        sentenceTexts: ['word '.repeat(120).trim()],
         previousSummaries: {},
         callLLMWithRetry,
       }),
@@ -684,7 +721,7 @@ describe('runSummaries', () => {
           { name: 'A>x', sentences: [1] },
           { name: 'A>y', sentences: [2] },
         ],
-        sentenceTexts: ['x '.repeat(80).trim(), 'y '.repeat(80).trim()],
+        sentenceTexts: ['x '.repeat(110).trim(), 'y '.repeat(110).trim()],
         previousSummaries: {
           'A>x': { runs: [{ sentences: [1], text: 'X' }], source_sentences: [1] },
           'A>y': { runs: [{ sentences: [2], text: 'Y' }], source_sentences: [2] },
@@ -707,7 +744,7 @@ describe('runSummaries', () => {
         { name: 'A>x', sentences: [1] },
         { name: 'A>y', sentences: [2] },
       ],
-      sentenceTexts: ['x '.repeat(80).trim(), 'y '.repeat(80).trim()],
+      sentenceTexts: ['x '.repeat(110).trim(), 'y '.repeat(110).trim()],
       previousSummaries: {
         'A>x': { runs: [{ sentences: [1], text: 'X' }], source_sentences: [1] },
         'A>y': { runs: [{ sentences: [2], text: 'Y' }], source_sentences: [2] },
@@ -821,7 +858,7 @@ describe('runSummaries', () => {
     await runSummaries({
       runtime,
       topics: [topic],
-      sentenceTexts: ['word '.repeat(70).trim()],
+      sentenceTexts: ['word '.repeat(120).trim()],
       previousSummaries: {},
       forceFinalize: true,
       callLLMWithRetry,
@@ -843,7 +880,7 @@ describe('runSummaries', () => {
     // `A>z`'s failure; its source stays empty while the successful x/y branch
     // still contributes a freshly generated ancestor summary.
     const runtime = makeRuntime();
-    const long = (marker) => `${marker} ${'word '.repeat(40)}`.trim();
+    const long = (marker) => `${marker} ${'word '.repeat(120)}`.trim();
     const sentenceTexts = [
       long('s1'),
       long('s2'),
@@ -894,8 +931,8 @@ describe('runSummaries', () => {
 
   it('omits an accepted leaf source while retaining adjacent ancestor-owned content', async () => {
     const runtime = makeRuntime();
-    const ownSource = `ancestor ${'word '.repeat(40)}`.trim();
-    const failedSource = `failed-leaf ${'word '.repeat(40)}`.trim();
+    const ownSource = `ancestor ${'word '.repeat(220)}`.trim();
+    const failedSource = `failed-leaf ${'word '.repeat(120)}`.trim();
     const callLLMWithRetry = vi.fn(async () => 'Ancestor-only summary.');
 
     await runSummaries({
@@ -936,7 +973,7 @@ describe('runSummaries', () => {
     // for `acceptedFailure`, so the resumed run REUSES the leaf (no re-query) and
     // must still recognize it as failed through planSummaryWork's narrowed shape.
     const runtime = makeRuntime();
-    const long = (marker) => `${marker} ${'word '.repeat(40)}`.trim();
+    const long = (marker) => `${marker} ${'word '.repeat(120)}`.trim();
     const sentenceTexts = [
       long('s1'),
       long('s2'),
@@ -991,7 +1028,7 @@ describe('runSummaries', () => {
 
   it('finalizes an accepted merge failure without repeating its source-summary request', async () => {
     const runtime = makeRuntime();
-    const long = (marker) => `${marker} ${'word '.repeat(40)}`.trim();
+    const long = (marker) => `${marker} ${'word '.repeat(120)}`.trim();
     const sentenceTexts = [
       long('a1'),
       long('a2'),
@@ -1071,7 +1108,7 @@ describe('runSummaries', () => {
 
   it('refuses a parked merge index whose internal node runs do not fit the tree', async () => {
     const runtime = makeRuntime();
-    const long = (marker) => `${marker} ${'word '.repeat(40)}`.trim();
+    const long = (marker) => `${marker} ${'word '.repeat(120)}`.trim();
     const sentenceTexts = [long('a1'), long('a2'), long('b1'), long('b2')];
     const callLLMWithRetry = vi.fn(async () => 'Rebuilt merge.');
 
@@ -1128,7 +1165,7 @@ describe('runSummaries', () => {
 
   it('rebuilds an unusable merge checkpoint without emptying unrelated branches', async () => {
     const runtime = makeRuntime();
-    const long = (marker) => `${marker} ${'word '.repeat(40)}`.trim();
+    const long = (marker) => `${marker} ${'word '.repeat(120)}`.trim();
     const sentenceTexts = [long('a1'), long('a2'), long('b1'), long('b2')];
     const callLLMWithRetry = vi.fn(async () => 'Retried other merge.');
 
@@ -1168,7 +1205,7 @@ describe('runSummaries', () => {
 
   it('keeps force-finalize path-scoped when Retry carries an accepted leaf marker', async () => {
     const runtime = makeRuntime();
-    const long = (marker) => `${marker} ${'word '.repeat(40)}`.trim();
+    const long = (marker) => `${marker} ${'word '.repeat(220)}`.trim();
     const sentenceTexts = [long('a1'), long('a2'), long('b1'), long('b2')];
     const callLLMWithRetry = vi.fn(async ({ prompt }) =>
       prompt.includes('a2') ? 'Recovered good sibling.' : 'Recovered unrelated branch.',
@@ -1223,7 +1260,7 @@ describe('runSummaries', () => {
       runSummaries({
         runtime,
         topics: [topic],
-        sentenceTexts: ['word '.repeat(70).trim()],
+        sentenceTexts: ['word '.repeat(120).trim()],
         previousSummaries: {},
         callLLMWithRetry,
       }),
@@ -1246,7 +1283,7 @@ describe('runSummaries', () => {
     await runSummaries({
       runtime,
       topics: [topic, { name: 'B', sentences: [2] }],
-      sentenceTexts: ['word '.repeat(70).trim(), 'A short second sentence.'],
+      sentenceTexts: ['word '.repeat(120).trim(), 'A short second sentence.'],
       previousSummaries: {
         A: {
           runs: [{ sentences: [1], text: '', acceptedFailure: true }],

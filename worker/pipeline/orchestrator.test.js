@@ -136,7 +136,7 @@ function makeRecord(key, htmlContent) {
 }
 
 const LONG_SUMMARY_TEXT =
-  'Acme reported revenue growth across three regions while executives said supply costs eased, customer renewals improved, new enterprise contracts expanded, hiring remained selective, product upgrades should support margins through the next fiscal quarter, and overseas demand is recovering steadily.';
+  `Acme reported revenue growth across three regions while executives said supply costs eased, customer renewals improved, new enterprise contracts expanded, hiring remained selective, product upgrades should support margins through the next fiscal quarter, and overseas demand is recovering steadily. ${'Additional context supports the reported results. '.repeat(100)}`.trim();
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -501,11 +501,11 @@ describe('splitContiguousRuns', () => {
 
 describe('shouldInlineRun', () => {
   it('inlines short runs so their source facts can feed parent merges', () => {
-    expect(shouldInlineRun([1, 2], 'AI chip launched. It costs $5.')).toBe(true);
+    expect(shouldInlineRun('AI chip launched. It costs $5.', 'topic')).toBe(true);
   });
 
   it('keeps longer runs on the LLM summary path', () => {
-    expect(shouldInlineRun([1], LONG_SUMMARY_TEXT)).toBe(false);
+    expect(shouldInlineRun(LONG_SUMMARY_TEXT, 'topic')).toBe(false);
   });
 });
 
@@ -1011,14 +1011,15 @@ describe('runPipeline', () => {
   });
 
   it('summarizes a parent topic from its own source text, not by merging child summaries', async () => {
-    const plainText = 'AI chip launched. It costs $5. Robot ships Tuesday. It weighs 2kg.';
+    const sourcePadding = ' Additional source context.'.repeat(40);
+    const plainText = `AI chip launched.${sourcePadding} It costs $5.${sourcePadding} Robot ships Tuesday.${sourcePadding} It weighs 2kg.${sourcePadding}`;
     storage.readRecord.mockResolvedValue(makeRecord('key5', `<p>${plainText}</p>`));
     capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
-      { text: 'AI chip launched.', start: 0, end: 17 },
-      { text: 'It costs $5.', start: 18, end: 30 },
-      { text: 'Robot ships Tuesday.', start: 31, end: 52 },
-      { text: 'It weighs 2kg.', start: 53, end: 67 },
+      { text: `AI chip launched.${sourcePadding}`, start: 0, end: 17 },
+      { text: `It costs $5.${sourcePadding}`, start: 18, end: 30 },
+      { text: `Robot ships Tuesday.${sourcePadding}`, start: 31, end: 52 },
+      { text: `It weighs 2kg.${sourcePadding}`, start: 53, end: 67 },
     ]);
 
     let sourcePrompt = '';
@@ -1044,8 +1045,8 @@ describe('runPipeline', () => {
     expect(lastCall[1].topic_summary_index['Tech'].runs[0].text).toBe(parentSummary);
     // The parent summary is generated from the full source text of both
     // children, not from their brief leaf summaries.
-    expect(sourcePrompt).toContain('AI chip launched. It costs $5.');
-    expect(sourcePrompt).toContain('Robot ships Tuesday. It weighs 2kg.');
+    expect(sourcePrompt).toContain('AI chip launched.');
+    expect(sourcePrompt).toContain('Robot ships Tuesday.');
     expect(sourcePrompt).not.toContain('Leaf summary.');
     // The source fits the budget, so no chunk-merge call is made.
     expect(
@@ -1819,7 +1820,9 @@ describe('runPipeline', () => {
     // subtopics, so the parent reuses each child's leaf summary (location-specific
     // text per occurrence) and never issues a source-summary LLM call for Tech.
     const long =
-      'with plenty of additional descriptive words written out here to comfortably exceed the inline summary threshold for this internal node run path so the summarizer actually issues an llm call';
+      'with plenty of additional descriptive words written out here to comfortably exceed the inline summary threshold for this internal node run path so the summarizer actually issues an llm call additional detail '.repeat(
+        4,
+      );
     const sentences = Array.from({ length: 11 }, (_, i) => `filler ${i + 1}.`);
     sentences[0] = `ALPHA occurrence one ${long}.`;
     sentences[1] = `ALPHA occurrence continues ${long}.`;
@@ -1998,14 +2001,15 @@ describe('runPipeline', () => {
   });
 
   it('parks for review when a tree-merge keeps failing (merge phase)', async () => {
-    const plainText = 'A. B. C. D.';
+    const sourcePadding = ' context'.repeat(500);
+    const plainText = `A.${sourcePadding} B.${sourcePadding} C.${sourcePadding} D.${sourcePadding}`;
     storage.readRecord.mockResolvedValue(makeRecord('mergefail', '<p>A. B. C. D.</p>'));
     capturedText.normalizeCapturedText.mockReturnValue(plainText);
     sentenceSplitter.splitSentences.mockReturnValue([
-      { text: 'A.', start: 0, end: 2 },
-      { text: 'B.', start: 3, end: 5 },
-      { text: 'C.', start: 6, end: 8 },
-      { text: 'D.', start: 9, end: 11 },
+      { text: `A.${sourcePadding}`, start: 0, end: 2 },
+      { text: `B.${sourcePadding}`, start: 3, end: 5 },
+      { text: `C.${sourcePadding}`, start: 6, end: 8 },
+      { text: `D.${sourcePadding}`, start: 9, end: 11 },
     ]);
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       // Two sibling topics under "Tech" → the parent is summarized from source.
@@ -2027,8 +2031,8 @@ describe('runPipeline', () => {
     expect(parkCall[1].topic_summary_index['Tech'].runs).toEqual([
       { sentences: [1, 2, 3, 4], text: '', error: true },
     ]);
-    expect(parkCall[1].topic_summary_index['Tech>AI'].runs[0].text).toBe('A. B.');
-    expect(parkCall[1].topic_summary_index['Tech>Hardware'].runs[0].text).toBe('C. D.');
+    expect(parkCall[1].topic_summary_index['Tech>AI'].runs[0].text).toBe('Leaf summary.');
+    expect(parkCall[1].topic_summary_index['Tech>Hardware'].runs[0].text).toBe('Leaf summary.');
   });
 
   it('merge-phase skip reuses the parked tree index without another merge call', async () => {

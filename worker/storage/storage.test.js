@@ -578,7 +578,7 @@ describe('normalized record storage', () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
     await writeRecord(makeRecord('r1', { contentRevision: 'rev-1', pipelineRunId: 'run-1' }));
-    const source = 'word '.repeat(60).trim();
+    const source = 'word '.repeat(220).trim();
     const provider = vi.fn(async () => 'paid summary');
     const summarize = makeCachedSourceSummarizer({
       sentenceTexts: [source],

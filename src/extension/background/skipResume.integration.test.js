@@ -83,7 +83,7 @@ function makeChromeMock() {
 
 // Long sentences ensure a normal parent merge would need the provider. Skip
 // must still reach DONE without making that call.
-const long = (marker) => `${marker} ${'word '.repeat(40)}`.trim();
+const long = (marker) => `${marker} ${'word '.repeat(120)}`.trim();
 const SENTENCES = [
   long('s1'),
   long('s2'),

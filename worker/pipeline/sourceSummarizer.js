@@ -18,9 +18,10 @@ import {
   SUMMARY_PROVIDER_MAX_ATTEMPTS,
 } from './pipelineConfig.js';
 
-const INLINE_SUMMARY_MAX_SENTENCES = 3;
-const INLINE_SUMMARY_MAX_WORDS = 35;
-const INLINE_SUMMARY_MAX_CHARS = 280;
+const INLINE_SUMMARY_MAX_WORDS = { leaf: 70, topic: 150 };
+// Cap total characters as well as whitespace-delimited words. This bounds
+// unsegmented text, but does not count language-specific words.
+const INLINE_SUMMARY_CHARS_PER_WORD = 8;
 
 const SUMMARY_PROFILES = {
   topic: {
@@ -67,18 +68,17 @@ export function runSourceText(runIds, sentenceTexts) {
 }
 
 /** A short contiguous run can be shown verbatim without an LLM call.
- * @param {number[]} runSentences Sentence ids in the run.
+ * Inclusive limits: 70 words / 560 characters for leaves and
+ * 150 words / 1200 characters for parent topics. Both limits must be met.
+ * Sentence count does not affect eligibility.
  * @param {string} sourceText Source text for the run.
+ * @param {'leaf'|'topic'} [summaryMode] Selects the leaf or parent word budget.
  */
-export function shouldInlineRun(runSentences, sourceText) {
+export function shouldInlineRun(sourceText, summaryMode = 'topic') {
   const text = String(sourceText || '').trim();
   if (!text) return true;
-  const sentenceCount = Array.isArray(runSentences) ? runSentences.length : 0;
-  return (
-    sentenceCount <= INLINE_SUMMARY_MAX_SENTENCES &&
-    wordCount(text) <= INLINE_SUMMARY_MAX_WORDS &&
-    text.length <= INLINE_SUMMARY_MAX_CHARS
-  );
+  const maxWords = INLINE_SUMMARY_MAX_WORDS[summaryMode];
+  return wordCount(text) <= maxWords && text.length <= maxWords * INLINE_SUMMARY_CHARS_PER_WORD;
 }
 
 /**
@@ -334,7 +334,7 @@ export function makeSourceSummarizer({
       try {
         const text = runSourceText(runIds, sentenceTexts);
         if (!text) return { sentences: runIds, text: '' };
-        if (shouldInlineRun(runIds, text)) return { sentences: runIds, text };
+        if (shouldInlineRun(text, summaryMode)) return { sentences: runIds, text };
         return {
           sentences: runIds,
           text: await summarizeRun(runIds, text, typeof info?.path === 'string' ? info.path : ''),

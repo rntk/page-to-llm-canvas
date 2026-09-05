@@ -171,8 +171,9 @@ export const LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE =
 // already-brief summaries — a summary-of-summaries loses facts level by level.
 // The output shape matches the merge prompt (one sentence + 1-4 bullets) so the
 // hierarchy view renders it identically and overflow chunk-summaries can be
-// merged with the existing merge prompt. No NO_SUMMARY escape: an internal node
-// aggregates multiple topics and is always worth summarizing.
+// merged with the existing merge prompt. Source runs with at most 150 words and
+// 1200 characters are returned verbatim before reaching this prompt; longer
+// internal-node requests have no NO_SUMMARY escape.
 export const TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE =
   `Summarize the source text within the ${open} tags into one combined topic summary.\n` +
   'The text is the full content of one topic gathered from a larger document. It may join non-adjacent passages covering several sub-points of the same subject, so do not assume it has an intro, a conclusion, or a single thesis — summarize the subject as a whole.\n' +
