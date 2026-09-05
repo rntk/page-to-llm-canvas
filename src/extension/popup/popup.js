@@ -251,6 +251,10 @@ export function getRecordActions(record) {
     description: 'Remove this saved analysis from the extension.',
   });
 
+  if (isInFlightPipelineStatus(record?.status)) {
+    return manageActions.filter((action) => action.messageType === MSG.cancelRecordProcessing);
+  }
+
   return [...viewActions.map((action) => ({ kind: 'view', ...action })), ...manageActions];
 }
 

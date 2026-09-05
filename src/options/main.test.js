@@ -308,6 +308,211 @@ describe('options main.jsx', () => {
     );
   });
 
+  it('gates record mutations while processing and refreshes action state after storage changes', async () => {
+    let storageChangedListener;
+    chrome.storage.onChanged = {
+      addListener: vi.fn((listener) => {
+        storageChangedListener = listener;
+      }),
+      removeListener: vi.fn(),
+    };
+    let records = [
+      {
+        key: 'rec1',
+        sourceUrl: 'https://example.com',
+        createdAt: 1716972000000,
+        status: 'done',
+      },
+    ];
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') cb({ ok: true, items: records });
+      else if (msg.type === 'cancelRecordProcessing') cb({ ok: true });
+      else if (msg.type === 'getRecord') cb({ ok: true, record: records[0] });
+      else cb({ ok: true });
+    });
+
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
+    await waitFor(() => expect(document.querySelector('tbody tr')).not.toBeNull());
+
+    records = [{ ...records[0], status: 'summarizing' }];
+    storageChangedListener({ 'pagetollm:rec:rec1:meta': { newValue: records[0] } }, 'local');
+    await waitFor(() => {
+      const row = document.querySelector('tbody tr');
+      expect(
+        Array.from(row.querySelectorAll('button')).find(
+          (button) => button.textContent === 'Reprocess',
+        ).disabled,
+      ).toBe(true);
+    }, 1000);
+
+    const row = document.querySelector('tbody tr');
+    const button = (label) =>
+      Array.from(row.querySelectorAll('button')).find(
+        (candidate) => candidate.textContent === label,
+      );
+    expect(button('Reprocess').disabled).toBe(true);
+    expect(button('Export data').disabled).toBe(true);
+    expect(button('Delete').disabled).toBe(true);
+    expect(button('Stop').disabled).toBe(false);
+    expect(
+      Array.from(document.querySelectorAll('button')).find(
+        (candidate) => candidate.textContent === 'Delete all page data',
+      ).disabled,
+    ).toBe(true);
+    expect(
+      Array.from(document.querySelectorAll('button')).find(
+        (candidate) => candidate.textContent === 'Import data',
+      ).disabled,
+    ).toBe(true);
+
+    sendMessageMock.mockClear();
+    button('Reprocess').click();
+    button('Export data').click();
+    button('Delete').click();
+    expect(sendMessageMock).not.toHaveBeenCalled();
+
+    records = [{ ...records[0], status: 'done' }];
+    storageChangedListener({ 'pagetollm:rec:rec1:meta': { newValue: records[0] } }, 'local');
+    await waitFor(() => expect(button('Reprocess').disabled).toBe(false), 1000);
+    expect(button('Export data').disabled).toBe(false);
+    expect(button('Delete').disabled).toBe(false);
+    expect(
+      Array.from(document.querySelectorAll('button')).find(
+        (candidate) => candidate.textContent === 'Delete all page data',
+      ).disabled,
+    ).toBe(false);
+    expect(
+      Array.from(document.querySelectorAll('button')).find(
+        (candidate) => candidate.textContent === 'Import data',
+      ).disabled,
+    ).toBe(false);
+  });
+
+  it('keeps reprocess, export, and delete usable for terminal error and cancelled records', async () => {
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') {
+        cb({
+          ok: true,
+          items: [
+            { key: 'error-1', sourceUrl: 'https://example.com/error', status: 'error' },
+            { key: 'cancelled-1', sourceUrl: 'https://example.com/cancelled', status: 'cancelled' },
+          ],
+        });
+      } else if (msg.type === 'getRecord') {
+        cb({ ok: true, record: { key: msg.key, status: 'done' } });
+      } else cb({ ok: true });
+    });
+
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
+    await waitFor(() => expect(document.querySelectorAll('tbody tr')).toHaveLength(2));
+
+    for (const row of document.querySelectorAll('tbody tr')) {
+      for (const label of ['Reprocess', 'Export data', 'Delete']) {
+        expect(
+          Array.from(row.querySelectorAll('button')).find((button) => button.textContent === label)
+            .disabled,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it('refreshes once during a continuous stream of record changes', async () => {
+    let storageChangedListener;
+    let listCalls = 0;
+    chrome.storage.onChanged = {
+      addListener: vi.fn((listener) => {
+        storageChangedListener = listener;
+      }),
+      removeListener: vi.fn(),
+    };
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') {
+        listCalls += 1;
+        cb({ ok: true, items: [{ key: 'rec1', status: listCalls > 1 ? 'pending' : 'done' }] });
+      }
+    });
+
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
+    await waitFor(() => expect(listCalls).toBe(1));
+
+    for (let index = 0; index < 4; index += 1) {
+      storageChangedListener({ [`pagetollm:rec:rec1:${index}`]: { newValue: {} } }, 'local');
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    await waitFor(() => expect(listCalls).toBeGreaterThan(1), 1000);
+  });
+
+  it('applies a slow refresh and schedules a follow-up when another event arrives', async () => {
+    let storageChangedListener;
+    let slowResponse;
+    let listCalls = 0;
+    chrome.storage.onChanged = {
+      addListener: vi.fn((listener) => {
+        storageChangedListener = listener;
+      }),
+      removeListener: vi.fn(),
+    };
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type !== 'listRecords') return;
+      listCalls += 1;
+      if (listCalls === 1) cb({ ok: true, items: [{ key: 'rec1', status: 'done' }] });
+      else if (listCalls === 2) slowResponse = cb;
+      else cb({ ok: true, items: [{ key: 'rec1', status: 'pending' }] });
+    });
+
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
+    await waitFor(() => expect(listCalls).toBe(1));
+
+    storageChangedListener({ 'pagetollm:rec:rec1:meta': { newValue: {} } }, 'local');
+    await waitFor(() => expect(listCalls).toBe(2), 1000);
+    storageChangedListener({ 'pagetollm:rec:rec1:log': { newValue: {} } }, 'local');
+    slowResponse({ ok: true, items: [{ key: 'rec1', status: 'pending' }] });
+
+    await waitFor(() => {
+      expect(document.querySelector('tbody tr').textContent).toContain('pending');
+    });
+    await waitFor(() => expect(listCalls).toBe(3), 1000);
+  });
+
+  it('ignores unrelated storage changes and removes the listener and timer on unmount', async () => {
+    let storageChangedListener;
+    const removeListener = vi.fn();
+    let listCalls = 0;
+    chrome.storage.onChanged = {
+      addListener: vi.fn((listener) => {
+        storageChangedListener = listener;
+      }),
+      removeListener,
+    };
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listRecords') {
+        listCalls += 1;
+        cb({ ok: true, items: [{ key: 'rec1', status: 'done' }] });
+      }
+    });
+
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
+    await waitFor(() => expect(listCalls).toBe(1));
+    storageChangedListener({ unrelated: { newValue: true } }, 'local');
+    storageChangedListener({ 'pagetollm:rec:rec1:meta': { newValue: {} } }, 'sync');
+    storageChangedListener({ 'pagetollm:other': { newValue: {} } }, 'session');
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(listCalls).toBe(1);
+
+    storageChangedListener({ 'pagetollm:pipeline-failure-breakers': { newValue: {} } }, 'session');
+    await waitFor(() => expect(listCalls).toBe(2), 1000);
+    storageChangedListener({ 'pagetollm:rec:rec1:meta': { newValue: {} } }, 'local');
+    currentRoot.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(listCalls).toBe(2);
+    expect(removeListener).toHaveBeenCalledWith(expect.any(Function));
+  });
+
   it('retries a cancelled record directly from the records list', async () => {
     sendMessageMock.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') {
@@ -1008,6 +1213,7 @@ describe('options main.jsx', () => {
         (button) => button.textContent === 'Delete all page data',
       );
       expect(deleteAllBtn).not.toBeUndefined();
+      expect(deleteAllBtn.disabled).toBe(false);
     });
 
     deleteAllBtn.click();

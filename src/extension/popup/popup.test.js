@@ -159,7 +159,7 @@ describe('popup pure functions', () => {
       'Delete',
     ]);
     expect(popup.getRecordActions({ status: 'summarizing' }).map((action) => action.label)).toEqual(
-      ['Reprocess', 'Stop', 'Export data', 'Delete'],
+      ['Stop'],
     );
     expect(popup.getRecordActions({ status: 'error' }).map((action) => action.label)).toEqual([
       'Retry',

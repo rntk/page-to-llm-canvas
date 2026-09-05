@@ -35,6 +35,10 @@ export function RecordsSection({ fileHost, pageHost }) {
   const [errorDialogKey, setErrorDialogKey] = useState(null);
   const [summaryErrorsDialogItem, setSummaryErrorsDialogItem] = useState(null);
   const importInputRef = useRef(null);
+  const recordsRequestId = useRef(0);
+  const recordsUnavailable = isLoading || Boolean(loadError);
+  const hasProcessingRecords = items.some((item) => isInFlightPipelineStatus(item.status));
+  const bulkActionsUnavailable = recordsUnavailable || hasProcessingRecords;
 
   // A failed load (transport failure or `{ok:false}`) must not be rendered as
   // "No records yet" - that reads as "you have no records" to a user who may
@@ -51,26 +55,58 @@ export function RecordsSection({ fileHost, pageHost }) {
     }
   }, []);
 
-  const loadRecords = useCallback(async () => {
-    setIsLoading(true);
-    applyRecords(await listRecords());
-  }, [applyRecords]);
+  const loadRecords = useCallback(
+    async ({ background = false } = {}) => {
+      const requestId = ++recordsRequestId.current;
+      if (!background) setIsLoading(true);
+      const result = await listRecords();
+      if (requestId === recordsRequestId.current) applyRecords(result);
+    },
+    [applyRecords],
+  );
 
   useEffect(() => {
-    let isCurrent = true;
-
-    async function loadInitialRecords() {
-      const result = await listRecords();
-      if (isCurrent) applyRecords(result);
-    }
-
-    void loadInitialRecords();
-    return () => {
-      isCurrent = false;
+    void loadRecords();
+    let refreshTimer = null;
+    let refreshNeeded = false;
+    let disposed = false;
+    const storageChanges = globalThis.chrome?.storage?.onChanged;
+    const scheduleRefresh = () => {
+      if (disposed || refreshTimer !== null) return;
+      // Bound the wait from the first event; continuous processing logs must
+      // not postpone status updates. Keep one background read in flight so
+      // slow reads can finish even while more storage changes arrive.
+      refreshTimer = setTimeout(async () => {
+        refreshNeeded = false;
+        await loadRecords({ background: true });
+        refreshTimer = null;
+        if (refreshNeeded) scheduleRefresh();
+      }, 300);
     };
-  }, [applyRecords]);
+    const onStorageChanged = (changes, areaName) => {
+      const affectsRecords =
+        areaName === 'local' &&
+        Object.keys(changes).some(
+          (key) => key === 'pagetollm:index' || key.startsWith('pagetollm:rec:'),
+        );
+      // List responses also project session-backed pipeline failures as errors.
+      const affectsFailures =
+        areaName === 'session' && Object.hasOwn(changes, 'pagetollm:pipeline-failure-breakers');
+      if (!affectsRecords && !affectsFailures) return;
+      refreshNeeded = true;
+      scheduleRefresh();
+    };
+    storageChanges?.addListener(onStorageChanged);
+    return () => {
+      disposed = true;
+      recordsRequestId.current += 1;
+      clearTimeout(refreshTimer);
+      storageChanges?.removeListener(onStorageChanged);
+    };
+  }, [loadRecords]);
 
   const deleteAll = async () => {
+    if (bulkActionsUnavailable) return;
     setError('');
     setImportMessage('');
     if (
@@ -88,6 +124,10 @@ export function RecordsSection({ fileHost, pageHost }) {
   };
 
   const runAction = async (action, key) => {
+    if (['delete', 'exportData', 'reprocess'].includes(action)) {
+      const item = items.find((record) => record.key === key);
+      if (recordsUnavailable || !item || isInFlightPipelineStatus(item.status)) return;
+    }
     setError('');
     setImportMessage('');
 
@@ -185,8 +225,12 @@ export function RecordsSection({ fileHost, pageHost }) {
     // successful list load. In particular, a failed refresh may leave a stale
     // list (or the initial empty value) here while records that would collide
     // remain unseen in storage.
-    if (isLoading || loadError) {
-      setError('Cannot import while records are unavailable. Retry loading records first.');
+    if (bulkActionsUnavailable) {
+      setError(
+        hasProcessingRecords
+          ? 'Cannot import while records are processing. Wait for processing to finish.'
+          : 'Cannot import while records are unavailable. Retry loading records first.',
+      );
       return;
     }
 
@@ -238,7 +282,7 @@ export function RecordsSection({ fileHost, pageHost }) {
           (item.status === PIPELINE_STATUS.ERROR || item.status === PIPELINE_STATUS.CANCELLED),
       )
     : null;
-  const importUnavailable = isLoading || Boolean(loadError);
+  const importUnavailable = bulkActionsUnavailable;
 
   return (
     <>
@@ -261,7 +305,12 @@ export function RecordsSection({ fileHost, pageHost }) {
           >
             {isImporting ? 'Importing...' : 'Import data'}
           </button>{' '}
-          <button className="danger" type="button" onClick={deleteAll}>
+          <button
+            className="danger"
+            type="button"
+            onClick={deleteAll}
+            disabled={bulkActionsUnavailable}
+          >
             Delete all page data
           </button>
         </div>
@@ -372,7 +421,11 @@ export function RecordsSection({ fileHost, pageHost }) {
                           {retryingKey === item.key ? 'Retrying...' : 'Retry'}
                         </button>
                       ) : null}
-                      <button type="button" onClick={() => runAction('reprocess', item.key)}>
+                      <button
+                        type="button"
+                        disabled={recordsUnavailable || isInFlightPipelineStatus(item.status)}
+                        onClick={() => runAction('reprocess', item.key)}
+                      >
                         Reprocess
                       </button>
                       {item.status === PIPELINE_STATUS.DONE &&
@@ -390,12 +443,17 @@ export function RecordsSection({ fileHost, pageHost }) {
                           Stop
                         </button>
                       ) : null}
-                      <button type="button" onClick={() => runAction('exportData', item.key)}>
+                      <button
+                        type="button"
+                        disabled={recordsUnavailable || isInFlightPipelineStatus(item.status)}
+                        onClick={() => runAction('exportData', item.key)}
+                      >
                         Export data
                       </button>
                       <button
                         className="danger"
                         type="button"
+                        disabled={recordsUnavailable || isInFlightPipelineStatus(item.status)}
                         onClick={() => runAction('delete', item.key)}
                       >
                         Delete
