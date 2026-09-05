@@ -315,10 +315,14 @@ describe('TopicHierarchyView', () => {
         onToggleCollapse: vi.fn(),
       });
 
+    const measureLeaf = vi.fn((el) =>
+      el.textContent.includes('Very Long Hidden Child') ? 520 : 220,
+    );
+    const measureLabel = vi.fn(() => 180);
     withStubbedWidths(
       {
-        leaf: (el) => (el.textContent.includes('Very Long Hidden Child') ? 520 : 220),
-        label: 180,
+        leaf: measureLeaf,
+        label: measureLabel,
         pane: 1000,
       },
       () => {
@@ -329,8 +333,29 @@ describe('TopicHierarchyView', () => {
         rerender(buildView(new Set()));
         expect(root.style.getPropertyValue('--th-card-width')).toBe('520px');
 
+        measureLeaf.mockClear();
+        measureLabel.mockClear();
         rerender(buildView(new Set(['Parent'])));
         expect(root.style.getPropertyValue('--th-card-width')).toBe('520px');
+        expect(measureLeaf).not.toHaveBeenCalled();
+        expect(measureLabel).not.toHaveBeenCalled();
+
+        // Equivalent collapse sets also retain the measured width.
+        rerender(buildView(new Set(['Parent'])));
+        expect(root.style.getPropertyValue('--th-card-width')).toBe('520px');
+        expect(measureLeaf).not.toHaveBeenCalled();
+        expect(measureLabel).not.toHaveBeenCalled();
+
+        // Replacing topics must still reset and measure, even while folded.
+        rerender(
+          createElement(TopicHierarchyView, {
+            topics: [{ name: 'Replacement', sentences: [1] }],
+            collapsedPaths: new Set(['Parent']),
+            onToggleCollapse: vi.fn(),
+          }),
+        );
+        expect(measureLeaf).toHaveBeenCalled();
+        expect(root.style.getPropertyValue('--th-card-width')).toBe('220px');
         unmount();
       },
     );

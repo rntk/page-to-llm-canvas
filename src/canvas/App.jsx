@@ -307,6 +307,18 @@ function CanvasApp({ initialKey, record, onClose }) {
     refreshSentenceRanges,
   });
 
+  // Read through a ref so the callback identity stays stable. The chat panel
+  // threads this down as `onHighlight`, and ArticleChat's `applyEvents` — and
+  // therefore useChatSessions' history-loading effect — is keyed on it, so a new
+  // identity reloads the session from storage. Leaving summary mode is exactly
+  // what the first streamed highlight of a turn does, so a `showSummaryMode`
+  // dependency would re-adopt the stored chat mid-turn, clearing the evidence
+  // painted so far and switching the active chat out from under the answer.
+  const showSummaryModeRef = useRef(showSummaryMode);
+  useEffect(() => {
+    showSummaryModeRef.current = showSummaryMode;
+  }, [showSummaryMode]);
+
   const handleChatHighlight = useCallback(
     ({ startLine, endLine }, { focus = false } = {}) => {
       if (focus) pendingChatHighlightLineRef.current ??= startLine;
@@ -314,17 +326,35 @@ function CanvasApp({ initialKey, record, onClose }) {
       // hook glide the column one frame later — on top of the zoom below, whose
       // placement then reads as "off". The pending zoom owns positioning here,
       // exactly as the summary view's "show source sentences" path does.
-      if (focus && showSummaryMode) skipNextAlignment();
+      // The ref is synchronized by the effect above, i.e. it tracks the
+      // *committed* mode — never assign it eagerly here. selectEvent replays a
+      // turn through applyEvents, which paints the turn's other ranges before
+      // the focused one, all in a single batch: an eager false would make the
+      // focused call believe summary mode was already left and skip the guard,
+      // letting the alignment pan for the still-pending mode change override
+      // the evidence zoom.
+      if (focus && showSummaryModeRef.current) skipNextAlignment();
       setShowSummaryMode(false);
+      // A turn streams one call per highlight_span tool call, and the model
+      // routinely re-issues ranges it has already highlighted (overlapping
+      // evidence across chunks). Keeping the same array for a no-op union lets
+      // React bail out instead of re-rendering the canvas and rebuilding the
+      // CSS highlight for an unchanged sentence set. A focus request must still
+      // commit a new array: the zoom below is driven by this state changing,
+      // and re-selecting already-painted evidence has to re-zoom to it.
       setChatSentenceNumbers((current) => {
         const next = new Set(current);
         for (let line = startLine; line <= endLine; line += 1) next.add(line);
+        if (!focus && next.size === current.length) return current;
         return Array.from(next).sort((a, b) => a - b);
       });
     },
-    [showSummaryMode, skipNextAlignment],
+    [skipNextAlignment],
   );
-  const handleClearChatHighlights = useCallback(() => setChatSentenceNumbers([]), []);
+  const handleClearChatHighlights = useCallback(
+    () => setChatSentenceNumbers((current) => (current.length ? [] : current)),
+    [],
+  );
 
   useEffect(() => {
     if (showSummaryMode || pendingChatHighlightLineRef.current === null) return;

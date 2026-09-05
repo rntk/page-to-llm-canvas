@@ -186,6 +186,9 @@ const HierarchyNode = React.memo(function HierarchyNode({
   );
 
   if (isCollapsed) {
+    // Keep this label no wider than its expanded version: the width effect
+    // skips collapse-only updates. Adding collapsed-only content requires
+    // revisiting that guard.
     const summary = getNodeSummary(node, summaryLookup);
     return (
       <div className="th-node th-node--collapsed" style={{ '--th-row-span': 1 }}>
@@ -301,21 +304,35 @@ export default function TopicHierarchyView({
   const rootRef = useRef(null);
   const measuredCardWidthRef = useRef(0);
   const measurementContentRef = useRef({ roots: null, isYouTube: null });
+  const previousCollapsedPathsRef = useRef(null);
 
   // Stretch every card to the widest card's natural width so columns align and
   // titles are never truncated. Measure at `max-content`, then lock the shared
   // `--th-card-width`. Fold/unfold changes can reveal previously hidden wider
-  // cards, so remeasure them; keep the fold/unfold width monotonic so collapsing
-  // a branch does not make the column jump narrower.
+  // cards, so remeasure on expansion; collapsing alone can reuse the width.
+  // Keep the fold/unfold width monotonic so columns do not jump narrower.
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root) return;
     const contentChanged =
       measurementContentRef.current.roots !== roots ||
       measurementContentRef.current.isYouTube !== isYouTube;
+    const previousCollapsedPaths = previousCollapsedPathsRef.current;
+    previousCollapsedPathsRef.current = collapsedPaths;
     if (contentChanged) {
       measuredCardWidthRef.current = 0;
       measurementContentRef.current = { roots, isYouTube };
+    }
+    if (
+      !contentChanged &&
+      measuredCardWidthRef.current > 0 &&
+      previousCollapsedPaths &&
+      [...previousCollapsedPaths].every((path) => collapsedPaths.has(path))
+    ) {
+      // Collapsing only removes descendants and the label's drill span; the
+      // remaining labels cannot grow, so the locked width is still sufficient.
+      // Revisit this guard if collapsed labels gain extra content.
+      return;
     }
 
     root.style.setProperty('--th-card-width', 'max-content');
