@@ -57,6 +57,10 @@ vi.mock('./geometry.js', async (importOriginal) => {
   };
 });
 
+vi.mock('../../../chat/ArticleChat.jsx', () => ({
+  default: vi.fn(() => null),
+}));
+
 vi.mock('../../../highlights/sentenceHighlight.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -69,14 +73,17 @@ vi.mock('../../../highlights/sentenceHighlight.js', async (importOriginal) => {
 
 const { createInPageRailController } = await import('./controller.jsx');
 const { fetchRecord } = await import('../shared/recordFetch.js');
-const { getScrollableAncestor, getRailOriginTop } = await import('./geometry.js');
+const { getScrollableAncestor, getRailOriginTop, computeCardVerticalBox } =
+  await import('./geometry.js');
 const { openCanvasIframe, openHierarchyIframe } =
   await import('../../record-view/iframeManager.js');
 const { createRailSurfaceManager } = await import('../shared/surface.js');
 const preferences = await import('../../shared/surfacePreferences.js');
 const { buildSentenceDomRange } = await import('../../../highlights/sentenceHighlight.js');
+const { default: ArticleChat } = await import('../../../chat/ArticleChat.jsx');
 const surfaceManager = createRailSurfaceManager({ document, preferences });
 const closeInPageRail = surfaceManager.close;
+const nativeMutationObserver = window.MutationObserver;
 const logger = { warn: vi.fn() };
 const { openInPageRail } = createInPageRailController({
   surfaceManager,
@@ -149,16 +156,20 @@ describe('openInPageRail', () => {
     getScrollableAncestor.mockReturnValue(window);
     getRailOriginTop.mockReset();
     getRailOriginTop.mockReturnValue(100);
+    computeCardVerticalBox.mockReset();
+    computeCardVerticalBox.mockReturnValue({ top: 0, height: 50 });
     openCanvasIframe.mockClear();
     openHierarchyIframe.mockClear();
     globalThis.chrome.runtime.openOptionsPage.mockClear();
     globalThis.chrome.runtime.sendMessage.mockClear();
     logger.warn.mockClear();
+    ArticleChat.mockClear();
     globalThis.chrome.runtime.sendMessage.mockImplementation((_msg, cb) => cb({ ok: false }));
   });
 
   afterEach(() => {
     closeInPageRail();
+    vi.stubGlobal('MutationObserver', nativeMutationObserver);
     document.getElementById('article')?.remove();
     document.getElementById('pagetollm-canvas-iframe')?.remove();
   });
@@ -330,6 +341,223 @@ describe('openInPageRail', () => {
       innerScroller.remove();
     });
 
+    it('refreshes anchors after a replaced article, adopts its scroller, and tears down its observer', async () => {
+      let notifyMutations;
+      const observerDisconnect = vi.fn();
+      class TestMutationObserver {
+        constructor(callback) {
+          notifyMutations = callback;
+        }
+        observe = vi.fn();
+        disconnect = observerDisconnect;
+      }
+      vi.stubGlobal('MutationObserver', TestMutationObserver);
+      const frames = [];
+      vi.stubGlobal('requestAnimationFrame', (callback) => {
+        frames.push(callback);
+        return frames.length;
+      });
+
+      const oldArticle = document.getElementById('article');
+      const nextScroller = document.createElement('div');
+      const replacement = document.createElement('div');
+      replacement.id = 'article';
+      replacement.textContent = 'Alpha sentence. Beta sentence.';
+      nextScroller.appendChild(replacement);
+      document.body.appendChild(nextScroller);
+      oldArticle.remove();
+      // The initial lookup sees the original page; restore it until the rail
+      // has mounted, then replace it in the observer callback below.
+      nextScroller.remove();
+      document.body.appendChild(oldArticle);
+      getScrollableAncestor
+        .mockReturnValueOnce(window)
+        .mockReturnValueOnce(window)
+        .mockReturnValueOnce(nextScroller);
+
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'topics');
+      });
+      const card = rail().querySelector('.pagetollm-rail-card');
+      act(() => card.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+      expect(CSS.highlights.has('pagetollm-sentence')).toBe(true);
+
+      // Hydration can replace only an article's text node. The same picked
+      // root must be recollected, rather than keeping stale Range endpoints.
+      const oldText = oldArticle.firstChild;
+      oldArticle.textContent = 'Alpha sentence. Beta sentence.';
+      act(() => {
+        notifyMutations([
+          { target: oldArticle, addedNodes: [oldArticle.firstChild], removedNodes: [oldText] },
+        ]);
+      });
+      expect(frames).toHaveLength(1);
+      await act(async () => {
+        frames.shift()();
+      });
+      expect([...CSS.highlights.get('pagetollm-sentence').ranges][0].startContainer).toBe(
+        oldArticle.firstChild,
+      );
+
+      oldArticle.replaceWith(nextScroller);
+      act(() => {
+        notifyMutations([
+          { target: document.body, addedNodes: [nextScroller], removedNodes: [oldArticle] },
+        ]);
+        notifyMutations([
+          { target: document.body, addedNodes: [nextScroller], removedNodes: [oldArticle] },
+        ]);
+      });
+      expect(frames).toHaveLength(1);
+      await act(async () => {
+        frames.shift()();
+      });
+
+      expect(getScrollableAncestor).toHaveBeenCalledTimes(3);
+      expect(rail().classList).toContain('is-nested-scroll');
+      // The active topic survives the anchor rebuild instead of being cleared.
+      expect(CSS.highlights.has('pagetollm-sentence')).toBe(true);
+      expect([...CSS.highlights.get('pagetollm-sentence').ranges][0].startContainer).toBe(
+        replacement.firstChild,
+      );
+
+      closeInPageRail();
+      expect(observerDisconnect).toHaveBeenCalledTimes(1);
+      notifyMutations([{ target: document.body, addedNodes: [], removedNodes: [] }]);
+      expect(frames).toHaveLength(0);
+      nextScroller.remove();
+    });
+
+    it('coalesces unrelated and relevant mutations before one selector pass', async () => {
+      let notifyMutations;
+      class TestMutationObserver {
+        constructor(callback) {
+          notifyMutations = callback;
+        }
+        observe = vi.fn();
+        disconnect = vi.fn();
+      }
+      vi.stubGlobal('MutationObserver', TestMutationObserver);
+      const frames = [];
+      vi.stubGlobal('requestAnimationFrame', (callback) => {
+        frames.push(callback);
+        return frames.length;
+      });
+
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'topics');
+      });
+      const querySelector = vi.spyOn(document, 'querySelector');
+      const article = document.getElementById('article');
+      const oldText = article.firstChild;
+      article.textContent = 'Alpha sentence. Beta sentence.';
+
+      act(() => {
+        notifyMutations([{ target: document.body, addedNodes: [], removedNodes: [] }]);
+        notifyMutations([
+          { target: article, addedNodes: [article.firstChild], removedNodes: [oldText] },
+        ]);
+      });
+
+      expect(frames).toHaveLength(1);
+      expect(querySelector).not.toHaveBeenCalledWith('#article');
+      await act(async () => {
+        frames.shift()();
+      });
+      expect(querySelector.mock.calls.filter(([selector]) => selector === '#article')).toHaveLength(
+        1,
+      );
+      querySelector.mockRestore();
+    });
+
+    it('clears detached anchors and recovers them when the article returns in a later frame', async () => {
+      let notifyMutations;
+      class TestMutationObserver {
+        constructor(callback) {
+          notifyMutations = callback;
+        }
+        observe = vi.fn();
+        disconnect = vi.fn();
+      }
+      vi.stubGlobal('MutationObserver', TestMutationObserver);
+      const frames = [];
+      vi.stubGlobal('requestAnimationFrame', (callback) => {
+        frames.push(callback);
+        return frames.length;
+      });
+
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'topics');
+      });
+      const article = document.getElementById('article');
+      const card = rail().querySelector('.pagetollm-rail-card');
+      act(() => card.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+      expect(CSS.highlights.has('pagetollm-sentence')).toBe(true);
+
+      article.remove();
+      act(() =>
+        notifyMutations([{ target: document.body, addedNodes: [], removedNodes: [article] }]),
+      );
+      await act(async () => {
+        frames.shift()();
+      });
+      expect(CSS.highlights.has('pagetollm-sentence')).toBe(false);
+
+      document.body.appendChild(article);
+      act(() =>
+        notifyMutations([{ target: document.body, addedNodes: [article], removedNodes: [] }]),
+      );
+      await act(async () => {
+        frames.shift()();
+      });
+      expect(CSS.highlights.has('pagetollm-sentence')).toBe(true);
+      expect([...CSS.highlights.get('pagetollm-sentence').ranges][0].startContainer).toBe(
+        article.firstChild,
+      );
+    });
+
+    it('refreshes chat highlight anchors without projecting or rendering rail cards', async () => {
+      let notifyMutations;
+      class TestMutationObserver {
+        constructor(callback) {
+          notifyMutations = callback;
+        }
+        observe = vi.fn();
+        disconnect = vi.fn();
+      }
+      vi.stubGlobal('MutationObserver', TestMutationObserver);
+      const frames = [];
+      vi.stubGlobal('requestAnimationFrame', (callback) => {
+        frames.push(callback);
+        return frames.length;
+      });
+
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'chat');
+      });
+      const chatProps = ArticleChat.mock.calls.at(-1)[0];
+      chatProps.onHighlight({ startLine: 1, endLine: 1 });
+      expect(CSS.highlights.has('pagetollm-chat-sentence')).toBe(true);
+      const projectionsBeforeMutation = getRailOriginTop.mock.calls.length;
+      const article = document.getElementById('article');
+      const oldText = article.firstChild;
+      article.textContent = 'Alpha sentence. Beta sentence.';
+
+      act(() => {
+        notifyMutations([
+          { target: article, addedNodes: [article.firstChild], removedNodes: [oldText] },
+        ]);
+      });
+      await act(async () => {
+        frames.shift()();
+      });
+
+      expect(getRailOriginTop).toHaveBeenCalledTimes(projectionsBeforeMutation);
+      expect([...CSS.highlights.get('pagetollm-chat-sentence').ranges][0].startContainer).toBe(
+        article.firstChild,
+      );
+    });
+
     it('does not mark the rail host when scroll-container detection returns null', async () => {
       getScrollableAncestor.mockReturnValue(null);
 
@@ -391,6 +619,7 @@ describe('openInPageRail', () => {
         await openInPageRail({ key: 'rail-key' }, 'chat');
       });
       expect(rail().dataset.mode).toBe('chat');
+      const geometryBeforeLeavingChat = getRailOriginTop.mock.calls.length;
 
       const select = rail().querySelector('.pagetollm-rail-mode-select');
       await act(async () => {
@@ -398,12 +627,70 @@ describe('openInPageRail', () => {
         select.dispatchEvent(new Event('change', { bubbles: true }));
       });
       expect(rail().dataset.mode).toBe('topics');
+      expect(getRailOriginTop).toHaveBeenCalledTimes(geometryBeforeLeavingChat + 1);
 
       await act(async () => {
         select.value = 'chat';
         select.dispatchEvent(new Event('change', { bubbles: true }));
       });
       expect(rail().dataset.mode).toBe('chat');
+    });
+
+    it('measures the incoming mode body before projecting cards after leaving chat', async () => {
+      const chatBodyTop = 640;
+      const topicBodyTop = 180;
+      const measuredLayouts = [];
+      const rectSpy = vi
+        .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+        .mockImplementation(function getBoundingClientRect() {
+          if (this.classList.contains('pagetollm-rail-body')) {
+            const isChat = this.classList.contains('is-chat');
+            measuredLayouts.push({
+              bodyMode: isChat ? 'chat' : 'topics',
+              headerMode: this.parentElement?.querySelector('.pagetollm-rail-mode-select')?.value,
+            });
+            return {
+              top: isChat ? chatBodyTop : topicBodyTop,
+              bottom: 0,
+              left: 0,
+              right: 0,
+              width: 0,
+              height: 0,
+            };
+          }
+          return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 };
+        });
+      getRailOriginTop.mockImplementation((rect) => rect.top);
+      computeCardVerticalBox.mockImplementation((_run, _ranges, _words, originTop) => ({
+        top: originTop,
+        height: 50,
+      }));
+
+      try {
+        await act(async () => {
+          await openInPageRail({ key: 'rail-key' }, 'chat');
+        });
+        const select = rail().querySelector('.pagetollm-rail-mode-select');
+        await act(async () => {
+          select.value = 'topics';
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+
+        expect(measuredLayouts).toEqual([
+          { bodyMode: 'chat', headerMode: 'chat' },
+          { bodyMode: 'topics', headerMode: 'topics' },
+        ]);
+        expect(getRailOriginTop.mock.results.map(({ value }) => value)).toEqual([
+          chatBodyTop,
+          topicBodyTop,
+        ]);
+        expect(computeCardVerticalBox.mock.calls.map(([, , , originTop]) => originTop)).toEqual([
+          chatBodyTop,
+          topicBodyTop,
+        ]);
+      } finally {
+        rectSpy.mockRestore();
+      }
     });
 
     it('switching to canvas mode closes the rail and opens the canvas iframe', async () => {

@@ -54,7 +54,11 @@ function mountArticle() {
   el.textContent = SENTENCES.join(' ');
   document.body.appendChild(el);
   const wordEntries = collectWordEntries([el]);
-  return { wordEntries, sentenceRanges: buildSentenceWordRanges(SENTENCES, wordEntries) };
+  return {
+    element: el,
+    wordEntries,
+    sentenceRanges: buildSentenceWordRanges(SENTENCES, wordEntries),
+  };
 }
 
 function makeHighlighter(overrides = {}) {
@@ -161,6 +165,30 @@ describe('createPageHighlighter', () => {
 
     expect(CSS.highlights.has(HIGHLIGHT_NAME)).toBe(false);
     expect(CSS.highlights.has(CHAT_HIGHLIGHT_NAME)).toBe(false);
+  });
+
+  it('rebuilds both retained highlight types against replacement article anchors', () => {
+    const highlighter = makeHighlighter();
+    highlighter.highlightTopic([1, 2], true);
+    highlighter.highlightChatRange(4, 5);
+    const oldTopicHighlight = CSS.highlights.get(HIGHLIGHT_NAME);
+    const oldChatHighlight = CSS.highlights.get(CHAT_HIGHLIGHT_NAME);
+
+    // A framework can replace the picked article node wholesale while keeping
+    // the same selector. Feed the freshly collected anchors to the adapter.
+    document.getElementById('article').remove();
+    const replacement = mountArticle();
+    highlighter.updateAnchors(replacement);
+
+    expect(CSS.highlights.get(HIGHLIGHT_NAME)).not.toBe(oldTopicHighlight);
+    expect(CSS.highlights.get(CHAT_HIGHLIGHT_NAME)).not.toBe(oldChatHighlight);
+    expect(paintedCount(HIGHLIGHT_NAME)).toBe(2);
+    expect(paintedCount(CHAT_HIGHLIGHT_NAME)).toBe(2);
+    for (const highlight of [HIGHLIGHT_NAME, CHAT_HIGHLIGHT_NAME]) {
+      for (const range of CSS.highlights.get(highlight).ranges) {
+        expect(replacement.element.contains(range.startContainer)).toBe(true);
+      }
+    }
   });
 
   describe('scrollToFirst', () => {

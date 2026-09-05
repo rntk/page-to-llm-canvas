@@ -10,8 +10,8 @@ const IN_PAGE_RAIL_MODES = [
 
 const SUMMARIES_DISABLED_NOTICE = (
   <div className="pagetollm-rail-empty">
-    Summaries are disabled. Enable them in the extension settings and reprocess this page to see them
-    here.
+    Summaries are disabled. Enable them in the extension settings and reprocess this page to see
+    them here.
   </div>
 );
 
@@ -140,12 +140,14 @@ function SummaryCursorView({
 }) {
   const [activeCardId, setActiveCardId] = useState(null);
   const [hoveredCardId, setHoveredCardId] = useState(null);
-  const [cursorTop, setCursorTop] = useState(SUMMARY_CURSOR_MIN_TOP);
   // Index rather than the raw cursor position: it only changes at topic
   // boundaries, so scrolling within a topic causes no re-render at all.
   const [displayIndex, setDisplayIndex] = useState(-1);
   const [enterDirection, setEnterDirection] = useState('down');
   const activeIndexRef = useRef(-1);
+  // Guard repeated scroll writes explicitly: same-value setters can still
+  // produce a follow-up commit after a transition (covered by the Profiler test).
+  const activeCardIdRef = useRef(null);
   const cardsRef = useRef(cards);
   useEffect(() => {
     cardsRef.current = cards;
@@ -179,7 +181,9 @@ function SummaryCursorView({
     const body = bodyRef.current;
     const currentCards = cardsRef.current;
     if (!body || currentCards.length === 0) {
+      body?.style.setProperty('--pagetollm-summary-cursor-top', `${SUMMARY_CURSOR_MIN_TOP}px`);
       activeIndexRef.current = -1;
+      activeCardIdRef.current = null;
       setHoveredCardId(null);
       setDisplayIndex(-1);
       setActiveCardId(null);
@@ -199,8 +203,11 @@ function SummaryCursorView({
       }),
       isWindowScroll: !scrollContainer || scrollContainer === scrollWindow,
     });
-    const nextCursorTop = nextState.cursorTop;
-    setCursorTop(nextCursorTop);
+    // Both cursor elements inherit this value; pixel movement needs no React commit.
+    const cursorTop = `${nextState.cursorTop}px`;
+    if (body.style.getPropertyValue('--pagetollm-summary-cursor-top') !== cursorTop) {
+      body.style.setProperty('--pagetollm-summary-cursor-top', cursorTop);
+    }
     const nextIndex = resolveDisplayIndex(
       currentCards,
       nextState.activeCardId,
@@ -213,12 +220,15 @@ function SummaryCursorView({
         setEnterDirection(nextIndex > activeIndexRef.current ? 'down' : 'up');
       }
       activeIndexRef.current = nextIndex;
+      setDisplayIndex(nextIndex);
       // A hovered title moves into the card slot as the page scrolls, which
       // never fires mouseleave; drop the hover so its highlight can't stick.
       setHoveredCardId(null);
     }
-    setDisplayIndex(nextIndex);
-    setActiveCardId(nextState.activeCardId);
+    if (nextState.activeCardId !== activeCardIdRef.current) {
+      activeCardIdRef.current = nextState.activeCardId;
+      setActiveCardId(nextState.activeCardId);
+    }
   }, [bodyRef, isNestedScroll, projectedScrollContainerTop, scrollContainer, scrollWindow]);
 
   useEffect(() => {
@@ -285,21 +295,12 @@ function SummaryCursorView({
     [],
   );
 
-  const cursorTopStyle = `${cursorTop}px`;
-
   return (
     <>
-      <div
-        className="pagetollm-summary-cursor-line"
-        style={{ '--pagetollm-summary-cursor-top': cursorTopStyle }}
-        aria-hidden="true"
-      />
+      <div className="pagetollm-summary-cursor-line" aria-hidden="true" />
       <div className="pagetollm-summary-cursor-hitbox" style={{ height: `${bodyHeight}px` }} />
       {cards.length > 0 ? (
-        <div
-          className="pagetollm-summary-stack"
-          style={{ '--pagetollm-summary-cursor-top': cursorTopStyle }}
-        >
+        <div className="pagetollm-summary-stack">
           <div className="pagetollm-summary-topic-list is-before">
             {cardsBefore.map((card) => (
               <SummaryTopicTitle
@@ -459,6 +460,9 @@ export default function InPageRail({
 
   const bodyStyle = {
     height: `${bodyHeight}px`,
+    // Seed the first commit before passive cursor updates; React also removes
+    // the property when leaving summaries, so a later mount starts cleanly.
+    ...(isSummary ? { '--pagetollm-summary-cursor-top': `${SUMMARY_CURSOR_MIN_TOP}px` } : {}),
   };
 
   return (

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createElement } from 'react';
+import { createElement, Profiler, useLayoutEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import InPageRail from './InPageRail.jsx';
@@ -128,6 +128,37 @@ describe('InPageRail', () => {
     });
     expect(onSelectMode).toHaveBeenCalledWith('summaries');
 
+    unmount();
+  });
+
+  it('seeds the summary cursor in the first commit and removes it on mode exit', () => {
+    const committedCursorTops = [];
+    function SummaryCommitProbe() {
+      // This layout effect is part of the Profiler's first commit and runs
+      // before SummaryCursorView's passive cursor measurement.
+      useLayoutEffect(() => {
+        committedCursorTops.push(
+          document
+            .querySelector('.pagetollm-rail-body')
+            ?.style.getPropertyValue('--pagetollm-summary-cursor-top'),
+        );
+      }, []);
+      return createElement(InPageRail, { ...defaultProps, mode: 'summaries' });
+    }
+    const onRender = vi.fn();
+    const { container, rerender, unmount } = render(
+      createElement(Profiler, { id: 'rail', onRender }, createElement(SummaryCommitProbe)),
+    );
+
+    expect(committedCursorTops[0]).toBe('112px');
+    expect(onRender).toHaveBeenCalled();
+
+    rerender(createElement(InPageRail, { ...defaultProps, mode: 'topics' }));
+    expect(
+      container
+        .querySelector('.pagetollm-rail-body')
+        .style.getPropertyValue('--pagetollm-summary-cursor-top'),
+    ).toBe('');
     unmount();
   });
 
@@ -580,6 +611,60 @@ describe('InPageRail', () => {
     expect(container.querySelectorAll('.is-before .pagetollm-summary-topic')).toHaveLength(0);
     expect(container.querySelectorAll('.is-after .pagetollm-summary-topic')).toHaveLength(2);
 
+    unmount();
+  });
+
+  it('updates the cursor CSS property while scrolling within a card without a React commit', async () => {
+    const frames = [];
+    vi.stubGlobal('requestAnimationFrame', (cb) => {
+      frames.push(cb);
+      return frames.length;
+    });
+    const flushFrames = () => {
+      while (frames.length) frames.shift()();
+    };
+    const mockScrollContainer = document.createElement('div');
+    let containerTop = 100;
+    mockScrollContainer.getBoundingClientRect = () => ({ top: containerTop, height: 800 });
+    Object.defineProperty(mockScrollContainer, 'clientHeight', { value: 800, configurable: true });
+    let scrollTop = 0;
+    Object.defineProperty(mockScrollContainer, 'scrollTop', {
+      get: () => scrollTop,
+      configurable: true,
+    });
+    const onRender = vi.fn();
+
+    const { container, unmount } = render(
+      createElement(
+        Profiler,
+        { id: 'rail', onRender },
+        createElement(InPageRail, {
+          ...defaultProps,
+          mode: 'summaries',
+          scrollContainer: mockScrollContainer,
+        }),
+      ),
+    );
+    const body = container.querySelector('.pagetollm-rail-body');
+    body.getBoundingClientRect = () => ({ top: 150, height: 800 });
+    await act(async () => {
+      mockScrollContainer.dispatchEvent(new Event('scroll'));
+      flushFrames();
+      await Promise.resolve();
+    });
+    const commitsBeforeScroll = onRender.mock.calls.length;
+
+    // Both positions resolve to card1; an outer-page move only changes the
+    // inherited pixel cursor property, not the displayed summary.
+    containerTop = 120;
+    await act(async () => {
+      window.dispatchEvent(new Event('scroll'));
+      flushFrames();
+      await Promise.resolve();
+    });
+
+    expect(body.style.getPropertyValue('--pagetollm-summary-cursor-top')).toBe('424px');
+    expect(onRender).toHaveBeenCalledTimes(commitsBeforeScroll);
     unmount();
   });
 

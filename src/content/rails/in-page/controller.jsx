@@ -95,7 +95,7 @@ export function createInPageRailController({
       return false;
     }
     const record = assessment.record;
-    const elements = findPickedElements(record.selectors, contentDocument);
+    let elements = findPickedElements(record.selectors, contentDocument);
     if (elements.length === 0) {
       const openCanvas = confirm(
         'PageToLLM: Could not locate the original article blocks on this page; the page layout may have changed.\n\nWould you like to open it in the full canvas view instead?',
@@ -106,15 +106,18 @@ export function createInPageRailController({
       return false;
     }
 
-    const wordEntries = collectWordEntries(elements);
+    let wordEntries = collectWordEntries(elements);
     const sentences = Array.isArray(record.sentences) ? record.sentences : [];
-    const sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
-    const scrollContainer = getScrollableAncestor(elements, {
+    let sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
+    let scrollContainer = getScrollableAncestor(elements, {
       win: contentWindow,
       body: contentDocument.body,
       docEl: contentDocument.documentElement,
     });
-    const isNestedScroll = Boolean(scrollContainer && scrollContainer !== contentWindow);
+    let isNestedScroll = Boolean(scrollContainer && scrollContainer !== contentWindow);
+    let mutationObserver;
+    let mutationFrameId = 0;
+    let pendingMutations = [];
 
     const state = {
       mode: initialMode,
@@ -135,6 +138,9 @@ export function createInPageRailController({
     const surface = surfaceManager.createSurface({
       state,
       onTeardown: () => {
+        mutationObserver?.disconnect();
+        if (mutationFrameId) contentWindow.cancelAnimationFrame(mutationFrameId);
+        pendingMutations = [];
         highlighter.destroy();
         onDestroy?.();
       },
@@ -179,6 +185,10 @@ export function createInPageRailController({
       railEl.dataset.mode = state.mode;
       setRailWidthForMode();
       highlighter.clearAll();
+      // Measure the incoming header and body layout. In particular, chat's
+      // sticky body can have a different viewport top from the topic body.
+      renderRail({ measureOnly: true });
+      measureRailOrigin();
       renderRail();
     };
 
@@ -219,10 +229,11 @@ export function createInPageRailController({
       const projectedScrollContainerTop = isNestedScroll
         ? scrollContainer.getBoundingClientRect().top
         : 0;
-      const { cards, bodyHeight } = Number.isFinite(railOriginTop)
-        ? projectRail()
-        : { cards: [], bodyHeight: FALLBACK_RAIL_BODY_HEIGHT };
-      flushSync(() => {
+      const { cards, bodyHeight } =
+        !measureOnly && Number.isFinite(railOriginTop)
+          ? projectRail()
+          : { cards: [], bodyHeight: FALLBACK_RAIL_BODY_HEIGHT };
+      const commit = () => {
         railRoot.render(
           <InPageRail
             mode={state.mode}
@@ -246,7 +257,10 @@ export function createInPageRailController({
             recordKey={record.key}
           />,
         );
-      });
+      };
+      // Only the measurement shell must be committed before a DOM read.
+      if (measureOnly) flushSync(commit);
+      else commit();
     }
 
     const measureRailOrigin = () => {
@@ -278,6 +292,59 @@ export function createInPageRailController({
     if (isClosed() || guard.isStale()) return false;
     measureRailOrigin();
     renderRail();
+
+    // Re-resolve selectors to handle replaced article blocks and scrollers, and
+    // recollect text even when hydration preserves the picked element itself.
+    mutationObserver = new contentWindow.MutationObserver((mutations) => {
+      if (isClosed() || guard.isStale()) return;
+      const pageMutations = mutations.filter(({ target }) => !railEl.contains(target));
+      if (pageMutations.length === 0) return;
+      for (const mutation of pageMutations) pendingMutations.push(mutation);
+      if (mutationFrameId) return;
+      mutationFrameId = contentWindow.requestAnimationFrame(() => {
+        mutationFrameId = 0;
+        const frameMutations = pendingMutations;
+        pendingMutations = [];
+        if (isClosed() || guard.isStale()) return;
+        // Even unrelated mutation batches share one selector pass per frame.
+        const nextElements = findPickedElements(record.selectors, contentDocument);
+        const changed =
+          nextElements.length !== elements.length ||
+          nextElements.some((element, index) => element !== elements[index]) ||
+          frameMutations.some(({ target, addedNodes, removedNodes }) =>
+            elements.some(
+              (element) =>
+                element.contains(target) ||
+                [...addedNodes, ...removedNodes].some((node) => node.contains(element)),
+            ),
+          );
+        if (!changed) return;
+        // Empty anchors clear detached ranges. A later insertion is observed
+        // too, allowing a temporarily removed article to recover automatically.
+        elements = nextElements;
+        wordEntries = collectWordEntries(elements);
+        sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
+        scrollContainer = getScrollableAncestor(elements, {
+          win: contentWindow,
+          body: contentDocument.body,
+          docEl: contentDocument.documentElement,
+        });
+        isNestedScroll = Boolean(scrollContainer && scrollContainer !== contentWindow);
+        railEl.classList.toggle('is-nested-scroll', isNestedScroll);
+        highlighter.updateAnchors({ wordEntries, sentenceRanges, scrollContainer });
+        // Chat citations still need fresh anchors, but display no rail cards.
+        if (state.mode === 'chat') return;
+        measureRailOrigin();
+        renderRail();
+      });
+    });
+    mutationObserver.observe(contentDocument.documentElement, {
+      // Avoid style/class animation traffic (including our own positioning).
+      // Attribute-only visibility changes are intentionally not tracked here.
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
 
     // A viewport resize can reflow the article and move the rail's document
     // origin. Re-measure it before rebuilding card geometry. In summaries

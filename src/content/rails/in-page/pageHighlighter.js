@@ -60,6 +60,18 @@ export function createPageHighlighter({
     rebuild(CHAT_HIGHLIGHT_NAME, activeChatSentences);
   }
 
+  /**
+   * Replace stale DOM references while preserving the requested highlights.
+   * @param {object} anchors Fresh word entries, sentence ranges, and scroller.
+   */
+  function updateAnchors(anchors) {
+    wordEntries = anchors.wordEntries;
+    sentenceRanges = anchors.sentenceRanges;
+    scrollContainer = anchors.scrollContainer;
+    rebuild(HIGHLIGHT_NAME, activeTopicSentences);
+    rebuild(CHAT_HIGHLIGHT_NAME, activeChatSentences);
+  }
+
   function highlightTopic(sentenceList, on) {
     for (const sNum of sentenceList) {
       if (on) activeTopicSentences.add(sNum);
@@ -129,6 +141,7 @@ export function createPageHighlighter({
   }
 
   return {
+    updateAnchors,
     highlightTopic,
     highlightChatRange,
     clearChatHighlights,
