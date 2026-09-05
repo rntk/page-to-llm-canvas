@@ -21,6 +21,7 @@ export {
   getLocalItemsByPrefix as getLocalByPrefix,
   getLocalItemsByPrefixes as getLocalByPrefixes,
   getLocalKeysByPrefix,
+  getAllLocalKeys,
   setLocalItems as setLocal,
   removeLocalItems as removeLocal,
   clearLocalItems as clearLocal,

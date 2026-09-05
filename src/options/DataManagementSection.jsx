@@ -38,6 +38,14 @@ function formatBytes(value) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// A size the worker could only partially read is a lower bound, so it is
+// marked distinctly from a merely estimated one: "at least this much" and
+// "roughly this much" lead to different decisions about deleting data.
+function sizePrefix(entry = {}) {
+  if (entry.partial) return '≥';
+  return entry.approximate ? '~' : '';
+}
+
 function categoryDetail(id, category = {}) {
   if (id === 'pageData') {
     return `${category.recordCount || 0} page record${category.recordCount === 1 ? '' : 's'}, ${
@@ -149,7 +157,7 @@ export function DataManagementSection({ onDataChanged }) {
                     <td>{row.description}</td>
                     <td>{categoryDetail(row.id, category)}</td>
                     <td className="mono">
-                      {category.approximate ? '~' : ''}
+                      {sizePrefix(category)}
                       {formatBytes(category.bytes)}
                     </td>
                   </tr>
@@ -158,10 +166,13 @@ export function DataManagementSection({ onDataChanged }) {
             </tbody>
           </table>
           <div className="storage-total note">
-            Total: {overview.approximate ? '~' : ''}
+            Total: {sizePrefix(overview)}
             {formatBytes(overview.totalBytes)} across {overview.totalKeyCount || 0} stored items.
             {overview.approximate
               ? ' Sizes marked ~ are estimated: the browser could not report exact usage.'
+              : ''}
+            {overview.partial
+              ? ' Sizes marked ≥ are lower bounds: some stored values could not be read.'
               : ''}
           </div>
         </>

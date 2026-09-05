@@ -63,10 +63,11 @@ export async function getLocalItemsByPrefixes(prefixes) {
 }
 
 /**
- * Reads the whole key inventory. `StorageArea.getKeys` is promise-only in the
- * Chrome versions that ship it and never invokes a callback, so the promise it
- * returns is consumed first; the callback form is only used by implementations
- * that hand back nothing (or reject the no-argument call outright).
+ * Reads the whole key inventory from `StorageArea.getKeys`. It is promise-only
+ * in the Chrome versions that ship it and never invokes a callback, so the
+ * promise it returns is consumed first; the callback form is only used by
+ * implementations that hand back nothing (or reject the no-argument call
+ * outright). Callers must check that `getKeys` exists before calling this.
  * @returns {Promise<string[]>}
  */
 function readAllLocalKeys() {
@@ -92,6 +93,20 @@ function readAllLocalKeys() {
 }
 
 /**
+ * Lists every stored key without deserializing any value when
+ * `StorageArea.getKeys` is available (Chrome 130+). Older browsers expose no
+ * keys-only API, so they fall back to one full read whose values are dropped
+ * as soon as the key list has been taken.
+ * @returns {Promise<string[]>}
+ */
+export async function getAllLocalKeys() {
+  if (typeof chrome.storage.local.getKeys !== 'function') {
+    return Object.keys(await getLocalItems(null));
+  }
+  return readAllLocalKeys();
+}
+
+/**
  * Lists keys under one namespace without deserializing their values when
  * `StorageArea.getKeys` is available. Older browsers fall back to one full
  * read because they expose no keys-only API.
@@ -112,14 +127,7 @@ export async function getLocalKeysByPrefixes(prefixes) {
     ? prefixes.filter((prefix) => typeof prefix === 'string')
     : [];
   if (wanted.length === 0) return [];
-  if (typeof chrome.storage.local.getKeys !== 'function') {
-    const allItems = await getLocalItems(null);
-    return Object.keys(allItems).filter((storageKey) =>
-      wanted.some((prefix) => storageKey.startsWith(prefix)),
-    );
-  }
-
-  const keys = await readAllLocalKeys();
+  const keys = await getAllLocalKeys();
   return keys.filter((storageKey) => wanted.some((prefix) => storageKey.startsWith(prefix)));
 }
 

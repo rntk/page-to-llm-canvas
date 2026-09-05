@@ -14,7 +14,13 @@ import { MAX_PARALLEL_LLM_REQUESTS_KEY } from '../settings/llmConcurrency.js';
 import { LLM_REQUEST_TIMEOUT_SECONDS_KEY } from '../settings/llmTimeout.js';
 import { VERBOSE_LOGS_KEY } from '../../src/shared/runtime/verboseLogSettings.js';
 import { createLogger } from '../../src/shared/runtime/log.js';
-import { clearLocal, getLocal, MUTATION_QUEUE_KEY, queuedUpdate } from './primitives.js';
+import {
+  clearLocal,
+  getAllLocalKeys,
+  getLocal,
+  MUTATION_QUEUE_KEY,
+  queuedUpdate,
+} from './primitives.js';
 
 const log = createLogger();
 
@@ -50,26 +56,53 @@ function categoryForKey(key) {
   return 'other';
 }
 
-function approximateBytes(items) {
-  try {
-    return new TextEncoder().encode(JSON.stringify(items)).byteLength;
-  } catch (_) {
-    return 0;
+// Values are read in small batches on the estimate path so a large category
+// is never resident in the heap all at once.
+const APPROXIMATE_BATCH_SIZE = 20;
+
+/**
+ * Sums the JSON size of the given keys' values without ever holding more than
+ * one batch of them in memory. Only used when `getBytesInUse` is unavailable.
+ *
+ * A failed batch is skipped rather than aborting the whole overview, but its
+ * size is then missing from the sum, so `partial` marks `bytes` as a lower
+ * bound. Without that signal a transient read failure would surface as a
+ * confidently too-small number, which is the direction that misleads a user
+ * deciding whether their stored data is worth deleting.
+ * @param {string[]} keys
+ * @returns {Promise<{bytes: number, partial: boolean}>}
+ */
+async function approximateBytes(keys) {
+  let total = 0;
+  let partial = false;
+  for (let start = 0; start < keys.length; start += APPROXIMATE_BATCH_SIZE) {
+    const batch = keys.slice(start, start + APPROXIMATE_BATCH_SIZE);
+    try {
+      const items = await getLocal(batch);
+      total += new TextEncoder().encode(JSON.stringify(items)).byteLength;
+    } catch (err) {
+      partial = true;
+      log.warn('size estimate failed for a batch of keys:', err);
+    }
   }
+  return { bytes: total, partial };
 }
 
 /**
  * @param {string[]} keys
- * @param {object} items
- * @returns {Promise<{bytes: number, approximate: boolean}>} `approximate` is
- *   true when the real byte count could not be obtained (older Chrome without
- *   `getBytesInUse`, or a `lastError` on the call) and `bytes` is a rough
- *   JSON-size estimate instead of the true on-disk figure.
+ * @returns {Promise<{bytes: number, approximate: boolean, partial: boolean}>}
+ *   `approximate` is true when the real byte count could not be obtained
+ *   (older Chrome without `getBytesInUse`, or a `lastError` on the call) and
+ *   `bytes` is a rough JSON-size estimate instead of the true on-disk figure.
+ *   `partial` is true when some values could not be read at all, which makes
+ *   `bytes` a lower bound rather than a whole-category estimate.
  */
-function bytesInUse(keys, items) {
-  if (!keys.length) return Promise.resolve({ bytes: 0, approximate: false });
+function bytesInUse(keys) {
+  if (!keys.length) return Promise.resolve({ bytes: 0, approximate: false, partial: false });
+  const estimate = () =>
+    approximateBytes(keys).then(({ bytes, partial }) => ({ bytes, approximate: true, partial }));
   if (typeof chrome.storage.local.getBytesInUse !== 'function') {
-    return Promise.resolve({ bytes: approximateBytes(items), approximate: true });
+    return estimate();
   }
   return new Promise((resolve) => {
     chrome.storage.local.getBytesInUse(keys, (bytes) => {
@@ -78,10 +111,10 @@ function bytesInUse(keys, items) {
           'getBytesInUse failed, falling back to an approximate size:',
           chrome.runtime.lastError,
         );
-        resolve({ bytes: approximateBytes(items), approximate: true });
+        resolve(estimate());
         return;
       }
-      resolve({ bytes: Math.max(0, Number(bytes) || 0), approximate: false });
+      resolve({ bytes: Math.max(0, Number(bytes) || 0), approximate: false, partial: false });
     });
   });
 }
@@ -90,47 +123,59 @@ function bytesInUse(keys, items) {
  * Returns privacy-safe storage metadata for the Options data-management UI.
  */
 export async function getStorageOverview() {
-  const allItems = await getLocal(null);
+  // Keys only: a full `getLocal(null)` would deserialize every stored page,
+  // chat and provider payload into the worker heap just to count them, which
+  // is enough to stall or crash the worker for an "unlimitedStorage" profile
+  // with hundreds of saved articles. Sizes come from `getBytesInUse`, which
+  // needs no values at all.
+  const allKeys = await getAllLocalKeys();
   const grouped = {
-    pageData: {},
-    providers: {},
-    settings: {},
-    diagnostics: {},
-    other: {},
+    pageData: [],
+    providers: [],
+    settings: [],
+    diagnostics: [],
+    other: [],
   };
-  for (const [key, value] of Object.entries(allItems)) {
-    grouped[categoryForKey(key)][key] = value;
+  for (const key of allKeys) {
+    grouped[categoryForKey(key)].push(key);
   }
 
   const categories = {};
   await Promise.all(
-    Object.entries(grouped).map(async ([id, items]) => {
-      const keys = Object.keys(items);
-      const { bytes, approximate } = await bytesInUse(keys, items);
+    Object.entries(grouped).map(async ([id, keys]) => {
+      const { bytes, approximate, partial } = await bytesInUse(keys);
       categories[id] = {
         keyCount: keys.length,
         bytes,
         approximate,
+        partial,
       };
     }),
   );
 
-  const pageKeys = Object.keys(grouped.pageData);
+  const pageKeys = grouped.pageData;
   categories.pageData.recordCount = pageKeys.filter((key) => key.endsWith(':meta')).length;
   categories.pageData.chatCount = pageKeys.filter(
     (key) => key.startsWith(CHAT_STORAGE_PREFIX) && !key.endsWith(':index'),
   ).length;
-  const providerState = grouped.providers[PROVIDERS_KEY];
+  // The one value this overview reads, and only when it exists: the provider
+  // list is a single small record, unlike the page/chat payloads.
+  const providerState = grouped.providers.length
+    ? (await getLocal(PROVIDERS_KEY))[PROVIDERS_KEY]
+    : undefined;
   categories.providers.providerCount = Array.isArray(providerState?.providers)
     ? providerState.providers.length
     : 0;
 
   return {
     totalBytes: Object.values(categories).reduce((sum, category) => sum + category.bytes, 0),
-    totalKeyCount: Object.keys(allItems).length,
+    totalKeyCount: allKeys.length,
     // True when any category's byte count is an estimate rather than the
     // real on-disk size, so totalBytes above is an estimate too.
     approximate: Object.values(categories).some((category) => category.approximate),
+    // True when some values could not be read at all, so totalBytes is a lower
+    // bound and not merely imprecise.
+    partial: Object.values(categories).some((category) => category.partial),
     categories,
   };
 }
