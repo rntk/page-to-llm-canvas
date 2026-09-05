@@ -31,7 +31,7 @@ function makeWrap() {
 }
 
 function setup(overrides = {}) {
-  // Manual rAF queue so the triple-rAF schedule is drained on demand.
+  // Manual rAF queue so measurement frames can be drained on demand.
   const origRaf = window.requestAnimationFrame;
   const origCancel = window.cancelAnimationFrame;
   const queue = new Map();
@@ -42,11 +42,14 @@ function setup(overrides = {}) {
     return id;
   };
   window.cancelAnimationFrame = (rid) => queue.delete(rid);
+  const flushFrame = () => {
+    const cbs = [...queue.values()];
+    queue.clear();
+    act(() => cbs.forEach((cb) => cb()));
+  };
   const flushRafs = () => {
     for (let i = 0; i < 12 && queue.size; i++) {
-      const cbs = [...queue.values()];
-      queue.clear();
-      act(() => cbs.forEach((cb) => cb()));
+      flushFrame();
     }
   };
 
@@ -81,6 +84,7 @@ function setup(overrides = {}) {
     wrap,
     props,
     flushRafs,
+    flushFrame,
     rerender(next) {
       current = { ...current, ...next };
       act(() => root.render(createElement(Harness)));
@@ -170,14 +174,44 @@ describe('useSentenceMetrics', () => {
     ctx.cleanup();
   });
 
-  it('re-measures sentences when leaving summary mode', () => {
+  it('re-measures sentences once per frame when leaving summary mode', () => {
     const ctx = setup({ showSummaryMode: true });
     ctx.flushRafs();
     expect(ctx.result.current.sentenceMetrics.size).toBe(0);
-    // Exiting summary mode schedules a post-paint remeasure of the article.
+    // Exiting summary mode uses the convergence scheduler alone: a second
+    // scheduler would read every sentence twice in the first frame.
+    rectsSpy.mockClear();
     ctx.rerender({ showSummaryMode: false });
+    ctx.flushFrame();
+    expect(rectsSpy).toHaveBeenCalledTimes(SENTENCES.length);
+    expect(ctx.result.current.sentenceMetrics.size).toBe(SENTENCES.length);
+    expect(ctx.result.current.sentenceMetrics.get(1)).toEqual({ top: 100, bottom: 120 });
+    ctx.flushRafs();
+    expect(rectsSpy).toHaveBeenCalledTimes(SENTENCES.length * 2);
+    ctx.cleanup();
+  });
+
+  it('measures sentences after the zoom finishes when leaving summary mode', () => {
+    const ctx = setup({ showSummaryMode: true });
+    ctx.flushRafs();
+
+    // The scale ref already holds the target while the DOM is mid-transition.
+    ctx.props.scaleRef.current = 2;
+    rectsSpy.mockClear();
+    ctx.rerender({ showSummaryMode: false, isZoomingToTarget: true });
+    ctx.flushRafs();
+    expect(ctx.result.current.sentenceMetrics.size).toBe(0);
+    expect(rectsSpy).not.toHaveBeenCalled();
+
+    // No resize or mode change accompanies completion: the zoom flag alone
+    // must restart measurement using the final geometry and target scale.
+    rectsSpy.mockReturnValue([
+      { top: 200, bottom: 240, left: 0, right: 100, width: 100, height: 40 },
+    ]);
+    ctx.rerender({ isZoomingToTarget: false });
     ctx.flushRafs();
     expect(ctx.result.current.sentenceMetrics.size).toBe(SENTENCES.length);
+    expect(ctx.result.current.sentenceMetrics.get(1)).toEqual({ top: 100, bottom: 120 });
     ctx.cleanup();
   });
 

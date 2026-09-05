@@ -211,24 +211,6 @@ export function useSentenceMetrics({
     return false;
   }, [summaryWrapRef, summaryCardRegistry, scaleRef, showSummaryMode, summaryCards]);
 
-  // When leaving summary mode (e.g. via "Show source sentences"), ensure we
-  // (re)measure sentence positions against the freshly mounted article DOM so
-  // that topic cards in the rail are built from real measured layouts (tall,
-  // article-aligned) rather than falling back to the synthetic small stacked
-  // layout near the top.
-  const prevShowSummaryRef = useRef(showSummaryMode);
-  useLayoutEffect(() => {
-    const wasInSummary = prevShowSummaryRef.current;
-    prevShowSummaryRef.current = showSummaryMode;
-    if (wasInSummary && !showSummaryMode) {
-      // Schedule after paint so getClientRects on the article sentences are valid.
-      const raf = window.requestAnimationFrame(() => {
-        measureSentencePositions();
-      });
-      return () => window.cancelAnimationFrame(raf);
-    }
-  }, [showSummaryMode, measureSentencePositions]);
-
   useLayoutEffect(() => {
     let raf = 0;
     let passes = 0;
