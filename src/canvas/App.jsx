@@ -57,7 +57,23 @@ export default function App({ initialKey, recordSource, onClose = noop }) {
   // retries, and summary review are handled from the popup and Options page.
   if (record?.status !== PIPELINE_STATUS.DONE) return null;
 
-  return <CanvasApp initialKey={initialKey} record={record} onClose={onClose} />;
+  // The content revision keys the whole canvas: a reprocess normally passes
+  // through a non-DONE status, which unmounts this subtree anyway, but a
+  // DONE-to-DONE replacement (importing over an open record) swaps the article
+  // underneath a live canvas. The derived data follows the new revision on its
+  // own; the interaction state accumulated against the old one does not —
+  // painted chat evidence keyed by sentence number, the adopted chat session
+  // (already pruned from storage as stale), the selected topic path, and the
+  // opening view. Remounting drops all of it and replays the startup sequence
+  // against the new content.
+  return (
+    <CanvasApp
+      key={record.contentRevision}
+      initialKey={initialKey}
+      record={record}
+      onClose={onClose}
+    />
+  );
 }
 
 function CanvasApp({ initialKey, record, onClose }) {

@@ -165,6 +165,7 @@ vi.mock('../highlights/sentenceHighlight.js', () => ({
 }));
 
 import App from './App.jsx';
+import { useChatHighlights } from '../chat/useChatHighlights.js';
 
 const doneView = {
   topics: [{ label: ['Topic'], ranges: [{ start: 0, end: 0 }] }],
@@ -377,6 +378,33 @@ describe('App composition behavior', () => {
       await act(async () => root.unmount());
     },
   );
+
+  // Regression: a DONE-to-DONE replacement (importing over an open record)
+  // swaps the article without passing through a non-DONE status, so nothing
+  // else unmounts the canvas. Interaction state accumulated against the old
+  // content — painted chat evidence, the open chat session — must not survive
+  // into the new one.
+  it('remounts the canvas when the content revision changes', async () => {
+    state.record = { ...state.record, contentRevision: 'rev-a' };
+    const { root } = await renderApp();
+
+    await act(async () => state.childProps.controls.onToggleChat());
+    await act(async () => state.childProps.chat.onHighlight({ startLine: 1, endLine: 2 }));
+    expect(state.childProps.controls.showChat).toBe(true);
+
+    // An equivalent rewrite of the same revision keeps the canvas as it is.
+    state.record = { ...state.record, updatedAt: 1 };
+    await act(async () => root.render(<App initialKey="record-1" />));
+    expect(state.childProps.controls.showChat).toBe(true);
+
+    state.record = { ...state.record, contentRevision: 'rev-b' };
+    await act(async () => root.render(<App initialKey="record-1" />));
+    expect(state.childProps.controls.showChat).toBe(false);
+    const lastHighlightCall = useChatHighlights.mock.calls.at(-1)[0];
+    expect(lastHighlightCall.sentenceNumbers).toEqual([]);
+
+    await act(async () => root.unmount());
+  });
 
   it('suppresses summary-only behavior when summaries are disabled', async () => {
     state.vm = { ...doneView, summariesDisabled: true };
