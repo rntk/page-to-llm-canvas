@@ -26,10 +26,12 @@ import {
   normalizeMaxParallelLlmRequests,
 } from '../settings/llmConcurrency.js';
 import { TOPIC_RANGE_INPUT_MAX_SENTENCES } from './pipelineConfig.js';
+import { TOPIC_RANGE_MAX_SENTENCES } from './topicRangeResplit.js';
 
 // Fixtures that need two primary chunks size their first chunk to the
 // sentence cap, so they follow it instead of restating a literal count.
 const LONG_CHUNK_SENTENCES = TOPIC_RANGE_INPUT_MAX_SENTENCES;
+const LONG_CHUNK_PART_COUNT = Math.ceil(LONG_CHUNK_SENTENCES / TOPIC_RANGE_MAX_SENTENCES);
 
 /** Only the full-size chunk's markers reach its last sentence. */
 function isLongChunkPrompt(prompt) {
@@ -37,7 +39,7 @@ function isLongChunkPrompt(prompt) {
 }
 
 /** A full-coverage partition of the first chunk into `partCount` topics. */
-function longChunkPartition(partCount = 6) {
+function longChunkPartition(partCount = LONG_CHUNK_PART_COUNT) {
   const span = Math.ceil(LONG_CHUNK_SENTENCES / partCount);
   return Array.from({ length: partCount }, (_, index) => {
     const start = index * span;
@@ -1232,16 +1234,18 @@ describe('runPipeline', () => {
     const topicCall = storage.updateRecord.mock.calls.find(
       (call) => call[1].topics && call[1].status === 'summarizing',
     );
-    expect(topicCall[1].topics.map((topic) => topic.name)).toEqual([
-      'Tech>Part 1',
-      'Tech>Part 2',
-      'Tech>Part 3',
-      'Tech>Part 4',
-      'Tech>Part 5',
-      'Tech>Part 6',
-      'Tech>Last',
+    const expectedTopicNames = Array.from(
+      { length: LONG_CHUNK_PART_COUNT },
+      (_, index) => `Tech>Part ${index + 1}`,
+    ).concat('Tech>Last');
+    expect(topicCall[1].topics.map((topic) => topic.name)).toEqual(expectedTopicNames);
+    expect(topicCall[1].topics[LONG_CHUNK_PART_COUNT].sentences).toEqual([
+      n - 4,
+      n - 3,
+      n - 2,
+      n - 1,
+      n,
     ]);
-    expect(topicCall[1].topics[6].sentences).toEqual([n - 4, n - 3, n - 2, n - 1, n]);
   });
 
   it('re-requests only the chunk that failed to parse, keeping the sibling chunk', async () => {
@@ -1279,7 +1283,7 @@ describe('runPipeline', () => {
     const primarySamples = parserMetrics.recordParserMetric.mock.calls
       .map(([sample]) => sample)
       .filter((sample) => sample.scope === 'primary');
-    expect(primarySamples.map((sample) => sample.ok)).toEqual([false, true, true]);
+    expect(primarySamples.map((sample) => sample.ok)).toEqual([true, false, true]);
     expect(primarySamples.filter((sample) => sample.recoveredAfterRetry)).toHaveLength(1);
     expect(primarySamples.at(-1).recoveredAfterRetry).toBe(true);
   });

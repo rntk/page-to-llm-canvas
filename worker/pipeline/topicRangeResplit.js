@@ -13,7 +13,7 @@ import { chunkTaggedText } from './topicRangeChunking.js';
 import { defaultTopicRangeDependencies } from './topicRangeDependencies.js';
 import { TOPIC_RANGE_ABORT_MESSAGE } from './topicRangeCheckpoint.js';
 
-const TOPIC_RANGE_MAX_SENTENCES = 40;
+export const TOPIC_RANGE_MAX_SENTENCES = 40;
 const TOPIC_RANGE_RESPLIT_MAX_DEPTH = 2;
 
 /**
