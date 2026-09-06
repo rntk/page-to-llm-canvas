@@ -36,6 +36,27 @@ export function createSubmitRecord({
   const { readRecord, writeRecord, updateRecord, findRecordByUrl } = recordRepository;
   const backgroundLog = logger.child('background');
 
+  // Submissions run one at a time. Identity resolution (URL match, then content
+  // hash), the read that decides create-vs-reuse, the mutation and the
+  // synchronous startPipeline claim are separated by awaits, so two submissions
+  // for the same page can otherwise interleave: both resolve to the same key
+  // while the supervisor still reports it idle, both mint a run id, and the
+  // second one's id lands on the record while the first one's job is the one
+  // actually running — every later CAS from that job is then rejected and the
+  // record is stranded in-flight. Serializing costs nothing here: the section
+  // only touches storage, and the pipeline itself is started detached.
+  let submissionQueue = Promise.resolve();
+  function serializeSubmission(run) {
+    // A rejected submission must not stall the ones behind it, so the chain
+    // that later submissions await is the swallowed one.
+    const result = submissionQueue.then(run, run);
+    submissionQueue = result.then(
+      () => {},
+      () => {},
+    );
+    return result;
+  }
+
   /**
    * @param {object} submission
    * @param {string} [submission.html]
@@ -45,7 +66,7 @@ export function createSubmitRecord({
    * @param {string} [submission.capturedText]
    * @returns {Promise<{ok: boolean, key: string, error: string}>}
    */
-  return async function handleSubmit(submission) {
+  async function submit(submission) {
     const { html, sourceUrl, selectors, captureVersion, capturedText } = submission;
     if (!html) return { ok: false, error: 'missing html' };
 
@@ -107,9 +128,9 @@ export function createSubmitRecord({
       // Reusing a record goes through updateRecord, not writeRecord: the read
       // above is separated from this write by awaits, so a retry/reprocess/Skip
       // issued from the options page can take the record over in between. Every
-      // other mutation path guards that with the run-id CAS; writeRecord has
-      // none by design (import must be able to write unconditionally), so the
-      // reuse path borrows updateRecord's guard instead.
+      // other mutation path guards that with the run-id CAS; writeRecord only
+      // guards absence (import must be able to overwrite unconditionally), so
+      // the reuse path borrows updateRecord's guard instead.
       const patch = {
         pipelineRunId,
         status: PIPELINE_STATUS.PENDING,
@@ -148,7 +169,14 @@ export function createSubmitRecord({
       // answer the isActive guard above gives.
       if (!updated) return { ok: true, key };
     } else {
-      await writeRecord(
+      // Create-if-absent, not a plain write: the absence observed above is
+      // separated from this write by awaits, so a second submission for the
+      // same key (or an import) can create the record in between. An
+      // unconditional write would reset the winner's brand-new record and
+      // leave its already-started run holding a stale run id, failing every
+      // subsequent CAS. Storage re-checks absence inside the key's mutation
+      // queue and rejects the loser.
+      const created = await writeRecord(
         createQueuedRecord({
           key,
           sourceUrl: sourceUrl || '',
@@ -160,7 +188,12 @@ export function createSubmitRecord({
           skipSummaries,
           now,
         }),
+        { onlyIfAbsent: true },
       );
+      // The winner owns this key and starts (or already started) its own run,
+      // so acknowledge the same key without touching it — the same answer the
+      // isActive and CAS-rejection guards give.
+      if (!created) return { ok: true, key };
     }
 
     // Start the pipeline in the background; do not await.
@@ -169,5 +202,13 @@ export function createSubmitRecord({
     });
 
     return { ok: true, key };
+  }
+
+  /**
+   * @param {object} submission
+   * @returns {Promise<{ok: boolean, key?: string, error?: string}>}
+   */
+  return function handleSubmit(submission) {
+    return serializeSubmission(() => submit(submission));
   };
 }

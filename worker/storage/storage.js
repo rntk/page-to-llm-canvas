@@ -407,7 +407,11 @@ export async function readRecordView(key) {
  * @param {ArticleRecord} rec
  * @param {object} [options]
  * @param {boolean} [options.bumpContentRevision]
- * @returns {Promise<void>}
+ * @param {boolean} [options.onlyIfAbsent] Create-if-absent: commit nothing and
+ *   resolve false when the key already exists. The existence check runs inside
+ *   this key's mutation queue, so two concurrent creators cannot both observe
+ *   an absent record and both write.
+ * @returns {Promise<boolean>} Whether this call committed the record.
  */
 export async function writeRecord(rec, options = {}) {
   if (!rec || !rec.key) throw new Error('writeRecord: record.key required');
@@ -416,6 +420,7 @@ export async function writeRecord(rec, options = {}) {
       const metaKey = metaStorageKey(rec.key);
       const docKeys = staticRecordDocumentKeys(rec.key);
       const existingMeta = await loadMetaForWrite(rec.key);
+      if (options.onlyIfAbsent === true && existingMeta) return false;
       // Always discover work documents, including for a missing meta. A prior
       // interrupted delete can leave owner-shaped leaves behind; a new record
       // with the same key must replace, not silently adopt, those documents.
@@ -514,6 +519,7 @@ export async function writeRecord(rec, options = {}) {
           log.warn('stale chat cleanup failed:', err);
         });
       }
+      return true;
     });
   });
 }

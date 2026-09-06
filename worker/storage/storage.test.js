@@ -116,6 +116,72 @@ describe('chrome.runtime.lastError propagation', () => {
 });
 
 // ---------------------------------------------------------------------------
+// writeRecord — create-if-absent
+// ---------------------------------------------------------------------------
+
+describe('writeRecord onlyIfAbsent', () => {
+  it('commits and reports true when the key is free', async () => {
+    vi.stubGlobal('chrome', makeChromeMock());
+
+    const committed = await writeRecord(makeRecord('r1', { html: '<p>first</p>' }), {
+      onlyIfAbsent: true,
+    });
+
+    expect(committed).toBe(true);
+    expect((await readRecord('r1')).html).toBe('<p>first</p>');
+  });
+
+  it('leaves an existing record untouched and reports false', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('r1', { html: '<p>first</p>', pipelineRunId: 'run-1' }));
+
+    const committed = await writeRecord(
+      makeRecord('r1', { html: '<p>second</p>', pipelineRunId: 'run-2' }),
+      { onlyIfAbsent: true },
+    );
+
+    expect(committed).toBe(false);
+    const stored = await readRecord('r1');
+    expect(stored.html).toBe('<p>first</p>');
+    expect(stored.pipelineRunId).toBe('run-1');
+  });
+
+  it('lets exactly one of two concurrent creators commit', async () => {
+    vi.stubGlobal('chrome', makeChromeMock());
+
+    // Both calls are issued before either has looked at storage: the absence
+    // check has to happen inside the key's mutation queue for one of them to
+    // lose.
+    const results = await Promise.all([
+      writeRecord(makeRecord('r1', { html: '<p>a</p>', pipelineRunId: 'run-a' }), {
+        onlyIfAbsent: true,
+      }),
+      writeRecord(makeRecord('r1', { html: '<p>b</p>', pipelineRunId: 'run-b' }), {
+        onlyIfAbsent: true,
+      }),
+    ]);
+
+    expect(results.filter(Boolean)).toHaveLength(1);
+    const stored = await readRecord('r1');
+    expect(stored.pipelineRunId).toBe('run-a');
+    expect(stored.html).toBe('<p>a</p>');
+    expect(await listRecords()).toHaveLength(1);
+  });
+
+  it('still writes unconditionally without the option', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('r1', { html: '<p>first</p>' }));
+
+    const committed = await writeRecord(makeRecord('r1', { html: '<p>second</p>' }));
+
+    expect(committed).toBe(true);
+    expect((await readRecord('r1')).html).toBe('<p>second</p>');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // updateRecord — basic correctness
 // ---------------------------------------------------------------------------
 

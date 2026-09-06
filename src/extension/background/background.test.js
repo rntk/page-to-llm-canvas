@@ -459,6 +459,38 @@ describe('background pipeline lifecycle', () => {
     expect(runPipeline).toHaveBeenCalledTimes(1);
   });
 
+  it('commits one record when two identical submissions race the create path', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+
+    const { handleSubmit, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    // Capture the run id the started job is working under, so the assertion
+    // below can tell whether a second creator reset the record out from under
+    // it (every later CAS from that job would then be rejected).
+    const { runPipeline } = await import('../../../worker/pipeline/orchestrator.js');
+    let runningPipelineRunId = null;
+    runPipeline.mockImplementationOnce(async (key) => {
+      runningPipelineRunId = (await readRecord(key)).pipelineRunId;
+    });
+
+    // Both callers read the missing record and clear the isActive guard before
+    // either writes: the awaits in between (hash, read, settings) interleave.
+    const [first, second] = await Promise.all([
+      handleSubmit({ html: '<p>same content</p>', sourceUrl: 'https://example.com/race' }),
+      handleSubmit({ html: '<p>same content</p>', sourceUrl: 'https://example.com/race' }),
+    ]);
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(first.key).toBe(second.key);
+
+    expect(runPipeline).toHaveBeenCalledTimes(1);
+    const stored = await readRecord(first.key);
+    expect(stored.pipelineRunId).toBe(runningPipelineRunId);
+  });
+
   it('returns existing done record without restarting', async () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);
