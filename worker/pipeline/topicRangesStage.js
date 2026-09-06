@@ -118,6 +118,8 @@ function buildChunkFailureError(failedStates, chunkCount) {
  * @param {function(object): Promise<string>} params.callLLMWithRetry Provider call.
  * @param {object[]} params.pending Chunk states still missing segments.
  * @param {number} params.attempt 1-based stage attempt number.
+ * @param {object} params.dependencies Execution capabilities.
+ * @param {function(object): Promise<void>} params.onResponse Parse and persist a completed response.
  */
 async function dispatchPendingChunks({
   runtime,
@@ -125,6 +127,7 @@ async function dispatchPendingChunks({
   pending,
   attempt,
   dependencies,
+  onResponse,
 }) {
   const { permanentError, unclaimed: skipped } = await runProviderBurst(
     pending,
@@ -171,6 +174,7 @@ async function dispatchPendingChunks({
         { chunkIndex: state.chunkIndex, responseLength: state.response.length, attempt },
         { verbose: true },
       );
+      await onResponse(state);
       return {};
     },
     { parallelMap: dependencies.parallelMap },
@@ -408,6 +412,30 @@ export async function computeTopics({
   let parseAttempt = 1;
   const failedChunkIndexes = new Set();
   let groups;
+  // Serialize parsing and saves so an older snapshot cannot overwrite a newer
+  // one. Workers await earlier completions plus their own, bounding the queue
+  // by provider concurrency while applying storage backpressure to dispatch.
+  // Keep rejections terminal: callLLM errors escape the retry helper; only
+  // recorded chunk failures reach its retryable parse callback.
+  let chunkCompletion = Promise.resolve();
+  let stageError;
+  const completeChunk = (state) => {
+    if (stageError) return Promise.reject(stageError);
+    chunkCompletion = chunkCompletion.then(async () => {
+      throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
+      await parseDispatchedChunks({
+        runtime,
+        dispatched: [state],
+        attempt: parseAttempt,
+        failedChunkIndexes,
+        dependencies,
+      });
+      if (state.segments !== null) {
+        await dependencies.saveCheckpoint(runtime, record, chunkStates, sentenceTexts.length);
+      }
+    });
+    return chunkCompletion;
+  };
   try {
     groups = await queryTopicRangesWithRetry({
       maxRetries: TOPIC_RANGE_STAGE_MAX_RETRIES,
@@ -440,25 +468,10 @@ export async function computeTopics({
           pending,
           attempt: parseAttempt,
           dependencies,
+          onResponse: completeChunk,
         });
-        return pending;
       },
-      parse: async (dispatched) => {
-        // Do not count a response that lost a cancellation race as a parser
-        // attempt for the active pipeline.
-        throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
-        await parseDispatchedChunks({
-          runtime,
-          dispatched,
-          attempt: parseAttempt,
-          failedChunkIndexes,
-          dependencies,
-        });
-        // A successful chunk is durable before a retry backoff (and before
-        // the later refinement/topic write).  If the service worker is
-        // terminated while another chunk is being retried, the next run can
-        // restore every parsed sibling instead of paying for it again.
-        await dependencies.saveCheckpoint(runtime, record, chunkStates, sentenceTexts.length);
+      parse: async () => {
         throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
         const failed = pendingChunkStates();
         if (failed.length > 0) throw buildChunkFailureError(failed, chunks.length);
@@ -482,6 +495,10 @@ export async function computeTopics({
         }),
     });
   } catch (error) {
+    stageError = error;
+    // Dispatch can fail while a completion is in flight. Drain it before the
+    // final best-effort save; late responses cannot enqueue more writes.
+    await chunkCompletion.catch(() => {});
     await dependencies.saveCheckpoint(runtime, record, chunkStates, sentenceTexts.length, error);
     throw error;
   }

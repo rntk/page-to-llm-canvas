@@ -5,7 +5,6 @@ import { groupsToTopics, rangesToSentenceList } from './topicRangeMapping.js';
 
 import { splitSentences } from './sentenceSplitter.js';
 import { markCancellation } from './cancellation.js';
-import { MAX_TAGGED_CHARS, TOPIC_RANGE_INPUT_MAX_SENTENCES } from './pipelineConfig.js';
 import { TRUNCATED_RESPONSE_ERROR } from '../llm/completionStatus.js';
 
 // Stand-in that honors both `warmupFirst` and `stopBurst`, mirroring the real
@@ -131,10 +130,9 @@ describe('groupsToTopics', () => {
   });
 });
 
-// One full chunk plus one sentence splits into exactly two chunks at
-// TOPIC_RANGE_INPUT_MAX_SENTENCES, which is the smallest article that can show
-// one chunk failing while another succeeds.
-const LONG_CHUNK_SENTENCE_COUNT = TOPIC_RANGE_INPUT_MAX_SENTENCES;
+// Pin the primary chunk size so these retry fixtures stay independent of
+// production input limits. Six 20-sentence topics avoid oversized refinement.
+const LONG_CHUNK_SENTENCE_COUNT = 120;
 const TWO_CHUNK_SENTENCE_COUNT = LONG_CHUNK_SENTENCE_COUNT + 1;
 const LONG_CHUNK_TOPIC_COUNT = 6;
 const LONG_CHUNK_TOPIC_SPAN = Math.ceil(LONG_CHUNK_SENTENCE_COUNT / LONG_CHUNK_TOPIC_COUNT);
@@ -191,8 +189,8 @@ function makeRuntime() {
     signal: undefined,
     preferContentLanguage: false,
     summariesDisabled: false,
-    maxTextChunkChars: MAX_TAGGED_CHARS,
-    maxTopicRangeSentences: TOPIC_RANGE_INPUT_MAX_SENTENCES,
+    maxTextChunkChars: 1_000_000,
+    maxTopicRangeSentences: LONG_CHUNK_SENTENCE_COUNT,
     update: vi.fn(async () => undefined),
     log: vi.fn(async () => undefined),
   };
@@ -518,7 +516,7 @@ describe('topic-ranges incremental retry', () => {
   it('does not dispatch the queued chunks after a permanent warmup failure', async () => {
     const runtime = makeRuntime();
     // Three chunks, so a failed warmup still leaves a burst to (not) release.
-    splitSentences.mockReturnValue(makeSentences(TOPIC_RANGE_INPUT_MAX_SENTENCES * 2 + 1));
+    splitSentences.mockReturnValue(makeSentences(LONG_CHUNK_SENTENCE_COUNT * 2 + 1));
     const callLLMWithRetry = vi.fn(async () => {
       throw Object.assign(new Error('invalid api key'), { status: 401 });
     });
@@ -743,7 +741,9 @@ describe('topic-ranges incremental retry', () => {
     ).rejects.toBe(superseded);
 
     expect(runtime.signal).toBeUndefined();
-    expect(callLLMWithRetry).toHaveBeenCalledTimes(2);
+    // Warmup is serialized: the ownership-losing checkpoint write happens
+    // after the first request, before the burst can dispatch its sibling.
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
     expect(setTimeoutSpy).not.toHaveBeenCalled();
     expect(runtime.log).not.toHaveBeenCalledWith(
       'topic_ranges_checkpoint_save_failed',
@@ -809,6 +809,124 @@ describe('topic-ranges incremental retry', () => {
     expect(runtime.update).toHaveBeenLastCalledWith(
       expect.objectContaining({ topic_range_chunks: null }),
     );
+  });
+
+  it('keeps completed chunks when cancellation interrupts a sibling request and resumes the rest', async () => {
+    const runtime = makeRuntime();
+    const controller = new AbortController();
+    runtime.signal = controller.signal;
+    runtime.maxTextChunkChars = 1_000_000;
+    runtime.maxTopicRangeSentences = 1;
+    const sentenceCount = 3;
+    splitSentences.mockReturnValue(makeSentences(sentenceCount));
+
+    let persistedCheckpoint;
+    let checkpointWrites = 0;
+    runtime.update.mockImplementation(async (patch) => {
+      if (patch.topic_range_chunks) {
+        checkpointWrites++;
+      }
+      if (patch.topic_range_chunks && checkpointWrites === 2) {
+        persistedCheckpoint = structuredClone(patch.topic_range_chunks);
+        controller.abort();
+      }
+    });
+    const abortError = () => {
+      const error = new Error('The user aborted a request.');
+      error.name = 'AbortError';
+      return error;
+    };
+    let pendingRequestStarted = false;
+    const callLLMWithRetry = vi.fn(async ({ signal }) => {
+      if (signal.aborted) throw abortError();
+      if (callLLMWithRetry.mock.calls.length === 3) {
+        pendingRequestStarted = true;
+        await new Promise((_, reject) =>
+          signal.addEventListener('abort', () => reject(abortError())),
+        );
+      }
+      return 'Tech>Part: 0-0';
+    });
+
+    await expect(
+      computeTopics({
+        runtime,
+        record: { html: '<p>x</p>', contentRevision: 'rev-1' },
+        callLLMWithRetry,
+      }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(pendingRequestStarted).toBe(true);
+    expect(checkpointWrites).toBe(2);
+    expect(persistedCheckpoint).toMatchObject({
+      contentRevision: 'rev-1',
+      sentenceCount,
+      chunks: [
+        expect.objectContaining({ segments: expect.any(Array) }),
+        expect.objectContaining({ segments: expect.any(Array) }),
+        null,
+      ],
+    });
+
+    const resumedRuntime = makeRuntime();
+    resumedRuntime.maxTextChunkChars = 1_000_000;
+    resumedRuntime.maxTopicRangeSentences = 1;
+    const resumedCall = vi.fn(async () => 'Tech>Last: 0-0');
+    await computeTopics({
+      runtime: resumedRuntime,
+      record: {
+        html: '<p>x</p>',
+        contentRevision: 'rev-1',
+        topic_range_chunks: persistedCheckpoint,
+      },
+      callLLMWithRetry: resumedCall,
+    });
+
+    expect(resumedCall).toHaveBeenCalledTimes(1);
+    expect(resumedCall.mock.calls[0][0].prompt).toContain('{0}');
+    expect(resumedRuntime.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ topic_range_chunks: null }),
+    );
+    expect(runtime.update.mock.calls.filter(([patch]) => patch.topic_range_chunks).length).toBe(2);
+  });
+
+  it('serializes delayed checkpoint saves and finishes with a complete snapshot', async () => {
+    const runtime = makeRuntime();
+    runtime.maxTextChunkChars = 1_000_000;
+    runtime.maxTopicRangeSentences = 1;
+    splitSentences.mockReturnValue(makeSentences(3));
+    let releaseSecond;
+    let activeSaves = 0;
+    let maxActiveSaves = 0;
+    const snapshots = [];
+    const saveCheckpoint = vi.fn(async (_runtime, _record, chunkStates) => {
+      activeSaves++;
+      maxActiveSaves = Math.max(maxActiveSaves, activeSaves);
+      snapshots.push(chunkStates.map((state) => state.segments));
+      if (saveCheckpoint.mock.calls.length === 2) {
+        await new Promise((resolve) => {
+          releaseSecond = resolve;
+        });
+      }
+      activeSaves--;
+    });
+    const run = computeTopics({
+      runtime,
+      record: { html: '<p>x</p>', contentRevision: 'rev-1' },
+      callLLMWithRetry: vi.fn(async () => 'Tech>Part: 0-0'),
+      dependencies: { saveCheckpoint },
+    });
+
+    await vi.waitFor(() => expect(saveCheckpoint).toHaveBeenCalledTimes(2));
+    for (let index = 0; index < 20; index++) await Promise.resolve();
+    expect(saveCheckpoint).toHaveBeenCalledTimes(2);
+    expect(maxActiveSaves).toBe(1);
+    releaseSecond();
+    await run;
+
+    expect(maxActiveSaves).toBe(1);
+    expect(snapshots).toHaveLength(3);
+    expect(snapshots.at(-1).every((segments) => Array.isArray(segments))).toBe(true);
   });
 
   it('discards a checkpoint from a different content revision and re-requests everything', async () => {
