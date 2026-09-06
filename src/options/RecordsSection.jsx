@@ -55,17 +55,23 @@ export function RecordsSection({ fileHost, pageHost }) {
     }
   }, []);
 
-  const loadRecords = useCallback(
-    async ({ background = false } = {}) => {
-      const requestId = ++recordsRequestId.current;
-      if (!background) setIsLoading(true);
-      const result = await listRecords();
-      if (requestId === recordsRequestId.current) applyRecords(result);
-    },
-    [applyRecords],
-  );
+  // Writes nothing back into React until the response lands, so it is safe to
+  // start from an effect. Callers that want the "Loading records..." placeholder
+  // back use `reloadRecords` instead.
+  const loadRecords = useCallback(async () => {
+    const requestId = ++recordsRequestId.current;
+    const result = await listRecords();
+    if (requestId === recordsRequestId.current) applyRecords(result);
+  }, [applyRecords]);
+
+  const reloadRecords = useCallback(() => {
+    setIsLoading(true);
+    return loadRecords();
+  }, [loadRecords]);
 
   useEffect(() => {
+    // `isLoading` already starts true, so the mount read must not flip it again
+    // from inside the effect.
     void loadRecords();
     let refreshTimer = null;
     let refreshNeeded = false;
@@ -78,7 +84,7 @@ export function RecordsSection({ fileHost, pageHost }) {
       // slow reads can finish even while more storage changes arrive.
       refreshTimer = setTimeout(async () => {
         refreshNeeded = false;
-        await loadRecords({ background: true });
+        await loadRecords();
         refreshTimer = null;
         if (refreshNeeded) scheduleRefresh();
       }, 300);
@@ -120,7 +126,7 @@ export function RecordsSection({ fileHost, pageHost }) {
       setError((response && response.error) || 'Failed to delete all records');
       return;
     }
-    await loadRecords();
+    await reloadRecords();
   };
 
   const runAction = async (action, key) => {
@@ -153,7 +159,7 @@ export function RecordsSection({ fileHost, pageHost }) {
         setError(actionResponseError(response, action));
         return;
       }
-      await loadRecords();
+      await reloadRecords();
       return;
     }
 
@@ -171,7 +177,7 @@ export function RecordsSection({ fileHost, pageHost }) {
     if (!errorDialogKey) return;
     await retryRecord(errorDialogKey, 'Options');
     setErrorDialogKey(null);
-    await loadRecords();
+    await reloadRecords();
   };
 
   const quickRetry = async (item) => {
@@ -185,7 +191,7 @@ export function RecordsSection({ fileHost, pageHost }) {
       } else {
         await retryRecord(item.key, 'Options');
       }
-      await loadRecords();
+      await reloadRecords();
     } catch (caughtError) {
       setError(caughtError?.message || 'Retry failed');
     } finally {
@@ -197,7 +203,7 @@ export function RecordsSection({ fileHost, pageHost }) {
     if (!summaryErrorsDialogItem) return;
     await resolveSummaryErrors(summaryErrorsDialogItem.key, action, 'Options');
     setSummaryErrorsDialogItem(null);
-    await loadRecords();
+    await reloadRecords();
   };
 
   const openSummaryErrorsDialog = async (item) => {
@@ -263,7 +269,7 @@ export function RecordsSection({ fileHost, pageHost }) {
       }
       const count = response.count || records.length;
       setImportMessage(`Imported ${count} ${count === 1 ? 'record' : 'records'}.`);
-      await loadRecords();
+      await reloadRecords();
     } catch (caughtError) {
       setError(
         caughtError instanceof SyntaxError
@@ -320,7 +326,7 @@ export function RecordsSection({ fileHost, pageHost }) {
         {loadError && items.length > 0 ? (
           <div className="form-error form-error--stacked">
             Couldn&apos;t refresh records: {loadError}{' '}
-            <button type="button" onClick={() => void loadRecords()}>
+            <button type="button" onClick={() => void reloadRecords()}>
               Retry
             </button>
           </div>
@@ -332,7 +338,7 @@ export function RecordsSection({ fileHost, pageHost }) {
           <div className="form-error">
             Couldn&apos;t load records: {loadError}
             <div>
-              <button type="button" onClick={() => void loadRecords()}>
+              <button type="button" onClick={() => void reloadRecords()}>
                 Retry
               </button>
             </div>

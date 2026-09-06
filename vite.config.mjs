@@ -13,6 +13,21 @@ export default defineConfig({
       '**/.{git,cache,output,temp}/**',
     ],
     setupFiles: ['test/setup.fast-check.mjs'],
+    // A real browser's `DOMParser.parseFromString` yields an inert document:
+    // an `<iframe src>` in parsed markup is never loaded. Happy DOM instead
+    // navigates child frames eagerly, so `sanitizeArticleHtml` (which parses
+    // untrusted article HTML before stripping the iframe) kicks off a fetch
+    // that outlives the test file and rejects into an already-destroyed
+    // AsyncTaskManager. Vitest does not fail the run on it, it just prints a
+    // stack next to whichever unrelated file happened to be running. Match
+    // real DOMParser semantics instead of chasing the noise.
+    environmentOptions: {
+      happyDOM: {
+        settings: {
+          navigation: { disableChildFrameNavigation: true },
+        },
+      },
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'json-summary'],

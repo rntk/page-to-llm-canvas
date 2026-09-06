@@ -25,6 +25,13 @@ export function useRecord(key, source) {
   const [error, setError] = useState(() => (key ? null : 'missing record key'));
   const [isDeleted, setIsDeleted] = useState(false);
 
+  // A missing capability is a wiring bug rather than a runtime condition, but
+  // it must not throw out of the effect and tear the whole modal down: report
+  // it the way any other unusable record is reported. It is knowable during
+  // render, so derive it instead of writing it back from inside the effect.
+  const sourceUnavailable =
+    typeof fetchRecord !== 'function' || typeof subscribeToRecord !== 'function';
+
   const [prevKey, setPrevKey] = useState(key);
   if (key !== prevKey) {
     setPrevKey(key);
@@ -34,14 +41,7 @@ export function useRecord(key, source) {
   }
 
   useEffect(() => {
-    if (!key) return undefined;
-    // A missing capability is a wiring bug rather than a runtime condition, but
-    // it must not throw out of the effect and tear the whole modal down: report
-    // it the way any other unusable record is reported.
-    if (typeof fetchRecord !== 'function' || typeof subscribeToRecord !== 'function') {
-      setError('record source unavailable');
-      return undefined;
-    }
+    if (!key || sourceUnavailable) return undefined;
 
     let cancelled = false;
     let refreshTimer = null;
@@ -124,7 +124,13 @@ export function useRecord(key, source) {
     // otherwise resubscribe and refetch on every render. The optional chaining
     // keeps the missing-key path (which returns above, before touching
     // `source`) working without one, as it did before the capability existed.
-  }, [key, fetchRecord, subscribeToRecord]);
+  }, [key, sourceUnavailable, fetchRecord, subscribeToRecord]);
 
-  return { record, error, isDeleted };
+  // The missing-key error is the more specific diagnosis, so it keeps priority
+  // over an unusable source.
+  return {
+    record,
+    error: key && sourceUnavailable ? 'record source unavailable' : error,
+    isDeleted,
+  };
 }
