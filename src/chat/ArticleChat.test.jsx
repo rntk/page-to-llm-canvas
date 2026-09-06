@@ -405,19 +405,24 @@ describe('ArticleChat persisted history', () => {
     // One atomic write: only replayable visible messages + events. Provider
     // tool transcripts stay transient and are not retained in chat storage.
     expect(api.append).toHaveBeenCalledTimes(1);
-    expect(api.append).toHaveBeenCalledWith('record-1', 'chat-1', {
-      turnId: expect.any(String),
-      messages: [
-        { role: 'user', content: 'What about line three?' },
-        { role: 'assistant', content: 'Line three answers it.' },
-      ],
-      events: [
-        {
-          eventType: 'highlight_span',
-          data: { startLine: 3, endLine: 3, label: 'New evidence' },
-        },
-      ],
-    });
+    expect(api.append).toHaveBeenCalledWith(
+      'record-1',
+      'chat-1',
+      {
+        turnId: expect.any(String),
+        messages: [
+          { role: 'user', content: 'What about line three?' },
+          { role: 'assistant', content: 'Line three answers it.' },
+        ],
+        events: [
+          {
+            eventType: 'highlight_span',
+            data: { startLine: 3, endLine: 3, label: 'New evidence' },
+          },
+        ],
+      },
+      { expectedContentRevision: undefined },
+    );
 
     // State adopts the returned normalized data.
     expect(container.textContent).toContain('What about line three?');
@@ -515,6 +520,52 @@ describe('ArticleChat persisted history', () => {
     );
     expect(container.textContent).not.toContain('Lost answer.');
     // Stream-painted highlights are reset to the stored selected event.
+    expect(onHighlight).toHaveBeenLastCalledWith({
+      startLine: 1,
+      endLine: 2,
+      label: 'First evidence',
+    });
+
+    unmount();
+  });
+
+  // The panel answers from the sentences it was mounted with. If the record is
+  // reanalyzed elsewhere, storage refuses the write rather than filing the
+  // answer under the new revision, and the panel must not adopt anything.
+  it('reports a refused turn when the source revision was replaced', async () => {
+    turnLoop.runArticleChatTurn.mockResolvedValue({
+      reply: 'Answer from the old article.',
+      transcriptMessages: [],
+      highlightRanges: [{ startLine: 3, endLine: 3, label: 'Stale evidence' }],
+    });
+    api.append.mockResolvedValue({ stale: true });
+    const onHighlight = vi.fn();
+    const { container, unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['One', 'Two', 'Three']}
+        contentRevision="rev-a"
+        onHighlight={onHighlight}
+        onClearHighlights={vi.fn()}
+      />,
+    );
+    await flushAsyncWork();
+
+    typeQuestion(container, 'Question about the old article');
+    await clickSend(container);
+
+    expect(api.append).toHaveBeenCalledWith(
+      'record-1',
+      'chat-1',
+      expect.objectContaining({ turnId: expect.any(String) }),
+      { expectedContentRevision: 'rev-a' },
+    );
+    expect(container.querySelector('.pagetollm-chat-error').textContent).toContain('reanalyzed');
+    expect(container.textContent).not.toContain('Answer from the old article.');
+    expect(container.querySelector('.pagetollm-chat-composer textarea').value).toBe(
+      'Question about the old article',
+    );
+    // Stream-painted evidence is rolled back to the stored selected event.
     expect(onHighlight).toHaveBeenLastCalledWith({
       startLine: 1,
       endLine: 2,

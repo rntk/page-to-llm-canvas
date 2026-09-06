@@ -200,6 +200,7 @@ function CanvasApp({ initialKey, record, onClose }) {
     topics,
     topicSentenceIndex,
     sentences,
+    contentRevision,
     articleHtml,
     maxLevel,
     allSummaryCards,
@@ -603,6 +604,7 @@ function CanvasApp({ initialKey, record, onClose }) {
               <ArticleChat
                 recordKey={initialKey}
                 sentences={sentences}
+                contentRevision={contentRevision}
                 onHighlight={handleChatHighlight}
                 onClearHighlights={handleClearChatHighlights}
                 onClose={handleCloseChat}

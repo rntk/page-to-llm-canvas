@@ -36,9 +36,29 @@ export async function getStoredChat(key, chatId) {
   return (await request({ type: MSG.getChat, key, chatId })).chat;
 }
 
-export async function persistChatTurn(key, chatId, turn) {
-  const response = await request({ type: MSG.appendChatTurn, key, chatId, turn });
-  return { chat: response.chat };
+/**
+ * Appends one turn. `expectedContentRevision` is the revision of the source
+ * the turn was answered from; the background rejects the write when the record
+ * has been reanalyzed since, which surfaces here as `{stale: true}` instead of
+ * a chat.
+ * @param {string} key Record key.
+ * @param {string | null} chatId Existing chat, or falsy to create one inline.
+ * @param {object} turn Whole turn: messages and/or events.
+ * @param {object} [options]
+ * @param {string} [options.expectedContentRevision]
+ * @returns {Promise<{chat?: object, stale?: boolean}>}
+ */
+export async function persistChatTurn(key, chatId, turn, { expectedContentRevision } = {}) {
+  const response = await request({
+    type: MSG.appendChatTurn,
+    key,
+    chatId,
+    turn,
+    ...(typeof expectedContentRevision === 'string' && expectedContentRevision
+      ? { contentRevision: expectedContentRevision }
+      : {}),
+  });
+  return response.stale ? { stale: true } : { chat: response.chat };
 }
 
 export async function removeStoredChat(key, chatId) {

@@ -38,6 +38,10 @@ function ChatHeaderActions({ disabled, onShowHistory, onNewChat }) {
  * @param {object} props
  * @param {string} props.recordKey
  * @param {string[]} props.sentences
+ * @param {string} [props.contentRevision] Revision of the record `sentences`
+ *   came from. Carried through to the append so a turn answered from a source
+ *   snapshot that has since been reanalyzed is not persisted against the new
+ *   revision.
  * @param {function(object): void} [props.onHighlight]
  * @param {function(): void} [props.onClearHighlights]
  * @param {function(): void} [props.onClose]
@@ -52,6 +56,7 @@ function ChatHeaderActions({ disabled, onShowHistory, onNewChat }) {
 function ArticleChat({
   recordKey,
   sentences,
+  contentRevision,
   onHighlight,
   onClearHighlights,
   onClose,
@@ -346,6 +351,7 @@ function ArticleChat({
     const operation = Object.freeze({
       turnId,
       recordKey,
+      contentRevision,
       chatId: activeChatId ?? null,
       controller: new AbortController(),
     });
@@ -388,18 +394,39 @@ function ArticleChat({
         if (!isCurrentOperation(operation)) return;
         // Persist only replayable user-visible content. Tool transcripts are
         // transient implementation detail and may contain provider reasoning.
-        const persisted = await chatRepository.append(operation.recordKey, operation.chatId, {
-          turnId,
-          messages: [
-            { role: 'user', content: question },
-            { role: 'assistant', content: turnResult.reply },
-          ],
-          events: turnResult.highlightRanges.map((range) => ({
-            eventType: 'highlight_span',
-            data: range,
-          })),
-        });
+        const persisted = await chatRepository.append(
+          operation.recordKey,
+          operation.chatId,
+          {
+            turnId,
+            messages: [
+              { role: 'user', content: question },
+              { role: 'assistant', content: turnResult.reply },
+            ],
+            events: turnResult.highlightRanges.map((range) => ({
+              eventType: 'highlight_span',
+              data: range,
+            })),
+          },
+          { expectedContentRevision: operation.contentRevision },
+        );
         if (!isCurrentOperation(operation)) return;
+        // The record was reanalyzed while this panel held the old source: the
+        // answer belongs to content this record no longer has, so storage
+        // refused it. Retrying cannot help until the panel is reopened.
+        if (persisted?.stale) {
+          // Unconditional writes gated by the isCurrentOperation() check above
+          // with no intervening await (same rule as the success path below).
+          // eslint-disable-next-line require-atomic-updates
+          retryTurnRef.current = null;
+          setPendingQuestion('');
+          setInput(question);
+          applyEvents(paintedEvents);
+          setError(
+            `This ${subjectLabel} was reanalyzed elsewhere, so the answer was not saved. Reopen it to chat about the new version.`,
+          );
+          return;
+        }
         adoptPersistedTurn(persisted, {
           expectedChatId: operation.chatId,
           turnId,
@@ -461,6 +488,7 @@ function ArticleChat({
     adoptPersistedTurn,
     applyEvents,
     chatRepository,
+    contentRevision,
     getChatLimits,
     highlightedRanges,
     input,
@@ -476,6 +504,7 @@ function ArticleChat({
     runTurn,
     sentences,
     setError,
+    subjectLabel,
   ]);
 
   const handleInputChange = useCallback((value) => {

@@ -2297,6 +2297,61 @@ describe('dispatchMessage unit tests', () => {
     ).toBe(false);
   });
 
+  // A rail loads the record once and answers from that snapshot. If the record
+  // is replaced meanwhile, the turn's first append carries no chatId, so only
+  // the caller's expected revision can stop it from being stored as a chat of
+  // the new content.
+  it('refuses a first turn whose source revision was replaced by an import', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+    const sender = { id: 'test-id', url: 'chrome-extension://test-id/options.html' };
+    await seedRecord(chromeMock, makeRecord('replace-me', { text: 'old content' }));
+    const loaded = await dispatchMessage({ type: 'getRecordView', key: 'replace-me' });
+    const staleRevision = loaded.record.contentRevision;
+    expect(typeof staleRevision).toBe('string');
+
+    expect(
+      (
+        await dispatchMessage({
+          type: 'appendChatTurn',
+          key: 'replace-me',
+          contentRevision: 42,
+          turn: { messages: [{ role: 'user', content: 'Question' }] },
+        })
+      ).error,
+    ).toBe('invalid contentRevision');
+
+    await dispatchMessage(
+      {
+        type: 'importRecords',
+        records: [{ key: 'replace-me', html: '<p>new content</p>', text: 'new content' }],
+      },
+      sender,
+    );
+
+    const stale = await dispatchMessage({
+      type: 'appendChatTurn',
+      key: 'replace-me',
+      contentRevision: staleRevision,
+      turn: { messages: [{ role: 'user', content: 'Question about the old content' }] },
+    });
+
+    expect(stale).toEqual({ ok: true, stale: true });
+    expect((await dispatchMessage({ type: 'listChats', key: 'replace-me' })).chats).toEqual([]);
+
+    // The same turn against the current revision is still accepted.
+    const current = (await dispatchMessage({ type: 'getRecordView', key: 'replace-me' })).record
+      .contentRevision;
+    const fresh = await dispatchMessage({
+      type: 'appendChatTurn',
+      key: 'replace-me',
+      contentRevision: current,
+      turn: { messages: [{ role: 'user', content: 'Question about the new content' }] },
+    });
+    expect(fresh.ok).toBe(true);
+    expect(fresh.chat.contentRevision).toBe(current);
+  });
+
   it('rejects import batches with no importable records', async () => {
     const chromeMock = makeChromeMock();
     const dispatchMessage = await loadDispatchMessage(chromeMock);

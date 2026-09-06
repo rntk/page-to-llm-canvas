@@ -272,15 +272,28 @@ function applyRetention(chat) {
  * chat's nextEventSeq, and the title is derived from the first visible user
  * message in the batch.
  *
+ * `expectedContentRevision` is the revision of the source the caller actually
+ * answered from. A UI that loaded a record once keeps that snapshot in memory,
+ * so the record can be reanalyzed/replaced meanwhile; without this guard a turn
+ * grounded in the old source would be stamped with — and later read back as
+ * compatible with — the new revision. Existing chats are already rejected by
+ * the compatibility check (they are pruned on replacement); this closes the
+ * same hole on the new-chat path.
+ *
  * @param {string} key
  * @param {string | null | undefined} chatId
  * @param {object} [turn]
  * @param {string} [turn.turnId]
  * @param {object[]} [turn.messages]
  * @param {object[]} [turn.events]
- * @returns {Promise<{chat: object}>}
+ * @param {object} [options]
+ * @param {string} [options.expectedContentRevision] Revision the turn's source
+ *   came from; omitted by callers that hold no source snapshot.
+ * @returns {Promise<{chat: object} | {stale: true, contentRevision: string}>}
+ *   `{stale: true}` when the record's current revision no longer matches
+ *   `expectedContentRevision`; nothing is written in that case.
  */
-export async function appendChatTurn(key, chatId, turn = {}) {
+export async function appendChatTurn(key, chatId, turn = {}, options = {}) {
   const inputMessages = Array.isArray(turn?.messages) ? turn.messages : [];
   const inputEvents = Array.isArray(turn?.events) ? turn.events : [];
   if (inputMessages.length === 0 && inputEvents.length === 0) {
@@ -292,6 +305,14 @@ export async function appendChatTurn(key, chatId, turn = {}) {
   return queuedChatUpdate(async () => {
     const contentRevision = await readRecordContentRevision(key);
     if (!contentRevision) throw new Error('record not found');
+    const expectedContentRevision = options?.expectedContentRevision;
+    if (
+      typeof expectedContentRevision === 'string' &&
+      expectedContentRevision &&
+      expectedContentRevision !== contentRevision
+    ) {
+      return { stale: true, contentRevision };
+    }
     const turnId =
       typeof turn.turnId === 'string' && turn.turnId.trim()
         ? turn.turnId.trim()

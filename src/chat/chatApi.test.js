@@ -61,6 +61,36 @@ describe('chat API', () => {
     ]);
   });
 
+  it('carries the expected source revision and maps a refused append to a stale result', async () => {
+    sendRuntimeMessage.mockResolvedValueOnce({ ok: true, chat: { chatId: 'c1' } });
+    await expect(
+      persistChatTurn('article-1', 'c1', { turnId: 't1' }, { expectedContentRevision: 'rev-a' }),
+    ).resolves.toEqual({ chat: { chatId: 'c1' } });
+    expect(sendRuntimeMessage).toHaveBeenLastCalledWith({
+      type: 'appendChatTurn',
+      key: 'article-1',
+      chatId: 'c1',
+      turn: { turnId: 't1' },
+      contentRevision: 'rev-a',
+    });
+
+    // An empty/absent revision is omitted rather than sent as a falsy value the
+    // background would have to interpret.
+    sendRuntimeMessage.mockResolvedValueOnce({ ok: true, chat: { chatId: 'c1' } });
+    await persistChatTurn('article-1', 'c1', { turnId: 't2' }, { expectedContentRevision: '' });
+    expect(sendRuntimeMessage).toHaveBeenLastCalledWith({
+      type: 'appendChatTurn',
+      key: 'article-1',
+      chatId: 'c1',
+      turn: { turnId: 't2' },
+    });
+
+    sendRuntimeMessage.mockResolvedValueOnce({ ok: true, stale: true });
+    await expect(
+      persistChatTurn('article-1', null, { turnId: 't3' }, { expectedContentRevision: 'rev-a' }),
+    ).resolves.toEqual({ stale: true });
+  });
+
   it('exposes a frozen repository adapter bound to the runtime-backed operations', () => {
     expect(browserChatRepository).toEqual({
       list: listStoredChats,

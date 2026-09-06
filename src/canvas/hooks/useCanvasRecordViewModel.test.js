@@ -63,6 +63,65 @@ describe('useCanvasRecordViewModel', () => {
     expect(apiRef.current.summaryCards).toHaveLength(1);
   });
 
+  it('keeps the sentence identity across equivalent rewrites of the same revision', () => {
+    const record = {
+      status: 'done',
+      contentRevision: 'rev-a',
+      sentences: ['First sentence.', 'Second sentence.'],
+    };
+    const ctx = setup({ record, selectedLevel: 0, showSummaryModeRaw: false });
+    cleanups.push(ctx.cleanup);
+    const first = ctx.apiRef.current.sentences;
+
+    // A processing-log/timestamp write mints a new record object with the same
+    // content; DOM ranges and measurements must not be rebuilt.
+    ctx.rerender({ record: { ...record, sentences: [...record.sentences], updatedAt: 1 } });
+
+    expect(ctx.apiRef.current.sentences).toBe(first);
+    expect(ctx.apiRef.current.contentRevision).toBe('rev-a');
+  });
+
+  // Regression: the chat stamps each persisted turn with the revision its
+  // source came from, so the sentence snapshot and the revision it belongs to
+  // must advance together. A same-length replacement used to keep revision A's
+  // sentences while the record already reported revision B.
+  it('advances the sentences and their revision together for a same-length replacement', () => {
+    const record = {
+      status: 'done',
+      contentRevision: 'rev-a',
+      sentences: ['First sentence.', 'Second sentence.'],
+    };
+    const ctx = setup({ record, selectedLevel: 0, showSummaryModeRaw: false });
+    cleanups.push(ctx.cleanup);
+    expect(ctx.apiRef.current.sentences).toEqual(['First sentence.', 'Second sentence.']);
+    expect(ctx.apiRef.current.contentRevision).toBe('rev-a');
+
+    ctx.rerender({
+      record: {
+        ...record,
+        contentRevision: 'rev-b',
+        sentences: ['Replaced sentence.', 'Other replaced sentence.'],
+      },
+    });
+
+    expect(ctx.apiRef.current.sentences).toEqual([
+      'Replaced sentence.',
+      'Other replaced sentence.',
+    ]);
+    expect(ctx.apiRef.current.contentRevision).toBe('rev-b');
+  });
+
+  it('reports no revision for a record that has none', () => {
+    const ctx = setup({
+      record: { status: 'done', sentences: ['Only sentence.'] },
+      selectedLevel: 0,
+      showSummaryModeRaw: false,
+    });
+    cleanups.push(ctx.cleanup);
+
+    expect(ctx.apiRef.current.contentRevision).toBeUndefined();
+  });
+
   it('forces summary mode off when summaries become disabled', () => {
     const record = { status: 'done', summariesDisabled: false };
     const ctx = setup({

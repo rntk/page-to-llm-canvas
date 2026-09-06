@@ -49,6 +49,7 @@ export default function YouTubeRail({
   onSeek,
   sentences = [],
   recordKey,
+  contentRevision,
   onChatHighlight,
   onClearChatHighlights,
   getChatEventTimestamp,
@@ -340,6 +341,7 @@ export default function YouTubeRail({
           <ArticleChat
             recordKey={recordKey}
             sentences={sentences}
+            contentRevision={contentRevision}
             onHighlight={onChatHighlight}
             onClearHighlights={onClearChatHighlights}
             onEscape={onClose}

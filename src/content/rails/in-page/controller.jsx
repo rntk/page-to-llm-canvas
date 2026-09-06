@@ -255,6 +255,7 @@ export function createInPageRailController({
             onChatHighlight={handleChatHighlight}
             onClearChatHighlights={handleClearChatHighlights}
             recordKey={record.key}
+            contentRevision={record.contentRevision}
           />,
         );
       };

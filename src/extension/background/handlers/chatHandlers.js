@@ -68,19 +68,27 @@ export function createChatHandlers({ chatRepository, chatService, providerReposi
 
     // Persists a whole LLM turn (messages + events) as one atomic write; a falsy
     // chatId creates the chat inline so a failed first turn leaves no orphan chat.
+    // `contentRevision` is the revision the caller's source snapshot came from;
+    // storage refuses the write when the record has been reanalyzed since.
     [MSG.appendChatTurn]: {
       requiresExtensionPage: false,
       validate(msg) {
         if (!msg.key) return 'missing key';
         if (msg.chatId && !isSafeChatId(msg.chatId)) return 'invalid chatId';
+        if (msg.contentRevision !== undefined && typeof msg.contentRevision !== 'string') {
+          return 'invalid contentRevision';
+        }
         if (!msg.turn || typeof msg.turn !== 'object') return 'missing turn';
         const hasMessages = Array.isArray(msg.turn.messages) && msg.turn.messages.length > 0;
         const hasEvents = Array.isArray(msg.turn.events) && msg.turn.events.length > 0;
         return hasMessages || hasEvents ? null : 'empty turn';
       },
       async handle(msg) {
-        const { chat } = await appendChatTurn(msg.key, msg.chatId, msg.turn);
-        return { ok: true, chat };
+        const result = await appendChatTurn(msg.key, msg.chatId, msg.turn, {
+          expectedContentRevision: msg.contentRevision,
+        });
+        if (result.stale) return { ok: true, stale: true };
+        return { ok: true, chat: result.chat };
       },
     },
 

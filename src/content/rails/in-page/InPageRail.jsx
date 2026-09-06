@@ -367,6 +367,7 @@ export default function InPageRail({
   onChatHighlight,
   onClearChatHighlights,
   recordKey,
+  contentRevision,
 }) {
   const [frontCardId, setFrontCardId] = useState(null);
   const [chatActionsTarget, setChatActionsTarget] = useState(null);
@@ -493,6 +494,7 @@ export default function InPageRail({
           <ArticleChat
             recordKey={recordKey}
             sentences={sentences}
+            contentRevision={contentRevision}
             onHighlight={onChatHighlight}
             onClearHighlights={onClearChatHighlights}
             onEscape={onClose}

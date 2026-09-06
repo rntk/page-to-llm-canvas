@@ -27,12 +27,28 @@ export function useCanvasRecordViewModel({ record, selectedLevel, showSummaryMod
   // Sentences are immutable once extracted. Their count is used as the stable
   // identity key so unrelated processing-log and timestamp writes do not
   // rebuild DOM ranges, measurements, and highlights.
+  //
+  // The content revision is part of that identity, and is published together
+  // with the array it belongs to: a reanalysis that replaces the article with
+  // different text of the same sentence count would otherwise leave the canvas
+  // (and the chat answering from it) on the old sentences while the record
+  // already reports the new revision. Consumers that pair the two — the chat
+  // stamps each persisted turn with the revision its source came from — would
+  // then label an old-source answer as belonging to the new content.
   const sentenceCount = Array.isArray(record?.sentences) ? record.sentences.length : 0;
-  const sentences = useMemo(
-    () => (Array.isArray(record?.sentences) ? record.sentences : []),
+  const recordContentRevision =
+    typeof record?.contentRevision === 'string' && record.contentRevision
+      ? record.contentRevision
+      : undefined;
+  const sentenceSource = useMemo(
+    () => ({
+      sentences: Array.isArray(record?.sentences) ? record.sentences : [],
+      contentRevision: recordContentRevision,
+    }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sentenceCount],
+    [sentenceCount, recordContentRevision],
   );
+  const { sentences, contentRevision } = sentenceSource;
 
   // The source URL resolves the article's relative image/link URLs; without it
   // they would resolve against the extension origin and 404.
@@ -64,6 +80,7 @@ export function useCanvasRecordViewModel({ record, selectedLevel, showSummaryMod
     topics,
     topicSentenceIndex,
     sentences,
+    contentRevision,
     articleHtml,
     maxLevel,
     allSummaryCards,

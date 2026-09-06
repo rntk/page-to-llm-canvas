@@ -783,4 +783,76 @@ describe('appendChatTurn', () => {
       appendChatTurn('missing', null, { messages: [{ role: 'user', content: 'Question' }] }),
     ).rejects.toThrow('record not found');
   });
+
+  it('appends when the expected content revision still matches', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const contentRevision = mock.storage.local._store.get(
+      'pagetollm:rec:article:meta',
+    ).contentRevision;
+
+    const { chat } = await appendChatTurn(
+      'article',
+      null,
+      { messages: [{ role: 'user', content: 'Question' }] },
+      { expectedContentRevision: contentRevision },
+    );
+
+    expect(chat.contentRevision).toBe(contentRevision);
+    expect(await readChat('article', chat.chatId)).toEqual(chat);
+  });
+
+  // Regression: a rail keeps the record it loaded once in a closure. When the
+  // record is reanalyzed elsewhere, a turn answered from the old source must
+  // not be stamped with — and then read back as compatible with — the new
+  // revision. The existing-chatId path is already protected by pruning; this
+  // covers the unversioned new-chat path.
+  it('refuses a new chat for a turn whose source revision was replaced', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const metaKey = 'pagetollm:rec:article:meta';
+    const staleRevision = mock.storage.local._store.get(metaKey).contentRevision;
+    await writeRecord(makeRecord('article'), { bumpContentRevision: true });
+    const currentRevision = mock.storage.local._store.get(metaKey).contentRevision;
+    expect(currentRevision).not.toBe(staleRevision);
+
+    const result = await appendChatTurn(
+      'article',
+      null,
+      { messages: [{ role: 'user', content: 'Question about the old article' }] },
+      { expectedContentRevision: staleRevision },
+    );
+
+    expect(result).toEqual({ stale: true, contentRevision: currentRevision });
+    expect(result.chat).toBeUndefined();
+    expect(await listChats('article')).toEqual([]);
+  });
+
+  it('never stamps the new revision on a first turn racing the replacement', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const metaKey = 'pagetollm:rec:article:meta';
+    const staleRevision = mock.storage.local._store.get(metaKey).contentRevision;
+
+    // The turn started against the old source; the replacement lands while the
+    // append is in flight. Whichever order the mutation queue picks, the turn
+    // must not survive as a chat of the new revision.
+    const [result] = await Promise.all([
+      appendChatTurn(
+        'article',
+        null,
+        { messages: [{ role: 'user', content: 'Question about the old article' }] },
+        { expectedContentRevision: staleRevision },
+      ),
+      writeRecord(makeRecord('article'), { bumpContentRevision: true }),
+    ]);
+
+    const currentRevision = mock.storage.local._store.get(metaKey).contentRevision;
+    expect(currentRevision).not.toBe(staleRevision);
+    expect(result.chat?.contentRevision ?? staleRevision).toBe(staleRevision);
+    expect(await listChats('article')).toEqual([]);
+  });
 });

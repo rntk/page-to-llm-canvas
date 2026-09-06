@@ -186,6 +186,7 @@ export function createYouTubeRailController({
           onSeek={seekTo}
           sentences={sentences}
           recordKey={record.key}
+          contentRevision={record.contentRevision}
           onChatHighlight={handleChatHighlight}
           getChatEventTimestamp={getChatEventTimestamp}
         />,
