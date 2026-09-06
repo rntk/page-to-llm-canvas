@@ -50,6 +50,22 @@ A transcript must be available for the video. The extension does not process vid
 3. Enable Developer mode.
 4. Click "Load unpacked" and pick the `dist/` directory.
 
+### Build with an allowed LAN host
+
+The default connection policy allows HTTPS endpoints and HTTP on `localhost` or `127.0.0.1` at any port. HTTP endpoints on other hosts require a custom build.
+
+With Docker installed and permission to run it via `sudo`, run from the repository:
+
+```sh
+bash scripts/build-extension-docker.sh http://192.168.0.147:8989
+```
+
+Replace the example with your server's exact origin (`http://host:port`, without a path). The script uses Node 24 in Docker, installs dependencies with `npm ci` when the lockfile changes, builds the extension, and adds that origin to `connect-src` in `dist/manifest.json`. It keeps an npm download cache in `~/.cache/pagetollm-npm`. Omitting the argument uses `http://192.168.0.147:8989`.
+
+Load `dist/` as described above, or reload the existing unpacked extension, then save the matching custom provider URL in Options. The source `manifest.json` is unchanged; a normal build removes this generated allowance, so rerun the Docker script for subsequent LAN builds.
+
+To build without Docker, add your exact origin to `content_security_policy.extension_pages`'s `connect-src` directive in the source `manifest.json`, then run `npm ci` and `npm run build` and load or reload `dist/`.
+
 ## LLM configuration
 
 > **Recommended model: GPT-OSS 20B with `medium` reasoning.** Fast and smart enough to process texts with pretty good quality while keeping latency and cost low. Good default choice if you are unsure which model to pick.
@@ -62,7 +78,7 @@ Supported provider types:
 - **DeepSeek**: Connects to the official DeepSeek API (requires an API key).
 - **Anthropic**: Connects to the official Anthropic API (requires an API key).
 - **OpenRouter**: Connects to OpenRouter (requires an API key).
-- **OpenAI-compatible (custom URL)**: Connects to a custom URL (e.g., a local server like `http://localhost:8989` or `http://192.168.0.147:8989`) and supports local prompt caching (`cache_prompt`).
+- **OpenAI-compatible (custom URL)**: Connects to an HTTPS endpoint or a local HTTP server such as `http://localhost:8989` or `http://127.0.0.1:8989`, and supports local prompt caching (`cache_prompt`). LAN HTTP URLs such as `http://192.168.0.147:8989` need an [allowed LAN host build](#build-with-an-allowed-lan-host).
 
 Provider cache support is API-specific: OpenAI prompt caching is automatic and uses a stable `prompt_cache_key`; DeepSeek context caching is automatic; Anthropic requests include `cache_control` breakpoints for stable prompt prefixes; local llama.cpp-compatible servers receive `cache_prompt: true`.
 
