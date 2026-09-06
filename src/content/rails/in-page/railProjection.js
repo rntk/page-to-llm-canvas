@@ -15,13 +15,10 @@ import {
   buildHierarchicalTopicEntries,
   splitIntoContiguousRuns,
 } from '../shared/railCards.js';
-import { computeCardVerticalBox, computeRailTrailingPad } from './geometry.js';
-
-/** Body height used before the rail has been measured or when it has no cards. */
-export const FALLBACK_RAIL_BODY_HEIGHT = 200;
+import { computeCardVerticalBox } from './geometry.js';
 
 /**
- * Project a record into positioned rail cards plus the rail body height.
+ * Project a record into positioned rail cards.
  *
  * @param {object} opts
  * @param {object} opts.record Record being displayed.
@@ -29,9 +26,9 @@ export const FALLBACK_RAIL_BODY_HEIGHT = 200;
  * @param {number} opts.selectedLevel Hierarchy level being shown.
  * @param {Map|object} opts.sentenceRanges Sentence-number → word-range index.
  * @param {Array} opts.wordEntries Word entries collected from the picked elements.
- * @param {number} opts.railOriginTop Document offset the card boxes are relative to.
+ * @param {number} opts.railOriginTop Rail body offset the card boxes are relative to.
  * @param {Window|Element|null} opts.scrollContainer Scroller the rail follows.
- * @returns {{ cards: object[], bodyHeight: number }}
+ * @returns {object[]} Positioned cards, ordered top to bottom.
  */
 export function buildRailCards({
   record,
@@ -98,9 +95,5 @@ export function buildRailCards({
   }
   cardSpecs.sort((a, b) => a.box.top - b.box.top);
 
-  const trailingPad = computeRailTrailingPad({ isSummary, scrollContainer, win });
-  const railHeight = cardSpecs.length
-    ? Math.max(...cardSpecs.map((c) => c.box.top + c.box.height)) + trailingPad
-    : FALLBACK_RAIL_BODY_HEIGHT;
-  return { cards: cardSpecs, bodyHeight: railHeight };
+  return cardSpecs;
 }

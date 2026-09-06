@@ -8,8 +8,8 @@ vi.mock('./geometry.js', async (importOriginal) => {
   return { ...actual, computeCardVerticalBox: vi.fn() };
 });
 
-const { buildRailCards, FALLBACK_RAIL_BODY_HEIGHT } = await import('./railProjection.js');
-const { computeCardVerticalBox, RAIL_TRAILING_PAD } = await import('./geometry.js');
+const { buildRailCards } = await import('./railProjection.js');
+const { computeCardVerticalBox } = await import('./geometry.js');
 
 /** Box every run 100px per starting sentence, 40px tall. */
 function boxPerRun(run) {
@@ -36,7 +36,7 @@ describe('buildRailCards', () => {
   });
 
   it('projects one card per contiguous run and keys it by path and run', () => {
-    const { cards } = project({
+    const cards = project({
       record: { topics: [{ name: 'Parent', sentences: [1, 2, 7, 8] }] },
     });
 
@@ -53,16 +53,14 @@ describe('buildRailCards', () => {
   it('keeps only entries at the selected level', () => {
     const record = { topics: [{ name: 'Parent > Child', sentences: [1, 2] }] };
 
-    expect(project({ record, selectedLevel: 0 }).cards.map((c) => c.path)).toEqual(['Parent']);
-    expect(project({ record, selectedLevel: 1 }).cards.map((c) => c.path)).toEqual([
-      'Parent > Child',
-    ]);
+    expect(project({ record, selectedLevel: 0 }).map((c) => c.path)).toEqual(['Parent']);
+    expect(project({ record, selectedLevel: 1 }).map((c) => c.path)).toEqual(['Parent > Child']);
   });
 
   it('returns cards ascending by box top even when measured out of order', () => {
     // Inverted measurement: the later sentence measures higher up the page.
     computeCardVerticalBox.mockImplementation((run) => ({ top: 1000 - run[0] * 100, height: 40 }));
-    const { cards } = project({
+    const cards = project({
       record: {
         topics: [
           { name: 'First', sentences: [1] },
@@ -79,7 +77,7 @@ describe('buildRailCards', () => {
 
   it('drops runs that cannot be measured', () => {
     computeCardVerticalBox.mockImplementation((run) => (run[0] === 5 ? null : boxPerRun(run)));
-    const { cards } = project({
+    const cards = project({
       record: { topics: [{ name: 'Parent', sentences: [1, 5] }] },
     });
 
@@ -89,7 +87,7 @@ describe('buildRailCards', () => {
   it('pushes an overlapped box down without unpinning it from its sentences', () => {
     // Both runs measure as tall, overlapping boxes at the same level.
     computeCardVerticalBox.mockImplementation((run) => ({ top: run[0] * 10, height: 400 }));
-    const { cards } = project({
+    const cards = project({
       record: {
         topics: [
           { name: 'First', sentences: [1] },
@@ -108,20 +106,8 @@ describe('buildRailCards', () => {
     expect(top.box.top).toBe(10);
   });
 
-  it('pads the rail body below the lowest card in topics mode', () => {
-    const { cards, bodyHeight } = project({
-      record: { topics: [{ name: 'Parent', sentences: [1, 5] }] },
-    });
-
-    const lowest = Math.max(...cards.map((c) => c.box.top + c.box.height));
-    expect(bodyHeight).toBe(lowest + RAIL_TRAILING_PAD);
-  });
-
-  it('falls back to a fixed body height when nothing projects', () => {
-    const { cards, bodyHeight } = project({ record: { topics: [] } });
-
-    expect(cards).toEqual([]);
-    expect(bodyHeight).toBe(FALLBACK_RAIL_BODY_HEIGHT);
+  it('projects nothing when the record has no topics', () => {
+    expect(project({ record: { topics: [] } })).toEqual([]);
   });
 
   it('projects summary runs with their text in summaries mode', () => {
@@ -134,14 +120,11 @@ describe('buildRailCards', () => {
         },
       },
     };
-    const { cards, bodyHeight } = project({ record, mode: 'summaries' });
+    const cards = project({ record, mode: 'summaries' });
 
     expect(cards).toHaveLength(1);
     expect(cards[0].text).toBe('Summary text');
     expect(cards[0].sentences).toEqual([1, 2]);
-    // Summaries reserve a viewport-sized run below the last card, so the body
-    // grows past the flat topics pad.
-    expect(bodyHeight).toBeGreaterThan(cards[0].box.top + cards[0].box.height + RAIL_TRAILING_PAD);
   });
 
   it('measures against the rail origin and scroll container it is given', () => {

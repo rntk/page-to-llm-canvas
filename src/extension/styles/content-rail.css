@@ -51,8 +51,8 @@
 }
 
 .pagetollm-rail-head {
-  position: sticky;
-  top: 0;
+  position: relative;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -101,10 +101,29 @@
   outline-offset: 2px;
 }
 
+/* Fills the rail below the head and clips it: the rail is viewport-height, so
+   the card track inside is what moves (see InPageRail.jsx), not the body.
+   `clip`, not `hidden`: a hidden box is still a scroll container, and the
+   browser would scroll it to reveal a card that gets keyboard focus below the
+   fold — an offset the track transform knows nothing about, which would leave
+   every card misaligned with its sentences from then on. Clipping cannot
+   scroll, and InPageRail scrolls the article for such a card instead. */
 .pagetollm-rail-body {
   position: relative;
   z-index: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow: clip;
   padding: 16px 12px;
+}
+
+/* Card layer, translated by the current scroll offset so each card sits
+   opposite its sentences. Only cards are positioned; the track has no height
+   of its own to keep in step with the article. */
+.pagetollm-rail-track {
+  position: absolute;
+  inset: 0;
 }
 
 .pagetollm-rail-empty {
@@ -205,18 +224,11 @@
   display: block;
 }
 
+/* Emulated stickiness: nothing scrolls inside the rail, so the title is held
+   near the top of the rail by offsetting it within its card, bounded by the
+   card's own height. --pagetollm-scroll-offset is written by InPageRail.jsx
+   alongside the track transform. */
 .pagetollm-rail-card.is-topic .pagetollm-rail-card-title {
-  position: sticky;
-  top: var(--pagetollm-rail-sticky-offset);
-  z-index: 3;
-  transform: translateY(var(--pagetollm-card-title-offset, 0));
-  margin: -8px -10px 0;
-  padding: 8px 10px 4px;
-  background: var(--surface);
-  box-shadow: 0 1px 0 rgb(58 64 77 / 12%);
-}
-
-.pagetollm-rail-body.is-nested-scroll .pagetollm-rail-card.is-topic .pagetollm-rail-card-title {
   --pagetollm-card-title-offset: max(
     0px,
     min(
@@ -227,6 +239,14 @@
       max(0px, calc(var(--pagetollm-card-height, 0px) - var(--pagetollm-rail-sticky-offset, 48px)))
     )
   );
+
+  position: relative;
+  z-index: 3;
+  transform: translateY(var(--pagetollm-card-title-offset, 0));
+  margin: -8px -10px 0;
+  padding: 8px 10px 4px;
+  background: var(--surface);
+  box-shadow: 0 1px 0 rgb(58 64 77 / 12%);
 }
 
 .pagetollm-rail-card-meta {
@@ -286,7 +306,7 @@
 
 .pagetollm-summary-cursor-hitbox {
   position: absolute;
-  inset: 0 0 auto;
+  inset: 0;
   pointer-events: none;
 }
 
@@ -307,12 +327,15 @@
   animation: pagetollm-summary-fade-in 0.18s ease-out;
 }
 
+/* Clipped, not hidden, for the same reason as the rail body: focusing a title
+   the column has no room for must not scroll this list out of step with the
+   cursor line it hangs from. */
 .pagetollm-summary-topic-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-height: 0;
-  overflow: hidden;
+  overflow: clip;
 }
 
 /* The 112px below is the stack's own top offset (SUMMARY_CURSOR_MIN_TOP). */
@@ -593,14 +616,8 @@
 }
 
 .pagetollm-rail-body.is-chat {
-  position: sticky;
-  top: var(--pagetollm-rail-header-height, 39px);
-  box-sizing: border-box;
-  height: calc(100vh - var(--pagetollm-rail-header-height, 39px)) !important;
   min-height: 420px;
   padding: 0;
-  overflow: hidden;
-  transform: none !important;
 }
 
 /* ── YouTube-synced rail ───────────────────────────────────────────────────
@@ -614,7 +631,8 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  max-height: calc(100vh - var(--pagetollm-rail-header-height, 39px));
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   scroll-behavior: smooth;

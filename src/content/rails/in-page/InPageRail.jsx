@@ -36,7 +36,7 @@ function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen 
       style={style}
       onMouseEnter={() => onEnter(card)}
       onMouseLeave={() => onLeave(card)}
-      onFocus={() => onFocus(card)}
+      onFocus={(event) => onFocus(card, event.currentTarget)}
       onPointerDown={() => onFocus(card)}
       onClick={() => onOpen(card)}
     >
@@ -71,6 +71,27 @@ function getScrollContainerViewportHeight(scrollContainer, scrollWindow = window
 function getScrollContainerViewportTop(scrollContainer, scrollWindow = window) {
   if (!scrollContainer || scrollContainer === scrollWindow) return 0;
   return scrollContainer.getBoundingClientRect().top;
+}
+
+/**
+ * Scrolling left in the scroller before it hits its end, or Infinity when the
+ * range cannot be measured (or there is nothing to scroll). Only the summary
+ * cursor uses it, to stay reachable at the bottom of the article.
+ * @param {Window|Element|null} scrollContainer Scroller the rail follows.
+ * @param {Window} scrollWindow Window the rail lives in.
+ * @returns {number} Remaining scroll in pixels.
+ */
+function getRemainingScroll(scrollContainer, scrollWindow) {
+  const isWindowScroll = !scrollContainer || scrollContainer === scrollWindow;
+  const scroller = isWindowScroll ? scrollWindow.document?.documentElement : scrollContainer;
+  if (!scroller) return Infinity;
+  const viewportHeight = isWindowScroll ? scrollWindow.innerHeight : scroller.clientHeight;
+  const maxScrollTop = scroller.scrollHeight - viewportHeight;
+  // A non-positive range means the content fits, or the layout is not measurable
+  // (jsdom-style stubs): either way there is no boundary to glide towards.
+  if (!(maxScrollTop > 0)) return Infinity;
+  const currentTop = isWindowScroll ? scrollWindow.scrollY : scroller.scrollTop;
+  return Math.max(0, maxScrollTop - currentTop);
 }
 
 function getEffectiveScrollOffset({
@@ -125,7 +146,6 @@ function resolveDisplayIndex(cards, activeCardId, cursorY) {
 function SummaryCursorView({
   cards,
   bodyRef,
-  bodyHeight,
   scrollContainer,
   scrollWindow,
   isNestedScroll,
@@ -196,7 +216,7 @@ function SummaryCursorView({
         isNestedScroll,
         projectedScrollContainerTop,
       }),
-      isWindowScroll: !scrollContainer || scrollContainer === scrollWindow,
+      remainingScroll: getRemainingScroll(scrollContainer, scrollWindow),
     });
     // Both cursor elements inherit this value; pixel movement needs no React commit.
     const cursorTop = `${nextState.cursorTop}px`;
@@ -293,7 +313,7 @@ function SummaryCursorView({
   return (
     <>
       <div className="pagetollm-summary-cursor-line" aria-hidden="true" />
-      <div className="pagetollm-summary-cursor-hitbox" style={{ height: `${bodyHeight}px` }} />
+      <div className="pagetollm-summary-cursor-hitbox" />
       {cards.length > 0 ? (
         <div className="pagetollm-summary-stack">
           <div className="pagetollm-summary-topic-list is-before">
@@ -347,7 +367,6 @@ export default function InPageRail({
   maxLevel,
   selectedLevel,
   cards,
-  bodyHeight,
   onClose,
   onSelectMode,
   onSelectLevel,
@@ -367,21 +386,26 @@ export default function InPageRail({
   const [frontCardId, setFrontCardId] = useState(null);
   const [chatActionsTarget, setChatActionsTarget] = useState(null);
   const bodyRef = useRef(null);
+  const trackRef = useRef(null);
   const isSummary = mode === 'summaries';
   const isChat = mode === 'chat';
   const showSummariesDisabledNotice = isSummary && summariesDisabled;
 
+  // Card boxes are laid out in the scroller's content space, while the rail body
+  // is pinned to the viewport by its fixed host. Translating the card track by
+  // the current scroll offset is what brings the boxes for the visible part of
+  // the article opposite their sentences — and it is the only positioning the
+  // rail needs, so its own height never has to match the article's. Chat and
+  // summaries paint no boxes and render no track.
   useLayoutEffect(() => {
+    if (isSummary || isChat) return undefined;
     const target = scrollContainer || scrollWindow;
     let frameId = 0;
-    // Only the nested-scroll topic titles read the offset variable, and writing
-    // it invalidates style for the whole rail body subtree. In summaries mode
-    // that write is a no-op that would also force a synchronous layout, since
-    // SummaryCursorView measures the same body from its own scroll frame.
-    const tracksOffset = isNestedScroll && !isSummary;
     let lastOffsetValue = null;
     const updateScrollOffset = () => {
       frameId = 0;
+      const track = trackRef.current;
+      if (!track) return;
       const effectiveScrollOffset = getEffectiveScrollOffset({
         scrollContainer,
         scrollWindow,
@@ -389,31 +413,20 @@ export default function InPageRail({
         projectedScrollContainerTop,
       });
 
-      const body = bodyRef.current;
-      if (!body) return;
-      // Nested card positions live in the inner scroller's content space. The
-      // fixed/clipped host prevents page overflow; this translation still maps
-      // those positions back into the viewport as the inner scroller moves.
-      body.style.transform = `translateY(${-effectiveScrollOffset}px)`;
+      track.style.transform = `translateY(${-effectiveScrollOffset}px)`;
+      // Read by the sticky-title rule, which cannot use real CSS stickiness:
+      // nothing scrolls inside the rail. Written only on change — it
+      // invalidates style for the whole track subtree.
       const offsetValue = `${effectiveScrollOffset}px`;
       if (offsetValue !== lastOffsetValue) {
         lastOffsetValue = offsetValue;
-        body.style.setProperty('--pagetollm-scroll-offset', offsetValue);
+        track.style.setProperty('--pagetollm-scroll-offset', offsetValue);
       }
     };
     const scheduleUpdate = () => {
       if (frameId) return;
       frameId = scrollWindow.requestAnimationFrame(updateScrollOffset);
     };
-
-    if (!tracksOffset) {
-      const body = bodyRef.current;
-      if (body) {
-        body.style.transform = '';
-        body.style.removeProperty('--pagetollm-scroll-offset');
-      }
-      return undefined;
-    }
 
     updateScrollOffset();
     target.addEventListener('scroll', scheduleUpdate, { passive: true });
@@ -427,9 +440,38 @@ export default function InPageRail({
         scrollWindow.removeEventListener('scroll', scheduleUpdate);
       }
     };
-  }, [isNestedScroll, isSummary, projectedScrollContainerTop, scrollContainer, scrollWindow]);
+  }, [
+    isChat,
+    isNestedScroll,
+    isSummary,
+    projectedScrollContainerTop,
+    scrollContainer,
+    scrollWindow,
+  ]);
 
   const bringForward = useCallback((card) => setFrontCardId(card.id), []);
+
+  // Every card is rendered, including those for parts of the article that are
+  // scrolled away, so tabbing can land on a card outside the rail's visible
+  // band. The rail body clips rather than scrolls (see content-rail.css), which
+  // would leave that card focused but invisible — and a body scrolled by the
+  // browser to reveal it would desync the track from the page for good. Scroll
+  // the article to the card instead: the track follows the page, so the focused
+  // card comes into view beside its own sentences.
+  const handleCardFocus = useCallback(
+    (card, element) => {
+      bringForward(card);
+      const body = bodyRef.current;
+      // No element: a pointer press, which is already scrolling on its own.
+      if (!element || !body) return;
+      const bodyRect = body.getBoundingClientRect();
+      const cardRect = element.getBoundingClientRect();
+      const isOnScreen = cardRect.bottom > bodyRect.top && cardRect.top < bodyRect.bottom;
+      if (isOnScreen) return;
+      onScrollToCard(card);
+    },
+    [bringForward, onScrollToCard],
+  );
 
   const handleCardEnter = useCallback(
     (card) => {
@@ -454,12 +496,11 @@ export default function InPageRail({
     [bringForward, onScrollToCard],
   );
 
-  const bodyStyle = {
-    height: `${bodyHeight}px`,
-    // Seed the first commit before passive cursor updates; React also removes
-    // the property when leaving summaries, so a later mount starts cleanly.
-    ...(isSummary ? { '--pagetollm-summary-cursor-top': `${SUMMARY_CURSOR_MIN_TOP}px` } : {}),
-  };
+  // Seed the first commit before passive cursor updates; React also removes
+  // the property when leaving summaries, so a later mount starts cleanly.
+  const bodyStyle = isSummary
+    ? { '--pagetollm-summary-cursor-top': `${SUMMARY_CURSOR_MIN_TOP}px` }
+    : undefined;
 
   return (
     <>
@@ -474,13 +515,7 @@ export default function InPageRail({
         onClose={onClose}
       />
       <div
-        className={[
-          'pagetollm-rail-body',
-          isNestedScroll ? 'is-nested-scroll' : '',
-          isChat ? 'is-chat' : '',
-        ]
-          .filter(Boolean)
-          .join(' ')}
+        className={isChat ? 'pagetollm-rail-body is-chat' : 'pagetollm-rail-body'}
         ref={bodyRef}
         style={bodyStyle}
       >
@@ -500,7 +535,6 @@ export default function InPageRail({
           <SummaryCursorView
             cards={cards}
             bodyRef={bodyRef}
-            bodyHeight={bodyHeight}
             scrollContainer={scrollContainer}
             scrollWindow={scrollWindow}
             isNestedScroll={isNestedScroll}
@@ -509,18 +543,20 @@ export default function InPageRail({
             onScrollToCard={onScrollToCard}
           />
         ) : (
-          cards.map((card) => (
-            <MemoizedRailCard
-              key={card.id}
-              card={card}
-              isSummary={isSummary}
-              isFront={frontCardId === card.id}
-              onEnter={handleCardEnter}
-              onLeave={handleCardLeave}
-              onFocus={bringForward}
-              onOpen={handleCardOpen}
-            />
-          ))
+          <div className="pagetollm-rail-track" ref={trackRef}>
+            {cards.map((card) => (
+              <MemoizedRailCard
+                key={card.id}
+                card={card}
+                isSummary={isSummary}
+                isFront={frontCardId === card.id}
+                onEnter={handleCardEnter}
+                onLeave={handleCardLeave}
+                onFocus={handleCardFocus}
+                onOpen={handleCardOpen}
+              />
+            ))}
+          </div>
         )}
       </div>
     </>

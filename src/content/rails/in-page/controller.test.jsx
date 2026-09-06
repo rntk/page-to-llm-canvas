@@ -325,11 +325,11 @@ describe('openInPageRail', () => {
       });
       expect(rail()).not.toBeNull();
       expect(rail().dataset.mode).toBe('topics');
-      expect(rail().classList).not.toContain('is-nested-scroll');
     });
 
-    it('marks the rail host when article content uses an inner scroller', async () => {
+    it('follows an inner scroller when the article content sits in one', async () => {
       const innerScroller = document.createElement('div');
+      Object.defineProperty(innerScroller, 'scrollTop', { value: 150, configurable: true });
       document.body.appendChild(innerScroller);
       getScrollableAncestor.mockReturnValue(innerScroller);
 
@@ -337,7 +337,11 @@ describe('openInPageRail', () => {
         await openInPageRail({ key: 'rail-key' }, 'topics');
       });
 
-      expect(rail().classList).toContain('is-nested-scroll');
+      // The card track is translated by the scroller the rail was given, so the
+      // boxes measured in its content space land opposite their sentences.
+      expect(rail().querySelector('.pagetollm-rail-track').style.transform).toBe(
+        'translateY(-150px)',
+      );
       innerScroller.remove();
     });
 
@@ -360,6 +364,7 @@ describe('openInPageRail', () => {
 
       const oldArticle = document.getElementById('article');
       const nextScroller = document.createElement('div');
+      Object.defineProperty(nextScroller, 'scrollTop', { value: 90, configurable: true });
       const replacement = document.createElement('div');
       replacement.id = 'article';
       replacement.textContent = 'Alpha sentence. Beta sentence.';
@@ -414,7 +419,9 @@ describe('openInPageRail', () => {
       });
 
       expect(getScrollableAncestor).toHaveBeenCalledTimes(3);
-      expect(rail().classList).toContain('is-nested-scroll');
+      expect(rail().querySelector('.pagetollm-rail-track').style.transform).toBe(
+        'translateY(-90px)',
+      );
       // The active topic survives the anchor rebuild instead of being cleared.
       expect(CSS.highlights.has('pagetollm-sentence')).toBe(true);
       expect([...CSS.highlights.get('pagetollm-sentence').ranges][0].startContainer).toBe(
@@ -558,14 +565,21 @@ describe('openInPageRail', () => {
       );
     });
 
-    it('does not mark the rail host when scroll-container detection returns null', async () => {
+    it('falls back to the window scroll when scroll-container detection returns null', async () => {
       getScrollableAncestor.mockReturnValue(null);
+      const originalScrollY = window.scrollY;
+      // @ts-ignore
+      window.scrollY = 60;
 
       await act(async () => {
         await openInPageRail({ key: 'rail-key' }, 'topics');
       });
 
-      expect(rail().classList).not.toContain('is-nested-scroll');
+      expect(rail().querySelector('.pagetollm-rail-track').style.transform).toBe(
+        'translateY(-60px)',
+      );
+      // @ts-ignore
+      window.scrollY = originalScrollY;
     });
 
     it('renders the picked topic when the measured rail origin is zero', async () => {
@@ -723,32 +737,27 @@ describe('openInPageRail', () => {
       expect(openHierarchyIframe).not.toHaveBeenCalled();
     });
 
-    it('grows the rail body in summaries mode so the last summary keeps a background', async () => {
+    it('never sizes the rail body to the article, in either mode', async () => {
       await act(async () => {
         await openInPageRail({ key: 'rail-key' }, 'topics');
       });
       const body = () => rail().querySelector('.pagetollm-rail-body');
-      // Topics mode pads the lowest card box by a flat 80px.
-      const topicsHeight = Number.parseFloat(body().style.height);
-      const cardsBottom = topicsHeight - 80;
+      // The rail is viewport-height and moves its card track instead of
+      // growing, so there is always rail background behind a card — including
+      // behind the viewport-fixed summary column.
+      expect(body().style.height).toBe('');
 
       const select = rail().querySelector('.pagetollm-rail-mode-select');
       await act(async () => {
         select.value = 'summaries';
         select.dispatchEvent(new Event('change', { bubbles: true }));
       });
-      // The fixture's only summary sits at level 1; without this the summary
-      // card set is empty and the body falls back to its fixed 200px.
       await act(async () => {
         rail().querySelector('.pagetollm-rail-level-btn[data-level="1"]').click();
       });
 
-      // The summary column is fixed to the viewport, so the rail must reserve
-      // everything from the cursor line down to the bottom of the viewport.
-      const cursorTop = Math.max(112, Math.round(window.innerHeight * 0.38));
-      const expected = cardsBottom + Math.max(80, window.innerHeight - cursorTop);
-      expect(body().style.height).toBe(`${expected}px`);
-      expect(expected).toBeGreaterThan(topicsHeight);
+      expect(rail().dataset.mode).toBe('summaries');
+      expect(body().style.height).toBe('');
     });
 
     it('switching level updates the active level button', async () => {

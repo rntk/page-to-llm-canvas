@@ -62,11 +62,6 @@
   color-scheme: dark;
 }
 
-#pagetollm-in-page-rail[data-mode='chat'] {
-  position: fixed;
-  inset-block: 0;
-}
-
 /* Selection toolbar: floating frosted vellum. The host element (this rule)
    lives in the light DOM, but its contents render inside a closed shadow
    root — the toolbar's inner styles (buttons, block list, etc.) live in
@@ -135,30 +130,28 @@ body.pagetollm-rail-open {
   }
 }
 
+/* Viewport-height and pinned: every rail scrolls its own contents rather than
+   growing with the page. Card geometry is expressed in the scroller's content
+   coordinates and can be far taller than the document, so keeping it inside a
+   viewport-sized, clipped host is also what stops it growing the page
+   scrollbar. The head/body split below is a flex column so the body simply
+   takes the height the head leaves over. */
 #pagetollm-in-page-rail {
   --pagetollm-rail-sticky-offset: 48px;
-  --pagetollm-rail-header-height: 39px;
   --pagetollm-chat-header-height: 53px;
 
-  position: absolute;
-  top: 0;
+  position: fixed;
+  inset-block: 0;
   right: 0;
   z-index: 2147483645;
+  display: flex;
+  flex-direction: column;
+  overflow: clip;
   font-family: var(--font-data);
   background: var(--surface);
   color: var(--on-surface);
   border-left: 2px solid var(--ink);
-  min-height: 100vh;
   isolation: isolate;
-}
-
-/* Card geometry for an inner scroller is expressed in that scroller's content
-   coordinates and can be much taller than the document. Keep that projected
-   height inside a viewport-sized host so it cannot grow the page scrollbar. */
-#pagetollm-in-page-rail.is-nested-scroll {
-  position: fixed;
-  inset-block: 0;
-  overflow: hidden;
 }
 
 /* Sentence highlights live on the page's own text ranges, so this rule must be

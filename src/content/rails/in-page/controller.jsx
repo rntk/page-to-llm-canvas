@@ -8,7 +8,7 @@ import {
 import { computeMaxTopicLevel } from '../shared/railCards.js';
 import { getScrollableAncestor, getRailOriginTop } from './geometry.js';
 import { createPageHighlighter } from './pageHighlighter.js';
-import { buildRailCards, FALLBACK_RAIL_BODY_HEIGHT } from './railProjection.js';
+import { buildRailCards } from './railProjection.js';
 import {
   fetchRecord,
   findPickedElements,
@@ -150,7 +150,6 @@ export function createInPageRailController({
       return false;
     }
     const { railEl, railRoot, setRailWidthForMode, isClosed } = surface;
-    railEl.classList.toggle('is-nested-scroll', isNestedScroll);
 
     let railOriginTop;
 
@@ -219,18 +218,14 @@ export function createInPageRailController({
       const projectedScrollContainerTop = isNestedScroll
         ? scrollContainer.getBoundingClientRect().top
         : 0;
-      const { cards, bodyHeight } =
-        !measureOnly && Number.isFinite(railOriginTop)
-          ? projectRail()
-          : { cards: [], bodyHeight: FALLBACK_RAIL_BODY_HEIGHT };
+      const cards = !measureOnly && Number.isFinite(railOriginTop) ? projectRail() : [];
       const commit = () => {
         railRoot.render(
           <InPageRail
             mode={state.mode}
             maxLevel={maxLevel}
             selectedLevel={state.selectedLevel}
-            cards={measureOnly ? [] : cards}
-            bodyHeight={measureOnly ? FALLBACK_RAIL_BODY_HEIGHT : bodyHeight}
+            cards={cards}
             onClose={closeRail}
             onSelectMode={handleSelectMode}
             onSelectLevel={handleSelectLevel}
@@ -254,29 +249,11 @@ export function createInPageRailController({
       else commit();
     }
 
+    // The body is pinned to the viewport and never transformed (only the card
+    // track inside it moves), so its rect is the projection origin as measured.
     const measureRailOrigin = () => {
       const railBody = railEl.querySelector('.pagetollm-rail-body');
-      if (!railBody) {
-        railOriginTop = undefined;
-        return;
-      }
-      // InPageRail's layout effect for nested scroll has already translated
-      // the body by -effectiveScrollOffset (visual only). Boxes are computed
-      // from the untransformed position, so measure without the transform.
-      const prevTransform = railBody.style.transform;
-      const prevOffset = railBody.style.getPropertyValue('--pagetollm-scroll-offset');
-      const hadTransform = Boolean(prevTransform || prevOffset);
-      if (hadTransform) {
-        railBody.style.transform = '';
-        railBody.style.removeProperty('--pagetollm-scroll-offset');
-      }
-      const rect = railBody.getBoundingClientRect();
-      railOriginTop = getRailOriginTop(rect, scrollContainer, contentWindow);
-      if (hadTransform) {
-        railBody.style.transform = prevTransform;
-        if (prevOffset) railBody.style.setProperty('--pagetollm-scroll-offset', prevOffset);
-        else railBody.style.removeProperty('--pagetollm-scroll-offset');
-      }
+      railOriginTop = railBody ? getRailOriginTop(railBody.getBoundingClientRect()) : undefined;
     };
 
     renderRail({ measureOnly: true });
@@ -321,7 +298,6 @@ export function createInPageRailController({
           docEl: contentDocument.documentElement,
         });
         isNestedScroll = Boolean(scrollContainer && scrollContainer !== contentWindow);
-        railEl.classList.toggle('is-nested-scroll', isNestedScroll);
         highlighter.updateAnchors({ wordEntries, sentenceRanges, scrollContainer });
         // Chat citations still need fresh anchors, but display no rail cards.
         if (state.mode === 'chat') return;
@@ -337,12 +313,9 @@ export function createInPageRailController({
       subtree: true,
     });
 
-    // A viewport resize can reflow the article and move the rail's document
-    // origin. Re-measure it before rebuilding card geometry. In summaries
-    // mode the rail height also reserves a viewport-sized run below the last
-    // card (computeRailTrailingPad), so a resize leaves that reserve stale —
-    // too short when the window grows, which is exactly the "summary floats
-    // past the rail" case.
+    // A viewport resize can reflow the article and move both the rail body and
+    // the sentences the card boxes were measured against. Re-measure the origin
+    // before rebuilding card geometry.
     highlighter.onViewportResize(() => {
       if (isClosed() || guard.isStale() || state.mode === 'chat') return;
       measureRailOrigin();

@@ -5,8 +5,6 @@ import {
   getRailOriginTop,
   getScrollableAncestor,
   computeCardVerticalBox,
-  computeRailTrailingPad,
-  RAIL_TRAILING_PAD,
 } from './geometry.js';
 
 describe('in-page rail geometry helpers', () => {
@@ -24,15 +22,11 @@ describe('in-page rail geometry helpers', () => {
     window.scrollY = orig;
   });
 
-  it('getRailOriginTop adjusts by scrollY only for window', () => {
-    const rect = { top: 10 };
-    const el = { scrollTop: 5 };
-    expect(getRailOriginTop(rect, el, window)).toBe(10);
-
+  it('getRailOriginTop is the rail body viewport top, whatever the scroller', () => {
     const orig = window.scrollY;
     // @ts-ignore
     window.scrollY = 30;
-    expect(getRailOriginTop(rect, window, window)).toBe(40);
+    expect(getRailOriginTop({ top: 10 })).toBe(10);
     // @ts-ignore
     window.scrollY = orig;
   });
@@ -178,52 +172,6 @@ describe('computeCardVerticalBox', () => {
     expect(box).not.toBeNull();
     expect(box.top).toBe(100);
     expect(box.height).toBe(40);
-  });
-
-  describe('computeRailTrailingPad', () => {
-    const fakeWin = (innerHeight) => ({ innerHeight });
-
-    it.each([
-      [
-        'keeps the plain pad outside summaries mode',
-        // cursor is irrelevant outside summaries mode.
-        () => ({ isSummary: false, scrollContainer: null, win: fakeWin(900) }),
-        RAIL_TRAILING_PAD,
-      ],
-      [
-        'reserves the space below the cursor line for window scroll',
-        // cursor sits at round(0.38 * 900) = 342, so 900 - 342 = 558 stays visible.
-        () => {
-          const win = fakeWin(900);
-          return { isSummary: true, scrollContainer: win, win };
-        },
-        558,
-      ],
-      [
-        'measures from the container box for nested scrollers',
-        // cursor: max(112, round(100 + 500 * 0.38)) = 290; bottom 600 - 290 = 310.
-        () => {
-          const win = fakeWin(900);
-          const container = {
-            clientHeight: 500,
-            getBoundingClientRect: () => ({ top: 100 }),
-          };
-          return { isSummary: true, scrollContainer: container, win };
-        },
-        310,
-      ],
-      [
-        'never goes below the plain pad in a short viewport',
-        // The cursor clamps to 112px, leaving 38px — less than the base pad.
-        () => {
-          const win = fakeWin(150);
-          return { isSummary: true, scrollContainer: win, win };
-        },
-        RAIL_TRAILING_PAD,
-      ],
-    ])('%s', (_description, buildArgs, expected) => {
-      expect(computeRailTrailingPad(buildArgs())).toBe(expected);
-    });
   });
 
   it('returns null when no laid out rects produce finite bounds', () => {

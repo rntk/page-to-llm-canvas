@@ -56,7 +56,6 @@ describe('InPageRail', () => {
     maxLevel: 2,
     selectedLevel: 1,
     cards: mockCards,
-    bodyHeight: 800,
     onClose: vi.fn(),
     onSelectMode: vi.fn(),
     onSelectLevel: vi.fn(),
@@ -215,7 +214,7 @@ describe('InPageRail', () => {
     unmount();
   });
 
-  it('offsets topic titles for nested scroll containers', () => {
+  it('translates the card track for nested scroll containers', () => {
     const mockScrollContainer = document.createElement('div');
     let scrollTop = 120;
     Object.defineProperty(mockScrollContainer, 'scrollTop', {
@@ -231,20 +230,21 @@ describe('InPageRail', () => {
       }),
     );
 
-    const railBody = container.querySelector('.pagetollm-rail-body');
+    const track = container.querySelector('.pagetollm-rail-track');
     const firstCard = container.querySelector('.pagetollm-rail-card');
 
-    expect(railBody.style.transform).toBe('translateY(-120px)');
-    expect(railBody.className).toContain('is-nested-scroll');
-    expect(railBody.style.getPropertyValue('--pagetollm-scroll-offset')).toBe('120px');
+    // The body stays put — it is the projection origin — and only the track moves.
+    expect(container.querySelector('.pagetollm-rail-body').style.transform).toBe('');
+    expect(track.style.transform).toBe('translateY(-120px)');
+    expect(track.style.getPropertyValue('--pagetollm-scroll-offset')).toBe('120px');
     expect(firstCard.className).toContain('is-topic');
     expect(firstCard.style.getPropertyValue('--pagetollm-card-top')).toBe('100px');
     expect(firstCard.style.getPropertyValue('--pagetollm-card-height')).toBe('200px');
 
     scrollTop = 240;
     act(() => mockScrollContainer.dispatchEvent(new Event('scroll')));
-    expect(railBody.style.transform).toBe('translateY(-240px)');
-    expect(railBody.style.getPropertyValue('--pagetollm-scroll-offset')).toBe('240px');
+    expect(track.style.transform).toBe('translateY(-240px)');
+    expect(track.style.getPropertyValue('--pagetollm-scroll-offset')).toBe('240px');
 
     rerender(
       createElement(InPageRail, {
@@ -254,9 +254,135 @@ describe('InPageRail', () => {
         isNestedScroll: true,
       }),
     );
-    expect(railBody.style.transform).toBe('');
+    // Summaries paint no card boxes, so the track goes away with them.
+    expect(container.querySelector('.pagetollm-rail-track')).toBeNull();
 
     unmount();
+  });
+
+  it('scrolls the article to a card that takes focus below the visible rail', () => {
+    const onScrollToCard = vi.fn();
+    const { container, unmount } = render(
+      createElement(InPageRail, { ...defaultProps, onScrollToCard }),
+    );
+
+    const body = container.querySelector('.pagetollm-rail-body');
+    body.getBoundingClientRect = () => ({ top: 40, bottom: 800 });
+    const cards = container.querySelectorAll('.pagetollm-rail-card');
+    // The rail body clips instead of scrolling, so a card the track has pushed
+    // past the bottom can only be brought into view by moving the article.
+    cards[1].getBoundingClientRect = () => ({ top: 1200, bottom: 1350 });
+
+    act(() => cards[1].dispatchEvent(new FocusEvent('focusin', { bubbles: true })));
+    expect(onScrollToCard).toHaveBeenCalledWith(mockCards[1]);
+    expect(cards[1].className).toContain('is-front');
+
+    unmount();
+  });
+
+  it('leaves the article alone when the focused card is already in view', () => {
+    const onScrollToCard = vi.fn();
+    const { container, unmount } = render(
+      createElement(InPageRail, { ...defaultProps, onScrollToCard }),
+    );
+
+    const body = container.querySelector('.pagetollm-rail-body');
+    body.getBoundingClientRect = () => ({ top: 40, bottom: 800 });
+    const cards = container.querySelectorAll('.pagetollm-rail-card');
+    cards[0].getBoundingClientRect = () => ({ top: 300, bottom: 450 });
+
+    act(() => cards[0].dispatchEvent(new FocusEvent('focusin', { bubbles: true })));
+    expect(onScrollToCard).not.toHaveBeenCalled();
+    expect(cards[0].className).toContain('is-front');
+
+    unmount();
+  });
+
+  it('glides the summary cursor down as the scroller reaches its end', async () => {
+    const rafCallbacks = [];
+    vi.stubGlobal('requestAnimationFrame', (cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+    const flushFrames = () => {
+      while (rafCallbacks.length) rafCallbacks.shift()();
+    };
+
+    // 1600px of content in an 800px viewport: 800px of scrolling, with the
+    // closing summary in the final viewport-full.
+    const cards = [
+      { ...mockCards[0], id: 'first', name: 'First', box: { top: 100, height: 200 } },
+      { ...mockCards[1], id: 'last', name: 'Last', box: { top: 1500, height: 100 } },
+    ];
+    const mockScrollContainer = document.createElement('div');
+    document.body.appendChild(mockScrollContainer);
+    mockScrollContainer.getBoundingClientRect = () => ({ top: 0, height: 800 });
+    Object.defineProperty(mockScrollContainer, 'clientHeight', { value: 800, configurable: true });
+    Object.defineProperty(mockScrollContainer, 'scrollHeight', { value: 1600, configurable: true });
+    let scrollTop = 0;
+    Object.defineProperty(mockScrollContainer, 'scrollTop', {
+      get: () => scrollTop,
+      configurable: true,
+    });
+
+    const { container, unmount } = render(
+      createElement(InPageRail, {
+        ...defaultProps,
+        mode: 'summaries',
+        cards,
+        scrollContainer: mockScrollContainer,
+        projectedScrollContainerTop: 0,
+      }),
+    );
+    const body = container.querySelector('.pagetollm-rail-body');
+    body.getBoundingClientRect = () => ({ top: 0, height: 800 });
+
+    await act(async () => {
+      mockScrollContainer.dispatchEvent(new Event('scroll'));
+      flushFrames();
+      await Promise.resolve();
+    });
+    // Room left to scroll: the cursor rests at 38% of the container.
+    expect(body.style.getPropertyValue('--pagetollm-summary-cursor-top')).toBe('304px');
+
+    scrollTop = 800;
+    await act(async () => {
+      mockScrollContainer.dispatchEvent(new Event('scroll'));
+      flushFrames();
+      await Promise.resolve();
+    });
+
+    // Fully scrolled: the cursor has reached the bottom of the container, which
+    // is the only way the closing summary can become the active one.
+    expect(body.style.getPropertyValue('--pagetollm-summary-cursor-top')).toBe('800px');
+    expect(container.querySelector('.pagetollm-summary-active-card-title').textContent).toContain(
+      'Last',
+    );
+
+    unmount();
+    mockScrollContainer.remove();
+  });
+
+  it('translates the card track by the window scroll position', () => {
+    const originalScrollY = window.scrollY;
+    // @ts-ignore
+    window.scrollY = 150;
+
+    const { container, unmount } = render(createElement(InPageRail, defaultProps));
+
+    const track = container.querySelector('.pagetollm-rail-track');
+    expect(track.style.transform).toBe('translateY(-150px)');
+    expect(track.style.getPropertyValue('--pagetollm-scroll-offset')).toBe('150px');
+
+    // @ts-ignore
+    window.scrollY = 420;
+    act(() => window.dispatchEvent(new Event('scroll')));
+    expect(track.style.transform).toBe('translateY(-420px)');
+    expect(track.style.getPropertyValue('--pagetollm-scroll-offset')).toBe('420px');
+
+    unmount();
+    // @ts-ignore
+    window.scrollY = originalScrollY;
   });
 
   it('compensates when outer-page scrolling moves a nested scroll container', () => {
@@ -274,13 +400,13 @@ describe('InPageRail', () => {
         projectedScrollContainerTop: 300,
       }),
     );
-    const railBody = container.querySelector('.pagetollm-rail-body');
-    expect(railBody.style.transform).toBe('translateY(-120px)');
+    const track = container.querySelector('.pagetollm-rail-track');
+    expect(track.style.transform).toBe('translateY(-120px)');
 
     containerTop = 250;
     act(() => window.dispatchEvent(new Event('scroll')));
-    expect(railBody.style.transform).toBe('translateY(-170px)');
-    expect(railBody.style.getPropertyValue('--pagetollm-scroll-offset')).toBe('170px');
+    expect(track.style.transform).toBe('translateY(-170px)');
+    expect(track.style.getPropertyValue('--pagetollm-scroll-offset')).toBe('170px');
 
     unmount();
     mockScrollContainer.remove();
