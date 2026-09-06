@@ -40,22 +40,31 @@ const noop = () => {};
  * @returns {JSX.Element}
  */
 export default function App({ initialKey, recordSource, onClose = noop }) {
-  const { record, isDeleted } = useRecord(initialKey, recordSource);
-  const deletionCloseSentRef = useRef(false);
-
-  useEffect(() => {
-    if (!isDeleted) {
-      deletionCloseSentRef.current = false;
-      return;
-    }
-    if (deletionCloseSentRef.current) return;
-    deletionCloseSentRef.current = true;
-    onClose();
-  }, [isDeleted, onClose]);
+  const { record, error, isDeleted } = useRecord(initialKey, recordSource);
+  const closeSentRef = useRef(false);
 
   // Canvas is a read-only view of completed data. Pipeline progress, failures,
-  // retries, and summary review are handled from the popup and Options page.
-  if (record?.status !== PIPELINE_STATUS.DONE) return null;
+  // retries, and summary review are handled from the popup and Options page —
+  // which is also the only place this view is opened from, and only for a DONE
+  // record. Anything other than a ready record here therefore means the record
+  // became unusable underneath an already-open canvas (deleted, reprocessed,
+  // failed refresh), so close instead of leaving an empty frame behind and let
+  // the popup report the new state.
+  const isReady = record?.status === PIPELINE_STATUS.DONE;
+  const isUnusable = isDeleted || Boolean(error) || (record !== null && !isReady);
+
+  useEffect(() => {
+    if (!isUnusable) {
+      closeSentRef.current = false;
+      return;
+    }
+    if (closeSentRef.current) return;
+    closeSentRef.current = true;
+    onClose();
+  }, [isUnusable, onClose]);
+
+  // Nothing to show while the first fetch is still in flight.
+  if (!isReady) return null;
 
   // The content revision keys the whole canvas: a reprocess normally passes
   // through a non-DONE status, which unmounts this subtree anyway, but a

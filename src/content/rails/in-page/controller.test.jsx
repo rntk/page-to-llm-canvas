@@ -693,30 +693,19 @@ describe('openInPageRail', () => {
       }
     });
 
-    it('switching to canvas mode closes the rail and opens the canvas iframe', async () => {
+    it('offers only the in-page rail modes; canvas and hierarchy open from the popup', async () => {
       await act(async () => {
         await openInPageRail({ key: 'rail-key' }, 'topics');
       });
       const select = rail().querySelector('.pagetollm-rail-mode-select');
-      await act(async () => {
-        select.value = 'canvas';
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      });
-      expect(openCanvasIframe).toHaveBeenCalledWith('rail-key');
-      expect(rail()).toBeNull();
-    });
 
-    it('switching to hierarchy mode closes the rail and opens the hierarchy iframe', async () => {
-      await act(async () => {
-        await openInPageRail({ key: 'rail-key' }, 'topics');
-      });
-      const select = rail().querySelector('.pagetollm-rail-mode-select');
-      await act(async () => {
-        select.value = 'hierarchy';
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      });
-      expect(openHierarchyIframe).toHaveBeenCalledWith('rail-key');
-      expect(rail()).toBeNull();
+      expect([...select.options].map((option) => option.value)).toEqual([
+        'topics',
+        'summaries',
+        'chat',
+      ]);
+      expect(openCanvasIframe).not.toHaveBeenCalled();
+      expect(openHierarchyIframe).not.toHaveBeenCalled();
     });
 
     it('switching to summaries mode updates the rail dataset without opening an iframe', async () => {

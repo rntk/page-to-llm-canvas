@@ -1,15 +1,14 @@
 import React from 'react';
 import { splitTopicPath } from '../../../shared/runtime/topicPath.js';
 
-const STANDARD_RAIL_MODES = [
+const RAIL_MODES = [
   ['topics', 'Topics'],
   ['summaries', 'Summaries'],
   ['chat', 'Chat'],
 ];
 
-function RailModeSelect({ mode, additionalModes = [], onSelectMode }) {
-  const modes = [...STANDARD_RAIL_MODES, ...additionalModes];
-  const activeMode = modes.some(([value]) => value === mode) ? mode : modes[0][0];
+function RailModeSelect({ mode, onSelectMode }) {
+  const activeMode = RAIL_MODES.some(([value]) => value === mode) ? mode : RAIL_MODES[0][0];
 
   return (
     <select
@@ -18,7 +17,7 @@ function RailModeSelect({ mode, additionalModes = [], onSelectMode }) {
       value={activeMode}
       onChange={(event) => onSelectMode(event.target.value)}
     >
-      {modes.map(([value, label]) => (
+      {RAIL_MODES.map(([value, label]) => (
         <option key={value} value={value}>
           {label}
         </option>
@@ -30,11 +29,10 @@ function RailModeSelect({ mode, additionalModes = [], onSelectMode }) {
 /**
  * Shared rail header: mode select, then either the chat-action portal target
  * or the level switcher, then the close button. Both rails render this same
- * structure; only the extra mode entries differ.
+ * structure.
  */
 export function RailHead({
   mode,
-  additionalModes,
   onSelectMode,
   isChat,
   setChatActionsTarget,
@@ -45,7 +43,7 @@ export function RailHead({
 }) {
   return (
     <div className="pagetollm-rail-head">
-      <RailModeSelect mode={mode} additionalModes={additionalModes} onSelectMode={onSelectMode} />
+      <RailModeSelect mode={mode} onSelectMode={onSelectMode} />
       {isChat ? (
         <div className="pagetollm-rail-chat-actions" ref={setChatActionsTarget} />
       ) : (

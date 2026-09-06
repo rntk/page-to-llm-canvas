@@ -3,11 +3,6 @@ import { computeSummaryCursorState, SUMMARY_CURSOR_MIN_TOP } from './summaryCurs
 import ArticleChat from '../../../chat/ArticleChat.jsx';
 import { HierarchicalCardTitle, RailHead } from '../shared/RailControls.jsx';
 
-const IN_PAGE_RAIL_MODES = [
-  ['hierarchy', 'Hierarchy view'],
-  ['canvas', 'Canvas view'],
-];
-
 const SUMMARIES_DISABLED_NOTICE = (
   <div className="pagetollm-rail-empty">
     Summaries are disabled. Enable them in the extension settings and reprocess this page to see
@@ -470,7 +465,6 @@ export default function InPageRail({
     <>
       <RailHead
         mode={mode}
-        additionalModes={IN_PAGE_RAIL_MODES}
         onSelectMode={onSelectMode}
         isChat={isChat}
         setChatActionsTarget={setChatActionsTarget}

@@ -253,18 +253,43 @@ describe('App composition behavior', () => {
   });
 
   it.each(['pending', 'summarizing', 'needs_attention', 'error', 'cancelled'])(
-    'does not mount Canvas for a %s record',
+    'closes instead of mounting Canvas for a %s record',
     async (status) => {
+      const onClose = vi.fn();
       state.record = { key: 'record-1', status };
-      const { container, root } = await renderApp();
+      const { container, root } = await renderApp('record-1', { onClose });
 
       expect(container.childElementCount).toBe(0);
       expect(state.vmInput).toBeNull();
       expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+      expect(onClose).toHaveBeenCalledOnce();
 
       await act(async () => root.unmount());
     },
   );
+
+  it('stays quiet while the first record fetch is still in flight', async () => {
+    const onClose = vi.fn();
+    state.record = null;
+
+    const { container, root } = await renderApp('record-1', { onClose });
+
+    expect(container.childElementCount).toBe(0);
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => root.unmount());
+  });
+
+  it('closes when the record cannot be loaded', async () => {
+    const onClose = vi.fn();
+    state.record = null;
+    state.error = 'network unreachable';
+
+    const { container, root } = await renderApp('record-1', { onClose });
+
+    expect(container.childElementCount).toBe(0);
+    expect(onClose).toHaveBeenCalledOnce();
+    await act(async () => root.unmount());
+  });
 
   it('closes the canvas when its record is deleted', async () => {
     const onClose = vi.fn();

@@ -168,16 +168,6 @@ export function createInPageRailController({
 
     const handleSelectMode = (mode) => {
       if (isClosed()) return;
-      if (mode === 'canvas') {
-        closeRail();
-        openRecordFrame(record.key);
-        return;
-      }
-      if (mode === 'hierarchy') {
-        closeRail();
-        openRecordFrame(record.key, 'hierarchy');
-        return;
-      }
       if (state.mode === mode) return;
       // highlighter.clearAll() below already clears the chat sentences along
       // with the topic set, so no per-mode special-casing is needed here.
