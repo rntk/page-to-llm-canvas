@@ -14,6 +14,7 @@ export const LLM_TASK_TYPES = Object.freeze({
 
 export const CHAT_TOOL_OUTCOMES = Object.freeze({
   HIGHLIGHTED: 'highlighted',
+  BUDGET_EXHAUSTED: 'budget_exhausted',
   OVERLAP_SKIPPED: 'overlap_skipped',
   UNKNOWN_TOOL: 'unknown_tool',
   INVALID_ARGUMENTS: 'invalid_arguments',

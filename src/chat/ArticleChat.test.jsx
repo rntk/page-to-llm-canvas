@@ -490,7 +490,7 @@ describe('ArticleChat persisted history', () => {
     unmount();
   });
 
-  it('rolls back the UI when the atomic persist fails', async () => {
+  it('keeps the completed answer visible when the atomic persist fails', async () => {
     turnLoop.runArticleChatTurn.mockResolvedValue({
       reply: 'Lost answer.',
       transcriptMessages: [],
@@ -513,18 +513,215 @@ describe('ArticleChat persisted history', () => {
     await clickSend(container);
 
     expect(api.append).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('.pagetollm-chat-error').textContent).toBe('persist failed');
-    // The question returns to the composer and the optimistic bubble is gone.
+    expect(container.querySelector('.pagetollm-chat-error').textContent).toContain(
+      'persist failed',
+    );
+    expect(container.querySelector('.pagetollm-chat-error').textContent).toContain(
+      'answer is unsaved',
+    );
+    // The question returns to the composer while the completed answer remains visible for retry.
     expect(container.querySelector('.pagetollm-chat-composer textarea').value).toBe(
       'Doomed question',
     );
-    expect(container.textContent).not.toContain('Lost answer.');
+    expect(container.textContent).toContain('Lost answer.');
     // Stream-painted highlights are reset to the stored selected event.
     expect(onHighlight).toHaveBeenLastCalledWith({
       startLine: 1,
       endLine: 2,
       label: 'First evidence',
     });
+
+    unmount();
+  });
+
+  it('keeps a failed completed answer visible and retries persistence without rerunning it', async () => {
+    turnLoop.runArticleChatTurn.mockResolvedValue({
+      reply: 'Answer waiting to be saved.',
+      transcriptMessages: [],
+      highlightRanges: [],
+    });
+    api.append.mockRejectedValueOnce(new Error('persist failed')).mockResolvedValueOnce({
+      chat: {
+        chatId: 'chat-1',
+        messages: [
+          { id: 'retry-user', role: 'user', content: 'Retry this answer' },
+          { id: 'retry-answer', role: 'assistant', content: 'Answer waiting to be saved.' },
+        ],
+        events: [],
+      },
+    });
+    const { container, unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['One', 'Two', 'Three']}
+        onHighlight={vi.fn()}
+        onClearHighlights={vi.fn()}
+      />,
+    );
+    await flushAsyncWork();
+
+    typeQuestion(container, 'Retry this answer');
+    await clickSend(container);
+    expect(container.textContent).toContain('Answer waiting to be saved.');
+    expect(container.querySelector('.pagetollm-chat-composer textarea').value).toBe(
+      'Retry this answer',
+    );
+
+    await clickSend(container);
+    expect(turnLoop.runArticleChatTurn).toHaveBeenCalledTimes(1);
+    expect(api.append).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain('Answer waiting to be saved.');
+
+    unmount();
+  });
+
+  it('discards an unsaved answer when the question is edited before a later send', async () => {
+    turnLoop.runArticleChatTurn
+      .mockResolvedValueOnce({
+        reply: 'First answer.',
+        transcriptMessages: [],
+        highlightRanges: [],
+      })
+      .mockResolvedValueOnce({
+        reply: 'Fresh answer.',
+        transcriptMessages: [],
+        highlightRanges: [],
+      });
+    api.append.mockRejectedValueOnce(new Error('persist failed')).mockResolvedValueOnce({
+      chat: {
+        chatId: 'chat-1',
+        messages: [
+          { id: 'fresh-user', role: 'user', content: 'Changed question' },
+          { id: 'fresh-answer', role: 'assistant', content: 'Fresh answer.' },
+        ],
+        events: [],
+      },
+    });
+    const { container, unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['One', 'Two', 'Three']}
+        onHighlight={vi.fn()}
+        onClearHighlights={vi.fn()}
+      />,
+    );
+    await flushAsyncWork();
+
+    typeQuestion(container, 'Original question');
+    await clickSend(container);
+    expect(container.textContent).toContain('First answer.');
+
+    typeQuestion(container, 'Changed question');
+    await flushAsyncWork();
+    expect(container.textContent).not.toContain('First answer.');
+
+    typeQuestion(container, 'Original question');
+    await clickSend(container);
+    expect(turnLoop.runArticleChatTurn).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain('Fresh answer.');
+
+    unmount();
+  });
+
+  it('does not resurrect an unsaved answer after switching records and returning', async () => {
+    turnLoop.runArticleChatTurn.mockResolvedValue({
+      reply: 'Ghost answer.',
+      transcriptMessages: [],
+      highlightRanges: [],
+    });
+    api.append.mockRejectedValue(new Error('persist failed'));
+    const view = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['One']}
+        onHighlight={vi.fn()}
+        onClearHighlights={vi.fn()}
+      />,
+    );
+    await flushAsyncWork();
+    typeQuestion(view.container, 'Remember this?');
+    await clickSend(view.container);
+    expect(view.container.textContent).toContain('Ghost answer.');
+
+    view.rerender(
+      <ArticleChat recordKey="record-2" sentences={['Two']} onClearHighlights={vi.fn()} />,
+    );
+    await flushAsyncWork();
+    view.rerender(
+      <ArticleChat recordKey="record-1" sentences={['One']} onClearHighlights={vi.fn()} />,
+    );
+    await flushAsyncWork();
+
+    expect(view.container.textContent).not.toContain('Ghost answer.');
+    view.unmount();
+  });
+
+  it('clears a completed answer when saving ends with AbortError', async () => {
+    turnLoop.runArticleChatTurn.mockResolvedValue({
+      reply: 'Aborted save answer.',
+      transcriptMessages: [],
+      highlightRanges: [],
+    });
+    const abortError = new Error('save aborted');
+    abortError.name = 'AbortError';
+    api.append.mockRejectedValue(abortError);
+    const { container, unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['One']}
+        onHighlight={vi.fn()}
+        onClearHighlights={vi.fn()}
+      />,
+    );
+    await flushAsyncWork();
+    typeQuestion(container, 'Abort after answer');
+    await clickSend(container);
+
+    expect(container.textContent).not.toContain('Aborted save answer.');
+    expect(container.querySelector('.pagetollm-chat-error')).toBeNull();
+    expect(container.querySelector('.pagetollm-chat-status.is-warning').textContent).toBe(
+      'Response stopped.',
+    );
+    unmount();
+  });
+
+  it('caps outgoing highlight events before the atomic append', async () => {
+    const highlightRanges = Array.from({ length: 205 }, (_, index) => ({
+      startLine: index + 1,
+      endLine: index + 1,
+      label: `Evidence ${index + 1}`,
+    }));
+    turnLoop.runArticleChatTurn.mockResolvedValue({
+      reply: 'Answer with bounded evidence.',
+      transcriptMessages: [],
+      highlightRanges,
+    });
+    api.append.mockResolvedValue({
+      chat: {
+        chatId: 'chat-1',
+        messages: [
+          { id: 'bounded-user', role: 'user', content: 'Bound evidence' },
+          { id: 'bounded-answer', role: 'assistant', content: 'Answer with bounded evidence.' },
+        ],
+        events: [],
+      },
+    });
+    const { container, unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['One', 'Two', 'Three']}
+        onHighlight={vi.fn()}
+        onClearHighlights={vi.fn()}
+      />,
+    );
+    await flushAsyncWork();
+
+    typeQuestion(container, 'Bound evidence');
+    await clickSend(container);
+
+    expect(api.append).toHaveBeenCalledTimes(1);
+    expect(api.append.mock.calls[0][2].events).toHaveLength(200);
+    expect(api.append.mock.calls[0][2].events.at(-1).data.startLine).toBe(200);
 
     unmount();
   });

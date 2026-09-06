@@ -1,3 +1,4 @@
+import { MAX_TURN_EVENTS } from '../../src/shared/runtime/chatLimits.js';
 // Per-article chat persistence. Split out of storage.js so the record and chat
 // aggregates stay separate concerns. It depends only on storage primitives and
 // realm-neutral key helpers; storage.js owns the one-way cascade dependency.
@@ -19,10 +20,6 @@ import {
 const CHAT_TITLE_MAX_CHARS = 60;
 export const MAX_CHAT_TURNS = 50;
 const MAX_TURN_MESSAGES = 40;
-// A model may emit several tool calls per round and the turn engine permits up
-// to 50 rounds. Keep a finite abuse guard without rejecting a valid bounded
-// engine result near the end of a long evidence-gathering turn.
-const MAX_TURN_EVENTS = 200;
 const MAX_TURN_INDEX_ENTRIES = 200;
 const CHAT_STORAGE_PREFIX = 'pagetollm:chats:';
 const CHAT_INDEX_SUFFIX = ':index';

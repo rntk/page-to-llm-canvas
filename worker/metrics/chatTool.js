@@ -25,6 +25,7 @@ const CHAT_TOOL_METRICS_MAX_RECENT = 60;
 export const CHAT_TOOL_OUTCOME_LABELS = Object.freeze({
   [CHAT_TOOL_OUTCOMES.HIGHLIGHTED]: 'Highlighted',
   [CHAT_TOOL_OUTCOMES.OVERLAP_SKIPPED]: 'Skipped (overlap)',
+  [CHAT_TOOL_OUTCOMES.BUDGET_EXHAUSTED]: 'Highlight limit reached',
   [CHAT_TOOL_OUTCOMES.UNKNOWN_TOOL]: 'Unknown tool',
   [CHAT_TOOL_OUTCOMES.INVALID_ARGUMENTS]: 'Invalid arguments',
   [CHAT_TOOL_OUTCOMES.OUT_OF_RANGE]: 'Out of range',

@@ -955,6 +955,68 @@ describe('createClient dispatch', () => {
     expect(body.tool_choice).toBeUndefined();
   });
 
+  it.each([
+    ['openai', { type: 'openai', model: 'gpt-4o', token: 'k' }],
+    ['anthropic', { type: 'anthropic', model: 'claude-haiku-4-5', token: 'k' }],
+  ])(
+    'keeps tools declared when disabling tool use after an exhausted turn (%s)',
+    async (_name, config) => {
+      vi.mocked(fetch).mockResolvedValue(okJson({ content: [{ type: 'text', text: 'done' }] }));
+      if (config.type === 'openai') {
+        vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'done' } }] }));
+      }
+      const client = createClient(config);
+      await client.complete({
+        messages: [
+          { role: 'user', content: 'inspect the article' },
+          {
+            role: 'assistant',
+            content: '',
+            toolCalls: [
+              { id: 'tool-1', name: 'highlight_span', arguments: { start_line: 1, end_line: 1 } },
+            ],
+          },
+          { role: 'tool', content: 'Highlighted lines 1-1.', toolCallId: 'tool-1' },
+        ],
+        tools: [
+          {
+            name: 'highlight_span',
+            description: 'Highlight evidence',
+            parameters: { type: 'object', properties: {} },
+          },
+        ],
+        toolChoice: 'none',
+      });
+
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+      expect(body.tools).toBeDefined();
+      expect(body.tool_choice).toEqual(config.type === 'anthropic' ? { type: 'none' } : 'none');
+      if (config.type === 'anthropic') {
+        expect(body.messages[1].content).toContainEqual({
+          type: 'tool_use',
+          id: 'tool-1',
+          name: 'highlight_span',
+          input: { start_line: 1, end_line: 1 },
+        });
+        expect(body.messages[2].content).toContainEqual({
+          type: 'tool_result',
+          tool_use_id: 'tool-1',
+          content: 'Highlighted lines 1-1.',
+        });
+      } else {
+        expect(body.messages[1].tool_calls[0]).toMatchObject({
+          id: 'tool-1',
+          type: 'function',
+          function: {
+            name: 'highlight_span',
+            arguments: '{"start_line":1,"end_line":1}',
+          },
+        });
+        expect(body.messages[2]).toMatchObject({ role: 'tool', tool_call_id: 'tool-1' });
+      }
+    },
+  );
+
   it('openai-compatible client handles non-ok responses with status and Retry-After', async () => {
     const client = createClient({ type: 'openai', model: 'm', token: 'k' });
     vi.mocked(fetch).mockResolvedValue({

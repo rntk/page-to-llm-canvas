@@ -1,3 +1,4 @@
+import { MAX_TURN_EVENTS } from '../shared/runtime/chatLimits.js';
 import React, { Activity, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createTurnId, runArticleChatTurn } from './articleChat.js';
@@ -76,10 +77,11 @@ function ArticleChat({
   const [showHistory, setShowHistory] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [notice, setNotice] = useState(null);
+  // The visible unsaved answer and its save-retry payload have one lifetime.
+  const [retryTurn, setRetryTurn] = useState(null);
   const mountedRef = useRef(true);
   const recordKeyRef = useRef(recordKey);
   const operationRef = useRef(null);
-  const retryTurnRef = useRef(null);
   const focusAttemptRef = useRef(0);
   const panelRef = useRef(null);
   const didFocusPanelRef = useRef(false);
@@ -205,9 +207,9 @@ function ArticleChat({
       setPendingQuestion('');
       setIsLoading(false);
       setNotice(null);
+      setRetryTurn(null);
     }
     recordKeyRef.current = recordKey;
-    retryTurnRef.current = null;
   }, [recordKey]);
 
   useEffect(() => {
@@ -228,8 +230,19 @@ function ArticleChat({
 
   const visibleMessages = useMemo(() => {
     const visible = messages.filter((message) => !message.hidden);
+    if (
+      retryTurn?.turnResult &&
+      retryTurn.recordKey === recordKey &&
+      retryTurn.chatId === (activeChatId ?? null) &&
+      retryTurn.contentRevision === contentRevision
+    ) {
+      visible.push(
+        { role: 'user', content: retryTurn.question },
+        { role: 'assistant', content: retryTurn.turnResult.reply },
+      );
+    }
     return pendingQuestion ? [...visible, { role: 'user', content: pendingQuestion }] : visible;
-  }, [messages, pendingQuestion]);
+  }, [messages, pendingQuestion, retryTurn, recordKey, activeChatId, contentRevision]);
 
   const handleSelectChat = useCallback(
     async (chatId) => {
@@ -242,6 +255,7 @@ function ArticleChat({
   const handleNewChat = useCallback(() => {
     if (isLoading || isMutatingHistory) return;
     startNewChat();
+    setRetryTurn(null);
     setInput('');
     setShowHistory(false);
     setActiveTab('chat');
@@ -346,7 +360,13 @@ function ArticleChat({
   const send = useCallback(async () => {
     const question = input.trim();
     if (!question || isLoading || isMutatingHistory || !recordKey) return;
-    const retry = retryTurnRef.current;
+    const candidate = retryTurn;
+    const retry =
+      candidate?.recordKey === recordKey &&
+      candidate?.chatId === (activeChatId ?? null) &&
+      candidate?.contentRevision === contentRevision
+        ? candidate
+        : null;
     const turnId = retry?.question === question ? retry.turnId : createTurnId();
     const operation = Object.freeze({
       turnId,
@@ -361,7 +381,8 @@ function ArticleChat({
     setNotice(null);
     setIsLoading(true);
     setPendingQuestion(question);
-    let turnResult;
+    setRetryTurn(null);
+    let turnResult = retry?.question === question ? retry.turnResult : undefined;
     try {
       try {
         // Run the whole turn first; onHighlight paints new evidence as it streams.
@@ -369,27 +390,29 @@ function ArticleChat({
         // its context window) live in the background worker. Read the resulting
         // budget immediately before the turn so small-window providers do not
         // receive the static 60k-character fallback.
-        const limits = await getChatLimits();
-        if (!isCurrentOperation(operation)) return;
-        turnResult = await runTurn({
-          article: {
-            history: messages,
-            sentences,
-            highlightedRanges,
-          },
-          question,
-          limits,
-          runtime: {
-            turnId,
-            signal: operation.controller.signal,
-          },
-          effects: {
-            onHighlight: (range) => {
-              if (!isCurrentOperation(operation)) return undefined;
-              return onHighlight?.(range);
+        if (!turnResult) {
+          const limits = await getChatLimits();
+          if (!isCurrentOperation(operation)) return;
+          turnResult = await runTurn({
+            article: {
+              history: messages,
+              sentences,
+              highlightedRanges,
             },
-          },
-        });
+            question,
+            limits,
+            runtime: {
+              turnId,
+              signal: operation.controller.signal,
+            },
+            effects: {
+              onHighlight: (range) => {
+                if (!isCurrentOperation(operation)) return undefined;
+                return onHighlight?.(range);
+              },
+            },
+          });
+        }
         // Closing/unmounting invalidates the operation before it can write.
         if (!isCurrentOperation(operation)) return;
         // Persist only replayable user-visible content. Tool transcripts are
@@ -403,7 +426,9 @@ function ArticleChat({
               { role: 'user', content: question },
               { role: 'assistant', content: turnResult.reply },
             ],
-            events: turnResult.highlightRanges.map((range) => ({
+            // Redundant guard for injected runTurn implementations; the engine
+            // enforces this limit before painting any highlight.
+            events: turnResult.highlightRanges.slice(0, MAX_TURN_EVENTS).map((range) => ({
               eventType: 'highlight_span',
               data: range,
             })),
@@ -417,8 +442,7 @@ function ArticleChat({
         if (persisted?.stale) {
           // Unconditional writes gated by the isCurrentOperation() check above
           // with no intervening await (same rule as the success path below).
-          // eslint-disable-next-line require-atomic-updates
-          retryTurnRef.current = null;
+          setRetryTurn(null);
           setPendingQuestion('');
           setInput(question);
           applyEvents(paintedEvents);
@@ -434,8 +458,7 @@ function ArticleChat({
         // Unconditional write gated by the isCurrentOperation() check immediately
         // above with no intervening await; a concurrent send() would have already
         // replaced operationRef.current, so no stale invocation reaches this line.
-        // eslint-disable-next-line require-atomic-updates
-        retryTurnRef.current = null;
+        setRetryTurn(null);
         setPendingQuestion('');
       } catch (err) {
         if (!isCurrentOperation(operation)) return;
@@ -446,26 +469,34 @@ function ArticleChat({
           : false;
         if (reconciled && isCurrentOperation(operation)) {
           // Same operation-identity guard as above, checked synchronously on this line.
-          // eslint-disable-next-line require-atomic-updates
-          retryTurnRef.current = null;
+          setRetryTurn(null);
           setPendingQuestion('');
           return;
         }
         if (!isCurrentOperation(operation)) return;
         // Same operation-identity guard, no intervening await since the check above.
-        // eslint-disable-next-line require-atomic-updates
-        retryTurnRef.current = { question, turnId };
+        setRetryTurn({
+          question,
+          turnId,
+          turnResult,
+          recordKey: operation.recordKey,
+          chatId: operation.chatId,
+          contentRevision: operation.contentRevision,
+        });
         setPendingQuestion('');
         setInput(question);
         applyEvents(paintedEvents);
         if (err?.name === 'AbortError') {
-          // eslint-disable-next-line require-atomic-updates -- see guard note above.
-          retryTurnRef.current = null;
+          setRetryTurn(null);
           setError('');
           setNotice({ tone: 'warning', message: 'Response stopped.' });
           return;
         }
-        setError(err?.message || 'Failed to get a response.');
+        setError(
+          turnResult
+            ? `${err?.message || 'Failed to save response.'} The answer is unsaved. Send the same question again to retry saving it.`
+            : err?.message || 'Failed to get a response.',
+        );
         return;
       }
       // The turn is durably persisted and adopted; the chat-list refresh is a
@@ -501,16 +532,23 @@ function ArticleChat({
     reconcilePersistedTurn,
     recordKey,
     refreshChats,
+    retryTurn,
     runTurn,
     sentences,
     setError,
     subjectLabel,
   ]);
 
-  const handleInputChange = useCallback((value) => {
-    if (retryTurnRef.current?.question !== value.trim()) retryTurnRef.current = null;
-    setInput(value);
-  }, []);
+  const handleInputChange = useCallback(
+    (value) => {
+      if (retryTurn && retryTurn.question !== value.trim()) {
+        setRetryTurn(null);
+        setError('');
+      }
+      setInput(value);
+    },
+    [retryTurn, setError],
+  );
 
   return (
     <section

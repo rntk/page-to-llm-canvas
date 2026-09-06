@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { chunkNumberedArticle, rangesOverlap, runArticleChatTurn } from './articleChat.js';
+import { CHAT_TOOL_OUTCOMES } from '../shared/runtime/telemetry.js';
 
 function buildTurnOptions({
   history = [],
@@ -309,6 +310,75 @@ describe('article chat tool loop', () => {
         { startLine: 2, endLine: 2, text: 'The ending provides the outcome.' },
       ],
     });
+  });
+
+  it('caps valid highlights across concurrent chunks while async paints overlap', async () => {
+    const sentences = Array.from({ length: 300 }, (_, index) => `Sentence ${index + 1}.`);
+    let activePaints = 0;
+    let maxActivePaints = 0;
+    const onHighlight = vi.fn(async () => {
+      activePaints += 1;
+      maxActivePaints = Math.max(maxActivePaints, activePaints);
+      await Promise.resolve();
+      await Promise.resolve();
+      activePaints -= 1;
+    });
+    const proposedLines = [];
+    const metrics = [];
+    const send = vi.fn(async ({ messages, tools, toolChoice }) => {
+      if (!tools) return { ok: true, content: 'Combined answer.' };
+      if (toolChoice === 'none') return { ok: true, content: 'Finding after highlight limit.' };
+      const last = messages.at(-1);
+      if (last?.role === 'tool') return { ok: true, content: 'Finding.' };
+      const source = JSON.parse(messages[1].content);
+      const toolCalls = [];
+      for (let line = source.startLine; line <= source.endLine; line += 1) {
+        proposedLines.push(line);
+        toolCalls.push({
+          id: `call-${line}`,
+          name: 'highlight_span',
+          arguments: { start_line: line, end_line: line },
+        });
+      }
+      return {
+        ok: true,
+        content: '',
+        toolCalls,
+      };
+    });
+
+    const result = await runArticleChatTurn(
+      buildTurnOptions({
+        question: 'Highlight every sentence.',
+        sentences,
+        highlightedRanges: [{ startLine: 999, endLine: 999, label: 'Earlier turn' }],
+        maxChunkChars: 1500,
+        chunkConcurrency: 8,
+        onHighlight,
+        recordToolMetric: (metric) => metrics.push(metric),
+        send,
+      }),
+    );
+
+    expect(result.reply).toBe('Combined answer.');
+    const exhaustedCall = send.mock.calls.find(([request]) => request.toolChoice === 'none');
+    expect(exhaustedCall?.[0].tools).toBeDefined();
+    expect(proposedLines.length).toBeGreaterThan(200);
+    expect(result.highlightRanges).toHaveLength(200);
+    expect(onHighlight).toHaveBeenCalledTimes(200);
+    expect(maxActivePaints).toBeGreaterThan(1);
+    expect(new Set(result.highlightRanges.map((range) => range.startLine)).size).toBe(200);
+    const exhaustedRequest = send.mock.calls.find(
+      ([request]) =>
+        request.toolChoice === 'none' &&
+        request.messages.some((message) =>
+          message.content.includes('highlight budget is exhausted'),
+        ),
+    );
+    expect(exhaustedRequest).toBeDefined();
+    expect(metrics.some(({ outcome }) => outcome === CHAT_TOOL_OUTCOMES.BUDGET_EXHAUSTED)).toBe(
+      true,
+    );
   });
 
   it('tolerates an empty chunk when another chunk has findings', async () => {

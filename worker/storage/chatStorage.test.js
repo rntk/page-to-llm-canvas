@@ -657,6 +657,47 @@ describe('appendChatTurn', () => {
     );
   });
 
+  it('rejects a turn with more than 200 events before writing anything', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+
+    const events = Array.from({ length: 201 }, (_, index) => ({
+      eventType: 'highlight_span',
+      data: { startLine: index + 1, endLine: index + 1 },
+    }));
+
+    await expect(
+      appendChatTurn('article', null, {
+        turnId: 'too-many-events',
+        messages: [{ role: 'user', content: 'Highlight everything' }],
+        events,
+      }),
+    ).rejects.toThrow('turn exceeds persistence limits');
+    expect(await listChats('article')).toEqual([]);
+    expect(mock.storage.local._store.has('pagetollm:chats:article:index')).toBe(false);
+  });
+
+  it('accepts exactly 200 events as one bounded turn', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const events = Array.from({ length: 200 }, (_, index) => ({
+      eventType: 'highlight_span',
+      data: { startLine: index + 1, endLine: index + 1 },
+    }));
+
+    const { chat } = await appendChatTurn('article', null, {
+      turnId: 'exactly-two-hundred-events',
+      messages: [{ role: 'user', content: 'Highlight everything' }],
+      events,
+    });
+
+    expect(chat.events).toHaveLength(200);
+    expect(chat.events.at(-1).seq).toBe(200);
+    expect((await listChats('article'))[0].eventCount).toBe(200);
+  });
+
   it('derives the title from the first visible user message in the batch', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
