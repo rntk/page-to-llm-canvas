@@ -30,6 +30,12 @@ export function classifyLlmError(error) {
   if (/\b429\b|rate.?limit/i.test(raw)) {
     return { kind: 'rate_limited', message: 'The model provider is rate limiting requests.' };
   }
+  if (/truncated at the provider output/i.test(raw)) {
+    return {
+      kind: 'truncated',
+      message: 'The model hit its output limit before finishing the summary.',
+    };
+  }
   if (/no llm provider|provider configured|no model configured/i.test(raw)) {
     return { kind: 'no_provider', message: 'No model is configured. Add one in the options page.' };
   }

@@ -3,6 +3,7 @@ import {
   MAX_TAGGED_CHARS,
   PIPELINE_FIXED_PROMPT_TOKENS,
   SOURCE_SUMMARY_MAX_CHARS,
+  TOPIC_RANGE_INPUT_MAX_SENTENCES,
   getPipelineTextChunkMaxChars,
   getTopicRangeInputMaxSentences,
 } from './pipelineConfig.js';
@@ -50,12 +51,14 @@ describe('pipeline request sizing', () => {
   });
 
   it('scales topic marker counts to the available response budget', () => {
-    expect(getTopicRangeInputMaxSentences(undefined)).toBe(240);
+    expect(getTopicRangeInputMaxSentences(undefined)).toBe(TOPIC_RANGE_INPUT_MAX_SENTENCES);
     expect(getTopicRangeInputMaxSentences(4096)).toBe(32);
     expect(getTopicRangeInputMaxSentences(8192)).toBe(54);
     expect(getTopicRangeInputMaxSentences(16384)).toBe(54);
-    expect(getTopicRangeInputMaxSentences(1_000_000)).toBe(240);
-    expect(getTopicRangeInputMaxSentences(8192)).toBeGreaterThan(getTopicRangeInputMaxSentences(4096));
+    expect(getTopicRangeInputMaxSentences(1_000_000)).toBe(TOPIC_RANGE_INPUT_MAX_SENTENCES);
+    expect(getTopicRangeInputMaxSentences(8192)).toBeGreaterThan(
+      getTopicRangeInputMaxSentences(4096),
+    );
   });
 
   it('rejects windows below the stable provider minimum with an actionable error', () => {

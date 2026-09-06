@@ -6,6 +6,8 @@ import {
   stripThink,
   parseRetryAfterMs,
 } from './clients.js';
+import { FinishReason } from './completionStatus.js';
+import { LLM_MAX_OUTPUT_TOKENS } from './outputBudget.js';
 
 function okJson(json) {
   return { ok: true, status: 200, json: async () => json };
@@ -764,7 +766,7 @@ describe('createClient dispatch', () => {
     expect(init.headers['anthropic-version']).toBe('2023-06-01');
     expect(init.headers['anthropic-dangerous-direct-browser-access']).toBe('true');
     const body = JSON.parse(init.body);
-    expect(body.max_tokens).toBe(4096);
+    expect(body.max_tokens).toBe(LLM_MAX_OUTPUT_TOKENS);
     // No top-level cache_control: with no marker there is no stable prefix to
     // cache, so we must not auto-cache the (volatile) whole prompt.
     expect(body.cache_control).toBeUndefined();
@@ -1019,5 +1021,61 @@ describe('createClient dispatch', () => {
       expect(parseRetryAfterMs(dateStr)).toBe(0);
       Date.now = originalNow;
     });
+  });
+});
+
+describe('provider completion status', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('reports an openai-compatible output-limit stop as truncated', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      okJson({ choices: [{ message: { content: 'half a sen' }, finish_reason: 'length' }] }),
+    );
+    const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'sk-1' });
+    await expect(client.complete({ prompt: 'p' })).resolves.toMatchObject({
+      content: 'half a sen',
+      finishReason: FinishReason.TRUNCATED,
+    });
+  });
+
+  it('reports a complete openai-compatible response and a missing finish_reason', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      okJson({ choices: [{ message: { content: 'done' }, finish_reason: 'stop' }] }),
+    );
+    const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'sk-1' });
+    await expect(client.complete({ prompt: 'p' })).resolves.toMatchObject({
+      finishReason: FinishReason.COMPLETE,
+    });
+
+    vi.mocked(fetch).mockResolvedValueOnce(okJson({ choices: [{ message: { content: 'done' } }] }));
+    await expect(client.complete({ prompt: 'p' })).resolves.toMatchObject({
+      finishReason: FinishReason.UNKNOWN,
+    });
+  });
+
+  it('reports anthropic max_tokens as truncated and tool_use as a tool-call finish', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      okJson({ content: [{ type: 'text', text: 'half a sen' }], stop_reason: 'max_tokens' }),
+    );
+    const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'sk-ant' });
+    await expect(client.complete({ prompt: 'p' })).resolves.toMatchObject({
+      finishReason: FinishReason.TRUNCATED,
+    });
+
+    vi.mocked(fetch).mockResolvedValueOnce(
+      okJson({
+        content: [{ type: 'tool_use', id: 't1', name: 'lookup', input: { q: 'x' } }],
+        stop_reason: 'tool_use',
+      }),
+    );
+    const toolResult = await client.complete({ prompt: 'p' });
+    expect(toolResult.finishReason).toBe(FinishReason.TOOL_CALLS);
+    expect(toolResult.toolCalls).toEqual([{ id: 't1', name: 'lookup', arguments: { q: 'x' } }]);
   });
 });

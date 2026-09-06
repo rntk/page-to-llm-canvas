@@ -4,6 +4,7 @@
 import { getActiveProvider } from './providers.js';
 import { resolveProviderTemperature } from './temperatures.js';
 import { createClient } from './clients.js';
+import { FinishReason, isTruncatedFinish, TRUNCATED_RESPONSE_ERROR } from './completionStatus.js';
 import { getStoredVerboseLogs } from '../../src/shared/runtime/verboseLogSettings.js';
 import { getStoredLlmRequestTimeoutSeconds } from '../settings/llmTimeout.js';
 import { createLogger } from '../../src/shared/runtime/log.js';
@@ -24,6 +25,7 @@ const log = createLogger('LLM');
  * @property {string} [content] Completion content.
  * @property {string} [reasoning] Provider reasoning text.
  * @property {Array<Record<string, unknown>>} [toolCalls] Normalized tool calls.
+ * @property {string} [finishReason] Normalized provider completion status (`FinishReason`).
  * @property {string} [error] Failure message.
  * @property {boolean} [retryable] Whether retrying can succeed.
  * @property {number} [status] HTTP status when available.
@@ -179,6 +181,7 @@ async function callLLMDirectWithDependencies(options, dependencies) {
       usage,
       reasoning,
       toolCalls,
+      finishReason,
     } = await client.complete({
       prompt,
       messages,
@@ -214,11 +217,13 @@ async function callLLMDirectWithDependencies(options, dependencies) {
         durationMs: clock() - startedAt,
         responseLength: content.length,
         toolCallCount: toolCalls?.length || 0,
+        finishReason,
       });
     }
     return {
       ok: true,
       content,
+      finishReason: finishReason || FinishReason.UNKNOWN,
       ...(reasoning ? { reasoning } : {}),
       ...(toolCalls?.length ? { toolCalls } : {}),
     };
@@ -271,6 +276,18 @@ function getErrorMessage(error) {
  */
 async function callLLMUsing(callDirect, options) {
   const response = await callDirect(options);
+  // A response the provider cut off at its output limit is a successful HTTP
+  // 200 whose body is missing its tail. Text callers (the whole pipeline) parse
+  // that body as a complete answer — a truncated topic list becomes apparently
+  // complete coverage once the parser repairs the missing tail, and a truncated
+  // summary is checkpointed as a good one — so it has to fail here, at the
+  // boundary, before any parsing or checkpointing sees it. Retryable: the
+  // request itself is well-formed, so a retry (or a smaller re-split) can
+  // succeed. Chat goes through callLLMDirect and keeps its partial text plus
+  // the finishReason, so tool-use and long chat answers are unaffected.
+  if (response.ok && isTruncatedFinish(response.finishReason)) {
+    throw new Error(TRUNCATED_RESPONSE_ERROR);
+  }
   if (!response.ok || typeof response.content !== 'string') {
     const message = response.error || 'LLM request failed';
     const error = new Error(message);

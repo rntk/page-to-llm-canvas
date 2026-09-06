@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS } from '../settings/llmTimeout.js';
+import { FinishReason } from './completionStatus.js';
 
 const OPENAI_COMP_PROVIDER = {
   id: 'p1',
@@ -91,6 +92,7 @@ describe('callLLMDirect', () => {
     await expect(service.callLLMDirect({ prompt: 'hello' })).resolves.toEqual({
       ok: true,
       content: 'result',
+      finishReason: FinishReason.UNKNOWN,
     });
     expect(clientFactory).toHaveBeenCalledWith(provider, {
       transport,
@@ -159,6 +161,7 @@ describe('callLLMDirect', () => {
       ok: true,
       content: 'This is the final response text.',
       reasoning: 'reason',
+      finishReason: FinishReason.UNKNOWN,
     });
 
     expect(fetch).toHaveBeenCalledWith(
@@ -225,6 +228,7 @@ describe('callLLMDirect', () => {
     await expect(callLLMDirect({ prompt: 'hello', provider })).resolves.toEqual({
       ok: true,
       content: 'snapshot response',
+      finishReason: FinishReason.UNKNOWN,
     });
     expect(fetch).toHaveBeenCalledWith(
       'http://snapshot.local:9000/v1/chat/completions',
@@ -265,6 +269,7 @@ describe('callLLMDirect', () => {
     ).resolves.toEqual({
       ok: true,
       content: '',
+      finishReason: FinishReason.UNKNOWN,
       toolCalls: [
         {
           id: 'c1',
@@ -295,6 +300,7 @@ describe('callLLMDirect', () => {
     await expect(callLLMDirect({ prompt: 'hello', metricsCollector })).resolves.toEqual({
       ok: true,
       content: 'result',
+      finishReason: FinishReason.UNKNOWN,
     });
     expect(metricsCollector).toHaveBeenCalledWith({
       provider: 'openai-compatible',
@@ -549,7 +555,11 @@ describe('callLLMDirect', () => {
     });
 
     const res = await callLLMDirect({ prompt: 'hello' });
-    expect(res).toEqual({ ok: true, content: 'Claude says hi' });
+    expect(res).toEqual({
+      ok: true,
+      content: 'Claude says hi',
+      finishReason: FinishReason.UNKNOWN,
+    });
 
     const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(url).toBe('https://api.anthropic.com/v1/messages');
@@ -806,3 +816,106 @@ describe('callLLMWithRetry', () => {
   });
 });
 
+describe('truncated provider responses', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn) => {
+      fn();
+      return 0;
+    });
+    stubActiveProvider();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const truncatedOpenAI = () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      choices: [{ message: { content: 'Science>Stars: 0-1' }, finish_reason: 'length' }],
+    }),
+  });
+
+  it('callLLM rejects an output-limited response instead of returning partial text', async () => {
+    const { callLLM } = await getLLM();
+    vi.mocked(fetch).mockResolvedValue(truncatedOpenAI());
+    await expect(callLLM({ prompt: 'hello' })).rejects.toThrow(/truncated/i);
+  });
+
+  it('callLLM rejects an anthropic max_tokens response', async () => {
+    stubActiveProvider({
+      id: 'p2',
+      name: 'Anthropic',
+      type: 'anthropic',
+      model: 'claude-haiku-4-5',
+      token: 'sk-ant',
+      url: '',
+    });
+    const { callLLM } = await getLLM();
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        content: [{ type: 'text', text: 'A partial summary that stops mid-' }],
+        stop_reason: 'max_tokens',
+      }),
+    });
+    await expect(callLLM({ prompt: 'hello' })).rejects.toThrow(/truncated/i);
+  });
+
+  it('callLLMWithRetry retries a truncated response and returns the complete one', async () => {
+    const { callLLMWithRetry } = await getLLM();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(truncatedOpenAI())
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: 'Science>Stars: 0-9' }, finish_reason: 'stop' }],
+        }),
+      });
+
+    await expect(callLLMWithRetry({ prompt: 'hello' }, 3)).resolves.toBe('Science>Stars: 0-9');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('callLLMDirect keeps the partial content and reports the finish reason', async () => {
+    const { callLLMDirect } = await getLLM();
+    vi.mocked(fetch).mockResolvedValue(truncatedOpenAI());
+    const res = await callLLMDirect({ prompt: 'hello' });
+    expect(res).toMatchObject({
+      ok: true,
+      content: 'Science>Stars: 0-1',
+      finishReason: 'truncated',
+    });
+  });
+
+  it('leaves a tool-call response alone on both the direct and text paths', async () => {
+    const { callLLMDirect, callLLM } = await getLLM();
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: 'looking that up',
+              tool_calls: [{ id: 'c1', function: { name: 'lookup', arguments: '{"q":"x"}' } }],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      }),
+    });
+    const res = await callLLMDirect({ prompt: 'hello' });
+    expect(res.ok).toBe(true);
+    expect(res.finishReason).toBe('tool_calls');
+    expect(res.toolCalls).toEqual([{ id: 'c1', name: 'lookup', arguments: { q: 'x' } }]);
+    await expect(callLLM({ prompt: 'hello' })).resolves.toBe('looking that up');
+  });
+});

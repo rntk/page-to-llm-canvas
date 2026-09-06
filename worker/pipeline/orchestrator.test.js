@@ -25,6 +25,26 @@ import {
   getStoredMaxParallelLlmRequests,
   normalizeMaxParallelLlmRequests,
 } from '../settings/llmConcurrency.js';
+import { TOPIC_RANGE_INPUT_MAX_SENTENCES } from './pipelineConfig.js';
+
+// Fixtures that need two primary chunks size their first chunk to the
+// sentence cap, so they follow it instead of restating a literal count.
+const LONG_CHUNK_SENTENCES = TOPIC_RANGE_INPUT_MAX_SENTENCES;
+
+/** Only the full-size chunk's markers reach its last sentence. */
+function isLongChunkPrompt(prompt) {
+  return prompt.includes(`{${LONG_CHUNK_SENTENCES - 1}}`);
+}
+
+/** A full-coverage partition of the first chunk into `partCount` topics. */
+function longChunkPartition(partCount = 6) {
+  const span = Math.ceil(LONG_CHUNK_SENTENCES / partCount);
+  return Array.from({ length: partCount }, (_, index) => {
+    const start = index * span;
+    const end = Math.min(start + span - 1, LONG_CHUNK_SENTENCES - 1);
+    return `Tech>Part ${index + 1}: ${start}-${end}`;
+  }).join('\n');
+}
 
 const pipelineLimiter = vi.hoisted(() => ({
   run: vi.fn((fn) => fn()),
@@ -1184,7 +1204,7 @@ describe('runPipeline', () => {
   });
 
   it('parses each primary chunk locally and restores global sentence offsets', async () => {
-    const n = 245;
+    const n = LONG_CHUNK_SENTENCES + 5;
     const plainText = Array.from({ length: n }, (_, i) => `S${i}.`).join(' ');
     storage.readRecord.mockResolvedValue(makeRecord('key-local-chunks', `<p>${plainText}</p>`));
     capturedText.normalizeCapturedText.mockReturnValue(plainText);
@@ -1196,15 +1216,8 @@ describe('runPipeline', () => {
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) {
         partitionCalls++;
-        if (prompt.includes('{239}')) {
-          return [
-            'Tech>Part 1: 0-39',
-            'Tech>Part 2: 40-79',
-            'Tech>Part 3: 80-119',
-            'Tech>Part 4: 120-159',
-            'Tech>Part 5: 160-199',
-            'Tech>Part 6: 200-239',
-          ].join('\n');
+        if (isLongChunkPrompt(prompt)) {
+          return longChunkPartition();
         }
         return 'Tech>Last: 0-4';
       }
@@ -1228,11 +1241,11 @@ describe('runPipeline', () => {
       'Tech>Part 6',
       'Tech>Last',
     ]);
-    expect(topicCall[1].topics[6].sentences).toEqual([241, 242, 243, 244, 245]);
+    expect(topicCall[1].topics[6].sentences).toEqual([n - 4, n - 3, n - 2, n - 1, n]);
   });
 
   it('re-requests only the chunk that failed to parse, keeping the sibling chunk', async () => {
-    const n = 241;
+    const n = LONG_CHUNK_SENTENCES + 1;
     const plainText = Array.from({ length: n }, (_, i) => `S${i}.`).join(' ');
     storage.readRecord.mockResolvedValue(makeRecord('key-metric-retry', `<p>${plainText}</p>`));
     capturedText.normalizeCapturedText.mockReturnValue(plainText);
@@ -1244,12 +1257,9 @@ describe('runPipeline', () => {
     let shortChunkCalls = 0;
     llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
       if (prompt.includes('Partition the markers')) {
-        if (prompt.includes('{239}')) {
+        if (isLongChunkPrompt(prompt)) {
           longChunkCalls++;
-          return Array.from({ length: 6 }, (_, i) => {
-            const start = i * 40;
-            return `Tech>Part ${i + 1}: ${start}-${start + 39}`;
-          }).join('\n');
+          return longChunkPartition();
         }
         shortChunkCalls++;
         return shortChunkCalls === 1 ? 'not parseable' : 'Tech>Last: 0';
@@ -1261,7 +1271,7 @@ describe('runPipeline', () => {
 
     await runPipeline('key-metric-retry');
 
-    // The retry costs one request, not one per chunk: the 240-sentence chunk
+    // The retry costs one request, not one per chunk: the full-size chunk
     // parsed on attempt 1 and is never re-sent.
     expect(longChunkCalls).toBe(1);
     expect(shortChunkCalls).toBe(2);
@@ -1331,7 +1341,7 @@ describe('runPipeline', () => {
     // fans out into multiple chunk requests, and the two stay equal here.
     expect(sample.llmRequestCount).toBeGreaterThanOrEqual(sample.resplitCallCount);
     // 60 sentences stays under both MAX_TAGGED_CHARS and
-    // TOPIC_RANGE_INPUT_MAX_SENTENCES (240), so the primary stage used a
+    // TOPIC_RANGE_INPUT_MAX_SENTENCES, so the primary stage used a
     // single chunk/request for this fixture.
     expect(sample.primaryChunkCount).toBe(1);
   });

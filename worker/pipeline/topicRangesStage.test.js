@@ -6,6 +6,7 @@ import { groupsToTopics, rangesToSentenceList } from './topicRangeMapping.js';
 import { splitSentences } from './sentenceSplitter.js';
 import { markCancellation } from './cancellation.js';
 import { MAX_TAGGED_CHARS, TOPIC_RANGE_INPUT_MAX_SENTENCES } from './pipelineConfig.js';
+import { TRUNCATED_RESPONSE_ERROR } from '../llm/completionStatus.js';
 
 // Stand-in that honors both `warmupFirst` and `stopBurst`, mirroring the real
 // parallelMap's dispatch shape. It must model `warmupFirst`: a serial-only
@@ -130,11 +131,21 @@ describe('groupsToTopics', () => {
   });
 });
 
-// 241 sentences split into exactly two chunks (240 + 1) at
+// One full chunk plus one sentence splits into exactly two chunks at
 // TOPIC_RANGE_INPUT_MAX_SENTENCES, which is the smallest article that can show
 // one chunk failing while another succeeds.
-const TWO_CHUNK_SENTENCE_COUNT = 241;
+const LONG_CHUNK_SENTENCE_COUNT = TOPIC_RANGE_INPUT_MAX_SENTENCES;
+const TWO_CHUNK_SENTENCE_COUNT = LONG_CHUNK_SENTENCE_COUNT + 1;
 const LONG_CHUNK_TOPIC_COUNT = 6;
+const LONG_CHUNK_TOPIC_SPAN = Math.ceil(LONG_CHUNK_SENTENCE_COUNT / LONG_CHUNK_TOPIC_COUNT);
+
+/** Consecutive ranges partitioning the full first chunk into LONG_CHUNK_TOPIC_COUNT topics. */
+function longChunkRanges() {
+  return Array.from({ length: LONG_CHUNK_TOPIC_COUNT }, (_, index) => ({
+    start: index * LONG_CHUNK_TOPIC_SPAN,
+    end: Math.min((index + 1) * LONG_CHUNK_TOPIC_SPAN - 1, LONG_CHUNK_SENTENCE_COUNT - 1),
+  }));
+}
 
 function makeSentences(count) {
   return Array.from({ length: count }, (_, index) => ({
@@ -144,24 +155,22 @@ function makeSentences(count) {
   }));
 }
 
-/** The 240-sentence chunk is the only one whose markers reach {239}. */
+/** The full-size chunk is the only one whose markers reach its last sentence. */
 function isLongChunkPrompt(prompt) {
-  return prompt.includes('{239}');
+  return prompt.includes(`{${LONG_CHUNK_SENTENCE_COUNT - 1}}`);
 }
 
 function longChunkResponse() {
-  return Array.from(
-    { length: LONG_CHUNK_TOPIC_COUNT },
-    (_, index) => `Tech>Part ${index + 1}: ${index * 40}-${index * 40 + 39}`,
-  ).join('\n');
+  return longChunkRanges()
+    .map((range, index) => `Tech>Part ${index + 1}: ${range.start}-${range.end}`)
+    .join('\n');
 }
 
 /** The same partition as longChunkResponse(), in persisted checkpoint form. */
 function longChunkSegments() {
-  return Array.from({ length: LONG_CHUNK_TOPIC_COUNT }, (_, index) => ({
+  return longChunkRanges().map((range, index) => ({
     label: ['Tech', `Part ${index + 1}`],
-    start: index * 40,
-    end: index * 40 + 39,
+    ...range,
   }));
 }
 
@@ -169,7 +178,10 @@ function makeCheckpoint(overrides = {}) {
   return {
     contentRevision: 'rev-1',
     sentenceCount: TWO_CHUNK_SENTENCE_COUNT,
-    chunks: [{ start: 0, sentenceCount: 240, segments: longChunkSegments() }, null],
+    chunks: [
+      { start: 0, sentenceCount: LONG_CHUNK_SENTENCE_COUNT, segments: longChunkSegments() },
+      null,
+    ],
     ...overrides,
   };
 }
@@ -631,7 +643,10 @@ describe('topic-ranges incremental retry', () => {
     expect(saved.topic_range_chunks).toEqual({
       contentRevision: 'rev-1',
       sentenceCount: TWO_CHUNK_SENTENCE_COUNT,
-      chunks: [{ start: 0, sentenceCount: 240, segments: longChunkSegments() }, null],
+      chunks: [
+        { start: 0, sentenceCount: LONG_CHUNK_SENTENCE_COUNT, segments: longChunkSegments() },
+        null,
+      ],
     });
 
     // The successful sibling is checkpointed after the first parse round,
@@ -640,6 +655,33 @@ describe('topic-ranges incremental retry', () => {
     expect(
       runtime.update.mock.calls.filter(([patch]) => patch.topic_range_chunks).length,
     ).toBeGreaterThan(1);
+  });
+
+  it('never checkpoints a chunk whose response the provider truncated', async () => {
+    const runtime = makeRuntime();
+    // callLLMWithRetry rejects a truncated response rather than returning its
+    // partial text, so the chunk stays pending instead of being parsed into
+    // coverage the model never produced.
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      if (isLongChunkPrompt(prompt)) return longChunkResponse();
+      throw new Error(TRUNCATED_RESPONSE_ERROR);
+    });
+
+    await expect(
+      computeTopics({
+        runtime,
+        record: { html: '<p>x</p>', contentRevision: 'rev-1' },
+        callLLMWithRetry,
+      }),
+    ).rejects.toThrow(/truncated/i);
+
+    for (const [patch] of runtime.update.mock.calls) {
+      if (!patch.topic_range_chunks) continue;
+      // Only the complete sibling is durable; the truncated chunk stays null.
+      expect(patch.topic_range_chunks.chunks[1]).toBeNull();
+    }
+    // The stage's opening write clears topics; no write may add any.
+    expect(runtime.update.mock.calls.some(([patch]) => patch.topics?.length)).toBe(false);
   });
 
   it('checkpoints every parsed chunk before the final topic write clears it', async () => {
@@ -662,11 +704,17 @@ describe('topic-ranges incremental retry', () => {
       contentRevision: 'rev-1',
       sentenceCount: TWO_CHUNK_SENTENCE_COUNT,
       chunks: [
-        { start: 0, sentenceCount: 240, segments: longChunkSegments() },
+        { start: 0, sentenceCount: LONG_CHUNK_SENTENCE_COUNT, segments: longChunkSegments() },
         {
-          start: 240,
+          start: LONG_CHUNK_SENTENCE_COUNT,
           sentenceCount: 1,
-          segments: [{ label: ['Tech', 'Last'], start: 240, end: 240 }],
+          segments: [
+            {
+              label: ['Tech', 'Last'],
+              start: LONG_CHUNK_SENTENCE_COUNT,
+              end: LONG_CHUNK_SENTENCE_COUNT,
+            },
+          ],
         },
       ],
     });

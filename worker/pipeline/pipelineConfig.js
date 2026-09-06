@@ -8,6 +8,11 @@ import {
 import { PIPELINE_MIN_CONTEXT_WINDOW_TOKENS } from '../settings/contextWindowConstraints.js';
 import { LLM_TEXT_FALLBACK_MAX_CHARS } from '../settings/textBudget.js';
 import {
+  LLM_MAX_OUTPUT_TOKENS,
+  maxTopicRangeSentencesForOutputBudget,
+  TOPIC_RANGE_RESPONSE_TOKENS_PER_SENTENCE,
+} from '../llm/outputBudget.js';
+import {
   estimateMaxCharsForTokens,
   estimateTokens,
   estimateTokensForCharCount,
@@ -27,11 +32,12 @@ export const PIPELINE_TEXT_CHUNK_MAX_CHARS = LLM_TEXT_FALLBACK_MAX_CHARS;
 const PIPELINE_CONTEXT_ADAPTIVE_RESERVE_MAX_TOKENS = 4096;
 const PIPELINE_CONTEXT_RESERVED_RATIO = 0.75;
 const PIPELINE_RESPONSE_RESERVED_TOKENS = 1024;
-// A topic response may legitimately contain one distinct hierarchical path
-// per input sentence. Budget enough output for that worst-case shape instead
-// of letting the character budget admit hundreds of short, unrelated lines.
-const TOPIC_RANGE_RESPONSE_TOKENS_PER_SENTENCE = 32;
-export const TOPIC_RANGE_INPUT_MAX_SENTENCES = 240;
+// The static ceiling on topic-input sentences is whatever worst-case response
+// (one hierarchical path per input sentence) still fits the output allowance
+// the client actually requests. Deriving it from the shared budget keeps the
+// planner from sizing a chunk the provider would answer with a truncated body.
+export const TOPIC_RANGE_INPUT_MAX_SENTENCES =
+  maxTopicRangeSentencesForOutputBudget(LLM_MAX_OUTPUT_TOKENS);
 
 // Largest static prompt among pipeline stages, measured with the shared
 // estimator (UTF-8-aware with safety factor). This is the fixed overhead
@@ -97,7 +103,8 @@ export function getPipelineTextChunkMaxChars(contextWindowTokens) {
 
 /**
  * Caps topic-range markers by the response space reserved for the configured
- * context. Unknown provider windows retain the established 240-marker limit.
+ * context. Unknown provider windows retain the static output-budget ceiling
+ * (TOPIC_RANGE_INPUT_MAX_SENTENCES).
  *
  * The payload reserve assumes worst-case density (WORST_CASE_BYTES_PER_CODE_UNIT)
  * so the same ratio that sized maxChars is reused here; otherwise the payload

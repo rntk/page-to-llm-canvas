@@ -7,6 +7,7 @@ import {
 } from './summaryStage.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
+import { TRUNCATED_RESPONSE_ERROR } from '../llm/completionStatus.js';
 
 function makeRuntime() {
   const topicSummaries = {};
@@ -1307,5 +1308,14 @@ describe('runSummaries', () => {
     });
     expect(summariesDisabled).toBe(false);
     expect(summariesIncomplete).toBe(true);
+  });
+});
+
+describe('classifyLlmError truncation', () => {
+  it('reports an output-limit truncation as its own kind', () => {
+    expect(classifyLlmError(new Error(TRUNCATED_RESPONSE_ERROR))).toEqual({
+      kind: 'truncated',
+      message: 'The model hit its output limit before finishing the summary.',
+    });
   });
 });

@@ -16,8 +16,11 @@
 //
 // Every client exposes the same shape:
 //   complete({ prompt, temperature?, signal?, verboseLogs? }) ->
-//     Promise<{ content, endpoint, model, provider, usage? }>
+//     Promise<{ content, finishReason, endpoint, model, provider, usage? }>
 // and throws an Error (message reused verbatim in callLLMDirect) on failure.
+// `finishReason` is the provider's finish_reason/stop_reason mapped onto the
+// shared vocabulary in completionStatus.js, so callers can tell a complete
+// response from one the provider truncated at its own output limit.
 // The entrypoint supplies `signal` with both caller cancellation and the
 // user-configured request timeout already combined, so every provider fetch
 // observes the same timeout policy.
@@ -25,6 +28,8 @@
 // `verboseLogs` is true (set from the options "verbose pipeline logs" toggle).
 
 import { ProviderType, ServiceTier } from './providers.js';
+import { normalizeFinishReason } from './completionStatus.js';
+import { LLM_MAX_OUTPUT_TOKENS } from './outputBudget.js';
 import { createLogger } from '../../src/shared/runtime/log.js';
 import { PROMPT_DELIMITER } from '../promptDelimiters.js';
 
@@ -444,6 +449,9 @@ function openAICompatibleClient({
         content,
         reasoning,
         toolCalls,
+        // Servers that omit finish_reason normalize to UNKNOWN, which callers
+        // read as "not known to be truncated" rather than as a failure.
+        finishReason: normalizeFinishReason(data?.choices?.[0]?.finish_reason),
         endpoint,
         model,
         provider: providerLabel,
@@ -604,7 +612,9 @@ function anthropicClient({ apiKey, model, serviceTier, fetchImpl, logger }) {
       const translated = hasMessages ? toAnthropicMessages(messages) : null;
       const body = {
         model,
-        max_tokens: 4096,
+        // Shared with the pipeline planner so no request is sized to produce
+        // more output than the allowance asked for here (see outputBudget.js).
+        max_tokens: LLM_MAX_OUTPUT_TOKENS,
         messages: hasMessages
           ? translated.messages
           : [{ role: 'user', content: anthropicCacheableContent(prompt) }],
@@ -655,6 +665,7 @@ function anthropicClient({ apiKey, model, serviceTier, fetchImpl, logger }) {
         content,
         reasoning: reasoningParts.join('\n\n').trim() || undefined,
         toolCalls,
+        finishReason: normalizeFinishReason(data?.stop_reason),
         endpoint,
         model,
         provider: 'anthropic',
