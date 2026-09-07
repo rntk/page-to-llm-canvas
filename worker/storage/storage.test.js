@@ -32,6 +32,13 @@ async function seedRecord(chromeMock, rec) {
   await writeRecord(rec);
 }
 
+/** Every storage key a test's mock was actually asked to read. */
+function readKeys(chromeMock) {
+  return chromeMock.storage.local.get.mock.calls.flatMap(([keys]) =>
+    keys === null || keys === undefined ? [] : Array.isArray(keys) ? keys : [keys],
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Setup: install chrome global before each test, reset queue state
 // ---------------------------------------------------------------------------
@@ -1384,6 +1391,114 @@ describe('reconcileRecordStorage', () => {
     expect(mock.storage.local._store.has('pagetollm:rec:corrupt:meta')).toBe(false);
     expect(mock.storage.local._store.has('pagetollm:rec:corrupt:content')).toBe(false);
     expect(mock.storage.local._store.has('pagetollm:rec:recovered:extension-field')).toBe(false);
+  });
+
+  it('leaves content documents unread when the cached snippet is current', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('cached-snippet', { text: 'Cached page text' }));
+    _resetUpdateQueues();
+    mock.storage.local.get.mockClear();
+
+    const result = await reconcileRecordStorage();
+
+    expect(readKeys(mock)).not.toContain('pagetollm:rec:cached-snippet:content');
+    expect(result).toMatchObject({ recordCount: 1, removedKeys: 0 });
+    expect((await listRecords())[0].snippet).toBe('Cached page text');
+  });
+
+  it('re-reads content when the cached snippet is from a superseded generation', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('stale-snippet', { text: 'Fresh page text' }));
+    // Stands in for an index write that was lost after the content document
+    // had already been replaced.
+    const index = mock.storage.local._store.get(INDEX_KEY);
+    index.meta['stale-snippet'].snippet = 'outdated';
+    index.meta['stale-snippet'].snippetRevision = 'superseded';
+    _resetUpdateQueues();
+    mock.storage.local.get.mockClear();
+
+    await reconcileRecordStorage();
+
+    expect(readKeys(mock)).toContain('pagetollm:rec:stale-snippet:content');
+    expect((await listRecords())[0].snippet).toBe('Fresh page text');
+  });
+
+  it('recovers the snippet when a same-revision text write loses its index update', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('lost-index-write', { text: 'original text' }));
+    const before = mock.storage.local._store.get('pagetollm:rec:lost-index-write:meta');
+
+    // The pipeline's text normalization writes text without bumping
+    // contentRevision; here the projection write that follows it never lands.
+    mock._state.failIndexSet = true;
+    await updateRecord('lost-index-write', { text: 'replacement text' });
+    mock._state.failIndexSet = false;
+
+    const after = mock.storage.local._store.get('pagetollm:rec:lost-index-write:meta');
+    expect(after.contentRevision).toBe(before.contentRevision);
+    expect(after.textRevision).not.toBe(before.textRevision);
+
+    // The fake stores objects by reference, so the rejected index write above
+    // still mutated the cached projection in place. Restore what a terminated
+    // worker durably leaves behind: new text committed, projection untouched.
+    const projection = mock.storage.local._store.get(INDEX_KEY).meta['lost-index-write'];
+    projection.snippet = 'original text';
+    projection.snippetRevision = before.textRevision;
+
+    await reconcileRecordStorage();
+
+    expect((await listRecords())[0].snippet).toBe('replacement text');
+  });
+
+  it('backfills a text marker for records stored before it existed', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('legacy', { text: 'legacy text' }));
+    const metaKey = 'pagetollm:rec:legacy:meta';
+    delete mock.storage.local._store.get(metaKey).textRevision;
+    delete mock.storage.local._store.get(INDEX_KEY).meta.legacy.snippetRevision;
+    _resetUpdateQueues();
+
+    await reconcileRecordStorage();
+    expect(typeof mock.storage.local._store.get(metaKey).textRevision).toBe('string');
+
+    mock.storage.local.get.mockClear();
+    await reconcileRecordStorage();
+
+    expect(readKeys(mock)).not.toContain('pagetollm:rec:legacy:content');
+    expect((await listRecords())[0].snippet).toBe('legacy text');
+  });
+
+  it('reads stored documents in bounded batches instead of one corpus-wide get', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    for (let i = 0; i < 24; i += 1) {
+      await seedRecord(
+        mock,
+        makeRecord(`batched-${i}`, {
+          text: `page ${i}`,
+          topic_summaries: { Topic: { runs: [{ sentences: [1], text: 'checkpoint' }] } },
+        }),
+      );
+    }
+    // No cached projection, so every content document has to be read.
+    mock.storage.local._store.set(INDEX_KEY, { keys: [], meta: {} });
+    _resetUpdateQueues();
+    mock.storage.local.get.mockClear();
+
+    await reconcileRecordStorage();
+
+    const batches = mock.storage.local.get.mock.calls.map(([keys]) =>
+      Array.isArray(keys) ? keys : [keys],
+    );
+    expect(batches.every((keys) => keys.length <= 50)).toBe(true);
+    const contentBatches = batches.filter((keys) => keys.some((key) => key.endsWith(':content')));
+    expect(contentBatches.length).toBeGreaterThan(1);
+    expect(contentBatches.every((keys) => keys.length <= 10)).toBe(true);
+    expect((await listRecords()).length).toBe(24);
   });
 });
 

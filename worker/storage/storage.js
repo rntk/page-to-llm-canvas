@@ -189,10 +189,15 @@ async function writeIndex(idx) {
  * topics/summaries) just to keep listings up to date.
  * @param {object} rec Record metadata source.
  */
-function buildRecordMeta(rec) {
+function buildRecordMeta(rec, { snippet = buildRecordSnippet(rec) } = {}) {
   return {
     sourceUrl: rec.sourceUrl,
-    snippet: buildRecordSnippet(rec),
+    snippet,
+    // Text generation the cached snippet was taken from. Startup
+    // reconciliation compares it against the (small) meta document to decide
+    // whether it has to read the record's content document at all; a missing
+    // or mismatched value only means the snippet is re-derived.
+    snippetRevision: rec.textRevision,
     createdAt: rec.createdAt,
     status: rec.status,
     progress: rec.progress,
@@ -246,7 +251,10 @@ async function syncIndexMeta(key, patch, fallbackMeta) {
         next.summariesDisabled = patch.summariesDisabled === true;
       if (hasOwn(patch, 'summariesIncomplete'))
         next.summariesIncomplete = patch.summariesIncomplete === true;
-      if (hasOwn(patch, 'text')) next.snippet = buildRecordSnippet({ text: patch.text });
+      if (hasOwn(patch, 'text')) {
+        next.snippet = buildRecordSnippet({ text: patch.text });
+        next.snippetRevision = fallbackMeta && fallbackMeta.textRevision;
+      }
       if (next.createdAt === undefined) next.createdAt = fallbackMeta && fallbackMeta.createdAt;
       idx.meta[key] = next;
       await writeIndex(idx);
@@ -259,6 +267,11 @@ async function syncIndexMeta(key, patch, fallbackMeta) {
     // overlays the authoritative metadata for callers (including keepalive),
     // and retries persisting the repaired projection on its next read.
     try {
+      // The repair below rebuilds the projection from the meta document only,
+      // so it cannot restore a snippet this failed write was carrying. It does
+      // not have to: the meta document already committed a new textRevision,
+      // which no longer matches the projection's snippetRevision, so the next
+      // reconciliation re-reads the content document and recomputes it.
       await repairIndexedRecordProjection(key);
     } catch (repairErr) {
       log.warn('failed to sync index meta for', key, err);
@@ -269,9 +282,10 @@ async function syncIndexMeta(key, patch, fallbackMeta) {
 
 /**
  * Copies fields that are authoritative in a record's meta document into an
- * existing index projection. The text snippet deliberately remains cached:
- * text lives in the separate content document and normal content writes
- * already update it through syncIndexMeta().
+ * existing index projection. The text snippet — and the `snippetRevision`
+ * marker naming the generation it was taken from — deliberately remains
+ * cached: text lives in the separate content document and normal content
+ * writes already update both through syncIndexMeta().
  * @param {object} meta Authoritative record metadata document.
  * @param {object} [cached] Existing lightweight index projection.
  * @returns {object} Repaired lightweight index projection.
@@ -446,11 +460,15 @@ export async function writeRecord(rec, options = {}) {
       // the old generation remains unreadable and cannot be resurrected.
       const topicSummariesRevision = createContentRevision();
       const sourceSummaryUnitsRevision = createContentRevision();
+      // This write always replaces the content document, so the snippet the
+      // index caches is always from this generation. See mintTextRevision().
+      const textRevision = createContentRevision();
       const documents = {
         [metaKey]: {
           ...pickMetaFields(rec),
           storageSchemaVersion: RECORD_STORAGE_SCHEMA_VERSION,
           contentRevision,
+          textRevision,
           topicSummariesRevision,
           sourceSummaryUnitsRevision,
         },
@@ -491,7 +509,7 @@ export async function writeRecord(rec, options = {}) {
           const existing = idx.keys.indexOf(rec.key);
           if (existing !== -1) idx.keys.splice(existing, 1);
           idx.keys.unshift(rec.key);
-          idx.meta[rec.key] = buildRecordMeta(rec);
+          idx.meta[rec.key] = buildRecordMeta({ ...rec, contentRevision, textRevision });
           await writeIndex(idx);
         });
       } catch (err) {
@@ -611,6 +629,10 @@ export async function updateRecord(key, patch, options = {}) {
       if (replacesContentGeneration) {
         mergedMeta.contentRevision = createContentRevision();
       }
+      // Committed in the same setLocal() as the content document below, so a
+      // worker that dies before the index projection is updated always leaves
+      // a meta document whose marker no longer matches the cached snippet.
+      if (hasOwn(patch, 'text')) mergedMeta.textRevision = createContentRevision();
       for (const { name, fields, storageKey } of RECORD_PAYLOAD_SCHEMAS) {
         if (!fields.some((field) => hasOwn(patch, field))) continue;
         const documentKey = storageKey(key);
@@ -1031,7 +1053,10 @@ export async function listRecords() {
     const meta = mergeAuthoritativeMetaIntoProjection(authoritativeMeta, idx.meta[k]);
     repaired.keys.push(k);
     repaired.meta[k] = meta;
-    out.push({ key: k, ...meta });
+    // snippetRevision is cache bookkeeping for reconciliation, not part of the
+    // record a listing caller sees.
+    const { snippetRevision: _snippetRevision, ...view } = meta;
+    out.push({ key: k, ...view });
   }
   if (JSON.stringify(repaired) !== JSON.stringify(idx) && shouldAttemptIndexProjectionRepair()) {
     await repairAllIndexProjections();
@@ -1157,6 +1182,64 @@ function workDocumentMatchesOwnerGeneration(storageKey, value, ownerMeta) {
   return true;
 }
 
+// Reconciliation walks every physical record document, so it reads storage in
+// slices rather than pulling the whole corpus into one object: each slice is
+// reduced to a decision (obsolete / keep) or a snippet string and then dropped.
+// Work and meta documents are small; content documents carry the html, text,
+// sentences and topics of a page, so they get a much smaller slice — and are
+// only read for records whose cached snippet is missing or belongs to a
+// superseded content generation.
+const RECONCILE_METADATA_BATCH_SIZE = 50;
+const RECONCILE_CONTENT_BATCH_SIZE = 10;
+
+/**
+ * Reads the given storage keys in bounded batches, handing each key and its
+ * value to `visit`. Values are only reachable for the duration of their own
+ * batch, so peak memory is proportional to the batch, not to the corpus.
+ * @param {string[]} storageKeys
+ * @param {number} batchSize
+ * @param {(storageKey: string, value: unknown) => void} visit
+ */
+async function forEachStoredDocument(storageKeys, batchSize, visit) {
+  for (let offset = 0; offset < storageKeys.length; offset += batchSize) {
+    const slice = storageKeys.slice(offset, offset + batchSize);
+    const documents = await getLocal(slice);
+    for (const storageKey of slice) visit(storageKey, documents[storageKey]);
+  }
+}
+
+/**
+ * Gives records stored before `textRevision` existed a marker, so the snippet
+ * just re-derived from their content document can be trusted on the next cold
+ * start instead of costing another full content read every time.
+ *
+ * Safe to write here: reconciliation holds the global mutation queue, which
+ * every writer passes through, so no concurrent write can be overwritten. It is
+ * also best effort — a failure only means those records keep re-reading their
+ * content, exactly as they did before the marker existed — so the metas are
+ * only updated once the write has actually landed.
+ * @param {Map<string, object>} metas Meta documents keyed by record key.
+ */
+async function backfillTextRevisions(metas) {
+  const pending = [];
+  for (const [key, meta] of metas) {
+    if (typeof meta.textRevision === 'string') continue;
+    pending.push([key, { ...meta, textRevision: createContentRevision() }]);
+  }
+  for (let offset = 0; offset < pending.length; offset += RECONCILE_METADATA_BATCH_SIZE) {
+    const slice = pending.slice(offset, offset + RECONCILE_METADATA_BATCH_SIZE);
+    try {
+      await setLocal(Object.fromEntries(slice.map(([key, meta]) => [metaStorageKey(key), meta])));
+    } catch (err) {
+      // Leave the remaining records unmarked rather than retrying into a
+      // storage area that is refusing writes; the next cold start tries again.
+      log.warn('failed to backfill record text revisions:', err);
+      return;
+    }
+    for (const [key, meta] of slice) metas.set(key, meta);
+  }
+}
+
 /**
  * Removes invalid or ownerless record documents, then rebuilds the index from
  * records written in the current storage schema.
@@ -1165,68 +1248,94 @@ export async function reconcileRecordStorage() {
   return queuedUpdate(MUTATION_QUEUE_KEY, () =>
     queuedUpdate(INDEX_KEY, async () => {
       const storageKeys = await getLocalKeysByPrefix(RECORD_STORAGE_PREFIX);
+      const metaKeys = [];
       // Work-document values are needed to collect checkpoints from superseded
-      // content/collection generations. Static payloads still participate by
-      // key only, except content which supplies the index snippet.
-      const documents = await getLocal(
-        storageKeys.filter(
-          (storageKey) =>
-            storageKey.endsWith(':meta') ||
-            storageKey.endsWith(':content') ||
-            storageKey.includes(':summary-leaf:') ||
-            storageKey.includes(':summary-unit:'),
-        ),
-      );
-      const groups = new Map();
-      const currentKeys = new Set();
-      const obsoleteKeys = new Set();
+      // content/collection generations. Every other payload document
+      // participates by key only.
+      const workKeys = [];
+      const payloadKeys = [];
+      for (const storageKey of storageKeys) {
+        if (storageKey.endsWith(':meta')) metaKeys.push(storageKey);
+        else if (storageKey.includes(':summary-leaf:') || storageKey.includes(':summary-unit:'))
+          workKeys.push(storageKey);
+        else payloadKeys.push(storageKey);
+      }
 
-      for (const storageKey of storageKeys.filter((key) => key.endsWith(':meta'))) {
+      const metas = new Map();
+      const obsoleteKeys = new Set();
+      await forEachStoredDocument(metaKeys, RECONCILE_METADATA_BATCH_SIZE, (storageKey, meta) => {
         const key = recordKeyFromStorageDocument(storageKey, ':meta');
-        const meta = documents[storageKey];
         if (!key || metaStorageKey(key) !== storageKey || !isCurrentRecordMeta(meta)) {
           obsoleteKeys.add(storageKey);
-          continue;
-        }
-        currentKeys.add(key);
-        groups.set(key, { meta, content: documents[contentStorageKey(key)] || {} });
-      }
-
-      for (const storageKey of storageKeys) {
-        if (storageKey.endsWith(':meta')) continue;
-        const owner = recognizedRecordDocumentOwner(storageKey);
-        if (
-          !owner ||
-          !storageKey.startsWith(recordStoragePrefix(owner)) ||
-          !currentKeys.has(owner) ||
-          !workDocumentMatchesOwnerGeneration(
-            storageKey,
-            documents[storageKey],
-            groups.get(owner).meta,
-          )
-        ) {
-          obsoleteKeys.add(storageKey);
-        }
-      }
-
-      const current = await readIndex();
-      const next = { keys: [], meta: {} };
-      const seen = new Set();
-      const addRecord = (key, group) => {
-        if (
-          seen.has(key) ||
-          !group?.meta ||
-          typeof group.meta !== 'object' ||
-          Array.isArray(group.meta)
-        )
           return;
-        seen.add(key);
-        next.keys.push(key);
-        next.meta[key] = buildRecordMeta({ ...(group.content || {}), ...group.meta, key });
+        }
+        metas.set(key, meta);
+      });
+
+      const ownedByCurrentRecord = (storageKey) => {
+        const owner = recognizedRecordDocumentOwner(storageKey);
+        return owner && storageKey.startsWith(recordStoragePrefix(owner)) && metas.has(owner)
+          ? owner
+          : null;
       };
 
-      for (const key of current.keys) addRecord(key, groups.get(key));
-      for (const [key, group] of groups) addRecord(key, group);
+      for (const storageKey of payloadKeys) {
+        if (!ownedByCurrentRecord(storageKey)) obsoleteKeys.add(storageKey);
+      }
+      await forEachStoredDocument(workKeys, RECONCILE_METADATA_BATCH_SIZE, (storageKey, value) => {
+        const owner = ownedByCurrentRecord(storageKey);
+        if (!owner || !workDocumentMatchesOwnerGeneration(storageKey, value, metas.get(owner))) {
+          obsoleteKeys.add(storageKey);
+        }
+      });
+
+      const current = await readIndex();
+      // Reuse a cached snippet only when the meta document still names the text
+      // generation it was taken from. Every writer commits that marker in the
+      // same setLocal() as the content document and before the index write, so
+      // a snippet that a terminated worker never got to update is always
+      // detected here. Records written before the marker existed have none, and
+      // are treated as stale (below).
+      const snippets = new Map();
+      const snippetContentKeys = [];
+      for (const [key, meta] of metas) {
+        const cached = current.meta?.[key];
+        if (
+          cached &&
+          typeof cached.snippet === 'string' &&
+          typeof meta.textRevision === 'string' &&
+          cached.snippetRevision === meta.textRevision
+        ) {
+          snippets.set(key, cached.snippet);
+        } else {
+          snippetContentKeys.push(contentStorageKey(key));
+        }
+      }
+      await forEachStoredDocument(
+        snippetContentKeys,
+        RECONCILE_CONTENT_BATCH_SIZE,
+        (storageKey, content) => {
+          const key = recordKeyFromStorageDocument(storageKey, ':content');
+          if (key) snippets.set(key, buildRecordSnippet(content || {}));
+        },
+      );
+      await backfillTextRevisions(metas);
+
+      const next = { keys: [], meta: {} };
+      const seen = new Set();
+      const addRecord = (key) => {
+        const meta = metas.get(key);
+        if (seen.has(key) || !isRecordMeta(meta)) return;
+        seen.add(key);
+        next.keys.push(key);
+        next.meta[key] = buildRecordMeta(
+          { ...meta, key },
+          { snippet: snippets.get(key) ?? buildRecordSnippet(null) },
+        );
+      };
+
+      for (const key of current.keys) addRecord(key);
+      for (const key of metas.keys()) addRecord(key);
 
       const uniqueObsoleteKeys = [...obsoleteKeys];
       if (uniqueObsoleteKeys.length) await removeLocal(uniqueObsoleteKeys);
