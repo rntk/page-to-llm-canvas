@@ -155,6 +155,10 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
   // whole canvas tree ~60fps. State is committed once on mouse-up.
   const dragRafRef = useRef(0);
   const dragPendingRef = useRef(null);
+  // Detaches the window-level drag listeners. Held in a ref so unmount can run
+  // it: they are attached on mousedown and would otherwise survive until a
+  // mouseup that never arrives once the tree (or its iframe) is torn down.
+  const dragDetachRef = useRef(null);
 
   const setTransformNow = useCallback((nextScale, nextTranslate) => {
     if (rafRef.current) {
@@ -470,9 +474,17 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
         // Reconcile React state with the ref so the CSS-var layout effect won't
         // later overwrite the imperatively-set vars with a stale translate.
         setTransformNow(scaleRef.current || 1, translateRef.current);
+        detach();
+      };
+      const detach = () => {
+        dragDetachRef.current = null;
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', onUp);
       };
+      // A second mousedown without an intervening mouseup (the button released
+      // outside the document, say) would otherwise strand the first pair.
+      dragDetachRef.current?.();
+      dragDetachRef.current = detach;
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
     },
@@ -743,14 +755,18 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
     [setTransformNow, zoomAtPoint, zoomToTarget],
   );
 
-  // Clean up the focus/zoom/pan-settle timers on unmount.
+  // Clean up every timer, pending frame and window-level drag listener on
+  // unmount.
   useEffect(
     () => () => {
       if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
       if (zoomingTimerRef.current) clearTimeout(zoomingTimerRef.current);
       if (panSettleTimerRef.current) clearTimeout(panSettleTimerRef.current);
       if (wheelCommitTimerRef.current) clearTimeout(wheelCommitTimerRef.current);
+      if (cardZoomSmoothingTimerRef.current) clearTimeout(cardZoomSmoothingTimerRef.current);
       if (rafRef.current) window.cancelAnimationFrame(rafRef.current);
+      if (dragRafRef.current) window.cancelAnimationFrame(dragRafRef.current);
+      dragDetachRef.current?.();
     },
     [],
   );
