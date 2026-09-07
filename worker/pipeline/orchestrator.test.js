@@ -687,6 +687,55 @@ describe('runPipeline', () => {
     }
   });
 
+  it.each([
+    [
+      { type: 'openai', model: 'model-a', temperatures: { summaries: 0 } },
+      { type: 'openai', model: 'model-a', temperatures: { summaries: 0.7 } },
+      true,
+    ],
+    [
+      { type: 'openai', model: 'model-a', temperatures: { summaries: 0 } },
+      { type: 'openai', model: 'model-a' },
+      true,
+    ],
+    [{ type: 'openai', model: 'model-a' }, { type: 'openai', model: 'model-b' }, true],
+    [{ type: 'openai', model: 'model-a' }, { type: 'anthropic', model: 'model-a' }, true],
+    [{ type: 'openai', model: 'model-a' }, { type: 'openai', model: 'model-a' }, false],
+  ])(
+    'tracks provider settings in source-summary cache identity',
+    async (first, second, expectedDifferent) => {
+      const plainText = 'word '.repeat(220).trim();
+      const providers = [
+        { ...first, contextWindowTokens: 8192 },
+        { ...second, contextWindowTokens: 8192 },
+      ];
+      const fingerprints = [];
+      for (const [index, provider] of providers.entries()) {
+        getActiveProvider.mockResolvedValueOnce(provider);
+        storage.readRecord.mockResolvedValueOnce(
+          makeRecord(`provider-fingerprint-${index}`, '<p>x</p>'),
+        );
+        capturedText.normalizeCapturedText.mockReturnValueOnce(plainText);
+        sentenceSplitter.splitSentences.mockReturnValueOnce([
+          { text: plainText, start: 0, end: plainText.length },
+        ]);
+        llm.callLLMWithRetry.mockImplementationOnce(async ({ prompt }) => {
+          if (prompt.includes('Partition the markers')) return 'Tech>All: 0';
+          return 'summary';
+        });
+
+        await runPipeline(`provider-fingerprint-${index}`);
+        expect(storage.putSourceSummaryUnit).toHaveBeenCalledTimes(index + 1);
+        fingerprints.push(storage.putSourceSummaryUnit.mock.calls.at(-1)[1].inputFingerprint);
+      }
+
+      expect(fingerprints[0]).toBeTruthy();
+      expect(fingerprints[1]).toBeTruthy();
+      if (expectedDifferent) expect(fingerprints[0]).not.toBe(fingerprints[1]);
+      else expect(fingerprints[0]).toBe(fingerprints[1]);
+    },
+  );
+
   it('runs the full pipeline for a single topic', async () => {
     const htmlText = '<p>Sentence one. Sentence two.</p>';
     const plainText = 'Sentence one. Sentence two.';

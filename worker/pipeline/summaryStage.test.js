@@ -469,6 +469,7 @@ describe('runSummaries', () => {
       sentenceTexts,
       previousSummaries,
       contentRevision: 'rev-1',
+      inputFingerprint: 'settings-a',
       callLLMWithRetry: firstCall,
     });
 
@@ -497,6 +498,7 @@ describe('runSummaries', () => {
       previousSummaryIndex: parked.topic_summary_index,
       previousSourceSummaryUnits: persistedUnits,
       contentRevision: 'rev-1',
+      inputFingerprint: 'settings-a',
       callLLMWithRetry: secondCall,
     });
 
@@ -514,6 +516,121 @@ describe('runSummaries', () => {
         },
       },
     });
+  });
+
+  it('invalidates persisted leaf chunks when the summary settings fingerprint changes', async () => {
+    const sentenceTexts = Array.from(
+      { length: 3 },
+      (_, index) => `${index + 1} ${'x'.repeat(30000)}`,
+    );
+    const topics = [{ name: 'A', sentences: [1, 2, 3] }];
+    const firstRuntime = makeRuntime();
+    const firstCall = vi
+      .fn()
+      .mockResolvedValueOnce('chunk one')
+      .mockRejectedValueOnce(new Error('timed out'))
+      .mockResolvedValueOnce('chunk three');
+
+    await runSummaries({
+      runtime: firstRuntime,
+      topics,
+      sentenceTexts,
+      previousSummaries: {},
+      contentRevision: 'rev-settings',
+      inputFingerprint: JSON.stringify(['openai', 'model-a', 0]),
+      callLLMWithRetry: firstCall,
+    });
+    const failed = lastUpdate(
+      firstRuntime,
+      (patch) => patch.status === PIPELINE_STATUS.NEEDS_ATTENTION,
+    );
+    const failedLeafSummaries = lastUpdate(
+      firstRuntime,
+      (patch) => patch.topic_summaries,
+    ).topic_summaries;
+    const persistedUnits = lastUpdate(
+      firstRuntime,
+      (patch) => patch.source_summary_units,
+    ).source_summary_units;
+
+    const retryRuntime = makeRuntime();
+    const retryCall = vi.fn(async () => 'fresh summary');
+    await runSummaries({
+      runtime: retryRuntime,
+      topics,
+      sentenceTexts,
+      previousSummaries: failedLeafSummaries,
+      previousSummaryIndex: failed.topic_summary_index,
+      previousSourceSummaryUnits: persistedUnits,
+      contentRevision: 'rev-settings',
+      inputFingerprint: JSON.stringify(['openai', 'model-a', 0.7]),
+      callLLMWithRetry: retryCall,
+    });
+
+    expect(retryCall).toHaveBeenCalledTimes(4);
+    expect(retryCall.mock.calls.map(([options]) => options.taskType)).toEqual([
+      LLM_TASK_TYPES.ARTICLE_SUMMARY,
+      LLM_TASK_TYPES.ARTICLE_SUMMARY,
+      LLM_TASK_TYPES.ARTICLE_SUMMARY,
+      LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE,
+    ]);
+  });
+
+  it('invalidates cached parent chunks when the fingerprint changes during retry', async () => {
+    const long = (marker) => `${marker} ${'x'.repeat(30000)}`;
+    const sentenceTexts = [long('a1'), long('a2'), long('b1'), long('b2')];
+    const topics = [
+      { name: 'Tech>AI', sentences: [1, 2] },
+      { name: 'Tech>Hardware', sentences: [3, 4] },
+    ];
+    const previousSummaries = {
+      'Tech>AI': { runs: [{ sentences: [1, 2], text: 'AI summary.' }], source_sentences: [1, 2] },
+      'Tech>Hardware': {
+        runs: [{ sentences: [3, 4], text: 'Hardware summary.' }],
+        source_sentences: [3, 4],
+      },
+    };
+    const firstRuntime = makeRuntime();
+    const firstCall = vi
+      .fn()
+      .mockResolvedValueOnce('chunk one')
+      .mockResolvedValueOnce('chunk two')
+      .mockResolvedValueOnce('chunk three')
+      .mockResolvedValueOnce('chunk four')
+      .mockRejectedValueOnce(new Error('timed out'));
+    await runSummaries({
+      runtime: firstRuntime,
+      topics,
+      sentenceTexts,
+      previousSummaries,
+      contentRevision: 'rev-settings',
+      inputFingerprint: JSON.stringify(['openai', 'model-a', null]),
+      callLLMWithRetry: firstCall,
+    });
+    const failed = lastUpdate(
+      firstRuntime,
+      (patch) => patch.status === PIPELINE_STATUS.NEEDS_ATTENTION,
+    );
+    const persistedUnits = lastUpdate(
+      firstRuntime,
+      (patch) => patch.source_summary_units,
+    ).source_summary_units;
+
+    const retryCall = vi.fn(async () => 'fresh result');
+    await runSummaries({
+      runtime: makeRuntime(),
+      topics,
+      sentenceTexts,
+      previousSummaries,
+      previousSummaryIndex: failed.topic_summary_index,
+      previousSourceSummaryUnits: persistedUnits,
+      contentRevision: 'rev-settings',
+      inputFingerprint: JSON.stringify(['openai', 'model-b', null]),
+      callLLMWithRetry: retryCall,
+    });
+
+    expect(retryCall).toHaveBeenCalledTimes(5);
+    expect(retryCall.mock.calls.at(-1)[0].taskType).toBe(LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE);
   });
 
   it('parks the run for review when a leaf summary fails', async () => {

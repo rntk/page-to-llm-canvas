@@ -193,6 +193,7 @@ export async function runSummaries({
   previousSummaryIndex = {},
   previousSourceSummaryUnits = {},
   contentRevision,
+  inputFingerprint,
   forceFinalize = false,
   acceptedMergeFailurePaths = [],
   callLLMWithRetry,
@@ -218,6 +219,7 @@ export async function runSummaries({
     callLLMWithRetry,
     priorUnits: source_summary_units,
     contentRevision,
+    inputFingerprint,
     persistUnit: persistSourceSummaryUnit,
     summaryMode: 'leaf',
     maxChars: runtime.maxTextChunkChars,
@@ -435,6 +437,7 @@ export async function runSummaries({
     callLLMWithRetry,
     priorUnits: source_summary_units,
     contentRevision,
+    inputFingerprint,
     persistUnit: persistSourceSummaryUnit,
     maxChars: runtime.maxTextChunkChars,
   });

@@ -8,6 +8,8 @@ import { isCancellationError } from './cancellation.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
 import { getPipelineTextChunkMaxChars, getTopicRangeInputMaxSentences } from './pipelineConfig.js';
 import { resolveMaxOutputTokens } from '../llm/outputBudget.js';
+import { resolveProviderTemperature } from '../llm/temperatures.js';
+import { LLM_TASK_TYPES } from '../metrics/llm.js';
 
 // A resumable checkpoint must carry the sentence texts its topics reference.
 // If `sentences` is missing/short, out-of-range sentence ids get silently
@@ -293,6 +295,13 @@ export function createPipelineRunner({
         sentenceTexts,
         previousSummaries,
         previousSummaryIndex,
+        // Cache identity follows the same provider snapshot as request dispatch.
+        // Null distinguishes an omitted temperature from an explicit zero.
+        inputFingerprint: JSON.stringify([
+          activeProvider?.type ?? null,
+          activeProvider?.model ?? null,
+          resolveProviderTemperature(activeProvider, LLM_TASK_TYPES.ARTICLE_SUMMARY) ?? null,
+        ]),
         previousSourceSummaryUnits:
           resuming && record.source_summary_units && typeof record.source_summary_units === 'object'
             ? record.source_summary_units
