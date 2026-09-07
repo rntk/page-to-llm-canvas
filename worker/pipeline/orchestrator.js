@@ -7,6 +7,7 @@ import { finalizeSummariesDisabled, runSummaries } from './summaryStage.js';
 import { isCancellationError } from './cancellation.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../src/shared/runtime/contracts.js';
 import { getPipelineTextChunkMaxChars, getTopicRangeInputMaxSentences } from './pipelineConfig.js';
+import { resolveMaxOutputTokens } from '../llm/outputBudget.js';
 
 // A resumable checkpoint must carry the sentence texts its topics reference.
 // If `sentences` is missing/short, out-of-range sentence ids get silently
@@ -197,7 +198,10 @@ export function createPipelineRunner({
         preferContentLanguage,
         verboseLogs,
         maxTextChunkChars: getPipelineTextChunkMaxChars(activeProvider?.contextWindowTokens),
-        maxTopicRangeSentences: getTopicRangeInputMaxSentences(activeProvider?.contextWindowTokens),
+        maxTopicRangeSentences: getTopicRangeInputMaxSentences(
+          activeProvider?.contextWindowTokens,
+          resolveMaxOutputTokens(activeProvider?.contextWindowTokens),
+        ),
       });
       await runtime.log('pipeline_start');
       const record = await runtime.read();

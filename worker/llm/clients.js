@@ -29,7 +29,7 @@
 
 import { ProviderType, ServiceTier } from './providers.js';
 import { normalizeFinishReason } from './completionStatus.js';
-import { LLM_MAX_OUTPUT_TOKENS } from './outputBudget.js';
+import { resolveMaxOutputTokens } from './outputBudget.js';
 import { createLogger } from '../../src/shared/runtime/log.js';
 import { PROMPT_DELIMITER } from '../promptDelimiters.js';
 
@@ -580,10 +580,11 @@ function toAnthropicMessages(messages) {
  * @param {string} options.apiKey
  * @param {string} options.model
  * @param {string} [options.serviceTier]
+ * @param {number} options.maxOutputTokens Output allowance to request.
  * @param {Function} options.fetchImpl HTTP transport.
  * @param {{info: Function, warn?: Function}} options.logger Client logger.
  */
-function anthropicClient({ apiKey, model, serviceTier, fetchImpl, logger }) {
+function anthropicClient({ apiKey, model, serviceTier, maxOutputTokens, fetchImpl, logger }) {
   return {
     async complete({
       prompt = '',
@@ -613,8 +614,9 @@ function anthropicClient({ apiKey, model, serviceTier, fetchImpl, logger }) {
       const body = {
         model,
         // Shared with the pipeline planner so no request is sized to produce
-        // more output than the allowance asked for here (see outputBudget.js).
-        max_tokens: LLM_MAX_OUTPUT_TOKENS,
+        // more output than the allowance asked for here, and narrowed to the
+        // provider's declared context window (see outputBudget.js).
+        max_tokens: maxOutputTokens,
         messages: hasMessages
           ? translated.messages
           : [{ role: 'user', content: anthropicCacheableContent(prompt) }],
@@ -708,6 +710,8 @@ function toAnthropicServiceTier(serviceTier) {
  * @param {string} provider.model
  * @param {string} [provider.token]
  * @param {string} [provider.url]
+ * @param {number} [provider.contextWindowTokens] Declared context window; caps
+ *   the output allowance requested from the provider.
  * @param {object} [dependencies] Client dependencies.
  * @param {Function} [dependencies.transport] HTTP transport.
  * @param {{info: Function, warn?: Function}} [dependencies.logger] Client logger.
@@ -737,7 +741,7 @@ export function createClient(
   if (!provider || typeof provider !== 'object') {
     throw new Error('Provider is required');
   }
-  const { type, model, token, url, serviceTier } = provider;
+  const { type, model, token, url, serviceTier, contextWindowTokens } = provider;
   if (typeof transport !== 'function') throw new Error('LLM transport is required');
   switch (type) {
     case ProviderType.OPENAI:
@@ -782,7 +786,14 @@ export function createClient(
         logger,
       });
     case ProviderType.ANTHROPIC:
-      return anthropicClient({ apiKey: token, model, serviceTier, fetchImpl: transport, logger });
+      return anthropicClient({
+        apiKey: token,
+        model,
+        serviceTier,
+        maxOutputTokens: resolveMaxOutputTokens(contextWindowTokens),
+        fetchImpl: transport,
+        logger,
+      });
     default:
       throw new Error(`Unsupported provider type: ${type}`);
   }

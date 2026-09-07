@@ -774,6 +774,22 @@ describe('createClient dispatch', () => {
     expect(body.messages).toEqual([{ role: 'user', content: 'p' }]);
   });
 
+  it('anthropic client narrows max_tokens to the declared context window', async () => {
+    // 32000 against a window the provider cannot honor is a non-retryable 400,
+    // so every request in the run would fail and present as a provider outage.
+    vi.mocked(fetch).mockResolvedValue(okJson({ content: [{ type: 'text', text: 'ok' }] }));
+    const client = createClient({
+      type: 'anthropic',
+      model: 'claude-haiku-4-5',
+      token: 'sk-ant',
+      contextWindowTokens: 8192,
+    });
+    await client.complete({ prompt: 'p' });
+    const { max_tokens: maxTokens } = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+    expect(maxTokens).toBeLessThanOrEqual(8192);
+    expect(maxTokens).toBeLessThan(LLM_MAX_OUTPUT_TOKENS);
+  });
+
   it('anthropic client maps supported service tiers to native request values', async () => {
     vi.mocked(fetch).mockResolvedValue(okJson({ content: [{ type: 'text', text: 'ok' }] }));
     const priorityClient = createClient({

@@ -103,8 +103,8 @@ export function getPipelineTextChunkMaxChars(contextWindowTokens) {
 
 /**
  * Caps topic-range markers by the response space reserved for the configured
- * context. Unknown provider windows retain the static output-budget ceiling
- * (TOPIC_RANGE_INPUT_MAX_SENTENCES).
+ * context. Unknown provider windows retain the output-budget ceiling alone
+ * (TOPIC_RANGE_INPUT_MAX_SENTENCES, unless the model allows less output).
  *
  * The payload reserve assumes worst-case density (WORST_CASE_BYTES_PER_CODE_UNIT)
  * so the same ratio that sized maxChars is reused here; otherwise the payload
@@ -114,18 +114,25 @@ export function getPipelineTextChunkMaxChars(contextWindowTokens) {
  * the actual chunk text at dispatch instead of assuming uniform worst-case density.
  *
  * @param {unknown} contextWindowTokens Provider context window in tokens.
+ * @param {number} [maxOutputTokens] Allowance the client will actually request
+ *   (resolveMaxOutputTokens). A model whose ceiling is below the shared budget
+ *   stops sooner than the static ceiling assumes, so the cap is derived from it.
  * @returns {number}
  */
-export function getTopicRangeInputMaxSentences(contextWindowTokens) {
+export function getTopicRangeInputMaxSentences(
+  contextWindowTokens,
+  maxOutputTokens = LLM_MAX_OUTPUT_TOKENS,
+) {
+  const outputCeiling = maxTopicRangeSentencesForOutputBudget(maxOutputTokens);
   const contextTokens = normalizeContextTokens(contextWindowTokens);
-  if (contextTokens === null) return TOPIC_RANGE_INPUT_MAX_SENTENCES;
+  if (contextTokens === null) return outputCeiling;
   const maxChars = getPipelineTextChunkMaxChars(contextTokens);
   const payloadTokens = estimateTokensForCharCount(maxChars, {
     bytesPerChar: WORST_CASE_BYTES_PER_CODE_UNIT,
   });
   const responseTokens = contextTokens - PIPELINE_FIXED_PROMPT_TOKENS - payloadTokens;
   return Math.min(
-    TOPIC_RANGE_INPUT_MAX_SENTENCES,
+    outputCeiling,
     Math.max(1, Math.floor(responseTokens / TOPIC_RANGE_RESPONSE_TOKENS_PER_SENTENCE)),
   );
 }
