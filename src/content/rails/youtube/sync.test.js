@@ -184,9 +184,7 @@ describe('buildYouTubeRailCards', () => {
       sentences: segmentedSentences,
       topic_summary_index: {
         Pricing: {
-          runs: [
-            { sentences: [2, 4], text: 'One summary blob covering both mentions.' },
-          ],
+          runs: [{ sentences: [2, 4], text: 'One summary blob covering both mentions.' }],
           source_sentences: [2, 4],
           level: 0,
         },

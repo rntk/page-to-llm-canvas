@@ -262,7 +262,9 @@ describe('in-page rail surface', () => {
 
       expect(document.body.classList.contains('pagetollm-rail-open')).toBe(true);
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(true);
-      expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe('276px');
+      expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe(
+        '276px',
+      );
 
       // Falsy path: clearing the injected overflow restores the normal box model.
       mockMetrics(1000, 1000);
@@ -310,21 +312,29 @@ describe('in-page rail surface', () => {
       const surface = manager.createSurface({ state });
 
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
-      expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe('276px');
+      expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe(
+        '276px',
+      );
 
       state.mode = 'chat';
       surface.setRailWidthForMode();
-      expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe('396px');
+      expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe(
+        '396px',
+      );
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(true);
 
       state.mode = 'summaries';
       surface.setRailWidthForMode();
-      expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe('356px');
+      expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe(
+        '356px',
+      );
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(true);
 
       state.mode = 'topics';
       surface.setRailWidthForMode();
-      expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe('276px');
+      expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe(
+        '276px',
+      );
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
 
       // Explicit overflow without reserve-awareness also toggles on every width change.

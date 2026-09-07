@@ -55,10 +55,7 @@ export function applyHighlightColorToElement(
   if (!el || !el.style || typeof el.style.setProperty !== 'function') return;
   const normalized = normalizeHighlightColor(color);
   el.style.setProperty(HIGHLIGHT_CSS_VARS[0], normalized);
-  el.style.setProperty(
-    HIGHLIGHT_CSS_VARS[1],
-    highlightColorWithAlpha(normalized, backgroundAlpha),
-  );
+  el.style.setProperty(HIGHLIGHT_CSS_VARS[1], highlightColorWithAlpha(normalized, backgroundAlpha));
   el.style.setProperty(
     HIGHLIGHT_CSS_VARS[2],
     highlightColorWithAlpha(normalized, hoverBackgroundAlpha),

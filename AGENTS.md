@@ -1,8 +1,9 @@
-# Welcome, Agent! 
+# Welcome, Agent!
 
 To ensure optimal performance, keep context clean, and minimize token costs, please adhere to the following rules when working in this codebase.
 
 ---
+
 ## 1. Run Tests via Subagents (Context Management)
 
 Running test suites (e.g., Jest, Vitest, Cypress, Playwright, etc.) directly in the main agent's terminal can generate extremely verbose test outputs, stack traces, and logs. This pollutes your context window, increases latency, and degrades reasoning quality.

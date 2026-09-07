@@ -59,7 +59,7 @@ function decodeEntityAt(text, index) {
     }
   }
 
-    const key = body.toLowerCase();
+  const key = body.toLowerCase();
   if (!Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, key)) return null;
   const decoded = NAMED_ENTITIES[key];
   return [decoded, semicolon - index + 1];

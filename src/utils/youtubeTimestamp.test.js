@@ -35,9 +35,9 @@ describe('getYouTubeVideoId', () => {
     expect(getYouTubeVideoId('https://www.youtube.com/watch?t=420s&v=VZTmS4B840k')).toBe(
       'VZTmS4B840k',
     );
-    expect(
-      getYouTubeVideoId('https://www.youtube.com/watch?v=VZTmS4B840k&list=playlist-id'),
-    ).toBe('VZTmS4B840k');
+    expect(getYouTubeVideoId('https://www.youtube.com/watch?v=VZTmS4B840k&list=playlist-id')).toBe(
+      'VZTmS4B840k',
+    );
     expect(getYouTubeVideoId('https://youtu.be/VZTmS4B840k?t=420')).toBe('VZTmS4B840k');
   });
 

@@ -270,9 +270,7 @@ describe('selection controller', () => {
     act(() => block.dispatchEvent(event('click')));
 
     await act(async () => click(toolbarButton('pagetollm-submit-btn')));
-    await vi.waitFor(() =>
-      expect(alert).toHaveBeenCalledWith('PageToLLM error: network down'),
-    );
+    await vi.waitFor(() => expect(alert).toHaveBeenCalledWith('PageToLLM error: network down'));
     await flush();
 
     expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();

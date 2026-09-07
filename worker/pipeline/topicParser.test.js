@@ -182,7 +182,13 @@ describe('colons in topic paths', () => {
   it('keeps ranges when trailing prose after them contains a colon', () => {
     const result = parseTopicRangesDetailed('Tech>AI: 0-5, 7-9, note: unclear', 10);
     expect(result.groups).toEqual([
-      { label: ['Tech', 'AI'], ranges: [{ start: 0, end: 6 }, { start: 7, end: 9 }] },
+      {
+        label: ['Tech', 'AI'],
+        ranges: [
+          { start: 0, end: 6 },
+          { start: 7, end: 9 },
+        ],
+      },
     ]);
     expect(result.diagnostics).toMatchObject({
       parsedLineCount: 1,

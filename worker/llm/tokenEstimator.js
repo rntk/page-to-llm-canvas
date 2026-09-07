@@ -54,7 +54,8 @@ export function estimateTokens(text, options = {}) {
 // Defaults to WORST_CASE_BYTES_PER_CODE_UNIT so callers that forget the
 // option remain conservative rather than silently underestimating.
 export function estimateTokensForCharCount(charCount, options = {}) {
-  if (!Number.isFinite(charCount) || charCount < 0) throw new TypeError('charCount must be a non-negative finite number');
+  if (!Number.isFinite(charCount) || charCount < 0)
+    throw new TypeError('charCount must be a non-negative finite number');
   if (charCount === 0) return 0;
   const {
     safetyFactor = ESTIMATOR_SAFETY_FACTOR,
