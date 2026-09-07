@@ -24,22 +24,45 @@ import {
   recordSourceSummaryUnitStoragePrefix as sourceSummaryUnitStoragePrefix,
   recordSourceSummaryUnitStorageKey as sourceSummaryUnitStorageKey,
   recordStoragePrefix,
-  decodeRecordStorageSegment,
 } from './keys.js';
+import {
+  RECORD_STORAGE_PREFIX,
+  RECORD_STORAGE_SCHEMA_VERSION,
+  createContentRevision,
+  hasOwn,
+  isCurrentRecordMeta,
+  isStaleRun,
+  loadMetaForWrite,
+} from './recordMeta.js';
+import {
+  INDEX_KEY,
+  buildRecordMeta,
+  readIndex,
+  syncIndexMeta,
+  writeIndex,
+  _resetIndexRepairThrottle,
+} from './recordIndex.js';
+import { disposeProcessingLogs } from './processingLog.js';
 import { createLogger } from '../../src/shared/runtime/log.js';
+
+// This module is the record repository's public surface. Partitioning, record
+// CRUD and the checkpoint writers live here; the index cache, the buffered
+// processing log and storage reconciliation live in the sibling modules
+// re-exported below, so callers keep importing one module.
+export { INDEX_KEY, INDEX_REPAIR_THROTTLE_MS, listRecords } from './recordIndex.js';
+export {
+  RECORD_STORAGE_PREFIX,
+  RECORD_STORAGE_SCHEMA_VERSION,
+  buildRecordSnippet,
+} from './recordMeta.js';
+export { appendProcessingLog, disposeProcessingLogs, flushProcessingLog } from './processingLog.js';
+export { reconcileRecordStorage } from './recordReconcile.js';
 
 const log = createLogger();
 
-export const INDEX_KEY = 'pagetollm:index';
-const MAX_PROCESSING_LOG_ENTRIES = 80;
-const RECORD_SNIPPET_MAX_CHARS = 500;
-export const INDEX_REPAIR_THROTTLE_MS = 5 * 60 * 1000;
-export const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
-export const RECORD_STORAGE_SCHEMA_VERSION = 2;
 export const SOURCE_SUMMARY_UNIT_REVISION_MISMATCH = Object.freeze({
   reason: 'content_revision_mismatch',
 });
-let lastIndexProjectionRepairAt = null;
 
 // Storage is organized by mutation unit, not by the old monolithic logical
 // ArticleRecord shape. Large immutable content and final UI output have one
@@ -60,10 +83,6 @@ const RECORD_PAYLOAD_SCHEMAS = Object.freeze([
   { name: 'content', fields: CONTENT_FIELDS, storageKey: contentStorageKey },
   { name: 'summaryOutput', fields: SUMMARY_OUTPUT_FIELDS, storageKey: summaryOutputStorageKey },
 ]);
-
-function hasOwn(obj, field) {
-  return Object.prototype.hasOwnProperty.call(obj, field);
-}
 
 function pickFields(obj, fields) {
   const out = {};
@@ -157,183 +176,16 @@ function assembleSummaryWork(key, documents, meta) {
 }
 
 /**
- * Returns this module's realm-scoped state to its initial condition. Buffered
+ * Returns the repository's realm-scoped state — spread across this module,
+ * recordIndex.js and processingLog.js — to its initial condition. Buffered
  * log disposal is the production lifecycle hook (`disposeProcessingLogs`); the
  * mutation-queue and repair-throttle resets are test-only, since neither has a
  * meaning outside a fresh realm.
  */
 export function _resetUpdateQueues() {
   resetUpdateQueues();
-  lastIndexProjectionRepairAt = null;
+  _resetIndexRepairThrottle();
   disposeProcessingLogs();
-}
-
-async function readIndex() {
-  const items = await getLocal(INDEX_KEY);
-  const idx = items[INDEX_KEY];
-  if (idx && Array.isArray(idx.keys)) {
-    return { keys: idx.keys, meta: idx.meta && typeof idx.meta === 'object' ? idx.meta : {} };
-  }
-  return { keys: [], meta: {} };
-}
-
-async function writeIndex(idx) {
-  await setLocal({ [INDEX_KEY]: idx });
-}
-
-/**
- * The lightweight projection of a record cached in the index (`meta`) and
- * returned by `listRecords`. Kept separate from the full record so that
- * frequent metadata-only changes (status/progress ticks) never require
- * reading or writing every record's full payload (html/text/sentences/
- * topics/summaries) just to keep listings up to date.
- * @param {object} rec Record metadata source.
- */
-function buildRecordMeta(rec, { snippet = buildRecordSnippet(rec) } = {}) {
-  return {
-    sourceUrl: rec.sourceUrl,
-    snippet,
-    // Text generation the cached snippet was taken from. Startup
-    // reconciliation compares it against the (small) meta document to decide
-    // whether it has to read the record's content document at all; a missing
-    // or mismatched value only means the snippet is re-derived.
-    snippetRevision: rec.textRevision,
-    createdAt: rec.createdAt,
-    status: rec.status,
-    progress: rec.progress,
-    error: rec.error,
-    // Outcome flags, not the run directive. Listings use both to offer summary
-    // generation, while viewers only use `summariesDisabled` to hide summaries.
-    summariesDisabled: rec.summariesDisabled === true,
-    summariesIncomplete: rec.summariesIncomplete === true,
-  };
-}
-
-const INDEX_META_FIELDS = [
-  'status',
-  'progress',
-  'error',
-  'text',
-  'sourceUrl',
-  'summariesDisabled',
-  'summariesIncomplete',
-];
-
-/**
- * Best-effort, incremental refresh of a record's cached index projection.
- * Only reads/writes the small `patch` fields the projection cares about (plus
- * whatever was already cached) — never the full record — so a status/progress
- * tick never has to pull in the (possibly large) content doc just to keep the
- * snippet around. The snippet itself is only recomputed when `patch.text` is
- * actually present (i.e. when the content doc changes), not on every sync.
- * Skipped entirely when `patch` touches none of the fields the projection
- * exposes, so the (much more frequent) processingLog-only writes never touch
- * the index. A failure here only makes the cached listing momentarily stale —
- * it never threatens the record write that already succeeded — so it is
- * swallowed.
- * @param {string} key Record key.
- * @param {object} patch Partial record update.
- * @param {object} fallbackMeta Existing metadata fallback.
- */
-async function syncIndexMeta(key, patch, fallbackMeta) {
-  if (!INDEX_META_FIELDS.some((f) => hasOwn(patch, f))) return;
-  try {
-    await queuedUpdate(INDEX_KEY, async () => {
-      const idx = await readIndex();
-      if (!idx.keys.includes(key)) return; // record was deleted concurrently
-      const prev = idx.meta[key] || {};
-      const next = { ...prev };
-      if (hasOwn(patch, 'status')) next.status = patch.status;
-      if (hasOwn(patch, 'progress')) next.progress = patch.progress;
-      if (hasOwn(patch, 'error')) next.error = patch.error;
-      if (hasOwn(patch, 'sourceUrl')) next.sourceUrl = patch.sourceUrl;
-      if (hasOwn(patch, 'summariesDisabled'))
-        next.summariesDisabled = patch.summariesDisabled === true;
-      if (hasOwn(patch, 'summariesIncomplete'))
-        next.summariesIncomplete = patch.summariesIncomplete === true;
-      if (hasOwn(patch, 'text')) {
-        next.snippet = buildRecordSnippet({ text: patch.text });
-        next.snippetRevision = fallbackMeta && fallbackMeta.textRevision;
-      }
-      if (next.createdAt === undefined) next.createdAt = fallbackMeta && fallbackMeta.createdAt;
-      idx.meta[key] = next;
-      await writeIndex(idx);
-    });
-  } catch (err) {
-    // The meta document was already written when this projection write failed.
-    // Retry from that authoritative document rather than merely replaying the
-    // patch: a concurrent writer may have changed another projected field in
-    // the meantime. If storage remains unavailable, listRecords() still
-    // overlays the authoritative metadata for callers (including keepalive),
-    // and retries persisting the repaired projection on its next read.
-    try {
-      // The repair below rebuilds the projection from the meta document only,
-      // so it cannot restore a snippet this failed write was carrying. It does
-      // not have to: the meta document already committed a new textRevision,
-      // which no longer matches the projection's snippetRevision, so the next
-      // reconciliation re-reads the content document and recomputes it.
-      await repairIndexedRecordProjection(key);
-    } catch (repairErr) {
-      log.warn('failed to sync index meta for', key, err);
-      log.warn('failed to repair index meta for', key, repairErr);
-    }
-  }
-}
-
-/**
- * Copies fields that are authoritative in a record's meta document into an
- * existing index projection. The text snippet — and the `snippetRevision`
- * marker naming the generation it was taken from — deliberately remains
- * cached: text lives in the separate content document and normal content
- * writes already update both through syncIndexMeta().
- * @param {object} meta Authoritative record metadata document.
- * @param {object} [cached] Existing lightweight index projection.
- * @returns {object} Repaired lightweight index projection.
- */
-function mergeAuthoritativeMetaIntoProjection(meta, cached = {}) {
-  return {
-    ...cached,
-    sourceUrl: meta.sourceUrl,
-    createdAt: meta.createdAt,
-    status: meta.status,
-    progress: meta.progress,
-    error: meta.error,
-    summariesDisabled: meta.summariesDisabled === true,
-    summariesIncomplete: meta.summariesIncomplete === true,
-  };
-}
-
-function isRecordMeta(value) {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function isCurrentRecordMeta(value) {
-  return isRecordMeta(value) && value.storageSchemaVersion === RECORD_STORAGE_SCHEMA_VERSION;
-}
-
-/**
- * Rebuilds one already-indexed record's lightweight projection from its
- * authoritative metadata. This is intentionally narrow: it is the recovery
- * path for an interrupted incremental index write, whereas startup's
- * reconcileRecordStorage() remains responsible for discovering unindexed
- * records and ownerless documents.
- * @param {string} key Record key whose existing projection should be repaired.
- * @returns {Promise<void>}
- */
-async function repairIndexedRecordProjection(key) {
-  return queuedUpdate(INDEX_KEY, async () => {
-    const idx = await readIndex();
-    if (!idx.keys.includes(key)) return;
-    const meta = (await getLocal(metaStorageKey(key)))[metaStorageKey(key)];
-    const next = { keys: [...idx.keys], meta: { ...idx.meta } };
-    if (!isCurrentRecordMeta(meta)) {
-      next.keys = next.keys.filter((item) => item !== key);
-      delete next.meta[key];
-    } else {
-      next.meta[key] = mergeAuthoritativeMetaIntoProjection(meta, idx.meta[key]);
-    }
-    if (JSON.stringify(next) !== JSON.stringify(idx)) await writeIndex(next);
-  });
 }
 
 // A full read pairs one static read with a later work-document scan. A summary
@@ -565,40 +417,6 @@ async function rollbackRecordDocs(priorDocs, docKeys) {
 }
 
 /**
- * Loads a record's meta doc for a write path (updateRecord / log flush).
- * Only reads the small meta doc — the whole point of the split, since this
- * runs on nearly every pipeline step. Returns `null` if the record does not
- * exist.
- * @param {string} key Record key.
- */
-async function loadMetaForWrite(key) {
-  const metaKey = metaStorageKey(key);
-  const items = await getLocal(metaKey);
-  const meta = items[metaKey];
-  return isCurrentRecordMeta(meta) ? meta : null;
-}
-
-function createContentRevision() {
-  const uuid = globalThis.crypto?.randomUUID?.();
-  return uuid
-    ? `rev_${uuid}`
-    : `rev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
-}
-
-function isStaleRun(meta, options) {
-  if (
-    hasOwn(options, 'expectedPipelineRunId') &&
-    meta.pipelineRunId !== options.expectedPipelineRunId
-  ) {
-    return true;
-  }
-  return (
-    hasOwn(options, 'expectedStatuses') &&
-    (!Array.isArray(options.expectedStatuses) || !options.expectedStatuses.includes(meta.status))
-  );
-}
-
-/**
  * @param {string} key
  * @param {Partial<ArticleRecord>} patch
  * @param {object} [options]
@@ -798,280 +616,6 @@ export async function putSourceSummaryUnit(key, unit, options = {}) {
   );
 }
 
-// Pipeline stages fire a processingLog entry on nearly every LLM request and
-// response (see orchestrator.js logPipeline), which used to mean one full
-// read-modify-write of the record per entry. Entries are instead buffered in
-// memory per record key and flushed as a single write once the buffer has
-// been quiet for LOG_FLUSH_DELAY_MS (bounded from the first buffered entry,
-// not reset per entry, so a sustained burst still flushes periodically).
-//
-// These realm-scoped maps share the mutation queue's lifetime so every caller
-// coalesces through one buffer. Recycling may lose diagnostics; lifecycle
-// disposal below prevents them from landing in the wrong record.
-const LOG_FLUSH_DELAY_MS = 250;
-/** @type {Map<string, {entries: object[], options: object, disposed?: boolean, deferred: {promise: Promise, resolve: Function, reject: Function}}>} */
-const _logBuffers = new Map();
-/** @type {Map<string, *>} */
-const _logFlushTimers = new Map();
-// Buffers that have been detached from _logBuffers (so new entries start a
-// fresh buffer) but have not yet written: they are waiting on the mutation and
-// key queues. A key can hold more than one, because appendProcessingLog
-// detaches a stale run's buffer while the debounce flush of another may still
-// be parked. They stay tracked here so disposeProcessingLogs can cancel a flush
-// that is queued behind the very delete doing the disposing.
-/** @type {Map<string, Set<object>>} */
-const _flushingBuffers = new Map();
-
-function createDeferred() {
-  let resolve, reject;
-  const promise = new Promise((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-function trackFlushing(key, buf) {
-  let inflight = _flushingBuffers.get(key);
-  if (!inflight) {
-    inflight = new Set();
-    _flushingBuffers.set(key, inflight);
-  }
-  inflight.add(buf);
-}
-
-function untrackFlushing(key, buf) {
-  const inflight = _flushingBuffers.get(key);
-  if (!inflight) return;
-  inflight.delete(buf);
-  if (inflight.size === 0) _flushingBuffers.delete(key);
-}
-
-async function doFlushProcessingLog(key) {
-  const buf = _logBuffers.get(key);
-  if (!buf) return null;
-  // Detach immediately so later entries start a new buffer under their own
-  // run options, but stay cancellable until this flush actually owns the key
-  // queue: deleteRecord/deleteAll dispose from inside that same critical
-  // section, so a flush parked behind a delete must not write afterwards.
-  _logBuffers.delete(key);
-  trackFlushing(key, buf);
-  const { entries, options } = buf;
-  try {
-    const result = await queuedUpdate(MUTATION_QUEUE_KEY, () =>
-      queuedUpdate(key, async () => {
-        if (!_flushingBuffers.get(key)?.has(buf)) return null;
-        const meta = await loadMetaForWrite(key);
-        if (!meta) return null;
-        if (isStaleRun(meta, options)) return null;
-
-        const documentKey = diagnosticsStorageKey(key);
-        const diagnostics = (await getLocal(documentKey))[documentKey] || {};
-        const existing = Array.isArray(diagnostics.processingLog) ? diagnostics.processingLog : [];
-        const processingLog = [...existing, ...entries].slice(-MAX_PROCESSING_LOG_ENTRIES);
-        const mergedDiagnostics = { processingLog };
-
-        await setLocal({ [documentKey]: mergedDiagnostics });
-        return mergedDiagnostics;
-      }),
-    );
-    // A disposed buffer had its deferred settled by disposeProcessingLogs.
-    if (!buf.disposed) buf.deferred.resolve(result);
-    return result;
-  } catch (err) {
-    if (!buf.disposed) buf.deferred.reject(err);
-    return null;
-  } finally {
-    untrackFlushing(key, buf);
-  }
-}
-
-/**
- * Forces any buffered log entries for `key` to flush immediately, bypassing
- * the debounce timer. Called at pipeline run exit so the final batch of
- * diagnostic entries isn't left stranded if the service worker is recycled
- * shortly after.
- * @param {string} key
- * @returns {Promise<object | null>}
- */
-export function flushProcessingLog(key) {
-  const timer = _logFlushTimers.get(key);
-  if (timer) {
-    clearTimeout(timer);
-    _logFlushTimers.delete(key);
-  }
-  if (!_logBuffers.has(key)) return Promise.resolve(null);
-  return doFlushProcessingLog(key);
-}
-
-/**
- * Discards buffered entries without writing them. Called when the records they
- * describe are being removed: a buffer that outlives its record would otherwise
- * flush after the delete, and entries appended without an
- * `expectedPipelineRunId` bypass the stale-run guard, so a record recreated
- * inside the debounce window could inherit the deleted run's log.
- *
- * Pending `appendProcessingLog` promises resolve with `null` (the same value a
- * flush that finds no meta document produces) rather than rejecting, so
- * discarding cannot turn into an unhandled rejection on a diagnostic path.
- * @param {string} [key] Record key to discard; omit to discard every buffer.
- */
-export function disposeProcessingLogs(key) {
-  const keys =
-    key === undefined
-      ? [...new Set([..._logBuffers.keys(), ..._flushingBuffers.keys(), ..._logFlushTimers.keys()])]
-      : [key];
-  for (const k of keys) {
-    const timer = _logFlushTimers.get(k);
-    if (timer) {
-      clearTimeout(timer);
-      _logFlushTimers.delete(k);
-    }
-    const buf = _logBuffers.get(k);
-    if (buf) {
-      _logBuffers.delete(k);
-      buf.disposed = true;
-      buf.deferred.resolve(null);
-    }
-    // Cancel detached buffers too: a flush waiting on the mutation or key
-    // queue would otherwise resume after the caller's delete and write into a
-    // record that no longer exists (or was recreated in the meantime).
-    for (const inflight of _flushingBuffers.get(k) ?? []) {
-      inflight.disposed = true;
-      inflight.deferred.resolve(null);
-    }
-    _flushingBuffers.delete(k);
-  }
-}
-
-/**
- * @param {string} key
- * @param {string} stage
- * @param {Record<string, unknown>} [details]
- * @param {object} [options]  Identifies the pipeline
- *   run this entry belongs to; a buffer whose entries were queued under a
- *   different run id is treated as stale and flushed before this entry starts
- *   a new buffer under `options`.
- * @param {unknown} [options.expectedPipelineRunId]
- * @returns {Promise<object | null>}
- */
-export function appendProcessingLog(key, stage, details = {}, options = {}) {
-  const entry = { at: new Date().toISOString(), stage, details };
-  const stale = _logBuffers.get(key);
-  if (stale && stale.options.expectedPipelineRunId !== options.expectedPipelineRunId) {
-    // A new pipeline run (retry/reprocess) started for this record before the
-    // previous run's buffered entries flushed. Flush the stale buffer now,
-    // under its own run id, instead of letting its entries ride along on this
-    // call's options — otherwise they'd bypass the stale-run guard in
-    // doFlushProcessingLog and get written in under the new run's identity.
-    void flushProcessingLog(key);
-  }
-  let buf = _logBuffers.get(key);
-  if (!buf) {
-    buf = { entries: [], options, deferred: createDeferred() };
-    _logBuffers.set(key, buf);
-  }
-  buf.entries.push(entry);
-  buf.options = options;
-  if (!_logFlushTimers.has(key)) {
-    const timer = setTimeout(() => {
-      _logFlushTimers.delete(key);
-      void doFlushProcessingLog(key);
-    }, LOG_FLUSH_DELAY_MS);
-    _logFlushTimers.set(key, timer);
-  }
-  return buf.deferred.promise;
-}
-
-/**
- * Rewrites the index projection from the authoritative meta documents.
- * Best-effort cache maintenance only: callers already hold correct data, so a
- * failure here is logged and swallowed rather than failing their read.
- * @returns {Promise<void>}
- */
-async function repairAllIndexProjections() {
-  await queuedUpdate(INDEX_KEY, async () => {
-    // Re-read while holding the index queue so a concurrent incremental
-    // projection write cannot be overwritten by this repair.
-    const current = await readIndex();
-    const currentMetaKeys = current.keys.map(metaStorageKey);
-    const currentMetas = currentMetaKeys.length ? await getLocal(currentMetaKeys) : {};
-    const next = { keys: [], meta: {} };
-    for (const key of current.keys) {
-      const authoritativeMeta = currentMetas[metaStorageKey(key)];
-      if (isCurrentRecordMeta(authoritativeMeta)) {
-        next.keys.push(key);
-        next.meta[key] = mergeAuthoritativeMetaIntoProjection(authoritativeMeta, current.meta[key]);
-      }
-    }
-    if (JSON.stringify(next) !== JSON.stringify(current)) await writeIndex(next);
-  }).catch((err) => {
-    // The caller's projections are still correct. Keeping the listing usable
-    // matters most for terminal states, and a later scan retries after the
-    // repair throttle expires.
-    log.warn('failed to repair record index projection:', err);
-  });
-}
-
-function shouldAttemptIndexProjectionRepair(now = Date.now()) {
-  if (lastIndexProjectionRepairAt !== null) {
-    const elapsed = now - lastIndexProjectionRepairAt;
-    if (elapsed >= 0 && elapsed < INDEX_REPAIR_THROTTLE_MS) return false;
-  }
-  lastIndexProjectionRepairAt = now;
-  return true;
-}
-
-/**
- * Lists every indexed record's metadata, read authoritatively.
- *
- * Cost, because this is called on hot paths (the 30s keepalive alarm, the popup
- * and Options listings): one index read plus one batched `getLocal` of EVERY
- * record's meta document — not an index-only read. When the cached projection
- * turns out to be stale, this read path may also WRITE: a throttled
- * `repairAllIndexProjections` attempt re-reads the index and every meta
- * document under the index queue before rewriting the cache. Authoritative
- * reads are never throttled; only this best-effort persistence repair is.
- * Content/summaries documents are never touched on this path.
- *
- * The extra reads are deliberate: the index is a cache, never the source of
- * truth for a record's status. `updateRecord` commits the small meta document
- * before its index projection, so a failed projection write would otherwise
- * hide a terminal error/done state from the popup, Options, and the keepalive
- * alarm indefinitely.
- * @returns {Promise<Array<Partial<ArticleRecord>>>}
- */
-export async function listRecords() {
-  const idx = await readIndex();
-  const metaKeys = idx.keys.map(metaStorageKey);
-  const metas = metaKeys.length ? await getLocal(metaKeys) : {};
-  const out = [];
-  const repaired = { keys: [], meta: {} };
-  for (const k of idx.keys) {
-    const authoritativeMeta = metas[metaStorageKey(k)];
-    if (!isCurrentRecordMeta(authoritativeMeta)) continue;
-    const meta = mergeAuthoritativeMetaIntoProjection(authoritativeMeta, idx.meta[k]);
-    repaired.keys.push(k);
-    repaired.meta[k] = meta;
-    // snippetRevision is cache bookkeeping for reconciliation, not part of the
-    // record a listing caller sees.
-    const { snippetRevision: _snippetRevision, ...view } = meta;
-    out.push({ key: k, ...view });
-  }
-  if (JSON.stringify(repaired) !== JSON.stringify(idx) && shouldAttemptIndexProjectionRepair()) {
-    await repairAllIndexProjections();
-  }
-  return out;
-}
-
-export function buildRecordSnippet(record) {
-  const text = String((record && record.text) || '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (text.length <= RECORD_SNIPPET_MAX_CHARS) return text;
-  return `${text.slice(0, RECORD_SNIPPET_MAX_CHARS).trimEnd()}...`;
-}
-
 /** Returns all physical page-record documents, including unindexed orphans. */
 async function allRecordStorageKeys() {
   return getLocalKeysByPrefix(RECORD_STORAGE_PREFIX);
@@ -1129,225 +673,6 @@ export async function deleteAll() {
       disposeProcessingLogs();
     });
   });
-}
-
-function recordKeyFromStorageDocument(storageKey, suffix) {
-  if (!storageKey.startsWith(RECORD_STORAGE_PREFIX) || !storageKey.endsWith(suffix)) return null;
-  const segment = storageKey.slice(RECORD_STORAGE_PREFIX.length, -suffix.length);
-  return segment ? decodeRecordStorageSegment(segment) : null;
-}
-
-function recordKeyFromWorkDocument(storageKey, marker) {
-  if (!storageKey.startsWith(RECORD_STORAGE_PREFIX)) return null;
-  const markerIndex = storageKey.lastIndexOf(marker);
-  if (
-    markerIndex < RECORD_STORAGE_PREFIX.length ||
-    markerIndex + marker.length >= storageKey.length
-  ) {
-    return null;
-  }
-  return decodeRecordStorageSegment(storageKey.slice(RECORD_STORAGE_PREFIX.length, markerIndex));
-}
-
-function recognizedRecordDocumentOwner(storageKey) {
-  for (const suffix of [
-    ':meta',
-    ':content',
-    ':summary-output',
-    ':topic-range-work',
-    ':diagnostics',
-  ]) {
-    const key = recordKeyFromStorageDocument(storageKey, suffix);
-    if (key) return key;
-  }
-  return (
-    recordKeyFromWorkDocument(storageKey, ':summary-leaf:') ||
-    recordKeyFromWorkDocument(storageKey, ':summary-unit:')
-  );
-}
-
-function workDocumentMatchesOwnerGeneration(storageKey, value, ownerMeta) {
-  if (storageKey.startsWith(summaryLeafStoragePrefix(ownerMeta.key))) {
-    return (
-      value?.contentRevision === ownerMeta.contentRevision &&
-      value?.collectionRevision === ownerMeta.topicSummariesRevision
-    );
-  }
-  if (storageKey.startsWith(sourceSummaryUnitStoragePrefix(ownerMeta.key))) {
-    return (
-      value?.contentRevision === ownerMeta.contentRevision &&
-      value?.collectionRevision === ownerMeta.sourceSummaryUnitsRevision
-    );
-  }
-  return true;
-}
-
-// Reconciliation walks every physical record document, so it reads storage in
-// slices rather than pulling the whole corpus into one object: each slice is
-// reduced to a decision (obsolete / keep) or a snippet string and then dropped.
-// Work and meta documents are small; content documents carry the html, text,
-// sentences and topics of a page, so they get a much smaller slice — and are
-// only read for records whose cached snippet is missing or belongs to a
-// superseded content generation.
-const RECONCILE_METADATA_BATCH_SIZE = 50;
-const RECONCILE_CONTENT_BATCH_SIZE = 10;
-
-/**
- * Reads the given storage keys in bounded batches, handing each key and its
- * value to `visit`. Values are only reachable for the duration of their own
- * batch, so peak memory is proportional to the batch, not to the corpus.
- * @param {string[]} storageKeys
- * @param {number} batchSize
- * @param {(storageKey: string, value: unknown) => void} visit
- */
-async function forEachStoredDocument(storageKeys, batchSize, visit) {
-  for (let offset = 0; offset < storageKeys.length; offset += batchSize) {
-    const slice = storageKeys.slice(offset, offset + batchSize);
-    const documents = await getLocal(slice);
-    for (const storageKey of slice) visit(storageKey, documents[storageKey]);
-  }
-}
-
-/**
- * Gives records stored before `textRevision` existed a marker, so the snippet
- * just re-derived from their content document can be trusted on the next cold
- * start instead of costing another full content read every time.
- *
- * Safe to write here: reconciliation holds the global mutation queue, which
- * every writer passes through, so no concurrent write can be overwritten. It is
- * also best effort — a failure only means those records keep re-reading their
- * content, exactly as they did before the marker existed — so the metas are
- * only updated once the write has actually landed.
- * @param {Map<string, object>} metas Meta documents keyed by record key.
- */
-async function backfillTextRevisions(metas) {
-  const pending = [];
-  for (const [key, meta] of metas) {
-    if (typeof meta.textRevision === 'string') continue;
-    pending.push([key, { ...meta, textRevision: createContentRevision() }]);
-  }
-  for (let offset = 0; offset < pending.length; offset += RECONCILE_METADATA_BATCH_SIZE) {
-    const slice = pending.slice(offset, offset + RECONCILE_METADATA_BATCH_SIZE);
-    try {
-      await setLocal(Object.fromEntries(slice.map(([key, meta]) => [metaStorageKey(key), meta])));
-    } catch (err) {
-      // Leave the remaining records unmarked rather than retrying into a
-      // storage area that is refusing writes; the next cold start tries again.
-      log.warn('failed to backfill record text revisions:', err);
-      return;
-    }
-    for (const [key, meta] of slice) metas.set(key, meta);
-  }
-}
-
-/**
- * Removes invalid or ownerless record documents, then rebuilds the index from
- * records written in the current storage schema.
- */
-export async function reconcileRecordStorage() {
-  return queuedUpdate(MUTATION_QUEUE_KEY, () =>
-    queuedUpdate(INDEX_KEY, async () => {
-      const storageKeys = await getLocalKeysByPrefix(RECORD_STORAGE_PREFIX);
-      const metaKeys = [];
-      // Work-document values are needed to collect checkpoints from superseded
-      // content/collection generations. Every other payload document
-      // participates by key only.
-      const workKeys = [];
-      const payloadKeys = [];
-      for (const storageKey of storageKeys) {
-        if (storageKey.endsWith(':meta')) metaKeys.push(storageKey);
-        else if (storageKey.includes(':summary-leaf:') || storageKey.includes(':summary-unit:'))
-          workKeys.push(storageKey);
-        else payloadKeys.push(storageKey);
-      }
-
-      const metas = new Map();
-      const obsoleteKeys = new Set();
-      await forEachStoredDocument(metaKeys, RECONCILE_METADATA_BATCH_SIZE, (storageKey, meta) => {
-        const key = recordKeyFromStorageDocument(storageKey, ':meta');
-        if (!key || metaStorageKey(key) !== storageKey || !isCurrentRecordMeta(meta)) {
-          obsoleteKeys.add(storageKey);
-          return;
-        }
-        metas.set(key, meta);
-      });
-
-      const ownedByCurrentRecord = (storageKey) => {
-        const owner = recognizedRecordDocumentOwner(storageKey);
-        return owner && storageKey.startsWith(recordStoragePrefix(owner)) && metas.has(owner)
-          ? owner
-          : null;
-      };
-
-      for (const storageKey of payloadKeys) {
-        if (!ownedByCurrentRecord(storageKey)) obsoleteKeys.add(storageKey);
-      }
-      await forEachStoredDocument(workKeys, RECONCILE_METADATA_BATCH_SIZE, (storageKey, value) => {
-        const owner = ownedByCurrentRecord(storageKey);
-        if (!owner || !workDocumentMatchesOwnerGeneration(storageKey, value, metas.get(owner))) {
-          obsoleteKeys.add(storageKey);
-        }
-      });
-
-      const current = await readIndex();
-      // Reuse a cached snippet only when the meta document still names the text
-      // generation it was taken from. Every writer commits that marker in the
-      // same setLocal() as the content document and before the index write, so
-      // a snippet that a terminated worker never got to update is always
-      // detected here. Records written before the marker existed have none, and
-      // are treated as stale (below).
-      const snippets = new Map();
-      const snippetContentKeys = [];
-      for (const [key, meta] of metas) {
-        const cached = current.meta?.[key];
-        if (
-          cached &&
-          typeof cached.snippet === 'string' &&
-          typeof meta.textRevision === 'string' &&
-          cached.snippetRevision === meta.textRevision
-        ) {
-          snippets.set(key, cached.snippet);
-        } else {
-          snippetContentKeys.push(contentStorageKey(key));
-        }
-      }
-      await forEachStoredDocument(
-        snippetContentKeys,
-        RECONCILE_CONTENT_BATCH_SIZE,
-        (storageKey, content) => {
-          const key = recordKeyFromStorageDocument(storageKey, ':content');
-          if (key) snippets.set(key, buildRecordSnippet(content || {}));
-        },
-      );
-      await backfillTextRevisions(metas);
-
-      const next = { keys: [], meta: {} };
-      const seen = new Set();
-      const addRecord = (key) => {
-        const meta = metas.get(key);
-        if (seen.has(key) || !isRecordMeta(meta)) return;
-        seen.add(key);
-        next.keys.push(key);
-        next.meta[key] = buildRecordMeta(
-          { ...meta, key },
-          { snippet: snippets.get(key) ?? buildRecordSnippet(null) },
-        );
-      };
-
-      for (const key of current.keys) addRecord(key);
-      for (const key of metas.keys()) addRecord(key);
-
-      const uniqueObsoleteKeys = [...obsoleteKeys];
-      if (uniqueObsoleteKeys.length) await removeLocal(uniqueObsoleteKeys);
-      if (JSON.stringify(current) !== JSON.stringify(next)) await writeIndex(next);
-
-      return {
-        recordCount: next.keys.length,
-        recoveredCount: next.keys.filter((key) => !current.keys.includes(key)).length,
-        removedKeys: uniqueObsoleteKeys.length,
-      };
-    }),
-  );
 }
 
 /**
