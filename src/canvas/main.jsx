@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import HierarchyApp from '../hierarchy/HierarchyApp.jsx';
+import ErrorBoundary from '../components/ErrorBoundary.jsx';
 import './modal.css';
 import { parseModalRoute } from './modalRoute.js';
 import { createThemeController } from '../shared/runtime/theme.js';
@@ -34,15 +35,19 @@ const { key, view } = parseModalRoute(window.location.search);
 const container = document.getElementById('pagetollm-root');
 const root = createRoot(container);
 const modalHost = createModalHost();
+// `window` here is our own iframe document, so the boundary's Reload fallback
+// recreates the surface without touching the host article page.
 root.render(
-  view === 'hierarchy' ? (
-    <HierarchyApp
-      initialKey={key}
-      recordSource={browserRecordSource}
-      onClose={modalHost.onClose}
-      onNavigateToSentences={modalHost.onNavigateToSentences}
-    />
-  ) : (
-    <App initialKey={key} recordSource={browserRecordSource} onClose={modalHost.onClose} />
-  ),
+  <ErrorBoundary label={view === 'hierarchy' ? 'The hierarchy view' : 'The canvas view'}>
+    {view === 'hierarchy' ? (
+      <HierarchyApp
+        initialKey={key}
+        recordSource={browserRecordSource}
+        onClose={modalHost.onClose}
+        onNavigateToSentences={modalHost.onNavigateToSentences}
+      />
+    ) : (
+      <App initialKey={key} recordSource={browserRecordSource} onClose={modalHost.onClose} />
+    )}
+  </ErrorBoundary>,
 );

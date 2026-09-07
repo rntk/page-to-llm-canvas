@@ -109,9 +109,10 @@ export function isImportableRecord(record) {
  *      `key`, `status`, `error`, `progress` and `pipelineRunId`.
  *
  * So a field is REQUIRED only if path 2 also guarantees it. Fields that path 1
- * always sets but an imported record can lack are marked optional — consumers
- * that assume otherwise (e.g. `record.sentences.length`) can throw on an
- * imported record today.
+ * always sets but an imported record can lack are marked optional, and every
+ * consumer must treat them that way (`Array.isArray(record.sentences)` rather
+ * than `record.sentences.length`) — an imported record legitimately arrives
+ * without them.
  *
  * @typedef {Object} ArticleRecord
  * @property {string} key - Content-hash-derived id; primary storage key.
