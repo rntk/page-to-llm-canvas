@@ -26,11 +26,11 @@ import {
 } from '../utils/cardTitleGeometry.js';
 
 export const CARD_WIDTH = 240;
-export const SUMMARY_CARD_WIDTH = 442;
+export const SUMMARY_CARD_WIDTH = 418;
 // The canvas can zoom out to 0.1, so allow the summary card to grow to 10x its
 // base width. This keeps its on-screen width readable instead of shrinking it
 // into a narrow, excessively tall card at the minimum zoom.
-export const SUMMARY_CARD_MAX_WIDTH = 4420;
+export const SUMMARY_CARD_MAX_WIDTH = 4180;
 export const COLUMN_GAP = 18;
 export const RAIL_PADDING = 24;
 

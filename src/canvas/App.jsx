@@ -27,7 +27,7 @@ import { useCanvasTopicNavigation } from './hooks/useCanvasTopicNavigation.js';
 import { useSummaryCardRegistry } from './hooks/useSummaryCardRegistry.js';
 import { useTopicSelection } from './hooks/useTopicSelection.js';
 import { selectCurrentTopicSummary } from '../domain/currentTopicSummary.js';
-import { getSummaryFontSizes } from '../utils/denseCardLayout.js';
+import { getFloatingSummaryFontSizes, getSummaryFontSizes } from '../utils/denseCardLayout.js';
 import ArticleChat from '../chat/ArticleChat.jsx';
 import { useChatHighlights } from '../chat/useChatHighlights.js';
 import { buildSentenceDomRange } from '../highlights/sentenceHighlight.js';
@@ -135,19 +135,11 @@ function CanvasApp({ initialKey, record, onClose }) {
         );
       }
 
-      // The floating summary follows the active rail card's height cap, just as
-      // the React-derived settled layout does, but now on every visual frame.
-      const summaryAnchor = group.querySelector(
-        '.canvas-topic-hierarchy__card.is-selected, .canvas-topic-hierarchy__card.is-active',
-      );
-      const titleCap = Number.parseFloat(
-        summaryAnchor?.style.getPropertyValue('--topic-card-title-max-font-size'),
-      );
-      const summaryFontSizes = getSummaryFontSizes({
-        titleFontSize: Number.isFinite(titleCap)
-          ? Math.min(visualTitleSize, titleCap)
-          : visualTitleSize,
-      });
+      // The floating summary scales on zoom alone, matching the settled layout
+      // in CanvasTopicHierarchyRail. Capping this to the anchor card's title cap
+      // made a live frame disagree with the React render for short anchors, so
+      // the same summary changed size on any zoom nudge.
+      const summaryFontSizes = getFloatingSummaryFontSizes(visualTitleSize);
       group.style.setProperty('--current-summary-kicker-font-size', `${summaryFontSizes.kicker}px`);
       group.style.setProperty('--current-summary-title-font-size', `${summaryFontSizes.title}px`);
       group.style.setProperty('--current-summary-text-font-size', `${summaryFontSizes.text}px`);

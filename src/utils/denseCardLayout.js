@@ -250,3 +250,37 @@ export function getSummaryFontSizes(anchorCard) {
     youtube: SUMMARY_YOUTUBE_FONT_SIZE * zoomMultiplier,
   };
 }
+
+/**
+ * Trim applied to the floating current-topic summary only. At full parity with
+ * the topic-title zoom multiplier the panel crowds the view: it has to share
+ * the screen with the reading column and the rail. Tuned by eye to 0.85 of the
+ * raw zoom size. SUMMARY_CARD_WIDTH is tuned alongside it — the two are stepped
+ * together so the panel grows and shrinks as a unit, but they are independent
+ * knobs (width sets the footprint, this sets legibility) and are NOT currently
+ * at the same fraction of parity. In-card typography (the topic title, the
+ * per-card YouTube link) keeps the untrimmed size.
+ */
+export const FLOATING_SUMMARY_FONT_RATIO = 0.85;
+
+/**
+ * Font sizes for the floating current-topic summary card.
+ *
+ * Takes the zoom-only title size (getZoomAdjustedTitleFontSize) rather than an
+ * anchor card: the panel floats outside the rail and sizes itself against the
+ * canvas transform, not against the height budget of whichever topic card it is
+ * anchored to. Both the settled React render and App's live per-frame zoom path
+ * call this, so they cannot drift apart.
+ *
+ * @param {number} zoomTitleFontSize
+ * @returns {{kicker: number, title: number, text: number, youtube: number}}
+ */
+export function getFloatingSummaryFontSizes(zoomTitleFontSize) {
+  const sizes = getSummaryFontSizes({ titleFontSize: zoomTitleFontSize });
+  return {
+    kicker: sizes.kicker * FLOATING_SUMMARY_FONT_RATIO,
+    title: sizes.title * FLOATING_SUMMARY_FONT_RATIO,
+    text: sizes.text * FLOATING_SUMMARY_FONT_RATIO,
+    youtube: sizes.youtube * FLOATING_SUMMARY_FONT_RATIO,
+  };
+}

@@ -5,9 +5,11 @@ import {
   getAdjustedHierarchyCards,
   getAdjustedTitleFontSize,
   getCardLabelHeight,
+  getFloatingSummaryFontSizes,
   getSummaryFontSizes,
   getTitleLineBudget,
 } from '../../utils/denseCardLayout.js';
+import { getZoomAdjustedTitleFontSize } from '../../domain/topicCards.js';
 import { getYouTubeTimestampLink, getYouTubeVideoId } from '../../utils/youtubeTimestamp.js';
 import { getCardEnterDelay } from '../../utils/cardEntrance.js';
 import YouTubeTimestampButton from '../../components/YouTubeTimestampButton.jsx';
@@ -333,14 +335,20 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
   );
   const hasCurrentTopicSummary = Boolean(currentTopicSummary);
   const summaryTop = summaryAnchorCard ? summaryAnchorCard.top : 0;
-  // Follow the matched topic card's already zoom-adjusted title size. This keeps
-  // the floating summary in the same visual scale as its rail anchor, including
-  // the height cap applied to dense topic cards. Deriving this from `scale`
-  // alone lets the summary keep growing after the topic title has stopped and
-  // makes the summary look permanently oversized at low canvas scales.
+  // Scale the floating summary on zoom alone, NOT on the matched rail card's
+  // `titleFontSize`. That size is capped to what the anchor card's height can
+  // physically contain (getAdjustedTitleFontSize), so a short topic card caps it
+  // back to — or below — the 12px base. The multiplier in getSummaryFontSizes
+  // then floors at 1 and the summary renders at its base 10/16/14px while the
+  // canvas transform keeps shrinking it: that is why hovering a small card gave
+  // unreadable text until a zoom nudge recomputed it. The summary is a floating
+  // panel with its own zoom-grown width (getZoomAdjustedSummaryCardWidth, also
+  // 1/scale), so an anchor's height budget never constrained it — only zoom
+  // does. Small and large topic cards now open the summary at the same
+  // on-screen size.
   const summaryFontSizes = React.useMemo(
-    () => getSummaryFontSizes(summaryAnchorCard),
-    [summaryAnchorCard],
+    () => getFloatingSummaryFontSizes(getZoomAdjustedTitleFontSize(scale)),
+    [scale],
   );
   const isYouTube = React.useMemo(() => Boolean(getYouTubeVideoId(sourceUrl)), [sourceUrl]);
   const summaryYouTubeLink = React.useMemo(

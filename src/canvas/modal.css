@@ -239,7 +239,7 @@ body.canvas-global-dragging * {
    summary column and do not reserve layout space. */
 .canvas-article-with-summaries.has-topic-hierarchy:not(.is-summary-mode) {
   padding-left: calc(
-    var(--current-summary-width, var(--current-summary-width-fallback, 442px)) + 40px
+    var(--current-summary-width, var(--current-summary-width-fallback, 418px)) + 40px
   );
 }
 
@@ -263,7 +263,7 @@ body.canvas-global-dragging * {
   position: absolute;
   left: 0;
   top: var(--current-summary-top, 0);
-  width: var(--current-summary-width, var(--current-summary-width-fallback, 442px));
+  width: var(--current-summary-width, var(--current-summary-width-fallback, 418px));
   transition: top 0.28s cubic-bezier(0.25, 1, 0.5, 1);
 
   --_pad: 20px;
@@ -1173,7 +1173,7 @@ body.canvas-global-dragging * {
      Cap it at the summary column it sits beside, which is fixed for the same
      reason. */
   width: min(
-    var(--current-summary-width, var(--current-summary-width-fallback, 442px)),
+    var(--current-summary-width, var(--current-summary-width-fallback, 418px)),
     var(--summary-column-width, 680px)
   );
   z-index: 70;

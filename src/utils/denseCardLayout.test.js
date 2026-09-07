@@ -15,6 +15,7 @@ import {
   getCardLabelHeight,
   getCompactCardHeight,
   getDenseCardZIndex,
+  getFloatingSummaryFontSizes,
   getSummaryFontSizes,
   getTitleLineBudget,
   nudgeCrowdedPair,
@@ -429,6 +430,23 @@ describe('getAdjustedHierarchyCards', () => {
 // ---------------------------------------------------------------------------
 // getSummaryFontSizes
 // ---------------------------------------------------------------------------
+describe('getFloatingSummaryFontSizes', () => {
+  it('renders the floating summary at 85% of the raw zoom sizes', () => {
+    const zoomed = getSummaryFontSizes({ titleFontSize: 27 });
+    const floating = getFloatingSummaryFontSizes(27);
+    expect(floating.kicker).toBeCloseTo(zoomed.kicker * 0.85);
+    expect(floating.title).toBeCloseTo(zoomed.title * 0.85);
+    expect(floating.text).toBeCloseTo(zoomed.text * 0.85);
+    expect(floating.youtube).toBeCloseTo(zoomed.youtube * 0.85);
+  });
+
+  it('keeps growing with the zoom-adjusted title size', () => {
+    expect(getFloatingSummaryFontSizes(24).title).toBeCloseTo(
+      getFloatingSummaryFontSizes(12).title * 2,
+    );
+  });
+});
+
 describe('getSummaryFontSizes', () => {
   it('returns base sizes when anchorCard is null', () => {
     const sizes = getSummaryFontSizes(null);

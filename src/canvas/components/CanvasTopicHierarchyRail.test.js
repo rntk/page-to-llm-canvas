@@ -333,29 +333,47 @@ describe('CanvasTopicHierarchyRail', () => {
     unmount();
   });
 
-  it('scales the current-topic summary card fonts with its topic-card title', () => {
-    const { container, unmount } = render(
-      createElement(CanvasTopicHierarchyRail, {
-        ...defaultProps,
-        topicCards: defaultProps.topicCards.map((card) =>
-          card.fullPath === 'Topic A > Sub B' ? { ...card, height: 120, titleFontSize: 24 } : card,
-        ),
-        currentTopicSummary: {
-          path: 'Topic A > Sub B',
-          text: 'A short summary of Sub B.',
-        },
-      }),
-    );
+  it('scales the current-topic summary card fonts with the canvas zoom', () => {
+    const renderAtScale = (scale) => {
+      const { container, unmount } = render(
+        createElement(CanvasTopicHierarchyRail, {
+          ...defaultProps,
+          scale,
+          topicCards: defaultProps.topicCards.map((card) =>
+            card.fullPath === 'Topic A > Sub B' ? { ...card, height: 120, titleFontSize: 24 } : card,
+          ),
+          currentTopicSummary: {
+            path: 'Topic A > Sub B',
+            text: 'A short summary of Sub B.',
+          },
+        }),
+      );
+      const summary = container.querySelector('.canvas-topic-current-summary');
+      const fonts = {
+        kicker: summary.style.getPropertyValue('--current-summary-kicker-font-size'),
+        title: summary.style.getPropertyValue('--current-summary-title-font-size'),
+        text: summary.style.getPropertyValue('--current-summary-text-font-size'),
+      };
+      unmount();
+      return fonts;
+    };
 
-    // The topic title is 2x the 12px base, so every summary metric is 2x too.
-    const summary = container.querySelector('.canvas-topic-current-summary');
-    expect(summary.style.getPropertyValue('--current-summary-kicker-font-size')).toBe('20px');
-    expect(summary.style.getPropertyValue('--current-summary-title-font-size')).toBe('32px');
-    expect(summary.style.getPropertyValue('--current-summary-text-font-size')).toBe('28px');
-    unmount();
+    // At zoom 1 the summary renders at its base sizes, trimmed by the floating
+    // panel's 0.85 ratio.
+    const atRest = renderAtScale(1);
+    expect(Number.parseFloat(atRest.kicker)).toBeCloseTo(10 * 0.85);
+    expect(Number.parseFloat(atRest.title)).toBeCloseTo(16 * 0.85);
+    expect(Number.parseFloat(atRest.text)).toBeCloseTo(14 * 0.85);
+
+    // Zoomed out to 0.5 the canvas transform halves everything on screen, so the
+    // fonts counter-scale by 1.25 / 0.5 - 0.25 = 2.25 to stay readable.
+    const zoomedOut = renderAtScale(0.5);
+    expect(Number.parseFloat(zoomedOut.kicker)).toBeCloseTo(10 * 2.25 * 0.85);
+    expect(Number.parseFloat(zoomedOut.title)).toBeCloseTo(16 * 2.25 * 0.85);
+    expect(Number.parseFloat(zoomedOut.text)).toBeCloseTo(14 * 2.25 * 0.85);
   });
 
-  it('keeps the summary card capped with a dense topic-card title', () => {
+  it('sizes the summary card the same for a dense and a tall topic-card anchor', () => {
     const renderForAnchor = (anchorOverrides) => {
       const { container, unmount } = render(
         createElement(CanvasTopicHierarchyRail, {
@@ -380,12 +398,15 @@ describe('CanvasTopicHierarchyRail', () => {
       return fonts;
     };
 
-    const denseFonts = renderForAnchor({ height: 56, titleFontSize: 20 });
+    // A short anchor card caps its own title font, but that cap must not reach
+    // the floating summary: hovering a small card used to open it at the base
+    // 16px while the canvas was drawing it at half size (unreadable until a
+    // zoom nudge). Both anchors now scale on zoom alone: 1.25 / 0.5 - 0.25.
+    const denseFonts = renderForAnchor({ height: 56, titleFontSize: 12 });
     const tallFonts = renderForAnchor({ height: 220, titleFontSize: 40 });
 
-    expect(Number.parseFloat(denseFonts[1])).toBeCloseTo(16 * (20 / 12));
-    expect(Number.parseFloat(tallFonts[1])).toBeCloseTo(16 * (40 / 12));
-    expect(Number.parseFloat(denseFonts[1])).toBeLessThan(Number.parseFloat(tallFonts[1]));
+    expect(denseFonts).toEqual(tallFonts);
+    expect(Number.parseFloat(denseFonts[1])).toBeCloseTo(16 * 2.25 * 0.85);
   });
 
   it('renders compact cards with one larger title line and matching label height', () => {
