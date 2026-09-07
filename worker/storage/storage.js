@@ -46,16 +46,14 @@ import { disposeProcessingLogs } from './processingLog.js';
 import { createLogger } from '../../src/shared/runtime/log.js';
 
 // This module is the record repository's public surface. Partitioning, record
-// CRUD and the checkpoint writers live here; the index cache, the buffered
-// processing log and storage reconciliation live in the sibling modules
-// re-exported below, so callers keep importing one module.
-export { INDEX_KEY, INDEX_REPAIR_THROTTLE_MS, listRecords } from './recordIndex.js';
-export {
-  RECORD_STORAGE_PREFIX,
-  RECORD_STORAGE_SCHEMA_VERSION,
-  buildRecordSnippet,
-} from './recordMeta.js';
-export { appendProcessingLog, disposeProcessingLogs, flushProcessingLog } from './processingLog.js';
+// CRUD and the checkpoint writers live here; the remaining repository
+// operations live in the sibling modules re-exported below, so callers outside
+// worker/storage keep importing one module. Only operations are re-exported:
+// storage keys, prefixes and schema constants are internals, so code that needs
+// them — including this package's own modules — imports them from the module
+// that owns them.
+export { listRecords } from './recordIndex.js';
+export { appendProcessingLog, flushProcessingLog } from './processingLog.js';
 export { reconcileRecordStorage } from './recordReconcile.js';
 
 const log = createLogger();

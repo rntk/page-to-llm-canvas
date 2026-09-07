@@ -12,9 +12,9 @@ import {
   updateRecord,
   deleteRecord,
   deleteAll,
-  INDEX_KEY,
   _resetUpdateQueues,
 } from './storage.js';
+import { INDEX_KEY } from './recordIndex.js';
 import {
   createChromeStorageFake as makeChromeMock,
   createStorageRecord as makeRecord,

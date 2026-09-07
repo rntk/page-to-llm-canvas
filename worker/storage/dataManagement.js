@@ -2,7 +2,9 @@
 // Values never leave the worker: the options page receives category counts and
 // byte totals only, so provider tokens and page/chat content are not exposed.
 
-import { INDEX_KEY, RECORD_STORAGE_PREFIX, disposeProcessingLogs } from './storage.js';
+import { INDEX_KEY } from './recordIndex.js';
+import { RECORD_STORAGE_PREFIX } from './recordMeta.js';
+import { disposeProcessingLogs } from './processingLog.js';
 import { PROVIDERS_KEY } from '../llm/providers.js';
 import { LLM_METRICS_KEY, LLM_METRICS_EPOCH_KEY } from '../metrics/llm.js';
 import { PARSER_METRICS_KEY } from '../metrics/parser.js';

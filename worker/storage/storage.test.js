@@ -6,20 +6,19 @@ import {
   updateRecord,
   appendProcessingLog,
   flushProcessingLog,
-  disposeProcessingLogs,
   listRecords,
   deleteRecord,
   deleteAll,
   findRecordByUrl,
-  buildRecordSnippet,
   reconcileRecordStorage,
   putSourceSummaryUnit,
   putTopicSummaryCheckpoint,
   SOURCE_SUMMARY_UNIT_REVISION_MISMATCH,
-  INDEX_KEY,
-  INDEX_REPAIR_THROTTLE_MS,
   _resetUpdateQueues,
 } from './storage.js';
+import { INDEX_KEY, INDEX_REPAIR_THROTTLE_MS } from './recordIndex.js';
+import { buildRecordSnippet } from './recordMeta.js';
+import { disposeProcessingLogs } from './processingLog.js';
 import { queuedUpdate, MUTATION_QUEUE_KEY } from './primitives.js';
 import { makeCachedSourceSummarizer } from '../pipeline/sourceSummaryCache.js';
 import {
