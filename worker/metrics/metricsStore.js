@@ -46,7 +46,7 @@ import { createLogger } from '../../src/shared/runtime/log.js';
  * @param {NormalizeFn} options.normalize Coerces a raw stored
  *   value (possibly corrupt or missing) into a well-formed metrics object.
  * @param {EmptyFn} options.empty Returns a fresh empty metrics object.
- * @param {string} options.label Metric-type name used in console.warn text
+ * @param {string} options.label Metric-type name used as the logger scope
  *   (e.g. "chat tool", "parser", "resplit").
  * @returns {MetricsStore}
  */

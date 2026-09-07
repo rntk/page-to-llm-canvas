@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { isStaleActionError, STALE_ACTION_MESSAGE } from '../shared/runtime/actionResponses.js';
+import { createLogger } from '../shared/runtime/log.js';
+
+const log = createLogger('SummaryErrorsOverlay');
 
 /**
  * Confirm popup shown when a record is parked in `needs_attention`: some topic
@@ -108,7 +111,7 @@ export default function SummaryErrorsOverlay({
       // The pipeline status drives the UI; a failed send just re-enables the
       // buttons so the user can try again, plus surfaces the failure so it
       // isn't silently swallowed.
-      console.warn('PageToLLM SummaryErrorsOverlay action failed:', e?.message);
+      log.warn('action failed:', e?.message);
       setActionError(e?.message || 'The request failed. Please try again.');
     } finally {
       // Always re-enable: a successful decision must not leave the buttons —

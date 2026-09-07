@@ -15,6 +15,9 @@ import {
   clearHighlightColorFromElement,
 } from '../../highlights/highlightSettings.js';
 import { browserLocalStore } from '../../shared/runtime/localStore.js';
+import { createLogger } from '../../shared/runtime/log.js';
+
+const log = createLogger('content');
 
 // The injected toolbar/rail tokens are scoped to their host elements (not the
 // host page's :root), so we tag those elements with the saved preference and
@@ -130,7 +133,7 @@ function syncPreferenceCacheFromStorage() {
       refreshMountedContentTheme();
     })
     .catch((err) => {
-      console.warn('PageToLLM content theme load failed:', err);
+      log.warn('theme load failed:', err);
     });
   const highlightColorRead = getStoredHighlightColor()
     .then((stored) => {
@@ -139,7 +142,7 @@ function syncPreferenceCacheFromStorage() {
       refreshMountedHighlightColor();
     })
     .catch((err) => {
-      console.warn('PageToLLM content highlight color load failed:', err);
+      log.warn('highlight color load failed:', err);
     });
   return Promise.all([themeRead, highlightColorRead]);
 }

@@ -29,7 +29,7 @@ export function ParserMetricsSection({ store }) {
     normalize: normalizeParserMetrics,
     empty: emptyParserMetrics,
     subscribe: store.subscribe,
-    loadErrorMessage: 'PageToLLM Options parser metrics load failed:',
+    loadErrorMessage: 'parser metrics load failed:',
   });
   const { isClearing, clearError, handleClear } = useMetricsClear({
     messageType: MSG.clearParserMetrics,

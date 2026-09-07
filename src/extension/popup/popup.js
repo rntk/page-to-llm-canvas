@@ -1,4 +1,5 @@
 import { createThemeController, themeIcon, themeLabel } from '../../shared/runtime/theme.js';
+import { createLogger } from '../../shared/runtime/log.js';
 import { getYouTubeVideoId } from '../../utils/youtubeTimestamp.js';
 import { safeFilenamePart } from '../../utils/safeFilenamePart.js';
 import { sendRuntimeMessage, sendTabMessage } from '../../utils/runtimeMessages.js';
@@ -10,6 +11,8 @@ import {
   isStaleActionResponse,
   STALE_ACTION_MESSAGE,
 } from '../../shared/runtime/actionResponses.js';
+
+const log = createLogger('popup:');
 
 const pickBtn = document.getElementById('pick-btn');
 const refreshBtn = document.getElementById('refresh-btn');
@@ -348,7 +351,7 @@ async function openRecordView(key, mode, rail) {
     window.close();
   } catch (err) {
     setError('Unable to open this view on the current page.');
-    console.error('PageToLLM popup: openRecordView failed', err);
+    log.error('openRecordView failed', err);
   }
 }
 
@@ -633,7 +636,7 @@ pickBtn.addEventListener('click', async () => {
     window.close();
   } catch (err) {
     setError('Unable to start selection on this page.');
-    console.error('PageToLLM popup: startSelection failed', err);
+    log.error('startSelection failed', err);
   }
 });
 

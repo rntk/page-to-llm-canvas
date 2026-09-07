@@ -289,7 +289,7 @@ describe('SummaryErrorsOverlay', () => {
     expect(retryBtn.disabled).toBe(false);
     expect(container.textContent).toContain('send failed');
     expect(warnSpy).toHaveBeenCalledWith(
-      'PageToLLM SummaryErrorsOverlay action failed:',
+      'PageToLLM Canvas SummaryErrorsOverlay action failed:',
       'send failed',
     );
     unmount();

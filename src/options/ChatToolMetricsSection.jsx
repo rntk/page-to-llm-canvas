@@ -27,7 +27,7 @@ export function ChatToolMetricsSection({ store }) {
     normalize: normalizeChatToolMetrics,
     empty: emptyChatToolMetrics,
     subscribe: store.subscribe,
-    loadErrorMessage: 'PageToLLM Options chat tool metrics load failed:',
+    loadErrorMessage: 'chat tool metrics load failed:',
   });
   const { isClearing, clearError, handleClear } = useMetricsClear({
     messageType: MSG.clearChatToolMetrics,

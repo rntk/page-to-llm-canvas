@@ -1,6 +1,9 @@
 import { createContentSurfaceCoordinator } from './surfaceCoordinator.js';
 import { observePageNavigation } from './pageNavigation.js';
 import { browserRuntimeMessenger } from '../utils/runtimeMessages.js';
+import { createLogger } from '../shared/runtime/log.js';
+
+const log = createLogger();
 
 const runtimeMessenger = {
   ...browserRuntimeMessenger,
@@ -95,7 +98,7 @@ window.addEventListener('message', (event) => {
       topicPath: data.topicPath,
     };
     void surfaces.openRail({ key: data.key }, 'topics', data.rail, options).catch((err) => {
-      console.error('PageToLLM rail error:', err);
+      log.error('rail error:', err);
       dialogs.alert('PageToLLM: Unable to open this view. Reload the page and try again.');
     });
   }

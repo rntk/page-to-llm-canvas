@@ -1,5 +1,8 @@
 import React from 'react';
 import SurfaceError from './SurfaceError.jsx';
+import { createLogger } from '../shared/runtime/log.js';
+
+const log = createLogger();
 
 /**
  * Shared React error boundary used at surface roots and around record-driven
@@ -29,7 +32,7 @@ export default class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, info) {
-    console.error('PageToLLM: unhandled render error', error, info?.componentStack);
+    log.error('unhandled render error', error, info?.componentStack);
   }
 
   componentDidUpdate(previousProps, previousState) {

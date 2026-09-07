@@ -1,6 +1,9 @@
 import { MSG } from '../shared/runtime/messages.js';
 import { assertActionResponseSucceeded } from '../shared/runtime/actionResponses.js';
 import { sendRuntimeMessage } from './runtimeMessages.js';
+import { createLogger } from '../shared/runtime/log.js';
+
+const log = createLogger();
 
 /**
  * Utility function to split a pipeline error stack trace or message.
@@ -40,11 +43,11 @@ export async function retryRecord(key, serviceName = 'Options') {
   try {
     resp = await sendRuntimeMessage({ type: MSG.retryRecord, key });
   } catch (e) {
-    console.warn(`PageToLLM ${serviceName} retry error:`, e.message);
+    log.child(serviceName).warn('retry error:', e.message);
     throw e;
   }
   if (resp?.ok !== true) {
-    console.warn(`PageToLLM ${serviceName} retry failed:`, resp?.error);
+    log.child(serviceName).warn('retry failed:', resp?.error);
   }
   return assertActionResponseSucceeded(resp, 'Retry failed');
 }
@@ -66,11 +69,11 @@ export async function resolveSummaryErrors(key, action, serviceName = 'Options')
   try {
     resp = await sendRuntimeMessage({ type: MSG.resolveSummaryErrors, key, action });
   } catch (e) {
-    console.warn(`PageToLLM ${serviceName} resolve error:`, e.message);
+    log.child(serviceName).warn('resolve error:', e.message);
     throw e;
   }
   if (resp?.ok !== true) {
-    console.warn(`PageToLLM ${serviceName} resolve failed:`, resp?.error);
+    log.child(serviceName).warn('resolve failed:', resp?.error);
   }
   return assertActionResponseSucceeded(resp, 'Resolve failed');
 }

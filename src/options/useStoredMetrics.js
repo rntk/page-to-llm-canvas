@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createLogger } from '../shared/runtime/log.js';
+
+const log = createLogger('Options');
 
 /**
  * Keeps a metrics counter bundle synchronized with its `chrome.storage.local`
@@ -16,8 +19,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  *   subscribe: function(string, function(*): void): function(): void,
  *   loadErrorMessage?: string,
  * }} options Metrics dependencies. When `loadErrorMessage` is given, a failed
- *   initial read is logged with `console.warn`; otherwise it is swallowed and
- *   the empty value stays on screen.
+ *   initial read is warned through the shared logger, which supplies the
+ *   brand prefix, so pass only the message body; otherwise the failure is
+ *   swallowed and the empty value stays on screen.
  * @returns {[*, function(*): void]} Current metrics and a local setter (used by
  *   the section's own clear handler).
  */
@@ -46,7 +50,7 @@ export function useStoredMetrics({
         if (current && revisionRef.current === loadRevision) setMetrics(normalize(stored));
       })
       .catch((err) => {
-        if (loadErrorMessage) console.warn(loadErrorMessage, err);
+        if (loadErrorMessage) log.warn(loadErrorMessage, err);
       });
 
     const unsubscribe = subscribe(storageKey, (newValue) => {

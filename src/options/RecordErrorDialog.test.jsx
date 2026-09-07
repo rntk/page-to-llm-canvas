@@ -130,7 +130,7 @@ describe('RecordErrorDialog', () => {
     expect(retryButton.disabled).toBe(false);
     expect(closeButton.disabled).toBe(false);
     expect(container.textContent).toContain('Retry failed: send failed');
-    expect(warnSpy).toHaveBeenCalledWith('PageToLLM Options retry failed:', 'send failed');
+    expect(warnSpy).toHaveBeenCalledWith('PageToLLM Canvas Options retry failed:', 'send failed');
   });
 
   it('clears a previous retry error when a new retry attempt starts', async () => {

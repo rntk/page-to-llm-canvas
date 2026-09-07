@@ -1,3 +1,7 @@
+import { createLogger } from '../shared/runtime/log.js';
+
+const log = createLogger();
+
 /**
  * Coordinates the mutually-exclusive UI surfaces owned by a content script.
  * Surface implementations are async loaders so the always-injected bundle
@@ -96,7 +100,7 @@ export function createContentSurfaceCoordinator({
                 dialogs,
                 openRecordFrame: (...args) => {
                   void openRecordFrame(...args).catch((err) => {
-                    console.error('PageToLLM record view error:', err);
+                    log.error('record view error:', err);
                     dialogs?.alert?.(
                       'PageToLLM: Unable to open this view. Reload the page and try again.',
                     );

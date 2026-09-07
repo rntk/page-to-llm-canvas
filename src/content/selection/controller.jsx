@@ -22,6 +22,9 @@ import {
   untrackMountedSurface,
   registerThemedSurface,
 } from '../shared/surfacePreferences.js';
+import { createLogger } from '../../shared/runtime/log.js';
+
+const log = createLogger();
 
 const defaultPreferences = {
   applyContentTheme,
@@ -277,7 +280,7 @@ export function createSelectionController({
         throw new Error((response && response.error) || 'Submission failed');
       }
     } catch (err) {
-      console.error('PageToLLM submit error:', err);
+      log.error('submit error:', err);
       alert('PageToLLM error: ' + err.message);
     } finally {
       // Unconditional reset, and the `if (isSubmitting) return;` guard above prevents

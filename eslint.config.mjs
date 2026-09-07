@@ -53,6 +53,18 @@ export default [
     },
   },
   {
+    // `src/shared/runtime/log.js` is the extension's single console boundary;
+    // every other module logs through a `createLogger()` instance so the brand
+    // prefix and output shape live in one place. Tests may spy on console
+    // directly, and `scripts/` are Node build/CI tools whose stdout IS the
+    // output, so both stay exempt.
+    files: ['src/**/*.{js,jsx,mjs}', 'worker/**/*.{js,jsx,mjs}'],
+    ignores: ['**/*.test.{js,jsx,mjs}', 'src/shared/runtime/log.js'],
+    rules: {
+      'no-console': 'error',
+    },
+  },
+  {
     // Error-handling remediation: catch read-modify-write races (require-atomic-updates)
     // and promise executors that return a value, which almost always signals a
     // misunderstanding of the executor's role (no-promise-executor-return). Excludes

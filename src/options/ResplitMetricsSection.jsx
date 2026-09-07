@@ -53,7 +53,7 @@ export function ResplitMetricsSection({ store }) {
     normalize: normalizeResplitMetrics,
     empty: emptyResplitMetrics,
     subscribe: store.subscribe,
-    loadErrorMessage: 'PageToLLM Options resplit metrics load failed:',
+    loadErrorMessage: 'resplit metrics load failed:',
   });
   const { isClearing, clearError, handleClear } = useMetricsClear({
     messageType: MSG.clearResplitMetrics,

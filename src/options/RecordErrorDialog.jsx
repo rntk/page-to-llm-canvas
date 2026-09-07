@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import ErrorDetails from '../components/ErrorDetails.jsx';
 import { splitError } from '../utils/errorUtils.js';
+import { createLogger } from '../shared/runtime/log.js';
+
+const log = createLogger('Options');
 
 /**
  * Modal shown when the user clicks a record's `error` status on the options
@@ -29,7 +32,7 @@ export default function RecordErrorDialog({ sourceUrl, errorText, onRetry, onClo
       // failed send returns here, where we re-enable the buttons for a retry.
       await onRetry();
     } catch (e) {
-      console.warn('PageToLLM Options retry failed:', e?.message);
+      log.warn('retry failed:', e?.message);
       setRetryError(e?.message || 'Retry failed');
       setBusy(false);
     }

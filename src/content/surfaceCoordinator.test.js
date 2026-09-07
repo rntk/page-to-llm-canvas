@@ -109,7 +109,7 @@ describe('content surface coordinator lazy loading', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(consoleError).toHaveBeenCalledWith(
-      'PageToLLM record view error:',
+      'PageToLLM Canvas: record view error:',
       expect.objectContaining({ message: 'frame import failed' }),
     );
     expect(dialogs.alert).toHaveBeenCalledWith(expect.stringContaining('Unable to open'));
