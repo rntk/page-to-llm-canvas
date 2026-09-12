@@ -1,7 +1,7 @@
-import { isInFlightStatus } from '../../../core/pipeline/pipelineStatus.js';
 import { MSG } from '../../../shared/runtime/messages.js';
 import {
   IN_FLIGHT_PIPELINE_STATUSES,
+  isInFlightPipelineStatus,
   isSummaryGenerationSourceStatus,
   isImportableRecord,
   PIPELINE_STAGE,
@@ -247,7 +247,7 @@ export function createRecordHandlers({
       validate: requireKey,
       async handle(msg) {
         const rec = await requireRecord(msg.key);
-        if (!isInFlightStatus(rec.status)) {
+        if (!isInFlightPipelineStatus(rec.status)) {
           return { ok: true, stale: true };
         }
         const updated = await updateRecord(
@@ -424,7 +424,7 @@ export function createRecordHandlers({
 
         for (const record of recordsByKey.values()) {
           const key = record.key.trim();
-          const status = isInFlightStatus(record.status)
+          const status = isInFlightPipelineStatus(record.status)
             ? PIPELINE_STATUS.DONE
             : record.status || PIPELINE_STATUS.DONE;
           cancelActivePipeline(key);

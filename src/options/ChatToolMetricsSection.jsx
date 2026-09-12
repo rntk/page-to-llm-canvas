@@ -7,9 +7,9 @@ import {
   isErrorOutcome,
   normalizeChatToolMetrics,
 } from '../core/metrics/chatTool.js';
+import { formatDate } from '../core/metrics/format.js';
 import { MSG } from '../shared/runtime/messages.js';
 import { CollapsibleSection } from './CollapsibleSection.jsx';
-import { formatDate } from './metricsFormat.js';
 import { useMetricsClear } from './useMetricsClear.js';
 import { useStoredMetrics } from './useStoredMetrics.js';
 

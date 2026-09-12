@@ -5,10 +5,9 @@ import {
   getHierarchyTopicHighlightColorDark,
   getHierarchyTopicAccentColor,
 } from '../domain/topicColorUtils.js';
-import { spacedTopicPath, buildSummaryLookup } from './topicViewUtils.js';
 import { getYouTubeTimestampLink, getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
 import YouTubeTimestampButton from '../components/YouTubeTimestampButton.jsx';
-import { getSentencesForNode } from './hierarchyUtils.js';
+import { getSentencesForNode, spacedTopicPath, buildSummaryLookup } from './hierarchyUtils.js';
 
 // Always render hierarchy timestamps as h:mm:ss (e.g. 0:58:59, 1:27:35) so every
 // label occupies the same three columns and the links never shift left/right.

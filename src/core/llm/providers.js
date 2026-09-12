@@ -7,7 +7,7 @@
 import {
   PIPELINE_MIN_CONTEXT_WINDOW_TOKENS,
   PROVIDER_MAX_CONTEXT_WINDOW_TOKENS,
-} from '../settings/contextWindowConstraints.js';
+} from '../settings/llmBudgets.js';
 import { getLocal, queuedUpdate, setLocal } from '../storage/primitives.js';
 import { normalizeProviderTemperatures } from './temperatures.js';
 

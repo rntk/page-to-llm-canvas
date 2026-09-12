@@ -1,7 +1,7 @@
 import { MSG } from '../shared/runtime/messages.js';
 import { normalizeProvidersResponse } from './optionsLogic.js';
 import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
-import { applyPipelineFailures } from '../shared/runtime/pipelineFailures.js';
+import { applyPipelineFailures } from '../shared/runtime/contracts.js';
 
 // Delegates to the shared sendRuntimeMessage helper but keeps the options
 // surface's swallow semantics: transport errors (chrome.runtime.lastError)

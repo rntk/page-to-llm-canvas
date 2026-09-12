@@ -4,7 +4,6 @@ import App from './App.jsx';
 import HierarchyApp from '../hierarchy/HierarchyApp.jsx';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
 import './modal.css';
-import { parseModalRoute } from './modalRoute.js';
 import { createThemeController } from '../shared/runtime/theme.js';
 import {
   HIGHLIGHT_COLOR_KEY,
@@ -13,7 +12,7 @@ import {
   applyHighlightColorToElement,
 } from '../highlights/highlightSettings.js';
 import { browserLocalStore } from '../shared/runtime/localStore.js';
-import { createModalHost } from './modalHost.js';
+import { createModalHost, parseModalRoute } from './modalHost.js';
 import { browserRecordSource } from './recordSource.js';
 
 // Apply the saved light/dark/system preference to this iframe document, and

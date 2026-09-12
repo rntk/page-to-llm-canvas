@@ -1,10 +1,14 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import SelectionToolbar from './SelectionToolbar.jsx';
-import { guardTrustedUserEvent } from './trustedEvents.js';
 import { MSG } from '../../shared/runtime/messages.js';
-import { moveSelectedEntry, removeSelectedEntry, selectedBlocksForToolbar } from './state.js';
-import { canStepUpElement, stepUpSelectedEntry } from './elementTraversal.js';
+import {
+  canStepUpElement,
+  moveSelectedEntry,
+  removeSelectedEntry,
+  selectedBlocksForToolbar,
+  stepUpSelectedEntry,
+} from './state.js';
 import { buildCssPath } from './cssPath.js';
 import { buildCapture } from './html.js';
 import {
@@ -25,6 +29,21 @@ import {
 import { createLogger } from '../../shared/runtime/log.js';
 
 const log = createLogger();
+
+export function isTrustedUserEvent(
+  event,
+  { allowSynthetic = import.meta.env.MODE === 'test' } = {},
+) {
+  if (!event) return true;
+  return Boolean(event.isTrusted ?? event.nativeEvent?.isTrusted) || allowSynthetic;
+}
+
+export function guardTrustedUserEvent(event, options) {
+  if (isTrustedUserEvent(event, options)) return true;
+  event.preventDefault?.();
+  event.stopPropagation?.();
+  return false;
+}
 
 const defaultPreferences = {
   applyContentTheme,

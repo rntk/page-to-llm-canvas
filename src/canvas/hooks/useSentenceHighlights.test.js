@@ -3,9 +3,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import { useSentenceHighlights } from './useSentenceHighlights.js';
+import { useSentenceHighlights, useChatHighlights } from './useSentenceHighlights.js';
 import {
   HIGHLIGHT_NAME,
+  CHAT_HIGHLIGHT_NAME,
   collectWordEntries,
   buildSentenceWordRanges,
 } from '../../highlights/sentenceHighlight.js';
@@ -27,6 +28,12 @@ function installHighlightApi() {
   globalThis.Highlight = FakeHighlight;
   globalThis.CSS = globalThis.CSS || {};
   globalThis.CSS.highlights = new Map();
+}
+
+// Text covered by each live Range in a named highlight, so tests can assert
+// which sentences were painted rather than just that something was.
+function paintedText(name) {
+  return Array.from(CSS.highlights.get(name)?.ranges ?? [], (range) => range.toString());
 }
 
 // Build a real article DOM so buildSentenceDomRange resolves live Ranges, then
@@ -145,6 +152,98 @@ describe('useSentenceHighlights', () => {
     const ctx = setup({ selectedTopicKey: 'sel' });
     // No throw, and no highlight registered.
     expect(CSS.highlights.has(HIGHLIGHT_NAME)).toBe(false);
+    ctx.cleanup();
+  });
+});
+
+describe('useChatHighlights', () => {
+  beforeEach(() => installHighlightApi());
+  afterEach(() => {
+    delete globalThis.Highlight;
+    delete globalThis.CSS.highlights;
+  });
+
+  function setupChat(overrides = {}) {
+    const { container, refresh } = buildArticle(['One two three', 'four five six']);
+    const refreshSentenceRanges = vi.fn(refresh);
+    let current = {
+      showSummaryMode: false,
+      sentenceNumbers: [1],
+      articleHtml: '<p>x</p>',
+      refreshSentenceRanges,
+      ...overrides,
+    };
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    function Harness() {
+      useChatHighlights(current);
+      return null;
+    }
+    const root = createRoot(host);
+    act(() => root.render(createElement(Harness)));
+    return {
+      refreshSentenceRanges,
+      rerender(next) {
+        current = { ...current, ...next };
+        act(() => root.render(createElement(Harness)));
+      },
+      cleanup() {
+        act(() => root.unmount());
+        host.remove();
+        container.remove();
+      },
+    };
+  }
+
+  it('refreshes ranges, paints the requested sentences, and deletes on unmount', () => {
+    const ctx = setupChat({ sentenceNumbers: [2] });
+    expect(ctx.refreshSentenceRanges).toHaveBeenCalledTimes(1);
+    expect(paintedText(CHAT_HIGHLIGHT_NAME)).toEqual(['four five six']);
+    ctx.cleanup();
+    expect(CSS.highlights.has(CHAT_HIGHLIGHT_NAME)).toBe(false);
+  });
+
+  it('does nothing when summary mode is visible', () => {
+    const ctx = setupChat({ showSummaryMode: true });
+    expect(ctx.refreshSentenceRanges).not.toHaveBeenCalled();
+    expect(CSS.highlights.has(CHAT_HIGHLIGHT_NAME)).toBe(false);
+    ctx.cleanup();
+  });
+
+  it('does nothing when the Highlight API is unsupported', () => {
+    delete globalThis.Highlight;
+    const ctx = setupChat();
+    expect(ctx.refreshSentenceRanges).not.toHaveBeenCalled();
+    expect(CSS.highlights.has(CHAT_HIGHLIGHT_NAME)).toBe(false);
+    ctx.cleanup();
+  });
+
+  it('cleans the active highlight when switching into summary mode', () => {
+    const ctx = setupChat({ sentenceNumbers: [1] });
+    expect(CSS.highlights.has(CHAT_HIGHLIGHT_NAME)).toBe(true);
+    ctx.rerender({ showSummaryMode: true });
+    expect(CSS.highlights.has(CHAT_HIGHLIGHT_NAME)).toBe(false);
+    ctx.cleanup();
+  });
+
+  it('cleans and repaints when article HTML changes', () => {
+    const ctx = setupChat({ sentenceNumbers: [1] });
+    const before = CSS.highlights.get(CHAT_HIGHLIGHT_NAME);
+    expect(paintedText(CHAT_HIGHLIGHT_NAME)).toEqual(['One two three']);
+    ctx.rerender({ articleHtml: '<p>Updated</p>', sentenceNumbers: [2] });
+    expect(ctx.refreshSentenceRanges).toHaveBeenCalledTimes(2);
+    // A fresh Highlight replaces the old one rather than accumulating ranges.
+    expect(CSS.highlights.get(CHAT_HIGHLIGHT_NAME)).not.toBe(before);
+    expect(paintedText(CHAT_HIGHLIGHT_NAME)).toEqual(['four five six']);
+    ctx.cleanup();
+  });
+
+  it('repaints to exactly the new sentence set when it changes', () => {
+    const ctx = setupChat({ sentenceNumbers: [1] });
+    ctx.rerender({ sentenceNumbers: [1, 2] });
+    expect(paintedText(CHAT_HIGHLIGHT_NAME)).toEqual(['One two three', 'four five six']);
+    ctx.rerender({ sentenceNumbers: [] });
+    expect(paintedText(CHAT_HIGHLIGHT_NAME)).toEqual([]);
     ctx.cleanup();
   });
 });

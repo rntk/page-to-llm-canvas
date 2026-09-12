@@ -9,6 +9,7 @@ import {
 import {
   averageDurationMs,
   cacheHitRate,
+  formatDate,
   formatDurationMs,
   formatMetricCount,
   formatMetricPercent,
@@ -16,7 +17,6 @@ import {
   listTaskTypes,
 } from '../core/metrics/format.js';
 import { CollapsibleSection } from './CollapsibleSection.jsx';
-import { formatDate } from './metricsFormat.js';
 import { useStoredMetrics } from './useStoredMetrics.js';
 
 export function LlmMetricsSection({ store }) {

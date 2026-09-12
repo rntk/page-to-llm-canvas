@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_TAGGED_CHARS,
   PIPELINE_FIXED_PROMPT_TOKENS,
+  PIPELINE_TEXT_CHUNK_MAX_CHARS,
   SOURCE_SUMMARY_MAX_CHARS,
   TOPIC_RANGE_INPUT_MAX_SENTENCES,
+  getArticleChatLimits,
   getPipelineTextChunkMaxChars,
   getTopicRangeInputMaxSentences,
 } from './pipelineConfig.js';
@@ -14,7 +16,11 @@ import {
   buildTopicRangesPrompt,
   buildTopicSummaryFromSourcePrompt,
 } from './prompts.js';
-import { PIPELINE_MIN_CONTEXT_WINDOW_TOKENS } from '../settings/contextWindowConstraints.js';
+import {
+  ARTICLE_CHAT_MAX_CHUNK_CHARS,
+  ARTICLE_CHAT_MAX_HISTORY_CHARS,
+  PIPELINE_MIN_CONTEXT_WINDOW_TOKENS,
+} from '../settings/llmBudgets.js';
 import {
   estimateTokens,
   estimateTokensForCharCount,
@@ -93,5 +99,29 @@ describe('pipeline request sizing', () => {
         windowTokens,
       );
     }
+  });
+});
+
+describe('getArticleChatLimits', () => {
+  it('shares a small provider budget between article source and conversation history', () => {
+    const limits = getArticleChatLimits(4096);
+    expect(limits.maxChunkChars + limits.maxHistoryChars).toBe(getPipelineTextChunkMaxChars(4096));
+    expect(limits.maxHistoryChars).toBeGreaterThan(0);
+  });
+
+  it('keeps established defaults when the provider context is unknown', () => {
+    expect(getArticleChatLimits(undefined)).toEqual({
+      maxChunkChars: ARTICLE_CHAT_MAX_CHUNK_CHARS,
+      maxHistoryChars: ARTICLE_CHAT_MAX_HISTORY_CHARS,
+    });
+  });
+
+  it('keeps the full budget for a context window larger than the pipeline fallback', () => {
+    expect(getArticleChatLimits(1_000_000)).toEqual(getArticleChatLimits(undefined));
+  });
+
+  it('agrees with the pipeline fallback that signals an unknown window', () => {
+    const limits = getArticleChatLimits(undefined);
+    expect(limits.maxChunkChars + limits.maxHistoryChars).toBe(PIPELINE_TEXT_CHUNK_MAX_CHARS);
   });
 });

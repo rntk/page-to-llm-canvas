@@ -3,6 +3,7 @@ import { LLM_TASK_TYPES, emptyLlmMetrics, emptyLlmMetricTotals } from './llm.js'
 import {
   averageDurationMs,
   cacheHitRate,
+  formatDate,
   formatDurationMs,
   formatMetricCount,
   formatMetricPercent,
@@ -54,5 +55,17 @@ describe('llmMetricsFormat helpers', () => {
     expect(formatMetricCount(12345.4)).toBe('12,345');
     expect(formatMetricCount(null)).toBe('—');
     expect(formatMetricPercent(0.7534)).toBe('75.3%');
+  });
+});
+
+describe('formatDate', () => {
+  it('falls back for falsy timestamps', () => {
+    expect(formatDate(null)).toBe('—');
+    expect(formatDate(0, '')).toBe('');
+  });
+
+  it('formats a timestamp using the locale string', () => {
+    const ts = 1700000000000;
+    expect(formatDate(ts)).toBe(new Date(ts).toLocaleString());
   });
 });

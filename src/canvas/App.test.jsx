@@ -122,8 +122,10 @@ vi.mock('./hooks/useSentenceMetrics.js', () => ({
     hasSettledLayout: state.hasSettledLayout,
   }),
 }));
-vi.mock('./hooks/useSentenceHighlights.js', () => ({ useSentenceHighlights: vi.fn() }));
-vi.mock('../chat/useChatHighlights.js', () => ({ useChatHighlights: vi.fn() }));
+vi.mock('./hooks/useSentenceHighlights.js', () => ({
+  useSentenceHighlights: vi.fn(),
+  useChatHighlights: vi.fn(),
+}));
 // Stubbed out; App only reads the settled flag it returns (the opening overlay
 // gate), so report the sequence as already finished.
 vi.mock('./hooks/useInitialView.js', () => ({
@@ -157,7 +159,7 @@ vi.mock('./hooks/useTopicSelection.js', () => ({
     clearSelection: mocks.clearSelection,
   }),
 }));
-vi.mock('../domain/currentTopicSummary.js', () => ({
+vi.mock('../domain/summaryCards.js', () => ({
   selectCurrentTopicSummary: vi.fn(() => ({ key: 'Topic#0', text: 'Summary' })),
 }));
 vi.mock('../highlights/sentenceHighlight.js', () => ({
@@ -165,7 +167,7 @@ vi.mock('../highlights/sentenceHighlight.js', () => ({
 }));
 
 import App from './App.jsx';
-import { useChatHighlights } from '../chat/useChatHighlights.js';
+import { useChatHighlights } from './hooks/useSentenceHighlights.js';
 
 const doneView = {
   topics: [{ label: ['Topic'], ranges: [{ start: 0, end: 0 }] }],

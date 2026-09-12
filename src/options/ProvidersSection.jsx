@@ -7,7 +7,7 @@ import {
 import {
   PIPELINE_MIN_CONTEXT_WINDOW_TOKENS,
   PROVIDER_MAX_CONTEXT_WINDOW_TOKENS,
-} from '../core/settings/contextWindowConstraints.js';
+} from '../core/settings/llmBudgets.js';
 import {
   PROVIDER_MAX_TEMPERATURE,
   PROVIDER_MIN_TEMPERATURE,

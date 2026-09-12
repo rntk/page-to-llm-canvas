@@ -4,9 +4,12 @@ import { getYouTubeVideoId } from '../../utils/youtubeTimestamp.js';
 import { safeFilenamePart } from '../../utils/safeFilenamePart.js';
 import { sendRuntimeMessage, sendTabMessage } from '../../utils/runtimeMessages.js';
 import { MSG } from '../../shared/runtime/messages.js';
-import { isInFlightPipelineStatus, PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
+import {
+  applyPipelineFailures,
+  isInFlightPipelineStatus,
+  PIPELINE_STATUS,
+} from '../../shared/runtime/contracts.js';
 import { browserFileHost } from '../../shared/runtime/browserHosts.js';
-import { applyPipelineFailures } from '../../shared/runtime/pipelineFailures.js';
 import {
   isStaleActionResponse,
   STALE_ACTION_MESSAGE,

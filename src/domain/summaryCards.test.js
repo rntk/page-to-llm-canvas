@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildSummaryCards, filterSummaryCardsByLevel } from './summaryCards.js';
+import {
+  buildSummaryCards,
+  filterSummaryCardsByLevel,
+  selectCurrentTopicSummary,
+} from './summaryCards.js';
 
 // Minimal card factory for filterSummaryCardsByLevel tests.
 function makeCard(path, levelIndex, startSentence, overrides = {}) {
@@ -178,5 +182,52 @@ describe('buildSummaryCards run fallback', () => {
     const cards = buildSummaryCards({ A: { level: 0 } });
     expect(cards).toHaveLength(1);
     expect(cards[0]).toMatchObject({ path: 'A', text: '', sourceSentences: [], startSentence: 0 });
+  });
+});
+
+describe('selectCurrentTopicSummary', () => {
+  const cards = [
+    {
+      key: 'Technology#0#0',
+      path: 'Technology',
+      text: 'First technology occurrence.',
+      sourceSentences: [1, 2],
+    },
+    {
+      key: 'Technology#0#1',
+      path: 'Technology',
+      text: 'Second technology occurrence.',
+      sourceSentences: [20, 21],
+    },
+  ];
+
+  it('prefers the active topic card key when a topic has multiple summary runs', () => {
+    expect(
+      selectCurrentTopicSummary({
+        showSummaryMode: false,
+        activeTopic: { path: 'Technology', cardKey: 'Technology#0#1' },
+        allSummaryCards: cards,
+      }),
+    ).toBe(cards[1]);
+  });
+
+  it('falls back to the first matching topic path when no active card key is available', () => {
+    expect(
+      selectCurrentTopicSummary({
+        showSummaryMode: false,
+        activeTopic: { path: 'Technology', cardKey: null },
+        allSummaryCards: cards,
+      }),
+    ).toBe(cards[0]);
+  });
+
+  it('does not show the floating summary while summary mode is active', () => {
+    expect(
+      selectCurrentTopicSummary({
+        showSummaryMode: true,
+        activeTopic: { path: 'Technology', cardKey: 'Technology#0#1' },
+        allSummaryCards: cards,
+      }),
+    ).toBeNull();
   });
 });

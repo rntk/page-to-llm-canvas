@@ -1,4 +1,4 @@
-import { MAX_TURN_EVENTS } from '../../shared/runtime/chatLimits.js';
+import { MAX_TURN_EVENTS } from '../../shared/runtime/contracts.js';
 // Per-article chat persistence. Split out of storage.js so the record and chat
 // aggregates stay separate concerns. It depends only on storage primitives and
 // realm-neutral key helpers; storage.js owns the one-way cascade dependency.

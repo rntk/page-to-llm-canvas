@@ -1,6 +1,9 @@
 import { formatPipelineError } from './pipeline/pipelineRuntime.js';
-import { isInFlightRecord, isInFlightStatus } from '../../core/pipeline/pipelineStatus.js';
-import { PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
+import {
+  isInFlightPipelineStatus,
+  isInFlightRecord,
+  PIPELINE_STATUS,
+} from '../../shared/runtime/contracts.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { STORAGE_UNAVAILABLE_MESSAGE } from './pipelineFailureBreaker.js';
 
@@ -210,7 +213,7 @@ export function createPipelineSupervisor({
       const rec = await readRecord(key);
       if (!rec) return;
 
-      if (!isInFlightStatus(rec.status)) return;
+      if (!isInFlightPipelineStatus(rec.status)) return;
 
       // An entry here is stronger evidence than storage timestamps: provider
       // calls can legitimately produce no writes for many hours. Orphaned jobs
@@ -231,7 +234,7 @@ export function createPipelineSupervisor({
         // after the read above.
         try {
           const claimed = await updateRecord(key, {}, { expectedPipelineRunId: pipelineRunId });
-          if (!claimed || !isInFlightStatus(claimed.status)) return;
+          if (!claimed || !isInFlightPipelineStatus(claimed.status)) return;
         } catch (claimError) {
           await noteStorageFailure(key, pipelineRunId, claimError);
           backgroundLog.error('automatic resume storage claim failed for', key, claimError);
@@ -280,7 +283,7 @@ export function createPipelineSupervisor({
             try {
               const latest = await readRecord(key);
               stillOwnedAndInFlight =
-                latest?.pipelineRunId === pipelineRunId && isInFlightStatus(latest?.status);
+                latest?.pipelineRunId === pipelineRunId && isInFlightPipelineStatus(latest?.status);
             } catch (_) {
               // Storage is unavailable; retain the fail-closed verdict.
             }

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import {
+  CHAT_HIGHLIGHT_NAME,
   HIGHLIGHT_NAME,
   supportsHighlightApi,
   paintSentenceHighlight,
@@ -62,4 +63,18 @@ export function useSentenceHighlights({
     articleHtml,
     refreshSentenceRanges,
   ]);
+}
+
+export function useChatHighlights({
+  showSummaryMode,
+  sentenceNumbers,
+  articleHtml,
+  refreshSentenceRanges,
+}) {
+  useEffect(() => {
+    if (showSummaryMode || !supportsHighlightApi()) return undefined;
+    const { wordEntries, sentenceRanges } = refreshSentenceRanges();
+    paintSentenceHighlight(CHAT_HIGHLIGHT_NAME, sentenceNumbers, { wordEntries, sentenceRanges });
+    return () => CSS.highlights.delete(CHAT_HIGHLIGHT_NAME);
+  }, [articleHtml, refreshSentenceRanges, sentenceNumbers, showSummaryMode]);
 }

@@ -7,7 +7,7 @@ vi.stubGlobal('chrome', {
   },
 });
 
-const { createRecordFrameManager } = await import('./iframeManager.js');
+const { buildRecordViewIframeSrc, createRecordFrameManager } = await import('./iframeManager.js');
 let manager;
 
 describe('record-view iframe manager', () => {
@@ -79,5 +79,21 @@ describe('record-view iframe manager', () => {
     expect(iframe.isConnected).toBe(true);
 
     manager.close();
+  });
+});
+
+describe('record-view URL', () => {
+  it('builds iframe URLs for canvas and hierarchy views', () => {
+    const getUrl = vi.fn((path) => `chrome-extension://test/${path}`);
+
+    expect(buildRecordViewIframeSrc(getUrl, 'record key')).toBe(
+      'chrome-extension://test/modal.html?key=record%20key',
+    );
+    expect(buildRecordViewIframeSrc(getUrl, 'record key', 'hierarchy')).toBe(
+      'chrome-extension://test/modal.html?key=record%20key&view=hierarchy',
+    );
+    expect(buildRecordViewIframeSrc(getUrl, 'record key', 'canvas')).toBe(
+      'chrome-extension://test/modal.html?key=record%20key',
+    );
   });
 });

@@ -34,18 +34,11 @@ import {
 } from './pipeline/orchestrator.js';
 import { callLLMDirect, callLLMWithRetry } from '../../core/llm/llm.js';
 import { createAdjustableLimiter } from '../../core/llm/concurrency.js';
-import {
-  clearLlmMetrics,
-  recordLlmMetric,
-  wrapCallLLMWithRetry,
-} from '../../core/metrics/llm.js';
+import { clearLlmMetrics, recordLlmMetric, wrapCallLLMWithRetry } from '../../core/metrics/llm.js';
 import { clearChatToolMetrics, recordChatToolMetric } from '../../core/metrics/chatTool.js';
 import { clearParserMetrics } from '../../core/metrics/parser.js';
 import { clearResplitMetrics } from '../../core/metrics/resplit.js';
-import {
-  clearAllExtensionData,
-  getStorageOverview,
-} from '../../core/storage/dataManagement.js';
+import { clearAllExtensionData, getStorageOverview } from '../../core/storage/dataManagement.js';
 import { getStoredSummariesDisabled } from '../../core/settings/summary.js';
 import { getStoredPreferContentLanguage } from '../../core/settings/language.js';
 import { getStoredVerboseLogs } from '../../shared/runtime/verboseLogSettings.js';
@@ -64,7 +57,7 @@ import {
   deleteProvider,
   setActiveProvider,
 } from '../../core/llm/providers.js';
-import { createActionIconController } from './actionIcon.js';
+import { createActionIconController, createActionIconDependencies } from './actionIcon.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { browserLocalStore } from '../../shared/runtime/localStore.js';
 import { createPipelineSupervisor } from './pipelineSupervisor.js';
@@ -79,7 +72,6 @@ import { createMetricsHandlers } from './handlers/metricsHandlers.js';
 import { createProviderHandlers } from './handlers/providerHandlers.js';
 import { createDataManagementHandlers } from './handlers/dataManagementHandlers.js';
 import { createPipelineRuntime } from './pipeline/pipelineRuntime.js';
-import { createActionIconDependencies } from './actionIconDependencies.js';
 
 export { clearSummaryErrorFlags, getAcceptedMergeFailurePaths } from './summaryResolution.js';
 

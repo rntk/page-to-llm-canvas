@@ -2,7 +2,7 @@
  *
  * Deliberately NOT a manifest content_scripts stylesheet: this DOM only exists
  * while a rail is open, so the sheet ships inside the lazily loaded rail chunk
- * (see src/content/rails/shared/railStyles.js) and is added to the page the
+ * (see src/content/rails/shared/surface.js) and is added to the page the
  * first time a rail mounts. Page-level rules the rail still depends on — the
  * design tokens, the #pagetollm-in-page-rail host, body.pagetollm-rail-open,
  * ::highlight() — stay in content.css. */

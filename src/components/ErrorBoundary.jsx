@@ -1,8 +1,48 @@
 import React from 'react';
-import SurfaceError from './SurfaceError.jsx';
 import { createLogger } from '../shared/runtime/log.js';
 
 const log = createLogger();
+
+/**
+ * Presentational error state shared by expected surface failures and the
+ * unexpected-render ErrorBoundary fallback.
+ */
+export function SurfaceError({
+  message,
+  details,
+  onRetry,
+  retryLabel = 'Try again',
+  onDismiss,
+  onReload,
+}) {
+  return (
+    <div className="pagetollm-error-boundary" role="alert">
+      <p>{message}</p>
+      {details ? (
+        <details className="pagetollm-error-details">
+          <summary>Details</summary>
+          <p>{details}</p>
+        </details>
+      ) : null}
+      <p>
+        {onRetry ? (
+          <button type="button" onClick={onRetry}>
+            {retryLabel}
+          </button>
+        ) : null}{' '}
+        {onDismiss ? (
+          <button type="button" onClick={onDismiss}>
+            Close
+          </button>
+        ) : onReload ? (
+          <button type="button" onClick={onReload}>
+            Reload
+          </button>
+        ) : null}
+      </p>
+    </div>
+  );
+}
 
 /**
  * Shared React error boundary used at surface roots and around record-driven

@@ -1,4 +1,4 @@
-import { MAX_TURN_EVENTS } from '../shared/runtime/chatLimits.js';
+import { MAX_TURN_EVENTS } from '../shared/runtime/contracts.js';
 import { MSG } from '../shared/runtime/messages.js';
 import { CHAT_TOOL_OUTCOMES, LLM_TASK_TYPES } from '../shared/runtime/telemetry.js';
 import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
@@ -6,7 +6,7 @@ import { createChatLogger } from './chatLogger.js';
 import {
   ARTICLE_CHAT_MAX_CHUNK_CHARS,
   ARTICLE_CHAT_MAX_HISTORY_CHARS,
-} from '../core/settings/articleChatBudget.js';
+} from '../core/settings/llmBudgets.js';
 import { UNTRUSTED_CONTENT_TAIL } from '../shared/runtime/promptSecurity.js';
 import { splitTextToMaxChars } from '../core/llm/textChunking.js';
 

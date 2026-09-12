@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyPipelineFailures,
   createQueuedRecord,
   IN_FLIGHT_PIPELINE_STATUSES,
   isImportableRecord,
   isInFlightPipelineStatus,
+  isInFlightRecord,
   isSummaryGenerationSourceStatus,
   PIPELINE_STATUS,
   SUMMARY_GENERATION_SOURCE_STATUSES,
@@ -19,6 +21,12 @@ describe('runtime contracts', () => {
     expect([...SUMMARY_GENERATION_SOURCE_STATUSES]).toEqual(['done', 'cancelled', 'error']);
     expect(Object.isFrozen(IN_FLIGHT_PIPELINE_STATUSES)).toBe(true);
     expect(Object.isFrozen(SUMMARY_GENERATION_SOURCE_STATUSES)).toBe(true);
+  });
+
+  it('recognizes in-flight records', () => {
+    expect(isInFlightRecord({ status: PIPELINE_STATUS.SUMMARIZING })).toBe(true);
+    expect(isInFlightRecord({ status: PIPELINE_STATUS.DONE })).toBe(false);
+    expect(isInFlightRecord(null)).toBe(false);
   });
 
   it('shares the minimum importable-record contract', () => {
@@ -95,5 +103,26 @@ describe('runtime contracts', () => {
       createdAt: 123,
       updatedAt: 123,
     });
+  });
+});
+
+describe('applyPipelineFailures', () => {
+  it('creates UI projections without mutating persisted records', () => {
+    const record = { key: 'a', status: PIPELINE_STATUS.SUMMARIZING, error: null };
+    const failure = {
+      kind: 'storage_unavailable',
+      message: 'Storage unavailable',
+      retryable: true,
+    };
+
+    const [visible] = applyPipelineFailures([record], { a: failure });
+
+    expect(visible).toEqual({
+      ...record,
+      status: PIPELINE_STATUS.ERROR,
+      error: failure.message,
+      pipelineFailure: failure,
+    });
+    expect(record).toEqual({ key: 'a', status: PIPELINE_STATUS.SUMMARIZING, error: null });
   });
 });

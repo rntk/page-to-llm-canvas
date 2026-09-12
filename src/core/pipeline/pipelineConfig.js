@@ -5,8 +5,11 @@ import {
   buildTopicRangesPrompt,
   buildTopicSummaryFromSourcePrompt,
 } from './prompts.js';
-import { PIPELINE_MIN_CONTEXT_WINDOW_TOKENS } from '../settings/contextWindowConstraints.js';
-import { LLM_TEXT_FALLBACK_MAX_CHARS } from '../settings/textBudget.js';
+import {
+  ARTICLE_CHAT_MAX_HISTORY_CHARS,
+  LLM_TEXT_FALLBACK_MAX_CHARS,
+  PIPELINE_MIN_CONTEXT_WINDOW_TOKENS,
+} from '../settings/llmBudgets.js';
 import {
   LLM_MAX_OUTPUT_TOKENS,
   maxTopicRangeSentencesForOutputBudget,
@@ -99,6 +102,23 @@ export function getPipelineTextChunkMaxChars(contextWindowTokens) {
   }
   const maxChars = estimateMaxCharsForTokens(availableTokens);
   return Math.min(PIPELINE_TEXT_CHUNK_MAX_CHARS, maxChars);
+}
+
+/**
+ * Derives article-chat budgets from the pipeline budget. The pipeline budget
+ * is already estimator-derived; chat splits it between source and history so
+ * their sum fits the same window. Fixed overhead and response sizes differ
+ * from the pipeline, but the variable-text estimator is shared.
+ * @param {unknown} contextWindowTokens
+ * @returns {{maxChunkChars: number, maxHistoryChars: number}}
+ */
+export function getArticleChatLimits(contextWindowTokens) {
+  const textBudget = getPipelineTextChunkMaxChars(contextWindowTokens);
+  const maxHistoryChars = Math.min(ARTICLE_CHAT_MAX_HISTORY_CHARS, Math.floor(textBudget / 3));
+  return {
+    maxChunkChars: Math.max(1, textBudget - maxHistoryChars),
+    maxHistoryChars,
+  };
 }
 
 /**

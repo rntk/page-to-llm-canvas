@@ -1,4 +1,4 @@
-import { MAX_TURN_EVENTS } from '../shared/runtime/chatLimits.js';
+import { MAX_TURN_EVENTS } from '../shared/runtime/contracts.js';
 import React, { Activity, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createTurnId, runArticleChatTurn } from './articleChat.js';

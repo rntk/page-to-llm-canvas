@@ -21,7 +21,7 @@ const WORD_TOKEN_RE = /\S+/g;
 const NORMALIZE_RE = /[^\p{L}\p{N}]+/gu;
 export const HIGHLIGHT_NAME = 'pagetollm-sentence';
 /** CSS Custom Highlight name for chat-driven sentence highlights, shared by
- * the canvas (src/chat/useChatHighlights.js) and the in-page rail
+ * the canvas (src/canvas/hooks/useSentenceHighlights.js) and the in-page rail
  * (src/content/rails/in-page/pageHighlighter.js) so both surfaces render chat
  * highlights identically via ::highlight(pagetollm-chat-sentence). */
 export const CHAT_HIGHLIGHT_NAME = 'pagetollm-chat-sentence';

@@ -8,9 +8,8 @@ import {
   estimateTokensForCharCount,
   utf8ByteLength,
 } from './tokenEstimator.js';
-import { getPipelineTextChunkMaxChars } from '../pipeline/pipelineConfig.js';
-import { getArticleChatLimits } from './articleChatLimits.js';
-import { ARTICLE_CHAT_MAX_CHUNK_CHARS } from '../settings/articleChatBudget.js';
+import { getArticleChatLimits, getPipelineTextChunkMaxChars } from '../pipeline/pipelineConfig.js';
+import { ARTICLE_CHAT_MAX_CHUNK_CHARS } from '../settings/llmBudgets.js';
 
 // Helper: BMP char that is 3 bytes in UTF-8 (U+0800) – worst case per code unit.
 const THREE_BYTE_CHAR = '\u0800';

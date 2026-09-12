@@ -4,18 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-vi.mock('./trustedEvents.js', () => ({
-  guardTrustedUserEvent: vi.fn((event) => {
-    const blocked = event?.blocked === true || event?.nativeEvent?.blocked === true;
-    if (blocked) {
-      event.preventDefault?.();
-      event.stopPropagation?.();
-      return false;
-    }
-    return true;
-  }),
-}));
-
 vi.mock('../shared/surfacePreferences.js', () => ({
   applyContentTheme: vi.fn(),
   applyContentHighlightColor: vi.fn(),
@@ -24,7 +12,8 @@ vi.mock('../shared/surfacePreferences.js', () => ({
   registerThemedSurface: vi.fn(),
 }));
 
-const { createSelectionController } = await import('./controller.jsx');
+const { createSelectionController, guardTrustedUserEvent, isTrustedUserEvent } =
+  await import('./controller.jsx');
 const runtimeMessenger = { send: vi.fn() };
 let activeController = null;
 
@@ -49,14 +38,32 @@ function toolbarButton(id) {
   return toolbarRoot()?.querySelector(`#${id}`);
 }
 
-function event(type, blocked = false) {
-  const result = new MouseEvent(type, { bubbles: true, cancelable: true });
-  Object.defineProperty(result, 'blocked', { value: blocked });
-  return result;
+function event(type) {
+  return new MouseEvent(type, { bubbles: true, cancelable: true });
+}
+
+// Synthetic events are never `isTrusted`, so `guardTrustedUserEvent` only
+// blocks them when it is not running with the test-mode synthetic allowance
+// (see `isTrustedUserEvent` in controller.jsx). Toggling `MODE` around a
+// single dispatch reproduces a real "blocked" (untrusted) event without
+// reaching into the gating implementation.
+function withBlockedEvents(fn) {
+  const previousMode = import.meta.env.MODE;
+  import.meta.env.MODE = 'production';
+  try {
+    return fn();
+  } finally {
+    import.meta.env.MODE = previousMode;
+  }
 }
 
 function click(element, blocked = false) {
-  act(() => element.dispatchEvent(event('click', blocked)));
+  const dispatch = () => act(() => element.dispatchEvent(event('click')));
+  if (blocked) {
+    withBlockedEvents(dispatch);
+  } else {
+    dispatch();
+  }
 }
 
 function mountBlock(id, text = 'Selected content') {
@@ -147,7 +154,7 @@ describe('selection controller', () => {
     click(toolbarButton('pagetollm-pick-btn'));
     expect(toolbarButton('pagetollm-pick-btn').textContent).toBe('Picking...');
 
-    block.dispatchEvent(event('click', true));
+    withBlockedEvents(() => block.dispatchEvent(event('click')));
     expect(block.classList.contains('pagetollm-selected')).toBe(false);
     expect(toolbarRoot().querySelectorAll('.pagetollm-block-item')).toHaveLength(0);
   });
@@ -288,5 +295,27 @@ describe('selection controller', () => {
     expect(alert).toHaveBeenCalledWith('Please pick at least one block first.');
     expect(runtimeMessenger.send).not.toHaveBeenCalled();
     expect(document.getElementById('pagetollm-selection-toolbar')).not.toBeNull();
+  });
+});
+
+function eventWithTrust(isTrusted) {
+  return {
+    isTrusted,
+    preventDefault: vi.fn(),
+    stopPropagation: vi.fn(),
+  };
+}
+
+describe('content event security', () => {
+  it('accepts trusted user events', () => {
+    expect(isTrustedUserEvent(eventWithTrust(true), { allowSynthetic: false })).toBe(true);
+  });
+
+  it('rejects synthetic events outside test mode', () => {
+    const untrustedEvent = eventWithTrust(false);
+
+    expect(guardTrustedUserEvent(untrustedEvent, { allowSynthetic: false })).toBe(false);
+    expect(untrustedEvent.preventDefault).toHaveBeenCalled();
+    expect(untrustedEvent.stopPropagation).toHaveBeenCalled();
   });
 });

@@ -83,3 +83,23 @@ export function buildSummaryCards(topicSummaryIndex) {
   );
   return cards;
 }
+
+/**
+ * Selects the summary card for the active topic when in per-topic (non-summary)
+ * view mode. Returns null in summary mode, when there is no active topic, or
+ * when no matching card with text is found.
+ *
+ * @param {object} params
+ * @param {boolean} params.showSummaryMode
+ * @param {{cardKey?: string, path?: string}} params.activeTopic
+ * @param {Array} params.allSummaryCards
+ * @returns {object|null}
+ */
+export function selectCurrentTopicSummary({ showSummaryMode, activeTopic, allSummaryCards }) {
+  if (showSummaryMode || !activeTopic) return null;
+  const cards = Array.isArray(allSummaryCards) ? allSummaryCards : [];
+  const card =
+    (activeTopic.cardKey && cards.find((c) => c.key === activeTopic.cardKey)) ||
+    cards.find((c) => c.path === activeTopic.path);
+  return card && card.text ? card : null;
+}

@@ -3,6 +3,9 @@
 // remain plain strings and objects so Chrome storage and runtime messaging do
 // not depend on JavaScript prototypes.
 
+// Shared contract for generated and persisted chat turns.
+export const MAX_TURN_EVENTS = 200;
+
 export const PIPELINE_STATUS = Object.freeze({
   PENDING: 'pending',
   SPLITTING: 'splitting',
@@ -60,6 +63,11 @@ function isImportableTopicSummaryIndex(value) {
 /** @param {unknown} value @returns {boolean} */
 export function isInFlightPipelineStatus(value) {
   return IN_FLIGHT_PIPELINE_STATUS_VALUES.has(value);
+}
+
+/** @param {unknown} record @returns {boolean} */
+export function isInFlightRecord(record) {
+  return !!record && isInFlightPipelineStatus(record.status);
 }
 
 /** @param {unknown} value @returns {boolean} */
@@ -252,4 +260,24 @@ export function createQueuedRecord({
     createdAt: now,
     updatedAt: now,
   };
+}
+
+/**
+ * Builds UI-only record projections from separately transported runtime state.
+ * Persisted records and exports remain unchanged.
+ * @param {object[]} records Persisted record projections.
+ * @param {Record<string, object>} failures Runtime failures keyed by record key.
+ * @returns {object[]}
+ */
+export function applyPipelineFailures(records, failures = {}) {
+  return (Array.isArray(records) ? records : []).map((record) => {
+    const failure = failures?.[record?.key];
+    if (!failure) return record;
+    return {
+      ...record,
+      status: PIPELINE_STATUS.ERROR,
+      error: failure.message,
+      pipelineFailure: failure,
+    };
+  });
 }

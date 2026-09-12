@@ -59,3 +59,19 @@ export function createModalHost({
     },
   });
 }
+
+/**
+ * Parses the modal iframe's URL query string into the record key and view
+ * mode it was opened with.
+ *
+ * @param {string} search
+ * @returns {{key: string, view: string}}
+ */
+export function parseModalRoute(search) {
+  try {
+    const params = new URLSearchParams(search || '');
+    return { key: params.get('key') || '', view: params.get('view') || '' };
+  } catch (_) {
+    return { key: '', view: '' };
+  }
+}
