@@ -14,6 +14,7 @@ import {
 } from './topicDomain.js';
 import { formatTopicPath } from '../shared/runtime/topicPath.js';
 import { clampScale } from '../utils/canvasMath.js';
+import { clampCardsToParents } from '../utils/cardContainment.js';
 import {
   CARD_BASE_TITLE_FONT_SIZE,
   CARD_COMPACT_HEIGHT_THRESHOLD,
@@ -165,6 +166,12 @@ function getMeasuredRunLayout(sentenceRun, sentenceMetrics) {
  * measured above its own predecessor — that is a mis-measurement rather than a
  * dense column, and it is still stacked without a bound.
  *
+ * Across columns, a child card stays inside its parent's extent. Columns are
+ * resolved independently, so a parent clipped to clear its next sibling (or
+ * pushed down) would otherwise leave a child — laid out from the very same
+ * sentences, but with room in its own column — sticking out below it. That
+ * clamp runs last, on the resolved columns (see `clampCardsToParents`).
+ *
  * @template {{key: string, levelIndex: number, startSentence: number, top: number, height: number, fullPath: string}} T
  * @param {T[]} cards
  * @returns {T[]}
@@ -227,10 +234,13 @@ export function resolveColumnOverlaps(cards) {
     });
   }
 
-  return cards.map((card) => {
-    const adjusted = adjustedByKey.get(card.key);
-    return adjusted ? { ...card, top: adjusted.top, height: adjusted.height } : card;
-  });
+  return clampCardsToParents(
+    cards.map((card) => {
+      const adjusted = adjustedByKey.get(card.key);
+      return adjusted ? { ...card, top: adjusted.top, height: adjusted.height } : card;
+    }),
+    CARD_MIN_CLAMPED_HEIGHT,
+  );
 }
 
 function getPathPrefixes(path) {

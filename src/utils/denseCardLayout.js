@@ -8,6 +8,7 @@ import {
   CARD_TITLE_MAX_LINES,
   CARD_VERTICAL_PADDING_PX,
 } from './cardTitleGeometry.js';
+import { clampCardsToParents } from './cardContainment.js';
 
 /**
  * Pure collision-resolution and layout helpers for the dense card rail view.
@@ -206,7 +207,13 @@ export function adjustCrowdedLevelCards(levelCards) {
  * Groups cards by levelIndex and runs crowded-card adjustment per column,
  * returning the full adjusted set sorted by level then vertical position.
  *
- * @param {Array<{levelIndex: number, top: number, fullPath: string}>} cards
+ * Compaction and nudging are per column, so a crowded parent can end up
+ * shorter than an uncrowded child. Children are clamped back inside their
+ * parents afterwards (matched by parent path and `startSentence`, see
+ * `clampCardsToParents`), and a clamped card's title size is re-capped to its
+ * new height.
+ *
+ * @param {Array<{levelIndex: number, top: number, fullPath: string, startSentence?: number}>} cards
  * @returns {Array}
  */
 export function getAdjustedHierarchyCards(cards) {
@@ -217,8 +224,18 @@ export function getAdjustedHierarchyCards(cards) {
     cardsByLevel.set(card.levelIndex, levelCards);
   });
 
-  return Array.from(cardsByLevel.values())
-    .flatMap(adjustCrowdedLevelCards)
+  const adjustedCards = Array.from(cardsByLevel.values()).flatMap(adjustCrowdedLevelCards);
+  return clampCardsToParents(adjustedCards, DENSE_CARD_MIN_HEIGHT)
+    .map((card, index) =>
+      card === adjustedCards[index]
+        ? card
+        : {
+            ...card,
+            top: Math.round(card.top),
+            height: Math.round(card.height),
+            titleFontSize: getAdjustedTitleFontSize(card.sourceCard || card, Math.round(card.height)),
+          },
+    )
     .sort(
       (left, right) =>
         left.levelIndex - right.levelIndex ||

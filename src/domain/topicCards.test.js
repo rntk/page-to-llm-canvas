@@ -638,3 +638,56 @@ describe('patchTopicCardsFromSummaryMetrics', () => {
     expect(result[0].height).toBe(72);
   });
 });
+
+describe('parent/child containment', () => {
+  it('keeps a child inside a parent that was clipped to clear its next sibling', () => {
+    // Parent and child cover the same single sentence, so both measure the same
+    // box. The parent's column has a sibling starting right below, so the
+    // parent is clipped; the child's column has room. Without containment the
+    // child would keep its full extent and stick out below the parent.
+    const topics = [
+      { name: 'Software Engineering', sentences: [5] },
+      { name: 'Software Engineering > Software Factory', sentences: [5] },
+      { name: 'Next Topic', sentences: [6, 7] },
+    ];
+    const metrics = new Map([
+      [5, { top: 112, bottom: 220 }],
+      [6, { top: 198, bottom: 230 }],
+      [7, { top: 230, bottom: 260 }],
+    ]);
+    const cards = buildTopicCards(topics, 1, metrics);
+    const parent = cards.find((c) => c.fullPath === 'Software Engineering');
+    const child = cards.find((c) => c.fullPath === 'Software Engineering > Software Factory');
+    expect(parent).toMatchObject({ top: 112, height: 78 });
+    expect(child.top).toBeGreaterThanOrEqual(parent.top);
+    expect(child.top + child.height).toBeLessThanOrEqual(parent.top + parent.height);
+  });
+
+  it('resolveColumnOverlaps clamps a child that extends below its parent', () => {
+    const cards = [
+      { key: 'A#0#0', fullPath: 'A', levelIndex: 0, startSentence: 1, top: 100, height: 80 },
+      { key: 'A > B#1#0', fullPath: 'A > B', levelIndex: 1, startSentence: 1, top: 100, height: 160 },
+    ];
+    const [, child] = resolveColumnOverlaps(cards);
+    expect(child).toMatchObject({ top: 100, height: 80 });
+  });
+
+  it('patchTopicCardsFromSummaryMetrics keeps children inside their parents', () => {
+    const topics = [
+      { name: 'A', sentences: [1, 2] },
+      { name: 'A > B', sentences: [1, 2] },
+    ];
+    const cards = buildTopicCards(topics, 1, new Map());
+    const summaryCards = [
+      { key: 'A#0#0', path: 'A', startSentence: 1 },
+      { key: 'A > B#1#0', path: 'A > B', startSentence: 1 },
+    ];
+    const metrics = new Map([
+      ['A#0#0', { top: 100, height: 80 }],
+      ['A > B#1#0', { top: 100, height: 200 }],
+    ]);
+    const patched = patchTopicCardsFromSummaryMetrics(cards, summaryCards, metrics);
+    const child = patched.find((c) => c.fullPath === 'A > B');
+    expect(child).toMatchObject({ top: 100, height: 80 });
+  });
+});

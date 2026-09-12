@@ -237,11 +237,15 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
   // read by getAdjustedHierarchyCards/adjustCrowdedLevelCards in denseCardLayout
   // (including sentenceCount, which getDenseCardZIndex reads to pick a card's
   // z-index — omitting it would serve a stale z-index after a sentence-count-only
-  // change).
+  // change, and startSentence, which clampCardsToParents uses to pick the
+  // parent run a child is clamped into).
   const geometrySignature = React.useMemo(
     () =>
       hierarchyCards
-        .map((c) => `${c.key}:${c.top}:${c.height}:${c.levelIndex}:${c.sentenceCount}`)
+        .map(
+          (c) =>
+            `${c.key}:${c.top}:${c.height}:${c.levelIndex}:${c.sentenceCount}:${c.startSentence}`,
+        )
         .join('|'),
     [hierarchyCards],
   );

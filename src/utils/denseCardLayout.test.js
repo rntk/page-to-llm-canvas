@@ -425,6 +425,34 @@ describe('getAdjustedHierarchyCards', () => {
       }
     }
   });
+
+  it('keeps a child inside a parent that was compacted by its crowded column', () => {
+    // Parent column is crowded (two overlapping 80px cards → compacted to 64
+    // and nudged apart); the child column has a single card that keeps its
+    // 80px. Without containment the child would outgrow its parent.
+    const parent = { ...makeCard('A', 100, 80, 0), startSentence: 1 };
+    const sibling = { ...makeCard('B', 150, 80, 0), startSentence: 5 };
+    const child = { ...makeCard('A > C', 100, 80, 1), startSentence: 1 };
+    const result = getAdjustedHierarchyCards([parent, sibling, child]);
+    const adjustedParent = result.find((c) => c.fullPath === 'A');
+    const adjustedChild = result.find((c) => c.fullPath === 'A > C');
+    expect(adjustedParent.height).toBeLessThan(80);
+    expect(adjustedChild.top).toBeGreaterThanOrEqual(adjustedParent.top);
+    expect(adjustedChild.top + adjustedChild.height).toBeLessThanOrEqual(
+      adjustedParent.top + adjustedParent.height,
+    );
+    expect(Number.isInteger(adjustedChild.top)).toBe(true);
+    expect(Number.isInteger(adjustedChild.height)).toBe(true);
+  });
+
+  it('re-caps a clamped child’s title font size to its new height', () => {
+    const parent = { ...makeCard('A', 0, 56, 0), startSentence: 1, titleFontSize: 40 };
+    const child = { ...makeCard('A > C', 0, 200, 1), startSentence: 1, titleFontSize: 40 };
+    const result = getAdjustedHierarchyCards([parent, child]);
+    const adjustedChild = result.find((c) => c.fullPath === 'A > C');
+    expect(adjustedChild.height).toBe(56);
+    expect(adjustedChild.titleFontSize).toBe(getAdjustedTitleFontSize({ titleFontSize: 40 }, 56));
+  });
 });
 
 // ---------------------------------------------------------------------------
