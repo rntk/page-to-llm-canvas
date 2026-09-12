@@ -4,7 +4,7 @@
  */
 
 import { MSG } from '../shared/runtime/messages.js';
-import { TEMPERATURE_TASKS } from '../../worker/llm/temperatures.js';
+import { TEMPERATURE_TASKS } from '../core/llm/temperatures.js';
 import { isStaleActionResponse, STALE_ACTION_MESSAGE } from '../shared/runtime/actionResponses.js';
 import {
   isImportableRecord,

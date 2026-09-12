@@ -6,9 +6,9 @@ import { createChatLogger } from './chatLogger.js';
 import {
   ARTICLE_CHAT_MAX_CHUNK_CHARS,
   ARTICLE_CHAT_MAX_HISTORY_CHARS,
-} from '../../worker/settings/articleChatBudget.js';
+} from '../core/settings/articleChatBudget.js';
 import { UNTRUSTED_CONTENT_TAIL } from '../shared/runtime/promptSecurity.js';
-import { splitTextToMaxChars } from '../../worker/llm/textChunking.js';
+import { splitTextToMaxChars } from '../core/llm/textChunking.js';
 
 /**
  * Default transport for one tool-call outcome metric. Fire-and-forget: the

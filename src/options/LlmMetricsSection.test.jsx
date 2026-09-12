@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../worker/metrics/llm.js', async (importOriginal) => {
+vi.mock('../core/metrics/llm.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
@@ -17,7 +17,7 @@ import {
   clearLlmMetrics,
   emptyLlmMetrics,
   getLlmMetrics,
-} from '../../worker/metrics/llm.js';
+} from '../core/metrics/llm.js';
 import { LlmMetricsSection } from './LlmMetricsSection.jsx';
 import { createFakeStore } from '../../test/fakes/storeFake.mjs';
 

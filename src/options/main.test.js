@@ -4,7 +4,7 @@ import {
   DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS,
   MAX_LLM_REQUEST_TIMEOUT_SECONDS,
   MIN_LLM_REQUEST_TIMEOUT_SECONDS,
-} from '../../worker/settings/llmTimeout.js';
+} from '../core/settings/llmTimeout.js';
 
 async function waitFor(assertion, timeout = 1000) {
   const start = Date.now();

@@ -6,7 +6,7 @@ import {
   recordContentStorageKey,
   recordSummaryOutputStorageKey,
   recordDiagnosticsStorageKey,
-} from '../../worker/storage/keys.js';
+} from '../core/storage/keys.js';
 
 // Physical keys are confined to this browser adapter. React consumes only the
 // logical fetch/subscribe capability, and record assembly remains worker-owned.

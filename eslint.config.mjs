@@ -58,7 +58,7 @@ export default [
     // prefix and output shape live in one place. Tests may spy on console
     // directly, and `scripts/` are Node build/CI tools whose stdout IS the
     // output, so both stay exempt.
-    files: ['src/**/*.{js,jsx,mjs}', 'worker/**/*.{js,jsx,mjs}'],
+    files: ['src/**/*.{js,jsx,mjs}'],
     ignores: ['**/*.test.{js,jsx,mjs}', 'src/shared/runtime/log.js'],
     rules: {
       'no-console': 'error',
@@ -71,7 +71,7 @@ export default [
     // *.test.{js,jsx,mjs}: measured at ~56 violations there (mostly chrome.storage
     // mock helpers built as `new Promise((resolve) => { chrome.storage.local.set(...,
     // () => resolve(...)) })`), which is test-harness noise, not production risk.
-    files: ['src/**/*.{js,jsx,mjs}', 'worker/**/*.{js,jsx,mjs}'],
+    files: ['src/**/*.{js,jsx,mjs}'],
     ignores: ['**/*.test.{js,jsx,mjs}'],
     rules: {
       'require-atomic-updates': 'error',
@@ -97,6 +97,28 @@ export default [
     },
   },
   {
+    // The pipeline's composition root now lives inside the background service
+    // worker's own directory, so this boundary is structural: only background
+    // code may reach into it. Everything else -- canvas, content, options --
+    // observes pipeline state through src/core/pipeline/ instead.
+    files: ['src/**/*.{js,jsx,mjs}'],
+    ignores: ['src/extension/background/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/extension/background/pipeline/*'],
+              message:
+                'Only the background service worker owns the pipeline runner and its runtime. Observe pipeline state via src/core/pipeline/ instead.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // `src/utils/` holds generic, topic-agnostic helpers; `src/domain/` holds
     // the topic model and the projections built on it. The dependency runs
     // domain -> utils only. See ARCHITECTURE_LAYERS.md.
@@ -107,36 +129,14 @@ export default [
         {
           patterns: [
             {
+              group: ['**/extension/background/pipeline/*'],
+              message:
+                'Only the background service worker owns the pipeline runner and its runtime. Observe pipeline state via src/core/pipeline/ instead.',
+            },
+            {
               group: ['**/domain/*'],
               message:
                 'src/utils/ must stay topic-agnostic. Topic-specific helpers belong in src/domain/ next to topicDomain.js.',
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
-    files: ['src/canvas/App.jsx'],
-    rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          paths: [
-            {
-              name: '../../worker/pipeline/orchestrator.js',
-              importNames: ['createPipelineRunner'],
-              message:
-                'The canvas observes pipeline state; only the background service worker owns the pipeline runner.',
-            },
-            {
-              // The runner is assembled from these pieces in the service
-              // worker's composition root. Blocking the runner alone would
-              // still let the canvas rebuild one out of its parts.
-              name: '../../worker/pipeline/pipelineRuntime.js',
-              importNames: ['createPipelineRuntime'],
-              message:
-                'The canvas observes pipeline state; only the background service worker constructs pipeline runtimes.',
             },
           ],
         },

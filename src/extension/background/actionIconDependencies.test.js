@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ACTION_ICON_PATHS } from '../../../worker/actionIcon.js';
+import { ACTION_ICON_PATHS } from './actionIcon.js';
 import { createActionIconDependencies } from './actionIconDependencies.js';
 
 describe('createActionIconDependencies', () => {

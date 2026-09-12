@@ -1,4 +1,4 @@
-import { acceptFailedSummaryRun } from '../../../worker/pipeline/summaryRunMarkers.js';
+import { acceptFailedSummaryRun } from '../../core/pipeline/summaryRunMarkers.js';
 
 /**
  * Returns a copy of the topic-summaries map with in-flight error markers

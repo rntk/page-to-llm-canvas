@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const sendRuntimeMessage = vi.hoisted(() => vi.fn());
 vi.mock('../utils/runtimeMessages.js', () => ({ sendRuntimeMessage }));
 
-vi.mock('../../worker/metrics/chatTool.js', async (importOriginal) => {
+vi.mock('../core/metrics/chatTool.js', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, getChatToolMetrics: vi.fn() };
 });
@@ -15,7 +15,7 @@ import {
   CHAT_TOOL_OUTCOMES,
   emptyChatToolMetrics,
   getChatToolMetrics,
-} from '../../worker/metrics/chatTool.js';
+} from '../core/metrics/chatTool.js';
 import { ChatToolMetricsSection } from './ChatToolMetricsSection.jsx';
 import { createFakeStore } from '../../test/fakes/storeFake.mjs';
 

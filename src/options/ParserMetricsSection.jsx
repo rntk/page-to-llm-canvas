@@ -4,7 +4,7 @@ import {
   emptyParserMetrics,
   getParserMetrics,
   normalizeParserMetrics,
-} from '../../worker/metrics/parser.js';
+} from '../core/metrics/parser.js';
 import { MSG } from '../shared/runtime/messages.js';
 import { CollapsibleSection } from './CollapsibleSection.jsx';
 import { formatDate } from './metricsFormat.js';

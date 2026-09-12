@@ -1,5 +1,5 @@
-import { formatPipelineError } from '../../../worker/pipeline/pipelineRuntime.js';
-import { isInFlightRecord, isInFlightStatus } from '../../../worker/pipeline/pipelineStatus.js';
+import { formatPipelineError } from './pipeline/pipelineRuntime.js';
+import { isInFlightRecord, isInFlightStatus } from '../../core/pipeline/pipelineStatus.js';
 import { PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { STORAGE_UNAVAILABLE_MESSAGE } from './pipelineFailureBreaker.js';

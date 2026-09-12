@@ -10,7 +10,7 @@ import { joinTopicPath } from '../shared/runtime/topicPath.js';
  * `fullPath` joins parts with ">" (no spaces) to match color helpers.
  *
  * This builds the UI's navigation tree (topic hierarchy for browsing/expanding
- * in the rail/hierarchy views). See ../../worker/pipeline/topicTreeMerge.js for the
+ * in the rail/hierarchy views). See src/core/pipeline/topicTreeMerge.js for the
  * worker's separate tree builder, which merges topic summaries during
  * extraction and has different structural requirements — the two are not
  * merged on purpose.

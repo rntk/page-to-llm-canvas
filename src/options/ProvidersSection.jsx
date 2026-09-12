@@ -3,16 +3,16 @@ import {
   PROVIDER_DEFINITIONS,
   SERVICE_TIER_DEFINITIONS,
   getProviderDefinition,
-} from '../../worker/llm/providers.js';
+} from '../core/llm/providers.js';
 import {
   PIPELINE_MIN_CONTEXT_WINDOW_TOKENS,
   PROVIDER_MAX_CONTEXT_WINDOW_TOKENS,
-} from '../../worker/settings/contextWindowConstraints.js';
+} from '../core/settings/contextWindowConstraints.js';
 import {
   PROVIDER_MAX_TEMPERATURE,
   PROVIDER_MIN_TEMPERATURE,
   TEMPERATURE_TASK_DEFINITIONS,
-} from '../../worker/llm/temperatures.js';
+} from '../core/llm/temperatures.js';
 import { MSG } from '../shared/runtime/messages.js';
 import {
   shouldWarnTokenWipe,

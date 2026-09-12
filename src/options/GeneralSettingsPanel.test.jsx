@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../worker/settings/language.js', async (importOriginal) => {
+vi.mock('../core/settings/language.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
@@ -12,7 +12,7 @@ vi.mock('../../worker/settings/language.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../../worker/settings/summary.js', async (importOriginal) => {
+vi.mock('../core/settings/summary.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
@@ -30,7 +30,7 @@ vi.mock('../shared/runtime/verboseLogSettings.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../../worker/settings/llmConcurrency.js', async (importOriginal) => {
+vi.mock('../core/settings/llmConcurrency.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
@@ -39,7 +39,7 @@ vi.mock('../../worker/settings/llmConcurrency.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../../worker/settings/llmTimeout.js', async (importOriginal) => {
+vi.mock('../core/settings/llmTimeout.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
@@ -52,12 +52,12 @@ import {
   DEFAULT_PREFER_CONTENT_LANGUAGE,
   getStoredPreferContentLanguage,
   setStoredPreferContentLanguage,
-} from '../../worker/settings/language.js';
+} from '../core/settings/language.js';
 import {
   DEFAULT_SUMMARIES_DISABLED,
   getStoredSummariesDisabled,
   setStoredSummariesDisabled,
-} from '../../worker/settings/summary.js';
+} from '../core/settings/summary.js';
 import {
   DEFAULT_VERBOSE_LOGS,
   getStoredVerboseLogs,
@@ -69,14 +69,14 @@ import {
   MAX_PARALLEL_LLM_REQUESTS,
   getStoredMaxParallelLlmRequests,
   setStoredMaxParallelLlmRequests,
-} from '../../worker/settings/llmConcurrency.js';
+} from '../core/settings/llmConcurrency.js';
 import {
   DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS,
   MIN_LLM_REQUEST_TIMEOUT_SECONDS,
   MAX_LLM_REQUEST_TIMEOUT_SECONDS,
   getStoredLlmRequestTimeoutSeconds,
   setStoredLlmRequestTimeoutSeconds,
-} from '../../worker/settings/llmTimeout.js';
+} from '../core/settings/llmTimeout.js';
 import {
   ContentLanguageSection,
   GeneralSettingsPanel,

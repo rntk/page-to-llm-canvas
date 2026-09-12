@@ -5,11 +5,11 @@
 // `clearSummaryErrorFlags` and cannot catch a marker that never reaches the
 // summary stage.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { readRecord, writeRecord } from '../../../worker/storage/storage.js';
-import { planSummaryWork } from '../../../worker/pipeline/summaryPlanning.js';
-import * as llm from '../../../worker/llm/llm.js';
+import { readRecord, writeRecord } from '../../core/storage/storage.js';
+import { planSummaryWork } from '../../core/pipeline/summaryPlanning.js';
+import * as llm from '../../core/llm/llm.js';
 
-vi.mock('../../../worker/llm/llm.js', () => ({
+vi.mock('../../core/llm/llm.js', () => ({
   callLLMWithRetry: vi.fn(),
   // Unused by the pipeline path under test, but the worker's composition root
   // names every dependency when it builds the chat completion service, so the
@@ -17,7 +17,7 @@ vi.mock('../../../worker/llm/llm.js', () => ({
   callLLMDirect: vi.fn(),
 }));
 
-vi.mock('../../../worker/llm/concurrency.js', () => ({
+vi.mock('../../core/llm/concurrency.js', () => ({
   createAdjustableLimiter: vi.fn(() => ({ run: vi.fn((fn) => fn()), setLimit: vi.fn() })),
   createLimiter: vi.fn(() => (fn) => fn()),
   parallelMap: vi.fn(async (items, limit, fn) => {

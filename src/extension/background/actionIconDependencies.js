@@ -1,4 +1,4 @@
-import { ACTION_ICON_PATHS } from '../../../worker/actionIcon.js';
+import { ACTION_ICON_PATHS } from './actionIcon.js';
 
 /**
  * Adapt service-worker browser APIs to the action-icon controller interface.

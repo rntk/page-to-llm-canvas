@@ -1,6 +1,6 @@
 {
   "source": {
-    "include": ["src", "worker"],
+    "include": ["src"],
     "includePattern": "\\.(js|jsx)$",
     "excludePattern": "(^|/)(node_modules|dist|coverage|reports)/|\\.test\\.(js|jsx)$"
   },

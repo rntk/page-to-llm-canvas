@@ -3,20 +3,20 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../worker/metrics/parser.js', async (importOriginal) => {
+vi.mock('../core/metrics/parser.js', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, getParserMetrics: vi.fn() };
 });
 
-vi.mock('../../worker/metrics/resplit.js', async (importOriginal) => {
+vi.mock('../core/metrics/resplit.js', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, getResplitMetrics: vi.fn() };
 });
 
 vi.mock('../utils/runtimeMessages.js', () => ({ sendRuntimeMessage: vi.fn() }));
 
-import { emptyParserMetrics, getParserMetrics } from '../../worker/metrics/parser.js';
-import { emptyResplitMetrics, getResplitMetrics } from '../../worker/metrics/resplit.js';
+import { emptyParserMetrics, getParserMetrics } from '../core/metrics/parser.js';
+import { emptyResplitMetrics, getResplitMetrics } from '../core/metrics/resplit.js';
 import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 import { ParserMetricsSection } from './ParserMetricsSection.jsx';
 import { ResplitMetricsSection } from './ResplitMetricsSection.jsx';

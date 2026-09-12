@@ -6,7 +6,7 @@ import {
   emptyResplitMetrics,
   getResplitMetrics,
   normalizeResplitMetrics,
-} from '../../worker/metrics/resplit.js';
+} from '../core/metrics/resplit.js';
 import { MSG } from '../shared/runtime/messages.js';
 import { CollapsibleSection } from './CollapsibleSection.jsx';
 import { formatDate } from './metricsFormat.js';

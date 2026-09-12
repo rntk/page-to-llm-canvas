@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { recordMetaStorageKey, recordDiagnosticsStorageKey } from '../../worker/storage/keys.js';
+import { recordMetaStorageKey, recordDiagnosticsStorageKey } from '../core/storage/keys.js';
 
 const send = vi.fn();
 const subscribeLocalChanges = vi.fn(() => () => {});

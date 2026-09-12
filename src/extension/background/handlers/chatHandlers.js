@@ -1,6 +1,6 @@
 import { MSG } from '../../../shared/runtime/messages.js';
-import { isSafeChatId } from '../../../../worker/storage/keys.js';
-import { getArticleChatLimits } from '../../../../worker/llm/articleChatLimits.js';
+import { isSafeChatId } from '../../../core/storage/keys.js';
+import { getArticleChatLimits } from '../../../core/llm/articleChatLimits.js';
 
 /**
  * Handlers for article chat: provider completions, turn cancellation, and the

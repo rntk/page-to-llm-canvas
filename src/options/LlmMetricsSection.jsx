@@ -5,7 +5,7 @@ import {
   getLlmMetrics,
   clearLlmMetrics,
   normalizeLlmMetrics,
-} from '../../worker/metrics/llm.js';
+} from '../core/metrics/llm.js';
 import {
   averageDurationMs,
   cacheHitRate,
@@ -14,7 +14,7 @@ import {
   formatMetricPercent,
   formatTaskTypeLabel,
   listTaskTypes,
-} from '../../worker/metrics/format.js';
+} from '../core/metrics/format.js';
 import { CollapsibleSection } from './CollapsibleSection.jsx';
 import { formatDate } from './metricsFormat.js';
 import { useStoredMetrics } from './useStoredMetrics.js';

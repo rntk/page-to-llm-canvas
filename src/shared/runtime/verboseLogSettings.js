@@ -9,7 +9,7 @@
 // recorded, which keeps consoles and the record's processingLog much quieter.
 //
 // Stored in chrome.storage.local so both the options UI (src/options) and the
-// service-worker pipeline (worker/orchestrator) can read it. Defaults to off
+// service-worker pipeline (src/extension/background/pipeline/orchestrator.js) can read it. Defaults to off
 // (quiet), and every accessor degrades to the default rather than throwing so a
 // storage hiccup never breaks the pipeline.
 

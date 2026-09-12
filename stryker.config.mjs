@@ -10,7 +10,6 @@ export default {
   // by App.test.jsx and should remain in mutation scope.
   mutate: [
     'src/**/*.{js,jsx,mjs}',
-    'worker/**/*.js',
     'src/extension/background/background.js',
     'src/extension/popup/popup.js',
     'src/shared/runtime/theme.js',

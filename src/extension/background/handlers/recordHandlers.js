@@ -1,4 +1,4 @@
-import { isInFlightStatus } from '../../../../worker/pipeline/pipelineStatus.js';
+import { isInFlightStatus } from '../../../core/pipeline/pipelineStatus.js';
 import { MSG } from '../../../shared/runtime/messages.js';
 import {
   IN_FLIGHT_PIPELINE_STATUSES,

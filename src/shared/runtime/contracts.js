@@ -88,7 +88,7 @@ export function isImportableRecord(record) {
 }
 
 /**
- * The persisted shape of a page record (see `worker/storage/storage.js`,
+ * The persisted shape of a page record (see `src/core/storage/storage.js`,
  * which persists immutable data, final output, diagnostics, and individual
  * work checkpoints independently and reassembles them on worker reads).
  * Field names mix camelCase (`sourceUrl`,
@@ -137,7 +137,7 @@ export function isImportableRecord(record) {
  *   absolute segments for chunk `i`. Updated after successful parse rounds
  *   and cleared when the stage succeeds, so a Retry re-requests only chunks
  *   that never landed. Validated structurally on read (see
- *   `readTopicRangeChunkCheckpoint` in `worker/pipeline/topicRangeCheckpoint.js`)
+ *   `readTopicRangeChunkCheckpoint` in `src/core/pipeline/topicRangeCheckpoint.js`)
  *   and discarded whole unless `contentRevision` still matches, since an
  *   imported record can carry an arbitrary user-supplied value here.
  * @property {Record<string, object>} [topic_summaries] - Resumable per-topic
@@ -146,7 +146,7 @@ export function isImportableRecord(record) {
  *   `forcedEmpty: true`, meaning the user accepted a failed topic via "skip"
  *   and finalization cleared its in-flight `error` marker — it distinguishes
  *   that case from a legitimately empty summary so `planSummaryWork`
- *   (`worker/pipeline/summaryPlanning.js`) can still retry it on a resume.
+ *   (`src/core/pipeline/summaryPlanning.js`) can still retry it on a resume.
  *   An entry may also carry `acceptedFailure: true`, the transient counterpart
  *   written by the "skip" handler (`clearSummaryErrorFlags` in background.js)
  *   in place of the error fields it strips: it tells the resumed run the leaf

@@ -2,7 +2,7 @@
 //
 // This is the single place where the extension's storage capability is spelled
 // out in terms of the browser API. Worker aggregates reach it through
-// worker/storage/primitives.js; UI bundles and the shared settings modules use
+// src/core/storage/primitives.js; UI bundles and the shared settings modules use
 // it directly, so neither layer has to import the other's implementation
 // directory (and neither has to re-derive the callback/lastError plumbing).
 //

@@ -19,42 +19,42 @@ import {
   deleteAll,
   findRecordByUrl,
   reconcileRecordStorage,
-} from '../../../worker/storage/storage.js';
+} from '../../core/storage/storage.js';
 import {
   listChats,
   readChat,
   appendChatTurn,
   deleteChatHistory,
   reconcileChatStorage,
-} from '../../../worker/storage/chatStorage.js';
+} from '../../core/storage/chatStorage.js';
 import {
   createPipelineRunner,
   isSummaryCheckpointComplete,
   isSummaryCheckpointRevisionCurrent,
-} from '../../../worker/pipeline/orchestrator.js';
-import { callLLMDirect, callLLMWithRetry } from '../../../worker/llm/llm.js';
-import { createAdjustableLimiter } from '../../../worker/llm/concurrency.js';
+} from './pipeline/orchestrator.js';
+import { callLLMDirect, callLLMWithRetry } from '../../core/llm/llm.js';
+import { createAdjustableLimiter } from '../../core/llm/concurrency.js';
 import {
   clearLlmMetrics,
   recordLlmMetric,
   wrapCallLLMWithRetry,
-} from '../../../worker/metrics/llm.js';
-import { clearChatToolMetrics, recordChatToolMetric } from '../../../worker/metrics/chatTool.js';
-import { clearParserMetrics } from '../../../worker/metrics/parser.js';
-import { clearResplitMetrics } from '../../../worker/metrics/resplit.js';
+} from '../../core/metrics/llm.js';
+import { clearChatToolMetrics, recordChatToolMetric } from '../../core/metrics/chatTool.js';
+import { clearParserMetrics } from '../../core/metrics/parser.js';
+import { clearResplitMetrics } from '../../core/metrics/resplit.js';
 import {
   clearAllExtensionData,
   getStorageOverview,
-} from '../../../worker/storage/dataManagement.js';
-import { getStoredSummariesDisabled } from '../../../worker/settings/summary.js';
-import { getStoredPreferContentLanguage } from '../../../worker/settings/language.js';
+} from '../../core/storage/dataManagement.js';
+import { getStoredSummariesDisabled } from '../../core/settings/summary.js';
+import { getStoredPreferContentLanguage } from '../../core/settings/language.js';
 import { getStoredVerboseLogs } from '../../shared/runtime/verboseLogSettings.js';
 import {
   DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
   MAX_PARALLEL_LLM_REQUESTS_KEY,
   getStoredMaxParallelLlmRequests,
   normalizeMaxParallelLlmRequests,
-} from '../../../worker/settings/llmConcurrency.js';
+} from '../../core/settings/llmConcurrency.js';
 import {
   getActiveProvider,
   getProvidersState,
@@ -63,8 +63,8 @@ import {
   saveProvider,
   deleteProvider,
   setActiveProvider,
-} from '../../../worker/llm/providers.js';
-import { createActionIconController } from '../../../worker/actionIcon.js';
+} from '../../core/llm/providers.js';
+import { createActionIconController } from './actionIcon.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { browserLocalStore } from '../../shared/runtime/localStore.js';
 import { createPipelineSupervisor } from './pipelineSupervisor.js';
@@ -78,7 +78,7 @@ import { createChatHandlers } from './handlers/chatHandlers.js';
 import { createMetricsHandlers } from './handlers/metricsHandlers.js';
 import { createProviderHandlers } from './handlers/providerHandlers.js';
 import { createDataManagementHandlers } from './handlers/dataManagementHandlers.js';
-import { createPipelineRuntime } from '../../../worker/pipeline/pipelineRuntime.js';
+import { createPipelineRuntime } from './pipeline/pipelineRuntime.js';
 import { createActionIconDependencies } from './actionIconDependencies.js';
 
 export { clearSummaryErrorFlags, getAcceptedMergeFailurePaths } from './summaryResolution.js';
