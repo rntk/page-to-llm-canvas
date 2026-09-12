@@ -27,6 +27,7 @@ export function useCanvasTopicNavigation({
   flashFocus,
   navigateCanvas,
   skipNextAlignment,
+  captureReturnPoint,
 }) {
   const { zoomToTarget, canvasWrapElRef, scaleRef, translateRef, setTransformNow } = viewport;
   const pendingZoomSentenceRef = useRef(null);
@@ -44,7 +45,13 @@ export function useCanvasTopicNavigation({
             const path = key.split('#')[0];
             return path === topicKey || isDescendantPath(path, topicKey);
           })?.[1];
-        if (summaryEl) zoomToTarget(summaryEl.getBoundingClientRect());
+        if (summaryEl) {
+          // Remember the reader's current zoom *before* the jump, and only when a
+          // jump actually happens — a card we cannot resolve must not strand a
+          // return point that goes nowhere.
+          captureReturnPoint();
+          zoomToTarget(summaryEl.getBoundingClientRect());
+        }
         return;
       }
 
@@ -54,9 +61,12 @@ export function useCanvasTopicNavigation({
         Number.isInteger(sentenceNumber) && sentenceNumber > 0
           ? buildSentenceDomRange(sentenceRanges, wordEntries, sentenceNumber)
           : null;
-      if (domRange) zoomToTarget(domRange.getBoundingClientRect());
+      if (domRange) {
+        captureReturnPoint();
+        zoomToTarget(domRange.getBoundingClientRect());
+      }
     },
-    [showSummaryMode, summaryCardRegistry, zoomToTarget, refreshSentenceRanges],
+    [showSummaryMode, summaryCardRegistry, zoomToTarget, refreshSentenceRanges, captureReturnPoint],
   );
 
   useEffect(() => {
@@ -141,11 +151,14 @@ export function useCanvasTopicNavigation({
       // The pending zoom owns positioning after the article mounts, so suppress
       // alignment to avoid a glide followed by an immediate correction.
       skipNextAlignment();
+      // Captured here, while still in summary mode, so the way back restores
+      // both the zoom and the summary view the reader left.
+      captureReturnPoint();
       pendingZoomSentenceRef.current = card.startSentence;
       selectTopic({ path: card.path, cardKey: card.key });
       setShowSummaryMode(false);
     },
-    [skipNextAlignment, selectTopic, setShowSummaryMode],
+    [skipNextAlignment, selectTopic, setShowSummaryMode, captureReturnPoint],
   );
 
   return { zoomToTopic, panToTopic, handleNavigate, handleShowSourceSentences };

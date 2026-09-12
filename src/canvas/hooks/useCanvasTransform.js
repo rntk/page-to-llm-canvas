@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { clampScale, cursorAnchoredTranslate } from '../../utils/canvasMath.js';
+import { isTypingTarget } from '../../utils/isTypingTarget.js';
 
 // Exponential scaling makes wheel input independent of event frequency and
 // preserves the fine-grained deltas emitted by trackpads. 120px (a common
@@ -589,11 +590,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
   // Keyboard navigation: arrows pan, Home/End/PageUp/PageDown navigate.
   useEffect(() => {
     const onKeyDown = (e) => {
-      const t = e.target;
-      const tag = t?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) {
-        return;
-      }
+      if (isTypingTarget(e.target)) return;
       if (e.key === 'Home') {
         e.preventDefault();
         navigateCanvas('top');
@@ -751,8 +748,12 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
       setTransformNow,
       zoomAtPoint,
       zoomToTarget,
+      // Exposed because zoomToTarget is not the only way to commit an animated
+      // scale change: a view restore re-applies a remembered scale through
+      // setTransformNow and needs the same measurement suppression.
+      flashZoomingToTarget,
     }),
-    [setTransformNow, zoomAtPoint, zoomToTarget],
+    [setTransformNow, zoomAtPoint, zoomToTarget, flashZoomingToTarget],
   );
 
   // Clean up every timer, pending frame and window-level drag listener on

@@ -193,6 +193,7 @@ describe('useCanvasTransform', () => {
     expect(result.current.viewport).toBe(first);
     expect(Object.keys(result.current.viewport).sort()).toEqual([
       'canvasWrapElRef',
+      'flashZoomingToTarget',
       'scaleRef',
       'setTransformNow',
       'translateRef',

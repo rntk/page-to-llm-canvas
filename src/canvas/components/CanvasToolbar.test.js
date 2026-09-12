@@ -272,4 +272,28 @@ describe('CanvasToolbar', () => {
     expect(onToggleChat).toHaveBeenCalledOnce();
     unmount();
   });
+
+  it('shows the return control on the navigation pad only once a view is remembered', () => {
+    const onReturnToView = vi.fn();
+    const { container, rerender, unmount } = render(
+      createElement(CanvasToolbar, { ...defaultProps, onReturnToView }),
+    );
+    expect(container.querySelector('.canvas-return-btn')).toBeNull();
+
+    rerender(
+      createElement(CanvasToolbar, { ...defaultProps, onReturnToView, hasReturnPoint: true }),
+    );
+    const returnButton = container.querySelector('.canvas-return-btn');
+    // Grouped with the navigation pad, not the zoom glyphs.
+    expect(returnButton.closest('.canvas-navigation-group')).not.toBeNull();
+    expect(returnButton.textContent).toContain('Back');
+    expect(returnButton.title).toBe('Back to your previous view (Backspace)');
+    // Glyph and label stack on separate rows so the text stays inside the pad.
+    expect(returnButton.querySelector('.canvas-return-glyph')?.textContent).toContain('↩');
+    expect(returnButton.querySelector('.canvas-return-label')?.textContent).toBe('Back');
+    act(() => returnButton.click());
+    expect(onReturnToView).toHaveBeenCalledOnce();
+
+    unmount();
+  });
 });

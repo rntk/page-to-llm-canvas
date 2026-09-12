@@ -41,6 +41,7 @@ function setup(overrides = {}) {
     flashFocus: vi.fn(),
     navigateCanvas: vi.fn(),
     skipNextAlignment: vi.fn(),
+    captureReturnPoint: vi.fn(),
     ...overrides,
   };
 
@@ -162,5 +163,26 @@ describe('useCanvasTopicNavigation', () => {
       4,
     );
     expect(ctx.props.viewport.zoomToTarget).toHaveBeenCalledWith(articleRect);
+    expect(ctx.props.captureReturnPoint).toHaveBeenCalledOnce();
+  });
+
+  it('remembers the pre-jump view only when a jump actually happens', () => {
+    sentenceHighlightMocks.buildSentenceDomRange.mockReturnValue(null);
+    const ctx = setup({ showSummaryMode: true });
+
+    // Summary mode, unresolvable card: no zoom, so nothing to come back from.
+    act(() => ctx.result.current.zoomToTopic('Missing'));
+    expect(ctx.props.viewport.zoomToTarget).not.toHaveBeenCalled();
+    expect(ctx.props.captureReturnPoint).not.toHaveBeenCalled();
+
+    // Article mode, sentence that resolves to no DOM range: likewise.
+    ctx.rerender({ showSummaryMode: false });
+    act(() => ctx.result.current.zoomToTopic('Topic', { startSentence: 3 }));
+    expect(ctx.props.captureReturnPoint).not.toHaveBeenCalled();
+
+    const domRange = { getBoundingClientRect: vi.fn(() => ({ top: 1, left: 2 })) };
+    sentenceHighlightMocks.buildSentenceDomRange.mockReturnValue(domRange);
+    act(() => ctx.result.current.zoomToTopic('Topic', { startSentence: 3 }));
+    expect(ctx.props.captureReturnPoint).toHaveBeenCalledOnce();
   });
 });

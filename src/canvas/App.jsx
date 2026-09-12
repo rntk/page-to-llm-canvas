@@ -24,6 +24,7 @@ import { useInitialView } from './hooks/useInitialView.js';
 import { useCanvasRecordViewModel } from './hooks/useCanvasRecordViewModel.js';
 import { useCanvasStartup } from './hooks/useCanvasStartup.js';
 import { useCanvasTopicNavigation } from './hooks/useCanvasTopicNavigation.js';
+import { useViewReturn } from './hooks/useViewReturn.js';
 import { useSummaryCardRegistry } from './hooks/useSummaryCardRegistry.js';
 import { useTopicSelection } from './hooks/useTopicSelection.js';
 import { selectCurrentTopicSummary } from '../domain/currentTopicSummary.js';
@@ -297,6 +298,17 @@ function CanvasApp({ initialKey, record, onClose }) {
     deps: [showSummaryMode, selectedLevel, showTopicHierarchy],
   });
 
+  // Jumping to a topic's sentences replaces whatever zoom the reader had settled
+  // on. This remembers the view each jump leaves behind so one click/Backspace
+  // returns to it (and back again) instead of hunting for that zoom by hand.
+  const { hasReturnPoint, captureReturnPoint, returnToCapturedView } = useViewReturn({
+    viewport,
+    showSummaryMode,
+    setShowSummaryMode,
+    skipNextAlignment,
+    flashFocus,
+  });
+
   // The single summary card shown to the left of the article for whichever topic
   // is currently hovered or selected in the rail. Suppressed in summary mode,
   // where every summary is already shown in the center column.
@@ -339,7 +351,14 @@ function CanvasApp({ initialKey, record, onClose }) {
 
   const handleChatHighlight = useCallback(
     ({ startLine, endLine }, { focus = false } = {}) => {
-      if (focus) pendingChatHighlightLineRef.current ??= startLine;
+      // The turn's first focused span owns the jump — the effect below clears
+      // the ref once it has zoomed — so it is also the only one whose pre-jump
+      // view is worth remembering. Later spans in the same turn must not
+      // overwrite the snapshot with a view the reader never chose.
+      if (focus && pendingChatHighlightLineRef.current === null) {
+        pendingChatHighlightLineRef.current = startLine;
+        captureReturnPoint();
+      }
       // Leaving summary mode reflows the canvas, which would make the alignment
       // hook glide the column one frame later — on top of the zoom below, whose
       // placement then reads as "off". The pending zoom owns positioning here,
@@ -367,7 +386,7 @@ function CanvasApp({ initialKey, record, onClose }) {
         return Array.from(next).sort((a, b) => a - b);
       });
     },
-    [skipNextAlignment],
+    [skipNextAlignment, captureReturnPoint],
   );
   const handleClearChatHighlights = useCallback(
     () => setChatSentenceNumbers((current) => (current.length ? [] : current)),
@@ -401,6 +420,7 @@ function CanvasApp({ initialKey, record, onClose }) {
       flashFocus,
       navigateCanvas,
       skipNextAlignment,
+      captureReturnPoint,
     });
 
   const handleTopicClick = useCallback(
@@ -615,6 +635,8 @@ function CanvasApp({ initialKey, record, onClose }) {
             onLevelChange={handleLevelChange}
             showChat={showChat}
             onToggleChat={handleToggleChat}
+            hasReturnPoint={hasReturnPoint}
+            onReturnToView={returnToCapturedView}
           />
           <Activity mode={showChat ? 'visible' : 'hidden'}>
             <div className="canvas-chat-panel">

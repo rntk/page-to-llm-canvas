@@ -13,26 +13,44 @@ const NAV_BUTTONS = [
 ];
 
 /**
- * Grid of scroll/topic navigation buttons.
+ * Grid of scroll/topic navigation buttons, with the "jump back to the view I
+ * came from" bar sitting on top of it.
  *
  * @param {object} props
  * @param {function(string): void} props.onNavigate pos: "top" | "bottom" | "prev" | "next" | "first-topic" | "prev-topic" | "next-topic" | "last-topic"
+ * @param {boolean} [props.hasReturnPoint] A previous view is remembered and can be jumped back to.
+ * @param {function(): void} [props.onReturnToView]
  * @returns {JSX.Element}
  */
-function CanvasNavigationPad({ onNavigate }) {
+function CanvasNavigationPad({ onNavigate, hasReturnPoint, onReturnToView }) {
   return (
-    <div className="canvas-navigation-grid">
-      {NAV_BUTTONS.map(({ pos, title, glyph }) => (
+    <div className="canvas-navigation-group">
+      {hasReturnPoint && (
         <button
-          key={pos}
           type="button"
-          className="canvas-zoom-btn"
-          onClick={() => onNavigate(pos)}
-          title={title}
+          className="canvas-zoom-btn canvas-return-btn"
+          onClick={onReturnToView}
+          title="Back to your previous view (Backspace)"
         >
-          {glyph}
+          <span className="canvas-return-glyph" aria-hidden="true">
+            ↩
+          </span>
+          <span className="canvas-return-label">Back</span>
         </button>
-      ))}
+      )}
+      <div className="canvas-navigation-grid">
+        {NAV_BUTTONS.map(({ pos, title, glyph }) => (
+          <button
+            key={pos}
+            type="button"
+            className="canvas-zoom-btn"
+            onClick={() => onNavigate(pos)}
+            title={title}
+          >
+            {glyph}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -156,6 +174,8 @@ function CanvasLevelControl({
  * @param {function(): void} props.onZoomIn
  * @param {function(): void} props.onZoomOut
  * @param {function(): void} props.onReset
+ * @param {boolean} [props.hasReturnPoint]
+ * @param {function(): void} [props.onReturnToView]
  * @param {boolean} props.showSummaryMode
  * @param {function(): void} props.onToggleSummaryMode
  * @param {boolean} [props.summaryModeAvailable]
@@ -174,6 +194,8 @@ function CanvasToolbar({
   onZoomIn,
   onZoomOut,
   onReset,
+  hasReturnPoint = false,
+  onReturnToView,
   showSummaryMode,
   onToggleSummaryMode,
   summaryModeAvailable = true,
@@ -223,7 +245,11 @@ function CanvasToolbar({
       </div>
       {!isFolded && (
         <div className="canvas-controls-body">
-          <CanvasNavigationPad onNavigate={onNavigate} />
+          <CanvasNavigationPad
+            onNavigate={onNavigate}
+            hasReturnPoint={hasReturnPoint}
+            onReturnToView={onReturnToView}
+          />
           <div className="canvas-spacer" />
           <CanvasZoomButtons onZoomIn={onZoomIn} onZoomOut={onZoomOut} onReset={onReset} />
           <div className="canvas-spacer" />
