@@ -3,7 +3,7 @@
   "name": "PageToLLMCanvas",
   "version": "0.1.0",
   "description": "Pick blocks on any page, summarize and explore topics in an in-page canvas.",
-  "permissions": ["storage", "unlimitedStorage", "activeTab", "scripting", "alarms"],
+  "permissions": ["storage", "unlimitedStorage", "alarms"],
   "host_permissions": ["<all_urls>"],
   "content_security_policy": {
     "extension_pages": "default-src 'self'; script-src 'self'; object-src 'self'; connect-src 'self' https: http://localhost:* http://127.0.0.1:*; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; form-action 'none'; base-uri 'none'; frame-src 'none'"
