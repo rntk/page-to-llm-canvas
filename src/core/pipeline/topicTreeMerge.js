@@ -43,10 +43,7 @@
 // is unit-testable with fakes.
 
 import { hasSummaryRunMarker, isFailedSummaryRun, publicSummaryRun } from './summaryRunMarkers.js';
-import {
-  TOPIC_PATH_DELIMITER,
-  isCanonicalDescendantPath,
-} from '../../shared/runtime/topicPath.js';
+import { TOPIC_PATH_DELIMITER, isCanonicalDescendantPath } from '../../shared/runtime/topicPath.js';
 
 /**
  * Builds the worker's summary tree from flat hierarchical topic paths and
@@ -139,16 +136,67 @@ export function splitContiguousRuns(sentenceIds) {
   return runs;
 }
 
+// Two sorted sentence-id lists cover the same source iff they are equal.
+function sameSource(a, b) {
+  return (
+    Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => v === b[i])
+  );
+}
+
+/** Sentences whose leaf summary carries an error or failure marker. An
+ * unmarked empty summary is valid and does not invalidate ancestor work.
+ * @param {Record<string, object>} leafSummaries
+ * @returns {Set<number>}
+ */
+function collectUnusableLeafSentences(leafSummaries) {
+  const unusable = new Set();
+  for (const summary of Object.values(leafSummaries || {})) {
+    if (!summary || typeof summary !== 'object') continue;
+    if (summary.error === true) {
+      // A topic-level error can cover runs that were never attempted, so the
+      // whole leaf source is suspect, not only the marked runs.
+      for (const sentence of Array.isArray(summary.source_sentences)
+        ? summary.source_sentences
+        : []) {
+        unusable.add(sentence);
+      }
+    }
+    for (const run of Array.isArray(summary.runs) ? summary.runs : []) {
+      if (!run || !Array.isArray(run.sentences)) continue;
+      if (hasSummaryRunMarker(run)) {
+        for (const sentence of run.sentences) unusable.add(sentence);
+      }
+    }
+  }
+  return unusable;
+}
+
 /**
  * Builds the canonical index projection available before parent summaries have
  * been resolved. This keeps successfully generated leaf summaries visible
  * while a record is parked for review.
  *
+ * Internal-node entries from a prior projection are carried over per run, so a
+ * later retry can still reuse them (and the UI keeps showing them) instead of
+ * paying for every ancestor again. A prior run is carried over only when it
+ * still matches the current node's run exactly and no failed dependency covers
+ * its source — neither a failure-marked leaf from this run nor a failed prior
+ * run at the node itself or a descendant. An ancestor of a failure degrades to
+ * empty text instead of being displayed as a successful summary. Prior failed
+ * runs keep their markers so `summarizeTopicTree` can still see the dependency
+ * on the next retry.
+ *
+ * Carry-over excludes paths with a current topic checkpoint. For mixed-depth
+ * topics (for example, Tech and Tech>AI), that checkpoint covers only the
+ * topic's own sentences and takes precedence over its prior aggregated entry.
+ * Tree-level work at those paths may therefore need regeneration on retry.
+ *
  * @param {Array<{name: string, sentences: number[]}>} topics
  * @param {Record<string, {runs: Array<{sentences: number[], text: string}>, source_sentences: number[]}>} leafSummaries
+ * @param {Record<string, {runs: Array<{sentences: number[], text: string}>}>} [previousSummaryIndex]
  * @returns {Record<string, {runs: Array<{sentences: number[], text: string}>, level: number, source_sentences: number[]}>}
  */
-export function buildPartialTopicSummaryIndex(topics, leafSummaries) {
+export function buildPartialTopicSummaryIndex(topics, leafSummaries, previousSummaryIndex = {}) {
   const { nodes } = buildTopicTree(topics);
   const index = {};
   for (const [path, summary] of Object.entries(leafSummaries)) {
@@ -161,6 +209,63 @@ export function buildPartialTopicSummaryIndex(topics, leafSummaries) {
         ? summary.source_sentences
         : node.sourceSentences,
     };
+  }
+
+  if (!previousSummaryIndex || typeof previousSummaryIndex !== 'object') return index;
+  const unusableSentences = collectUnusableLeafSentences(leafSummaries);
+  // A prior internal-node failure invalidates an overlapping ancestor run just
+  // as a failed leaf does. `summarizeTopicTree` derives that from the markers in
+  // the index it is given, so the carried projection must apply the same rule
+  // rather than keeping the ancestor and dropping the failed descendant.
+  const priorFailedRunsByPath = new Map();
+  for (const [path, prior] of Object.entries(previousSummaryIndex)) {
+    const failedRuns = (Array.isArray(prior?.runs) ? prior.runs : [])
+      .filter((run) => run && Array.isArray(run.sentences) && run.sentences.length > 0)
+      .filter(isFailedSummaryRun)
+      .map((run) => run.sentences);
+    if (failedRuns.length > 0) priorFailedRunsByPath.set(path, failedRuns);
+  }
+  const hasPriorFailedDependency = (path, run) => {
+    const source = new Set(run);
+    for (const [failedPath, failedRuns] of priorFailedRunsByPath) {
+      if (failedPath !== path && !isCanonicalDescendantPath(failedPath, path)) continue;
+      if (failedRuns.some((failed) => failed.some((sentence) => source.has(sentence)))) return true;
+    }
+    return false;
+  };
+
+  for (const [path, prior] of Object.entries(previousSummaryIndex)) {
+    // A leaf checkpoint from this run is authoritative for its own path.
+    if (index[path] || !prior || !Array.isArray(prior.runs)) continue;
+    const node = nodes.get(path);
+    if (!node || node.children.length === 0) continue;
+    const priorByFirst = new Map();
+    for (const run of prior.runs) {
+      if (run && Array.isArray(run.sentences) && run.sentences.length > 0) {
+        priorByFirst.set(run.sentences[0], run);
+      }
+    }
+    let kept = 0;
+    const runs = splitContiguousRuns(node.sourceSentences).map((run) => {
+      const priorRun = priorByFirst.get(run[0]);
+      if (!priorRun || !sameSource(priorRun.sentences, run)) return { sentences: run, text: '' };
+      if (hasSummaryRunMarker(priorRun)) {
+        // Keep the marker: the next retry reads its failed dependencies from
+        // this projection, and losing it would let an ancestor look successful.
+        kept += 1;
+        return { ...publicSummaryRun(priorRun), sentences: run, text: '' };
+      }
+      const usable =
+        typeof priorRun.text === 'string' &&
+        priorRun.text !== '' &&
+        !run.some((sentence) => unusableSentences.has(sentence)) &&
+        !hasPriorFailedDependency(path, run);
+      if (!usable) return { sentences: run, text: '' };
+      kept += 1;
+      return { sentences: run, text: priorRun.text };
+    });
+    if (kept === 0) continue;
+    index[path] = { runs, level: node.level - 1, source_sentences: node.sourceSentences };
   }
   return index;
 }
@@ -197,9 +302,6 @@ export async function summarizeTopicTree({
   reusePriorSummaries = false,
 }) {
   const summarizable = [...nodes.values()].filter((node) => node.path);
-
-  // Two sorted sentence-id lists cover the same source iff they are equal.
-  const sameSource = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 
   // The child a run delegates to, or null if the run must be summarized fresh. A
   // run delegates only when every one of its sentences belongs to a single child

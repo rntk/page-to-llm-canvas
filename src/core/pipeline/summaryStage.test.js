@@ -678,6 +678,54 @@ describe('runSummaries', () => {
     );
   });
 
+  it('keeps reusable parent summaries in the projection when a leaf retry fails', async () => {
+    const runtime = makeRuntime();
+    const callLLMWithRetry = vi.fn(async () => {
+      throw new Error('401 invalid api key');
+    });
+
+    await runSummaries({
+      runtime,
+      topics: [
+        { name: 'Tech>A', sentences: [1, 2] },
+        { name: 'Tech>B', sentences: [7] },
+      ],
+      sentenceTexts: [
+        'word '.repeat(120).trim(),
+        'word '.repeat(120).trim(),
+        ...Array.from({ length: 4 }, () => 'filler'),
+        'word '.repeat(120).trim(),
+      ],
+      // Only 'Tech>B' is pending; the prior parent work must survive parking.
+      previousSummaries: {
+        'Tech>A': { runs: [{ sentences: [1, 2], text: 'A leaf.' }], source_sentences: [1, 2] },
+      },
+      previousSummaryIndex: {
+        'Tech>A': { runs: [{ sentences: [1, 2], text: 'A leaf.' }], level: 1 },
+        Tech: {
+          runs: [
+            { sentences: [1, 2], text: 'Parent over A.' },
+            { sentences: [7], text: 'Parent over B.' },
+          ],
+          level: 0,
+          source_sentences: [1, 2, 7],
+        },
+      },
+      callLLMWithRetry,
+    });
+
+    const parked = lastUpdate(runtime);
+    expect(parked.status).toBe(PIPELINE_STATUS.NEEDS_ATTENTION);
+    expect(parked.topic_summary_index.Tech).toEqual({
+      runs: [
+        { sentences: [1, 2], text: 'Parent over A.' },
+        { sentences: [7], text: '' },
+      ],
+      level: 0,
+      source_sentences: [1, 2, 7],
+    });
+  });
+
   it('fails normally when persisting a generated leaf cache unit fails', async () => {
     const storageError = new Error('storage quota exceeded');
     const runtime = makeRuntime();

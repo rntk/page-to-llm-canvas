@@ -352,41 +352,67 @@ describe('makeSourceSummarizer', () => {
     expect(mergeCalls).toHaveLength(24);
   });
 
+  it.each([400, 410])(
+    'stops singleton rewrites of %i characters without compression',
+    async (size) => {
+      const callLLMWithRetry = vi.fn(async ({ prompt }) =>
+        prompt.includes('Merge the summaries below') ? 'm'.repeat(size) : 's'.repeat(400),
+      );
+      const { summarize } = make(['x'.repeat(700), 'y'.repeat(700)], callLLMWithRetry, {
+        maxChars: 700,
+      });
+
+      const result = await summarize([1, 2]);
+
+      expect(callLLMWithRetry).toHaveBeenCalledTimes(4);
+      expect(result.runs[0].text).toBe(['m'.repeat(size), 'm'.repeat(size)].join('\n'));
+    },
+  );
+
+  it('continues after singleton compression enables a later combined merge', async () => {
+    const mergeSources = [];
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      if (!prompt.includes('Merge the summaries below')) return 's'.repeat(400);
+      mergeSources.push(prompt);
+      return prompt.includes('Chunk 2') ? 'combined summary' : 'c'.repeat(50);
+    });
+    const { summarize } = make(['x'.repeat(700), 'y'.repeat(700)], callLLMWithRetry, {
+      maxChars: 700,
+    });
+
+    await expect(summarize([1, 2])).resolves.toEqual({
+      runs: [{ sentences: [1, 2], text: 'combined summary' }],
+    });
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(5);
+    expect(mergeSources).toHaveLength(3);
+    expect(mergeSources[2]).toContain('sentences 1-1');
+    expect(mergeSources[2]).toContain('sentences 2-2');
+  });
+
   it('returns the latest successful records when the merge-round cap is reached', async () => {
-    const sentenceTexts = Array.from(
-      { length: 4 },
-      (_, index) => `${index + 1} ${'x'.repeat(500)}`,
-    );
-    let chunkCall = 0;
     let mergeCall = 0;
     const callLLMWithRetry = vi.fn(async ({ prompt }) => {
-      if (prompt.includes('Merge the summaries below')) {
-        mergeCall++;
-        return `merged-${String(mergeCall).padStart(2, '0')}-${'m'.repeat(32)}`;
-      }
-      chunkCall++;
-      return `chunk-${chunkCall}-${'s'.repeat(34)}`;
+      if (!prompt.includes('Merge the summaries below')) return 's'.repeat(400);
+      const round = Math.floor(mergeCall++ / 2);
+      return 'm'.repeat(399 - round);
     });
     const persistedUnits = [];
-    const { summarize } = make(sentenceTexts, callLLMWithRetry, {
-      maxChars: 100,
+    const { summarize } = make(['x'.repeat(700), 'y'.repeat(700)], callLLMWithRetry, {
+      maxChars: 700,
       contentRevision: 'rev-merge-rounds',
       persistUnit: async (unit) => persistedUnits.push(unit),
     });
 
-    const result = await summarize([1, 2, 3, 4]);
+    const result = await summarize([1, 2]);
 
-    // The 100-char budget splits this source into 24 singleton chunks, and no
-    // batch ever combines, so every bounded round re-merges all 24 records.
-    const expectedChunks = 24;
-    const expectedMergeCalls = SUMMARY_MAX_MERGE_ROUNDS * expectedChunks;
-    expect(chunkCall).toBe(expectedChunks);
-    expect(mergeCall).toBe(expectedMergeCalls);
-    // Every record of the final round survives the cap, not just the last one.
-    expect(result.runs[0].text).toContain(`merged-${expectedMergeCalls - expectedChunks + 1}-`);
-    expect(result.runs[0].text).toContain(`merged-${expectedMergeCalls}-`);
-    expect(result.runs[0].text).not.toContain(`merged-${expectedMergeCalls - expectedChunks}-`);
-    expect(result.runs[0].text).not.toContain('chunk-1-');
+    // Each singleton shrinks by one character per round, but the pair still
+    // cannot fit in a request before the round cap is reached.
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(2 + 2 * SUMMARY_MAX_MERGE_ROUNDS);
+    expect(result.runs[0].text).toBe(
+      Array(2)
+        .fill('m'.repeat(400 - SUMMARY_MAX_MERGE_ROUNDS))
+        .join('\n'),
+    );
     expect(persistedUnits).toEqual(
       expect.arrayContaining([expect.objectContaining({ kind: 'merge', part: '1:0' })]),
     );

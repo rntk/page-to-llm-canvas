@@ -413,7 +413,9 @@ export async function runSummaries({
       runtime,
       leafErrors,
       'leaf',
-      buildPartialTopicSummaryIndex(topics, topic_summaries),
+      // Carry over still-valid internal-node entries: parking must not drop the
+      // tree-level work a later retry can reuse.
+      buildPartialTopicSummaryIndex(topics, topic_summaries, previousSummaryIndex),
       { done, total },
     );
     return;

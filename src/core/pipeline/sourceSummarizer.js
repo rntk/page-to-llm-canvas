@@ -168,16 +168,8 @@ function chunkSummaryRecordsForMerge(records, maxChars) {
   return batches;
 }
 
-function mergeRecordsEqual(left, right) {
-  return (
-    left.length === right.length &&
-    left.every(
-      (record, index) =>
-        record.start_sentence === right[index].start_sentence &&
-        record.end_sentence === right[index].end_sentence &&
-        record.summary?.text === right[index].summary?.text,
-    )
-  );
+function totalSummaryChars(records) {
+  return records.reduce((total, record) => total + (record.summary?.text || '').length, 0);
 }
 
 /**
@@ -305,10 +297,12 @@ export function makeSourceSummarizer({
         },
         { warmupFirst: true },
       );
-      const madeProgress = !mergeRecordsEqual(records, mergedBatches);
+      const madeProgress =
+        mergedBatches.length < records.length ||
+        totalSummaryChars(mergedBatches) < totalSummaryChars(records);
       records = mergedBatches;
-      // Empty/NO_SUMMARY singleton responses reproduce the same records. Do
-      // not pay for identical work in every remaining bounded round.
+      // Singleton compression can make a later merge fit. Rewrites that
+      // reduce neither record count nor total text size do not justify retrying.
       if (!madeProgress) break;
     }
     // If the round cap leaves multiple records, keep the newest successful

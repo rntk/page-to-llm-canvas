@@ -34,6 +34,47 @@ describe('buildTopicTree', () => {
 });
 
 describe('buildPartialTopicSummaryIndex', () => {
+  it.each([
+    ['unmarked', {}, true],
+    ['failed', { error: true }, false],
+    ['forced empty', { forcedEmpty: true }, false],
+    ['accepted failure', { acceptedFailure: true }, false],
+  ])(
+    'handles an %s empty leaf when carrying parent work into retry',
+    async (_, marker, reusable) => {
+      const topics = [
+        { name: 'Tech>A', sentences: [1] },
+        { name: 'Tech>B', sentences: [2] },
+      ];
+      const leafSummaries = {
+        'Tech>A': { runs: [{ sentences: [1], text: '', ...marker }], source_sentences: [1] },
+        'Tech>B': { ...oneRun([2], 'B summary.'), source_sentences: [2] },
+      };
+      const partial = buildPartialTopicSummaryIndex(topics, leafSummaries, {
+        Tech: oneRun([1, 2], 'Prior mixed-child summary.'),
+      });
+
+      if (reusable) {
+        expect(partial.Tech.runs).toEqual(oneRun([1, 2], 'Prior mixed-child summary.').runs);
+      } else {
+        expect(partial.Tech).toBeUndefined();
+      }
+      const summarizeSource = vi.fn(async (sentences) => oneRun(sentences, 'Regenerated summary.'));
+      const index = await summarizeTopicTree({
+        nodes: buildTopicTree(topics).nodes,
+        leafSummaries,
+        previousSummaryIndex: partial,
+        reusePriorSummaries: true,
+        summarizeSource,
+      });
+
+      expect(summarizeSource).toHaveBeenCalledTimes(reusable ? 0 : 1);
+      expect(index.Tech.runs).toEqual(
+        oneRun([1, 2], reusable ? 'Prior mixed-child summary.' : 'Regenerated summary.').runs,
+      );
+    },
+  );
+
   it('projects available leaf checkpoints into the canonical index shape', () => {
     const index = buildPartialTopicSummaryIndex(
       [
@@ -65,6 +106,170 @@ describe('buildPartialTopicSummaryIndex', () => {
         source_sentences: [3],
       },
     });
+  });
+
+  it('carries over prior internal-node runs that no failed leaf touches', () => {
+    const index = buildPartialTopicSummaryIndex(
+      [
+        { name: 'Tech>AI', sentences: [1, 2] },
+        { name: 'Tech>Hardware', sentences: [7] },
+      ],
+      {
+        'Tech>AI': {
+          runs: [{ sentences: [1, 2], text: 'AI summary.' }],
+          source_sentences: [1, 2],
+        },
+        'Tech>Hardware': {
+          runs: [{ sentences: [7], text: '', error: true }],
+          source_sentences: [7],
+          error: true,
+        },
+      },
+      {
+        Tech: {
+          runs: [
+            { sentences: [1, 2], text: 'Prior tech parent A.' },
+            { sentences: [7], text: 'Prior tech parent B.' },
+          ],
+          level: 0,
+          source_sentences: [1, 2, 7],
+        },
+      },
+    );
+
+    expect(index.Tech).toEqual({
+      // The run over the failed leaf's source degrades to empty rather than
+      // being shown as a successful ancestor summary.
+      runs: [
+        { sentences: [1, 2], text: 'Prior tech parent A.' },
+        { sentences: [7], text: '' },
+      ],
+      level: 0,
+      source_sentences: [1, 2, 7],
+    });
+  });
+
+  it('omits a prior internal node whose runs are all invalidated or reshaped', () => {
+    const index = buildPartialTopicSummaryIndex(
+      [
+        { name: 'Tech>AI', sentences: [1, 2] },
+        { name: 'Tech>Hardware', sentences: [3] },
+      ],
+      {
+        'Tech>AI': {
+          runs: [{ sentences: [1, 2], text: 'AI summary.' }],
+          source_sentences: [1, 2],
+        },
+        'Tech>Hardware': {
+          runs: [{ sentences: [3], text: '', error: true }],
+          source_sentences: [3],
+          error: true,
+        },
+      },
+      {
+        // Stale shape from a prior topic split, plus a failed run.
+        Tech: {
+          runs: [
+            { sentences: [1], text: 'Stale partial.' },
+            { sentences: [2, 3], text: '', error: true },
+          ],
+          level: 0,
+          source_sentences: [1, 2, 3],
+        },
+        Gone: { runs: [{ sentences: [9], text: 'Removed topic.' }], level: 0 },
+      },
+    );
+
+    expect(index.Tech).toBeUndefined();
+    expect(index.Gone).toBeUndefined();
+  });
+
+  it('retains a failed prior internal node and blanks only the ancestor run above it', () => {
+    const index = buildPartialTopicSummaryIndex(
+      [
+        { name: 'Tech>Sub>X', sentences: [1, 2] },
+        { name: 'Tech>Sub>Y', sentences: [3] },
+        { name: 'Tech>Solo', sentences: [8] },
+        { name: 'News>Z', sentences: [12] },
+      ],
+      {
+        'Tech>Sub>X': { runs: [{ sentences: [1, 2], text: 'X.' }], source_sentences: [1, 2] },
+        'Tech>Sub>Y': { runs: [{ sentences: [3], text: 'Y.' }], source_sentences: [3] },
+        'Tech>Solo': { runs: [{ sentences: [8], text: 'Solo.' }], source_sentences: [8] },
+        // The leaf failure that parks this run is in an unrelated branch.
+        'News>Z': {
+          runs: [{ sentences: [12], text: '', error: true }],
+          source_sentences: [12],
+          error: true,
+        },
+      },
+      {
+        'Tech>Sub': {
+          runs: [{ sentences: [1, 2, 3], text: '', error: true }],
+          level: 1,
+          source_sentences: [1, 2, 3],
+        },
+        Tech: {
+          runs: [
+            { sentences: [1, 2, 3], text: 'Parent over a failed subtree.' },
+            { sentences: [8], text: 'Parent over solo.' },
+          ],
+          level: 0,
+          source_sentences: [1, 2, 3, 8],
+        },
+      },
+    );
+
+    // The failed marker survives, so the next retry still sees the dependency.
+    expect(index['Tech>Sub'].runs).toEqual([{ sentences: [1, 2, 3], text: '', error: true }]);
+    expect(index.Tech.runs).toEqual([
+      { sentences: [1, 2, 3], text: '' },
+      { sentences: [8], text: 'Parent over solo.' },
+    ]);
+  });
+
+  it('drops an ancestor entry whose every run sits above a failed prior descendant', () => {
+    const index = buildPartialTopicSummaryIndex(
+      [
+        { name: 'Tech>Sub>X', sentences: [1, 2] },
+        { name: 'Tech>Sub>Y', sentences: [3] },
+        { name: 'News>Z', sentences: [12] },
+      ],
+      {
+        'Tech>Sub>X': { runs: [{ sentences: [1, 2], text: 'X.' }], source_sentences: [1, 2] },
+        'Tech>Sub>Y': { runs: [{ sentences: [3], text: 'Y.' }], source_sentences: [3] },
+        'News>Z': {
+          runs: [{ sentences: [12], text: '', error: true }],
+          source_sentences: [12],
+          error: true,
+        },
+      },
+      {
+        'Tech>Sub': {
+          runs: [{ sentences: [1, 2, 3], text: '', error: true }],
+          level: 1,
+          source_sentences: [1, 2, 3],
+        },
+        Tech: {
+          runs: [{ sentences: [1, 2, 3], text: 'Parent over a failed subtree.' }],
+          level: 0,
+          source_sentences: [1, 2, 3],
+        },
+      },
+    );
+
+    expect(index.Tech).toBeUndefined();
+    expect(index['Tech>Sub'].runs).toEqual([{ sentences: [1, 2, 3], text: '', error: true }]);
+  });
+
+  it('prefers the current leaf checkpoint over a prior entry for the same path', () => {
+    const index = buildPartialTopicSummaryIndex(
+      [{ name: 'Tech>AI', sentences: [1] }],
+      { 'Tech>AI': { runs: [{ sentences: [1], text: 'Fresh.' }], source_sentences: [1] } },
+      { 'Tech>AI': { runs: [{ sentences: [1], text: 'Stale.' }], level: 1 } },
+    );
+
+    expect(index['Tech>AI'].runs).toEqual([{ sentences: [1], text: 'Fresh.' }]);
   });
 });
 
