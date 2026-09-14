@@ -8,7 +8,12 @@ import {
 } from './topicTreeMerge.js';
 import { SUMMARY_CONCURRENCY } from './pipelineConfig.js';
 import { makeCachedSourceSummarizer } from './sourceSummaryCache.js';
-import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
+import { PIPELINE_STAGE } from '../../shared/runtime/contracts.js';
+import {
+  doneTransition,
+  needsAttentionTransition,
+  progressAt,
+} from '../../shared/runtime/recordTransitions.js';
 import { isCanonicalDescendantPath } from '../../shared/runtime/topicPath.js';
 import { isCancellationError, rethrowIfCancelled } from './cancellation.js';
 import { isPermanentProviderError, isProviderFailure } from './providerFailure.js';
@@ -66,12 +71,8 @@ function collectSummaryErrors(topicSummaries) {
 
 async function parkForReview(runtime, summaryErrors, phase, topicSummaryIndex, { done, total }) {
   await runtime.update({
-    status: PIPELINE_STATUS.NEEDS_ATTENTION,
+    ...needsAttentionTransition(summaryErrors, { done, total }),
     topic_summary_index: topicSummaryIndex,
-    summaryErrors,
-    forceFinalize: false,
-    summariesIncomplete: false,
-    progress: { stage: PIPELINE_STAGE.NEEDS_ATTENTION, done, total },
   });
   await runtime.log('topic_summaries_needs_attention', {
     phase,
@@ -163,16 +164,10 @@ export async function finalizeSummariesDisabled(
 ) {
   await runtime.log('summaries_disabled_skip', { topicCount: topics.length });
   await runtime.update({
-    status: PIPELINE_STATUS.DONE,
+    ...doneTransition({ done: topics.length, total: topics.length, summariesDisabled: true }),
     ...(!preserveExistingSummaries
       ? { topic_summaries: {}, topic_summary_index: {}, source_summary_units: {} }
       : {}),
-    summariesDisabled: true,
-    summariesIncomplete: false,
-    progress: { stage: PIPELINE_STAGE.DONE, done: topics.length, total: topics.length },
-    summaryErrors: [],
-    forceFinalize: false,
-    acceptedMergeFailurePaths: [],
   });
   await runtime.log('pipeline_done', {
     topicCount: topics.length,
@@ -227,7 +222,7 @@ export async function runSummaries({
 
   let done = reusedCount;
   await runtime.update({
-    progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done, total },
+    progress: progressAt(PIPELINE_STAGE.SUMMARIZING_TOPICS, done, total),
   });
   if (pendingCount < total) {
     await runtime.log(
@@ -373,7 +368,7 @@ export async function runSummaries({
         { verbose: true },
       );
       await runtime.update({
-        progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done, total },
+        progress: progressAt(PIPELINE_STAGE.SUMMARIZING_TOPICS, done, total),
       });
       return { error: providerError };
     },
@@ -426,7 +421,7 @@ export async function runSummaries({
   // source-summary chunking. Switch to an explicit indeterminate phase instead
   // of leaving the leaf counter displayed at 100% while merge work is running.
   await runtime.update({
-    progress: { stage: PIPELINE_STAGE.MERGING_SUMMARIES, done: 0, total: 0 },
+    progress: progressAt(PIPELINE_STAGE.MERGING_SUMMARIES),
   });
   await runtime.log('topic_tree_merge_start', { leafCount: total }, { verbose: true });
   const { nodes } = buildTopicTree(topics);
@@ -521,21 +516,20 @@ export async function runSummaries({
   }
 
   await runtime.update({
-    status: PIPELINE_STATUS.DONE,
-    topic_summaries: finalizedSummaries,
-    topic_summary_index,
-    source_summary_units: {},
     // Summaries ran, so `summariesDisabled` stays false and the ones that
     // succeeded remain viewable. A skipped leaf stays retryable
     // (`forcedEmpty`) rather than looking like every summary is absent.
-    summariesDisabled: false,
-    summariesIncomplete:
-      acceptedMergeFailurePaths.length > 0 ||
-      Object.values(finalizedSummaries).some((summary) => summary.forcedEmpty === true),
-    progress: { stage: PIPELINE_STAGE.DONE, done: total, total },
-    summaryErrors: [],
-    forceFinalize: false,
-    acceptedMergeFailurePaths: [],
+    ...doneTransition({
+      done: total,
+      total,
+      summariesDisabled: false,
+      summariesIncomplete:
+        acceptedMergeFailurePaths.length > 0 ||
+        Object.values(finalizedSummaries).some((summary) => summary.forcedEmpty === true),
+    }),
+    topic_summaries: finalizedSummaries,
+    topic_summary_index,
+    source_summary_units: {},
   });
   await runtime.log('pipeline_done', {
     topicCount: total,

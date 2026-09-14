@@ -6,7 +6,11 @@ import { computeTopics } from '../../../core/pipeline/topicRangesStage.js';
 import { finalizeSummariesDisabled, runSummaries } from '../../../core/pipeline/summaryStage.js';
 import { isCancellationError } from '../../../core/pipeline/cancellation.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../../shared/runtime/contracts.js';
-import { getPipelineTextChunkMaxChars, getTopicRangeInputMaxSentences } from '../../../core/pipeline/pipelineConfig.js';
+import { errorTransition } from '../../../shared/runtime/recordTransitions.js';
+import {
+  getPipelineTextChunkMaxChars,
+  getTopicRangeInputMaxSentences,
+} from '../../../core/pipeline/pipelineConfig.js';
 import { resolveMaxOutputTokens } from '../../../core/llm/outputBudget.js';
 import { resolveProviderTemperature } from '../../../core/llm/temperatures.js';
 import { LLM_TASK_TYPES } from '../../../core/metrics/llm.js';
@@ -254,6 +258,9 @@ export function createPipelineRunner({
           topicCount: topics.length,
           existingSummaryCount: Object.keys(existingSummaries).length,
         });
+        // Not `resumeSummariesTransition`: the handler that minted this run
+        // already wrote the full transition (progress, Retry/Skip directives).
+        // This only re-asserts the fields a restart could not have seen reset.
         await runtime.update({
           status: PIPELINE_STATUS.SUMMARIZING,
           error: null,
@@ -327,7 +334,7 @@ export function createPipelineRunner({
       // run-id CAS decide ownership instead of treating it as cancellation.
       await runtime.log('pipeline_error', { error: formattedError }, { allowAborted: true });
       await runtime
-        .update({ status: PIPELINE_STATUS.ERROR, error: formattedError }, { allowAborted: true })
+        .update(errorTransition(formattedError), { allowAborted: true })
         .catch((writeError) => {
           logger.error('failed to persist error status to storage:', writeError);
         });

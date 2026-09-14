@@ -9,6 +9,14 @@ import {
   SUMMARY_GENERATION_SOURCE_STATUSES,
 } from '../../../shared/runtime/contracts.js';
 import { createLogger } from '../../../shared/runtime/log.js';
+import {
+  cancelledTransition,
+  progressAt,
+  queuedTransition,
+  resetContentCheckpointPatch,
+  resetSummaryReviewPatch,
+  resumeSummariesTransition,
+} from '../../../shared/runtime/recordTransitions.js';
 import { clearSummaryErrorFlags, getAcceptedMergeFailurePaths } from '../summaryResolution.js';
 
 /**
@@ -103,22 +111,21 @@ export function createRecordHandlers({
           msg.key,
           {
             pipelineRunId: createPipelineRunId(),
-            status: resumesSummaries ? PIPELINE_STATUS.SUMMARIZING : PIPELINE_STATUS.PENDING,
-            error: null,
-            progress: {
-              stage: resumesSummaries ? PIPELINE_STAGE.SUMMARIZING_TOPICS : PIPELINE_STAGE.QUEUED,
-              done: 0,
-              total: resumesSummaries ? rec.topics.length : 0,
-            },
+            ...(resumesSummaries
+              ? resumeSummariesTransition({
+                  total: rec.topics.length,
+                  forceFinalize,
+                  acceptedMergeFailurePaths,
+                })
+              : // A fresh run has nothing to carry: `forceFinalize` and
+                // `acceptedMergeFailurePaths` are already false/[] here.
+                { ...queuedTransition(), ...resetSummaryReviewPatch() }),
             // A resumed checkpoint must finish the summary work that was
             // already paid for. Applying a newly enabled global "skip
             // summaries" preference here would finalize it by clearing those
             // saved summaries. Fresh retries retain the directive chosen when
             // the failed run was submitted.
             skipSummaries: resumesSummaries ? false : rec.skipSummaries === true,
-            forceFinalize,
-            acceptedMergeFailurePaths,
-            summariesIncomplete: false,
           },
           { expectedPipelineRunId: rec.pipelineRunId },
         );
@@ -142,23 +149,10 @@ export function createRecordHandlers({
           msg.key,
           {
             pipelineRunId: createPipelineRunId(),
-            status: PIPELINE_STATUS.PENDING,
-            error: null,
-            progress: { stage: PIPELINE_STAGE.QUEUED, done: 0, total: 0 },
-            topics: [],
-            topic_summaries: {},
-            topic_summary_index: {},
-            source_summary_units: {},
-            sentences: [],
-            text: '',
+            ...queuedTransition(),
+            ...resetContentCheckpointPatch(),
             processingLog: [],
             skipSummaries: await getStoredSummariesDisabled(),
-            summaryErrors: [],
-            forceFinalize: false,
-            acceptedMergeFailurePaths: [],
-            summaryCheckpointContentRevision: null,
-            summaryCheckpointPreferContentLanguage: null,
-            summariesIncomplete: false,
           },
           {
             bumpContentRevision: true,
@@ -213,20 +207,10 @@ export function createRecordHandlers({
           msg.key,
           {
             pipelineRunId: createPipelineRunId(),
-            status: PIPELINE_STATUS.SUMMARIZING,
-            error: null,
+            ...resumeSummariesTransition({ total: rec.topics.length }),
             // Explicit intent: this run generates summaries even while the global
             // "disable summaries" toggle is on.
             skipSummaries: false,
-            summaryErrors: [],
-            forceFinalize: false,
-            acceptedMergeFailurePaths: [],
-            summariesIncomplete: false,
-            progress: {
-              stage: PIPELINE_STAGE.SUMMARIZING_TOPICS,
-              done: 0,
-              total: rec.topics.length,
-            },
           },
           {
             expectedPipelineRunId: rec.pipelineRunId,
@@ -254,10 +238,7 @@ export function createRecordHandlers({
           msg.key,
           {
             pipelineRunId: createPipelineRunId(),
-            status: PIPELINE_STATUS.CANCELLED,
-            error: 'Processing stopped.',
-            summariesIncomplete: false,
-            progress: { stage: PIPELINE_STAGE.CANCELLED, done: 0, total: 0 },
+            ...cancelledTransition(),
           },
           {
             expectedPipelineRunId: rec.pipelineRunId,
@@ -313,19 +294,19 @@ export function createRecordHandlers({
         ).some((summary) => summary?.acceptedFailure === true);
         const patch = {
           pipelineRunId: createPipelineRunId(),
-          status: PIPELINE_STATUS.SUMMARIZING,
-          error: null,
-          summaryErrors: [],
-          // A new review can happen while finalizing an earlier Skip. Keep that
-          // earlier, path-scoped acceptance active while retrying only the newly
-          // failed work.
-          forceFinalize:
-            msg.action === 'skip' || hasAcceptedLeafFailure || carriedAcceptedMergePaths.length > 0,
-          acceptedMergeFailurePaths: carriedAcceptedMergePaths,
-          summariesIncomplete: false,
-          // Reset the parked progress stage so the resuming UI shows summarizing,
-          // not the transient 'needs_attention' stage, before the worker's first write.
-          progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done: 0, total: 0 },
+          // Resets the parked progress stage so the resuming UI shows summarizing,
+          // not the transient 'needs_attention' stage, before the worker's first
+          // write. A new review can happen while finalizing an earlier Skip:
+          // keep that earlier, path-scoped acceptance active while retrying
+          // only the newly failed work.
+          ...resumeSummariesTransition({
+            total: 0,
+            forceFinalize:
+              msg.action === 'skip' ||
+              hasAcceptedLeafFailure ||
+              carriedAcceptedMergePaths.length > 0,
+            acceptedMergeFailurePaths: carriedAcceptedMergePaths,
+          }),
         };
         if (msg.action === 'skip') {
           // Accept the empty summaries: drop the in-flight error flags so the
@@ -437,9 +418,7 @@ export function createRecordHandlers({
               error: status === PIPELINE_STATUS.DONE ? null : record.error || null,
               progress: {
                 ...(record.progress && typeof record.progress === 'object' ? record.progress : {}),
-                stage: PIPELINE_STAGE.IMPORTED,
-                done: 1,
-                total: 1,
+                ...progressAt(PIPELINE_STAGE.IMPORTED, 1, 1),
               },
             },
             { bumpContentRevision: true },

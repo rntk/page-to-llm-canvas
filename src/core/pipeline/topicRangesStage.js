@@ -19,7 +19,14 @@ import {
   TOPIC_RANGE_PROVIDER_MAX_ATTEMPTS,
   TOPIC_RANGE_STAGE_MAX_RETRIES,
 } from './pipelineConfig.js';
-import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
+import { PIPELINE_STAGE } from '../../shared/runtime/contracts.js';
+import {
+  doneTransition,
+  progressAt,
+  resetSummaryCheckpointPatch,
+  splittingTransition,
+  summarizingTransition,
+} from '../../shared/runtime/recordTransitions.js';
 import { rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
 import { isPermanentProviderError } from './providerFailure.js';
 import { runProviderBurst } from './providerBurst.js';
@@ -293,24 +300,13 @@ export async function computeTopics({
 }) {
   const dependencies = createTopicRangeDependencies(overrides);
   await runtime.update({
-    status: PIPELINE_STATUS.SPLITTING,
-    progress: { stage: PIPELINE_STAGE.NORMALIZING_TEXT, done: 0, total: 0 },
-    error: null,
-    topics: [],
-    topic_summaries: {},
-    topic_summary_index: {},
-    source_summary_units: {},
+    ...splittingTransition(),
     // A full topic recompute invalidates every path-scoped review decision
     // from the previous tree. Clear them in storage as well as in the current
     // orchestrator invocation so a later park/retry cannot reactivate stale
     // accepted paths against the newly derived tree.
-    summaryErrors: [],
-    forceFinalize: false,
-    acceptedMergeFailurePaths: [],
-    summaryCheckpointContentRevision: null,
-    summaryCheckpointPreferContentLanguage: null,
+    ...resetSummaryCheckpointPatch(),
     summariesDisabled: false,
-    summariesIncomplete: false,
   });
   const capturedText = String(record?.capturedText ?? '');
   await runtime.log(
@@ -338,7 +334,7 @@ export async function computeTopics({
 
   await runtime.update({
     text,
-    progress: { stage: PIPELINE_STAGE.SPLITTING_SENTENCES, done: 0, total: 0 },
+    progress: progressAt(PIPELINE_STAGE.SPLITTING_SENTENCES),
   });
   await runtime.log('splitting_sentences_start', {}, { verbose: true });
 
@@ -359,7 +355,7 @@ export async function computeTopics({
 
   await runtime.update({
     sentences: sentenceTexts,
-    progress: { stage: PIPELINE_STAGE.TOPIC_RANGES, done: 0, total: sentenceTexts.length },
+    progress: progressAt(PIPELINE_STAGE.TOPIC_RANGES, 0, sentenceTexts.length),
     // A checkpoint that cannot be proven to describe these sentences is dead
     // weight. Drop it in this write, which already touches the content doc,
     // rather than paying for a second one.
@@ -368,11 +364,9 @@ export async function computeTopics({
 
   if (sentenceTexts.length === 0) {
     await runtime.update({
-      status: PIPELINE_STATUS.DONE,
+      ...doneTransition({ done: 0, total: 0, summariesDisabled: runtime.summariesDisabled }),
       topics: [],
       topic_summaries: {},
-      summariesDisabled: runtime.summariesDisabled,
-      progress: { stage: PIPELINE_STAGE.DONE, done: 0, total: 0 },
     });
     return { topics: null, sentenceTexts };
   }
@@ -535,8 +529,8 @@ export async function computeTopics({
     // contentRevision, so Retry cannot mistake these topics for the new HTML.
     summaryCheckpointContentRevision: record.contentRevision,
     summaryCheckpointPreferContentLanguage: runtime.preferContentLanguage === true,
-    status: PIPELINE_STATUS.SUMMARIZING,
-    progress: { stage: PIPELINE_STAGE.SUMMARIZING_TOPICS, done: 0, total: topics.length },
+    // `error` was already cleared by the splitting transition of this run.
+    ...summarizingTransition({ total: topics.length, clearError: false }),
   });
 
   return { topics, sentenceTexts };

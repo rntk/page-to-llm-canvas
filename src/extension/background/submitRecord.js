@@ -1,8 +1,8 @@
+import { createQueuedRecord, PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
 import {
-  createQueuedRecord,
-  PIPELINE_STAGE,
-  PIPELINE_STATUS,
-} from '../../shared/runtime/contracts.js';
+  queuedTransition,
+  resetContentCheckpointPatch,
+} from '../../shared/runtime/recordTransitions.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { sha256Hex } from './summaryResolution.js';
 
@@ -133,9 +133,7 @@ export function createSubmitRecord({
       // the reuse path borrows updateRecord's guard instead.
       const patch = {
         pipelineRunId,
-        status: PIPELINE_STATUS.PENDING,
-        error: null,
-        progress: { stage: PIPELINE_STAGE.QUEUED, done: 0, total: 0 },
+        ...queuedTransition(),
         sourceUrl: sourceUrl || existing.sourceUrl,
         html,
         captureVersion: Number.isInteger(captureVersion) ? captureVersion : null,
@@ -143,21 +141,10 @@ export function createSubmitRecord({
         processingLog: [],
         skipSummaries,
         // A submission for a non-terminal URL replaces its HTML and therefore
-        // invalidates every checkpoint derived from the previous content. Keep
-        // this in sync with reprocessRecord: retry may otherwise mistake the old
-        // topics/sentences for a checkpoint belonging to this new revision.
-        topics: [],
-        topic_summaries: {},
-        topic_summary_index: {},
-        source_summary_units: {},
-        sentences: [],
-        text: '',
-        summaryErrors: [],
-        forceFinalize: false,
-        acceptedMergeFailurePaths: [],
-        summaryCheckpointContentRevision: null,
-        summaryCheckpointPreferContentLanguage: null,
-        summariesIncomplete: false,
+        // invalidates every checkpoint derived from the previous content (the
+        // same reset reprocessRecord applies): retry may otherwise mistake the
+        // old topics/sentences for a checkpoint belonging to this new revision.
+        ...resetContentCheckpointPatch(),
       };
       if (Array.isArray(selectors)) patch.selectors = selectors;
       const updated = await updateRecord(key, patch, {

@@ -1,9 +1,6 @@
 import { formatPipelineError } from './pipeline/pipelineRuntime.js';
-import {
-  isInFlightPipelineStatus,
-  isInFlightRecord,
-  PIPELINE_STATUS,
-} from '../../shared/runtime/contracts.js';
+import { isInFlightPipelineStatus, isInFlightRecord } from '../../shared/runtime/contracts.js';
+import { errorTransition } from '../../shared/runtime/recordTransitions.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { STORAGE_UNAVAILABLE_MESSAGE } from './pipelineFailureBreaker.js';
 
@@ -266,11 +263,9 @@ export function createPipelineSupervisor({
           // has since taken ownership of this record — the same run-id guard
           // orchestrator.js relies on for its own AbortError handling.
           try {
-            const updated = await updateRecord(
-              key,
-              { status: PIPELINE_STATUS.ERROR, error: formatPipelineError(err) },
-              { expectedPipelineRunId: pipelineRunId },
-            );
+            const updated = await updateRecord(key, errorTransition(formatPipelineError(err)), {
+              expectedPipelineRunId: pipelineRunId,
+            });
             if (!updated) {
               logger.warn('fallback error-status write skipped (record superseded) for', key);
             }
