@@ -4,18 +4,10 @@ import { buildYouTubeRailCards } from './sync.js';
 import { formatTimestampLabel, getTimestampForSentences } from '../../../utils/youtubeTimestamp.js';
 import { computeMaxTopicLevel } from '../shared/railCards.js';
 import { describeFetchFailure, fetchRecord } from '../shared/recordFetch.js';
+import { createRailState, normalizeRailMode } from '../shared/railState.js';
 import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
 import { createLogger } from '../../../shared/runtime/log.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../../shared/runtime/contracts.js';
-
-// Prefer YouTube's main player element so we don't accidentally bind to a
-// hover-preview thumbnail or an ad's <video>. Falls back to any <video> for
-// non-standard embeds.
-// The rail only renders these three modes; anything else (stale storage, a
-// bad message payload) falls back to the default topics view.
-function normalizeYouTubeMode(mode) {
-  return mode === 'summaries' || mode === 'chat' ? mode : 'topics';
-}
 
 const defaultDialogs = {
   alert: (...args) => globalThis.alert(...args),
@@ -33,6 +25,9 @@ export function createYouTubeRailController({
   const { alert } = { ...defaultDialogs, ...(dialogs ?? {}) };
   let videoElement = null;
 
+  // Prefer YouTube's main player element so we don't accidentally bind to a
+  // hover-preview thumbnail or an ad's <video>. Falls back to any <video> for
+  // non-standard embeds.
   const getYouTubeVideoElement = () => {
     if (videoElement?.isConnected) return videoElement;
     videoElement =
@@ -70,10 +65,7 @@ export function createYouTubeRailController({
       return false;
     }
 
-    const state = {
-      mode: normalizeYouTubeMode(initialMode),
-      selectedLevel: options && typeof options.level === 'number' ? options.level : 0,
-    };
+    const state = createRailState(initialMode, options);
 
     const maxLevel = computeMaxTopicLevel(record);
 
@@ -129,7 +121,7 @@ export function createYouTubeRailController({
 
     const handleSelectMode = (mode) => {
       if (isClosed()) return;
-      const next = normalizeYouTubeMode(mode);
+      const next = normalizeRailMode(mode);
       if (state.mode === next) return;
       state.mode = next;
       railEl.dataset.mode = state.mode;

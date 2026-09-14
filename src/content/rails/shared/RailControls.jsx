@@ -1,14 +1,9 @@
 import React from 'react';
 import { splitTopicPath } from '../../../shared/runtime/topicPath.js';
-
-const RAIL_MODES = [
-  ['topics', 'Topics'],
-  ['summaries', 'Summaries'],
-  ['chat', 'Chat'],
-];
+import { normalizeRailMode, RAIL_MODES } from './railState.js';
 
 function RailModeSelect({ mode, onSelectMode }) {
-  const activeMode = RAIL_MODES.some(([value]) => value === mode) ? mode : RAIL_MODES[0][0];
+  const activeMode = normalizeRailMode(mode);
 
   return (
     <select

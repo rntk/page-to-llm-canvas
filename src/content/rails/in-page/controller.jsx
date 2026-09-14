@@ -15,6 +15,7 @@ import {
   assessRecordForRail,
   describeFetchFailure,
 } from '../shared/recordFetch.js';
+import { createRailState, normalizeRailMode } from '../shared/railState.js';
 import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
 import { createLogger } from '../../../shared/runtime/log.js';
 
@@ -53,7 +54,7 @@ export function createInPageRailController({
     alert('PageToLLM: Open the extension Options page to review this analysis.');
   }
 
-  async function openInPageRail(rec, initialMode, options = {}) {
+  async function openInPageRail(rec, initialMode = 'topics', options = {}) {
     const guard = surfaceManager.beginLoad();
 
     // Always re-fetch to get the latest data even if widget data is stale.
@@ -119,10 +120,7 @@ export function createInPageRailController({
     let mutationFrameId = 0;
     let pendingMutations = [];
 
-    const state = {
-      mode: initialMode,
-      selectedLevel: options && typeof options.level === 'number' ? options.level : 0,
-    };
+    const state = createRailState(initialMode, options);
 
     const maxLevel = computeMaxTopicLevel(record);
 
@@ -167,10 +165,11 @@ export function createInPageRailController({
 
     const handleSelectMode = (mode) => {
       if (isClosed()) return;
-      if (state.mode === mode) return;
+      const next = normalizeRailMode(mode);
+      if (state.mode === next) return;
       // highlighter.clearAll() below already clears the chat sentences along
       // with the topic set, so no per-mode special-casing is needed here.
-      state.mode = mode;
+      state.mode = next;
       railEl.dataset.mode = state.mode;
       setRailWidthForMode();
       highlighter.clearAll();
