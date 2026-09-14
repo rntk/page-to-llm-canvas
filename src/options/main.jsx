@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { OptionsApp } from './OptionsApp.jsx';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
 import { browserLocalStore } from '../shared/runtime/localStore.js';
+import { subscribeRecordChanges } from './recordChanges.js';
 import {
   browserFileHost,
   browserPageHost,
@@ -23,6 +24,7 @@ root.render(
       pageHost={browserPageHost}
       scheduler={browserScheduler}
       store={browserLocalStore}
+      subscribeRecords={subscribeRecordChanges}
     />
   </ErrorBoundary>,
 );

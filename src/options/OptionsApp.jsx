@@ -22,7 +22,7 @@ function tabFromHash() {
   return OPTION_TABS.some((tab) => tab.id === candidate) ? candidate : OPTION_TABS[0].id;
 }
 
-export function OptionsApp({ store, scheduler, fileHost, pageHost }) {
+export function OptionsApp({ store, scheduler, fileHost, pageHost, subscribeRecords }) {
   const [activeTab, setActiveTab] = useState(tabFromHash);
   // Panels are expensive to mount (storage reads, subscriptions, list
   // fetches) so a panel's subtree is only ever rendered once its tab has
@@ -122,7 +122,12 @@ export function OptionsApp({ store, scheduler, fileHost, pageHost }) {
         hidden={activeTab !== 'records'}
       >
         {visitedTabs.has('records') && (
-          <RecordsSection key={`records-${dataVersion}`} fileHost={fileHost} pageHost={pageHost} />
+          <RecordsSection
+            key={`records-${dataVersion}`}
+            fileHost={fileHost}
+            pageHost={pageHost}
+            subscribeRecords={subscribeRecords}
+          />
         )}
       </section>
 

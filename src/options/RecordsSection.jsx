@@ -14,6 +14,7 @@ import {
 } from './optionsLogic.js';
 import { safeFilenamePart } from '../utils/safeFilenamePart.js';
 import { listRecords, sendMessage } from './optionsApi.js';
+import { subscribeRecordChanges } from './recordChanges.js';
 
 function formatDate(timestamp) {
   if (!timestamp) return '';
@@ -24,7 +25,7 @@ function statusClass(status) {
   return `status ${status || ''}`.trim();
 }
 
-export function RecordsSection({ fileHost, pageHost }) {
+export function RecordsSection({ fileHost, pageHost, subscribeRecords = subscribeRecordChanges }) {
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -69,6 +70,12 @@ export function RecordsSection({ fileHost, pageHost }) {
     return loadRecords();
   }, [loadRecords]);
 
+  // Captured in a ref on mount so a caller passing a fresh closure on every
+  // render doesn't tear down and re-establish the subscription — and re-run
+  // the initial load — each time. The subscription is established once on mount;
+  // callers that need a different capability should remount the section.
+  const subscribeRecordsRef = useRef(subscribeRecords);
+
   useEffect(() => {
     // `isLoading` already starts true, so the mount read must not flip it again
     // from inside the effect.
@@ -76,7 +83,6 @@ export function RecordsSection({ fileHost, pageHost }) {
     let refreshTimer = null;
     let refreshNeeded = false;
     let disposed = false;
-    const storageChanges = globalThis.chrome?.storage?.onChanged;
     const scheduleRefresh = () => {
       if (disposed || refreshTimer !== null) return;
       // Bound the wait from the first event; continuous processing logs must
@@ -89,25 +95,19 @@ export function RecordsSection({ fileHost, pageHost }) {
         if (refreshNeeded) scheduleRefresh();
       }, 300);
     };
-    const onStorageChanged = (changes, areaName) => {
-      const affectsRecords =
-        areaName === 'local' &&
-        Object.keys(changes).some(
-          (key) => key === 'pagetollm:index' || key.startsWith('pagetollm:rec:'),
-        );
-      // List responses also project session-backed pipeline failures as errors.
-      const affectsFailures =
-        areaName === 'session' && Object.hasOwn(changes, 'pagetollm:pipeline-failure-breakers');
-      if (!affectsRecords && !affectsFailures) return;
+    // The storage subscription is injected (browser-backed by default) so the
+    // section never touches `chrome` directly, like the other options sections
+    // behind `store`/`fileHost`/`pageHost`. Read through the ref so an
+    // unstable caller identity doesn't resubscribe on every render.
+    const unsubscribe = subscribeRecordsRef.current?.(() => {
       refreshNeeded = true;
       scheduleRefresh();
-    };
-    storageChanges?.addListener(onStorageChanged);
+    });
     return () => {
       disposed = true;
       recordsRequestId.current += 1;
       clearTimeout(refreshTimer);
-      storageChanges?.removeListener(onStorageChanged);
+      unsubscribe?.();
     };
   }, [loadRecords]);
 
