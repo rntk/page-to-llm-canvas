@@ -174,6 +174,10 @@ export const TOOLBAR_SHADOW_STYLES = `
     font-size: 14px;
     font-weight: 600;
     flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .pagetollm-remove-btn {

@@ -5,6 +5,7 @@ import { findTextBlocks } from './findTextBlocks.js';
 import { MSG } from '../../shared/runtime/messages.js';
 import {
   canStepUpElement,
+  createSelectedEntry,
   moveSelectedEntry,
   renumberSelectedEntries,
   removeSelectedEntry,
@@ -164,7 +165,7 @@ export function createSelectionController({
     const el = event.target;
     setElementSelected(el, true);
     pickCounter += 1;
-    selectedElements.push({ el, originalNumber: pickCounter });
+    selectedElements.push(createSelectedEntry(el, pickCounter));
     findStatus = '';
 
     selectionMode = false;
@@ -355,7 +356,7 @@ export function createSelectionController({
           skippedForOverlap = true;
           continue;
         }
-        additions.push({ el });
+        additions.push(createSelectedEntry(el));
       }
       additions.sort((a, b) => compareDocumentOrder(a.el, b.el));
 

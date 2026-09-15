@@ -119,7 +119,18 @@ export default function SelectionToolbar({
               <span className="pagetollm-drag-handle" title="Drag to reorder">
                 &#9776;
               </span>
-              <span className="pagetollm-block-label">Block {block.originalNumber}</span>
+              <span
+                className="pagetollm-block-label"
+                title={
+                  block.snippetTitle || block.snippet
+                    ? `${block.originalNumber}. ${block.snippetTitle || block.snippet}`
+                    : undefined
+                }
+              >
+                {block.snippet
+                  ? `${block.originalNumber}. ${block.snippet}`
+                  : `Block ${block.originalNumber}`}
+              </span>
               <button
                 className="pagetollm-stepup-btn"
                 type="button"

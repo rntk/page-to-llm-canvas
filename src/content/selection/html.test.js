@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { buildCapture } from './html.js';
+import { buildCapture, getRenderedText } from './html.js';
 
 describe('buildCapture HTML snapshot', () => {
   let container;
@@ -169,6 +169,17 @@ describe('buildCapture', () => {
     expect(capture.elements).toEqual([shown]);
     expect(capture.html).not.toContain('hidden root');
     expect(capture.capturedText).toBe('shown');
+  });
+
+  it('resolves computed styles through the provided per-block cache', () => {
+    const root = document.createElement('div');
+    root.innerHTML = '<p>hello</p><p>world</p>';
+    container.appendChild(root);
+
+    const cache = new Map();
+    const text = getRenderedText(root, root.ownerDocument.defaultView, 240, cache);
+    expect(text.replace(/\s+/g, ' ').trim()).toBe('hello world');
+    expect(cache.size).toBeGreaterThan(0);
   });
 
   it('strips selection marker classes from the captured snapshot', () => {

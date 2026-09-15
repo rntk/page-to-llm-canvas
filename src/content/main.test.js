@@ -645,7 +645,7 @@ describe('content script main.jsx', () => {
 
     listItems = toolbarQueryAll('.pagetollm-block-item');
     expect(listItems).toHaveLength(1);
-    expect(listItems[0].textContent).toContain('Block 1');
+    expect(listItems[0].textContent).toContain('1. Parent text');
 
     const submitBtn = toolbarQuery('#pagetollm-submit-btn');
     await act(async () => {

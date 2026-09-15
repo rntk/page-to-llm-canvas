@@ -150,6 +150,34 @@ describe('SelectionToolbar', () => {
     unmount();
   });
 
+  it('shows a text snippet in the label and a longer snippet in the title', () => {
+    const { container, unmount } = render(
+      createElement(SelectionToolbar, {
+        ...defaultProps,
+        selectedBlocks: [
+          {
+            id: 'b1',
+            originalNumber: 1,
+            snippet: 'Hello selection…',
+            snippetTitle: 'Hello selection with more words to read on hover',
+          },
+          { id: 'b2', originalNumber: 2, snippet: '', snippetTitle: '' },
+        ],
+      }),
+    );
+
+    const labels = container.querySelectorAll('.pagetollm-block-label');
+    expect(labels).toHaveLength(2);
+    expect(labels[0].textContent).toBe('1. Hello selection…');
+    expect(labels[0].getAttribute('title')).toBe(
+      '1. Hello selection with more words to read on hover',
+    );
+    expect(labels[1].textContent).toBe('Block 2');
+    expect(labels[1].getAttribute('title')).toBeNull();
+
+    unmount();
+  });
+
   it('shows submission progress and disables toolbar actions while submitting', () => {
     const { container, unmount } = render(
       createElement(SelectionToolbar, {
