@@ -22,10 +22,13 @@ function render(element) {
 describe('SelectionToolbar', () => {
   const defaultProps = {
     isPicking: false,
+    isFinding: false,
+    status: '',
     selectedBlocks: [],
     draggingIndex: null,
     dragOverIndex: null,
     onTogglePicking: vi.fn(),
+    onFind: vi.fn(),
     onSubmit: vi.fn(),
     onCancel: vi.fn(),
     onRemoveBlock: vi.fn(),
@@ -40,13 +43,56 @@ describe('SelectionToolbar', () => {
     const { container, unmount } = render(createElement(SelectionToolbar, defaultProps));
 
     const pickBtn = container.querySelector('#pagetollm-pick-btn');
+    const findBtn = container.querySelector('#pagetollm-find-btn');
     const submitBtn = container.querySelector('#pagetollm-submit-btn');
 
     expect(pickBtn.textContent).toBe('Pick Block');
     expect(pickBtn.className).not.toContain('active');
+    expect(findBtn.textContent).toBe('Find');
+    expect(findBtn.getAttribute('aria-label')).toBe('Find article text on this page');
     expect(submitBtn.textContent).toBe('Submit');
     expect(submitBtn.disabled).toBe(true);
 
+    unmount();
+  });
+
+  it('shows finding feedback, keeps cancel available, and disables selection edits', () => {
+    const onCancel = vi.fn();
+    const onFind = vi.fn();
+    const { container, unmount } = render(
+      createElement(SelectionToolbar, {
+        ...defaultProps,
+        isFinding: true,
+        status: 'Found 2 text blocks',
+        selectedBlocks: [{ id: 'b1', originalNumber: 1, canStepUp: true }],
+        onCancel,
+        onFind,
+      }),
+    );
+
+    const findBtn = container.querySelector('#pagetollm-find-btn');
+    const listItem = container.querySelector('.pagetollm-block-item');
+    expect(findBtn.textContent).toBe('Finding...');
+    expect(findBtn.disabled).toBe(true);
+    expect(container.querySelector('#pagetollm-pick-btn').disabled).toBe(true);
+    expect(container.querySelector('#pagetollm-submit-btn').disabled).toBe(true);
+    expect(container.querySelector('#pagetollm-cancel-btn').disabled).toBe(false);
+    expect(container.querySelector('.pagetollm-remove-btn').disabled).toBe(true);
+    expect(container.querySelector('.pagetollm-stepup-btn').disabled).toBe(true);
+    expect(listItem.getAttribute('draggable')).toBe('false');
+    expect(container.querySelector('#pagetollm-toolbar-top').getAttribute('aria-busy')).toBe(
+      'true',
+    );
+    expect(container.querySelector('[role="status"]').textContent).toBe('Found 2 text blocks');
+    expect(container.querySelector('[role="status"]').getAttribute('aria-live')).toBe('polite');
+
+    act(() => listItem.dispatchEvent(new CustomEvent('dragend', { bubbles: true })));
+    expect(defaultProps.onDragEnd).not.toHaveBeenCalled();
+
+    act(() => findBtn.click());
+    expect(onFind).not.toHaveBeenCalled();
+    act(() => container.querySelector('#pagetollm-cancel-btn').click());
+    expect(onCancel).toHaveBeenCalledTimes(1);
     unmount();
   });
 

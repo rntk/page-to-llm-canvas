@@ -3,10 +3,13 @@ import React from 'react';
 export default function SelectionToolbar({
   isPicking,
   isSubmitting,
+  isFinding,
+  status,
   selectedBlocks,
   draggingIndex,
   dragOverIndex,
   onTogglePicking,
+  onFind,
   onSubmit,
   onCancel,
   onRemoveBlock,
@@ -16,6 +19,7 @@ export default function SelectionToolbar({
   onDrop,
   onDragEnd,
 }) {
+  const isBusy = isSubmitting || isFinding;
   const submitLabel = isSubmitting
     ? 'Submitting...'
     : selectedBlocks.length > 0
@@ -30,15 +34,16 @@ export default function SelectionToolbar({
       ? 'Submit the selected blocks for processing'
       : 'Select at least one block before submitting';
   const cancelHint = 'Cancel selection and close this toolbar';
+  const findHint = 'Find article text on this page';
 
   return (
     <>
-      <div id="pagetollm-toolbar-top" aria-busy={isSubmitting}>
+      <div id="pagetollm-toolbar-top" aria-busy={isBusy}>
         <button
           id="pagetollm-pick-btn"
           className={isPicking ? 'active' : ''}
           type="button"
-          disabled={isSubmitting}
+          disabled={isBusy}
           title={pickHint}
           aria-label={pickHint}
           onClick={onTogglePicking}
@@ -46,10 +51,21 @@ export default function SelectionToolbar({
           {isPicking ? 'Picking...' : 'Pick Block'}
         </button>
         <button
+          id="pagetollm-find-btn"
+          className={isFinding ? 'finding' : ''}
+          type="button"
+          disabled={isBusy}
+          title={findHint}
+          aria-label={findHint}
+          onClick={onFind}
+        >
+          {isFinding ? 'Finding...' : 'Find'}
+        </button>
+        <button
           id="pagetollm-submit-btn"
           className={isSubmitting ? 'submitting' : ''}
           type="button"
-          disabled={selectedBlocks.length === 0 || isSubmitting}
+          disabled={selectedBlocks.length === 0 || isBusy}
           title={submitHint}
           aria-label={submitHint}
           onClick={onSubmit}
@@ -66,6 +82,9 @@ export default function SelectionToolbar({
         >
           Cancel
         </button>
+      </div>
+      <div id="pagetollm-toolbar-status" role="status" aria-live="polite">
+        {status}
       </div>
       {isSubmitting && (
         <div
@@ -90,12 +109,12 @@ export default function SelectionToolbar({
             <li
               key={block.id}
               className={classes}
-              draggable={!isSubmitting}
+              draggable={!isBusy}
               data-index={index}
-              onDragStart={(event) => !isSubmitting && onDragStart(event, index)}
-              onDragOver={(event) => !isSubmitting && onDragOver(event, index)}
-              onDrop={(event) => !isSubmitting && onDrop(event, index)}
-              onDragEnd={onDragEnd}
+              onDragStart={(event) => !isBusy && onDragStart(event, index)}
+              onDragOver={(event) => !isBusy && onDragOver(event, index)}
+              onDrop={(event) => !isBusy && onDrop(event, index)}
+              onDragEnd={(event) => !isBusy && onDragEnd(event)}
             >
               <span className="pagetollm-drag-handle" title="Drag to reorder">
                 &#9776;
@@ -106,7 +125,7 @@ export default function SelectionToolbar({
                 type="button"
                 title="Expand selection to parent block"
                 aria-label="Expand selection to parent block"
-                disabled={isSubmitting || block.canStepUp === false}
+                disabled={isBusy || block.canStepUp === false}
                 onClick={(event) => onStepUpBlock(event, index)}
               >
                 &#8593;
@@ -115,7 +134,7 @@ export default function SelectionToolbar({
                 className="pagetollm-remove-btn"
                 type="button"
                 title="Remove block"
-                disabled={isSubmitting}
+                disabled={isBusy}
                 onClick={(event) => onRemoveBlock(event, index)}
               >
                 &#10005;

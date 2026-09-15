@@ -1,10 +1,12 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import SelectionToolbar from './SelectionToolbar.jsx';
+import { findTextBlocks } from './findTextBlocks.js';
 import { MSG } from '../../shared/runtime/messages.js';
 import {
   canStepUpElement,
   moveSelectedEntry,
+  renumberSelectedEntries,
   removeSelectedEntry,
   selectedBlocksForToolbar,
   stepUpSelectedEntry,
@@ -64,6 +66,7 @@ export function createSelectionController({
   preferences = defaultPreferences,
   runtimeMessenger = browserRuntimeMessenger,
   dialogs = defaultDialogs,
+  findBlocks = findTextBlocks,
   onDestroy,
 } = {}) {
   if (!contentDocument?.body) return { destroy() {} };
@@ -77,6 +80,9 @@ export function createSelectionController({
   let dragSrcIndex = null;
   let dragOverIndex = null;
   let isSubmitting = false;
+  let isFinding = false;
+  let findStatus = '';
+  let findAbortController = null;
   let destroyed = false;
   const document = contentDocument;
   const window = contentWindow;
@@ -104,6 +110,7 @@ export function createSelectionController({
 
   function toggleSelectionMode(event) {
     if (!guardTrustedUserEvent(event)) return;
+    if (destroyed || isSubmitting || isFinding) return;
     selectionMode = !selectionMode;
     if (selectionMode) {
       enableSelection();
@@ -147,9 +154,9 @@ export function createSelectionController({
   }
 
   function selectElement(event) {
-    if (!selectionMode) return;
-    if (event.target.closest('#pagetollm-selection-toolbar')) return;
     if (!guardTrustedUserEvent(event)) return;
+    if (destroyed || !selectionMode || isSubmitting || isFinding) return;
+    if (event.target.closest('#pagetollm-selection-toolbar')) return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -158,6 +165,7 @@ export function createSelectionController({
     setElementSelected(el, true);
     pickCounter += 1;
     selectedElements.push({ el, originalNumber: pickCounter });
+    findStatus = '';
 
     selectionMode = false;
     disableSelection();
@@ -173,10 +181,13 @@ export function createSelectionController({
       <SelectionToolbar
         isPicking={selectionMode}
         isSubmitting={isSubmitting}
+        isFinding={isFinding}
+        status={findStatus}
         selectedBlocks={selectedBlocks}
         draggingIndex={dragSrcIndex}
         dragOverIndex={dragOverIndex}
         onTogglePicking={toggleSelectionMode}
+        onFind={findSelection}
         onSubmit={submitSelection}
         onCancel={handleCancel}
         onRemoveBlock={removeBlock}
@@ -191,15 +202,20 @@ export function createSelectionController({
 
   function removeBlock(event, index) {
     if (!guardTrustedUserEvent(event)) return;
+    if (destroyed || isSubmitting || isFinding) return;
     const entry = selectedElements[index];
     selectedElements = removeSelectedEntry(selectedElements, index);
     syncSelectedMarker(entry?.el);
     pickCounter = selectedElements.length;
+    // The scan summary described a list that no longer exists; drop it so the
+    // status region does not misreport the count.
+    findStatus = '';
     renderSelectionToolbar();
   }
 
   function stepUpBlock(event, index) {
     if (!guardTrustedUserEvent(event)) return;
+    if (destroyed || isSubmitting || isFinding) return;
     const result = stepUpSelectedEntry(selectedElements, index);
     if (result.oldElement === null || result.newElement === null) return;
 
@@ -207,6 +223,7 @@ export function createSelectionController({
     syncSelectedMarker(result.oldElement);
     syncSelectedMarker(result.newElement);
     pickCounter = selectedElements.length;
+    findStatus = '';
 
     // The selected outline now follows the parent on the page, so the
     // user can see exactly which (larger) block will be captured.
@@ -215,6 +232,7 @@ export function createSelectionController({
 
   function onDragStart(event, index) {
     if (!guardTrustedUserEvent(event)) return;
+    if (destroyed || isSubmitting || isFinding) return;
     dragSrcIndex = Number.isInteger(index) ? index : parseInt(event.currentTarget.dataset.index);
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
     renderSelectionToolbar();
@@ -222,6 +240,7 @@ export function createSelectionController({
 
   function onDragOver(event, index) {
     if (!guardTrustedUserEvent(event)) return;
+    if (destroyed || isSubmitting || isFinding) return;
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
     const nextDragOverIndex = Number.isInteger(index)
@@ -235,6 +254,7 @@ export function createSelectionController({
 
   function onDrop(event, index) {
     if (!guardTrustedUserEvent(event)) return;
+    if (destroyed || isSubmitting || isFinding) return;
     event.preventDefault();
     const destIndex = Number.isInteger(index) ? index : parseInt(event.currentTarget.dataset.index);
     if (dragSrcIndex === null || dragSrcIndex === destIndex) return;
@@ -247,6 +267,7 @@ export function createSelectionController({
 
   function onDragEnd(event) {
     if (!guardTrustedUserEvent(event)) return;
+    if (destroyed || isSubmitting || isFinding) return;
     dragSrcIndex = null;
     dragOverIndex = null;
     renderSelectionToolbar();
@@ -260,13 +281,123 @@ export function createSelectionController({
     );
   }
 
+  function hasOverlappingSelection(element, entries) {
+    return entries.some(({ el }) => el === element || el.contains(element) || element.contains(el));
+  }
+
+  function compareDocumentOrder(a, b) {
+    if (a === b) return 0;
+    const position = a.compareDocumentPosition(b);
+    const following = document.defaultView?.Node?.DOCUMENT_POSITION_FOLLOWING ?? 4;
+    return position & following ? -1 : 1;
+  }
+
+  function statusForFindResult(status, count) {
+    if (status === 'found' && count > 0) {
+      return `Found ${count} text block${count === 1 ? '' : 's'}`;
+    }
+    if (status === 'already-selected') return 'Article text is already selected.';
+    if (status === 'incomplete') return 'Finding stopped before completion. Try again.';
+    if (status === 'cancelled') return 'Finding cancelled.';
+    return 'No clear article found. Try Pick Block.';
+  }
+
+  async function findSelection(event) {
+    if (!guardTrustedUserEvent(event)) return;
+    if (isSubmitting || isFinding || destroyed) return;
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+
+    // A scan and page picking cannot safely overlap: turn off capture listeners
+    // and remove their transient outlines before yielding for the busy UI to paint.
+    selectionMode = false;
+    disableSelection();
+    dragSrcIndex = null;
+    dragOverIndex = null;
+    isFinding = true;
+    findStatus = 'Finding text blocks…';
+    const abortController = new AbortController();
+    findAbortController = abortController;
+    renderSelectionToolbar();
+
+    try {
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 0);
+      });
+      if (destroyed || abortController.signal.aborted) return;
+
+      const result = await findBlocks(document, {
+        selected: selectedElements.map(({ el }) => el),
+        signal: abortController.signal,
+      });
+      if (destroyed || abortController.signal.aborted || findAbortController !== abortController) {
+        return;
+      }
+
+      const resultBlocks = Array.isArray(result?.blocks) ? result.blocks : [];
+      const additions = [];
+      let skippedForOverlap = false;
+      for (const block of result?.status === 'found' ? resultBlocks : []) {
+        const el = block?.element;
+        if (
+          !el ||
+          el.ownerDocument !== document ||
+          !el.isConnected ||
+          el === document.body ||
+          el === document.documentElement
+        ) {
+          continue;
+        }
+        if (
+          hasOverlappingSelection(el, selectedElements) ||
+          hasOverlappingSelection(el, additions)
+        ) {
+          skippedForOverlap = true;
+          continue;
+        }
+        additions.push({ el });
+      }
+      additions.sort((a, b) => compareDocumentOrder(a.el, b.el));
+
+      if (additions.length > 0) {
+        additions.forEach(({ el }) => setElementSelected(el, true));
+        selectedElements = renumberSelectedEntries([...selectedElements, ...additions], {
+          mutate: false,
+        });
+        pickCounter = selectedElements.length;
+      }
+
+      const resultStatus =
+        additions.length > 0
+          ? 'found'
+          : result?.status === 'found' && skippedForOverlap
+            ? 'already-selected'
+            : result?.status;
+      findStatus = statusForFindResult(resultStatus, additions.length);
+    } catch (err) {
+      if (!abortController.signal.aborted && !destroyed) {
+        log.error('find text blocks error:', err);
+        findStatus = 'No clear article found. Try Pick Block.';
+      }
+    } finally {
+      if (!destroyed && findAbortController === abortController) {
+        // This scan owns the active controller; a cancelled or destroyed scan
+        // cannot reach this branch, so no later scan can be reset here.
+        // eslint-disable-next-line require-atomic-updates
+        isFinding = false;
+        findAbortController = null;
+        renderSelectionToolbar();
+      }
+    }
+  }
+
   async function submitSelection(event) {
     if (!guardTrustedUserEvent(event)) return;
     if (event) {
       event.preventDefault();
       event.stopPropagation();
     }
-    if (isSubmitting) return;
+    if (destroyed || isSubmitting || isFinding) return;
     if (selectedElements.length === 0) {
       alert('Please pick at least one block first.');
       return;
@@ -319,6 +450,8 @@ export function createSelectionController({
   function destroy() {
     if (destroyed) return;
     destroyed = true;
+    findAbortController?.abort();
+    findAbortController = null;
     if (selectionToolbar) {
       selectionToolbarRoot && selectionToolbarRoot.unmount();
       selectionToolbarRoot = null;

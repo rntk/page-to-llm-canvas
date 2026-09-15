@@ -14,10 +14,11 @@ vi.mock('../shared/surfacePreferences.js', () => ({
 
 const { createSelectionController, guardTrustedUserEvent, isTrustedUserEvent } =
   await import('./controller.jsx');
+const { findTextBlocks } = await import('./findTextBlocks.js');
 const runtimeMessenger = { send: vi.fn() };
 let activeController = null;
 
-function showSelectionToolbar(messenger) {
+function showSelectionToolbar(messenger, options = {}) {
   activeController?.destroy();
   activeController = createSelectionController({
     document,
@@ -27,6 +28,7 @@ function showSelectionToolbar(messenger) {
     onDestroy: () => {
       activeController = null;
     },
+    ...options,
   });
 }
 
@@ -36,6 +38,15 @@ function toolbarRoot() {
 
 function toolbarButton(id) {
   return toolbarRoot()?.querySelector(`#${id}`);
+}
+
+function toolbarStatus() {
+  return toolbarRoot()?.querySelector('#pagetollm-toolbar-status');
+}
+
+function reactProps(element) {
+  const key = Object.keys(element ?? {}).find((name) => name.startsWith('__reactProps'));
+  return element?.[key];
 }
 
 function event(type) {
@@ -79,6 +90,16 @@ async function flush() {
     await Promise.resolve();
     await Promise.resolve();
   });
+}
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+  return { promise, resolve, reject };
 }
 
 describe('selection controller', () => {
@@ -295,6 +316,327 @@ describe('selection controller', () => {
     expect(alert).toHaveBeenCalledWith('Please pick at least one block first.');
     expect(runtimeMessenger.send).not.toHaveBeenCalled();
     expect(document.getElementById('pagetollm-selection-toolbar')).not.toBeNull();
+  });
+
+  it('finds blocks without submitting, preserves manual order, and captures only after Submit', async () => {
+    const manual = mountBlock('manual', 'Manually selected content');
+    const found = mountBlock('found', 'Detected content');
+    const nestedManual = document.createElement('p');
+    manual.appendChild(nestedManual);
+    const detached = mountBlock('detached', 'No longer in this document');
+    detached.remove();
+    const findBlocks = vi.fn().mockResolvedValue({
+      status: 'found',
+      blocks: [
+        { element: found, mass: 1200, linkMass: 0 },
+        { element: manual, mass: 1200, linkMass: 0 },
+        { element: nestedManual, mass: 1200, linkMass: 0 },
+        { element: detached, mass: 1200, linkMass: 0 },
+      ],
+    });
+    act(() => showSelectionToolbar(runtimeMessenger, { findBlocks }));
+
+    click(toolbarButton('pagetollm-pick-btn'));
+    act(() => manual.dispatchEvent(event('click')));
+    click(toolbarButton('pagetollm-find-btn'));
+
+    await vi.waitFor(() => expect(findBlocks).toHaveBeenCalledOnce());
+    await flush();
+
+    expect(findBlocks).toHaveBeenCalledWith(
+      document,
+      expect.objectContaining({ selected: [manual], signal: expect.any(AbortSignal) }),
+    );
+    expect(runtimeMessenger.send).not.toHaveBeenCalled();
+    expect(document.getElementById('pagetollm-selection-toolbar')).not.toBeNull();
+    expect(toolbarButton('pagetollm-submit-btn').textContent).toBe('Submit (2)');
+    expect(toolbarRoot().querySelectorAll('.pagetollm-block-item')).toHaveLength(2);
+    expect(manual.classList.contains('pagetollm-selected')).toBe(true);
+    expect(found.classList.contains('pagetollm-selected')).toBe(true);
+    expect(toolbarStatus().textContent).toBe('Found 1 text block');
+
+    click(toolbarButton('pagetollm-submit-btn'));
+    await vi.waitFor(() => expect(runtimeMessenger.send).toHaveBeenCalledOnce());
+    expect(runtimeMessenger.send.mock.calls[0][0].capturedText).toContain(
+      'Manually selected content',
+    );
+    expect(runtimeMessenger.send.mock.calls[0][0].capturedText).toContain('Detected content');
+  });
+
+  it('clears the stale scan summary once the list is edited after a find', async () => {
+    const wrapper = document.createElement('section');
+    const nested = document.createElement('p');
+    nested.textContent = 'Nested content';
+    wrapper.appendChild(nested);
+    document.body.appendChild(wrapper);
+    const first = mountBlock('first');
+    const second = mountBlock('second');
+    const findBlocks = vi.fn().mockResolvedValue({
+      status: 'found',
+      blocks: [{ element: first }, { element: second }, { element: nested }],
+    });
+    act(() => showSelectionToolbar(runtimeMessenger, { findBlocks }));
+
+    click(toolbarButton('pagetollm-find-btn'));
+    await vi.waitFor(() => expect(findBlocks).toHaveBeenCalledOnce());
+    await flush();
+    expect(toolbarStatus().textContent).toBe('Found 3 text blocks');
+
+    // Removing a block changes the count the summary reported.
+    click(toolbarRoot().querySelector('.pagetollm-remove-btn'));
+    expect(toolbarRoot().querySelectorAll('.pagetollm-block-item')).toHaveLength(2);
+    expect(toolbarStatus().textContent).toBe('');
+
+    // A new scan re-adds the removed block and reports it.
+    click(toolbarButton('pagetollm-find-btn'));
+    await vi.waitFor(() => expect(findBlocks).toHaveBeenCalledTimes(2));
+    await flush();
+    expect(toolbarStatus().textContent).toBe('Found 1 text block');
+    expect(toolbarRoot().querySelectorAll('.pagetollm-block-item')).toHaveLength(3);
+
+    // Stepping up replaces the (re-added, now last) nested block with its parent.
+    click(toolbarRoot().querySelectorAll('.pagetollm-stepup-btn')[2]);
+    expect(wrapper.classList.contains('pagetollm-selected')).toBe(true);
+    expect(toolbarStatus().textContent).toBe('');
+
+    click(toolbarButton('pagetollm-find-btn'));
+    await vi.waitFor(() => expect(findBlocks).toHaveBeenCalledTimes(3));
+    await flush();
+    expect(toolbarStatus().textContent).toBe('Article text is already selected.');
+
+    // Picking a block manually adds to the list too.
+    const extra = mountBlock('extra');
+    click(toolbarButton('pagetollm-pick-btn'));
+    act(() => extra.dispatchEvent(event('click')));
+    expect(toolbarRoot().querySelectorAll('.pagetollm-block-item')).toHaveLength(4);
+    expect(toolbarStatus().textContent).toBe('');
+
+    wrapper.remove();
+  });
+
+  it('does not overlap scans and locks selection edits until the scan completes', async () => {
+    const manual = mountBlock('manual');
+    const found = mountBlock('found');
+    const pending = deferred();
+    const findBlocks = vi.fn().mockReturnValue(pending.promise);
+    act(() => showSelectionToolbar(runtimeMessenger, { findBlocks }));
+    click(toolbarButton('pagetollm-pick-btn'));
+    act(() => manual.dispatchEvent(event('click')));
+
+    click(toolbarButton('pagetollm-find-btn'));
+    await vi.waitFor(() => expect(findBlocks).toHaveBeenCalledOnce());
+    expect(toolbarButton('pagetollm-find-btn').textContent).toBe('Finding...');
+    expect(toolbarButton('pagetollm-pick-btn').disabled).toBe(true);
+    expect(toolbarButton('pagetollm-submit-btn').disabled).toBe(true);
+    expect(toolbarRoot().querySelector('.pagetollm-remove-btn').disabled).toBe(true);
+
+    // Calling React's handlers directly covers the controller guard as well as
+    // the disabled controls: a stale queued handler cannot overlap the scan or
+    // edit the list.
+    await act(async () => {
+      await reactProps(toolbarButton('pagetollm-find-btn')).onClick(event('click'));
+      await reactProps(toolbarRoot().querySelector('.pagetollm-remove-btn')).onClick(
+        event('click'),
+      );
+    });
+    expect(findBlocks).toHaveBeenCalledOnce();
+    expect(toolbarButton('pagetollm-submit-btn').textContent).toBe('Submit (1)');
+
+    pending.resolve({ status: 'found', blocks: [{ element: found }] });
+    await flush();
+    expect(toolbarButton('pagetollm-submit-btn').textContent).toBe('Submit (2)');
+    expect(toolbarButton('pagetollm-pick-btn').disabled).toBe(false);
+  });
+
+  it.each([
+    ['none', { status: 'none', blocks: [] }, 'No clear article found. Try Pick Block.'],
+    [
+      'already selected',
+      { status: 'already-selected', blocks: [] },
+      'Article text is already selected.',
+    ],
+    [
+      'incomplete',
+      { status: 'incomplete', blocks: [] },
+      'Finding stopped before completion. Try again.',
+    ],
+  ])('keeps the toolbar open and reports %s results', async (_name, result, message) => {
+    const findBlocks = vi.fn().mockResolvedValue(result);
+    act(() => showSelectionToolbar(runtimeMessenger, { findBlocks }));
+
+    click(toolbarButton('pagetollm-find-btn'));
+    await vi.waitFor(() => expect(findBlocks).toHaveBeenCalledOnce());
+    await flush();
+
+    expect(toolbarStatus().textContent).toBe(message);
+    expect(document.getElementById('pagetollm-selection-toolbar')).not.toBeNull();
+    expect(runtimeMessenger.send).not.toHaveBeenCalled();
+  });
+
+  it('reports detector failures without changing selection', async () => {
+    const findBlocks = vi.fn().mockRejectedValue(new Error('scan failed'));
+    act(() => showSelectionToolbar(runtimeMessenger, { findBlocks }));
+
+    click(toolbarButton('pagetollm-find-btn'));
+    await vi.waitFor(() => expect(findBlocks).toHaveBeenCalledOnce());
+    await flush();
+
+    expect(toolbarStatus().textContent).toBe('No clear article found. Try Pick Block.');
+    expect(toolbarButton('pagetollm-submit-btn').textContent).toBe('Submit');
+    expect(document.getElementById('pagetollm-selection-toolbar')).not.toBeNull();
+  });
+
+  it('cancels an active scan on destruction and discards late or detached results', async () => {
+    const attached = mountBlock('attached');
+    const detached = mountBlock('detached');
+    const pending = deferred();
+    const findBlocks = vi.fn().mockImplementation((_document, { signal }) => {
+      expect(signal.aborted).toBe(false);
+      return pending.promise;
+    });
+    act(() => showSelectionToolbar(runtimeMessenger, { findBlocks }));
+
+    click(toolbarButton('pagetollm-find-btn'));
+    await vi.waitFor(() => expect(findBlocks).toHaveBeenCalledOnce());
+    const signal = findBlocks.mock.calls[0][1].signal;
+    act(() => activeController.destroy());
+    expect(signal.aborted).toBe(true);
+
+    detached.remove();
+    pending.resolve({ status: 'found', blocks: [{ element: attached }, { element: detached }] });
+    await flush();
+    expect(attached.classList.contains('pagetollm-selected')).toBe(false);
+    expect(detached.classList.contains('pagetollm-selected')).toBe(false);
+    expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
+  });
+
+  it('does not run Find for untrusted events', () => {
+    const findBlocks = vi.fn();
+    act(() => showSelectionToolbar(runtimeMessenger, { findBlocks }));
+
+    click(toolbarButton('pagetollm-find-btn'), true);
+    expect(findBlocks).not.toHaveBeenCalled();
+  });
+
+  it('filters detached results while live and ignores non-found partial results', async () => {
+    const attached = mountBlock('attached', 'Attached result');
+    const detached = mountBlock('detached', 'Detached result');
+    detached.remove();
+    const findBlocks = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 'found',
+        blocks: [{ element: detached }, { element: attached }],
+      })
+      .mockResolvedValueOnce({ status: 'incomplete', blocks: [{ element: attached }] });
+    act(() => showSelectionToolbar(runtimeMessenger, { findBlocks }));
+
+    click(toolbarButton('pagetollm-find-btn'));
+    await vi.waitFor(() => expect(findBlocks).toHaveBeenCalledOnce());
+    await flush();
+    expect(toolbarButton('pagetollm-submit-btn').textContent).toBe('Submit (1)');
+    expect(attached.classList.contains('pagetollm-selected')).toBe(true);
+    expect(detached.classList.contains('pagetollm-selected')).toBe(false);
+
+    click(toolbarButton('pagetollm-find-btn'));
+    await vi.waitFor(() => expect(findBlocks).toHaveBeenCalledTimes(2));
+    await flush();
+    expect(toolbarButton('pagetollm-submit-btn').textContent).toBe('Submit (1)');
+    expect(toolbarStatus().textContent).toBe('Finding stopped before completion. Try again.');
+  });
+
+  it('reports already selected on a repeat click that resolves to an overlapping ancestor', async () => {
+    const wrapper = document.createElement('main');
+    document.body.appendChild(wrapper);
+    const found = document.createElement('article');
+    found.id = 'found';
+    found.textContent = 'Detected content';
+    wrapper.appendChild(found);
+
+    const findBlocks = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'found', blocks: [{ element: found }] })
+      .mockResolvedValueOnce({ status: 'found', blocks: [{ element: wrapper }] });
+    act(() => showSelectionToolbar(runtimeMessenger, { findBlocks }));
+
+    click(toolbarButton('pagetollm-find-btn'));
+    await vi.waitFor(() => expect(findBlocks).toHaveBeenCalledOnce());
+    await flush();
+    expect(toolbarButton('pagetollm-submit-btn').textContent).toBe('Submit (1)');
+    expect(toolbarStatus().textContent).toBe('Found 1 text block');
+
+    click(toolbarButton('pagetollm-find-btn'));
+    await vi.waitFor(() => expect(findBlocks).toHaveBeenCalledTimes(2));
+    await flush();
+
+    // The wrapper contains the already-selected article, so it must not be
+    // added as a duplicate or expanded selection.
+    expect(toolbarButton('pagetollm-submit-btn').textContent).toBe('Submit (1)');
+    expect(toolbarRoot().querySelectorAll('.pagetollm-block-item')).toHaveLength(1);
+    expect(toolbarStatus().textContent).toBe('Article text is already selected.');
+    expect(runtimeMessenger.send).not.toHaveBeenCalled();
+  });
+
+  it('lets users reorder, expand, and remove detected blocks before explicit Submit', async () => {
+    const articleA = mountBlock('article-a');
+    const paragraphA = document.createElement('p');
+    paragraphA.textContent = 'Article A final selection';
+    articleA.appendChild(paragraphA);
+    const articleB = mountBlock('article-b');
+    const paragraphB = document.createElement('p');
+    paragraphB.textContent = 'Article B removed selection';
+    articleB.appendChild(paragraphB);
+    const findBlocks = vi.fn().mockResolvedValue({
+      status: 'found',
+      // Deliberately reversed: controller appends detected blocks in DOM order.
+      blocks: [{ element: paragraphB }, { element: paragraphA }],
+    });
+    act(() => showSelectionToolbar(runtimeMessenger, { findBlocks }));
+
+    click(toolbarButton('pagetollm-find-btn'));
+    await vi.waitFor(() => expect(findBlocks).toHaveBeenCalledOnce());
+    await flush();
+    let items = toolbarRoot().querySelectorAll('.pagetollm-block-item');
+    expect(items).toHaveLength(2);
+
+    // Move B ahead of A, expand A to its article, then remove B. These are
+    // the same handlers used by the visible drag/drop and block controls.
+    await act(async () => {
+      reactProps(items[1]).onDragStart(event('dragstart'));
+      reactProps(items[0]).onDrop(event('drop'));
+    });
+    items = toolbarRoot().querySelectorAll('.pagetollm-block-item');
+    click(items[1].querySelector('.pagetollm-stepup-btn'));
+    click(items[0].querySelector('.pagetollm-remove-btn'));
+
+    click(toolbarButton('pagetollm-submit-btn'));
+    await vi.waitFor(() => expect(runtimeMessenger.send).toHaveBeenCalledOnce());
+    const submission = runtimeMessenger.send.mock.calls[0][0];
+    expect(submission.capturedText).toContain('Article A final selection');
+    expect(submission.capturedText).not.toContain('Article B removed selection');
+    expect(submission.selectors).toEqual(['article#article-a']);
+  });
+
+  it('wires the real detector to a long article fixture', async () => {
+    const navigation = document.createElement('nav');
+    navigation.textContent = 'Navigation '.repeat(200);
+    const article = mountBlock('real-article');
+    for (let index = 0; index < 3; index += 1) {
+      const paragraph = document.createElement('p');
+      paragraph.textContent = `Article paragraph ${index}. `.repeat(45);
+      article.appendChild(paragraph);
+    }
+    document.body.insertBefore(navigation, article);
+    act(() => showSelectionToolbar(runtimeMessenger, { findBlocks: findTextBlocks }));
+
+    click(toolbarButton('pagetollm-find-btn'));
+    await vi.waitFor(() =>
+      expect(toolbarButton('pagetollm-submit-btn').textContent).toBe('Submit (1)'),
+    );
+
+    expect(article.classList.contains('pagetollm-selected')).toBe(true);
+    expect(navigation.classList.contains('pagetollm-selected')).toBe(false);
+    expect(toolbarStatus().textContent).toBe('Found 1 text block');
   });
 });
 

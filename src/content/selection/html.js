@@ -1,10 +1,9 @@
 import { stripHighlightClasses } from './cssPath.js';
 import {
-  CLOSED_BY_DEFAULT_TAGS,
   NEVER_RENDERED_TAGS,
-  getComputedStyleSafe,
+  isRenderedTextNode,
   isBlockBoundary,
-  propertyValue,
+  renderedSubtreeIsHidden,
 } from '../../shared/dom/renderedText.js';
 
 const CAPTURE_VERSION = 2;
@@ -20,60 +19,12 @@ function normalizeRoots(elements) {
   );
 }
 
-function isCollapsedDetailsContent(element) {
-  let current = element;
-  while (current) {
-    if (current.tagName === 'DETAILS' && !current.hasAttribute('open')) {
-      const summary = Array.from(current.children).find((child) => child.tagName === 'SUMMARY');
-      if (!summary || !summary.contains(element)) return true;
-    }
-    current = current.parentElement;
-  }
-  return false;
-}
-
 function isTextRendered(node, contentWindow) {
-  const parent = node.parentElement;
-  if (!parent || !node.nodeValue) return false;
-  if (isCollapsedDetailsContent(parent)) return false;
-
-  const ownStyle = getComputedStyleSafe(parent, undefined, contentWindow);
-  const visibility = propertyValue(parent, ownStyle, 'visibility');
-  if (visibility === 'hidden' || visibility === 'collapse') return false;
-
-  let current = parent;
-  while (current) {
-    if (NEVER_RENDERED_TAGS.has(current.tagName)) return false;
-    if (CLOSED_BY_DEFAULT_TAGS.has(current.tagName) && !current.hasAttribute('open')) {
-      return false;
-    }
-    const style = getComputedStyleSafe(current, undefined, contentWindow);
-    if (propertyValue(current, style, 'display') === 'none') return false;
-    if (propertyValue(current, style, 'content-visibility') === 'hidden') return false;
-    const opacity = propertyValue(current, style, 'opacity');
-    if (opacity !== '' && Number(opacity) === 0) return false;
-    // The hidden attribute is an explicit author instruction to omit this
-    // content. Treat it consistently even when a DOM test environment does
-    // not install the browser's hidden UA stylesheet.
-    if (current.hasAttribute('hidden')) return false;
-    current = current.parentElement;
-  }
-  return true;
+  return isRenderedTextNode(node, undefined, contentWindow);
 }
 
 function isSubtreeSuppressed(element, contentWindow) {
-  if (NEVER_RENDERED_TAGS.has(element.tagName)) return true;
-  if (CLOSED_BY_DEFAULT_TAGS.has(element.tagName) && !element.hasAttribute('open')) return true;
-
-  const style = getComputedStyleSafe(element, undefined, contentWindow);
-  if (propertyValue(element, style, 'display') === 'none') return true;
-  if (propertyValue(element, style, 'content-visibility') === 'hidden') return true;
-  const opacity = propertyValue(element, style, 'opacity');
-  if (opacity !== '' && Number(opacity) === 0) return true;
-
-  // happy-dom and other DOM-only environments do not necessarily install the
-  // browser's [hidden] UA stylesheet, so the attribute must be checked directly.
-  return element.hasAttribute('hidden');
+  return renderedSubtreeIsHidden(element, undefined, contentWindow);
 }
 
 function appendBoundary(parts) {

@@ -4,6 +4,7 @@
 export const TOOLBAR_SHADOW_STYLES = `
   #pagetollm-toolbar-top {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     align-items: center;
   }
@@ -58,6 +59,18 @@ export const TOOLBAR_SHADOW_STYLES = `
     color: var(--ink);
   }
 
+  #pagetollm-find-btn {
+    background: var(--surface);
+    color: var(--ink);
+  }
+
+  #pagetollm-find-btn.finding:disabled {
+    background: var(--ink);
+    color: var(--surface);
+    border-color: var(--ink);
+    cursor: progress;
+  }
+
   #pagetollm-pick-btn.active {
     background: var(--ink);
     color: var(--surface);
@@ -95,6 +108,16 @@ export const TOOLBAR_SHADOW_STYLES = `
   #pagetollm-cancel-btn:hover:not(:disabled) {
     background: var(--accent);
     color: var(--surface);
+  }
+
+  #pagetollm-toolbar-status {
+    color: var(--on-surface-muted);
+    font-size: 13px;
+    line-height: 1.25;
+  }
+
+  #pagetollm-toolbar-status:empty {
+    display: none;
   }
 
   button:hover:not(:disabled, .active, #pagetollm-cancel-btn) {

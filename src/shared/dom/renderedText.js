@@ -189,6 +189,55 @@ export function computedStyleHasLayoutValues(style) {
 }
 
 /**
+ * Whether an element is hidden as a whole, including browser-default closed UI.
+ * @param {Element} node Element to inspect.
+ * @param {Map<Element, ?CSSStyleDeclaration>} [computedStyleCache] Per-walk memo.
+ * @param {Window} [contentWindow] Window containing the element.
+ * @returns {boolean}
+ */
+export function renderedSubtreeIsHidden(node, computedStyleCache, contentWindow) {
+  if (!node || node.nodeType !== 1) return true;
+  if (NEVER_RENDERED_TAGS.has(node.tagName)) return true;
+  if (CLOSED_BY_DEFAULT_TAGS.has(node.tagName) && !node.hasAttribute('open')) return true;
+  if (node.hasAttribute('hidden')) return true;
+  const style = getComputedStyleSafe(node, computedStyleCache, contentWindow);
+  const opacity = propertyValue(node, style, 'opacity');
+  return (
+    propertyValue(node, style, 'display') === 'none' ||
+    propertyValue(node, style, 'content-visibility', 'contentVisibility') === 'hidden' ||
+    (opacity !== '' && Number(opacity) === 0)
+  );
+}
+
+/**
+ * Whether text participates in the rendered document.
+ * @param {Text} node Text node to inspect.
+ * @param {Map<Element, ?CSSStyleDeclaration>} [computedStyleCache] Per-walk memo.
+ * @param {Window} [contentWindow] Window containing the node.
+ * @returns {boolean}
+ */
+export function isRenderedTextNode(node, computedStyleCache, contentWindow) {
+  const parent = node?.parentElement;
+  if (!parent || !node.nodeValue) return false;
+
+  // Visibility can be restored by a descendant, unlike display and opacity.
+  const ownStyle = getComputedStyleSafe(parent, computedStyleCache, contentWindow);
+  const visibility = propertyValue(parent, ownStyle, 'visibility');
+  if (visibility === 'hidden' || visibility === 'collapse') return false;
+
+  let current = parent;
+  while (current) {
+    if (renderedSubtreeIsHidden(current, computedStyleCache, contentWindow)) return false;
+    if (current.tagName === 'DETAILS' && !current.hasAttribute('open')) {
+      const summary = Array.from(current.children).find((child) => child.tagName === 'SUMMARY');
+      if (!summary || !summary.contains(parent)) return false;
+    }
+    current = current.parentElement;
+  }
+  return true;
+}
+
+/**
  * Whether an element creates a block-level text boundary.
  * @param {Element} node Element to inspect.
  * @param {Map<Element, ?CSSStyleDeclaration>} [computedStyleCache] Per-walk
