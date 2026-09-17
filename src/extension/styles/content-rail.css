@@ -629,7 +629,7 @@
   z-index: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   padding: 12px;
   flex: 1 1 auto;
   min-height: 0;
@@ -675,52 +675,69 @@
   text-align: center;
 }
 
+/* Cards mirror the in-page summary stack: the card for the current moment is
+   the one prominent card (framed, full-size title, summary body), and every
+   other card is a dimmed title row on either side of it, so the eye lands on
+   what is playing now while the surrounding topics stay scannable. The rows
+   share their metrics with .pagetollm-summary-topic and the active card with
+   .pagetollm-summary-active-card; keep the two in step. */
 .pagetollm-yt-rail-card {
+  appearance: none !important;
   box-sizing: border-box;
   width: 100%;
-  background: var(--surface);
-  border: 1px solid transparent;
-  border-left: 4px solid var(--pagetollm-card-accent, var(--ink));
-  border-radius: 0;
-  padding: 8px 10px;
+  background: transparent;
+  border: 0 !important;
+  border-left: 3px solid var(--pagetollm-card-accent, var(--ghost)) !important;
+  border-radius: 0 !important;
+  padding: 7px 8px;
   color: var(--on-surface);
   text-align: left;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  opacity: 0.74;
+  opacity: 0.62;
   transition:
     opacity 0.15s ease,
-    transform 0.1s ease,
-    border-color 0.15s ease,
-    margin 0.15s ease,
-    padding 0.15s ease;
+    transform 0.15s ease,
+    background 0.15s ease;
 }
 
 .pagetollm-yt-rail-card:hover,
 .pagetollm-yt-rail-card:focus {
   opacity: 1;
+  background: var(--surface);
   transform: translateX(-2px);
-  border-color: var(--ink);
-  border-left-color: var(--pagetollm-card-accent, var(--ink));
 }
 
 .pagetollm-yt-rail-card:focus {
-  outline: 2px solid var(--ink);
-  outline-offset: 2px;
+  outline: 1px solid var(--ink);
+  outline-offset: 1px;
 }
 
 .pagetollm-yt-rail-card.is-active {
   opacity: 1;
-  border-color: var(--ink);
-  border-left-color: var(--pagetollm-card-accent, var(--ink));
-  background: var(--surface-low);
-  box-shadow: inset 0 0 0 1px var(--ink);
-  margin-top: 16px;
-  margin-bottom: 16px;
-  padding-top: 14px;
-  padding-bottom: 14px;
+  padding: 10px 12px 12px;
+  margin: 6px 0;
+  background: var(--surface);
+  border: 1px solid var(--ink) !important;
+  border-left: 4px solid var(--pagetollm-card-accent, var(--ink)) !important;
+  box-shadow: -3px 3px 0 rgb(0 0 0 / 8%);
+}
+
+.pagetollm-yt-rail-card.is-active:focus {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Replayed each time a different card becomes active: the class lands on a
+   new element, which restarts the animation. */
+.pagetollm-yt-rail-card.is-active.is-enter-down {
+  animation: pagetollm-card-slide-in-down 0.22s ease-out;
+}
+
+.pagetollm-yt-rail-card.is-active.is-enter-up {
+  animation: pagetollm-card-slide-in-up 0.22s ease-out;
 }
 
 .pagetollm-yt-rail-card-head {
@@ -731,33 +748,75 @@
 
 .pagetollm-yt-rail-card-time {
   flex: 0 0 auto;
-  font-size: 13px;
-  font-weight: 800;
+  font-family: var(--font-data);
+  font-size: 11px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   color: var(--pagetollm-card-accent, var(--on-surface-muted));
 }
 
+.pagetollm-yt-rail-card.is-active .pagetollm-yt-rail-card-time {
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .pagetollm-yt-rail-card-title {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 17px;
+  display: block;
+  font-family: var(--font-data);
+  font-size: 12px;
   font-weight: 700;
-  line-height: 1.3;
+  line-height: 1.25;
+  color: var(--on-surface);
+  overflow: hidden;
   overflow-wrap: anywhere;
+}
+
+/* Clamp the two parts separately, as the in-page rows do: clamping the wrapper
+   would spend the line budget on the ancestor chain and clip the topic the row
+   is actually for. */
+.pagetollm-yt-rail-card-title .pagetollm-rail-card-parent-topics {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+
+.pagetollm-yt-rail-card-title .pagetollm-rail-card-current-topic {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* The active card gets the full title: no clamping, larger type. */
+.pagetollm-yt-rail-card.is-active .pagetollm-yt-rail-card-title {
+  font-size: 14px;
+  font-weight: 800;
+  overflow: visible;
+  white-space: normal;
+  hyphens: auto;
+}
+
+.pagetollm-yt-rail-card.is-active .pagetollm-yt-rail-card-title .pagetollm-rail-card-parent-topics,
+.pagetollm-yt-rail-card.is-active .pagetollm-yt-rail-card-title .pagetollm-rail-card-current-topic {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
 }
 
 .pagetollm-yt-rail-card-body {
-  margin-top: 2px;
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--on-surface-muted);
-  overflow-wrap: anywhere;
-}
-
-.pagetollm-yt-rail-card.is-active .pagetollm-yt-rail-card-body {
+  margin-top: 4px;
+  font-size: 15px;
+  line-height: 1.48;
   color: var(--on-surface);
-  animation: pagetollm-card-slide-in-down 0.22s ease-out;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* Keep the rails usable for readers who ask for less motion. */
@@ -765,7 +824,8 @@
   .pagetollm-summary-stack,
   .pagetollm-summary-active-card.is-enter-down,
   .pagetollm-summary-active-card.is-enter-up,
-  .pagetollm-yt-rail-card.is-active .pagetollm-yt-rail-card-body {
+  .pagetollm-yt-rail-card.is-active.is-enter-down,
+  .pagetollm-yt-rail-card.is-active.is-enter-up {
     animation: none;
   }
 

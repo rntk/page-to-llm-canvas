@@ -160,6 +160,41 @@ describe('YouTubeRail', () => {
     unmount();
   });
 
+  it('places the other cards before/after the active one and slides it in by direction', () => {
+    let currentTime = 0;
+    const getCurrentTime = vi.fn(() => currentTime);
+    const { container, unmount } = render(
+      createElement(YouTubeRail, { ...defaultProps, getCurrentTime }),
+    );
+
+    let railCards = container.querySelectorAll('.pagetollm-yt-rail-card');
+    expect(railCards[0].className).toContain('is-active');
+    expect(railCards[0].className).toContain('is-enter-down');
+    expect(railCards[1].className).toContain('is-after');
+
+    // Playback advancing: the new card enters from below, the old one is above.
+    currentTime = 45;
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    railCards = container.querySelectorAll('.pagetollm-yt-rail-card');
+    expect(railCards[0].className).toContain('is-before');
+    expect(railCards[0].className).not.toContain('is-active');
+    expect(railCards[1].className).toContain('is-active');
+    expect(railCards[1].className).toContain('is-enter-down');
+
+    // Seeking back: the earlier card enters from above.
+    currentTime = 0;
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    railCards = container.querySelectorAll('.pagetollm-yt-rail-card');
+    expect(railCards[0].className).toContain('is-active');
+    expect(railCards[0].className).toContain('is-enter-up');
+    expect(railCards[1].className).toContain('is-after');
+
+    unmount();
+  });
   it('scrolls the active card inside the rail body instead of the page', () => {
     let currentTime = 0;
     const getCurrentTime = vi.fn(() => currentTime);

@@ -59,6 +59,10 @@ export default function YouTubeRail({
   const isChat = mode === 'chat';
   const [activeId, setActiveId] = useState(null);
   const [chatActionsTarget, setChatActionsTarget] = useState(null);
+  // Which way the active card slides in (mirrors the in-page summary stack):
+  // playback moving forward enters from below, seeking back enters from above.
+  const [enterDirection, setEnterDirection] = useState('down');
+  const previousActiveIndexRef = useRef(-1);
   // Auto-scroll follows playback until the user scrolls the list themselves;
   // from then on the list is theirs to browse until they press Resume. The ref
   // mirrors the state so scroll handlers and effects can read it without
@@ -309,6 +313,21 @@ export default function YouTubeRail({
     return () => window.cancelAnimationFrame(raf);
   }, [normalizedCards, starts, scrollToCard]);
 
+  const activeIndex = useMemo(
+    () => normalizedCards.findIndex((card) => card.id === activeId),
+    [normalizedCards, activeId],
+  );
+
+  // Direction is derived from the index the active card moved from, so it is
+  // right for both poll-driven advances and user seeks. Set before paint so the
+  // card picks up its slide-in class on the same commit that marks it active.
+  useLayoutEffect(() => {
+    const previousIndex = previousActiveIndexRef.current;
+    previousActiveIndexRef.current = activeIndex;
+    if (activeIndex < 0 || previousIndex < 0 || previousIndex === activeIndex) return;
+    setEnterDirection(activeIndex > previousIndex ? 'down' : 'up');
+  }, [activeIndex]);
+
   const setCardRef = useCallback(
     (id) => (el) => {
       if (el) cardRefs.current.set(id, el);
@@ -355,8 +374,16 @@ export default function YouTubeRail({
           </div>
         ) : (
           <>
-            {normalizedCards.map((card) => {
+            {/* Laid out like the in-page summary stack: the card for the
+                current moment is the one prominent card, and the rest read as
+                a dimmed list of titles on either side of it. */}
+            {normalizedCards.map((card, index) => {
               const isActive = card.id === activeId;
+              const position = isActive
+                ? `is-active is-enter-${enterDirection}`
+                : activeIndex >= 0 && index < activeIndex
+                  ? 'is-before'
+                  : 'is-after';
               return (
                 <button
                   key={card.id}
@@ -365,10 +392,8 @@ export default function YouTubeRail({
                   className={[
                     'pagetollm-yt-rail-card',
                     isSummary ? 'is-summary' : 'is-topic',
-                    isActive ? 'is-active' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
+                    position,
+                  ].join(' ')}
                   style={{ '--pagetollm-card-accent': card.accent }}
                   onClick={() => onSeek(card.seconds)}
                   title={`Jump to ${formatTimestampLabel(card.seconds)}`}

@@ -140,6 +140,7 @@ body.pagetollm-rail-open {
 #pagetollm-in-page-rail {
   --pagetollm-rail-sticky-offset: 48px;
   --pagetollm-chat-header-height: 53px;
+  --surface-frost: light-dark(rgb(255 255 255 / 95%), rgb(27 29 34 / 95%));
 
   position: fixed;
   inset-block: 0;
@@ -149,7 +150,9 @@ body.pagetollm-rail-open {
   flex-direction: column;
   overflow: clip;
   font-family: var(--font-data);
-  background: var(--surface);
+
+  /* Only the backdrop is translucent; card surfaces stay opaque. */
+  background: var(--surface-frost);
   color: var(--on-surface);
   border-left: 2px solid var(--ink);
   isolation: isolate;
