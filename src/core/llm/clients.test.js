@@ -337,7 +337,7 @@ describe('createClient dispatch', () => {
         },
       }),
     );
-    const client = createClient({ type: 'deepseek', model: 'deepseek-v4-flash', token: 'k' });
+    const client = createClient({ type: 'deepseek', model: 'deepseek-flash', token: 'k' });
     await client.complete({ prompt: 'p', verboseLogs: true });
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       'PageToLLM Canvas LLM client cache usage:',
@@ -354,6 +354,69 @@ describe('createClient dispatch', () => {
     const body = JSON.parse(init.body);
     expect(body.prompt_cache_key).toBeUndefined();
     expect(body.cache_prompt).toBeUndefined();
+  });
+
+  it('deepseek client keeps reasoning_content on tool-carrying requests (API 400s when missing)', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      okJson({ choices: [{ message: { content: 'done' } }] }),
+    );
+    const client = createClient({ type: 'deepseek', model: 'deepseek-flash', token: 'k' });
+    const tools = [
+      {
+        name: 'highlight_span',
+        description: 'Highlight evidence',
+        parameters: { type: 'object', properties: {} },
+      },
+    ];
+    await client.complete({
+      messages: [
+        { role: 'user', content: 'q' },
+        {
+          role: 'assistant',
+          content: '',
+          reasoning: 'thinking-mode trace fed back into the tool loop',
+          toolCalls: [{ id: 'call-1', name: 'highlight_span', arguments: { a: 1 } }],
+        },
+        { role: 'tool', content: 'result', toolCallId: 'call-1' },
+      ],
+      tools,
+    });
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+    expect(body.messages[0]).toEqual({ role: 'user', content: 'q' });
+    expect(body.messages[1].reasoning_content).toBe(
+      'thinking-mode trace fed back into the tool loop',
+    );
+    expect(body.messages[1].tool_calls[0].function.arguments).toBe('{"a":1}');
+    expect(body.messages[2]).toEqual({
+      role: 'tool',
+      content: 'result',
+      tool_call_id: 'call-1',
+    });
+  });
+
+  it('deepseek client omits reasoning_content on tool-less requests (API ignores it there)', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      okJson({ choices: [{ message: { content: 'done' } }] }),
+    );
+    const client = createClient({ type: 'deepseek', model: 'deepseek-flash', token: 'k' });
+    await client.complete({
+      messages: [{ role: 'assistant', content: 'hi', reasoning: 'trace' }],
+    });
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+    expect(body.messages[0]).toEqual({ role: 'assistant', content: 'hi' });
+    expect(body.tools).toBeUndefined();
+  });
+
+  it('openai-compatible clients still forward reasoning_content', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      okJson({ choices: [{ message: { content: 'done' } }] }),
+    );
+    const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'k' });
+    await client.complete({
+      messages: [{ role: 'assistant', content: '', reasoning: 'trace' }],
+    });
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
+    expect(body.messages[0].reasoning_content).toBe('trace');
   });
 
   it('openai_comp client requires a url and adds cache_prompt', async () => {

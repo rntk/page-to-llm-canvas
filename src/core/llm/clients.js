@@ -118,8 +118,11 @@ function toProviderTool(tool) {
 }
 
 // Converts one internal message to OpenAI's wire format. Internal-input
-// only — see file header comment.
-function toProviderMessage(message) {
+// only — see file header comment. `includeReasoningContent: false` drops
+// echoed thinking-mode reasoning from the wire message; DeepSeek ignores it
+// on tool-less requests, while tool-carrying requests must keep it
+// (https://api-docs.deepseek.com/guides/thinking_mode).
+function toProviderMessage(message, { includeReasoningContent = true } = {}) {
   const output = {
     role: message?.role || 'user',
     content: typeof message?.content === 'string' ? message.content : '',
@@ -127,7 +130,9 @@ function toProviderMessage(message) {
   const toolCallId = message?.toolCallId;
   if (output.role === 'tool' && toolCallId) output.tool_call_id = toolCallId;
   const reasoning = message?.reasoning;
-  if (typeof reasoning === 'string' && reasoning) output.reasoning_content = reasoning;
+  if (includeReasoningContent && typeof reasoning === 'string' && reasoning) {
+    output.reasoning_content = reasoning;
+  }
   const toolCalls = message?.toolCalls;
   if (Array.isArray(toolCalls) && toolCalls.length) {
     output.tool_calls = toolCalls.map((toolCall) => ({
@@ -386,6 +391,9 @@ function logClientVerbose(logger, verboseLogs, ...args) {
  * @param {string} [options.serviceTier]
  * @param {boolean} [options.cachePrompt]
  * @param {string} [options.promptCacheKey]
+ * @param {boolean} [options.stripReasoningContent] Omit `reasoning_content`
+ *   when serializing outbound messages on requests that carry no tools.
+ *   Tool-carrying requests always keep it (see the `complete` body below).
  * @param {string} [options.providerLabel]
  * @param {Function} options.fetchImpl HTTP transport.
  * @param {{info: Function, warn?: Function}} options.logger Client logger.
@@ -397,6 +405,7 @@ function openAICompatibleClient({
   serviceTier,
   cachePrompt = false,
   promptCacheKey = '',
+  stripReasoningContent = false,
   providerLabel = 'openai-compatible',
   fetchImpl,
   logger,
@@ -416,11 +425,20 @@ function openAICompatibleClient({
       assertSafeTokenTransport(endpoint, apiKey);
       const headers = { 'Content-Type': 'application/json' };
       if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+      const hasTools = Array.isArray(tools) && tools.length > 0;
       const body = {
         model,
         messages:
           Array.isArray(messages) && messages.length
-            ? messages.map(toProviderMessage)
+            ? messages.map((message) =>
+                toProviderMessage(message, {
+                  // Tool-carrying requests keep echoed reasoning: DeepSeek
+                  // thinking mode requires reasoning_content on tool
+                  // follow-ups (HTTP 400 when missing) and ignores it on
+                  // tool-less requests, where it is omitted.
+                  includeReasoningContent: !stripReasoningContent || hasTools,
+                }),
+              )
             : [{ role: 'user', content: prompt }],
       };
       // An unset temperature is left out of the body entirely.
@@ -428,7 +446,6 @@ function openAICompatibleClient({
       if (serviceTier) body.service_tier = serviceTier;
       if (promptCacheKey) body.prompt_cache_key = promptCacheKey;
       if (cachePrompt) body.cache_prompt = true;
-      const hasTools = Array.isArray(tools) && tools.length > 0;
       if (hasTools) body.tools = tools.map(toProviderTool);
       if (hasTools && toolChoice !== undefined) body.tool_choice = toolChoice;
       if (hasTools && parallelToolCalls !== undefined) {
@@ -760,6 +777,11 @@ export function createClient(
         baseUrl: 'https://api.deepseek.com/chat/completions',
         apiKey: token,
         model,
+        // Tool-less requests omit echoed `reasoning_content` (DeepSeek
+        // ignores it there); tool-carrying requests keep it, as thinking
+        // mode requires it on tool follow-ups (HTTP 400 when missing).
+        // Responses still parse `reasoning_content` normally.
+        stripReasoningContent: true,
         providerLabel: 'deepseek',
         fetchImpl: transport,
         logger,

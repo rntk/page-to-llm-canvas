@@ -65,8 +65,8 @@ export const PROVIDER_DEFINITIONS = Object.freeze([
   {
     type: ProviderType.DEEPSEEK,
     displayName: 'DeepSeek',
-    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
-    defaultModel: 'deepseek-v4-flash',
+    models: ['deepseek-flash', 'deepseek-v4-pro'],
+    defaultModel: 'deepseek-flash',
     requiresUrl: false,
   },
   {
