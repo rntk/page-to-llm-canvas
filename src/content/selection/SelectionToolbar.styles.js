@@ -13,6 +13,7 @@ export const TOOLBAR_SHADOW_STYLES = `
     height: 3px;
     overflow: hidden;
     background: var(--ghost);
+    margin-top: 8px;
   }
 
   #pagetollm-submit-progress span {
@@ -114,6 +115,7 @@ export const TOOLBAR_SHADOW_STYLES = `
     color: var(--on-surface-muted);
     font-size: 13px;
     line-height: 1.25;
+    margin-top: 8px;
   }
 
   #pagetollm-toolbar-status:empty {
@@ -127,7 +129,7 @@ export const TOOLBAR_SHADOW_STYLES = `
 
   #pagetollm-block-list {
     list-style: none;
-    margin: 0;
+    margin: 8px 0 0;
     padding: 0;
     display: flex;
     flex-direction: column;
