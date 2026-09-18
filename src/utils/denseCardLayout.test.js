@@ -478,58 +478,58 @@ describe('getFloatingSummaryFontSizes', () => {
 describe('getSummaryFontSizes', () => {
   it('returns base sizes when anchorCard is null', () => {
     const sizes = getSummaryFontSizes(null);
-    expect(sizes.kicker).toBe(10);
-    expect(sizes.title).toBe(16);
-    expect(sizes.text).toBe(14);
+    expect(sizes.kicker).toBe(11);
+    expect(sizes.title).toBe(17.6);
+    expect(sizes.text).toBe(15.4);
   });
 
   it('returns base sizes when anchorCard is undefined', () => {
     const sizes = getSummaryFontSizes(undefined);
-    expect(sizes.kicker).toBe(10);
-    expect(sizes.title).toBe(16);
-    expect(sizes.text).toBe(14);
+    expect(sizes.kicker).toBe(11);
+    expect(sizes.title).toBe(17.6);
+    expect(sizes.text).toBe(15.4);
   });
 
   it('returns base sizes when anchorCard.titleFontSize equals BASE_TOPIC_TITLE_FONT_SIZE', () => {
     const sizes = getSummaryFontSizes({ titleFontSize: BASE_TOPIC_TITLE_FONT_SIZE });
-    expect(sizes.kicker).toBe(10);
-    expect(sizes.title).toBe(16);
-    expect(sizes.text).toBe(14);
+    expect(sizes.kicker).toBe(11);
+    expect(sizes.title).toBe(17.6);
+    expect(sizes.text).toBe(15.4);
   });
 
   it('scales up proportionally when titleFontSize is double the base', () => {
     const sizes = getSummaryFontSizes({ titleFontSize: BASE_TOPIC_TITLE_FONT_SIZE * 2 });
-    expect(sizes.kicker).toBe(20);
-    expect(sizes.title).toBe(32);
-    expect(sizes.text).toBe(28);
-    expect(sizes.youtube).toBe(22);
+    expect(sizes.kicker).toBe(22);
+    expect(sizes.title).toBe(35.2);
+    expect(sizes.text).toBe(30.8);
+    expect(sizes.youtube).toBe(24.2);
   });
 
   it('scales the youtube size with the same zoom multiplier', () => {
-    expect(getSummaryFontSizes(null).youtube).toBe(11);
-    expect(getSummaryFontSizes({ titleFontSize: BASE_TOPIC_TITLE_FONT_SIZE / 2 }).youtube).toBe(11);
+    expect(getSummaryFontSizes(null).youtube).toBe(12.1);
+    expect(getSummaryFontSizes({ titleFontSize: BASE_TOPIC_TITLE_FONT_SIZE / 2 }).youtube).toBe(12.1);
   });
 
   it('does NOT scale down when titleFontSize is smaller than base (multiplier clamped to 1)', () => {
     const sizes = getSummaryFontSizes({ titleFontSize: BASE_TOPIC_TITLE_FONT_SIZE / 2 });
     // zoomMultiplier = max(1, 0.5) = 1
-    expect(sizes.kicker).toBe(10);
-    expect(sizes.title).toBe(16);
-    expect(sizes.text).toBe(14);
+    expect(sizes.kicker).toBe(11);
+    expect(sizes.title).toBe(17.6);
+    expect(sizes.text).toBe(15.4);
   });
 
   it('falls back to base when anchorCard.titleFontSize is NaN', () => {
     const sizes = getSummaryFontSizes({ titleFontSize: NaN });
-    expect(sizes.kicker).toBe(10);
-    expect(sizes.title).toBe(16);
-    expect(sizes.text).toBe(14);
+    expect(sizes.kicker).toBe(11);
+    expect(sizes.title).toBe(17.6);
+    expect(sizes.text).toBe(15.4);
   });
 
   it('returns fractional sizes for non-integer multipliers (e.g. 1.5x)', () => {
     const sizes = getSummaryFontSizes({ titleFontSize: BASE_TOPIC_TITLE_FONT_SIZE * 1.5 });
-    expect(sizes.kicker).toBeCloseTo(15);
-    expect(sizes.title).toBeCloseTo(24);
-    expect(sizes.text).toBeCloseTo(21);
+    expect(sizes.kicker).toBeCloseTo(16.5);
+    expect(sizes.title).toBeCloseTo(26.4);
+    expect(sizes.text).toBeCloseTo(23.1);
   });
 });
 

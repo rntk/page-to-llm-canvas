@@ -343,7 +343,7 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
   // `titleFontSize`. That size is capped to what the anchor card's height can
   // physically contain (getAdjustedTitleFontSize), so a short topic card caps it
   // back to — or below — the 12px base. The multiplier in getSummaryFontSizes
-  // then floors at 1 and the summary renders at its base 10/16/14px while the
+  // then floors at 1 and the summary renders at its base 11/17.6/15.4px while the
   // canvas transform keeps shrinking it: that is why hovering a small card gave
   // unreadable text until a zoom nudge recomputed it. The summary is a floating
   // panel with its own zoom-grown width (getZoomAdjustedSummaryCardWidth, also

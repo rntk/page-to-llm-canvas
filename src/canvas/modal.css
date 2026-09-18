@@ -297,17 +297,17 @@ body.canvas-global-dragging * {
 }
 
 .canvas-topic-current-summary .canvas-summary-view__card-path {
-  font-size: var(--current-summary-title-font-size, 16px);
+  font-size: var(--current-summary-title-font-size, 17.6px);
   animation: summary-text-fade-in 0.25s ease-out both;
 }
 
 .canvas-topic-current-summary .canvas-summary-view__card-kicker {
-  font-size: var(--current-summary-kicker-font-size, 10px);
+  font-size: var(--current-summary-kicker-font-size, 11px);
   animation: summary-text-fade-in 0.25s ease-out both;
 }
 
 .canvas-topic-current-summary .canvas-summary-view__card-text {
-  font-size: var(--current-summary-text-font-size, 14px);
+  font-size: var(--current-summary-text-font-size, 15.4px);
   animation: summary-text-fade-in 0.25s ease-out both;
 }
 
@@ -1095,7 +1095,7 @@ body.canvas-global-dragging * {
   background: transparent;
   color: #9c3a33;
   font-family: var(--font-data);
-  font-size: 11px;
+  font-size: 12.1px;
   font-weight: 700;
   letter-spacing: 0.02em;
   line-height: 1;
@@ -1131,11 +1131,11 @@ body.canvas-global-dragging * {
    YouTube button to the same multiplier so it scales with the card, not the raw
    canvas zoom. */
 .canvas-topic-current-summary .canvas-youtube-timestamp {
-  font-size: var(--current-summary-youtube-font-size, 11px);
+  font-size: var(--current-summary-youtube-font-size, 12.1px);
 }
 
 .canvas-summary-view__card-kicker {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
   line-height: 1;
@@ -1145,7 +1145,7 @@ body.canvas-global-dragging * {
 
 .canvas-summary-view__card-path {
   font-family: var(--font-data);
-  font-size: 16px;
+  font-size: 17.6px;
   font-weight: 700;
   line-height: 1.2;
   color: var(--on-surface);
@@ -1153,7 +1153,7 @@ body.canvas-global-dragging * {
 }
 
 .canvas-summary-view__card-meta {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1163,7 +1163,7 @@ body.canvas-global-dragging * {
 
 .canvas-summary-view__card-text {
   margin: 0;
-  font-size: 14px;
+  font-size: 15.4px;
   color: var(--on-surface);
   line-height: 1.5;
   white-space: pre-wrap;
@@ -1189,7 +1189,7 @@ body.canvas-global-dragging * {
   background: var(--surface);
   color: var(--ink);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12.1px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;

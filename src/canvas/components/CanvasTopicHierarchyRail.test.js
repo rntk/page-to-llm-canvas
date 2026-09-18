@@ -363,16 +363,16 @@ describe('CanvasTopicHierarchyRail', () => {
     // At zoom 1 the summary renders at its base sizes, trimmed by the floating
     // panel's 0.85 ratio.
     const atRest = renderAtScale(1);
-    expect(Number.parseFloat(atRest.kicker)).toBeCloseTo(10 * 0.85);
-    expect(Number.parseFloat(atRest.title)).toBeCloseTo(16 * 0.85);
-    expect(Number.parseFloat(atRest.text)).toBeCloseTo(14 * 0.85);
+    expect(Number.parseFloat(atRest.kicker)).toBeCloseTo(11 * 0.85);
+    expect(Number.parseFloat(atRest.title)).toBeCloseTo(17.6 * 0.85);
+    expect(Number.parseFloat(atRest.text)).toBeCloseTo(15.4 * 0.85);
 
     // Zoomed out to 0.5 the canvas transform halves everything on screen, so the
     // fonts counter-scale by 1.25 / 0.5 - 0.25 = 2.25 to stay readable.
     const zoomedOut = renderAtScale(0.5);
-    expect(Number.parseFloat(zoomedOut.kicker)).toBeCloseTo(10 * 2.25 * 0.85);
-    expect(Number.parseFloat(zoomedOut.title)).toBeCloseTo(16 * 2.25 * 0.85);
-    expect(Number.parseFloat(zoomedOut.text)).toBeCloseTo(14 * 2.25 * 0.85);
+    expect(Number.parseFloat(zoomedOut.kicker)).toBeCloseTo(11 * 2.25 * 0.85);
+    expect(Number.parseFloat(zoomedOut.title)).toBeCloseTo(17.6 * 2.25 * 0.85);
+    expect(Number.parseFloat(zoomedOut.text)).toBeCloseTo(15.4 * 2.25 * 0.85);
   });
 
   it('sizes the summary card the same for a dense and a tall topic-card anchor', () => {
@@ -402,13 +402,13 @@ describe('CanvasTopicHierarchyRail', () => {
 
     // A short anchor card caps its own title font, but that cap must not reach
     // the floating summary: hovering a small card used to open it at the base
-    // 16px while the canvas was drawing it at half size (unreadable until a
+    // 17.6px while the canvas was drawing it at half size (unreadable until a
     // zoom nudge). Both anchors now scale on zoom alone: 1.25 / 0.5 - 0.25.
     const denseFonts = renderForAnchor({ height: 56, titleFontSize: 12 });
     const tallFonts = renderForAnchor({ height: 220, titleFontSize: 40 });
 
     expect(denseFonts).toEqual(tallFonts);
-    expect(Number.parseFloat(denseFonts[1])).toBeCloseTo(16 * 2.25 * 0.85);
+    expect(Number.parseFloat(denseFonts[1])).toBeCloseTo(17.6 * 2.25 * 0.85);
   });
 
   it('renders compact cards with one larger title line and matching label height', () => {
@@ -623,10 +623,10 @@ describe('CanvasTopicHierarchyRail', () => {
       (el) => el.textContent.includes('A'),
     );
     // titleFontSize 18 vs. the 12px base is a 1.5x zoom multiplier, so the
-    // link (11px base, same as the summary card's) scales to 16.5px instead
+    // link (12.1px base, same as the summary card's) scales to 18.15px instead
     // of staying at a flat size that would shrink into illegibility on the
     // canvas's zoom-out transform.
-    expect(card1.style.getPropertyValue('--topic-card-youtube-font-size')).toBe('16.5px');
+    expect(card1.style.getPropertyValue('--topic-card-youtube-font-size')).toBe('18.15px');
     unmount();
   });
 
