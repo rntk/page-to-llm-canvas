@@ -3,15 +3,13 @@ import {
   IN_FLIGHT_PIPELINE_STATUSES,
   isInFlightPipelineStatus,
   isSummaryGenerationSourceStatus,
-  isImportableRecord,
-  PIPELINE_STAGE,
   PIPELINE_STATUS,
   SUMMARY_GENERATION_SOURCE_STATUSES,
 } from '../../../shared/runtime/contracts.js';
 import { createLogger } from '../../../shared/runtime/log.js';
+import { decodeImportedRecords } from '../../../shared/runtime/recordImport.js';
 import {
   cancelledTransition,
-  progressAt,
   queuedTransition,
   resetContentCheckpointPatch,
   resetSummaryReviewPatch,
@@ -396,34 +394,15 @@ export function createRecordHandlers({
         const records = Array.isArray(msg.records) ? msg.records : [];
         if (records.length === 0) return { ok: false, error: 'no records to import' };
 
+        const now = Date.now();
         let count = 0;
-        const recordsByKey = new Map();
-        for (const record of records) {
-          if (!isImportableRecord(record)) continue;
-          recordsByKey.set(record.key.trim(), record);
-        }
-
-        for (const record of recordsByKey.values()) {
-          const key = record.key.trim();
-          const status = isInFlightPipelineStatus(record.status)
-            ? PIPELINE_STATUS.DONE
-            : record.status || PIPELINE_STATUS.DONE;
-          cancelActivePipeline(key);
+        for (const record of decodeImportedRecords(records, { now })) {
+          cancelActivePipeline(record.key);
           await writeRecord(
-            {
-              ...record,
-              key,
-              pipelineRunId: createPipelineRunId(),
-              status,
-              error: status === PIPELINE_STATUS.DONE ? null : record.error || null,
-              progress: {
-                ...(record.progress && typeof record.progress === 'object' ? record.progress : {}),
-                ...progressAt(PIPELINE_STAGE.IMPORTED, 1, 1),
-              },
-            },
+            { ...record, pipelineRunId: createPipelineRunId() },
             { bumpContentRevision: true },
           );
-          await pipelineSupervisor.clearPipelineFailuresForKey(key);
+          await pipelineSupervisor.clearPipelineFailuresForKey(record.key);
           count += 1;
         }
 

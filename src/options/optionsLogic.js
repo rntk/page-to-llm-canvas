@@ -6,12 +6,8 @@
 import { MSG } from '../shared/runtime/messages.js';
 import { TEMPERATURE_TASKS } from '../core/llm/temperatures.js';
 import { isStaleActionResponse, STALE_ACTION_MESSAGE } from '../shared/runtime/actionResponses.js';
-import {
-  isImportableRecord,
-  isInFlightPipelineStatus,
-  PIPELINE_STAGE,
-  PIPELINE_STATUS,
-} from '../shared/runtime/contracts.js';
+import { isImportableRecord } from '../shared/runtime/contracts.js';
+import { decodeImportedRecords, extractImportedRecords } from '../shared/runtime/recordImport.js';
 
 /**
  * Temperature form fields, one per task group. Values stay strings so an empty
@@ -113,20 +109,7 @@ export function updateProviderFormType(form, type, defaultModel = '') {
   };
 }
 
-/**
- * Extracts record objects from an imported JSON payload. A single exported
- * record and a top-level array for bulk import are the supported shapes.
- *
- * @param {unknown} payload
- * @returns {Array<object>}
- */
-export function extractImportedRecords(payload) {
-  if (Array.isArray(payload)) return payload.filter((item) => item && typeof item === 'object');
-  if (!payload || typeof payload !== 'object') return [];
-  return [payload];
-}
-
-export { isImportableRecord };
+export { extractImportedRecords, isImportableRecord };
 
 /**
  * Deduplicates records by key. Later entries win because they are the values
@@ -144,33 +127,15 @@ export function dedupeImportedRecords(records) {
 }
 
 /**
- * Normalizes imported records into storage-ready records that are immediately
- * viewable and cannot resume the LLM pipeline.
+ * UI preview of what the worker will store for an import payload. The worker
+ * re-runs the same decoder authoritatively (see `MSG.importRecords`); this only
+ * feeds the "no importable records" / overwrite-confirmation checks.
  *
  * @param {unknown} payload
  * @returns {Array<object>}
  */
 export function normalizeImportedRecords(payload) {
-  const records = extractImportedRecords(payload);
-  return records.filter(isImportableRecord).map((record) => {
-    const key = record.key.trim();
-    const status = isInFlightPipelineStatus(record.status)
-      ? PIPELINE_STATUS.DONE
-      : record.status || PIPELINE_STATUS.DONE;
-    return {
-      ...record,
-      key,
-      status,
-      error: status === PIPELINE_STATUS.DONE ? null : record.error || null,
-      progress: {
-        ...(record.progress && typeof record.progress === 'object' ? record.progress : {}),
-        stage: PIPELINE_STAGE.IMPORTED,
-        done: 1,
-        total: 1,
-      },
-      importedAt: Date.now(),
-    };
-  });
+  return decodeImportedRecords(payload);
 }
 
 /**

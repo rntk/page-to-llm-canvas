@@ -111,10 +111,11 @@ export function isImportableRecord(record) {
  * `readRecord` reassembles the normalized documents):
  *
  *   1. `createQueuedRecord` (pipeline kickoff) — populates every field below.
- *   2. Record import (`MSG.importRecords` in background.js, and
- *      `normalizeImportedRecords` in options) — spreads a user-supplied JSON
+ *   2. Record import (`decodeImportedRecords` in recordImport.js, run
+ *      authoritatively by `MSG.importRecords`) — spreads a user-supplied JSON
  *      object that only had to satisfy `isImportableRecord`, then overrides
- *      `key`, `status`, `error`, `progress` and `pipelineRunId`.
+ *      `key`, `status`, `error`, `progress`, `importedAt` and (worker-side)
+ *      `pipelineRunId`.
  *
  * So a field is REQUIRED only if path 2 also guarantees it. Fields that path 1
  * always sets but an imported record can lack are marked optional. This is an
