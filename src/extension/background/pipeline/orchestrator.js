@@ -242,7 +242,7 @@ export function createPipelineRunner({
       let sentenceTexts;
       if (resuming) {
         topics = record.topics;
-        sentenceTexts = Array.isArray(record.sentences) ? record.sentences : [];
+        sentenceTexts = record.sentences;
         // A resume completes one logical summary run. Keep its language policy
         // stable even if the global preference changed while the worker was
         // stopped, so reused and newly generated summaries cannot mix languages.

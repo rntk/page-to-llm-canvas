@@ -117,10 +117,13 @@ export function isImportableRecord(record) {
  *      `key`, `status`, `error`, `progress` and `pipelineRunId`.
  *
  * So a field is REQUIRED only if path 2 also guarantees it. Fields that path 1
- * always sets but an imported record can lack are marked optional, and every
- * consumer must treat them that way (`Array.isArray(record.sentences)` rather
- * than `record.sentences.length`) — an imported record legitimately arrives
- * without them.
+ * always sets but an imported record can lack are marked optional. This is an
+ * external/persisted contract, not a normalized internal display model. UI
+ * consumers use `projectArticleView` (src/domain/articleView.js) for dependable
+ * sentence/topic arrays. Processing code validates the original record: missing
+ * data, stages that have not run, and completed empty output must not be inferred
+ * from display defaults. In particular, checkpoint/revision validation remains
+ * necessary before resuming work.
  *
  * @typedef {Object} ArticleRecord
  * @property {string} key - Content-hash-derived id; primary storage key.

@@ -1,3 +1,4 @@
+import { projectArticleView } from '../../domain/articleView.js';
 import { useMemo } from 'react';
 import { sanitizeArticleHtml } from '../../highlights/articleHtml.js';
 import { buildSummaryCards, filterSummaryCardsByLevel } from '../../domain/summaryCards.js';
@@ -13,12 +14,14 @@ import { buildTopicSentenceIndex, getMaxTopicLevel } from '../../domain/topicDom
  * @param {boolean} input.showSummaryModeRaw
  */
 export function useCanvasRecordViewModel({ record, selectedLevel, showSummaryModeRaw }) {
+  const article = projectArticleView(record);
+
   // Serialize once per record change, not once per render. `record` is
   // referentially stable across UI interactions, while storage writes mint a
   // new object. Downstream memos can therefore ignore equivalent rewrites.
   const topicsJson = useMemo(() => JSON.stringify(record?.topics || null), [record?.topics]);
   const topics = useMemo(
-    () => (Array.isArray(record?.topics) ? record.topics : []),
+    () => article.topics,
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [topicsJson],
   );
@@ -35,14 +38,14 @@ export function useCanvasRecordViewModel({ record, selectedLevel, showSummaryMod
   // already reports the new revision. Consumers that pair the two — the chat
   // stamps each persisted turn with the revision its source came from — would
   // then label an old-source answer as belonging to the new content.
-  const sentenceCount = Array.isArray(record?.sentences) ? record.sentences.length : 0;
+  const sentenceCount = article.sentences.length;
   const recordContentRevision =
     typeof record?.contentRevision === 'string' && record.contentRevision
       ? record.contentRevision
       : undefined;
   const sentenceSource = useMemo(
     () => ({
-      sentences: Array.isArray(record?.sentences) ? record.sentences : [],
+      sentences: article.sentences,
       contentRevision: recordContentRevision,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps

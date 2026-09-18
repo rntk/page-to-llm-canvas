@@ -1,3 +1,4 @@
+import { projectArticleView } from '../../../domain/articleView.js';
 // Pure helpers for the YouTube-synced in-page rail. Unlike the scroll-driven
 // rail (which positions cards by their sentences' DOM geometry), the YouTube
 // rail is keyed off the video player's current time: every card carries the
@@ -48,7 +49,7 @@ import {
  */
 export function buildYouTubeRailCards({ record, mode, selectedLevel = 0 }) {
   if (!record || typeof record !== 'object') return [];
-  const sentences = Array.isArray(record.sentences) ? record.sentences : [];
+  const { sentences } = projectArticleView(record);
   const isSummary = mode === 'summaries';
 
   // Both views are scoped to a single hierarchy level: mixing levels interleaves

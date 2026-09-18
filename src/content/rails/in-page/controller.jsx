@@ -1,3 +1,4 @@
+import { projectArticleView } from '../../../domain/articleView.js';
 import React from 'react';
 import { flushSync } from 'react-dom';
 import InPageRail from './InPageRail.jsx';
@@ -108,7 +109,7 @@ export function createInPageRailController({
     }
 
     let wordEntries = collectWordEntries(elements);
-    const sentences = Array.isArray(record.sentences) ? record.sentences : [];
+    const { sentences } = projectArticleView(record);
     let sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
     let scrollContainer = getScrollableAncestor(elements, {
       win: contentWindow,

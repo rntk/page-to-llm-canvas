@@ -1,3 +1,4 @@
+import { projectArticleView } from '../domain/articleView.js';
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { useRecord } from '../canvas/hooks/useRecord.js';
 import TopicHierarchyView from './TopicHierarchyView.jsx';
@@ -84,9 +85,10 @@ export default function HierarchyApp({
   // UI renders (only storage writes mint a new object), so keying on the reference
   // avoids re-stringifying topics on every unrelated re-render while still re-running
   // on real record updates. The downstream `topics` memo keeps content-dedup via the string.
+  const article = projectArticleView(record);
   const topicsJson = useMemo(() => JSON.stringify(record?.topics || null), [record?.topics]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const topics = useMemo(() => (Array.isArray(record?.topics) ? record.topics : []), [topicsJson]);
+  const topics = useMemo(() => article.topics, [topicsJson]);
   const isDone = record?.status === PIPELINE_STATUS.DONE;
   const isRecordError =
     record?.status === PIPELINE_STATUS.ERROR || record?.status === PIPELINE_STATUS.CANCELLED;
@@ -105,11 +107,11 @@ export default function HierarchyApp({
       isYouTube && activeSummary
         ? getYouTubeTimestampLink({
             sourceUrl: record?.sourceUrl,
-            sentences: record?.sentences,
+            sentences: article.sentences,
             sourceSentences: activeSummary.sourceSentences,
           })
         : null,
-    [isYouTube, activeSummary, record?.sourceUrl, record?.sentences],
+    [isYouTube, activeSummary, record?.sourceUrl, article.sentences],
   );
 
   if (initialKey !== prevInitialKey) {
@@ -215,7 +217,7 @@ export default function HierarchyApp({
         collapsedPaths={collapsedPaths}
         onToggleCollapse={handleToggleCollapse}
         sourceUrl={record?.sourceUrl}
-        sentences={record?.sentences}
+        sentences={article.sentences}
         onTopicClick={handleTopicClick}
         onSummaryClick={handleSummaryClick}
       />

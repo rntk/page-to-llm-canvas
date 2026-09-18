@@ -1,3 +1,4 @@
+import { projectArticleView } from '../../../domain/articleView.js';
 import React from 'react';
 import YouTubeRail from './YouTubeRail.jsx';
 import { buildYouTubeRailCards } from './sync.js';
@@ -56,8 +57,8 @@ export function createYouTubeRailController({
       );
       return false;
     }
-    const sentences = Array.isArray(record.sentences) ? record.sentences : [];
-    const hasTopics = Array.isArray(record.topics) && record.topics.length > 0;
+    const { sentences, topics } = projectArticleView(record);
+    const hasTopics = topics.length > 0;
     const hasSummaries =
       record.topic_summary_index && typeof record.topic_summary_index === 'object';
     if (sentences.length === 0 || (!hasTopics && !hasSummaries)) {
