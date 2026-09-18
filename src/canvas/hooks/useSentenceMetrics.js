@@ -157,16 +157,35 @@ export function useSentenceMetrics({
     const wrapRect = wrap.getBoundingClientRect();
     const s = scaleRef.current || 1;
     const isLaidOut = (r) => r && (r.width > 0 || r.height > 0);
+    // The article sheet's vertical extent. Source markup keeps its inline
+    // styles, so a sentence can live in an element laid out *outside* the
+    // sheet (an absolutely positioned preheader at `top:-9999px`, a negative
+    // margin pulling a banner above the first paragraph, a fixed-position
+    // share bar). Its rect is real but says nothing about where the sentence
+    // reads in the article; left in, it drags the card of every topic that
+    // contains it — up to the root — far above the sheet. Rects that miss the
+    // sheet entirely are dropped and the rest are clamped into it, so a card
+    // never extends past the article it annotates. An unmeasured sheet (zero
+    // height, e.g. jsdom) disables the clamp rather than rejecting everything.
+    const articleRect = articleTextRef.current?.getBoundingClientRect();
+    const sheet = articleRect && articleRect.height > 0 ? articleRect : null;
+    const isOnSheet = (r) => !sheet || (r.bottom > sheet.top && r.top < sheet.bottom);
     const nextMetrics = new Map();
     for (const n of sentenceRanges.keys()) {
       const domRange = buildSentenceDomRange(sentenceRanges, wordEntries, n);
       if (!domRange) continue;
       // One rect per line box gives a tighter measurement than the corners and
       // skips collapsed (display:none) fragments that would pin `top` to 0.
-      const rects = Array.from(domRange.getClientRects()).filter(isLaidOut);
+      const rects = Array.from(domRange.getClientRects()).filter(isLaidOut).filter(isOnSheet);
       if (rects.length === 0) continue;
-      const top = (Math.min(...rects.map((r) => r.top)) - wrapRect.top) / s;
-      const bottom = (Math.max(...rects.map((r) => r.bottom)) - wrapRect.top) / s;
+      let rectTop = Math.min(...rects.map((r) => r.top));
+      let rectBottom = Math.max(...rects.map((r) => r.bottom));
+      if (sheet) {
+        rectTop = Math.max(rectTop, sheet.top);
+        rectBottom = Math.min(rectBottom, sheet.bottom);
+      }
+      const top = (rectTop - wrapRect.top) / s;
+      const bottom = (rectBottom - wrapRect.top) / s;
       nextMetrics.set(n, { top, bottom });
     }
     // Nothing has a laid-out rect yet (the article was only just injected):
@@ -178,6 +197,7 @@ export function useSentenceMetrics({
     setSentenceMetrics(nextMetrics);
     return false;
   }, [
+    articleTextRef,
     summaryWrapRef,
     scaleRef,
     showSummaryMode,

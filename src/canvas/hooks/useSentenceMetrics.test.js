@@ -136,6 +136,59 @@ describe('useSentenceMetrics', () => {
     ctx.cleanup();
   });
 
+  it('ignores sentence rects laid out outside the article sheet', () => {
+    const ctx = setup();
+    // Sheet spans 20..400 on screen; wrap top is 0.
+    ctx.article.getBoundingClientRect = () => ({
+      top: 20,
+      bottom: 400,
+      left: 0,
+      right: 200,
+      width: 200,
+      height: 380,
+    });
+    const offSheet = { top: -9999, bottom: -9980, left: 0, right: 50, width: 50, height: 19 };
+    const straddling = { top: 5, bottom: 30, left: 0, right: 50, width: 50, height: 25 };
+    const onSheet = { top: 100, bottom: 120, left: 0, right: 50, width: 50, height: 20 };
+    // Measurement runs several convergence passes, so key the stub on the
+    // range's text rather than call order.
+    rectsSpy.mockImplementation(function () {
+      // Sentence 1: an absolutely positioned copy far above the sheet plus its
+      // real line box. The stray rect must not drag the top to -9999.
+      if (this.toString().includes('One')) return [offSheet, onSheet];
+      // Sentence 2: a negative-margin line poking above the sheet is clamped to
+      // the sheet's top edge.
+      return [straddling];
+    });
+    ctx.flushRafs();
+    const metrics = ctx.result.current.sentenceMetrics;
+    expect(metrics.get(1)).toEqual({ top: 100, bottom: 120 });
+    expect(metrics.get(2)).toEqual({ top: 20, bottom: 30 });
+    ctx.cleanup();
+  });
+
+  it('drops a sentence whose only rects lie outside the sheet', () => {
+    const ctx = setup();
+    ctx.article.getBoundingClientRect = () => ({
+      top: 0,
+      bottom: 400,
+      left: 0,
+      right: 200,
+      width: 200,
+      height: 400,
+    });
+    rectsSpy.mockImplementation(function () {
+      return this.toString().includes('One')
+        ? [{ top: -9999, bottom: -9980, left: 0, right: 50, width: 50, height: 19 }]
+        : [{ top: 100, bottom: 120, left: 0, right: 50, width: 50, height: 20 }];
+    });
+    ctx.flushRafs();
+    const metrics = ctx.result.current.sentenceMetrics;
+    expect(metrics.has(1)).toBe(false);
+    expect(metrics.get(2)).toEqual({ top: 100, bottom: 120 });
+    ctx.cleanup();
+  });
+
   it('skips sentence measurement while zooming to a target', () => {
     const ctx = setup({ isZoomingToTarget: true });
     ctx.flushRafs();
