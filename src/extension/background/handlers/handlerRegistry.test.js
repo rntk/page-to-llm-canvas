@@ -15,6 +15,7 @@ import { createChatHandlers } from './chatHandlers.js';
 import { createMetricsHandlers } from './metricsHandlers.js';
 import { createProviderHandlers } from './providerHandlers.js';
 import { createDataManagementHandlers } from './dataManagementHandlers.js';
+import { createNavigationHandlers } from './navigationHandlers.js';
 
 const stubSupervisor = () => ({
   startPipeline: vi.fn(async () => {}),
@@ -82,6 +83,7 @@ function buildGroups() {
       clearAllExtensionData: vi.fn(),
       metricsClears: [],
     }),
+    navigation: createNavigationHandlers({ openOptionsPage: vi.fn(async () => {}) }),
   };
 }
 
@@ -113,6 +115,7 @@ describe('message handler registry (no chrome global)', () => {
       ...groups.metrics,
       ...groups.provider,
       ...groups.dataManagement,
+      ...groups.navigation,
     };
 
     expect(Object.keys(merged).sort()).toEqual(
@@ -146,6 +149,7 @@ describe('message handler registry (no chrome global)', () => {
         MSG.setActiveProvider,
         MSG.getStorageOverview,
         MSG.deleteAllExtensionData,
+        MSG.openOptionsPage,
       ].sort(),
     );
     // No group may lose an entry to a later spread.

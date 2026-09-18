@@ -8,10 +8,6 @@ const log = createLogger();
 const runtimeMessenger = {
   ...browserRuntimeMessenger,
   getURL: (path) => chrome.runtime.getURL(path),
-  openOptionsPage:
-    typeof chrome.runtime.openOptionsPage === 'function'
-      ? () => chrome.runtime.openOptionsPage()
-      : undefined,
 };
 const dialogs = {
   alert: (...args) => globalThis.alert(...args),

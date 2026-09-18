@@ -4,6 +4,7 @@ import {
   fetchRecord,
   findPickedElements,
   assessRecordForRail,
+  assessRecordLifecycle,
   createLoadToken,
   describeFetchFailure,
 } from './recordFetch.js';
@@ -242,10 +243,61 @@ describe('findPickedElements', () => {
 });
 
 // ---------------------------------------------------------------------------
+// assessRecordLifecycle
+// ---------------------------------------------------------------------------
+
+describe('assessRecordLifecycle', () => {
+  it.each(['error', 'cancelled'])('returns error for status=%s', (status) => {
+    const record = { key: 'k', status };
+    const result = assessRecordLifecycle(record);
+    expect(result).toEqual({ kind: 'error', record });
+  });
+
+  it('returns needs_attention for a parked record (not in_progress)', () => {
+    const record = { key: 'k', status: 'needs_attention', progress: { stage: 'needs_attention' } };
+    expect(assessRecordLifecycle(record)).toEqual({ kind: 'needs_attention', record });
+  });
+
+  it.each(['pending', 'splitting', 'summarizing'])(
+    'returns in_progress for in-flight status=%s',
+    (status) => {
+      expect(assessRecordLifecycle({ key: 'k', status })).toEqual({
+        kind: 'in_progress',
+        stage: status,
+      });
+    },
+  );
+
+  it('prefers progress.stage over status for in_progress', () => {
+    const record = { key: 'k', status: 'summarizing', progress: { stage: 'merging_summaries' } };
+    expect(assessRecordLifecycle(record)).toEqual({
+      kind: 'in_progress',
+      stage: 'merging_summaries',
+    });
+  });
+
+  it('falls back to "queued" when neither status nor progress is present', () => {
+    expect(assessRecordLifecycle({ key: 'k' })).toEqual({ kind: 'in_progress', stage: 'queued' });
+  });
+
+  it('returns ready for a done record regardless of surface prerequisites', () => {
+    const record = { key: 'k', status: 'done' };
+    expect(assessRecordLifecycle(record)).toEqual({ kind: 'ready', record });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // assessRecordForRail
 // ---------------------------------------------------------------------------
 
 describe('assessRecordForRail', () => {
+  it('agrees with assessRecordLifecycle for every non-done status', () => {
+    for (const status of ['error', 'cancelled', 'needs_attention', 'pending', 'summarizing']) {
+      const record = { key: 'k', status, selectors: ['body'] };
+      expect(assessRecordForRail(record)).toEqual(assessRecordLifecycle(record));
+    }
+  });
+
   it('returns error for status=error', () => {
     const record = { key: 'k', status: 'error', error: 'oops' };
     const result = assessRecordForRail(record);

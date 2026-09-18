@@ -42,10 +42,15 @@ const preferences = await import('../../shared/surfacePreferences.js');
 const surfaceManager = createRailSurfaceManager({ document, preferences });
 const closeInPageRail = surfaceManager.close;
 const logger = { warn: vi.fn() };
+const runtimeSend = vi.fn();
 const { openYouTubeRail } = createYouTubeRailController({
   surfaceManager,
   document,
-  runtimeMessenger: { send: vi.fn() },
+  window,
+  runtimeMessenger: {
+    send: (...args) => runtimeSend(...args),
+    getURL: (path) => globalThis.chrome.runtime.getURL(path),
+  },
   dialogs: { alert: (...args) => globalThis.alert(...args) },
   logger,
 });
@@ -120,6 +125,8 @@ async function flushAsyncWork() {
 describe('openYouTubeRail', () => {
   beforeEach(() => {
     vi.stubGlobal('alert', vi.fn());
+    runtimeSend.mockReset();
+    runtimeSend.mockResolvedValue({ ok: true });
     globalThis.chrome.runtime.sendMessage.mockImplementation((_msg, cb) => cb({ ok: false }));
     fetchRecord.mockReset();
     logger.warn.mockClear();
@@ -154,12 +161,66 @@ describe('openYouTubeRail', () => {
     expect(logger.warn).toHaveBeenCalledWith('record fetch failed:', expect.any(Error));
   });
 
-  it('alerts with the record status when analysis is not done', async () => {
-    fetchRecord.mockResolvedValue(found(baseRecord({ status: 'processing' })));
+  it.each(['pending', 'splitting', 'summarizing'])(
+    'alerts to wait when the analysis is in flight (status=%s)',
+    async (status) => {
+      fetchRecord.mockResolvedValue(found(baseRecord({ status })));
+      await act(async () => {
+        await openYouTubeRail({ key: 'yt-key' });
+      });
+      expect(alert).toHaveBeenCalledWith(
+        expect.stringContaining(`in progress (status: ${status})`),
+      );
+      expect(runtimeSend).not.toHaveBeenCalled();
+      expect(rail()).toBeNull();
+    },
+  );
+
+  it('reports the progress stage rather than the raw status while in flight', async () => {
+    fetchRecord.mockResolvedValue(
+      found(baseRecord({ status: 'summarizing', progress: { stage: 'merging_summaries' } })),
+    );
     await act(async () => {
       await openYouTubeRail({ key: 'yt-key' });
     });
-    expect(alert).toHaveBeenCalledWith(expect.stringContaining('processing'));
+    expect(alert).toHaveBeenCalledWith(expect.stringContaining('merging_summaries'));
+  });
+
+  // Failed, cancelled, and parked analyses can only be retried/skipped from
+  // Options; telling the user to wait would leave them stuck.
+  it.each(['error', 'cancelled', 'needs_attention'])(
+    'opens Options instead of asking the user to wait (status=%s)',
+    async (status) => {
+      fetchRecord.mockResolvedValue(found(baseRecord({ status })));
+      await act(async () => {
+        await openYouTubeRail({ key: 'yt-key' });
+      });
+      expect(runtimeSend).toHaveBeenCalledWith({ type: 'openOptionsPage' });
+      expect(alert).not.toHaveBeenCalled();
+      expect(rail()).toBeNull();
+    },
+  );
+
+  it('never opens Options via window.open (options.html is not web-accessible)', async () => {
+    window.open = vi.fn(() => ({}));
+    fetchRecord.mockResolvedValue(found(baseRecord({ status: 'error' })));
+    await act(async () => {
+      await openYouTubeRail({ key: 'yt-key' });
+    });
+    expect(window.open).not.toHaveBeenCalled();
+    expect(runtimeSend).toHaveBeenCalledWith({ type: 'openOptionsPage' });
+  });
+
+  it('tells the user to open Options manually when the worker cannot', async () => {
+    runtimeSend.mockRejectedValue(new Error('disconnected'));
+    fetchRecord.mockResolvedValue(found(baseRecord({ status: 'needs_attention' })));
+    await act(async () => {
+      await openYouTubeRail({ key: 'yt-key' });
+    });
+    expect(alert).toHaveBeenCalledWith(
+      'PageToLLM: Open the extension Options page to review this analysis.',
+    );
+    expect(logger.warn).toHaveBeenCalledWith('open options failed:', expect.any(Error));
     expect(rail()).toBeNull();
   });
 

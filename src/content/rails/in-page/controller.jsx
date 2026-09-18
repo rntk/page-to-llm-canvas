@@ -16,6 +16,7 @@ import {
   assessRecordForRail,
   describeFetchFailure,
 } from '../shared/recordFetch.js';
+import { createOptionsRecoveryOpener } from '../shared/optionsRecovery.js';
 import { createRailState, normalizeRailMode } from '../shared/railState.js';
 import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
 import { createLogger } from '../../../shared/runtime/log.js';
@@ -27,9 +28,6 @@ const defaultDialogs = {
 const defaultRuntimeMessenger = {
   ...browserRuntimeMessenger,
   getURL: (path) => globalThis.chrome.runtime.getURL(path),
-  ...(typeof globalThis.chrome?.runtime?.openOptionsPage === 'function'
-    ? { openOptionsPage: () => globalThis.chrome.runtime.openOptionsPage() }
-    : {}),
 };
 
 export function createInPageRailController({
@@ -44,16 +42,7 @@ export function createInPageRailController({
 } = {}) {
   const closeRail = surfaceManager.close;
   const { alert, confirm } = { ...defaultDialogs, ...(dialogs ?? {}) };
-
-  async function openOptionsForRecovery() {
-    const url = runtimeMessenger.getURL('options.html#records');
-    if (typeof contentWindow.open === 'function' && contentWindow.open(url, '_blank')) return;
-    if (typeof runtimeMessenger.openOptionsPage === 'function') {
-      await runtimeMessenger.openOptionsPage();
-      return;
-    }
-    alert('PageToLLM: Open the extension Options page to review this analysis.');
-  }
+  const openOptionsForRecovery = createOptionsRecoveryOpener({ runtimeMessenger, alert, logger });
 
   async function openInPageRail(rec, initialMode = 'topics', options = {}) {
     const guard = surfaceManager.beginLoad();

@@ -35,4 +35,5 @@ export const MSG = Object.freeze({
   saveProvider: 'saveProvider',
   deleteProvider: 'deleteProvider',
   setActiveProvider: 'setActiveProvider',
+  openOptionsPage: 'openOptionsPage',
 });

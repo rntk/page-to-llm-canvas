@@ -4,7 +4,8 @@
  * Pure helpers extracted from openInPageRail in rails/in-page/controller.jsx:
  *   - fetchRecord       chrome.runtime.sendMessage wrapper
  *   - findPickedElements querySelector loop
- *   - assessRecordForRail  validates a fetched record for rail display
+ *   - assessRecordLifecycle  classifies a record by pipeline status only
+ *   - assessRecordForRail  lifecycle + the in-page rail's selector requirement
  *   - createLoadToken   race-condition guard factory
  */
 
@@ -112,12 +113,48 @@ export function findPickedElements(selectors, contentDocument = globalThis.docum
 }
 
 /**
- * Discriminated result shapes returned by assessRecordForRail.
+ * Discriminated result shapes returned by assessRecordLifecycle.
  *
  *   { kind: 'ready',           record }
  *   { kind: 'error',           record }
  *   { kind: 'needs_attention', record }
  *   { kind: 'in_progress',     stage }
+ */
+
+/**
+ * Classify a fetched record purely by its pipeline lifecycle, independent of
+ * what any particular surface needs from it. Every rail shares this meaning:
+ * error/cancelled and parked records require user action (routed to the
+ * Options page), in-flight records are worth waiting for, and only `done`
+ * records are candidates for display. Surface-specific prerequisites (page
+ * selectors, transcript topics, …) are layered on top by the caller.
+ *
+ * @param {object} record
+ * @returns {{ kind: string }}
+ */
+export function assessRecordLifecycle(record) {
+  if (record.status === PIPELINE_STATUS.ERROR || record.status === PIPELINE_STATUS.CANCELLED) {
+    return { kind: 'error', record };
+  }
+  // Parked awaiting a user retry/skip decision. This is deliberately not an
+  // in-flight status and never auto-resumes, so it must NOT look like ordinary
+  // progress (which would tell the user to "wait"). Content surfaces are
+  // read-only, so the caller routes this to the Options page, the only place
+  // the retry/skip resolution lives.
+  if (record.status === PIPELINE_STATUS.NEEDS_ATTENTION) {
+    return { kind: 'needs_attention', record };
+  }
+  if (record.status !== PIPELINE_STATUS.DONE) {
+    const stage = record.progress?.stage || record.status || PIPELINE_STAGE.QUEUED;
+    return { kind: 'in_progress', stage };
+  }
+  return { kind: 'ready', record };
+}
+
+/**
+ * Discriminated result shapes returned by assessRecordForRail: every
+ * assessRecordLifecycle shape plus the in-page rail's DOM prerequisite.
+ *
  *   { kind: 'no_selectors',    record }
  */
 
@@ -130,21 +167,8 @@ export function findPickedElements(selectors, contentDocument = globalThis.docum
  * @returns {{ kind: string }}
  */
 export function assessRecordForRail(record) {
-  if (record.status === PIPELINE_STATUS.ERROR || record.status === PIPELINE_STATUS.CANCELLED) {
-    return { kind: 'error', record };
-  }
-  // Parked awaiting a user retry/skip decision. This is deliberately not an
-  // in-flight status and never auto-resumes, so it must NOT look like ordinary
-  // progress (which would tell the user to "wait"). In-page surfaces are
-  // read-only, so the caller routes this to the Options page, the only place
-  // the retry/skip resolution lives.
-  if (record.status === PIPELINE_STATUS.NEEDS_ATTENTION) {
-    return { kind: 'needs_attention', record };
-  }
-  if (record.status !== PIPELINE_STATUS.DONE) {
-    const stage = record.progress?.stage || record.status || PIPELINE_STAGE.QUEUED;
-    return { kind: 'in_progress', stage };
-  }
+  const lifecycle = assessRecordLifecycle(record);
+  if (lifecycle.kind !== 'ready') return lifecycle;
   const selectors = Array.isArray(record.selectors) ? record.selectors : [];
   if (selectors.length === 0) {
     return { kind: 'no_selectors', record };

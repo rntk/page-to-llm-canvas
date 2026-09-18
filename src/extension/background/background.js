@@ -71,6 +71,7 @@ import { createChatHandlers } from './handlers/chatHandlers.js';
 import { createMetricsHandlers } from './handlers/metricsHandlers.js';
 import { createProviderHandlers } from './handlers/providerHandlers.js';
 import { createDataManagementHandlers } from './handlers/dataManagementHandlers.js';
+import { createNavigationHandlers } from './handlers/navigationHandlers.js';
 import { createPipelineRuntime } from './pipeline/pipelineRuntime.js';
 
 export { clearSummaryErrorFlags, getAcceptedMergeFailurePaths } from './summaryResolution.js';
@@ -243,6 +244,9 @@ const MESSAGE_HANDLERS = {
     getStorageOverview,
     clearAllExtensionData,
     metricsClears: [clearLlmMetrics, clearParserMetrics, clearResplitMetrics, clearChatToolMetrics],
+  }),
+  ...createNavigationHandlers({
+    openOptionsPage: () => chrome.runtime.openOptionsPage(),
   }),
 };
 

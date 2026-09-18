@@ -19,7 +19,6 @@ class FakeHighlight {
 vi.stubGlobal('chrome', {
   runtime: {
     sendMessage: vi.fn((_msg, cb) => cb({ ok: false })),
-    openOptionsPage: vi.fn(() => Promise.resolve()),
     getURL: vi.fn((p) => 'about:blank#' + p),
     lastError: null,
   },
@@ -85,6 +84,7 @@ const surfaceManager = createRailSurfaceManager({ document, preferences });
 const closeInPageRail = surfaceManager.close;
 const nativeMutationObserver = window.MutationObserver;
 const logger = { warn: vi.fn() };
+const runtimeSend = vi.fn();
 const { openInPageRail } = createInPageRailController({
   surfaceManager,
   openRecordFrame: (key, view) =>
@@ -92,9 +92,8 @@ const { openInPageRail } = createInPageRailController({
   document,
   window,
   runtimeMessenger: {
-    send: vi.fn(),
+    send: (...args) => runtimeSend(...args),
     getURL: (path) => globalThis.chrome.runtime.getURL(path),
-    openOptionsPage: () => globalThis.chrome.runtime.openOptionsPage(),
   },
   dialogs: {
     alert: (...args) => globalThis.alert(...args),
@@ -160,7 +159,8 @@ describe('openInPageRail', () => {
     computeCardVerticalBox.mockReturnValue({ top: 0, height: 50 });
     openCanvasIframe.mockClear();
     openHierarchyIframe.mockClear();
-    globalThis.chrome.runtime.openOptionsPage.mockClear();
+    runtimeSend.mockReset();
+    runtimeSend.mockResolvedValue({ ok: true });
     globalThis.chrome.runtime.sendMessage.mockClear();
     logger.warn.mockClear();
     ArticleChat.mockClear();
@@ -230,22 +230,38 @@ describe('openInPageRail', () => {
       await openInPageRail({ key: 'rail-key' }, 'topics');
     });
 
-    expect(window.open).toHaveBeenCalledWith('about:blank#options.html#records', '_blank');
-    expect(globalThis.chrome.runtime.openOptionsPage).not.toHaveBeenCalled();
+    expect(runtimeSend).toHaveBeenCalledWith({ type: 'openOptionsPage' });
     expect(openCanvasIframe).not.toHaveBeenCalled();
     expect(globalThis.chrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('opens Options for needs_attention instead of opening Canvas', async () => {
-    fetchRecord.mockResolvedValue(found(baseRecord({ status: 'needs_attention' })));
-    await act(async () => {
-      await openInPageRail({ key: 'rail-key' }, 'topics');
-    });
+  it.each(['cancelled', 'needs_attention'])(
+    'opens Options instead of opening Canvas or asking the user to wait (status=%s)',
+    async (status) => {
+      fetchRecord.mockResolvedValue(found(baseRecord({ status })));
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'topics');
+      });
 
-    expect(window.open).toHaveBeenCalledWith('about:blank#options.html#records', '_blank');
-    expect(globalThis.chrome.runtime.openOptionsPage).not.toHaveBeenCalled();
-    expect(openCanvasIframe).not.toHaveBeenCalled();
-  });
+      expect(runtimeSend).toHaveBeenCalledWith({ type: 'openOptionsPage' });
+      expect(openCanvasIframe).not.toHaveBeenCalled();
+      expect(alert).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['pending', 'splitting', 'summarizing'])(
+    'alerts to wait when the analysis is in flight (status=%s)',
+    async (status) => {
+      fetchRecord.mockResolvedValue(found(baseRecord({ status })));
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'topics');
+      });
+      expect(alert).toHaveBeenCalledWith(
+        expect.stringContaining(`in progress (status: ${status})`),
+      );
+      expect(runtimeSend).not.toHaveBeenCalled();
+    },
+  );
 
   it('alerts with the processing stage when the record is in progress', async () => {
     fetchRecord.mockResolvedValue(
