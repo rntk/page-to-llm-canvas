@@ -396,10 +396,10 @@ export async function handleMessageAction(
   key,
   { confirm, runtimeMessage, onSuccess, onError },
 ) {
-  // Destructive manage actions supply confirmMessage; additive ones (e.g.
-  // Generate summaries) skip the dialog, matching the Options page UX.
-  if (action.confirmMessage && !confirm(action.confirmMessage)) return;
   try {
+    // Await the in-popup dialog: native confirm() can be suppressed in an
+    // extension popup and silently return false.
+    if (action.confirmMessage && !(await confirm(action.confirmMessage))) return;
     const response = await runtimeMessage({
       ...(action.message || {}),
       type: action.messageType,
@@ -433,15 +433,63 @@ function makeMessageAction(action, key) {
   button.type = 'button';
   button.textContent = action.label;
   addActionHint(button, action.label, action.description);
-  button.addEventListener('click', () =>
-    handleMessageAction(action, key, {
-      confirm,
-      runtimeMessage: sendRuntimeMessage,
-      onSuccess: () => refreshRecords(),
-      onError: setError,
-    }),
-  );
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      await handleMessageAction(action, key, {
+        confirm: (message) => confirmPopupAction(message, action),
+        runtimeMessage: sendRuntimeMessage,
+        onSuccess: () => refreshRecords(),
+        onError: setError,
+      });
+    } finally {
+      button.disabled = false;
+      if (button.isConnected) button.focus();
+    }
+  });
   return button;
+}
+
+function confirmPopupAction(message, action) {
+  const dialog = document.createElement('dialog');
+  dialog.className = 'action-confirmation';
+  dialog.setAttribute('aria-labelledby', 'action-confirmation-message');
+
+  const prompt = document.createElement('p');
+  prompt.id = 'action-confirmation-message';
+  prompt.textContent = message;
+  const buttons = document.createElement('div');
+  buttons.className = 'action-group';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'action';
+  cancel.textContent = 'Cancel';
+  const accept = document.createElement('button');
+  accept.type = 'button';
+  accept.className = ['action', action.className].filter(Boolean).join(' ');
+  accept.textContent = action.label;
+  buttons.append(cancel, accept);
+  dialog.append(prompt, buttons);
+  document.body.appendChild(dialog);
+
+  return new Promise((resolve, reject) => {
+    const finish = (confirmed) => {
+      dialog.remove();
+      resolve(confirmed);
+    };
+    cancel.addEventListener('click', () => finish(false));
+    accept.addEventListener('click', () => finish(true));
+    dialog.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      finish(false);
+    });
+    try {
+      dialog.showModal();
+    } catch (err) {
+      dialog.remove();
+      reject(err);
+    }
+  });
 }
 
 export function buildRecordDisplayData(records) {

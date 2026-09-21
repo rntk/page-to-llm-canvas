@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installPopupDom } from '../../../test/fakes/popupDomFake.mjs';
 
 const records = [
@@ -52,10 +52,103 @@ async function waitForText(id, expected) {
 }
 
 describe('popup refresh integration', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   beforeEach(() => {
     vi.resetModules();
     installPopupDom();
     installChrome();
+  });
+
+  it('deletes a record only after accepting the in-popup confirmation and refreshes the list', async () => {
+    chrome.tabs.query.mockResolvedValue([{ id: 1, url: records[0].sourceUrl }]);
+    const nativeConfirm = vi.fn(() => false);
+    vi.stubGlobal('confirm', nativeConfirm);
+    let savedRecords = [records[0]];
+    chrome.runtime.sendMessage.mockImplementation((message, callback) => {
+      if (message.type === 'listRecords') callback({ ok: true, items: savedRecords });
+      else if (message.type === 'listProviders') {
+        callback({ ok: true, providers: [{ id: 'provider-1' }], activeId: 'provider-1' });
+      } else if (message.type === 'deleteRecord') {
+        savedRecords = [];
+        callback({ ok: true });
+      }
+    });
+
+    await import('./popup.js');
+    await vi.waitFor(() => expect(document.querySelectorAll('#records .record')).toHaveLength(1));
+    const deleteButton = [...document.querySelectorAll('#records button')].find(
+      (button) => button.textContent === 'Delete',
+    );
+    deleteButton.click();
+    const dialog = document.querySelector('dialog');
+    expect(dialog.open).toBe(true);
+    expect(dialog.textContent).toContain('Delete this record?');
+    expect(savedRecords).toHaveLength(1);
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    dialog.querySelector('.danger').click();
+
+    await vi.waitFor(() => expect(document.querySelectorAll('#records .record')).toHaveLength(0));
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      { type: 'deleteRecord', key: 'old-record' },
+      expect.any(Function),
+    );
+    expect(document.getElementById('empty').hidden).toBe(false);
+    expect(document.querySelector('dialog')).toBeNull();
+  });
+
+  it.each(['Cancel', 'Escape'])(
+    'keeps the record when confirmation is dismissed with %s',
+    async (dismissal) => {
+      chrome.tabs.query.mockResolvedValue([{ id: 1, url: records[0].sourceUrl }]);
+      await import('./popup.js');
+      await vi.waitFor(() => expect(document.querySelectorAll('#records .record')).toHaveLength(1));
+      const deleteButton = [...document.querySelectorAll('#records button')].find(
+        (button) => button.textContent === 'Delete',
+      );
+      deleteButton.click();
+      const dialog = document.querySelector('dialog');
+      if (dismissal === 'Cancel') dialog.querySelector('button').click();
+      else dialog.dispatchEvent(new Event('cancel', { cancelable: true }));
+
+      await vi.waitFor(() => expect(deleteButton.disabled).toBe(false));
+      expect(document.querySelector('dialog')).toBeNull();
+      expect(document.querySelectorAll('#records .record')).toHaveLength(1);
+      expect(chrome.runtime.sendMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'deleteRecord' }),
+        expect.any(Function),
+      );
+      expect(document.activeElement).toBe(deleteButton);
+    },
+  );
+
+  it('restores focus after a non-confirming action fails', async () => {
+    chrome.tabs.query.mockResolvedValue([{ id: 1, url: records[0].sourceUrl }]);
+    const defaultSendMessage = chrome.runtime.sendMessage.getMockImplementation();
+    let completeAction;
+    chrome.runtime.sendMessage.mockImplementation((message, callback) => {
+      if (message.type === 'listRecords') {
+        callback({ ok: true, items: [{ ...records[0], summariesDisabled: true }] });
+      } else if (message.type === 'generateRecordSummaries') {
+        completeAction = callback;
+      } else defaultSendMessage(message, callback);
+    });
+
+    await import('./popup.js');
+    await vi.waitFor(() => expect(document.querySelectorAll('#records .record')).toHaveLength(1));
+    const button = [...document.querySelectorAll('#records button')].find(
+      (element) => element.textContent === 'Generate summaries',
+    );
+    button.focus();
+    button.click();
+    expect(button.disabled).toBe(true);
+    // Model Chrome blurring a disabled button; happy-dom retains focus here.
+    button.blur();
+    completeAction({ ok: false, error: 'Summary generation failed' });
+
+    await vi.waitFor(() => expect(button.disabled).toBe(false));
+    expect(document.getElementById('error').textContent).toBe('Summary generation failed');
+    expect(document.activeElement).toBe(button);
   });
 
   it('shows an initial active-tab lookup failure through the popup error state', async () => {

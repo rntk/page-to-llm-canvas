@@ -327,6 +327,25 @@
         color: var(--surface);
       }
 
+      .action-confirmation {
+        width: 320px;
+        max-width: calc(100% - 48px);
+        padding: 16px;
+        border: 2px solid var(--ink);
+        background: var(--surface);
+        color: var(--on-surface);
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      .action-confirmation::backdrop {
+        background: rgb(0 0 0 / 40%);
+      }
+
+      .action-confirmation p {
+        margin: 0 0 16px;
+      }
+
       .empty,
       .error {
         margin: 2px 14px 14px;
