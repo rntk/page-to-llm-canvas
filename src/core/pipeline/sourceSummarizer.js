@@ -18,7 +18,7 @@ import {
   SUMMARY_PROVIDER_MAX_ATTEMPTS,
 } from './pipelineConfig.js';
 
-const INLINE_SUMMARY_MAX_WORDS = { leaf: 70, topic: 150 };
+const INLINE_SUMMARY_MAX_WORDS = { leaf: 70, topic: 70 };
 // Cap total characters as well as whitespace-delimited words. This bounds
 // unsegmented text, but does not count language-specific words.
 const INLINE_SUMMARY_CHARS_PER_WORD = 8;
@@ -68,8 +68,8 @@ export function runSourceText(runIds, sentenceTexts) {
 }
 
 /** A short contiguous run can be shown verbatim without an LLM call.
- * Inclusive limits: 70 words / 560 characters for leaves and
- * 150 words / 1200 characters for parent topics. Both limits must be met.
+ * Inclusive limit: 70 words / 560 characters for leaves and parent topics.
+ * Both limits must be met.
  * Sentence count does not affect eligibility.
  * @param {string} sourceText Source text for the run.
  * @param {'leaf'|'topic'} [summaryMode] Selects the leaf or parent word budget.

@@ -98,13 +98,13 @@ describe('source run helpers', () => {
     expect(shouldInlineRun('one two three four', 'topic')).toBe(true);
     expect(shouldInlineRun('word '.repeat(70).trim(), 'leaf')).toBe(true);
     expect(shouldInlineRun('word '.repeat(71).trim(), 'leaf')).toBe(false);
-    expect(shouldInlineRun('word '.repeat(150).trim(), 'topic')).toBe(true);
-    expect(shouldInlineRun('word '.repeat(151).trim(), 'topic')).toBe(false);
+    expect(shouldInlineRun('word '.repeat(70).trim(), 'topic')).toBe(true);
+    expect(shouldInlineRun('word '.repeat(71).trim(), 'topic')).toBe(false);
     expect(shouldInlineRun('x'.repeat(560), 'leaf')).toBe(true);
     expect(shouldInlineRun('x'.repeat(561), 'leaf')).toBe(false);
-    expect(shouldInlineRun('x'.repeat(1200), 'topic')).toBe(true);
-    expect(shouldInlineRun('x'.repeat(1201), 'topic')).toBe(false);
-    expect(shouldInlineRun(' '.repeat(1201), 'topic')).toBe(true);
+    expect(shouldInlineRun('x'.repeat(560), 'topic')).toBe(true);
+    expect(shouldInlineRun('x'.repeat(561), 'topic')).toBe(false);
+    expect(shouldInlineRun(' '.repeat(561), 'topic')).toBe(true);
   });
 
   it('chunks at sentence boundaries and retains global sentence ranges', () => {
@@ -157,7 +157,7 @@ describe('makeSourceSummarizer', () => {
 
   it.each([
     ['leaf', 70],
-    ['topic', 150],
+    ['topic', 70],
   ])('inlines a run at the inclusive %s word boundary', async (summaryMode, wordLimit) => {
     const source = 'word '.repeat(wordLimit).trim();
     const callLLMWithRetry = vi.fn(async () => 'generated summary');
@@ -171,7 +171,7 @@ describe('makeSourceSummarizer', () => {
 
   it.each([
     ['leaf', 71],
-    ['topic', 151],
+    ['topic', 71],
   ])('requests a summary above the %s word boundary', async (summaryMode, wordCount) => {
     const source = 'word '.repeat(wordCount).trim();
     const callLLMWithRetry = vi.fn(async () => 'generated summary');
@@ -185,7 +185,7 @@ describe('makeSourceSummarizer', () => {
 
   it.each([
     ['leaf', 560],
-    ['topic', 1200],
+    ['topic', 560],
   ])(
     'requests a summary when a single unbroken token exceeds the %s character safeguard',
     async (summaryMode, charLimit) => {
