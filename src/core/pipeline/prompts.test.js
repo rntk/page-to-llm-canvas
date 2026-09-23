@@ -53,6 +53,19 @@ describe('buildTopicRangesPrompt', () => {
     expect(prompt).toContain('OUTPUT FORMAT');
     expect(prompt).toContain('Broad Category>Subcategory>Specific Topic: marker ranges');
   });
+
+  it('limits a resplit to one child and keeps a maximum-depth path unchanged', () => {
+    const refinement = buildTopicRangesPrompt('{0} text', {
+      resplitParentPath: 'Science>AI',
+    });
+    const maximumDepth = buildTopicRangesPrompt('{0} text', {
+      resplitParentPath: 'A>B>C>D>E',
+    });
+
+    expect(refinement).toContain('that path plus ONE specific child label');
+    expect(refinement).not.toContain('Use 2-4 levels');
+    expect(maximumDepth).toContain('that exact path only');
+  });
 });
 
 describe('buildArticleSummaryPrompt', () => {

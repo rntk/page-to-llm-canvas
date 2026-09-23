@@ -152,8 +152,10 @@ export function isImportableRecord(record) {
  *   `readTopicRangeChunkCheckpoint` in `src/core/pipeline/topicRangeCheckpoint.js`)
  *   and discarded whole unless `contentRevision` still matches, since an
  *   imported record can carry an arbitrary user-supplied value here.
- * @property {Record<string, object>} [topic_summaries] - Resumable per-topic
- *   summary checkpoint, keyed by topic id and containing per-run results. An
+ * @property {Record<string, object>} [topic_summaries] - Resumable summary
+ *   checkpoints for paths without children, keyed by topic id and containing
+ *   per-run results. Older records may also contain mixed-depth path entries,
+ *   which a Skip resume can carry through to finalization. An
  *   entry may carry
  *   `forcedEmpty: true`, meaning the user accepted a failed topic via "skip"
  *   and finalization cleared its in-flight `error` marker — it distinguishes
@@ -167,7 +169,7 @@ export function isImportableRecord(record) {
  *   re-query it. Finalization never persists it, so it only ever exists on a
  *   record between the skip decision and the end of the resumed run.
  * @property {Record<string, {level: number}>} [topic_summary_index] -
- *   Canonical UI projection of `topic_summaries`. Tolerated absent/null by
+ *   Canonical UI projection of every topic-tree path. Tolerated absent/null by
  *   `isImportableRecord`.
  * @property {Record<string, object>} [source_summary_units] - Optional
  *   resumable source-summary units keyed by stable request-kind/path/run/chunk

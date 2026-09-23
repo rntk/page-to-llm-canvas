@@ -193,11 +193,30 @@ export async function runSummaries({
   acceptedMergeFailurePaths = [],
   callLLMWithRetry,
 }) {
+  const { nodes } = buildTopicTree(topics);
+  // A path with children is resolved from the tree's aggregated runs. Its own
+  // sentences may share a run with a child, so a separate per-topic request
+  // would be discarded after the tree request and could fail unnecessarily.
+  const leafTopics = topics.filter((topic) => nodes.get(topic.name)?.children.length === 0);
   const { reused, pending, reusedCount, pendingCount, total } = planSummaryWork(
-    topics,
+    leafTopics,
     previousSummaries,
   );
   const topic_summaries = { ...reused };
+  // Skip on an older checkpoint can have accepted a mixed-depth path's own
+  // summary. Keep that directive so ancestor requests exclude its sentences.
+  if (forceFinalize) {
+    for (const topic of topics) {
+      if (nodes.get(topic.name)?.children.length === 0) continue;
+      const previous = previousSummaries?.[topic.name];
+      if (
+        previous?.acceptedFailure === true ||
+        previous?.runs?.some((run) => run?.acceptedFailure === true)
+      ) {
+        topic_summaries[topic.name] = previous;
+      }
+    }
+  }
   const source_summary_units =
     previousSourceSummaryUnits && typeof previousSourceSummaryUnits === 'object'
       ? { ...previousSourceSummaryUnits }
@@ -424,7 +443,6 @@ export async function runSummaries({
     progress: progressAt(PIPELINE_STAGE.MERGING_SUMMARIES),
   });
   await runtime.log('topic_tree_merge_start', { leafCount: total }, { verbose: true });
-  const { nodes } = buildTopicTree(topics);
   const summaryErrors = [];
   const normalSummarizeSource = makeCachedSourceSummarizer({
     sentenceTexts,
@@ -532,7 +550,7 @@ export async function runSummaries({
     source_summary_units: {},
   });
   await runtime.log('pipeline_done', {
-    topicCount: total,
+    topicCount: topics.length,
     summaryNodeCount: Object.keys(topic_summary_index).length,
   });
 }

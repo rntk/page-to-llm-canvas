@@ -1355,7 +1355,7 @@ describe('runPipeline', () => {
         // First call: one giant topic. Re-split call(s): subdivide the slice
         // (which is re-tagged with local 0-based markers, so 0-29 / 30-59).
         if (partitionCalls === 1) return `Tech>All: 0-${n - 1}`;
-        return 'Tech>FirstHalf: 0-29\nTech>SecondHalf: 30-59';
+        return 'Tech>All>FirstHalf: 0-29\nTech>All>SecondHalf: 30-59';
       }
       if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
         return 'Summary.';
@@ -1369,7 +1369,7 @@ describe('runPipeline', () => {
       (call) => call[1].topics && call[1].status === 'summarizing',
     );
     const names = topicCall[1].topics.map((t) => t.name);
-    expect(names).toEqual(['Tech>FirstHalf', 'Tech>SecondHalf']);
+    expect(names).toEqual(['Tech>All>FirstHalf', 'Tech>All>SecondHalf']);
     // Coverage of the original range is preserved across the subdivision.
     expect(topicCall[1].topics[0].sentences).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
     expect(topicCall[1].topics[1].sentences).toEqual(Array.from({ length: 30 }, (_, i) => i + 31));
@@ -1436,22 +1436,18 @@ describe('runPipeline', () => {
     // the denominator, not a success flag.
     expect(resplitMetrics.recordResplitRun).toHaveBeenCalledTimes(1);
     const sample = resplitMetrics.recordResplitRun.mock.calls[0][0];
-    // The window fallback does split the segment (2 windows), so `changed`
-    // is true even though groupsFromSegments recombines them back into a
-    // single "Tech>All" group (both windows carry the same label).
+    // The window fallback tries two windows, but identical labels combine
+    // back into the original group and must not count as a changed run.
     expect(sample).toMatchObject({
       oversizeCount: 1,
       oversizeSpans: [60],
-      changed: true,
+      changed: false,
       groupCountBefore: 1,
       groupCountAfter: 1,
       resplitCallCount: 3,
       primaryChunkCount: 1,
     });
-    // This is exactly the "changed but no net group gain" case
-    // runsWithGroupGain exists to filter out: groupCountAfter does not
-    // exceed groupCountBefore, so this run would NOT count toward
-    // runsWithGroupGain even though it does count toward runsChanged.
+    // Neither the changed nor group-gain counter should count this run.
     expect(sample.groupCountAfter).not.toBeGreaterThan(sample.groupCountBefore);
     expect(sample.outcomes).toMatchObject({
       windowFallback: 1,
@@ -1481,10 +1477,10 @@ describe('runPipeline', () => {
         if (partitionCalls === 1) return `Tech>All: 0-${n - 1}`;
         if (partitionCalls === 2) {
           // Slice is the full 90: a 30-sentence head + a 60-sentence tail.
-          return 'Tech>Head: 0-29\nTech>Tail: 30-89';
+          return 'Tech>All>Head: 0-29\nTech>All>Tail: 30-89';
         }
         // Second-level re-split of the 60-sentence tail slice (local 0-59).
-        return 'Tech>TailA: 0-29\nTech>TailB: 30-59';
+        return 'Tech>All>Tail>TailA: 0-29\nTech>All>Tail>TailB: 30-59';
       }
       if (prompt.includes('Summarize the text within the <pagetollm_input> tags'))
         return 'Summary.';
@@ -1498,9 +1494,9 @@ describe('runPipeline', () => {
       (call) => call[1].topics && call[1].status === 'summarizing',
     );
     expect(topicCall[1].topics.map((t) => t.name)).toEqual([
-      'Tech>Head',
-      'Tech>TailA',
-      'Tech>TailB',
+      'Tech>All>Head',
+      'Tech>All>Tail>TailA',
+      'Tech>All>Tail>TailB',
     ]);
     // Global offsets: Head 1-30, TailA 31-60, TailB 61-90.
     expect(topicCall[1].topics[1].sentences[0]).toBe(31);

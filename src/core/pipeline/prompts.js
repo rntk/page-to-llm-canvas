@@ -83,20 +83,27 @@ export function buildSystemPrompt() {
   return SYSTEM_PROMPT;
 }
 
-export function buildTopicRangesPrompt(taggedText, { preferContentLanguage = false } = {}) {
+export function buildTopicRangesPrompt(
+  taggedText,
+  { preferContentLanguage = false, resplitParentPath = '' } = {},
+) {
   // For topic ranges the language block sits right before the payload opener
   // rather than at the top: the system prompt's English example categories would
   // otherwise be the last thing the model reads before generating, anchoring it
   // to English.
   const languageBlock = preferContentLanguage ? `${LANGUAGE_INSTRUCTION}\n` : '';
+  const canAddResplitChild = resplitParentPath.split('>').length < 5;
+  const hierarchyFormat = resplitParentPath
+    ? `- RESPLIT CONTEXT: This is a refinement of the existing path "${resplitParentPath}". Return ${canAddResplitChild ? 'that exact path, or that path plus ONE specific child label' : 'that exact path only; it is already at the maximum depth'}. Never replace or add ancestors. Ignore the general level-count examples for this refinement.`
+    : `- Use 2-4 levels separated by ">" (up to 5 when a document-wide subject
+  needs its own level).`;
   return `${SYSTEM_PROMPT}
 
 OUTPUT FORMAT:
 - One topic path per line, sorted by first marker ID ascending.
 - Format: Broad Category>Subcategory>Specific Topic: marker ranges
 - Example line: Technology>AI Safety>Chain of Thought Monitoring: 12-18, 24
-- Use 2-4 levels separated by ">" (up to 5 when a document-wide subject
-  needs its own level).
+${hierarchyFormat}
 - Use ":" only once per line, between the topic path and marker ranges;
   never use another separator (no "|", "-", or dashes).
 - MarkerRanges are plain digits, "-" for spans and "," between them,

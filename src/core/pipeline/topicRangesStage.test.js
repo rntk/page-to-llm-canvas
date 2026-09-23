@@ -365,6 +365,208 @@ describe('computeTopics', () => {
     expect(recordResplitRun).not.toHaveBeenCalled();
   });
 
+  it('bounds resplit requests by the sentence limit and keeps the parent topic path', async () => {
+    const runtime = makeRuntime();
+    runtime.maxTopicRangeSentences = 10;
+    splitSentences.mockReturnValue(
+      Array.from({ length: 45 }, (_, index) => ({
+        text: `Sentence ${index}.`,
+        start: index * 12,
+        end: index * 12 + 11,
+      })),
+    );
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      const ids = Array.from(prompt.matchAll(/\{(\d+)\}/g), (match) => Number(match[1]));
+      const count = Math.max(...ids) + 1;
+      return prompt.includes('RESPLIT CONTEXT')
+        ? `Science>AI>Detail: 0-${count - 1}`
+        : `Science>AI: 0-${count - 1}`;
+    });
+
+    const result = await computeTopics({
+      runtime,
+      record: { html: '<p>x</p>' },
+      callLLMWithRetry,
+    });
+
+    const resplitCalls = callLLMWithRetry.mock.calls.filter(([{ prompt }]) =>
+      prompt.includes('RESPLIT CONTEXT'),
+    );
+    expect(resplitCalls.length).toBeGreaterThan(1);
+    expect(resplitCalls.every(([{ prompt }]) => {
+      const ids = Array.from(prompt.matchAll(/\{(\d+)\}/g), (match) => Number(match[1]));
+      return Math.max(...ids) < runtime.maxTopicRangeSentences;
+    })).toBe(true);
+    expect(result.topics).toHaveLength(1);
+    expect(result.topics[0].name).toBe('Science>AI>Detail');
+    expect(result.topics[0].sentences).toEqual(Array.from({ length: 45 }, (_, index) => index + 1));
+  });
+
+  it('does not count chunk boundaries as a successful resplit', async () => {
+    const runtime = makeRuntime();
+    runtime.maxTopicRangeSentences = 54;
+    splitSentences.mockReturnValue(
+      Array.from({ length: 60 }, (_, index) => ({
+        text: `Sentence ${index}.`,
+        start: index * 12,
+        end: index * 12 + 11,
+      })),
+    );
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      const ids = Array.from(prompt.matchAll(/\{(\d+)\}/g), (match) => Number(match[1]));
+      return `Science>AI: 0-${Math.max(...ids)}`;
+    });
+
+    const result = await computeTopics({
+      runtime,
+      record: { html: '<p>x</p>' },
+      callLLMWithRetry,
+    });
+
+    expect(result.topics.map((topic) => topic.name)).toEqual(['Science>AI']);
+    const sample = recordResplitRun.mock.lastCall[0];
+    expect(sample).toMatchObject({
+      changed: false,
+      groupCountBefore: 1,
+      groupCountAfter: 1,
+      resplitCallCount: 3,
+      llmRequestCount: 4,
+      outcomes: { subdivided: 0, windowFallback: 1, acceptedSingle: 2 },
+    });
+  });
+
+  it('rejects a divergent resplit path rather than nesting an unrelated subject', async () => {
+    const runtime = makeRuntime();
+    splitSentences.mockReturnValue(
+      Array.from({ length: 45 }, (_, index) => ({
+        text: `Sentence ${index}.`,
+        start: index * 12,
+        end: index * 12 + 11,
+      })),
+    );
+    const callLLMWithRetry = vi.fn(async ({ prompt }) =>
+      prompt.includes('RESPLIT CONTEXT')
+        ? 'Science>Physics>Quantum: 0-44'
+        : 'Science>AI: 0-44',
+    );
+
+    const result = await computeTopics({
+      runtime,
+      record: { html: '<p>x</p>' },
+      callLLMWithRetry,
+    });
+
+    expect(result.topics.map((topic) => topic.name)).toEqual(['Science>AI']);
+    expect(recordResplitRun.mock.lastCall[0].changed).toBe(false);
+  });
+
+  it('skips resplit requests for a topic already at maximum path depth', async () => {
+    const runtime = makeRuntime();
+    splitSentences.mockReturnValue(
+      Array.from({ length: 45 }, (_, index) => ({
+        text: `Sentence ${index}.`,
+        start: index * 12,
+        end: index * 12 + 11,
+      })),
+    );
+    const callLLMWithRetry = vi.fn(async () => 'A>B>C>D>E: 0-44');
+
+    const result = await computeTopics({
+      runtime,
+      record: { html: '<p>x</p>' },
+      callLLMWithRetry,
+    });
+
+    expect(result.topics.map((topic) => topic.name)).toEqual(['A>B>C>D>E']);
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+    expect(recordResplitRun.mock.lastCall[0]).toMatchObject({
+      changed: false,
+      resplitCallCount: 0,
+      llmRequestCount: 0,
+      outcomes: { windowFallback: 0 },
+    });
+  });
+
+  it('accepts parent spelling variants and keeps the original parent spelling', async () => {
+    const runtime = makeRuntime();
+    splitSentences.mockReturnValue(
+      Array.from({ length: 45 }, (_, index) => ({
+        text: `Sentence ${index}.`,
+        start: index * 12,
+        end: index * 12 + 11,
+      })),
+    );
+    const callLLMWithRetry = vi.fn(async ({ prompt }) =>
+      prompt.includes('RESPLIT CONTEXT')
+        ? 'science> a i >Detail: 0-21\nSCIENCE>AI>Other: 22-44'
+        : 'Science>AI: 0-44',
+    );
+
+    const result = await computeTopics({
+      runtime,
+      record: { html: '<p>x</p>' },
+      callLLMWithRetry,
+    });
+
+    expect(result.topics.map((topic) => topic.name)).toEqual([
+      'Science>AI>Detail',
+      'Science>AI>Other',
+    ]);
+  });
+
+  it('uses parser label equivalence when measuring a chunked resplit', async () => {
+    const runtime = makeRuntime();
+    runtime.maxTopicRangeSentences = 54;
+    splitSentences.mockReturnValue(
+      Array.from({ length: 60 }, (_, index) => ({
+        text: `Sentence ${index}.`,
+        start: index * 12,
+        end: index * 12 + 11,
+      })),
+    );
+    let resplitCalls = 0;
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      const ids = Array.from(prompt.matchAll(/\{(\d+)\}/g), (match) => Number(match[1]));
+      if (!prompt.includes('RESPLIT CONTEXT')) return `Science>AI: 0-${Math.max(...ids)}`;
+      resplitCalls++;
+      const child = resplitCalls === 2 ? 'DeepSeek' : 'Deep Seek';
+      return `Science>AI>${child}: 0-${Math.max(...ids)}`;
+    });
+
+    await computeTopics({ runtime, record: { html: '<p>x</p>' }, callLLMWithRetry });
+
+    expect(recordResplitRun.mock.lastCall[0]).toMatchObject({
+      outcomes: { subdivided: 0, windowFallback: 1 },
+    });
+  });
+
+  it('separates chunk responses with newlines in verbose resplit logs', async () => {
+    const runtime = makeRuntime();
+    runtime.maxTopicRangeSentences = 40;
+    splitSentences.mockReturnValue(
+      Array.from({ length: 45 }, (_, index) => ({
+        text: `Sentence ${index}.`,
+        start: index * 12,
+        end: index * 12 + 11,
+      })),
+    );
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      const ids = Array.from(prompt.matchAll(/\{(\d+)\}/g), (match) => Number(match[1]));
+      const lastId = Math.max(...ids);
+      if (!prompt.includes('RESPLIT CONTEXT')) return `Science>AI: 0-${lastId}`;
+      return lastId === 39
+        ? 'Science>AI>First: 0-38'
+        : 'Science>AI>Second: 0-4';
+    });
+
+    await computeTopics({ runtime, record: { html: '<p>x</p>' }, callLLMWithRetry });
+
+    const rawLog = runtime.log.mock.calls.find(
+      ([stage, details]) => stage === 'topic_ranges_raw_response' && details.scope === 'resplit',
+    );
+    expect(rawLog?.[1].response).toBe('Science>AI>First: 0-38\nScience>AI>Second: 0-4');
+  });
+
   it('does not record parser or resplit metrics when cancellation wins before primary parsing', async () => {
     const runtime = makeRuntime();
     const controller = new AbortController();
@@ -439,7 +641,9 @@ describe('computeTopics', () => {
     let call = 0;
     const callLLMWithRetry = vi.fn(async () => {
       call++;
-      return call === 1 ? 'Science>AI: 0-44' : 'Science>One: 0-21\nScience>Two: 22-44';
+      return call === 1
+        ? 'Science>AI: 0-44'
+        : 'Science>AI>One: 0-21\nScience>AI>Two: 22-44';
     });
 
     await expect(

@@ -122,6 +122,39 @@ describe('finalizeSummariesDisabled', () => {
 describe('runSummaries', () => {
   const topic = { name: 'A', sentences: [1] };
 
+  it('summarizes a mixed-depth parent run once and does not park a discarded leaf failure', async () => {
+    const runtime = makeRuntime();
+    const sentenceTexts = ['own '.repeat(120).trim(), 'child '.repeat(120).trim()];
+    const callLLMWithRetry = vi.fn(async ({ taskType }) => {
+      if (taskType === LLM_TASK_TYPES.ARTICLE_SUMMARY) throw new Error('timed out');
+      return 'Combined parent summary.';
+    });
+
+    await runSummaries({
+      runtime,
+      topics: [
+        { name: 'A', sentences: [1] },
+        { name: 'A>B', sentences: [2] },
+      ],
+      sentenceTexts,
+      previousSummaries: {
+        'A>B': { runs: [{ sentences: [2], text: 'Child summary.' }] },
+      },
+      callLLMWithRetry,
+    });
+
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+    expect(callLLMWithRetry.mock.calls[0][0].taskType).toBe(
+      LLM_TASK_TYPES.TOPIC_SUMMARY_FROM_SOURCE,
+    );
+    expect(lastUpdate(runtime)).toMatchObject({
+      status: PIPELINE_STATUS.DONE,
+      topic_summary_index: {
+        A: { runs: [{ sentences: [1, 2], text: 'Combined parent summary.' }] },
+      },
+    });
+  });
+
   it('checkpoints each leaf independently and only writes the full map at finalization', async () => {
     const runtime = makeRuntime();
     runtime.checkpointTopicSummary = vi.fn(async () => undefined);
@@ -174,14 +207,14 @@ describe('runSummaries', () => {
   });
 
   it.each([
-    [150, 0],
-    [151, 1],
+    [70, 0],
+    [71, 1],
   ])(
     'applies the parent source threshold when short leaves total %i words',
     async (wordCount, expectedCalls) => {
       const runtime = makeRuntime();
       // Every leaf stays inside the 70-word leaf inline budget, so only the
-      // parent's aggregated source can cross the 150-word topic threshold.
+      // parent's aggregated source can cross the 70-word topic threshold.
       const leafWords = 34;
       const leafCount = Math.ceil(wordCount / leafWords);
       const sentenceTexts = Array.from({ length: leafCount }, (_, index) => {

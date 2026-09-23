@@ -93,6 +93,14 @@ function normalizeSegmentKey(segment) {
   return key || segment;
 }
 
+/** The same hierarchy key used when parser groups are merged.
+ * @param {string[]} parts Topic path segments.
+ * @returns {string} Canonical path key.
+ */
+export function topicLabelKey(parts) {
+  return parts.reduce((key, part) => `${key}\u0000${normalizeSegmentKey(part)}`, '');
+}
+
 /**
  * Per-parse registry that pins every label segment to ONE display spelling.
  *
@@ -125,7 +133,7 @@ function createLabelCanonicalizer() {
     const label = [];
     let key = '';
     for (const part of parts) {
-      key = `${key}\u0000${normalizeSegmentKey(part)}`;
+      key = topicLabelKey([...label, part]);
       const known = canonicalBySegment.get(key);
       if (known === undefined) {
         canonicalBySegment.set(key, part);

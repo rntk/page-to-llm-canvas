@@ -1,5 +1,5 @@
-import { buildTaggedText, buildTopicRangesPrompt } from './prompts.js';
-import { parseTopicRangesDetailed, groupsFromSegments, TopicParseError } from './topicParser.js';
+import { buildTopicRangesPrompt } from './prompts.js';
+import { parseTopicRangesDetailed, groupsFromSegments, topicLabelKey, TopicParseError } from './topicParser.js';
 import { RESPLIT_OUTCOMES as DEFAULT_RESPLIT_OUTCOMES } from '../metrics/resplit.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
@@ -9,12 +9,66 @@ import {
 } from './pipelineConfig.js';
 import { isCancellationError, rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
 import { hasDiagnosticQuirks, logParseDiagnostics } from './topicRangeDiagnosticsLog.js';
-import { chunkTaggedText } from './topicRangeChunking.js';
+import { chunkTopicRangeSentences } from './topicRangeChunking.js';
 import { defaultTopicRangeDependencies } from './topicRangeDependencies.js';
 import { TOPIC_RANGE_ABORT_MESSAGE } from './topicRangeCheckpoint.js';
+import { splitTopicPath } from '../../shared/runtime/topicPath.js';
 
 export const TOPIC_RANGE_MAX_SENTENCES = 40;
 const TOPIC_RANGE_RESPLIT_MAX_DEPTH = 2;
+const MAX_TOPIC_PATH_LEVELS = 5;
+
+function rootResplitPath(returnedPath, parentPath) {
+  const fullPrefix =
+    returnedPath.length >= parentPath.length &&
+    topicLabelKey(returnedPath.slice(0, parentPath.length)) === topicLabelKey(parentPath);
+  if (
+    fullPrefix &&
+    returnedPath.length <= parentPath.length + 1 &&
+    returnedPath.length <= MAX_TOPIC_PATH_LEVELS
+  ) return [...parentPath, ...returnedPath.slice(parentPath.length)];
+  if (returnedPath.length === 1 && parentPath.length < MAX_TOPIC_PATH_LEVELS) {
+    return [...parentPath, returnedPath[0]];
+  }
+  // An unrelated or overly deep path gives no reliable location for the new
+  // label. Keep the established topic rather than inventing a hierarchy.
+  return parentPath;
+}
+
+function combineChunkDiagnostics(parsedChunks) {
+  const diagnostics = {
+    sentenceCount: 0,
+    inputLineCount: 0,
+    parsedLineCount: 0,
+    ignoredLineCount: 0,
+    parsedRangeCount: 0,
+    invalidRangeTokens: 0,
+    reversedRanges: 0,
+    outOfRange: [],
+    duplicates: [],
+    missing: [],
+    repairs: [],
+  };
+  for (const { chunk, parsed } of parsedChunks) {
+    const part = parsed.diagnostics;
+    for (const key of [
+      'sentenceCount',
+      'inputLineCount',
+      'parsedLineCount',
+      'ignoredLineCount',
+      'parsedRangeCount',
+      'invalidRangeTokens',
+      'reversedRanges',
+    ]) {
+      diagnostics[key] += Number(part[key]) || 0;
+    }
+    diagnostics.outOfRange.push(...(part.outOfRange || []));
+    diagnostics.duplicates.push(...(part.duplicates || []).map((id) => id + chunk.start));
+    diagnostics.missing.push(...(part.missing || []).map((id) => id + chunk.start));
+    diagnostics.repairs.push(...(part.repairs || []));
+  }
+  return diagnostics;
+}
 
 /**
  * Re-query the LLM to subdivide one oversized sentence range. This is
@@ -38,12 +92,17 @@ async function resplitSegment(
   { acceptSingle = false, stats = null, dependencies = defaultTopicRangeDependencies } = {},
 ) {
   const { noteResplitOutcome } = dependencies;
+  const parentPath = Array.isArray(segment.label) ? segment.label : splitTopicPath(segment.label);
+  if (parentPath.length >= MAX_TOPIC_PATH_LEVELS) return null;
   const span = segment.end - segment.start + 1;
   const logCtx = { start: segment.start, end: segment.end, span, depth };
   const sliceTexts = sentenceTexts.slice(segment.start, segment.end + 1);
-  const tagged = buildTaggedText(sliceTexts);
   const maxChars = runtime.maxTextChunkChars;
-  const chunks = tagged.length > maxChars ? chunkTaggedText(tagged, maxChars) : [tagged];
+  const chunks = chunkTopicRangeSentences(
+    sliceTexts,
+    maxChars,
+    runtime.maxTopicRangeSentences,
+  );
 
   if (stats) {
     stats.resplitCallCount++;
@@ -72,8 +131,9 @@ async function resplitSegment(
               return {
                 content: await callLLMWithRetry(
                   {
-                    prompt: buildTopicRangesPrompt(chunk, {
+                    prompt: buildTopicRangesPrompt(chunk.tagged, {
                       preferContentLanguage: runtime.preferContentLanguage,
+                      resplitParentPath: parentPath.join('>'),
                     }),
                     signal: runtime.signal,
                     taskType: LLM_TASK_TYPES.TOPIC_RANGES,
@@ -93,7 +153,7 @@ async function resplitSegment(
         );
         const failed = responses.find((response) => response.error);
         if (failed) throw failed.error;
-        return responses.map((response) => response.content).join('\n');
+        return responses.map((response) => response.content);
       },
       parse: async (raw) => {
         const logContext = { scope: 'resplit', depth, start: segment.start, end: segment.end };
@@ -101,20 +161,30 @@ async function resplitSegment(
           // The request may have fulfilled just as cancellation landed. Stop
           // before attributing that superseded response to parser metrics.
           throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
-          const parsed = parseTopicRangesDetailed(raw, sliceTexts.length);
-          if (hasDiagnosticQuirks(parsed.diagnostics)) {
+          const parsedChunks = chunks.map((chunk, index) => ({
+            chunk,
+            parsed: parseTopicRangesDetailed(raw[index], chunk.sentenceCount),
+          }));
+          const diagnostics = combineChunkDiagnostics(parsedChunks);
+          if (hasDiagnosticQuirks(diagnostics)) {
             await logParseDiagnostics(runtime, logContext, {
-              diagnostics: parsed.diagnostics,
-              response: raw,
+              diagnostics,
+              response: raw.join('\n'),
             });
           }
           throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
           await dependencies.recordParserMetric({
             ok: true,
             scope: 'resplit',
-            diagnostics: parsed.diagnostics,
+            diagnostics,
           });
-          return parsed.groups;
+          return parsedChunks.flatMap(({ chunk, parsed }) => parsed.groups.map((group) => ({
+            label: group.label,
+            ranges: group.ranges.map((range) => ({
+              start: range.start + chunk.start,
+              end: range.end + chunk.start,
+            })),
+          })));
         } catch (error) {
           // An AbortError from the boundary check or runtime logging is not a
           // malformed model response and must not become a parser sample.
@@ -127,7 +197,10 @@ async function resplitSegment(
             error: error?.message,
           });
           if (error instanceof TopicParseError) {
-            await logParseDiagnostics(runtime, logContext, { diagnostics, response: raw });
+            await logParseDiagnostics(runtime, logContext, {
+              diagnostics,
+              response: raw.join('\n'),
+            });
           }
           throw error;
         }
@@ -151,9 +224,11 @@ async function resplitSegment(
   const offset = segment.start;
   let subSegments = [];
   for (const group of subGroups) {
+    const returnedPath = Array.isArray(group.label) ? group.label : splitTopicPath(group.label);
+    const rootedPath = rootResplitPath(returnedPath, parentPath);
     for (const range of group.ranges) {
       subSegments.push({
-        label: group.label,
+        label: rootedPath,
         start: range.start + offset,
         end: range.end + offset,
       });
@@ -161,10 +236,11 @@ async function resplitSegment(
   }
   subSegments.sort((a, b) => a.start - b.start);
 
-  if (subSegments.length <= 1) {
-    if (acceptSingle && subSegments.length === 1) {
+  const distinctLabels = new Set(subSegments.map(({ label }) => topicLabelKey(label)));
+  if (distinctLabels.size <= 1) {
+    if (acceptSingle && subSegments.length > 0) {
       noteResplitOutcome(stats, DEFAULT_RESPLIT_OUTCOMES.ACCEPTED_SINGLE);
-      return subSegments;
+      return [{ label: subSegments[0].label, start: segment.start, end: segment.end }];
     }
 
     await runtime.log('topic_ranges_resplit_no_progress', { ...logCtx }, { verbose: true });
@@ -316,7 +392,6 @@ async function refineOversizedRangesWithStats(
     { verbose: true },
   );
 
-  let changed = false;
   const refinedParts = await dependencies.parallelMap(
     segments,
     TOPIC_RANGE_CONCURRENCY,
@@ -330,19 +405,15 @@ async function refineOversizedRangesWithStats(
           callLLMWithRetry,
           { stats, dependencies },
         );
-        if (subSegments && subSegments.length > 1) {
-          changed = true;
-          return subSegments;
-        }
+        if (subSegments) return subSegments;
       }
       return [segment];
     },
   );
 
-  if (!changed) return groups;
-  stats.changed = true;
-
   const regrouped = groupsFromSegments(refinedParts.flat(), sentenceTexts.length);
+  if (JSON.stringify(regrouped) === JSON.stringify(groups)) return groups;
+  stats.changed = true;
   stats.groupCountAfter = regrouped.length;
   await runtime.log(
     'topic_ranges_oversize_refined',
