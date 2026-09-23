@@ -88,6 +88,58 @@ describe('InPageRail', () => {
     unmount();
   });
 
+  it('renders margin notes by default and toggles to the classic card layout', () => {
+    const onSelectTopicLayout = vi.fn();
+    const { container, rerender, unmount } = render(
+      createElement(InPageRail, { ...defaultProps, onSelectTopicLayout }),
+    );
+
+    expect(container.querySelectorAll('.pagetollm-rail-card')).toHaveLength(2);
+    expect(container.querySelector('.pagetollm-topic-card')).toBeNull();
+    const toggle = container.querySelector('.pagetollm-rail-layout-toggle');
+    expect(toggle.textContent).toBe('C');
+    act(() => toggle.click());
+    expect(onSelectTopicLayout).toHaveBeenCalledWith('cards');
+
+    rerender(
+      createElement(InPageRail, { ...defaultProps, onSelectTopicLayout, topicLayout: 'cards' }),
+    );
+    expect(container.querySelector('.pagetollm-notes-layer')).toBeNull();
+    const cards = container.querySelectorAll('.pagetollm-topic-card');
+    expect(cards).toHaveLength(2);
+    expect(cards[0].textContent).toContain('2 sent.');
+    expect(container.querySelector('.pagetollm-rail-track').style.transform).toBe(
+      'translateY(0px)',
+    );
+    act(() => container.querySelector('.pagetollm-rail-layout-toggle').click());
+    expect(onSelectTopicLayout).toHaveBeenLastCalledWith('notes');
+
+    // Back to notes: the fixed layer must be a fresh node, not the card track
+    // reused with its scroll transform, which would double the offset.
+    rerender(createElement(InPageRail, { ...defaultProps, onSelectTopicLayout }));
+    const layer = container.querySelector('.pagetollm-notes-layer');
+    expect(layer.style.transform).toBe('');
+    expect(layer.querySelector('.pagetollm-rail-track').style.transform).toBe('translateY(0px)');
+
+    unmount();
+  });
+
+  it('hides the topic layout toggle outside topics mode and without a handler', () => {
+    const { container, rerender, unmount } = render(createElement(InPageRail, defaultProps));
+    expect(container.querySelector('.pagetollm-rail-layout-toggle')).toBeNull();
+
+    rerender(
+      createElement(InPageRail, {
+        ...defaultProps,
+        mode: 'summaries',
+        onSelectTopicLayout: vi.fn(),
+      }),
+    );
+    expect(container.querySelector('.pagetollm-rail-layout-toggle')).toBeNull();
+
+    unmount();
+  });
+
   it('shows parent topics as a muted part of nested card titles', () => {
     const nestedCard = {
       ...mockCards[1],

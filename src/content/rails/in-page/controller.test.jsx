@@ -644,6 +644,25 @@ describe('openInPageRail', () => {
       expect(getRailOriginTop).toHaveBeenCalledTimes(2);
     });
 
+    it('opens topics as margin notes and switches to the card layout from the head', async () => {
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'topics');
+      });
+      expect(rail().dataset.topicLayout).toBe('notes');
+
+      await act(async () => {
+        rail().querySelector('.pagetollm-rail-layout-toggle').click();
+      });
+      expect(rail().dataset.topicLayout).toBe('cards');
+      expect(rail().querySelector('.pagetollm-notes-layer')).toBeNull();
+
+      await act(async () => {
+        rail().querySelector('.pagetollm-rail-layout-toggle').click();
+      });
+      expect(rail().dataset.topicLayout).toBe('notes');
+      expect(rail().querySelector('.pagetollm-notes-layer')).not.toBeNull();
+    });
+
     it('updates the mode attribute used to fix chat while switching rail modes', async () => {
       await act(async () => {
         await openInPageRail({ key: 'rail-key' }, 'chat');

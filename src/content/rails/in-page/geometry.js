@@ -69,7 +69,8 @@ export function computeCardVerticalBox(
 ) {
   if (!sentences || sentences.length === 0) return null;
   let top = Infinity,
-    bottom = -Infinity;
+    bottom = -Infinity,
+    right = -Infinity;
   const isLaidOut = (rect) => rect && (rect.width > 0 || rect.height > 0);
   const scrollTop = getScrollTop(scrollContainer, win);
   for (const sNum of sentences) {
@@ -84,8 +85,12 @@ export function computeCardVerticalBox(
     const sBottom = Math.max(...rects.map((r) => r.bottom)) + scrollTop - railOriginTop;
     if (sTop < top) top = sTop;
     if (sBottom > bottom) bottom = sBottom;
+    const sRight = Math.max(...rects.map((r) => r.right));
+    if (sRight > right) right = sRight;
   }
   if (!Number.isFinite(top) || !Number.isFinite(bottom)) return null;
   const clampedTop = Math.max(0, top);
-  return { top: clampedTop, height: Math.max(40, bottom - clampedTop) };
+  // `right` is the text edge in viewport x (horizontal scroll is not tracked):
+  // topic notes are drawn just past it, beside the sentences they annotate.
+  return { top: clampedTop, height: Math.max(40, bottom - clampedTop), right };
 }

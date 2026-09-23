@@ -2,6 +2,13 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallba
 import { computeSummaryCursorState, SUMMARY_CURSOR_MIN_TOP } from './summaryCursor.js';
 import ArticleChat from '../../../chat/ArticleChat.jsx';
 import { HierarchicalCardTitle, RailHead } from '../shared/RailControls.jsx';
+import {
+  BRACE_WIDTH,
+  curlyBracePath,
+  computeNoteColumn,
+  getViewportWidth,
+  layoutNotes,
+} from './marginNotes.js';
 
 const SUMMARIES_DISABLED_NOTICE = (
   <div className="pagetollm-rail-empty">
@@ -10,29 +17,74 @@ const SUMMARIES_DISABLED_NOTICE = (
   </div>
 );
 
-function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen }) {
+function CurlyBrace({ height }) {
+  const d = curlyBracePath(BRACE_WIDTH, height);
+  return (
+    <svg
+      className="pagetollm-note-brace"
+      width={BRACE_WIDTH}
+      height={height}
+      viewBox={`0 0 ${BRACE_WIDTH} ${height}`}
+      aria-hidden="true"
+    >
+      {/* Wide transparent stroke: the visible pen line is too thin to hover. */}
+      <path className="pagetollm-note-brace-hit" d={d} />
+      <path className="pagetollm-note-brace-line" d={d} />
+    </svg>
+  );
+}
+
+function RailCard({ card, isFront, onEnter, onLeave, onFocus, onOpen }) {
   const style = {
     top: `${card.box.top}px`,
+    height: `${card.box.height}px`,
     '--pagetollm-card-accent': card.accent,
     '--pagetollm-card-top': `${card.box.top}px`,
     '--pagetollm-card-height': `${card.box.height}px`,
   };
-  if (isSummary) {
-    style.height = `${card.box.height}px`;
-  } else {
-    style.minHeight = `${card.box.height}px`;
-  }
 
   return (
     <button
       type="button"
-      className={[
-        'pagetollm-rail-card',
-        isSummary ? 'is-summary' : 'is-topic',
-        isFront ? 'is-front' : '',
-      ]
+      className={['pagetollm-rail-card', 'is-topic', isFront ? 'is-front' : '']
         .filter(Boolean)
         .join(' ')}
+      style={style}
+      title={`${card.sentences.length} sent.`}
+      onMouseEnter={() => onEnter(card)}
+      onMouseLeave={() => onLeave(card)}
+      onFocus={(event) => onFocus(card, event.currentTarget)}
+      onPointerDown={() => onFocus(card)}
+      onClick={() => onOpen(card)}
+    >
+      <CurlyBrace height={card.box.height} />
+      <span className="pagetollm-note-label">
+        <HierarchicalCardTitle
+          className="pagetollm-rail-card-title"
+          name={card.name}
+          path={card.path}
+        />
+      </span>
+    </button>
+  );
+}
+
+const MemoizedRailCard = React.memo(RailCard);
+
+// Classic layout: a card in the rail column, opposite its sentences.
+function TopicCard({ card, isFront, onEnter, onLeave, onFocus, onOpen }) {
+  const style = {
+    top: `${card.box.top}px`,
+    minHeight: `${card.box.height}px`,
+    '--pagetollm-card-accent': card.accent,
+    '--pagetollm-card-top': `${card.box.top}px`,
+    '--pagetollm-card-height': `${card.box.height}px`,
+  };
+
+  return (
+    <button
+      type="button"
+      className={isFront ? 'pagetollm-topic-card is-front' : 'pagetollm-topic-card'}
       style={style}
       onMouseEnter={() => onEnter(card)}
       onMouseLeave={() => onLeave(card)}
@@ -40,23 +92,19 @@ function RailCard({ card, isSummary, isFront, onEnter, onLeave, onFocus, onOpen 
       onPointerDown={() => onFocus(card)}
       onClick={() => onOpen(card)}
     >
-      <div className="pagetollm-rail-card-content">
+      <div className="pagetollm-topic-card-content">
         <HierarchicalCardTitle
           className="pagetollm-rail-card-title"
           name={card.name}
           path={card.path}
         />
-        {isSummary ? (
-          <div className="pagetollm-rail-card-body">{card.text || '(no summary)'}</div>
-        ) : (
-          <div className="pagetollm-rail-card-meta">{card.sentences.length} sent.</div>
-        )}
+        <div className="pagetollm-topic-card-meta">{card.sentences.length} sent.</div>
       </div>
     </button>
   );
 }
 
-const MemoizedRailCard = React.memo(RailCard);
+const MemoizedTopicCard = React.memo(TopicCard);
 
 function getScrollContainerTop(scrollContainer, scrollWindow = window) {
   if (!scrollContainer || scrollContainer === scrollWindow) return scrollWindow.scrollY;
@@ -370,12 +418,15 @@ export default function InPageRail({
   onClose,
   onSelectMode,
   onSelectLevel,
+  topicLayout = 'notes',
+  onSelectTopicLayout,
   onHighlightCard,
   onScrollToCard,
   scrollContainer,
   scrollWindow = window,
   isNestedScroll = Boolean(scrollContainer && scrollContainer !== scrollWindow),
   projectedScrollContainerTop = isNestedScroll ? scrollContainer.getBoundingClientRect().top : 0,
+  railOriginTop = 0,
   summariesDisabled = false,
   sentences = [],
   onChatHighlight,
@@ -389,6 +440,7 @@ export default function InPageRail({
   const trackRef = useRef(null);
   const isSummary = mode === 'summaries';
   const isChat = mode === 'chat';
+  const isNotes = topicLayout !== 'cards';
   const showSummariesDisabledNotice = isSummary && summariesDisabled;
 
   // Card boxes are laid out in the scroller's content space, while the rail body
@@ -443,34 +495,47 @@ export default function InPageRail({
   }, [
     isChat,
     isNestedScroll,
+    // Switching topic layout swaps the track element, which needs its offset.
+    isNotes,
     isSummary,
     projectedScrollContainerTop,
     scrollContainer,
     scrollWindow,
   ]);
 
+  // Recomputed on every render: the controller re-renders on viewport resize,
+  // which is the only thing besides the cards that moves the column.
+  const noteColumn = computeNoteColumn(cards, getViewportWidth(scrollWindow));
+
+  // Notes are measured once rendered, then spread out so none overlaps another.
+  useLayoutEffect(() => {
+    if (isSummary || isChat || !isNotes || !trackRef.current) return;
+    layoutNotes(trackRef.current, cards);
+  }, [cards, isChat, isNotes, isSummary, noteColumn.noteWidth]);
+
   const bringForward = useCallback((card) => setFrontCardId(card.id), []);
 
-  // Every card is rendered, including those for parts of the article that are
-  // scrolled away, so tabbing can land on a card outside the rail's visible
-  // band. The rail body clips rather than scrolls (see content-rail.css), which
-  // would leave that card focused but invisible — and a body scrolled by the
-  // browser to reveal it would desync the track from the page for good. Scroll
-  // the article to the card instead: the track follows the page, so the focused
-  // card comes into view beside its own sentences.
+  // Every note (or card) is rendered, including those for parts of the article
+  // that are scrolled away, so tabbing can land on one outside the visible band.
+  // Scroll the article to it: the track follows the page, so the focused note
+  // comes into view beside its own sentences. Cards are clipped by the rail
+  // body rather than scrolled (see content-rail.css), which would otherwise
+  // leave the card focused but invisible.
   const handleCardFocus = useCallback(
     (card, element) => {
       bringForward(card);
-      const body = bodyRef.current;
       // No element: a pointer press, which is already scrolling on its own.
-      if (!element || !body) return;
-      const bodyRect = body.getBoundingClientRect();
+      if (!element) return;
+      const bounds =
+        isNotes || !bodyRef.current
+          ? { top: 0, bottom: scrollWindow.innerHeight }
+          : bodyRef.current.getBoundingClientRect();
       const cardRect = element.getBoundingClientRect();
-      const isOnScreen = cardRect.bottom > bodyRect.top && cardRect.top < bodyRect.bottom;
+      const isOnScreen = cardRect.bottom > bounds.top && cardRect.top < bounds.bottom;
       if (isOnScreen) return;
       onScrollToCard(card);
     },
-    [bringForward, onScrollToCard],
+    [bringForward, isNotes, onScrollToCard, scrollWindow],
   );
 
   const handleCardEnter = useCallback(
@@ -513,6 +578,8 @@ export default function InPageRail({
         selectedLevel={selectedLevel}
         onSelectLevel={onSelectLevel}
         onClose={onClose}
+        topicLayout={topicLayout}
+        onSelectTopicLayout={onSelectTopicLayout}
       />
       <div
         className={isChat ? 'pagetollm-rail-body is-chat' : 'pagetollm-rail-body'}
@@ -542,13 +609,16 @@ export default function InPageRail({
             onHighlightCard={onHighlightCard}
             onScrollToCard={onScrollToCard}
           />
-        ) : (
-          <div className="pagetollm-rail-track" ref={trackRef}>
+        ) : !isNotes ? (
+          // Distinct keys: both layouts render a <div> in this slot, and a
+          // reused node would carry the scroll transform written onto the card
+          // track over to the fixed notes layer, shifting every note up by the
+          // scroll offset on top of the inner track's own transform.
+          <div key="cards" className="pagetollm-rail-track" ref={trackRef}>
             {cards.map((card) => (
-              <MemoizedRailCard
+              <MemoizedTopicCard
                 key={card.id}
                 card={card}
-                isSummary={isSummary}
                 isFront={frontCardId === card.id}
                 onEnter={handleCardEnter}
                 onLeave={handleCardLeave}
@@ -556,6 +626,30 @@ export default function InPageRail({
                 onOpen={handleCardOpen}
               />
             ))}
+          </div>
+        ) : (
+          <div
+            key="notes"
+            className="pagetollm-notes-layer"
+            style={{
+              '--pagetollm-notes-origin': `${railOriginTop}px`,
+              '--pagetollm-notes-left': `${noteColumn.left}px`,
+              '--pagetollm-note-width': `${noteColumn.noteWidth}px`,
+            }}
+          >
+            <div className="pagetollm-rail-track" ref={trackRef}>
+              {cards.map((card) => (
+                <MemoizedRailCard
+                  key={card.id}
+                  card={card}
+                  isFront={frontCardId === card.id}
+                  onEnter={handleCardEnter}
+                  onLeave={handleCardLeave}
+                  onFocus={handleCardFocus}
+                  onOpen={handleCardOpen}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>

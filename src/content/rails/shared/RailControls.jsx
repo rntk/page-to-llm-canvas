@@ -22,9 +22,36 @@ function RailModeSelect({ mode, onSelectMode }) {
 }
 
 /**
+ * Topics-mode switch between the margin-note layout (drawn on the page) and
+ * the classic card column inside the rail, kept as a fallback for pages where
+ * notes beside the text are hard to read.
+ */
+function RailTopicLayoutToggle({ topicLayout, onSelectTopicLayout }) {
+  const isNotes = topicLayout !== 'cards';
+  const label = isNotes ? 'Switch to card view' : 'Switch to margin notes';
+  // Dressed as the level switcher so the head reads as one row of controls.
+  return (
+    <div className="pagetollm-rail-level-switcher">
+      <div className="pagetollm-rail-level-buttons">
+        <button
+          type="button"
+          className="pagetollm-rail-level-btn pagetollm-rail-layout-toggle"
+          aria-label={label}
+          title={label}
+          onClick={() => onSelectTopicLayout(isNotes ? 'cards' : 'notes')}
+        >
+          {isNotes ? 'C' : 'N'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Shared rail header: mode select, then either the chat-action portal target
  * or the level switcher, then the close button. Both rails render this same
- * structure.
+ * structure; only the in-page rail passes `onSelectTopicLayout`, which adds
+ * the topic layout toggle in topics mode.
  */
 export function RailHead({
   mode,
@@ -35,7 +62,10 @@ export function RailHead({
   selectedLevel,
   onSelectLevel,
   onClose,
+  topicLayout,
+  onSelectTopicLayout,
 }) {
+  const showLayoutToggle = Boolean(onSelectTopicLayout) && normalizeRailMode(mode) === 'topics';
   return (
     <div className="pagetollm-rail-head">
       <RailModeSelect mode={mode} onSelectMode={onSelectMode} />
@@ -48,6 +78,12 @@ export function RailHead({
           onSelectLevel={onSelectLevel}
         />
       )}
+      {showLayoutToggle ? (
+        <RailTopicLayoutToggle
+          topicLayout={topicLayout}
+          onSelectTopicLayout={onSelectTopicLayout}
+        />
+      ) : null}
       <button
         className="pagetollm-rail-close"
         type="button"

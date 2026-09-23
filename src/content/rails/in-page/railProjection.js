@@ -91,7 +91,7 @@ export function buildRailCards({
   const adjustedById = new Map(resolved.map((card) => [card.key, card]));
   for (const card of cardSpecs) {
     const adjusted = adjustedById.get(card.id);
-    if (adjusted) card.box = { top: adjusted.top, height: adjusted.height };
+    if (adjusted) card.box = { ...card.box, top: adjusted.top, height: adjusted.height };
   }
   cardSpecs.sort((a, b) => a.box.top - b.box.top);
 

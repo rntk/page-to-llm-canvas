@@ -134,7 +134,201 @@
   text-align: center;
 }
 
-.pagetollm-rail-card {
+/* ── Topics as margin notes ────────────────────────────────────────────────
+   Topics are drawn on the page itself, like pen notes in a book: a curly
+   brace just past the right edge of the article text, as tall as the topic's
+   sentences, with the topic written at its tip. Placement comes from
+   marginNotes.js; the note layer is fixed to the viewport, so it escapes the
+   rail's clipping, and its track is translated with the page scroll.
+
+   The rail lives in the host page's DOM, not a shadow root, so page rules for
+   bare `button`/`svg`/`span` would otherwise restyle the notes. Rules here are
+   scoped under the rail host's id to outrank them, and the properties pages
+   commonly set on those elements are pinned explicitly. */
+
+/* In the notes layout of topics mode the rail is only its header: the notes live
+   on the page, and the reserved strip beside the article is where they are written. */
+#pagetollm-in-page-rail[data-mode='topics'][data-topic-layout='notes'] {
+  background: transparent;
+  border-left-color: transparent;
+  pointer-events: none;
+}
+
+#pagetollm-in-page-rail[data-mode='topics'][data-topic-layout='notes'] .pagetollm-rail-head {
+  border-left: 1px solid var(--ink);
+  pointer-events: auto;
+}
+
+.pagetollm-notes-layer {
+  position: fixed;
+  inset: var(--pagetollm-notes-origin, 0) 0 0 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* Only the brace and the note take the pointer; the rest of the card box is
+   article (or empty margin) and must stay clickable. */
+#pagetollm-in-page-rail .pagetollm-rail-card {
+  appearance: none !important;
+  position: absolute;
+  left: var(--pagetollm-notes-left, 0);
+  z-index: 1;
+  display: block;
+  box-sizing: border-box;
+  width: 14px; /* BRACE_WIDTH in marginNotes.js */
+  min-width: 0;
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: var(--on-surface);
+  font: inherit;
+  letter-spacing: normal;
+  text-align: left;
+  text-shadow: none;
+  text-transform: none;
+  cursor: pointer;
+  overflow: visible;
+  outline: none;
+  pointer-events: none;
+}
+
+#pagetollm-in-page-rail .pagetollm-rail-card:hover,
+#pagetollm-in-page-rail .pagetollm-rail-card:focus,
+#pagetollm-in-page-rail .pagetollm-rail-card.is-front {
+  z-index: 1000;
+}
+
+#pagetollm-in-page-rail .pagetollm-note-brace {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 14px !important;
+  height: var(--pagetollm-card-height) !important;
+  max-width: none !important;
+  overflow: visible;
+  pointer-events: none;
+}
+
+#pagetollm-in-page-rail .pagetollm-note-brace-hit {
+  fill: none !important;
+  stroke: transparent;
+  stroke-width: 12px;
+  pointer-events: stroke;
+}
+
+#pagetollm-in-page-rail .pagetollm-note-brace-line {
+  fill: none !important;
+  stroke: var(--pagetollm-card-accent, currentcolor);
+  stroke-width: 1.5px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.75;
+  transition:
+    opacity 0.15s ease,
+    stroke-width 0.15s ease;
+}
+
+#pagetollm-in-page-rail .pagetollm-rail-card:hover .pagetollm-note-brace-line,
+#pagetollm-in-page-rail .pagetollm-rail-card:focus .pagetollm-note-brace-line,
+#pagetollm-in-page-rail .pagetollm-rail-card.is-front .pagetollm-note-brace-line {
+  opacity: 1;
+  stroke-width: 2.5px;
+}
+
+/* The note sits at the brace tip, where layoutNotes() put it (--pagetollm-note-y).
+   A brace taller than the viewport would carry its note off screen, so the note
+   is also held inside the visible band while the brace is, never leaving the
+   brace's own span: emulated stickiness, as nothing scrolls inside the layer. */
+#pagetollm-in-page-rail .pagetollm-note-label {
+  --pagetollm-note-visible-top: calc(
+    var(--pagetollm-scroll-offset, 0px) + 8px - var(--pagetollm-card-top, 0px)
+  );
+  --pagetollm-note-visible-bottom: calc(
+    var(--pagetollm-scroll-offset, 0px) + 100vh - var(--pagetollm-notes-origin, 0px) - 8px -
+      var(--pagetollm-card-top, 0px) - var(--pagetollm-note-h, 0px)
+  );
+
+  position: absolute;
+  top: 0;
+  left: 18px; /* BRACE_WIDTH + NOTE_GAP in marginNotes.js */
+  display: block;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: var(--pagetollm-note-width, 288px);
+  padding: 6px 8px;
+  background: var(--surface);
+  border: 1px solid var(--ghost);
+  border-radius: 0;
+  box-shadow: none;
+  pointer-events: auto;
+
+  /* Only a title far longer than any real topic name scrolls, instead of
+     running down the page over the notes below it. */
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  transform: translateY(
+    clamp(
+      var(--pagetollm-note-y-min, 0px),
+      clamp(
+        var(--pagetollm-note-visible-top),
+        var(--pagetollm-note-y, 0px),
+        var(--pagetollm-note-visible-bottom)
+      ),
+      var(--pagetollm-note-y-max, 0px)
+    )
+  );
+  transition: border-color 0.15s ease;
+}
+
+#pagetollm-in-page-rail .pagetollm-rail-card:hover .pagetollm-note-label,
+#pagetollm-in-page-rail .pagetollm-rail-card.is-front .pagetollm-note-label {
+  border-color: var(--ink);
+}
+
+#pagetollm-in-page-rail .pagetollm-rail-card:focus-visible .pagetollm-note-label {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+#pagetollm-in-page-rail .pagetollm-note-label .pagetollm-rail-card-title {
+  display: block;
+  font-family: var(--font-data);
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--on-surface);
+  white-space: normal;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* Unclamped: the note grows with its text so no title is cut short. */
+#pagetollm-in-page-rail .pagetollm-note-label .pagetollm-rail-card-parent-topics {
+  display: block;
+  font-family: var(--font-data);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--on-surface-muted);
+}
+
+/* ── Topics as rail cards (classic layout) ─────────────────────────────────
+   Fallback for pages where margin notes beside the text are hard to read:
+   each topic is a card in the rail column, opposite its sentences, toggled
+   from the rail head (data-topic-layout='cards'). */
+.pagetollm-topic-card {
   appearance: none !important;
   position: absolute;
   left: 12px;
@@ -156,7 +350,7 @@
   transition: transform 0.1s ease;
 }
 
-.pagetollm-rail-card-content {
+.pagetollm-topic-card-content {
   position: relative;
   z-index: 2;
   flex: 1 1 auto;
@@ -168,67 +362,31 @@
   background: var(--surface);
 }
 
-.pagetollm-rail-card.is-summary .pagetollm-rail-card-content {
-  position: sticky;
-  top: var(--pagetollm-rail-sticky-offset);
-  background: var(--surface);
-  max-height: calc(100vh - 96px);
-  overflow: hidden;
-}
-
-.pagetollm-rail-card:hover,
-.pagetollm-rail-card:focus,
-.pagetollm-rail-card:focus-within,
-.pagetollm-rail-card.is-front {
+.pagetollm-topic-card:hover,
+.pagetollm-topic-card:focus,
+.pagetollm-topic-card:focus-within,
+.pagetollm-topic-card.is-front {
   z-index: 1000;
 }
 
-.pagetollm-rail-card:hover,
-.pagetollm-rail-card:focus,
-.pagetollm-rail-card.is-front {
+.pagetollm-topic-card:hover,
+.pagetollm-topic-card:focus,
+.pagetollm-topic-card.is-front {
   transform: translateX(-2px);
   border-color: var(--ink) !important;
   border-left-color: var(--pagetollm-card-accent, var(--ink)) !important;
 }
 
-.pagetollm-rail-card:focus {
+.pagetollm-topic-card:focus {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
-}
-
-.pagetollm-rail-card.is-summary {
-  background: var(--surface);
-}
-
-.pagetollm-rail-card-title {
-  display: block;
-  flex: 0 0 auto;
-  font-family: var(--font-data);
-  font-size: 18px;
-  font-weight: 500;
-  line-height: 1.25;
-  color: var(--on-surface);
-  white-space: normal;
-  overflow-wrap: break-word;
-  hyphens: auto;
-}
-
-.pagetollm-rail-card-parent-topics {
-  display: block;
-  color: var(--on-surface-muted);
-  font-size: 0.7em;
-  font-weight: 500;
-}
-
-.pagetollm-rail-card-current-topic {
-  display: block;
 }
 
 /* Emulated stickiness: nothing scrolls inside the rail, so the title is held
    near the top of the rail by offsetting it within its card, bounded by the
    card's own height. --pagetollm-scroll-offset is written by InPageRail.jsx
    alongside the track transform. */
-.pagetollm-rail-card.is-topic .pagetollm-rail-card-title {
+.pagetollm-topic-card .pagetollm-rail-card-title {
   --pagetollm-card-title-offset: max(
     0px,
     min(
@@ -242,14 +400,24 @@
 
   position: relative;
   z-index: 3;
-  transform: translateY(var(--pagetollm-card-title-offset, 0));
+  display: block;
+  flex: 0 0 auto;
   margin: -8px -10px 0;
   padding: 8px 10px 4px;
   background: var(--surface);
   box-shadow: 0 1px 0 rgb(58 64 77 / 12%);
+  font-family: var(--font-data);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.25;
+  color: var(--on-surface);
+  white-space: normal;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  transform: translateY(var(--pagetollm-card-title-offset, 0));
 }
 
-.pagetollm-rail-card-meta {
+.pagetollm-topic-card-meta {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -257,27 +425,16 @@
   color: var(--on-surface-muted);
 }
 
-.pagetollm-rail-card-body {
-  flex: 1 1 auto;
-  position: relative;
-  font-size: 15px;
-  line-height: 1.5;
-  color: var(--on-surface);
-  white-space: pre-wrap;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding-right: 4px;
-  scrollbar-width: thin;
+/* Shared by the summary and YouTube title rows. */
+.pagetollm-rail-card-parent-topics {
+  display: block;
+  color: var(--on-surface-muted);
+  font-size: 0.7em;
+  font-weight: 500;
 }
 
-.pagetollm-rail-card-body::-webkit-scrollbar {
-  width: 8px;
-}
-
-.pagetollm-rail-card-body::-webkit-scrollbar-thumb {
-  background: var(--ghost);
-  border-radius: 0;
+.pagetollm-rail-card-current-topic {
+  display: block;
 }
 
 .pagetollm-summary-cursor-line {
@@ -829,6 +986,9 @@
     animation: none;
   }
 
+  .pagetollm-note-brace-line,
+  .pagetollm-note-label,
+  .pagetollm-topic-card,
   .pagetollm-summary-topic,
   .pagetollm-yt-rail-card,
   .pagetollm-yt-rail-resume {

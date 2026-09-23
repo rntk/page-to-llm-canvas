@@ -111,6 +111,9 @@ export function createInPageRailController({
     let pendingMutations = [];
 
     const state = createRailState(initialMode, options);
+    // Topics open as margin notes; the classic card column is a per-rail
+    // fallback for pages where notes beside the text are hard to read.
+    state.topicLayout = 'notes';
 
     const maxLevel = computeMaxTopicLevel(record);
 
@@ -138,6 +141,7 @@ export function createInPageRailController({
       return false;
     }
     const { railEl, railRoot, setRailWidthForMode, isClosed } = surface;
+    railEl.dataset.topicLayout = state.topicLayout;
 
     let railOriginTop;
 
@@ -167,6 +171,15 @@ export function createInPageRailController({
       // sticky body can have a different viewport top from the topic body.
       renderRail({ measureOnly: true });
       measureRailOrigin();
+      renderRail();
+    };
+
+    const handleSelectTopicLayout = (layout) => {
+      if (isClosed()) return;
+      if (state.topicLayout === layout) return;
+      state.topicLayout = layout;
+      railEl.dataset.topicLayout = layout;
+      highlighter.clearAll();
       renderRail();
     };
 
@@ -218,12 +231,15 @@ export function createInPageRailController({
             onClose={closeRail}
             onSelectMode={handleSelectMode}
             onSelectLevel={handleSelectLevel}
+            topicLayout={state.topicLayout}
+            onSelectTopicLayout={handleSelectTopicLayout}
             onHighlightCard={handleHighlightCard}
             onScrollToCard={handleScrollToCard}
             scrollContainer={scrollContainer}
             scrollWindow={contentWindow}
             isNestedScroll={isNestedScroll}
             projectedScrollContainerTop={projectedScrollContainerTop}
+            railOriginTop={railOriginTop}
             summariesDisabled={record.summariesDisabled === true}
             sentences={sentences}
             onChatHighlight={handleChatHighlight}
