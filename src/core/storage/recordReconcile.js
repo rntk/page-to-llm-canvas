@@ -24,6 +24,7 @@ import {
   buildRecordSnippet,
   createContentRevision,
   isCurrentRecordMeta,
+  isFutureRecordMeta,
   isRecordMeta,
 } from './recordMeta.js';
 import { INDEX_KEY, buildRecordMeta, readIndex, writeIndex } from './recordIndex.js';
@@ -143,6 +144,12 @@ async function backfillTextRevisions(metas) {
 /**
  * Removes invalid or ownerless record documents, then rebuilds the index from
  * records written in the current storage schema.
+ *
+ * Schema policy: records older than the current schema (no or a lower
+ * `storageSchemaVersion`) are deliberately dropped, not migrated. Records from
+ * a newer schema are quarantined in place: they and every document under their
+ * key prefix are left untouched and kept out of the index, so a later upgrade
+ * finds them intact.
  */
 export async function reconcileRecordStorage() {
   return queuedUpdate(MUTATION_QUEUE_KEY, () =>
@@ -162,15 +169,33 @@ export async function reconcileRecordStorage() {
       }
 
       const metas = new Map();
+      const quarantinedPrefixes = new Set();
       const obsoleteKeys = new Set();
       await forEachStoredDocument(metaKeys, RECONCILE_METADATA_BATCH_SIZE, (storageKey, meta) => {
         const key = recordKeyFromStorageDocument(storageKey, ':meta');
-        if (!key || metaStorageKey(key) !== storageKey || !isCurrentRecordMeta(meta)) {
+        if (!key || metaStorageKey(key) !== storageKey) {
           obsoleteKeys.add(storageKey);
-          return;
+        } else if (isFutureRecordMeta(meta)) {
+          quarantinedPrefixes.add(recordStoragePrefix(key));
+        } else if (!isCurrentRecordMeta(meta)) {
+          obsoleteKeys.add(storageKey);
+        } else {
+          metas.set(key, meta);
         }
-        metas.set(key, meta);
       });
+      if (quarantinedPrefixes.size) {
+        log.warn(
+          `leaving ${quarantinedPrefixes.size} record(s) from a newer storage schema untouched`,
+        );
+      }
+      // A newer schema may add document kinds this build does not recognise,
+      // so quarantine goes by key prefix rather than by known suffixes. Record
+      // key segments are URI-encoded and never contain `:`, so the owning
+      // prefix is everything up to the first `:` after the namespace.
+      const isQuarantined = (storageKey) => {
+        const end = storageKey.indexOf(':', RECORD_STORAGE_PREFIX.length);
+        return end !== -1 && quarantinedPrefixes.has(storageKey.slice(0, end + 1));
+      };
 
       const ownedByCurrentRecord = (storageKey) => {
         const owner = recognizedRecordDocumentOwner(storageKey);
@@ -180,9 +205,12 @@ export async function reconcileRecordStorage() {
       };
 
       for (const storageKey of payloadKeys) {
-        if (!ownedByCurrentRecord(storageKey)) obsoleteKeys.add(storageKey);
+        if (!ownedByCurrentRecord(storageKey) && !isQuarantined(storageKey)) {
+          obsoleteKeys.add(storageKey);
+        }
       }
-      await forEachStoredDocument(workKeys, RECONCILE_METADATA_BATCH_SIZE, (storageKey, value) => {
+      const ownWorkKeys = workKeys.filter((storageKey) => !isQuarantined(storageKey));
+      await forEachStoredDocument(ownWorkKeys, RECONCILE_METADATA_BATCH_SIZE, (storageKey, value) => {
         const owner = ownedByCurrentRecord(storageKey);
         if (!owner || !workDocumentMatchesOwnerGeneration(storageKey, value, metas.get(owner))) {
           obsoleteKeys.add(storageKey);
@@ -237,7 +265,9 @@ export async function reconcileRecordStorage() {
       for (const key of current.keys) addRecord(key);
       for (const key of metas.keys()) addRecord(key);
 
-      const uniqueObsoleteKeys = [...obsoleteKeys];
+      // The meta pass can mark a future record's documents obsolete (e.g. a
+      // `…:cache:meta` doc) before that record's prefix is known.
+      const uniqueObsoleteKeys = [...obsoleteKeys].filter((storageKey) => !isQuarantined(storageKey));
       if (uniqueObsoleteKeys.length) await removeLocal(uniqueObsoleteKeys);
       if (JSON.stringify(current) !== JSON.stringify(next)) await writeIndex(next);
 

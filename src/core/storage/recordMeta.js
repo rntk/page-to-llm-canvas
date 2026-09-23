@@ -1,6 +1,6 @@
 // Record-level metadata primitives: the small `:meta` document every record
-// write goes through, the schema-version guard that decides whether a stored
-// document is still readable, and the snippet derivation the index projection
+// write goes through, the schema-version guards that decide whether a stored
+// document is still readable (or belongs to a newer build and must be kept), and the snippet derivation the index projection
 // caches. Kept below the index, log and reconciliation modules so all three can
 // share them without importing each other.
 import { getLocal } from './primitives.js';
@@ -20,6 +20,20 @@ export function isRecordMeta(value) {
 
 export function isCurrentRecordMeta(value) {
   return isRecordMeta(value) && value.storageSchemaVersion === RECORD_STORAGE_SCHEMA_VERSION;
+}
+
+/**
+ * A meta doc written by a newer build (e.g. before an extension downgrade).
+ * This build cannot read it, but must never delete or overwrite it: the newer
+ * build owns it again after the next upgrade.
+ * @param {unknown} value Stored meta document.
+ */
+export function isFutureRecordMeta(value) {
+  return (
+    isRecordMeta(value) &&
+    Number.isInteger(value.storageSchemaVersion) &&
+    value.storageSchemaVersion > RECORD_STORAGE_SCHEMA_VERSION
+  );
 }
 
 /**

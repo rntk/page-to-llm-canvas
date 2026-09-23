@@ -1224,6 +1224,44 @@ describe('storage schema boundary', () => {
       ]),
     );
   });
+
+  it('quarantines records from a newer schema instead of removing them', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(makeRecord('current'));
+    const futureDocs = {
+      'pagetollm:rec:future:meta': { key: 'future', status: 'done', storageSchemaVersion: 3 },
+      'pagetollm:rec:future:content': { html: '<p>future</p>' },
+      'pagetollm:rec:future:summary-leaf:Root': { contentRevision: 'unknown' },
+      'pagetollm:rec:future:some-new-doc': { anything: true },
+      'pagetollm:rec:future:cache:meta': { anything: true },
+    };
+    for (const [storageKey, value] of Object.entries(futureDocs)) {
+      mock.storage.local._store.set(storageKey, value);
+    }
+
+    await expect(reconcileRecordStorage()).resolves.toMatchObject({
+      recordCount: 1,
+      removedKeys: 0,
+    });
+    await reconcileRecordStorage();
+
+    for (const [storageKey, value] of Object.entries(futureDocs)) {
+      expect(mock.storage.local._store.get(storageKey)).toEqual(value);
+    }
+    expect(await readRecord('future')).toBeNull();
+    expect((await listRecords()).map((record) => record.key)).toEqual(['current']);
+  });
+
+  it('refuses to overwrite a record from a newer schema', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    const futureMeta = { key: 'future', status: 'done', storageSchemaVersion: 3 };
+    mock.storage.local._store.set('pagetollm:rec:future:meta', futureMeta);
+
+    await expect(writeRecord(makeRecord('future'))).rejects.toThrow(/newer storage schema/);
+    expect(mock.storage.local._store.get('pagetollm:rec:future:meta')).toEqual(futureMeta);
+  });
 });
 
 describe('record view reads', () => {

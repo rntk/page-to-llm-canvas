@@ -31,6 +31,7 @@ import {
   createContentRevision,
   hasOwn,
   isCurrentRecordMeta,
+  isFutureRecordMeta,
   isStaleRun,
   loadMetaForWrite,
 } from './recordMeta.js';
@@ -283,7 +284,13 @@ export async function writeRecord(rec, options = {}) {
     return queuedUpdate(rec.key, async () => {
       const metaKey = metaStorageKey(rec.key);
       const docKeys = staticRecordDocumentKeys(rec.key);
-      const existingMeta = await loadMetaForWrite(rec.key);
+      const storedMeta = (await getLocal(metaKey))[metaKey];
+      if (isFutureRecordMeta(storedMeta)) {
+        throw new Error(
+          `writeRecord: ${rec.key} belongs to a newer storage schema (v${storedMeta.storageSchemaVersion})`,
+        );
+      }
+      const existingMeta = isCurrentRecordMeta(storedMeta) ? storedMeta : null;
       if (options.onlyIfAbsent === true && existingMeta) return false;
       // Always discover work documents, including for a missing meta. A prior
       // interrupted delete can leave owner-shaped leaves behind; a new record
