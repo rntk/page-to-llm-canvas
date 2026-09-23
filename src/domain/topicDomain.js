@@ -188,9 +188,15 @@ export function normalizeSummaryRuns(runs, sourceSentences) {
 
 /**
  * Build the shared display-path topic hierarchy tree from a flat topic list,
- * truncated at `maxLevel`. Every hierarchy projection (canvas cards, in-page
- * rail, YouTube rail) derives from this single accumulation of path splitting,
- * level limiting and sentence roll-up.
+ * truncated at `maxLevel`. The chronological projections (canvas cards, in-page
+ * rail, YouTube rail) derive from this single accumulation of path splitting,
+ * level limiting and sentence roll-up; they then split each node's sentences
+ * into contiguous runs ordered by source position.
+ *
+ * The hierarchy view intentionally does NOT use this builder. It shows an
+ * aggregated outline (one node per path) built by `buildTopicTree` in
+ * topicTree.js, so the two views can lay out the same record differently.
+ * See flows/09-hierarchy.md.
  *
  * @param {Array<{name: string, sentences?: number[]}>} topics
  * @param {number} maxLevel Deepest zero-based level to include.
