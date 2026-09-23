@@ -72,8 +72,11 @@ export function createLLMService(overrides = {}) {
   const call = (options) => callLLMUsing(callDirect, options);
   const callWithRetry = (options, maxRetries) =>
     callLLMWithRetryUsing(call, dependencies, options, maxRetries);
+  const callDirectWithRetry = (options, maxRetries) =>
+    callLLMDirectWithRetryUsing(callDirect, dependencies, options, maxRetries);
   return Object.freeze({
     callLLMDirect: callDirect,
+    callLLMDirectWithRetry: callDirectWithRetry,
     callLLM: call,
     callLLMWithRetry: callWithRetry,
   });
@@ -311,6 +314,83 @@ async function callLLMUsing(callDirect, options) {
  * @returns {Promise<string>}
  */
 async function callLLMWithRetryUsing(call, dependencies, opts, maxRetries = 3) {
+  return runWithRetryPolicy(
+    dependencies,
+    opts.signal,
+    maxRetries,
+    () => call(opts),
+    (content) => ({ done: true, value: content }),
+  );
+}
+
+/**
+ * Same retry policy as callLLMWithRetryUsing, but resolves with the direct
+ * result object (tool calls, finishReason, partial text) instead of throwing
+ * on failure. Chat needs that full shape; truncated `ok: true` responses are
+ * returned as-is rather than retried.
+ * @param {Function} callDirect Direct LLM request function.
+ * @param {object} dependencies External LLM capabilities.
+ * @param {object} opts Request options accepted by callLLMDirect.
+ * @param {number} [maxRetries]
+ * @returns {Promise<LLMDirectResult>}
+ */
+async function callLLMDirectWithRetryUsing(callDirect, dependencies, opts, maxRetries = 3) {
+  let lastResult;
+  try {
+    return await runWithRetryPolicy(
+      dependencies,
+      opts.signal,
+      maxRetries,
+      () => callDirect(opts),
+      (result) => {
+        if (result.ok) return { done: true, value: result };
+        lastResult = result;
+        const error = new Error(result.error || 'LLM request failed');
+        if (Number.isFinite(result.status)) error.status = result.status;
+        if (Number.isFinite(result.retryAfterMs)) error.retryAfterMs = result.retryAfterMs;
+        if (result.retryable === false) error.retryable = false;
+        return { done: false, error };
+      },
+    );
+  } catch (e) {
+    // Aborts propagate; exhausted or non-retryable failures resolve with the
+    // last provider result so callers keep the `{ok: false, ...}` contract.
+    if (e?.name === 'AbortError' || !lastResult) throw e;
+    return lastResult;
+  }
+}
+
+/**
+ * Whether a failed attempt can succeed on retry.
+ * @param {*} e Attempt error.
+ * @returns {boolean}
+ */
+function isRetryableFailure(e) {
+  if (e?.name === 'AbortError' || e?.retryable === false) return false;
+  // A 4xx status other than 408 (timeout) or 429 (rate limit) reflects a
+  // malformed/unauthorized request that will never succeed on retry.
+  // Statusless errors (network failures, timeouts) and 408/429/5xx remain retryable.
+  return !(
+    Number.isFinite(e?.status) &&
+    e.status >= 400 &&
+    e.status < 500 &&
+    e.status !== 408 &&
+    e.status !== 429
+  );
+}
+
+/**
+ * Shared attempt loop: retryable-failure classification, equal-jitter
+ * exponential backoff, Retry-After honoring, and abort-aware sleeps.
+ * @param {object} dependencies External LLM capabilities.
+ * @param {AbortSignal} [signal]
+ * @param {number} [maxRetries]
+ * @param {function(): Promise<*>} attempt Runs one request; may throw.
+ * @param {function(*): {done: boolean, value?: *, error?: Error}} settle
+ *   Classifies a resolved attempt as success or as a failure to retry.
+ * @returns {Promise<*>}
+ */
+async function runWithRetryPolicy(dependencies, signal, maxRetries, attempt, settle) {
   const {
     random,
     logWarn,
@@ -322,43 +402,34 @@ async function callLLMWithRetryUsing(call, dependencies, opts, maxRetries = 3) {
   // `throw lastErr` with lastErr still undefined — always make at least one attempt.
   const attempts = Number.isFinite(maxRetries) && maxRetries >= 1 ? Math.trunc(maxRetries) : 1;
   let lastErr;
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    if (opts.signal?.aborted) {
+  for (let i = 0; i < attempts; i++) {
+    if (signal?.aborted) {
       throw makeAbortError('LLM request aborted');
     }
+    let e;
     try {
-      return await call(opts);
-    } catch (e) {
-      lastErr = e;
-      if (opts.signal?.aborted || e?.name === 'AbortError') break;
-      if (e?.retryable === false) break;
-      // A 4xx status other than 408 (timeout) or 429 (rate limit) reflects a
-      // malformed/unauthorized request that will never succeed on retry.
-      // Statusless errors (network failures, timeouts) and 408/429/5xx remain retryable.
-      if (
-        Number.isFinite(e?.status) &&
-        e.status >= 400 &&
-        e.status < 500 &&
-        e.status !== 408 &&
-        e.status !== 429
-      ) {
-        break;
-      }
-      logWarn('attempt failed:', {
-        attempt: attempt + 1,
-        maxRetries: attempts,
-        error: (e && e.message) || String(e),
-      });
-      if (attempt === attempts - 1) break;
-      // Equal-jitter backoff spreads retries so multiple concurrent requests
-      // that failed together do not all retry in lockstep.
-      let delay = 1000 * Math.pow(2, attempt) * (0.5 + random());
-      if (Number.isFinite(e?.retryAfterMs) && e.retryAfterMs > 0) {
-        // Honor the provider's Retry-After when present, capped at 60s.
-        delay = Math.min(Math.max(e.retryAfterMs, delay), 60_000);
-      }
-      await sleepWithAbort(delay, opts.signal, scheduler);
+      const outcome = settle(await attempt());
+      if (outcome.done) return outcome.value;
+      e = outcome.error;
+    } catch (thrown) {
+      e = thrown;
     }
+    lastErr = e;
+    if (signal?.aborted || !isRetryableFailure(e)) break;
+    logWarn('attempt failed:', {
+      attempt: i + 1,
+      maxRetries: attempts,
+      error: (e && e.message) || String(e),
+    });
+    if (i === attempts - 1) break;
+    // Equal-jitter backoff spreads retries so multiple concurrent requests
+    // that failed together do not all retry in lockstep.
+    let delay = 1000 * Math.pow(2, i) * (0.5 + random());
+    if (Number.isFinite(e?.retryAfterMs) && e.retryAfterMs > 0) {
+      // Honor the provider's Retry-After when present, capped at 60s.
+      delay = Math.min(Math.max(e.retryAfterMs, delay), 60_000);
+    }
+    await sleepWithAbort(delay, signal, scheduler);
   }
   throw lastErr;
 }
@@ -381,6 +452,17 @@ const defaultLLMService = createLLMService();
  */
 export function callLLMDirect(options) {
   return defaultLLMService.callLLMDirect(options);
+}
+
+/**
+ * Makes a completion request with the same retry policy as callLLMWithRetry,
+ * resolving with the direct result object rather than throwing on failure.
+ * @param {object} options Request options accepted by callLLMDirect.
+ * @param {number} [maxRetries] Maximum provider attempts.
+ * @returns {Promise<LLMDirectResult>} Result of the last attempt.
+ */
+export function callLLMDirectWithRetry(options, maxRetries = 3) {
+  return defaultLLMService.callLLMDirectWithRetry(options, maxRetries);
 }
 
 /**

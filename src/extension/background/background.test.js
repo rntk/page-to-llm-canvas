@@ -2448,7 +2448,7 @@ describe('dispatchMessage unit tests', () => {
     const chromeMock = makeChromeMock();
     const dispatchMessage = await loadDispatchMessage(chromeMock);
 
-    // No provider is configured, so callLLMDirect returns a failure — but the
+    // No provider is configured, so callLLMDirectWithRetry returns a failure — but the
     // handler must still record a metric so failed chat calls stay visible.
     const res = await dispatchMessage({
       type: 'llmChatCompletion',

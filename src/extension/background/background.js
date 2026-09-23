@@ -32,7 +32,7 @@ import {
   isSummaryCheckpointComplete,
   isSummaryCheckpointRevisionCurrent,
 } from './pipeline/orchestrator.js';
-import { callLLMDirect, callLLMWithRetry } from '../../core/llm/llm.js';
+import { callLLMDirectWithRetry, callLLMWithRetry } from '../../core/llm/llm.js';
 import { createAdjustableLimiter } from '../../core/llm/concurrency.js';
 import { clearLlmMetrics, recordLlmMetric, wrapCallLLMWithRetry } from '../../core/metrics/llm.js';
 import { clearChatToolMetrics, recordChatToolMetric } from '../../core/metrics/chatTool.js';
@@ -181,7 +181,7 @@ const pipelineSupervisor = createPipelineSupervisor({
 });
 
 const chatService = createChatCompletionService({
-  callLLMDirect,
+  callLLMDirectWithRetry,
   recordLlmMetric,
   limit: (task, signal) => providerLimiter.run(task, signal, { priority: true }),
 });

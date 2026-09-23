@@ -13,8 +13,8 @@ import { createChatCompletionService } from './chatCompletionService.js';
 /** Builds a service whose provider call resolves only when told to. */
 function makeService(overrides = {}) {
   const deferred = [];
-  const callLLMDirect =
-    overrides.callLLMDirect ||
+  const callLLMDirectWithRetry =
+    overrides.callLLMDirectWithRetry ||
     vi.fn(
       (args) =>
         new Promise((resolve, reject) => {
@@ -24,14 +24,14 @@ function makeService(overrides = {}) {
   const recordLlmMetric = overrides.recordLlmMetric || vi.fn(async () => {});
   let now = 1000;
   const service = createChatCompletionService({
-    callLLMDirect,
+    callLLMDirectWithRetry,
     recordLlmMetric,
     clock: () => now,
     ...overrides.serviceOptions,
   });
   return {
     service,
-    callLLMDirect,
+    callLLMDirectWithRetry,
     recordLlmMetric,
     deferred,
     advance: (ms) => {
@@ -43,19 +43,19 @@ function makeService(overrides = {}) {
 describe('createChatCompletionService (no chrome global)', () => {
   it('rejects a turn with neither prompt nor messages before calling the provider', async () => {
     expect(globalThis.chrome).toBeUndefined();
-    const { service, callLLMDirect, recordLlmMetric } = makeService();
+    const { service, callLLMDirectWithRetry, recordLlmMetric } = makeService();
 
     await expect(service.complete({ messages: [] })).resolves.toEqual({
       ok: false,
       error: 'missing prompt or messages',
     });
-    expect(callLLMDirect).not.toHaveBeenCalled();
+    expect(callLLMDirectWithRetry).not.toHaveBeenCalled();
     expect(recordLlmMetric).not.toHaveBeenCalled();
   });
 
   it('records duration, outcome and the collected sample for a successful call', async () => {
     const { service, recordLlmMetric, advance } = makeService({
-      callLLMDirect: vi.fn(async ({ metricsCollector }) => {
+      callLLMDirectWithRetry: vi.fn(async ({ metricsCollector }) => {
         metricsCollector({ promptTokens: 12, cachedTokens: 3 });
         return { ok: true, text: 'hi' };
       }),
@@ -78,7 +78,7 @@ describe('createChatCompletionService (no chrome global)', () => {
 
   it('records the provider error on a failed call', async () => {
     const { service, recordLlmMetric } = makeService({
-      callLLMDirect: vi.fn(async () => ({ ok: false, error: 'rate limited' })),
+      callLLMDirectWithRetry: vi.fn(async () => ({ ok: false, error: 'rate limited' })),
     });
 
     await service.complete({ prompt: 'hello', taskType: 'chat' });
@@ -89,21 +89,21 @@ describe('createChatCompletionService (no chrome global)', () => {
   });
 
   it('passes no abort signal when the turn is unidentified', async () => {
-    const { service, callLLMDirect } = makeService({
-      callLLMDirect: vi.fn(async () => ({ ok: true })),
+    const { service, callLLMDirectWithRetry } = makeService({
+      callLLMDirectWithRetry: vi.fn(async () => ({ ok: true })),
     });
 
     await service.complete({ prompt: 'hello' });
 
-    expect(callLLMDirect.mock.calls[0][0].signal).toBeUndefined();
+    expect(callLLMDirectWithRetry.mock.calls[0][0].signal).toBeUndefined();
     // Nothing to cancel, so a cancel for any turn is a no-op rather than a throw.
     expect(() => service.cancelTurn(undefined)).not.toThrow();
   });
 
   it('runs provider work through the injected shared limiter', async () => {
     const limit = vi.fn(async (task) => task());
-    const { service, callLLMDirect } = makeService({
-      callLLMDirect: vi.fn(async () => ({ ok: true })),
+    const { service, callLLMDirectWithRetry } = makeService({
+      callLLMDirectWithRetry: vi.fn(async () => ({ ok: true })),
       serviceOptions: { limit },
     });
 
@@ -111,7 +111,7 @@ describe('createChatCompletionService (no chrome global)', () => {
 
     expect(limit).toHaveBeenCalledTimes(1);
     expect(limit.mock.calls[0][1]).toBeInstanceOf(AbortSignal);
-    expect(callLLMDirect).toHaveBeenCalledTimes(1);
+    expect(callLLMDirectWithRetry).toHaveBeenCalledTimes(1);
   });
 
   it('aborts only the requested turn, including its fanned-out requests', async () => {
@@ -170,7 +170,7 @@ describe('createChatCompletionService (no chrome global)', () => {
   });
 
   it('drops settled jobs from the drain set', async () => {
-    const { service } = makeService({ callLLMDirect: vi.fn(async () => ({ ok: true })) });
+    const { service } = makeService({ callLLMDirectWithRetry: vi.fn(async () => ({ ok: true })) });
 
     await service.complete({ prompt: 'a', chatTurnId: 'turn-a' });
 

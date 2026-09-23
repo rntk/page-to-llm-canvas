@@ -919,3 +919,102 @@ describe('truncated provider responses', () => {
     await expect(callLLM({ prompt: 'hello' })).resolves.toBe('looking that up');
   });
 });
+
+describe('callLLMDirectWithRetry', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn) => {
+      fn();
+      return 0;
+    });
+    stubActiveProvider();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('retries a 429 and resolves with the full direct result', async () => {
+    const { callLLMDirectWithRetry } = await getLLM();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({ ok: false, status: 429, text: async () => 'slow down' })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              finish_reason: 'tool_calls',
+              message: {
+                content: '',
+                tool_calls: [
+                  { id: 'c1', type: 'function', function: { name: 'f', arguments: '{}' } },
+                ],
+              },
+            },
+          ],
+        }),
+      });
+
+    const result = await callLLMDirectWithRetry({ prompt: 'hello' }, 3);
+
+    expect(result.ok).toBe(true);
+    expect(result.toolCalls).toHaveLength(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('resolves with the last failure after exhausting retries', async () => {
+    const { callLLMDirectWithRetry } = await getLLM();
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 503, text: async () => 'down' });
+
+    const result = await callLLMDirectWithRetry({ prompt: 'hello' }, 2);
+
+    expect(result).toMatchObject({ ok: false, status: 503 });
+    expect(result.error).toContain('503');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry a non-retryable 4xx', async () => {
+    const { callLLMDirectWithRetry } = await getLLM();
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 401, text: async () => 'nope' });
+
+    const result = await callLLMDirectWithRetry({ prompt: 'hello' }, 3);
+
+    expect(result).toMatchObject({ ok: false, status: 401 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns a truncated response as-is instead of retrying', async () => {
+    const { callLLMDirectWithRetry } = await getLLM();
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ finish_reason: 'length', message: { content: 'partial' } }],
+      }),
+    });
+
+    const result = await callLLMDirectWithRetry({ prompt: 'hello' }, 3);
+
+    expect(result).toMatchObject({
+      ok: true,
+      content: 'partial',
+      finishReason: FinishReason.TRUNCATED,
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects without a request when the signal is already aborted', async () => {
+    const { callLLMDirectWithRetry } = await getLLM();
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      callLLMDirectWithRetry({ prompt: 'hello', signal: controller.signal }, 3),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});

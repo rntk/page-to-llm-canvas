@@ -14,7 +14,7 @@ vi.mock('../../core/llm/llm.js', () => ({
   // Unused by the pipeline path under test, but the worker's composition root
   // names every dependency when it builds the chat completion service, so the
   // mock has to carry it.
-  callLLMDirect: vi.fn(),
+  callLLMDirectWithRetry: vi.fn(),
 }));
 
 vi.mock('../../core/llm/concurrency.js', () => ({

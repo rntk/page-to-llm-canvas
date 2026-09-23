@@ -4,7 +4,7 @@
  * closes out each call.
  *
  * @param {object} deps
- * @param {Function} deps.callLLMDirect
+ * @param {Function} deps.callLLMDirectWithRetry Returns the direct result shape after retrying transient failures.
  * @param {Function} deps.recordLlmMetric
  * @param {function(Function, AbortSignal=): Promise<*>} [deps.limit]
  *   Shared provider-scoped limiter. Defaults to direct execution for isolated
@@ -13,7 +13,7 @@
  * @param {function(): AbortController} [deps.abortControllerFactory]
  */
 export function createChatCompletionService({
-  callLLMDirect,
+  callLLMDirectWithRetry,
   recordLlmMetric,
   limit = (task) => task(),
   clock = Date.now,
@@ -63,17 +63,20 @@ export function createChatCompletionService({
         return { ok: false, error: 'missing prompt or messages' };
       }
       // Record duration/token/cache metrics for chat calls. The orchestrator path
-      // is wrapped separately (wrapCallLLMWithRetry); callLLMDirect itself stays
-      // unmetered so pipeline calls are not double-counted here.
+      // is wrapped separately (wrapCallLLMWithRetry); the llm.js calls themselves
+      // stay unmetered so pipeline calls are not double-counted here.
       const startedAt = clock();
       let sample;
       const controller = chatTurnId ? abortControllerFactory() : null;
       registerChatRequest(chatTurnId, controller);
       let result;
       try {
+        // Retries share the pipeline's policy (429/5xx/network, jittered backoff,
+        // Retry-After) and hold the limiter slot through backoff, as the
+        // orchestrator does. The turn's signal cancels both waits and requests.
         result = await limit(
           () =>
-            callLLMDirect({
+            callLLMDirectWithRetry({
               prompt,
               messages,
               tools,
