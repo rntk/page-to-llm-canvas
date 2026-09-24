@@ -200,15 +200,19 @@ describe('createPipelineSupervisor (no chrome global)', () => {
       records: [['k1', { key: 'k1', status: PIPELINE_STATUS.PENDING, pipelineRunId: 'run-1' }]],
     });
 
-    await startWithoutAwaiting(supervisor, 'k1', runPipeline);
+    const firstStart = supervisor.startPipeline('k1');
+    await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(1));
     supervisor.cancelActivePipeline('k1');
     records.set('k1', { ...records.get('k1'), pipelineRunId: 'run-2' });
-    await startWithoutAwaiting(supervisor, 'k1', runPipeline, 2);
+    const secondStart = supervisor.startPipeline('k1');
+    await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(2));
     oldRun.resolve();
-    await vi.waitFor(() => expect(supervisor.isActive('k1')).toBe(true));
+    await firstStart;
+    expect(supervisor.isActive('k1')).toBe(true);
 
     newRun.resolve();
-    await vi.waitFor(() => expect(supervisor.isActive('k1')).toBe(false));
+    await secondStart;
+    expect(supervisor.isActive('k1')).toBe(false);
   });
 
   it('does not evict a registered job when its storage record is old', async () => {
@@ -287,7 +291,7 @@ describe('createPipelineSupervisor (no chrome global)', () => {
   });
 
   it('the alarm handler clears the keepalive from storage truth', async () => {
-    const { supervisor, alarms, records } = makeSupervisor({
+    const { supervisor, alarms, records, runPipeline } = makeSupervisor({
       records: [['k1', { key: 'k1', status: PIPELINE_STATUS.DONE, pipelineRunId: 'run-1' }]],
     });
 
@@ -298,7 +302,7 @@ describe('createPipelineSupervisor (no chrome global)', () => {
     alarms.clear.mockClear();
     records.set('k2', { key: 'k2', status: PIPELINE_STATUS.PENDING, pipelineRunId: 'run-2' });
     supervisor.handleKeepAliveAlarm({ name: KEEPALIVE_ALARM });
-    await vi.waitFor(() => expect(supervisor.isActive('k2')).toBe(false));
+    await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledWith('k2', expect.any(Object)));
     expect(alarms.clear).not.toHaveBeenCalled();
   });
 

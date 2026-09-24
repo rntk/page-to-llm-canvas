@@ -237,13 +237,10 @@ describe('hallucinated huge range', () => {
 
 describe('TopicParseError identity', () => {
   it('is an instance of Error', () => {
-    try {
-      parseTopicRanges('', 3);
-    } catch (e) {
-      expect(e).toBeInstanceOf(Error);
-      expect(e).toBeInstanceOf(TopicParseError);
-      expect(e.name).toBe('TopicParseError');
-    }
+    expect(() => parseTopicRanges('', 3)).toThrow(TopicParseError);
+    expect(() => parseTopicRanges('', 3)).toThrowError(
+      expect.objectContaining({ name: 'TopicParseError' }),
+    );
   });
 
   it('repairs partial coverage instead of throwing', () => {
@@ -254,12 +251,14 @@ describe('TopicParseError identity', () => {
   });
 
   it('carries a structured diagnostics object on the no-ranges error', () => {
+    expect(() => parseTopicRanges('no parseable ranges here', 5)).toThrow(TopicParseError);
+    let diagnostics;
     try {
       parseTopicRanges('no parseable ranges here', 5);
     } catch (e) {
-      expect(e).toBeInstanceOf(TopicParseError);
-      expect(e.diagnostics).toBeDefined();
+      diagnostics = e.diagnostics;
     }
+    expect(diagnostics).toEqual(expect.objectContaining({ sentenceCount: 5 }));
   });
 });
 

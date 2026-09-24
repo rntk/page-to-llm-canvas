@@ -20,13 +20,15 @@ describe('getHierarchyTopicAccentColor', () => {
   it('returns different colors for different roots', () => {
     const a = getHierarchyTopicAccentColor('Tech');
     const b = getHierarchyTopicAccentColor('Science');
-    expect(a).not.toBe(b);
+    expect(a).toBe('hsl(48, 52%, 42%)');
+    expect(b).toBe('hsl(270, 52%, 42%)');
   });
 
   it('adjusts saturation and lightness based on depth', () => {
     const shallow = getHierarchyTopicAccentColor('Tech', 0);
     const deep = getHierarchyTopicAccentColor('Tech', 4);
-    expect(shallow).not.toBe(deep);
+    expect(shallow).toBe('hsl(48, 52%, 42%)');
+    expect(deep).toBe('hsl(48, 32%, 62%)');
   });
 
   it('handles null topic name', () => {
@@ -65,7 +67,8 @@ describe('getHierarchyTopicHighlightColor', () => {
   it('adjusts based on explicit depth parameter', () => {
     const shallow = getHierarchyTopicHighlightColor('Tech', 0);
     const deep = getHierarchyTopicHighlightColor('Tech', 5);
-    expect(shallow).not.toBe(deep);
+    expect(shallow).toBe('hsl(48, 36%, 94%)');
+    expect(deep).toBe('hsl(48, 16%, 84%)');
   });
 });
 
@@ -91,7 +94,8 @@ describe('getHierarchyTopicHighlightColorDark', () => {
   it('adjusts based on explicit depth parameter', () => {
     const shallow = getHierarchyTopicHighlightColorDark('Tech', 0);
     const deep = getHierarchyTopicHighlightColorDark('Tech', 5);
-    expect(shallow).not.toBe(deep);
+    expect(shallow).toBe('hsl(48, 34%, 19%)');
+    expect(deep).toBe('hsl(48, 19%, 30%)');
   });
 
   it('handles null topic name', () => {

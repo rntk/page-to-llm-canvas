@@ -237,31 +237,28 @@ describe('youtubeTimestamp properties', () => {
       ).toBeNull();
     });
 
-    it('never throws and returns correct structured data or null', () => {
+    it('returns an exact link, timestamp, and label for generated valid transcripts', () => {
       fc.assert(
         fc.property(
-          fc.record({
-            sourceUrl: fc.option(fc.string(), { nil: undefined }),
-            sentences: fc.option(fc.array(fc.string()), { nil: undefined }),
-            sourceSentences: fc.option(fc.array(fc.integer()), { nil: undefined }),
-            labelOptions: fc.option(
-              fc.record({
-                padMinutes: fc.boolean(),
-                forceHours: fc.boolean(),
-              }),
-              { nil: undefined },
-            ),
+          fc.string({
+            unit: fc.constantFrom('a', 'b', 'c', '1', '2', '3', '-', '_'),
+            minLength: 1,
+            maxLength: 11,
           }),
-          (params) => {
-            const result = getYouTubeTimestampLink(params);
-            if (result !== null) {
-              expect(result).toHaveProperty('url');
-              expect(result).toHaveProperty('seconds');
-              expect(result).toHaveProperty('label');
-              expect(typeof result.url).toBe('string');
-              expect(typeof result.seconds).toBe('number');
-              expect(typeof result.label).toBe('string');
-            }
+          fc.integer({ min: 0, max: 359999 }),
+          fc.record({ padMinutes: fc.boolean(), forceHours: fc.boolean() }),
+          (videoId, seconds, labelOptions) => {
+            const result = getYouTubeTimestampLink({
+              sourceUrl: `https://www.youtube.com/watch?v=${videoId}`,
+              sentences: [formatTimestampLabel(seconds), 'untimed continuation'],
+              sourceSentences: [2],
+              labelOptions,
+            });
+            expect(result).toEqual({
+              url: `https://www.youtube.com/watch?v=${videoId}&t=${seconds}s`,
+              seconds,
+              label: formatTimestampLabel(seconds, labelOptions),
+            });
           },
         ),
       );

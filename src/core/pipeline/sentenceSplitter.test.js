@@ -18,20 +18,27 @@ describe('splitSentences', () => {
     const result = splitSentences(
       'Hello world this is fine. This is a test sentence here. Goodbye world from me too.',
     );
-    expect(result.length).toBe(3);
-    expect(result[0].text).toMatch(/Hello world/);
-    expect(result[1].text).toMatch(/This is a test/);
-    expect(result[2].text).toMatch(/Goodbye world/);
+    expect(result.map(({ text }) => text)).toEqual([
+      'Hello world this is fine.',
+      'This is a test sentence here.',
+      'Goodbye world from me too.',
+    ]);
   });
 
   it('splits on exclamation mark', () => {
     const result = splitSentences('Wow that is really great! That is very wonderful news today!');
-    expect(result.length).toBe(2);
+    expect(result.map(({ text }) => text)).toEqual([
+      'Wow that is really great!',
+      'That is very wonderful news today!',
+    ]);
   });
 
   it('splits on question mark', () => {
     const result = splitSentences('What is this thing here? I honestly do not know either.');
-    expect(result.length).toBe(2);
+    expect(result.map(({ text }) => text)).toEqual([
+      'What is this thing here?',
+      'I honestly do not know either.',
+    ]);
   });
 
   it('short-span merging absorbs the fragment left by an abbreviation', () => {
@@ -83,7 +90,10 @@ describe('splitSentences', () => {
 
   it('splits Greek text on a terminal boundary', () => {
     const result = splitSentences('Αυτή είναι η πρώτη πρόταση. Αυτή είναι η δεύτερη πρόταση.');
-    expect(result).toHaveLength(2);
+    expect(result.map(({ text }) => text)).toEqual([
+      'Αυτή είναι η πρώτη πρόταση.',
+      'Αυτή είναι η δεύτερη πρόταση.',
+    ]);
   });
 
   it('splits Arabic text after a full-width question mark', () => {
@@ -114,14 +124,17 @@ describe('splitSentences', () => {
 
   it('splits Japanese text on a full-width exclamation mark', () => {
     const result = splitSentences('これは最初の文です！これは二番目の文です。');
-    expect(result).toHaveLength(2);
+    expect(result.map(({ text }) => text)).toEqual([
+      'これは最初の文です！',
+      'これは二番目の文です。',
+    ]);
   });
 
   it('counts Han characters individually so CJK sentences survive short-span merging', () => {
     // With whitespace-run counting each clause would be one "word" and the two
     // would merge back into a single span.
     const result = splitSentences('这是第一个句子。这是第二个句子。', { minSentenceWords: 4 });
-    expect(result).toHaveLength(2);
+    expect(result.map(({ text }) => text)).toEqual(['这是第一个句子。', '这是第二个句子。']);
   });
 
   it('does not split before a lowercase accented continuation', () => {
@@ -159,29 +172,34 @@ describe('splitSentences', () => {
   });
 
   it('handles a single short sentence', () => {
-    const result = splitSentences('Hello world.');
-    expect(result.length).toBeGreaterThanOrEqual(1);
+    expect(splitSentences('Hello world.')).toEqual([{ text: 'Hello world.', start: 0, end: 12 }]);
   });
 
   it('handles text with closing quotes after terminal punctuation', () => {
     const result = splitSentences(
       'He said "hello" to everyone there. Then he walked away into the sunset glow slowly.',
     );
-    expect(result.length).toBeGreaterThanOrEqual(2);
+    expect(result.map(({ text }) => text)).toEqual([
+      'He said "hello" to everyone there.',
+      'Then he walked away into the sunset glow slowly.',
+    ]);
   });
 
   it('respects custom minSentenceWords option', () => {
     const text = 'Hi. This is a longer sentence with many more words to read. Ok.';
     const result = splitSentences(text, { minSentenceWords: 3 });
-    expect(result.length).toBeLessThan(3);
+    expect(result.map(({ text }) => text)).toEqual([
+      'Hi. This is a longer sentence with many more words to read. Ok.',
+    ]);
   });
 
   it('merges short sentences with adjacent ones', () => {
     const text = 'First full sentence right here. Hi. Another full sentence with many words.';
     const result = splitSentences(text, { minSentenceWords: 3 });
-    const texts = result.map((s) => s.text);
-    const standaloneHi = texts.some((t) => /^\s*Hi\.\s*$/.test(t));
-    expect(standaloneHi).toBe(false);
+    expect(result.map(({ text }) => text)).toEqual([
+      'First full sentence right here. Hi.',
+      'Another full sentence with many words.',
+    ]);
   });
 
   it('handles a long sentence by splitting at word boundaries', () => {
@@ -192,7 +210,12 @@ describe('splitSentences', () => {
       longSentenceWordThreshold: 20,
       minSentenceWords: 2,
     });
-    expect(result.length).toBeGreaterThan(1);
+    expect(result.map(({ text }) => text)).toEqual([
+      Array.from({ length: 10 }, (_, i) => `word${i}`).join(' '),
+      Array.from({ length: 10 }, (_, i) => `word${i + 10}`).join(' '),
+      `${Array.from({ length: 20 }, (_, i) => `word${i + 20}`).join(' ')}.`,
+      'This is a trailing sentence here.',
+    ]);
   });
 
   it('finishes a long span when remaining words drop below the anchor window', () => {
@@ -202,8 +225,7 @@ describe('splitSentences', () => {
       longSentenceWordThreshold: 20,
       minSentenceWords: 15,
     });
-    expect(result.length).toBeGreaterThanOrEqual(1);
-    expect(result[0].text).toContain('word0');
+    expect(result.map(({ text }) => text)).toEqual([`${words}.`]);
   });
 
   it('falls back to the full tail when no whitespace cut is found', () => {
@@ -214,6 +236,9 @@ describe('splitSentences', () => {
       longSentenceWordThreshold: 20,
       minSentenceWords: 2,
     });
-    expect(result.some((s) => s.text.includes('t0t1'))).toBe(true);
+    expect(result.map(({ text }) => text)).toEqual([
+      Array.from({ length: 10 }, (_, i) => `w${i}`).join(' '),
+      `${Array.from({ length: 12 }, (_, i) => `w${i + 10}`).join(' ')} ${tail}.`,
+    ]);
   });
 });

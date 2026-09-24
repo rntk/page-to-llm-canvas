@@ -436,13 +436,14 @@ describe('createAdjustableLimiter', () => {
     expect(fnC).toHaveBeenCalledTimes(1);
   });
 
-  it('runs a queued task normally when slot frees and cleans up its abort listener', async () => {
+  it('runs a queued task normally when a slot frees', async () => {
     const { createAdjustableLimiter } = await getConcurrency();
     const limiter = createAdjustableLimiter(1);
     let releaseA;
     const taskA = limiter.run(() => new Promise((r) => (releaseA = r)));
 
     const controllerB = new AbortController();
+    const removeListener = vi.spyOn(controllerB.signal, 'removeEventListener');
     const fnB = vi.fn(async () => 'B result');
     const taskB = limiter.run(fnB, controllerB.signal);
 
@@ -453,5 +454,6 @@ describe('createAdjustableLimiter', () => {
     await expect(taskA).resolves.toBeUndefined();
     await expect(taskB).resolves.toBe('B result');
     expect(fnB).toHaveBeenCalledTimes(1);
+    expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
   });
 });

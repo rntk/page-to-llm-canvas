@@ -200,6 +200,7 @@ describe('computeTopics', () => {
   let setTimeoutSpy;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     // Retry backoff is real (2s/4s/8s) — run it instantly so the retry-scope
     // tests below don't spend 14 seconds sleeping.
     setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn) => {
@@ -393,10 +394,12 @@ describe('computeTopics', () => {
       prompt.includes('RESPLIT CONTEXT'),
     );
     expect(resplitCalls.length).toBeGreaterThan(1);
-    expect(resplitCalls.every(([{ prompt }]) => {
-      const ids = Array.from(prompt.matchAll(/\{(\d+)\}/g), (match) => Number(match[1]));
-      return Math.max(...ids) < runtime.maxTopicRangeSentences;
-    })).toBe(true);
+    expect(
+      resplitCalls.every(([{ prompt }]) => {
+        const ids = Array.from(prompt.matchAll(/\{(\d+)\}/g), (match) => Number(match[1]));
+        return Math.max(...ids) < runtime.maxTopicRangeSentences;
+      }),
+    ).toBe(true);
     expect(result.topics).toHaveLength(1);
     expect(result.topics[0].name).toBe('Science>AI>Detail');
     expect(result.topics[0].sentences).toEqual(Array.from({ length: 45 }, (_, index) => index + 1));
@@ -445,9 +448,7 @@ describe('computeTopics', () => {
       })),
     );
     const callLLMWithRetry = vi.fn(async ({ prompt }) =>
-      prompt.includes('RESPLIT CONTEXT')
-        ? 'Science>Physics>Quantum: 0-44'
-        : 'Science>AI: 0-44',
+      prompt.includes('RESPLIT CONTEXT') ? 'Science>Physics>Quantum: 0-44' : 'Science>AI: 0-44',
     );
 
     const result = await computeTopics({
@@ -554,9 +555,7 @@ describe('computeTopics', () => {
       const ids = Array.from(prompt.matchAll(/\{(\d+)\}/g), (match) => Number(match[1]));
       const lastId = Math.max(...ids);
       if (!prompt.includes('RESPLIT CONTEXT')) return `Science>AI: 0-${lastId}`;
-      return lastId === 39
-        ? 'Science>AI>First: 0-38'
-        : 'Science>AI>Second: 0-4';
+      return lastId === 39 ? 'Science>AI>First: 0-38' : 'Science>AI>Second: 0-4';
     });
 
     await computeTopics({ runtime, record: { html: '<p>x</p>' }, callLLMWithRetry });
@@ -641,9 +640,7 @@ describe('computeTopics', () => {
     let call = 0;
     const callLLMWithRetry = vi.fn(async () => {
       call++;
-      return call === 1
-        ? 'Science>AI: 0-44'
-        : 'Science>AI>One: 0-21\nScience>AI>Two: 22-44';
+      return call === 1 ? 'Science>AI: 0-44' : 'Science>AI>One: 0-21\nScience>AI>Two: 22-44';
     });
 
     await expect(
@@ -658,6 +655,7 @@ describe('topic-ranges incremental retry', () => {
   let setTimeoutSpy;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn) => {
       if (typeof fn === 'function') fn();
       return 0;

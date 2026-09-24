@@ -3152,13 +3152,16 @@ describe('background service-worker boundaries', () => {
     vi.stubGlobal('chrome', chromeMock);
     await seedRecord(chromeMock, makeRecord('startup-done', { status: 'done' }));
 
-    await import('./background.js');
+    const { backgroundReady } = await import('./background.js');
+    await backgroundReady;
     const { runPipeline } = await import('./pipeline/orchestrator.js');
     runPipeline.mockClear();
     chromeMock.alarms.get.mockClear();
+    chromeMock.alarms.clear.mockClear();
     chromeMock.runtime.onStartup.addListener.mock.calls[0][0]();
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.waitFor(() =>
+      expect(chromeMock.alarms.clear).toHaveBeenCalledWith('pipeline-keepalive'),
+    );
 
     expect(runPipeline).not.toHaveBeenCalled();
     expect(chromeMock.alarms.get).not.toHaveBeenCalled();

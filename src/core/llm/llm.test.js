@@ -567,7 +567,7 @@ describe('callLLMDirect', () => {
     expect(init.headers['anthropic-dangerous-direct-browser-access']).toBe('true');
   });
 
-  it('returns error for unsupported provider type', async () => {
+  it('returns an error when an OpenAI-compatible provider has no base URL', async () => {
     stubActiveProvider({ id: 'x', name: 'X', type: 'openai_comp', model: 'm', url: '' });
     const { callLLMDirect } = await getLLM();
     const res = await callLLMDirect({ prompt: 'hello' });
