@@ -6,9 +6,6 @@ export const SYNTHESIS_GROUP_MIN_SIZE = 2;
 // Keep a finding recognisable even when a tiny window forces hard truncation.
 const SYNTHESIS_MIN_REPLY_CHARS = 64;
 const SYNTHESIS_TRUNCATION_MARKER = '…[truncated]';
-// Fitting converges in one or two passes; the bound only stops a pathological
-// payload from looping.
-const SYNTHESIS_FIT_ATTEMPTS = 4;
 
 /**
  * @param {string} question User question.
@@ -113,19 +110,21 @@ export function groupSynthesisReplies(question, replies, maxChars) {
  */
 function fitSynthesisGroup(question, group, capacity) {
   let items = group;
-  for (let attempt = 0; attempt < SYNTHESIS_FIT_ATTEMPTS; attempt += 1) {
+  while (true) {
     const payloadChars = buildSynthesisMessages(question, items)[1].content.length;
-    if (payloadChars <= capacity) break;
+    if (payloadChars <= capacity) return items;
     const longest = Math.max(...items.map((item) => item.reply.length));
     const target = Math.max(
       SYNTHESIS_MIN_REPLY_CHARS,
       longest - Math.ceil((payloadChars - capacity) / items.length),
     );
-    // No headroom left to give back; the provider reports the overflow.
-    if (target >= longest) break;
+    // Escaping and wide line numbers can exhaust the finding floor. Never
+    // return a payload that exceeds the configured capacity.
+    if (target >= longest) {
+      throw new Error('The synthesis input exceeds the configured chat context limit.');
+    }
     items = items.map((item) => ({ ...item, reply: truncateFinding(item.reply, target) }));
   }
-  return items;
 }
 
 /**

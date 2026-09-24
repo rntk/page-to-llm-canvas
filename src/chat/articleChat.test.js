@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { chunkNumberedArticle, rangesOverlap, runArticleChatTurn } from './articleChat.js';
+import { buildSynthesisMessages, groupSynthesisReplies } from './articleSynthesis.js';
 import { CHAT_TOOL_OUTCOMES } from '../shared/runtime/telemetry.js';
 
 function buildTurnOptions({
@@ -877,6 +878,40 @@ describe('article chat synthesis budgeting', () => {
       const findings = call.messages.at(-1).content;
       expect(findings.length).toBeLessThanOrEqual(SYNTHESIS_CAPACITY);
     }
+  });
+
+  it('rejects escaped findings when their 64-character floor exceeds the budget', async () => {
+    const { send, calls } = recordingSend('"'.repeat(64));
+    const capacity = 261;
+
+    await expect(
+      runArticleChatTurn({
+        article: { history: [], sentences: longArticle(), highlightedRanges: [] },
+        question: 'Q',
+        limits: { maxChunkChars: 257, maxHistoryChars: 4 },
+        dependencies: { send },
+      }),
+    ).rejects.toThrow('synthesis input exceeds the configured chat context limit');
+    expect(synthesisCalls(calls)).toHaveLength(0);
+    expect(calls.length).toBeGreaterThan(1);
+    expect(
+      buildSynthesisMessages('Q', [
+        { chunk: { startLine: 1, endLine: 1 }, reply: '"'.repeat(64) },
+        { chunk: { startLine: 2, endLine: 2 }, reply: '"'.repeat(64) },
+      ])[1].content.length,
+    ).toBeGreaterThan(capacity);
+  });
+
+  it('rejects wide line numbers that exceed the budget at the finding floor', () => {
+    const replies = [1, 2].map(() => ({
+      chunk: { startLine: 123456789, endLine: 123456789 },
+      reply: 'x'.repeat(64),
+    }));
+
+    expect(buildSynthesisMessages('Q', replies)[1].content.length).toBeGreaterThan(260);
+    expect(() => groupSynthesisReplies('Q', replies, 260)).toThrow(
+      'synthesis input exceeds the configured chat context limit',
+    );
   });
 
   it('marks a finding that had to be truncated to fit', async () => {
