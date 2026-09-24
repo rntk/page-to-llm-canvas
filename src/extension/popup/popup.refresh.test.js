@@ -283,4 +283,108 @@ describe('popup refresh integration', () => {
     );
     expect(document.getElementById('active-host').textContent).toBe('new.example');
   });
+
+  it('debounces relevant record storage changes and ignores unrelated keys and areas', async () => {
+    chrome.tabs.query.mockResolvedValue([{ id: 1, url: records[0].sourceUrl }]);
+    await import('./popup.js');
+    await vi.waitFor(() => expect(document.querySelectorAll('#records .record')).toHaveLength(1));
+    const initialListCalls = chrome.runtime.sendMessage.mock.calls.filter(
+      ([message]) => message.type === 'listRecords',
+    ).length;
+    const listener = chrome.storage.onChanged.addListener.mock.calls[0][0];
+    vi.useFakeTimers();
+
+    listener({ 'pagetollm:chats:record:index': { newValue: {} } }, 'local');
+    listener({ 'pagetollm:llm:providers': { newValue: {} } }, 'local');
+    listener({ 'pagetollm:rec:record:meta': { newValue: {} } }, 'sync');
+    await vi.advanceTimersByTimeAsync(500);
+    expect(
+      chrome.runtime.sendMessage.mock.calls.filter(([message]) => message.type === 'listRecords'),
+    ).toHaveLength(initialListCalls);
+
+    listener({ 'pagetollm:index': { newValue: {} } }, 'local');
+    listener({ 'pagetollm:rec:record:meta': { newValue: {} } }, 'local');
+    await vi.advanceTimersByTimeAsync(299);
+    expect(
+      chrome.runtime.sendMessage.mock.calls.filter(([message]) => message.type === 'listRecords'),
+    ).toHaveLength(initialListCalls);
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() =>
+      expect(
+        chrome.runtime.sendMessage.mock.calls.filter(([message]) => message.type === 'listRecords'),
+      ).toHaveLength(initialListCalls + 1),
+    );
+    vi.useRealTimers();
+  });
+
+  it('refreshes records when session pipeline failure state changes', async () => {
+    chrome.tabs.query.mockResolvedValue([{ id: 1, url: records[0].sourceUrl }]);
+    await import('./popup.js');
+    await vi.waitFor(() => expect(document.querySelectorAll('#records .record')).toHaveLength(1));
+    const initialListCalls = chrome.runtime.sendMessage.mock.calls.filter(
+      ([message]) => message.type === 'listRecords',
+    ).length;
+    const listener = chrome.storage.onChanged.addListener.mock.calls[0][0];
+    vi.useFakeTimers();
+
+    listener({ 'pagetollm:pipeline-failure-breakers': { newValue: {} } }, 'session');
+    await vi.advanceTimersByTimeAsync(300);
+    await vi.waitFor(() =>
+      expect(
+        chrome.runtime.sendMessage.mock.calls.filter(([message]) => message.type === 'listRecords'),
+      ).toHaveLength(initialListCalls + 1),
+    );
+    vi.useRealTimers();
+  });
+
+  it('shows a pick-button error when the active-tab lookup rejects', async () => {
+    await import('./popup.js');
+    await vi.waitFor(() => expect(chrome.tabs.query).toHaveBeenCalled());
+    chrome.tabs.query.mockRejectedValueOnce(new Error('Active tab lookup failed'));
+    document.getElementById('pick-btn').click();
+    await waitForText('error', 'Unable to start selection on this page.');
+    expect(chrome.tabs.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('shows a pick-button error when sending the selection message rejects', async () => {
+    chrome.tabs.query.mockResolvedValue([{ id: 1, url: records[0].sourceUrl }]);
+    await import('./popup.js');
+    await vi.waitFor(() =>
+      expect(document.getElementById('active-host').textContent).toBe('old.example'),
+    );
+    chrome.tabs.sendMessage.mockImplementationOnce((_tabId, _message, callback) => {
+      chrome.runtime.lastError = { message: 'Could not establish connection' };
+      callback();
+      chrome.runtime.lastError = null;
+    });
+
+    document.getElementById('pick-btn').click();
+
+    await waitForText('error', 'Unable to start selection on this page.');
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      1,
+      { action: 'startSelection' },
+      expect.any(Function),
+    );
+  });
+
+  it('shows an error returned by the content script when starting selection', async () => {
+    chrome.tabs.query.mockResolvedValue([{ id: 1, url: records[0].sourceUrl }]);
+    await import('./popup.js');
+    await vi.waitFor(() =>
+      expect(document.getElementById('active-host').textContent).toBe('old.example'),
+    );
+    chrome.tabs.sendMessage.mockImplementationOnce((_tabId, _message, callback) =>
+      callback({ status: 'error', error: 'Selection is unavailable on this page' }),
+    );
+
+    document.getElementById('pick-btn').click();
+
+    await waitForText('error', 'Selection is unavailable on this page');
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      1,
+      { action: 'startSelection' },
+      expect.any(Function),
+    );
+  });
 });

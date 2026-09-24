@@ -8,6 +8,9 @@ let messageListener = null;
 let postMessageListener = null;
 let storageChangeListener = null;
 let loadContentModule = null;
+let pageChange = null;
+
+vi.mock('./pageNavigation.js', () => ({ observePageNavigation: vi.fn() }));
 
 function toolbarRoot() {
   return window.__pagetollmTestSelectionToolbarRoot;
@@ -22,6 +25,11 @@ function toolbarQueryAll(selector) {
 }
 
 beforeAll(async () => {
+  const { observePageNavigation } = await import('./pageNavigation.js');
+  observePageNavigation.mockImplementation(({ onPageChange }) => {
+    pageChange = onPageChange;
+    return vi.fn();
+  });
   const [selection, inPageRail, youTubeRail, recordFrame] = await Promise.all([
     import('./lazy/selectionSurface.js'),
     import('./lazy/inPageRailSurface.js'),
@@ -236,6 +244,16 @@ describe('content script main.jsx', () => {
       source: iframe.contentWindow,
       origin: new URL(chrome.runtime.getURL('')).origin,
     });
+
+    expect(document.getElementById('pagetollm-canvas-iframe')).toBeNull();
+  });
+
+  it('closes the active surface after an SPA page change', async () => {
+    messageListener({ action: 'openRecordView', key: 'spa-key', mode: 'canvas' }, {}, vi.fn());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.getElementById('pagetollm-canvas-iframe')).not.toBeNull();
+
+    pageChange();
 
     expect(document.getElementById('pagetollm-canvas-iframe')).toBeNull();
   });

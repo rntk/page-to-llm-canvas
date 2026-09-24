@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   vmInput: null,
   canvasWrapElement: null,
   childProps: {},
+  onVisualScaleChange: null,
   // Gate for the opening overlay; tests flip it to inspect the covered state.
   hasSettledLayout: true,
 }));
@@ -94,19 +95,22 @@ const viewportMock = vi.hoisted(() => ({
 }));
 
 vi.mock('./hooks/useCanvasTransform.js', () => ({
-  useCanvasTransform: () => ({
-    scale: 1,
-    isCanvasDragging: false,
-    isFocusingHighlight: false,
-    isCardZoomSmoothing: false,
-    isZoomingToTarget: false,
-    canvasWrapRef: { current: null },
-    canvasViewportRef: { current: null },
-    handleMouseDown: mocks.handleMouseDown,
-    navigateCanvas: mocks.navigateCanvas,
-    flashFocus: mocks.flashFocus,
-    viewport: viewportMock,
-  }),
+  useCanvasTransform: (options) => {
+    state.onVisualScaleChange = options.onVisualScaleChange;
+    return {
+      scale: 1,
+      isCanvasDragging: false,
+      isFocusingHighlight: false,
+      isCardZoomSmoothing: false,
+      isZoomingToTarget: false,
+      canvasWrapRef: { current: null },
+      canvasViewportRef: { current: null },
+      handleMouseDown: mocks.handleMouseDown,
+      navigateCanvas: mocks.navigateCanvas,
+      flashFocus: mocks.flashFocus,
+      viewport: viewportMock,
+    };
+  },
 }));
 vi.mock('./hooks/useCanvasAlignment.js', () => ({
   useCanvasAlignment: () => ({
@@ -217,6 +221,25 @@ describe('App composition behavior', () => {
     container.remove();
   });
 
+  it('applies live card sizing to the summary group while zooming', async () => {
+    const { container, root } = await renderApp();
+    const group = container.querySelector('.canvas-article-with-summaries');
+
+    act(() => state.onVisualScaleChange(0.5));
+
+    expect(group.classList.contains('is-live-zoomed-out')).toBe(true);
+    expect(group.style.getPropertyValue('--topic-card-width')).toBe('100px');
+    expect(group.style.getPropertyValue('--current-summary-width')).toBe('220px');
+    expect(group.style.getPropertyValue('--canvas-topic-hierarchy-width')).toBe('120px');
+    expect(group.style.getPropertyValue('--topic-card-level-0-right')).toBe('10px');
+    expect(group.style.getPropertyValue('--current-summary-title-font-size')).not.toBe('');
+
+    act(() => state.onVisualScaleChange(1));
+    expect(group.classList.contains('is-live-zoomed-out')).toBe(false);
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   beforeEach(() => {
     state.record = {
       key: 'record-1',
@@ -229,6 +252,7 @@ describe('App composition behavior', () => {
     state.vmInput = null;
     state.canvasWrapElement = { focus: mocks.canvasFocus, clientWidth: 800, clientHeight: 500 };
     state.childProps = {};
+    state.onVisualScaleChange = null;
     state.hasSettledLayout = true;
     // The shared viewport handle is stateful across tests now that it is a single
     // stable object; reset the members App writes to.

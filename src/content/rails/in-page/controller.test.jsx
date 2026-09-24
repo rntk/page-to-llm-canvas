@@ -210,6 +210,32 @@ describe('openInPageRail', () => {
     expect(logger.warn).toHaveBeenCalledWith('record fetch failed:', error);
   });
 
+  it('cleans up when the page cannot host a rail surface', async () => {
+    mountArticle();
+    fetchRecord.mockResolvedValue(found(baseRecord()));
+    const unavailableSurface = {
+      beginLoad: () => ({ isStale: () => false }),
+      createSurface: vi.fn(() => null),
+      close: vi.fn(),
+    };
+    const controller = createInPageRailController({
+      surfaceManager: unavailableSurface,
+      document,
+      window,
+      runtimeMessenger: { send: (...args) => runtimeSend(...args), getURL: (path) => path },
+      dialogs: { alert: vi.fn(), confirm: vi.fn() },
+      logger,
+    });
+    CSS.highlights.set('pagetollm-sentence', new FakeHighlight());
+    CSS.highlights.set('pagetollm-chat-sentence', new FakeHighlight());
+
+    expect(await controller.openInPageRail({ key: 'rail-key' })).toBe(false);
+    expect(unavailableSurface.createSurface).toHaveBeenCalledOnce();
+    expect(CSS.highlights.has('pagetollm-sentence')).toBe(false);
+    expect(CSS.highlights.has('pagetollm-chat-sentence')).toBe(false);
+    expect(rail()).toBeNull();
+  });
+
   it('reports an invalid repository response separately from a missing record', async () => {
     fetchRecord.mockResolvedValue({ kind: 'invalid_response', error: new Error('invalid') });
 
@@ -491,6 +517,32 @@ describe('openInPageRail', () => {
         1,
       );
       querySelector.mockRestore();
+    });
+
+    it('ignores mutations inside the rail', async () => {
+      let notifyMutations;
+      class TestMutationObserver {
+        constructor(callback) {
+          notifyMutations = callback;
+        }
+        observe = vi.fn();
+        disconnect = vi.fn();
+      }
+      vi.stubGlobal('MutationObserver', TestMutationObserver);
+      const requestFrame = vi.fn(() => 1);
+      vi.stubGlobal('requestAnimationFrame', requestFrame);
+
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'topics');
+      });
+      const articleQuery = vi.spyOn(document, 'querySelector');
+      const railTarget = rail().querySelector('.pagetollm-rail-body');
+
+      act(() => notifyMutations([{ target: railTarget, addedNodes: [], removedNodes: [] }]));
+
+      expect(requestFrame).not.toHaveBeenCalled();
+      expect(articleQuery).not.toHaveBeenCalledWith('#article');
+      articleQuery.mockRestore();
     });
 
     it('clears detached anchors and recovers them when the article returns in a later frame', async () => {

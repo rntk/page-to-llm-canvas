@@ -68,6 +68,34 @@ describe('mergeAbortSignals', () => {
   });
 });
 
+describe('isAbortRejection', () => {
+  it('finds abort errors and the signal reason through nested cause chains', async () => {
+    const { isAbortRejection } = await getAbortSignals();
+    const controller = new AbortController();
+    const reason = new Error('cancelled');
+    controller.abort(reason);
+    expect(
+      isAbortRejection(
+        new Error('outer', { cause: new Error('middle', { cause: reason }) }),
+        controller.signal,
+      ),
+    ).toBe(true);
+    expect(
+      isAbortRejection(
+        new Error('outer', { cause: Object.assign(new Error('aborted'), { name: 'AbortError' }) }),
+        controller.signal,
+      ),
+    ).toBe(true);
+  });
+
+  it('does not treat an unrelated rejection as cancellation just because the signal aborted', async () => {
+    const { isAbortRejection } = await getAbortSignals();
+    const controller = new AbortController();
+    controller.abort();
+    expect(isAbortRejection(new Error('provider failed'), controller.signal)).toBe(false);
+  });
+});
+
 describe('createRequestTimeoutSignal', () => {
   it('creates a timeout signal and fires abort after ms', async () => {
     const { createRequestTimeoutSignal } = await getAbortSignals();

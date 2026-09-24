@@ -21,16 +21,26 @@ vi.mock('../../utils/denseCardLayout.js', async (importOriginal) => {
 
 import CanvasTopicHierarchyRail from './CanvasTopicHierarchyRail.jsx';
 
-function render(element) {
+function render(element, { canvasAncestors = false } = {}) {
   const container = document.createElement('div');
-  document.body.appendChild(container);
+  let rootNode = container;
+  if (canvasAncestors) {
+    const viewport = document.createElement('div');
+    viewport.className = 'canvas-viewport';
+    const area = document.createElement('div');
+    area.className = 'canvas-area';
+    viewport.appendChild(container);
+    area.appendChild(viewport);
+    rootNode = area;
+  }
+  document.body.appendChild(rootNode);
   const root = createRoot(container);
   act(() => root.render(element));
   return {
     container,
     unmount() {
       act(() => root.unmount());
-      container.remove();
+      rootNode.remove();
     },
     rerender(newElement) {
       act(() => root.render(newElement));
@@ -126,6 +136,97 @@ describe('CanvasTopicHierarchyRail', () => {
       'A short summary of Sub B.',
     );
     unmount();
+  });
+
+  it('hides the floating summary outside the canvas bounds and rechecks after pan and resize', () => {
+    const resizeObservers = [];
+    const mutationObservers = [];
+    const rafCallbacks = new Map();
+    let nextFrame = 1;
+    const originalRaf = window.requestAnimationFrame;
+    const originalCancelRaf = window.cancelAnimationFrame;
+    const originalResizeObserver = window.ResizeObserver;
+    const originalMutationObserver = window.MutationObserver;
+    window.requestAnimationFrame = (callback) => {
+      const id = nextFrame++;
+      rafCallbacks.set(id, callback);
+      return id;
+    };
+    window.cancelAnimationFrame = (id) => rafCallbacks.delete(id);
+    window.ResizeObserver = class {
+      constructor(callback) {
+        this.callback = callback;
+        resizeObservers.push(this);
+      }
+      observe() {}
+      disconnect() {
+        this.disconnected = true;
+      }
+    };
+    window.MutationObserver = class {
+      constructor(callback) {
+        this.callback = callback;
+        this.observe = vi.fn();
+        mutationObservers.push(this);
+      }
+      disconnect() {
+        this.disconnected = true;
+      }
+    };
+    let anchorVisible = false;
+    const originalRect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function () {
+      if (this.classList?.contains('canvas-area')) return { top: 0, bottom: 100 };
+      if (this.classList?.contains('canvas-topic-hierarchy__card')) {
+        return anchorVisible ? { top: 20, bottom: 60 } : { top: 120, bottom: 160 };
+      }
+      return originalRect.call(this);
+    };
+    const props = {
+      ...defaultProps,
+      currentTopicSummary: { key: 'card2', path: 'Topic A > Sub B', text: 'Floating summary' },
+    };
+    const { container, unmount } = render(createElement(CanvasTopicHierarchyRail, props), {
+      canvasAncestors: true,
+    });
+
+    // Initial measurement should unmount the summary immediately when its card is out of view.
+    // The card is measured during mount, so the controllable rects are applied and signaled below.
+    resizeObservers[0]?.callback();
+    for (const [id, callback] of rafCallbacks) {
+      act(() => callback());
+      rafCallbacks.delete(id);
+    }
+    expect(container.querySelector('.canvas-topic-current-summary')).toBeNull();
+
+    anchorVisible = true;
+    expect(mutationObservers[0].observe).toHaveBeenCalledWith(
+      container.closest('.canvas-viewport'),
+      { attributes: true, attributeFilter: ['style', 'class'] },
+    );
+    act(() => mutationObservers[0].callback());
+    for (const [id, callback] of rafCallbacks) {
+      act(() => callback());
+      rafCallbacks.delete(id);
+    }
+    expect(container.querySelector('.canvas-topic-current-summary')).not.toBeNull();
+
+    anchorVisible = false;
+    act(() => window.dispatchEvent(new Event('resize')));
+    for (const [id, callback] of rafCallbacks) {
+      act(() => callback());
+      rafCallbacks.delete(id);
+    }
+    expect(container.querySelector('.canvas-topic-current-summary')).toBeNull();
+
+    unmount();
+    expect(resizeObservers.every((observer) => observer.disconnected)).toBe(true);
+    expect(mutationObservers.every((observer) => observer.disconnected)).toBe(true);
+    window.requestAnimationFrame = originalRaf;
+    window.cancelAnimationFrame = originalCancelRaf;
+    window.ResizeObserver = originalResizeObserver;
+    window.MutationObserver = originalMutationObserver;
+    Element.prototype.getBoundingClientRect = originalRect;
   });
 
   it('renders empty state when there are no cards at or below selectedLevel', () => {

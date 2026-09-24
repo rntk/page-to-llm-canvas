@@ -40,3 +40,50 @@ describe('record import failures', () => {
     }
   });
 });
+
+describe('record deletion cleanup', () => {
+  function makeHandlers() {
+    const recordRepository = {
+      deleteRecord: vi.fn(async () => {}),
+      deleteAll: vi.fn(async () => {}),
+    };
+    const pipelineSupervisor = {
+      cancelActivePipeline: vi.fn(),
+      cancelAll: vi.fn(),
+      clearPipelineFailuresForKey: vi.fn(async () => {}),
+    };
+    return {
+      recordRepository,
+      pipelineSupervisor,
+      handlers: createRecordHandlers({
+        recordRepository,
+        pipelineSupervisor,
+        summaryCheckpoint: { isComplete: vi.fn(), isRevisionCurrent: vi.fn() },
+      }),
+    };
+  }
+
+  it('cancels the record job, deletes it, then clears its breaker entry', async () => {
+    const { handlers, recordRepository, pipelineSupervisor } = makeHandlers();
+
+    await expect(handlers[MSG.deleteRecord].handle({ key: 'article-1' })).resolves.toEqual({
+      ok: true,
+    });
+
+    expect(pipelineSupervisor.cancelActivePipeline).toHaveBeenCalledExactlyOnceWith('article-1');
+    expect(recordRepository.deleteRecord).toHaveBeenCalledExactlyOnceWith('article-1');
+    expect(pipelineSupervisor.clearPipelineFailuresForKey).toHaveBeenCalledExactlyOnceWith(
+      'article-1',
+    );
+  });
+
+  it('cancels all jobs, deletes all records, then clears all breaker entries', async () => {
+    const { handlers, recordRepository, pipelineSupervisor } = makeHandlers();
+
+    await expect(handlers[MSG.deleteAll].handle({})).resolves.toEqual({ ok: true });
+
+    expect(pipelineSupervisor.cancelAll).toHaveBeenCalledOnce();
+    expect(recordRepository.deleteAll).toHaveBeenCalledOnce();
+    expect(pipelineSupervisor.clearPipelineFailuresForKey).toHaveBeenCalledExactlyOnceWith();
+  });
+});

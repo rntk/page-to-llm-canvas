@@ -6,9 +6,16 @@ import {
   planResume,
 } from './orchestrator.js';
 import { createPipelineRuntime } from './pipelineRuntime.js';
-import { chunkTaggedText, chunkTopicRangeSentences } from '../../../core/pipeline/topicRangeChunking.js';
+import {
+  chunkTaggedText,
+  chunkTopicRangeSentences,
+} from '../../../core/pipeline/topicRangeChunking.js';
 import { groupsToTopics, rangesToSentenceList } from '../../../core/pipeline/topicRangeMapping.js';
-import { parseSummaryResponse, shouldInlineRun, chunkSourceSentences } from '../../../core/pipeline/sourceSummarizer.js';
+import {
+  parseSummaryResponse,
+  shouldInlineRun,
+  chunkSourceSentences,
+} from '../../../core/pipeline/sourceSummarizer.js';
 import { classifyLlmError } from '../../../core/pipeline/summaryStage.js';
 import { buildTopicTree, splitContiguousRuns } from '../../../core/pipeline/topicTreeMerge.js';
 import * as storage from '../../../core/storage/storage.js';
@@ -192,6 +199,44 @@ beforeEach(() => {
 });
 
 describe('createPipelineRunner', () => {
+  it('does not apply a stale concurrency read after a newer setting event', async () => {
+    let onConcurrencyChanged;
+    let resolveInitialLimit;
+    const limiter = { run: vi.fn((fn) => fn()), setLimit: vi.fn() };
+    const runner = createPipelineRunner({
+      runtimeFactory: createPipelineRuntime,
+      settings: {
+        getPreferContentLanguage: vi.fn(async () => false),
+        getVerboseLogs: vi.fn(async () => false),
+        getMaxParallelLlmRequests: vi.fn(
+          () =>
+            new Promise((resolve) => {
+              resolveInitialLimit = resolve;
+            }),
+        ),
+        normalizeMaxParallelLlmRequests: Number,
+        subscribeToMaxParallelLlmRequests: vi.fn((listener) => {
+          onConcurrencyChanged = listener;
+          return () => {};
+        }),
+      },
+      providerRepository: { getActiveProvider: vi.fn(async () => null) },
+      llm: { callLLMWithRetry: vi.fn() },
+      limiterFactory: () => limiter,
+      telemetry: { wrapCallLLMWithRetry: (call) => call },
+      logger: { info: vi.fn(), error: vi.fn() },
+    });
+
+    const pendingRun = runner.runPipeline('concurrency-race');
+    onConcurrencyChanged('7');
+    resolveInitialLimit(2);
+    await expect(pendingRun).rejects.toThrow('record not found');
+
+    expect(limiter.setLimit).toHaveBeenCalledTimes(1);
+    expect(limiter.setLimit).toHaveBeenCalledWith(7);
+    runner.dispose();
+  });
+
   it('owns one concurrency subscription and disposes it exactly once', () => {
     let onConcurrencyChanged;
     const unsubscribe = vi.fn();
@@ -883,6 +928,47 @@ describe('runPipeline', () => {
       }),
       expect.anything(),
     );
+  });
+
+  it('returns quietly when cancellation is already signalled and still flushes logs', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      runPipeline('cancelled-before-start', { signal: controller.signal }),
+    ).resolves.toBe(undefined);
+
+    expect(storage.readRecord).not.toHaveBeenCalled();
+    expect(storage.updateRecord).not.toHaveBeenCalled();
+    expect(storage.flushProcessingLog).toHaveBeenCalledWith('cancelled-before-start');
+  });
+
+  it('rethrows the pipeline failure when persisting its error status also fails', async () => {
+    storage.readRecord.mockResolvedValue(makeRecord('error-write-fails', '<p>text</p>'));
+    capturedText.normalizeCapturedText.mockImplementation(() => {
+      throw new Error('original processing failure');
+    });
+    storage.updateRecord.mockImplementation(async (_key, patch) => {
+      if (patch.status === 'error') throw new Error('storage write failed');
+      return { ...patch };
+    });
+
+    await expect(runPipeline('error-write-fails')).rejects.toThrow('original processing failure');
+
+    expect(storage.updateRecord).toHaveBeenCalledWith(
+      'error-write-fails',
+      expect.objectContaining({ status: 'error' }),
+      expect.anything(),
+    );
+    expect(storage.flushProcessingLog).toHaveBeenCalledWith('error-write-fails');
+  });
+
+  it('flushes buffered logs after a successful pipeline run', async () => {
+    storage.readRecord.mockResolvedValue(makeRecord('flush-on-success', '<p></p>'));
+
+    await runPipeline('flush-on-success');
+
+    expect(storage.flushProcessingLog).toHaveBeenCalledWith('flush-on-success');
   });
 
   it('persists an unrelated error that settles after the signal is aborted', async () => {

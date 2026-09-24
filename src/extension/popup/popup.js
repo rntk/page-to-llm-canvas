@@ -29,6 +29,9 @@ const errorEl = document.getElementById('error');
 const countEl = document.getElementById('record-count');
 
 const STORAGE_REFRESH_DEBOUNCE_MS = 300;
+const RECORD_INDEX_STORAGE_KEY = 'pagetollm:index';
+const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
+const PIPELINE_FAILURE_STORAGE_KEY = 'pagetollm:pipeline-failure-breakers';
 
 const NO_LLM_PROVIDER_MESSAGE =
   'No LLM provider configured. Add one in Options before picking blocks so PageToLLM can process the selected data.';
@@ -671,12 +674,12 @@ pickBtn.addEventListener('click', async () => {
   // own writes with `refreshRequestId`; a click racing a refresh would
   // otherwise read a stale value, await, and clobber the newer tab the
   // refresh just stored.
-  const tab = activeTab || (await getActiveTab());
-  if (!tab || !tab.id) {
-    window.close();
-    return;
-  }
   try {
+    const tab = activeTab || (await getActiveTab());
+    if (!tab || !tab.id) {
+      window.close();
+      return;
+    }
     await refreshProviderReadiness();
     if (!providerReady) return;
     const response = await sendTabMessage(tab.id, { action: 'startSelection' });
@@ -705,14 +708,19 @@ recordsLink.addEventListener('click', () => {
 
 try {
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== 'local') return;
-    if (Object.keys(changes).some((key) => key.startsWith('pagetollm:'))) {
-      if (storageRefreshTimer) clearTimeout(storageRefreshTimer);
-      storageRefreshTimer = setTimeout(() => {
-        storageRefreshTimer = null;
-        void refreshRecords();
-      }, STORAGE_REFRESH_DEBOUNCE_MS);
-    }
+    if (!changes || typeof changes !== 'object') return;
+    const keys = Object.keys(changes);
+    const recordsChanged =
+      areaName === 'local' &&
+      keys.some((key) => key === RECORD_INDEX_STORAGE_KEY || key.startsWith(RECORD_STORAGE_PREFIX));
+    const pipelineFailuresChanged =
+      areaName === 'session' && Object.hasOwn(changes, PIPELINE_FAILURE_STORAGE_KEY);
+    if (!recordsChanged && !pipelineFailuresChanged) return;
+    if (storageRefreshTimer) clearTimeout(storageRefreshTimer);
+    storageRefreshTimer = setTimeout(() => {
+      storageRefreshTimer = null;
+      void refreshRecords();
+    }, STORAGE_REFRESH_DEBOUNCE_MS);
   });
 } catch (_) {
   /* noop */

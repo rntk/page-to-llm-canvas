@@ -590,6 +590,29 @@ describe('appendChatTurn', () => {
     expect(retried.chat.messages[0].turnId).toBe(turn.turnId);
   });
 
+  it('rejects a retry that assigns an existing turn to a different chat', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const first = await appendChatTurn('article', null, {
+      turnId: 'shared-turn',
+      messages: [{ role: 'user', content: 'Original chat' }],
+    });
+    const other = await appendChatTurn('article', null, {
+      turnId: 'other-turn',
+      messages: [{ role: 'user', content: 'Other chat' }],
+    });
+
+    await expect(
+      appendChatTurn('article', other.chat.chatId, {
+        turnId: 'shared-turn',
+        messages: [{ role: 'user', content: 'Must not move chats' }],
+      }),
+    ).rejects.toThrow('turn already belongs to another chat');
+    expect((await readChat('article', first.chat.chatId)).messages).toHaveLength(1);
+    expect((await readChat('article', other.chat.chatId)).messages).toHaveLength(1);
+  });
+
   it('deletes chats and their index entries after the record content revision changes', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
@@ -676,6 +699,28 @@ describe('appendChatTurn', () => {
     ).rejects.toThrow('turn exceeds persistence limits');
     expect(await listChats('article')).toEqual([]);
     expect(mock.storage.local._store.has('pagetollm:chats:article:index')).toBe(false);
+  });
+
+  it('accepts exactly 40 messages in one turn and rejects 41 before writing', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const messages = (count) =>
+      Array.from({ length: count }, (_, index) => ({ role: 'assistant', content: `m${index}` }));
+
+    const { chat } = await appendChatTurn('article', null, {
+      turnId: 'forty-messages',
+      messages: messages(40),
+    });
+    expect(chat.messages).toHaveLength(40);
+
+    await expect(
+      appendChatTurn('article', chat.chatId, {
+        turnId: 'forty-one-messages',
+        messages: messages(41),
+      }),
+    ).rejects.toThrow('turn exceeds persistence limits');
+    expect((await readChat('article', chat.chatId)).messages).toHaveLength(40);
   });
 
   it('accepts exactly 200 events as one bounded turn', async () => {

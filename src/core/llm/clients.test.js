@@ -357,9 +357,7 @@ describe('createClient dispatch', () => {
   });
 
   it('deepseek client keeps reasoning_content on tool-carrying requests (API 400s when missing)', async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      okJson({ choices: [{ message: { content: 'done' } }] }),
-    );
+    vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'done' } }] }));
     const client = createClient({ type: 'deepseek', model: 'deepseek-flash', token: 'k' });
     const tools = [
       {
@@ -395,9 +393,7 @@ describe('createClient dispatch', () => {
   });
 
   it('deepseek client omits reasoning_content on tool-less requests (API ignores it there)', async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      okJson({ choices: [{ message: { content: 'done' } }] }),
-    );
+    vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'done' } }] }));
     const client = createClient({ type: 'deepseek', model: 'deepseek-flash', token: 'k' });
     await client.complete({
       messages: [{ role: 'assistant', content: 'hi', reasoning: 'trace' }],
@@ -408,9 +404,7 @@ describe('createClient dispatch', () => {
   });
 
   it('openai-compatible clients still forward reasoning_content', async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      okJson({ choices: [{ message: { content: 'done' } }] }),
-    );
+    vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'done' } }] }));
     const client = createClient({ type: 'openai', model: 'gpt-4o', token: 'k' });
     await client.complete({
       messages: [{ role: 'assistant', content: '', reasoning: 'trace' }],
@@ -784,6 +778,16 @@ describe('createClient dispatch', () => {
     expect(vi.mocked(fetch).mock.calls[0][1].headers.Authorization).toBe('Bearer secret');
   });
 
+  it.each(['http://127.0.0.1:8989', 'http://[::1]:8989'])(
+    'allows bearer tokens to loopback URL %s',
+    async (url) => {
+      vi.mocked(fetch).mockResolvedValue(okJson({ choices: [{ message: { content: 'hi' } }] }));
+      const client = createClient({ type: 'openai_comp', model: 'm', token: 'secret', url });
+      await client.complete({ prompt: 'p' });
+      expect(vi.mocked(fetch).mock.calls[0][1].headers.Authorization).toBe('Bearer secret');
+    },
+  );
+
   it('openai-compatible client throws on non-ok and empty content', async () => {
     const client = createClient({ type: 'openai', model: 'm', token: 'k' });
 
@@ -996,6 +1000,20 @@ describe('createClient dispatch', () => {
         ],
       },
     ]);
+  });
+
+  it.each([
+    ['auto', { type: 'auto' }],
+    ['none', { type: 'none' }],
+    [
+      { type: 'function', function: { name: 'lookup' } },
+      { type: 'tool', name: 'lookup' },
+    ],
+  ])('maps Anthropic tool choice %j', async (toolChoice, expected) => {
+    vi.mocked(fetch).mockResolvedValue(okJson({ content: [{ type: 'text', text: 'done' }] }));
+    const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'k' });
+    await client.complete({ prompt: 'p', tools: [{ name: 'lookup' }], toolChoice });
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1].body).tool_choice).toEqual(expected);
   });
 
   it('anthropic client parses tool_use blocks and accepts tool-only responses', async () => {

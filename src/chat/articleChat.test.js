@@ -624,6 +624,32 @@ describe('article chat tool loop', () => {
     expect(send.mock.calls.every((args) => args.length === 1)).toBe(true);
   });
 
+  it('fails after the configured tool-call round limit instead of looping indefinitely', async () => {
+    const send = vi.fn(async () => ({
+      ok: true,
+      content: '',
+      toolCalls: [
+        { id: 'again', name: 'highlight_span', arguments: { start_line: 1, end_line: 1 } },
+      ],
+    }));
+    const cancelTurn = vi.fn().mockResolvedValue({ ok: true });
+
+    await expect(
+      runArticleChatTurn(
+        buildTurnOptions({
+          question: 'Q',
+          sentences: ['One.', 'Two.'],
+          maxToolRounds: 2,
+          send,
+          cancelTurn,
+          turnId: 'round-limit',
+        }),
+      ),
+    ).rejects.toThrow('The LLM exceeded the tool-call round limit.');
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(cancelTurn).toHaveBeenCalledWith({ turnId: 'round-limit' });
+  });
+
   it('cancels sibling workers after the first failure and suppresses late highlights', async () => {
     const secondResponse = Promise.withResolvers();
     const send = vi.fn(({ messages }) => {

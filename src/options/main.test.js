@@ -1172,10 +1172,15 @@ describe('options main.jsx', () => {
   });
 
   // U1's same "empty state hides a real failure" defect on the providers list.
-  it('shows a retry affordance instead of "No providers configured yet" when listProviders fails', async () => {
+  it('shows a retry banner instead of the empty state and recovers when retried', async () => {
+    let providerReads = 0;
     sendMessageMock.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') cb({ ok: true, items: [] });
-      else if (msg.type === 'listProviders') cb({ ok: false, error: 'storage read failed' });
+      else if (msg.type === 'listProviders') {
+        providerReads += 1;
+        if (providerReads === 1) cb({ ok: false, error: 'storage read failed' });
+        else cb({ ok: true, providers: [], activeId: null });
+      }
     });
 
     currentRoot = (await import('./main.jsx')).root;
@@ -1187,6 +1192,17 @@ describe('options main.jsx', () => {
     expect(document.getElementById('options-panel-providers').textContent).not.toContain(
       'No providers configured yet',
     );
+    const retry = Array.from(document.querySelectorAll('#options-panel-providers button')).find(
+      (button) => button.textContent === 'Retry',
+    );
+    expect(retry).toBeDefined();
+    retry.click();
+    await waitFor(() => {
+      expect(document.getElementById('options-panel-providers').textContent).toContain(
+        'No providers configured yet',
+      );
+    });
+    expect(providerReads).toBe(2);
   });
 
   // A failed delete must surface an error instead of silently reloading the

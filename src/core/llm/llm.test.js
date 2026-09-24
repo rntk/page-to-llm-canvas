@@ -814,6 +814,64 @@ describe('callLLMWithRetry', () => {
     await expect(callLLMWithRetry({ prompt: 'hello' }, 0)).rejects.toThrow('LLM HTTP 500: Error');
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+
+  it('retries HTTP 408 and uses the exponential equal-jitter delays', async () => {
+    const delays = [];
+    const complete = vi
+      .fn()
+      .mockRejectedValueOnce(Object.assign(new Error('timeout'), { status: 408 }))
+      .mockRejectedValueOnce(Object.assign(new Error('timeout'), { status: 408 }))
+      .mockResolvedValue({ content: 'ok' });
+    const { createLLMService } = await getLLM();
+    const service = createLLMService({
+      getActiveProvider: async () => ({ type: 'openai', model: 'm' }),
+      clientFactory: () => ({ complete }),
+      getRequestTimeoutSeconds: async () => 120,
+      getVerboseLogs: async () => false,
+      random: () => 0.25,
+      setTimeout: (fn, ms) => {
+        delays.push(ms);
+        if (ms < 120_000) fn();
+        return ms;
+      },
+      clearTimeout: () => {},
+      logInfo: () => {},
+      logWarn: () => {},
+    });
+
+    await expect(service.callLLMWithRetry({ prompt: 'p' }, 3)).resolves.toBe('ok');
+    expect(complete).toHaveBeenCalledTimes(3);
+    expect(delays.filter((ms) => ms !== 120_000)).toEqual([750, 1500]);
+  });
+
+  it('caps Retry-After at 60 seconds', async () => {
+    const delays = [];
+    const complete = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error('busy'), { status: 429, retryAfterMs: 120_000 }),
+      )
+      .mockResolvedValue({ content: 'ok' });
+    const { createLLMService } = await getLLM();
+    const service = createLLMService({
+      getActiveProvider: async () => ({ type: 'openai', model: 'm' }),
+      clientFactory: () => ({ complete }),
+      getRequestTimeoutSeconds: async () => 120,
+      getVerboseLogs: async () => false,
+      random: () => 0,
+      setTimeout: (fn, ms) => {
+        delays.push(ms);
+        if (ms !== 120_000) fn();
+        return ms;
+      },
+      clearTimeout: () => {},
+      logInfo: () => {},
+      logWarn: () => {},
+    });
+
+    await expect(service.callLLMWithRetry({ prompt: 'p' }, 2)).resolves.toBe('ok');
+    expect(delays).toContain(60_000);
+  });
 });
 
 describe('truncated provider responses', () => {

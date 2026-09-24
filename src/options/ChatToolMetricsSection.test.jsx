@@ -58,6 +58,24 @@ afterEach(() => {
 });
 
 describe('ChatToolMetricsSection', () => {
+  it('clears chat tool metrics after the worker acknowledges the clear', async () => {
+    getChatToolMetrics.mockResolvedValueOnce(metricsWithCalls(2));
+    sendRuntimeMessage.mockResolvedValueOnce({ ok: true });
+    act(() => root.render(<ChatToolMetricsSection store={store} />));
+    await flush();
+
+    await act(async () => {
+      container.querySelector('button').click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(sendRuntimeMessage).toHaveBeenCalledWith({ type: 'clearChatToolMetrics' });
+    expect(container.textContent).toContain('No chat tool calls recorded yet.');
+    expect(container.querySelector('button').disabled).toBe(true);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it('reloads persisted metrics when the worker resolves a failed clear response', async () => {
     getChatToolMetrics
       .mockResolvedValueOnce(metricsWithCalls(2))

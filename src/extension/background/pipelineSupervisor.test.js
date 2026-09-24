@@ -132,6 +132,21 @@ describe('createPipelineSupervisor (no chrome global)', () => {
     expect(alarms.create).toHaveBeenCalledWith(KEEPALIVE_ALARM, { periodInMinutes: 0.5 });
   });
 
+  it('retries keepalive creation after an asynchronous create failure', async () => {
+    const { alarms } = makeAlarms();
+    alarms.create
+      .mockRejectedValueOnce(new Error('alarm API unavailable'))
+      .mockResolvedValueOnce(undefined);
+    const { supervisor } = makeSupervisor({ alarmSetup: { alarms, runtime: { lastError: null } } });
+
+    supervisor.scheduleKeepAlive();
+    await Promise.resolve();
+    await Promise.resolve();
+    supervisor.scheduleKeepAlive();
+
+    expect(alarms.create).toHaveBeenCalledTimes(2);
+  });
+
   it('does not start a pipeline for a record that is not in flight', async () => {
     const { supervisor, runPipeline } = makeSupervisor({
       records: [['done', { key: 'done', status: PIPELINE_STATUS.DONE, pipelineRunId: 'run-1' }]],
@@ -164,6 +179,36 @@ describe('createPipelineSupervisor (no chrome global)', () => {
 
     expect(runPipeline).toHaveBeenCalledTimes(1);
     expect(supervisor.isActive('k1')).toBe(true);
+  });
+
+  it('does not let a replaced job cleanup evict its successor', async () => {
+    const deferred = () => {
+      let resolve;
+      const promise = new Promise((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    };
+    const oldRun = deferred();
+    const newRun = deferred();
+    const runPipeline = vi
+      .fn()
+      .mockReturnValueOnce(oldRun.promise)
+      .mockReturnValueOnce(newRun.promise);
+    const { supervisor, records } = makeSupervisor({
+      runPipeline,
+      records: [['k1', { key: 'k1', status: PIPELINE_STATUS.PENDING, pipelineRunId: 'run-1' }]],
+    });
+
+    await startWithoutAwaiting(supervisor, 'k1', runPipeline);
+    supervisor.cancelActivePipeline('k1');
+    records.set('k1', { ...records.get('k1'), pipelineRunId: 'run-2' });
+    await startWithoutAwaiting(supervisor, 'k1', runPipeline, 2);
+    oldRun.resolve();
+    await vi.waitFor(() => expect(supervisor.isActive('k1')).toBe(true));
+
+    newRun.resolve();
+    await vi.waitFor(() => expect(supervisor.isActive('k1')).toBe(false));
   });
 
   it('does not evict a registered job when its storage record is old', async () => {
@@ -333,6 +378,39 @@ describe('createPipelineSupervisor (no chrome global)', () => {
     expect(failureBreaker.recordFailure).toHaveBeenCalledWith(
       expect.objectContaining({ key: 'k1', pipelineRunId: 'run-1' }),
     );
+  });
+
+  it('clears the breaker when a failed fallback belongs to a replaced run', async () => {
+    const failureBreaker = {
+      getAll: vi.fn(async () => ({})),
+      recordFailure: vi.fn(async () => ({})),
+      clear: vi.fn(async () => {}),
+      clearForKey: vi.fn(async () => {}),
+    };
+    const runPipeline = vi.fn(async () => {
+      throw new Error('pipeline failed');
+    });
+    const { supervisor, recordRepository } = makeSupervisor({
+      runPipeline,
+      failureBreaker,
+      records: [['k1', { key: 'k1', status: PIPELINE_STATUS.PENDING, pipelineRunId: 'run-1' }]],
+    });
+    recordRepository.updateRecord.mockRejectedValue(new Error('storage unavailable'));
+    recordRepository.readRecord.mockResolvedValueOnce({
+      key: 'k1',
+      status: PIPELINE_STATUS.PENDING,
+      pipelineRunId: 'run-1',
+    });
+    recordRepository.readRecord.mockResolvedValue({
+      key: 'k1',
+      status: PIPELINE_STATUS.PENDING,
+      pipelineRunId: 'run-2',
+    });
+
+    await supervisor.startPipeline('k1');
+
+    expect(failureBreaker.recordFailure).not.toHaveBeenCalled();
+    expect(failureBreaker.clear).toHaveBeenCalledWith('run-1');
   });
 
   it('skips an open run breaker and exposes separate runtime failure metadata', async () => {

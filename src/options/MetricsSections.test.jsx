@@ -60,6 +60,80 @@ afterEach(() => {
 });
 
 describe('metrics clear failure recovery', () => {
+  it('clears parser metrics after the worker acknowledges the clear', async () => {
+    getParserMetrics.mockResolvedValueOnce({ ...emptyParserMetrics(), totalCount: 1 });
+    const container = renderSection(ParserMetricsSection);
+    await flush();
+
+    await act(async () => {
+      container.querySelector('button').click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(sendRuntimeMessage).toHaveBeenCalledWith({ type: 'clearParserMetrics' });
+    expect(container.textContent).toContain('No topic parser attempts recorded yet.');
+    expect(container.querySelector('button').disabled).toBe(true);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('clears resplit metrics after the worker acknowledges the clear', async () => {
+    getResplitMetrics.mockResolvedValueOnce({ ...emptyResplitMetrics(), runCount: 1 });
+    const container = renderSection(ResplitMetricsSection);
+    await flush();
+
+    await act(async () => {
+      container.querySelector('button').click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(sendRuntimeMessage).toHaveBeenCalledWith({ type: 'clearResplitMetrics' });
+    expect(container.textContent).toContain('No topic range resplit runs recorded yet.');
+    expect(container.querySelector('button').disabled).toBe(true);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('renders parser attempt, repair, retry, and quirk metrics', async () => {
+    const metrics = emptyParserMetrics();
+    metrics.totalCount = 1;
+    metrics.successCount = 1;
+    metrics.repairedCount = 1;
+    metrics.retryRecoveredCount = 1;
+    metrics.totals.invalidRangeTokens = 2;
+    metrics.recent = [
+      {
+        at: Date.now(),
+        scope: 'chat',
+        attempt: 2,
+        sentenceCount: 3,
+        inputLineCount: 4,
+        parsedRangeCount: 2,
+        ok: true,
+        recoveredAfterRetry: true,
+        repaired: true,
+        quirks: {
+          invalidRangeTokens: 1,
+          outOfRangeRanges: 0,
+          duplicateSentences: 0,
+          missingSentences: 0,
+          reversedRanges: 0,
+          ignoredLines: 0,
+        },
+      },
+    ];
+    getParserMetrics.mockResolvedValueOnce(metrics);
+    const container = renderSection(ParserMetricsSection);
+    await flush();
+
+    expect(container.textContent).toContain('Attempts (ok / error)1 (1 / 0)');
+    expect(container.textContent).toContain('Successful parses needing repair1');
+    expect(container.textContent).toContain('Recovered after parser retry1');
+    expect(container.textContent).toContain('Invalid range tokens2');
+    expect(container.textContent).toContain('recovered');
+    expect(container.textContent).toContain('1 invalid token(s)');
+  });
+
   it('reloads parser metrics and re-enables clear after a rejected clear', async () => {
     getParserMetrics
       .mockResolvedValueOnce({ ...emptyParserMetrics(), totalCount: 2, failureCount: 2 })

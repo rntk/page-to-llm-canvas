@@ -100,6 +100,16 @@ describe('in-page rail surface', () => {
     }
   });
 
+  it('unregisters its theme callback when disposed', () => {
+    const unregister = vi.fn();
+    registerThemedSurface.mockReturnValueOnce(unregister);
+    const disposable = createRailSurfaceManager({ document, rootFactory: createRoot, preferences });
+
+    disposable.dispose();
+
+    expect(unregister).toHaveBeenCalledOnce();
+  });
+
   it('tags YouTube rails and reserves the mode-specific width', () => {
     const surface = manager.createSurface({ state: { mode: 'summaries' }, youtube: true });
 

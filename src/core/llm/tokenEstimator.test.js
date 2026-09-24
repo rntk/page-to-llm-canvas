@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CONSERVATIVE_BYTES_PER_TOKEN,
-  CONSERVATIVE_CHARS_PER_TOKEN,
   WORST_CASE_BYTES_PER_CODE_UNIT,
   estimateMaxCharsForTokens,
   estimateTokens,
@@ -15,27 +13,24 @@ import { ARTICLE_CHAT_MAX_CHUNK_CHARS } from '../settings/llmBudgets.js';
 const THREE_BYTE_CHAR = '\u0800';
 
 describe('tokenEstimator', () => {
-  it('estimates Latin prose conservatively', () => {
-    const text = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. '.repeat(20);
-    const tokens = estimateTokens(text);
-    expect(tokens).toBeGreaterThanOrEqual(Math.ceil(text.length / CONSERVATIVE_CHARS_PER_TOKEN));
-    expect(utf8ByteLength(text)).toBe(text.length);
+  it.each([
+    ['empty input', '', 0],
+    ['one ASCII character', 'a', 2],
+    ['ASCII with character count dominant', 'hello world', 7],
+    ['CJK with byte count dominant', '漢字かな', 5],
+    ['Cyrillic with byte count dominant', 'Привет', 5],
+    ['astral emoji', '😀', 3],
+  ])('estimates %s exactly with the default constants', (_name, input, expected) => {
+    expect(estimateTokens(input)).toBe(expected);
   });
 
-  it('estimates CJK text with higher token density than naive 4-chars-per-token', () => {
-    const cjk = '漢字かなカナ'.repeat(200);
-    const tokens = estimateTokens(cjk);
-    expect(tokens).toBeGreaterThan(Math.ceil(cjk.length / 4));
-    expect(utf8ByteLength(cjk)).toBe(cjk.length * 3);
-    expect(tokens).toBeGreaterThanOrEqual(
-      Math.ceil(utf8ByteLength(cjk) / CONSERVATIVE_BYTES_PER_TOKEN),
-    );
-  });
-
-  it('estimates Cyrillic with multi-byte awareness', () => {
-    const cyrillic = 'Привет мир '.repeat(100);
-    expect(estimateTokens(cyrillic)).toBeGreaterThan(Math.ceil(cyrillic.length / 4));
-    expect(utf8ByteLength(cyrillic)).toBeGreaterThan(cyrillic.length);
+  it.each([
+    ['zero characters', 0, {}, 0],
+    ['one worst-case character', 1, {}, 2],
+    ['ten worst-case characters', 10, {}, 11],
+    ['ten ASCII characters', 10, { bytesPerChar: 1 }, 6],
+  ])('estimates %s exactly from a character count', (_name, count, options, expected) => {
+    expect(estimateTokensForCharCount(count, options)).toBe(expected);
   });
 
   it('estimates emoji correctly (2 code units, 4 bytes)', () => {

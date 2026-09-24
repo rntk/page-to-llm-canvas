@@ -34,6 +34,9 @@ function render(element, hostOverrides = {}) {
       act(() => root.unmount());
       container.remove();
     },
+    rerender(newElement) {
+      act(() => root.render(newElement));
+    },
   };
 }
 
@@ -193,6 +196,41 @@ describe('HierarchyApp', () => {
     );
     expect(activeAfter.textContent).toBe('L1');
 
+    unmount();
+  });
+
+  it('resets level, collapsed branches, and summary modal when initialKey changes', () => {
+    useRecord.mockReturnValue({
+      record: {
+        status: 'done',
+        topics: [{ name: 'Fruit > Citrus > Orange', sentences: [1] }],
+        topic_summary_index: { 'Fruit>Citrus>Orange': { runs: [{ text: 'Orange summary' }] } },
+      },
+      error: null,
+    });
+    const { container, rerender, unmount } = render(
+      createElement(HierarchyApp, { initialKey: 'key1' }),
+    );
+
+    const buttons = container.querySelectorAll(
+      '.th-page__level-switcher .topic-level-switcher__button',
+    );
+    act(() => buttons[0].click());
+    expect(container.textContent).not.toContain('Orange');
+    // Expand back to leaves before opening their summary.
+    act(() => buttons[2].click());
+    const leafSummary = container.querySelector('.th-leaf-summary');
+    act(() => leafSummary.click());
+    expect(container.querySelector('.th-summary-modal-overlay')).not.toBeNull();
+
+    rerender(createElement(HierarchyApp, { initialKey: 'key2' }));
+
+    expect(container.querySelector('.th-summary-modal-overlay')).toBeNull();
+    expect(
+      container.querySelector('.th-page__level-switcher .topic-level-switcher__button.active')
+        .textContent,
+    ).toBe('L2');
+    expect(container.textContent).toContain('Orange');
     unmount();
   });
 

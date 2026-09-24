@@ -194,6 +194,32 @@ describe('action icon progress rendering', () => {
 
     expect(chromeMock.action.setBadgeBackgroundColor).toHaveBeenCalled();
     expect(chromeMock.action.setBadgeText).toHaveBeenCalledWith({ text: '...' });
+    expect(chromeMock.action.setIcon).toHaveBeenCalledWith({
+      imageData: expect.objectContaining({
+        16: expect.anything(),
+        48: expect.anything(),
+        96: expect.anything(),
+      }),
+    });
+    controller.dispose();
+  });
+
+  it('restores the default icon when the last in-flight record finishes', async () => {
+    const chromeMock = makeChromeMock();
+    const { ACTION_ICON_PATHS, createActionIconController } = await import('./actionIcon.js');
+    const controller = createActionIconController({
+      records: vi.fn(async () => [{ status: 'done' }]),
+      actionApi: chromeMock.action,
+      assets: { paths: ACTION_ICON_PATHS, loadBitmap: vi.fn() },
+      canvasFactory: vi.fn(),
+      scheduler: { setTimeout, clearTimeout },
+      logger: { warn: vi.fn() },
+    });
+
+    await controller.refresh();
+
+    expect(chromeMock.action.setBadgeText).toHaveBeenCalledWith({ text: '' });
+    expect(chromeMock.action.setIcon).toHaveBeenCalledWith({ path: ACTION_ICON_PATHS });
     controller.dispose();
   });
 });

@@ -48,6 +48,11 @@ vi.mock('../core/settings/llmTimeout.js', async (importOriginal) => {
   };
 });
 
+vi.mock('../highlights/highlightSettings.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, getStoredHighlightColor: vi.fn(), setStoredHighlightColor: vi.fn() };
+});
+
 import {
   DEFAULT_PREFER_CONTENT_LANGUAGE,
   getStoredPreferContentLanguage,
@@ -77,6 +82,11 @@ import {
   getStoredLlmRequestTimeoutSeconds,
   setStoredLlmRequestTimeoutSeconds,
 } from '../core/settings/llmTimeout.js';
+import {
+  DEFAULT_HIGHLIGHT_COLOR,
+  getStoredHighlightColor,
+  setStoredHighlightColor,
+} from '../highlights/highlightSettings.js';
 import {
   ContentLanguageSection,
   GeneralSettingsPanel,
@@ -116,10 +126,20 @@ async function changeNumberValue(input, value) {
   await flush();
 }
 
+async function changeColorValue(input, value) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  await act(async () => {
+    setter.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   store = createFakeStore();
   scheduler = { setTimeout: vi.fn(), clearTimeout: vi.fn() };
+  scheduler.setTimeout.mockImplementation((fn) => ({ fn }));
 
   getStoredPreferContentLanguage.mockReset().mockResolvedValue(DEFAULT_PREFER_CONTENT_LANGUAGE);
   setStoredPreferContentLanguage.mockReset().mockResolvedValue(DEFAULT_PREFER_CONTENT_LANGUAGE);
@@ -135,6 +155,8 @@ beforeEach(() => {
   setStoredLlmRequestTimeoutSeconds
     .mockReset()
     .mockResolvedValue(DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS);
+  getStoredHighlightColor.mockReset().mockResolvedValue(DEFAULT_HIGHLIGHT_COLOR);
+  setStoredHighlightColor.mockReset().mockResolvedValue(undefined);
 
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -382,5 +404,46 @@ describe('GeneralSettingsPanel', () => {
     expect(headings).toContain('LLM concurrency');
     expect(headings).toContain('LLM request timeout');
     expect(headings).toContain('Diagnostics');
+  });
+
+  it('debounces highlight persistence and persists the latest preview', async () => {
+    act(() => root.render(<GeneralSettingsPanel store={store} scheduler={scheduler} />));
+    await flush();
+    const input = container.querySelector('#highlight-color');
+    await changeColorValue(input, '#112233');
+    await changeColorValue(input, '#445566');
+
+    expect(scheduler.setTimeout).toHaveBeenCalledTimes(2);
+    expect(scheduler.clearTimeout).toHaveBeenCalledTimes(1);
+    expect(setStoredHighlightColor).not.toHaveBeenCalled();
+    await act(async () => scheduler.setTimeout.mock.calls[1][0]());
+    expect(setStoredHighlightColor).toHaveBeenCalledTimes(1);
+    expect(setStoredHighlightColor).toHaveBeenCalledWith('#445566');
+  });
+
+  it('flushes the pending highlight write on unmount', async () => {
+    act(() => root.render(<GeneralSettingsPanel store={store} scheduler={scheduler} />));
+    await flush();
+    const input = container.querySelector('#highlight-color');
+    await changeColorValue(input, '#123456');
+
+    act(() => root.unmount());
+    expect(scheduler.clearTimeout).toHaveBeenCalled();
+    expect(setStoredHighlightColor).toHaveBeenCalledWith('#123456');
+    root = createRoot(container);
+  });
+
+  it('rolls the preview back to stored color after a failed write', async () => {
+    setStoredHighlightColor.mockRejectedValueOnce(new Error('write failed'));
+    getStoredHighlightColor.mockResolvedValue(DEFAULT_HIGHLIGHT_COLOR);
+    act(() => root.render(<GeneralSettingsPanel store={store} scheduler={scheduler} />));
+    await flush();
+    const input = container.querySelector('#highlight-color');
+    await changeColorValue(input, '#123456');
+    await act(async () => scheduler.setTimeout.mock.calls[0][0]());
+    await flush();
+
+    expect(getStoredHighlightColor).toHaveBeenCalledTimes(2);
+    expect(input.value).toBe(DEFAULT_HIGHLIGHT_COLOR);
   });
 });
