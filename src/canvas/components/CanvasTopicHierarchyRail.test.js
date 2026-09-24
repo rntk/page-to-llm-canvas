@@ -469,7 +469,7 @@ describe('CanvasTopicHierarchyRail', () => {
     unmount();
   });
 
-  it('handles crowding and overlap logic (nudgeCrowdedPair & compact height)', () => {
+  it('nudges crowded cards apart, compacts them, and stacks the smaller card on top', () => {
     // Create two cards that overlap significantly
     const overlappingCards = [
       {
@@ -509,8 +509,17 @@ describe('CanvasTopicHierarchyRail', () => {
       }),
     );
 
-    const buttons = container.querySelectorAll('.canvas-topic-hierarchy__card');
-    expect(buttons).toHaveLength(2);
+    const [o1, o2] = container.querySelectorAll('.canvas-topic-hierarchy__card');
+    const geometry = (button) => ({
+      top: button.style.getPropertyValue('--topic-card-top'),
+      height: button.style.getPropertyValue('--topic-card-height'),
+      zIndex: button.style.zIndex,
+      compact: button.classList.contains('is-compact'),
+    });
+    // The crowded pair is pushed apart (10px -> 46px gap), shrunk to the compact
+    // height, and the card with fewer sentences is stacked above the larger one.
+    expect(geometry(o1)).toEqual({ top: '32px', height: '64px', zIndex: '20', compact: true });
+    expect(geometry(o2)).toEqual({ top: '78px', height: '64px', zIndex: '27', compact: true });
     unmount();
   });
 

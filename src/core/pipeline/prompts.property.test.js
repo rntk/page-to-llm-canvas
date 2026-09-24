@@ -18,9 +18,6 @@ import {
 } from './prompts.js';
 
 const singleLineTextArb = fc.string().map((text) => text.replace(/[\r\n]/g, ' '));
-const nonEmptySingleLineTextArb = fc
-  .string({ minLength: 1 })
-  .map((text) => text.replace(/[\r\n]/g, ' '));
 
 function interpolateOnce(template, marker, value) {
   const markerIndex = template.indexOf(marker);
@@ -44,33 +41,6 @@ describe('buildTaggedText properties', () => {
         expect(buildTaggedText(sentences)).toBe(
           sentences.map((sentence, index) => `{${index}} ${sentence}`).join('\n'),
         );
-      }),
-    );
-  });
-
-  it('emits exactly one marked output line per single-line sentence', () => {
-    fc.assert(
-      fc.property(fc.array(singleLineTextArb), (sentences) => {
-        const result = buildTaggedText(sentences);
-        if (sentences.length === 0) {
-          expect(result).toBe('');
-        } else {
-          const lines = result.split('\n');
-          expect(lines.length).toBe(sentences.length);
-        }
-      }),
-    );
-  });
-
-  it('each line starts with {N} marker where N is the index', () => {
-    fc.assert(
-      fc.property(fc.array(nonEmptySingleLineTextArb, { minLength: 1 }), (sentences) => {
-        const result = buildTaggedText(sentences);
-        const lines = result.split('\n');
-        expect(lines.length).toBe(sentences.length);
-        for (let i = 0; i < lines.length; i++) {
-          expect(lines[i]).toMatch(new RegExp(`^\\{${i}\\} `));
-        }
       }),
     );
   });
@@ -137,95 +107,49 @@ describe('buildTopicRangesPrompt properties', () => {
   });
 });
 
-describe('buildArticleSummaryPrompt properties', () => {
+const interpolatingBuilders = [
+  [
+    'buildArticleSummaryPrompt',
+    buildArticleSummaryPrompt,
+    ARTICLE_SUMMARY_PROMPT_TEMPLATE,
+    '{text}',
+  ],
+  [
+    'buildArticleSummaryMergePrompt',
+    buildArticleSummaryMergePrompt,
+    ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE,
+    '{chunk_summaries}',
+  ],
+  [
+    'buildLeafSummaryMergePrompt',
+    buildLeafSummaryMergePrompt,
+    LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE,
+    '{chunk_summaries}',
+  ],
+  [
+    'buildTopicSummaryFromSourcePrompt',
+    buildTopicSummaryFromSourcePrompt,
+    TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE,
+    '{source}',
+  ],
+];
+
+describe.each(interpolatingBuilders)('%s properties', (_name, build, template, marker) => {
+  it('does not add a language instruction when options are omitted', () => {
+    expect(build('Chunk 1 summary')).toBe(interpolateOnce(template, marker, 'Chunk 1 summary'));
+  });
+
   it('interpolates arbitrary content once without confusing content for a template token', () => {
     fc.assert(
       fc.property(
-        promptContentArb('{text}', '</pagetollm_input>'),
+        promptContentArb(marker, '</pagetollm_input>'),
         fc.boolean(),
-        (text, preferContentLanguage) => {
-          const prompt = buildArticleSummaryPrompt(text, { preferContentLanguage });
-          const interpolated = interpolateOnce(ARTICLE_SUMMARY_PROMPT_TEMPLATE, '{text}', text);
+        (content, preferContentLanguage) => {
+          const interpolated = interpolateOnce(template, marker, content);
           const expected = preferContentLanguage
             ? `${LANGUAGE_INSTRUCTION}\n${interpolated}`
             : interpolated;
-          expect(prompt).toBe(expected);
-        },
-      ),
-    );
-  });
-});
-
-describe('buildArticleSummaryMergePrompt properties', () => {
-  it('interpolates arbitrary chunk summaries exactly', () => {
-    fc.assert(
-      fc.property(
-        promptContentArb('{chunk_summaries}', '</pagetollm_input>'),
-        fc.boolean(),
-        (summaries, preferContentLanguage) => {
-          const prompt = buildArticleSummaryMergePrompt(summaries, { preferContentLanguage });
-          const interpolated = interpolateOnce(
-            ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE,
-            '{chunk_summaries}',
-            summaries,
-          );
-          const expected = preferContentLanguage
-            ? `${LANGUAGE_INSTRUCTION}\n${interpolated}`
-            : interpolated;
-          expect(prompt).toBe(expected);
-        },
-      ),
-    );
-  });
-});
-
-describe('buildLeafSummaryMergePrompt properties', () => {
-  it('does not add a language instruction when options are omitted', () => {
-    const summaries = 'Chunk 1 summary';
-    expect(buildLeafSummaryMergePrompt(summaries)).toBe(
-      interpolateOnce(LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE, '{chunk_summaries}', summaries),
-    );
-  });
-
-  it('interpolates arbitrary chunk summaries exactly', () => {
-    fc.assert(
-      fc.property(
-        promptContentArb('{chunk_summaries}', '</pagetollm_input>'),
-        fc.boolean(),
-        (summaries, preferContentLanguage) => {
-          const prompt = buildLeafSummaryMergePrompt(summaries, { preferContentLanguage });
-          const interpolated = interpolateOnce(
-            LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE,
-            '{chunk_summaries}',
-            summaries,
-          );
-          const expected = preferContentLanguage
-            ? `${LANGUAGE_INSTRUCTION}\n${interpolated}`
-            : interpolated;
-          expect(prompt).toBe(expected);
-        },
-      ),
-    );
-  });
-});
-
-describe('buildTopicSummaryFromSourcePrompt properties', () => {
-  it('interpolates arbitrary source content exactly', () => {
-    fc.assert(
-      fc.property(
-        promptContentArb('{source}', '</pagetollm_input>'),
-        fc.boolean(),
-        (source, preferContentLanguage) => {
-          const prompt = buildTopicSummaryFromSourcePrompt(source, { preferContentLanguage });
-          const interpolated = interpolateOnce(
-            TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE,
-            '{source}',
-            source,
-          );
-          const expected = preferContentLanguage
-            ? `${LANGUAGE_INSTRUCTION}\n${interpolated}`
-            : interpolated;
-          expect(prompt).toBe(expected);
+          expect(build(content, { preferContentLanguage })).toBe(expected);
         },
       ),
     );

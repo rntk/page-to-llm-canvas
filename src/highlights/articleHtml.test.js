@@ -11,16 +11,21 @@ describe('articleHtml helpers', () => {
     it('returns empty string for falsy input', () => {
       expect(sanitizeArticleHtml('')).toBe('');
       expect(sanitizeArticleHtml(null)).toBe('');
+      expect(sanitizeArticleHtml(undefined)).toBe('');
     });
 
     it('removes executable elements and javascript: URLs', () => {
       const html =
-        '<p onclick="alert(1)">safe</p><script>alert(1)</script>' +
-        '<a href="javascript:evil()">x</a><img src="javascript:evil()">';
+        '<p onclick="alert(1)">safe<script>alert(1)</script>trailing</p>' +
+        '<a href="javascript:evil()">x</a><img src="javascript:evil()">' +
+        '<img src="x.png" onerror="alert(1)">';
       const out = sanitizeArticleHtml(html);
       expect(out).toContain('safe');
+      expect(out).toContain('trailing');
+      expect(out).toContain('src="x.png"');
       expect(out).not.toContain('script');
       expect(out).not.toContain('onclick');
+      expect(out).not.toContain('onerror');
       expect(out).not.toContain('javascript:');
     });
 
@@ -45,6 +50,26 @@ describe('articleHtml helpers', () => {
       expect(out).not.toContain('attacker.example');
       expect(out).not.toContain('formaction');
       expect(out).toContain('<p>article body</p>');
+    });
+
+    it('removes embedding and loading tags', () => {
+      const out = sanitizeArticleHtml(
+        '<style>p{color:red}</style><iframe src="evil"></iframe><object></object>' +
+          '<embed><link rel="x"><meta><p>keep</p>',
+      );
+
+      expect(out).not.toMatch(/<iframe|<object|<embed|<style|<link|<meta/i);
+      expect(out).toContain('keep');
+    });
+
+    it('preserves structural markup and inline style attributes', () => {
+      const out = sanitizeArticleHtml(
+        '<h2>Title</h2><p style="font-weight:bold">Body</p><ul><li>item</li></ul>',
+      );
+
+      expect(out).toContain('<h2>Title</h2>');
+      expect(out).toContain('style="font-weight:bold"');
+      expect(out).toContain('<li>item</li>');
     });
 
     it('leaves URLs untouched without a source URL', () => {
