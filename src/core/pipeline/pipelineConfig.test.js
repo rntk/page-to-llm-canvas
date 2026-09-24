@@ -58,8 +58,11 @@ describe('pipeline request sizing', () => {
     const medium = getPipelineTextChunkMaxChars(MEDIUM_CONTEXT);
     const large = getPipelineTextChunkMaxChars(LARGE_CONTEXT);
     expect(small).toBeGreaterThan(0);
+    expect(small).toBe(663);
     expect(small).toBeLessThan(medium);
     expect(medium).toBeLessThan(large);
+    expect(medium).toBe(3723);
+    expect(large).toBe(11170);
     expect(getPipelineTextChunkMaxChars(OVERSIZED_CONTEXT)).toBe(MAX_TAGGED_CHARS);
   });
 
@@ -68,7 +71,9 @@ describe('pipeline request sizing', () => {
     const small = getTopicRangeInputMaxSentences(SMALL_CONTEXT);
     const medium = getTopicRangeInputMaxSentences(MEDIUM_CONTEXT);
     expect(small).toBeGreaterThan(0);
-    expect(medium).toBeGreaterThanOrEqual(small);
+    expect(small).toBe(32);
+    expect(medium).toBe(54);
+    expect(medium).toBeGreaterThan(small);
     expect(medium).toBeLessThanOrEqual(TOPIC_RANGE_INPUT_MAX_SENTENCES);
     expect(getTopicRangeInputMaxSentences(OVERSIZED_CONTEXT)).toBe(TOPIC_RANGE_INPUT_MAX_SENTENCES);
   });

@@ -58,6 +58,36 @@ afterEach(() => {
 });
 
 describe('ChatToolMetricsSection', () => {
+  it('disables Clear with no calls', async () => {
+    getChatToolMetrics.mockResolvedValueOnce(metricsWithCalls(0));
+    act(() => root.render(<ChatToolMetricsSection store={store} />));
+    await flush();
+    expect(container.querySelector('button').disabled).toBe(true);
+  });
+
+  it('disables Clear and shows progress while a clear is pending', async () => {
+    getChatToolMetrics.mockResolvedValueOnce(metricsWithCalls(2));
+    act(() => root.render(<ChatToolMetricsSection store={store} />));
+    await flush();
+    expect(container.querySelector('button').disabled).toBe(false);
+
+    let resolveClear;
+    sendRuntimeMessage.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveClear = resolve;
+      }),
+    );
+    act(() => container.querySelector('button').click());
+    expect(container.querySelector('button').disabled).toBe(true);
+    expect(container.querySelector('button').textContent).toBe('Clearing...');
+
+    await act(async () => {
+      resolveClear({ ok: true });
+    });
+    expect(container.querySelector('button').disabled).toBe(true);
+    expect(container.querySelector('button').textContent).toBe('Clear chat tool metrics');
+  });
+
   it('clears chat tool metrics after the worker acknowledges the clear', async () => {
     getChatToolMetrics.mockResolvedValueOnce(metricsWithCalls(2));
     sendRuntimeMessage.mockResolvedValueOnce({ ok: true });
@@ -72,6 +102,7 @@ describe('ChatToolMetricsSection', () => {
 
     expect(sendRuntimeMessage).toHaveBeenCalledWith({ type: 'clearChatToolMetrics' });
     expect(container.textContent).toContain('No chat tool calls recorded yet.');
+    expect(container.querySelector('button').disabled).toBe(true);
   });
 
   it('reloads persisted metrics when the worker resolves a failed clear response', async () => {
@@ -94,6 +125,7 @@ describe('ChatToolMetricsSection', () => {
     expect(container.textContent).toContain('3 (3 / 0)');
     expect(container.querySelector('[role="alert"]').textContent).toContain('storage unavailable');
     expect(container.querySelector('.empty')).toBeNull();
+    expect(container.querySelector('button').disabled).toBe(false);
   });
 
   it('preserves metrics and reports both errors when recovery reload also fails', async () => {
@@ -114,5 +146,6 @@ describe('ChatToolMetricsSection', () => {
     expect(container.textContent).toContain('2 (2 / 0)');
     expect(container.querySelector('[role="alert"]').textContent).toContain('worker disconnected');
     expect(container.querySelector('[role="alert"]').textContent).toContain('reload unavailable');
+    expect(container.querySelector('button').disabled).toBe(false);
   });
 });

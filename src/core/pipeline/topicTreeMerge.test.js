@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   buildPartialTopicSummaryIndex,
   buildTopicTree,
+  splitContiguousRuns,
   summarizeTopicTree,
 } from './topicTreeMerge.js';
 
@@ -9,6 +10,18 @@ import {
 // single run is the common case; internal nodes return whatever runs
 // summarizeSource produces.
 const oneRun = (sentences, text) => ({ runs: [{ sentences, text }] });
+
+describe('splitContiguousRuns', () => {
+  it('sorts and deduplicates sentence ids before forming runs', () => {
+    expect(splitContiguousRuns([6, 1, 5, 2, 2, 5])).toEqual([
+      [1, 2],
+      [5, 6],
+    ]);
+    expect(splitContiguousRuns([1, 2, 3])).toEqual([[1, 2, 3]]);
+    expect(splitContiguousRuns([])).toEqual([]);
+    expect(splitContiguousRuns(undefined)).toEqual([]);
+  });
+});
 
 describe('buildTopicTree', () => {
   it('builds a deep path from strictly shorter parent prefixes', () => {

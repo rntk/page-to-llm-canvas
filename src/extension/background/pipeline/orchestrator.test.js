@@ -229,6 +229,167 @@ describe('createPipelineRunner', () => {
 // ---------------------------------------------------------------------------
 
 describe('runPipeline', () => {
+  it('clears stale topic and summary state before a fresh run', async () => {
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('fresh-clear', `<p>${LONG_SUMMARY_TEXT}</p>`),
+      topics: [{ name: 'Old', sentences: [1] }],
+      topic_summaries: { Old: { text: 'Old summary.' } },
+      topic_summary_index: { Old: { text: 'Old summary.' } },
+      source_summary_units: { old: { unitId: 'old' } },
+    });
+    capturedText.normalizeCapturedText.mockReturnValue(LONG_SUMMARY_TEXT);
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: LONG_SUMMARY_TEXT, start: 0, end: LONG_SUMMARY_TEXT.length },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ taskType }) =>
+      taskType === LLM_TASK_TYPES.TOPIC_RANGES ? 'Fresh: 0' : 'Fresh summary.',
+    );
+
+    await runPipeline('fresh-clear');
+
+    expect(storage.updateRecord.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        status: 'splitting',
+        topics: [],
+        topic_summaries: {},
+        topic_summary_index: {},
+        source_summary_units: {},
+        forceFinalize: false,
+      }),
+    );
+    const done = storage.updateRecord.mock.calls.find(([, patch]) => patch.status === 'done');
+    expect(done[1].topic_summaries.Old).toBeUndefined();
+    expect(done[1].topic_summaries.Fresh.runs[0].text).toBe('Fresh summary.');
+  });
+
+  it('keeps a fresh summary failure available for review', async () => {
+    storage.readRecord.mockResolvedValue(
+      makeRecord('fresh-failure', `<p>${LONG_SUMMARY_TEXT}</p>`),
+    );
+    capturedText.normalizeCapturedText.mockReturnValue(LONG_SUMMARY_TEXT);
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: LONG_SUMMARY_TEXT, start: 0, end: LONG_SUMMARY_TEXT.length },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ taskType }) => {
+      if (taskType === LLM_TASK_TYPES.TOPIC_RANGES) return 'Fresh: 0';
+      throw new Error('LLM down');
+    });
+
+    await runPipeline('fresh-failure');
+
+    expect(storage.updateRecord.mock.calls.some(([, patch]) => patch.status === 'done')).toBe(
+      false,
+    );
+    expect(
+      storage.updateRecord.mock.calls.some(([, patch]) => patch.status === 'needs_attention'),
+    ).toBe(true);
+  });
+
+  it('finalizes a fresh run without summary calls when summaries are disabled', async () => {
+    const source = 'Sentence one. Sentence two.';
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('fresh-disabled', `<p>${source}</p>`),
+      skipSummaries: true,
+    });
+    capturedText.normalizeCapturedText.mockReturnValue(source);
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'Sentence one.', start: 0, end: 13 },
+      { text: 'Sentence two.', start: 14, end: 27 },
+    ]);
+    llm.callLLMWithRetry.mockResolvedValue('Fresh: 0-1');
+
+    await runPipeline('fresh-disabled');
+
+    expect(llm.callLLMWithRetry.mock.calls.map(([options]) => options.taskType)).toEqual([
+      LLM_TASK_TYPES.TOPIC_RANGES,
+    ]);
+    const done = storage.updateRecord.mock.calls.find(([, patch]) => patch.status === 'done');
+    expect(done[1]).toEqual(
+      expect.objectContaining({
+        topic_summaries: {},
+        topic_summary_index: {},
+        summariesDisabled: true,
+      }),
+    );
+    expect(
+      storage.updateRecord.mock.calls.some(([, patch]) =>
+        patch.topics?.some((topic) => topic.name === 'Fresh'),
+      ),
+    ).toBe(true);
+  });
+
+  it('retries a parse failure and logs verbose diagnostics for the failed response', async () => {
+    getStoredVerboseLogs.mockResolvedValueOnce(true);
+    const source = 'A. B. C.';
+    storage.readRecord.mockResolvedValue(makeRecord('parse-retry', `<p>${source}</p>`));
+    capturedText.normalizeCapturedText.mockReturnValue(source);
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'A.', start: 0, end: 2 },
+      { text: 'B.', start: 3, end: 5 },
+      { text: 'C.', start: 6, end: 8 },
+    ]);
+    let attempts = 0;
+    llm.callLLMWithRetry.mockImplementation(async ({ taskType }) => {
+      if (taskType === LLM_TASK_TYPES.TOPIC_RANGES) {
+        attempts++;
+        return attempts === 1 ? 'Invalid response' : 'Fresh: 0-2';
+      }
+      return 'Summary.';
+    });
+
+    await runPipeline('parse-retry');
+
+    expect(attempts).toBe(2);
+    expect(storage.updateRecord.mock.calls.some(([, patch]) => patch.status === 'done')).toBe(true);
+    expect(storage.appendProcessingLog).toHaveBeenCalledWith(
+      'parse-retry',
+      'topic_ranges_parse_diagnostics',
+      expect.objectContaining({ attempt: 1 }),
+      expect.anything(),
+    );
+    expect(storage.appendProcessingLog).toHaveBeenCalledWith(
+      'parse-retry',
+      'topic_ranges_raw_response',
+      expect.objectContaining({ attempt: 1, response: 'Invalid response' }),
+      expect.anything(),
+    );
+  });
+
+  it.each([
+    ['stale', { summaryCheckpointContentRevision: 'old-revision' }],
+    ['missing', { summaryCheckpointContentRevision: undefined }],
+  ])('rebuilds a %s revision checkpoint and logs the mismatch', async (_, revision) => {
+    const source = 'Fresh sentence.';
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('stale-checkpoint', `<p>${source}</p>`),
+      status: 'summarizing',
+      ...revision,
+      sentences: ['Old sentence.'],
+      topics: [{ name: 'Old', sentences: [1] }],
+      topic_summaries: { Old: { runs: [{ sentences: [1], text: 'Old summary.' }] } },
+    });
+    capturedText.normalizeCapturedText.mockReturnValue(source);
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: source, start: 0, end: source.length },
+    ]);
+    llm.callLLMWithRetry.mockImplementation(async ({ taskType }) =>
+      taskType === LLM_TASK_TYPES.TOPIC_RANGES ? 'Fresh: 0' : 'Fresh summary.',
+    );
+
+    await runPipeline('stale-checkpoint');
+
+    expect(capturedText.normalizeCapturedText).toHaveBeenCalled();
+    const done = storage.updateRecord.mock.calls.find(([, patch]) => patch.status === 'done');
+    expect(done[1].topic_summaries.Old).toBeUndefined();
+    expect(done[1].topic_summaries.Fresh.runs[0].text).toBe(source);
+    expect(storage.appendProcessingLog).toHaveBeenCalledWith(
+      'stale-checkpoint',
+      'pipeline_resume_rejected',
+      expect.objectContaining({ reason: 'content_revision_mismatch' }),
+      expect.anything(),
+    );
+  });
+
   it('configures the shared LLM limiter from the stored setting', async () => {
     getStoredMaxParallelLlmRequests.mockResolvedValueOnce(2);
     storage.readRecord.mockResolvedValue(makeRecord('limited', '<p></p>'));

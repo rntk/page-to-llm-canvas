@@ -171,5 +171,11 @@ describe('stored setting failure paths', () => {
     });
     for (const setting of settings)
       await expect(setting.set(setting.value)).rejects.toThrow('storage unavailable');
+
+    chrome.storage.local.set = vi.fn(() => {
+      throw 'boom';
+    });
+    for (const setting of settings)
+      await expect(setting.set(setting.value)).rejects.toThrow('boom');
   });
 });
