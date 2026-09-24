@@ -397,13 +397,22 @@ export function createRecordHandlers({
         const now = Date.now();
         let count = 0;
         for (const record of decodeImportedRecords(records, { now })) {
-          cancelActivePipeline(record.key);
-          await writeRecord(
-            { ...record, pipelineRunId: createPipelineRunId() },
-            { bumpContentRevision: true },
-          );
-          await pipelineSupervisor.clearPipelineFailuresForKey(record.key);
-          count += 1;
+          try {
+            await writeRecord(
+              { ...record, pipelineRunId: createPipelineRunId() },
+              { bumpContentRevision: true },
+            );
+            count += 1;
+            // Pipeline updates carry the old run id and cannot overwrite the
+            // imported record. Cancel only after the replacement commits, so
+            // a failed write leaves the existing run alone.
+            cancelActivePipeline(record.key);
+            await pipelineSupervisor.clearPipelineFailuresForKey(record.key);
+          } catch (error) {
+            // A batch is a sequence of independent writes. Completed records
+            // stay imported; report them so the caller can refresh its list.
+            return { ok: false, count, error: error?.message || String(error) };
+          }
         }
 
         if (count === 0) return { ok: false, error: 'no valid records to import' };

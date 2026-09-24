@@ -2398,6 +2398,35 @@ describe('dispatchMessage unit tests', () => {
     expect(await readRecord('empty')).toBeNull();
   });
 
+  it('keeps earlier records and reports their count when the second write fails', async () => {
+    const chromeMock = makeChromeMock();
+    const originalSet = chromeMock.storage.local.set;
+    chromeMock.storage.local.set = vi.fn((items, callback) => {
+      if (Object.keys(items).some((key) => key.includes('second-import'))) {
+        chromeMock.runtime.lastError = { message: 'storage full' };
+        callback();
+        chromeMock.runtime.lastError = null;
+        return;
+      }
+      originalSet(items, callback);
+    });
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+
+    const result = await dispatchMessage({
+      type: 'importRecords',
+      records: [
+        { key: 'first-import', html: '<p>first</p>' },
+        { key: 'second-import', html: '<p>second</p>' },
+        { key: 'third-import', html: '<p>third</p>' },
+      ],
+    });
+
+    expect(result).toEqual({ ok: false, count: 1, error: 'storage full' });
+    expect(await readRecord('first-import')).toMatchObject({ html: '<p>first</p>' });
+    expect(await readRecord('second-import')).toBeNull();
+    expect(await readRecord('third-import')).toBeNull();
+  });
+
   it('imports records with a fresh pipelineRunId so stale pipeline writes cannot match', async () => {
     const chromeMock = makeChromeMock();
     const dispatchMessage = await loadDispatchMessage(chromeMock);

@@ -76,7 +76,8 @@ export function createContentSurfaceCoordinator({
 
   function getRailSurface(kind) {
     const isYouTube = kind === 'youtube';
-    const state = isYouTube ? railSurfaces.youtube : railSurfaces.inPage;
+    const key = isYouTube ? 'youtube' : 'inPage';
+    const state = railSurfaces[key];
     if (state.current) return Promise.resolve(state.current);
 
     if (!state.pending) {
@@ -110,6 +111,12 @@ export function createContentSurfaceCoordinator({
               });
         })
         .then((surface) => {
+          // destroy() replaced this state while the surface was being created;
+          // nothing else holds a reference, so tear it down here.
+          if (railSurfaces[key] !== state) {
+            surface.destroy();
+            return null;
+          }
           state.current = surface;
           return surface;
         })

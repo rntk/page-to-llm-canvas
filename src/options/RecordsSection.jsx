@@ -264,7 +264,14 @@ export function RecordsSection({ fileHost, pageHost, subscribeRecords = subscrib
       }
       const response = await sendMessage({ type: MSG.importRecords, records });
       if (!response || !response.ok) {
-        setError((response && response.error) || 'Failed to import records');
+        const importedCount = Number.isInteger(response?.count) ? response.count : 0;
+        const failure = (response && response.error) || 'Failed to import records';
+        setError(
+          importedCount > 0
+            ? `Imported ${importedCount} ${importedCount === 1 ? 'record' : 'records'} before import stopped: ${failure}`
+            : failure,
+        );
+        if (importedCount > 0) await reloadRecords();
         return;
       }
       const count = response.count || records.length;

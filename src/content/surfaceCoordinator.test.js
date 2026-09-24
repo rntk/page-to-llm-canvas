@@ -88,6 +88,74 @@ describe('content surface coordinator lazy loading', () => {
     expect(frameManager.open).toHaveBeenCalledWith('newer', undefined);
   });
 
+  it.each([
+    ['in-page', undefined, 'inPageRail', 'createInPageRailSurface'],
+    ['YouTube', 'youtube', 'youTubeRail', 'createYouTubeRailSurface'],
+  ])(
+    'destroys a %s rail surface created after the coordinator was destroyed',
+    async (_label, kind, loaderName, exportName) => {
+      const railModule = deferred();
+      const lateSurface = { open: vi.fn(async () => true), close: vi.fn(), destroy: vi.fn() };
+      const freshSurface = { open: vi.fn(async () => true), close: vi.fn(), destroy: vi.fn() };
+      const loader = vi
+        .fn()
+        .mockReturnValueOnce(railModule.promise)
+        .mockResolvedValueOnce({ [exportName]: () => freshSurface });
+      const { coordinator } = createHarness({ [loaderName]: loader });
+
+      const railOpen = coordinator.openRail({ key: 'late' }, 'topics', kind);
+      await Promise.resolve();
+      coordinator.destroy();
+      railModule.resolve({ [exportName]: () => lateSurface });
+
+      await expect(railOpen).resolves.toBe(false);
+      expect(lateSurface.open).not.toHaveBeenCalled();
+      expect(lateSurface.destroy).toHaveBeenCalledTimes(1);
+
+      // The orphaned surface must not be reused by a later request.
+      await expect(coordinator.openRail({ key: 'next' }, 'topics', kind)).resolves.toBe(true);
+      expect(loader).toHaveBeenCalledTimes(2);
+      expect(freshSurface.open).toHaveBeenCalledWith({ key: 'next' }, 'topics', {});
+    },
+  );
+
+  it('tears down a rail whose open is still pending when the coordinator is destroyed', async () => {
+    const mounted = deferred();
+    const surface = { open: vi.fn(() => mounted.promise), close: vi.fn(), destroy: vi.fn() };
+    const { coordinator } = createHarness({
+      inPageRail: vi.fn(async () => ({ createInPageRailSurface: () => surface })),
+    });
+
+    const railOpen = coordinator.openRail({ key: 'rail' }, 'topics');
+    await vi.waitFor(() => expect(surface.open).toHaveBeenCalled());
+    coordinator.destroy();
+    mounted.resolve(true);
+
+    await expect(railOpen).resolves.toBe(false);
+    expect(surface.close).toHaveBeenCalled();
+    expect(surface.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a rail surface cached when a newer surface supersedes its creation', async () => {
+    const railModule = deferred();
+    const surface = { open: vi.fn(async () => true), close: vi.fn(), destroy: vi.fn() };
+    const inPageRail = vi.fn(() => railModule.promise);
+    const { coordinator } = createHarness({ inPageRail });
+
+    const railOpen = coordinator.openRail({ key: 'old' }, 'topics');
+    await Promise.resolve();
+    const selectionOpen = coordinator.openSelection();
+    railModule.resolve({ createInPageRailSurface: () => surface });
+
+    await expect(railOpen).resolves.toBe(false);
+    await expect(selectionOpen).resolves.toEqual({ destroy: expect.any(Function) });
+    expect(surface.open).not.toHaveBeenCalled();
+    expect(surface.destroy).not.toHaveBeenCalled();
+
+    await expect(coordinator.openRail({ key: 'new' }, 'topics')).resolves.toBe(true);
+    expect(inPageRail).toHaveBeenCalledTimes(1);
+  });
+
   it('reports a record-frame load failure triggered from an in-page rail', async () => {
     let openRecordFrameFromRail;
     const inPageRail = vi.fn(async () => ({

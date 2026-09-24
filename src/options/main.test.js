@@ -951,6 +951,49 @@ describe('options main.jsx', () => {
     expect(document.body.textContent).toContain('Imported 1 record.');
   });
 
+  it('shows and refreshes records saved before an import failure', async () => {
+    let listCalls = 0;
+    sendMessageMock.mockImplementation((msg, callback) => {
+      if (msg.type === 'listRecords') {
+        listCalls += 1;
+        callback({
+          ok: true,
+          items: listCalls > 1 ? [{ key: 'first', status: 'done' }] : [],
+        });
+      } else if (msg.type === 'importRecords') {
+        callback({ ok: false, count: 1, error: 'storage full' });
+      } else if (msg.type === 'listProviders') {
+        callback({ ok: true, providers: [], activeId: null });
+      }
+    });
+
+    currentRoot = (await import('./main.jsx')).root;
+    await goToTab('records');
+    await waitFor(() => {
+      expect(document.querySelector('input[type="file"]')).not.toBeNull();
+      expect(document.body.textContent).toContain('No records yet');
+    });
+
+    const file = new File(
+      [JSON.stringify({ key: 'first', html: '<p>first</p>' })],
+      'records.json',
+      {
+        type: 'application/json',
+      },
+    );
+    const input = document.querySelector('input[type="file"]');
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain(
+        'Imported 1 record before import stopped: storage full',
+      );
+      expect(document.querySelectorAll('tbody tr')).toHaveLength(1);
+    });
+    expect(listCalls).toBeGreaterThan(1);
+  });
+
   it('asks before an imported record overwrites an existing key', async () => {
     confirmMock.mockReturnValueOnce(false);
     const record = {

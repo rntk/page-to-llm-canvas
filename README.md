@@ -97,7 +97,7 @@ Provider settings, saved analyses, and preferences are stored in the browser's l
 
 Besides LLM providers, the Options page also lets you:
 
-- Export a saved analysis to a JSON file, and import analyses back in (importing asks for confirmation before overwriting an existing record)
+- Export a saved analysis to a JSON file, and import analyses back in (importing asks for confirmation before overwriting an existing record). Imports write records one at a time; if a later write fails, earlier records remain imported and the screen reports the partial count.
 - Reprocess, delete, or stop processing saved analyses; manage or delete saved chat sessions separately
 - Turn on "Prefer the language of the content" so topic labels and summaries are written in the content's dominant language instead of English
 - Pick the highlight color used for picked blocks and highlighted sentences
