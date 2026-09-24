@@ -8,26 +8,7 @@ import {
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { TRUNCATED_RESPONSE_ERROR } from '../llm/completionStatus.js';
-
-function makeRuntime() {
-  const topicSummaries = {};
-  const sourceSummaryUnits = {};
-  const runtime = {
-    signal: undefined,
-    preferContentLanguage: false,
-    update: vi.fn(async () => undefined),
-    log: vi.fn(async () => undefined),
-  };
-  runtime.checkpointTopicSummary = vi.fn(async (topicPath, summary) => {
-    topicSummaries[topicPath] = summary;
-    return runtime.update({ topic_summaries: { ...topicSummaries } });
-  });
-  runtime.checkpointSourceSummaryUnit = vi.fn(async (unit) => {
-    sourceSummaryUnits[unit.unitId] = unit;
-    return runtime.update({ source_summary_units: { ...sourceSummaryUnits } });
-  });
-  return runtime;
-}
+import { makeRuntime } from '../../../test/fakes/pipelineFixtures.mjs';
 
 function lastUpdate(runtime, predicate = () => true) {
   return runtime.update.mock.calls

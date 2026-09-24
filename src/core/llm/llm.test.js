@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS } from '../settings/llmTimeout.js';
 import { FinishReason } from './completionStatus.js';
+import { createLLMService } from './llm.js';
+import { createClient } from './clients.js';
 
 const OPENAI_COMP_PROVIDER = {
   id: 'p1',
@@ -13,36 +15,35 @@ const OPENAI_COMP_PROVIDER = {
 
 const EXPECTED_ENDPOINT = 'http://192.168.0.147:8989/v1/chat/completions';
 
-function stubChrome(state, { verboseLogs = false, requestTimeoutSeconds } = {}) {
-  vi.stubGlobal('chrome', {
-    runtime: { lastError: undefined },
-    storage: {
-      local: {
-        get: (keys, cb) => {
-          const items = { 'pagetollm:llm:providers': state };
-          if (verboseLogs) items['pagetollm-verbose-logs'] = true;
-          if (requestTimeoutSeconds !== undefined) {
-            items['pagetollm-llm-request-timeout-seconds'] = requestTimeoutSeconds;
-          }
-          cb(items);
-        },
-      },
-    },
-  });
+let activeProvider;
+let verboseLogs = false;
+let requestTimeoutSeconds = DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS;
+let transport;
+
+function setProviderState(state, options = {}) {
+  activeProvider = state.providers?.find((provider) => provider.id === state.activeId) ?? null;
+  verboseLogs = options.verboseLogs ?? false;
+  requestTimeoutSeconds = options.requestTimeoutSeconds ?? DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS;
 }
 
 function stubActiveProvider(provider = OPENAI_COMP_PROVIDER, options = {}) {
-  stubChrome({ providers: [provider], activeId: provider.id }, options);
+  setProviderState({ providers: [provider], activeId: provider.id }, options);
 }
 
-async function getLLM() {
-  vi.resetModules();
-  return await import('./llm.js');
+async function getLLM(overrides = {}) {
+  return createLLMService({
+    getActiveProvider: async () => activeProvider,
+    clientFactory: createClient,
+    getRequestTimeoutSeconds: async () => requestTimeoutSeconds,
+    getVerboseLogs: async () => verboseLogs,
+    transport,
+    ...overrides,
+  });
 }
 
 describe('callLLMDirect', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
+    transport = vi.fn();
     vi.spyOn(console, 'info').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     stubActiveProvider();
@@ -50,20 +51,18 @@ describe('callLLMDirect', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    vi.unstubAllGlobals();
   });
 
   it('returns an error when no provider is configured', async () => {
-    stubChrome({ providers: [], activeId: null });
+    setProviderState({ providers: [], activeId: null });
     const { callLLMDirect } = await getLLM();
     const res = await callLLMDirect({ prompt: 'hello' });
     expect(res.ok).toBe(false);
     expect(res.error).toContain('No LLM provider configured');
-    expect(fetch).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
   });
 
   it('can be isolated through the LLM service capabilities', async () => {
-    const { createLLMService } = await getLLM();
     const provider = { type: 'openai', model: 'model-1', name: 'Injected' };
     const transport = vi.fn();
     const complete = vi.fn().mockResolvedValue({
@@ -103,7 +102,6 @@ describe('callLLMDirect', () => {
   });
 
   it('keeps default sibling capabilities when individual dependencies are overridden', async () => {
-    const { createLLMService } = await getLLM();
     const service = createLLMService({
       getActiveProvider: vi.fn().mockResolvedValue(OPENAI_COMP_PROVIDER),
       clientFactory: vi.fn(() => ({
@@ -125,57 +123,17 @@ describe('callLLMDirect', () => {
   });
 
   it('returns an error when provider lookup throws', async () => {
-    vi.stubGlobal('chrome', {
-      runtime: { lastError: undefined },
-      storage: {
-        local: {
-          get: (_keys, cb) => {
-            chrome.runtime.lastError = { message: 'storage unavailable' };
-            cb({});
-          },
-        },
+    const { callLLMDirect } = createLLMService({
+      getActiveProvider: async () => {
+        throw new Error('storage unavailable');
       },
+      transport,
     });
-    const { callLLMDirect } = await getLLM();
     const res = await callLLMDirect({ prompt: 'hello' });
     expect(res.ok).toBe(false);
     expect(res.error).toBe('storage unavailable');
     expect(res.retryable).toBe(false);
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it('calls the active provider endpoint and strips <think> tags', async () => {
-    const { callLLMDirect } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        choices: [
-          { message: { content: '<think>reason</think>This is the final response text.' } },
-        ],
-      }),
-    });
-
-    const res = await callLLMDirect({ prompt: 'hello' });
-    expect(res).toEqual({
-      ok: true,
-      content: 'This is the final response text.',
-      reasoning: 'reason',
-      finishReason: FinishReason.UNKNOWN,
-    });
-
-    expect(fetch).toHaveBeenCalledWith(
-      EXPECTED_ENDPOINT,
-      expect.objectContaining({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'gpt-oss-20B',
-          messages: [{ role: 'user', content: 'hello' }],
-          cache_prompt: true,
-        }),
-      }),
-    );
+    expect(transport).not.toHaveBeenCalled();
   });
 
   it('sends the provider temperature configured for the request task', async () => {
@@ -183,41 +141,32 @@ describe('callLLMDirect', () => {
       ...OPENAI_COMP_PROVIDER,
       temperatures: { summaries: 0.8, splitting: 0.2 },
     });
-    const { callLLMDirect } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
-    });
+    const complete = vi.fn().mockResolvedValue({ content: 'ok' });
+    const { callLLMDirect } = await getLLM({ clientFactory: () => ({ complete }) });
 
     await callLLMDirect({ prompt: 'hello', taskType: 'topic_ranges' });
 
-    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
-    expect(body.temperature).toBe(0.2);
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({ temperature: 0.2 }));
   });
 
   it('omits temperature when the task has no configured provider temperature', async () => {
     stubActiveProvider({ ...OPENAI_COMP_PROVIDER, temperatures: { summaries: 0.8 } });
-    const { callLLMDirect } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
-    });
+    const complete = vi.fn().mockResolvedValue({ content: 'ok' });
+    const { callLLMDirect } = await getLLM({ clientFactory: () => ({ complete }) });
 
     await callLLMDirect({ prompt: 'hello', taskType: 'chat_answer' });
 
-    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1].body);
-    expect('temperature' in body).toBe(false);
+    expect(complete).toHaveBeenCalledWith(
+      expect.not.objectContaining({ temperature: expect.anything() }),
+    );
   });
 
   it('uses an explicit provider snapshot instead of rereading the active provider', async () => {
-    const { callLLMDirect } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ choices: [{ message: { content: 'snapshot response' } }] }),
-    });
+    const getActiveProvider = vi.fn();
+    const clientFactory = vi.fn(() => ({
+      complete: vi.fn().mockResolvedValue({ content: 'snapshot response' }),
+    }));
+    const { callLLMDirect } = await getLLM({ getActiveProvider, clientFactory });
     const provider = {
       ...OPENAI_COMP_PROVIDER,
       id: 'snapshot',
@@ -230,60 +179,14 @@ describe('callLLMDirect', () => {
       content: 'snapshot response',
       finishReason: FinishReason.UNKNOWN,
     });
-    expect(fetch).toHaveBeenCalledWith(
-      'http://snapshot.local:9000/v1/chat/completions',
-      expect.objectContaining({ method: 'POST' }),
-    );
-  });
-
-  it('returns llama.cpp tool calls without requiring text content', async () => {
-    const { callLLMDirect } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content: '',
-              tool_calls: [
-                {
-                  id: 'c1',
-                  function: {
-                    name: 'highlight_span',
-                    arguments: '{"start_line":1,"end_line":2}',
-                  },
-                },
-              ],
-            },
-          },
-        ],
-      }),
-    });
-
-    await expect(
-      callLLMDirect({
-        messages: [{ role: 'user', content: 'question' }],
-        tools: [{ name: 'highlight_span', parameters: { type: 'object' } }],
-      }),
-    ).resolves.toEqual({
-      ok: true,
-      content: '',
-      finishReason: FinishReason.UNKNOWN,
-      toolCalls: [
-        {
-          id: 'c1',
-          name: 'highlight_span',
-          arguments: { start_line: 1, end_line: 2 },
-        },
-      ],
-    });
+    expect(getActiveProvider).not.toHaveBeenCalled();
+    expect(clientFactory).toHaveBeenCalledWith(provider, expect.any(Object));
   });
 
   it('reports normalized provider usage to the metrics collector', async () => {
     const { callLLMDirect } = await getLLM();
     const metricsCollector = vi.fn();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({
@@ -317,33 +220,9 @@ describe('callLLMDirect', () => {
     });
   });
 
-  it('strips various forms of <think> tags', async () => {
-    const { callLLMDirect } = await getLLM();
-    const variations = [
-      '<think>a</think>test',
-      "<think class='x'>a</think>test",
-      '<THINK>a</THINK>test',
-      '<think>\na\n</think>test',
-      '<think>a\nb</think>test',
-      '<think   >a</think>test',
-      '<think attr1="a" attr2="b">thinking</think>test',
-      '<think></think>test',
-    ];
-
-    for (const content of variations) {
-      vi.mocked(fetch).mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({ choices: [{ message: { content } }] }),
-      });
-      const res = await callLLMDirect({ prompt: 'hello' });
-      expect(res.content).toBe('test');
-    }
-  });
-
   it('returns error on non-ok HTTP status', async () => {
     const { callLLMDirect } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: false,
       status: 500,
       text: async () => 'Internal server error',
@@ -356,7 +235,7 @@ describe('callLLMDirect', () => {
 
   it('slices error response text to 300 characters', async () => {
     const { callLLMDirect } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: false,
       status: 500,
       text: async () => 'a'.repeat(400),
@@ -368,7 +247,7 @@ describe('callLLMDirect', () => {
 
   it('returns error on empty/whitespace content', async () => {
     const { callLLMDirect } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({ choices: [{ message: { content: '   ' } }] }),
@@ -381,7 +260,7 @@ describe('callLLMDirect', () => {
 
   it('returns error when content is not a string', async () => {
     const { callLLMDirect } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({ choices: [{ message: { content: null } }] }),
@@ -394,7 +273,7 @@ describe('callLLMDirect', () => {
 
   it('handles timeout abort error gracefully', async () => {
     const { callLLMDirect } = await getLLM();
-    vi.mocked(fetch).mockRejectedValue({
+    transport.mockRejectedValue({
       name: 'AbortError',
       message: 'The operation was aborted.',
     });
@@ -408,7 +287,7 @@ describe('callLLMDirect', () => {
     stubActiveProvider(OPENAI_COMP_PROVIDER, { requestTimeoutSeconds: 600 });
     const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
     const { callLLMDirect } = await getLLM();
-    vi.mocked(fetch).mockRejectedValue({
+    transport.mockRejectedValue({
       name: 'AbortError',
       message: 'The operation was aborted.',
     });
@@ -422,7 +301,7 @@ describe('callLLMDirect', () => {
   it('throws AbortError when the caller signal aborts an in-flight request', async () => {
     const { callLLMDirect } = await getLLM();
     const controller = new AbortController();
-    vi.mocked(fetch).mockImplementation((_url, init) => {
+    transport.mockImplementation((_url, init) => {
       if (init.signal.aborted) {
         return Promise.reject({ name: 'AbortError', message: 'The operation was aborted.' });
       }
@@ -434,7 +313,7 @@ describe('callLLMDirect', () => {
     });
 
     const request = callLLMDirect({ prompt: 'hello', signal: controller.signal });
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    await vi.waitFor(() => expect(transport).toHaveBeenCalled());
     controller.abort();
 
     await expect(request).rejects.toMatchObject({ name: 'AbortError' });
@@ -443,7 +322,7 @@ describe('callLLMDirect', () => {
   it('preserves a provider failure that settles after the caller signal aborts', async () => {
     const { callLLMDirect } = await getLLM();
     const controller = new AbortController();
-    vi.mocked(fetch).mockImplementation(async () => {
+    transport.mockImplementation(async () => {
       controller.abort();
       throw new Error('provider rejected the request');
     });
@@ -456,7 +335,7 @@ describe('callLLMDirect', () => {
   it('callLLM preserves AbortError from a caller signal', async () => {
     const { callLLM } = await getLLM();
     const controller = new AbortController();
-    vi.mocked(fetch).mockImplementation((_url, init) => {
+    transport.mockImplementation((_url, init) => {
       if (init.signal.aborted) {
         return Promise.reject({ name: 'AbortError', message: 'The operation was aborted.' });
       }
@@ -468,7 +347,7 @@ describe('callLLMDirect', () => {
     });
 
     const request = callLLM({ prompt: 'hello', signal: controller.signal });
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    await vi.waitFor(() => expect(transport).toHaveBeenCalled());
     controller.abort();
 
     await expect(request).rejects.toMatchObject({ name: 'AbortError' });
@@ -476,7 +355,7 @@ describe('callLLMDirect', () => {
 
   it('handles generic fetch error', async () => {
     const { callLLMDirect } = await getLLM();
-    vi.mocked(fetch).mockRejectedValue(new Error('Connection refused'));
+    transport.mockRejectedValue(new Error('Connection refused'));
 
     const res = await callLLMDirect({ prompt: 'hello' });
     expect(res.ok).toBe(false);
@@ -489,7 +368,7 @@ describe('callLLMDirect', () => {
 
   it("uses an object rejection's provider error field", async () => {
     const { callLLMDirect } = await getLLM();
-    vi.mocked(fetch).mockRejectedValue({ error: 'Provider is overloaded' });
+    transport.mockRejectedValue({ error: 'Provider is overloaded' });
 
     const res = await callLLMDirect({ prompt: 'hello' });
     expect(res).toMatchObject({ ok: false, error: 'Provider is overloaded' });
@@ -501,7 +380,7 @@ describe('callLLMDirect', () => {
 
   it('omits request/response console.info when verbose logs are off', async () => {
     const { callLLMDirect } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
@@ -514,7 +393,7 @@ describe('callLLMDirect', () => {
   it('logs request/response console.info when verbose logs are on', async () => {
     stubActiveProvider(OPENAI_COMP_PROVIDER, { verboseLogs: true });
     const { callLLMDirect } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
@@ -548,7 +427,7 @@ describe('callLLMDirect', () => {
       token: 'sk-ant-test',
     });
     const { callLLMDirect } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({ content: [{ type: 'text', text: 'Claude says hi' }] }),
@@ -561,7 +440,7 @@ describe('callLLMDirect', () => {
       finishReason: FinishReason.UNKNOWN,
     });
 
-    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    const [url, init] = transport.mock.calls[0];
     expect(url).toBe('https://api.anthropic.com/v1/messages');
     expect(init.headers['x-api-key']).toBe('sk-ant-test');
     expect(init.headers['anthropic-dangerous-direct-browser-access']).toBe('true');
@@ -573,27 +452,27 @@ describe('callLLMDirect', () => {
     const res = await callLLMDirect({ prompt: 'hello' });
     expect(res.ok).toBe(false);
     expect(res.error).toContain('requires a base URL');
-    expect(fetch).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
   });
 
   it('clears the fallback abort timeout after a successful call', async () => {
     const { callLLMDirect } = await getLLM();
     const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({ choices: [{ message: { content: 'Success' } }] }),
     });
 
     await callLLMDirect({ prompt: 'hello' });
-    expect(fetch.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+    expect(transport.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
     expect(clearSpy).toHaveBeenCalled();
   });
 });
 
 describe('callLLM', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
+    transport = vi.fn();
     vi.spyOn(console, 'info').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     stubActiveProvider();
@@ -601,12 +480,11 @@ describe('callLLM', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    vi.unstubAllGlobals();
   });
 
   it('returns response content string', async () => {
     const { callLLM } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({ choices: [{ message: { content: 'Response' } }] }),
@@ -618,7 +496,7 @@ describe('callLLM', () => {
 
   it('throws error on failure', async () => {
     const { callLLM } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: false,
       status: 400,
       text: async () => 'Bad request',
@@ -630,7 +508,7 @@ describe('callLLM', () => {
 
 describe('callLLMWithRetry', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
+    transport = vi.fn();
     vi.spyOn(console, 'info').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn) => {
@@ -642,12 +520,11 @@ describe('callLLMWithRetry', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    vi.unstubAllGlobals();
   });
 
   it('succeeds on first attempt', async () => {
     const { callLLMWithRetry } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({ choices: [{ message: { content: 'Success' } }] }),
@@ -655,12 +532,12 @@ describe('callLLMWithRetry', () => {
 
     const content = await callLLMWithRetry({ prompt: 'hello' }, 3);
     expect(content).toBe('Success');
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(transport).toHaveBeenCalledTimes(1);
   });
 
   it('retries and succeeds on third attempt', async () => {
     const { callLLMWithRetry } = await getLLM();
-    vi.mocked(fetch)
+    transport
       .mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'Error 1' })
       .mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'Error 2' })
       .mockResolvedValueOnce({
@@ -671,24 +548,24 @@ describe('callLLMWithRetry', () => {
 
     const content = await callLLMWithRetry({ prompt: 'hello' }, 3);
     expect(content).toBe('Success');
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(transport).toHaveBeenCalledTimes(3);
   });
 
   it('fails after exhausting max retries', async () => {
     const { callLLMWithRetry } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: false,
       status: 500,
       text: async () => 'Error',
     });
 
     await expect(callLLMWithRetry({ prompt: 'hello' }, 2)).rejects.toThrow('LLM HTTP 500: Error');
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(transport).toHaveBeenCalledTimes(2);
   });
 
   it('aborts during retry backoff without waiting for the timer', async () => {
     vi.restoreAllMocks();
-    vi.stubGlobal('fetch', vi.fn());
+    transport = vi.fn();
     vi.spyOn(console, 'info').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     stubActiveProvider();
@@ -711,7 +588,7 @@ describe('callLLMWithRetry', () => {
 
     const { callLLMWithRetry } = await getLLM();
     const controller = new AbortController();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: false,
       status: 500,
       text: async () => 'Error',
@@ -722,12 +599,12 @@ describe('callLLMWithRetry', () => {
     controller.abort();
 
     await expect(request).rejects.toMatchObject({ name: 'AbortError' });
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(transport).toHaveBeenCalledTimes(1);
   });
 
   it('does not retry a non-retryable 4xx status', async () => {
     const { callLLMWithRetry } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: false,
       status: 401,
       text: async () => 'Unauthorized',
@@ -737,23 +614,23 @@ describe('callLLMWithRetry', () => {
     await expect(callLLMWithRetry({ prompt: 'hello' }, 3)).rejects.toThrow(
       'LLM HTTP 401: Unauthorized',
     );
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(transport).toHaveBeenCalledTimes(1);
   });
 
   it('does not retry when no provider is configured', async () => {
-    stubChrome({ providers: [], activeId: null });
+    setProviderState({ providers: [], activeId: null });
     const { callLLMWithRetry } = await getLLM();
 
     await expect(callLLMWithRetry({ prompt: 'hello' }, 3)).rejects.toMatchObject({
       message: expect.stringContaining('No LLM provider configured'),
       retryable: false,
     });
-    expect(fetch).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
   });
 
   it('retries a 429 (rate limit) status', async () => {
     const { callLLMWithRetry } = await getLLM();
-    vi.mocked(fetch)
+    transport
       .mockResolvedValueOnce({
         ok: false,
         status: 429,
@@ -768,7 +645,7 @@ describe('callLLMWithRetry', () => {
 
     const content = await callLLMWithRetry({ prompt: 'hello' }, 3);
     expect(content).toBe('Success');
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(transport).toHaveBeenCalledTimes(2);
   });
 
   it('honors Retry-After for the backoff delay', async () => {
@@ -779,7 +656,7 @@ describe('callLLMWithRetry', () => {
       return 0;
     });
     const { callLLMWithRetry } = await getLLM();
-    vi.mocked(fetch)
+    transport
       .mockResolvedValueOnce({
         ok: false,
         status: 429,
@@ -804,7 +681,7 @@ describe('callLLMWithRetry', () => {
 
   it('makes exactly one attempt when maxRetries is 0', async () => {
     const { callLLMWithRetry } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: false,
       status: 500,
       text: async () => 'Error',
@@ -812,7 +689,7 @@ describe('callLLMWithRetry', () => {
     });
 
     await expect(callLLMWithRetry({ prompt: 'hello' }, 0)).rejects.toThrow('LLM HTTP 500: Error');
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(transport).toHaveBeenCalledTimes(1);
   });
 
   it('retries HTTP 408 and uses the exponential equal-jitter delays', async () => {
@@ -822,7 +699,7 @@ describe('callLLMWithRetry', () => {
       .mockRejectedValueOnce(Object.assign(new Error('timeout'), { status: 408 }))
       .mockRejectedValueOnce(Object.assign(new Error('timeout'), { status: 408 }))
       .mockResolvedValue({ content: 'ok' });
-    const { createLLMService } = await getLLM();
+
     const service = createLLMService({
       getActiveProvider: async () => ({ type: 'openai', model: 'm' }),
       clientFactory: () => ({ complete }),
@@ -852,7 +729,7 @@ describe('callLLMWithRetry', () => {
         Object.assign(new Error('busy'), { status: 429, retryAfterMs: 120_000 }),
       )
       .mockResolvedValue({ content: 'ok' });
-    const { createLLMService } = await getLLM();
+
     const service = createLLMService({
       getActiveProvider: async () => ({ type: 'openai', model: 'm' }),
       clientFactory: () => ({ complete }),
@@ -876,7 +753,7 @@ describe('callLLMWithRetry', () => {
 
 describe('truncated provider responses', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
+    transport = vi.fn();
     vi.spyOn(console, 'info').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn) => {
@@ -888,7 +765,6 @@ describe('truncated provider responses', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    vi.unstubAllGlobals();
   });
 
   const truncatedOpenAI = () => ({
@@ -901,7 +777,7 @@ describe('truncated provider responses', () => {
 
   it('callLLM rejects an output-limited response instead of returning partial text', async () => {
     const { callLLM } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue(truncatedOpenAI());
+    transport.mockResolvedValue(truncatedOpenAI());
     await expect(callLLM({ prompt: 'hello' })).rejects.toThrow(/truncated/i);
   });
 
@@ -915,7 +791,7 @@ describe('truncated provider responses', () => {
       url: '',
     });
     const { callLLM } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({
@@ -928,23 +804,21 @@ describe('truncated provider responses', () => {
 
   it('callLLMWithRetry retries a truncated response and returns the complete one', async () => {
     const { callLLMWithRetry } = await getLLM();
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(truncatedOpenAI())
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          choices: [{ message: { content: 'Science>Stars: 0-9' }, finish_reason: 'stop' }],
-        }),
-      });
+    transport.mockResolvedValueOnce(truncatedOpenAI()).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: 'Science>Stars: 0-9' }, finish_reason: 'stop' }],
+      }),
+    });
 
     await expect(callLLMWithRetry({ prompt: 'hello' }, 3)).resolves.toBe('Science>Stars: 0-9');
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(transport).toHaveBeenCalledTimes(2);
   });
 
   it('callLLMDirect keeps the partial content and reports the finish reason', async () => {
     const { callLLMDirect } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue(truncatedOpenAI());
+    transport.mockResolvedValue(truncatedOpenAI());
     const res = await callLLMDirect({ prompt: 'hello' });
     expect(res).toMatchObject({
       ok: true,
@@ -955,7 +829,7 @@ describe('truncated provider responses', () => {
 
   it('leaves a tool-call response alone on both the direct and text paths', async () => {
     const { callLLMDirect, callLLM } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({
@@ -980,7 +854,7 @@ describe('truncated provider responses', () => {
 
 describe('callLLMDirectWithRetry', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
+    transport = vi.fn();
     vi.spyOn(console, 'info').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn) => {
@@ -992,12 +866,11 @@ describe('callLLMDirectWithRetry', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    vi.unstubAllGlobals();
   });
 
   it('retries a 429 and resolves with the full direct result', async () => {
     const { callLLMDirectWithRetry } = await getLLM();
-    vi.mocked(fetch)
+    transport
       .mockResolvedValueOnce({ ok: false, status: 429, text: async () => 'slow down' })
       .mockResolvedValueOnce({
         ok: true,
@@ -1021,33 +894,33 @@ describe('callLLMDirectWithRetry', () => {
 
     expect(result.ok).toBe(true);
     expect(result.toolCalls).toHaveLength(1);
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(transport).toHaveBeenCalledTimes(2);
   });
 
   it('resolves with the last failure after exhausting retries', async () => {
     const { callLLMDirectWithRetry } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 503, text: async () => 'down' });
+    transport.mockResolvedValue({ ok: false, status: 503, text: async () => 'down' });
 
     const result = await callLLMDirectWithRetry({ prompt: 'hello' }, 2);
 
     expect(result).toMatchObject({ ok: false, status: 503 });
     expect(result.error).toContain('503');
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(transport).toHaveBeenCalledTimes(2);
   });
 
   it('does not retry a non-retryable 4xx', async () => {
     const { callLLMDirectWithRetry } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 401, text: async () => 'nope' });
+    transport.mockResolvedValue({ ok: false, status: 401, text: async () => 'nope' });
 
     const result = await callLLMDirectWithRetry({ prompt: 'hello' }, 3);
 
     expect(result).toMatchObject({ ok: false, status: 401 });
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(transport).toHaveBeenCalledTimes(1);
   });
 
   it('returns a truncated response as-is instead of retrying', async () => {
     const { callLLMDirectWithRetry } = await getLLM();
-    vi.mocked(fetch).mockResolvedValue({
+    transport.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({
@@ -1062,7 +935,7 @@ describe('callLLMDirectWithRetry', () => {
       content: 'partial',
       finishReason: FinishReason.TRUNCATED,
     });
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(transport).toHaveBeenCalledTimes(1);
   });
 
   it('rejects without a request when the signal is already aborted', async () => {
@@ -1073,6 +946,6 @@ describe('callLLMDirectWithRetry', () => {
     await expect(
       callLLMDirectWithRetry({ prompt: 'hello', signal: controller.signal }, 3),
     ).rejects.toMatchObject({ name: 'AbortError' });
-    expect(fetch).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
   });
 });

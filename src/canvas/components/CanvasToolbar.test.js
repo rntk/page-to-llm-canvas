@@ -143,48 +143,21 @@ describe('CanvasToolbar', () => {
     unmount();
   });
 
-  it('triggers onZoomIn when the zoom in button is clicked', () => {
-    const onZoomIn = vi.fn();
+  it.each([
+    ['Zoom in', 'onZoomIn'],
+    ['Zoom out', 'onZoomOut'],
+    ['Reset zoom', 'onReset'],
+  ])('clicking "%s" invokes %s', (title, callbackName) => {
+    const callback = vi.fn();
     const { container, unmount } = render(
-      createElement(CanvasToolbar, { ...defaultProps, onZoomIn }),
+      createElement(CanvasToolbar, { ...defaultProps, [callbackName]: callback }),
+    );
+    const button = Array.from(container.querySelectorAll('.canvas-zoom-btn')).find(
+      (candidate) => candidate.title === title,
     );
 
-    const zoomInBtn = Array.from(container.querySelectorAll('.canvas-zoom-btn')).find(
-      (btn) => btn.title === 'Zoom in',
-    );
-    act(() => zoomInBtn.click());
-    expect(onZoomIn).toHaveBeenCalled();
-
-    unmount();
-  });
-
-  it('triggers onZoomOut when the zoom out button is clicked', () => {
-    const onZoomOut = vi.fn();
-    const { container, unmount } = render(
-      createElement(CanvasToolbar, { ...defaultProps, onZoomOut }),
-    );
-
-    const zoomOutBtn = Array.from(container.querySelectorAll('.canvas-zoom-btn')).find(
-      (btn) => btn.title === 'Zoom out',
-    );
-    act(() => zoomOutBtn.click());
-    expect(onZoomOut).toHaveBeenCalled();
-
-    unmount();
-  });
-
-  it('triggers onReset when the reset zoom button is clicked', () => {
-    const onReset = vi.fn();
-    const { container, unmount } = render(
-      createElement(CanvasToolbar, { ...defaultProps, onReset }),
-    );
-
-    const resetBtn = Array.from(container.querySelectorAll('.canvas-zoom-btn')).find(
-      (btn) => btn.title === 'Reset zoom',
-    );
-    act(() => resetBtn.click());
-    expect(onReset).toHaveBeenCalled();
-
+    act(() => button.click());
+    expect(callback).toHaveBeenCalledOnce();
     unmount();
   });
 

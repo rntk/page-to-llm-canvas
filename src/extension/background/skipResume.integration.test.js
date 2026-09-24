@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readRecord, writeRecord } from '../../core/storage/storage.js';
 import { planSummaryWork } from '../../core/pipeline/summaryPlanning.js';
 import * as llm from '../../core/llm/llm.js';
+import { createChromeStorageFake } from '../../../test/fakes/chromeStorageFake.mjs';
 
 vi.mock('../../core/llm/llm.js', () => ({
   callLLMWithRetry: vi.fn(),
@@ -28,49 +29,19 @@ vi.mock('../../core/llm/concurrency.js', () => ({
 }));
 
 function makeChromeMock() {
-  const store = new Map();
-  const runtime = { lastError: null };
-  const local = {
-    _store: store,
-    getKeys: vi.fn(() => Promise.resolve([...store.keys()])),
-    get: vi.fn((keys, cb) => {
-      runtime.lastError = null;
-      const keyList =
-        keys === null || keys === undefined
-          ? [...store.keys()]
-          : Array.isArray(keys)
-            ? keys
-            : [keys];
-      const result = {};
-      for (const k of keyList) if (store.has(k)) result[k] = store.get(k);
-      cb(result);
-    }),
-    set: vi.fn((items, cb) => {
-      runtime.lastError = null;
-      for (const [k, v] of Object.entries(items)) store.set(k, v);
-      cb();
-    }),
-    remove: vi.fn((keys, cb) => {
-      runtime.lastError = null;
-      for (const k of Array.isArray(keys) ? keys : [keys]) store.delete(k);
-      cb();
-    }),
-    clear: vi.fn((cb) => {
-      runtime.lastError = null;
-      store.clear();
-      cb();
-    }),
-  };
+  const storageFake = createChromeStorageFake();
   return {
-    storage: { local, onChanged: { addListener: vi.fn(), removeListener: vi.fn() } },
-    runtime: {
-      ...runtime,
+    storage: {
+      local: storageFake.storage.local,
+      onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+    },
+    runtime: Object.assign(storageFake.runtime, {
       getURL: vi.fn((path = '') => `chrome-extension://test-id/${path}`),
       sendMessage: vi.fn(),
       onMessage: { addListener: vi.fn() },
       onStartup: { addListener: vi.fn() },
       onInstalled: { addListener: vi.fn() },
-    },
+    }),
     alarms: {
       create: vi.fn(),
       clear: vi.fn(),

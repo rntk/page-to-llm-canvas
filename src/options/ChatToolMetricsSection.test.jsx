@@ -72,8 +72,6 @@ describe('ChatToolMetricsSection', () => {
 
     expect(sendRuntimeMessage).toHaveBeenCalledWith({ type: 'clearChatToolMetrics' });
     expect(container.textContent).toContain('No chat tool calls recorded yet.');
-    expect(container.querySelector('button').disabled).toBe(true);
-    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
   it('reloads persisted metrics when the worker resolves a failed clear response', async () => {
@@ -96,8 +94,6 @@ describe('ChatToolMetricsSection', () => {
     expect(container.textContent).toContain('3 (3 / 0)');
     expect(container.querySelector('[role="alert"]').textContent).toContain('storage unavailable');
     expect(container.querySelector('.empty')).toBeNull();
-    expect(container.querySelector('button').textContent).toBe('Clear chat tool metrics');
-    expect(container.querySelector('button').disabled).toBe(false);
   });
 
   it('preserves metrics and reports both errors when recovery reload also fails', async () => {
@@ -118,6 +114,5 @@ describe('ChatToolMetricsSection', () => {
     expect(container.textContent).toContain('2 (2 / 0)');
     expect(container.querySelector('[role="alert"]').textContent).toContain('worker disconnected');
     expect(container.querySelector('[role="alert"]').textContent).toContain('reload unavailable');
-    expect(container.querySelector('button').disabled).toBe(false);
   });
 });

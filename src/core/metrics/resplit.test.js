@@ -166,39 +166,23 @@ describe('resplit metrics', () => {
     });
   });
 
-  it('increments runsChanged but not runsWithGroupGain when groupCountAfter equals groupCountBefore', async () => {
-    // Mirrors the window-fallback case: the resplit subdivided the segment
-    // (changed: true) but groupsFromSegments recombined it back into the
-    // same number of groups, so no net gain was produced.
-    await recordResplitRun({
-      oversizeCount: 1,
-      oversizeSpans: [60],
-      resplitCallCount: 3,
-      changed: true,
-      groupCountBefore: 1,
-      groupCountAfter: 1,
-      outcomes: { [RESPLIT_OUTCOMES.WINDOW_FALLBACK]: 1 },
-    });
-
-    const metrics = await getResplitMetrics();
-    expect(metrics.runsChanged).toBe(1);
-    expect(metrics.runsWithGroupGain).toBe(0);
-  });
-
-  it('increments both runsChanged and runsWithGroupGain when groupCountAfter exceeds groupCountBefore', async () => {
+  it.each([
+    { groupCountAfter: 1, expectedGroupGain: 0, label: 'equal group counts' },
+    { groupCountAfter: 2, expectedGroupGain: 1, label: 'a group count increase' },
+  ])('tracks changed runs with $label', async ({ groupCountAfter, expectedGroupGain }) => {
     await recordResplitRun({
       oversizeCount: 1,
       oversizeSpans: [60],
       resplitCallCount: 1,
       changed: true,
       groupCountBefore: 1,
-      groupCountAfter: 2,
+      groupCountAfter,
       outcomes: { [RESPLIT_OUTCOMES.SUBDIVIDED]: 1 },
     });
 
     const metrics = await getResplitMetrics();
     expect(metrics.runsChanged).toBe(1);
-    expect(metrics.runsWithGroupGain).toBe(1);
+    expect(metrics.runsWithGroupGain).toBe(expectedGroupGain);
   });
 
   it('aggregates llmRequestCount independently of resplitCallCount across runs', async () => {
@@ -225,14 +209,6 @@ describe('resplit metrics', () => {
     expect(metrics.llmRequestCount).toBe(6);
   });
 
-  it('yields llmRequestCount 0 when a run passes neither resplitCallCount nor llmRequestCount', async () => {
-    await recordResplitRun({ oversizeCount: 0, oversizeSpans: [] });
-
-    const metrics = await getResplitMetrics();
-    expect(metrics.resplitCallCount).toBe(0);
-    expect(metrics.llmRequestCount).toBe(0);
-  });
-
   it('accumulates primaryChunkCount into primaryRequestCount across runs', async () => {
     await recordResplitRun({
       oversizeCount: 1,
@@ -250,12 +226,15 @@ describe('resplit metrics', () => {
     expect(metrics.primaryRequestCount).toBe(4);
   });
 
-  it('yields primaryRequestCount 0 when a run omits primaryChunkCount', async () => {
-    await recordResplitRun({ oversizeCount: 0, oversizeSpans: [] });
+  it.each(['llmRequestCount', 'primaryRequestCount'])(
+    'defaults omitted %s to zero',
+    async (outputField) => {
+      await recordResplitRun({ oversizeCount: 0, oversizeSpans: [] });
 
-    const metrics = await getResplitMetrics();
-    expect(metrics.primaryRequestCount).toBe(0);
-  });
+      const metrics = await getResplitMetrics();
+      expect(metrics[outputField]).toBe(0);
+    },
+  );
 
   it('carries primaryChunkCount on recent[] entries', async () => {
     await recordResplitRun({

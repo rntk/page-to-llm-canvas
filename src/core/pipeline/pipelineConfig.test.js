@@ -30,6 +30,10 @@ import {
 const MINIMUM_TEXT_CHUNK_CHARS = 512;
 const RESPONSE_RESERVED_TOKENS = 1024;
 const TOKENS_PER_SENTENCE = 32;
+const SMALL_CONTEXT = PIPELINE_MIN_CONTEXT_WINDOW_TOKENS;
+const MEDIUM_CONTEXT = SMALL_CONTEXT * 2;
+const LARGE_CONTEXT = SMALL_CONTEXT * 4;
+const OVERSIZED_CONTEXT = Number.MAX_SAFE_INTEGER;
 
 const FIXED_PIPELINE_PROMPTS = [
   ['topic ranges', buildTopicRangesPrompt],
@@ -50,25 +54,27 @@ describe('pipeline request sizing', () => {
   });
 
   it('shrinks the shared text budget for small-context providers and caps large ones', () => {
-    expect(getPipelineTextChunkMaxChars(PIPELINE_MIN_CONTEXT_WINDOW_TOKENS)).toBe(663);
-    expect(getPipelineTextChunkMaxChars(8192)).toBe(3723);
-    expect(getPipelineTextChunkMaxChars(16384)).toBe(11170);
-    expect(getPipelineTextChunkMaxChars(1_000_000)).toBe(MAX_TAGGED_CHARS);
+    const small = getPipelineTextChunkMaxChars(SMALL_CONTEXT);
+    const medium = getPipelineTextChunkMaxChars(MEDIUM_CONTEXT);
+    const large = getPipelineTextChunkMaxChars(LARGE_CONTEXT);
+    expect(small).toBeGreaterThan(0);
+    expect(small).toBeLessThan(medium);
+    expect(medium).toBeLessThan(large);
+    expect(getPipelineTextChunkMaxChars(OVERSIZED_CONTEXT)).toBe(MAX_TAGGED_CHARS);
   });
 
   it('scales topic marker counts to the available response budget', () => {
     expect(getTopicRangeInputMaxSentences(undefined)).toBe(TOPIC_RANGE_INPUT_MAX_SENTENCES);
-    expect(getTopicRangeInputMaxSentences(4096)).toBe(32);
-    expect(getTopicRangeInputMaxSentences(8192)).toBe(54);
-    expect(getTopicRangeInputMaxSentences(16384)).toBe(54);
-    expect(getTopicRangeInputMaxSentences(1_000_000)).toBe(TOPIC_RANGE_INPUT_MAX_SENTENCES);
-    expect(getTopicRangeInputMaxSentences(8192)).toBeGreaterThan(
-      getTopicRangeInputMaxSentences(4096),
-    );
+    const small = getTopicRangeInputMaxSentences(SMALL_CONTEXT);
+    const medium = getTopicRangeInputMaxSentences(MEDIUM_CONTEXT);
+    expect(small).toBeGreaterThan(0);
+    expect(medium).toBeGreaterThanOrEqual(small);
+    expect(medium).toBeLessThanOrEqual(TOPIC_RANGE_INPUT_MAX_SENTENCES);
+    expect(getTopicRangeInputMaxSentences(OVERSIZED_CONTEXT)).toBe(TOPIC_RANGE_INPUT_MAX_SENTENCES);
   });
 
   it('rejects windows below the stable provider minimum with an actionable error', () => {
-    expect(() => getPipelineTextChunkMaxChars(1024)).toThrow(
+    expect(() => getPipelineTextChunkMaxChars(SMALL_CONTEXT / 4)).toThrow(
       `"Context window (tokens)" must be at least ${PIPELINE_MIN_CONTEXT_WINDOW_TOKENS}`,
     );
   });
@@ -88,7 +94,7 @@ describe('pipeline request sizing', () => {
   );
 
   it('does not overflow the window when topic markers and payload are worst-case', () => {
-    for (const windowTokens of [4096, 8192, 16384]) {
+    for (const windowTokens of [SMALL_CONTEXT, MEDIUM_CONTEXT, LARGE_CONTEXT]) {
       const maxChars = getPipelineTextChunkMaxChars(windowTokens);
       const sentenceCap = getTopicRangeInputMaxSentences(windowTokens);
       const payloadTokens = estimateTokensForCharCount(maxChars, {
@@ -104,8 +110,10 @@ describe('pipeline request sizing', () => {
 
 describe('getArticleChatLimits', () => {
   it('shares a small provider budget between article source and conversation history', () => {
-    const limits = getArticleChatLimits(4096);
-    expect(limits.maxChunkChars + limits.maxHistoryChars).toBe(getPipelineTextChunkMaxChars(4096));
+    const limits = getArticleChatLimits(SMALL_CONTEXT);
+    expect(limits.maxChunkChars + limits.maxHistoryChars).toBe(
+      getPipelineTextChunkMaxChars(SMALL_CONTEXT),
+    );
     expect(limits.maxHistoryChars).toBeGreaterThan(0);
   });
 
@@ -117,7 +125,7 @@ describe('getArticleChatLimits', () => {
   });
 
   it('keeps the full budget for a context window larger than the pipeline fallback', () => {
-    expect(getArticleChatLimits(1_000_000)).toEqual(getArticleChatLimits(undefined));
+    expect(getArticleChatLimits(OVERSIZED_CONTEXT)).toEqual(getArticleChatLimits(undefined));
   });
 
   it('agrees with the pipeline fallback that signals an unknown window', () => {

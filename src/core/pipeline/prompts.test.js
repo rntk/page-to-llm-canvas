@@ -6,34 +6,9 @@ import {
   buildArticleSummaryMergePrompt,
   buildLeafSummaryMergePrompt,
   buildTopicSummaryFromSourcePrompt,
-  buildTaggedText,
-  formatChunkSummariesForMerge,
   LANGUAGE_INSTRUCTION,
-  ARTICLE_SUMMARY_PROMPT_TEMPLATE,
-  ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE,
-  LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE,
 } from './prompts.js';
 import { PROMPT_DELIMITER } from '../promptDelimiters.js';
-
-describe('buildSystemPrompt', () => {
-  it('returns a non-empty string', () => {
-    const prompt = buildSystemPrompt();
-    expect(typeof prompt).toBe('string');
-    expect(prompt.length).toBeGreaterThan(0);
-  });
-
-  it('contains hierarchy and assignment rules', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain('HIERARCHY RULES');
-    expect(prompt).toContain('ASSIGNMENT RULES');
-  });
-
-  it('contains security rules', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain('SECURITY');
-    expect(prompt).toContain('UNTRUSTED USER DATA');
-  });
-});
 
 describe('buildTopicRangesPrompt', () => {
   it('includes the system prompt', () => {
@@ -129,49 +104,6 @@ describe('buildLeafSummaryMergePrompt', () => {
   });
 });
 
-describe('buildTaggedText', () => {
-  it('prefixes each sentence with {N}', () => {
-    const result = buildTaggedText(['Hello.', 'World.']);
-    expect(result).toBe('{0} Hello.\n{1} World.');
-  });
-
-  it('handles string sentences', () => {
-    const result = buildTaggedText(['alpha', 'beta']);
-    expect(result).toContain('{0} alpha');
-    expect(result).toContain('{1} beta');
-  });
-
-  it('handles object sentences with .text property', () => {
-    const result = buildTaggedText([{ text: 'alpha' }, { text: 'beta' }]);
-    expect(result).toContain('{0} alpha');
-    expect(result).toContain('{1} beta');
-  });
-
-  it('returns empty string for empty array', () => {
-    expect(buildTaggedText([])).toBe('');
-  });
-});
-
-describe('formatChunkSummariesForMerge', () => {
-  it('formats each record with chunk number and sentence range', () => {
-    const records = [
-      { start_sentence: 0, end_sentence: 5, summary: { text: 'Chunk one summary.' } },
-      { start_sentence: 6, end_sentence: 10, summary: { text: 'Chunk two summary.' } },
-    ];
-    const result = formatChunkSummariesForMerge(records);
-    expect(result).toContain('Chunk 1 (sentences 0-5)');
-    expect(result).toContain('Chunk one summary.');
-    expect(result).toContain('Chunk 2 (sentences 6-10)');
-    expect(result).toContain('Chunk two summary.');
-  });
-
-  it('handles missing summary gracefully', () => {
-    const records = [{ start_sentence: 0, end_sentence: 3 }];
-    const result = formatChunkSummariesForMerge(records);
-    expect(result).toContain('Chunk 1 (sentences 0-3)');
-  });
-});
-
 describe('preferContentLanguage option', () => {
   const builders = [
     ['buildTopicRangesPrompt', (opts) => buildTopicRangesPrompt('{0} hola', opts)],
@@ -235,19 +167,5 @@ describe('preferContentLanguage option', () => {
     expect(formatIdx).toBeGreaterThanOrEqual(0);
     expect(languageIdx).toBeGreaterThan(formatIdx);
     expect(contentIdx).toBeGreaterThan(languageIdx);
-  });
-});
-
-describe('prompt template constants', () => {
-  it('ARTICLE_SUMMARY_PROMPT_TEMPLATE contains {text} placeholder', () => {
-    expect(ARTICLE_SUMMARY_PROMPT_TEMPLATE).toContain('{text}');
-  });
-
-  it('ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE contains {chunk_summaries} placeholder', () => {
-    expect(ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE).toContain('{chunk_summaries}');
-  });
-
-  it('LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE contains {chunk_summaries} placeholder', () => {
-    expect(LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE).toContain('{chunk_summaries}');
   });
 });

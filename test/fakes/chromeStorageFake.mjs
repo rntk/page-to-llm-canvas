@@ -98,6 +98,11 @@ export function createChromeStorageFake(opts = {}) {
       for (const key of keyList) store.delete(key);
       callback();
     }),
+    clear: vi.fn((callback) => {
+      runtime.lastError = null;
+      store.clear();
+      callback();
+    }),
   };
 
   return { storage: { local }, runtime, _state: state };

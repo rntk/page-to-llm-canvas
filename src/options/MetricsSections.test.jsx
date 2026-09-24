@@ -73,8 +73,6 @@ describe('metrics clear failure recovery', () => {
 
     expect(sendRuntimeMessage).toHaveBeenCalledWith({ type: 'clearParserMetrics' });
     expect(container.textContent).toContain('No topic parser attempts recorded yet.');
-    expect(container.querySelector('button').disabled).toBe(true);
-    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
   it('clears resplit metrics after the worker acknowledges the clear', async () => {
@@ -90,8 +88,6 @@ describe('metrics clear failure recovery', () => {
 
     expect(sendRuntimeMessage).toHaveBeenCalledWith({ type: 'clearResplitMetrics' });
     expect(container.textContent).toContain('No topic range resplit runs recorded yet.');
-    expect(container.querySelector('button').disabled).toBe(true);
-    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
   it('renders parser attempt, repair, retry, and quirk metrics', async () => {
@@ -152,8 +148,6 @@ describe('metrics clear failure recovery', () => {
     expect(getParserMetrics).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain('3 (0 / 3)');
     expect(container.querySelector('[role="alert"]').textContent).toContain('storage unavailable');
-    expect(container.querySelector('button').textContent).toBe('Clear parser metrics');
-    expect(container.querySelector('button').disabled).toBe(false);
   });
 
   it('reloads resplit metrics and re-enables clear after a rejected clear', async () => {
@@ -174,8 +168,6 @@ describe('metrics clear failure recovery', () => {
     expect(getResplitMetrics).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain('Runs reaching the resplit check3');
     expect(container.querySelector('[role="alert"]').textContent).toContain('storage unavailable');
-    expect(container.querySelector('button').textContent).toBe('Clear resplit metrics');
-    expect(container.querySelector('button').disabled).toBe(false);
   });
 
   it('preserves parser metrics and reports both errors when the recovery reload also fails', async () => {

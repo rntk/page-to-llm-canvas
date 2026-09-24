@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { chunkNumberedArticle, rangesOverlap, runArticleChatTurn } from './articleChat.js';
 import { buildSynthesisMessages, groupSynthesisReplies } from './articleSynthesis.js';
 import { CHAT_TOOL_OUTCOMES } from '../shared/runtime/telemetry.js';
+import { makeArticle } from '../../test/fakes/pipelineFixtures.mjs';
 
 function buildTurnOptions({
   history = [],
@@ -20,7 +21,7 @@ function buildTurnOptions({
   recordToolMetric,
 }) {
   return {
-    article: { history, sentences, highlightedRanges },
+    article: makeArticle({ history, sentences, highlightedRanges }),
     question,
     limits: { maxChunkChars, maxToolRounds, maxLlmRequests, chunkConcurrency },
     effects: { onHighlight },
@@ -101,11 +102,7 @@ describe('article chat tool loop', () => {
   it('accepts the grouped turn contract', async () => {
     const send = vi.fn().mockResolvedValue({ ok: true, content: 'Answer.' });
     const result = await runArticleChatTurn({
-      article: {
-        history: [],
-        sentences: ['Article sentence.'],
-        highlightedRanges: [],
-      },
+      article: makeArticle({ sentences: ['Article sentence.'] }),
       question: 'What is this about?',
       limits: { maxToolRounds: 2 },
       dependencies: { send },
@@ -878,7 +875,7 @@ describe('article chat synthesis budgeting', () => {
     const { send, calls } = recordingSend();
 
     const result = await runArticleChatTurn({
-      article: { history: [], sentences: longArticle(), highlightedRanges: [] },
+      article: makeArticle({ sentences: longArticle() }),
       // A question this long previously made every synthesis group a singleton,
       // which stalled the merge and failed the turn.
       question: `Please explain in detail ${'q'.repeat(500)}`,
@@ -894,7 +891,7 @@ describe('article chat synthesis budgeting', () => {
     const { send, calls } = recordingSend();
 
     await runArticleChatTurn({
-      article: { history: [], sentences: longArticle(), highlightedRanges: [] },
+      article: makeArticle({ sentences: longArticle() }),
       question: `Summarize this ${'q'.repeat(300)}`,
       limits: SMALL_WINDOW,
       dependencies: { send },
@@ -912,7 +909,7 @@ describe('article chat synthesis budgeting', () => {
 
     await expect(
       runArticleChatTurn({
-        article: { history: [], sentences: longArticle(), highlightedRanges: [] },
+        article: makeArticle({ sentences: longArticle() }),
         question: 'Q',
         limits: { maxChunkChars: 257, maxHistoryChars: 4 },
         dependencies: { send },
@@ -944,7 +941,7 @@ describe('article chat synthesis budgeting', () => {
     const { send, calls } = recordingSend();
 
     await runArticleChatTurn({
-      article: { history: [], sentences: longArticle(), highlightedRanges: [] },
+      article: makeArticle({ sentences: longArticle() }),
       question: 'What is this about?',
       limits: SMALL_WINDOW,
       dependencies: { send },
@@ -957,7 +954,7 @@ describe('article chat synthesis budgeting', () => {
     const { send, calls } = recordingSend();
 
     await runArticleChatTurn({
-      article: { history: [], sentences: longArticle(), highlightedRanges: [] },
+      article: makeArticle({ sentences: longArticle() }),
       question: 'What is this about?',
       limits: SMALL_WINDOW,
       dependencies: { send },
@@ -975,7 +972,7 @@ describe('article chat synthesis budgeting', () => {
     // turn stops at the limit rather than issuing uncounted synthesis calls.
     await expect(
       runArticleChatTurn({
-        article: { history: [], sentences: longArticle(), highlightedRanges: [] },
+        article: makeArticle({ sentences: longArticle() }),
         question: 'What is this about?',
         limits: { ...SMALL_WINDOW, maxLlmRequests: 5 },
         dependencies: { send },
@@ -992,7 +989,7 @@ describe('article chat synthesis budgeting', () => {
     const { send, calls } = recordingSend();
 
     await runArticleChatTurn({
-      article: { history, sentences: longArticle(), highlightedRanges: [] },
+      article: makeArticle({ history, sentences: longArticle() }),
       // Long enough that a floored source share would overflow the window.
       question: 'q'.repeat(1000),
       limits: SMALL_WINDOW,
@@ -1019,7 +1016,7 @@ describe('article chat synthesis budgeting', () => {
     // Fits the window on its own, but not alongside two minimum-size findings.
     await expect(
       runArticleChatTurn({
-        article: { history: [], sentences: longArticle(), highlightedRanges: [] },
+        article: makeArticle({ sentences: longArticle() }),
         question: 'q'.repeat(1700),
         limits: SMALL_WINDOW,
         dependencies: { send },
@@ -1033,7 +1030,7 @@ describe('article chat synthesis budgeting', () => {
 
     await expect(
       runArticleChatTurn({
-        article: { history: [], sentences: longArticle(), highlightedRanges: [] },
+        article: makeArticle({ sentences: longArticle() }),
         question: 'q'.repeat(SYNTHESIS_CAPACITY + 1),
         limits: SMALL_WINDOW,
         dependencies: { send },

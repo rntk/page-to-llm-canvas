@@ -24,6 +24,50 @@ function toolbarQueryAll(selector) {
   return toolbarRoot()?.querySelectorAll(selector) ?? [];
 }
 
+async function click(element) {
+  await act(async () => element.click());
+}
+
+async function startSelection() {
+  await act(async () => messageListener({ action: 'startSelection' }, {}, vi.fn()));
+  const pickButton = toolbarQuery('#pagetollm-pick-btn');
+  expect(pickButton).not.toBeNull();
+  return pickButton;
+}
+
+function addElement(tagName, id, textContent = '') {
+  const element = document.createElement(tagName);
+  element.id = id;
+  element.textContent = textContent;
+  document.body.appendChild(element);
+  return element;
+}
+
+async function pick(pickButton, element) {
+  await click(pickButton);
+  await click(element);
+}
+
+async function dispatchDragEvent(index, type) {
+  await act(async () => {
+    toolbarQueryAll('.pagetollm-block-item')[index].dispatchEvent(
+      new CustomEvent(type, { bubbles: true, cancelable: type === 'dragover' || type === 'drop' }),
+    );
+  });
+}
+
+async function dragBlock(fromIndex, toIndex) {
+  await dispatchDragEvent(fromIndex, 'dragstart');
+  await dispatchDragEvent(toIndex, 'dragover');
+  await dispatchDragEvent(toIndex, 'drop');
+  await dispatchDragEvent(toIndex, 'dragend');
+}
+
+async function cancelSelection() {
+  const cancelButton = toolbarQuery('#pagetollm-cancel-btn');
+  if (cancelButton) await click(cancelButton);
+}
+
 beforeAll(async () => {
   const { observePageNavigation } = await import('./pageNavigation.js');
   observePageNavigation.mockImplementation(({ onPageChange }) => {
@@ -355,175 +399,76 @@ describe('content script main.jsx', () => {
   });
 
   it('resets block numbers and counter properly on removal', async () => {
-    const sendResponse = vi.fn();
-    await act(async () => {
-      messageListener({ action: 'startSelection' }, {}, sendResponse);
-    });
-
-    const pickBtn = toolbarQuery('#pagetollm-pick-btn');
-    expect(pickBtn).not.toBeNull();
-
-    // Enable picking and select dummy 1
-    await act(async () => {
-      pickBtn.click();
-    });
-
-    const dummy1 = document.createElement('div');
-    dummy1.id = 'dummy-1';
-    document.body.appendChild(dummy1);
-    await act(async () => {
-      dummy1.click();
-    });
+    const pickBtn = await startSelection();
+    const dummy1 = addElement('div', 'dummy-1');
+    await pick(pickBtn, dummy1);
 
     let listItems = toolbarQueryAll('.pagetollm-block-item');
     expect(listItems).toHaveLength(1);
     expect(listItems[0].textContent).toContain('Block 1');
 
-    // Remove the block
-    const removeBtn = listItems[0].querySelector('.pagetollm-remove-btn');
-    await act(async () => {
-      removeBtn.click();
-    });
+    await click(listItems[0].querySelector('.pagetollm-remove-btn'));
 
     listItems = toolbarQueryAll('.pagetollm-block-item');
     expect(listItems).toHaveLength(0);
 
-    // Enable picking again and select dummy 2
-    await act(async () => {
-      pickBtn.click();
-    });
-
-    const dummy2 = document.createElement('div');
-    dummy2.id = 'dummy-2';
-    document.body.appendChild(dummy2);
-    await act(async () => {
-      dummy2.click();
-    });
+    const dummy2 = addElement('div', 'dummy-2');
+    await pick(pickBtn, dummy2);
 
     listItems = toolbarQueryAll('.pagetollm-block-item');
     expect(listItems).toHaveLength(1);
     expect(listItems[0].textContent).toContain('Block 1');
 
-    // Clean up
     dummy1.remove();
     dummy2.remove();
-    const cancelBtn = toolbarQuery('#pagetollm-cancel-btn');
-    if (cancelBtn) {
-      await act(async () => {
-        cancelBtn.click();
-      });
-    }
+    await cancelSelection();
   });
 
   it('steps a picked block up to its parent', async () => {
-    const sendResponse = vi.fn();
-    await act(async () => {
-      messageListener({ action: 'startSelection' }, {}, sendResponse);
-    });
-
-    const pickBtn = toolbarQuery('#pagetollm-pick-btn');
-    expect(pickBtn).not.toBeNull();
-
-    const parent = document.createElement('article');
-    parent.id = 'step-parent';
+    const pickBtn = await startSelection();
+    const parent = addElement('article', 'step-parent');
     const child = document.createElement('p');
     child.id = 'step-child';
     child.textContent = 'Child text.';
     parent.appendChild(child);
-    document.body.appendChild(parent);
-
-    await act(async () => {
-      pickBtn.click();
-    });
-    await act(async () => {
-      child.click();
-    });
+    await pick(pickBtn, child);
 
     const listItems = toolbarQueryAll('.pagetollm-block-item');
     expect(listItems).toHaveLength(1);
     const stepUpBtn = listItems[0].querySelector('.pagetollm-stepup-btn');
     expect(stepUpBtn.disabled).toBe(false);
 
-    await act(async () => {
-      stepUpBtn.click();
-    });
+    await click(stepUpBtn);
     expect(child.classList.contains('pagetollm-selected')).toBe(false);
     expect(parent.classList.contains('pagetollm-selected')).toBe(true);
 
-    const cancelBtn = toolbarQuery('#pagetollm-cancel-btn');
-    await act(async () => {
-      cancelBtn.click();
-    });
+    await cancelSelection();
     parent.remove();
   });
 
   it('supports drag reordering of picked blocks', async () => {
-    const sendResponse = vi.fn();
-    await act(async () => {
-      messageListener({ action: 'startSelection' }, {}, sendResponse);
-    });
-
-    const pickBtn = toolbarQuery('#pagetollm-pick-btn');
-    expect(pickBtn).not.toBeNull();
-
-    const parent = document.createElement('article');
-    parent.id = 'step-parent';
+    const pickBtn = await startSelection();
+    const parent = addElement('article', 'step-parent');
     const child = document.createElement('p');
     child.id = 'step-child';
     child.textContent = 'Child text.';
     parent.appendChild(child);
-    document.body.appendChild(parent);
+    const sibling = addElement('section', 'drag-sibling', 'Sibling text.');
+    await pick(pickBtn, child);
+    await pick(pickBtn, sibling);
 
-    const sibling = document.createElement('section');
-    sibling.id = 'drag-sibling';
-    sibling.textContent = 'Sibling text.';
-    document.body.appendChild(sibling);
-
-    await act(async () => {
-      pickBtn.click();
-    });
-    await act(async () => {
-      child.click();
-    });
-    await act(async () => {
-      pickBtn.click();
-    });
-    await act(async () => {
-      sibling.click();
-    });
-
-    let listItems = toolbarQueryAll('.pagetollm-block-item');
-    expect(listItems).toHaveLength(2);
-
-    await act(async () => {
-      listItems[0].dispatchEvent(new CustomEvent('dragstart', { bubbles: true }));
-    });
-    expect(toolbarQueryAll('.pagetollm-block-item')[0].className).toContain('pagetollm-dragging');
-
-    await act(async () => {
-      toolbarQueryAll('.pagetollm-block-item')[1].dispatchEvent(
-        new CustomEvent('dragover', { bubbles: true, cancelable: true }),
-      );
-    });
-    expect(toolbarQueryAll('.pagetollm-block-item')[1].className).toContain('pagetollm-drag-over');
-
-    await act(async () => {
-      toolbarQueryAll('.pagetollm-block-item')[1].dispatchEvent(
-        new CustomEvent('drop', { bubbles: true, cancelable: true }),
-      );
-    });
-
-    await act(async () => {
-      toolbarQueryAll('.pagetollm-block-item')[1].dispatchEvent(
-        new CustomEvent('dragend', { bubbles: true }),
-      );
-    });
     expect(toolbarQueryAll('.pagetollm-block-item')).toHaveLength(2);
 
-    const cancelBtn = toolbarQuery('#pagetollm-cancel-btn');
-    await act(async () => {
-      cancelBtn.click();
-    });
+    await dispatchDragEvent(0, 'dragstart');
+    expect(toolbarQueryAll('.pagetollm-block-item')[0].className).toContain('pagetollm-dragging');
+
+    await dispatchDragEvent(1, 'dragover');
+    expect(toolbarQueryAll('.pagetollm-block-item')[1].className).toContain('pagetollm-drag-over');
+    await dispatchDragEvent(1, 'drop');
+    await dispatchDragEvent(1, 'dragend');
+    expect(toolbarQueryAll('.pagetollm-block-item')).toHaveLength(2);
+
+    await cancelSelection();
     parent.remove();
     sibling.remove();
   });
@@ -533,72 +478,25 @@ describe('content script main.jsx', () => {
       callback({ ok: true, key: 'step-submit-key' }),
     );
 
-    const sendResponse = vi.fn();
-    await act(async () => {
-      messageListener({ action: 'startSelection' }, {}, sendResponse);
-    });
-
-    const pickBtn = toolbarQuery('#pagetollm-pick-btn');
-    expect(pickBtn).not.toBeNull();
-
-    const parent = document.createElement('article');
-    parent.id = 'step-parent';
+    const pickBtn = await startSelection();
+    const parent = addElement('article', 'step-parent');
     const child = document.createElement('p');
     child.id = 'step-child';
     child.textContent = 'Child text.';
     parent.appendChild(child);
-    document.body.appendChild(parent);
-
-    const sibling = document.createElement('section');
-    sibling.id = 'drag-sibling';
-    sibling.textContent = 'Sibling text.';
-    document.body.appendChild(sibling);
-
-    await act(async () => {
-      pickBtn.click();
-    });
-    await act(async () => {
-      child.click();
-    });
+    const sibling = addElement('section', 'drag-sibling', 'Sibling text.');
+    await pick(pickBtn, child);
 
     let listItems = toolbarQueryAll('.pagetollm-block-item');
     const stepUpBtn = listItems[0].querySelector('.pagetollm-stepup-btn');
 
-    await act(async () => {
-      stepUpBtn.click();
-    });
-
-    await act(async () => {
-      pickBtn.click();
-    });
-    await act(async () => {
-      sibling.click();
-    });
+    await click(stepUpBtn);
+    await pick(pickBtn, sibling);
 
     listItems = toolbarQueryAll('.pagetollm-block-item');
     expect(listItems).toHaveLength(2);
 
-    await act(async () => {
-      listItems[0].dispatchEvent(new CustomEvent('dragstart', { bubbles: true }));
-    });
-
-    await act(async () => {
-      toolbarQueryAll('.pagetollm-block-item')[1].dispatchEvent(
-        new CustomEvent('dragover', { bubbles: true, cancelable: true }),
-      );
-    });
-
-    await act(async () => {
-      toolbarQueryAll('.pagetollm-block-item')[1].dispatchEvent(
-        new CustomEvent('drop', { bubbles: true, cancelable: true }),
-      );
-    });
-
-    await act(async () => {
-      toolbarQueryAll('.pagetollm-block-item')[1].dispatchEvent(
-        new CustomEvent('dragend', { bubbles: true }),
-      );
-    });
+    await dragBlock(0, 1);
 
     const submitBtn = toolbarQuery('#pagetollm-submit-btn');
     await act(async () => {
@@ -623,43 +521,20 @@ describe('content script main.jsx', () => {
       else if (typeof callback === 'function') callback({ ok: false });
     });
 
-    const sendResponse = vi.fn();
-    await act(async () => {
-      messageListener({ action: 'startSelection' }, {}, sendResponse);
-    });
-
-    const pickBtn = toolbarQuery('#pagetollm-pick-btn');
-    expect(pickBtn).not.toBeNull();
-
-    const parent = document.createElement('article');
-    parent.id = 'dedup-parent';
-    parent.textContent = 'Parent text. ';
+    const pickBtn = await startSelection();
+    const parent = addElement('article', 'dedup-parent', 'Parent text. ');
     const child = document.createElement('p');
     child.id = 'dedup-child';
     child.textContent = 'Child text.';
     parent.appendChild(child);
-    document.body.appendChild(parent);
-
-    await act(async () => {
-      pickBtn.click();
-    });
-    await act(async () => {
-      parent.click();
-    });
-    await act(async () => {
-      pickBtn.click();
-    });
-    await act(async () => {
-      child.click();
-    });
+    await pick(pickBtn, parent);
+    await pick(pickBtn, child);
 
     let listItems = toolbarQueryAll('.pagetollm-block-item');
     expect(listItems).toHaveLength(2);
 
     const stepUpBtn = listItems[1].querySelector('.pagetollm-stepup-btn');
-    await act(async () => {
-      stepUpBtn.click();
-    });
+    await click(stepUpBtn);
 
     listItems = toolbarQueryAll('.pagetollm-block-item');
     expect(listItems).toHaveLength(1);

@@ -6,6 +6,7 @@ import { groupsToTopics, rangesToSentenceList } from './topicRangeMapping.js';
 import { splitSentences } from './sentenceSplitter.js';
 import { markCancellation } from './cancellation.js';
 import { TRUNCATED_RESPONSE_ERROR } from '../llm/completionStatus.js';
+import { makeRuntime as makePipelineRuntime } from '../../../test/fakes/pipelineFixtures.mjs';
 
 // Stand-in that honors both `warmupFirst` and `stopBurst`, mirroring the real
 // parallelMap's dispatch shape. It must model `warmupFirst`: a serial-only
@@ -185,15 +186,11 @@ function makeCheckpoint(overrides = {}) {
 }
 
 function makeRuntime() {
-  return {
-    signal: undefined,
-    preferContentLanguage: false,
+  return makePipelineRuntime({
     summariesDisabled: false,
     maxTextChunkChars: 1_000_000,
     maxTopicRangeSentences: LONG_CHUNK_SENTENCE_COUNT,
-    update: vi.fn(async () => undefined),
-    log: vi.fn(async () => undefined),
-  };
+  });
 }
 
 describe('computeTopics', () => {
