@@ -1,4 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+
+afterEach(() => vi.useRealTimers());
 
 // Re-imported per test so each case gets a fresh module instance.
 async function getAbortSignals() {
@@ -105,7 +107,6 @@ describe('createRequestTimeoutSignal', () => {
     vi.advanceTimersByTime(1000);
     expect(timeout.signal.aborted).toBe(true);
     expect(timeout.signal.reason?.name).toBe('TimeoutError');
-    vi.useRealTimers();
   });
 
   it('does not fire abort if disposed before timeout', async () => {
@@ -115,7 +116,6 @@ describe('createRequestTimeoutSignal', () => {
     timeout.dispose();
     vi.advanceTimersByTime(1000);
     expect(timeout.signal.aborted).toBe(false);
-    vi.useRealTimers();
   });
 });
 
@@ -126,7 +126,6 @@ describe('sleepWithAbort', () => {
     const promise = sleepWithAbort(500);
     vi.advanceTimersByTime(500);
     await expect(promise).resolves.toBeUndefined();
-    vi.useRealTimers();
   });
 
   it('rejects immediately if signal is already aborted', async () => {
@@ -146,6 +145,5 @@ describe('sleepWithAbort', () => {
     vi.advanceTimersByTime(500);
     controller.abort();
     await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
-    vi.useRealTimers();
   });
 });

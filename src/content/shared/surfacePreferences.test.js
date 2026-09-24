@@ -7,7 +7,7 @@ let storageChangeListener = null;
 let themeValue;
 let highlightValue;
 
-vi.stubGlobal('chrome', {
+const chromeMock = {
   runtime: { lastError: null },
   storage: {
     local: {
@@ -27,7 +27,8 @@ vi.stubGlobal('chrome', {
       }),
     },
   },
-});
+};
+vi.stubGlobal('chrome', chromeMock);
 
 const {
   init,
@@ -44,6 +45,7 @@ const readsAtImportTime = chrome.storage.local.get.mock.calls.length;
 
 describe('surfacePreferences', () => {
   beforeEach(() => {
+    vi.stubGlobal('chrome', chromeMock);
     themeValue = undefined;
     highlightValue = undefined;
     storageChangeListener = null;

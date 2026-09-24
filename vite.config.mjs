@@ -6,6 +6,8 @@ import { defineConfig } from 'vite';
 // convention; use `npm run build` for production extension output.
 export default defineConfig({
   test: {
+    restoreMocks: true,
+    unstubGlobals: true,
     exclude: [
       '**/node_modules/**',
       '**/dist/**',

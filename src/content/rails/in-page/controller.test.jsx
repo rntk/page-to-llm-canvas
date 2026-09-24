@@ -16,7 +16,7 @@ class FakeHighlight {
   }
 }
 
-vi.stubGlobal('chrome', {
+const chromeMock = {
   runtime: {
     sendMessage: vi.fn((_msg, cb) => cb({ ok: false })),
     getURL: vi.fn((p) => 'about:blank#' + p),
@@ -29,7 +29,8 @@ vi.stubGlobal('chrome', {
       removeListener: vi.fn(),
     },
   },
-});
+};
+vi.stubGlobal('chrome', chromeMock);
 
 vi.mock('../../record-view/iframeManager.js', async (importOriginal) => {
   const actual = await importOriginal();
@@ -136,6 +137,7 @@ function rail() {
 
 describe('openInPageRail', () => {
   beforeEach(() => {
+    vi.stubGlobal('chrome', chromeMock);
     vi.stubGlobal('alert', vi.fn());
     vi.stubGlobal(
       'confirm',

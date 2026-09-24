@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
+import { act } from 'react';
 
 vi.mock('./App.jsx', () => ({
   default: vi.fn(() => React.createElement('div', { 'data-testid': 'app' })),
@@ -29,9 +30,9 @@ describe('main.jsx entry point', () => {
       search: '?key=key-hier&view=hierarchy',
     });
 
-    await import('./main.jsx');
-
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await act(async () => {
+      await import('./main.jsx');
+    });
 
     const HierarchyAppMock = (await import('../hierarchy/HierarchyApp.jsx')).default;
     expect(HierarchyAppMock).toHaveBeenCalledWith(
@@ -49,9 +50,9 @@ describe('main.jsx entry point', () => {
       search: '?key=key-app',
     });
 
-    await import('./main.jsx');
-
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await act(async () => {
+      await import('./main.jsx');
+    });
 
     const AppMock = (await import('./App.jsx')).default;
     expect(AppMock).toHaveBeenCalledWith(

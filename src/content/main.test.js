@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
 import { act } from 'react';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -9,6 +9,36 @@ let postMessageListener = null;
 let storageChangeListener = null;
 let loadContentModule = null;
 let pageChange = null;
+const chromeApi = {
+  runtime: {
+    onMessage: {
+      addListener: vi.fn((fn) => {
+        messageListener = fn;
+      }),
+    },
+    sendMessage: vi.fn(),
+    getURL: vi.fn((p) => 'about:blank#' + p),
+  },
+  storage: {
+    local: {
+      get: vi.fn((_key, cb) => cb({})),
+    },
+    onChanged: {
+      addListener: vi.fn((fn) => {
+        storageChangeListener = fn;
+      }),
+      removeListener: vi.fn((fn) => {
+        if (storageChangeListener === fn) storageChangeListener = null;
+      }),
+    },
+  },
+};
+
+function installContentGlobals() {
+  vi.stubGlobal('__pagetollmLoadContentModule', loadContentModule);
+  vi.stubGlobal('chrome', chromeApi);
+  vi.stubGlobal('alert', vi.fn());
+}
 
 vi.mock('./pageNavigation.js', () => ({ observePageNavigation: vi.fn() }));
 
@@ -91,33 +121,7 @@ beforeAll(async () => {
     if (module) return module;
     throw new Error(`Unexpected content module: ${path}`);
   });
-  vi.stubGlobal('__pagetollmLoadContentModule', loadContentModule);
-  vi.stubGlobal('chrome', {
-    runtime: {
-      onMessage: {
-        addListener: vi.fn((fn) => {
-          messageListener = fn;
-        }),
-      },
-      sendMessage: vi.fn(),
-      getURL: vi.fn((p) => 'about:blank#' + p),
-    },
-    storage: {
-      local: {
-        get: vi.fn((_key, cb) => cb({})),
-      },
-      onChanged: {
-        addListener: vi.fn((fn) => {
-          storageChangeListener = fn;
-        }),
-        removeListener: vi.fn((fn) => {
-          if (storageChangeListener === fn) storageChangeListener = null;
-        }),
-      },
-    },
-  });
-
-  vi.stubGlobal('alert', vi.fn());
+  installContentGlobals();
 
   const originalAddEventListener = window.addEventListener;
   vi.spyOn(window, 'addEventListener').mockImplementation((event, fn, ...args) => {
@@ -133,15 +137,26 @@ afterAll(() => {
   vi.restoreAllMocks();
 });
 
+beforeEach(() => {
+  // `unstubGlobals` removes these globals after every test. Reinstall the
+  // same API object so the content entry point's registered listeners remain
+  // observable across cases.
+  installContentGlobals();
+});
+
 describe('content script main.jsx', () => {
   beforeAll(async () => {
+    installContentGlobals();
     await import('./main.jsx');
   });
 
   afterEach(() => {
     document.getElementById('pagetollm-canvas-iframe')?.remove();
     document.getElementById('pagetollm-in-page-rail')?.remove();
-    chrome.runtime.sendMessage.mockReset();
+    chromeApi.runtime.sendMessage.mockReset();
+    chromeApi.storage.local.get.mockReset().mockImplementation((_key, cb) => cb({}));
+    chromeApi.storage.onChanged.addListener.mockClear();
+    chromeApi.storage.onChanged.removeListener.mockClear();
   });
 
   it('registers chrome runtime onMessage listener and window message listener', () => {

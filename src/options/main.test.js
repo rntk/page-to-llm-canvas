@@ -7,20 +7,37 @@ import {
 } from '../core/settings/llmTimeout.js';
 
 async function waitFor(assertion, timeout = 1000) {
-  const start = Date.now();
-  let lastError;
-
-  while (Date.now() - start < timeout) {
-    try {
-      assertion();
-      return;
-    } catch (error) {
-      lastError = error;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
+  try {
+    assertion();
+    return;
+  } catch (initialError) {
+    await new Promise((resolve, reject) => {
+      const observer = new MutationObserver(() => {
+        try {
+          assertion();
+          observer.disconnect();
+          clearTimeout(timer);
+          resolve();
+        } catch {
+          // Wait for the next DOM update.
+        }
+      });
+      observer.observe(document.documentElement, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        characterData: true,
+      });
+      const timer = setTimeout(() => {
+        observer.disconnect();
+        reject(initialError);
+      }, timeout);
+    });
   }
+}
 
-  throw lastError;
+async function flushAsyncWork() {
+  for (let i = 0; i < 10; i += 1) await Promise.resolve();
 }
 
 // Panels other than the default (General) tab only mount their subtree once
@@ -72,6 +89,7 @@ describe('options main.jsx', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     currentRoot?.unmount();
     const rootEl = document.getElementById('options-root');
     if (rootEl) rootEl.remove();
@@ -136,7 +154,9 @@ describe('options main.jsx', () => {
     });
     // Give any (incorrectly) eagerly-mounted panel's initial-load effect a
     // chance to fire before asserting it never did.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    vi.useFakeTimers();
+    await vi.advanceTimersByTimeAsync(50);
+    vi.useRealTimers();
 
     const sent = sendMessageMock.mock.calls.map(([msg]) => msg.type);
     expect(sent).not.toContain('listRecords');
@@ -178,7 +198,9 @@ describe('options main.jsx', () => {
     await goToTab('general');
     await goToTab('records');
     // Give a wrongly-remounted panel's effect a chance to fire again.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    vi.useFakeTimers();
+    await vi.advanceTimersByTimeAsync(50);
+    vi.useRealTimers();
 
     expect(sendMessageMock.mock.calls.filter(([msg]) => msg.type === 'listRecords')).toHaveLength(
       1,
@@ -438,11 +460,13 @@ describe('options main.jsx', () => {
     await goToTab('records');
     await waitFor(() => expect(listCalls).toBe(1));
 
+    vi.useFakeTimers();
     for (let index = 0; index < 4; index += 1) {
       storageChangedListener({ [`pagetollm:rec:rec1:${index}`]: { newValue: {} } }, 'local');
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await vi.advanceTimersByTimeAsync(250);
     }
-    await waitFor(() => expect(listCalls).toBeGreaterThan(1), 1000);
+    expect(listCalls).toBeGreaterThan(1);
+    vi.useRealTimers();
   });
 
   it('applies a slow refresh and schedules a follow-up when another event arrives', async () => {
@@ -467,15 +491,19 @@ describe('options main.jsx', () => {
     await goToTab('records');
     await waitFor(() => expect(listCalls).toBe(1));
 
+    vi.useFakeTimers();
     storageChangedListener({ 'pagetollm:rec:rec1:meta': { newValue: {} } }, 'local');
-    await waitFor(() => expect(listCalls).toBe(2), 1000);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(listCalls).toBe(2);
     storageChangedListener({ 'pagetollm:rec:rec1:log': { newValue: {} } }, 'local');
     slowResponse({ ok: true, items: [{ key: 'rec1', status: 'pending' }] });
 
     await waitFor(() => {
       expect(document.querySelector('tbody tr').textContent).toContain('pending');
     });
-    await waitFor(() => expect(listCalls).toBe(3), 1000);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(listCalls).toBe(3);
+    vi.useRealTimers();
   });
 
   it('ignores unrelated storage changes and removes the listener and timer on unmount', async () => {
@@ -498,17 +526,22 @@ describe('options main.jsx', () => {
     currentRoot = (await import('./main.jsx')).root;
     await goToTab('records');
     await waitFor(() => expect(listCalls).toBe(1));
+    vi.useFakeTimers();
     storageChangedListener({ unrelated: { newValue: true } }, 'local');
     storageChangedListener({ 'pagetollm:rec:rec1:meta': { newValue: {} } }, 'sync');
     storageChangedListener({ 'pagetollm:other': { newValue: {} } }, 'session');
-    await new Promise((resolve) => setTimeout(resolve, 350));
+    await vi.advanceTimersByTimeAsync(350);
+    vi.useRealTimers();
     expect(listCalls).toBe(1);
 
+    vi.useFakeTimers();
     storageChangedListener({ 'pagetollm:pipeline-failure-breakers': { newValue: {} } }, 'session');
-    await waitFor(() => expect(listCalls).toBe(2), 1000);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(listCalls).toBe(2);
     storageChangedListener({ 'pagetollm:rec:rec1:meta': { newValue: {} } }, 'local');
     currentRoot.unmount();
-    await new Promise((resolve) => setTimeout(resolve, 350));
+    await vi.advanceTimersByTimeAsync(350);
+    vi.useRealTimers();
     expect(listCalls).toBe(2);
     expect(removeListener).toHaveBeenCalledWith(expect.any(Function));
   });
@@ -859,7 +892,7 @@ describe('options main.jsx', () => {
         (button) => button.textContent === 'Export data',
       );
       exportBtn.click();
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await flushAsyncWork();
 
       expect(sendMessageMock).toHaveBeenCalledWith(
         { type: 'getRecord', key: 'rec1' },
@@ -1043,7 +1076,7 @@ describe('options main.jsx', () => {
     });
     input.dispatchEvent(new Event('change', { bubbles: true }));
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await flushAsyncWork();
 
     expect(confirmMock).toHaveBeenCalledWith(
       expect.stringContaining('overwrite 1 existing record'),
@@ -1398,7 +1431,7 @@ describe('options main.jsx', () => {
     document
       .querySelector('.provider-form')
       .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await flushAsyncWork();
 
     expect(sendMessageMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1463,7 +1496,7 @@ describe('options main.jsx', () => {
     document
       .querySelector('.provider-form')
       .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await flushAsyncWork();
 
     expect(sendMessageMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1518,7 +1551,7 @@ describe('options main.jsx', () => {
       (b) => b.textContent === 'Edit',
     );
     editBtn.click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await flushAsyncWork();
 
     setValue('provider-url', 'http://h2');
     sendMessageMock.mockClear();
@@ -1526,7 +1559,7 @@ describe('options main.jsx', () => {
     document
       .querySelector('.provider-form')
       .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await flushAsyncWork();
 
     expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('wipe the stored token'));
     expect(sendMessageMock).toHaveBeenCalledWith(
@@ -1577,7 +1610,7 @@ describe('options main.jsx', () => {
       (b) => b.textContent === 'Edit',
     );
     editBtn.click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await flushAsyncWork();
 
     const urlEl = document.getElementById('provider-url');
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
@@ -1589,7 +1622,7 @@ describe('options main.jsx', () => {
     document
       .querySelector('.provider-form')
       .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await flushAsyncWork();
 
     expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('wipe the stored token'));
     expect(sendMessageMock.mock.calls.some(([msg]) => msg.type === 'saveProvider')).toBe(false);
@@ -1621,7 +1654,7 @@ describe('options main.jsx', () => {
     const inactiveRadio = document.querySelector('input[aria-label="Set Remote active"]');
     expect(inactiveRadio.checked).toBe(false);
     inactiveRadio.click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await flushAsyncWork();
 
     expect(sendMessageMock).toHaveBeenCalledWith(
       { type: 'setActiveProvider', id: 'p2' },

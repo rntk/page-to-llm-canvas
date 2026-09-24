@@ -19,9 +19,20 @@ import { createChromeStorageFake } from '../../../test/fakes/chromeStorageFake.m
 // The deps background.js passes to `createPipelineRunner` are discarded by this
 // stub, so the composition itself is covered separately in
 // 'pipeline runner composition' below.
-const mockedRunPipeline = vi.hoisted(() =>
-  vi.fn(() => new Promise((resolve) => setTimeout(resolve, 10))),
-);
+const { mockedRunPipeline, pipelineCallListeners, signalPipelineCall } = vi.hoisted(() => {
+  const listeners = new Set();
+  const signal = () => {
+    for (const listener of listeners) listener();
+  };
+  return {
+    pipelineCallListeners: listeners,
+    signalPipelineCall: signal,
+    mockedRunPipeline: vi.fn((...args) => {
+      signal(args);
+      return Promise.resolve();
+    }),
+  };
+});
 vi.mock('./pipeline/orchestrator.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -93,14 +104,41 @@ async function seedRecord(chromeMock, rec) {
   await writeRecord(rec);
 }
 
-// Cold-start recovery dispatches startPipeline without awaiting it, so a
-// settled `backgroundReady` does not mean that detached work has finished.
-// Yield the macrotask queue a few times so a test can clear the registry and
-// its spies without racing the bootstrap.
-async function drainBootstrapResume() {
-  for (let i = 0; i < 5; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
+// Detached pipeline starts consist of promise continuations over the in-memory
+// Chrome storage fake. Flush those continuations directly instead of waiting
+// for arbitrary timer delays.
+async function flushMicrotasks(turns = 30) {
+  for (let i = 0; i < turns; i += 1) {
+    await Promise.resolve();
   }
+}
+
+function waitForPipelineCalls(count, timeoutMs = 2000) {
+  if (mockedRunPipeline.mock.calls.length >= count) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      pipelineCallListeners.delete(listener);
+    };
+    const listener = () => {
+      if (mockedRunPipeline.mock.calls.length < count) return;
+      cleanup();
+      resolve();
+    };
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      reject(
+        new Error(
+          `Expected runPipeline to be called ${count} times, but it was called ${mockedRunPipeline.mock.calls.length} times`,
+        ),
+      );
+    }, timeoutMs);
+    pipelineCallListeners.add(listener);
+  });
+}
+
+async function drainBootstrapResume() {
+  await flushMicrotasks();
 }
 
 async function loadWorker({ records = [], chromeMock = makeChromeMock() } = {}) {
@@ -336,6 +374,14 @@ describe('background pipeline lifecycle', () => {
 
     const { handleSubmit, _resetJobRegistry } = await import('./background.js');
     _resetJobRegistry();
+    const { runPipeline } = await import('./pipeline/orchestrator.js');
+    let resolvePipeline;
+    runPipeline.mockImplementationOnce(() => {
+      signalPipelineCall();
+      return new Promise((resolve) => {
+        resolvePipeline = resolve;
+      });
+    });
 
     const result1 = await handleSubmit({
       html: '<p>hello</p>',
@@ -348,8 +394,10 @@ describe('background pipeline lifecycle', () => {
 
     expect(result1.key).toBe(result2.key);
 
-    const { runPipeline } = await import('./pipeline/orchestrator.js');
+    await waitForPipelineCalls(1);
     expect(runPipeline).toHaveBeenCalledTimes(1);
+    resolvePipeline();
+    await flushMicrotasks();
   });
 
   it('commits one record when two identical submissions race the create path', async () => {
@@ -478,8 +526,8 @@ describe('background pipeline lifecycle', () => {
     // Retry keeps the flag so the resumed run re-queries only the failed leaf.
     expect(updated.topic_summaries['Tech>All'].error).toBe(true);
 
-    await new Promise((r) => setTimeout(r, 30));
     const { runPipeline } = await import('./pipeline/orchestrator.js');
+    await waitForPipelineCalls(1);
     expect(runPipeline).toHaveBeenCalledWith(
       'park1',
       expect.objectContaining({ signal: expect.any(Object) }),
@@ -702,7 +750,8 @@ describe('background pipeline lifecycle', () => {
     expect(stored.topic_summaries['Tech>All'].error).toBe(true);
     expect(stored.topic_summaries['Tech>All'].acceptedFailure).toBeUndefined();
     const { runPipeline } = await import('./pipeline/orchestrator.js');
-    await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(1));
+    await waitForPipelineCalls(1);
+    expect(runPipeline).toHaveBeenCalledTimes(1);
   });
 
   it('does not cancel a replacement summary run started after the decision CAS', async () => {
@@ -730,19 +779,20 @@ describe('background pipeline lifecycle', () => {
     _resetJobRegistry();
 
     let resolvePipeline;
-    runPipeline.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolvePipeline = resolve;
-        }),
-    );
+    runPipeline.mockImplementationOnce(() => {
+      signalPipelineCall();
+      return new Promise((resolve) => {
+        resolvePipeline = resolve;
+      });
+    });
     const realUpdate = updateRecord.getMockImplementation();
     updateRecord.mockImplementationOnce(async (key, patch, options) => {
       const updated = await realUpdate(key, patch, options);
       // Model a keepalive taking the newly minted run after the decision owns
       // storage, but before the handler gets to its cancellation call.
       void startPipeline(key);
-      await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(1));
+      await waitForPipelineCalls(1);
+      expect(runPipeline).toHaveBeenCalledTimes(1);
       return updated;
     });
 
@@ -815,8 +865,8 @@ describe('background pipeline lifecycle', () => {
     expect(res.ok).toBe(true);
     expect(res.stale).toBe(true);
 
-    await new Promise((r) => setTimeout(r, 30));
     const { runPipeline } = await import('./pipeline/orchestrator.js');
+    await flushMicrotasks();
     expect(runPipeline).not.toHaveBeenCalled();
   });
 
@@ -873,8 +923,8 @@ describe('background pipeline lifecycle', () => {
     expect(updated.topics).toHaveLength(1);
     expect(updated.sentences).toEqual(['Alpha.', 'Beta.']);
 
-    await new Promise((r) => setTimeout(r, 30));
     const { runPipeline } = await import('./pipeline/orchestrator.js');
+    await waitForPipelineCalls(1);
     expect(runPipeline).toHaveBeenCalledWith(
       'gen1',
       expect.objectContaining({ signal: expect.any(Object) }),
@@ -894,8 +944,8 @@ describe('background pipeline lifecycle', () => {
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/no topics/i);
 
-    await new Promise((r) => setTimeout(r, 30));
     const { runPipeline } = await import('./pipeline/orchestrator.js');
+    await flushMicrotasks();
     expect(runPipeline).not.toHaveBeenCalled();
   });
 
@@ -1036,8 +1086,8 @@ describe('background pipeline lifecycle', () => {
     // Simulate a projection cached by a version predating `summariesDisabled`.
     delete chromeMock.storage.local._store.get('pagetollm:index').meta['old1'].summariesDisabled;
 
-    await import('./background.js');
-    await new Promise((r) => setTimeout(r, 30));
+    const { backgroundReady } = await import('./background.js');
+    await backgroundReady;
 
     const { listRecords } = await import('../../core/storage/storage.js');
     const items = await listRecords();
@@ -1166,15 +1216,16 @@ describe('background pipeline lifecycle', () => {
     _resetJobRegistry();
 
     let resolvePipeline;
-    runPipeline.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolvePipeline = resolve;
-        }),
-    );
+    runPipeline.mockImplementationOnce(() => {
+      signalPipelineCall();
+      return new Promise((resolve) => {
+        resolvePipeline = resolve;
+      });
+    });
 
     const running = startPipeline('cancel1');
-    await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(1));
+    await waitForPipelineCalls(1);
+    expect(runPipeline).toHaveBeenCalledTimes(1);
     const oldOptions = runPipeline.mock.calls[0][1];
 
     const res = await dispatchMessage({ type: 'cancelRecordProcessing', key: 'cancel1' }, {});
@@ -1378,22 +1429,24 @@ describe('background pipeline lifecycle', () => {
     _resetJobRegistry();
 
     let resolvePipeline;
-    runPipeline.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolvePipeline = resolve;
-        }),
-    );
+    runPipeline.mockImplementationOnce(() => {
+      signalPipelineCall();
+      return new Promise((resolve) => {
+        resolvePipeline = resolve;
+      });
+    });
 
     const running = startPipeline('reprocess1');
-    await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(1));
+    await waitForPipelineCalls(1);
+    expect(runPipeline).toHaveBeenCalledTimes(1);
     const oldOptions = runPipeline.mock.calls[0][1];
 
     const res = await dispatchMessage({ type: 'reprocessRecord', key: 'reprocess1' }, {});
     expect(res.ok).toBe(true);
     expect(oldOptions.signal.aborted).toBe(true);
 
-    await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(2));
+    await waitForPipelineCalls(2);
+    expect(runPipeline).toHaveBeenCalledTimes(2);
     const stored = await readRecord('reprocess1');
     expect(stored.status).toBe('pending');
     expect(stored.pipelineRunId).not.toBe('run-old');
@@ -1759,11 +1812,10 @@ describe('background service-worker boundaries', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       await startPipeline('keepalive-create-reject');
-      await vi.waitFor(() =>
-        expect(warnSpy).toHaveBeenCalledWith(
-          'PageToLLM Canvas: chrome.alarms.create failed:',
-          expect.objectContaining({ message: 'create rejected' }),
-        ),
+      await Promise.resolve();
+      expect(warnSpy).toHaveBeenCalledWith(
+        'PageToLLM Canvas: chrome.alarms.create failed:',
+        expect.objectContaining({ message: 'create rejected' }),
       );
 
       chromeMock.alarms.create.mockImplementation(() => {
@@ -1788,9 +1840,8 @@ describe('background service-worker boundaries', () => {
     expect(chromeMock.alarms.clear).not.toHaveBeenCalled();
 
     alarmListener({ name: 'pipeline-keepalive' });
-    await vi.waitFor(() => {
-      expect(chromeMock.alarms.clear).toHaveBeenCalledWith('pipeline-keepalive');
-    });
+    await flushMicrotasks();
+    expect(chromeMock.alarms.clear).toHaveBeenCalledWith('pipeline-keepalive');
   });
 
   it('clears keepalive from authoritative terminal metadata when its index projection is stale', async () => {
@@ -1812,9 +1863,8 @@ describe('background service-worker boundaries', () => {
     const alarmListener = chromeMock.alarms.onAlarm.addListener.mock.calls[0][0];
     alarmListener({ name: 'pipeline-keepalive' });
 
-    await vi.waitFor(() => {
-      expect(chromeMock.alarms.clear).toHaveBeenCalledWith('pipeline-keepalive');
-    });
+    await flushMicrotasks();
+    expect(chromeMock.alarms.clear).toHaveBeenCalledWith('pipeline-keepalive');
     expect(
       chromeMock.storage.local._store.get('pagetollm:index').meta['alarm-terminal'].status,
     ).toBe('done');
@@ -1837,7 +1887,7 @@ describe('background service-worker boundaries', () => {
     const alarmListener = chromeMock.alarms.onAlarm.addListener.mock.calls[0][0];
     alarmListener({ name: 'pipeline-keepalive' });
 
-    await vi.waitFor(() => expect(runPipeline).toHaveBeenCalledTimes(2));
+    await waitForPipelineCalls(2);
     expect(runPipeline.mock.calls.map(([key]) => key).sort()).toEqual(['alarm-a', 'alarm-b']);
     expect(chromeMock.alarms.clear).not.toHaveBeenCalled();
   });
@@ -1871,8 +1921,9 @@ describe('background service-worker boundaries', () => {
     try {
       alarmListener({ name: 'pipeline-keepalive' });
       // Let the rejected listRecords() promise and its .catch handler settle.
+      // Node emits unhandledRejection at the end of the current event-loop turn,
+      // so this one zero-delay timer advances past that reporting point.
       await new Promise((resolve) => setTimeout(resolve, 0));
-      await Promise.resolve();
 
       expect(unhandledRejections).toEqual([]);
       expect(errorSpy).toHaveBeenCalledWith(
@@ -1902,16 +1953,14 @@ describe('background service-worker boundaries', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       await startPipeline('fallback1');
-      await vi.waitFor(() => {
-        expect(updateRecord).toHaveBeenCalledWith(
-          'fallback1',
-          expect.objectContaining({
-            status: 'error',
-            error: expect.stringContaining('pipeline boom'),
-          }),
-          { expectedPipelineRunId: undefined },
-        );
-      });
+      expect(updateRecord).toHaveBeenCalledWith(
+        'fallback1',
+        expect.objectContaining({
+          status: 'error',
+          error: expect.stringContaining('pipeline boom'),
+        }),
+        { expectedPipelineRunId: undefined },
+      );
       const stored = await readRecord('fallback1');
       expect(stored.status).toBe('error');
     } finally {
@@ -1935,13 +1984,11 @@ describe('background service-worker boundaries', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       await startPipeline('fallback2');
-      await vi.waitFor(() => {
-        expect(errorSpy).toHaveBeenCalledWith(
-          'PageToLLM Canvas: fallback error-status write also failed for',
-          'fallback2',
-          expect.any(Error),
-        );
-      });
+      expect(errorSpy).toHaveBeenCalledWith(
+        'PageToLLM Canvas: fallback error-status write also failed for',
+        'fallback2',
+        expect.any(Error),
+      );
     } finally {
       errorSpy.mockRestore();
     }
@@ -1984,14 +2031,11 @@ describe('background service-worker boundaries', () => {
     try {
       rejectRunA(new Error('pipeline boom'));
       await running;
-
-      await vi.waitFor(() => {
-        expect(updateRecord).toHaveBeenCalledWith(
-          'fallback3',
-          expect.objectContaining({ status: 'error' }),
-          { expectedPipelineRunId: 'run-A' },
-        );
-      });
+      expect(updateRecord).toHaveBeenCalledWith(
+        'fallback3',
+        expect.objectContaining({ status: 'error' }),
+        { expectedPipelineRunId: 'run-A' },
+      );
       expect(warnSpy).toHaveBeenCalledWith(
         'PageToLLM Canvas: fallback error-status write skipped (record superseded) for',
         'fallback3',
@@ -2024,9 +2068,8 @@ describe('background service-worker boundaries', () => {
     chromeMock.alarms.get.mockClear();
     chromeMock.alarms.clear.mockClear();
     chromeMock.runtime.onStartup.addListener.mock.calls[0][0]();
-    await vi.waitFor(() =>
-      expect(chromeMock.alarms.clear).toHaveBeenCalledWith('pipeline-keepalive'),
-    );
+    await flushMicrotasks();
+    expect(chromeMock.alarms.clear).toHaveBeenCalledWith('pipeline-keepalive');
 
     expect(runPipeline).not.toHaveBeenCalled();
     expect(chromeMock.alarms.get).not.toHaveBeenCalled();

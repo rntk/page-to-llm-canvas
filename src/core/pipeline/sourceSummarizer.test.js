@@ -702,6 +702,7 @@ describe('makeSourceSummarizer', () => {
   });
 
   it('waits for sibling chunk persistence before surfacing a chunk failure', async () => {
+    vi.useFakeTimers();
     const sentenceTexts = Array.from(
       { length: 3 },
       (_, index) => `${index + 1} ${'x'.repeat(30000)}`,
@@ -735,14 +736,21 @@ describe('makeSourceSummarizer', () => {
       persistUnit,
     });
 
-    await expect(summarize([1, 2, 3], { path: 'Tech>All' })).rejects.toBe(failure);
-    expect(events).toContain('chunk:2:failed');
-    expect(events).toContain('persist:1:done');
-    expect(events).toContain('persist:3:done');
-    expect(persistUnit).toHaveBeenCalledTimes(2);
+    try {
+      const rejected = expect(summarize([1, 2, 3], { path: 'Tech>All' })).rejects.toBe(failure);
+      await vi.runAllTimersAsync();
+      await rejected;
+      expect(events).toContain('chunk:2:failed');
+      expect(events).toContain('persist:1:done');
+      expect(events).toContain('persist:3:done');
+      expect(persistUnit).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('waits for other oversized runs to finish persisting before surfacing a run failure', async () => {
+    vi.useFakeTimers();
     const sentenceTexts = Array.from(
       { length: 5 },
       (_, index) => `${index + 1} ${'x'.repeat(30000)}`,
@@ -786,10 +794,16 @@ describe('makeSourceSummarizer', () => {
       persistUnit,
     });
 
-    await expect(summarize([1, 2, 3, 5], { path: 'Tech>All' })).rejects.toBe(failure);
-    expect(events).toContain('run:2:failed');
-    expect(events).toContain('run:1:merge');
-    expect(events).toContain('persist:1:chunk:done');
-    expect(events).toContain('persist:1:merge:done');
+    try {
+      const rejected = expect(summarize([1, 2, 3, 5], { path: 'Tech>All' })).rejects.toBe(failure);
+      await vi.runAllTimersAsync();
+      await rejected;
+      expect(events).toContain('run:2:failed');
+      expect(events).toContain('run:1:merge');
+      expect(events).toContain('persist:1:chunk:done');
+      expect(events).toContain('persist:1:merge:done');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

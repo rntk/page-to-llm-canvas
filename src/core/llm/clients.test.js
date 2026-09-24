@@ -1165,20 +1165,16 @@ describe('createClient dispatch', () => {
 
     it('parses HTTP-date in the future', () => {
       const now = 1600000000000;
-      const originalNow = Date.now;
-      Date.now = () => now;
+      vi.spyOn(Date, 'now').mockReturnValue(now);
       const dateStr = new Date(now + 5000).toUTCString();
       expect(parseRetryAfterMs(dateStr)).toBe(5000);
-      Date.now = originalNow;
     });
 
     it('floors past HTTP-dates to 0', () => {
       const now = 1600000000000;
-      const originalNow = Date.now;
-      Date.now = () => now;
+      vi.spyOn(Date, 'now').mockReturnValue(now);
       const dateStr = new Date(now - 5000).toUTCString();
       expect(parseRetryAfterMs(dateStr)).toBe(0);
-      Date.now = originalNow;
     });
   });
 });

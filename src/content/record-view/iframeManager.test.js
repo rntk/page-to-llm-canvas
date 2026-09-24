@@ -1,17 +1,19 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.stubGlobal('chrome', {
+const chromeMock = {
   runtime: {
     getURL: vi.fn((p) => 'about:blank#' + p),
   },
-});
+};
+vi.stubGlobal('chrome', chromeMock);
 
 const { buildRecordViewIframeSrc, createRecordFrameManager } = await import('./iframeManager.js');
 let manager;
 
 describe('record-view iframe manager', () => {
   beforeEach(() => {
+    vi.stubGlobal('chrome', chromeMock);
     manager = createRecordFrameManager({
       document,
       getRuntimeUrl: (path) => chrome.runtime.getURL(path),

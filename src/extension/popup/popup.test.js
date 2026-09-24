@@ -1,11 +1,9 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { installPopupDom } from '../../../test/fakes/popupDomFake.mjs';
 import { safeFilenamePart } from '../../utils/safeFilenamePart.js';
 
-beforeAll(() => {
-  installPopupDom();
-
+function installChrome() {
   vi.stubGlobal('chrome', {
     runtime: {
       sendMessage: vi.fn((msg, cb) => {
@@ -33,6 +31,17 @@ beforeAll(() => {
       },
     },
   });
+}
+
+beforeAll(() => {
+  installPopupDom();
+  installChrome();
+});
+
+beforeEach(() => {
+  // Vitest unstubs globals after each case. Install a fresh API object so no
+  // test relies on the `chrome` stub created by the suite's beforeAll.
+  installChrome();
 });
 
 function clickRecordsLink() {
@@ -45,6 +54,7 @@ describe('popup pure functions', () => {
   let popup;
 
   beforeAll(async () => {
+    installChrome();
     popup = await import('./popup.js');
   });
 
@@ -386,6 +396,7 @@ describe('setupThemeToggle', () => {
   let popup;
 
   beforeAll(async () => {
+    installChrome();
     popup = await import('./popup.js');
   });
 
@@ -427,6 +438,7 @@ describe('handleMessageAction', () => {
   let popup;
 
   beforeAll(async () => {
+    installChrome();
     popup = await import('./popup.js');
   });
 
@@ -588,6 +600,7 @@ describe('handleExportAction', () => {
   let popup;
 
   beforeAll(async () => {
+    installChrome();
     popup = await import('./popup.js');
   });
 
@@ -660,6 +673,7 @@ describe('buildRecordDisplayData', () => {
   let popup;
 
   beforeAll(async () => {
+    installChrome();
     popup = await import('./popup.js');
   });
 
@@ -763,8 +777,9 @@ describe('buildRecordDisplayData', () => {
 
 describe('popup UI integration', () => {
   beforeAll(async () => {
+    installChrome();
     await import('./popup.js');
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await flushAsyncWork();
   });
 
   const sampleRecord = {
@@ -775,14 +790,36 @@ describe('popup UI integration', () => {
     snippet: 'A short snippet',
   };
 
+  async function waitForSelector(selector, predicate = (element) => element) {
+    const find = () => {
+      const element = document.querySelector(selector);
+      return predicate(element) ? element : null;
+    };
+    const current = find();
+    if (current) return current;
+    return new Promise((resolve, reject) => {
+      const observer = new MutationObserver(() => {
+        const element = find();
+        if (element) {
+          observer.disconnect();
+          clearTimeout(timer);
+          resolve(element);
+        }
+      });
+      observer.observe(document.documentElement, { subtree: true, childList: true });
+      const timer = setTimeout(() => {
+        observer.disconnect();
+        reject(new Error(`Timed out waiting for ${selector}`));
+      }, 1000);
+    });
+  }
+
+  async function flushAsyncWork() {
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  }
+
   async function waitForRecord() {
-    let record = null;
-    for (let i = 0; i < 50; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      record = document.querySelector('#records .record');
-      if (record) break;
-    }
-    return record;
+    return waitForSelector('#records .record');
   }
 
   function stubListResponses(items = [sampleRecord]) {
@@ -827,12 +864,7 @@ describe('popup UI integration', () => {
     stubListResponses([attentionRecord]);
     document.getElementById('refresh-btn').click();
 
-    let statusButton = null;
-    for (let i = 0; i < 50; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      statusButton = document.querySelector('#records .badge.needs_attention');
-      if (statusButton) break;
-    }
+    const statusButton = await waitForSelector('#records .badge.needs_attention');
     expect(statusButton).not.toBeNull();
     expect(statusButton.tagName).toBe('BUTTON');
     expect(statusButton.title).toContain('Open Options');
@@ -854,12 +886,7 @@ describe('popup UI integration', () => {
     stubListResponses([errorRecord]);
     document.getElementById('refresh-btn').click();
 
-    let statusButton = null;
-    for (let i = 0; i < 50; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      statusButton = document.querySelector('#records .badge.error');
-      if (statusButton) break;
-    }
+    const statusButton = await waitForSelector('#records .badge.error');
     expect(statusButton).not.toBeNull();
     expect(statusButton.tagName).toBe('BUTTON');
     expect(statusButton.title).toContain('Open Options');
@@ -889,7 +916,7 @@ describe('popup UI integration', () => {
     chrome.runtime.sendMessage.mockClear();
     retryButton.click();
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await flushAsyncWork();
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
       { type: 'retryRecord', key: 'error-retry' },
       expect.any(Function),
@@ -906,19 +933,18 @@ describe('popup UI integration', () => {
     stubListResponses([attentionRecord]);
     document.getElementById('refresh-btn').click();
 
-    let retryButton;
-    for (let i = 0; i < 50; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      retryButton = Array.from(document.querySelectorAll('#records .action')).find(
+    await waitForSelector('#records .action', () =>
+      Array.from(document.querySelectorAll('#records .action')).some(
         (button) => button.textContent === 'Retry',
-      );
-      if (retryButton) break;
-    }
-    expect(retryButton).not.toBeUndefined();
+      ),
+    );
+    const retryButton = Array.from(document.querySelectorAll('#records .action')).find(
+      (button) => button.textContent === 'Retry',
+    );
     chrome.runtime.sendMessage.mockClear();
     retryButton.click();
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await flushAsyncWork();
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
       { action: 'retry', type: 'resolveSummaryErrors', key: 'attention-retry' },
       expect.any(Function),
@@ -933,12 +959,8 @@ describe('popup UI integration', () => {
     chrome.tabs.query.mockResolvedValue([{ id: 42, url: 'https://example.com/article' }]);
 
     document.getElementById('refresh-btn').click();
-    let message = '';
-    for (let i = 0; i < 50; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      message = document.getElementById('error').textContent;
-      if (message.includes('backend down')) break;
-    }
+    await waitForSelector('#error', (element) => element?.textContent.includes('backend down'));
+    const message = document.getElementById('error').textContent;
 
     expect(message).toContain('backend down');
     expect(document.getElementById('records').children.length).toBe(0);
@@ -947,22 +969,14 @@ describe('popup UI integration', () => {
   it('starts selection when pick is clicked and a provider is ready', async () => {
     stubListResponses([]);
     document.getElementById('refresh-btn').click();
-    await waitForRecord().catch(() => null);
+    await flushAsyncWork();
     chrome.tabs.sendMessage.mockClear();
 
     document.getElementById('pick-btn').disabled = false;
     document.getElementById('pick-btn').click();
 
-    let called = false;
-    for (let i = 0; i < 50; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      if (chrome.tabs.sendMessage.mock.calls.length > 0) {
-        called = true;
-        break;
-      }
-    }
-
-    expect(called).toBe(true);
+    await flushAsyncWork();
+    expect(chrome.tabs.sendMessage).toHaveBeenCalled();
     expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
       42,
       { action: 'startSelection' },

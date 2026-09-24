@@ -4,7 +4,7 @@ import { act } from 'react';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-vi.stubGlobal('chrome', {
+const chromeMock = {
   runtime: {
     sendMessage: vi.fn((_msg, cb) => cb({ ok: false })),
     getURL: vi.fn((p) => 'about:blank#' + p),
@@ -17,7 +17,8 @@ vi.stubGlobal('chrome', {
       removeListener: vi.fn(),
     },
   },
-});
+};
+vi.stubGlobal('chrome', chromeMock);
 
 vi.mock('../shared/recordFetch.js', async (importOriginal) => {
   const actual = await importOriginal();
@@ -124,6 +125,7 @@ async function flushAsyncWork() {
 
 describe('openYouTubeRail', () => {
   beforeEach(() => {
+    vi.stubGlobal('chrome', chromeMock);
     vi.stubGlobal('alert', vi.fn());
     runtimeSend.mockReset();
     runtimeSend.mockResolvedValue({ ok: true });
