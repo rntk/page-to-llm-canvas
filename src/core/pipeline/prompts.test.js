@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildSystemPrompt,
   buildTopicRangesPrompt,
   buildArticleSummaryPrompt,
   buildArticleSummaryMergePrompt,
@@ -13,8 +12,8 @@ import { PROMPT_DELIMITER } from '../promptDelimiters.js';
 describe('buildTopicRangesPrompt', () => {
   it('includes the system prompt', () => {
     const prompt = buildTopicRangesPrompt('{0} hello');
-    const systemPrompt = buildSystemPrompt();
-    expect(prompt).toContain(systemPrompt);
+    expect(prompt).toMatch(/^You are analyzing text where each line starts with a sentence marker/);
+    expect(prompt).toContain('SECURITY:');
   });
 
   it('includes the tagged text in content tags', () => {

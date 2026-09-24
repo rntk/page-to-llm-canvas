@@ -1,9 +1,16 @@
 import { buildTopicRangesPrompt } from './prompts.js';
-import { parseTopicRangesDetailed, groupsFromSegments, topicLabelKey, TopicParseError } from './topicParser.js';
+import {
+  parseTopicRangesDetailed,
+  groupsFromSegments,
+  topicLabelKey,
+  TopicParseError,
+} from './topicParser.js';
 import { RESPLIT_OUTCOMES as DEFAULT_RESPLIT_OUTCOMES } from '../metrics/resplit.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
 import {
+  getResplitTextChunkMaxChars,
+  MAX_TAGGED_CHARS,
   TOPIC_RANGE_CONCURRENCY,
   TOPIC_RANGE_RESPLIT_PROVIDER_MAX_ATTEMPTS,
 } from './pipelineConfig.js';
@@ -26,7 +33,8 @@ function rootResplitPath(returnedPath, parentPath) {
     fullPrefix &&
     returnedPath.length <= parentPath.length + 1 &&
     returnedPath.length <= MAX_TOPIC_PATH_LEVELS
-  ) return [...parentPath, ...returnedPath.slice(parentPath.length)];
+  )
+    return [...parentPath, ...returnedPath.slice(parentPath.length)];
   if (returnedPath.length === 1 && parentPath.length < MAX_TOPIC_PATH_LEVELS) {
     return [...parentPath, returnedPath[0]];
   }
@@ -97,12 +105,14 @@ async function resplitSegment(
   const span = segment.end - segment.start + 1;
   const logCtx = { start: segment.start, end: segment.end, span, depth };
   const sliceTexts = sentenceTexts.slice(segment.start, segment.end + 1);
-  const maxChars = runtime.maxTextChunkChars;
-  const chunks = chunkTopicRangeSentences(
-    sliceTexts,
-    maxChars,
-    runtime.maxTopicRangeSentences,
+  const parentPathText = parentPath.join('>');
+  const maxChars = getResplitTextChunkMaxChars(
+    runtime.maxTextChunkChars ?? MAX_TAGGED_CHARS,
+    parentPathText,
+    runtime.preferContentLanguage,
   );
+  if (maxChars === 0) return null;
+  const chunks = chunkTopicRangeSentences(sliceTexts, maxChars, runtime.maxTopicRangeSentences);
 
   if (stats) {
     stats.resplitCallCount++;
@@ -133,7 +143,7 @@ async function resplitSegment(
                   {
                     prompt: buildTopicRangesPrompt(chunk.tagged, {
                       preferContentLanguage: runtime.preferContentLanguage,
-                      resplitParentPath: parentPath.join('>'),
+                      resplitParentPath: parentPathText,
                     }),
                     signal: runtime.signal,
                     taskType: LLM_TASK_TYPES.TOPIC_RANGES,
@@ -178,13 +188,15 @@ async function resplitSegment(
             scope: 'resplit',
             diagnostics,
           });
-          return parsedChunks.flatMap(({ chunk, parsed }) => parsed.groups.map((group) => ({
-            label: group.label,
-            ranges: group.ranges.map((range) => ({
-              start: range.start + chunk.start,
-              end: range.end + chunk.start,
+          return parsedChunks.flatMap(({ chunk, parsed }) =>
+            parsed.groups.map((group) => ({
+              label: group.label,
+              ranges: group.ranges.map((range) => ({
+                start: range.start + chunk.start,
+                end: range.end + chunk.start,
+              })),
             })),
-          })));
+          );
         } catch (error) {
           // An AbortError from the boundary check or runtime logging is not a
           // malformed model response and must not become a parser sample.

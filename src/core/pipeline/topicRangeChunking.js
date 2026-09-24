@@ -1,24 +1,5 @@
 import { MAX_TAGGED_CHARS, TOPIC_RANGE_INPUT_MAX_SENTENCES } from './pipelineConfig.js';
 
-export function chunkTaggedText(tagged, maxChars) {
-  const lines = tagged.split('\n').map((line) => fitTextToChars(line, maxChars));
-  const chunks = [];
-  let cur = [];
-  let curLen = 0;
-  for (const line of lines) {
-    const lineLen = line.length + 1;
-    if (curLen + lineLen > maxChars && cur.length > 0) {
-      chunks.push(cur.join('\n'));
-      cur = [];
-      curLen = 0;
-    }
-    cur.push(line);
-    curLen += lineLen;
-  }
-  if (cur.length) chunks.push(cur.join('\n'));
-  return chunks;
-}
-
 function fitTextToChars(text, maxChars) {
   const value = String(text || '');
   if (value.length <= maxChars) return value;

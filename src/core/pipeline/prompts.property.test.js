@@ -2,14 +2,12 @@ import { describe, it, expect, vi } from 'vitest';
 import * as fc from 'fast-check';
 import { createHash } from 'node:crypto';
 import {
-  buildSystemPrompt,
   buildTopicRangesPrompt,
   buildArticleSummaryPrompt,
   buildArticleSummaryMergePrompt,
   buildLeafSummaryMergePrompt,
   buildTopicSummaryFromSourcePrompt,
   formatChunkSummariesForMerge,
-  buildTaggedText,
   LANGUAGE_INSTRUCTION,
   ARTICLE_SUMMARY_PROMPT_TEMPLATE,
   ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE,
@@ -34,36 +32,9 @@ function promptContentArb(marker, closingTag) {
   );
 }
 
-describe('buildTaggedText properties', () => {
-  it('matches the canonical tagged-line representation exactly', () => {
-    fc.assert(
-      fc.property(fc.array(singleLineTextArb), (sentences) => {
-        expect(buildTaggedText(sentences)).toBe(
-          sentences.map((sentence, index) => `{${index}} ${sentence}`).join('\n'),
-        );
-      }),
-    );
-  });
-
-  it('handles object sentences with text property identically to strings', () => {
-    fc.assert(
-      fc.property(fc.array(fc.string()), (sentences) => {
-        const stringResult = buildTaggedText(sentences);
-        const objectResult = buildTaggedText(sentences.map((s) => ({ text: s })));
-        expect(objectResult).toBe(stringResult);
-      }),
-    );
-  });
-});
-
-describe('buildSystemPrompt properties', () => {
-  it('always returns the same stable string', () => {
-    const a = buildSystemPrompt();
-    const b = buildSystemPrompt();
-    expect(a).toBe(b);
-    expect(a.length).toBeGreaterThan(0);
-  });
-});
+function systemPromptFromRangePrompt(prompt) {
+  return prompt.slice(0, prompt.indexOf('\n\nOUTPUT FORMAT:'));
+}
 
 describe('prompt contract fingerprints', () => {
   const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -72,7 +43,7 @@ describe('prompt contract fingerprints', () => {
     vi.resetModules();
     const currentPrompts = await import('./prompts.js');
     expect({
-      system: sha256(currentPrompts.buildSystemPrompt()),
+      system: sha256(systemPromptFromRangePrompt(currentPrompts.buildTopicRangesPrompt(''))),
       language: sha256(currentPrompts.LANGUAGE_INSTRUCTION),
       articleSummary: sha256(currentPrompts.ARTICLE_SUMMARY_PROMPT_TEMPLATE),
       articleMerge: sha256(currentPrompts.ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE),
@@ -99,7 +70,9 @@ describe('buildTopicRangesPrompt properties', () => {
         });
         const contentBlock = `<pagetollm_input>\n${taggedText}\n</pagetollm_input>\n`;
         const promptPrefix = prompt.slice(0, -contentBlock.length);
-        expect(prompt.startsWith(buildSystemPrompt())).toBe(true);
+        expect(prompt.startsWith(systemPromptFromRangePrompt(buildTopicRangesPrompt('')))).toBe(
+          true,
+        );
         expect(prompt.endsWith(contentBlock)).toBe(true);
         expect(languagePrompt).toBe(`${promptPrefix}${LANGUAGE_INSTRUCTION}\n${contentBlock}`);
       }),

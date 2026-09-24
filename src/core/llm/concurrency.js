@@ -170,6 +170,7 @@ export function createAdjustableLimiter(initialLimit, { reservedPrioritySlots = 
  * @returns {Promise<Array<U>>}
  */
 export async function parallelMap(items, limit, fn, { warmupFirst = false, stopBurst } = {}) {
+  const normalizedLimit = normalizeLimiterLimit(limit);
   const results = new Array(items.length);
   let next = 0;
   let failed = false;
@@ -179,7 +180,7 @@ export async function parallelMap(items, limit, fn, { warmupFirst = false, stopB
     next++;
   }
   const remaining = Math.max(items.length - next, 1);
-  const workers = new Array(Math.min(limit, remaining)).fill(0).map(async () => {
+  const workers = new Array(Math.min(normalizedLimit, remaining)).fill(0).map(async () => {
     while (true) {
       if (failed) return;
       const i = next++;

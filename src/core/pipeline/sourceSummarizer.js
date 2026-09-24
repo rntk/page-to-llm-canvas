@@ -40,10 +40,6 @@ const SUMMARY_PROFILES = {
   },
 };
 
-export function parseSummaryResponse(raw) {
-  return parseSummaryResult(raw).text;
-}
-
 export function parseSummaryResult(raw) {
   if (!raw) return { text: '', noSummary: false };
   let summary = String(raw).trim();

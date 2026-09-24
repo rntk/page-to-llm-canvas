@@ -7,6 +7,7 @@ import {
   TOPIC_RANGE_INPUT_MAX_SENTENCES,
   getArticleChatLimits,
   getPipelineTextChunkMaxChars,
+  getResplitTextChunkMaxChars,
   getTopicRangeInputMaxSentences,
 } from './pipelineConfig.js';
 import {
@@ -27,7 +28,6 @@ import {
   WORST_CASE_BYTES_PER_CODE_UNIT,
 } from '../llm/tokenEstimator.js';
 
-const MINIMUM_TEXT_CHUNK_CHARS = 512;
 const RESPONSE_RESERVED_TOKENS = 1024;
 const TOKENS_PER_SENTENCE = 32;
 const SMALL_CONTEXT = PIPELINE_MIN_CONTEXT_WINDOW_TOKENS;
@@ -37,6 +37,14 @@ const OVERSIZED_CONTEXT = Number.MAX_SAFE_INTEGER;
 
 const FIXED_PIPELINE_PROMPTS = [
   ['topic ranges', buildTopicRangesPrompt],
+  [
+    'topic ranges resplit',
+    (text, options) =>
+      buildTopicRangesPrompt(text, {
+        ...options,
+        resplitParentPath: 'Technology>Artificial Intelligence>Language Models>Prompt Caching',
+      }),
+  ],
   ['article summary', buildArticleSummaryPrompt],
   ['topic source summary', buildTopicSummaryFromSourcePrompt],
   ['article summary merge', buildArticleSummaryMergePrompt],
@@ -58,7 +66,7 @@ describe('pipeline request sizing', () => {
     const medium = getPipelineTextChunkMaxChars(MEDIUM_CONTEXT);
     const large = getPipelineTextChunkMaxChars(LARGE_CONTEXT);
     expect(small).toBeGreaterThan(0);
-    expect(small).toBe(663);
+    expect(small).toBe(566);
     expect(small).toBeLessThan(medium);
     expect(medium).toBeLessThan(large);
     expect(medium).toBe(3723);
@@ -72,7 +80,7 @@ describe('pipeline request sizing', () => {
     const medium = getTopicRangeInputMaxSentences(MEDIUM_CONTEXT);
     expect(small).toBeGreaterThan(0);
     expect(small).toBe(32);
-    expect(medium).toBe(54);
+    expect(medium).toBe(51);
     expect(medium).toBeGreaterThan(small);
     expect(medium).toBeLessThanOrEqual(TOPIC_RANGE_INPUT_MAX_SENTENCES);
     expect(getTopicRangeInputMaxSentences(OVERSIZED_CONTEXT)).toBe(TOPIC_RANGE_INPUT_MAX_SENTENCES);
@@ -89,14 +97,23 @@ describe('pipeline request sizing', () => {
     (_, buildPrompt) => {
       const prompt = buildPrompt('', { preferContentLanguage: true });
       const promptTokens = estimateTokens(prompt);
-      const payloadTokens = estimateTokensForCharCount(MINIMUM_TEXT_CHUNK_CHARS, {
-        bytesPerChar: WORST_CASE_BYTES_PER_CODE_UNIT,
-      });
+      const payloadTokens = estimateTokensForCharCount(
+        getPipelineTextChunkMaxChars(SMALL_CONTEXT),
+        {
+          bytesPerChar: WORST_CASE_BYTES_PER_CODE_UNIT,
+        },
+      );
       expect(promptTokens + RESPONSE_RESERVED_TOKENS + payloadTokens).toBeLessThanOrEqual(
         PIPELINE_MIN_CONTEXT_WINDOW_TOKENS,
       );
     },
   );
+
+  it.each(FIXED_PIPELINE_PROMPTS)('%s is included in fixed prompt overhead', (_, buildPrompt) => {
+    expect(PIPELINE_FIXED_PROMPT_TOKENS).toBeGreaterThanOrEqual(
+      estimateTokens(buildPrompt('', { preferContentLanguage: true })),
+    );
+  });
 
   it('does not overflow the window when topic markers and payload are worst-case', () => {
     for (const windowTokens of [SMALL_CONTEXT, MEDIUM_CONTEXT, LARGE_CONTEXT]) {
@@ -110,6 +127,33 @@ describe('pipeline request sizing', () => {
         windowTokens,
       );
     }
+  });
+
+  it('charges long ASCII and CJK resplit paths to the payload budget', () => {
+    const baseMaxChars = getPipelineTextChunkMaxChars(SMALL_CONTEXT);
+    const responseTokens = getTopicRangeInputMaxSentences(SMALL_CONTEXT) * TOKENS_PER_SENTENCE;
+    for (const parentPath of ['Technology>' + 'Long topic '.repeat(30), '研究'.repeat(180)]) {
+      const maxChars = getResplitTextChunkMaxChars(baseMaxChars, parentPath, true);
+      expect(maxChars).toBeGreaterThan(0);
+      expect(maxChars).toBeLessThan(baseMaxChars);
+      const promptTokens = estimateTokens(
+        buildTopicRangesPrompt('', { preferContentLanguage: true, resplitParentPath: parentPath }),
+      );
+      const payloadTokens = estimateTokensForCharCount(maxChars, {
+        bytesPerChar: WORST_CASE_BYTES_PER_CODE_UNIT,
+      });
+      expect(promptTokens + payloadTokens + responseTokens).toBeLessThanOrEqual(SMALL_CONTEXT);
+    }
+  });
+
+  it('skips resplitting when the parent path leaves no room for a tagged sentence', () => {
+    expect(
+      getResplitTextChunkMaxChars(
+        getPipelineTextChunkMaxChars(SMALL_CONTEXT),
+        '漢'.repeat(5000),
+        true,
+      ),
+    ).toBe(0);
   });
 });
 

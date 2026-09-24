@@ -1,14 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import {
-  parseTopicRanges,
-  parseTopicRangesDetailed,
-  groupsFromSegments,
-  TopicParseError,
-} from './topicParser.js';
+import { parseTopicRangesDetailed, groupsFromSegments, TopicParseError } from './topicParser.js';
 import { buildTopicTree } from './topicTreeMerge.js';
 import { joinTopicPath } from '../../shared/runtime/topicPath.js';
 
 // Helpers -------------------------------------------------------------------
+
+const parseTopicRanges = (response, sentenceCount) =>
+  parseTopicRangesDetailed(response, sentenceCount).groups;
 
 /** Build a valid response string covering indices 0..n-1 under a single topic. */
 function singleTopic(n) {

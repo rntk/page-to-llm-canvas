@@ -36,6 +36,20 @@ describe('parallelMap', () => {
     expect(res).toEqual([]);
   });
 
+  it.each([0, -2, NaN, Infinity, 1.8])(
+    'normalizes invalid or fractional limit %s',
+    async (limit) => {
+      const { parallelMap } = await getConcurrency();
+      const calls = [];
+      const result = await parallelMap([1, 2], limit, async (value) => {
+        calls.push(value);
+        return value * 2;
+      });
+      expect(result).toEqual([2, 4]);
+      expect(calls).toEqual([1, 2]);
+    },
+  );
+
   it('runs the first item to completion before the concurrent burst when warmupFirst', async () => {
     const { parallelMap } = await getConcurrency();
     const items = [1, 2, 3, 4, 5];

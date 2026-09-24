@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   chunkSourceSentences,
   makeSourceSummarizer,
-  parseSummaryResponse,
   parseSummaryResult,
   runSourceText,
   shouldInlineRun,
@@ -39,7 +38,6 @@ describe('parseSummaryResult', () => {
       text: 'content NO_SUMMARY',
       noSummary: false,
     });
-    expect(parseSummaryResponse('  useful answer  ')).toBe('useful answer');
   });
 });
 

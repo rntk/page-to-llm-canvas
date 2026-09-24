@@ -59,7 +59,7 @@ Respond as fast as possible with ONLY the formatted output. Minimal preamble, re
 // Added (when the "prefer the language of the content" option is on) to every
 // pipeline prompt. It tells the model to write human-readable output in the
 // content's dominant language while carving out the tokens the parsing code
-// matches as exact English: NO_SUMMARY (parseSummaryResponse), the {N} sentence
+// matches as exact English: NO_SUMMARY (parseSummaryResult), the {N} sentence
 // markers, the strict topic-ranges line format, and canonical proper nouns.
 // Without these carve-outs a translated NO_SUMMARY would silently break short-text
 // detection and a translated marker/format would break topic parsing.
@@ -77,10 +77,6 @@ export const LANGUAGE_INSTRUCTION =
 
 function withLanguageInstruction(prompt, preferContentLanguage) {
   return preferContentLanguage ? `${LANGUAGE_INSTRUCTION}\n${prompt}` : prompt;
-}
-
-export function buildSystemPrompt() {
-  return SYSTEM_PROMPT;
 }
 
 export function buildTopicRangesPrompt(
@@ -241,10 +237,4 @@ export function formatChunkSummaryForMerge(rec, index) {
     `Chunk ${index + 1} (sentences ${rec.start_sentence}-${rec.end_sentence}):\n` +
     `${summary.text || ''}`
   );
-}
-
-// BracketMarker port: prefixes each sentence with {N}.
-export function buildTaggedText(sentences) {
-  const rows = sentences.map((s) => (typeof s === 'string' ? s : s.text));
-  return rows.map((row, i) => `{${i}} ${row}`).join('\n');
 }

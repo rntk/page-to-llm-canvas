@@ -42,11 +42,17 @@ const PIPELINE_RESPONSE_RESERVED_TOKENS = 1024;
 export const TOPIC_RANGE_INPUT_MAX_SENTENCES =
   maxTopicRangeSentencesForOutputBudget(LLM_MAX_OUTPUT_TOKENS);
 
-// Largest static prompt among pipeline stages, measured with the shared
-// estimator (UTF-8-aware with safety factor). This is the fixed overhead
-// used in all budget calculations.
+// Baseline prompt overhead for pipeline budgeting, measured with the shared
+// estimator (UTF-8-aware with safety factor). Resplit paths are model-generated
+// and unbounded, so getResplitTextChunkMaxChars accounts for their actual cost.
 export const PIPELINE_FIXED_PROMPT_TOKENS = Math.max(
   estimateTokens(buildTopicRangesPrompt('', { preferContentLanguage: true })),
+  estimateTokens(
+    buildTopicRangesPrompt('', {
+      preferContentLanguage: true,
+      resplitParentPath: 'Technology>Artificial Intelligence>Language Models>Prompt Caching',
+    }),
+  ),
   estimateTokens(buildArticleSummaryPrompt('', { preferContentLanguage: true })),
   estimateTokens(buildTopicSummaryFromSourcePrompt('', { preferContentLanguage: true })),
   estimateTokens(buildArticleSummaryMergePrompt('', { preferContentLanguage: true })),
@@ -55,6 +61,36 @@ export const PIPELINE_FIXED_PROMPT_TOKENS = Math.max(
 
 export const MAX_TAGGED_CHARS = PIPELINE_TEXT_CHUNK_MAX_CHARS;
 export const SOURCE_SUMMARY_MAX_CHARS = PIPELINE_TEXT_CHUNK_MAX_CHARS;
+
+/**
+ * Reduce a resplit's payload allowance when its actual parent path makes the
+ * prompt larger than the pipeline baseline. Charging the excess to the text
+ * budget preserves the response space already reserved for topic ranges.
+ * Return zero if even a sentence marker cannot fit; resplitting is optional.
+ *
+ * @param {number} baseMaxChars Pipeline text cap for this provider.
+ * @param {string} parentPath Model-generated parent path.
+ * @param {boolean} [preferContentLanguage]
+ * @returns {number}
+ */
+export function getResplitTextChunkMaxChars(
+  baseMaxChars,
+  parentPath,
+  preferContentLanguage = false,
+) {
+  const promptTokens = estimateTokens(
+    buildTopicRangesPrompt('', { preferContentLanguage, resplitParentPath: parentPath }),
+  );
+  const excessTokens = Math.max(0, promptTokens - PIPELINE_FIXED_PROMPT_TOKENS);
+  if (excessTokens === 0) return baseMaxChars;
+  const payloadTokens = estimateTokensForCharCount(baseMaxChars, {
+    bytesPerChar: WORST_CASE_BYTES_PER_CODE_UNIT,
+  });
+  const remainingTokens = payloadTokens - excessTokens;
+  // "{0} " is the shortest parseable tagged sentence line.
+  if (remainingTokens < estimateTokensForCharCount(4)) return 0;
+  return Math.min(baseMaxChars, estimateMaxCharsForTokens(remainingTokens));
+}
 
 /**
  * Normalizes an optional provider context-window declaration. Absent or
@@ -128,8 +164,8 @@ export function getArticleChatLimits(contextWindowTokens) {
  *
  * The payload reserve assumes worst-case density (WORST_CASE_BYTES_PER_CODE_UNIT)
  * so the same ratio that sized maxChars is reused here; otherwise the payload
- * budget would be counted twice. This makes the sentence cap flat at 54 for
- * mid-size windows (8k–33k) — safe but ~4x more topic-ranging calls than
+ * budget would be counted twice. This makes the sentence cap nearly flat for
+ * mid-size windows (8k–33k) — safe but more topic-ranging calls than
  * before at those sizes. If throughput matters, the orchestrator could measure
  * the actual chunk text at dispatch instead of assuming uniform worst-case density.
  *

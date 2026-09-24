@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeTopics as computeTopicsWithDefaults } from './topicRangesStage.js';
-import { chunkTaggedText, chunkTopicRangeSentences } from './topicRangeChunking.js';
+import { chunkTopicRangeSentences } from './topicRangeChunking.js';
 import { groupsToTopics, rangesToSentenceList } from './topicRangeMapping.js';
 
 import { splitSentences } from './sentenceSplitter.js';
@@ -61,14 +61,6 @@ function computeTopics(input) {
 vi.mock('./sentenceSplitter.js', () => ({
   splitSentences: vi.fn(),
 }));
-
-describe('chunkTaggedText', () => {
-  it('splits at newline boundaries and bounds pathological individual lines', () => {
-    expect(chunkTaggedText('one\ntwo\nthree', 8)).toEqual(['one\ntwo', 'three']);
-    expect(chunkTaggedText('oversized', 3)).toEqual(['o…d']);
-    expect(chunkTaggedText('', 3)).toEqual(['']);
-  });
-});
 
 describe('chunkTopicRangeSentences', () => {
   it('restarts local markers and preserves global starts', () => {
