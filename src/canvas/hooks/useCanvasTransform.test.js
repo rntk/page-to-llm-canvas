@@ -6,6 +6,8 @@ import { act } from 'react';
 import { useCanvasTransform } from './useCanvasTransform.js';
 import { clampScale, cursorAnchoredTranslate } from '../../utils/canvasMath.js';
 
+const mountedHooks = new Set();
+
 function renderHook(callback) {
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -16,16 +18,19 @@ function renderHook(callback) {
   }
   const root = createRoot(container);
   act(() => root.render(createElement(TestComponent)));
-  return {
+  const hook = {
     result,
     rerender() {
       act(() => root.render(createElement(TestComponent)));
     },
     unmount() {
+      if (!mountedHooks.delete(hook)) return;
       act(() => root.unmount());
       container.remove();
     },
   };
+  mountedHooks.add(hook);
+  return hook;
 }
 
 // ---------------------------------------------------------------------------
@@ -113,16 +118,28 @@ describe('cursorAnchoredTranslate', () => {
 // ---------------------------------------------------------------------------
 
 describe('useCanvasTransform', () => {
+  const pendingAnimationFrames = new Set();
+
   beforeEach(() => {
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((fn) => {
-      return setTimeout(fn, 0);
+      const id = setTimeout(() => {
+        pendingAnimationFrames.delete(id);
+        fn();
+      }, 0);
+      pendingAnimationFrames.add(id);
+      return id;
     });
     vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
       clearTimeout(id);
+      pendingAnimationFrames.delete(id);
     });
   });
 
   afterEach(() => {
+    for (const hook of mountedHooks) hook.unmount();
+    for (const id of pendingAnimationFrames) clearTimeout(id);
+    pendingAnimationFrames.clear();
+    document.body.replaceChildren();
     vi.restoreAllMocks();
   });
 
