@@ -8,18 +8,11 @@ vi.mock('../core/metrics/parser.js', async (importOriginal) => {
   return { ...actual, getParserMetrics: vi.fn() };
 });
 
-vi.mock('../core/metrics/resplit.js', async (importOriginal) => {
-  const actual = await importOriginal();
-  return { ...actual, getResplitMetrics: vi.fn() };
-});
-
 vi.mock('../utils/runtimeMessages.js', () => ({ sendRuntimeMessage: vi.fn() }));
 
 import { emptyParserMetrics, getParserMetrics } from '../core/metrics/parser.js';
-import { emptyResplitMetrics, getResplitMetrics } from '../core/metrics/resplit.js';
 import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 import { ParserMetricsSection } from './ParserMetricsSection.jsx';
-import { ResplitMetricsSection } from './ResplitMetricsSection.jsx';
 import { createFakeStore } from '../../test/fakes/storeFake.mjs';
 
 const cleanups = [];
@@ -49,7 +42,6 @@ beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   store = createFakeStore();
   getParserMetrics.mockReset().mockResolvedValue(emptyParserMetrics());
-  getResplitMetrics.mockReset().mockResolvedValue(emptyResplitMetrics());
   sendRuntimeMessage.mockReset().mockResolvedValue({ ok: true });
 });
 
@@ -74,23 +66,6 @@ describe('metrics clear failure recovery', () => {
 
     expect(sendRuntimeMessage).toHaveBeenCalledWith({ type: 'clearParserMetrics' });
     expect(container.textContent).toContain('No topic parser attempts recorded yet.');
-    expect(container.querySelector('button').disabled).toBe(true);
-  });
-
-  it('clears resplit metrics after the worker acknowledges the clear', async () => {
-    getResplitMetrics.mockResolvedValueOnce({ ...emptyResplitMetrics(), runCount: 1 });
-    const container = renderSection(ResplitMetricsSection);
-    await flush();
-    expect(container.querySelector('button').disabled).toBe(false);
-
-    await act(async () => {
-      container.querySelector('button').click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(sendRuntimeMessage).toHaveBeenCalledWith({ type: 'clearResplitMetrics' });
-    expect(container.textContent).toContain('No topic range resplit runs recorded yet.');
     expect(container.querySelector('button').disabled).toBe(true);
   });
 
@@ -155,27 +130,6 @@ describe('metrics clear failure recovery', () => {
     expect(container.querySelector('button').disabled).toBe(false);
   });
 
-  it('reloads resplit metrics and re-enables clear after a rejected clear', async () => {
-    getResplitMetrics
-      .mockResolvedValueOnce({ ...emptyResplitMetrics(), runCount: 2 })
-      .mockResolvedValueOnce({ ...emptyResplitMetrics(), runCount: 3 });
-    sendRuntimeMessage.mockResolvedValueOnce({ ok: false, error: 'storage unavailable' });
-    const container = renderSection(ResplitMetricsSection);
-    await flush();
-
-    await act(async () => {
-      container.querySelector('button').click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(sendRuntimeMessage).toHaveBeenCalledWith({ type: 'clearResplitMetrics' });
-    expect(getResplitMetrics).toHaveBeenCalledTimes(2);
-    expect(container.textContent).toContain('Runs reaching the resplit check3');
-    expect(container.querySelector('[role="alert"]').textContent).toContain('storage unavailable');
-    expect(container.querySelector('button').disabled).toBe(false);
-  });
-
   it('preserves parser metrics and reports both errors when the recovery reload also fails', async () => {
     getParserMetrics
       .mockResolvedValueOnce({ ...emptyParserMetrics(), totalCount: 2, failureCount: 2 })
@@ -191,26 +145,6 @@ describe('metrics clear failure recovery', () => {
     });
 
     expect(container.textContent).toContain('2 (0 / 2)');
-    expect(container.querySelector('[role="alert"]').textContent).toContain('worker disconnected');
-    expect(container.querySelector('[role="alert"]').textContent).toContain('reload unavailable');
-    expect(container.querySelector('button').disabled).toBe(false);
-  });
-
-  it('preserves resplit metrics and reports both errors when the recovery reload also fails', async () => {
-    getResplitMetrics
-      .mockResolvedValueOnce({ ...emptyResplitMetrics(), runCount: 2 })
-      .mockRejectedValueOnce(new Error('reload unavailable'));
-    sendRuntimeMessage.mockRejectedValueOnce(new Error('worker disconnected'));
-    const container = renderSection(ResplitMetricsSection);
-    await flush();
-
-    await act(async () => {
-      container.querySelector('button').click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(container.textContent).toContain('Runs reaching the resplit check2');
     expect(container.querySelector('[role="alert"]').textContent).toContain('worker disconnected');
     expect(container.querySelector('[role="alert"]').textContent).toContain('reload unavailable');
     expect(container.querySelector('button').disabled).toBe(false);

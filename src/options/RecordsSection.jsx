@@ -406,9 +406,14 @@ export function RecordsSection({ fileHost, pageHost, subscribeRecords = subscrib
                         ⚠️
                       </button>
                     ) : (
-                      <span className={statusClass(item.status)} title={item.error || undefined}>
-                        {item.status || 'unknown'}
-                      </span>
+                      <>
+                        <span className={statusClass(item.status)} title={item.error || undefined}>
+                          {item.status || 'unknown'}
+                        </span>
+                        {item.status === PIPELINE_STATUS.DONE && item.resplitNotice ? (
+                          <div className="note">{item.resplitNotice}</div>
+                        ) : null}
+                      </>
                     )}
                   </td>
                   <td>

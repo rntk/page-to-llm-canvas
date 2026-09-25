@@ -66,7 +66,6 @@ function buildGroups() {
       recordChatToolMetric: vi.fn(),
       clearChatToolMetrics: vi.fn(),
       clearParserMetrics: vi.fn(),
-      clearResplitMetrics: vi.fn(),
     }),
     provider: createProviderHandlers({
       getProvidersState: vi.fn(),
@@ -124,6 +123,7 @@ describe('message handler registry (no chrome global)', () => {
         MSG.retryRecord,
         MSG.reprocessRecord,
         MSG.generateRecordSummaries,
+        MSG.resplitTopic,
         MSG.cancelRecordProcessing,
         MSG.resolveSummaryErrors,
         MSG.getRecord,
@@ -142,7 +142,6 @@ describe('message handler registry (no chrome global)', () => {
         MSG.recordChatToolMetric,
         MSG.clearChatToolMetrics,
         MSG.clearParserMetrics,
-        MSG.clearResplitMetrics,
         MSG.listProviders,
         MSG.saveProvider,
         MSG.deleteProvider,
@@ -187,11 +186,7 @@ describe('message handler registry (no chrome global)', () => {
     ]) {
       expect(groups.record[type].requiresExtensionPage, type).toBe(true);
     }
-    for (const type of [
-      MSG.clearParserMetrics,
-      MSG.clearResplitMetrics,
-      MSG.clearChatToolMetrics,
-    ]) {
+    for (const type of [MSG.clearParserMetrics, MSG.clearChatToolMetrics]) {
       expect(groups.metrics[type].requiresExtensionPage, type).toBe(true);
     }
     expect(groups.record[MSG.getRecordView].requiresExtensionPage).toBe(false);

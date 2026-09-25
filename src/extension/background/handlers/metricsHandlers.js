@@ -8,13 +8,11 @@ import { MSG } from '../../../shared/runtime/messages.js';
  * @param {Function} deps.recordChatToolMetric
  * @param {Function} deps.clearChatToolMetrics
  * @param {Function} deps.clearParserMetrics
- * @param {Function} deps.clearResplitMetrics
  */
 export function createMetricsHandlers({
   recordChatToolMetric,
   clearChatToolMetrics,
   clearParserMetrics,
-  clearResplitMetrics,
 }) {
   return {
     // Records the outcome of one article-chat highlight_span tool call. The
@@ -42,23 +40,14 @@ export function createMetricsHandlers({
       },
     },
 
-    // Parser and resplit samples are also produced in the worker. Route their
-    // clears through this realm so each clear shares the same serialized metrics
+    // Parser samples are also produced in the worker. Route their clears
+    // through this realm so each clear shares the same serialized metrics
     // queue as its in-flight record writes.
     [MSG.clearParserMetrics]: {
       requiresExtensionPage: true,
       validate: () => null,
       async handle() {
         await clearParserMetrics();
-        return { ok: true };
-      },
-    },
-
-    [MSG.clearResplitMetrics]: {
-      requiresExtensionPage: true,
-      validate: () => null,
-      async handle() {
-        await clearResplitMetrics();
         return { ok: true };
       },
     },

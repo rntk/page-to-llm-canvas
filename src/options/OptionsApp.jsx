@@ -3,7 +3,6 @@ import { GeneralSettingsPanel } from './GeneralSettingsPanel.jsx';
 import { LlmMetricsSection } from './LlmMetricsSection.jsx';
 import { ChatToolMetricsSection } from './ChatToolMetricsSection.jsx';
 import { ParserMetricsSection } from './ParserMetricsSection.jsx';
-import { ResplitMetricsSection } from './ResplitMetricsSection.jsx';
 import { ProvidersSection } from './ProvidersSection.jsx';
 import { RecordsSection } from './RecordsSection.jsx';
 import { DataManagementSection } from './DataManagementSection.jsx';
@@ -153,7 +152,6 @@ export function OptionsApp({ store, scheduler, fileHost, pageHost, subscribeReco
         {visitedTabs.has('diagnostics') && (
           <>
             <ParserMetricsSection store={store} />
-            <ResplitMetricsSection store={store} />
             <LlmMetricsSection store={store} />
             <ChatToolMetricsSection store={store} />
           </>
