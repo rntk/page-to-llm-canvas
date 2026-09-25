@@ -194,6 +194,15 @@ async function renderApp(initialKey = 'record-1', props = {}) {
 }
 
 describe('App composition behavior', () => {
+  it('offers Resplit for topics at the maximum hierarchy depth', async () => {
+    const { root } = await renderApp();
+    const resplit = state.childProps.rail.topicActions.find((action) => action.id === 'resplit');
+
+    expect(resplit.title({ path: 'A > B > C > D > E' })).toMatch(/name and subtopics may change/i);
+
+    await act(async () => root.unmount());
+  });
+
   it('covers the canvas with the opening overlay without unmounting anything', async () => {
     // The gate has to be purely visual: measurement runs off getClientRects, so
     // unmounting (or display:none-ing) the article while waiting would starve
@@ -244,6 +253,7 @@ describe('App composition behavior', () => {
     state.record = {
       key: 'record-1',
       status: 'done',
+      pipelineRunId: 'run-1',
       sourceUrl: 'https://example.com',
     };
     state.error = null;
@@ -314,6 +324,83 @@ describe('App composition behavior', () => {
 
     expect(container.childElementCount).toBe(0);
     expect(onClose).toHaveBeenCalledOnce();
+    await act(async () => root.unmount());
+  });
+
+  it('closes the canvas when a manual resplit starts', async () => {
+    const onClose = vi.fn();
+    const recordSource = { resplitTopic: vi.fn(async () => ({ ok: true })) };
+    const { container, root } = await renderApp('record-1', { onClose, recordSource });
+    const resplit = state.childProps.rail.topicActions.find((action) => action.id === 'resplit');
+
+    await act(async () => {
+      await resplit.onSelect({ path: 'Topic', startSentence: 1, endSentence: 1 });
+    });
+    expect(recordSource.resplitTopic).toHaveBeenCalledWith('record-1', {
+      path: 'Topic',
+      startSentence: 1,
+      endSentence: 1,
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    state.record = { ...state.record, status: 'splitting', pipelineRunId: 'run-2' };
+    await act(async () =>
+      root.render(<App initialKey="record-1" onClose={onClose} recordSource={recordSource} />),
+    );
+    expect(container.querySelector('.pagetollm-modal-root')).toBeNull();
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    await act(async () => root.unmount());
+  });
+
+  it('keeps the canvas open when the resplit request is stale or rejected', async () => {
+    const onClose = vi.fn();
+    const recordSource = {
+      resplitTopic: vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, stale: true })
+        .mockResolvedValueOnce({ ok: false, error: 'nope' }),
+    };
+    const { root } = await renderApp('record-1', { onClose, recordSource });
+    const resplit = state.childProps.rail.topicActions.find((action) => action.id === 'resplit');
+
+    await act(async () => {
+      await resplit.onSelect({ path: 'Topic', startSentence: 1, endSentence: 1 });
+      await resplit.onSelect({ path: 'Topic', startSentence: 1, endSentence: 1 });
+    });
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+  });
+
+  it('asks before resplitting a card that already has subtopics', async () => {
+    const onClose = vi.fn();
+    const recordSource = { resplitTopic: vi.fn(async () => ({ ok: true })) };
+    state.vm = {
+      ...state.vm,
+      topics: [
+        { name: 'Topic', sentences: [1] },
+        { name: 'Topic>Child', sentences: [2] },
+      ],
+    };
+    const originalConfirm = window.confirm;
+    const confirm = vi.fn(() => false);
+    window.confirm = confirm;
+    const { root } = await renderApp('record-1', { onClose, recordSource });
+    const resplit = state.childProps.rail.topicActions.find((action) => action.id === 'resplit');
+
+    expect(resplit.title({ path: 'Topic', startSentence: 1, endSentence: 2 })).toMatch(
+      /Replace this topic and its subtopics/,
+    );
+    await act(async () => {
+      await expect(
+        resplit.onSelect({ path: 'Topic', startSentence: 1, endSentence: 2 }),
+      ).resolves.toMatchObject({ dismissed: true });
+    });
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(recordSource.resplitTopic).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+
+    window.confirm = originalConfirm;
     await act(async () => root.unmount());
   });
 

@@ -28,6 +28,7 @@ import { useViewReturn } from './hooks/useViewReturn.js';
 import { useSummaryCardRegistry } from './hooks/useSummaryCardRegistry.js';
 import { useTopicSelection } from './hooks/useTopicSelection.js';
 import { selectCurrentTopicSummary } from '../domain/summaryCards.js';
+import { canonicalTopicPath, isCanonicalDescendantPath } from '../shared/runtime/topicPath.js';
 import { getFloatingSummaryFontSizes, getSummaryFontSizes } from '../utils/denseCardLayout.js';
 import ArticleChat from '../chat/ArticleChat.jsx';
 import { buildSentenceDomRange } from '../highlights/sentenceHighlight.js';
@@ -42,14 +43,8 @@ const noop = () => {};
 export default function App({ initialKey, recordSource, onClose = noop }) {
   const { record, error, isDeleted } = useRecord(initialKey, recordSource);
   const closeSentRef = useRef(false);
-
-  // Canvas is a read-only view of completed data. Pipeline progress, failures,
-  // retries, and summary review are handled from the popup and Options page —
-  // which is also the only place this view is opened from, and only for a DONE
-  // record. Anything other than a ready record here therefore means the record
-  // became unusable underneath an already-open canvas (deleted, reprocessed,
-  // failed refresh), so close instead of leaving an empty frame behind and let
-  // the popup report the new state.
+  // The canvas only displays completed records. Resplit closes it while the
+  // record runs, just like any other processing action.
   const isReady = record?.status === PIPELINE_STATUS.DONE;
   const isUnusable = isDeleted || Boolean(error) || (record !== null && !isReady);
 
@@ -62,6 +57,12 @@ export default function App({ initialKey, recordSource, onClose = noop }) {
     closeSentRef.current = true;
     onClose();
   }, [isUnusable, onClose]);
+
+  const handleResplitAccepted = useCallback(() => {
+    if (closeSentRef.current) return;
+    closeSentRef.current = true;
+    onClose();
+  }, [onClose]);
 
   // Nothing to show while the first fetch is still in flight.
   if (!isReady) return null;
@@ -80,12 +81,14 @@ export default function App({ initialKey, recordSource, onClose = noop }) {
       key={record.contentRevision}
       initialKey={initialKey}
       record={record}
+      recordSource={recordSource}
       onClose={onClose}
+      onResplitAccepted={handleResplitAccepted}
     />
   );
 }
 
-function CanvasApp({ initialKey, record, onClose }) {
+function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepted }) {
   const [showSummaryModeRaw, setShowSummaryMode] = useState(false);
   const [showTopicHierarchy, setShowTopicHierarchy] = useState(true);
   const [showChat, setShowChat] = useState(false);
@@ -127,6 +130,10 @@ function CanvasApp({ initialKey, record, onClose }) {
       group.style.setProperty(
         '--canvas-zoom-youtube-font-size',
         `${getSummaryFontSizes({ titleFontSize: visualTitleSize }).youtube}px`,
+      );
+      group.style.setProperty(
+        '--canvas-zoom-actions-font-size',
+        `${getSummaryFontSizes({ titleFontSize: visualTitleSize }).actions}px`,
       );
       for (let level = 0; level <= selectedLevel; level += 1) {
         group.style.setProperty(
@@ -430,6 +437,50 @@ function CanvasApp({ initialKey, record, onClose }) {
     [toggleTopic, zoomToTopic],
   );
 
+  const topicActions = useMemo(() => {
+    // Resplitting a card replaces everything inside its range, including the
+    // subtopics already found there.
+    const hasSubtopicsInRange = ({ path, startSentence, endSentence }) => {
+      const target = canonicalTopicPath(path);
+      return topics.some(
+        (topic) =>
+          isCanonicalDescendantPath(canonicalTopicPath(topic.name), target) &&
+          topic.sentences?.some(
+            (sentenceId) => sentenceId >= startSentence && sentenceId <= endSentence,
+          ),
+      );
+    };
+    return [
+      {
+        id: 'resplit',
+        label: 'Resplit',
+        title: (topic) => {
+          if (hasSubtopicsInRange(topic)) {
+            return 'Replace this topic and its subtopics within this sentence range.';
+          }
+          return 'Resplit this topic; its name and subtopics may change.';
+        },
+        onSelect: async (topic) => {
+          if (
+            hasSubtopicsInRange(topic) &&
+            !window.confirm(
+              'Resplitting may rename this topic and replaces its subtopics within this sentence range. Continue?',
+            )
+          ) {
+            return { ok: true, dismissed: true };
+          }
+          const response = await recordSource.resplitTopic(initialKey, {
+            path: topic.path,
+            startSentence: topic.startSentence,
+            endSentence: topic.endSentence,
+          });
+          if (response?.ok && !response.stale) onResplitAccepted();
+          return response;
+        },
+      },
+    ];
+  }, [topics, recordSource, initialKey, onResplitAccepted]);
+
   // Summary cards zoom on click like the rail's topic cards, but without
   // toggling selection: in summary mode `selectedTarget` feeds the preview's
   // active card, so selecting here would latch a preview open.
@@ -599,6 +650,7 @@ function CanvasApp({ initialKey, record, onClose }) {
                   onTopicEnter={enterTopic}
                   onTopicLeave={leaveTopic}
                   onTopicClick={handleTopicClick}
+                  topicActions={topicActions}
                   onCancelTopicSelection={clearSelection}
                   currentTopicSummary={currentTopicSummary}
                   sentences={sentences}

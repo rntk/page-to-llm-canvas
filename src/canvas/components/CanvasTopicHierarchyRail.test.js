@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
@@ -271,34 +272,34 @@ describe('CanvasTopicHierarchyRail', () => {
       }),
     );
 
-    const buttons = container.querySelectorAll('.canvas-topic-hierarchy__card');
-    expect(buttons).toHaveLength(2);
+    const cards = container.querySelectorAll('.canvas-topic-hierarchy__card');
+    expect(cards).toHaveLength(2);
 
     // card1 (Topic A) is active
-    expect(buttons[0].className).toContain('is-active');
-    expect(buttons[0].className).toContain('canvas-topic-hierarchy__card--root');
+    expect(cards[0].className).toContain('is-active');
+    expect(cards[0].className).toContain('canvas-topic-hierarchy__card--root');
 
     // card2 (Topic A > Sub B) is selected
-    expect(buttons[1].className).toContain('is-selected');
-    expect(buttons[1].className).toContain('canvas-topic-hierarchy__card--child');
+    expect(cards[1].className).toContain('is-selected');
+    expect(cards[1].className).toContain('canvas-topic-hierarchy__card--child');
 
     // hover card2
     const mouseOverEvent = new MouseEvent('mouseover', { bubbles: true });
     act(() => {
-      buttons[1].dispatchEvent(mouseOverEvent);
+      cards[1].dispatchEvent(mouseOverEvent);
     });
     expect(onTopicEnter).toHaveBeenCalledWith({ path: 'Topic A > Sub B', cardKey: 'card2' });
 
     // leave card2
     const mouseOutEvent = new MouseEvent('mouseout', { bubbles: true });
     act(() => {
-      buttons[1].dispatchEvent(mouseOutEvent);
+      cards[1].dispatchEvent(mouseOutEvent);
     });
     expect(onTopicLeave).toHaveBeenCalledWith({ path: 'Topic A > Sub B', cardKey: 'card2' });
 
     // click card2
     act(() => {
-      buttons[1].click();
+      cards[1].querySelector('.canvas-topic-hierarchy__card-main').click();
     });
     expect(onTopicClick).toHaveBeenCalledWith(
       { path: 'Topic A > Sub B', cardKey: 'card2' },
@@ -346,7 +347,7 @@ describe('CanvasTopicHierarchyRail', () => {
     const { container, unmount } = render(createElement(CanvasTopicHierarchyRail, defaultProps));
 
     const aside = container.querySelector('.canvas-topic-hierarchy');
-    const button = container.querySelector('.canvas-topic-hierarchy__card');
+    const button = container.querySelector('.canvas-topic-hierarchy__card-main');
 
     // Click on button inside aside
     const mousedownOnBtn = new MouseEvent('mousedown', { bubbles: true });
@@ -364,6 +365,200 @@ describe('CanvasTopicHierarchyRail', () => {
     });
     expect(mousedownOnAside.stopPropagation).not.toHaveBeenCalled();
 
+    unmount();
+  });
+
+  it('opens the extensible topic menu and sends the selected card run to its action', async () => {
+    const onSelect = vi.fn().mockResolvedValue({ ok: true });
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        topicActions: [{ id: 'resplit', label: 'Resplit', onSelect }],
+      }),
+    );
+
+    act(() => {
+      container.querySelector('[aria-label="More actions for Topic A > Sub B"]').click();
+    });
+    const menu = document.body.querySelector('[role="menu"]');
+    expect(menu).not.toBeNull();
+    expect(menu.querySelector('[role="menuitem"]').textContent).toBe('Resplit');
+
+    await act(async () => {
+      menu.querySelector('[role="menuitem"]').click();
+      await Promise.resolve();
+    });
+    expect(onSelect).toHaveBeenCalledWith({
+      path: 'Topic A > Sub B',
+      startSentence: 6,
+      endSentence: 17,
+    });
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    unmount();
+  });
+
+  it('flips the topic menu above a low trigger and clamps it inside the viewport', () => {
+    const originalRect = Element.prototype.getBoundingClientRect;
+    const originalHeight = window.innerHeight;
+    window.innerHeight = 600;
+    Element.prototype.getBoundingClientRect = function () {
+      if (this.classList?.contains('canvas-topic-hierarchy__actions-trigger')) {
+        return { top: 570, bottom: 590, right: 300, left: 270, width: 30, height: 20 };
+      }
+      if (this.classList?.contains('canvas-topic-hierarchy__actions-menu')) {
+        return { top: 0, bottom: 80, left: 0, right: 176, width: 176, height: 80 };
+      }
+      return originalRect.call(this);
+    };
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        topicActions: [{ id: 'resplit', label: 'Resplit', onSelect: vi.fn() }],
+      }),
+    );
+
+    act(() => container.querySelector('[aria-label="More actions for Topic A"]').click());
+    const menu = document.body.querySelector('[role="menu"]');
+    expect(menu.style.top).toBe('486px');
+    expect(menu.style.left).toBe('124px');
+
+    unmount();
+    Element.prototype.getBoundingClientRect = originalRect;
+    window.innerHeight = originalHeight;
+  });
+
+  it('keeps only one topic menu open and toggles it from its trigger', () => {
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        topicActions: [{ id: 'resplit', label: 'Resplit', onSelect: vi.fn() }],
+      }),
+    );
+    const parentTrigger = container.querySelector('[aria-label="More actions for Topic A"]');
+    const childTrigger = container.querySelector('[aria-label="More actions for Topic A > Sub B"]');
+
+    act(() => parentTrigger.click());
+    expect(document.body.querySelectorAll('[role="menu"]')).toHaveLength(1);
+
+    act(() => {
+      childTrigger.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      childTrigger.click();
+    });
+    const menus = document.body.querySelectorAll('[role="menu"]');
+    expect(menus).toHaveLength(1);
+    expect(menus[0].getAttribute('aria-label')).toBe('Actions for Topic A > Sub B');
+
+    act(() => childTrigger.click());
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    unmount();
+  });
+
+  it('closes the topic menu when the canvas zooms', () => {
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        topicActions: [{ id: 'resplit', label: 'Resplit', onSelect: vi.fn() }],
+      }),
+    );
+
+    act(() => container.querySelector('[aria-label="More actions for Topic A"]').click());
+    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
+    act(() => {
+      document.dispatchEvent(new Event('wheel', { bubbles: true }));
+    });
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    unmount();
+  });
+
+  it('ignores repeated selections while an action is in flight', async () => {
+    let resolveAction;
+    const onSelect = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveAction = resolve;
+        }),
+    );
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        topicActions: [{ id: 'resplit', label: 'Resplit', onSelect }],
+      }),
+    );
+
+    act(() => container.querySelector('[aria-label="More actions for Topic A"]').click());
+    const item = () => document.body.querySelector('[role="menuitem"]');
+    await act(async () => {
+      item().click();
+      await Promise.resolve();
+    });
+    expect(item().disabled).toBe(true);
+    await act(async () => {
+      item().click();
+      await Promise.resolve();
+    });
+    expect(onSelect).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      resolveAction({ ok: true });
+      await Promise.resolve();
+    });
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    unmount();
+  });
+
+  it('renders topic-specific action titles', () => {
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        topicActions: [
+          {
+            id: 'resplit',
+            label: 'Resplit',
+            title: ({ path }) => `Resplit ${path}`,
+            onSelect: vi.fn(),
+          },
+        ],
+      }),
+    );
+
+    act(() => {
+      container.querySelector('[aria-label="More actions for Topic A > Sub B"]').click();
+    });
+    const item = document.body.querySelector('[role="menuitem"]');
+    expect(item.disabled).toBe(false);
+    expect(item.title).toBe('Resplit Topic A > Sub B');
+    unmount();
+  });
+
+  it('keeps the menu open and displays stale and failed action responses', async () => {
+    const onSelect = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, stale: true })
+      .mockResolvedValueOnce({ ok: false, error: 'The topic could not be resplit.' });
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        topicActions: [{ id: 'resplit', label: 'Resplit', onSelect }],
+      }),
+    );
+
+    act(() => {
+      container.querySelector('[aria-label="More actions for Topic A"]').click();
+    });
+    let menu = document.body.querySelector('[role="menu"]');
+    await act(async () => {
+      menu.querySelector('[role="menuitem"]').click();
+      await Promise.resolve();
+    });
+    expect(menu.querySelector('[role="alert"]').textContent).toMatch(/topic changed/i);
+
+    await act(async () => {
+      menu.querySelector('[role="menuitem"]').click();
+      await Promise.resolve();
+    });
+    expect(menu.querySelector('[role="alert"]').textContent).toBe(
+      'The topic could not be resplit.',
+    );
     unmount();
   });
 
@@ -738,6 +933,58 @@ describe('CanvasTopicHierarchyRail', () => {
     // canvas's zoom-out transform.
     expect(card1.style.getPropertyValue('--topic-card-youtube-font-size')).toBe('18.15px');
     unmount();
+  });
+
+  it('scales the per-card actions trigger font with the card title font size (zoom)', () => {
+    const { container, unmount } = render(
+      createElement(CanvasTopicHierarchyRail, {
+        ...defaultProps,
+        topicCards: defaultProps.topicCards.map((card) =>
+          card.key === 'card1' ? { ...card, titleFontSize: 18 } : card,
+        ),
+        topicActions: [{ id: 'resplit', label: 'Resplit', onSelect: vi.fn() }],
+      }),
+    );
+
+    const cards = Array.from(container.querySelectorAll('.canvas-topic-hierarchy__card'));
+    const card1 = cards.find((el) => el.textContent.includes('A'));
+    const card2 = cards.find((el) => el.textContent.includes('B'));
+    // titleFontSize 18 vs. the 12px base is a 1.5x zoom multiplier, so the
+    // trigger (16px base) scales to 24px instead of staying a flat size that
+    // would shrink with the canvas zoom-out transform into an untappable dot.
+    expect(card1.style.getPropertyValue('--topic-card-actions-font-size')).toBe('24px');
+    // The base-size card keeps the 16px base (multiplier clamped to 1).
+    expect(card2.style.getPropertyValue('--topic-card-actions-font-size')).toBe('16px');
+    unmount();
+  });
+
+  it('keeps the per-card actions trigger pinned to the visible slice of tall cards', () => {
+    // The canvas pans via a CSS transform, so the sticky title tracks the
+    // visible slice with a translateY offset instead of position: sticky. The
+    // actions trigger uses the same technique: without it the button sits at
+    // the card top and scrolls out of reach on tall cards.
+    const css = readFileSync('src/canvas/modal.css', 'utf8');
+    const triggerBlock = css.match(/\.canvas-topic-hierarchy__actions-trigger\s*\{[^}]*\}/)?.[0];
+    expect(triggerBlock).toBeTruthy();
+    for (const token of [
+      '--canvas-translate-y',
+      '--canvas-scale',
+      '--canvas-area-height',
+      '--topic-card-top',
+      '--topic-card-height',
+      'translateY',
+    ]) {
+      expect(triggerBlock).toContain(token);
+    }
+    // Clamped so the trigger never leaves its card, and gliding with the
+    // title while panning or focusing instead of jumping.
+    expect(triggerBlock).toMatch(/clamp\(/);
+    expect(css).toMatch(
+      /\.canvas-area\.is-pan-smoothing\s+\.canvas-topic-hierarchy__actions-trigger\s*\{[^}]*transform/,
+    );
+    expect(css).toMatch(
+      /\.canvas-viewport\.is-focusing-highlight\s+\.canvas-topic-hierarchy__actions-trigger\s*\{[^}]*transform/,
+    );
   });
 
   it('does not render a per-card YouTube link for non-YouTube records', () => {
