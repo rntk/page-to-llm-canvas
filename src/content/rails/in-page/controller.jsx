@@ -20,6 +20,8 @@ import { createOptionsRecoveryOpener } from '../shared/optionsRecovery.js';
 import { createRailState, normalizeRailMode } from '../shared/railState.js';
 import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
 import { createLogger } from '../../../shared/runtime/log.js';
+import { MSG } from '../../../shared/runtime/messages.js';
+import { createResplitAction } from '../../../shared/runtime/topicResplit.js';
 
 const defaultDialogs = {
   alert: (...args) => globalThis.alert(...args),
@@ -143,6 +145,16 @@ export function createInPageRailController({
     const { railEl, railRoot, setRailWidthForMode, isClosed } = surface;
     railEl.dataset.topicLayout = state.topicLayout;
 
+    const topicActions = [
+      createResplitAction({
+        topics: record.topics,
+        request: (topic) =>
+          runtimeMessenger.send({ type: MSG.resplitTopic, key: record.key, ...topic }),
+        onAccepted: closeRail,
+        confirm,
+      }),
+    ];
+
     let railOriginTop;
 
     const projectRail = () =>
@@ -228,6 +240,7 @@ export function createInPageRailController({
             maxLevel={maxLevel}
             selectedLevel={state.selectedLevel}
             cards={cards}
+            topicActions={topicActions}
             onClose={closeRail}
             onSelectMode={handleSelectMode}
             onSelectLevel={handleSelectLevel}

@@ -2,6 +2,8 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallba
 import ArticleChat from '../../../chat/ArticleChat.jsx';
 import { formatTimestampLabel } from '../../../utils/youtubeTimestamp.js';
 import { HierarchicalCardTitle, RailHead } from '../shared/RailControls.jsx';
+import TopicActionsMenu from '../../../components/TopicActionsMenu.jsx';
+import { buildTopicRunMenu } from '../../../components/topicActionRuns.js';
 import {
   getYouTubeRailCardBodyText,
   getYouTubeRailActiveCardIdFromNormalized,
@@ -42,6 +44,7 @@ export default function YouTubeRail({
   maxLevel,
   selectedLevel,
   cards,
+  topicActions = [],
   onSelectMode,
   onSelectLevel,
   onClose,
@@ -85,6 +88,16 @@ export default function YouTubeRail({
   const normalizedCards = useMemo(
     () => (isChat ? [] : normalizeYouTubeRailCards(cards)),
     [cards, isChat],
+  );
+  const topicMenus = useMemo(
+    () =>
+      new Map(
+        normalizedCards.map((card) => [
+          card.id,
+          buildTopicRunMenu(topicActions, card.path, card.sentences),
+        ]),
+      ),
+    [normalizedCards, topicActions],
   );
 
   // Start-second lookup for the current card list. Card timestamps change far
@@ -379,43 +392,59 @@ export default function YouTubeRail({
                 a dimmed list of titles on either side of it. */}
             {normalizedCards.map((card, index) => {
               const isActive = card.id === activeId;
+              const topicMenu = topicMenus.get(card.id);
               const position = isActive
                 ? `is-active is-enter-${enterDirection}`
                 : activeIndex >= 0 && index < activeIndex
                   ? 'is-before'
                   : 'is-after';
               return (
-                <button
+                <div
                   key={card.id}
-                  type="button"
-                  ref={setCardRef(card.id)}
-                  className={[
-                    'pagetollm-yt-rail-card',
-                    isSummary ? 'is-summary' : 'is-topic',
-                    position,
-                  ].join(' ')}
-                  style={{ '--pagetollm-card-accent': card.accent }}
-                  onClick={() => onSeek(card.seconds)}
-                  title={`Jump to ${formatTimestampLabel(card.seconds)}`}
+                  className={
+                    isActive
+                      ? `pagetollm-yt-rail-card-wrap ${position}`
+                      : 'pagetollm-yt-rail-card-wrap'
+                  }
                 >
-                  <div className="pagetollm-yt-rail-card-head">
-                    <span className="pagetollm-yt-rail-card-time">
-                      {formatTimestampLabel(card.seconds)}
-                    </span>
-                    <HierarchicalCardTitle
-                      className="pagetollm-yt-rail-card-title"
-                      name={card.name}
-                      path={card.path}
-                    />
-                  </div>
-                  {/* Only the card for the current moment shows its summary; the
-                    rest stay as titles so the surrounding topics remain visible. */}
-                  {isSummary && isActive && (
-                    <div className="pagetollm-yt-rail-card-body">
-                      {getYouTubeRailCardBodyText(card)}
+                  <button
+                    type="button"
+                    ref={setCardRef(card.id)}
+                    className={[
+                      'pagetollm-yt-rail-card',
+                      isSummary ? 'is-summary' : 'is-topic',
+                      position,
+                    ].join(' ')}
+                    style={{ '--pagetollm-card-accent': card.accent }}
+                    onClick={() => onSeek(card.seconds)}
+                    title={`Jump to ${formatTimestampLabel(card.seconds)}`}
+                  >
+                    <div className="pagetollm-yt-rail-card-head">
+                      <span className="pagetollm-yt-rail-card-time">
+                        {formatTimestampLabel(card.seconds)}
+                      </span>
+                      <HierarchicalCardTitle
+                        className="pagetollm-yt-rail-card-title"
+                        name={card.name}
+                        path={card.path}
+                      />
                     </div>
+                    {/* Only the card for the current moment shows its summary; the
+                    rest stay as titles so the surrounding topics remain visible. */}
+                    {isSummary && isActive && (
+                      <div className="pagetollm-yt-rail-card-body">
+                        {getYouTubeRailCardBodyText(card)}
+                      </div>
+                    )}
+                  </button>
+                  {topicMenu && (
+                    <TopicActionsMenu
+                      actions={topicMenu.actions}
+                      topic={topicMenu.topic}
+                      classPrefix="pagetollm"
+                    />
                   )}
-                </button>
+                </div>
               );
             })}
             {/* Pinned to the bottom of the list while playback tracking is

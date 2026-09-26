@@ -64,6 +64,176 @@
   z-index: 3000;
 }
 
+.pagetollm-topic-card-wrap,
+.pagetollm-rail-card-wrap {
+  position: absolute;
+  z-index: 1;
+}
+
+.pagetollm-topic-card-wrap {
+  left: 0;
+  right: 0;
+}
+
+.pagetollm-rail-card-wrap {
+  left: var(--pagetollm-notes-left, 0);
+  width: 14px;
+  pointer-events: none;
+}
+
+#pagetollm-in-page-rail .pagetollm-rail-card-wrap .pagetollm-rail-card {
+  top: 0;
+  left: 0;
+  height: 100%;
+}
+
+.pagetollm-topic-card-wrap .pagetollm-topic-card {
+  top: 0;
+  width: auto;
+  min-height: 100%;
+}
+
+.pagetollm-yt-rail-card-wrap {
+  position: relative;
+  display: flow-root;
+}
+
+.pagetollm-summary-card-wrap {
+  position: relative;
+}
+
+.pagetollm-summary-topic-list .pagetollm-summary-card-wrap {
+  flex: 0 0 auto;
+}
+
+.pagetollm-summary-stack > .pagetollm-summary-card-wrap {
+  display: flex;
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
+.pagetollm-summary-card-wrap:hover .pagetollm__actions-trigger,
+.pagetollm-summary-card-wrap:focus-within .pagetollm__actions-trigger {
+  opacity: 1;
+}
+
+.pagetollm-summary-card-wrap .pagetollm__actions-trigger {
+  right: 8px;
+}
+
+.pagetollm__actions-trigger {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1001;
+  width: 23px;
+  height: 23px;
+  padding: 0;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font: 700 16px/1 var(--font-data);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: auto;
+}
+
+.pagetollm-topic-card-wrap:hover .pagetollm__actions-trigger,
+.pagetollm-rail-card-wrap:hover .pagetollm__actions-trigger,
+.pagetollm-yt-rail-card-wrap:hover .pagetollm__actions-trigger,
+.pagetollm__actions-trigger:focus-visible,
+.pagetollm__actions-trigger[aria-expanded='true'] {
+  opacity: 1;
+}
+
+.pagetollm-topic-card-wrap.is-front,
+.pagetollm-rail-card-wrap.is-front {
+  z-index: 1000;
+}
+
+.pagetollm-topic-card-wrap:hover,
+.pagetollm-topic-card-wrap:focus-within,
+.pagetollm-rail-card-wrap:hover,
+.pagetollm-rail-card-wrap:focus-within {
+  z-index: 1001;
+}
+
+.pagetollm-topic-card-wrap .pagetollm__actions-trigger {
+  right: 20px;
+
+  /* The card track moves with article scroll. Keep the trigger beside the
+     emulated sticky title, but stop before it leaves its own card. */
+  --pagetollm-card-actions-offset: max(
+    0px,
+    min(
+      calc(
+        var(--pagetollm-scroll-offset, 0px) + var(--pagetollm-rail-sticky-offset, 48px) -
+          var(--pagetollm-card-top, 0px)
+      ),
+      max(0px, calc(var(--pagetollm-card-height, 0px) - 31px))
+    )
+  );
+
+  transform: translateY(var(--pagetollm-card-actions-offset));
+}
+
+#pagetollm-in-page-rail .pagetollm-note-label .pagetollm__actions-trigger {
+  position: static;
+  flex: 0 0 23px;
+  opacity: 1;
+}
+
+.pagetollm-yt-rail-card-wrap .pagetollm__actions-trigger {
+  right: 8px;
+}
+
+.pagetollm-yt-rail-card-wrap.is-active .pagetollm__actions-trigger {
+  top: 14px;
+}
+
+.pagetollm__actions-menu {
+  position: fixed;
+  z-index: 2147483647;
+  min-width: 176px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid light-dark(#000, #f4f5f7);
+  border-radius: 0;
+  background: light-dark(#fff, #1b1d22);
+  color: light-dark(#141414, #ececec);
+  box-shadow: 4px 4px 0 rgb(0 0 0 / 12%);
+}
+
+.pagetollm__actions-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: 700 12px sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pagetollm__actions-menu button:hover:not(:disabled),
+.pagetollm__actions-menu button:focus-visible:not(:disabled) {
+  background: light-dark(#000, #f4f5f7);
+  color: light-dark(#fff, #1b1d22);
+}
+
+.pagetollm__actions-menu button:disabled {
+  opacity: 0.5;
+}
+
+.pagetollm__actions-menu [role='alert'] {
+  margin: 4px 8px;
+  color: var(--danger, #b42318);
+  font-size: 12px;
+}
+
 .pagetollm-rail-title {
   font-size: 12px;
   font-weight: 800;
@@ -257,11 +427,13 @@
   position: absolute;
   top: 0;
   left: 18px; /* BRACE_WIDTH + NOTE_GAP in marginNotes.js */
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   box-sizing: border-box;
   width: max-content;
   max-width: var(--pagetollm-note-width, 288px);
-  padding: 6px 8px;
+  padding: 6px;
   background: var(--surface);
   border: 1px solid var(--ghost);
   border-radius: 0;
@@ -288,14 +460,31 @@
   transition: border-color 0.15s ease;
 }
 
-#pagetollm-in-page-rail .pagetollm-rail-card:hover .pagetollm-note-label,
-#pagetollm-in-page-rail .pagetollm-rail-card.is-front .pagetollm-note-label {
+#pagetollm-in-page-rail .pagetollm-rail-card-wrap:hover .pagetollm-note-label,
+#pagetollm-in-page-rail .pagetollm-rail-card.is-front + .pagetollm-note-label {
   border-color: var(--ink);
 }
 
-#pagetollm-in-page-rail .pagetollm-rail-card:focus-visible .pagetollm-note-label {
+#pagetollm-in-page-rail .pagetollm-rail-card-wrap:focus-within .pagetollm-note-label {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
+}
+
+#pagetollm-in-page-rail .pagetollm-note-open {
+  appearance: none !important;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: max-content;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 #pagetollm-in-page-rail .pagetollm-note-label .pagetollm-rail-card-title {
@@ -339,7 +528,7 @@
   border: 1px solid var(--ghost) !important;
   border-left: 4px solid var(--pagetollm-card-accent, var(--ink)) !important;
   border-radius: 0 !important;
-  padding: 8px 10px;
+  padding: 8px 39px 8px 10px;
   color: var(--on-surface);
   text-align: left;
   cursor: pointer;
@@ -362,17 +551,16 @@
   background: var(--surface);
 }
 
-.pagetollm-topic-card:hover,
+.pagetollm-topic-card-wrap:hover .pagetollm-topic-card,
 .pagetollm-topic-card:focus,
 .pagetollm-topic-card:focus-within,
 .pagetollm-topic-card.is-front {
   z-index: 1000;
 }
 
-.pagetollm-topic-card:hover,
+.pagetollm-topic-card-wrap:hover .pagetollm-topic-card,
 .pagetollm-topic-card:focus,
 .pagetollm-topic-card.is-front {
-  transform: translateX(-2px);
   border-color: var(--ink) !important;
   border-left-color: var(--pagetollm-card-accent, var(--ink)) !important;
 }
@@ -520,7 +708,7 @@
   flex: 0 0 auto;
   box-sizing: border-box;
   width: 100%;
-  padding: 7px 8px;
+  padding: 7px 39px 7px 8px;
   background: transparent;
   border: 0 !important;
   border-left: 3px solid var(--pagetollm-card-accent, var(--ghost)) !important;
@@ -535,11 +723,10 @@
     background 0.15s ease;
 }
 
-.pagetollm-summary-topic:hover,
+.pagetollm-summary-card-wrap:hover .pagetollm-summary-topic,
 .pagetollm-summary-topic:focus {
   opacity: 1;
   background: var(--surface);
-  transform: translateX(-2px);
 }
 
 .pagetollm-summary-topic:focus {
@@ -586,7 +773,7 @@
   pointer-events: auto;
   width: 100%;
   box-sizing: border-box;
-  padding: 10px 12px 12px;
+  padding: 10px 43px 12px 12px;
   background: var(--surface);
   border: 1px solid var(--ink) !important;
   border-left: 4px solid var(--pagetollm-card-accent, var(--ink)) !important;
@@ -600,15 +787,15 @@
 
 .pagetollm-summary-active-card:hover,
 .pagetollm-summary-active-card:focus {
-  transform: translateX(-2px);
+  border-color: var(--ink) !important;
 }
 
 /* The card is keyed on the card id, so each new summary re-runs this on mount. */
-.pagetollm-summary-active-card.is-enter-down {
+.pagetollm-summary-card-wrap.is-enter-down {
   animation: pagetollm-card-slide-in-down 0.22s ease-out;
 }
 
-.pagetollm-summary-active-card.is-enter-up {
+.pagetollm-summary-card-wrap.is-enter-up {
   animation: pagetollm-card-slide-in-up 0.22s ease-out;
 }
 
@@ -846,7 +1033,7 @@
   border: 0 !important;
   border-left: 3px solid var(--pagetollm-card-accent, var(--ghost)) !important;
   border-radius: 0 !important;
-  padding: 7px 8px;
+  padding: 7px 39px 7px 8px;
   color: var(--on-surface);
   text-align: left;
   cursor: pointer;
@@ -864,7 +1051,6 @@
 .pagetollm-yt-rail-card:focus {
   opacity: 1;
   background: var(--surface);
-  transform: translateX(-2px);
 }
 
 .pagetollm-yt-rail-card:focus {
@@ -874,7 +1060,7 @@
 
 .pagetollm-yt-rail-card.is-active {
   opacity: 1;
-  padding: 10px 12px 12px;
+  padding: 10px 43px 12px 12px;
   margin: 6px 0;
   background: var(--surface);
   border: 1px solid var(--ink) !important;
@@ -889,11 +1075,11 @@
 
 /* Replayed each time a different card becomes active: the class lands on a
    new element, which restarts the animation. */
-.pagetollm-yt-rail-card.is-active.is-enter-down {
+.pagetollm-yt-rail-card-wrap.is-active.is-enter-down {
   animation: pagetollm-card-slide-in-down 0.22s ease-out;
 }
 
-.pagetollm-yt-rail-card.is-active.is-enter-up {
+.pagetollm-yt-rail-card-wrap.is-active.is-enter-up {
   animation: pagetollm-card-slide-in-up 0.22s ease-out;
 }
 
@@ -979,10 +1165,10 @@
 /* Keep the rails usable for readers who ask for less motion. */
 @media (prefers-reduced-motion: reduce) {
   .pagetollm-summary-stack,
-  .pagetollm-summary-active-card.is-enter-down,
-  .pagetollm-summary-active-card.is-enter-up,
-  .pagetollm-yt-rail-card.is-active.is-enter-down,
-  .pagetollm-yt-rail-card.is-active.is-enter-up {
+  .pagetollm-summary-card-wrap.is-enter-down,
+  .pagetollm-summary-card-wrap.is-enter-up,
+  .pagetollm-yt-rail-card-wrap.is-active.is-enter-down,
+  .pagetollm-yt-rail-card-wrap.is-active.is-enter-up {
     animation: none;
   }
 

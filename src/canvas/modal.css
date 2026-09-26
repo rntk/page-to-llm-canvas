@@ -759,8 +759,8 @@ body.canvas-global-dragging * {
    to --topic-card-actions-font-size. */
 .canvas-topic-hierarchy__actions-trigger {
   position: absolute;
-  top: 0.25em;
-  right: 0.3125em;
+  top: 0.375em;
+  right: 0.375em;
   z-index: 2;
   width: 1.5em;
   height: 1.5em;
@@ -782,9 +782,9 @@ body.canvas-global-dragging * {
 
   /* Sticky within tall cards, like the card title: the canvas pans via a CSS
      transform, so position: sticky cannot work. Pin the trigger to the visible
-     slice of its card (top edge plus its own 0.25em offset) so it stays
-     reachable without scrolling the card through. 2em is the trigger height
-     (1.5em) plus the top/bottom padding (0.25em each). */
+     slice of its card (top edge plus its own 0.375em offset) so it stays
+     reachable without scrolling the card through. 2.25em is the trigger height
+     (1.5em) plus the top/bottom padding (0.375em each). */
   --_actions-vis-top: max(
     0px,
     calc(-1 * var(--canvas-translate-y, 0px) / var(--canvas-scale, 1) - var(--topic-card-top, 0px))
@@ -796,7 +796,7 @@ body.canvas-global-dragging * {
         var(--canvas-scale, 1) - var(--topic-card-top, 0px)
     )
   );
-  --_actions-offset: clamp(0px, var(--_actions-vis-top), calc(var(--_actions-vis-bot) - 2em));
+  --_actions-offset: clamp(0px, var(--_actions-vis-top), calc(var(--_actions-vis-bot) - 2.25em));
 
   transform: translateY(var(--_actions-offset));
   cursor: pointer;
@@ -850,8 +850,7 @@ body.canvas-global-dragging * {
   padding: 4px;
   border: 1px solid var(--ink);
   border-radius: 0;
-  background: var(--surface-frost);
-  backdrop-filter: blur(14px);
+  background: var(--surface);
   box-shadow: 4px 4px 0 rgb(0 0 0 / 12%);
 }
 

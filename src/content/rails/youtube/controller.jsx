@@ -9,9 +9,12 @@ import { createOptionsRecoveryOpener } from '../shared/optionsRecovery.js';
 import { createRailState, normalizeRailMode } from '../shared/railState.js';
 import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
 import { createLogger } from '../../../shared/runtime/log.js';
+import { MSG } from '../../../shared/runtime/messages.js';
+import { createResplitAction } from '../../../shared/runtime/topicResplit.js';
 
 const defaultDialogs = {
   alert: (...args) => globalThis.alert(...args),
+  confirm: (...args) => globalThis.confirm(...args),
 };
 
 export function createYouTubeRailController({
@@ -23,7 +26,7 @@ export function createYouTubeRailController({
   onDestroy,
 } = {}) {
   const closeRail = surfaceManager.close;
-  const { alert } = { ...defaultDialogs, ...(dialogs ?? {}) };
+  const { alert, confirm } = { ...defaultDialogs, ...(dialogs ?? {}) };
   const openOptionsForRecovery = createOptionsRecoveryOpener({ runtimeMessenger, alert, logger });
   let videoElement = null;
 
@@ -86,6 +89,15 @@ export function createYouTubeRailController({
     });
     if (!surface) return false;
     const { railEl, railRoot, setRailWidthForMode, isClosed } = surface;
+    const topicActions = [
+      createResplitAction({
+        topics,
+        request: (topic) =>
+          runtimeMessenger.send({ type: MSG.resplitTopic, key: record.key, ...topic }),
+        onAccepted: closeRail,
+        confirm,
+      }),
+    ];
 
     const getCurrentTime = () => {
       const video = getYouTubeVideoElement();
@@ -181,6 +193,7 @@ export function createYouTubeRailController({
           maxLevel={maxLevel}
           selectedLevel={state.selectedLevel}
           cards={cards}
+          topicActions={topicActions}
           onSelectMode={handleSelectMode}
           onSelectLevel={handleSelectLevel}
           onClose={closeRail}

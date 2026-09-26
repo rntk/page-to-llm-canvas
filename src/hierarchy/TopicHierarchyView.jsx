@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useCallback, useLayoutEffect, useRef } from 'react';
 import { buildTopicTree, countLeafDescendants } from '../domain/topicTree.js';
+import { buildTopicRunMenu } from '../components/topicActionRuns.js';
 import {
   getHierarchyTopicHighlightColor,
   getHierarchyTopicHighlightColorDark,
@@ -8,6 +9,7 @@ import {
 import { getYouTubeTimestampLink, getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
 import YouTubeTimestampButton from '../components/YouTubeTimestampButton.jsx';
 import { getSentencesForNode, spacedTopicPath, buildSummaryLookup } from './hierarchyUtils.js';
+import TopicActionsMenu from '../components/TopicActionsMenu.jsx';
 
 // Always render hierarchy timestamps as h:mm:ss (e.g. 0:58:59, 1:27:35) so every
 // label occupies the same three columns and the links never shift left/right.
@@ -106,12 +108,21 @@ const HierarchyNode = React.memo(function HierarchyNode({
   sourceUrl,
   sentences,
   isYouTube,
+  topicActions,
 }) {
   const { node } = entry;
   const children = Array.from(entry.children.values());
   const isLeaf = children.length === 0;
   const { highlightColor, highlightColorDark, accentColor } = getHierarchyColors(colorCache, node);
   const isSelected = selectedTopicPath === node.fullPath;
+  const nodeSentences = useMemo(() => getSentencesForNode(entry), [entry]);
+  const menu = useMemo(
+    () => buildTopicRunMenu(topicActions, node.fullPath, nodeSentences),
+    [topicActions, node.fullPath, nodeSentences],
+  );
+  const topicMenu = menu ? (
+    <TopicActionsMenu actions={menu.actions} topic={menu.topic} classPrefix="th-node" />
+  ) : null;
 
   const youtubeLink = useMemo(() => {
     if (!isYouTube) return null;
@@ -143,6 +154,7 @@ const HierarchyNode = React.memo(function HierarchyNode({
           <span className="th-leaf__spacer" aria-hidden="true" />
           <span className="th-leaf__label">{node.name}</span>
           <YouTubeTimestampButton link={youtubeLink} />
+          {topicMenu}
         </div>
         {summary && (
           <TopicSummary
@@ -201,6 +213,7 @@ const HierarchyNode = React.memo(function HierarchyNode({
             {toggleButton}
             <span className="th-node__label-text">{node.name}</span>
             <YouTubeTimestampButton link={youtubeLink} />
+            {topicMenu}
           </span>
         </div>
         {summary && (
@@ -229,6 +242,7 @@ const HierarchyNode = React.memo(function HierarchyNode({
           {toggleButton}
           <span className="th-node__label-text">{node.name}</span>
           <YouTubeTimestampButton link={youtubeLink} />
+          {topicMenu}
           <span className="th-node__drill" aria-hidden="true"></span>
         </span>
       </div>
@@ -248,6 +262,7 @@ const HierarchyNode = React.memo(function HierarchyNode({
             sourceUrl={sourceUrl}
             sentences={sentences}
             isYouTube={isYouTube}
+            topicActions={topicActions}
           />
         ))}
       </div>
@@ -265,6 +280,7 @@ export default function TopicHierarchyView({
   onToggleCollapse: controlledToggleCollapse,
   sourceUrl,
   sentences,
+  topicActions,
 }) {
   const roots = useMemo(() => buildTopicTree(topics, 0), [topics]);
   // This lazy cache is owned by the current tree. Collapsed descendants do not
@@ -374,6 +390,7 @@ export default function TopicHierarchyView({
           sourceUrl={sourceUrl}
           sentences={sentences}
           isYouTube={isYouTube}
+          topicActions={topicActions}
         />
       ))}
     </div>

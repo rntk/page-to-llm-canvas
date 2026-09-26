@@ -8,6 +8,7 @@ import YouTubeTimestampButton from '../components/YouTubeTimestampButton.jsx';
 import { splitError } from '../utils/errorUtils.js';
 import ErrorDetails from '../components/ErrorDetails.jsx';
 import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
+import { createResplitAction } from '../shared/runtime/topicResplit.js';
 import { buildTopicTree, collectNonLeafPaths } from '../domain/topicTree.js';
 import { getMaxTopicLevel } from '../domain/topicDomain.js';
 import { PIPELINE_STATUS } from '../shared/runtime/contracts.js';
@@ -97,6 +98,21 @@ export default function HierarchyApp({
   const handleSummaryClick = useCallback((summaryData) => {
     setActiveSummary(summaryData);
   }, []);
+
+  const handleResplitAccepted = useCallback(() => onClose(), [onClose]);
+  const topicActions = useMemo(
+    () =>
+      typeof recordSource?.resplitTopic === 'function'
+        ? [
+            createResplitAction({
+              topics,
+              request: (topic) => recordSource.resplitTopic(initialKey, topic),
+              onAccepted: handleResplitAccepted,
+            }),
+          ]
+        : [],
+    [topics, recordSource, initialKey, handleResplitAccepted],
+  );
 
   const isYouTube = useMemo(
     () => Boolean(getYouTubeVideoId(record?.sourceUrl)),
@@ -220,6 +236,7 @@ export default function HierarchyApp({
         sentences={article.sentences}
         onTopicClick={handleTopicClick}
         onSummaryClick={handleSummaryClick}
+        topicActions={topicActions}
       />
     );
   }

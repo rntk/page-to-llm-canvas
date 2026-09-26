@@ -363,6 +363,26 @@ describe('openInPageRail', () => {
       fetchRecord.mockResolvedValue(found(baseRecord()));
     });
 
+    it('sends Resplit for a topic card and closes the rail when accepted', async () => {
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'topics', { level: 1 });
+      });
+      await act(async () => {
+        rail().querySelector('.pagetollm__actions-trigger').click();
+      });
+      await act(async () => {
+        document.querySelector('[role="menuitem"]').click();
+      });
+      expect(runtimeSend).toHaveBeenCalledWith({
+        type: 'resplitTopic',
+        key: 'rail-key',
+        path: 'Parent > Child',
+        startSentence: 1,
+        endSentence: 2,
+      });
+      expect(rail()).toBeNull();
+    });
+
     it('renders the rail in the requested initial mode', async () => {
       await act(async () => {
         await openInPageRail({ key: 'rail-key' }, 'topics');
@@ -663,7 +683,7 @@ describe('openInPageRail', () => {
         });
       });
 
-      const cards = rail().querySelectorAll('.pagetollm-rail-card');
+      const cards = rail().querySelectorAll('.pagetollm-rail-card-wrap');
       expect(cards).toHaveLength(1);
       expect(cards[0].textContent).toContain('Child');
     });

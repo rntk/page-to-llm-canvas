@@ -92,6 +92,30 @@ describe('TopicHierarchyView', () => {
     unmount();
   });
 
+  it('shows a topic actions trigger on parent and leaf cards', () => {
+    const onTopicClick = vi.fn();
+    const { container, unmount } = renderTreeView({
+      onTopicClick,
+      topicActions: [{ id: 'resplit', label: 'Resplit', onSelect: vi.fn() }],
+    });
+
+    expect(
+      container.querySelectorAll(
+        '.th-node__label > .th-node__label-content .th-node__actions-trigger',
+      ),
+    ).toHaveLength(1);
+    const leaves = container.querySelectorAll('.th-leaf');
+    expect(leaves).toHaveLength(3);
+    leaves.forEach((leaf) => {
+      expect(leaf.querySelector('.th-node__actions-trigger')).not.toBeNull();
+    });
+
+    act(() => leaves[0].querySelector('.th-node__actions-trigger').click());
+    expect(document.body.querySelector('.th-node__actions-menu [role="menuitem"]')).not.toBeNull();
+    expect(onTopicClick).not.toHaveBeenCalled();
+    unmount();
+  });
+
   it('triggers onTopicClick when a leaf row is clicked', () => {
     const onTopicClick = vi.fn();
     const { container, unmount } = renderTreeView({ onTopicClick });

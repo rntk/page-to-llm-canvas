@@ -242,6 +242,26 @@ describe('openYouTubeRail', () => {
       fetchRecord.mockResolvedValue(found(baseRecord()));
     });
 
+    it('sends Resplit for a topic card and closes the rail when accepted', async () => {
+      await act(async () => {
+        await openYouTubeRail({ key: 'yt-key' }, 'topics', { level: 1 });
+      });
+      await act(async () => {
+        rail().querySelector('.pagetollm__actions-trigger').click();
+      });
+      await act(async () => {
+        document.querySelector('[role="menuitem"]').click();
+      });
+      expect(runtimeSend).toHaveBeenCalledWith({
+        type: 'resplitTopic',
+        key: 'yt-key',
+        path: 'Parent > Intro',
+        startSentence: 1,
+        endSentence: 1,
+      });
+      expect(rail()).toBeNull();
+    });
+
     it('renders the rail tagged as a youtube rail in topics mode', async () => {
       await act(async () => {
         await openYouTubeRail({ key: 'yt-key' });

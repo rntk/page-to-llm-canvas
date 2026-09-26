@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallba
 import { computeSummaryCursorState, SUMMARY_CURSOR_MIN_TOP } from './summaryCursor.js';
 import ArticleChat from '../../../chat/ArticleChat.jsx';
 import { HierarchicalCardTitle, RailHead } from '../shared/RailControls.jsx';
+import TopicActionsMenu from '../../../components/TopicActionsMenu.jsx';
 import {
   BRACE_WIDTH,
   curlyBracePath,
@@ -34,7 +35,7 @@ function CurlyBrace({ height }) {
   );
 }
 
-function RailCard({ card, isFront, onEnter, onLeave, onFocus, onOpen }) {
+function RailCard({ card, isFront, onEnter, onLeave, onFocus, onOpen, topicActions }) {
   const style = {
     top: `${card.box.top}px`,
     height: `${card.box.height}px`,
@@ -44,35 +45,61 @@ function RailCard({ card, isFront, onEnter, onLeave, onFocus, onOpen }) {
   };
 
   return (
-    <button
-      type="button"
-      className={['pagetollm-rail-card', 'is-topic', isFront ? 'is-front' : '']
-        .filter(Boolean)
-        .join(' ')}
+    <div
+      className={isFront ? 'pagetollm-rail-card-wrap is-front' : 'pagetollm-rail-card-wrap'}
       style={style}
-      title={`${card.sentences.length} sent.`}
       onMouseEnter={() => onEnter(card)}
       onMouseLeave={() => onLeave(card)}
-      onFocus={(event) => onFocus(card, event.currentTarget)}
-      onPointerDown={() => onFocus(card)}
-      onClick={() => onOpen(card)}
     >
-      <CurlyBrace height={card.box.height} />
-      <span className="pagetollm-note-label">
-        <HierarchicalCardTitle
-          className="pagetollm-rail-card-title"
-          name={card.name}
-          path={card.path}
-        />
-      </span>
-    </button>
+      <button
+        type="button"
+        className={['pagetollm-rail-card', 'is-topic', isFront ? 'is-front' : '']
+          .filter(Boolean)
+          .join(' ')}
+        style={{
+          '--pagetollm-card-top': style['--pagetollm-card-top'],
+          '--pagetollm-card-height': style['--pagetollm-card-height'],
+        }}
+        title={`${card.sentences.length} sent.`}
+        onFocus={(event) => onFocus(card, event.currentTarget)}
+        onPointerDown={() => onFocus(card)}
+        onClick={() => onOpen(card)}
+        // Pointer-only twin of the note's title button, which is the card's
+        // keyboard and screen-reader entry point.
+        tabIndex={-1}
+        aria-hidden="true"
+      >
+        <CurlyBrace height={card.box.height} />
+      </button>
+      <div className="pagetollm-note-label" onClick={() => onOpen(card)}>
+        <button
+          type="button"
+          className="pagetollm-note-open"
+          onFocus={(event) => onFocus(card, event.currentTarget)}
+          onPointerDown={() => onFocus(card)}
+        >
+          <HierarchicalCardTitle
+            className="pagetollm-rail-card-title"
+            name={card.name}
+            path={card.path}
+          />
+        </button>
+        {topicActions.length > 0 && (
+          <TopicActionsMenu
+            actions={topicActions}
+            topic={topicForCard(card)}
+            classPrefix="pagetollm"
+          />
+        )}
+      </div>
+    </div>
   );
 }
 
 const MemoizedRailCard = React.memo(RailCard);
 
 // Classic layout: a card in the rail column, opposite its sentences.
-function TopicCard({ card, isFront, onEnter, onLeave, onFocus, onOpen }) {
+function TopicCard({ card, isFront, onEnter, onLeave, onFocus, onOpen, topicActions }) {
   const style = {
     top: `${card.box.top}px`,
     minHeight: `${card.box.height}px`,
@@ -82,26 +109,46 @@ function TopicCard({ card, isFront, onEnter, onLeave, onFocus, onOpen }) {
   };
 
   return (
-    <button
-      type="button"
-      className={isFront ? 'pagetollm-topic-card is-front' : 'pagetollm-topic-card'}
+    <div
+      className={isFront ? 'pagetollm-topic-card-wrap is-front' : 'pagetollm-topic-card-wrap'}
       style={style}
       onMouseEnter={() => onEnter(card)}
       onMouseLeave={() => onLeave(card)}
-      onFocus={(event) => onFocus(card, event.currentTarget)}
-      onPointerDown={() => onFocus(card)}
-      onClick={() => onOpen(card)}
     >
-      <div className="pagetollm-topic-card-content">
-        <HierarchicalCardTitle
-          className="pagetollm-rail-card-title"
-          name={card.name}
-          path={card.path}
+      <button
+        type="button"
+        className={isFront ? 'pagetollm-topic-card is-front' : 'pagetollm-topic-card'}
+        style={{ minHeight: style.minHeight }}
+        onFocus={(event) => onFocus(card, event.currentTarget)}
+        onPointerDown={() => onFocus(card)}
+        onClick={() => onOpen(card)}
+      >
+        <div className="pagetollm-topic-card-content">
+          <HierarchicalCardTitle
+            className="pagetollm-rail-card-title"
+            name={card.name}
+            path={card.path}
+          />
+          <div className="pagetollm-topic-card-meta">{card.sentences.length} sent.</div>
+        </div>
+      </button>
+      {topicActions.length > 0 && (
+        <TopicActionsMenu
+          actions={topicActions}
+          topic={topicForCard(card)}
+          classPrefix="pagetollm"
         />
-        <div className="pagetollm-topic-card-meta">{card.sentences.length} sent.</div>
-      </div>
-    </button>
+      )}
+    </div>
   );
+}
+
+function topicForCard(card) {
+  return {
+    path: card.path,
+    startSentence: card.sentences[0],
+    endSentence: card.sentences[card.sentences.length - 1],
+  };
 }
 
 const MemoizedTopicCard = React.memo(TopicCard);
@@ -156,22 +203,33 @@ function getEffectiveScrollOffset({
   return scrollOffset - (currentContainerTop - projectedScrollContainerTop);
 }
 
-function SummaryTopicTitle({ card, onEnter, onLeave, onOpen }) {
+function SummaryTopicTitle({ card, onEnter, onLeave, onOpen, topicActions }) {
   return (
-    <button
-      type="button"
-      className="pagetollm-summary-topic"
-      style={{ '--pagetollm-card-accent': card.accent }}
+    <div
+      className="pagetollm-summary-card-wrap"
       onMouseEnter={() => onEnter(card)}
       onMouseLeave={() => onLeave(card)}
-      onClick={() => onOpen(card)}
     >
-      <HierarchicalCardTitle
-        className="pagetollm-summary-topic-title"
-        name={card.name}
-        path={card.path}
-      />
-    </button>
+      <button
+        type="button"
+        className="pagetollm-summary-topic"
+        style={{ '--pagetollm-card-accent': card.accent }}
+        onClick={() => onOpen(card)}
+      >
+        <HierarchicalCardTitle
+          className="pagetollm-summary-topic-title"
+          name={card.name}
+          path={card.path}
+        />
+      </button>
+      {topicActions.length > 0 && (
+        <TopicActionsMenu
+          actions={topicActions}
+          topic={topicForCard(card)}
+          classPrefix="pagetollm"
+        />
+      )}
+    </div>
   );
 }
 
@@ -193,6 +251,7 @@ function resolveDisplayIndex(cards, activeCardId, cursorY) {
 
 function SummaryCursorView({
   cards,
+  topicActions,
   bodyRef,
   scrollContainer,
   scrollWindow,
@@ -369,6 +428,7 @@ function SummaryCursorView({
               <SummaryTopicTitle
                 key={card.id}
                 card={card}
+                topicActions={topicActions}
                 onEnter={handleTopicEnter}
                 onLeave={handleTopicLeave}
                 onOpen={onScrollToCard}
@@ -376,28 +436,40 @@ function SummaryCursorView({
             ))}
           </div>
           {activeCard ? (
-            <button
+            <div
               key={activeCard.id}
-              type="button"
-              className={`pagetollm-summary-active-card is-enter-${enterDirection}`}
-              style={{ '--pagetollm-card-accent': activeCard.accent }}
-              onClick={() => onScrollToCard(activeCard)}
+              className={`pagetollm-summary-card-wrap is-enter-${enterDirection}`}
             >
-              <HierarchicalCardTitle
-                className="pagetollm-summary-active-card-title"
-                name={activeCard.name}
-                path={activeCard.path}
-              />
-              <div className="pagetollm-summary-active-card-body">
-                {activeCard.text || '(no summary)'}
-              </div>
-            </button>
+              <button
+                type="button"
+                className={`pagetollm-summary-active-card is-enter-${enterDirection}`}
+                style={{ '--pagetollm-card-accent': activeCard.accent }}
+                onClick={() => onScrollToCard(activeCard)}
+              >
+                <HierarchicalCardTitle
+                  className="pagetollm-summary-active-card-title"
+                  name={activeCard.name}
+                  path={activeCard.path}
+                />
+                <div className="pagetollm-summary-active-card-body">
+                  {activeCard.text || '(no summary)'}
+                </div>
+              </button>
+              {topicActions.length > 0 && (
+                <TopicActionsMenu
+                  actions={topicActions}
+                  topic={topicForCard(activeCard)}
+                  classPrefix="pagetollm"
+                />
+              )}
+            </div>
           ) : null}
           <div className="pagetollm-summary-topic-list is-after">
             {cardsAfter.map((card) => (
               <SummaryTopicTitle
                 key={card.id}
                 card={card}
+                topicActions={topicActions}
                 onEnter={handleTopicEnter}
                 onLeave={handleTopicLeave}
                 onOpen={onScrollToCard}
@@ -415,6 +487,7 @@ export default function InPageRail({
   maxLevel,
   selectedLevel,
   cards,
+  topicActions = [],
   onClose,
   onSelectMode,
   onSelectLevel,
@@ -601,6 +674,7 @@ export default function InPageRail({
         ) : isSummary ? (
           <SummaryCursorView
             cards={cards}
+            topicActions={topicActions}
             bodyRef={bodyRef}
             scrollContainer={scrollContainer}
             scrollWindow={scrollWindow}
@@ -619,6 +693,7 @@ export default function InPageRail({
               <MemoizedTopicCard
                 key={card.id}
                 card={card}
+                topicActions={topicActions}
                 isFront={frontCardId === card.id}
                 onEnter={handleCardEnter}
                 onLeave={handleCardLeave}
@@ -642,6 +717,7 @@ export default function InPageRail({
                 <MemoizedRailCard
                   key={card.id}
                   card={card}
+                  topicActions={topicActions}
                   isFront={frontCardId === card.id}
                   onEnter={handleCardEnter}
                   onLeave={handleCardLeave}

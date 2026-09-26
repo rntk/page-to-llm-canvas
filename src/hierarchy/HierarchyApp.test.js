@@ -135,6 +135,69 @@ describe('HierarchyApp', () => {
     unmount();
   });
 
+  it('resplits a hierarchy topic using its descendant sentence range and closes on acceptance', async () => {
+    useRecord.mockReturnValue({
+      record: { status: 'done', topics: [{ name: 'Fruit', sentences: [2, 3] }] },
+      error: null,
+    });
+    const recordSource = { resplitTopic: vi.fn(async () => ({ ok: true })) };
+    const { container, unmount } = render(
+      createElement(HierarchyApp, { initialKey: 'key1', recordSource }),
+    );
+
+    act(() => container.querySelector('.th-node__actions-trigger').click());
+    const action = document.body.querySelector('.th-node__actions-menu [role="menuitem"]');
+    await act(async () => action.click());
+
+    expect(recordSource.resplitTopic).toHaveBeenCalledWith('key1', {
+      path: 'Fruit',
+      startSentence: 2,
+      endSentence: 3,
+    });
+    expect(hostActions.onClose).toHaveBeenCalledOnce();
+    unmount();
+  });
+
+  it('hides topic actions when the record source cannot resplit', () => {
+    useRecord.mockReturnValue({
+      record: { status: 'done', topics: [{ name: 'Fruit', sentences: [2, 3] }] },
+      error: null,
+    });
+    const { container, unmount } = render(
+      createElement(HierarchyApp, { initialKey: 'key1', recordSource: {} }),
+    );
+
+    expect(container.querySelector('.th-node__actions-trigger')).toBeNull();
+    unmount();
+  });
+
+  it('offers separate Resplit actions for recurring topic runs', async () => {
+    useRecord.mockReturnValue({
+      record: { status: 'done', topics: [{ name: 'Fruit', sentences: [1, 3] }] },
+      error: null,
+    });
+    const recordSource = { resplitTopic: vi.fn(async () => ({ ok: true })) };
+    const { container, unmount } = render(
+      createElement(HierarchyApp, { initialKey: 'key1', recordSource }),
+    );
+
+    act(() => container.querySelector('.th-node__actions-trigger').click());
+    const actions = document.body.querySelectorAll('.th-node__actions-menu [role="menuitem"]');
+    expect([...actions].map((action) => action.textContent)).toEqual([
+      'Resplit sentences 1–1',
+      'Resplit sentences 3–3',
+    ]);
+    await act(async () => actions[1].click());
+
+    expect(recordSource.resplitTopic).toHaveBeenCalledWith('key1', {
+      path: 'Fruit',
+      startSentence: 3,
+      endSentence: 3,
+    });
+    expect(hostActions.onClose).toHaveBeenCalledOnce();
+    unmount();
+  });
+
   it('does not render redundant fold all or unfold all buttons', () => {
     const mockRecord = {
       status: 'done',

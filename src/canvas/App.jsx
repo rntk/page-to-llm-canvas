@@ -28,7 +28,7 @@ import { useViewReturn } from './hooks/useViewReturn.js';
 import { useSummaryCardRegistry } from './hooks/useSummaryCardRegistry.js';
 import { useTopicSelection } from './hooks/useTopicSelection.js';
 import { selectCurrentTopicSummary } from '../domain/summaryCards.js';
-import { canonicalTopicPath, isCanonicalDescendantPath } from '../shared/runtime/topicPath.js';
+import { createResplitAction } from '../shared/runtime/topicResplit.js';
 import { getFloatingSummaryFontSizes, getSummaryFontSizes } from '../utils/denseCardLayout.js';
 import ArticleChat from '../chat/ArticleChat.jsx';
 import { buildSentenceDomRange } from '../highlights/sentenceHighlight.js';
@@ -438,46 +438,18 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
   );
 
   const topicActions = useMemo(() => {
-    // Resplitting a card replaces everything inside its range, including the
-    // subtopics already found there.
-    const hasSubtopicsInRange = ({ path, startSentence, endSentence }) => {
-      const target = canonicalTopicPath(path);
-      return topics.some(
-        (topic) =>
-          isCanonicalDescendantPath(canonicalTopicPath(topic.name), target) &&
-          topic.sentences?.some(
-            (sentenceId) => sentenceId >= startSentence && sentenceId <= endSentence,
-          ),
-      );
-    };
     return [
-      {
-        id: 'resplit',
-        label: 'Resplit',
-        title: (topic) => {
-          if (hasSubtopicsInRange(topic)) {
-            return 'Replace this topic and its subtopics within this sentence range.';
-          }
-          return 'Resplit this topic; its name and subtopics may change.';
-        },
-        onSelect: async (topic) => {
-          if (
-            hasSubtopicsInRange(topic) &&
-            !window.confirm(
-              'Resplitting may rename this topic and replaces its subtopics within this sentence range. Continue?',
-            )
-          ) {
-            return { ok: true, dismissed: true };
-          }
-          const response = await recordSource.resplitTopic(initialKey, {
+      createResplitAction({
+        topics,
+        confirm: (message) => window.confirm(message),
+        request: (topic) =>
+          recordSource.resplitTopic(initialKey, {
             path: topic.path,
             startSentence: topic.startSentence,
             endSentence: topic.endSentence,
-          });
-          if (response?.ok && !response.stale) onResplitAccepted();
-          return response;
-        },
-      },
+          }),
+        onAccepted: onResplitAccepted,
+      }),
     ];
   }, [topics, recordSource, initialKey, onResplitAccepted]);
 

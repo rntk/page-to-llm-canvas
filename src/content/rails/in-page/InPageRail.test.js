@@ -65,6 +65,109 @@ describe('InPageRail', () => {
     isNestedScroll: false,
   };
 
+  it.each(['cards', 'notes', 'summaries'])(
+    'offers the topic resplit action in %s view',
+    async (layout) => {
+      const onSelect = vi.fn(async () => ({ ok: true }));
+      const { container, unmount } = render(
+        createElement(InPageRail, {
+          ...defaultProps,
+          mode: layout === 'summaries' ? 'summaries' : 'topics',
+          topicLayout: layout,
+          topicActions: [{ id: 'resplit', label: 'Resplit', onSelect }],
+        }),
+      );
+      const trigger = container.querySelector('.pagetollm__actions-trigger');
+      expect(trigger).not.toBeNull();
+      await act(async () => {
+        trigger.click();
+      });
+      await act(async () => {
+        document.querySelector('[role="menuitem"]').click();
+      });
+      expect(onSelect).toHaveBeenCalledWith({
+        path: 'Topic A',
+        startSentence: 1,
+        endSentence: 2,
+      });
+      unmount();
+    },
+  );
+
+  it.each([
+    ['cards', '.pagetollm-topic-card-wrap', '.pagetollm-topic-card'],
+    [
+      'summaries',
+      '.pagetollm-summary-topic-list .pagetollm-summary-card-wrap',
+      '.pagetollm-summary-topic',
+    ],
+  ])(
+    'keeps the %s topic highlighted while moving to its action trigger',
+    (layout, wrapSelector, buttonSelector) => {
+      const onHighlightCard = vi.fn();
+      const { container, unmount } = render(
+        createElement(InPageRail, {
+          ...defaultProps,
+          mode: layout === 'summaries' ? 'summaries' : 'topics',
+          topicLayout: layout,
+          onHighlightCard,
+          topicActions: [{ id: 'resplit', label: 'Resplit', onSelect: vi.fn() }],
+        }),
+      );
+      const wrap = container.querySelector(wrapSelector);
+      const button = wrap.querySelector(buttonSelector);
+      const trigger = wrap.querySelector('.pagetollm__actions-trigger');
+      const hoveredCard = mockCards.find((card) => button.textContent.includes(card.name));
+      onHighlightCard.mockClear();
+
+      act(() => button.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+      expect(onHighlightCard).toHaveBeenCalledWith(hoveredCard, true);
+      onHighlightCard.mockClear();
+
+      act(() =>
+        button.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: trigger })),
+      );
+      expect(onHighlightCard).not.toHaveBeenCalledWith(hoveredCard, false);
+
+      act(() =>
+        trigger.dispatchEvent(
+          new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }),
+        ),
+      );
+      expect(onHighlightCard).toHaveBeenCalledWith(hoveredCard, false);
+      unmount();
+    },
+  );
+
+  it('keeps the note action inside the note and preserves title navigation', () => {
+    const onScrollToCard = vi.fn();
+    const { container, unmount } = render(
+      createElement(InPageRail, {
+        ...defaultProps,
+        onScrollToCard,
+        topicActions: [{ id: 'resplit', label: 'Resplit', onSelect: vi.fn() }],
+      }),
+    );
+    const note = container.querySelector('.pagetollm-note-label');
+    const trigger = note.querySelector('.pagetollm__actions-trigger');
+    expect(trigger).not.toBeNull();
+
+    act(() => note.querySelector('.pagetollm-note-open').click());
+    expect(onScrollToCard).toHaveBeenCalledWith(mockCards[0]);
+    act(() => trigger.click());
+    expect(onScrollToCard).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it('leaves the brace out of the tab order and accessibility tree', () => {
+    const { container, unmount } = render(createElement(InPageRail, defaultProps));
+    const brace = container.querySelector('.pagetollm-rail-card');
+    expect(brace.tabIndex).toBe(-1);
+    expect(brace.getAttribute('aria-hidden')).toBe('true');
+    expect(container.querySelector('.pagetollm-note-open').tabIndex).toBe(0);
+    unmount();
+  });
+
   it('renders topics mode layout, close button and switcher', () => {
     const onClose = vi.fn();
     const onSelectLevel = vi.fn();
@@ -256,6 +359,7 @@ describe('InPageRail', () => {
       cards[1].dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     });
     expect(cards[1].className).toContain('is-front');
+    expect(cards[1].closest('.pagetollm-rail-card-wrap').className).toContain('is-front');
 
     // Click Card 2
     act(() => {
@@ -263,6 +367,19 @@ describe('InPageRail', () => {
     });
     expect(onScrollToCard).toHaveBeenCalledWith(mockCards[1]);
 
+    unmount();
+  });
+
+  it('keeps the last active card wrapper in front after hover ends', () => {
+    const { container, unmount } = render(
+      createElement(InPageRail, { ...defaultProps, topicLayout: 'cards' }),
+    );
+    const card = container.querySelector('.pagetollm-topic-card');
+
+    act(() => card.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+    act(() => card.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })));
+
+    expect(card.closest('.pagetollm-topic-card-wrap').className).toContain('is-front');
     unmount();
   });
 

@@ -4,6 +4,8 @@ import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import YouTubeRail from './YouTubeRail.jsx';
+import { buildYouTubeRailCards } from './sync.js';
+import { validateResplitTarget } from '../../../core/pipeline/topicResplitApply.js';
 
 function render(element) {
   const container = document.createElement('div');
@@ -57,6 +59,66 @@ const defaultProps = {
 };
 
 describe('YouTubeRail', () => {
+  it('offers Resplit for each topic card with its sentence range', async () => {
+    const onSelect = vi.fn(async () => ({ ok: true }));
+    const { container, unmount } = render(
+      createElement(YouTubeRail, {
+        ...defaultProps,
+        topicActions: [{ id: 'resplit', label: 'Resplit', onSelect }],
+      }),
+    );
+    await act(async () => {
+      container.querySelectorAll('.pagetollm__actions-trigger')[1].click();
+    });
+    await act(async () => {
+      document.querySelector('[role="menuitem"]').click();
+    });
+    expect(onSelect).toHaveBeenCalledWith({
+      path: 'Intro > Middle',
+      startSentence: 2,
+      endSentence: 2,
+    });
+    unmount();
+  });
+
+  it('offers valid separate Resplit ranges when same-timestamp runs are merged', async () => {
+    const record = {
+      sentences: [
+        '0:00 introduction',
+        '0:30 pricing point one',
+        'untimed interjection',
+        'pricing point two in the same timestamp block',
+      ],
+      topics: [{ name: 'Pricing', sentences: [2, 4] }],
+    };
+    const mergedCards = buildYouTubeRailCards({ record, mode: 'topics', selectedLevel: 0 });
+    expect(mergedCards).toHaveLength(1);
+    expect(mergedCards[0].sentences).toEqual([2, 4]);
+    const onSelect = vi.fn(async () => ({ ok: true }));
+    const { container, unmount } = render(
+      createElement(YouTubeRail, {
+        ...defaultProps,
+        cards: mergedCards,
+        topicActions: [{ id: 'resplit', label: 'Resplit', onSelect }],
+      }),
+    );
+
+    await act(async () => {
+      container.querySelector('.pagetollm__actions-trigger').click();
+    });
+    const items = document.querySelectorAll('[role="menuitem"]');
+    expect([...items].map((item) => item.textContent)).toEqual([
+      'Resplit sentences 2–2',
+      'Resplit sentences 4–4',
+    ]);
+    await act(async () => {
+      items[1].click();
+    });
+    const target = onSelect.mock.calls[0][0];
+    expect(target).toEqual({ path: 'Pricing', startSentence: 4, endSentence: 4 });
+    expect(validateResplitTarget(record, target)).toBeNull();
+    unmount();
+  });
   beforeEach(() => {
     vi.useFakeTimers();
     vi.stubGlobal('requestAnimationFrame', (cb) => {
