@@ -58,12 +58,7 @@ export function getBlockText(el) {
   // submitted text (hidden subtrees, block boundaries, visibility handling).
   // A fresh cache per block resolves each ancestor's style once instead of
   // once per text node; the walk itself stops at the snippet budget.
-  const raw = getRenderedText(
-    el,
-    el.ownerDocument?.defaultView,
-    MAX_BLOCK_TEXT_LENGTH,
-    new Map(),
-  );
+  const raw = getRenderedText(el, el.ownerDocument?.defaultView, MAX_BLOCK_TEXT_LENGTH, new Map());
   return raw.replace(/\s+/g, ' ').trim();
 }
 

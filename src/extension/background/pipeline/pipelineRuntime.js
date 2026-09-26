@@ -9,7 +9,10 @@ import {
 } from '../../../core/storage/storage.js';
 import { markCancellation } from '../../../core/pipeline/cancellation.js';
 import { createLogger } from '../../../shared/runtime/log.js';
-import { MAX_TAGGED_CHARS, TOPIC_RANGE_INPUT_MAX_SENTENCES } from '../../../core/pipeline/pipelineConfig.js';
+import {
+  MAX_TAGGED_CHARS,
+  TOPIC_RANGE_INPUT_MAX_SENTENCES,
+} from '../../../core/pipeline/pipelineConfig.js';
 
 const logger = createLogger('pipeline');
 

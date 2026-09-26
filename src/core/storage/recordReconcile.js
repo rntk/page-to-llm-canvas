@@ -210,12 +210,16 @@ export async function reconcileRecordStorage() {
         }
       }
       const ownWorkKeys = workKeys.filter((storageKey) => !isQuarantined(storageKey));
-      await forEachStoredDocument(ownWorkKeys, RECONCILE_METADATA_BATCH_SIZE, (storageKey, value) => {
-        const owner = ownedByCurrentRecord(storageKey);
-        if (!owner || !workDocumentMatchesOwnerGeneration(storageKey, value, metas.get(owner))) {
-          obsoleteKeys.add(storageKey);
-        }
-      });
+      await forEachStoredDocument(
+        ownWorkKeys,
+        RECONCILE_METADATA_BATCH_SIZE,
+        (storageKey, value) => {
+          const owner = ownedByCurrentRecord(storageKey);
+          if (!owner || !workDocumentMatchesOwnerGeneration(storageKey, value, metas.get(owner))) {
+            obsoleteKeys.add(storageKey);
+          }
+        },
+      );
 
       const current = await readIndex();
       // Reuse a cached snippet only when the meta document still names the text
@@ -267,7 +271,9 @@ export async function reconcileRecordStorage() {
 
       // The meta pass can mark a future record's documents obsolete (e.g. a
       // `…:cache:meta` doc) before that record's prefix is known.
-      const uniqueObsoleteKeys = [...obsoleteKeys].filter((storageKey) => !isQuarantined(storageKey));
+      const uniqueObsoleteKeys = [...obsoleteKeys].filter(
+        (storageKey) => !isQuarantined(storageKey),
+      );
       if (uniqueObsoleteKeys.length) await removeLocal(uniqueObsoleteKeys);
       if (JSON.stringify(current) !== JSON.stringify(next)) await writeIndex(next);
 

@@ -172,10 +172,7 @@ async function runArticleChatChunk({
     );
     const exhausted = eventBudget.remaining === 0;
     const requestMessages = exhausted
-      ? [
-          ...messages,
-          { role: 'system', content: HIGHLIGHT_BUDGET_EXHAUSTED_PROMPT },
-        ]
+      ? [...messages, { role: 'system', content: HIGHLIGHT_BUDGET_EXHAUSTED_PROMPT }]
       : messages;
     const response = await send({
       type: MSG.llmChatCompletion,
