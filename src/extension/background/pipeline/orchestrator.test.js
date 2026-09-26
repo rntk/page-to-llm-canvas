@@ -386,7 +386,7 @@ describe('runPipeline', () => {
     );
   });
 
-  it('rejects a returned path outside the selected ancestors', async () => {
+  it('leaves the topic unchanged for a returned path outside the selected ancestors', async () => {
     const originalTopics = [
       { name: 'Science>AI', sentences: [1, 2] },
       { name: 'History', sentences: [3] },
@@ -414,7 +414,7 @@ describe('runPipeline', () => {
     expect(restore[1]).toEqual(
       expect.objectContaining({
         status: 'done',
-        resplitNotice: expect.stringContaining('invalid topic path'),
+        resplitNotice: RESPLIT_NO_CHANGE_NOTICE,
       }),
     );
     expect(storage.updateRecord.mock.calls.every(([, patch]) => !('topics' in patch))).toBe(true);

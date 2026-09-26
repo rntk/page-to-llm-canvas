@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  RAIL_MODES,
-  normalizeRailMode,
-  resolveRailLevel,
-  createRailState,
-} from './railState.js';
+import { RAIL_MODES, normalizeRailMode, resolveRailLevel, createRailState } from './railState.js';
 
 describe('railState', () => {
   describe('RAIL_MODES', () => {

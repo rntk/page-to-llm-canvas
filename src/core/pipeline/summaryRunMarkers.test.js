@@ -29,6 +29,11 @@ describe('isFailedSummaryRun', () => {
   it('excludes acceptedFailure so Skip is not retried on an ordinary resume', () => {
     expect(isFailedSummaryRun({ acceptedFailure: true })).toBe(false);
   });
+
+  it('is false for a missing run instead of throwing', () => {
+    expect(isFailedSummaryRun(undefined)).toBe(false);
+    expect(isFailedSummaryRun(null)).toBe(false);
+  });
 });
 
 describe('acceptFailedSummaryRun', () => {
@@ -78,6 +83,11 @@ describe('publicSummaryRun', () => {
       sentences: [1],
       text: '',
     });
+  });
+
+  it('projects a missing run without throwing', () => {
+    expect(publicSummaryRun(undefined)).toEqual({ text: '' });
+    expect(publicSummaryRun(null)).toEqual({ text: '' });
   });
 });
 
@@ -175,5 +185,56 @@ describe('reacceptForcedEmptySummaries', () => {
 
     expect(result.A).toBe(malformed);
     expect(hasAcceptedFailure).toBe(false);
+  });
+
+  it('treats a missing summary entry as having no forcedEmpty runs', () => {
+    const { summaries: result, hasAcceptedFailure } = reacceptForcedEmptySummaries({
+      A: undefined,
+    });
+
+    expect(result.A).toBeUndefined();
+    expect(hasAcceptedFailure).toBe(false);
+  });
+
+  it('passes null runs through without throwing', () => {
+    const withNull = { runs: [null], source_sentences: [] };
+    const summaries = { A: withNull };
+
+    const { summaries: result, hasAcceptedFailure } = reacceptForcedEmptySummaries(summaries);
+
+    expect(result.A).toBe(withNull);
+    expect(hasAcceptedFailure).toBe(false);
+  });
+
+  it('leaves an error-only run alone when a sibling run is forcedEmpty', () => {
+    const errorRun = { sentences: [1], text: '', error: true };
+    const summaries = {
+      Science: {
+        source_sentences: [1, 2],
+        runs: [{ sentences: [2], text: '', forcedEmpty: true }, errorRun],
+        forcedEmpty: true,
+      },
+    };
+
+    const { summaries: result, hasAcceptedFailure } = reacceptForcedEmptySummaries(summaries);
+
+    expect(hasAcceptedFailure).toBe(true);
+    expect(result.Science.runs[1]).toBe(errorRun);
+    expect(result.Science.runs[1]).toEqual({ sentences: [1], text: '', error: true });
+  });
+
+  it('passes a null run through when a sibling run is forcedEmpty', () => {
+    const summaries = {
+      Science: {
+        source_sentences: [2],
+        runs: [{ sentences: [2], text: '', forcedEmpty: true }, null],
+        forcedEmpty: true,
+      },
+    };
+
+    const { summaries: result, hasAcceptedFailure } = reacceptForcedEmptySummaries(summaries);
+
+    expect(hasAcceptedFailure).toBe(true);
+    expect(result.Science.runs[1]).toBeNull();
   });
 });

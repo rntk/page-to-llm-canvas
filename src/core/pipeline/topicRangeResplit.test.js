@@ -116,13 +116,17 @@ describe('resplitTopicRange', () => {
   });
 
   it('applies valid groups while retaining only the invalid group at the selected topic', async () => {
+    const callLLM = vi.fn(
+      async () => 'Science>AI>Models: 0-0\nOther>Wrong: 1-2\nScience>AI>Safety: 3-3',
+    );
     const groups = await resplitTopicRange(
       createRuntime(),
       { label: ['Science', 'AI'], start: 2, end: 5 },
       ['outside', 'outside', 'one', 'two', 'three', 'four'],
-      vi.fn(async () => 'Science>AI>Models: 0-0\nOther>Wrong: 1-2\nScience>AI>Safety: 3-3'),
+      callLLM,
       { dependencies: createDependencies() },
     );
+    expect(callLLM.mock.calls[0][0].prompt).toContain('Science>AI');
     expect(groups).toEqual([
       { label: ['Science', 'AI', 'Models'], ranges: [{ start: 2, end: 2 }] },
       { label: ['Science', 'AI'], ranges: [{ start: 3, end: 4 }] },
@@ -256,5 +260,52 @@ describe('resplitTopicRange', () => {
         estimateTokens(request.prompt) + runtime.maxTopicRangeSentences * 32,
       ).toBeLessThanOrEqual(contextTokens);
     }
+  });
+
+  it.each([[[]], [['A', 'B', 'C', 'D', 'E', 'F']]])(
+    'rejects a selected path with %j levels without calling the provider',
+    async (label) => {
+      const callLLM = vi.fn(async () => 'Physics: 0-1');
+      await expect(
+        resplitTopicRange(createRuntime(), { label, start: 0, end: 1 }, ['one', 'two'], callLLM, {
+          dependencies: createDependencies(),
+        }),
+      ).rejects.toThrow('The selected topic path must contain one to five levels.');
+      expect(callLLM).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects a selected path that leaves no room for source text', async () => {
+    const callLLM = vi.fn(async () => 'Physics: 0-1');
+    await expect(
+      resplitTopicRange(
+        createRuntime({ maxTextChunkChars: 10 }),
+        { label: ['x'.repeat(2000)], start: 0, end: 1 },
+        ['one', 'two'],
+        callLLM,
+        { dependencies: createDependencies() },
+      ),
+    ).rejects.toThrow('The selected topic path leaves no room for source text in the request.');
+    expect(callLLM).not.toHaveBeenCalled();
+  });
+
+  it('merges ranges from distinct invalid paths kept at the selected topic', async () => {
+    const callLLM = vi.fn(async () => 'X>Y: 0-0\nZ>W: 1-1');
+    const groups = await resplitTopicRange(
+      createRuntime(),
+      { label: ['A', 'B'], start: 0, end: 1 },
+      ['one', 'two'],
+      callLLM,
+      { dependencies: createDependencies() },
+    );
+    expect(groups).toEqual([
+      {
+        label: ['A', 'B'],
+        ranges: [
+          { start: 0, end: 0 },
+          { start: 1, end: 1 },
+        ],
+      },
+    ]);
   });
 });

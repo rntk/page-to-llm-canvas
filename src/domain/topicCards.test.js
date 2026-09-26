@@ -666,7 +666,14 @@ describe('parent/child containment', () => {
   it('resolveColumnOverlaps clamps a child that extends below its parent', () => {
     const cards = [
       { key: 'A#0#0', fullPath: 'A', levelIndex: 0, startSentence: 1, top: 100, height: 80 },
-      { key: 'A > B#1#0', fullPath: 'A > B', levelIndex: 1, startSentence: 1, top: 100, height: 160 },
+      {
+        key: 'A > B#1#0',
+        fullPath: 'A > B',
+        levelIndex: 1,
+        startSentence: 1,
+        top: 100,
+        height: 160,
+      },
     ];
     const [, child] = resolveColumnOverlaps(cards);
     expect(child).toMatchObject({ top: 100, height: 80 });

@@ -24,10 +24,7 @@ describe('isRecordStorageChange', () => {
 
   it('watches the pipeline-failure breaker in the session area', () => {
     expect(
-      isRecordStorageChange(
-        { 'pagetollm:pipeline-failure-breakers': { newValue: {} } },
-        'session',
-      ),
+      isRecordStorageChange({ 'pagetollm:pipeline-failure-breakers': { newValue: {} } }, 'session'),
     ).toBe(true);
   });
 });

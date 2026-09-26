@@ -10,6 +10,8 @@ import {
   resetContentCheckpointPatch,
   resetSummaryCheckpointPatch,
   resetSummaryReviewPatch,
+  RESPLIT_CANCELLED_NOTICE,
+  RESPLIT_NO_CHANGE_NOTICE,
   restoreAfterResplitPatch,
   resumeSummariesTransition,
   splittingTransition,
@@ -147,5 +149,28 @@ describe('recordTransitions', () => {
     expect(
       restoreAfterResplitPatch({ topics: [{}, {}], manualResplitIntent: {} }, 'x').progress,
     ).toEqual({ stage: PIPELINE_STAGE.DONE, done: 2, total: 2 });
+  });
+
+  it('falls back to topic counts when the resplit intent is already cleared', () => {
+    expect(
+      restoreAfterResplitPatch({ topics: [{}, {}], manualResplitIntent: null }, 'x').progress,
+    ).toEqual({ stage: PIPELINE_STAGE.DONE, done: 2, total: 2 });
+  });
+
+  it('falls back to an empty done progress when the record is missing', () => {
+    expect(restoreAfterResplitPatch(undefined, 'No change.')).toEqual({
+      manualResplitIntent: null,
+      resplitNotice: 'No change.',
+      status: PIPELINE_STATUS.DONE,
+      error: null,
+      progress: { stage: PIPELINE_STAGE.DONE, done: 0, total: 0 },
+    });
+  });
+
+  it('pins the user-facing resplit notices', () => {
+    expect(RESPLIT_NO_CHANGE_NOTICE).toBe(
+      'Resplit returned the same topics; the topic was left unchanged.',
+    );
+    expect(RESPLIT_CANCELLED_NOTICE).toBe('Resplit stopped; the topic was left unchanged.');
   });
 });

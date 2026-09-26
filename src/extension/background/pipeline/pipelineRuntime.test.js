@@ -14,7 +14,10 @@ vi.mock('../../../core/storage/storage.js', () => storage);
 
 import { isCancellationError } from '../../../core/pipeline/cancellation.js';
 import { createPipelineRuntime, formatPipelineError } from './pipelineRuntime.js';
-import { MAX_TAGGED_CHARS, TOPIC_RANGE_INPUT_MAX_SENTENCES } from '../../../core/pipeline/pipelineConfig.js';
+import {
+  MAX_TAGGED_CHARS,
+  TOPIC_RANGE_INPUT_MAX_SENTENCES,
+} from '../../../core/pipeline/pipelineConfig.js';
 
 describe('formatPipelineError', () => {
   it('handles missing errors and preserves a message already present in a stack', () => {

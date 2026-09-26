@@ -69,9 +69,7 @@ describe('ProvidersSection retry banners', () => {
     try {
       await mount();
       await waitFor(() => {
-        expect(container.textContent).toContain(
-          "Couldn't load providers: storage read failed",
-        );
+        expect(container.textContent).toContain("Couldn't load providers: storage read failed");
       });
       expect(container.textContent).not.toContain('No providers configured yet');
       expect(findRetry(container)).not.toBeUndefined();
