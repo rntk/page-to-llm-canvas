@@ -13,9 +13,14 @@ import {
   queuedTransition,
   resetContentCheckpointPatch,
   resetSummaryReviewPatch,
+  RESPLIT_CANCELLED_NOTICE,
+  restoreAfterResplitPatch,
   resumeSummariesTransition,
+  splittingTransition,
 } from '../../../shared/runtime/recordTransitions.js';
 import { clearSummaryErrorFlags, getAcceptedMergeFailurePaths } from '../summaryResolution.js';
+import { canonicalTopicPath } from '../../../shared/runtime/topicPath.js';
+import { validateResplitTarget } from '../../../core/pipeline/topicResplitApply.js';
 
 /**
  * Handlers for the record lifecycle: submit, run control (retry / reprocess /
@@ -88,13 +93,15 @@ export function createRecordHandlers({
       validate: requireKey,
       async handle(msg) {
         const rec = await requireRecord(msg.key);
-        // A generic failure can happen after the topic checkpoint and one or
+        // Retry an unfinished manual resplit from its saved intent. Otherwise,
+        // a generic failure can happen after the topic checkpoint and one or
         // more summaries have already been persisted (for example, a later
         // storage write). Re-enter the summarizing status only when the whole
         // checkpoint is safe to resume; otherwise retain the normal fresh-run
         // retry path. Reprocess remains the explicitly destructive operation.
         const resumesSummaries =
           isSummaryCheckpointRevisionCurrent(rec) && isSummaryCheckpointComplete(rec);
+        const retriesResplit = Boolean(rec.manualResplitIntent);
         // A Retry can be pressed after a generic failure interrupted a prior
         // Skip/force-finalize resume. Those directives are part of the saved
         // summary checkpoint: dropping them would re-run merge work the user
@@ -109,21 +116,24 @@ export function createRecordHandlers({
           msg.key,
           {
             pipelineRunId: createPipelineRunId(),
-            ...(resumesSummaries
-              ? resumeSummariesTransition({
-                  total: rec.topics.length,
-                  forceFinalize,
-                  acceptedMergeFailurePaths,
-                })
-              : // A fresh run has nothing to carry: `forceFinalize` and
-                // `acceptedMergeFailurePaths` are already false/[] here.
-                { ...queuedTransition(), ...resetSummaryReviewPatch() }),
+            manualResplitIntent: retriesResplit ? rec.manualResplitIntent : null,
+            ...(retriesResplit
+              ? splittingTransition()
+              : resumesSummaries
+                ? resumeSummariesTransition({
+                    total: rec.topics.length,
+                    forceFinalize,
+                    acceptedMergeFailurePaths,
+                  })
+                : // A fresh run has nothing to carry: `forceFinalize` and
+                  // `acceptedMergeFailurePaths` are already false/[] here.
+                  { ...queuedTransition(), ...resetSummaryReviewPatch() }),
             // A resumed checkpoint must finish the summary work that was
             // already paid for. Applying a newly enabled global "skip
             // summaries" preference here would finalize it by clearing those
             // saved summaries. Fresh retries retain the directive chosen when
             // the failed run was submitted.
-            skipSummaries: resumesSummaries ? false : rec.skipSummaries === true,
+            skipSummaries: resumesSummaries && !retriesResplit ? false : rec.skipSummaries === true,
           },
           { expectedPipelineRunId: rec.pipelineRunId },
         );
@@ -205,6 +215,8 @@ export function createRecordHandlers({
           msg.key,
           {
             pipelineRunId: createPipelineRunId(),
+            manualResplitIntent: null,
+            resplitNotice: null,
             ...resumeSummariesTransition({ total: rec.topics.length }),
             // Explicit intent: this run generates summaries even while the global
             // "disable summaries" toggle is on.
@@ -224,6 +236,58 @@ export function createRecordHandlers({
       },
     },
 
+    [MSG.resplitTopic]: {
+      requiresExtensionPage: false,
+      validate: requireKey,
+      async handle(msg) {
+        const rec = await requireRecord(msg.key);
+        if (rec.status !== PIPELINE_STATUS.DONE) {
+          if (isInFlightPipelineStatus(rec.status)) return { ok: true, stale: true };
+          if (rec.status === PIPELINE_STATUS.NEEDS_ATTENTION) {
+            return { ok: false, error: 'record needs attention — resolve it before resplitting' };
+          }
+          return { ok: false, error: 'record is not complete — retry or reprocess it first' };
+        }
+        if (!isSummaryCheckpointComplete(rec) || !isSummaryCheckpointRevisionCurrent(rec)) {
+          return {
+            ok: false,
+            error: 'record topic checkpoint is incomplete or stale — reprocess the record first',
+          };
+        }
+        const target = {
+          path: msg.path,
+          startSentence: msg.startSentence,
+          endSentence: msg.endSentence,
+        };
+        const invalidTarget = validateResplitTarget(rec, target);
+        if (invalidTarget) return { ok: false, error: invalidTarget };
+        const updated = await updateRecord(
+          msg.key,
+          {
+            pipelineRunId: createPipelineRunId(),
+            ...splittingTransition(),
+            resplitNotice: null,
+            manualResplitIntent: {
+              ...target,
+              path: canonicalTopicPath(target.path),
+              // Restored if the resplit ends without replacing any topics.
+              previousProgress: rec.progress,
+            },
+            // `skipSummaries` is left untouched: new subtopics are summarized
+            // exactly when the rest of the record was.
+          },
+          {
+            expectedPipelineRunId: rec.pipelineRunId,
+            expectedStatuses: [PIPELINE_STATUS.DONE],
+          },
+        );
+        if (!updated) return { ok: true, stale: true };
+        cancelActivePipeline(msg.key, { expectedPipelineRunId: rec.pipelineRunId });
+        restart(msg.key, 'resplitTopic');
+        return { ok: true };
+      },
+    },
+
     [MSG.cancelRecordProcessing]: {
       requiresExtensionPage: false,
       validate: requireKey,
@@ -232,19 +296,39 @@ export function createRecordHandlers({
         if (!isInFlightPipelineStatus(rec.status)) {
           return { ok: true, stale: true };
         }
-        const updated = await updateRecord(
+        // Stopping a resplit before it replaced any topics returns the record
+        // to its completed state; the saved checkpoint is still intact.
+        const stopsResplit =
+          Boolean(rec.manualResplitIntent) && rec.status === PIPELINE_STATUS.SPLITTING;
+        let updated = await updateRecord(
           msg.key,
           {
             pipelineRunId: createPipelineRunId(),
-            ...cancelledTransition(),
+            ...(stopsResplit
+              ? restoreAfterResplitPatch(rec, RESPLIT_CANCELLED_NOTICE)
+              : cancelledTransition()),
           },
           {
             expectedPipelineRunId: rec.pipelineRunId,
             // A finalizer keeps the same run id, so the queued write must also
             // verify that this record has not already reached a terminal state.
-            expectedStatuses: [...IN_FLIGHT_PIPELINE_STATUSES],
+            expectedStatuses: stopsResplit
+              ? [PIPELINE_STATUS.SPLITTING]
+              : [...IN_FLIGHT_PIPELINE_STATUSES],
           },
         );
+        if (!updated && stopsResplit) {
+          // Replacement topics may have committed while Stop was queued.
+          // Cancel their summaries without restoring the old completed state.
+          updated = await updateRecord(
+            msg.key,
+            { pipelineRunId: createPipelineRunId(), ...cancelledTransition() },
+            {
+              expectedPipelineRunId: rec.pipelineRunId,
+              expectedStatuses: [PIPELINE_STATUS.SUMMARIZING],
+            },
+          );
+        }
         if (!updated) {
           return { ok: true, stale: true };
         }
@@ -292,6 +376,8 @@ export function createRecordHandlers({
         ).some((summary) => summary?.acceptedFailure === true);
         const patch = {
           pipelineRunId: createPipelineRunId(),
+          // A new run supersedes the outcome of any earlier Resplit.
+          resplitNotice: null,
           // Resets the parked progress stage so the resuming UI shows summarizing,
           // not the transient 'needs_attention' stage, before the worker's first
           // write. A new review can happen while finalizing an earlier Skip:

@@ -88,9 +88,9 @@ export function buildTopicRangesPrompt(
   // otherwise be the last thing the model reads before generating, anchoring it
   // to English.
   const languageBlock = preferContentLanguage ? `${LANGUAGE_INSTRUCTION}\n` : '';
-  const canAddResplitChild = resplitParentPath.split('>').length < 5;
+  const resplitAncestors = resplitParentPath.split('>').slice(0, -1).join('>');
   const hierarchyFormat = resplitParentPath
-    ? `- RESPLIT CONTEXT: This is a refinement of the existing path "${resplitParentPath}". Return ${canAddResplitChild ? 'that exact path, or that path plus ONE specific child label' : 'that exact path only; it is already at the maximum depth'}. Never replace or add ancestors. Ignore the general level-count examples for this refinement.`
+    ? `- RESPLIT CONTEXT: Replace the selected topic "${resplitParentPath}" for only the supplied markers. You may rename the selected topic and rebuild its subtree. ${resplitAncestors ? `Every full output path must start with "${resplitAncestors}>" and contain a topic beneath it. Preserve these ancestors exactly.` : 'The selected topic is at the root, so replacement paths may use new root topics.'} Return full paths with at most 5 levels. Keep the existing path if no useful change is warranted. Ignore the general level-count examples for this replacement.`
     : `- Use 2-4 levels separated by ">" (up to 5 when a document-wide subject
   needs its own level).`;
   return `${SYSTEM_PROMPT}

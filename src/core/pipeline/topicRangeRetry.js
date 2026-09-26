@@ -1,13 +1,9 @@
 // Shared retry/backoff/parse-error loop for the topic-ranges LLM stage.
 //
-// Both the primary topic-ranges query (computeTopics) and the oversized-range
-// re-split (resplitSegment) follow the same shape: dispatch one or more LLM
-// calls for an attempt, collect the raw result, parse it, and on a parse
-// error either retry (with exponential backoff) or give up. The two call sites
-// differ only in their side effects (which logPipeline stages / updateRecord
-// patches they emit) and in how they treat exhaustion (rethrow vs. return),
-// so all side effects are injected via callbacks and this module stays pure-ish
-// and unit-testable with fakes.
+// The shared splitter uses this loop for full articles and selected ranges.
+// It dispatches pending chunks, retains successful results, and retries only
+// the chunks that failed. Side effects and retry policy are supplied through
+// callbacks so this helper can also be tested independently.
 //
 // The default backoff matches the original inline loop:
 //   delay = baseDelayMs * 2^attemptIndex   (attemptIndex is 0-based)

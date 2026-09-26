@@ -37,7 +37,6 @@ import { createAdjustableLimiter } from '../../core/llm/concurrency.js';
 import { clearLlmMetrics, recordLlmMetric, wrapCallLLMWithRetry } from '../../core/metrics/llm.js';
 import { clearChatToolMetrics, recordChatToolMetric } from '../../core/metrics/chatTool.js';
 import { clearParserMetrics } from '../../core/metrics/parser.js';
-import { clearResplitMetrics } from '../../core/metrics/resplit.js';
 import { clearAllExtensionData, getStorageOverview } from '../../core/storage/dataManagement.js';
 import { getStoredSummariesDisabled } from '../../core/settings/summary.js';
 import { getStoredPreferContentLanguage } from '../../core/settings/language.js';
@@ -228,7 +227,6 @@ const MESSAGE_HANDLERS = {
     recordChatToolMetric,
     clearChatToolMetrics,
     clearParserMetrics,
-    clearResplitMetrics,
   }),
   ...createProviderHandlers({
     getProvidersState,
@@ -243,7 +241,7 @@ const MESSAGE_HANDLERS = {
     chatService,
     getStorageOverview,
     clearAllExtensionData,
-    metricsClears: [clearLlmMetrics, clearParserMetrics, clearResplitMetrics, clearChatToolMetrics],
+    metricsClears: [clearLlmMetrics, clearParserMetrics, clearChatToolMetrics],
   }),
   ...createNavigationHandlers({
     openOptionsPage: () => chrome.runtime.openOptionsPage(),

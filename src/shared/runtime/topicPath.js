@@ -44,6 +44,16 @@ export function joinTopicPath(parts) {
 }
 
 /**
+ * Normalize either spelling of a topic path to its canonical/wire form.
+ *
+ * @param {string} name
+ * @returns {string}
+ */
+export function canonicalTopicPath(name) {
+  return joinTopicPath(splitTopicPath(name));
+}
+
+/**
  * Join segments into a display topic path (`A > B > C`).
  *
  * @param {string[]} parts

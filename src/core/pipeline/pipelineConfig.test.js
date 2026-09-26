@@ -66,7 +66,7 @@ describe('pipeline request sizing', () => {
     const medium = getPipelineTextChunkMaxChars(MEDIUM_CONTEXT);
     const large = getPipelineTextChunkMaxChars(LARGE_CONTEXT);
     expect(small).toBeGreaterThan(0);
-    expect(small).toBe(566);
+    expect(small).toBe(449);
     expect(small).toBeLessThan(medium);
     expect(medium).toBeLessThan(large);
     expect(medium).toBe(3723);
@@ -80,7 +80,7 @@ describe('pipeline request sizing', () => {
     const medium = getTopicRangeInputMaxSentences(MEDIUM_CONTEXT);
     expect(small).toBeGreaterThan(0);
     expect(small).toBe(32);
-    expect(medium).toBe(51);
+    expect(medium).toBe(47);
     expect(medium).toBeGreaterThan(small);
     expect(medium).toBeLessThanOrEqual(TOPIC_RANGE_INPUT_MAX_SENTENCES);
     expect(getTopicRangeInputMaxSentences(OVERSIZED_CONTEXT)).toBe(TOPIC_RANGE_INPUT_MAX_SENTENCES);

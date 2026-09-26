@@ -28,7 +28,7 @@ describe('buildTopicRangesPrompt', () => {
     expect(prompt).toContain('Broad Category>Subcategory>Specific Topic: marker ranges');
   });
 
-  it('limits a resplit to one child and keeps a maximum-depth path unchanged', () => {
+  it('allows replacement while preserving ancestors and the depth limit', () => {
     const refinement = buildTopicRangesPrompt('{0} text', {
       resplitParentPath: 'Science>AI',
     });
@@ -36,9 +36,11 @@ describe('buildTopicRangesPrompt', () => {
       resplitParentPath: 'A>B>C>D>E',
     });
 
-    expect(refinement).toContain('that path plus ONE specific child label');
+    expect(refinement).toContain('may rename the selected topic');
+    expect(refinement).toContain('must start with "Science>"');
     expect(refinement).not.toContain('Use 2-4 levels');
-    expect(maximumDepth).toContain('that exact path only');
+    expect(maximumDepth).toContain('must start with "A>B>C>D>"');
+    expect(maximumDepth).toContain('at most 5 levels');
   });
 });
 

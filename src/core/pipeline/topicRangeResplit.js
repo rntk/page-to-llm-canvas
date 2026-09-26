@@ -1,439 +1,77 @@
-import { buildTopicRangesPrompt } from './prompts.js';
-import {
-  parseTopicRangesDetailed,
-  groupsFromSegments,
-  topicLabelKey,
-  TopicParseError,
-} from './topicParser.js';
-import { RESPLIT_OUTCOMES as DEFAULT_RESPLIT_OUTCOMES } from '../metrics/resplit.js';
-import { LLM_TASK_TYPES } from '../metrics/llm.js';
-import { queryTopicRangesWithRetry } from './topicRangeRetry.js';
-import {
-  getResplitTextChunkMaxChars,
-  MAX_TAGGED_CHARS,
-  TOPIC_RANGE_CONCURRENCY,
-  TOPIC_RANGE_RESPLIT_PROVIDER_MAX_ATTEMPTS,
-} from './pipelineConfig.js';
-import { isCancellationError, rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
-import { hasDiagnosticQuirks, logParseDiagnostics } from './topicRangeDiagnosticsLog.js';
-import { chunkTopicRangeSentences } from './topicRangeChunking.js';
+import { topicLabelKey } from './topicParser.js';
+import { getResplitTextChunkMaxChars, MAX_TAGGED_CHARS } from './pipelineConfig.js';
 import { defaultTopicRangeDependencies } from './topicRangeDependencies.js';
-import { TOPIC_RANGE_ABORT_MESSAGE } from './topicRangeCheckpoint.js';
+import { splitTopicRanges } from './topicRangeSplit.js';
 import { splitTopicPath } from '../../shared/runtime/topicPath.js';
 
-export const TOPIC_RANGE_MAX_SENTENCES = 40;
-const TOPIC_RANGE_RESPLIT_MAX_DEPTH = 2;
+// Deepest topic hierarchy the pipeline produces; replacement paths must fit.
 const MAX_TOPIC_PATH_LEVELS = 5;
 
+// The prompt requires full paths. Preserve the saved ancestors' spelling; an
+// invalid path leaves only its own group at the selected topic.
 function rootResplitPath(returnedPath, parentPath) {
-  const fullPrefix =
-    returnedPath.length >= parentPath.length &&
-    topicLabelKey(returnedPath.slice(0, parentPath.length)) === topicLabelKey(parentPath);
+  const ancestors = parentPath.slice(0, -1);
   if (
-    fullPrefix &&
-    returnedPath.length <= parentPath.length + 1 &&
-    returnedPath.length <= MAX_TOPIC_PATH_LEVELS
-  )
-    return [...parentPath, ...returnedPath.slice(parentPath.length)];
-  if (returnedPath.length === 1 && parentPath.length < MAX_TOPIC_PATH_LEVELS) {
-    return [...parentPath, returnedPath[0]];
+    returnedPath.length <= ancestors.length ||
+    returnedPath.length > MAX_TOPIC_PATH_LEVELS ||
+    topicLabelKey(returnedPath.slice(0, ancestors.length)) !== topicLabelKey(ancestors)
+  ) {
+    return parentPath;
   }
-  // An unrelated or overly deep path gives no reliable location for the new
-  // label. Keep the established topic rather than inventing a hierarchy.
-  return parentPath;
-}
-
-function combineChunkDiagnostics(parsedChunks) {
-  const diagnostics = {
-    sentenceCount: 0,
-    inputLineCount: 0,
-    parsedLineCount: 0,
-    ignoredLineCount: 0,
-    parsedRangeCount: 0,
-    invalidRangeTokens: 0,
-    reversedRanges: 0,
-    outOfRange: [],
-    duplicates: [],
-    missing: [],
-    repairs: [],
-  };
-  for (const { chunk, parsed } of parsedChunks) {
-    const part = parsed.diagnostics;
-    for (const key of [
-      'sentenceCount',
-      'inputLineCount',
-      'parsedLineCount',
-      'ignoredLineCount',
-      'parsedRangeCount',
-      'invalidRangeTokens',
-      'reversedRanges',
-    ]) {
-      diagnostics[key] += Number(part[key]) || 0;
-    }
-    diagnostics.outOfRange.push(...(part.outOfRange || []));
-    diagnostics.duplicates.push(...(part.duplicates || []).map((id) => id + chunk.start));
-    diagnostics.missing.push(...(part.missing || []).map((id) => id + chunk.start));
-    diagnostics.repairs.push(...(part.repairs || []));
-  }
-  return diagnostics;
+  return [...ancestors, ...returnedPath.slice(ancestors.length)];
 }
 
 /**
- * Re-query the LLM to subdivide one oversized sentence range. This is
- * best-effort: a failed re-split returns null so its caller can retain the
- * original range; an ineffective large re-split falls back to bounded windows.
+ * Split one selected saved range through the shared topic splitter.
  * @param {PipelineRuntime} runtime Pipeline runtime.
- * @param {object} segment Oversized topic segment.
- * @param {string[]} sentenceTexts Article sentence text.
- * @param {number} depth Current resplit depth.
- * @param {Function} callLLMWithRetry LLM request function.
- * @param {object} [options] Resplit options.
- * @param {boolean} [options.acceptSingle]
- * @param {object} [options.stats]
+ * @param {{label: string[], start: number, end: number}} segment Saved inclusive range.
+ * @param {string[]} sentenceTexts Full saved sentence source.
+ * @param {Function} callLLMWithRetry Provider request function.
+ * @param {object} [options]
+ * @param {object} [options.dependencies] Shared splitter dependencies.
+ * @returns {Promise<object[]>} Groups with article-absolute, zero-based ranges.
  */
-async function resplitSegment(
+export async function resplitTopicRange(
   runtime,
   segment,
   sentenceTexts,
-  depth,
   callLLMWithRetry,
-  { acceptSingle = false, stats = null, dependencies = defaultTopicRangeDependencies } = {},
+  { dependencies = defaultTopicRangeDependencies } = {},
 ) {
-  const { noteResplitOutcome } = dependencies;
   const parentPath = Array.isArray(segment.label) ? segment.label : splitTopicPath(segment.label);
-  if (parentPath.length >= MAX_TOPIC_PATH_LEVELS) return null;
-  const span = segment.end - segment.start + 1;
-  const logCtx = { start: segment.start, end: segment.end, span, depth };
-  const sliceTexts = sentenceTexts.slice(segment.start, segment.end + 1);
+  if (!parentPath.length || parentPath.length > MAX_TOPIC_PATH_LEVELS) {
+    throw new Error('The selected topic path must contain one to five levels.');
+  }
   const parentPathText = parentPath.join('>');
-  const maxChars = getResplitTextChunkMaxChars(
+  const maxTextChunkChars = getResplitTextChunkMaxChars(
     runtime.maxTextChunkChars ?? MAX_TAGGED_CHARS,
     parentPathText,
     runtime.preferContentLanguage,
   );
-  if (maxChars === 0) return null;
-  const chunks = chunkTopicRangeSentences(sliceTexts, maxChars, runtime.maxTopicRangeSentences);
-
-  if (stats) {
-    stats.resplitCallCount++;
-    // One request per chunk, not per invocation: an oversized range whose
-    // tagged text exceeds MAX_TAGGED_CHARS fans out below, and counting it
-    // once would understate cost exactly for the longest ranges.
-    stats.llmRequestCount += chunks.length;
+  if (maxTextChunkChars <= 0) {
+    throw new Error('The selected topic path leaves no room for source text in the request.');
   }
+  const localGroups = await splitTopicRanges({
+    runtime,
+    sentenceTexts: sentenceTexts.slice(segment.start, segment.end + 1),
+    callLLMWithRetry,
+    dependencies,
+    parentPath: parentPathText,
+    maxTextChunkChars,
+  });
 
-  await runtime.log(
-    'topic_ranges_resplit_request',
-    { ...logCtx, chunkCount: chunks.length },
-    { verbose: true },
-  );
-
-  let subGroups;
-  try {
-    subGroups = await queryTopicRangesWithRetry({
-      maxRetries: 0,
-      callLLM: async () => {
-        const responses = await dependencies.parallelMap(
-          chunks,
-          TOPIC_RANGE_CONCURRENCY,
-          async (chunk) => {
-            try {
-              return {
-                content: await callLLMWithRetry(
-                  {
-                    prompt: buildTopicRangesPrompt(chunk.tagged, {
-                      preferContentLanguage: runtime.preferContentLanguage,
-                      resplitParentPath: parentPathText,
-                    }),
-                    signal: runtime.signal,
-                    taskType: LLM_TASK_TYPES.TOPIC_RANGES,
-                  },
-                  TOPIC_RANGE_RESPLIT_PROVIDER_MAX_ATTEMPTS,
-                ),
-              };
-            } catch (error) {
-              rethrowIfCancelled(error, runtime, TOPIC_RANGE_ABORT_MESSAGE);
-              // Keep every paid-for sibling request in flight before surfacing
-              // the failure; parallelMap's default fail-fast would abandon
-              // queued chunks as soon as one provider call rejects.
-              return { error };
-            }
-          },
-          { warmupFirst: true },
-        );
-        const failed = responses.find((response) => response.error);
-        if (failed) throw failed.error;
-        return responses.map((response) => response.content);
-      },
-      parse: async (raw) => {
-        const logContext = { scope: 'resplit', depth, start: segment.start, end: segment.end };
-        try {
-          // The request may have fulfilled just as cancellation landed. Stop
-          // before attributing that superseded response to parser metrics.
-          throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
-          const parsedChunks = chunks.map((chunk, index) => ({
-            chunk,
-            parsed: parseTopicRangesDetailed(raw[index], chunk.sentenceCount),
-          }));
-          const diagnostics = combineChunkDiagnostics(parsedChunks);
-          if (hasDiagnosticQuirks(diagnostics)) {
-            await logParseDiagnostics(runtime, logContext, {
-              diagnostics,
-              response: raw.join('\n'),
-            });
-          }
-          throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
-          await dependencies.recordParserMetric({
-            ok: true,
-            scope: 'resplit',
-            diagnostics,
-          });
-          return parsedChunks.flatMap(({ chunk, parsed }) =>
-            parsed.groups.map((group) => ({
-              label: group.label,
-              ranges: group.ranges.map((range) => ({
-                start: range.start + chunk.start,
-                end: range.end + chunk.start,
-              })),
-            })),
-          );
-        } catch (error) {
-          // An AbortError from the boundary check or runtime logging is not a
-          // malformed model response and must not become a parser sample.
-          rethrowIfCancelled(error, runtime, TOPIC_RANGE_ABORT_MESSAGE);
-          const diagnostics = { ...error?.diagnostics, sentenceCount: sliceTexts.length };
-          await dependencies.recordParserMetric({
-            ok: false,
-            scope: 'resplit',
-            diagnostics,
-            error: error?.message,
-          });
-          if (error instanceof TopicParseError) {
-            await logParseDiagnostics(runtime, logContext, {
-              diagnostics,
-              response: raw.join('\n'),
-            });
-          }
-          throw error;
-        }
-      },
-    });
-  } catch (error) {
-    // A cancelled run is not a resplit failure: recording it would both log a
-    // phantom error on the record and bias the ERROR counts that the keep/remove
-    // decision for the resplit feature rests on.
-    rethrowIfCancelled(error, runtime, TOPIC_RANGE_ABORT_MESSAGE);
-    await runtime.log('topic_ranges_resplit_error', {
-      start: segment.start,
-      end: segment.end,
-      depth,
-      error: (error && error.message) || String(error),
-    });
-    noteResplitOutcome(stats, DEFAULT_RESPLIT_OUTCOMES.ERROR);
-    return null;
-  }
-
-  const offset = segment.start;
-  let subSegments = [];
-  for (const group of subGroups) {
+  const byLabel = new Map();
+  for (const group of localGroups) {
     const returnedPath = Array.isArray(group.label) ? group.label : splitTopicPath(group.label);
-    const rootedPath = rootResplitPath(returnedPath, parentPath);
+    const label = rootResplitPath(returnedPath, parentPath);
+    const key = topicLabelKey(label);
+    if (!byLabel.has(key)) byLabel.set(key, { label, ranges: [] });
     for (const range of group.ranges) {
-      subSegments.push({
-        label: rootedPath,
-        start: range.start + offset,
-        end: range.end + offset,
+      byLabel.get(key).ranges.push({
+        start: range.start + segment.start,
+        end: range.end + segment.start,
       });
     }
   }
-  subSegments.sort((a, b) => a.start - b.start);
-
-  const distinctLabels = new Set(subSegments.map(({ label }) => topicLabelKey(label)));
-  if (distinctLabels.size <= 1) {
-    if (acceptSingle && subSegments.length > 0) {
-      noteResplitOutcome(stats, DEFAULT_RESPLIT_OUTCOMES.ACCEPTED_SINGLE);
-      return [{ label: subSegments[0].label, start: segment.start, end: segment.end }];
-    }
-
-    await runtime.log('topic_ranges_resplit_no_progress', { ...logCtx }, { verbose: true });
-
-    // A single label over a large slice is often a marker-grounding failure.
-    // Re-query deterministic small windows: even a single-topic answer is
-    // useful there because its label is grounded in at most 40 sentences.
-    if (span > TOPIC_RANGE_MAX_SENTENCES) {
-      const windows = [];
-      for (let start = segment.start; start <= segment.end; start += TOPIC_RANGE_MAX_SENTENCES) {
-        windows.push({
-          label: segment.label,
-          start,
-          end: Math.min(segment.end, start + TOPIC_RANGE_MAX_SENTENCES - 1),
-        });
-      }
-      await runtime.log(
-        'topic_ranges_resplit_window_fallback',
-        { ...logCtx, windowCount: windows.length },
-        { verbose: true },
-      );
-      noteResplitOutcome(stats, DEFAULT_RESPLIT_OUTCOMES.WINDOW_FALLBACK);
-      const windowResults = await dependencies.parallelMap(
-        windows,
-        TOPIC_RANGE_CONCURRENCY,
-        async (window) =>
-          (await resplitSegment(runtime, window, sentenceTexts, depth + 1, callLLMWithRetry, {
-            acceptSingle: true,
-            stats,
-            dependencies,
-          })) || [window],
-      );
-      return windowResults.flat();
-    }
-    noteResplitOutcome(stats, DEFAULT_RESPLIT_OUTCOMES.NO_PROGRESS);
-    return null;
-  }
-
-  await runtime.log(
-    'topic_ranges_resplit_response',
-    { ...logCtx, subSegmentCount: subSegments.length },
-    { verbose: true },
-  );
-  noteResplitOutcome(stats, DEFAULT_RESPLIT_OUTCOMES.SUBDIVIDED);
-
-  if (depth + 1 < TOPIC_RANGE_RESPLIT_MAX_DEPTH) {
-    const expanded = await dependencies.parallelMap(
-      subSegments,
-      TOPIC_RANGE_CONCURRENCY,
-      async (subSegment) => {
-        if (subSegment.end - subSegment.start + 1 > TOPIC_RANGE_MAX_SENTENCES) {
-          const deeper = await resplitSegment(
-            runtime,
-            subSegment,
-            sentenceTexts,
-            depth + 1,
-            callLLMWithRetry,
-            { stats, dependencies },
-          );
-          if (deeper) return deeper;
-        }
-        return [subSegment];
-      },
-    );
-    subSegments = expanded.flat();
-  }
-
-  return subSegments;
-}
-
-export async function refineOversizedRanges(
-  runtime,
-  groups,
-  sentenceTexts,
-  callLLMWithRetry,
-  { primaryChunkCount = 0, dependencies = defaultTopicRangeDependencies } = {},
-) {
-  // One metrics sample per call, including the no-oversize early return: that
-  // is the denominator for deciding whether resplit still pays for itself.
-  const stats = dependencies.createResplitRunStats();
-  stats.primaryChunkCount = primaryChunkCount;
-  stats.groupCountBefore = groups.length;
-  stats.groupCountAfter = groups.length;
-  let cancelled = false;
-  let completed = false;
-  try {
-    const refined = await refineOversizedRangesWithStats(
-      runtime,
-      groups,
-      sentenceTexts,
-      callLLMWithRetry,
-      stats,
-      dependencies,
-    );
-    completed = true;
-    return refined;
-  } catch (error) {
-    cancelled = isCancellationError(error, runtime);
-    throw error;
-  } finally {
-    // Awaited like every recordParserMetric call in this file: the service
-    // worker can be recycled right after this returns, and a dropped sample
-    // silently biases the counts the keep/remove decision rests on.
-    // A successful refinement can still lose a cancellation race before this
-    // terminal metric write. Suppress that superseded sample, while retaining
-    // genuine provider failures that arrived after abort (`completed` is false
-    // for those and `cancelled` deliberately remains false).
-    const cancelledAfterSuccess = completed && runtime.signal?.aborted;
-    if (!cancelled && !cancelledAfterSuccess) {
-      await dependencies.recordResplitRun(stats);
-    }
-  }
-}
-
-async function refineOversizedRangesWithStats(
-  runtime,
-  groups,
-  sentenceTexts,
-  callLLMWithRetry,
-  stats,
-  dependencies = defaultTopicRangeDependencies,
-) {
-  const segments = [];
-  for (const group of groups) {
-    for (const range of group.ranges) {
-      segments.push({ label: group.label, start: range.start, end: range.end });
-    }
-  }
-  segments.sort((a, b) => a.start - b.start);
-
-  const spans = segments.map((segment) => segment.end - segment.start + 1);
-  stats.segmentCount = segments.length;
-  stats.maxSpan = spans.length ? Math.max(...spans) : 0;
-
-  const oversized = segments.filter(
-    (segment) => segment.end - segment.start + 1 > TOPIC_RANGE_MAX_SENTENCES,
-  );
-  stats.oversizeCount = oversized.length;
-  stats.oversizeSpans = oversized.map((segment) => segment.end - segment.start + 1);
-  if (!oversized.length) return groups;
-
-  await runtime.log(
-    'topic_ranges_oversize_detected',
-    {
-      oversizeCount: oversized.length,
-      maxSentences: TOPIC_RANGE_MAX_SENTENCES,
-      spans: oversized.map((segment) => segment.end - segment.start + 1),
-    },
-    { verbose: true },
-  );
-
-  const refinedParts = await dependencies.parallelMap(
-    segments,
-    TOPIC_RANGE_CONCURRENCY,
-    async (segment) => {
-      if (segment.end - segment.start + 1 > TOPIC_RANGE_MAX_SENTENCES) {
-        const subSegments = await resplitSegment(
-          runtime,
-          segment,
-          sentenceTexts,
-          0,
-          callLLMWithRetry,
-          { stats, dependencies },
-        );
-        if (subSegments) return subSegments;
-      }
-      return [segment];
-    },
-  );
-
-  const regrouped = groupsFromSegments(refinedParts.flat(), sentenceTexts.length);
-  if (JSON.stringify(regrouped) === JSON.stringify(groups)) return groups;
-  stats.changed = true;
-  stats.groupCountAfter = regrouped.length;
-  await runtime.log(
-    'topic_ranges_oversize_refined',
-    {
-      groupCountBefore: groups.length,
-      groupCountAfter: regrouped.length,
-    },
-    { verbose: true },
-  );
-  return regrouped;
+  return [...byLabel.values()];
 }

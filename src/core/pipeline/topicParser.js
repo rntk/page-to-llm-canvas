@@ -349,8 +349,8 @@ function collectDiagnostics(rawGroups, sentenceCount, invalidRangeTokens = 0) {
 /**
  * Shared tail of parseTopicRangesDetailed: takes label-grouped ranges (in first-appearance
  * order, labels already deduped) and produces final groups with continuous,
- * non-overlapping coverage. Extracted so oversized-range refinement can rebuild
- * the same shape from re-split segments without re-parsing a raw LLM response.
+ * non-overlapping coverage. Extracted so callers holding labeled segments can
+ * rebuild the same shape without re-parsing a raw LLM response.
  *
  * @param {Array<{label: string[], ranges: Array<{start: number, end: number}>}>} rawGroups
  * @param {number} sentenceCount
@@ -385,8 +385,8 @@ function finalizeGroups(rawGroups, sentenceCount, invalidRangeTokens = 0) {
 }
 
 /**
- * Rebuild final groups from a flat list of labeled segments (e.g. produced by
- * re-splitting an oversized range). Segments sharing a normalized label key are
+ * Rebuild final groups from a flat list of labeled segments (e.g. merged
+ * across topic-range chunks). Segments sharing a normalized label key are
  * merged into one group — preserving the invariant that every topic name is
  * unique — and coverage is repaired exactly like parseTopicRangesDetailed.
  *

@@ -40,6 +40,8 @@ export function resetSummaryReviewPatch() {
  */
 export function resetSummaryCheckpointPatch() {
   return {
+    manualResplitIntent: null,
+    resplitNotice: null,
     topics: [],
     topic_summaries: {},
     topic_summary_index: {},
@@ -159,6 +161,31 @@ export function doneTransition({
     summaryErrors: [],
     forceFinalize: false,
     acceptedMergeFailurePaths: [],
+  };
+}
+
+export const RESPLIT_NO_CHANGE_NOTICE =
+  'Resplit returned the same topics; the topic was left unchanged.';
+export const RESPLIT_CANCELLED_NOTICE = 'Resplit stopped; the topic was left unchanged.';
+
+/**
+ * Ends a manual resplit that did not replace any topics (no change, failure,
+ * or Stop) by returning the record to the completed state it was in before
+ * the Resplit action. Nothing in the topic checkpoint was modified, so the
+ * record is still fully usable; `notice` tells the user what happened.
+ * @param {object} record Record snapshot still holding `manualResplitIntent`.
+ * @param {string} notice User-facing outcome.
+ */
+export function restoreAfterResplitPatch(record, notice) {
+  const topicCount = Array.isArray(record?.topics) ? record.topics.length : 0;
+  return {
+    manualResplitIntent: null,
+    resplitNotice: notice,
+    status: PIPELINE_STATUS.DONE,
+    error: null,
+    progress:
+      record?.manualResplitIntent?.previousProgress ||
+      progressAt(PIPELINE_STAGE.DONE, topicCount, topicCount),
   };
 }
 

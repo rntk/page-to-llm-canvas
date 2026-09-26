@@ -508,7 +508,10 @@ export function buildRecordDisplayData(records) {
       date: formatDate(record.createdAt),
       status: record.status || 'unknown',
       badge: statusLabel(record.status),
-      notice: record.pipelineFailure?.message || '',
+      notice:
+        record.pipelineFailure?.message ||
+        (record.status === PIPELINE_STATUS.DONE && record.resplitNotice) ||
+        '',
       actions: getRecordActions(record),
     })),
   };

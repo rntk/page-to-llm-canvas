@@ -9,6 +9,7 @@ import { getActiveProvider } from '../../../core/llm/providers.js';
 import { LLM_TASK_TYPES, wrapCallLLMWithRetry } from '../../../core/metrics/llm.js';
 import { getStoredVerboseLogs } from '../../../shared/runtime/verboseLogSettings.js';
 import { getStoredPreferContentLanguage } from '../../../core/settings/language.js';
+import { RESPLIT_NO_CHANGE_NOTICE } from '../../../shared/runtime/recordTransitions.js';
 import {
   getStoredMaxParallelLlmRequests,
   normalizeMaxParallelLlmRequests,
@@ -316,6 +317,414 @@ describe('runPipeline', () => {
         patch.topics?.some((topic) => topic.name === 'Fresh'),
       ),
     ).toBe(true);
+  });
+
+  it('restores a failed manual resplit to its completed state with a notice', async () => {
+    const source = 'Science sentence one. Science sentence two. History sentence.';
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('manual-resplit', `<p>${source}</p>`),
+      status: 'splitting',
+      progress: { stage: 'splitting', done: 0, total: 2 },
+      skipSummaries: true,
+      manualResplitIntent: {
+        path: 'Science',
+        startSentence: 1,
+        endSentence: 2,
+        previousProgress: { stage: 'done', done: 2, total: 2 },
+      },
+      sentences: ['Science sentence one.', 'Science sentence two.', 'History sentence.'],
+      topics: [
+        { name: 'Science', sentences: [1, 2] },
+        { name: 'History', sentences: [3] },
+      ],
+      topic_summaries: {
+        Science: { source_sentences: [1, 2], runs: [{ sentences: [1, 2], text: 'Old science.' }] },
+        History: { source_sentences: [3], runs: [{ sentences: [3], text: 'History summary.' }] },
+      },
+      topic_summary_index: {
+        Science: { runs: [{ sentences: [1, 2], text: 'Old science.' }] },
+        History: { runs: [{ sentences: [3], text: 'History summary.' }] },
+      },
+      source_summary_units: {
+        science: { unitId: 'science', run: [1, 2] },
+        history: { unitId: 'history', run: [3] },
+      },
+    });
+    llm.callLLMWithRetry.mockRejectedValue(new Error('provider unavailable'));
+
+    // Resolves: rethrowing would let the supervisor overwrite the restored
+    // record with ERROR.
+    await runPipeline('manual-resplit');
+
+    expect(llm.callLLMWithRetry).toHaveBeenCalledTimes(4);
+    expect(llm.callLLMWithRetry.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        taskType: LLM_TASK_TYPES.TOPIC_RANGES,
+        prompt: expect.stringContaining('Science'),
+      }),
+    );
+    expect(storage.updateRecord.mock.calls.some(([, patch]) => patch.status === 'error')).toBe(
+      false,
+    );
+    const restoreWrite = storage.updateRecord.mock.calls.find(
+      ([, patch]) => patch.manualResplitIntent === null,
+    );
+    expect(restoreWrite[1]).toEqual({
+      manualResplitIntent: null,
+      resplitNotice: expect.stringMatching(/^Resplit failed: .*provider unavailable/),
+      status: 'done',
+      error: null,
+      progress: { stage: 'done', done: 2, total: 2 },
+    });
+    expect(storage.updateRecord.mock.calls.some(([, patch]) => patch.topics)).toBe(false);
+    expect(storage.updateRecord.mock.calls.some(([, patch]) => patch.topic_summaries)).toBe(false);
+    expect(storage.updateRecord.mock.calls.some(([, patch]) => patch.source_summary_units)).toBe(
+      false,
+    );
+    expect(llm.callLLMWithRetry.mock.calls.map(([request]) => request.taskType)).toEqual(
+      Array(4).fill(LLM_TASK_TYPES.TOPIC_RANGES),
+    );
+  });
+
+  it('rejects a returned path outside the selected ancestors', async () => {
+    const originalTopics = [
+      { name: 'Science>AI', sentences: [1, 2] },
+      { name: 'History', sentences: [3] },
+    ];
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('manual-resplit-invalid-path', '<p>Science one. Science two. History.</p>'),
+      status: 'splitting',
+      skipSummaries: true,
+      manualResplitIntent: {
+        path: 'Science>AI',
+        startSentence: 1,
+        endSentence: 2,
+        previousProgress: { stage: 'done', done: 2, total: 2 },
+      },
+      sentences: ['Science one.', 'Science two.', 'History.'],
+      topics: originalTopics,
+    });
+    llm.callLLMWithRetry.mockResolvedValue('History>Other: 0-1');
+
+    await runPipeline('manual-resplit-invalid-path');
+
+    const restore = storage.updateRecord.mock.calls.find(
+      ([, patch]) => patch.manualResplitIntent === null,
+    );
+    expect(restore[1]).toEqual(
+      expect.objectContaining({
+        status: 'done',
+        resplitNotice: expect.stringContaining('invalid topic path'),
+      }),
+    );
+    expect(storage.updateRecord.mock.calls.every(([, patch]) => !('topics' in patch))).toBe(true);
+    expect(originalTopics).toEqual([
+      { name: 'Science>AI', sentences: [1, 2] },
+      { name: 'History', sentences: [3] },
+    ]);
+  });
+
+  it('restores a splitting record to done when the replacement write fails before committing', async () => {
+    const key = 'manual-resplit-write-failure';
+    let persisted = {
+      ...makeRecord(key, '<p>Science one. Science two.</p>'),
+      status: 'splitting',
+      skipSummaries: true,
+      manualResplitIntent: { path: 'Science', startSentence: 1, endSentence: 2 },
+      sentences: ['Science one.', 'Science two.'],
+      topics: [{ name: 'Science', sentences: [1, 2] }],
+    };
+    storage.readRecord.mockImplementation(async () => persisted);
+    storage.updateRecord.mockImplementation(async (_key, patch) => {
+      if (patch.topics) throw new Error('replacement write failed');
+      persisted = { ...persisted, ...patch };
+      return persisted;
+    });
+    llm.callLLMWithRetry.mockResolvedValue('Science>Physics: 0\nScience>Chemistry: 1');
+
+    await runPipeline(key);
+
+    expect(persisted.status).toBe('done');
+    expect(persisted.manualResplitIntent).toBeNull();
+    expect(persisted.topics).toEqual([{ name: 'Science', sentences: [1, 2] }]);
+  });
+
+  it('rethrows when finalization fails after the replacement is committed', async () => {
+    const key = 'manual-resplit-later-failure';
+    let replacementCommitted = false;
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord(key, '<p>Science one. Science two.</p>'),
+      status: 'splitting',
+      skipSummaries: true,
+      manualResplitIntent: { path: 'Science', startSentence: 1, endSentence: 2 },
+      sentences: ['Science one.', 'Science two.'],
+      topics: [{ name: 'Science', sentences: [1, 2] }],
+    });
+    storage.updateRecord.mockImplementation(async (_key, patch) => {
+      if (patch.topics) replacementCommitted = true;
+      if (patch.status === 'done') throw new Error('finalization write failed');
+      return patch;
+    });
+    llm.callLLMWithRetry.mockResolvedValue('Science>Physics: 0\nScience>Chemistry: 1');
+
+    await expect(runPipeline(key)).rejects.toThrow('finalization write failed');
+
+    expect(replacementCommitted).toBe(true);
+  });
+
+  it('keeps replacement topics unfinished when checkpoint cleanup fails after commit', async () => {
+    const key = 'manual-resplit-cleanup-failure';
+    let persisted = {
+      ...makeRecord(key, '<p>Science one. Science two. History three.</p>'),
+      status: 'splitting',
+      skipSummaries: false,
+      manualResplitIntent: { path: 'Science', startSentence: 1, endSentence: 2 },
+      sentences: ['Science one.', 'Science two.', 'History three.'],
+      topics: [
+        { name: 'Science', sentences: [1, 2] },
+        { name: 'History', sentences: [3] },
+      ],
+      topic_summaries: {
+        Science: { source_sentences: [1, 2], runs: [{ sentences: [1, 2], text: 'Old.' }] },
+      },
+    };
+    storage.readRecord.mockImplementation(async () => persisted);
+    storage.updateRecord.mockImplementation(async (_key, patch) => {
+      persisted = { ...persisted, ...patch };
+      if (patch.topics) throw new Error('obsolete summary cleanup failed');
+      return persisted;
+    });
+    llm.callLLMWithRetry.mockResolvedValue('Science>Physics: 0\nScience>Chemistry: 1');
+
+    await expect(runPipeline(key)).rejects.toThrow('obsolete summary cleanup failed');
+
+    expect(persisted.topics).toEqual([
+      { name: 'Science>Physics', sentences: [1] },
+      { name: 'Science>Chemistry', sentences: [2] },
+      { name: 'History', sentences: [3] },
+    ]);
+    expect(persisted.manualResplitIntent).toBeNull();
+    expect(persisted.status).toBe('error');
+    expect(persisted.topic_summaries['Science>Physics']).toBeUndefined();
+    expect(storage.updateRecord.mock.calls.some(([, patch]) => patch.status === 'done')).toBe(
+      false,
+    );
+  });
+
+  it('keeps the saved summaries and restores status when a manual resplit changes no topic', async () => {
+    const source = 'Science sentence one. Science sentence two. History sentence.';
+    const topics = [
+      { name: 'Science', sentences: [1, 2] },
+      { name: 'History', sentences: [3] },
+    ];
+    const summaries = {
+      Science: { source_sentences: [1, 2], runs: [{ sentences: [1, 2], text: 'Old science.' }] },
+      History: { source_sentences: [3], runs: [{ sentences: [3], text: 'History summary.' }] },
+    };
+    const summaryIndex = {
+      Science: { runs: [{ sentences: [1, 2], text: 'Old science.' }] },
+      History: { runs: [{ sentences: [3], text: 'History summary.' }] },
+    };
+    const sourceUnits = {
+      science: { unitId: 'science', run: [1, 2] },
+      history: { unitId: 'history', run: [3] },
+    };
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('manual-resplit-no-change', `<p>${source}</p>`),
+      status: 'splitting',
+      progress: { stage: 'splitting', done: 2, total: 2 },
+      skipSummaries: false,
+      manualResplitIntent: {
+        path: 'Science',
+        startSentence: 1,
+        endSentence: 2,
+        previousProgress: { stage: 'done', done: 2, total: 2 },
+      },
+      sentences: ['Science sentence one.', 'Science sentence two.', 'History sentence.'],
+      topics,
+      topic_summaries: summaries,
+      topic_summary_index: summaryIndex,
+      source_summary_units: sourceUnits,
+    });
+    llm.callLLMWithRetry.mockResolvedValue('Science: 0-1');
+
+    await runPipeline('manual-resplit-no-change');
+
+    const noChangeWrite = storage.updateRecord.mock.calls.find(
+      ([, patch]) => patch.manualResplitIntent === null,
+    );
+    expect(noChangeWrite[1]).toEqual(
+      expect.objectContaining({
+        status: 'done',
+        manualResplitIntent: null,
+        resplitNotice: RESPLIT_NO_CHANGE_NOTICE,
+        progress: { stage: 'done', done: 2, total: 2 },
+      }),
+    );
+    expect(
+      storage.updateRecord.mock.calls.every(
+        ([, patch]) =>
+          !('topics' in patch) &&
+          !('topic_summaries' in patch) &&
+          !('topic_summary_index' in patch) &&
+          !('source_summary_units' in patch),
+      ),
+    ).toBe(true);
+    expect(topics).toHaveLength(2);
+    expect(Object.keys(summaries)).toEqual(['Science', 'History']);
+    expect(Object.keys(summaryIndex)).toEqual(['Science', 'History']);
+    expect(Object.keys(sourceUnits)).toEqual(['science', 'history']);
+    expect(llm.callLLMWithRetry.mock.calls.map(([request]) => request.taskType)).toEqual([
+      LLM_TASK_TYPES.TOPIC_RANGES,
+    ]);
+  });
+
+  it('refines one repeated topic run and regenerates its summaries while retaining unaffected runs', async () => {
+    const sentences = [
+      `${'Science study one examines the climate response in detail. '.repeat(18)}`,
+      `${'Science study two describes ocean measurements and results. '.repeat(18)}`,
+      'History account explains the local archive and timeline.',
+      'Science study three returns to climate models and forecasts.',
+      'Science study four compares the latest climate observations.',
+    ];
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('manual-resplit-success', '<p>captured article</p>'),
+      status: 'splitting',
+      skipSummaries: false,
+      manualResplitIntent: { path: 'Science', startSentence: 1, endSentence: 2 },
+      // The checkpoint's language policy wins over the current global setting.
+      summaryCheckpointPreferContentLanguage: true,
+      sentences,
+      topics: [
+        { name: 'Science', sentences: [1, 2, 4, 5] },
+        { name: 'History', sentences: [3] },
+      ],
+      topic_summaries: {
+        Science: {
+          source_sentences: [1, 2, 4, 5],
+          runs: [
+            { sentences: [1, 2], text: 'Old selected science summary.' },
+            { sentences: [4, 5], text: 'Retained later science summary.' },
+          ],
+        },
+        History: {
+          source_sentences: [3],
+          runs: [{ sentences: [3], text: 'Retained history summary.' }],
+        },
+      },
+      topic_summary_index: {
+        Science: { runs: [{ sentences: [1, 2, 4, 5], text: 'Old science overview.' }] },
+        History: { runs: [{ sentences: [3], text: 'Retained history summary.' }] },
+      },
+      source_summary_units: {
+        selected: { unitId: 'selected', run: [1, 2] },
+        later: { unitId: 'later', run: [4, 5] },
+        history: { unitId: 'history', run: [3] },
+      },
+    });
+    llm.callLLMWithRetry.mockImplementation(async ({ taskType }) =>
+      taskType === LLM_TASK_TYPES.TOPIC_RANGES
+        ? 'Science>Climate: 0\nScience>Oceans: 1'
+        : 'Fresh summary.',
+    );
+
+    await runPipeline('manual-resplit-success');
+
+    const rangeCalls = llm.callLLMWithRetry.mock.calls.filter(
+      ([request]) => request.taskType === LLM_TASK_TYPES.TOPIC_RANGES,
+    );
+    expect(rangeCalls).toHaveLength(1);
+    expect(rangeCalls[0][0].prompt).toContain('Science');
+    expect(rangeCalls[0][0].prompt).not.toContain('History account');
+    expect(
+      llm.callLLMWithRetry.mock.calls.some(
+        ([request]) => request.taskType === LLM_TASK_TYPES.ARTICLE_SUMMARY,
+      ),
+    ).toBe(true);
+
+    const topicCheckpoint = storage.updateRecord.mock.calls.find(
+      ([, patch]) => patch.manualResplitIntent === null,
+    )[1];
+    expect(topicCheckpoint.topics).toEqual([
+      { name: 'Science>Climate', sentences: [1] },
+      { name: 'Science>Oceans', sentences: [2] },
+      { name: 'History', sentences: [3] },
+      { name: 'Science', sentences: [4, 5] },
+    ]);
+    expect(topicCheckpoint.resplitNotice).toBeNull();
+    expect(topicCheckpoint.summaryCheckpointPreferContentLanguage).toBe(true);
+    expect(topicCheckpoint.topic_summaries.Science.runs).toEqual([
+      { sentences: [4, 5], text: 'Retained later science summary.' },
+    ]);
+    expect(topicCheckpoint.topic_summaries.History).toBeDefined();
+    expect(topicCheckpoint.source_summary_units).toEqual({
+      later: { unitId: 'later', run: [4, 5] },
+      history: { unitId: 'history', run: [3] },
+    });
+  });
+
+  it('carries a forcedEmpty leaf from an unrelated topic through a resplit instead of re-querying it', async () => {
+    const sentences = [
+      'Science sentence one describes rising global temperatures in detail today.',
+      'History sentence two describes an old local archive timeline in detail today.',
+    ];
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('manual-resplit-forced-empty', '<p>captured article</p>'),
+      status: 'splitting',
+      skipSummaries: false,
+      manualResplitIntent: { path: 'Science', startSentence: 1, endSentence: 1 },
+      sentences,
+      topics: [
+        { name: 'Science', sentences: [1] },
+        { name: 'History', sentences: [2] },
+      ],
+      topic_summaries: {
+        Science: {
+          source_sentences: [1],
+          runs: [{ sentences: [1], text: 'Old science summary.' }],
+        },
+        // Finalized by an earlier Skip: the run and the topic both carry the
+        // durable `forcedEmpty` DONE-state marker.
+        History: {
+          source_sentences: [2],
+          runs: [{ sentences: [2], text: '', forcedEmpty: true }],
+          forcedEmpty: true,
+        },
+      },
+      topic_summary_index: {
+        Science: { runs: [{ sentences: [1], text: 'Old science summary.' }] },
+        History: { runs: [{ sentences: [2], text: '', forcedEmpty: true }] },
+      },
+      source_summary_units: {
+        science: { unitId: 'science', run: [1] },
+      },
+    });
+    llm.callLLMWithRetry.mockImplementation(async ({ taskType }) =>
+      taskType === LLM_TASK_TYPES.TOPIC_RANGES ? 'Science Recap: 0' : 'Fresh summary.',
+    );
+
+    await runPipeline('manual-resplit-forced-empty');
+
+    // The skipped topic's sentence must never be re-sent through a leaf
+    // summary request; the fix re-arms forcedEmpty as acceptedFailure so
+    // planSummaryWork reuses it instead of treating it as pending.
+    expect(
+      llm.callLLMWithRetry.mock.calls.some(
+        ([request]) =>
+          request.taskType === LLM_TASK_TYPES.ARTICLE_SUMMARY &&
+          typeof request.prompt === 'string' &&
+          request.prompt.includes('History sentence two'),
+      ),
+    ).toBe(false);
+
+    const doneWrite = storage.updateRecord.mock.calls.find(([, patch]) => patch.status === 'done');
+    expect(doneWrite).toBeDefined();
+    expect(doneWrite[1].topic_summaries.History).toEqual({
+      source_sentences: [2],
+      runs: [{ sentences: [2], text: '', forcedEmpty: true }],
+      forcedEmpty: true,
+    });
+    expect(doneWrite[1].summariesIncomplete).toBe(true);
   });
 
   it('retries a parse failure and logs verbose diagnostics for the failed response', async () => {

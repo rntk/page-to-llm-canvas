@@ -61,6 +61,8 @@ export function buildRecordMeta(rec, { snippet = buildRecordSnippet(rec) } = {})
     // generation, while viewers only use `summariesDisabled` to hide summaries.
     summariesDisabled: rec.summariesDisabled === true,
     summariesIncomplete: rec.summariesIncomplete === true,
+    // Outcome of the last topic-card Resplit that left the topics unchanged.
+    resplitNotice: rec.resplitNotice || null,
   };
 }
 
@@ -72,6 +74,7 @@ const INDEX_META_FIELDS = [
   'sourceUrl',
   'summariesDisabled',
   'summariesIncomplete',
+  'resplitNotice',
 ];
 
 /**
@@ -106,6 +109,7 @@ export async function syncIndexMeta(key, patch, fallbackMeta) {
         next.summariesDisabled = patch.summariesDisabled === true;
       if (hasOwn(patch, 'summariesIncomplete'))
         next.summariesIncomplete = patch.summariesIncomplete === true;
+      if (hasOwn(patch, 'resplitNotice')) next.resplitNotice = patch.resplitNotice || null;
       if (hasOwn(patch, 'text')) {
         next.snippet = buildRecordSnippet({ text: patch.text });
         next.snippetRevision = fallbackMeta && fallbackMeta.textRevision;
@@ -155,6 +159,7 @@ function mergeAuthoritativeMetaIntoProjection(meta, cached = {}) {
     error: meta.error,
     summariesDisabled: meta.summariesDisabled === true,
     summariesIncomplete: meta.summariesIncomplete === true,
+    resplitNotice: meta.resplitNotice || null,
   };
 }
 

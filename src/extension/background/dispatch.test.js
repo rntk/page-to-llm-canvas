@@ -3,7 +3,6 @@ import { readRecord, writeRecord } from '../../core/storage/storage.js';
 import { LLM_METRICS_KEY } from '../../core/metrics/llm.js';
 import { CHAT_TOOL_METRICS_KEY } from '../../core/metrics/chatTool.js';
 import { PARSER_METRICS_KEY } from '../../core/metrics/parser.js';
-import { RESPLIT_METRICS_KEY } from '../../core/metrics/resplit.js';
 import { createChromeStorageFake } from '../../../test/fakes/chromeStorageFake.mjs';
 
 const mockedRunPipeline = vi.hoisted(() =>
@@ -300,7 +299,6 @@ describe('dispatchMessage unit tests', () => {
       'deleteAll',
       'importRecords',
       'clearParserMetrics',
-      'clearResplitMetrics',
       'clearChatToolMetrics',
       'listProviders',
       'saveProvider',
@@ -897,16 +895,13 @@ describe('dispatchMessage unit tests', () => {
     expect(chromeMock.storage.local._store.get(CHAT_TOOL_METRICS_KEY).totalCount).toBe(0);
   });
 
-  it('clears parser and resplit metrics through the worker', async () => {
+  it('clears parser metrics through the worker', async () => {
     const chromeMock = makeChromeMock();
     const dispatchMessage = await loadDispatchMessage(chromeMock);
     chromeMock.storage.local._store.set(PARSER_METRICS_KEY, { totalCount: 3 });
-    chromeMock.storage.local._store.set(RESPLIT_METRICS_KEY, { runCount: 4 });
 
     await expect(dispatchMessage({ type: 'clearParserMetrics' })).resolves.toEqual({ ok: true });
-    await expect(dispatchMessage({ type: 'clearResplitMetrics' })).resolves.toEqual({ ok: true });
 
     expect(chromeMock.storage.local._store.get(PARSER_METRICS_KEY).totalCount).toBe(0);
-    expect(chromeMock.storage.local._store.get(RESPLIT_METRICS_KEY).runCount).toBe(0);
   });
 });

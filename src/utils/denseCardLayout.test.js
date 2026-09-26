@@ -503,11 +503,22 @@ describe('getSummaryFontSizes', () => {
     expect(sizes.title).toBe(35.2);
     expect(sizes.text).toBe(30.8);
     expect(sizes.youtube).toBe(24.2);
+    expect(sizes.actions).toBe(32);
   });
 
   it('scales the youtube size with the same zoom multiplier', () => {
     expect(getSummaryFontSizes(null).youtube).toBe(12.1);
-    expect(getSummaryFontSizes({ titleFontSize: BASE_TOPIC_TITLE_FONT_SIZE / 2 }).youtube).toBe(12.1);
+    expect(getSummaryFontSizes({ titleFontSize: BASE_TOPIC_TITLE_FONT_SIZE / 2 }).youtube).toBe(
+      12.1,
+    );
+  });
+
+  it('scales the actions trigger size with the same zoom multiplier', () => {
+    expect(getSummaryFontSizes(null).actions).toBe(16);
+    expect(getSummaryFontSizes({ titleFontSize: BASE_TOPIC_TITLE_FONT_SIZE / 2 }).actions).toBe(16);
+    expect(
+      getSummaryFontSizes({ titleFontSize: BASE_TOPIC_TITLE_FONT_SIZE * 1.5 }).actions,
+    ).toBeCloseTo(24);
   });
 
   it('does NOT scale down when titleFontSize is smaller than base (multiplier clamped to 1)', () => {

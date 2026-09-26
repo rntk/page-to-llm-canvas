@@ -27,6 +27,10 @@ const SUMMARY_KICKER_FONT_SIZE = 11;
 const SUMMARY_TITLE_FONT_SIZE = 17.6;
 const SUMMARY_TEXT_FONT_SIZE = 15.4;
 const SUMMARY_YOUTUBE_FONT_SIZE = 12.1;
+// Base font size of the per-card actions ("···") trigger. Like the YouTube
+// link, the trigger counter-scales on zoom-out via the titleFontSize-driven
+// multiplier so it stays tappable while the canvas transform shrinks.
+const SUMMARY_ACTIONS_FONT_SIZE = 16;
 
 /**
  * Returns `value` if it is a finite number, otherwise `fallback`.
@@ -233,7 +237,10 @@ export function getAdjustedHierarchyCards(cards) {
             ...card,
             top: Math.round(card.top),
             height: Math.round(card.height),
-            titleFontSize: getAdjustedTitleFontSize(card.sourceCard || card, Math.round(card.height)),
+            titleFontSize: getAdjustedTitleFontSize(
+              card.sourceCard || card,
+              Math.round(card.height),
+            ),
           },
     )
     .sort(
@@ -254,7 +261,7 @@ export function getAdjustedHierarchyCards(cards) {
  *
  * @param {object} [anchorCard]
  * @param {number} [anchorCard.titleFontSize]
- * @returns {{kicker: number, title: number, text: number, youtube: number}}
+ * @returns {{kicker: number, title: number, text: number, youtube: number, actions: number}}
  */
 export function getSummaryFontSizes(anchorCard) {
   const anchorTitleSize = getFiniteNumber(anchorCard?.titleFontSize, BASE_TOPIC_TITLE_FONT_SIZE);
@@ -265,6 +272,7 @@ export function getSummaryFontSizes(anchorCard) {
     title: SUMMARY_TITLE_FONT_SIZE * zoomMultiplier,
     text: SUMMARY_TEXT_FONT_SIZE * zoomMultiplier,
     youtube: SUMMARY_YOUTUBE_FONT_SIZE * zoomMultiplier,
+    actions: SUMMARY_ACTIONS_FONT_SIZE * zoomMultiplier,
   };
 }
 

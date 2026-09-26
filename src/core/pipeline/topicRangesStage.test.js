@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeTopics as computeTopicsWithDefaults } from './topicRangesStage.js';
+import { splitTopicRanges } from './topicRangeSplit.js';
 import { chunkTopicRangeSentences } from './topicRangeChunking.js';
 import { groupsToTopics, rangesToSentenceList } from './topicRangeMapping.js';
 
@@ -43,7 +44,6 @@ const parallelMap = vi.fn(async (items, limit, fn, { warmupFirst = false, stopBu
   return results;
 });
 const recordParserMetric = vi.fn(async () => undefined);
-const recordResplitRun = vi.fn(async () => undefined);
 
 /** Exercise the production dependency seam without repeating test defaults. */
 function computeTopics(input) {
@@ -52,7 +52,6 @@ function computeTopics(input) {
     dependencies: {
       parallelMap,
       recordParserMetric,
-      recordResplitRun,
       ...input.dependencies,
     },
   });
@@ -124,7 +123,7 @@ describe('groupsToTopics', () => {
 });
 
 // Pin the primary chunk size so these retry fixtures stay independent of
-// production input limits. Six 20-sentence topics avoid oversized refinement.
+// production input limits.
 const LONG_CHUNK_SENTENCE_COUNT = 120;
 const TWO_CHUNK_SENTENCE_COUNT = LONG_CHUNK_SENTENCE_COUNT + 1;
 const LONG_CHUNK_TOPIC_COUNT = 6;
@@ -184,6 +183,33 @@ function makeRuntime() {
     maxTopicRangeSentences: LONG_CHUNK_SENTENCE_COUNT,
   });
 }
+
+describe('splitTopicRanges', () => {
+  it('uses parent context while returning local ranges and parser metrics', async () => {
+    const runtime = makeRuntime();
+    runtime.maxTopicRangeSentences = 1;
+    const callLLMWithRetry = vi.fn(async () => 'Science>AI>Detail: 0-0');
+    const recordMetric = vi.fn();
+    const groups = await splitTopicRanges({
+      runtime,
+      sentenceTexts: ['First.', 'Second.'],
+      parentPath: 'Science>AI',
+      callLLMWithRetry,
+      dependencies: { parallelMap, recordParserMetric: recordMetric },
+    });
+
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(2);
+    expect(callLLMWithRetry.mock.calls[0][0].prompt).toContain(
+      'RESPLIT CONTEXT: Replace the selected topic "Science>AI"',
+    );
+    expect(recordMetric).toHaveBeenCalledWith(
+      expect.objectContaining({ ok: true, scope: 'resplit' }),
+    );
+    expect(groups).toEqual([
+      { label: ['Science', 'AI', 'Detail'], ranges: [{ start: 0, end: 1 }] },
+    ]);
+  });
+});
 
 describe('computeTopics', () => {
   let setTimeoutSpy;
@@ -318,116 +344,7 @@ describe('computeTopics', () => {
     expect(saveCheckpoint).toHaveBeenCalled();
   });
 
-  it('propagates cancellation during resplit instead of recording a resplit error', async () => {
-    const runtime = makeRuntime();
-    const controller = new AbortController();
-    runtime.signal = controller.signal;
-    recordParserMetric.mockClear();
-    recordResplitRun.mockClear();
-    // One oversized range (> TOPIC_RANGE_MAX_SENTENCES) so refinement runs.
-    splitSentences.mockReturnValue(
-      Array.from({ length: 45 }, (_, index) => ({
-        text: `Sentence ${index}.`,
-        start: index * 12,
-        end: index * 12 + 11,
-      })),
-    );
-    const abortError = new Error('The user aborted a request.');
-    abortError.name = 'AbortError';
-    let call = 0;
-    const callLLMWithRetry = vi.fn(async () => {
-      call++;
-      if (call === 1) return 'Science>AI: 0-44';
-      controller.abort();
-      throw abortError;
-    });
-
-    await expect(
-      computeTopics({ runtime, record: { html: '<p>x</p>' }, callLLMWithRetry }),
-    ).rejects.toBe(abortError);
-
-    expect(runtime.log).not.toHaveBeenCalledWith('topic_ranges_resplit_error', expect.anything());
-    expect(runtime.log).not.toHaveBeenCalledWith('topic_ranges_oversize_error', expect.anything());
-    // The already-completed primary parse remains a valid sample, but the
-    // cancelled resplit must not create parser or run-level resplit metrics.
-    expect(recordParserMetric).toHaveBeenCalledTimes(1);
-    expect(recordParserMetric).toHaveBeenCalledWith(expect.objectContaining({ scope: 'primary' }));
-    expect(recordResplitRun).not.toHaveBeenCalled();
-  });
-
-  it('bounds resplit requests by the sentence limit and keeps the parent topic path', async () => {
-    const runtime = makeRuntime();
-    runtime.maxTopicRangeSentences = 10;
-    splitSentences.mockReturnValue(
-      Array.from({ length: 45 }, (_, index) => ({
-        text: `Sentence ${index}.`,
-        start: index * 12,
-        end: index * 12 + 11,
-      })),
-    );
-    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
-      const ids = Array.from(prompt.matchAll(/\{(\d+)\}/g), (match) => Number(match[1]));
-      const count = Math.max(...ids) + 1;
-      return prompt.includes('RESPLIT CONTEXT')
-        ? `Science>AI>Detail: 0-${count - 1}`
-        : `Science>AI: 0-${count - 1}`;
-    });
-
-    const result = await computeTopics({
-      runtime,
-      record: { html: '<p>x</p>' },
-      callLLMWithRetry,
-    });
-
-    const resplitCalls = callLLMWithRetry.mock.calls.filter(([{ prompt }]) =>
-      prompt.includes('RESPLIT CONTEXT'),
-    );
-    expect(resplitCalls.length).toBeGreaterThan(1);
-    expect(
-      resplitCalls.every(([{ prompt }]) => {
-        const ids = Array.from(prompt.matchAll(/\{(\d+)\}/g), (match) => Number(match[1]));
-        return Math.max(...ids) < runtime.maxTopicRangeSentences;
-      }),
-    ).toBe(true);
-    expect(result.topics).toHaveLength(1);
-    expect(result.topics[0].name).toBe('Science>AI>Detail');
-    expect(result.topics[0].sentences).toEqual(Array.from({ length: 45 }, (_, index) => index + 1));
-  });
-
-  it('does not count chunk boundaries as a successful resplit', async () => {
-    const runtime = makeRuntime();
-    runtime.maxTopicRangeSentences = 54;
-    splitSentences.mockReturnValue(
-      Array.from({ length: 60 }, (_, index) => ({
-        text: `Sentence ${index}.`,
-        start: index * 12,
-        end: index * 12 + 11,
-      })),
-    );
-    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
-      const ids = Array.from(prompt.matchAll(/\{(\d+)\}/g), (match) => Number(match[1]));
-      return `Science>AI: 0-${Math.max(...ids)}`;
-    });
-
-    const result = await computeTopics({
-      runtime,
-      record: { html: '<p>x</p>' },
-      callLLMWithRetry,
-    });
-
-    expect(result.topics.map((topic) => topic.name)).toEqual(['Science>AI']);
-    const sample = recordResplitRun.mock.lastCall[0];
-    expect(sample).toMatchObject({
-      changed: false,
-      groupCountBefore: 1,
-      groupCountAfter: 1,
-      resplitCallCount: 3,
-      llmRequestCount: 4,
-      outcomes: { subdivided: 0, windowFallback: 1, acceptedSingle: 2 },
-    });
-  });
-
-  it('rejects a divergent resplit path rather than nesting an unrelated subject', async () => {
+  it('does not request an automatic resplit for an oversized primary topic', async () => {
     const runtime = makeRuntime();
     splitSentences.mockReturnValue(
       Array.from({ length: 45 }, (_, index) => ({
@@ -436,9 +353,7 @@ describe('computeTopics', () => {
         end: index * 12 + 11,
       })),
     );
-    const callLLMWithRetry = vi.fn(async ({ prompt }) =>
-      prompt.includes('RESPLIT CONTEXT') ? 'Science>Physics>Quantum: 0-44' : 'Science>AI: 0-44',
-    );
+    const callLLMWithRetry = vi.fn(async () => 'Science>AI: 0-44');
 
     const result = await computeTopics({
       runtime,
@@ -446,121 +361,18 @@ describe('computeTopics', () => {
       callLLMWithRetry,
     });
 
-    expect(result.topics.map((topic) => topic.name)).toEqual(['Science>AI']);
-    expect(recordResplitRun.mock.lastCall[0].changed).toBe(false);
-  });
-
-  it('skips resplit requests for a topic already at maximum path depth', async () => {
-    const runtime = makeRuntime();
-    splitSentences.mockReturnValue(
-      Array.from({ length: 45 }, (_, index) => ({
-        text: `Sentence ${index}.`,
-        start: index * 12,
-        end: index * 12 + 11,
-      })),
-    );
-    const callLLMWithRetry = vi.fn(async () => 'A>B>C>D>E: 0-44');
-
-    const result = await computeTopics({
-      runtime,
-      record: { html: '<p>x</p>' },
-      callLLMWithRetry,
-    });
-
-    expect(result.topics.map((topic) => topic.name)).toEqual(['A>B>C>D>E']);
     expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
-    expect(recordResplitRun.mock.lastCall[0]).toMatchObject({
-      changed: false,
-      resplitCallCount: 0,
-      llmRequestCount: 0,
-      outcomes: { windowFallback: 0 },
-    });
-  });
-
-  it('accepts parent spelling variants and keeps the original parent spelling', async () => {
-    const runtime = makeRuntime();
-    splitSentences.mockReturnValue(
-      Array.from({ length: 45 }, (_, index) => ({
-        text: `Sentence ${index}.`,
-        start: index * 12,
-        end: index * 12 + 11,
-      })),
-    );
-    const callLLMWithRetry = vi.fn(async ({ prompt }) =>
-      prompt.includes('RESPLIT CONTEXT')
-        ? 'science> a i >Detail: 0-21\nSCIENCE>AI>Other: 22-44'
-        : 'Science>AI: 0-44',
-    );
-
-    const result = await computeTopics({
-      runtime,
-      record: { html: '<p>x</p>' },
-      callLLMWithRetry,
-    });
-
-    expect(result.topics.map((topic) => topic.name)).toEqual([
-      'Science>AI>Detail',
-      'Science>AI>Other',
+    expect(callLLMWithRetry.mock.calls[0][0].prompt).not.toContain('RESPLIT CONTEXT');
+    expect(result.topics).toEqual([
+      { name: 'Science>AI', sentences: Array.from({ length: 45 }, (_, index) => index + 1) },
     ]);
   });
 
-  it('uses parser label equivalence when measuring a chunked resplit', async () => {
-    const runtime = makeRuntime();
-    runtime.maxTopicRangeSentences = 54;
-    splitSentences.mockReturnValue(
-      Array.from({ length: 60 }, (_, index) => ({
-        text: `Sentence ${index}.`,
-        start: index * 12,
-        end: index * 12 + 11,
-      })),
-    );
-    let resplitCalls = 0;
-    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
-      const ids = Array.from(prompt.matchAll(/\{(\d+)\}/g), (match) => Number(match[1]));
-      if (!prompt.includes('RESPLIT CONTEXT')) return `Science>AI: 0-${Math.max(...ids)}`;
-      resplitCalls++;
-      const child = resplitCalls === 2 ? 'DeepSeek' : 'Deep Seek';
-      return `Science>AI>${child}: 0-${Math.max(...ids)}`;
-    });
-
-    await computeTopics({ runtime, record: { html: '<p>x</p>' }, callLLMWithRetry });
-
-    expect(recordResplitRun.mock.lastCall[0]).toMatchObject({
-      outcomes: { subdivided: 0, windowFallback: 1 },
-    });
-  });
-
-  it('separates chunk responses with newlines in verbose resplit logs', async () => {
-    const runtime = makeRuntime();
-    runtime.maxTopicRangeSentences = 40;
-    splitSentences.mockReturnValue(
-      Array.from({ length: 45 }, (_, index) => ({
-        text: `Sentence ${index}.`,
-        start: index * 12,
-        end: index * 12 + 11,
-      })),
-    );
-    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
-      const ids = Array.from(prompt.matchAll(/\{(\d+)\}/g), (match) => Number(match[1]));
-      const lastId = Math.max(...ids);
-      if (!prompt.includes('RESPLIT CONTEXT')) return `Science>AI: 0-${lastId}`;
-      return lastId === 39 ? 'Science>AI>First: 0-38' : 'Science>AI>Second: 0-4';
-    });
-
-    await computeTopics({ runtime, record: { html: '<p>x</p>' }, callLLMWithRetry });
-
-    const rawLog = runtime.log.mock.calls.find(
-      ([stage, details]) => stage === 'topic_ranges_raw_response' && details.scope === 'resplit',
-    );
-    expect(rawLog?.[1].response).toBe('Science>AI>First: 0-38\nScience>AI>Second: 0-4');
-  });
-
-  it('does not record parser or resplit metrics when cancellation wins before primary parsing', async () => {
+  it('does not record parser metrics when cancellation wins before primary parsing', async () => {
     const runtime = makeRuntime();
     const controller = new AbortController();
     runtime.signal = controller.signal;
     recordParserMetric.mockClear();
-    recordResplitRun.mockClear();
     splitSentences.mockReturnValue([
       { text: 'Alpha topic.', start: 0, end: 12 },
       { text: 'Beta topic.', start: 13, end: 24 },
@@ -575,7 +387,6 @@ describe('computeTopics', () => {
     ).rejects.toMatchObject({ name: 'AbortError' });
 
     expect(recordParserMetric).not.toHaveBeenCalled();
-    expect(recordResplitRun).not.toHaveBeenCalled();
   });
 
   it('records a per-chunk failure sample without discarding the sibling chunk that parsed', async () => {
@@ -601,42 +412,6 @@ describe('computeTopics', () => {
     // and is never re-parsed, so there is exactly one success sample.
     expect(primarySamples.filter((sample) => sample.ok)).toHaveLength(1);
     expect(primarySamples.filter((sample) => !sample.ok)).toHaveLength(4);
-  });
-
-  it('does not record a resplit run when cancellation lands after successful refinement', async () => {
-    const runtime = makeRuntime();
-    const controller = new AbortController();
-    runtime.signal = controller.signal;
-    runtime.log.mockImplementation(async (stage) => {
-      if (stage === 'topic_ranges_oversize_refined') {
-        controller.abort();
-        return;
-      }
-      if (controller.signal.aborted) {
-        const error = new Error('Pipeline run was cancelled');
-        error.name = 'AbortError';
-        throw error;
-      }
-    });
-    recordResplitRun.mockClear();
-    splitSentences.mockReturnValue(
-      Array.from({ length: 45 }, (_, index) => ({
-        text: `Sentence ${index}.`,
-        start: index * 12,
-        end: index * 12 + 11,
-      })),
-    );
-    let call = 0;
-    const callLLMWithRetry = vi.fn(async () => {
-      call++;
-      return call === 1 ? 'Science>AI: 0-44' : 'Science>AI>One: 0-21\nScience>AI>Two: 22-44';
-    });
-
-    await expect(
-      computeTopics({ runtime, record: { html: '<p>x</p>' }, callLLMWithRetry }),
-    ).rejects.toMatchObject({ name: 'AbortError' });
-
-    expect(recordResplitRun).not.toHaveBeenCalled();
   });
 });
 

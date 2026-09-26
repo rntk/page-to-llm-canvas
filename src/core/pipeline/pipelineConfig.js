@@ -199,7 +199,6 @@ export function getTopicRangeInputMaxSentences(
 // retries locally. This prevents the old 4 x 3 multiplicative topic budget.
 export const TOPIC_RANGE_STAGE_MAX_RETRIES = 3;
 export const TOPIC_RANGE_PROVIDER_MAX_ATTEMPTS = 1;
-export const TOPIC_RANGE_RESPLIT_PROVIDER_MAX_ATTEMPTS = 3;
 export const SUMMARY_PROVIDER_MAX_ATTEMPTS = 3;
 export const SUMMARY_MAX_MERGE_ROUNDS = 8;
 
@@ -207,7 +206,7 @@ export const SUMMARY_MAX_MERGE_ROUNDS = 8;
 // together they form the provider-facing summary workload.
 export const SUMMARY_CONCURRENCY = 4;
 
-// The primary chunk dispatch and the oversize re-split share this: both are
+// The primary chunk dispatch and the manual topic resplit share this: both are
 // the same provider-facing topic-ranging workload and must be tuned together.
 // Sampling temperature is not set here — it comes from the active provider's
 // per-task configuration, and stays unset (unsent) unless configured.

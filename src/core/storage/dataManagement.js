@@ -8,7 +8,6 @@ import { disposeProcessingLogs } from './processingLog.js';
 import { PROVIDERS_KEY } from '../llm/providers.js';
 import { LLM_METRICS_KEY, LLM_METRICS_EPOCH_KEY } from '../metrics/llm.js';
 import { PARSER_METRICS_KEY } from '../metrics/parser.js';
-import { RESPLIT_METRICS_KEY } from '../metrics/resplit.js';
 import { CHAT_TOOL_METRICS_KEY } from '../metrics/chatTool.js';
 import { PREFER_CONTENT_LANGUAGE_KEY } from '../settings/language.js';
 import { SUMMARIES_DISABLED_KEY } from '../settings/summary.js';
@@ -40,7 +39,7 @@ const DIAGNOSTIC_KEYS = new Set([
   LLM_METRICS_KEY,
   LLM_METRICS_EPOCH_KEY,
   PARSER_METRICS_KEY,
-  RESPLIT_METRICS_KEY,
+  'pagetollm-resplit-metrics', // Removed resplit metrics; may linger on existing installs.
   CHAT_TOOL_METRICS_KEY,
 ]);
 

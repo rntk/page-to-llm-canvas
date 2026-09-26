@@ -1,9 +1,4 @@
 import { recordParserMetric as defaultRecordParserMetric } from '../metrics/parser.js';
-import {
-  createResplitRunStats as defaultCreateResplitRunStats,
-  noteResplitOutcome as defaultNoteResplitOutcome,
-  recordResplitRun as defaultRecordResplitRun,
-} from '../metrics/resplit.js';
 import { parallelMap as defaultParallelMap } from '../llm/concurrency.js';
 import {
   readTopicRangeChunkCheckpoint,
@@ -13,9 +8,6 @@ import {
 export const defaultTopicRangeDependencies = Object.freeze({
   parallelMap: defaultParallelMap,
   recordParserMetric: defaultRecordParserMetric,
-  recordResplitRun: defaultRecordResplitRun,
-  createResplitRunStats: defaultCreateResplitRunStats,
-  noteResplitOutcome: defaultNoteResplitOutcome,
   readCheckpoint: readTopicRangeChunkCheckpoint,
   saveCheckpoint: saveTopicRangeChunkCheckpoint,
 });

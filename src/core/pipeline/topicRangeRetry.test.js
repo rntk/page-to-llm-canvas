@@ -124,8 +124,7 @@ describe('queryTopicRangesWithRetry', () => {
   });
 
   it('single-attempt mode (maxRetries 0) rethrows the first parse error without retry', async () => {
-    // Mirrors resplitSegment: one shot, the caller turns the throw into a
-    // null fallback. No retry, no sleep, regardless of isRetryable.
+    // A zero retry budget propagates the first failure without sleeping.
     const err = new TopicParseError('still one topic');
     const callLLM = vi.fn(async () => 'raw');
     const parse = vi.fn(() => {

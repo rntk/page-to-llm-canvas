@@ -10,6 +10,7 @@ import {
   resetContentCheckpointPatch,
   resetSummaryCheckpointPatch,
   resetSummaryReviewPatch,
+  restoreAfterResplitPatch,
   resumeSummariesTransition,
   splittingTransition,
   summarizingTransition,
@@ -24,6 +25,8 @@ const REVIEW_RESET = {
   summariesIncomplete: false,
 };
 const SUMMARY_CHECKPOINT_RESET = {
+  manualResplitIntent: null,
+  resplitNotice: null,
   topics: [],
   topic_summaries: {},
   topic_summary_index: {},
@@ -125,5 +128,24 @@ describe('recordTransitions', () => {
       progress: { stage: PIPELINE_STAGE.CANCELLED, done: 0, total: 0 },
     });
     expect(errorTransition('boom')).toEqual({ status: PIPELINE_STATUS.ERROR, error: 'boom' });
+  });
+
+  it('restores a record to its pre-resplit completed state with a notice', () => {
+    const previousProgress = { stage: PIPELINE_STAGE.DONE, done: 4, total: 4 };
+    expect(
+      restoreAfterResplitPatch(
+        { topics: [{}, {}], manualResplitIntent: { previousProgress } },
+        'No change.',
+      ),
+    ).toEqual({
+      manualResplitIntent: null,
+      resplitNotice: 'No change.',
+      status: PIPELINE_STATUS.DONE,
+      error: null,
+      progress: previousProgress,
+    });
+    expect(
+      restoreAfterResplitPatch({ topics: [{}, {}], manualResplitIntent: {} }, 'x').progress,
+    ).toEqual({ stage: PIPELINE_STAGE.DONE, done: 2, total: 2 });
   });
 });

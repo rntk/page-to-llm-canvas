@@ -56,3 +56,32 @@ export function publicSummaryRun(run) {
     ...(run?.forcedEmpty === true ? { forcedEmpty: true } : {}),
   };
 }
+
+/**
+ * Converts Skip outcomes finalized into a DONE checkpoint (`forcedEmpty`) back
+ * into the `acceptedFailure` directive, so a run that carries the checkpoint
+ * forward (a scoped Resplit) reuses them instead of retrying failures the user
+ * already accepted. Finalization stamps them `forcedEmpty` again.
+ *
+ * @param {Record<string, object>} summaries
+ * @returns {{summaries: Record<string, object>, hasAcceptedFailure: boolean}}
+ */
+export function reacceptForcedEmptySummaries(summaries) {
+  const result = {};
+  let hasAcceptedFailure = false;
+  for (const [path, summary] of Object.entries(summaries || {})) {
+    const runs = Array.isArray(summary?.runs) ? summary.runs : [];
+    if (!runs.some((run) => run?.forcedEmpty === true)) {
+      result[path] = summary;
+      continue;
+    }
+    const { forcedEmpty: _forcedEmpty, ...rest } = summary;
+    result[path] = {
+      ...rest,
+      runs: runs.map((run) => (run?.forcedEmpty === true ? acceptFailedSummaryRun(run) : run)),
+      acceptedFailure: true,
+    };
+    hasAcceptedFailure = true;
+  }
+  return { summaries: result, hasAcceptedFailure };
+}

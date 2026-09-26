@@ -3,10 +3,24 @@
 
 import { formatPipelineError } from './pipelineRuntime.js';
 import { computeTopics } from '../../../core/pipeline/topicRangesStage.js';
+import { resplitTopicRange } from '../../../core/pipeline/topicRangeResplit.js';
+import {
+  applyTopicResplit,
+  validateResplitTarget,
+} from '../../../core/pipeline/topicResplitApply.js';
+import { groupsToTopics } from '../../../core/pipeline/topicRangeMapping.js';
+import { splitTopicPath } from '../../../shared/runtime/topicPath.js';
 import { finalizeSummariesDisabled, runSummaries } from '../../../core/pipeline/summaryStage.js';
+import { reacceptForcedEmptySummaries } from '../../../core/pipeline/summaryRunMarkers.js';
 import { isCancellationError } from '../../../core/pipeline/cancellation.js';
 import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../../shared/runtime/contracts.js';
-import { errorTransition } from '../../../shared/runtime/recordTransitions.js';
+import {
+  errorTransition,
+  resetSummaryReviewPatch,
+  RESPLIT_NO_CHANGE_NOTICE,
+  restoreAfterResplitPatch,
+  summarizingTransition,
+} from '../../../shared/runtime/recordTransitions.js';
 import {
   getPipelineTextChunkMaxChars,
   getTopicRangeInputMaxSentences,
@@ -177,6 +191,8 @@ export function createPipelineRunner({
     // Keep a minimal runtime available so settings/provider bootstrap failures
     // still follow the normal pipeline error and logging path.
     let runtime = runtimeFactory(runtimeContext);
+    // Record snapshot of a manual resplit that has not written its new topics yet.
+    let pendingResplitRecord = null;
 
     const concurrencyRevisionAtRead = concurrencySettingRevision;
     try {
@@ -223,7 +239,7 @@ export function createPipelineRunner({
       // A stale or missing revision is different: the saved topics are not proven
       // to belong to this content, so rebuild them through computeTopics rather
       // than displaying or summarizing stale data.
-      const resuming = resumePlan.resuming;
+      const resuming = !record.manualResplitIntent && resumePlan.resuming;
       if (resumePlan.rejectionReason) {
         await runtime.log('pipeline_resume_rejected', {
           stage: PIPELINE_STAGE.SUMMARIZING,
@@ -240,15 +256,76 @@ export function createPipelineRunner({
 
       let topics;
       let sentenceTexts;
-      if (resuming) {
+      // Summary work carried into this run: the saved checkpoint when resuming,
+      // or the pruned checkpoint a manual resplit left behind. Null for a fresh
+      // run, which starts from scratch.
+      let carriedCheckpoint = null;
+      let resplitForceFinalize = false;
+      // Any run reusing saved summaries must retain their language policy.
+      if (
+        (resuming || record.manualResplitIntent) &&
+        typeof record.summaryCheckpointPreferContentLanguage === 'boolean'
+      ) {
+        runtime.preferContentLanguage = record.summaryCheckpointPreferContentLanguage;
+      }
+      if (record.manualResplitIntent) {
+        const intent = record.manualResplitIntent;
+        // Until the new topics are written, the saved checkpoint is untouched;
+        // any failure restores the record instead of marking it failed.
+        pendingResplitRecord = record;
+        sentenceTexts = record.sentences;
+        const invalidTarget = validateResplitTarget(record, intent);
+        if (invalidTarget) throw new Error(invalidTarget);
+        await runtime.log('topic_resplit_start', {
+          path: intent.path,
+          startSentence: intent.startSentence,
+          endSentence: intent.endSentence,
+        });
+        const groups = await resplitTopicRange(
+          runtime,
+          {
+            label: splitTopicPath(intent.path),
+            start: intent.startSentence - 1,
+            end: intent.endSentence - 1,
+          },
+          sentenceTexts,
+          callRunLLMWithRetry,
+        );
+        const applied = applyTopicResplit(record, intent, groupsToTopics(groups));
+        if (!applied) {
+          await runtime.log('topic_resplit_no_change', { path: intent.path });
+          await runtime.update(restoreAfterResplitPatch(record, RESPLIT_NO_CHANGE_NOTICE));
+          return;
+        }
+        // Summaries skipped outside the selection stay skipped: re-arm them as
+        // accepted failures so they are reused rather than retried, and let
+        // force-finalize keep their sentences out of ancestor requests as the
+        // original Skip did. Persisted so a restarted run resumes the same way.
+        const { summaries: carriedSummaries, hasAcceptedFailure } = reacceptForcedEmptySummaries(
+          applied.topic_summaries,
+        );
+        topics = applied.topics;
+        carriedCheckpoint = { ...applied, topic_summaries: carriedSummaries };
+        resplitForceFinalize = hasAcceptedFailure;
+        await runtime.update({
+          ...carriedCheckpoint,
+          manualResplitIntent: null,
+          resplitNotice: null,
+          summaryCheckpointContentRevision: record.contentRevision,
+          summaryCheckpointPreferContentLanguage: runtime.preferContentLanguage === true,
+          ...resetSummaryReviewPatch(),
+          forceFinalize: hasAcceptedFailure,
+          ...summarizingTransition({ total: topics.length }),
+        });
+        pendingResplitRecord = null;
+        await runtime.log('topic_resplit_done', {
+          path: intent.path,
+          replacementTopicCount: groups.length,
+        });
+      } else if (resuming) {
         topics = record.topics;
         sentenceTexts = record.sentences;
-        // A resume completes one logical summary run. Keep its language policy
-        // stable even if the global preference changed while the worker was
-        // stopped, so reused and newly generated summaries cannot mix languages.
-        if (typeof record.summaryCheckpointPreferContentLanguage === 'boolean') {
-          runtime.preferContentLanguage = record.summaryCheckpointPreferContentLanguage;
-        }
+        carriedCheckpoint = record;
         const existingSummaries =
           record.topic_summaries && typeof record.topic_summaries === 'object'
             ? record.topic_summaries
@@ -278,20 +355,16 @@ export function createPipelineRunner({
 
       if (runtime.summariesDisabled) {
         await finalizeSummariesDisabled(runtime, topics, {
-          preserveExistingSummaries: resuming,
+          preserveExistingSummaries: carriedCheckpoint !== null,
         });
         return;
       }
 
-      const previousSummaries =
-        resuming && record.topic_summaries && typeof record.topic_summaries === 'object'
-          ? record.topic_summaries
+      const carried = (field) =>
+        carriedCheckpoint?.[field] && typeof carriedCheckpoint[field] === 'object'
+          ? carriedCheckpoint[field]
           : {};
-      const previousSummaryIndex =
-        resuming && record.topic_summary_index && typeof record.topic_summary_index === 'object'
-          ? record.topic_summary_index
-          : {};
-      const forceFinalize = resuming && record.forceFinalize === true;
+      const forceFinalize = resplitForceFinalize || (resuming && record.forceFinalize === true);
       const acceptedMergeFailurePaths =
         forceFinalize && Array.isArray(record.acceptedMergeFailurePaths)
           ? record.acceptedMergeFailurePaths
@@ -300,8 +373,8 @@ export function createPipelineRunner({
         runtime,
         topics,
         sentenceTexts,
-        previousSummaries,
-        previousSummaryIndex,
+        previousSummaries: carried('topic_summaries'),
+        previousSummaryIndex: carried('topic_summary_index'),
         // Cache identity follows the same provider snapshot as request dispatch.
         // Null distinguishes an omitted temperature from an explicit zero.
         inputFingerprint: JSON.stringify([
@@ -309,10 +382,7 @@ export function createPipelineRunner({
           activeProvider?.model ?? null,
           resolveProviderTemperature(activeProvider, LLM_TASK_TYPES.ARTICLE_SUMMARY) ?? null,
         ]),
-        previousSourceSummaryUnits:
-          resuming && record.source_summary_units && typeof record.source_summary_units === 'object'
-            ? record.source_summary_units
-            : {},
+        previousSourceSummaryUnits: carried('source_summary_units'),
         contentRevision:
           typeof record.contentRevision === 'string' && record.contentRevision
             ? record.contentRevision
@@ -330,6 +400,33 @@ export function createPipelineRunner({
       }
 
       const formattedError = formatPipelineError(error);
+      if (pendingResplitRecord) {
+        await runtime.log('topic_resplit_error', { error: formattedError }, { allowAborted: true });
+        // A rejected write may still have committed: the replacement topics
+        // before obsolete summary documents failed to delete, or a no-change
+        // restore. Restore DONE only while storage still holds the unfinished
+        // intent; a record already back at DONE needs nothing more.
+        const persisted = await runtime.read().catch((readError) => {
+          logger.error('failed to inspect record after resplit failure:', readError);
+          return null;
+        });
+        if (persisted?.manualResplitIntent && persisted.status === PIPELINE_STATUS.SPLITTING) {
+          try {
+            await runtime.update(
+              restoreAfterResplitPatch(pendingResplitRecord, `Resplit failed: ${formattedError}`),
+              { allowAborted: true },
+            );
+            // Returning keeps the supervisor from overwriting the restored
+            // record with ERROR.
+            return;
+          } catch (writeError) {
+            // Fall through to ERROR; the kept intent lets Retry re-run it.
+            logger.error('failed to restore record after resplit failure:', writeError);
+          }
+        } else if (persisted?.status === PIPELINE_STATUS.DONE) {
+          return;
+        }
+      }
       // A provider failure can settle just after the signal aborts; let the
       // run-id CAS decide ownership instead of treating it as cancellation.
       await runtime.log('pipeline_error', { error: formattedError }, { allowAborted: true });
