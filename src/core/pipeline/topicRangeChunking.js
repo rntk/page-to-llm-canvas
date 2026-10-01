@@ -43,9 +43,7 @@ export function chunkTopicRangeSentences(
     while (start + lines.length < sentences.length && lines.length < maxSentences) {
       const value = sentences[start + lines.length];
       const sentence = typeof value === 'string' ? value : value?.text;
-      // One pathological sentence (minified data, a data URL, etc.) must not
-      // defeat the request budget. Topic ranging only needs enough of that
-      // indivisible sentence to label it, so preserve both its head and tail.
+      // Bound oversized indivisible sentences while preserving both ends for labeling.
       const line = taggedSentenceLine(lines.length, sentence ?? '', maxChars);
       const addedLength = line.length + (lines.length > 0 ? 1 : 0);
       if (lines.length > 0 && length + addedLength > maxChars) break;

@@ -59,20 +59,16 @@ describe('splitSentences properties', () => {
 
         let lastEnd = 0;
         for (const s of result) {
-          // Check properties of each returned sentence
           expect(typeof s.text).toBe('string');
           expect(typeof s.start).toBe('number');
           expect(typeof s.end).toBe('number');
 
-          // Bounds checks
           expect(s.start).toBeGreaterThanOrEqual(0);
           expect(s.end).toBeLessThanOrEqual(text.length);
           expect(s.start).toBeLessThanOrEqual(s.end);
 
-          // Reconstruct check
           expect(text.slice(s.start, s.end)).toBe(s.text);
 
-          // Order & non-overlapping check
           expect(s.start).toBeGreaterThanOrEqual(lastEnd);
           lastEnd = s.end;
         }
@@ -99,7 +95,6 @@ describe('splitSentences properties', () => {
         const result = splitSentences(text, opts);
         const inputTokens = text.match(/\S+/g) || [];
         const outputTokens = result.flatMap((s) => s.text.match(/\S+/g) || []);
-        // Concatenating the spans' tokens reconstructs the input's tokens exactly.
         expect(outputTokens).toEqual(inputTokens);
       }),
     );
@@ -110,8 +105,7 @@ describe('splitSentences properties', () => {
     fc.assert(
       fc.property(anyTextArb, optsArb, (text, opts) => {
         const result = splitSentences(text, opts);
-        // Weaker than token equality but script-agnostic: still catches any
-        // character deleted, altered, duplicated, or reordered.
+        // Script-agnostic check for dropped, changed, or reordered characters.
         expect(strip(result.map((s) => s.text).join(''))).toBe(strip(text));
       }),
     );

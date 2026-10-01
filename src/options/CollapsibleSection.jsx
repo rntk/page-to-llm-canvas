@@ -1,14 +1,8 @@
 import React from 'react';
 
 /**
- * Foldable section built on native <details>/<summary> — accessible and
- * keyboard-toggleable with no JS state. Defaults to open so existing content
- * stays visible; pass `defaultOpen={false}` for sections that should start
- * collapsed to declutter a busy panel.
- *
- * `variant="section"` renders a top-level metrics section (h2 heading).
- * `variant="field"` renders a lighter, nested group (used for the sub-tables
- * inside a section), matching the plain `.field` / `.note--stacked` styling.
+ * Native collapsible section, open by default. The `field` variant renders a
+ * nested group; `section` renders an h2.
  *
  * @param {object} props
  * @param {React.ReactNode} props.title

@@ -28,9 +28,7 @@ import {
 
 export const CARD_WIDTH = 240;
 export const SUMMARY_CARD_WIDTH = 418;
-// The canvas can zoom out to 0.1, so allow the summary card to grow to 10x its
-// base width. This keeps its on-screen width readable instead of shrinking it
-// into a narrow, excessively tall card at the minimum zoom.
+// At 0.1 zoom, grow summary width up to 10x to keep its screen width readable.
 export const SUMMARY_CARD_MAX_WIDTH = 4180;
 export const COLUMN_GAP = 18;
 export const RAIL_PADDING = 24;
@@ -38,9 +36,7 @@ export const RAIL_PADDING = 24;
 const CARD_HEIGHT = 72;
 const CARD_VERTICAL_GAP = 8;
 const CARD_MIN_CLAMPED_HEIGHT = 56;
-// How far a card may be pushed below the sentences it covers to clear the card
-// above it. Mirrors the rail's own `DENSE_CARD_MAX_NUDGE` (they bound the same
-// kind of correction at the same magnitude, but neither constrains the other).
+// Maximum push below source sentences when clearing the preceding card.
 const CARD_MAX_PUSH = 18;
 
 /**
@@ -196,34 +192,23 @@ export function resolveColumnOverlaps(cards) {
     );
 
     let prevBottom = -Infinity;
-    // Highest measured top seen so far in document order. Cards below it are
-    // measured consistently with their predecessors; cards above it are not.
+    // Highest measured top in document order; earlier positions are inconsistent.
     let measuredFloor = -Infinity;
-    // The previous card's *resolved* top. Cards are emitted in document order,
-    // so none may be laid out above the one before it — including after a
-    // correction, whose result is not a measured position and so is not
-    // represented in `measuredFloor`.
+    // Previous resolved top, including corrections absent from measuredFloor.
     let resolvedFloor = -Infinity;
     ordered.forEach((card, index) => {
       const stackedTop = Math.max(card.top, prevBottom + CARD_VERTICAL_GAP);
-      // A card measured *above* a card that precedes it in document order is
-      // mis-measured, not merely crowded — its position carries no information
-      // worth preserving, so it is stacked without a bound. A card measured
-      // below the floor and overlapping its predecessor is where the bound
-      // applies: it keeps its measured position, give or take `CARD_MAX_PUSH`.
+      // An inverted measurement is discarded; a crowded but ordered card may
+      // move by at most CARD_MAX_PUSH.
       const boundedTop =
         card.top < measuredFloor ? stackedTop : Math.min(stackedTop, card.top + CARD_MAX_PUSH);
-      // Whatever the branch, a card never rises above its predecessor: once an
-      // inversion has forced a correction, the cards after it stay below that
-      // corrected position until their own measurements climb past it again.
+      // Preserve document order even after correcting an inverted measurement.
       const top = Math.max(boundedTop, resolvedFloor);
       measuredFloor = Math.max(measuredFloor, card.top);
       resolvedFloor = top;
       let bottom = Math.max(card.top + card.height, top + CARD_MIN_CLAMPED_HEIGHT);
 
-      // Clip to the next card's measured top when there is room for at least a
-      // minimum-height card; otherwise keep our extent and let the next card
-      // be pushed below us on its own iteration.
+      // Clip before the next card only if the minimum height still fits.
       const next = ordered[index + 1];
       if (next && next.top - CARD_VERTICAL_GAP >= top + CARD_MIN_CLAMPED_HEIGHT) {
         bottom = Math.min(bottom, next.top - CARD_VERTICAL_GAP);
@@ -379,10 +364,7 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
     nodesByDepth.get(node.depth).push(node);
   }
 
-  // A topic with non-contiguous sentences (e.g. a newsletter header/footer
-  // wrapping the body) renders as one card per contiguous run, so fallback
-  // layouts must be computed per run — sharing a per-node layout would stack
-  // the runs on top of each other and stretch them across the gap.
+  // Compute fallback layout per contiguous run; a topic can span disjoint sentences.
   /** @type {Map<number, Array<{node: TopicTreeNode, run: number[], runIndex: number, runKey: string, start: number, end: number}>>} */
   const runEntriesByDepth = new Map();
   /** @type {Map<string, Array<{runKey: string, start: number, end: number}>>} */
@@ -418,9 +400,7 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
   for (let depth = level - 1; depth >= 0; depth -= 1) {
     const runEntries = runEntriesByDepth.get(depth) || [];
     runEntries.forEach((entry) => {
-      // Child sentences are a subset of the parent's, and parent runs are
-      // maximal contiguous blocks, so each child run falls entirely inside
-      // exactly one parent run.
+      // Each child run belongs to exactly one contiguous parent run.
       const childLayouts = Array.from(entry.node.children.values())
         .flatMap((child) => runEntriesByPath.get(child.fullPath) || [])
         .filter((childEntry) => childEntry.start >= entry.start && childEntry.end <= entry.end)
@@ -454,8 +434,7 @@ export function buildTopicCards(topics, selectedLevel, sentenceMetrics) {
         height: CARD_HEIGHT,
       };
       const layout = measuredLayout || fallbackLayout;
-      // splitSentenceRuns returns ascending, contiguous runs, so their bounds
-      // are available directly without spreading a potentially long array.
+      // Runs are sorted, so their first and last sentences give the bounds.
       const startSentence = run.length ? run[0] : 0;
       const endSentence = run.length ? run[run.length - 1] : 0;
 

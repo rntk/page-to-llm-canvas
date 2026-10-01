@@ -6,9 +6,7 @@ import {
   summarizeTopicTree,
 } from './topicTreeMerge.js';
 
-// Summaries are per contiguous run: { runs: [{ sentences, text }] }. A leaf with a
-// single run is the common case; internal nodes return whatever runs
-// summarizeSource produces.
+// Summaries contain one { sentences, text } entry per contiguous run.
 const oneRun = (sentences, text) => ({ runs: [{ sentences, text }] });
 
 describe('splitContiguousRuns', () => {
@@ -288,8 +286,7 @@ describe('buildPartialTopicSummaryIndex', () => {
 
 describe('summarizeTopicTree', () => {
   it('uses the leaf summary for a leaf node without calling summarizeSource', async () => {
-    // One top-level topic with no children: its precomputed per-topic runs are
-    // used as-is; no source-based summary is generated.
+    // A top-level leaf reuses its precomputed runs.
     const topics = [{ name: 'A', sentences: [1, 2] }];
     const { nodes } = buildTopicTree(topics);
     const summarizeSource = vi.fn();
@@ -332,8 +329,7 @@ describe('summarizeTopicTree', () => {
       summarizeSource,
     });
 
-    // Only the internal node (Tech) is summarized from source; the leaves reuse
-    // their per-topic summaries. (Root is skipped — Tech is its single child.)
+    // Only Tech needs source summarization; leaves are precomputed.
     expect(calls).toEqual([{ ids: [1, 2, 3, 4], path: 'Tech' }]);
     expect(index['Tech']).toEqual({
       runs: [{ sentences: [1, 2, 3, 4], text: 'Tech from source' }],
@@ -353,10 +349,7 @@ describe('summarizeTopicTree', () => {
   });
 
   it('reuses each child summary for a non-adjacent run owned by a single child', async () => {
-    // Tech aggregates two non-adjacent occurrences, each wholly one child:
-    // [1,2] is exactly Tech>AI and [10,11] is exactly Tech>HW. Neither run mixes
-    // subtopics, so both reuse their child's summary and summarizeSource is never
-    // called — we do not re-summarize text a subtopic already covers.
+    // Two separate runs each belong to one child, so both reuse child summaries.
     const topics = [
       { name: 'Tech>AI', sentences: [1, 2] },
       { name: 'Tech>HW', sentences: [10, 11] },
@@ -490,9 +483,7 @@ describe('summarizeTopicTree', () => {
   });
 
   it('never summarizes the empty root path, even with multiple top-level domains', async () => {
-    // Each domain has two children so it is a genuine summarize-from-source
-    // anchor (not a delegating single-child node); this keeps the root-skip
-    // assertion independent of the passthrough path.
+    // Each domain has two children and must summarize from source.
     const topics = [
       { name: 'Tech>AI', sentences: [1] },
       { name: 'Tech>HW', sentences: [2] },
@@ -518,8 +509,7 @@ describe('summarizeTopicTree', () => {
       summarizeSource,
     });
 
-    // Tech and Sci are summarized from source; the root, which would re-summarize
-    // the whole document, is never touched.
+    // Tech and Sci summarize from source; the root is skipped.
     expect(seenPaths.sort()).toEqual(['Sci', 'Tech']);
     expect(index['Tech'].runs[0].text).toBe('src Tech');
     expect(index['Sci'].runs[0].text).toBe('src Sci');
@@ -527,8 +517,7 @@ describe('summarizeTopicTree', () => {
   });
 
   it('delegates a single-child node to its child summary instead of regenerating', async () => {
-    // root>Tech>AI, AI a leaf. Tech has one child whose source is identical, so
-    // Tech reuses AI's per-topic runs rather than calling summarizeSource.
+    // Tech has only AI's source, so it reuses AI's runs.
     const topics = [{ name: 'Tech>AI', sentences: [1, 2] }];
     const { nodes } = buildTopicTree(topics);
     const summarizeSource = vi.fn();
@@ -545,8 +534,7 @@ describe('summarizeTopicTree', () => {
   });
 
   it('delegates down a multi-level single-child chain to the deepest leaf anchor', async () => {
-    // Tech>AI>LLM with LLM the only leaf: AI and Tech both cover exactly LLM's
-    // sentences, so both delegate down to LLM's stored summary; no LLM call.
+    // AI and Tech both delegate to LLM's stored summary.
     const topics = [{ name: 'Tech>AI>LLM', sentences: [1, 2] }];
     const { nodes } = buildTopicTree(topics);
     const summarizeSource = vi.fn();
@@ -564,12 +552,8 @@ describe('summarizeTopicTree', () => {
   });
 
   it('reuses a child run but summarizes only the node-own sentences when they sit in a separate run', async () => {
-    // The signature of per-run delegation. Tech>AI owns sentence [5] AND has a
-    // child Tech>AI>LLM ([1,2]); [5] is non-adjacent to [1,2], so AI's source
-    // ([1,2,5]) splits into two runs. Run [1,2] is wholly the LLM child → reused;
-    // run [5] is AI's own content → summarized fresh. summarizeSource is therefore
-    // called with ONLY [5], not AI's full source. Tech (one child, same source)
-    // mirrors AI run-for-run.
+    // AI reuses LLM's [1,2] run and summarizes its own separate [5] run.
+    // Tech delegates both runs to AI.
     const topics = [
       { name: 'Tech>AI', sentences: [5] },
       { name: 'Tech>AI>LLM', sentences: [1, 2] },
@@ -603,10 +587,7 @@ describe('summarizeTopicTree', () => {
   });
 
   it('summarizes a whole run that mixes a child with node-own sentences', async () => {
-    // Tech>AI owns [3] adjacent to its child Tech>AI>LLM ([1,2]); the three form a
-    // single run [1,2,3] that mixes the child with AI's own sentence. A mixed run
-    // is NOT reused — it is summarized fresh over the whole run so the node-own
-    // content is not dropped.
+    // Adjacent child [1,2] and own [3] sentences form a mixed run to summarize.
     const topics = [
       { name: 'Tech>AI', sentences: [3] },
       { name: 'Tech>AI>LLM', sentences: [1, 2] },
@@ -652,8 +633,7 @@ describe('summarizeTopicTree', () => {
 
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledWith({ path: 'Tech', error: boom });
-    // The single mixed run [1,2] was generated; on failure it degrades to empty
-    // text (keeping its position) and retains a durable run-level marker.
+    // Failed mixed runs keep their position and a durable failure marker.
     expect(index['Tech'].runs).toEqual([{ sentences: [1, 2], text: '', error: true }]);
     // Leaves are unaffected by the internal-node failure.
     expect(index['Tech>AI'].runs[0].text).toBe('a');

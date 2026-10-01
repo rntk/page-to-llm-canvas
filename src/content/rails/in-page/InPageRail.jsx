@@ -64,8 +64,7 @@ function RailCard({ card, isFront, onEnter, onLeave, onFocus, onOpen, topicActio
         onFocus={(event) => onFocus(card, event.currentTarget)}
         onPointerDown={() => onFocus(card)}
         onClick={() => onOpen(card)}
-        // Pointer-only twin of the note's title button, which is the card's
-        // keyboard and screen-reader entry point.
+        // The title button provides keyboard and screen-reader access.
         tabIndex={-1}
         aria-hidden="true"
       >
@@ -169,9 +168,7 @@ function getScrollContainerViewportTop(scrollContainer, scrollWindow = window) {
 }
 
 /**
- * Scrolling left in the scroller before it hits its end, or Infinity when the
- * range cannot be measured (or there is nothing to scroll). Only the summary
- * cursor uses it, to stay reachable at the bottom of the article.
+ * Remaining scroll distance, or Infinity when the range is unavailable.
  * @param {Window|Element|null} scrollContainer Scroller the rail follows.
  * @param {Window} scrollWindow Window the rail lives in.
  * @returns {number} Remaining scroll in pixels.
@@ -182,8 +179,7 @@ function getRemainingScroll(scrollContainer, scrollWindow) {
   if (!scroller) return Infinity;
   const viewportHeight = isWindowScroll ? scrollWindow.innerHeight : scroller.clientHeight;
   const maxScrollTop = scroller.scrollHeight - viewportHeight;
-  // A non-positive range means the content fits, or the layout is not measurable
-  // (jsdom-style stubs): either way there is no boundary to glide towards.
+  // No scroll boundary exists when content fits or layout is unavailable.
   if (!(maxScrollTop > 0)) return Infinity;
   const currentTop = isWindowScroll ? scrollWindow.scrollY : scroller.scrollTop;
   return Math.max(0, maxScrollTop - currentTop);
@@ -234,9 +230,7 @@ function SummaryTopicTitle({ card, onEnter, onLeave, onOpen, topicActions }) {
 }
 
 /**
- * Index of the summary to show for the current cursor position. In the gaps
- * between card boxes the cursor has no active card, so we hold the nearest one
- * above it: the summary stays put instead of blanking out at every boundary.
+ * Hold the preceding summary in gaps between card boxes.
  * @param {Array<{id: string, box: {top: number}}>} cards Cards in document order.
  * @param {string|null} activeCardId Card whose box contains the cursor, if any.
  * @param {number} cursorY Cursor position in card-box space.
@@ -262,13 +256,11 @@ function SummaryCursorView({
 }) {
   const [activeCardId, setActiveCardId] = useState(null);
   const [hoveredCardId, setHoveredCardId] = useState(null);
-  // Index rather than the raw cursor position: it only changes at topic
-  // boundaries, so scrolling within a topic causes no re-render at all.
+  // The index changes only at topic boundaries, avoiding scroll renders.
   const [displayIndex, setDisplayIndex] = useState(-1);
   const [enterDirection, setEnterDirection] = useState('down');
   const activeIndexRef = useRef(-1);
-  // Guard repeated scroll writes explicitly: same-value setters can still
-  // produce a follow-up commit after a transition (covered by the Profiler test).
+  // Same-value setters may still commit after a transition.
   const activeCardIdRef = useRef(null);
   const cardsRef = useRef(cards);
   useEffect(() => {
@@ -279,8 +271,7 @@ function SummaryCursorView({
     onHighlightCardRef.current = onHighlightCard;
   }, [onHighlightCard]);
 
-  // Cards arrive sorted by vertical position, so the slices around the shown
-  // one are the topics that precede and follow it in the article.
+  // Sorted cards give preceding and following topics around the shown one.
   const { activeCard, cardsBefore, cardsAfter } = useMemo(() => {
     // Clamp: on a level switch `cards` changes before the next cursor update.
     const index = Math.min(displayIndex, cards.length - 1);
@@ -292,8 +283,7 @@ function SummaryCursorView({
     };
   }, [cards, displayIndex]);
 
-  // The page highlight follows the strictly-active card, so it clears in the
-  // gaps between topics even though the summary card itself stays put.
+  // Clear the page highlight in gaps, even while the summary stays visible.
   const highlightCard = useMemo(
     () => cards.find((card) => card.id === activeCardId) || null,
     [activeCardId, cards],
@@ -336,15 +326,13 @@ function SummaryCursorView({
       nextState.relativeY,
     );
     if (nextIndex !== activeIndexRef.current) {
-      // Slide the incoming summary in from the side it arrives from, so the
-      // swap reads as movement through the article rather than a jump cut.
+      // Slide the incoming summary in the scroll direction.
       if (nextIndex >= 0) {
         setEnterDirection(nextIndex > activeIndexRef.current ? 'down' : 'up');
       }
       activeIndexRef.current = nextIndex;
       setDisplayIndex(nextIndex);
-      // A hovered title moves into the card slot as the page scrolls, which
-      // never fires mouseleave; drop the hover so its highlight can't stick.
+      // Clear hover when scrolling moves a title without firing mouseleave.
       setHoveredCardId(null);
     }
     if (nextState.activeCardId !== activeCardIdRef.current) {
@@ -401,9 +389,7 @@ function SummaryCursorView({
     [cards, hoveredCardId],
   );
 
-  // Hovering a neighbouring title highlights its sentences. Keying the effect on
-  // the card (not the DOM event) also clears the highlight when the hovered card
-  // scrolls out of the list without ever firing a mouseleave.
+  // Card identity clears hover highlights when a title scrolls out of view.
   useEffect(() => {
     if (!hoveredCard) return undefined;
     const highlightFn = onHighlightCardRef.current;
@@ -516,12 +502,8 @@ export default function InPageRail({
   const isNotes = topicLayout !== 'cards';
   const showSummariesDisabledNotice = isSummary && summariesDisabled;
 
-  // Card boxes are laid out in the scroller's content space, while the rail body
-  // is pinned to the viewport by its fixed host. Translating the card track by
-  // the current scroll offset is what brings the boxes for the visible part of
-  // the article opposite their sentences — and it is the only positioning the
-  // rail needs, so its own height never has to match the article's. Chat and
-  // summaries paint no boxes and render no track.
+  // Translate content-space card boxes by scroll offset to align with sentences
+  // while the rail body stays fixed in the viewport.
   useLayoutEffect(() => {
     if (isSummary || isChat) return undefined;
     const target = scrollContainer || scrollWindow;
@@ -539,9 +521,7 @@ export default function InPageRail({
       });
 
       track.style.transform = `translateY(${-effectiveScrollOffset}px)`;
-      // Read by the sticky-title rule, which cannot use real CSS stickiness:
-      // nothing scrolls inside the rail. Written only on change — it
-      // invalidates style for the whole track subtree.
+      // Sticky titles need this value because the rail itself does not scroll.
       const offsetValue = `${effectiveScrollOffset}px`;
       if (offsetValue !== lastOffsetValue) {
         lastOffsetValue = offsetValue;
@@ -588,12 +568,7 @@ export default function InPageRail({
 
   const bringForward = useCallback((card) => setFrontCardId(card.id), []);
 
-  // Every note (or card) is rendered, including those for parts of the article
-  // that are scrolled away, so tabbing can land on one outside the visible band.
-  // Scroll the article to it: the track follows the page, so the focused note
-  // comes into view beside its own sentences. Cards are clipped by the rail
-  // body rather than scrolled (see content-rail.css), which would otherwise
-  // leave the card focused but invisible.
+  // Focus can reach offscreen notes and cards; scroll the article to show them.
   const handleCardFocus = useCallback(
     (card, element) => {
       bringForward(card);
@@ -684,10 +659,7 @@ export default function InPageRail({
             onScrollToCard={onScrollToCard}
           />
         ) : !isNotes ? (
-          // Distinct keys: both layouts render a <div> in this slot, and a
-          // reused node would carry the scroll transform written onto the card
-          // track over to the fixed notes layer, shifting every note up by the
-          // scroll offset on top of the inner track's own transform.
+          // Distinct keys prevent the card track's transform reaching the notes layer.
           <div key="cards" className="pagetollm-rail-track" ref={trackRef}>
             {cards.map((card) => (
               <MemoizedTopicCard

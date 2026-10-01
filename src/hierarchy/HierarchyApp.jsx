@@ -38,9 +38,7 @@ export default function HierarchyApp({
 
   const [prevInitialKey, setPrevInitialKey] = useState(initialKey);
   const [collapsedPaths, setCollapsedPaths] = useState(() => new Set());
-  // `null` means "follow the deepest level" so the view starts fully unfolded
-  // (leaf level selected) and tracks maxLevel until the user picks a level —
-  // important because `topics` (and thus maxLevel) load asynchronously.
+  // `null` follows the deepest level until the user chooses one after topics load.
   const [selectedLevel, setSelectedLevel] = useState(null);
   const [activeSummary, setActiveSummary] = useState(null);
   // Keep the latest state available to the long-lived Escape listener below.
@@ -51,9 +49,7 @@ export default function HierarchyApp({
   }, [activeSummary]);
 
   useEffect(() => {
-    // The hierarchy runs inside an iframe. Pull focus into the iframe and onto
-    // the scrollable body so keyboard scrolling (Page Up/Down, arrow keys, etc.)
-    // works immediately without requiring an extra click.
+    // Focus the iframe's scrollable body so keyboard scrolling works immediately.
     try {
       window.focus();
     } catch (_) {
@@ -82,10 +78,7 @@ export default function HierarchyApp({
     };
   }, [onClose]);
 
-  // Serialize once per record change, not once per render: `record` is stable across
-  // UI renders (only storage writes mint a new object), so keying on the reference
-  // avoids re-stringifying topics on every unrelated re-render while still re-running
-  // on real record updates. The downstream `topics` memo keeps content-dedup via the string.
+  // Serialize on record identity changes; downstream topics memo deduplicates by content.
   const article = projectArticleView(record);
   const topicsJson = useMemo(() => JSON.stringify(record?.topics || null), [record?.topics]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -141,8 +134,7 @@ export default function HierarchyApp({
   const maxLevel = useMemo(() => getMaxTopicLevel(topics), [topics]);
   const effectiveLevel = selectedLevel === null ? maxLevel : selectedLevel;
 
-  // Fold the tree down to `level`: collapse every branch at that depth or deeper
-  // so only levels 0..level stay visible, mirroring the canvas rail's level pick.
+  // Collapse branches at or below `level`, leaving levels 0..level visible.
   const handleSelectLevel = useCallback(
     (level) => {
       setSelectedLevel(level);

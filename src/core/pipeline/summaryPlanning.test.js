@@ -59,9 +59,7 @@ describe('planSummaryWork', () => {
   it('reuses a stored NO_SUMMARY fallback but retries error-flagged entries', () => {
     const plan = planSummaryWork(topics, {
       A: { runs: [{ sentences: [1], text: 'Good A' }] },
-      // The summary stage stores NO_SUMMARY as the original source text, not
-      // an empty run list (which would otherwise be indistinguishable from a
-      // damaged checkpoint).
+      // NO_SUMMARY stores source text; an empty run list suggests damage.
       B: { runs: [{ sentences: [2], text: 'Beta.' }] },
       C: { runs: [{ sentences: [3], text: '', error: true }] }, // failed — retry
     });
@@ -87,9 +85,7 @@ describe('planSummaryWork', () => {
   });
 
   it('reuses an acceptedFailure leaf without re-querying it but carries the marker over', () => {
-    // "Skip" means the leaf is accepted as-is, so it must NOT go pending; the
-    // marker still has to survive the narrowed reused shape or the downstream
-    // force-finalize pass cannot see the failure at all.
+    // Skip reuses the leaf and carries its marker into finalization.
     const plan = planSummaryWork(topics, {
       A: { runs: [{ sentences: [1], text: 'Good A' }] },
       C: {

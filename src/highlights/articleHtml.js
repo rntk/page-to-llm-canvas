@@ -1,21 +1,9 @@
-// Helpers for re-rendering a record's stored article HTML inside the canvas
-// modal. Kept separate from App.jsx so they stay plain functions (testable,
-// and friendly to React Fast Refresh).
-
 /**
- * Re-render the original article markup as faithfully as possible while removing
- * anything that could execute in the extension page. CSP blocks scripts,
- * plugins, framing and form submission; this is defence in depth so the choice
- * to inject stored remote HTML is explicit. Inline `style` attributes and
- * remote `<img>` sources are kept so the article keeps its original look —
- * `img-src` allows `https:` for exactly that reason, which means opening a
- * record does issue image requests to the original host.
+ * Remove executable markup from stored article HTML before rendering it in the
+ * extension page. Images and inline styles remain, so opening a record may
+ * request images from the source page.
  *
- * The stored markup is a source-page snapshot of the picked elements (with
- * non-rendered text pruned for versioned captures), so its URLs are still
- * relative to the *source page*. Re-rendered inside the
- * extension origin they would resolve against `chrome-extension://<id>/` and
- * 404, which is why `sourceUrl` is resolved in here.
+ * Resolve relative URLs against the source page instead of the extension origin.
  * @param {string} html Stored article HTML.
  * @param {string} [baseUrl] The record's source URL, used to resolve relative
  *   `src`/`href`/`srcset` values. Omitted: URLs are left exactly as stored.
@@ -27,12 +15,9 @@ export function sanitizeArticleHtml(html, baseUrl) {
     doc
       .querySelectorAll('script, style, noscript, iframe, object, embed, link, meta, base')
       .forEach((el) => el.remove());
-    // Before the attribute pass below, which is what neutralizes anything a
-    // promoted lazy-loading attribute could smuggle into `src`.
+    // Validate attributes after promoting lazy image sources.
     resolveArticleUrls(doc, baseUrl);
-    // Forms can wrap article content, so unwrap them rather than dropping the
-    // subtree. Submission is already dead: the CSP sets `form-action 'none'`
-    // and the attribute pass below strips `action`/`formaction`.
+    // Preserve form contents; the extension CSP blocks submission.
     doc.querySelectorAll('form').forEach((el) => el.replaceWith(...el.childNodes));
     doc.querySelectorAll('*').forEach((el) => {
       for (const attr of Array.from(el.attributes)) {
@@ -53,10 +38,7 @@ export function sanitizeArticleHtml(html, baseUrl) {
   }
 }
 
-// Attributes holding a single URL, and the lazy-loading attributes that hold
-// the real one while `src` carries a placeholder. Only the widespread spellings
-// are promoted: an unknown `data-*` name is as likely to be a tracking id as an
-// image URL.
+// Promote only known lazy source attributes; other data attributes may be IDs.
 const URL_ATTRIBUTES = ['src', 'href', 'poster'];
 const SRCSET_ATTRIBUTES = ['srcset', 'imagesrcset'];
 const LAZY_SRC_ATTRIBUTES = ['data-src', 'data-lazy-src', 'data-original'];
@@ -65,11 +47,8 @@ const LAZY_SRCSET_ATTRIBUTES = ['data-srcset', 'data-lazy-srcset'];
 /**
  * Resolve every URL in the parsed article against the record's source page.
  *
- * Relative (`/img/x.jpg`) and protocol-relative (`//cdn/x.jpg`) values are the
- * ones that matter: inside the extension origin the first 404s and the second
- * resolves to a `chrome-extension://cdn/...` host that cannot exist. Absolute
- * URLs round-trip unchanged. A no-op without a usable `baseUrl`, so records
- * stored without a source URL keep their markup verbatim.
+ * Relative and protocol-relative URLs otherwise resolve against the extension
+ * origin. Leave attributes untouched without a usable base URL.
  * @param {Document} doc Parsed article document.
  * @param {string} [baseUrl] Record source URL.
  */
@@ -91,12 +70,8 @@ function resolveArticleUrls(doc, baseUrl) {
 /**
  * Move a lazy-loading image's real source into `src`/`srcset`.
  *
- * The script that would have done this at page load was stripped above, so an
- * untouched lazy image renders its placeholder (or nothing) forever. Only an
- * absent or `data:` placeholder `src` is replaced — a real `src` is the
- * author's own fallback and stays. The lazy attributes are then dropped: they
- * are spent, and leaving them would keep a URL the attribute pass below does
- * not vet.
+ * Replace only an absent or `data:` placeholder `src`; preserve a real fallback.
+ * Remove the lazy attributes after promotion.
  * @param {Element} el An `img` or `source` element.
  */
 function promoteLazySources(el) {
@@ -147,11 +122,8 @@ function absolutizeSrcset(value, baseUrl) {
 /**
  * Split a `srcset` into its candidates, following the attribute's own grammar.
  *
- * A candidate's URL runs to the next whitespace, so it may legitimately contain
- * commas — `data:image/png;base64,AAAA 1x` is one candidate, not two. Only a
- * comma *after* the URL separates candidates. Splitting the raw attribute on
- * every comma would cut such a URL in half and resolve the tail as its own
- * (broken) image.
+ * URLs can contain commas, as in `data:image/png;base64,AAAA 1x`, so splitting
+ * the raw attribute on commas would break valid candidates.
  * @param {string} value `srcset` attribute value.
  * @returns {Array<{url: string, descriptor: string}>}
  */

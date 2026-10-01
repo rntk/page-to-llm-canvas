@@ -38,9 +38,7 @@ ${UNTRUSTED_CONTENT_TAIL}`,
 }
 
 /**
- * Characters a synthesis payload spends before any finding text: the question
- * and the JSON scaffolding are repeated in every request at every merge level,
- * so they must be reserved rather than assumed small.
+ * Reserve repeated question and JSON overhead before finding text.
  * @param {string} question User question, carried by every synthesis request.
  * @param {number} groupSize Findings the payload will hold.
  */
@@ -50,9 +48,7 @@ function synthesisOverheadChars(question, groupSize) {
 }
 
 /**
- * Smallest synthesis payload this question can produce: its own overhead plus
- * the floor every merged finding is entitled to. A budget below this cannot be
- * met by trimming findings, so the turn must be rejected rather than sent.
+ * Minimum payload size before findings can be trimmed any further.
  * @param {string} question User question.
  */
 export function minimumSynthesisChars(question) {
@@ -63,12 +59,8 @@ export function minimumSynthesisChars(question) {
 }
 
 /**
- * Splits chunk findings into groups that each fit one synthesis request.
- *
- * A group is only closed once it holds SYNTHESIS_GROUP_MIN_SIZE findings, so
- * every level except its remainder at least halves the input and the merge
- * loop cannot stall — even when the arithmetic below is defeated by JSON
- * escaping or unusually wide line numbers.
+ * Group findings within the payload budget. Groups retain at least two findings
+ * so each merge level makes progress, except for a carried remainder.
  *
  * @param {string} question User question.
  * @param {object[]} replies Findings to merge.
@@ -99,11 +91,8 @@ export function groupSynthesisReplies(question, replies, maxChars) {
 }
 
 /**
- * Shrinks one group's findings until the payload actually fits. The per-reply
- * estimate cannot know how wide the line numbers are or how much JSON escaping
- * a finding needs, so the measured payload is the authority; a group is never
- * split to make it fit, because splitting below SYNTHESIS_GROUP_MIN_SIZE would
- * stall the merge.
+ * Trim findings to fit the measured JSON payload; splitting a pair would stall
+ * the merge.
  * @param {string} question User question.
  * @param {object[]} group Findings merged by one request.
  * @param {number} capacity Characters the payload may occupy.
@@ -128,9 +117,7 @@ function fitSynthesisGroup(question, group, capacity) {
 }
 
 /**
- * Trims one finding to its share of a synthesis payload. The marker keeps the
- * cut visible to the model, which must not present a truncated finding as a
- * complete answer.
+ * Trim a finding with a visible marker so the model knows it is incomplete.
  * @param {string} reply Finding text.
  * @param {number} maxChars Characters this finding may occupy.
  */

@@ -48,11 +48,7 @@ function collectRenderedText(node, root, contentWindow, parts) {
 }
 
 /**
- * Text-only counterpart to {@link collectRenderedText} for UI snippets.
- * Reuses the same rendered-text predicates so toolbar labels cannot drift
- * from the submitted capture text. Stops descending once `maxLength`
- * characters have been collected, so large articles are not walked fully
- * for a 30/120-char label.
+ * Read UI snippets with the capture text rules, stopping at `maxLength`.
  * @param {Node} root Subtree to read.
  * @param {Window} [contentWindow] Window containing the subtree.
  * @param {number} [maxLength] Collapsed characters to collect before stopping.
@@ -93,16 +89,11 @@ export function getRenderedText(
 
   const parts = [];
   let collapsedLength = 0;
-  // The joined output is collapsed and trimmed by callers, so leading
-  // whitespace contributes nothing and adjacent whitespace runs merge into
-  // one. Treat the start as trailing a space so leading whitespace and
-  // no-op boundaries cost nothing instead of each consuming budget.
+  // Ignore leading whitespace and collapsed boundaries in the snippet budget.
   let endsWithSpace = true;
   let truncated = false;
 
-  // Account for an emitted raw string by the length it contributes to the
-  // final collapsed output, merging whitespace runs with the output so far
-  // instead of counting every node and boundary attempt separately.
+  // Count only the text surviving whitespace collapse.
   function accountCollapsed(value) {
     const collapsed = value.replace(/\s+/g, ' ');
     const addition = endsWithSpace ? collapsed.replace(/^ /, '') : collapsed;
@@ -186,8 +177,7 @@ export function buildCapture(
     capturedRoots.push(root);
     const rootText = [];
     collectRenderedText(root, root, contentWindow, rootText);
-    // Boundary newlines are structural separators, so do not leak the one
-    // emitted after the final block in a root into the canonical text.
+    // Drop the trailing structural newline from each root.
     textParts.push(rootText.join('').replace(/^\n+|\n+$/g, ''));
   }
   return {

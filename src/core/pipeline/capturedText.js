@@ -1,6 +1,4 @@
-// Normalization for text captured from the live DOM. The browser-side capture
-// has already resolved markup, entities, CSS, and layout visibility, so this
-// module must treat every input character as literal text.
+// Captured DOM text has resolved markup and visibility; treat it as literal text.
 
 function isWhitespace(ch) {
   if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f' || ch === '\v') {
@@ -62,7 +60,6 @@ function filterUnicodeTags(out) {
     const isTag = codePoint >= 0xe0000 && codePoint <= 0xe007f;
 
     if (codePoint === 0x1f3f4) {
-      // Discard any prior unterminated tag run before starting a new flag.
       discardPendingTags();
       inFlagContext = true;
       for (let offset = 0; offset < unitLength; offset += 1) {
@@ -78,10 +75,10 @@ function filterUnicodeTags(out) {
           inFlagContext = false;
         }
       } else {
-        // Tag outside a flag context is stripped.
+        // Strip tag characters outside a flag sequence.
       }
     } else {
-      // Non-tag, non-flag: any pending unterminated tag run is invalid and discarded.
+      // Discard an unterminated tag run before ordinary text.
       discardPendingTags();
       inFlagContext = false;
       for (let offset = 0; offset < unitLength; offset += 1) {
@@ -90,7 +87,6 @@ function filterUnicodeTags(out) {
     }
     i += unitLength;
   }
-  // Trailing tags without a terminator are discarded (buffer not flushed).
   return filteredOut;
 }
 

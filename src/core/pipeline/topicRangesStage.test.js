@@ -9,11 +9,7 @@ import { markCancellation } from './cancellation.js';
 import { TRUNCATED_RESPONSE_ERROR } from '../llm/completionStatus.js';
 import { makeRuntime as makePipelineRuntime } from '../../../test/fakes/pipelineFixtures.mjs';
 
-// Stand-in that honors both `warmupFirst` and `stopBurst`, mirroring the real
-// parallelMap's dispatch shape. It must model `warmupFirst`: a serial-only
-// stand-in stops after the first item either way, so a stage that dropped
-// `warmupFirst: true` would still look correct here while really releasing the
-// whole burst to the provider.
+// Model both warmup and burst dispatch so a missing `warmupFirst` is observable.
 const parallelMap = vi.fn(async (items, limit, fn, { warmupFirst = false, stopBurst } = {}) => {
   const results = new Array(items.length);
   let next = 0;
@@ -23,8 +19,7 @@ const parallelMap = vi.fn(async (items, limit, fn, { warmupFirst = false, stopBu
     if (stopBurst && stopBurst(results[0], items[0], 0)) return results;
     next = 1;
   }
-  // Without a warmup the first `limit` items are all in flight before any
-  // result can stop the burst; stopBurst only prevents the *next* dequeue.
+  // Without warmup, `limit` items launch before stopBurst can act.
   const workerCount = Math.min(Math.max(limit, 1), Math.max(items.length - next, 1));
   await Promise.all(
     Array.from({ length: workerCount }, async () => {
@@ -216,8 +211,7 @@ describe('computeTopics', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Retry backoff is real (2s/4s/8s) — run it instantly so the retry-scope
-    // tests below don't spend 14 seconds sleeping.
+    // Skip the 2s/4s/8s backoff during retry-scope tests.
     setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn) => {
       if (typeof fn === 'function') fn();
       return 0;
@@ -613,9 +607,7 @@ describe('topic-ranges incremental retry', () => {
       ],
     });
 
-    // The successful sibling is checkpointed after the first parse round,
-    // before the retry loop exhausts. Later retries may refresh the same
-    // checkpoint, but durability must not depend on reaching this catch.
+    // Checkpoint the successful sibling before retries exhaust.
     expect(
       runtime.update.mock.calls.filter(([patch]) => patch.topic_range_chunks).length,
     ).toBeGreaterThan(1);
@@ -623,9 +615,7 @@ describe('topic-ranges incremental retry', () => {
 
   it('never checkpoints a chunk whose response the provider truncated', async () => {
     const runtime = makeRuntime();
-    // callLLMWithRetry rejects a truncated response rather than returning its
-    // partial text, so the chunk stays pending instead of being parsed into
-    // coverage the model never produced.
+    // A truncated response leaves its chunk pending; partial text is not parsed.
     const callLLMWithRetry = vi.fn(async ({ prompt }) => {
       if (isLongChunkPrompt(prompt)) return longChunkResponse();
       throw new Error(TRUNCATED_RESPONSE_ERROR);

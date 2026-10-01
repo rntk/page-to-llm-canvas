@@ -1,17 +1,12 @@
 import { createRoot } from 'react-dom/client';
 import { createLoadToken } from './recordFetch.js';
-// The rail's internal CSS ships with the lazily loaded rail chunk instead of
-// the manifest's content_scripts stylesheets, so pages that never open a rail
-// never parse it. Imported as strings (`?inline`) rather than as side-effecting
-// CSS imports: a content script has no bundler-managed document to inject into,
-// and we want the sheet's lifetime tied to the rail surface.
+// ?inline supplies CSS text for a style node managed over the rail's lifetime.
 import contentRailCss from '../../../extension/styles/content-rail.css?inline';
 import chatCss from '../../../extension/styles/chat.css?inline';
 
 export const RAIL_STYLE_ELEMENT_ID = 'pagetollm-rail-styles';
 
-// Concatenated in the order the manifest used to declare them, so the rail
-// rules keep winning over the chat defaults they were written to override.
+// Keep rail rules after chat defaults so their overrides win.
 const RAIL_STYLES = `${chatCss}\n${contentRailCss}`;
 
 /**
@@ -26,13 +21,8 @@ export function ensureRailStyles(contentDocument) {
   if (!parent) return;
   const style = contentDocument.createElement('style');
   style.id = RAIL_STYLE_ELEMENT_ID;
-  // A host page style-src does not apply here: content scripts run in an
-  // isolated world, and both engines exempt style nodes a content script
-  // inserts. Keep this as textContent — Firefox propagates the extension
-  // principal through textContent but not through innerText, which is the one
-  // way to lose the exemption (bugzilla 1415352, 1822067). For the same reason
-  // the sheet must stay free of url()/@font-face/@import: subresources it
-  // references are still fetched under the page CSP.
+  // Firefox retains the extension principal for textContent, unlike innerText.
+  // CSS subresources still follow the page CSP; avoid url()/@font-face/@import.
   style.textContent = RAIL_STYLES;
   parent.appendChild(style);
 }
@@ -74,19 +64,16 @@ export function createRailSurfaceManager({
   }
 
   function createSurface({ state, youtube = false, onTeardown } = {}) {
-    // XML/SVG documents do not expose a body. Bail out before creating or
-    // appending anything so an unsuccessful mount cannot leak a rail host.
+    // XML/SVG documents lack a body; do not create an orphan host.
     if (!contentDocument.body) return null;
 
-    // A controller should normally close through the coordinator first, but
-    // keep this ownership boundary safe for direct/future callers as well.
+    // Protect this ownership boundary for direct callers too.
     if (activeRailController) {
       const currentLoadToken = loadingTokenHolder.current;
       close();
       loadingTokenHolder.current = currentLoadToken;
     }
-    // A previous content-script lifetime can leave its host behind. Remove only
-    // hosts that are not owned by a live manager in this module instance.
+    // Remove hosts abandoned by an earlier content-script lifetime.
     removeStaleRailElements(contentDocument);
     ensureRailStyles(contentDocument);
     const railEl = contentDocument.createElement('aside');
@@ -98,14 +85,10 @@ export function createRailSurfaceManager({
     const railRoot = rootFactory(railEl);
     let railClosed = false;
     let railSurfaceTracked = false;
-    // Captured before the reserve padding is applied, so overflow the page had
-    // on its own is never mistaken for overflow we caused.
+    // Distinguish existing overflow from overflow caused by rail padding.
     let overflowedBeforeReserve = false;
 
-    // A body with an explicit width under content-box grows by the reserve
-    // padding instead of yielding space to the rail. Flip its box model only
-    // while the padding is what pushes the page into horizontal overflow, and
-    // re-evaluate whenever the reserve width changes.
+    // Explicit content-box widths can overflow when padded; adjust only then.
     const syncRailReserveFit = () => {
       const body = contentDocument.body;
       if (railClosed || overflowedBeforeReserve) return;

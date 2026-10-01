@@ -193,10 +193,7 @@ export function useCanvasAlignment({ anchorRef, viewport, flashFocus, deps }) {
     [anchorRef, wrapElRef, setTransformNow, translateRef, scaleRef, flashFocus],
   );
 
-  // Layout effect (synchronous, pre-paint): the reading column's left edge is a
-  // function of the wrap padding, which is set inline from `scale` in the same
-  // commit, so it is already settled here — no rAF race against the old code's
-  // fixed two-frame wait.
+  // Wrap padding commits with scale, so align before paint from settled geometry.
   useLayoutEffect(() => {
     const prev = stateRef.current;
     const depsKey = JSON.stringify(deps);

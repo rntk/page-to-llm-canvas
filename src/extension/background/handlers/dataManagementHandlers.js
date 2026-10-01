@@ -1,10 +1,7 @@
 import { MSG } from '../../../shared/runtime/messages.js';
 
 /**
- * Handlers for whole-extension data operations. Deliberately its own group:
- * the full reset spans the pipeline registry, the chat request registry, every
- * metrics queue and authoritative storage, so folding it into any single
- * capability bucket would re-couple those capabilities to each other.
+ * Whole-extension data handlers. Reset spans active jobs, metrics queues, and storage.
  *
  * @param {object} deps
  * @param {{activeJobPromises: Function, cancelAll: Function}} deps.pipelineSupervisor
@@ -36,19 +33,13 @@ export function createDataManagementHandlers({
         const pipelineJobs = pipelineSupervisor.activeJobPromises();
         pipelineSupervisor.cancelAll();
         chatService.cancelAll();
-        // Snapshot after the aborts, matching the original inline spread: an
-        // abort is synchronous, so a cancelled job is still in this set and
-        // must be awaited to reach its terminal write.
+        // Snapshot after aborts; cancelled jobs still need to finish terminal writes.
         const completionJobs = chatService.activeCompletionJobs();
 
-        // Let cancelled work reach its terminal metric/log writes, then drain
-        // each metrics queue before the authoritative storage clear. This keeps
-        // an old request from restoring data immediately after reset returns.
+        // Drain cancelled work and metrics before clearing storage so old writes
+        // cannot restore data after reset.
         await Promise.allSettled([...pipelineJobs, ...completionJobs]);
-        // Metric clears are queued after the cancelled work's terminal writes.
-        // Let every queue settle even when a best-effort preliminary clear
-        // fails, then perform the authoritative full reset. Otherwise one
-        // failed metric write would leave all extension data in place.
+        // A failed preliminary metric clear must not prevent the full reset.
         await Promise.allSettled(metricsClears.map((clear) => clear()));
         await clearAllExtensionData();
         return { ok: true };

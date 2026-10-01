@@ -1,20 +1,6 @@
-// Low-level storage primitives shared by storage.js (records) and
-// chatStorage.js (per-article chats). Kept in an internal module so both
-// aggregates can serialize their writes on the same global mutation queue
-// without an import cycle between them. This module must not import from
-// storage.js or chatStorage.js.
-//
-// The chrome.storage.local plumbing itself lives in the realm-neutral
-// src/shared/runtime/localStore.js adapter, which the UI bundles and shared
-// settings modules use directly; the re-exports below are the worker-facing
-// names for that one implementation.
-//
-// The aliasing is deliberate rather than transitional. getLocal/setLocal are
-// the established vocabulary at ~45 call sites across storage.js,
-// chatStorage.js, dataManagement.js, metricsStore.js and llm/providers.js;
-// renaming them to match the adapter would churn five modules to delete one
-// line here. Import the short names from this module inside src/core/, and the
-// getLocalItems/... names from the adapter everywhere else.
+// Shared storage primitives and mutation queue for records and chats, avoiding
+// an import cycle. Worker-facing aliases use the browser adapter in
+// shared/runtime/localStore.js.
 
 export {
   getLocalItems as getLocal,

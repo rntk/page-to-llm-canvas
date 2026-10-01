@@ -1,5 +1,4 @@
-// Pipeline entry point: clean HTML, split sentences, find topic ranges, and
-// generate per-topic summaries. This runs in the service-worker context.
+// Service-worker pipeline: clean HTML, split sentences, find topics, summarize.
 
 import { formatPipelineError } from './pipelineRuntime.js';
 import { computeTopics } from '../../../core/pipeline/topicRangesStage.js';
@@ -29,20 +28,9 @@ import { resolveMaxOutputTokens } from '../../../core/llm/outputBudget.js';
 import { resolveProviderTemperature } from '../../../core/llm/temperatures.js';
 import { LLM_TASK_TYPES } from '../../../core/metrics/llm.js';
 
-// A resumable checkpoint must carry the sentence texts its topics reference.
-// If `sentences` is missing/short, out-of-range sentence ids get silently
-// dropped and a blank summary can be finalized as "done". Refuse the
-// checkpoint in place rather than recomputing topics, which would erase any
-// valid summaries that survived a partial write.
-//
-// Two failure classes are handled differently. A structurally malformed
-// topic — no usable nonblank string `name`, `sentences` not an array, or an
-// out-of-range sentence id — refuses the WHOLE checkpoint even if other
-// topics are healthy. A well-formed topic that simply cannot yield a summary
-// is tolerated per topic: that covers both an empty `sentences` array and
-// sentences resolving to blank source text, which reach summaryStage the same
-// way and finalize as an empty entry. The checkpoint is refused only when NO
-// topic can yield a summary.
+// Reject malformed topics or missing sentence references without erasing saved
+// summaries. Empty topics may coexist with valid ones, but at least one topic
+// must resolve to nonblank source text.
 export function isSummaryCheckpointComplete(record) {
   if (!Array.isArray(record?.topics) || record.topics.length === 0) return false;
   if (!Array.isArray(record.sentences) || record.sentences.length === 0) return false;
@@ -69,11 +57,7 @@ export function isSummaryCheckpointComplete(record) {
 }
 
 /**
- * A summary checkpoint is tied to the content revision whose sentences and
- * topics it references.  Missing revisions are deliberately not treated as
- * compatible: records without revisions cannot prove that their checkpoint was
- * derived from the current content, so they take the fresh topic-building
- * path instead of reusing potentially stale summaries.
+ * Reuse a summary checkpoint only when its revision matches current content.
  *
  * @param {object} record
  * @returns {boolean}
@@ -91,9 +75,8 @@ export function isSummaryCheckpointRevisionCurrent(record) {
 }
 
 /**
- * Purely classifies the record snapshot before the orchestrator performs any
- * resume-side effects. A current-but-malformed checkpoint is preserved for an
- * explicit Reprocess decision; a stale checkpoint is rebuilt from source.
+ * Classify resume before side effects. Preserve malformed current checkpoints
+ * for explicit reprocessing; rebuild stale checkpoints from source.
  *
  * @param {object} record
  * @returns {{resuming: boolean, rejectionReason: string|null}}
@@ -104,10 +87,7 @@ export function planResume(record) {
     isSummarizing && Array.isArray(record?.topics) && record.topics.length > 0;
   const revisionCurrent = isSummaryCheckpointRevisionCurrent(record);
   const checkpointComplete = hasCheckpointTopics && isSummaryCheckpointComplete(record);
-  // A current checkpoint revision means this record already reached the
-  // summary boundary. Preserve it on every structural failure, including a
-  // missing/empty topic list, rather than falling into computeTopics and
-  // destructively clearing any summary work that survived the malformed write.
+  // Preserve any current checkpoint, even with missing topics, for review.
   if (isSummarizing && revisionCurrent && !checkpointComplete) {
     return {
       resuming: false,

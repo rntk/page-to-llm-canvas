@@ -1,8 +1,4 @@
-// Record-level metadata primitives: the small `:meta` document every record
-// write goes through, the schema-version guards that decide whether a stored
-// document is still readable (or belongs to a newer build and must be kept), and the snippet derivation the index projection
-// caches. Kept below the index, log and reconciliation modules so all three can
-// share them without importing each other.
+// Shared :meta document helpers, schema guards, and index snippet derivation.
 import { getLocal } from './primitives.js';
 import { recordMetaStorageKey as metaStorageKey } from './keys.js';
 

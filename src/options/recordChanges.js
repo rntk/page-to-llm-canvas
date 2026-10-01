@@ -1,30 +1,12 @@
-// Browser-backed "records may have changed" subscription for the options page.
-//
-// `RecordsSection` used to reach `globalThis.chrome.storage.onChanged` directly
-// from its effect. The other options sections take their storage boundary as an
-// injected capability (`store.subscribe`, `fileHost`, `pageHost`), so this
-// module provides the same for record refreshes: consumers take a
-// `subscribeRecords(onChange) => unsubscribe` function and never see the raw
-// `(changes, areaName)` event shape, which also makes them testable with a
-// plain fake.
-//
-// The watched keys mirror what the section filtered inline before:
-// - `local`: the record index plus every per-record key, and
-// - `session`: the pipeline-failure breaker entry (list responses project
-//   session-backed pipeline failures as errors).
-//
-// Key spellings are duplicated here deliberately: the canonical owners live in
-// worker-side modules (`src/core/storage/recordIndex.js`,
-// `src/extension/background/pipelineFailureBreaker.js`) that the options
-// bundle does not import, and the previous inline filter spelled them out too.
+// Watch local records and session pipeline failures, both of which affect the
+// records list. Keys are copied from worker modules to keep them out of this bundle.
 
 const RECORD_INDEX_KEY = 'pagetollm:index';
 const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
 const PIPELINE_FAILURE_BREAKER_KEY = 'pagetollm:pipeline-failure-breakers';
 
 /**
- * Pure predicate over one `chrome.storage.onChanged` event. Kept separate so
- * the filtering stays unit-testable without a browser event.
+ * Whether one storage event may have changed the records list.
  *
  * @param {Object|null} changes Chrome change records, keyed by storage key.
  * @param {string} areaName Storage area the event fired for.
@@ -44,10 +26,8 @@ export function isRecordStorageChange(changes, areaName) {
 }
 
 /**
- * Calls `onChange` whenever a storage event may have left the records list
- * stale. Safe to call outside an extension context (or without a chrome mock):
- * with no `chrome.storage.onChanged` present this is a no-op whose returned
- * unsubscribe is still safe to call.
+ * Subscribe to relevant storage changes. Returns a safe no-op unsubscribe
+ * when the Chrome storage event is unavailable.
  *
  * @param {function(): void} onChange Refresh trigger, takes no arguments.
  * @returns {function(): void} Unsubscribe.

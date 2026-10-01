@@ -1,9 +1,6 @@
-// The record index: a cache, never the source of truth. It holds one
-// lightweight projection per record so listings never read the full payload
-// documents, plus the two repair strategies that rebuild those projections
-// from the authoritative `:meta` documents when an incremental write is
-// interrupted — narrow (one record, on write failure) and throttled-wide (every
-// indexed record, on a listing that notices drift).
+// Record listing cache: lightweight projections from authoritative :meta
+// documents. Repair one entry after a failed write, or rebuild the index when
+// a listing detects drift.
 import { getLocal, setLocal, queuedUpdate } from './primitives.js';
 import { recordMetaStorageKey as metaStorageKey } from './keys.js';
 import { buildRecordSnippet, hasOwn, isCurrentRecordMeta } from './recordMeta.js';

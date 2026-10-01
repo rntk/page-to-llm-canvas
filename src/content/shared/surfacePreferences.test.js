@@ -1,8 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// surfacePreferences touches chrome.storage as soon as init()/a mount runs, so
-// stub chrome before import. Importing alone must not read storage (see below).
+// Stub chrome before import; storage access starts on init or mount.
 let storageChangeListener = null;
 let themeValue;
 let highlightValue;
@@ -39,8 +38,7 @@ const {
   registerThemedSurface,
 } = await import('./surfacePreferences.js');
 
-// Asserted before any test can call init(): the module was imported above and
-// must not have started any storage work on its own.
+// Import alone must not read storage.
 const readsAtImportTime = chrome.storage.local.get.mock.calls.length;
 
 describe('surfacePreferences', () => {
@@ -103,9 +101,7 @@ describe('surfacePreferences', () => {
   });
 
   it('keeps an in-flight highlight-color read alive when only the theme changes', async () => {
-    // Generations are per preference, so a theme-only change event must not
-    // discard the pending read for the highlight color (which would leave it at
-    // the default until the next mount).
+    // A theme change must not invalidate a pending highlight-color read.
     const deferredReads = [];
     const realGet = chrome.storage.local.get.getMockImplementation();
     chrome.storage.local.get.mockImplementation((key, cb) => {
@@ -119,8 +115,7 @@ describe('surfacePreferences', () => {
     try {
       trackMountedSurface(); // attaches the listener and starts both reads
 
-      // The reads defer before touching storage, so let both get in flight
-      // before invalidating one of them.
+      // Let both deferred reads start before invalidating one.
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(deferredReads.length).toBe(2);
 
@@ -128,8 +123,7 @@ describe('surfacePreferences', () => {
       deferredReads.forEach((resolve) => resolve());
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      // The newer change event wins for the theme; the untouched preference
-      // still lands from its own read.
+      // The change wins for theme; the other read still completes.
       expect(el.getAttribute('data-theme')).toBe('dark');
       expect(el.style.getPropertyValue('--pagetollm-highlight-base-color')).toBe('#00ff00');
     } finally {
@@ -160,9 +154,7 @@ describe('surfacePreferences', () => {
   });
 
   it('clears the highlight vars from documentElement only when the last surface unmounts', () => {
-    // The vars live on the host page's documentElement (that is where
-    // ::highlight(pagetollm-sentence) resolves them), so they are the one piece
-    // of our styling that outlives the surfaces unless teardown removes it.
+    // Highlight variables on documentElement must be cleared at teardown.
     const docStyle = document.documentElement.style;
     const HIGHLIGHT_VARS = [
       '--pagetollm-highlight-base-color',
@@ -185,9 +177,7 @@ describe('surfacePreferences', () => {
   });
 
   it('does not repaint documentElement when a storage read resolves after teardown', async () => {
-    // Mount-then-close leaves a read in flight past the moment the vars are
-    // cleared. Without a generation bump on teardown that read would re-apply
-    // the palette to the host page permanently, since nothing clears it again.
+    // Invalidate an in-flight read so it cannot restore vars after teardown.
     const deferredReads = [];
     const realGet = chrome.storage.local.get.getMockImplementation();
     chrome.storage.local.get.mockImplementation((key, cb) => {
@@ -213,9 +203,7 @@ describe('surfacePreferences', () => {
   });
 
   it('repaints documentElement synchronously on remount, before any read resolves', async () => {
-    // Teardown clears the vars, so a remount that waited for a fresh storage
-    // read would flash the CSS default color at anyone with a custom one. The
-    // cache is still warm, so the repaint must happen on the mount itself.
+    // Repaint from cache on remount to avoid a flash of default color.
     const docStyle = document.documentElement.style;
     highlightValue = '#00ff00';
     trackMountedSurface(document);

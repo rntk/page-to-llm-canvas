@@ -1,8 +1,4 @@
-// Pure record-level logic for the explicit topic-card Resplit action: checking
-// that a requested target still matches the saved topic checkpoint, and
-// splicing a resplit result back into that checkpoint. Kept free of storage
-// and LLM calls so the request handler and the orchestrator share one
-// definition and it can be tested directly.
+// Validate a Resplit target against saved topics and apply its replacement.
 
 import {
   canonicalTopicPath,
@@ -116,10 +112,8 @@ function asObject(value) {
 }
 
 /**
- * Replaces the target range of the saved topics with `replacementTopics` and
- * drops only the summary work that covered the replaced sentences. Summary
- * runs are matched by exact sentence list when reused, so trimming the
- * affected entries leaves every untouched run reusable.
+ * Replace the selected topic range and discard summaries covering its
+ * sentences. Untouched runs remain reusable by exact sentence list.
  * @param {object} record Record holding a complete topic checkpoint.
  * @param {ResplitTarget} target Validated target.
  * @param {Array<{name: string, sentences: number[]}>} replacementTopics

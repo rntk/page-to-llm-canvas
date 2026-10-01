@@ -7,8 +7,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const watch = process.argv.includes('--watch');
 
-// Source assets are grouped by responsibility, while the extension package
-// intentionally stays flat because manifest URLs are relative to dist/.
+// Manifest URLs require these assets at the root of dist/.
 const STATIC_ASSETS = [
   { source: 'manifest.json', output: 'manifest.json' },
   { source: 'src/extension/styles/chat.css', output: 'chat.css' },
@@ -64,11 +63,7 @@ function configForEntry({ name, input, emptyOutDir }) {
       emptyOutDir,
       assetsDir: '.',
       cssCodeSplit: false,
-      // Disable CSS minification: the default lightningcss minifier warns that
-      // the native CSS Custom Highlight API's ::highlight() pseudo-element is
-      // unrecognized (it only knows the :highlight pseudo-class), and esbuild
-      // isn't available in this rolldown-vite toolchain. The bundled CSS is
-      // small, so skipping minification is a fine trade for clean builds.
+      // Lightning CSS does not recognize the Custom Highlight API's ::highlight().
       cssMinify: false,
       ...(watch ? { watch: {} } : {}),
       rollupOptions: {
@@ -154,7 +149,5 @@ for (const entry of entries) {
 
 await build(configForContentFeatures());
 
-// Only the first entry build (emptyOutDir: true) clears dist, so a single
-// copy after all builds have run produces the same result as copying after
-// each one, with less filesystem work.
+// Copy after the first build clears dist/ and all entry builds finish.
 copyExtensionStaticAssets();

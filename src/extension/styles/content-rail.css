@@ -1,11 +1,5 @@
-/* In-page rail internals — lazily injected.
- *
- * Deliberately NOT a manifest content_scripts stylesheet: this DOM only exists
- * while a rail is open, so the sheet ships inside the lazily loaded rail chunk
- * (see src/content/rails/shared/surface.js) and is added to the page the
- * first time a rail mounts. Page-level rules the rail still depends on — the
- * design tokens, the #pagetollm-in-page-rail host, body.pagetollm-rail-open,
- * ::highlight() — stay in content.css. */
+/* Rail internals injected on first mount. Page-level hosts, tokens, and
+ * ::highlight() rules stay in content.css. */
 
 /* ErrorBoundary fallback rendered inside the rail. Not absolutely positioned:
    the rail body already flows in a constrained, positioned container, and the

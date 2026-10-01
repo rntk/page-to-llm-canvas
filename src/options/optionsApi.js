@@ -3,25 +3,13 @@ import { normalizeProvidersResponse } from './optionsLogic.js';
 import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 import { applyPipelineFailures } from '../shared/runtime/contracts.js';
 
-// Delegates to the shared sendRuntimeMessage helper but keeps the options
-// surface's swallow semantics: transport errors (chrome.runtime.lastError)
-// resolve to undefined instead of rejecting, deliberately mapping them onto
-// the generic falsy-response failure branch every call site already has.
-// Action call sites (delete/reprocess/save/...) already render `response.error`
-// (or a fallback string) into a visible error banner on any falsy response, so
-// this swallow does not silently hide a transport failure there. It is NOT
-// used by the list-loading paths below, which need to tell "no records" apart
-// from "couldn't ask" - see `request()`.
+// Action calls handle transport failures through their falsy-response error path.
+// List calls use request() to distinguish transport failures from empty lists.
 export function sendMessage(message) {
   return sendRuntimeMessage(message).catch(() => undefined);
 }
 
-// Strict request helper for list-loading paths, modelled on chatApi.js's
-// request(). Unlike `sendMessage` above, this never collapses a transport
-// failure and an explicit `{ok:false}` response into the same falsy value -
-// callers need to distinguish "the worker said no" from "we couldn't reach
-// the worker" so they can render a retry affordance instead of quietly
-// rendering an empty list.
+// Preserve transport failures separately from worker rejections for list UIs.
 async function request(message) {
   try {
     const response = await sendRuntimeMessage(message);

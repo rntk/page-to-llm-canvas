@@ -58,10 +58,8 @@ export function publicSummaryRun(run) {
 }
 
 /**
- * Converts Skip outcomes finalized into a DONE checkpoint (`forcedEmpty`) back
- * into the `acceptedFailure` directive, so a run that carries the checkpoint
- * forward (a scoped Resplit) reuses them instead of retrying failures the user
- * already accepted. Finalization stamps them `forcedEmpty` again.
+ * Restore accepted failures from finalized `forcedEmpty` markers when a scoped
+ * Resplit carries the checkpoint forward. Finalization stamps them again.
  *
  * @param {Record<string, object>} summaries
  * @returns {{summaries: Record<string, object>, hasAcceptedFailure: boolean}}

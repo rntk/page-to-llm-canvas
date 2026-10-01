@@ -5,10 +5,8 @@ import { isPermanentProviderError } from './providerFailure.js';
  * Runs a provider-work burst that stops claiming new items after the first
  * permanent provider failure. In-flight work is allowed to settle.
  *
- * Callers deliberately return item failures instead of throwing so successful
- * siblings are not discarded. A result's optional `error` field is inspected
- * centrally; the returned `unclaimed` items can then inherit a permanent
- * failure instead of being mistaken for successful empty work.
+ * Per-item failures are returned so sibling successes survive. Unclaimed items
+ * can inherit a permanent error instead of appearing as empty successes.
  *
  * @template T,U
  * @param {T[]} items Work in claim order.
@@ -31,9 +29,7 @@ export async function runProviderBurst(
     items,
     limit,
     async (item, index) => {
-      // Item identity is part of every parallelMap-compatible executor's
-      // callback contract; index is useful metadata but injectable stand-ins
-      // are not trusted to supply it.
+      // Injected executors may omit the callback index; use item identity.
       claimedItems.add(item);
       return fn({ item, index });
     },

@@ -17,14 +17,8 @@ function defaultIdFactory() {
 }
 
 /**
- * Owns everything about *running* pipelines: the in-memory job registry, the
- * keepalive alarm, and storage-driven recovery of orphaned runs.
- *
- * Every browser touchpoint arrives through `alarms` and `runtime`, so this
- * module can be constructed and exercised without a `chrome` global. Callers
- * that do run in the worker pass thin accessors that read `chrome.*` at call
- * time (see background.js) — binding `chrome.alarms` eagerly would capture a
- * stale namespace object.
+ * Own running jobs, the keepalive alarm, and recovery from stored records.
+ * Browser APIs arrive through injected accessors resolved at call time.
  *
  * @param {object} deps
  * @param {{readRecord: Function, updateRecord: Function, listRecords: Function}} deps.recordRepository
@@ -52,8 +46,7 @@ export function createPipelineSupervisor({
   const resumeLog = logger.child('resume');
 
   /**
-   * In-memory job registry to prevent duplicate pipeline runs while the
-   * service worker is alive. Keyed by record key; value is the run promise.
+   * Active jobs keyed by record key; prevents duplicate runs in this worker.
    * @type {Map<string, {promise: Promise<void>, controller: AbortController, pipelineRunId: string}>}
    */
   const jobRegistry = new Map();
@@ -106,29 +99,21 @@ export function createPipelineSupervisor({
     }
   }
 
-  // Tracks the last `alarms.create` attempt: `create` replaces an existing
-  // alarm and restarts its period, so repeated creates would keep pushing the
-  // keepalive's fire time out. Deliberately closure state, not a module global:
-  // a second supervisor must not inherit another one's throttle.
+  // Repeated creates reset the alarm period; throttle per supervisor so it fires.
   let lastKeepAliveCreateAt = 0;
 
   function scheduleKeepAlive() {
     alarms.get(KEEPALIVE_ALARM, (existing) => {
-      // lastError persists for the whole callback, so a successful create below
-      // wouldn't clear a get failure; compare by identity against createError.
+      // lastError persists throughout the callback; compare create errors by identity.
       const getError = runtime.lastError;
       const getFailed = !!getError;
       if (getFailed) {
-        // `existing` can't be trusted after a failed get, but bailing out here
-        // would guarantee no alarm exists, so retry `create` below instead.
-        // Skip it if already created this period, or the alarm would never fire.
+        // A failed get cannot prove an alarm exists. Retry create after one period.
         logger.warn('chrome.alarms.get failed:', getError);
         if (clock() - lastKeepAliveCreateAt < KEEPALIVE_PERIOD_MINUTES * 60_000) return;
       }
       if (getFailed || !existing) {
-        // Only a successful create may stamp the throttle — a failed create
-        // leaves no alarm to protect, so suppressing the next attempt would
-        // strand the keepalive. Stamped optimistically below; released if it rejects.
+        // Release an optimistic throttle stamp if create rejects.
         try {
           const created = alarms.create(KEEPALIVE_ALARM, {
             periodInMinutes: KEEPALIVE_PERIOD_MINUTES,
@@ -137,8 +122,7 @@ export function createPipelineSupervisor({
             const stampedAt = clock();
             lastKeepAliveCreateAt = stampedAt;
             created.catch((err) => {
-              // Clear only our own stamp: a rejection landing after a later
-              // create succeeded must not clear that stamp and reopen the loop.
+              // A late rejection must not clear a newer create's stamp.
               if (lastKeepAliveCreateAt === stampedAt) lastKeepAliveCreateAt = 0;
               logger.warn('chrome.alarms.create failed:', err);
             });
@@ -147,8 +131,7 @@ export function createPipelineSupervisor({
             if (createError && createError !== getError) {
               logger.warn('chrome.alarms.create failed:', createError);
             } else if (!getFailed) {
-              // Only stamp when the get itself succeeded — after a failed get,
-              // this lastError may just be that same stale error.
+              // After a failed get, lastError may still be that get error.
               lastKeepAliveCreateAt = clock();
             }
           }
@@ -162,10 +145,8 @@ export function createPipelineSupervisor({
   function cancelActivePipeline(key, options = {}) {
     const job = jobRegistry.get(key);
     if (!job) return false;
-    // A handler that read an earlier snapshot must not abort a job subsequently
-    // started by the writer that won ownership of this record. Property presence
-    // deliberately distinguishes an unguarded cancel from a record whose
-    // expected run id is explicitly `undefined`.
+    // Guard against aborting a newer run; property presence distinguishes an
+    // unguarded cancel from an expected id of undefined.
     if (
       Object.hasOwn(options, 'expectedPipelineRunId') &&
       job.pipelineRunId !== options.expectedPipelineRunId
@@ -174,19 +155,13 @@ export function createPipelineSupervisor({
     }
     job.controller.abort();
     jobRegistry.delete(key);
-    // Intentionally do NOT clear the keepalive alarm here: the in-memory registry
-    // is not the source of truth for whether work remains. A record can still be
-    // in an in-flight status in storage (e.g. an aborted run that left its status
-    // untouched). The onAlarm handler is the only place allowed to clear the
-    // alarm, and it does so from storage after confirming nothing is in-flight.
+    // Only onAlarm clears keepalive, after storage confirms no work remains.
     return true;
   }
 
   /**
-   * Starts the pipeline for a key if it is not already running.
-   * Resumes orphaned in-flight records (e.g. after a service-worker restart).
-   * Registry presence proves this worker still owns the run; storage may remain
-   * unchanged for the full duration of a long-running provider request.
+   * Start or resume an in-flight record unless this worker already owns its job.
+   * Long provider requests may leave storage unchanged for hours.
    *
    * @param {string} key
    * @param {{automatic?: boolean, breakerSnapshot?: object}} [options]
@@ -197,14 +172,8 @@ export function createPipelineSupervisor({
 
     starting.add(key);
     try {
-      // Arm the recovery alarm before the first storage read, not after it.
-      // Callers persist an in-flight status and answer `{ok: true}` before this
-      // runs (submit, retry, reprocess, Generate summaries, Retry/Skip), so a
-      // failing read here would otherwise leave the record in-flight with no job,
-      // no alarm and nothing left to resume it — the UI would wait forever. The
-      // onAlarm handler clears the alarm as soon as storage says nothing is
-      // in-flight, so arming it for a record that turns out not to need it costs
-      // a single alarm tick.
+      // Arm recovery before reading storage: callers have already persisted an
+      // in-flight status, and a failed read must not orphan it.
       scheduleKeepAlive();
 
       const rec = await readRecord(key);
@@ -212,9 +181,7 @@ export function createPipelineSupervisor({
 
       if (!isInFlightPipelineStatus(rec.status)) return;
 
-      // An entry here is stronger evidence than storage timestamps: provider
-      // calls can legitimately produce no writes for many hours. Orphaned jobs
-      // are still recovered because the registry is empty after worker restart.
+      // Registry ownership is reliable even when provider work makes no writes.
       if (jobRegistry.has(key)) return;
 
       const pipelineRunId = rec.pipelineRunId;

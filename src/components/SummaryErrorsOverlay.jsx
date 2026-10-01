@@ -99,23 +99,18 @@ export default function SummaryErrorsOverlay({
     setStaleNotice(null);
     try {
       const result = await fn();
-      // `stale` means the decision already took effect — another window
-      // resolved it, or the pipeline moved on — so it is information, not a
-      // failure: asking the user to try again would be a lie.
+      // A stale decision was already resolved or superseded; do not prompt a retry.
       if (result?.stale === true) setStaleNotice(STALE_ACTION_MESSAGE);
     } catch (e) {
       if (isStaleActionError(e)) {
         setStaleNotice(e.message);
         return;
       }
-      // The pipeline status drives the UI; a failed send just re-enables the
-      // buttons so the user can try again, plus surfaces the failure so it
-      // isn't silently swallowed.
+      // Surface send failures and let the user retry.
       log.warn('action failed:', e?.message);
       setActionError(e?.message || 'The request failed. Please try again.');
     } finally {
-      // Always re-enable: a successful decision must not leave the buttons —
-      // and Escape / backdrop dismissal — locked out forever.
+      // Always restore buttons and dismissal after the request settles.
       setBusy(false);
     }
   };

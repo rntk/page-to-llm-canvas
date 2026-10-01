@@ -8,11 +8,7 @@ import {
   recordDiagnosticsStorageKey,
 } from '../core/storage/keys.js';
 
-// Physical keys are confined to this browser adapter. React consumes only the
-// logical fetch/subscribe capability, and record assembly remains worker-owned.
-// The canonical key helpers are reused rather than re-spelled here: they
-// percent-encode the record segment, so hand-built prefixes would silently stop
-// matching the writer's keys for any record key containing `:`.
+// Reuse canonical key helpers: record segments containing `:` need percent encoding.
 function recordViewDocumentKeys(key) {
   return [
     recordMetaStorageKey(key),

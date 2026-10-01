@@ -31,10 +31,8 @@ export async function computeTopics({
   const dependencies = createTopicRangeDependencies(overrides);
   await runtime.update({
     ...splittingTransition(),
-    // A full topic recompute invalidates every path-scoped review decision
-    // from the previous tree. Clear them in storage as well as in the current
-    // orchestrator invocation so a later park/retry cannot reactivate stale
-    // accepted paths against the newly derived tree.
+    // Clear path-scoped review decisions when recomputing the tree; a later
+    // retry must not reactivate decisions for old paths.
     ...resetSummaryCheckpointPatch(),
     summariesDisabled: false,
   });
@@ -48,10 +46,8 @@ export async function computeTopics({
     { verbose: true },
   );
 
-  // Text is captured in the page context while CSS/layout are still available.
-  // Treat it as plain text: parsing it as HTML would corrupt literal `<`, `>`
-  // and `&` characters and could reintroduce content removed by capture-side
-  // visibility filtering.
+  // Captured text is already filtered in the page; parsing it as HTML would
+  // corrupt literal markup characters and undo visibility filtering.
   const text = normalizeCapturedText(capturedText);
   await runtime.log(
     'normalizing_text_done',
@@ -110,16 +106,11 @@ export async function computeTopics({
   const topics = groupsToTopics(groups);
   await runtime.update({
     topics,
-    // The chunk checkpoint has served its purpose; clearing it here rides along
-    // on a content write that was happening anyway, so a healthy run pays
-    // nothing for it and no stale segments outlive the topics they produced.
+    // Clear the chunk checkpoint with the final content write.
     topic_range_chunks: null,
-    // Topics and sentences are now a resumable checkpoint for exactly the
-    // content revision read by this run. A later submission bumps
-    // contentRevision, so Retry cannot mistake these topics for the new HTML.
+    // Tie the resumable topic checkpoint to this content revision.
     summaryCheckpointContentRevision: record.contentRevision,
     summaryCheckpointPreferContentLanguage: runtime.preferContentLanguage === true,
-    // `error` was already cleared by the splitting transition of this run.
     ...summarizingTransition({ total: topics.length, clearError: false }),
   });
 

@@ -1,6 +1,5 @@
 /**
- * Pure (side-effect-free) logic extracted from OptionsApp.jsx.
- * No DOM, no chrome, no window/confirm/alert references.
+ * Pure options helpers, independent of browser globals.
  */
 
 import { MSG } from '../shared/runtime/messages.js';

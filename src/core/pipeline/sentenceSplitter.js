@@ -1,9 +1,5 @@
-// Simplified port of txt_splitt/sentences/splitters.py SparseRegexSentenceSplitter.
-// Faithful to terminal-boundary + anchor-long-sentence + merge-short behavior;
-// drops html_aware, quote_aware, paired-region, abbreviation handling, and
-// signal-kind merging refinements. Script-agnostic within that scope: Latin,
-// Cyrillic, Greek, CJK, Hebrew, Arabic and Devanagari all reach the same
-// terminal-boundary path.
+// Simplified port of txt_splitt's SparseRegexSentenceSplitter: terminal
+// boundaries, long-span anchoring, and short-span merging across scripts.
 
 const CLOSING = `"'”’)\\]»›」』）】》〉〕`;
 const TERMINAL = `.!?…。！？؟।॥`;
@@ -16,10 +12,8 @@ const TERMINAL_RE = new RegExp(`([${TERMINAL}])[${CLOSING}]*(\\s*)`, 'gu');
 // (Han, kana, Hebrew, Arabic, Devanagari, ... are all `Lo`), plus openers.
 const SENTENCE_START_RE = /[\p{Lu}\p{Lt}\p{Lo}\p{N}"'([{“‘«‹„¿¡「『（【《〈]/u;
 const WHITESPACE_RE = /\s/;
-// Han and kana are written without spaces, so each character counts as its own
-// word; otherwise word counts for CJK text collapse to ~1 per sentence and the
-// short-span merge folds the whole document back together. Korean is
-// space-delimited and so is left to the whitespace-run branch.
+// Count unspaced Han and kana characters as words so short-span merging does
+// not collapse entire passages. Korean uses the whitespace branch.
 const UNSPACED = '\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}';
 // Stateful (`g`): reset `lastIndex` before every `exec` scan.
 const WORD_RE = new RegExp(`[${UNSPACED}]|[^\\s${UNSPACED}]+`, 'gu');
@@ -94,7 +88,6 @@ function anchorLongSpan(text, start, end, anchorEvery, longThreshold, minWords) 
       break;
     }
     const wordEnd = wordPositions[wi + take - 1][1];
-    // Find whitespace cut at/after wordEnd.
     let cut = -1;
     for (let p = wordEnd; p < end; p++) {
       if (WHITESPACE_RE.test(text[p])) {
@@ -122,13 +115,11 @@ function mergeShortNonterminal(text, spans, minWords) {
     const [s, e] = spans[i];
     const words = countWords(text, s, e);
     if (words < minWords) {
-      // Merge into previous.
       out[out.length - 1][1] = e;
     } else {
       out.push([s, e]);
     }
   }
-  // Also: if first span is short, merge into next.
   if (out.length >= 2 && countWords(text, out[0][0], out[0][1]) < minWords) {
     out[1][0] = out[0][0];
     out.shift();
@@ -137,7 +128,6 @@ function mergeShortNonterminal(text, spans, minWords) {
 }
 
 export function splitSentences(text, opts = {}) {
-  // Ported from txt_splitt/sentences/splitters.py SparseRegexSentenceSplitter.split
   if (!text || !text.trim()) return [];
   const anchorEvery = opts.anchorEveryWords ?? 12;
   const longThreshold = opts.longSentenceWordThreshold ?? 24;

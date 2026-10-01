@@ -1,20 +1,6 @@
-// Pure pending-work detection for the per-topic summary stage.
-//
-// Given the topic list and the summaries carried over from a resumed run, decide
-// which runs can be reused and which still need an LLM call. Pending topics are
-// returned as executable per-run plans; the checkpoint unit is a run.
-// `error` is the in-flight retry marker: a leaf whose LLM call failed is
-// stored with `error: true` so a resumed run re-queries it. `forcedEmpty` is
-// its finalized counterpart: the user chose "skip", so the run completed with
-// an empty summary the user may still want re-attempted later. A third marker,
-// `acceptedFailure: true`, is written by the "skip" handler in place of the
-// error fields it strips; it is deliberately NOT part of the reuse condition
-// (skip means "accept this leaf, don't re-query it"), but it is carried onto
-// the reused entry so the force-finalize pass downstream can still scope
-// ancestor summaries around the accepted failure and stamp it `forcedEmpty`.
-//
-// This function performs no I/O and mutates nothing; the orchestrator owns the
-// resulting state mutation and logging.
+// Plan per-run summary reuse without mutating the checkpoint. `error` and
+// `forcedEmpty` require a retry; `acceptedFailure` is reused for the current
+// Skip resume and finalized as `forcedEmpty` afterward.
 
 import { splitContiguousRuns } from './topicTreeMerge.js';
 import { isFailedSummaryRun } from './summaryRunMarkers.js';
@@ -27,9 +13,7 @@ import { isFailedSummaryRun } from './summaryRunMarkers.js';
  */
 
 /**
- * An entry from a resumed run's carried-over summaries, keyed by topic name.
- * See the module comment above for what `error`, `forcedEmpty`, and
- * `acceptedFailure` each mean.
+ * A saved summary entry keyed by topic name.
  * @typedef {object} PreviousSummaryEntry
  * @property {Array<SummaryRun>} runs
  * @property {boolean} [error]
@@ -69,9 +53,7 @@ export function planSummaryWork(topics, previousSummaries = {}) {
       reused[topic.name] = {
         runs: plan.runResults,
         source_sentences: topic.sentences,
-        // Copied field by field on purpose: the narrowed shape is what keeps
-        // stale error/marker fields out of the resumed run, so only this one
-        // transient marker is carried over explicitly.
+        // Copy only this transient marker into the narrowed reuse shape.
         ...(plan.acceptedFailure ? { acceptedFailure: true } : {}),
       };
     } else {
@@ -101,10 +83,8 @@ const sameRun = (a, b) =>
 const runKey = (sentences) => sentences.join(',');
 
 /**
- * Plans each expected run independently. Structurally valid non-empty runs are
- * retained; only failed/missing runs become pending. `acceptedFailure` is
- * intentionally reusable and is carried as a topic marker for the
- * force-finalize tree pass.
+ * Reuse structurally valid nonempty runs and plan failed or missing runs.
+ * Carry accepted failures into the force-finalize tree pass.
  *
  * @param {{name: string, sentences?: number[]}} topic
  * @param {PreviousSummaryEntry|undefined} previous

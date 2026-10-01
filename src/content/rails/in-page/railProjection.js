@@ -1,11 +1,5 @@
 /**
- * Card projection for the in-page rail, extracted from openInPageRail in
- * src/content/rails/in-page/controller.jsx.
- *
- * Pure with respect to rail state: everything it needs (record, mode, level,
- * measured geometry inputs) arrives as arguments, so it holds no closure over
- * the live rail. Measurement itself still goes through geometry.js, which reads
- * the DOM through the ranges it is handed.
+ * Project record entries onto DOM sentence geometry for the in-page rail.
  */
 
 import { resolveColumnOverlaps } from '../../../domain/topicCards.js';
@@ -72,12 +66,7 @@ export function buildRailCards({
     }
   }
 
-  // Mirror the canvas hierarchy rail: cards in a column should not overlap.
-  // Each card already spans one contiguous sentence run, but a mis-measured
-  // run can stretch a card across its neighbours and hide the cards in
-  // between. resolveColumnOverlaps clips those back and pushes overlapped
-  // cards down — by a bounded amount, so a column too dense to stack keeps
-  // its cards beside their sentences rather than drifting below them.
+  // Bound overlap corrections so mismeasured cards stay near their sentences.
   const resolved = resolveColumnOverlaps(
     cardSpecs.map((card) => ({
       key: card.id,

@@ -1,7 +1,4 @@
-// Verbose diagnostics payloads are capped independently of the (already
-// privacy-safe) counts recorded by recordParserMetric, since they carry raw
-// index lists / response text and only ever reach the record's processingLog
-// when the verbose-logs setting is on.
+// Cap raw verbose diagnostics separately from privacy-safe parser metrics.
 const DIAGNOSTICS_LOG_CAP = 50;
 const RAW_RESPONSE_LOG_MAX_CHARS = 20000;
 
@@ -97,10 +94,7 @@ function buildRawResponseLogDetails(rawResponse) {
 }
 
 /**
- * Emits the diagnostics + raw-response verbose log pair. The two entries always
- * travel together and share their context fields, so they are built once here
- * rather than restated at each call site (primary/resplit × quirky-success and
- * parse-failure).
+ * Emit diagnostics and raw response together with shared context fields.
  * @param {PipelineRuntime} runtime Pipeline runtime.
  * @param {object} context Fields identifying which parse this describes.
  * @param {object} payload

@@ -11,14 +11,10 @@ import YouTubeTimestampButton from '../components/YouTubeTimestampButton.jsx';
 import { getSentencesForNode, spacedTopicPath, buildSummaryLookup } from './hierarchyUtils.js';
 import TopicActionsMenu from '../components/TopicActionsMenu.jsx';
 
-// Always render hierarchy timestamps as h:mm:ss (e.g. 0:58:59, 1:27:35) so every
-// label occupies the same three columns and the links never shift left/right.
+// Fixed h:mm:ss labels keep timestamp links aligned.
 const HIERARCHY_LABEL_OPTIONS = { forceHours: true };
 
-// Card-width measurement bounds. Every card is stretched to the widest card's
-// natural width so the columns line up and titles never get truncated; these
-// just keep one pathological heading from blowing the whole column out (cap) or
-// collapsing it to nothing on a near-empty tree (floor).
+// Bound the shared natural card width to avoid extreme headings or empty trees.
 const MIN_CARD_WIDTH = 180;
 const CARD_WIDTH_CAP_INSET = 24;
 
@@ -177,8 +173,7 @@ const HierarchyNode = React.memo(function HierarchyNode({
   };
 
   const handleToggle = (event) => {
-    // Keep the fold toggle separate from the card's scroll-to-sentences click so
-    // the (large) button cannot accidentally trigger a navigation redirect.
+    // The fold toggle must not trigger the card's sentence navigation.
     event.stopPropagation();
     onToggleCollapse?.(node.fullPath);
   };
@@ -197,9 +192,7 @@ const HierarchyNode = React.memo(function HierarchyNode({
   );
 
   if (isCollapsed) {
-    // Keep this label no wider than its expanded version: the width effect
-    // skips collapse-only updates. Adding collapsed-only content requires
-    // revisiting that guard.
+    // Collapsed labels must not exceed expanded width; collapse skips remeasurement.
     const summary = getNodeSummary(node, summaryLookup);
     return (
       <div className="th-node th-node--collapsed" style={{ '--th-row-span': 1 }}>
@@ -283,9 +276,7 @@ export default function TopicHierarchyView({
   topicActions,
 }) {
   const roots = useMemo(() => buildTopicTree(topics, 0), [topics]);
-  // This lazy cache is owned by the current tree. Collapsed descendants do not
-  // pay the color-hashing cost until first rendered, and replacing the topics
-  // releases colors belonging to the previous tree.
+  // Cache colors for the current tree, hashing collapsed descendants only when shown.
   const colorCache = useMemo(() => createHierarchyColorCache(roots), [roots]);
   const summaryLookup = useMemo(() => buildSummaryLookup(topicSummaryIndex), [topicSummaryIndex]);
 
@@ -321,11 +312,8 @@ export default function TopicHierarchyView({
   const measurementContentRef = useRef({ roots: null, isYouTube: null });
   const previousCollapsedPathsRef = useRef(null);
 
-  // Stretch every card to the widest card's natural width so columns align and
-  // titles are never truncated. Measure at `max-content`, then lock the shared
-  // `--th-card-width`. Fold/unfold changes can reveal previously hidden wider
-  // cards, so remeasure on expansion; collapsing alone can reuse the width.
-  // Keep the fold/unfold width monotonic so columns do not jump narrower.
+  // Measure the widest natural card and share its width. Expansion may reveal
+  // wider cards; collapse retains the width to avoid column jumps.
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root) return;
@@ -344,9 +332,7 @@ export default function TopicHierarchyView({
       previousCollapsedPaths &&
       [...previousCollapsedPaths].every((path) => collapsedPaths.has(path))
     ) {
-      // Collapsing only removes descendants and the label's drill span; the
-      // remaining labels cannot grow, so the locked width is still sufficient.
-      // Revisit this guard if collapsed labels gain extra content.
+      // Collapse only removes content; revisit if collapsed labels grow.
       return;
     }
 
@@ -364,9 +350,7 @@ export default function TopicHierarchyView({
     const width = Math.max(MIN_CARD_WIDTH, Math.min(Math.ceil(widest), cap));
     measuredCardWidthRef.current = Math.min(cap, Math.max(measuredCardWidthRef.current, width));
     root.style.setProperty('--th-card-width', `${measuredCardWidthRef.current}px`);
-    // Summaries live in a separate column
-    // and don't change card width, so they're intentionally excluded — re-firing
-    // on async summary load could re-measure while branches are folded.
+    // Summaries occupy another column; their async load must not remeasure cards.
   }, [roots, isYouTube, collapsedPaths]);
 
   if (roots.length === 0) {

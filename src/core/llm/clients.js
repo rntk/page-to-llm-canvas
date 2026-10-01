@@ -1,31 +1,8 @@
-// Provider client SDKs for the PageToLLM Canvas pipeline.
-//
-// The pipeline uses the simple
-// `{ prompt, temperature } -> text` form, while article chat passes complete
-// message history and function tools. Tools and messages use one strict
-// internal shape everywhere ({name, description, parameters} in,
-// {id, name, arguments-object} out); each client serializes that internal
-// shape to its provider's wire format. The converters that do this
-// serialization (toProviderMessage, toProviderTool, toAnthropicMessages,
-// toAnthropicTool) accept ONLY the internal shape — they are an internal
-// seam whose sole producer is src/chat/articleChat.js, so they do not need to
-// tolerate (and must not silently accept) OpenAI/Anthropic wire shapes as
-// input. Tolerance for provider quirks is applied only at the external
-// boundary: parsing the HTTP responses that come back from each provider
-// (see parseToolArguments/normalizeToolCalls below).
-//
-// Every client exposes the same shape:
-//   complete({ prompt, temperature?, signal?, verboseLogs? }) ->
-//     Promise<{ content, finishReason, endpoint, model, provider, usage? }>
-// and throws an Error (message reused verbatim in callLLMDirect) on failure.
-// `finishReason` is the provider's finish_reason/stop_reason mapped onto the
-// shared vocabulary in completionStatus.js, so callers can tell a complete
-// response from one the provider truncated at its own output limit.
-// The entrypoint supplies `signal` with both caller cancellation and the
-// user-configured request timeout already combined, so every provider fetch
-// observes the same timeout policy.
-// Raw prompt/request/response dumps and cache-usage stats only log when
-// `verboseLogs` is true (set from the options "verbose pipeline logs" toggle).
+// Provider clients accept one internal message/tool shape and serialize it to
+// each provider's wire format. Provider quirks are handled when parsing HTTP
+// responses; outbound converters expect only the internal shape.
+// `finishReason` uses the shared vocabulary in completionStatus.js. The caller
+// supplies a signal combining cancellation and the configured timeout.
 
 import { ProviderType, ServiceTier } from './providers.js';
 import { normalizeFinishReason } from './completionStatus.js';
@@ -46,9 +23,7 @@ export function stripThink(text) {
   return text.replace(THINK_TAG_RE, '').trim();
 }
 
-// Inbound-only: parses tool-call arguments from a provider HTTP response.
-// OpenAI-compatible APIs return `arguments` as a JSON string; this is the
-// external boundary where tolerance belongs (see file header comment).
+// OpenAI-compatible responses carry tool arguments as JSON strings.
 function parseToolArguments(value) {
   if (value == null || value === '') return {};
   if (typeof value === 'object' && !Array.isArray(value)) return value;
@@ -67,8 +42,7 @@ function parseToolArguments(value) {
   return parsed;
 }
 
-// Inbound-only: normalizes tool calls from a provider HTTP response into the
-// internal `{id, name, arguments}` shape. See file header comment.
+// Normalize provider tool calls to the internal `{id, name, arguments}` shape.
 function normalizeToolCalls(rawToolCalls) {
   if (!Array.isArray(rawToolCalls)) return [];
   return rawToolCalls.map((rawCall) => {
@@ -103,9 +77,7 @@ function responseTextAndReasoning(message) {
   };
 }
 
-// Wraps the internal `{name, description, parameters}` tool shape into
-// OpenAI's `{type: 'function', function: {...}}` wire format. Internal-input
-// only — see file header comment.
+// Convert an internal tool to OpenAI's function-tool wire format.
 function toProviderTool(tool) {
   return {
     type: 'function',
@@ -117,11 +89,8 @@ function toProviderTool(tool) {
   };
 }
 
-// Converts one internal message to OpenAI's wire format. Internal-input
-// only — see file header comment. `includeReasoningContent: false` drops
-// echoed thinking-mode reasoning from the wire message; DeepSeek ignores it
-// on tool-less requests, while tool-carrying requests must keep it
-// (https://api-docs.deepseek.com/guides/thinking_mode).
+// DeepSeek tool follow-ups require echoed reasoning_content; tool-less
+// requests can omit it (https://api-docs.deepseek.com/guides/thinking_mode).
 function toProviderMessage(message, { includeReasoningContent = true } = {}) {
   const output = {
     role: message?.role || 'user',

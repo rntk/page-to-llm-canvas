@@ -275,29 +275,24 @@ describe('CanvasTopicHierarchyRail', () => {
     const cards = container.querySelectorAll('.canvas-topic-hierarchy__card');
     expect(cards).toHaveLength(2);
 
-    // card1 (Topic A) is active
     expect(cards[0].className).toContain('is-active');
     expect(cards[0].className).toContain('canvas-topic-hierarchy__card--root');
 
-    // card2 (Topic A > Sub B) is selected
     expect(cards[1].className).toContain('is-selected');
     expect(cards[1].className).toContain('canvas-topic-hierarchy__card--child');
 
-    // hover card2
     const mouseOverEvent = new MouseEvent('mouseover', { bubbles: true });
     act(() => {
       cards[1].dispatchEvent(mouseOverEvent);
     });
     expect(onTopicEnter).toHaveBeenCalledWith({ path: 'Topic A > Sub B', cardKey: 'card2' });
 
-    // leave card2
     const mouseOutEvent = new MouseEvent('mouseout', { bubbles: true });
     act(() => {
       cards[1].dispatchEvent(mouseOutEvent);
     });
     expect(onTopicLeave).toHaveBeenCalledWith({ path: 'Topic A > Sub B', cardKey: 'card2' });
 
-    // click card2
     act(() => {
       cards[1].querySelector('.canvas-topic-hierarchy__card-main').click();
     });
@@ -349,7 +344,6 @@ describe('CanvasTopicHierarchyRail', () => {
     const aside = container.querySelector('.canvas-topic-hierarchy');
     const button = container.querySelector('.canvas-topic-hierarchy__card-main');
 
-    // Click on button inside aside
     const mousedownOnBtn = new MouseEvent('mousedown', { bubbles: true });
     vi.spyOn(mousedownOnBtn, 'stopPropagation');
     act(() => {
@@ -357,7 +351,6 @@ describe('CanvasTopicHierarchyRail', () => {
     });
     expect(mousedownOnBtn.stopPropagation).toHaveBeenCalled();
 
-    // Click on aside itself
     const mousedownOnAside = new MouseEvent('mousedown', { bubbles: true });
     vi.spyOn(mousedownOnAside, 'stopPropagation');
     act(() => {

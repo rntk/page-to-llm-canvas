@@ -3,8 +3,6 @@ import { parseTopicRangesDetailed, groupsFromSegments, TopicParseError } from '.
 import { buildTopicTree } from './topicTreeMerge.js';
 import { joinTopicPath } from '../../shared/runtime/topicPath.js';
 
-// Helpers -------------------------------------------------------------------
-
 const parseTopicRanges = (response, sentenceCount) =>
   parseTopicRangesDetailed(response, sentenceCount).groups;
 
@@ -18,8 +16,6 @@ function twoTopics(n) {
   const mid = Math.floor(n / 2) - 1;
   return `Tech>First: 0-${mid}\nTech>Second: ${mid + 1}-${n - 1}`;
 }
-
-// Valid output ---------------------------------------------------------------
 
 describe('valid complete coverage', () => {
   it('single topic covering all 5 sentences', () => {
@@ -61,7 +57,6 @@ describe('valid complete coverage', () => {
   });
 });
 
-// Helper: flatten group ranges into a sorted unique index list.
 function coveredIndices(group) {
   const out = [];
   for (const r of group.ranges) {
@@ -70,7 +65,6 @@ function coveredIndices(group) {
   return out.sort((a, b) => a - b);
 }
 
-// Helper: assert groups cover [0, n-1] exactly once with no overlap or gap.
 function expectExactCoverage(groups, n) {
   const seen = new Array(n).fill(0);
   for (const g of groups) {
@@ -78,8 +72,6 @@ function expectExactCoverage(groups, n) {
   }
   expect(seen).toEqual(new Array(n).fill(1));
 }
-
-// Out-of-range markers (clamped, not rejected) -------------------------------
 
 describe('out-of-range markers are clamped', () => {
   it('clamps an over-shooting range end into bounds', () => {
@@ -101,8 +93,6 @@ describe('out-of-range markers are clamped', () => {
   });
 });
 
-// Missing coverage (gaps filled, not rejected) -------------------------------
-
 describe('gaps are filled by extending adjacent ranges', () => {
   it('fills an interior gap by extending the previous range forward', () => {
     // Index 2 is omitted; previous range (A) absorbs it: A→0-2, B→3-4.
@@ -121,8 +111,6 @@ describe('gaps are filled by extending adjacent ranges', () => {
     expectExactCoverage(groups, 5);
   });
 });
-
-// Duplicate/overlapping sentences (overlaps trimmed, not rejected) -----------
 
 describe('overlaps are trimmed first-claim-wins', () => {
   it('gives contested indices to the earliest-starting topic', () => {
@@ -143,8 +131,6 @@ describe('overlaps are trimmed first-claim-wins', () => {
   });
 });
 
-// Empty group ----------------------------------------------------------------
-
 describe('empty group', () => {
   it('throws when response is entirely empty', () => {
     expect(() => parseTopicRanges('', 3)).toThrow(TopicParseError);
@@ -154,8 +140,6 @@ describe('empty group', () => {
     expect(() => parseTopicRanges('no colon here\njust text', 3)).toThrow(TopicParseError);
   });
 });
-
-// Malformed numbering --------------------------------------------------------
 
 describe('colons in topic paths', () => {
   it.each([
@@ -220,8 +204,6 @@ describe('malformed numbering', () => {
     expect(() => parseTopicRanges('Tech>A:', 3)).toThrow(TopicParseError);
   });
 });
-
-// Hallucinated huge range -------------------------------------------------
 
 describe('hallucinated huge range', () => {
   it('clamps fast without iterating billions of indices', () => {
@@ -428,8 +410,6 @@ describe('repairs diagnostics', () => {
     });
   });
 });
-
-// groupsFromSegments -------------------------------------------------------
 
 describe('groupsFromSegments', () => {
   it('rebuilds groups from ordered labeled segments', () => {

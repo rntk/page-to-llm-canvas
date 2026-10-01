@@ -1,10 +1,5 @@
-// Persisted "prefer the language of the content" toggle. When enabled, the
-// pipeline asks the model to write its human-readable output (topic labels and
-// summaries) in the dominant language of the analyzed content instead of
-// defaulting to English. Stored in chrome.storage.local so both the options UI
-// (src/options) and the service-worker pipeline (src/extension/background/pipeline/orchestrator.js) can read
-// it. Defaults to off, and every accessor degrades to the default rather than
-// throwing so a storage hiccup never breaks the pipeline.
+// Shared setting for topic labels and summaries in the content's language.
+// Defaults to off; storage failures fall back to the default.
 
 import { createStoredSetting } from '../../shared/runtime/localStore.js';
 

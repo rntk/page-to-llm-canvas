@@ -131,7 +131,6 @@ describe('CanvasSummaryView', () => {
     });
     expect(onTopicLeave).toHaveBeenCalledWith({ path: 'Topic A > Subtopic B', cardKey: 'card1' });
 
-    // Show source sentences click and stopPropagation
     const button = container.querySelector('.canvas-summary-view__summary-tooltip-button');
     expect(button).not.toBeNull();
 

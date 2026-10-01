@@ -4,12 +4,7 @@ import { createLogger } from '../shared/runtime/log.js';
 const log = createLogger('Options');
 
 /**
- * Keeps a metrics counter bundle synchronized with its `chrome.storage.local`
- * key. Replaces the load + subscribe + normalize effect that every metrics
- * section in the options page used to reimplement.
- *
- * The accessors are injected so the hook stays independent of a specific
- * metrics family and the storage boundary remains easy to test.
+ * Keep a metrics bundle synchronized with its storage key via injected accessors.
  *
  * @param {{
  *   storageKey: string,
@@ -18,12 +13,8 @@ const log = createLogger('Options');
  *   empty: function(): *,
  *   subscribe: function(string, function(*): void): function(): void,
  *   loadErrorMessage?: string,
- * }} options Metrics dependencies. When `loadErrorMessage` is given, a failed
- *   initial read is warned through the shared logger, which supplies the
- *   brand prefix, so pass only the message body; otherwise the failure is
- *   swallowed and the empty value stays on screen.
- * @returns {[*, function(*): void]} Current metrics and a local setter (used by
- *   the section's own clear handler).
+ * }} options Metrics dependencies. `loadErrorMessage` logs initial read failures.
+ * @returns {[*, function(*): void]} Current metrics and a local setter.
  */
 export function useStoredMetrics({
   storageKey,
@@ -58,9 +49,7 @@ export function useStoredMetrics({
     });
 
     return () => {
-      // `current` alone retires this effect's in-flight read; the revision only
-      // has to arbitrate between the read and newer values arriving while the
-      // effect is still live.
+      // `current` retires this read; the revision guards against newer values.
       current = false;
       unsubscribe();
     };

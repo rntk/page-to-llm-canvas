@@ -148,8 +148,7 @@ describe('computeCardVerticalBox', () => {
 
     const box = computeCardVerticalBox([1], sentenceRanges, wordEntries, 5, window, { buildRange });
 
-    // tops after scroll-rail adjust: min(10,22) +0 -5 = 5; bottoms max 20,30 +0-5=25; clamped height max(40,20)
-    // Wait: height = 25-5=20 but min 40? No: Math.max(40, bottom-clampedTop) => max(40,20)=40
+    // The 20px measured span is clamped to the 40px minimum height.
     expect(box.top).toBe(5);
     expect(box.height).toBe(40);
 

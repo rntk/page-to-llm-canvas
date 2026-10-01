@@ -33,9 +33,7 @@ function renderHook(callback) {
   return hook;
 }
 
-// ---------------------------------------------------------------------------
 // clampScale
-// ---------------------------------------------------------------------------
 
 describe('clampScale', () => {
   it('returns 1 for non-finite values', () => {
@@ -74,9 +72,7 @@ describe('clampScale', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // cursorAnchoredTranslate
-// ---------------------------------------------------------------------------
 
 describe('cursorAnchoredTranslate', () => {
   it('zooms toward the cursor anchor point', () => {
@@ -113,9 +109,7 @@ describe('cursorAnchoredTranslate', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // useCanvasTransform hook
-// ---------------------------------------------------------------------------
 
 describe('useCanvasTransform', () => {
   const pendingAnimationFrames = new Set();

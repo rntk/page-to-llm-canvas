@@ -1,11 +1,5 @@
-// Per-task sampling temperature configuration.
-//
-// Every provider entry may carry an optional temperature for each of the three
-// task groups the extension issues requests for. A missing/empty value means
-// "do not send the `temperature` parameter at all" — the provider's own default
-// applies. That is the only workable setting for models that reject the
-// parameter outright (OpenAI reasoning models answer such requests with a
-// non-retryable HTTP 400).
+// Optional per-task temperature. Missing values omit the parameter, allowing
+// provider defaults and models that reject temperature altogether.
 
 import { LLM_TASK_TYPES } from '../../shared/runtime/telemetry.js';
 

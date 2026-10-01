@@ -56,18 +56,9 @@ ASSIGNMENT RULES:
 Respond as fast as possible with ONLY the formatted output. Minimal preamble, reasoning, or explanation.
 `;
 
-// Added (when the "prefer the language of the content" option is on) to every
-// pipeline prompt. It tells the model to write human-readable output in the
-// content's dominant language while carving out the tokens the parsing code
-// matches as exact English: NO_SUMMARY (parseSummaryResult), the {N} sentence
-// markers, the strict topic-ranges line format, and canonical proper nouns.
-// Without these carve-outs a translated NO_SUMMARY would silently break short-text
-// detection and a translated marker/format would break topic parsing.
-//
-// The topic-ranges system prompt lists English example categories (Technology,
-// Business, Science…) and a "canonical names" rule, which otherwise anchor the
-// model to English labels — so the instruction must explicitly cover BOTH the
-// top-level category and the lower-level tag and neutralize those examples.
+// Localize prose while preserving parser tokens (NO_SUMMARY, sentence markers,
+// and range syntax) and canonical names. Topic-range examples are in English,
+// so the instruction explicitly covers both category and tag labels.
 export const LANGUAGE_INSTRUCTION =
   'LANGUAGE:\n' +
   '- Detect the dominant language of the content and write EVERY human-readable part of your output in that language: both the broad top-level category and the specific lower-level topic labels, plus any summary text.\n' +
@@ -83,10 +74,7 @@ export function buildTopicRangesPrompt(
   taggedText,
   { preferContentLanguage = false, resplitParentPath = '' } = {},
 ) {
-  // For topic ranges the language block sits right before the payload opener
-  // rather than at the top: the system prompt's English example categories would
-  // otherwise be the last thing the model reads before generating, anchoring it
-  // to English.
+  // Place language guidance after English examples to reduce English anchoring.
   const languageBlock = preferContentLanguage ? `${LANGUAGE_INSTRUCTION}\n` : '';
   const resplitAncestors = resplitParentPath.split('>').slice(0, -1).join('>');
   const hierarchyFormat = resplitParentPath
@@ -125,14 +113,8 @@ export const ARTICLE_SUMMARY_PROMPT_TEMPLATE =
   '- If the text is already so short that any summary would be as long as or longer than the original (for example a single short sentence, or only 2-3 short sentences with one clear fact), respond with exactly NO_SUMMARY and nothing else. Do not paraphrase short text just to produce a summary.\n\n' +
   `Text:\n${payloadPrefix}{text}\n${close}\n`;
 
-// Merges an internal topic node's per-chunk source summaries (the overflow path
-// in makeSourceSummarizer) into one combined summary. This prompt gives the
-// model no NO_SUMMARY rule, so it has no reason to emit one. The guarantee that
-// a long parent topic never ships empty lives in CODE, not here: if the merge
-// still comes back empty/NO_SUMMARY, makeSourceSummarizer falls back to the
-// chunk summaries themselves. We don't restate that invariant as a soft "always
-// produce a summary" instruction — an instruction the model can ignore is not an
-// invariant; the code fallback is.
+// Merge per-chunk summaries for an internal topic. If the result is empty,
+// makeSourceSummarizer falls back to the chunk summaries.
 export const ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE =
   'Merge the summaries below into one combined summary covering the same content.\n' +
   'Return plain text only: one short summary sentence, then 1 to 4 bullet lines starting with "- ".\n\n' +
@@ -152,10 +134,7 @@ export const ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE =
   '- Do not return JSON, markdown fences, headings, labels, or commentary.\n\n' +
   `Chunk summaries:\n${payloadPrefix}{chunk_summaries}\n${close}\n`;
 
-// Leaf summaries have a deliberately smaller public contract than internal
-// topic summaries: exactly one concise sentence and no bullets. Overflow
-// chunking must preserve that contract instead of routing leaf text through
-// ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE.
+// Leaf summaries stay one sentence without bullets, including overflow merges.
 export const LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE =
   `Merge the summaries within ${open} into one concise sentence.\n` +
   'The chunks all describe the same leaf topic from one document.\n' +
@@ -169,14 +148,8 @@ export const LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE =
   '- Do not return NO_SUMMARY, JSON, markdown, headings, labels, or commentary.\n\n' +
   `Chunk summaries:\n${payloadPrefix}{chunk_summaries}\n${close}\n`;
 
-// Higher-level (internal topic-tree node) summaries are generated from the
-// node's *own aggregated source text* rather than by merging its children's
-// already-brief summaries — a summary-of-summaries loses facts level by level.
-// The output shape matches the merge prompt (one sentence + 1-4 bullets) so the
-// hierarchy view renders it identically and overflow chunk-summaries can be
-// merged with the existing merge prompt. Source runs with at most 70 words and
-// 560 characters are returned verbatim before reaching this prompt; longer
-// internal-node requests have no NO_SUMMARY escape.
+// Internal topics summarize their aggregated source to preserve details across
+// levels. Their output matches the merge prompt: one sentence and 1-4 bullets.
 export const TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE =
   `Summarize the source text within the ${open} tags into one combined topic summary.\n` +
   'The text is the full content of one topic gathered from a larger document. It may join non-adjacent passages covering several sub-points of the same subject, so do not assume it has an intro, a conclusion, or a single thesis — summarize the subject as a whole.\n' +
@@ -194,10 +167,7 @@ export const TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE =
   '- Do not return JSON, markdown fences, headings, labels, or commentary.\n\n' +
   `Source:\n${payloadPrefix}{source}\n${close}\n`;
 
-// Factory for prompt builders that substitute a single slot into a template
-// via a function replacer. Using a function replacer (not a plain string)
-// prevents `$&`/`$'`-style special replacement patterns in article text from
-// corrupting the prompt.
+// A function replacer preserves literal `$&` and `$'` in article text.
 function makePromptBuilder(template, slot) {
   return function buildPrompt(value, { preferContentLanguage = false } = {}) {
     return withLanguageInstruction(

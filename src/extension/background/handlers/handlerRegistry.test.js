@@ -1,13 +1,4 @@
-// Pins the shape of the merged message-handler registry.
-//
-// Like pipelineSupervisor.test.js, this file installs no `chrome` global and
-// mocks no worker module: every handler group is built from plain stubs. That
-// is the property the split exists for — constructing the worker's behavior
-// must not touch the browser.
-//
-// It also guards the one failure mode the spread-merge in background.js cannot
-// report: a key defined in two groups is silently won by the later spread, with
-// no error and nothing for lint to catch.
+// Build handlers without Chrome and catch keys shadowed by the registry merge.
 import { describe, it, expect, vi } from 'vitest';
 import { MSG } from '../../../shared/runtime/messages.js';
 import { createRecordHandlers } from './recordHandlers.js';

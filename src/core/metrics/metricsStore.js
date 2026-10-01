@@ -1,8 +1,5 @@
-// Shared storage plumbing for the src/core/metrics/* modules. Each module keeps
-// privacy-safe counters in a single chrome.storage.local key and serializes
-// its reads/writes through this factory; see chatTool.js, parser.js, and
-// resplit.js for the metric-specific normalize/empty/record logic layered on
-// top.
+// Shared storage and write serialization for privacy-safe metric counters.
+// Each metric module supplies its own normalization and accumulation logic.
 
 import { getLocal, setLocal } from '../storage/primitives.js';
 import { createLogger } from '../../shared/runtime/log.js';
@@ -54,13 +51,9 @@ export function createMetricsStore({ key, normalize, empty, label }) {
   let writeChain = Promise.resolve();
   const log = createLogger(label);
 
-  // Public reads degrade to an empty snapshot on failure (nothing to report
-  // yet is a safe default). Queued writes must not use that fallback: writing
-  // a mutation of an empty snapshot after a transient read failure would erase
-  // counters that remain in storage. They still warn and resolve so optional
-  // telemetry cannot fail the operation it measures.
-  // clear() is different because it is a user-requested mutation whose failure
-  // must remain observable to the caller.
+  // Reads fall back to empty; writes must not, or a transient read failure
+  // could erase stored counters. Optional telemetry writes warn and resolve;
+  // user-requested clear failures remain visible.
   async function readRaw() {
     try {
       return await readRawOrThrow();

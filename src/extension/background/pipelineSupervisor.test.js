@@ -1,8 +1,4 @@
-// The point of these tests is what they *don't* set up: there is no `chrome`
-// global, no `vi.mock` of the storage/orchestrator modules, and no import of
-// background.js. If this file ever needs a chrome stub, the supervisor has
-// re-acquired a hidden dependency on the browser and the extraction has
-// regressed.
+// Exercise the supervisor without Chrome or a background.js import.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
 import { createPipelineSupervisor, KEEPALIVE_ALARM } from './pipelineSupervisor.js';

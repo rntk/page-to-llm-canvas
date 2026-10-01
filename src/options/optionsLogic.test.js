@@ -17,9 +17,7 @@ import {
   actionErrorMessage,
 } from './optionsLogic.js';
 
-// ---------------------------------------------------------------------------
 // provider form helpers
-// ---------------------------------------------------------------------------
 
 describe('provider form helpers', () => {
   it('creates a blank provider form with the expected defaults', () => {
@@ -114,9 +112,7 @@ describe('provider form helpers', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // record helpers
-// ---------------------------------------------------------------------------
 
 describe('record helpers', () => {
   it('extracts a record or a top-level record array', () => {
@@ -199,9 +195,7 @@ describe('record helpers', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // record action routing
-// ---------------------------------------------------------------------------
 
 describe('record action routing', () => {
   it('returns the runtime message type and default error string for delete', () => {
@@ -229,9 +223,7 @@ describe('record action routing', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // shouldWarnTokenWipe
-// ---------------------------------------------------------------------------
 
 describe('shouldWarnTokenWipe', () => {
   const baseProvider = { type: 'openai_comp', hasToken: true, url: 'http://old' };
@@ -280,9 +272,7 @@ describe('shouldWarnTokenWipe', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // actionToMessageType
-// ---------------------------------------------------------------------------
 
 describe('actionToMessageType', () => {
   it('maps delete to deleteRecord', () => {
@@ -314,9 +304,7 @@ describe('actionToMessageType', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // actionConfirmPrompt
-// ---------------------------------------------------------------------------
 
 describe('actionConfirmPrompt', () => {
   it('returns a confirm string for delete', () => {
@@ -351,9 +339,7 @@ describe('actionConfirmPrompt', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // actionErrorMessage
-// ---------------------------------------------------------------------------
 
 describe('actionErrorMessage', () => {
   it('returns appropriate message for delete', () => {

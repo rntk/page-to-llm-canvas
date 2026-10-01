@@ -1,10 +1,4 @@
-// Browser-backed capability objects for the composition roots.
-//
-// Each object exposes exactly the operations its consumers use, not the shape
-// of the underlying browser API. Adding a member here without a caller turns
-// the capability into a second, thinner copy of `window`, which is what these
-// objects exist to avoid: a consumer that takes `pageHost` should be readable
-// as "this needs confirm/alert/openExtensionPage", not "this needs the DOM".
+// Browser capabilities scoped to the operations each consumer needs.
 
 /** Browser-backed timer capability (see `HighlightColorSection` debounce). */
 export const browserScheduler = Object.freeze({

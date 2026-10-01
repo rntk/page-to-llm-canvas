@@ -1,14 +1,4 @@
-// Browser-only composition root for the MV3 service worker.
-//
-// This module wires concrete dependencies into the factories that hold the
-// worker's behavior (pipelineSupervisor, chatCompletionService, the handler
-// groups, dispatch) and installs the Chrome listeners. It deliberately contains
-// no business logic of its own: every rule lives in a module that can be
-// constructed and tested without a `chrome` global.
-//
-// The named exports below are the same surface this file has always had. They
-// are thin delegates to the instances built here so existing callers and tests
-// keep working; new tests should construct the factories directly.
+// MV3 service worker composition root: wires dependencies and Chrome listeners.
 import {
   readRecord,
   readRecordView,
@@ -102,9 +92,7 @@ const recordRepository = {
 
 const chatRepository = { listChats, readChat, appendChatTurn, deleteChatHistory };
 
-// Chrome namespaces are reached through these accessors rather than captured
-// eagerly: `chrome` is a live global that a cold worker (and the test harness)
-// can replace between module evaluation and the first call.
+// Resolve Chrome namespaces at call time; tests can replace the global after import.
 const alarms = {
   get: (...args) => chrome.alarms.get(...args),
   create: (...args) => chrome.alarms.create(...args),
@@ -116,19 +104,9 @@ const runtimeErrors = {
   },
 };
 
-// This is the service worker's one provider-facing boundary. Pipelines and
-// article-chat turns share the same queue, so the configured cap applies to the
-// active provider as a whole rather than independently to each LLM surface.
-//
-// Constructing the runner subscribes to the concurrency setting, so it happens
-// at top level where MV3 requires listener registration to be synchronous. The
-// subscription is intentionally never torn down: it is scoped to the service
-// worker itself, and MV3 termination drops the listener with the whole realm,
-// so there is no unsubscribe for this worker to own. `dispose` exists for tests
-// and any future caller whose runner is shorter-lived than its realm.
-// Reserve one slot for interactive work whenever the configured limit is at
-// least two. Pipeline calls may still use the other slots during retry/backoff,
-// while chat can start without waiting behind the whole background workload.
+// Pipelines and chat share one provider queue. Reserve one slot for interactive
+// work when the limit permits it. Construct at module load so MV3 registers the
+// setting listener synchronously; worker termination disposes of that listener.
 const providerLimiter = createAdjustableLimiter(DEFAULT_MAX_PARALLEL_LLM_REQUESTS, {
   reservedPrioritySlots: 1,
 });
@@ -144,8 +122,7 @@ const pipelineRunner = createPipelineRunner({
   },
   providerRepository: { getActiveProvider },
   llm: { callLLMWithRetry },
-  // Seeded from the same default the setting normalizes towards, in one
-  // expression, so the starting limit cannot drift from later corrections.
+  // The limiter starts at the same default used by setting normalization.
   limiterFactory: () => providerLimiter,
   telemetry: { wrapCallLLMWithRetry },
   logger: log.child('pipeline'),
@@ -285,32 +262,15 @@ installBackgroundRuntime({
   dispatchMessage,
   pipelineSupervisor,
   scheduleActionProgressIconRefresh,
-  // Thunk, not the promise: `backgroundReady` is initialised below and is in
-  // its temporal dead zone right now. The listeners only call this once an
-  // event fires, which cannot happen before module evaluation completes.
+  // Defer access to backgroundReady until after its declaration initializes.
   bootstrapReady: () => backgroundReady,
 });
 
-// Repair interrupted page/index writes before reconciling their dependent
-// chats. Both routines are idempotent and share the global mutation queue with
-// normal writes.
-//
-// The resume scan then runs on *every* cold start, not just onStartup/
-// onInstalled. Those two events cover a browser restart and an update, but the
-// common MV3 wake is an ordinary runtime message after an idle termination; if
-// the keepalive alarm was lost as well, nothing else would ever repair a record
-// left in an in-flight status. resumeInFlightRecords re-arms the alarm and
-// dedupes against the job registry, so the redundant call on a startup/install
-// cold start is a no-op. Sequenced after reconciliation so a resumed pipeline
-// cannot race the repair of its own interrupted writes — the onStartup/
-// onInstalled handlers hold the same ordering by awaiting `backgroundReady`.
+// Reconcile records before their dependent chats, then resume in-flight runs on
+// every cold start. This also repairs runs whose keepalive alarm was lost.
 /**
- * Settles once the cold-start bootstrap above has finished. Never rejects.
- *
- * The onStartup/onInstalled handlers await this before resuming, so that the
- * "reconcile, then resume" ordering holds on every path rather than only on the
- * cold-start one. Tests also await it to synchronise with the import-time work
- * instead of racing it on a timer.
+ * Cold-start bootstrap promise. Never rejects; startup handlers await it to
+ * preserve reconciliation before resume.
  * @type {Promise<void>}
  */
 export const backgroundReady = (async () => {

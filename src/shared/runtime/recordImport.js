@@ -1,18 +1,6 @@
-// The single decoder for user-supplied import payloads. The options page and
-// the service worker used to each trim keys, coerce in-flight status, clear
-// errors and stamp `imported` progress by hand, and had already drifted (the UI
-// stamped `importedAt`; the worker persisted whatever the caller sent). The
-// worker is the authority: it always runs this over the raw payload it
-// receives. The UI may run it too, but only as a preview (dedupe/collision
-// checks); nothing it produces is trusted by the worker.
-//
-// Runtime-owned fields (`pipelineRunId`, content-revision bumps, cancelling an
-// active run) are deliberately NOT set here — they belong to the worker.
-//
-// Unknown fields are kept on purpose: `isImportableRecord` is the only schema
-// exports have ever had to satisfy, and storage files everything it does not
-// recognise under meta (see `pickMetaFields` in src/core/storage/storage.js),
-// so older exports keep round-tripping unchanged.
+// Decode user-supplied records in both UI previews and the authoritative worker
+// import path. Worker-owned run and revision fields are set later. Preserve
+// unknown fields so older exports round-trip through record meta.
 import {
   isImportableRecord,
   isInFlightPipelineStatus,

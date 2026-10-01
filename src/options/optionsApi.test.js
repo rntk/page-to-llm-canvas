@@ -62,10 +62,7 @@ describe('options API', () => {
     expect(record).toEqual({ key: 'r1', status: 'summarizing', error: null });
   });
 
-  // Was: an `{ok:false}` response silently resolved to an empty list,
-  // indistinguishable from "there really are no records". Now the caller gets
-  // an explicit error so it can render a retry affordance instead of "No
-  // records yet".
+  // A worker rejection must not look like an empty records list.
   it('surfaces an explicit {ok:false} response as a load error instead of an empty list', async () => {
     sendRuntimeMessage.mockResolvedValueOnce({ ok: false, error: 'storage read failed' });
     await expect(listRecords()).resolves.toEqual({
@@ -83,10 +80,7 @@ describe('options API', () => {
     });
   });
 
-  // Was: a rejected sendRuntimeMessage (chrome.runtime.lastError) silently
-  // mapped to `undefined` and then to an empty list/providers object - the
-  // exact U1 bug. Now it is flagged distinctly (`transportError: true`) so
-  // the UI can tell "couldn't reach the worker" apart from "worker said no".
+  // Transport failures must remain distinct from worker rejections.
   it('surfaces a transport failure distinctly from an {ok:false} response', async () => {
     sendRuntimeMessage.mockRejectedValueOnce(new Error('Extension context invalidated.'));
     await expect(listRecords()).resolves.toEqual({

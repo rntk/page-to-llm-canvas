@@ -60,7 +60,6 @@ describe('CanvasToolbar', () => {
 
     const mainDiv = container.querySelector('.canvas-controls');
 
-    // Header buttons
     const headerBtns = container.querySelectorAll('.canvas-controls-header button');
     const foldBtn = headerBtns[0];
     const horizontalBtn = headerBtns[1];
@@ -68,13 +67,11 @@ describe('CanvasToolbar', () => {
     expect(mainDiv.className).not.toContain('is-folded');
     expect(mainDiv.className).not.toContain('is-horizontal');
 
-    // Click fold
     act(() => {
       foldBtn.click();
     });
     expect(mainDiv.className).toContain('is-folded');
 
-    // Click horizontal
     act(() => {
       horizontalBtn.click();
     });

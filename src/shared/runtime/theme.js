@@ -1,10 +1,5 @@
-// Shared light/dark/system theme handling for the popup and options pages.
-//
-// The "system" preference is resolved by CSS (a `prefers-color-scheme` media
-// query) rather than JavaScript: when the user picks "system" we simply remove
-// the `data-theme` attribute and let the stylesheet follow the OS/browser. This
-// keeps the live OS re-render free (no matchMedia listener to maintain) and
-// avoids a flash of the wrong colors for system users on first paint.
+// Shared theme setting. CSS resolves "system" through prefers-color-scheme;
+// removing data-theme lets it follow OS changes without a JS listener.
 
 import { createLogger } from './log.js';
 import { createStoredSetting, subscribeLocalKey } from './localStore.js';
@@ -164,12 +159,8 @@ export function createThemeController({
   async function setPreference(value) {
     preference = normalizeTheme(value, allowSystem);
     render();
-    // Keep the applied preference even if persistence fails — reverting the
-    // just-rendered choice with no explanation would be worse than a theme
-    // that silently fails to survive a reload. setStored now rejects on a
-    // storage error (matching its siblings' contract), so callers of
-    // setPreference/cycle must not be left with an unhandled rejection; log
-    // it here instead since this is the one place all callers funnel through.
+    // Keep the applied theme on storage failure; log here so UI callers do not
+    // receive an unhandled rejection.
     try {
       await setStored(preference);
     } catch (error) {

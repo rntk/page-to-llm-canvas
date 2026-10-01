@@ -1,13 +1,6 @@
-// Shared builders for the record patches that move a record between pipeline
-// states. Handlers and stages used to assemble `status` / `progress` / reset
-// bundles by hand, which made it easy for one site to drift from the others
-// (a resume forgetting to clear `summariesIncomplete`, a reset leaving a stale
-// checkpoint revision behind). Every transition now goes through one of these
-// so the field bundles that must change together are defined once.
-//
-// These only build the patch. Ownership is still enforced at the repository:
-// callers pass `expectedPipelineRunId` / `expectedStatuses` to `updateRecord`
-// and storage's `isStaleRun` decides whether the write lands.
+// Shared transition patches keep status, progress, and reset fields in sync.
+// The repository enforces run ownership when callers pass expectedPipelineRunId
+// and expectedStatuses to updateRecord.
 import { PIPELINE_STAGE, PIPELINE_STATUS } from './contracts.js';
 
 /**

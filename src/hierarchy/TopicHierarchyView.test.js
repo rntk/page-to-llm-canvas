@@ -203,23 +203,19 @@ describe('TopicHierarchyView', () => {
     const toggles = container.querySelectorAll('.th-node__toggle');
     expect(toggles.length).toBe(1);
 
-    // Expanded by default: Apple + Banana leaf rows are visible.
     expect(container.textContent).toContain('Apple');
     expect(container.textContent).toContain('Banana');
     expect(container.querySelector('.th-node--collapsed')).toBeNull();
 
-    // Clicking the toggle folds the branch and must NOT redirect to sentences.
     act(() => toggles[0].click());
     expect(onTopicClick).not.toHaveBeenCalled();
 
     const collapsed = container.querySelector('.th-node--collapsed');
     expect(collapsed).not.toBeNull();
-    // Children are hidden, the node's own summary is shown instead.
     expect(container.textContent).not.toContain('Apple');
     expect(container.textContent).not.toContain('Banana');
     expect(collapsed.textContent).toContain('Fruit overview summary');
 
-    // Clicking again expands it back.
     act(() => container.querySelector('.th-node__toggle').click());
     expect(container.querySelector('.th-node--collapsed')).toBeNull();
     expect(container.textContent).toContain('Apple');
@@ -409,7 +405,6 @@ describe('TopicHierarchyView', () => {
     const summaryEl = container.querySelector('.th-leaf-summary');
     expect(summaryEl).not.toBeNull();
 
-    // Click summary
     act(() => {
       summaryEl.click();
     });
@@ -421,7 +416,6 @@ describe('TopicHierarchyView', () => {
 
     onSummaryClick.mockClear();
 
-    // Keydown Enter
     const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
     act(() => {
       summaryEl.dispatchEvent(enterEvent);

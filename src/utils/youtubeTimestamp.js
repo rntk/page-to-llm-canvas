@@ -1,15 +1,6 @@
-// Helpers for turning a YouTube transcript record into "jump to this moment"
-// links. The page-to-LLM YouTube extension captures the transcript with inline
-// timestamps embedded in the sentence text, e.g.
-//   "2:51 2 minutes, 51 seconds I've had issues with that"
-// We detect that the record came from YouTube (via its sourceUrl), pull the
-// nearest preceding timestamp for a card's source sentences, and build a
-// deep-link like https://www.youtube.com/watch?v=ID&t=171s.
+// Build YouTube deep links from transcript cues such as "2:51 2 minutes, 51 seconds".
 
-// A timestamp token (M:SS or H:MM:SS) anchored either on the trailing human-readable
-// duration the transcript sometimes emits ("1 second", "2 minutes, 51 seconds") or
-// as a standalone timestamp (e.g. "0:00", "19:37", "1:03:06").
-// The anchor or boundary constraints prevent matching ratios (16:9) or clock times (3:30 PM).
+// Match duration-backed or standalone M:SS/H:MM:SS cues, excluding ratios and clock times.
 const TIMESTAMP_RE =
   /(?:^|\b)(\d{1,2}):([0-5]\d)(?::([0-5]\d))?(?=\s+\d+\s+(?:second|minute|hour)|(?:\s|$|\b)(?!\s*[ap]\.?m\.?))/i;
 
@@ -89,9 +80,7 @@ export function getTimestampForSentences(sentences, sourceSentences) {
     const seconds = parseTimestampSeconds(sentences[i]);
     if (seconds != null) return seconds;
   }
-  // Card anchored at the transcript start with no timestamp on its opening line:
-  // fall back to video-start 0s, provided a timestamp exists further down (so a
-  // genuinely un-timestamped transcript still yields no card).
+  // Before the first cue, use 0s only if the transcript has a later cue.
   if (startIndex === 0) {
     for (let i = 1; i < sentences.length; i += 1) {
       if (parseTimestampSeconds(sentences[i]) != null) return 0;

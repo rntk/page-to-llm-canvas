@@ -1,6 +1,4 @@
-// Shared fast-check configuration. Normal local runs intentionally keep a
-// random seed so they explore new cases; failures print their seed and shrink
-// path, which can be replayed with FC_SEED and FC_PATH.
+// Use random seeds by default; replay failures with FC_SEED and FC_PATH.
 import process from 'node:process';
 import * as fc from 'fast-check';
 

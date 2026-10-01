@@ -131,10 +131,6 @@ describe('getSentencesForNode', () => {
     expect(getTopicSentenceNumbers).not.toHaveBeenCalledWith(null);
   });
 });
-
-// ---------------------------------------------------------------------------
-// normalizeTopicPath
-// ---------------------------------------------------------------------------
 describe('normalizeTopicPath', () => {
   it('joins parts with > and trims whitespace', () => {
     expect(normalizeTopicPath('Tech > AI > Models')).toBe('Tech>AI>Models');
@@ -161,10 +157,6 @@ describe('normalizeTopicPath', () => {
     expect(normalized.replace(/>/g, ' ')).toBe('Tech AI Models');
   });
 });
-
-// ---------------------------------------------------------------------------
-// spacedTopicPath
-// ---------------------------------------------------------------------------
 describe('spacedTopicPath', () => {
   it("formats a path with ' > ' separator", () => {
     expect(spacedTopicPath('Tech>AI>Models')).toBe('Tech > AI > Models');
@@ -182,10 +174,6 @@ describe('spacedTopicPath', () => {
     expect(spacedTopicPath('')).toBe('');
   });
 });
-
-// ---------------------------------------------------------------------------
-// buildSummaryLookup
-// ---------------------------------------------------------------------------
 describe('buildSummaryLookup', () => {
   it('returns an empty map when the index is null', () => {
     const lookup = buildSummaryLookup(null);

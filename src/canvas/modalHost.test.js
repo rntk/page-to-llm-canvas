@@ -17,7 +17,6 @@ describe('modalHost', () => {
   });
 
   afterEach(() => {
-    // Restore parent
     Object.defineProperty(window, 'parent', {
       value: originalParent,
       writable: true,

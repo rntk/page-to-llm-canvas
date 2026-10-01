@@ -3,9 +3,8 @@ import { isCancellationError, rethrowIfCancelled } from './cancellation.js';
 export const TOPIC_RANGE_ABORT_MESSAGE = 'pipeline aborted during topic ranging';
 
 /**
- * Validate and restore a topic-range checkpoint for the current chunks.
- * Validation is deliberately all-or-nothing: imported record fields are
- * untrusted JSON, and this checkpoint is only a cost optimization.
+ * Restore a checkpoint only when every chunk validates; imported records are
+ * untrusted and checkpoint reuse is an optimization.
  * @param {object} record Record snapshot read at pipeline start.
  * @param {object[]} chunks Chunks derived from the current sentences.
  */
@@ -28,8 +27,7 @@ export function readTopicRangeChunkCheckpoint(record, chunks) {
     if (typeof entry !== 'object') return null;
     const chunk = chunks[index];
     if (entry.start !== chunk.start || entry.sentenceCount !== chunk.sentenceCount) return null;
-    // Completed chunks always contain at least one parsed segment. Accepting
-    // an empty array would incorrectly mark a chunk done forever.
+    // An empty segment list must not mark a chunk complete.
     if (!Array.isArray(entry.segments) || entry.segments.length === 0) return null;
     const lastSentence = chunk.start + chunk.sentenceCount - 1;
     const restored = [];
@@ -94,16 +92,14 @@ export async function saveTopicRangeChunkCheckpoint(
         sentenceCount,
       ),
     });
-    // The write already landed, so a racing abort must not turn this log into a
-    // reported checkpoint failure.
+    // A racing abort after the write is not a checkpoint failure.
     await runtime.log(
       'topic_ranges_checkpoint_saved',
       { completedChunkCount: done, chunkCount: chunkStates.length },
       { allowAborted: true },
     );
   } catch (writeError) {
-    // A lost run-id CAS is an ownership failure, not a best-effort storage
-    // failure, and must stop the retry loop.
+    // Lost run ownership must stop retries.
     rethrowIfCancelled(writeError, runtime, TOPIC_RANGE_ABORT_MESSAGE);
     await runtime
       .log(

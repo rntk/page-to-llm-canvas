@@ -16,9 +16,7 @@ import { buildTopicSentenceIndex, getMaxTopicLevel } from '../../domain/topicDom
 export function useCanvasRecordViewModel({ record, selectedLevel, showSummaryModeRaw }) {
   const article = projectArticleView(record);
 
-  // Serialize once per record change, not once per render. `record` is
-  // referentially stable across UI interactions, while storage writes mint a
-  // new object. Downstream memos can therefore ignore equivalent rewrites.
+  // Serialize on record changes; downstream memos ignore equivalent topics.
   const topicsJson = useMemo(() => JSON.stringify(record?.topics || null), [record?.topics]);
   const topics = useMemo(
     () => article.topics,
@@ -27,17 +25,8 @@ export function useCanvasRecordViewModel({ record, selectedLevel, showSummaryMod
   );
   const topicSentenceIndex = useMemo(() => buildTopicSentenceIndex(topics), [topics]);
 
-  // Sentences are immutable once extracted. Their count is used as the stable
-  // identity key so unrelated processing-log and timestamp writes do not
-  // rebuild DOM ranges, measurements, and highlights.
-  //
-  // The content revision is part of that identity, and is published together
-  // with the array it belongs to: a reanalysis that replaces the article with
-  // different text of the same sentence count would otherwise leave the canvas
-  // (and the chat answering from it) on the old sentences while the record
-  // already reports the new revision. Consumers that pair the two — the chat
-  // stamps each persisted turn with the revision its source came from — would
-  // then label an old-source answer as belonging to the new content.
+  // Sentence count and revision identify content. Revision distinguishes
+  // reanalysis with the same count, keeping chat evidence paired with its text.
   const sentenceCount = article.sentences.length;
   const recordContentRevision =
     typeof record?.contentRevision === 'string' && record.contentRevision

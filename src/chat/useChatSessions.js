@@ -19,13 +19,9 @@ function eventsForTurn(events, event) {
 const USE_LATEST_EVENT = Symbol('use latest event');
 
 /**
- * Owns the persisted chat sessions of one record. Loads are latest-wins and
- * mutations are serialized so stale async completions cannot overwrite a
- * newer selection. `applyEvents` paints the evidence belonging to the active
- * turn; the complete `events` list remains historical/auditable data.
- *
- * Storage access goes through the injected `chatRepository` port, so this
- * state logic can run against a plain in-memory fake outside a Chrome realm.
+ * Manage one record's chat sessions. Latest-wins loads and serialized mutations
+ * prevent stale completions from replacing the current selection. `applyEvents`
+ * paints the active turn while `events` retains the full history.
  *
  * @param {object} options
  * @param {string} options.recordKey
@@ -43,10 +39,7 @@ export function useChatSessions({ recordKey, applyEvents, chatRepository }) {
   const [isMutatingHistory, setIsMutatingHistory] = useState(false);
   const [error, setError] = useState('');
 
-  // Depend on the port's members, not the wrapper object, so a caller that
-  // builds `chatRepository` inline per render does not reload history on every
-  // render (same rule as useRecord.js's `source`). Ports are plain functions,
-  // so destructuring them is safe.
+  // Depend on stable port functions so inline repository wrappers do not reload history.
   const { list: listChats, get: getChat, remove: removeChat } = chatRepository;
 
   const mountedRef = useRef(true);
@@ -60,11 +53,7 @@ export function useChatSessions({ recordKey, applyEvents, chatRepository }) {
     return () => {
       mountedRef.current = false;
       loadGenerationRef.current += 1;
-      // Real unmount: these are no-ops. Deactivated by <Activity> (chat panel
-      // hidden mid-load or mid-mutation): state survives, so without this a
-      // pending loadChat()/deleteChat() finally (gated on mountedRef.current)
-      // can never clear these flags — controls stay disabled forever after
-      // reopening.
+      // <Activity> preserves state while hidden; clear busy flags for reopening.
       setIsLoadingHistory(false);
       setIsMutatingHistory(false);
     };

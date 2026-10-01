@@ -1,10 +1,5 @@
 /**
- * The element ids `popup.js` resolves at module scope.
- *
- * The popup grabs these with `getElementById` and attaches listeners
- * immediately, so a spec that imports `popup.js` without them throws at import
- * time. Keeping one list here means adding an element to `popup.html` is a
- * single-line change instead of an edit duplicated across every popup spec.
+ * Element ids `popup.js` needs when imported by a test.
  */
 const POPUP_ELEMENT_IDS = [
   'pick-btn',
@@ -19,7 +14,7 @@ const POPUP_ELEMENT_IDS = [
   'record-count',
 ];
 
-/** Ids that `popup.html` renders as buttons rather than containers. */
+/** Ids rendered as buttons in `popup.html`. */
 const POPUP_BUTTON_IDS = new Set([
   'pick-btn',
   'refresh-btn',
@@ -29,7 +24,7 @@ const POPUP_BUTTON_IDS = new Set([
 ]);
 
 /**
- * Replaces the document body with the stub elements `popup.js` expects.
+ * Replaces the document body with the elements `popup.js` expects.
  *
  * @returns {void}
  */

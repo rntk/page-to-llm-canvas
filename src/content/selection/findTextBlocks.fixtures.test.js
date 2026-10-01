@@ -2,9 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { findTextBlocks } from './findTextBlocks.js';
 
-// These fixtures intentionally use the production defaults.  The unit labels
-// make evaluation independent of which ancestor or sibling roots the detector
-// chooses: a unit is covered when any returned root contains it.
+// Use production defaults; a labeled unit is covered by any returned ancestor.
 function textUnit(parent, id, text, repeats = 1, tag = 'p') {
   const unit = document.createElement(tag);
   unit.dataset.fixtureUnit = id;
@@ -275,9 +273,7 @@ describe('findTextBlocks default-threshold fixture evaluation', () => {
       textUnit(article, `dynamic-${index}`, text(60));
     }
 
-    // Real infinite-scroll/ad-injection pages keep mutating while a scan is
-    // in flight. Schedule a timer that appends a large new subtree and drops
-    // an existing one so a yield lands mid-mutation.
+    // Mutate the page during a scan yield, as infinite-scroll pages can.
     setTimeout(() => {
       for (let index = 0; index < 30; index += 1) {
         textUnit(article, `dynamic-late-${index}`, text(60));

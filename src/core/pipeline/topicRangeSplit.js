@@ -26,12 +26,8 @@ const TOPIC_RANGE_RETRY_BASE_DELAY_MS = 2000;
 const MAX_PROVIDER_COOLDOWN_MS = 60_000;
 
 /**
- * Aggregate failure for the topic-ranges stage: one or more chunks did not
- * produce parsed segments this attempt. It carries the per-chunk detail so
- * the retry loop can re-request only those chunks, and a single `retryable`
- * verdict so a permanently-failing chunk (a 401, a malformed request) aborts
- * the stage immediately instead of burning three more backoff rounds — no
- * amount of retrying can complete coverage without it.
+ * Aggregate failed chunks for selective retry. Any permanent chunk failure
+ * makes the whole split non-retryable.
  */
 class TopicRangeChunkError extends Error {
   constructor(message, { chunkIndexes = [], errors = [], retryable = true } = {}) {
@@ -54,8 +50,7 @@ function providerCooldownMs(error) {
 }
 
 /**
- * Builds the aggregate error for the chunks still missing segments. Retryable
- * only when EVERY failure is retryable.
+ * Aggregate missing chunks; retry only when every failure is retryable.
  * @param {object[]} failedStates Chunk states without parsed segments.
  * @param {number} chunkCount Total chunk count for this split.
  */
@@ -74,21 +69,12 @@ function buildChunkFailureError(failedStates, chunkCount) {
     `${failedStates.length} of ${chunkCount} topic-range chunks failed (chunk ${label}): ${firstMessage}`,
     { chunkIndexes, errors, retryable },
   );
-  // A provider error used to reach runPipeline as itself; keep its HTTP
-  // classification visible on the aggregate. Taken from the first error that
-  // HAS one rather than the first error outright, so a leading parse failure
-  // does not hide a sibling chunk's 429 — the same reason the cooldown below
-  // scans every error.
-  // Deliberately NOT chained as `cause`: isCancellationError walks the cause
-  // chain and trusts abort SHAPE whenever the signal is aborted, so an
-  // abort-shaped transport timeout hidden there could make a later cancellation
-  // launder this genuine failure into a silent no-op instead of an ERROR write.
-  // The originals stay reachable on `.errors`, which nothing walks.
+  // Preserve any sibling's HTTP classification. Keep originals in `.errors`,
+  // not `cause`: cancellation detection walks causes and could misclassify an
+  // abort-shaped transport timeout.
   const status = errors.find((error) => Number.isFinite(error?.status))?.status;
   if (status !== undefined) aggregate.status = status;
-  // The LONGEST cooldown any failed chunk was given, not the first one's: the
-  // next attempt re-dispatches all of them together, so respecting anything
-  // shorter would still hit the provider inside a cooldown it asked for.
+  // Retries dispatch all failed chunks together, so honor the longest cooldown.
   const cooldowns = errors
     .map((error) => error?.retryAfterMs)
     .filter((ms) => Number.isFinite(ms) && ms > 0);
@@ -97,17 +83,9 @@ function buildChunkFailureError(failedStates, chunkCount) {
 }
 
 /**
- * Requests every chunk that still needs segments, recording the outcome on each
- * chunk state rather than throwing. A provider failure is confined to its own
- * chunk, so parallelMap's fail-fast does not discard the responses its
- * siblings already paid for; cancellation still stops the whole burst, since
- * nothing a superseded run produced is wanted.
- *
- * A PERMANENT failure (401, unknown model) is the exception: it condemns every
- * sibling too, so it stops the burst from claiming further chunks. The chunks
- * that were never claimed inherit that error, which keeps them pending, keeps
- * the aggregate non-retryable, and keeps the parser away from their absent
- * responses.
+ * Record each pending chunk's result so sibling successes survive provider
+ * failures. Cancellation stops the burst. Permanent failures stop claiming
+ * chunks and are propagated to unclaimed states.
  */
 async function dispatchPendingChunks({
   runtime,
@@ -170,9 +148,7 @@ async function dispatchPendingChunks({
   for (const state of skipped) {
     state.response = null;
     state.parseError = null;
-    // The chunk was never requested; it carries the failure that condemned it
-    // so the aggregate stays non-retryable instead of looking like an
-    // unexplained empty response.
+    // Propagate the permanent failure to unclaimed chunks.
     state.dispatchError = permanentError;
   }
   const skippedIndexes = capForLog(skipped.map((state) => state.chunkIndex));
@@ -218,8 +194,7 @@ async function parseDispatchedChunk({
     // eslint-disable-next-line require-atomic-updates
     state.parseError = error;
     const errorDiagnostics = error?.diagnostics || {};
-    // One failure sample per failed CHUNK, not per attempt: a sibling's
-    // success is kept, so an attempt no longer maps to a single parse outcome.
+    // Record one sample per failed chunk; sibling successes are retained.
     await recordParserMetric({
       ok: false,
       scope,
@@ -302,11 +277,7 @@ export async function splitTopicRanges({
     });
   }
 
-  // Chunk-level state is the unit of work for the whole stage: a chunk with
-  // `segments` set is DONE and is never dispatched or parsed again, in this
-  // attempt or any later one. Everything below — the retry scope, the failure
-  // aggregate, the persisted checkpoint — is derived from it, so a single bad
-  // chunk costs one request per retry instead of re-running the whole split.
+  // Completed chunk states are checkpointed and never dispatched again.
   const chunkStates = chunks.map((chunk, chunkIndex) => ({
     chunk,
     chunkIndex,
@@ -319,11 +290,8 @@ export async function splitTopicRanges({
 
   let parseAttempt = 1;
   const failedChunkIndexes = new Set();
-  // Serialize parsing and saves so an older snapshot cannot overwrite a newer
-  // one. Workers await earlier completions plus their own, bounding the queue
-  // by provider concurrency while applying storage backpressure to dispatch.
-  // Keep rejections terminal: callLLM errors escape the retry helper; only
-  // recorded chunk failures reach its retryable parse callback.
+  // Serialize parsing and saves to prevent an older snapshot overwriting a
+  // newer one. Awaiting saves also bounds dispatch by storage throughput.
   let chunkCompletion = Promise.resolve();
   let stageError;
   const completeChunk = (state) => {
@@ -351,10 +319,7 @@ export async function splitTopicRanges({
       baseDelayMs: TOPIC_RANGE_RETRY_BASE_DELAY_MS,
       isRetryable: (error) =>
         error instanceof TopicRangeChunkError ? error.retryable : error instanceof TopicParseError,
-      // A 429 that exhausted callLLMWithRetry arrives here still carrying the
-      // provider's Retry-After. Sleeping the plain 2/4/8s schedule would
-      // re-dispatch inside that cooldown, extending the rate limit and turning
-      // a recoverable article into an ERROR — so wait out whichever is longer.
+      // Honor Retry-After when it exceeds the stage backoff.
       computeDelay: ({ attemptIndex, baseDelayMs, error }) =>
         Math.max(computeBackoffDelay(attemptIndex, baseDelayMs), providerCooldownMs(error)),
       callLLM: async (attemptIndex) => {
@@ -397,17 +362,14 @@ export async function splitTopicRanges({
           maxRetries,
           retryingChunkCount: pendingChunkStates().length,
           chunkCount: chunks.length,
-          // The capped value the stage will honor, not the raw header: logging
-          // a 24h Retry-After next to a 60s sleep only misleads whoever is
-          // debugging the rate-limit incident.
+          // Log the capped cooldown actually honored by this stage.
           providerCooldownMs: providerCooldownMs(error) || null,
           error: error.message,
         }),
     });
   } catch (error) {
     stageError = error;
-    // Dispatch can fail while a completion is in flight. Drain it before the
-    // final best-effort save; late responses cannot enqueue more writes.
+    // Drain in-flight completions before the final checkpoint save.
     await chunkCompletion.catch(() => {});
     await saveCheckpoint(chunkStates, sentenceTexts.length, error);
     throw error;

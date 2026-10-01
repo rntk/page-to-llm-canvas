@@ -1,22 +1,6 @@
-// Console boundary for the whole extension. Every diagnostic goes through a
-// logger created here so the brand prefix lives in exactly one place instead of
-// being hand-written at each call site.
-//
-// Two output shapes exist, both preserved from the hand-written call sites:
-//   `info`/`warn`/`error` merge the message into the prefix — one string,
-//   remaining arguments passed through untouched:
-//     createLogger().warn('storage failed:', err)
-//       -> 'PageToLLM Canvas: storage failed:', err
-//     createLogger('keepalive').error('listRecords failed:', err)
-//       -> 'PageToLLM Canvas keepalive listRecords failed:', err
-//   `event` keeps the prefix as its own argument, for the structured
-//   (stage, details) logs of the pipeline runtime and article chat:
-//     createLogger('pipeline').event('cleaned', { chars: 12 })
-//       -> 'PageToLLM Canvas pipeline:', 'cleaned', { chars: 12 }
-//
-// This module deliberately has no verbose/severity plumbing of its own: whether
-// an event is worth writing stays with the caller that knows the setting
-// (see verboseLogSettings.js, pipelineRuntime.log, createChatLogger).
+// Central console prefix: info/warn/error merge the message into it, while
+// event passes the prefix separately for structured stage logs. Callers decide
+// which events to emit based on their verbose-log setting.
 
 const BRAND = 'PageToLLM Canvas';
 

@@ -20,10 +20,6 @@ import {
   getTitleLineBudget,
   nudgeCrowdedPair,
 } from './denseCardLayout.js';
-
-// ---------------------------------------------------------------------------
-// cardsOverlapVertically
-// ---------------------------------------------------------------------------
 describe('cardsOverlapVertically', () => {
   it('detects clear overlap', () => {
     const top = { top: 0, height: 60 };
@@ -59,10 +55,6 @@ describe('cardsOverlapVertically', () => {
     expect(cardsOverlapVertically(top, bottom)).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// getCompactCardHeight
-// ---------------------------------------------------------------------------
 describe('getCompactCardHeight', () => {
   it('returns the original height when not crowded', () => {
     const card = { height: 80 };
@@ -104,10 +96,6 @@ describe('getCompactCardHeight', () => {
     },
   );
 });
-
-// ---------------------------------------------------------------------------
-// getTitleLineBudget
-// ---------------------------------------------------------------------------
 describe('getTitleLineBudget', () => {
   it('returns CARD_COMPACT_TITLE_MAX_LINES for heights below threshold', () => {
     expect(getTitleLineBudget(CARD_COMPACT_HEIGHT_THRESHOLD - 1)).toBe(
@@ -123,10 +111,6 @@ describe('getTitleLineBudget', () => {
     expect(getTitleLineBudget(200)).toBe(CARD_TITLE_MAX_LINES);
   });
 });
-
-// ---------------------------------------------------------------------------
-// getAdjustedTitleFontSize
-// ---------------------------------------------------------------------------
 describe('getAdjustedTitleFontSize', () => {
   it('returns the fontSize unchanged when height is large enough', () => {
     // With height=200, lines=2, available=200-16-12-3=169, cap=169/2.4≈70 → fontSize=12 fits
@@ -164,10 +148,6 @@ describe('getAdjustedTitleFontSize', () => {
     },
   );
 });
-
-// ---------------------------------------------------------------------------
-// getCardLabelHeight
-// ---------------------------------------------------------------------------
 describe('getCardLabelHeight', () => {
   it('uses compact (1-line) budget for short cards', () => {
     // height=56 < 88 → 1 line; 12 * 1.2 * 1 + 3 + 12 = 14.4 + 15 = 29.4 → ceil = 30
@@ -181,10 +161,6 @@ describe('getCardLabelHeight', () => {
     expect(getCardLabelHeight(card)).toBe(44);
   });
 });
-
-// ---------------------------------------------------------------------------
-// nudgeCrowdedPair
-// ---------------------------------------------------------------------------
 describe('nudgeCrowdedPair', () => {
   function makeCard(top, height) {
     return { top, height, originalTop: top };
@@ -253,10 +229,6 @@ describe('nudgeCrowdedPair', () => {
     expect(bottom.top).toBeGreaterThanOrEqual(bottomBefore);
   });
 });
-
-// ---------------------------------------------------------------------------
-// getDenseCardZIndex
-// ---------------------------------------------------------------------------
 describe('getDenseCardZIndex', () => {
   it('returns 1 for non-crowded cards regardless of sentenceCount', () => {
     expect(getDenseCardZIndex({ sentenceCount: 0 }, false)).toBe(1);
@@ -285,9 +257,7 @@ describe('getDenseCardZIndex', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // adjustCrowdedLevelCards / multi-pass overlap resolution
-// ---------------------------------------------------------------------------
 describe('adjustCrowdedLevelCards', () => {
   function makeCard(fullPath, top, height, sentenceCount = 5) {
     return { key: fullPath, fullPath, top, height, titleFontSize: 12, sentenceCount };
@@ -375,10 +345,6 @@ describe('adjustCrowdedLevelCards', () => {
     expect(result[0].sourceCard).toBe(card);
   });
 });
-
-// ---------------------------------------------------------------------------
-// getAdjustedHierarchyCards
-// ---------------------------------------------------------------------------
 describe('getAdjustedHierarchyCards', () => {
   function makeCard(fullPath, top, height, levelIndex = 0) {
     return {
@@ -454,10 +420,6 @@ describe('getAdjustedHierarchyCards', () => {
     expect(adjustedChild.titleFontSize).toBe(getAdjustedTitleFontSize({ titleFontSize: 40 }, 56));
   });
 });
-
-// ---------------------------------------------------------------------------
-// getSummaryFontSizes
-// ---------------------------------------------------------------------------
 describe('getFloatingSummaryFontSizes', () => {
   it('renders the floating summary at 85% of the raw zoom sizes', () => {
     const zoomed = getSummaryFontSizes({ titleFontSize: 27 });
@@ -544,9 +506,7 @@ describe('getSummaryFontSizes', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Integration: z-index ordering respects sentenceCount within crowded column
-// ---------------------------------------------------------------------------
 describe('z-index ordering in a crowded column', () => {
   it('card with fewer sentences gets a higher z-index than one with more', () => {
     const cards = [

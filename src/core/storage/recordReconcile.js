@@ -1,8 +1,5 @@
-// Storage reconciliation: a startup sweep over every physical record document
-// that removes documents no current record owns, then rebuilds the index from
-// the authoritative `:meta` documents. It is the only reader that walks the
-// whole corpus, so it reads in bounded batches and reduces each slice to a
-// decision or a snippet before dropping it.
+// Startup reconciliation removes orphaned record documents and rebuilds the
+// index from :meta documents. Bounded batches limit peak memory use.
 import {
   getLocal,
   setLocal,

@@ -258,8 +258,7 @@ describe('runSummaries', () => {
 
     await runSummaries({
       runtime,
-      // Two topics of two runs each: four requests would be spent without the
-      // permanent-failure stop, one with it.
+      // A permanent failure stops the four-run burst after one request.
       topics: [
         { name: 'A', sentences: [1, 2, 5, 6] },
         { name: 'B', sentences: [3, 4, 7, 8] },
@@ -272,15 +271,13 @@ describe('runSummaries', () => {
     expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
     const parked = lastUpdate(runtime);
     expect(parked).toMatchObject({ status: PIPELINE_STATUS.NEEDS_ATTENTION });
-    // The topic that was never claimed parks alongside the one that failed,
-    // rather than disappearing and letting the merge phase run without it.
+    // The unclaimed topic also parks for review.
     expect(parked.summaryErrors.map(({ topic }) => topic).sort()).toEqual(['A', 'B']);
   });
 
   it('stops chunking a single run after a permanent provider failure', async () => {
     const runtime = makeRuntime();
-    // A tiny chunk budget puts one long run through the chunk burst inside
-    // sourceSummarizer, which is the other queue a doomed warmup can fan out.
+    // A small budget exercises sourceSummarizer's chunk burst.
     runtime.maxTextChunkChars = 200;
     const sentenceTexts = Array.from({ length: 6 }, (_, index) =>
       `s${index + 1} ${'word '.repeat(120)}`.trim(),
@@ -970,9 +967,7 @@ describe('runSummaries', () => {
   });
 
   it('rejects instead of parking when our own merge parsing code throws', async () => {
-    // Same policy as the leaf path: a TypeError raised while parsing the merge
-    // response is a deterministic bug, so it must not travel through
-    // classifyLlmError and park the node behind a Retry that cannot succeed.
+    // A merge parser TypeError is an internal bug, not a retryable failure.
     const runtime = makeRuntime();
     const callLLMWithRetry = vi.fn(async () => ({
       toString() {
@@ -993,8 +988,7 @@ describe('runSummaries', () => {
   });
 
   it('rejects instead of parking when a merge dependency throws a primitive', async () => {
-    // A non-object throw cannot carry the provider marker; it must still be
-    // treated as our own bug rather than silently parked.
+    // A primitive throw without a provider marker is an internal bug.
     const runtime = makeRuntime();
     const callLLMWithRetry = vi.fn(async () => ({
       toString() {
@@ -1149,9 +1143,8 @@ describe('runSummaries', () => {
   });
 
   it('scopes and stamps a reused acceptedFailure leaf on the real skip resume', async () => {
-    // The actual "skip" path: the handler already swapped the leaf's error flags
-    // for `acceptedFailure`, so the resumed run REUSES the leaf (no re-query) and
-    // must still recognize it as failed through planSummaryWork's narrowed shape.
+    // Skip converts errors to `acceptedFailure`; resume reuses that leaf while
+    // still treating it as an ancestor failure dependency.
     const runtime = makeRuntime();
     const long = (marker) => `${marker} ${'word '.repeat(120)}`.trim();
     const sentenceTexts = [
@@ -1311,12 +1304,8 @@ describe('runSummaries', () => {
         Accepted: { runs: [{ sentences: [1, 2], text: '' }], level: 0, source_sentences: [1, 2] },
         'Accepted>One': { runs: [{ sentences: [1], text: 'A1' }], level: 1, source_sentences: [1] },
         'Accepted>Two': { runs: [{ sentences: [2], text: 'A2' }], level: 1, source_sentences: [2] },
-        // Corrupt internal node: it claims the right source, but its runs are
-        // split and located as if they belonged to the other branch. Only the
-        // leaves used to be checked against the current tree, so this branch
-        // could be adopted whole — the rails place each card by its run's
-        // sentence ids, so it would surface as the wrong text in the right
-        // place rather than as missing text.
+        // Corrupt internal runs claim the right source but point at another
+        // branch's sentences; placement must reject them.
         Other: {
           runs: [
             { sentences: [1], text: 'Belongs to the Accepted branch.' },
@@ -1426,9 +1415,7 @@ describe('runSummaries', () => {
   });
 
   it('rejects instead of parking when our own parsing code throws', async () => {
-    // A TypeError from parseSummaryResult is a deterministic bug, not a
-    // retryable provider failure: parking it would offer a Retry button that
-    // can never succeed.
+    // A parser TypeError must surface as an internal bug.
     const runtime = makeRuntime();
     const callLLMWithRetry = vi.fn(async () => ({
       toString() {

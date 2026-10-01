@@ -107,14 +107,7 @@ body {
   cursor: grabbing;
 }
 
-/* Opening overlay.
- *
- * Deliberately an opaque *cover* rather than a way of hiding the canvas: the
- * measurement engine behind it needs live client rects, which `display: none`,
- * `visibility: hidden` and `opacity: 0` on the content would all destroy. It
- * repeats the canvas surface (including the dot grid) so the reveal reads as the
- * cards fading up through the paper, not as a panel being pulled away.
- */
+/* Cover the live canvas while DOM measurement reads its layout. */
 .canvas-startup {
   position: absolute;
   inset: 0;
@@ -243,14 +236,8 @@ body.canvas-global-dragging * {
   );
 }
 
-/* Single summary card for the hovered/selected topic, pinned to the left
-   gutter and vertically aligned with its card in the rail.
- *
- * The canvas pans via a CSS transform (not scroll), so `position: sticky`
- * cannot keep the card on screen. Mirroring the topic-card label trick below,
- * we keep the card's natural position in `top` (so it animates smoothly on a
- * topic switch) and add a `translateY` that clamps the card into the visible
- * slice of the viewport — instantly, with no transition, so it tracks the pan.
+/* Align the current summary with its rail card. Transform-based panning needs
+   a translateY clamp; position: sticky cannot track it.
  *
  * Variables (inherited from .canvas-viewport):
  *   --canvas-translate-y   live pan offset
@@ -974,13 +961,7 @@ body.canvas-global-dragging * {
   background: var(--surface);
 }
 
-/*
- * Sticky label within tall topic cards.
- *
- * The canvas uses a CSS transform (translate + scale) rather than scroll,
- * so `position: sticky` does not work. Instead we compute a translateY offset
- * using CSS custom properties so the label tracks the visible slice of the
- * card without leaving the card's bounds.
+/* Keep tall-card labels visible during transform-based panning via translateY.
  *
  * Variables (all inherited from ancestor elements):
  *   --canvas-translate-y  set on .canvas-viewport
@@ -989,11 +970,7 @@ body.canvas-global-dragging * {
  *   --topic-card-top      set on the parent .canvas-topic-hierarchy__card
  *   --topic-card-height   set on the parent .canvas-topic-hierarchy__card
  *
- * Every var() below needs a fallback: --canvas-translate-y and --canvas-scale
- * are written by a layout effect, so they are unset on the first paint. A bare
- * var() would make the whole calc() invalid at computed-value time, --_offset
- * would resolve to nothing, and the label would paint unshifted for one frame
- * before snapping into place.
+ * Transform variables need fallbacks before the first layout effect.
  */
 .canvas-topic-hierarchy__card-content {
   display: flex;
@@ -1366,12 +1343,7 @@ body.canvas-global-dragging * {
   top: var(--summary-source-preview-top, 0);
   left: var(--summary-source-preview-left, 0);
 
-  /* --current-summary-width is an article-mode measurement: it grows up to ~10x
-     on zoom-out because .canvas-topic-current-summary scales its fonts to match.
-     The preview's body text stays at 13px, so past a point the extra width only
-     buys a wide empty right side (short previews) or unreadable line lengths.
-     Cap it at the summary column it sits beside, which is fixed for the same
-     reason. */
+  /* Cap preview width at its column; its fixed-size text does not need zoom-grown width. */
   width: min(
     var(--current-summary-width, var(--current-summary-width-fallback, 418px)),
     var(--summary-column-width, 680px)

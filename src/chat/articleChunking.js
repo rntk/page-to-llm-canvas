@@ -1,17 +1,12 @@
 import { ARTICLE_CHAT_MAX_CHUNK_CHARS } from '../core/settings/llmBudgets.js';
 import { splitTextToMaxChars } from '../core/llm/textChunking.js';
 
-// Keep an individual chat request comfortably below the source-sized prompts
-// used elsewhere in the pipeline. Chunks always break at sentence boundaries
-// and retain their original line numbers, so highlight ranges remain global.
+// Numbered chunks preserve global highlight lines across requests.
 export const ARTICLE_CHAT_CHUNK_MAX_CHARS = ARTICLE_CHAT_MAX_CHUNK_CHARS;
 
 /**
- * Split an article into bounded, sentence-aligned contexts. The text is
- * numbered before chunking: a model can therefore refer to the same global
- * line number regardless of which chunk it received. Oversized sentences use
- * the pipeline's shared text splitter; every part repeats its global line
- * number so highlight references remain valid.
+ * Split an article into bounded, numbered contexts. Oversized sentences share
+ * their original line number across parts so highlight references remain valid.
  *
  * @param {Array<string>} sentences Article sentences in display order.
  * @param {number} [maxChars] Maximum characters per chunk.

@@ -1,46 +1,6 @@
-// Topic-tree summary index builder, extracted from the orchestrator.
-//
-// Given a built topic tree (root + nodes map, see buildTopicTree) and the leaf
-// summaries, this produces the topic_summary_index keyed by path. Each node's
-// summary is a list of per-run entries ({sentences, text}) — one per contiguous
-// occurrence of the topic — so a topic scattered through the article carries
-// location-specific text per occurrence instead of one blob repeated everywhere.
-//
-// The unit of work is the RUN, not the node. A node's aggregated source splits
-// into contiguous runs (one per non-adjacent occurrence); each run is resolved
-// on its own:
-//
-//   - leaf node (no children): its precomputed leafSummaries entry (or [])
-//   - internal node, run owned by a single child: the run DELEGATES to that
-//     child's matching run summary instead of generating its own. buildTopicTree
-//     aggregates every descendant sentence onto each node, so when a run's
-//     sentences all come from one child, re-summarizing them would just re-do
-//     text that child already represents — we never generate a summary for text a
-//     subtopic already covers. A run owned by a single child is provably equal to
-//     exactly one of that child's runs (a child sentence adjacent to the run
-//     would also be in the parent, breaking the run's maximality), so the
-//     matching run always exists. Delegation chains down single-child links until
-//     it reaches a run a leaf owns.
-//   - internal node, run that mixes content: a run covering >=2 children, or one
-//     that includes the node's OWN topic-line sentences (a sentence in the run
-//     belonging to no child), is summarized FRESH from source. We do NOT merge
-//     the children's brief summaries — a summary-of-summaries loses facts at
-//     every level. All such runs of a node are summarized in one summarizeSource
-//     call over just their sentences; summarizeSource owns the fit-vs-chunk+merge
-//     decision and re-splits them back into the same runs (distinct node runs are
-//     gap-separated, so they survive the round trip). On failure we invoke
-//     onError (attributed to the generating node) and degrade the generated runs
-//     to empty text, keeping any reused runs intact.
-//   - the empty root path is skipped: it is excluded from the index, and
-//     summarizing it would needlessly re-summarize the entire document.
-//
-// Resolution is memoized by path so a parent reusing a child's runs and that
-// child share a single resolve() promise — the child's summarizeSource runs
-// exactly once even when several ancestors reuse it. Nodes are still resolved
-// with a flat concurrent fan-out; real LLM concurrency is bounded inside
-// summarizeSource (which wraps each call in the shared limiter). All side effects
-// (LLM calls, logging) are injected, so this module performs no storage I/O and
-// is unit-testable with fakes.
+// Build per-run topic summaries. A run owned by one child reuses that child's
+// summary; mixed or node-owned text is summarized from source to retain detail.
+// Resolution is memoized by path, and the empty root is excluded from the index.
 
 import { hasSummaryRunMarker, isFailedSummaryRun, publicSummaryRun } from './summaryRunMarkers.js';
 import { TOPIC_PATH_DELIMITER, isCanonicalDescendantPath } from '../../shared/runtime/topicPath.js';
@@ -64,14 +24,10 @@ export function buildTopicTree(topics) {
 
   function getOrCreate(path) {
     if (nodes.has(path)) return nodes.get(path);
-    // Deliberately NOT splitTopicPath: `parts.length` is the node level and the
-    // shrink guard below must fail loudly on a malformed path. Dropping blank
-    // segments would reshape the tree for "A>" / "A>>B" and defeat the guard.
+    // Preserve empty path segments so malformed paths fail the shrink guard.
     const parts = path.split(TOPIC_PATH_DELIMITER);
     const parentPath = parts.slice(0, -1).join(TOPIC_PATH_DELIMITER);
-    // Every recursive step must move toward the root. Besides documenting the
-    // path invariant, this turns a malformed derivation into a local error
-    // instead of unbounded self/growing recursion and a crashed worker.
+    // Malformed derivations must fail before unbounded recursion.
     if (parentPath.length >= path.length) {
       throw new Error(`Invalid topic path: parent does not shrink (${path})`);
     }
@@ -110,10 +66,7 @@ export function buildTopicTree(topics) {
 }
 
 /**
- * Splits a sorted set of 1-based sentence ids into contiguous runs. A topic that
- * appears at several non-adjacent places in the article yields one run per
- * occurrence; each run is summarized separately so the same topic shows
- * location-specific text instead of one global summary repeated everywhere.
+ * Split sorted 1-based sentence ids into contiguous, separately summarized runs.
  *
  * @param {number[]} sentenceIds
  * @returns {number[][]} ordered runs of consecutive ids
@@ -172,24 +125,10 @@ function collectUnusableLeafSentences(leafSummaries) {
 }
 
 /**
- * Builds the canonical index projection available before parent summaries have
- * been resolved. This keeps successfully generated leaf summaries visible
- * while a record is parked for review.
- *
- * Internal-node entries from a prior projection are carried over per run, so a
- * later retry can still reuse them (and the UI keeps showing them) instead of
- * paying for every ancestor again. A prior run is carried over only when it
- * still matches the current node's run exactly and no failed dependency covers
- * its source — neither a failure-marked leaf from this run nor a failed prior
- * run at the node itself or a descendant. An ancestor of a failure degrades to
- * empty text instead of being displayed as a successful summary. Prior failed
- * runs keep their markers so `summarizeTopicTree` can still see the dependency
- * on the next retry.
- *
- * Carry-over excludes paths with a current topic checkpoint. For mixed-depth
- * topics (for example, Tech and Tech>AI), that checkpoint covers only the
- * topic's own sentences and takes precedence over its prior aggregated entry.
- * Tree-level work at those paths may therefore need regeneration on retry.
+ * Project available summaries before parents resolve. Reuse prior runs only
+ * when their source still matches and no failed descendant overlaps them.
+ * Current leaf checkpoints take precedence over prior aggregated entries;
+ * failed markers remain visible for retry dependency checks.
  *
  * @param {Array<{name: string, sentences: number[]}>} topics
  * @param {Record<string, {runs: Array<{sentences: number[], text: string}>, source_sentences: number[]}>} leafSummaries
@@ -213,10 +152,7 @@ export function buildPartialTopicSummaryIndex(topics, leafSummaries, previousSum
 
   if (!previousSummaryIndex || typeof previousSummaryIndex !== 'object') return index;
   const unusableSentences = collectUnusableLeafSentences(leafSummaries);
-  // A prior internal-node failure invalidates an overlapping ancestor run just
-  // as a failed leaf does. `summarizeTopicTree` derives that from the markers in
-  // the index it is given, so the carried projection must apply the same rule
-  // rather than keeping the ancestor and dropping the failed descendant.
+  // A failed internal run also invalidates overlapping ancestor runs.
   const priorFailedRunsByPath = new Map();
   for (const [path, prior] of Object.entries(previousSummaryIndex)) {
     const failedRuns = (Array.isArray(prior?.runs) ? prior.runs : [])
@@ -250,8 +186,7 @@ export function buildPartialTopicSummaryIndex(topics, leafSummaries, previousSum
       const priorRun = priorByFirst.get(run[0]);
       if (!priorRun || !sameSource(priorRun.sentences, run)) return { sentences: run, text: '' };
       if (hasSummaryRunMarker(priorRun)) {
-        // Keep the marker: the next retry reads its failed dependencies from
-        // this projection, and losing it would let an ancestor look successful.
+        // Retry needs this marker to invalidate overlapping ancestors.
         kept += 1;
         return { ...publicSummaryRun(priorRun), sentences: run, text: '' };
       }
@@ -303,11 +238,7 @@ export async function summarizeTopicTree({
 }) {
   const summarizable = [...nodes.values()].filter((node) => node.path);
 
-  // The child a run delegates to, or null if the run must be summarized fresh. A
-  // run delegates only when every one of its sentences belongs to a single child
-  // (no mixing with sibling children, no node-own topic-line sentences) — that is
-  // the "run with one subtopic" case where re-summarizing would duplicate the
-  // child's work.
+  // Delegate only runs wholly owned by one child.
   const soleOwningChild = (node, run) => {
     const runSet = new Set(run);
     const hitting = node.children.filter((c) => c.sourceSentences.some((s) => runSet.has(s)));
@@ -349,9 +280,7 @@ export async function summarizeTopicTree({
           run &&
           Array.isArray(run.sentences) &&
           run.sentences.length > 0 &&
-          // Skip deliberately makes accepted failures reusable as leaves, but
-          // they still invalidate any ancestor summary that overlaps their
-          // source. Every durable run marker has that dependency meaning here.
+          // Accepted leaf failures still invalidate overlapping ancestors.
           hasSummaryRunMarker(run),
       )
       .map((run) => run.sentences);
@@ -360,7 +289,6 @@ export async function summarizeTopicTree({
 
   const isDescendantOrSelf = (candidate, path) =>
     candidate === path || isCanonicalDescendantPath(candidate, path);
-  // Scan a path->failed-runs map for a descendant failure overlapping `run`.
   const mapHasFailedDependency = (mapByPath, path, valueMatches) => {
     for (const [failedPath, value] of mapByPath) {
       if (isDescendantOrSelf(failedPath, path) && valueMatches(value)) {
@@ -377,9 +305,7 @@ export async function summarizeTopicTree({
     runsMapHasFailedDependency(failedLeafRunsByPath, path, run) ||
     runsMapHasFailedDependency(priorFailedRunsByPath, path, run);
 
-  // Resolve a node's per-run summaries, reusing a child's run for any run that one
-  // child wholly owns. Memoized by path so a reused child resolves once even when
-  // several ancestors reuse it.
+  // Memoize by path so shared children resolve once.
   const resolving = new Map();
   const resolve = (node) => {
     if (resolving.has(node.path)) return resolving.get(node.path);
@@ -389,10 +315,7 @@ export async function summarizeTopicTree({
         return { runs: (leaf && Array.isArray(leaf.runs) && leaf.runs) || [] };
       }
 
-      // Plan each run: reuse a structurally valid prior path when safe, reuse
-      // a sole owning child, or summarize it fresh. A delegated prior result is
-      // not trusted when its child path failed; otherwise a stale parent would
-      // make a failed child appear successful after Retry.
+      // A failed descendant invalidates even a structurally matching prior run.
       const priorRuns = priorRunsByPath.get(node.path);
       const plan = splitContiguousRuns(node.sourceSentences).map((run) => {
         const child = soleOwningChild(node, run);
@@ -412,9 +335,7 @@ export async function summarizeTopicTree({
         .filter((item) => !item.child && !item.prior)
         .map((item) => item.run);
 
-      // The fresh runs go through summarizeSource in a single call over only their
-      // sentences; it re-splits them into the same runs (gap-separated), keyed by
-      // first sentence id for reassembly below.
+      // Source summarization re-splits these gap-separated runs for reassembly.
       let generatedByFirst = new Map();
       let generationFailed = false;
       if (generateRuns.length) {
@@ -432,8 +353,6 @@ export async function summarizeTopicTree({
         generatedByFirst = new Map(genRuns.map((r) => [r.sentences[0], r]));
       }
 
-      // Reassemble in document order: reused runs take the child's matching run
-      // text; generated runs take summarizeSource's output (empty text on failure).
       const runs = [];
       for (const { run, child, prior } of plan) {
         if (prior) {
@@ -463,9 +382,7 @@ export async function summarizeTopicTree({
 
   await Promise.all(
     summarizable.map(async (node) => {
-      // `node` is this callback's own per-iteration binding (map over distinct node
-      // objects); nothing else in this module assigns `.summary`, so there is no
-      // concurrent writer to race with.
+      // Each callback owns a distinct node's summary.
       // eslint-disable-next-line require-atomic-updates
       node.summary = await resolve(node);
     }),

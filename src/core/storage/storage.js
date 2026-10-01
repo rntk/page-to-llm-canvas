@@ -46,13 +46,8 @@ import {
 import { disposeProcessingLogs } from './processingLog.js';
 import { createLogger } from '../../shared/runtime/log.js';
 
-// This module is the record repository's public surface. Partitioning, record
-// CRUD and the checkpoint writers live here; the remaining repository
-// operations live in the sibling modules re-exported below, so callers outside
-// src/core/storage keep importing one module. Only operations are re-exported:
-// storage keys, prefixes and schema constants are internals, so code that needs
-// them — including this package's own modules — imports them from the module
-// that owns them.
+// Public record repository: partitioning, CRUD, checkpoint writers, and
+// re-exported operations. Storage keys and schema constants stay internal.
 export { listRecords } from './recordIndex.js';
 export { appendProcessingLog, flushProcessingLog } from './processingLog.js';
 export { reconcileRecordStorage } from './recordReconcile.js';
@@ -63,11 +58,8 @@ export const SOURCE_SUMMARY_UNIT_REVISION_MISMATCH = Object.freeze({
   reason: 'content_revision_mismatch',
 });
 
-// Storage is organized by mutation unit, not by the old monolithic logical
-// ArticleRecord shape. Large immutable content and final UI output have one
-// document each. Topic-range work and diagnostics have independent documents.
-// Leaf summaries and source-summary units use one key per entry, so completing
-// one paid provider request never reserializes all previously completed work.
+// Partition by mutation unit: static content, final output, checkpoints, and
+// diagnostics have separate documents; each summary has its own key.
 const CONTENT_FIELDS = ['html', 'capturedText', 'text', 'sentences', 'topics'];
 const SUMMARY_OUTPUT_FIELDS = ['topic_summary_index'];
 const SPECIAL_FIELDS = [
@@ -139,10 +131,8 @@ function staticRecordDocumentKeys(key) {
 }
 
 async function readSummaryWorkDocuments(key) {
-  // Prefix discovery is intentionally repeated. A module-level mirror becomes
-  // stale when a read overlaps a mutation and grows without bound in a
-  // long-lived worker. Callers inside the mutation queue therefore always see
-  // the authoritative set of work keys, while view-only reads skip this scan.
+  // Discover current work keys on each read; a cached list can become stale
+  // during mutations and grow without bound in a long-lived worker.
   return getLocalByPrefixes([summaryLeafStoragePrefix(key), sourceSummaryUnitStoragePrefix(key)]);
 }
 
@@ -230,11 +220,8 @@ async function readRecordDocuments(key, { includeWork = true } = {}) {
     let workItems = {};
     if (includeWork) {
       workItems = await readSummaryWorkDocuments(key);
-      // The work documents are read after (and outside of) the static read, so
-      // a summary replacement landing in between would pair this meta with the
-      // next generation's leaves, and assembleSummaryWork would then discard
-      // every one of them by revision. Re-read the metadata and start over
-      // when that happened, rather than reporting an empty summary set.
+      // A replacement between the static and work reads can hide all summaries
+      // through revision filtering. Retry if the metadata generation changed.
       const currentMeta = (await getLocal([metaKey]))[metaKey];
       if (summaryGenerationsChanged(meta, currentMeta)) {
         if (attempt < READ_RECORD_GENERATION_RETRIES) continue;

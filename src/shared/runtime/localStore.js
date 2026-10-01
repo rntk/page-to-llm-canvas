@@ -1,21 +1,8 @@
-// Realm-neutral key/value adapter over `chrome.storage.local`.
-//
-// This is the single place where the extension's storage capability is spelled
-// out in terms of the browser API. Worker aggregates reach it through
-// src/core/storage/primitives.js; UI bundles and the shared settings modules use
-// it directly, so neither layer has to import the other's implementation
-// directory (and neither has to re-derive the callback/lastError plumbing).
-//
-// Every accessor reads `chrome.storage.local` lazily at call time rather than
-// capturing it at module load, so a test that swaps the global (or a realm
-// where the API only appears later) still sees the current object.
+// Shared chrome.storage.local adapter. Each call reads the current browser API,
+// allowing tests or late API initialization to replace it.
 
 /**
- * Builds the rejection Error for a failed `chrome.storage.local` call.
- *
- * Chrome usually populates `lastError.message`, but it is not guaranteed to be
- * a non-empty string; without the fallback a failed call would surface as
- * `Error(undefined)` and lose the only human-readable clue about what broke.
+ * Builds an Error with an operation fallback when lastError has no message.
  *
  * @param {string} operation Operation label, e.g. `'storage.set'`.
  * @returns {Error}
@@ -42,9 +29,8 @@ export function getLocalItems(keys) {
 }
 
 /**
- * Reads only the keys stored under one namespace when `StorageArea.getKeys` is
- * available (Chrome 130+), avoiding deserialization of unrelated large
- * payloads. Older browsers fall back to one full read filtered locally.
+ * Reads one namespace without deserializing unrelated values when getKeys is
+ * available; older browsers fall back to a full read.
  * @param {string} prefix Storage-key prefix.
  */
 export async function getLocalItemsByPrefix(prefix) {
@@ -52,9 +38,7 @@ export async function getLocalItemsByPrefix(prefix) {
 }
 
 /**
- * Reads keys belonging to any of the supplied namespaces with a single key
- * inventory pass. This is used by normalized record aggregates whose
- * checkpoint entries are stored independently.
+ * Reads supplied namespaces with one key inventory pass.
  * @param {string[]} prefixes
  */
 export async function getLocalItemsByPrefixes(prefixes) {
@@ -63,11 +47,8 @@ export async function getLocalItemsByPrefixes(prefixes) {
 }
 
 /**
- * Reads the whole key inventory from `StorageArea.getKeys`. It is promise-only
- * in the Chrome versions that ship it and never invokes a callback, so the
- * promise it returns is consumed first; the callback form is only used by
- * implementations that hand back nothing (or reject the no-argument call
- * outright). Callers must check that `getKeys` exists before calling this.
+ * Chrome's getKeys is promise-only; consume its returned promise first, then
+ * fall back to callback-based implementations. Callers check it exists first.
  * @returns {Promise<string[]>}
  */
 function readAllLocalKeys() {

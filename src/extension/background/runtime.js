@@ -16,12 +16,8 @@ async function waitForBootstrap(bootstrapReady, timeoutMs) {
 }
 
 /**
- * Installs every browser listener the worker owns.
- *
- * MUST be called synchronously from the entrypoint's top-level body. MV3 only
- * routes an event to a cold-started worker when its listener was registered
- * during the initial module evaluation; registering after an `await` silently
- * drops events with nothing failing loudly.
+ * Install worker listeners during initial module evaluation; MV3 can drop
+ * cold-start events if registration waits for an async operation.
  *
  * @param {object} deps
  * @param {{onMessage: object, onStartup?: object, onInstalled?: object}} deps.chromeRuntime
@@ -67,9 +63,7 @@ export function installBackgroundRuntime({
       return false;
     }
 
-    // Two-arg form on purpose: a trailing .catch would also catch a throw from
-    // sendResponse itself and then call it a second time, so a failed send would
-    // rethrow into an unhandled rejection and leave the sender hanging.
+    // The two-arg form prevents a sendResponse error from triggering a second send.
     Promise.resolve()
       .then(() => waitForBootstrap(bootstrapReady, bootstrapWaitTimeoutMs))
       .then(() => dispatchMessage(msg, sender))
@@ -80,15 +74,8 @@ export function installBackgroundRuntime({
     return true;
   });
 
-  // Resume orphaned in-flight records when the browser starts or the extension is
-  // installed/updated — the two events that can drop the keepalive alarm the
-  // running-pipeline resume otherwise depends on. The entrypoint also resumes
-  // once per cold start, so these matter for the warm-worker case: an update or
-  // restart delivered to an already-running worker, which re-evaluates no module.
-  //
-  // Both wait on the cold-start bootstrap so a resumed pipeline cannot read
-  // records that storage reconciliation has not repaired yet. On a warm worker
-  // the bootstrap settled long ago and this adds only a microtask.
+  // Startup/install events can lose keepalive without reevaluating this module.
+  // Wait for storage reconciliation before resuming their in-flight records.
   const resumeAfterBootstrap = async () => {
     try {
       // A bootstrap that fails must not strand in-flight records: the ordering

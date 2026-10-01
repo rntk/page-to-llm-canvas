@@ -1,12 +1,9 @@
-// Cancellation detection shared by the pipeline stages: tells a user-driven
-// cancellation apart from a genuine provider/transport failure, since the two
-// must not be conflated in the record's error log or pipeline metrics.
+// Distinguish pipeline cancellation from provider and transport failures.
 
 const CANCELLATION = Symbol.for('pipeline.cancellation');
 
-/** Marks an error as this pipeline's own cancellation, for exits that don't
- * abort the signal — e.g. losing the record to a newer run's CAS in
- * pipelineRuntime — where abort shape alone can't be trusted.
+/** Mark cancellation exits that do not abort the signal, such as losing run
+ * ownership to a newer pipeline instance.
  * @param {Error} error Error created for a cancellation exit.
  * @returns {Error} The same error, marked when it accepts the marker.
  */
@@ -21,13 +18,9 @@ export function markCancellation(error) {
   return error;
 }
 
-/** Detects cancellation, as opposed to a genuine provider/transport failure.
- * With a runtime, abort shape alone isn't enough: an AbortError only counts as
- * cancellation if this run's signal actually aborted or the error carries the
- * marker (see markCancellation) — otherwise an unrelated abort-shaped error,
- * like a transport timeout, would be swallowed. An aborted signal alone isn't
- * enough either, since an unrelated failure can still settle after
- * cancellation wins the race.
+/** Detect cancellation through an explicit marker or an aborted signal paired
+ * with abort-shaped error. This preserves transport timeouts and unrelated
+ * failures that settle after a racing abort.
  * @param {unknown} error Error thrown by an LLM call.
  * @param {PipelineRuntime} [runtime] Pipeline runtime. Omit it only where no
  *   run context exists; abort shape is then taken at face value.
@@ -65,10 +58,8 @@ export function throwIfCancelled(runtime, message = 'pipeline aborted') {
   throw markCancellation(aborted);
 }
 
-/** Rethrows errors that must escape a cancellation-sensitive stage catch.
- * Actual cancellation is normalized to AbortError; an unrelated error that
- * settles after the signal aborts is rethrown as itself, rather than letting
- * the stage's next log/update replace it with an AbortError.
+/** Normalize cancellation to AbortError while preserving unrelated failures
+ * that settle after the signal aborts.
  * @param {unknown} error Error thrown by an LLM call.
  * @param {PipelineRuntime} runtime Pipeline runtime.
  * @param {string} [message] Stage-specific message for the normalized error.

@@ -59,8 +59,7 @@ function nextTask(contentWindow) {
 }
 
 /**
- * Measure rendered text once, bottom-up. Exported to keep measurement tests
- * independent from the detector's descent policy.
+ * Measure rendered text bottom-up, independently of the detector's descent.
  * @param {Document} document Live document to scan.
  * @param {object} [options] Detector limits, selection, and abort signal.
  * @returns {Promise<object>} Per-element metrics and scan state.
@@ -279,9 +278,7 @@ function descendAndTrim(body, metrics, config, trace) {
   }
   const keptMass = ranked.reduce((sum, element) => sum + metrics.get(element).mass, 0);
   const droppedShare = nodeMass ? (nodeMass - keptMass) / nodeMass : 0;
-  // A small number of substantial sibling regions (article + comments, or two
-  // articles) must stay independently removable. Paragraph/list children still
-  // collapse to their shared article root.
+  // Keep substantial sibling regions separate; collapse paragraph children.
   const structuralSplit =
     ranked.length > 1 &&
     ranked.length <= config.splitLimit &&
@@ -290,10 +287,7 @@ function descendAndTrim(body, metrics, config, trace) {
         SUBSTANTIVE_CONTAINER_TAGS.has(element.tagName) ||
         element.getAttribute('role') === 'article',
     );
-  // Prefer one bigger block over many small ones: when the survivors are more
-  // than a handful (prose paragraphs around an ad), or when what was cut is a
-  // small share of the node, hand back the node itself. Only a short list of
-  // structural siblings, or a large excluded share, justifies splitting.
+  // Split only a few structural siblings or when excluded text is substantial.
   const joinToNode =
     node !== body &&
     !structuralSplit &&
@@ -317,9 +311,7 @@ function directTextMass(element, metrics) {
   return Math.max(0, own - children);
 }
 
-// Splitting descends only into element children, so a split root's own direct
-// text nodes have no element to return and are dropped. Their mass is reported
-// so callers do not mistake dropped prose for full coverage.
+// Count direct text lost during splitting so coverage is not overstated.
 function splitAroundSelections(element, selected, metrics) {
   const results = [];
   let droppedDirectText = 0;
@@ -383,8 +375,7 @@ export async function findTextBlocks(document, options = {}) {
   );
   trace.result = { mass, linkMass, linkRatio: mass ? linkMass / mass : 0 };
   if (!elements.length || mass < config.minMass) {
-    // Only claim full coverage when the unselected text left over, including
-    // direct text dropped while splitting, is too small to be worth offering.
+    // Include dropped direct text when judging remaining coverage.
     const unselectedMass = mass + droppedDirectText;
     const status =
       measurement.skippedSelected && unselectedMass < config.minMass ? 'already-selected' : 'none';

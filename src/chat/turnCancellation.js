@@ -4,9 +4,7 @@ import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 let fallbackTurnSequence = 0;
 
 /**
- * Random suffix for the non-`randomUUID` path. `getRandomValues` is not
- * gated on a secure context (unlike `randomUUID`), so it is available in
- * exactly the realms where the fallback is reached.
+ * Random suffix for realms where randomUUID is unavailable.
  * @returns {string}
  */
 function fallbackTurnEntropy() {
@@ -16,14 +14,8 @@ function fallbackTurnEntropy() {
 }
 
 /**
- * `crypto.randomUUID` is secure-context only, so on an http:// page the
- * fallback below is the only path. Turn IDs key a cancellation registry that
- * is global to the one MV3 service worker, so an ID must be unique across
- * content-script realms, not just within one: each realm starts
- * `fallbackTurnSequence` at zero, so two tabs reaching the same ordinal turn
- * in the same millisecond would otherwise mint the same ID and a stop on one
- * would abort both. The counter keeps within-realm IDs distinct even if the
- * clock does not advance; the random suffix keeps them distinct across realms.
+ * Cancellation IDs must be unique across tabs. The counter distinguishes turns
+ * in one realm; the random suffix distinguishes realms without randomUUID.
  * @returns {string}
  */
 export function createTurnId() {

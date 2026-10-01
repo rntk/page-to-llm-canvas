@@ -42,11 +42,9 @@ describe('computeComfortLeft', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Integration: exercise the real align() runtime path with non-zero rects
 // (happy-dom, like jsdom, returns zero rects by default, which would make the
 // hook inert — so we stub getBoundingClientRect on the anchor and wrap).
-// ---------------------------------------------------------------------------
 
 function setup({ wrapRect, anchorRect, autoRaf = true }) {
   // By default the deferred (animated) move runs synchronously so its result is

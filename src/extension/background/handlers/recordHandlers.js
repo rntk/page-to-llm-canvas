@@ -52,9 +52,7 @@ export function createRecordHandlers({
     deleteAll,
   } = recordRepository;
 
-  // `createDispatcher` already converts a thrown error into
-  // `{ ok: false, error: e.message }`, so throwing here produces exactly the
-  // response the repeated inline guard used to build.
+  // Dispatcher converts this error into an `{ ok: false }` response.
   const requireRecord = async (key) => {
     const rec = await readRecord(key);
     if (!rec) throw new Error('record not found');

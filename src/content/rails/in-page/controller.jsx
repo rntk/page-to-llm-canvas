@@ -49,10 +49,10 @@ export function createInPageRailController({
   async function openInPageRail(rec, initialMode = 'topics', options = {}) {
     const guard = surfaceManager.beginLoad();
 
-    // Always re-fetch to get the latest data even if widget data is stale.
+    // Re-fetch even when the widget supplied a record.
     const fetchOutcome = await fetchRecord(rec.key, runtimeMessenger);
     if (guard.isStale()) {
-      // A newer rail request has started loading, abort this one!
+      // A newer rail request superseded this one.
       return false;
     }
 
@@ -113,14 +113,12 @@ export function createInPageRailController({
     let pendingMutations = [];
 
     const state = createRailState(initialMode, options);
-    // Topics open as margin notes; the classic card column is a per-rail
-    // fallback for pages where notes beside the text are hard to read.
+    // Use cards when margin notes are hard to read on this page.
     state.topicLayout = 'notes';
 
     const maxLevel = computeMaxTopicLevel(record);
 
-    // Built before the surface so onTeardown can hand page cleanup (highlights
-    // and the resize listener) straight to the adapter.
+    // Create the adapter before the surface so teardown can release page resources.
     const highlighter = createPageHighlighter({
       wordEntries,
       sentenceRanges,
@@ -173,14 +171,12 @@ export function createInPageRailController({
       if (isClosed()) return;
       const next = normalizeRailMode(mode);
       if (state.mode === next) return;
-      // highlighter.clearAll() below already clears the chat sentences along
-      // with the topic set, so no per-mode special-casing is needed here.
+      // clearAll removes both topic and chat highlights.
       state.mode = next;
       railEl.dataset.mode = state.mode;
       setRailWidthForMode();
       highlighter.clearAll();
-      // Measure the incoming header and body layout. In particular, chat's
-      // sticky body can have a different viewport top from the topic body.
+      // Chat's sticky body may have a different viewport origin.
       renderRail({ measureOnly: true });
       measureRailOrigin();
       renderRail();
@@ -226,9 +222,7 @@ export function createInPageRailController({
 
     function renderRail({ measureOnly = false } = {}) {
       if (isClosed() || guard.isStale()) return;
-      // Card boxes measured below include the inner scroller's current
-      // viewport position. Preserve that projection origin so the component
-      // can compensate if the outer document subsequently moves the scroller.
+      // Preserve the scroller's viewport origin for later outer-page movement.
       const projectedScrollContainerTop = isNestedScroll
         ? scrollContainer.getBoundingClientRect().top
         : 0;
@@ -267,8 +261,7 @@ export function createInPageRailController({
       else commit();
     }
 
-    // The body is pinned to the viewport and never transformed (only the card
-    // track inside it moves), so its rect is the projection origin as measured.
+    // The fixed body's rect is the card projection origin.
     const measureRailOrigin = () => {
       const railBody = railEl.querySelector('.pagetollm-rail-body');
       railOriginTop = railBody ? getRailOriginTop(railBody.getBoundingClientRect()) : undefined;
@@ -279,8 +272,7 @@ export function createInPageRailController({
     measureRailOrigin();
     renderRail();
 
-    // Re-resolve selectors to handle replaced article blocks and scrollers, and
-    // recollect text even when hydration preserves the picked element itself.
+    // Re-resolve selectors and text after article or scroller mutations.
     mutationObserver = new contentWindow.MutationObserver((mutations) => {
       if (isClosed() || guard.isStale()) return;
       const pageMutations = mutations.filter(({ target }) => !railEl.contains(target));
@@ -305,8 +297,7 @@ export function createInPageRailController({
             ),
           );
         if (!changed) return;
-        // Empty anchors clear detached ranges. A later insertion is observed
-        // too, allowing a temporarily removed article to recover automatically.
+        // Clear detached ranges; later insertions can restore anchors.
         elements = nextElements;
         wordEntries = collectWordEntries(elements);
         sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
@@ -331,9 +322,7 @@ export function createInPageRailController({
       subtree: true,
     });
 
-    // A viewport resize can reflow the article and move both the rail body and
-    // the sentences the card boxes were measured against. Re-measure the origin
-    // before rebuilding card geometry.
+    // Re-measure the origin and sentences after viewport reflow.
     highlighter.onViewportResize(() => {
       if (isClosed() || guard.isStale() || state.mode === 'chat') return;
       measureRailOrigin();

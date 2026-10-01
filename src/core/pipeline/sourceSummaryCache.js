@@ -34,9 +34,7 @@ function fingerprint(value) {
 }
 
 /**
- * Returns the compact storage key for one source-summary provider request.
- * The full run remains in the unit body for validation/debugging, while the
- * property name uses its fingerprint to avoid multi-kilobyte storage keys.
+ * Use a fingerprint as the storage key; the full run stays in the unit body.
  *
  * @param {object} input
  * @param {'single'|'chunk'|'merge'} input.kind
@@ -143,10 +141,8 @@ function sourceUnit(metadata, contentRevision, inputFingerprint, result) {
 }
 
 /**
- * Adds durable request caching around the source summarizer. The summarizer
- * still owns prompt construction, chunking, and response parsing. This
- * wrapper resolves and persists provider units, and marks only rejections
- * from the actual provider call as retryable provider failures.
+ * Cache provider request units around the source summarizer. Only provider
+ * rejections receive the provider-failure marker.
  *
  * @param {object} input
  * @returns {Function}

@@ -5,20 +5,12 @@ import {
 } from '../components/CanvasSummaryView.preview.js';
 
 export const SENTENCE_PREVIEW_HIDE_DELAY_MS = 120;
-// Small delay before a hovered card opens its source preview. Without it, sweeping
-// the cursor across the column rebuilds the (expensive) preview HTML for every card
-// crossed; the delay collapses a fast sweep into a single build once hover settles.
+// Delay preview builds until a fast hover sweep settles.
 export const SENTENCE_PREVIEW_SHOW_DELAY_MS = 90;
 const PREVIEW_HTML_CACHE_LIMIT = 80;
 
-// Per-instance caches, keyed by a Symbol minted in state (see
-// `previewCacheInstanceKey` below) rather than a `useRef`: this project's lint
-// config (react-hooks/refs, aligned with the React Compiler) disallows reading
-// `.current` during render through anything but a direct, un-passed access, so a
-// mutable cache that's read/written from inside a `useMemo` can't be ref-backed.
-// Keying a module-level Map by an instance id gets the same per-instance
-// isolation (no cross-instance cache thrashing) without touching a ref during
-// render; the entry is deleted on unmount below so it doesn't leak.
+// Per-instance module caches avoid reading refs during render (react-hooks/refs).
+// Delete each instance's entries on unmount.
 const previewHtmlCacheByInstance = new Map();
 const sourceModelCacheByInstance = new Map();
 
@@ -165,16 +157,9 @@ export default function useSummaryPreview({
     ].filter((card) => Array.isArray(card?.sourceSentences) && card.sourceSentences.length > 0);
     return Array.from(new Set(contextCards.flatMap((card) => card.sourceSentences)));
   }, [previewCard, previewCardKey, summaryCardIndexByKey, cards]);
-  // Indexing the whole article (clone + word/sentence ranges) is the heaviest
-  // step in this view and is needed only once a source preview is shown. Gate
-  // the build behind `previewModelReady` so summary-mode entry isn't blocked by
-  // an eager build: the flag flips either when a preview is first needed or
-  // during idle shortly after mount (whichever comes first), so the first hover
-  // still finds the model ready. Once flipped it stays on; the useMemo below
-  // rebuilds only when the source content actually changes.
+  // Defer the expensive article index until idle or the first preview request.
   const [previewModelReady, setPreviewModelReady] = React.useState(false);
-  // Warm the (lazy) source-model build during idle time after mount so the first
-  // hover finds it ready without blocking summary-mode entry.
+  // Warm the source model during idle time.
   React.useEffect(() => {
     if (previewModelReady || !articleHtml || !Array.isArray(sentences) || sentences.length === 0) {
       return undefined;
@@ -196,9 +181,7 @@ export default function useSummaryPreview({
       window.clearTimeout(id);
     };
   }, [previewModelReady, articleHtml, sentences]);
-  // Build when warmed, or immediately if a preview is needed before the idle
-  // warm-up fires. The boolean (not previewCard itself) keeps the memo stable
-  // across different hovers so the heavy index isn't rebuilt per card.
+  // Build on early demand; the boolean keeps the index stable across hovers.
   const hasActivePreview = Boolean(previewCard);
   const previewSourceModel = React.useMemo(
     () =>

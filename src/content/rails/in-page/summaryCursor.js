@@ -31,14 +31,7 @@ export function computeSummaryCursorState({
     SUMMARY_CURSOR_MIN_TOP,
     Math.round(containerTop + containerHeight * SUMMARY_CURSOR_VIEWPORT_RATIO),
   );
-  // Content in the last viewport-full cannot scroll up to a fixed cursor line:
-  // at maximum scroll everything below the line has no way left to reach it, so
-  // the closing summaries would never become active. Over that final stretch
-  // the cursor glides down to the bottom of the viewport instead, meeting the
-  // content the scroller can no longer bring up to it. (The old rail bought the
-  // same reachability by making the page itself taller — it was an absolutely
-  // positioned, article-height element — which a viewport-height rail cannot
-  // and should not do.)
+  // Near maximum scroll, move the cursor down so closing summaries can reach it.
   const containerBottom = containerTop + containerHeight;
   const cursorTop = Math.round(
     Math.max(restingTop, Math.min(containerBottom, containerBottom - remainingScroll)),

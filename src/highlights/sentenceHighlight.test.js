@@ -59,16 +59,13 @@ describe('sentenceHighlight pure helpers', () => {
     important.setAttribute('style', 'display:none !important');
     const contentVisibility = document.createElement('div');
     contentVisibility.setAttribute('style', 'content-visibility:hidden');
-    // visibility still generates line boxes (so the text measures to a real
-    // rect) and a descendant can override it back to visible, so the pipeline
-    // keeps this content and the walk must too.
+    // visibility allows visible descendants, so the text walk must retain them.
     const invisible = document.createElement('div');
     invisible.setAttribute('style', 'visibility:collapse');
     const closedDialog = document.createElement('dialog');
     const openDialog = document.createElement('dialog');
     openDialog.setAttribute('open', '');
-    // Hidden by a CSS class only: the canvas re-renders without the page's
-    // stylesheet, so this content is visible there and the pipeline keeps it.
+    // The canvas omits page CSS, so class-hidden content remains in capture.
     const classHidden = document.createElement('div');
     classHidden.className = 'hidden';
     expect(isSkippableContainer(template)).toBe(true);
@@ -104,8 +101,7 @@ describe('sentenceHighlight pure helpers', () => {
   });
 
   it('supportsHighlightApi reflects global CSS.highlights/Highlight presence', () => {
-    // The helper returns the result of a && chain and may yield boolean or the last falsy value (undefined).
-    // Just ensure it does not throw and yields a usable truthy/falsy indicator.
+    // The && chain may return undefined; assert only its truthiness.
     const val = supportsHighlightApi();
     expect(val == null || typeof val === 'boolean').toBe(true);
   });
@@ -272,11 +268,8 @@ describe('collectWordEntries and buildSentenceDomRange', () => {
   });
 
   it('collectWordEntries keeps the summary past a same-name RCDATA start tag', () => {
-    // A browser ends the textarea at its first </textarea>, so `<textarea>x` is
-    // its text and <summary> is a direct child of the details. happy-dom's
-    // parser nests the inner start tag instead, burying the summary, so the
-    // tree is built by hand to pin the shape the pipeline's scanner assumes for
-    // '<details><textarea><textarea>x</textarea><summary>Real</summary>...'.
+    // Build the browser's tree manually: happy-dom misparses the nested textarea
+    // and hides the direct summary child.
     const details = document.createElement('details');
     const textarea = document.createElement('textarea');
     textarea.appendChild(document.createTextNode('<textarea>x'));

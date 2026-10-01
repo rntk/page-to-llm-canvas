@@ -2,15 +2,7 @@ import { useCallback, useState } from 'react';
 import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 
 /**
- * Drives the "clear metrics" flow shared by metrics sections that route the
- * clear through a worker message (so it serializes with worker-side writes)
- * and surface a recoverable error on failure: send the clear message, throw
- * if it wasn't acknowledged, and on any failure reload the stored metrics so
- * the user sees current data and isn't left in a permanently busy state.
- *
- * Only fits sections that (a) clear via `sendRuntimeMessage` and (b) render a
- * `clearError` message. Sections with a simpler catch (no error message, no
- * dedicated reload-failure handling) don't reuse this hook.
+ * Clear metrics through the worker, then reload stored values on failure.
  *
  * @param {{
  *   messageType: string,
@@ -35,9 +27,7 @@ export function useMetricsClear({ messageType, defaultErrorMessage, empty, read,
       }
       setMetrics(empty());
     } catch (error) {
-      // A failed clear leaves the stored counters intact. Reload them so the
-      // user can see the current data and try again instead of being left in
-      // a permanently busy state.
+      // A failed clear may leave stored counters intact; reload their current value.
       let message = error?.message || defaultErrorMessage;
       try {
         const stored = await read();

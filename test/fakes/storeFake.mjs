@@ -1,15 +1,7 @@
 import { vi } from 'vitest';
 
 /**
- * A fake of the injected store capability (`browserLocalStore`) for component
- * tests.
- *
- * Components and hooks take `store` so their subscription can be driven
- * directly instead of through a `chrome.storage.onChanged` stub. The
- * chrome-backed adapter that sits here in production has its own coverage in
- * `src/shared/runtime/localStore.test.js` — area filtering, watched-key
- * filtering, listener add/remove, and tolerating a missing storage API — so
- * component tests can assert component behavior only.
+ * Fake injected store for driving component subscriptions directly.
  *
  * @returns {{
  *   subscribe: Function,

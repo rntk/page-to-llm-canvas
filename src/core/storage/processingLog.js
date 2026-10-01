@@ -1,35 +1,20 @@
-// Buffered processing-log subsystem. Pipeline stages emit diagnostic entries
-// far more often than any other write, so they are coalesced in memory and
-// flushed as a single diagnostics-document write. This module owns the buffers,
-// their debounce timers and their disposal semantics; it shares nothing with
-// the record repository beyond the mutation queue and the stale-run guard.
+// Buffer frequent pipeline diagnostics for one write per flush. Disposal and
+// stale-run checks prevent buffered entries from reaching replaced records.
 import { getLocal, setLocal, queuedUpdate, MUTATION_QUEUE_KEY } from './primitives.js';
 import { recordDiagnosticsStorageKey as diagnosticsStorageKey } from './keys.js';
 import { isStaleRun, loadMetaForWrite } from './recordMeta.js';
 
 const MAX_PROCESSING_LOG_ENTRIES = 80;
 
-// Pipeline stages fire a processingLog entry on nearly every LLM request and
-// response (see orchestrator.js logPipeline), which used to mean one full
-// read-modify-write of the record per entry. Entries are instead buffered in
-// memory per record key and flushed as a single write once the buffer has
-// been quiet for LOG_FLUSH_DELAY_MS (bounded from the first buffered entry,
-// not reset per entry, so a sustained burst still flushes periodically).
-//
-// These realm-scoped maps share the mutation queue's lifetime so every caller
-// coalesces through one buffer. Recycling may lose diagnostics; lifecycle
-// disposal below prevents them from landing in the wrong record.
+// Delay is measured from the first entry, so sustained bursts still flush.
+// Worker recycling may lose diagnostics; disposal prevents stale writes.
 const LOG_FLUSH_DELAY_MS = 250;
 /** @type {Map<string, {entries: object[], options: object, disposed?: boolean, deferred: {promise: Promise, resolve: Function, reject: Function}}>} */
 const _logBuffers = new Map();
 /** @type {Map<string, *>} */
 const _logFlushTimers = new Map();
-// Buffers that have been detached from _logBuffers (so new entries start a
-// fresh buffer) but have not yet written: they are waiting on the mutation and
-// key queues. A key can hold more than one, because appendProcessingLog
-// detaches a stale run's buffer while the debounce flush of another may still
-// be parked. They stay tracked here so disposeProcessingLogs can cancel a flush
-// that is queued behind the very delete doing the disposing.
+// Detached buffers await the mutation queue. Track all pending buffers per key
+// so disposal can cancel flushes queued behind a record deletion.
 /** @type {Map<string, Set<object>>} */
 const _flushingBuffers = new Map();
 

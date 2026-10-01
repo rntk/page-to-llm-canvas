@@ -14,17 +14,10 @@ import {
 
 const DEFAULT_POLL_MS = 1000;
 
-// How long after a rail-initiated scroll we ignore `scroll` events. Smooth
-// scrolling emits events for a few hundred ms after the call, and a card
-// expanding/collapsing can nudge `scrollTop` on its own; without this window
-// the rail would read its own scrolling as a manual one and pause itself.
+// Ignore scroll events briefly after the rail scrolls or relayouts cards.
 const PROGRAMMATIC_SCROLL_GUARD_MS = 1200;
 
-// How long scroll events must stop before we judge an in-flight rail scroll to
-// have settled. A user gesture aborts a smooth scroll, so a scroll that goes
-// quiet somewhere other than its target was interrupted by the user. Generous
-// enough to sit out a janky frame mid-animation: a false pause costs one click,
-// a missed one silently drags the reader's position away.
+// A scroll settling short of its target signals user interruption.
 const SCROLL_SETTLE_MS = 250;
 
 function clampRailScrollTop(body, scrollTop) {
@@ -62,24 +55,16 @@ export default function YouTubeRail({
   const isChat = mode === 'chat';
   const [activeId, setActiveId] = useState(null);
   const [chatActionsTarget, setChatActionsTarget] = useState(null);
-  // Which way the active card slides in (mirrors the in-page summary stack):
-  // playback moving forward enters from below, seeking back enters from above.
+  // Slide forward from below and backward from above.
   const [enterDirection, setEnterDirection] = useState('down');
   const previousActiveIndexRef = useRef(-1);
-  // Auto-scroll follows playback until the user scrolls the list themselves;
-  // from then on the list is theirs to browse until they press Resume. The ref
-  // mirrors the state so scroll handlers and effects can read it without
-  // re-creating callbacks (which would re-trigger the scroll effect below).
+  // Pause auto-scroll after manual scrolling until Resume is pressed.
+  // The ref keeps scroll handlers stable across state changes.
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
   const autoScrollEnabledRef = useRef(true);
   const programmaticScrollUntilRef = useRef(0);
   const programmaticTargetRef = useRef(NaN);
-  // When a scroll lands on its target, we close the guard immediately (see
-  // handleBodyScroll) so a drag right on its heels isn't swallowed for the
-  // rest of the window. That immediate close means a trailing same-animation
-  // 'scroll' event — one more frame at (or near) the same spot — would read
-  // as the user taking over; this records when we saw the landing so such an
-  // event can still be told apart from a real one for a brief moment after.
+  // Remember the landing to ignore trailing events without swallowing a new drag.
   const settledAtRef = useRef(0);
   const settleTimerRef = useRef(null);
   const bodyRef = useRef(null);
@@ -100,14 +85,10 @@ export default function YouTubeRail({
     [normalizedCards, topicActions],
   );
 
-  // Start-second lookup for the current card list. Card timestamps change far
-  // less often than the poll tick runs, so this is memoized alongside the
-  // cards rather than rebuilt (and linearly rescanned) on every tick.
+  // Memoize timestamps across player polling ticks.
   const starts = useMemo(() => getYouTubeRailCardStarts(normalizedCards), [normalizedCards]);
 
-  // Poll the player position and resolve the active card. Reading time and
-  // resolving the index are cheap; we only re-render when the active card
-  // actually changes (the setState bails on an equal value).
+  // Poll player time; render only when the active card changes.
   const cardsRef = useRef(normalizedCards);
   const startsRef = useRef(starts);
   useEffect(() => {
@@ -122,8 +103,7 @@ export default function YouTubeRail({
   const beginProgrammaticScroll = useCallback((targetTop = NaN) => {
     programmaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_GUARD_MS;
     programmaticTargetRef.current = targetTop;
-    // A new rail scroll supersedes any in flight: a settle check left over from
-    // the previous one would test a stale target and pause for no reason.
+    // Discard settle checks for a superseded scroll target.
     window.clearTimeout(settleTimerRef.current);
     settleTimerRef.current = null;
   }, []);
@@ -147,9 +127,7 @@ export default function YouTubeRail({
         body.scrollTop + cardRect.top - bodyRect.top - body.clientHeight / 2 + cardRect.height / 2;
 
       const targetTop = Math.max(0, nextTop);
-      // The browser clamps the target to the scrollable range, so store the
-      // clamped value: that is the scrollTop the animation will actually land
-      // on, and the guard below closes when it gets there.
+      // Compare landing against the browser's clamped scroll target.
       beginProgrammaticScroll(clampRailScrollTop(body, targetTop));
       body.scrollTo({ top: targetTop, behavior: 'smooth' });
     },
@@ -159,22 +137,13 @@ export default function YouTubeRail({
   const handleResumeAutoScroll = useCallback(() => {
     autoScrollEnabledRef.current = true;
     setAutoScrollEnabled(true);
-    // Open the guard before the button unmounts: losing it shrinks the list,
-    // which can clamp scrollTop and emit a scroll event that would otherwise
-    // read as the user taking over again. `scrollToCard` narrows the guard to
-    // its real target; if it bails (no active card yet), the window times out.
+    // Guard before Resume unmounts; relayout may itself emit a scroll event.
     beginProgrammaticScroll();
     scrollToCard(activeId);
   }, [activeId, beginProgrammaticScroll, scrollToCard]);
 
-  // Scrollbar drags and touch panning surface only as `scroll` events, so any
-  // scroll the rail did not cause itself counts as the user taking over.
-  //
-  // The guard window is an upper bound on how long the rail's own smooth scroll
-  // may keep emitting events. Two things close it early, so a drag during that
-  // window is not swallowed: the scroll landing on its target, and — since a
-  // gesture aborts a smooth scroll mid-flight — the scroll going quiet anywhere
-  // else, which means the user interrupted it.
+  // Treat unguarded scroll events as manual input, including drags and touch.
+  // Close the guard on target arrival or an interrupted smooth scroll.
   const handleBodyScroll = useCallback(() => {
     if (Date.now() < programmaticScrollUntilRef.current) {
       const body = bodyRef.current;
@@ -202,13 +171,7 @@ export default function YouTubeRail({
       }, SCROLL_SETTLE_MS);
       return;
     }
-    // The guard is closed, but a scroll landing exactly on its target can
-    // still fire a trailing 'scroll' event for the same animation frame or
-    // two after we already saw it land (easing slows to sub-pixel deltas
-    // right at the end). Forgive only that: an event arriving right after
-    // the landing, at the same spot the rail put it. Anything that's moved
-    // away from the target, or arrives well after the landing, is the
-    // user's, guard or no guard.
+    // Ignore only immediate trailing events at the rail's landing position.
     const body = bodyRef.current;
     const settledRecently = Date.now() - settledAtRef.current <= SCROLL_SETTLE_MS;
     if (
@@ -222,9 +185,7 @@ export default function YouTubeRail({
     pauseAutoScroll();
   }, [pauseAutoScroll]);
 
-  // Applies a manual scroll delta to the list. A gesture that cannot move it
-  // (the list fits, or it is already at that end) is not the user taking
-  // over, so it must not pause.
+  // Do not pause playback tracking for a gesture that cannot move the list.
   const scrollRailBy = useCallback(
     (body, delta) => {
       const nextScrollTop = clampRailScrollTop(body, body.scrollTop + delta);
@@ -293,26 +254,18 @@ export default function YouTubeRail({
     };
   }, [pollIntervalMs]);
 
-  // The active card changing re-lays out the list (the summary body expands,
-  // the card grows), which can shift `scrollTop` on its own. Open the guard
-  // window before paint so that shift is not mistaken for a manual scroll.
+  // Guard before card expansion shifts scrollTop during layout.
   useLayoutEffect(() => {
     beginProgrammaticScroll();
   }, [activeId, beginProgrammaticScroll]);
 
-  // Scroll only on transition: when the active card changes during playback,
-  // bring it into the rail's viewport. (No constant scroll — the list is
-  // otherwise free for the user to browse.) Once the user has scrolled
-  // manually, following playback is off until they resume it.
+  // Scroll on active-card changes while playback tracking is enabled.
   useEffect(() => {
     if (!autoScrollEnabledRef.current) return;
     scrollToCard(activeId);
   }, [activeId, scrollToCard]);
 
-  // Re-anchor on a level/mode switch: the card set changes, so resolve the
-  // current card immediately (don't wait for the next poll tick) and force a
-  // scroll to it even if its id happens to carry over. rAF lets the new cards
-  // mount and register their refs before we scroll.
+  // On mode or level changes, wait for card refs before scrolling to the new card.
   useEffect(() => {
     const time = getCurrentTimeRef.current ? getCurrentTimeRef.current() : null;
     const next = getYouTubeRailActiveCardIdFromNormalized(
@@ -331,9 +284,7 @@ export default function YouTubeRail({
     [normalizedCards, activeId],
   );
 
-  // Direction is derived from the index the active card moved from, so it is
-  // right for both poll-driven advances and user seeks. Set before paint so the
-  // card picks up its slide-in class on the same commit that marks it active.
+  // Set slide direction before paint for both playback and seeking.
   useLayoutEffect(() => {
     const previousIndex = previousActiveIndexRef.current;
     previousActiveIndexRef.current = activeIndex;

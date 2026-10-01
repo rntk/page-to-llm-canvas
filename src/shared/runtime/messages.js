@@ -1,10 +1,5 @@
-// Shared runtime-message type constants for extension surfaces and the service
-// worker. Keep this file dependency-free and browser-safe.
-//
-// These are the `type` values on chrome.runtime messages dispatched by
-// background.js's MESSAGE_HANDLERS. The content-script `action:` messages
-// ('startSelection', 'openRecordView') are a separate namespace and intentionally
-// not included here.
+// Shared chrome.runtime message types handled by the worker. Content-script
+// `action:` messages use a separate namespace.
 export const MSG = Object.freeze({
   submit: 'submit',
   retryRecord: 'retryRecord',

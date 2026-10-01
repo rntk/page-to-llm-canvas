@@ -41,8 +41,7 @@ describe('isCancellationError', () => {
   });
 
   it('ignores an abort-shaped error while this run is still active', () => {
-    // The nit this guards: a transport timeout surfaced as AbortError used to be
-    // swallowed as cancellation, leaving the record stuck in SUMMARIZING.
+    // An AbortError-shaped transport timeout must remain a provider failure.
     const runtime = activeRuntime();
     expect(isCancellationError(abortError('The operation timed out.'), runtime)).toBe(false);
     const codeOnly = new Error('aborted');
@@ -150,8 +149,7 @@ describe('rethrowIfCancelled', () => {
   });
 
   it('rethrows an unrelated error that settles after the abort', () => {
-    // Rethrown as-is so the stage does not replace it with an AbortError at its
-    // next log/update boundary.
+    // Preserve the original error after a racing abort.
     const raceError = new TypeError('Cannot read properties of undefined');
     expect(() => rethrowIfCancelled(raceError, abortedRuntime())).toThrow(raceError);
   });

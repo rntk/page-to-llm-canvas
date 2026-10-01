@@ -1,9 +1,6 @@
 import { useEffect, useReducer, useState } from 'react';
 
-// Hard cap on how long the opening overlay may hold the canvas back. Every gate
-// below it is best-effort: a record with no measurable layout, a stalled image,
-// a hidden tab that never paints — none of them may strand the user behind a
-// progress bar, so the reveal always happens by this deadline.
+// Reveal by this deadline even if layout, images, or tab painting stalls.
 export const REVEAL_TIMEOUT_MS = 900;
 // Overlay fade-out. Runs concurrently with the content's entrance so the two
 // crossfade rather than blinking through an empty canvas.
@@ -22,10 +19,7 @@ const STEPS = {
 /**
  * Opening-sequence phase machine.
  *
- * A reducer rather than plain setters so the effects below advance it through a
- * stable `dispatch` instead of a synchronous setState in an effect body (the
- * same reasoning as useInitialView). Each transition is guarded, so a re-run of
- * an effect can neither skip nor rewind a step.
+ * Guarded transitions prevent repeated effects from skipping or rewinding a step.
  *
  * @param {{stage: string, isOverlayLeaving: boolean}} state
  * @param {string} action

@@ -1,13 +1,4 @@
-// Isolated LLM request duration, token, and prompt-cache metrics.
-//
-// TO REMOVE ENTIRELY:
-//   1. Delete this file (and llm.test.js)
-//   2. In orchestrator.js: remove the llmMetrics import + wrap lines; restore
-//      a plain `callLLMWithRetry` import from ../llm/llm.js
-//   3. In background.js: remove the recordLlmMetric import + the metrics wiring
-//      in the MSG.llmChatCompletion handler (and drop `taskType` from the chat
-//      send payloads in src/chat/articleChat.js)
-//   4. In OptionsApp.jsx: remove LlmMetricsSection + its import + render
+// LLM request duration, token, and prompt-cache metrics.
 
 import { LLM_TASK_TYPES } from '../../shared/runtime/telemetry.js';
 import { createLogger } from '../../shared/runtime/log.js';
@@ -25,18 +16,10 @@ export const LLM_METRICS_MAX_RECENT = 40;
 const CACHE_USAGE_KEYS = ['cacheReadTokens', 'cacheWriteTokens', 'cacheMissTokens'];
 
 /**
- * Canonical persisted totals schema. Initializing, normalizing, merging, and
- * accumulating totals all derive from this table, so adding a counter here is
- * enough for every runtime path to pick it up.
- *
- * The one place a new counter still needs a manual edit is the LlmMetricTotals
- * typedef above: JSDoc cannot be derived from a runtime object.
- *
- * - op is how two values for the field combine: summed, or the smaller/larger
- *   of the two. It also fixes the empty value (0 for sums, null for min/max,
- *   since "no sample yet" is not the same as a duration of 0).
- * - contribute is what a single metric entry offers the field: an amount to add
- *   for sum, or a candidate value to compare for min/max.
+ * Canonical totals schema for initialization, normalization, merging, and
+ * accumulation. Update LlmMetricTotals separately when adding a field.
+ * `op` controls merging and the empty value (0 for sum, null for min/max);
+ * `contribute` extracts a sample's value.
  */
 const LLM_METRIC_TOTAL_FIELDS = Object.freeze({
   totalCount: { op: 'sum', contribute: () => 1 },

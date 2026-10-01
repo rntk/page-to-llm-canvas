@@ -124,11 +124,8 @@ function bytesInUse(keys) {
  * Returns privacy-safe storage metadata for the Options data-management UI.
  */
 export async function getStorageOverview() {
-  // Keys only: a full `getLocal(null)` would deserialize every stored page,
-  // chat and provider payload into the worker heap just to count them, which
-  // is enough to stall or crash the worker for an "unlimitedStorage" profile
-  // with hundreds of saved articles. Sizes come from `getBytesInUse`, which
-  // needs no values at all.
+  // Count keys without deserializing page, chat, and provider payloads.
+  // getBytesInUse supplies sizes without loading values into the worker.
   const allKeys = await getAllLocalKeys();
   const grouped = {
     pageData: [],

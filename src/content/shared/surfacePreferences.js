@@ -19,27 +19,20 @@ import { createLogger } from '../../shared/runtime/log.js';
 
 const log = createLogger('content');
 
-// The injected toolbar/rail tokens are scoped to their host elements (not the
-// host page's :root), so we tag those elements with the saved preference and
-// let content.css flip the palette. The "system" case is handled by CSS, so a
-// failed/missing read just falls back to system. Cached at injection so the
-// elements can be tagged synchronously on creation (no flash).
+// Cache preferences so new surface hosts receive their palette before painting.
+// CSS handles the "system" fallback.
 let cachedThemePreference = THEME_SYSTEM;
 let cachedHighlightColor = DEFAULT_HIGHLIGHT_COLOR;
 let unsubscribePreferenceStorage = null;
 let mountedContentSurfaceCount = 0;
-// One generation counter per preference, not one shared counter: a change event
-// for one key must only invalidate the in-flight read for THAT key, or the other
-// key's pending read is dropped and stays at its default until the next resync.
+// Changes invalidate pending reads only for the affected preference.
 let themeSyncId = 0;
 let highlightColorSyncId = 0;
 let didInit = false;
 let initPromise = null;
 let contentDocumentRef = null;
 
-// Controllers own their host elements; they register a getter here so a theme
-// or highlight-color change can re-tag surfaces that are already mounted
-// WITHOUT this module importing the controllers (which would create cycles).
+// Host getters let preference changes update mounted surfaces without import cycles.
 const themedSurfaceProviders = new Set();
 
 /**
@@ -70,10 +63,7 @@ export function applyContentHighlightColor(el) {
   applyHighlightColorToElement(el, cachedHighlightColor);
 }
 
-// Re-tag any already-mounted surfaces. The content script caches the preference
-// at injection, so a theme change from the popup/options after the page loaded
-// would otherwise be ignored until reload. (OS-level "system" changes are
-// handled live by the CSS media query and need no JS.)
+// Re-tag mounted surfaces when preferences change; CSS handles system theme changes.
 function refreshMountedContentTheme() {
   for (const getEl of themedSurfaceProviders) {
     const el = getEl();
@@ -108,10 +98,7 @@ function clearMountedHighlightColor() {
 }
 
 /**
- * Kick off the initial preference reads. Importing this module must not start
- * async work. Lazy surface factories await the returned promise so their first
- * render is tagged with the stored preferences rather than briefly flashing
- * the defaults.
+ * Read initial preferences on demand so lazy surfaces use them on first render.
  * @param {Document} [contentDocument]
  */
 export function init(contentDocument) {

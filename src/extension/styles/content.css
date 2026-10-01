@@ -1,14 +1,5 @@
-/* Content-script styles — "The Editorial Absolute" design system.
- * Injected into arbitrary host pages, so all tokens are scoped to our IDs.
- *
- * This sheet is declared in manifest.json content_scripts, so every frame on
- * every page parses it. Keep it to what must exist before a surface is mounted
- * or cannot live anywhere else: the design tokens, the selection markers, the
- * ::highlight() pseudo-element (highlight rules only match in the tree the
- * ranges live in), the injected hosts, and the body class the rail sets. The
- * rail's own internals — head, body, cards, summary cursor, level switcher,
- * chat overrides, YouTube rail — live in content-rail.css, which the rail
- * surface injects on open and removes on close. */
+/* Styles loaded on every page. Keep only host, token, and page-range rules here;
+ * rail internals are injected on demand from content-rail.css. */
 
 :root {
   --pagetollm-highlight-base-color: #3a404d;
@@ -17,13 +8,8 @@
   --pagetollm-highlight-active-color: rgb(58 64 77 / 20%);
 }
 
-/* One source of truth per token. `light-dark()` resolves against the host
-   element's own color-scheme, so declaring `light dark` here also pins these
-   injected hosts to the OS preference instead of inheriting whatever
-   color-scheme the surrounding page happens to set. Tokens are inherited into
-   the toolbar's shadow tree; the shadow toolbar needs no extra styles.
-   `data-theme` (set by the content script) only flips color-scheme; absent
-   means "system". */
+/* Resolve light-dark() against each injected host, not the page theme.
+   data-theme overrides the system preference. */
 #pagetollm-selection-toolbar,
 #pagetollm-in-page-rail {
   color-scheme: light dark;
@@ -36,12 +22,9 @@
   --on-surface: light-dark(#141414, #ececec);
   --on-surface-muted: light-dark(#5f646b, #a0a6af);
   --ghost: light-dark(rgb(0 0 0 / 20%), rgb(255 255 255 / 22%));
-  --surface-frost: light-dark(
-    rgb(255 255 255 / 82%),
-    rgb(27 29 34 / 82%)
-  ); /* frosted-glass chrome (toolbar/rail) */
+  --surface-frost: light-dark(rgb(255 255 255 / 82%), rgb(27 29 34 / 82%));
 
-  /* Voice (serif) vs Data (sans) — injected into host pages, so system stack avoids inheriting host @font-face */
+  /* System stacks avoid host-page font faces. */
   --font-voice: georgia, 'Times New Roman', times, serif;
   --font-data:
     -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, oxygen, ubuntu, cantarell,
@@ -62,11 +45,7 @@
   color-scheme: dark;
 }
 
-/* Selection toolbar: floating frosted vellum. The host element (this rule)
-   lives in the light DOM, but its contents render inside a closed shadow
-   root — the toolbar's inner styles (buttons, block list, etc.) live in
-   TOOLBAR_SHADOW_STYLES in src/content/selection/SelectionToolbar.styles.js,
-   not here. */
+/* Toolbar contents use a closed shadow root styled by SelectionToolbar.styles.js. */
 #pagetollm-selection-toolbar {
   position: fixed;
   top: 20px;

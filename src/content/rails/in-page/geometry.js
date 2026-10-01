@@ -1,10 +1,7 @@
 import { buildSentenceDomRange } from '../../../highlights/sentenceHighlight.js';
 
 /**
- * Geometry and scroll helpers extracted from the in-page rail logic
- * (src/content/rails/in-page/controller.jsx) so they can be unit tested in isolation.
- *
- * Defaults preserve original behavior using global window/document.
+ * Geometry and scroll helpers for the in-page rail.
  */
 
 export function getScrollTop(scrollContainer, win = window) {
@@ -14,10 +11,7 @@ export function getScrollTop(scrollContainer, win = window) {
 /**
  * Origin the card boxes are measured from: the rail body's viewport top.
  *
- * The body is pinned to the viewport (the rail host is fixed), so this origin
- * stays put while the page scrolls; the card track is translated by the current
- * scroll offset instead. One origin therefore serves both a window scroll and
- * an inner scroller, whose content space the boxes already live in.
+ * The body stays fixed while the card track follows window or inner scrolling.
  *
  * @param {{top: number}} bodyRect Rail body rect, measured untransformed.
  * @returns {number} Viewport offset the card boxes are relative to.
@@ -30,9 +24,7 @@ export function getScrollableAncestor(
   elements,
   {
     win = window,
-    // Wrap to preserve the Window receiver. Bare `window.getComputedStyle` as a default
-    // would be invoked detached in strict mode (ES modules), and Chrome brand-checks
-    // WebIDL operations like getComputedStyle (same as requestAnimationFrame etc.).
+    // Preserve the Window receiver required by getComputedStyle.
     getComputedStyle = (el) => win.getComputedStyle(el),
     body = win.document.body,
     docEl = win.document.documentElement,
@@ -76,9 +68,7 @@ export function computeCardVerticalBox(
   for (const sNum of sentences) {
     const domRange = buildRange(sentenceRanges, wordEntries, sNum);
     if (!domRange) continue;
-    // getClientRects() yields one rect per line box the sentence spans, giving
-    // a tighter measurement than the start/end corners alone. Skip rects that
-    // aren't laid out (display:none etc.) so they don't collapse `top` to 0.
+    // Measure each line box; skip unlaid-out rects that would collapse top to 0.
     const rects = Array.from(domRange.getClientRects()).filter(isLaidOut);
     if (rects.length === 0) continue;
     const sTop = Math.min(...rects.map((r) => r.top)) + scrollTop - railOriginTop;

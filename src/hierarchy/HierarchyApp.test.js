@@ -121,7 +121,6 @@ describe('HierarchyApp', () => {
     act(() => closeBtn.click());
     expect(hostActions.onClose).toHaveBeenCalledTimes(1);
 
-    // Topic click
     const topicLeaf = container.querySelector('.th-leaf');
     act(() => topicLeaf.click());
     expect(hostActions.onNavigateToSentences).toHaveBeenCalledWith({
@@ -237,7 +236,6 @@ describe('HierarchyApp', () => {
 
     const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
 
-    // Starts fully unfolded with the deepest (leaf) level selected.
     const levelButtons = Array.from(
       container.querySelectorAll('.th-page__level-switcher .topic-level-switcher__button'),
     );
@@ -280,7 +278,6 @@ describe('HierarchyApp', () => {
     );
     act(() => buttons[0].click());
     expect(container.textContent).not.toContain('Orange');
-    // Expand back to leaves before opening their summary.
     act(() => buttons[2].click());
     const leafSummary = container.querySelector('.th-leaf-summary');
     act(() => leafSummary.click());
@@ -386,17 +383,14 @@ describe('HierarchyApp', () => {
 
     const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
 
-    // Verify summary is rendered
     const summaryEl = container.querySelector('.th-leaf-summary');
     expect(summaryEl).not.toBeNull();
     expect(summaryEl.textContent).toBe('A delicious collection of fruits.');
 
-    // Click summary to open modal
     act(() => {
       summaryEl.click();
     });
 
-    // Verify modal overlay is rendered
     let modalOverlay = container.querySelector('.th-summary-modal-overlay');
     expect(modalOverlay).not.toBeNull();
     expect(container.querySelector('.th-summary-modal__card-path').textContent).toBe('Fruit');
@@ -412,16 +406,13 @@ describe('HierarchyApp', () => {
     // Modal overlay should be gone
     modalOverlay = container.querySelector('.th-summary-modal-overlay');
     expect(modalOverlay).toBeNull();
-    // Verify the entire page modal was not closed.
     expect(hostActions.onClose).not.toHaveBeenCalled();
 
-    // Click again to reopen
     act(() => {
       summaryEl.click();
     });
     expect(container.querySelector('.th-summary-modal-overlay')).not.toBeNull();
 
-    // Click close button inside modal
     const closeBtn = container.querySelector('.th-summary-modal__close-btn');
     act(() => {
       closeBtn.click();

@@ -23,11 +23,7 @@ function tabFromHash() {
 
 export function OptionsApp({ store, scheduler, fileHost, pageHost, subscribeRecords }) {
   const [activeTab, setActiveTab] = useState(tabFromHash);
-  // Panels are expensive to mount (storage reads, subscriptions, list
-  // fetches) so a panel's subtree is only ever rendered once its tab has
-  // been visited at least once. Once visited, the panel stays mounted (only
-  // `hidden` toggles) so switching tabs back and forth doesn't repeat those
-  // initial loads.
+  // Mount panels on first visit and retain them to avoid repeating storage loads.
   const [visitedTabs, setVisitedTabs] = useState(() => new Set([tabFromHash()]));
   const [dataVersion, setDataVersion] = useState(0);
 

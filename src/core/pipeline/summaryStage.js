@@ -194,9 +194,8 @@ export async function runSummaries({
   callLLMWithRetry,
 }) {
   const { nodes } = buildTopicTree(topics);
-  // A path with children is resolved from the tree's aggregated runs. Its own
-  // sentences may share a run with a child, so a separate per-topic request
-  // would be discarded after the tree request and could fail unnecessarily.
+  // Resolve paths with children from tree runs; a separate request could be
+  // discarded when own sentences share a run with a child.
   const leafTopics = topics.filter((topic) => nodes.get(topic.name)?.children.length === 0);
   const { reused, pending, reusedCount, pendingCount, total } = planSummaryWork(
     leafTopics,
@@ -259,11 +258,8 @@ export async function runSummaries({
     );
   }
 
-  // A permanent provider failure (401, unknown model) condemns every remaining
-  // topic as well, so the burst stops claiming them instead of spending one
-  // doomed request per topic. The unclaimed topics are recorded below with the
-  // same failure so they park for review rather than vanishing from
-  // `topic_summaries` and letting the merge phase run on missing leaves.
+  // Stop claiming topics after a permanent failure and record unclaimed topics
+  // with that failure so review still covers them.
   const { permanentError, unclaimed: skipped } = await runProviderBurst(
     pending,
     SUMMARY_CONCURRENCY,
@@ -275,9 +271,7 @@ export async function runSummaries({
       );
 
       const { runResults, pendingRunIndexes, acceptedFailure, previousFailure } = topic;
-      // A pending run is represented by its structurally valid empty slot plus
-      // the topic-level error marker used by the UI/index, while each
-      // successful slot remains durable.
+      // Keep each pending run's empty slot and topic-level error marker.
       const unresolved = new Set(pendingRunIndexes);
       let failure = null;
       let providerError = null;
@@ -303,9 +297,7 @@ export async function runSummaries({
       };
 
       const persistLeafCheckpoint = async () => {
-        // Only pending topics need a physical write. Reused entries were
-        // narrowed by planSummaryWork for this run but may retain harmless
-        // error fields in storage until that leaf is next rewritten.
+        // Write pending topics; reused entries may still have old storage fields.
         topic_summaries[topic.name] = buildLeafSummaryEntry();
         await runtime.checkpointTopicSummary(topic.name, topic_summaries[topic.name]);
       };
@@ -316,9 +308,7 @@ export async function runSummaries({
         try {
           const summarized = await leafSummarizeSource(runIds, { path: topic.name });
           const summarizedRuns = summarized?.runs;
-          // Each pending plan item is one contiguous run, so the source
-          // summarizer must return exactly one result. Fail loudly if that
-          // contract changes instead of silently discarding later runs.
+          // A pending plan item must produce exactly one run.
           if (!Array.isArray(summarizedRuns) || summarizedRuns.length !== 1) {
             throw new Error(
               `Expected exactly one summary run for topic "${topic.name}", received ${
@@ -343,8 +333,7 @@ export async function runSummaries({
           };
         } catch (error) {
           rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
-          // Provider failures are actionable through Retry/Skip. A prompt,
-          // chunking, cache, or parsing bug is not and must fail the pipeline.
+          // Only provider failures are actionable through Retry or Skip.
           if (!isProviderFailure(error)) throw error;
           const isPermanentFailure = isPermanentProviderError(error);
           if (!providerError || isPermanentFailure) providerError = error;
@@ -369,10 +358,7 @@ export async function runSummaries({
             ...runFailure,
           };
           await persistLeafCheckpoint();
-          // This topic's remaining runs are condemned by the same permanent
-          // failure. They stay in `unresolved`, so the topic still parks with
-          // its error marker — it just does not buy one rejection per run to
-          // get there.
+          // Park remaining runs under the same permanent failure.
           if (isPermanentFailure) break;
           continue;
         }
@@ -419,26 +405,20 @@ export async function runSummaries({
   }
 
   const leafErrors = collectSummaryErrors(topic_summaries);
-  // `forceFinalize` only honors acceptedFailure markers already in the
-  // checkpoint, not failures since the user clicked Skip: accepted leaves no
-  // longer have `error: true`, so every error collected here is new.
+  // Errors collected after Skip are new; accepted failures lost their error flag.
   if (leafErrors.length) {
     await parkForReview(
       runtime,
       leafErrors,
       'leaf',
-      // Carry over still-valid internal-node entries: parking must not drop the
-      // tree-level work a later retry can reuse.
+      // Preserve valid internal summaries for later retries.
       buildPartialTopicSummaryIndex(topics, topic_summaries, previousSummaryIndex),
       { done, total },
     );
     return;
   }
 
-  // Internal nodes do not map cleanly to a determinate request count: some
-  // delegate to a child, some reuse prior work, and others fan out through
-  // source-summary chunking. Switch to an explicit indeterminate phase instead
-  // of leaving the leaf counter displayed at 100% while merge work is running.
+  // Internal work has no fixed request count; report an indeterminate phase.
   await runtime.update({
     progress: progressAt(PIPELINE_STAGE.MERGING_SUMMARIES),
   });
@@ -463,15 +443,12 @@ export async function runSummaries({
     nodes,
     leafSummaries: topic_summaries,
     summarizeSource,
-    // Reuse is per run and failure-aware for both Retry and Skip. Accepted
-    // paths are suppressed by summarizeSource while unrelated successful
-    // paths retain their already-paid-for summaries.
+    // Reuse successful runs while suppressing accepted failure paths.
     previousSummaryIndex,
     reusePriorSummaries: true,
     onError: ({ path, error }) => {
       rethrowIfCancelled(error, runtime);
-      // Same policy as above: `makeSourceSummarizer` marks provider rejections,
-      // so anything unmarked is our own bug and must surface, not park behind Retry.
+      // Unmarked errors are internal bugs, not retryable provider failures.
       if (!isProviderFailure(error)) throw error;
       const { kind, message } = classifyLlmError(error);
       summaryErrors.push({
@@ -496,9 +473,7 @@ export async function runSummaries({
   // Accepted merge paths are suppressed during generation, so any error collected
   // here is new, even on a force-finalizing resume.
   if (summaryErrors.length) {
-    // Persist the failed path on the projection itself. Older parked records
-    // only had summaryErrors, but new normal Retries need a durable per-path
-    // distinction after the background handler clears that transient list.
+    // Persist failed paths after transient summaryErrors are cleared.
     for (const { topic: path } of summaryErrors) {
       if (topic_summary_index[path]) {
         topic_summary_index[path] = { ...topic_summary_index[path], error: true };
@@ -534,9 +509,7 @@ export async function runSummaries({
   }
 
   await runtime.update({
-    // Summaries ran, so `summariesDisabled` stays false and the ones that
-    // succeeded remain viewable. A skipped leaf stays retryable
-    // (`forcedEmpty`) rather than looking like every summary is absent.
+    // Keep successful summaries visible and skipped leaves retryable.
     ...doneTransition({
       done: total,
       total,

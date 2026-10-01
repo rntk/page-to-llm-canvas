@@ -1,12 +1,4 @@
-// The drain contract here is the one piece of this module that was restructured
-// rather than moved: `deleteAllExtensionData` snapshots the in-flight completion
-// jobs *after* aborting them, and awaits that snapshot so each job reaches its
-// terminal metric write before storage is cleared. If `activeCompletionJobs()`
-// ever came back empty right after `cancelAll()`, a cancelled request could
-// restore metrics data immediately after a full reset returns, with nothing
-// failing.
-//
-// No `chrome` global: the service takes its provider and metrics seams as deps.
+// Reset drains cancelled completion jobs before clearing their final metric writes.
 import { describe, it, expect, vi } from 'vitest';
 import { createChatCompletionService } from './chatCompletionService.js';
 

@@ -36,16 +36,13 @@ for (const [file, data] of Object.entries(summary)) {
   if (file === 'total') continue;
   const relativePath = path.relative(process.cwd(), file);
 
-  // Find uncovered lines from coverage-final.json. Istanbul/V8 line coverage
-  // is based on each statement's starting line. Treating an entire multi-line
-  // statement as covered when any part executes makes partially covered JSX
-  // look fully covered and previously produced misleading "None" results.
+  // Use statement start lines; multi-line JSX can otherwise hide uncovered lines.
   const uncoveredLines = [];
   if (final && final[file]) {
     const fileCoverage = final[file];
     const statementMap = fileCoverage.statementMap;
     const s = fileCoverage.s;
-    const linesState = {}; // line -> maximum hit count
+    const linesState = {}; // Highest hit count for each line.
 
     for (const [id, count] of Object.entries(s)) {
       const loc = statementMap[id];
@@ -73,7 +70,6 @@ for (const [file, data] of Object.entries(summary)) {
   });
 }
 
-// Sort by missingCount descending, then pct ascending
 files.sort((a, b) => {
   if (b.missingCount !== a.missingCount) {
     return b.missingCount - a.missingCount;
@@ -81,7 +77,6 @@ files.sort((a, b) => {
   return a.pct - b.pct;
 });
 
-// Helper to format line numbers into ranges (e.g. 1-5, 8, 11-13)
 function formatRanges(lines) {
   if (lines.length === 0) return 'None';
   const ranges = [];

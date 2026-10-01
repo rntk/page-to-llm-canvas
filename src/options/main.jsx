@@ -11,11 +11,7 @@ import {
 } from '../shared/runtime/browserHosts.js';
 
 const rootEl = document.getElementById('options-root');
-// Exported so tests can `root.unmount()` between cases - this page is only
-// ever entered once per real tab, but re-importing this module in tests
-// (`vi.resetModules()` + repeated `import('./main.jsx')`) creates a fresh
-// root every time; without unmounting the previous one, its effects (e.g.
-// the `hashchange` listener in OptionsApp) keep running against later tests.
+// Export the root so tests can unmount effects before re-importing this entrypoint.
 export const root = createRoot(rootEl);
 root.render(
   <ErrorBoundary label="The options page">

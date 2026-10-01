@@ -1,14 +1,8 @@
-// Entrance stagger shared by the topic rail and the summary column.
-//
-// The per-card delay is scaled so the whole column is in within
-// STAGGER_WINDOW_MS however many cards there are. A fixed per-card delay would
-// dribble 200 cards in over several seconds, which is exactly the "everything is
-// slow" impression the staged reveal exists to remove.
+// Fit the full topic rail or summary column entrance within STAGGER_WINDOW_MS.
 export const STAGGER_WINDOW_MS = 240;
 export const MAX_STAGGER_STEP_MS = 14;
 
-// Duration of the card appear animations in modal.css. Kept here so the code
-// that has to wait for them out-lives a tweak to one of the two call sites.
+// Match card entrance duration in modal.css.
 const CARD_APPEAR_MS = 300;
 // When the last staggered card has finished moving, plus a frame of slack.
 export const ENTRANCE_SETTLE_MS = STAGGER_WINDOW_MS + CARD_APPEAR_MS + 32;

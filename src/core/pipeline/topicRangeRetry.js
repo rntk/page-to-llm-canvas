@@ -1,12 +1,5 @@
-// Shared retry/backoff/parse-error loop for the topic-ranges LLM stage.
-//
-// The shared splitter uses this loop for full articles and selected ranges.
-// It dispatches pending chunks, retains successful results, and retries only
-// the chunks that failed. Side effects and retry policy are supplied through
-// callbacks so this helper can also be tested independently.
-//
-// The default backoff matches the original inline loop:
-//   delay = baseDelayMs * 2^attemptIndex   (attemptIndex is 0-based)
+// Topic-range attempt/parse loop; callbacks own chunk state and side effects.
+// Default backoff: baseDelayMs * 2^attemptIndex (zero-based).
 
 export const DEFAULT_RETRY_BASE_DELAY_MS = 2000;
 
@@ -23,16 +16,10 @@ export function computeBackoffDelay(attemptIndex, baseDelayMs = DEFAULT_RETRY_BA
 /**
  * Run the attempt/parse/retry cycle for a topic-ranges query.
  *
- * On each attempt it calls `callLLM(attemptIndex)` to obtain the combined raw
- * response for that attempt, then `parse(raw)`. A successful parse resolves.
- * A parse error that satisfies `isRetryable(err)` triggers another attempt
- * (after `sleep(delay)`) until `maxRetries` is exhausted, at which point the
- * error is rethrown. Any non-retryable error is rethrown immediately.
+ * Each attempt calls `callLLM(attemptIndex)`, then `parse(raw)`. Retryable parse
+ * errors back off until `maxRetries`; other errors propagate immediately.
  *
- * `onAttempt({ attemptIndex, attemptNumber })` runs before each attempt's LLM
- * dispatch; `onParseRetry({ attemptIndex, attemptNumber, maxRetries, error })`
- * runs after a retryable parse error, before the backoff sleep. Both are
- * awaited so callers can perform async side effects (logging) in order.
+ * Await `onAttempt` before dispatch and `onParseRetry` before backoff.
  *
  * @template Raw, T
  * @param {object} opts
@@ -42,9 +29,7 @@ export function computeBackoffDelay(attemptIndex, baseDelayMs = DEFAULT_RETRY_BA
  * @param {number} [opts.baseDelayMs]
  * @param {function(unknown): boolean} [opts.isRetryable]
  * @param {function({attemptIndex: number, baseDelayMs: number, error: unknown}): number} [opts.computeDelay]
- *   Overrides the delay before the next attempt. Defaults to the exponential
- *   schedule above; a caller whose errors can carry a provider cooldown
- *   (Retry-After) uses it to wait out that cooldown instead.
+ *   Overrides exponential backoff, for example to honor Retry-After.
  * @param {function(number): Promise<void>} [opts.sleep]
  * @param {function({attemptIndex: number, attemptNumber: number}): (void | Promise<void>)} [opts.onAttempt]
  * @param {function({attemptIndex: number, attemptNumber: number, maxRetries: number, error: Error}): (void | Promise<void>)} [opts.onParseRetry]

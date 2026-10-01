@@ -205,19 +205,10 @@
   --th-row-gap: 8px;
   --th-row-height: 40px;
 
-  /* Every card in the tree shares one width so columns line up cleanly instead
-     of each card shrink-wrapping its own text (which reads as visual noise).
-     TopicHierarchyView measures the widest card and locks this to that pixel
-     width (capped to the pane) so titles align without being truncated. The
-     `max-content` default is the pre-measurement / no-JS fallback. */
+  /* Shared measured card width aligns columns; max-content covers pre-measurement. */
   --th-card-width: max-content;
 
-  /* Fold-toggle gutter. Shared by the real toggle (foldable nodes) and the
-     invisible spacer on leaves, so a leaf's title starts at the same offset as a
-     node's title and the column of titles stays straight. The title offset is
-     toggle-width + toggle-gap + the row's flex gap, independent of each card's
-     own horizontal padding (each card cancels its own padding with a matching
-     negative margin on the gutter). */
+  /* Shared toggle/spacer gutter aligns leaf and branch titles. */
   --th-toggle-width: 36px;
   --th-toggle-gap: 8px;
   --th-leaf-pad-x: 16px;

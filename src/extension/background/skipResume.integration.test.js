@@ -1,9 +1,5 @@
-// End-to-end cover for the "skip" resolution: the resolveSummaryErrors handler
-// (which rewrites the failed leaf's error flags) and the real pipeline run it
-// starts, wired to real storage over a chrome mock. Only the provider boundary
-// is faked — a test that constructs the resumed summaries by hand bypasses
-// `clearSummaryErrorFlags` and cannot catch a marker that never reaches the
-// summary stage.
+// Exercise Skip through the handler and real pipeline/storage, faking only the
+// provider, so summary markers must reach the resumed stage.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readRecord, writeRecord } from '../../core/storage/storage.js';
 import { planSummaryWork } from '../../core/pipeline/summaryPlanning.js';

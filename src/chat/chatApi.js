@@ -8,9 +8,7 @@ async function request(message) {
 }
 
 /**
- * Reads the active provider's safe article-chat source budget. The provider is
- * resolved in the background, where its context-window setting is available;
- * the content-script must know the limit before it can split an article.
+ * Read the active provider's chat budgets before splitting an article.
  * @returns {Promise<{maxChunkChars: number, maxHistoryChars: number}>}
  */
 export async function getArticleChatLimits() {
@@ -37,10 +35,7 @@ export async function getStoredChat(key, chatId) {
 }
 
 /**
- * Appends one turn. `expectedContentRevision` is the revision of the source
- * the turn was answered from; the background rejects the write when the record
- * has been reanalyzed since, which surfaces here as `{stale: true}` instead of
- * a chat.
+ * Append one turn; return `{stale: true}` if the source revision changed.
  * @param {string} key Record key.
  * @param {string | null} chatId Existing chat, or falsy to create one inline.
  * @param {object} turn Whole turn: messages and/or events.
@@ -66,11 +61,7 @@ export async function removeStoredChat(key, chatId) {
 }
 
 /**
- * Production adapter for the chat repository port consumed by
- * `useChatSessions` / `ArticleChat`. It is a single frozen module-scope object
- * so callers never build one inline per render — the hook's effects depend on
- * this identity (see useChatSessions.js), and a fresh object each render would
- * reload history in a loop.
+ * Stable production adapter for ArticleChat's repository port.
  *
  * @type {{list: Function, get: Function, append: Function, remove: Function}}
  */

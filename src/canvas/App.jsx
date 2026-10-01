@@ -43,8 +43,7 @@ const noop = () => {};
 export default function App({ initialKey, recordSource, onClose = noop }) {
   const { record, error, isDeleted } = useRecord(initialKey, recordSource);
   const closeSentRef = useRef(false);
-  // The canvas only displays completed records. Resplit closes it while the
-  // record runs, just like any other processing action.
+  // Close the canvas while the record is processing.
   const isReady = record?.status === PIPELINE_STATUS.DONE;
   const isUnusable = isDeleted || Boolean(error) || (record !== null && !isReady);
 
@@ -67,15 +66,8 @@ export default function App({ initialKey, recordSource, onClose = noop }) {
   // Nothing to show while the first fetch is still in flight.
   if (!isReady) return null;
 
-  // The content revision keys the whole canvas: a reprocess normally passes
-  // through a non-DONE status, which unmounts this subtree anyway, but a
-  // DONE-to-DONE replacement (importing over an open record) swaps the article
-  // underneath a live canvas. The derived data follows the new revision on its
-  // own; the interaction state accumulated against the old one does not —
-  // painted chat evidence keyed by sentence number, the adopted chat session
-  // (already pruned from storage as stale), the selected topic path, and the
-  // opening view. Remounting drops all of it and replays the startup sequence
-  // against the new content.
+  // A completed record can be replaced in place. Remount on revision change to
+  // reset sentence-keyed chat evidence, topic selection, and the opening view.
   return (
     <CanvasApp
       key={record.contentRevision}
@@ -142,10 +134,7 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
         );
       }
 
-      // The floating summary scales on zoom alone, matching the settled layout
-      // in CanvasTopicHierarchyRail. Capping this to the anchor card's title cap
-      // made a live frame disagree with the React render for short anchors, so
-      // the same summary changed size on any zoom nudge.
+      // Match the rail's zoom-based floating summary size during live wheel frames.
       const summaryFontSizes = getFloatingSummaryFontSizes(visualTitleSize);
       group.style.setProperty('--current-summary-kicker-font-size', `${summaryFontSizes.kicker}px`);
       group.style.setProperty('--current-summary-title-font-size', `${summaryFontSizes.title}px`);
@@ -195,11 +184,7 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
     contentRef: articleTextRef,
     onVisualScaleChange: applyVisualCardScale,
   });
-  // The handle travels whole to the hooks below; App's own reads of the live
-  // transform pull the ref containers out here because the React Compiler only
-  // recognises a ref as a ref when it is destructured off the hook result
-  // (reading `viewport.someRef.current` in a callback trips its immutability /
-  // memoization checks). They are stable for the component's lifetime either way.
+  // Destructure refs for the React Compiler; pass the stable handle to other hooks.
   const { canvasWrapElRef, scaleRef, userMovedCanvasRef } = viewport;
 
   const handleCanvasMouseDown = useCallback(
@@ -255,11 +240,7 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
 
   const topicCards = useMemo(() => {
     if (showSummaryMode) {
-      // Build cards using synthesized "sentence" indices: each summary card path
-      // gets a unique pseudo-sentence number, and the sentenceMetrics map uses
-      // those numbers. To keep things simple, we instead patch positions
-      // post-build using a path -> {top, height} map derived from measured
-      // summary-card bounding rects.
+      // Build topic structure, then patch positions from measured summary cards.
       const cards = buildTopicCards(topics, selectedLevel, new Map());
       return patchTopicCardsFromSummaryMetrics(cards, allSummaryCards, summaryMetricsState);
     }
@@ -277,10 +258,7 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
   const currentSummaryWidth = getZoomAdjustedSummaryCardWidth(scale);
   const railWidth = (selectedLevel + 1) * cardWidth + selectedLevel * COLUMN_GAP + RAIL_PADDING * 2;
 
-  // Only `titleFontSize` and `right` are zoom-dependent here; `top`/`height` come
-  // straight from the (scale-independent) sentence layout. The rail relies on
-  // that: it memoizes its heavy collision pass on the stable geometry and only
-  // re-applies these two fields on zoom.
+  // Only title size and right offset change with zoom; the rail caches geometry.
   const zoomAdjustedTopicCards = useMemo(
     () =>
       topicCards.map((card) => ({
@@ -291,12 +269,8 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
     [scale, cardWidth, topicCards],
   );
 
-  // Unified canvas alignment: keeps the reading column steady across mode/level
-  // changes (no jump) and only gently re-centers it when it drifts out of the
-  // comfort dead-zone. `captureAnchor()` is called by the toggle handlers below
-  // *before* they change state so the post-change pan can preserve the column's
-  // on-screen position. The reading column (articleTextRef) is the anchor in
-  // both modes; the rail and side cards are allowed to reflow around it.
+  // Capture the reading column before mode/level changes to preserve its screen
+  // position; re-center only when it drifts outside the comfort zone.
   const { captureAnchor, skipNextAlignment } = useCanvasAlignment({
     anchorRef: articleTextRef,
     viewport,
@@ -343,13 +317,8 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
     refreshSentenceRanges,
   });
 
-  // Read through a ref so the callback identity stays stable. The chat panel
-  // threads this down as `onHighlight`, and ArticleChat's `applyEvents` — and
-  // therefore useChatSessions' history-loading effect — is keyed on it, so a new
-  // identity reloads the session from storage. Leaving summary mode is exactly
-  // what the first streamed highlight of a turn does, so a `showSummaryMode`
-  // dependency would re-adopt the stored chat mid-turn, clearing the evidence
-  // painted so far and switching the active chat out from under the answer.
+  // Keep onHighlight stable while leaving summary mode; changing its identity
+  // would reload chat history and clear streamed evidence mid-turn.
   const showSummaryModeRef = useRef(showSummaryMode);
   useEffect(() => {
     showSummaryModeRef.current = showSummaryMode;
@@ -357,34 +326,17 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
 
   const handleChatHighlight = useCallback(
     ({ startLine, endLine }, { focus = false } = {}) => {
-      // The turn's first focused span owns the jump — the effect below clears
-      // the ref once it has zoomed — so it is also the only one whose pre-jump
-      // view is worth remembering. Later spans in the same turn must not
-      // overwrite the snapshot with a view the reader never chose.
+      // Only the first focused span captures the reader's pre-jump view.
       if (focus && pendingChatHighlightLineRef.current === null) {
         pendingChatHighlightLineRef.current = startLine;
         captureReturnPoint();
       }
-      // Leaving summary mode reflows the canvas, which would make the alignment
-      // hook glide the column one frame later — on top of the zoom below, whose
-      // placement then reads as "off". The pending zoom owns positioning here,
-      // exactly as the summary view's "show source sentences" path does.
-      // The ref is synchronized by the effect above, i.e. it tracks the
-      // *committed* mode — never assign it eagerly here. selectEvent replays a
-      // turn through applyEvents, which paints the turn's other ranges before
-      // the focused one, all in a single batch: an eager false would make the
-      // focused call believe summary mode was already left and skip the guard,
-      // letting the alignment pan for the still-pending mode change override
-      // the evidence zoom.
+      // The pending evidence zoom owns positioning after summary mode reflows.
+      // Read committed mode from the ref so batched event replay keeps this guard.
       if (focus && showSummaryModeRef.current) skipNextAlignment();
       setShowSummaryMode(false);
-      // A turn streams one call per highlight_span tool call, and the model
-      // routinely re-issues ranges it has already highlighted (overlapping
-      // evidence across chunks). Keeping the same array for a no-op union lets
-      // React bail out instead of re-rendering the canvas and rebuilding the
-      // CSS highlight for an unchanged sentence set. A focus request must still
-      // commit a new array: the zoom below is driven by this state changing,
-      // and re-selecting already-painted evidence has to re-zoom to it.
+      // Skip duplicate nonfocused ranges. Focus still changes state so already
+      // painted evidence can trigger another zoom.
       setChatSentenceNumbers((current) => {
         const next = new Set(current);
         for (let line = startLine; line <= endLine; line += 1) next.add(line);

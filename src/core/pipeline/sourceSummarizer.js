@@ -169,11 +169,8 @@ function totalSummaryChars(records) {
 }
 
 /**
- * Builds the source summarizer injected into topic-tree resolution. Internal
- * nodes summarize fresh source rather than repeatedly merging already-brief
- * child summaries. Oversized runs are summarized by chunk and merged in
- * bounded rounds, so neither source nor intermediate merge requests can exceed
- * the configured context budget.
+ * Build a source summarizer for topic-tree resolution. Oversized runs are
+ * chunked and merged in bounded rounds to fit the context budget.
  * @param {object} input Source text and LLM dependencies.
  */
 export function makeSourceSummarizer({

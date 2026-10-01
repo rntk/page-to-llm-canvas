@@ -208,8 +208,7 @@ export function createSelectionController({
     selectedElements = removeSelectedEntry(selectedElements, index);
     syncSelectedMarker(entry?.el);
     pickCounter = selectedElements.length;
-    // The scan summary described a list that no longer exists; drop it so the
-    // status region does not misreport the count.
+    // Clear stale scan counts after the list changes.
     findStatus = '';
     renderSelectionToolbar();
   }
@@ -226,8 +225,7 @@ export function createSelectionController({
     pickCounter = selectedElements.length;
     findStatus = '';
 
-    // The selected outline now follows the parent on the page, so the
-    // user can see exactly which (larger) block will be captured.
+    // Show the full parent block that will be captured.
     renderSelectionToolbar();
   }
 
@@ -309,8 +307,7 @@ export function createSelectionController({
     event?.preventDefault?.();
     event?.stopPropagation?.();
 
-    // A scan and page picking cannot safely overlap: turn off capture listeners
-    // and remove their transient outlines before yielding for the busy UI to paint.
+    // Stop page picking before the scan and its busy paint.
     selectionMode = false;
     disableSelection();
     dragSrcIndex = null;
@@ -382,8 +379,7 @@ export function createSelectionController({
       }
     } finally {
       if (!destroyed && findAbortController === abortController) {
-        // This scan owns the active controller; a cancelled or destroyed scan
-        // cannot reach this branch, so no later scan can be reset here.
+        // Only the active scan can reach this reset.
         // eslint-disable-next-line require-atomic-updates
         isFinding = false;
         findAbortController = null;
@@ -408,8 +404,7 @@ export function createSelectionController({
     renderSelectionToolbar();
 
     try {
-      // HTML capture can keep the main thread busy on large pages. Continue in a
-      // new task so React and the browser can paint the submitting state first.
+      // Yield so the submitting state paints before costly HTML capture.
       await new Promise((resolve) => {
         window.setTimeout(resolve, 0);
       });
@@ -434,9 +429,7 @@ export function createSelectionController({
       log.error('submit error:', err);
       alert('PageToLLM error: ' + err.message);
     } finally {
-      // Unconditional reset, and the `if (isSubmitting) return;` guard above prevents
-      // any concurrent invocation from running while this one is in flight, so there
-      // is no other writer to race with.
+      // The isSubmitting guard prevents concurrent writers.
       // eslint-disable-next-line require-atomic-updates
       isSubmitting = false;
       destroy();

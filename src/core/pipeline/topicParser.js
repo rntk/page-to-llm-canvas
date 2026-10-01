@@ -1,23 +1,13 @@
-// Port of txt_splitt/sentences/parsers.py TopicRangeParser (text mode only) +
-// RepairingGapHandler (deterministic coverage repair).
-//
-// Robustness contract (matches the Python txt_splitt library, not split_text.py's
-// specific handler choice): the parser is permissive — it CLAMPS ranges to
-// [0, sentenceCount-1] and never rejects the response for duplicate, missing, or
-// out-of-range markers. A separate deterministic repair step then trims overlaps
-// (first-claim-wins) and fills gaps by extending adjacent ranges, guaranteeing
-// continuous [0, sentenceCount-1] coverage without any extra LLM calls. The only
-// remaining hard failure is a response with no parseable topic ranges at all,
-// which still raises TopicParseError so the orchestrator can retry.
+// Adapted from txt_splitt's TopicRangeParser and RepairingGapHandler.
+// Parse topic ranges permissively: clamp out-of-bounds indexes, then resolve
+// overlaps and gaps deterministically. Only a response with no parseable ranges
+// raises TopicParseError.
 
 import { decodeEntities } from './htmlEntities.js';
 import { splitTopicPath } from '../../shared/runtime/topicPath.js';
 
-// Entity decoding can re-introduce a hierarchy delimiter inside a segment, so
-// normalizeLabelParts re-splits on it (and on ':') after decoding. Kept as a
-// literal rather than interpolating TOPIC_PATH_DELIMITER: inside a character
-// class a delimiter like '-' or '^' would change the class's meaning instead of
-// tracking it. If TOPIC_PATH_DELIMITER ever changes, update this too.
+// Decoded entities can contain path delimiters. Keep this literal character
+// class in sync with the topic path delimiter if it changes.
 const LABEL_SEGMENT_SPLIT_RE = /[:>]/u;
 
 const TOPIC_LINE_RE = /^(.+):\s*(\d[\d\s,-]*)\s*$/;
@@ -45,11 +35,8 @@ export class TopicParseError extends Error {
 }
 
 /**
- * Canonicalizes one label segment for storage/display: decodes HTML entities
- * the LLM may echo (e.g. "Claude&nbsp;Tag"), then collapses every Unicode
- * whitespace run (NBSP included) to a single space and trims. Without this,
- * "Claude&nbsp;Tag" / "Claude  Tag" / "Claude   Tag" persist as distinct tree
- * branches even though the dedup key would treat them as equal.
+ * Decode entities and normalize whitespace so equivalent labels have the same
+ * display spelling and dedup key.
  * @param {string} raw Raw label segment.
  */
 function normalizeSegment(raw) {
@@ -61,10 +48,7 @@ function normalizeLabelParts(parts) {
   for (const raw of parts) {
     const part = normalizeSegment(raw);
     if (!part) continue;
-    // Entity decoding can introduce hierarchy delimiters after the raw topic
-    // path was split (for example, `A&gt;B`). Canonicalize both delimiters here
-    // so encoded and literal paths cannot serialize to the same topic name
-    // while retaining different deduplication keys.
+    // Split decoded delimiters too, so encoded and literal paths share a key.
     for (const sub of part.split(LABEL_SEGMENT_SPLIT_RE)) {
       const s = sub.trim();
       if (s) out.push(s);
@@ -74,22 +58,14 @@ function normalizeLabelParts(parts) {
 }
 
 /**
- * Dedup key for ONE label segment: NFKC-folded, case-folded, and with every
- * whitespace run removed. Case and spacing are the two axes an LLM varies
- * freely when it re-states the same topic ("DeepSeek V4 Flash" / "DeepSeek v4
- * Flash" / "DeepSeekV4 Flash" / "Deep Seek V4 Flash"), so neither may survive
- * into the key. Everything else stays significant — punctuation especially, so
- * "C++" and "C#" remain distinct topics.
- *
- * Keys are for comparison only: the spelling users see is always an original
- * segment, never this folded form.
+ * Fold case and spacing for comparison while preserving punctuation (for
+ * example, "C++" and "C#" remain distinct). Display uses the original segment.
  *
  * @param {string} segment Display-normalized label segment.
  */
 function normalizeSegmentKey(segment) {
   const key = segment.normalize('NFKC').toLocaleLowerCase().replace(/\s+/gu, '');
-  // Whitespace-only segments are dropped upstream; fall back to the raw segment
-  // rather than let an empty key collapse unrelated siblings into one topic.
+  // Preserve a nonempty key if normalization removes every character.
   return key || segment;
 }
 
@@ -102,27 +78,11 @@ export function topicLabelKey(parts) {
 }
 
 /**
- * Per-parse registry that pins every label segment to ONE display spelling.
- *
- * Dedup used to be keyed on the whole label array, which merges two lines only
- * when they agree at every level. Sibling leaves under a differently-spelled
- * parent ("...>DeepSeek V4 Flash>Performance" vs "...>DeepSeek v4 Flash>Use
- * Cases") therefore kept both spellings of the parent, and buildTopicTree then
- * materialized one parent node per spelling — the same topic split into several
- * sibling branches. Canonicalizing segment by segment collapses them.
- *
- * The scope of a segment is its FOLDED parent key, so "Models" under
- * "Technology" and "Models" under "Fashion" are canonicalized independently:
- * same-named segments are unified only where the tree would place them together
- * anyway.
- *
- * First spelling seen wins and is what users see; later variants merge into it
- * but never rewrite it. Callers therefore register only the labels they keep, so
- * an ignored line cannot name a topic.
+ * Pin each segment's display spelling under its folded parent path. The first
+ * retained spelling wins; siblings with equivalent parent labels share it.
  */
 function createLabelCanonicalizer() {
-  // `${parentKey}\u0000${segmentKey}` -> display spelling. NUL cannot appear in
-  // a segment, so the chained key is unambiguous.
+  // Separate parent and segment keys with NUL.
   const canonicalBySegment = new Map();
 
   /**
@@ -220,26 +180,17 @@ function mergeRanges(ranges) {
 }
 
 /**
- * Repair group coverage so every index in [0, sentenceCount-1] is covered
- * exactly once. Port of gap_handlers.py RepairingGapHandler.handle (the
- * deterministic, no-LLM variant):
- *   - Sorts all ranges by start; later overlapping ranges are trimmed so the
- *     earliest-starting range keeps the contested indices (first-claim-wins).
- *   - Fills gaps by extending an adjacent range: a gap at the very beginning
- *     pulls the first range's start back to 0; a gap in the middle extends the
- *     previously-added range forward; a trailing gap extends the last range.
+ * Give the earliest range each overlapping index, then extend adjacent ranges
+ * over gaps to cover [0, sentenceCount-1] exactly once.
  *
  * @param {Array<{label: string[], ranges: Array<{start: number, end: number}>}>} groups
  * @param {number} sentenceCount
- * @param {Array<object>} repairs Output array; each deterministic fix is pushed here
- *   (capped by the caller via pushRepair), so callers can surface WHY coverage
- *   needed repair without re-deriving it from the before/after groups.
+ * @param {Array<object>} repairs Capped diagnostics for each coverage repair.
  * @returns {Array<{label: string[], ranges: Array<{start: number, end: number}>}>}
  */
 function repairCoverage(groups, sentenceCount, repairs) {
   const maxIndex = sentenceCount - 1;
 
-  // Flatten all (groupIndex, range) pairs and sort by start, then parse order.
   const flat = [];
   groups.forEach((g, gi) => {
     for (const r of g.ranges) flat.push({ gi, range: r });
@@ -252,7 +203,6 @@ function repairCoverage(groups, sentenceCount, repairs) {
 
   for (const { gi, range } of flat) {
     if (range.end < nextExpected) {
-      // Entirely consumed by an earlier range (overlap) — drop it.
       pushRepair(repairs, { type: 'overlap-drop', start: range.start, end: range.end });
       continue;
     }
@@ -268,13 +218,10 @@ function repairCoverage(groups, sentenceCount, repairs) {
     }
 
     if (start > nextExpected) {
-      // Gap before this range.
       if (lastAdded === null) {
-        // Gap at the very beginning: pull this first range back to 0.
         pushRepair(repairs, { type: 'gap-start', filledStart: 0, filledEnd: start - 1 });
         start = 0;
       } else {
-        // Gap in the middle: extend the previously-added range forward.
         const prev = adjusted[lastAdded.gi][lastAdded.idx];
         pushRepair(repairs, {
           type: 'gap-middle',
@@ -290,14 +237,12 @@ function repairCoverage(groups, sentenceCount, repairs) {
     nextExpected = range.end + 1;
   }
 
-  // Trailing gap: extend the last added range to the final index.
   if (nextExpected <= maxIndex && lastAdded !== null) {
     const prev = adjusted[lastAdded.gi][lastAdded.idx];
     pushRepair(repairs, { type: 'gap-tail', filledStart: nextExpected, filledEnd: maxIndex });
     adjusted[lastAdded.gi][lastAdded.idx] = { start: prev.start, end: maxIndex };
   }
 
-  // Rebuild groups in original order, dropping any that lost all ranges.
   const result = [];
   groups.forEach((g, gi) => {
     if (adjusted[gi].length) result.push({ label: g.label, ranges: adjusted[gi] });
@@ -347,14 +292,11 @@ function collectDiagnostics(rawGroups, sentenceCount, invalidRangeTokens = 0) {
 }
 
 /**
- * Shared tail of parseTopicRangesDetailed: takes label-grouped ranges (in first-appearance
- * order, labels already deduped) and produces final groups with continuous,
- * non-overlapping coverage. Extracted so callers holding labeled segments can
- * rebuild the same shape without re-parsing a raw LLM response.
+ * Merge labeled ranges and repair their coverage for both parser entry points.
  *
  * @param {Array<{label: string[], ranges: Array<{start: number, end: number}>}>} rawGroups
  * @param {number} sentenceCount
- * @param invalidRangeTokens
+ * @param {number} invalidRangeTokens
  * @returns {Array<{label: string[], ranges: Array<{start: number, end: number}>}>}
  */
 function finalizeGroups(rawGroups, sentenceCount, invalidRangeTokens = 0) {
@@ -366,16 +308,12 @@ function finalizeGroups(rawGroups, sentenceCount, invalidRangeTokens = 0) {
   }
   const diagnostics = collectDiagnostics(rawGroups, sentenceCount, invalidRangeTokens);
   if (!groups.length) {
-    // No ranges survived to repair — report an empty, untruncated repair list
-    // rather than omitting the fields on this error path.
+    // Keep the diagnostics shape consistent on failure.
     diagnostics.repairs = [];
     diagnostics.repairsTruncated = false;
     throw new TopicParseError('No valid topic ranges found in response', diagnostics);
   }
 
-  // Repair overlaps and gaps so coverage is continuous over [0, maxIndex]. The
-  // `repairs` array (capped at MAX_REPAIRS, with `.truncated` set past the cap)
-  // records what was fixed and why, for verbose diagnostics upstream.
   const repairs = [];
   groups = repairCoverage(groups, sentenceCount, repairs);
   diagnostics.repairs = repairs.slice(0, MAX_REPAIRS);
@@ -385,10 +323,7 @@ function finalizeGroups(rawGroups, sentenceCount, invalidRangeTokens = 0) {
 }
 
 /**
- * Rebuild final groups from a flat list of labeled segments (e.g. merged
- * across topic-range chunks). Segments sharing a normalized label key are
- * merged into one group — preserving the invariant that every topic name is
- * unique — and coverage is repaired exactly like parseTopicRangesDetailed.
+ * Merge equal labels from flat segments and repair sentence coverage.
  *
  * @param {Array<{label: string[], start: number, end: number}>} segments
  * @param {number} sentenceCount
@@ -405,8 +340,7 @@ export function groupsFromSegments(segments, sentenceCount) {
   for (const seg of segments) {
     if (!seg.label || !seg.label.length) continue;
     const range = clampRange(seg.start, seg.end, maxIndex);
-    // Canonicalize only what survives clamping, so a dropped segment cannot
-    // claim the display spelling of a topic it contributes nothing to.
+    // A discarded segment cannot claim the displayed spelling.
     if (range === null) continue;
     const { label, key } = canonicalizeLabel(seg.label);
     if (!grouped.has(key)) {
@@ -425,8 +359,7 @@ export function groupsFromSegments(segments, sentenceCount) {
 }
 
 /**
- * Parse topic ranges and expose privacy-safe quality diagnostics describing any
- * deterministic repair the permissive parser had to perform.
+ * Parse topic ranges and report diagnostics for deterministic repairs.
  * @param {string} response Raw model response.
  * @param {number} sentenceCount Number of article sentences.
  */
@@ -446,9 +379,7 @@ export function parseTopicRangesDetailed(response, sentenceCount) {
   let invalidRangeTokens = 0;
   let reversedRanges = 0;
   let parsedLineCount = 0;
-  // Raw lines the parse loop skipped (no `:`, empty topic path, empty label, or
-  // zero clamped ranges), sampled for verbose diagnostics — never fed into
-  // recordParserMetric, which must stay privacy-safe.
+  // Raw samples are only for verbose diagnostics, never parser metrics.
   const ignoredLineSamples = [];
   const recordIgnoredLine = (ln) => {
     if (ignoredLineSamples.length < MAX_IGNORED_LINE_SAMPLES) {
@@ -463,14 +394,8 @@ export function parseTopicRangesDetailed(response, sentenceCount) {
       topicPath = m[1].trim();
       rangesStr = m[2].trim();
     } else if (ln.includes(':')) {
-      // TOPIC_LINE_RE splits at the rightmost colon whose tail is entirely a
-      // range list; no colon here qualifies, so approximate it by the tail that
-      // yields the MOST valid range tokens, earliest colon winning ties. That
-      // keeps earlier colons in the topic path ("History: The Cold War: 0-12,
-      // invalid") while trailing prose carrying its own colon ("0-5, 7-9, note:
-      // unclear") cannot swallow the ranges. Ties resolve left so a colon
-      // *inside* the range list ("0-5 (source: wire), 6-9") loses to the real
-      // separator, which sees the same tokens from further left.
+      // Choose the colon with the most valid range tokens after it. On ties,
+      // prefer the earliest colon so annotations inside ranges stay in the tail.
       let idx = ln.indexOf(':');
       let bestValidTokens = -1;
       for (let i = idx; i !== -1; i = ln.indexOf(':', i + 1)) {
@@ -502,7 +427,6 @@ export function parseTopicRangesDetailed(response, sentenceCount) {
     const clamped = [];
     for (const [s, e] of parsed.ranges) {
       if (s > e) reversedRanges++;
-      // Clamp to bounds (matches Python TopicRangeParser); never reject.
       const r = clampRange(s, e, maxIndex);
       if (r !== null) {
         clamped.push({ ...r, rawStart: s, rawEnd: e, ordinal: ordinal++ });
@@ -514,8 +438,7 @@ export function parseTopicRangesDetailed(response, sentenceCount) {
     }
     parsedLineCount++;
 
-    // Canonicalized after the line is known to contribute ranges: an ignored
-    // line must not get to pick the spelling users see.
+    // Ignored lines cannot claim the displayed spelling.
     const { label, key } = canonicalizeLabel(parts);
     if (!grouped.has(key)) {
       grouped.set(key, { label, ranges: [] });

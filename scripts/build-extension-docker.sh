@@ -5,10 +5,7 @@ cd "$(dirname "$0")/.."
 
 HOST="${1:-http://192.168.0.147:8989}"
 
-# Persistent npm cache on the host so package downloads survive across runs
-# too (not just node_modules). Must be a bind-mounted host dir we already
-# own, not a fresh named volume, or docker creates it root-owned and
-# --user "$(id -u):$(id -g)" below gets EACCES writing to it.
+# Bind-mount a host-owned cache so the container user can write to it.
 NPM_CACHE_DIR="$HOME/.cache/pagetollm-npm"
 mkdir -p "$NPM_CACHE_DIR"
 

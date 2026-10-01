@@ -41,20 +41,15 @@ describe('normalizeCapturedText properties', () => {
         expect(typeof result).toBe('string');
         expect(result.length).toBeLessThanOrEqual(input.length);
 
-        // No leading or trailing spaces
         expect(result.startsWith(' ')).toBe(false);
         expect(result.endsWith(' ')).toBe(false);
 
-        // No consecutive spaces
         expect(result.includes('  ')).toBe(false);
 
-        // No strippable control / format characters
         expect(hasStrippableChar(result)).toBe(false);
 
-        // No suspicious long zero-width runs (4 or more)
         expect(hasLongZeroWidthRun(result)).toBe(false);
 
-        // Idempotent: normalizing already-normalized text is a no-op
         expect(normalizeCapturedText(result)).toBe(result);
       }),
     );

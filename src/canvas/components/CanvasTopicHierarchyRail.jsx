@@ -15,20 +15,14 @@ import { getYouTubeTimestampLink, getYouTubeVideoId } from '../../utils/youtubeT
 import { getCardEnterDelay } from '../../utils/cardEntrance.js';
 import YouTubeTimestampButton from '../../components/YouTubeTimestampButton.jsx';
 
-// Glide window for a geometry change that lands after the canvas is revealed
-// (a late image reflowing the article). Deliberately short-lived and applied
-// through a class: a permanent `transition: top` on every card would animate
-// layout on every level switch and zoom, costing far more than it buys.
+// Briefly animate late geometry changes without animating every zoom or level switch.
 const SETTLE_TRANSITION_MS = 320;
 
 function isElementVerticallyInBounds(elementRect, boundsRect) {
   return elementRect.bottom > boundsRect.top && elementRect.top < boundsRect.bottom;
 }
 
-// One rail card, memoized so a hover (which flips is-active/is-selected on at
-// most two cards) re-renders only those cards instead of the whole column.
-// `card`, the handlers, and `accentColor` are referentially stable across a
-// hover render, so the shallow prop compare skips every untouched card.
+// Stable props let a hover re-render only the affected cards.
 const TopicCard = React.memo(function TopicCard({
   card,
   isActive,
@@ -45,16 +39,11 @@ const TopicCard = React.memo(function TopicCard({
   enterDelay,
 }) {
   const titleLineBudget = getTitleLineBudget(card.height);
-  // Zoomed-out titles switch to one line, so cap against one line rather than
-  // the normal two-line budget. The old two-line cap stopped the font growth at
-  // roughly 15px on a standard card, making titles shrink with the canvas even
-  // though the live inverse-scale value was increasing correctly.
+  // At low zoom, cap single-line titles against one line of available height.
   const titleFontCap =
     getAdjustedTitleFontSize({ titleFontSize: Number.MAX_SAFE_INTEGER }, card.height) *
     titleLineBudget;
-  // Scoped to startSentence (not the whole card object, which gets a fresh
-  // reference every zoom step) so the backward timestamp scan only reruns
-  // when the card or transcript actually changes.
+  // Card objects change on zoom; the timestamp scan only needs the starting sentence.
   const youtubeLink = React.useMemo(
     () =>
       isYouTube
@@ -66,25 +55,14 @@ const TopicCard = React.memo(function TopicCard({
         : null,
     [isYouTube, sourceUrl, sentences, card.startSentence],
   );
-  // A flat px font-size shrinks with the canvas transform on zoom-out and
-  // becomes unreadable, unlike the title, which counter-scales via
-  // card.titleFontSize. Reuse the same titleFontSize-driven multiplier
-  // (see getSummaryFontSizes) so the link scales the same way. This link lives
-  // inside the card and must fit its height, so passing the card's own (height-
-  // capped) size is right here — unlike the floating summary card below, which
-  // deliberately scales on zoom alone.
+  // Counter-scale the link on zoom, capped to the rail card's height.
   const youtubeFontSize = youtubeLink
     ? getSummaryFontSizes({ titleFontSize: card.titleFontSize }).youtube
     : null;
   const youtubeFontCap = youtubeLink
     ? getSummaryFontSizes({ titleFontSize: titleFontCap }).youtube
     : null;
-  // The actions ("···") trigger uses flat px sizing by default, which shrinks
-  // with the canvas transform on zoom-out into an untappable dot. Counter-scale
-  // it with the same titleFontSize-driven multiplier as the title/YouTube link
-  // (see getSummaryFontSizes) so it stays usable. Unlike the link this applies
-  // to every card with actions, not just YouTube records, so it is computed
-  // unconditionally and capped to the card's height budget the same way.
+  // Keep the actions trigger tappable on zoom, within the card's height budget.
   const actionsFontSize = getSummaryFontSizes({ titleFontSize: card.titleFontSize }).actions;
   const actionsFontCap = getSummaryFontSizes({ titleFontSize: titleFontCap }).actions;
   const classes = [
@@ -243,9 +221,7 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
     () => hierarchyCards.map((card) => `${card.fullPath}|${card.depth}`).join('\n'),
     [hierarchyCards],
   );
-  // Color hashing is worth memoizing across hover/zoom renders, but the cache
-  // belongs to this rail and contains only its current cards. Key the memo by
-  // the path/depth inputs so zoom-only card object changes retain the result.
+  // Cache colors by path and depth so zoom-only card changes reuse them.
   const accentColors = React.useMemo(() => {
     const colors = new Map();
     hierarchyCards.forEach((card) => {
@@ -255,19 +231,11 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
       }
     });
     return colors;
-    // Intentionally use the value signature rather than the cards array.
+    // Card objects change on zoom; color inputs do not.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colorSignature]);
-  // Collision resolution (3 passes + sorts over every card) is the heavy part of
-  // the layout, and its geometry — top/height/zIndex — depends only on the cards'
-  // sentence positions and the selected level, NOT on zoom. Zoom merely changes
-  // each card's `titleFontSize`/`right`, which produces a fresh `hierarchyCards`
-  // array every zoom step. Keep this signature in sync with every input field
-  // read by getAdjustedHierarchyCards/adjustCrowdedLevelCards in denseCardLayout
-  // (including sentenceCount, which getDenseCardZIndex reads to pick a card's
-  // z-index — omitting it would serve a stale z-index after a sentence-count-only
-  // change, and startSentence, which clampCardsToParents uses to pick the
-  // parent run a child is clamped into).
+  // Collision geometry is zoom-independent. Include every field read by
+  // getAdjustedHierarchyCards, including sentenceCount and startSentence.
   const geometrySignature = React.useMemo(
     () =>
       hierarchyCards
@@ -280,8 +248,7 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
   );
   const geometryCards = React.useMemo(
     () => getAdjustedHierarchyCards(hierarchyCards),
-    // Intentionally keyed on the geometry signature, not the array reference, so
-    // zoom (which only touches titleFontSize/right) reuses the cached geometry.
+    // Reuse collision geometry when zoom only changes titleFontSize/right.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [geometrySignature],
   );
@@ -296,10 +263,7 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
   const hasSelectedTopicCardKey = Boolean(
     selectedTopic?.cardKey && hierarchyCardsByKey.has(selectedTopic.cardKey),
   );
-  // Re-apply the zoom-dependent fields onto the cached geometry. `titleFontSize`
-  // is the parent's already zoom-scaled base, re-capped to the final (possibly
-  // compacted) card height — identical to running the full pipeline, minus the
-  // collision cost.
+  // Apply zoom fields to cached geometry, capping titles to the final card height.
   const adjustedHierarchyCards = React.useMemo(
     () =>
       geometryCards.map((card) => {
@@ -315,8 +279,7 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
       }),
     [geometryCards, hierarchyCardsByKey],
   );
-  // Body height is pure geometry, so derive it from the cached set to stay stable
-  // across zoom.
+  // Keep body height stable across zoom.
   const bodyHeight = React.useMemo(
     () =>
       geometryCards.length
@@ -324,32 +287,21 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
         : 'auto',
     [geometryCards],
   );
-  // A remeasure that lands *after* the reveal (late image, font swap, window
-  // resize) moves cards the user is already looking at. Glide them into their
-  // new places for one short window instead of teleporting, then drop the
-  // transition again so panning and zooming stay cheap.
+  // Briefly glide cards after a late remeasure.
   const [isSettling, setIsSettling] = React.useState(false);
   const previousLayoutRef = React.useRef(null);
   React.useEffect(() => {
     const previous = previousLayoutRef.current;
     previousLayoutRef.current = { geometrySignature, layoutKey };
     const shouldSettle =
-      // First layout, an unchanged one, or the entrance itself: nothing to
-      // glide — the entrance animation owns the reveal.
+      // The entrance animation owns the first reveal.
       previous !== null &&
       !isEntering &&
       previous.geometrySignature !== geometrySignature &&
-      // A deliberate mode/level switch swaps the whole card set and is already
-      // animated by the canvas alignment pass. Transitioning every card's `top`
-      // underneath that would race it — and run a layout per frame for cards
-      // that did not merely move. Only same-layout remeasures glide.
+      // Mode and level switches use canvas alignment; only remeasures glide.
       previous.layoutKey === layoutKey;
     if (!shouldSettle) {
-      // A switch arriving mid-glide re-runs this effect, and its cleanup has
-      // already cancelled the timer that would have cleared the flag. Clearing
-      // it here too is what keeps `is-settling` from latching on forever and
-      // silently turning the short-lived glide into a permanent transition.
-      // (Re-setting the same `false` bails out of the render in React.)
+      // A mid-glide switch cancels the timer, so clear its flag here.
       setIsSettling(false);
       return undefined;
     }
@@ -368,17 +320,7 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
   );
   const hasCurrentTopicSummary = Boolean(currentTopicSummary);
   const summaryTop = summaryAnchorCard ? summaryAnchorCard.top : 0;
-  // Scale the floating summary on zoom alone, NOT on the matched rail card's
-  // `titleFontSize`. That size is capped to what the anchor card's height can
-  // physically contain (getAdjustedTitleFontSize), so a short topic card caps it
-  // back to — or below — the 12px base. The multiplier in getSummaryFontSizes
-  // then floors at 1 and the summary renders at its base 11/17.6/15.4px while the
-  // canvas transform keeps shrinking it: that is why hovering a small card gave
-  // unreadable text until a zoom nudge recomputed it. The summary is a floating
-  // panel with its own zoom-grown width (getZoomAdjustedSummaryCardWidth, also
-  // 1/scale), so an anchor's height budget never constrained it — only zoom
-  // does. Small and large topic cards now open the summary at the same
-  // on-screen size.
+  // The floating summary scales with zoom, independent of its anchor's height cap.
   const summaryFontSizes = React.useMemo(
     () => getFloatingSummaryFontSizes(getZoomAdjustedTitleFontSize(scale)),
     [scale],
@@ -396,10 +338,7 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
     [isYouTube, currentTopicSummary, sourceUrl, sentences],
   );
 
-  // Publish the rendered height of the current-topic summary card so the sticky
-  // CSS can clamp its bottom edge to the visible viewport (see modal.css). The
-  // card's height depends on its text and zoom-adjusted font size, so we
-  // remeasure whenever either changes.
+  // Publish summary height for the viewport clamp in modal.css.
   const summaryRef = React.useRef(null);
   const summaryAnchorCardRef = React.useRef(null);
   const [isSummaryAnchorInView, setIsSummaryAnchorInView] = React.useState(true);
@@ -407,17 +346,12 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
     summaryAnchorCardRef.current = element;
   }, []);
 
-  // Canvas panning updates CSS custom properties directly, bypassing React
-  // renders. Watch the transformed canvas viewport's style and compare the
-  // matched rail card with the canvas bounds so an old summary is unmounted as
-  // soon as its topic/sentences leave view.
+  // Panning bypasses React; watch canvas styles to hide offscreen summaries.
   React.useLayoutEffect(() => {
     const anchor = summaryAnchorCardRef.current;
     const canvasArea = anchor?.closest('.canvas-area');
     const canvasViewport = anchor?.closest('.canvas-viewport');
-    // A missing anchor can occur briefly while the card list is changing. Keep
-    // the existing summary visible until there is a real canvas/card pair to
-    // measure, rather than flashing it out on a transient render.
+    // Keep the summary visible while its anchor is briefly unavailable.
     if (!summaryAnchorCard || !anchor || !canvasArea) {
       setIsSummaryAnchorInView(true);
       return undefined;

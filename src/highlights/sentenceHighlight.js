@@ -1,8 +1,4 @@
-// Shared helpers for locating record sentences inside a live DOM subtree and
-// painting them with the native CSS Custom Highlight API. Used by both the
-// in-page rail (src/content/rails/in-page/pageHighlighter.js, operating on the
-// live page) and the canvas modal (src/canvas/App.jsx, operating on the
-// re-rendered article HTML).
+// Match stored sentences to live DOM text for the rail and canvas highlights.
 import {
   CLOSED_BY_DEFAULT_TAGS,
   NEVER_RENDERED_TAGS,
@@ -20,10 +16,7 @@ const WORD_TOKEN_RE = /\S+/g;
 // Stateful (`g`), but String#replace resets it before matching.
 const NORMALIZE_RE = /[^\p{L}\p{N}]+/gu;
 export const HIGHLIGHT_NAME = 'pagetollm-sentence';
-/** CSS Custom Highlight name for chat-driven sentence highlights, shared by
- * the canvas (src/canvas/hooks/useSentenceHighlights.js) and the in-page rail
- * (src/content/rails/in-page/pageHighlighter.js) so both surfaces render chat
- * highlights identically via ::highlight(pagetollm-chat-sentence). */
+/** Shared CSS Custom Highlight name for chat sentences. */
 export const CHAT_HIGHLIGHT_NAME = 'pagetollm-chat-sentence';
 
 export function supportsHighlightApi() {
@@ -34,9 +27,7 @@ export function tokenizeText(text) {
   return String(text || '').match(WORD_TOKEN_RE) || [];
 }
 
-// Properties which suppress an entire subtree. Computed styles are preferred
-// when available (so stylesheet/class rules are respected); the inline parser
-// remains as a fallback for DOM shims and callers without a style engine.
+// Use computed styles when available; parse inline styles in DOM-only environments.
 const HIDING_VALUES = new Map([
   ['display', 'none'],
   ['content-visibility', 'hidden'],
@@ -47,10 +38,7 @@ const IMPORTANT_SUFFIX_RE = /!\s*important$/;
 /**
  * Split an inline `style` attribute into its declarations.
  *
- * A plain `split(';')` cuts inside quoted values and `url(...)`, inventing
- * declarations that were never written, so `--x:';display:none;'` would hide
- * a visible element. This fallback is used when a complete computed style is
- * unavailable (notably in DOM-only test environments).
+ * A plain `split(';')` misreads quoted values and `url(...)` as declarations.
  * @param {string} style Raw inline style attribute value.
  * @returns {string[]} Declaration texts, `property: value` still unparsed.
  */
@@ -119,15 +107,11 @@ function hasHidingDeclaration(style) {
 /**
  * Whether a node's whole subtree is invisible to the word walk.
  *
- * The rules align the live-page word walk with browser-side capture filtering:
- * a word omitted from `capturedText` must not appear here, or
- * `buildSentenceWordRanges` maps later sentences onto the wrong DOM words.
- * Computed `display` and `content-visibility` are included when the browser
- * exposes them; attribute and inline checks remain the fallback.
+ * Keep the live word walk aligned with capture filtering, or later sentences
+ * may map to the wrong DOM words.
  *
- * A closed `<details>` is deliberately not skippable: it still renders its
- * `<summary>`. Its remaining contents are excluded by the walk in
- * `collectWordEntries` instead.
+ * A closed `<details>` still renders its `<summary>`; the walk excludes only
+ * its remaining contents.
  * @param {Node} node Candidate ancestor of a text node.
  * @param {Map<Element, ?CSSStyleDeclaration>} [computedStyleCache] Optional
  *   per-walk computed-style memo.
@@ -139,16 +123,11 @@ export function isSkippableContainer(node, computedStyleCache) {
   if (NEVER_RENDERED_TAGS.has(tag)) return true;
   if (node.id === 'pagetollm-in-page-rail') return true;
   if (typeof node.hasAttribute !== 'function') return false;
-  // Treat explicit HTML hiding as authoritative. Although author CSS can
-  // technically override the UA [hidden] rule, retaining that text is a much
-  // riskier failure for analysis and it would not survive the stored snapshot.
+  // Match capture filtering even if author CSS overrides [hidden].
   if (node.hasAttribute('hidden')) return true;
   if (CLOSED_BY_DEFAULT_TAGS.has(tag) && !node.hasAttribute('open')) return true;
   const computed = getComputedStyleSafe(node, computedStyleCache);
-  // A complete computed style is authoritative: an author rule with
-  // `!important` can override a normal inline declaration. DOM shims may
-  // expose getComputedStyle without returning layout properties, so retain the
-  // parser fallback in that case.
+  // A computed style includes author overrides; fall back for incomplete DOM shims.
   if (computedStyleHasLayoutValues(computed)) {
     return computedSubtreeIsHidden(computed);
   }
@@ -156,10 +135,8 @@ export function isSkippableContainer(node, computedStyleCache) {
 }
 
 /**
- * The `<summary>` a collapsed `<details>` still renders: its first *direct*
- * child. A `<summary>` deeper in the subtree (wrapped in a `<div>`, or owned by
- * a nested `<details>`) is not this widget's summary and stays hidden, so the
- * scan is over `children` rather than a descendant query.
+ * Find the first direct `<summary>` child rendered by a collapsed `<details>`.
+ * Descendant summaries belong to other content.
  * @param {Element} details A `details` element.
  * @param {Map<Element, ?Element>} cache Per-walk memo, since this is asked once
  *   per text node below a collapsed subtree.
@@ -179,8 +156,7 @@ function getOwnSummary(details, cache) {
 }
 
 /**
- * Whether `ancestor` is a collapsed `<details>` that hides `node` — i.e. `node`
- * lives outside the `<summary>` the widget keeps on screen.
+ * Whether a collapsed `<details>` hides `node` outside its `<summary>`.
  * @param {Element} ancestor Element on the path from `node` to the walk root.
  * @param {Node} node The text node being filtered.
  * @param {Map<Element, ?Element>} cache Per-walk summary memo.
@@ -193,9 +169,8 @@ function isCollapsedDetailsContent(ancestor, node, cache) {
 }
 
 /**
- * Walk rendered text within roots and record each word's position WITHOUT
- * mutating the DOM. Adjacent inline text nodes share one logical stream, so a
- * word split as `<span>hel</span><span>lo</span>` is represented as one entry.
+ * Record word positions without mutating the DOM. Adjacent inline text nodes
+ * share one stream, so `<span>hel</span><span>lo</span>` is one word.
  * Returns entries of the form:
  * [{ word, node, start, endNode, end }], where the start and end anchors may
  * be in different live text nodes.
@@ -268,9 +243,7 @@ export function collectWordEntries(roots) {
       }
       p = p.parentNode;
     }
-    // Whitespace-only visible nodes are significant boundaries in the logical
-    // stream. appendText() consumes them and flushes the current word; skipping
-    // them here would fuse `<b>foo</b> <i>bar</i>` into one `foobar` entry.
+    // Keep whitespace nodes so adjacent words do not merge.
     return Boolean(node.nodeValue);
   };
 
@@ -286,9 +259,7 @@ export function collectWordEntries(roots) {
     }
     const boundary = node !== root && isBlockBoundary(node, computedStyleCache);
     if (boundary) flushWord();
-    // Keep the boundary behavior of the capture walker even when a subtree is
-    // suppressed: its block separation still prevents adjacent visible text
-    // from being joined across the omitted block.
+    // Suppressed blocks still separate adjacent visible text.
     if (!isSkippableContainer(node, computedStyleCache)) {
       for (const child of node.childNodes) visit(child, root);
     }
@@ -319,9 +290,7 @@ export function buildSentenceDomRange(sentenceRanges, wordEntries, sNum) {
   const endEntry = wordEntries[range.endIdx];
   if (!startEntry || !endEntry) return null;
   try {
-    // The entries come from the live document being highlighted. Constructing
-    // through the node's ownerDocument keeps this helper correct for embedded
-    // or otherwise non-global documents (e.g. an iframe or SVG/XML surface).
+    // Use the node's document for embedded content.
     const ownerDocument = startEntry.node?.ownerDocument;
     if (!ownerDocument?.createRange) return null;
     const domRange = ownerDocument.createRange();
@@ -334,12 +303,8 @@ export function buildSentenceDomRange(sentenceRanges, wordEntries, sNum) {
 }
 
 /**
- * Build (or clear) a single named CSS Custom Highlight from a list of
- * sentence numbers. Resolves one live Range per sentence via
- * buildSentenceDomRange, adds every resolved range to a fresh Highlight, and
- * registers it under `name`. Deletes the highlight when sentenceNumbers is
- * empty/nullish or no range resolved. Callers are expected to have already
- * checked supportsHighlightApi().
+ * Register a named highlight for resolved sentences, or clear it when empty.
+ * Callers must first check `supportsHighlightApi()`.
  *
  * @param {string} name
  * @param {Iterable<number> | null | undefined} sentenceNumbers
@@ -368,12 +333,8 @@ export function paintSentenceHighlight(name, sentenceNumbers, { wordEntries, sen
 /**
  * Map each sentence (1-based) to a [wordStartIndex, wordEndIndex] (inclusive).
  *
- * Both ends are anchored to actual DOM words instead of trusting a 1:1 token
- * count to handle tokenization drift (e.g. punctuation, em-dashes). Start matches
- * the first token in a forward window; if that fails, a distant fallback requires
- * the first two tokens to match consecutively. The end matches the last token in a
- * window near the expected end. These guards keep distant false positives from
- * advancing the cursor past later sentences while still tolerating large DOM drift.
+ * Anchor both ends to DOM words despite tokenization drift. A distant start
+ * requires a two-token match to avoid advancing past later sentences.
  * @param {string[]} sentences Article sentences.
  * @param {object[]} wordEntries Ordered DOM word entries.
  */
@@ -388,17 +349,11 @@ export function buildSentenceWordRanges(sentences, wordEntries) {
   sentences.forEach((sentText, i) => {
     const tokens = tokenizeText(sentText);
     if (tokens.length === 0) return;
-    // Punctuation-only tokens cannot anchor a sentence to a DOM word. Ignore
-    // them for matching rather than allowing an empty normalized token to
-    // match an unrelated punctuation entry.
+    // Empty normalized tokens cannot anchor a sentence.
     const normalizedTokens = tokens.map(normalize).filter(Boolean);
     if (normalizedTokens.length === 0) return;
 
-    // Anchor the start near the cursor first. Live pages can insert arbitrarily
-    // large blocks after capture, though, so a fixed window cannot be the only
-    // recovery path: once the drift exceeds it, every later sentence would
-    // otherwise remain permanently unmapped. Fall back to the rest of the
-    // document only with stronger corroboration than the nearby search needs.
+    // Search nearby first; larger page mutations require a guarded distant search.
     const targetFirst = normalizedTokens[0];
     let startIdx = -1;
     const nearbyEnd = Math.min(norm.length, cursor + START_WINDOW);
@@ -408,9 +363,7 @@ export function buildSentenceWordRanges(sentences, wordEntries) {
         break;
       }
     }
-    // A distant single-token match is too weak to move the cursor safely. For
-    // longer sentences, require a consecutive two-token prefix before the
-    // existing end-anchor check supplies the final corroboration.
+    // Require two consecutive tokens for a distant start anchor.
     if (startIdx === -1 && normalizedTokens.length >= 2) {
       for (let k = nearbyEnd; k < norm.length; k++) {
         if (norm[k] === targetFirst && norm[k + 1] === normalizedTokens[1]) {
@@ -419,9 +372,7 @@ export function buildSentenceWordRanges(sentences, wordEntries) {
         }
       }
     }
-    // A failed anchor is an unmapped sentence. Crucially, leave cursor where it
-    // was so a subsequent sentence can search from the last known position and
-    // resynchronize instead of inheriting a fabricated range.
+    // Keep the cursor on failure so later sentences can resynchronize.
     if (startIdx === -1) return;
 
     // Position the end would land at if tokens mapped 1:1 with DOM words.
@@ -431,8 +382,7 @@ export function buildSentenceWordRanges(sentences, wordEntries) {
     if (normalizedTokens.length === 1) {
       endIdx = startIdx;
     } else {
-      // Anchor the end: last token nearest the expected end position, so token
-      // drift doesn't run the range past the sentence's true final word.
+      // Find the last token near the expected end despite token drift.
       const targetLast = normalizedTokens[normalizedTokens.length - 1];
       const lo = Math.max(startIdx, expectedEnd - END_WINDOW);
       const hi = Math.min(norm.length - 1, expectedEnd + END_WINDOW);
@@ -445,10 +395,7 @@ export function buildSentenceWordRanges(sentences, wordEntries) {
           best = k;
         }
       }
-      // Do not fall back to the expected position. If the end token is absent,
-      // mapping a guessed range would advance cursor past real DOM content and
-      // make every following sentence less trustworthy. Keep cursor unchanged
-      // so a later sentence can still recover.
+      // Do not guess a missing end; keep the cursor available for recovery.
       if (best < startIdx) return;
       endIdx = best;
     }

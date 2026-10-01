@@ -2,14 +2,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { clampScale, cursorAnchoredTranslate } from '../../utils/canvasMath.js';
 import { isTypingTarget } from '../../utils/isTypingTarget.js';
 
-// Exponential scaling makes wheel input independent of event frequency and
-// preserves the fine-grained deltas emitted by trackpads. 120px (a common
-// mouse-wheel notch) remains close to the old 10% step.
+// Exponential scaling preserves trackpad precision across event frequencies.
 const WHEEL_ZOOM_SENSITIVITY = 0.0008;
 const MAX_WHEEL_DELTA_PX = 240;
 const WHEEL_COMMIT_DELAY = 80;
-// Outlast the longest scoped CSS transition (280ms) so removing the class can
-// never cancel the final interpolated frame and snap to the target value.
+// Outlast the 280ms CSS transition to avoid snapping its final frame.
 const CARD_ZOOM_SMOOTHING_HOLD = 340;
 const ARROW_STEP = 80;
 // Keep the canvas content this far inside the viewport edges. Mirrors the
@@ -23,10 +20,7 @@ const MIN_DELTA = 0.5;
 /**
  * Scale actually applied to an element right now.
  *
- * The viewport carries a 320ms `transform` transition, so its computed matrix
- * is generally mid-flight and does *not* equal the target scale. Every rect
- * measured off the viewport is scaled by this value, so dividing by it is what
- * recovers a transform-invariant (layout) coordinate.
+ * Use the applied matrix during transitions; target scale would skew DOM rects.
  * @param {Element} el Measured element.
  * @param {number} fallbackScale Fallback scale when no matrix is available.
  */
@@ -43,19 +37,9 @@ function readAppliedScale(el, fallbackScale) {
 /**
  * Where the canvas content should sit horizontally after a zoom-to-target.
  *
- * Deliberately an *absolute* placement — a pure function of the settled layout,
- * never a nudge from the current position. Zoom-to-target is a deliberate jump,
- * and the layout it lands in is not the one it started from: the summary gutter
- * and rail cards are sized `1/scale` to stay screen-constant, so zooming in from
- * a zoomed-out state collapses a gutter that can be thousands of layout px wide.
- * Any rule that carried the pre-zoom position forward would carry that error
- * forward with it (and a "keep it where it is" branch would then preserve it
- * permanently, stranding the article off one edge).
- *
- * Prefers to frame the whole layout — summary gutter, reading column and topic
- * rail — so the rail stays on screen when it fits. When it cannot fit, the
- * reading column is centred, and if even that overflows, its left edge is
- * pinned inside the viewport so reading starts at the beginning of the line.
+ * Compute absolute placement from settled layout because inverse-scaled gutters
+ * reflow on zoom. Frame the full group when it fits; otherwise frame the reading
+ * column or pin its left edge inside the viewport.
  *
  * @param {{localContentLeft: number, columnLayoutWidth: number,
  *          groupLayoutWidth: number, nextScale: number, wrapWidth: number}} params
@@ -72,9 +56,7 @@ function zoomPinnedTranslateX({
   if (!(wrapWidth > 0)) return FALLBACK_CONTENT_LEFT - scaledLeft;
   const usableWidth = wrapWidth - 2 * EDGE_MARGIN;
 
-  // The whole layout fits: centre it, gutter and rail included. The group's
-  // local left is 0 — it is the transformed viewport's only child — so this is
-  // the translate itself.
+  // The group is the viewport's only child and begins at local x=0.
   const groupWidth = groupLayoutWidth * nextScale;
   if (groupWidth > 0 && groupWidth <= usableWidth) return (wrapWidth - groupWidth) / 2;
 
@@ -101,23 +83,11 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
   const [translate, setTranslate] = useState({ x: 40, y: 40 });
   const [scale, setScale] = useState(1);
   const [isCanvasDragging, setIsCanvasDragging] = useState(false);
-  // Drives the sticky topic-label smoothing (see .canvas-area.is-pan-smoothing
-  // in modal.css). Deliberately outlives `isCanvasDragging`: the label's
-  // transition lives entirely in that class, and CSS cancels a running
-  // transition the moment the declaration stops matching, snapping the property
-  // to its end value. Dropping the class on mouse-up would therefore jerk every
-  // still-catching-up label to its final offset — worst after a quick flick,
-  // which is exactly when the most labels are mid-glide.
+  // Keep label smoothing active past mouse-up; removing its CSS class snaps mid-glide labels.
   const [isPanSmoothing, setIsPanSmoothing] = useState(false);
   const [isFocusingHighlight, setIsFocusingHighlight] = useState(false);
   const [isCardZoomSmoothing, setIsCardZoomSmoothing] = useState(false);
-  // Distinct from `isFocusingHighlight` (a purely visual focus glow that any
-  // pan/zoom flashes). This flips true only for an actual zoom-to-target, where
-  // the *scale* changes mid-transition; sentence measurement must be suppressed
-  // until it settles. Keeping it separate means ordinary pan (mouse/keyboard)
-  // no longer recreates the measurement callback and re-runs the expensive
-  // remeasure. It must be state, not a ref: the false-flip is what re-triggers
-  // the post-settle remeasurement.
+  // Suppress sentence measurement only during target zoom; state retriggers it on settle.
   const [isZoomingToTarget, setIsZoomingToTarget] = useState(false);
 
   // Callback refs so listeners can re-bind once the canvas DOM mounts.
@@ -141,9 +111,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
   const pendingRef = useRef(null);
   const wheelCommitTimerRef = useRef(null);
   const cardZoomSmoothingTimerRef = useRef(null);
-  // Scale-dependent gutter and rail widths reflow when React commits the final
-  // wheel scale. Keep the reading surface at the screen position predicted by
-  // the compositor transform so that reflow cannot cause an end-of-gesture jump.
+  // Preserve the reading surface's screen position when zoom commits gutter reflow.
   const pendingScaleLayoutAnchorRef = useRef(null);
   const focusTimerRef = useRef(null);
   const zoomingTimerRef = useRef(null);
@@ -151,14 +119,10 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
   // Set by zoomToTarget when its placement must be redone once the new scale's
   // layout has committed; consumed by the layout effect below.
   const pendingZoomPinRef = useRef(null);
-  // Drag pan writes the transform imperatively (CSS vars + translateRef) on a
-  // dedicated rAF, bypassing React state so a mouse drag does not re-render the
-  // whole canvas tree ~60fps. State is committed once on mouse-up.
+  // Pan imperatively per frame; commit React state on mouse-up.
   const dragRafRef = useRef(0);
   const dragPendingRef = useRef(null);
-  // Detaches the window-level drag listeners. Held in a ref so unmount can run
-  // it: they are attached on mousedown and would otherwise survive until a
-  // mouseup that never arrives once the tree (or its iframe) is torn down.
+  // Unmount must detach drag listeners if mouse-up never arrives.
   const dragDetachRef = useRef(null);
 
   const setTransformNow = useCallback((nextScale, nextTranslate) => {
@@ -226,10 +190,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
     setIsCardZoomSmoothing(false);
   }, []);
 
-  // Wheel input updates the compositor-facing CSS variables on the next frame,
-  // then reconciles React after the input burst. Re-rendering the article,
-  // summary gutter and topic rail for every wheel event is both unnecessary for
-  // the visual transform and the main source of dropped zoom frames.
+  // Apply wheel zoom to CSS per frame, then reconcile React after the input burst.
   const scheduleTransform = useCallback(
     (nextScale, nextTranslate) => {
       pendingScaleLayoutAnchorRef.current = captureScaleLayoutAnchor(
@@ -254,10 +215,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
         }
         onVisualScaleChange?.(pending.scale);
 
-        // The live card variables above can change the reading surface's local
-        // x-coordinate (notably the inverse-scaled left summary gutter). Apply
-        // the matching translation correction in this same frame so the DOM
-        // point under the cursor remains fixed while card geometry tracks zoom.
+        // Correct translation in the same frame if inverse-scaled gutters reflow.
         const layoutAnchor = pendingScaleLayoutAnchorRef.current;
         const content = contentRef?.current;
         if (layoutAnchor && viewportEl && content) {
@@ -316,20 +274,14 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
     focusTimerRef.current = setTimeout(() => setIsFocusingHighlight(false), 380);
   }, []);
 
-  // Mark a zoom-to-target as in flight so sentence measurement is suppressed
-  // until the (≈320ms) transform transition settles. The false-flip drives the
-  // post-settle remeasure, so the timing must outlast the transition; mirror
-  // flashFocus's 380ms.
+  // Outlast the transform transition before allowing sentence measurement again.
   const flashZoomingToTarget = useCallback(() => {
     setIsZoomingToTarget(true);
     if (zoomingTimerRef.current) clearTimeout(zoomingTimerRef.current);
     zoomingTimerRef.current = setTimeout(() => setIsZoomingToTarget(false), 380);
   }, []);
 
-  // Apply a translate directly to the DOM + ref without touching React state.
-  // Used by the drag-pan rAF; `translate` state is only read by the CSS-var
-  // layout effect, so writing the vars here keeps the canvas in sync while
-  // avoiding a render storm. State is reconciled on mouse-up.
+  // Update DOM and ref during drag; reconcile React state on mouse-up.
   const applyTranslateImperative = useCallback((next) => {
     translateRef.current = next;
     const viewportEl = canvasViewportElRef.current;
@@ -339,11 +291,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
     }
   }, []);
 
-  // CSS variable sync on the viewport. Runs in a layout effect (synchronously
-  // after commit, before paint) so the transform is applied before any
-  // post-transform measurement — notably the zoom-to-target placement below,
-  // which is a layout effect declared after this one and so reads the settled
-  // transform.
+  // Sync CSS before the later zoom placement effect measures the viewport.
   useLayoutEffect(() => {
     if (!canvasViewportEl) return;
     // A wheel frame may already be ahead of the deferred React commit. Never
@@ -360,16 +308,12 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
     canvasViewportEl.style.setProperty('--canvas-scale', `${scale}`);
   }, [canvasViewportEl, scale, translate.x, translate.y]);
 
-  // Keep inverse-scaled card geometry tied to the same visual scale as the
-  // compositor transform. This is deliberately imperative: a CSS-variable
-  // update is much cheaper than rendering the complete canvas tree per frame.
+  // Sync inverse-scaled cards with the compositor without per-frame React renders.
   useLayoutEffect(() => {
     onVisualScaleChange?.(scale);
   }, [onVisualScaleChange, scale]);
 
-  // React's scale commit changes inverse-scaled gutter/rail dimensions. Resolve
-  // that layout change before paint by moving the viewport just enough to keep
-  // the article at the position produced by the cursor-anchored transform.
+  // Correct gutter reflow before paint to preserve cursor-anchored placement.
   useLayoutEffect(() => {
     const anchor = pendingScaleLayoutAnchorRef.current;
     if (!anchor || anchor.scale !== scale) return;
@@ -429,9 +373,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
       if (e.button !== 0) return;
       setIsFocusingHighlight(false);
       setIsCanvasDragging(true);
-      // Cancel any settle still pending from a previous drag. Without this, a
-      // release-and-re-grab inside the settle window lets the stale timer strip
-      // the class mid-drag and reintroduce the snap it exists to prevent.
+      // Cancel stale settle timers before a new drag can lose its smoothing class.
       if (panSettleTimerRef.current) clearTimeout(panSettleTimerRef.current);
       if (cardZoomSmoothingTimerRef.current) clearTimeout(cardZoomSmoothingTimerRef.current);
       setIsPanSmoothing(true);
@@ -459,10 +401,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
       const onUp = () => {
         isDragging.current = false;
         setIsCanvasDragging(false);
-        // Hold the smoothing class past the 130ms label transition so the last
-        // retarget — which `applyTranslateImperative` below can start at
-        // mouse-up — runs to completion instead of being cancelled. Mirrors the
-        // 320ms/380ms margin the focus and zoom flashes use.
+        // Keep smoothing past the final 130ms label transition.
         if (panSettleTimerRef.current) clearTimeout(panSettleTimerRef.current);
         panSettleTimerRef.current = setTimeout(() => setIsPanSmoothing(false), 200);
         if (dragRafRef.current) {
@@ -508,9 +447,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
       e.preventDefault();
       stopCardZoomSmoothing();
       const currentScale = scaleRef.current || 1;
-      // WheelEvent deltas may be pixels, lines, or pages. Normalize before
-      // applying a continuous curve so a trackpad pinch stays precise while a
-      // mouse wheel still advances by a useful amount.
+      // Normalize pixel, line, and page deltas before applying the zoom curve.
       const deltaPixels =
         e.deltaMode === WheelEvent.DOM_DELTA_LINE
           ? e.deltaY * 16
@@ -630,10 +567,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
       const viewportRect = viewportEl.getBoundingClientRect();
       const currentScale = scaleRef.current || 1;
       const nextScale = clampScale(Math.max(currentScale, zoomLevel));
-      // Unscale by the transform on the DOM *right now*, not by `scaleRef`: a
-      // zoom-to-target triggered while an earlier one is still animating (click
-      // two events in a row) measures rects through a mid-flight scale, and
-      // dividing those by the target scale skews every coordinate below.
+      // A prior zoom may still be animating; use its applied scale for DOM rects.
       const appliedScale = readAppliedScale(viewportEl, currentScale);
       const localTargetY =
         (targetRect.top + targetRect.height / 2 - viewportRect.top) / appliedScale;
@@ -646,9 +580,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
           localContentLeft: localContentX,
           // offsetWidth is layout px (transform-free), so it needs no unscaling.
           columnLayoutWidth: content.offsetWidth,
-          // The viewport shrink-wraps its single child (the gutter + column +
-          // rail group), so its width is the group's width. Adding a sibling to
-          // `.canvas-viewport` would break that.
+          // The viewport must have only the gutter/column/rail group as its child.
           groupLayoutWidth: viewportRect.width / appliedScale,
           nextScale,
           wrapWidth: wrapRect.width,
@@ -670,28 +602,14 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
       // settles (see isZoomingToTarget). Pan paths deliberately do not call this.
       flashZoomingToTarget();
 
-      // The layout the zoom lands in is not the one it was measured in: the
-      // summary gutter and rail cards are sized 1/scale to stay screen-constant,
-      // so the reading column's local-x is itself a function of `scale` (at
-      // scale 0.1 the gutter is 4420 layout px; at 1.4 it is 442). `nextX` above
-      // is therefore only a provisional placement from the pre-zoom layout —
-      // good enough if nothing reflows, thousands of px out if it does.
-      //
-      // Ask for a re-placement from the settled layout. Only the scale commit
-      // can settle it, so when the scale is unchanged there is nothing to wait
-      // for and the provisional placement is already final.
+      // Inverse-scaled gutters change the landing layout; replace provisional
+      // placement after a scale commit.
       if (content && nextScale !== currentScale) pendingZoomPinRef.current = { scale: nextScale };
     },
     [contentRef, flashFocus, flashZoomingToTarget, setTransformNow],
   );
 
-  // Final horizontal placement for a zoom-to-target, from the *settled* layout.
-  //
-  // A layout effect, not a rAF: it runs after the commit that applied the new
-  // scale (so the gutter/rail have reflowed) but still before paint, so the
-  // corrected position is part of the same frame — the provisional placement is
-  // never painted, and there is no frame-ordering race with the alignment hook
-  // or with React's own flush timing.
+  // Place target zoom from the settled layout before paint.
   useLayoutEffect(() => {
     const pending = pendingZoomPinRef.current;
     // Wait for the commit that carries the zoom's scale; ignore every other
@@ -707,10 +625,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
     const viewportRect = viewportEl.getBoundingClientRect();
     if (wrapRect.width === 0) return;
 
-    // Every rect measured off the viewport carries the transform that is
-    // actually applied right now (mid-transition, so generally not `scale`).
-    // Dividing by it recovers the transform-invariant layout coordinates the
-    // placement rule works in.
+    // Undo the currently applied transform to recover layout coordinates.
     const appliedScale = readAppliedScale(viewportEl, scale);
     const localContentLeft =
       (content.getBoundingClientRect().left - viewportRect.left) / appliedScale;
@@ -727,18 +642,8 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
     setTransformNow(scale, { x: nextX, y: translateRef.current?.y ?? 0 });
   }, [contentRef, scale, setTransformNow]);
 
-  // The imperative viewport handle: everything a consumer needs to *read* the
-  // live transform (the refs, which stay current between renders) or *move* it,
-  // bundled so it travels as one concept instead of six props threaded through
-  // App. Deliberately excludes render state (`scale`/`translate`/flags), which
-  // consumers must take flat so they re-render on change.
-  //
-  // Deps are the callbacks only: the four `useRef` containers are created once
-  // and are stable for the component's lifetime, so listing them would add
-  // nothing. That keeps the handle's identity flipping if and only if a callback
-  // member changes — i.e. never in practice, since both are `useCallback`s over
-  // stable deps — so effects keyed on `viewport` re-run exactly as often as
-  // effects keyed on the individual members did.
+  // Stable imperative handle for live transform reads and movement. Render state
+  // remains separate so consumers update when scale or flags change.
   const viewport = useMemo(
     () => ({
       scaleRef,

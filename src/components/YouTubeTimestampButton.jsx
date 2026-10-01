@@ -1,7 +1,6 @@
 import React from 'react';
 
-// Static play-button glyph — doesn't depend on any prop, so it's hoisted out
-// of the component to avoid rebuilding the element tree on every render.
+// Hoist the static icon to avoid rebuilding it on each render.
 const PLAY_ICON = (
   <svg
     className="canvas-youtube-timestamp__icon"
@@ -16,10 +15,7 @@ const PLAY_ICON = (
   </svg>
 );
 
-// A small "open this moment on YouTube" link rendered on summary / source
-// floating cards when the record is a YouTube transcript. `link` is the result
-// of getYouTubeTimestampLink ({ url, seconds, label }) or null — callers pass it
-// through so the button simply renders nothing when there's no deep-link.
+// Link to the transcript moment, or render nothing when no link exists.
 function YouTubeTimestampButton({ link }) {
   if (!link) return null;
   return (
@@ -29,9 +25,7 @@ function YouTubeTimestampButton({ link }) {
       target="_blank"
       rel="noopener noreferrer"
       title={`Open YouTube at ${link.label}`}
-      // The floating cards live inside the canvas, which captures pointer drags
-      // to pan. Stop propagation so clicking the link opens the tab instead of
-      // starting a pan / toggling the card.
+      // Keep the canvas drag and card toggle handlers from intercepting the link.
       onMouseDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
     >

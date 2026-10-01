@@ -1,17 +1,5 @@
-// Privacy-safe article-chat tool-call metrics. Tracks the outcome of every
-// highlight_span tool call the model makes (accepted, skipped, or rejected as
-// wrong/malformed) so bad tool calls are visible in diagnostics. Never stores
-// prompts, responses, article text, URLs, record keys, or highlight labels —
-// only an outcome code, a timestamp, and the short model-facing error string
-// (which contains line numbers at most, e.g. "line range must be between 1 and 42").
-//
-// TO REMOVE ENTIRELY:
-//   1. Delete this file (and chatTool.test.js)
-//   2. In background.js: remove the recordChatToolMetric/clearChatToolMetrics
-//      imports + the MSG.recordChatToolMetric / MSG.clearChatToolMetrics handlers
-//   3. In messages.js: remove the recordChatToolMetric + clearChatToolMetrics types
-//   4. In src/chat/articleChat.js: remove the recordToolMetric plumbing
-//   5. In OptionsApp.jsx: remove ChatToolMetricsSection + its import + render
+// Article-chat highlight tool metrics store outcome, timestamp, and short
+// model-facing error only; no prompts, article content, URLs, or labels.
 
 import { CHAT_TOOL_OUTCOMES } from '../../shared/runtime/telemetry.js';
 import { createMetricsStore } from './metricsStore.js';

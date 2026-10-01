@@ -175,13 +175,11 @@ describe('InPageRail', () => {
       createElement(InPageRail, { ...defaultProps, onClose, onSelectLevel }),
     );
 
-    // Close button click
     const closeBtn = container.querySelector('.pagetollm-rail-close');
     expect(closeBtn).not.toBeNull();
     act(() => closeBtn.click());
     expect(onClose).toHaveBeenCalled();
 
-    // Level buttons rendering & click
     const lvlButtons = container.querySelectorAll('.pagetollm-rail-level-btn');
     expect(lvlButtons).toHaveLength(3); // L0, L1, L2
     expect(lvlButtons[1].className).toContain('active');
@@ -341,27 +339,23 @@ describe('InPageRail', () => {
     const cards = container.querySelectorAll('.pagetollm-rail-card');
     expect(cards).toHaveLength(2);
 
-    // Mouse enter Card 1
     act(() => {
       cards[0].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
     });
     expect(onHighlightCard).toHaveBeenCalledWith(mockCards[0], true);
 
-    // Mouse leave Card 1
     onHighlightCard.mockClear();
     act(() => {
       cards[0].dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
     });
     expect(onHighlightCard).toHaveBeenCalledWith(mockCards[0], false);
 
-    // Pointer down Card 2
     act(() => {
       cards[1].dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     });
     expect(cards[1].className).toContain('is-front');
     expect(cards[1].closest('.pagetollm-rail-card-wrap').className).toContain('is-front');
 
-    // Click Card 2
     act(() => {
       cards[1].click();
     });

@@ -409,11 +409,7 @@ describe('YouTubeRail', () => {
   });
 
   it('does not pause on a trailing scroll event that lands on the same target again', () => {
-    // A real smooth scroll can emit more than one 'scroll' event once it's
-    // within a pixel of its target (easing slows to sub-pixel deltas right
-    // before the animation ends). The first such event closes the guard
-    // immediately (so a drag right on its heels isn't swallowed); a second
-    // event for that same landing must not be mistaken for that drag.
+    // Trailing events at a smooth scroll's landing must not pause tracking.
     let currentTime = 0;
     const getCurrentTime = vi.fn(() => currentTime);
     const { container, unmount } = render(
@@ -431,15 +427,14 @@ describe('YouTubeRail', () => {
     act(() => {
       vi.advanceTimersByTime(1000);
     });
-    // First event: the rail's own scroll landing on its target.
+    // The rail lands on its target.
     act(() => {
       body.dispatchEvent(new Event('scroll', { bubbles: true }));
     });
     expect(body.scrollTop).toBe(360);
     expect(container.querySelector('.pagetollm-yt-rail-resume')).toBeNull();
 
-    // Second event: the same animation's trailing frame, still at the same
-    // spot — not a drag, so it must not pause auto-scroll.
+    // A trailing frame at the same position is still the rail's scroll.
     act(() => {
       body.dispatchEvent(new Event('scroll', { bubbles: true }));
     });
@@ -462,7 +457,7 @@ describe('YouTubeRail', () => {
     body.getBoundingClientRect = () => ({ top: 0, height: 200 });
     railCards[1].getBoundingClientRect = () => ({ top: 420, height: 80 });
 
-    // The rail scrolls itself to 360, then its own scroll event lands there.
+    // The rail lands at 360.
     currentTime = 45;
     act(() => {
       vi.advanceTimersByTime(1000);
@@ -473,8 +468,7 @@ describe('YouTubeRail', () => {
     expect(body.scrollTop).toBe(360);
     expect(container.querySelector('.pagetollm-yt-rail-resume')).toBeNull();
 
-    // The user grabs the scrollbar right away, still inside the guard window:
-    // the rail's own scroll already landed, so this one is theirs.
+    // A new drag after landing is manual, even within the guard window.
     act(() => {
       body.scrollTop = 120;
       body.dispatchEvent(new Event('scroll', { bubbles: true }));
@@ -498,22 +492,20 @@ describe('YouTubeRail', () => {
     body.getBoundingClientRect = () => ({ top: 0, height: 200 });
     railCards[1].getBoundingClientRect = () => ({ top: 420, height: 80 });
 
-    // The rail starts scrolling itself toward 360.
+    // The rail starts scrolling toward 360.
     currentTime = 45;
     act(() => {
       vi.advanceTimersByTime(1000);
     });
 
-    // The user drags mid-flight, which aborts the smooth scroll: the events
-    // stop at 120, never reaching the target, and still inside the guard window.
+    // A drag stops the smooth scroll short of its target.
     act(() => {
       body.scrollTop = 120;
       body.dispatchEvent(new Event('scroll', { bubbles: true }));
     });
     expect(container.querySelector('.pagetollm-yt-rail-resume')).toBeNull();
 
-    // Once the scrolling has gone quiet somewhere other than the target, the
-    // rail concludes the user interrupted it.
+    // Settling short of the target signals interruption.
     act(() => {
       vi.advanceTimersByTime(300);
     });
@@ -526,10 +518,8 @@ describe('YouTubeRail', () => {
     const getCurrentTime = vi.fn(() => 0);
     const { unmount } = render(createElement(YouTubeRail, { ...defaultProps, getCurrentTime }));
 
-    // Initial render might call getCurrentTime, clear mocks
     getCurrentTime.mockClear();
 
-    // Advance timer and verify it ticks/polls
     act(() => {
       vi.advanceTimersByTime(1000);
     });
@@ -537,10 +527,8 @@ describe('YouTubeRail', () => {
 
     getCurrentTime.mockClear();
 
-    // Unmount the component
     unmount();
 
-    // Advance timer again and verify it is NOT called
     act(() => {
       vi.advanceTimersByTime(1000);
     });

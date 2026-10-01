@@ -1,19 +1,6 @@
-// Normalized completion status for provider HTTP responses.
-//
-// Every provider reports why generation stopped, under a different name and a
-// different vocabulary: OpenAI-compatible servers use `choices[].finish_reason`
-// ("stop" / "length" / "tool_calls" / "content_filter"), the Anthropic Messages
-// API uses `stop_reason` ("end_turn" / "max_tokens" / "stop_sequence" /
-// "tool_use" / "refusal" / ...). The clients collapse both into the internal
-// vocabulary below so callers can ask one question — "is this response the
-// whole answer?" — without knowing which provider produced it.
-//
-// TRUNCATED is the load-bearing value: a response cut off at the output-token
-// limit is a *successful* HTTP 200 whose body is missing its tail. Text callers
-// must reject it instead of parsing a partial answer as a complete one.
-// UNKNOWN means the provider said nothing usable (a field some OpenAI-compatible
-// servers omit); it is deliberately not treated as truncation, since guessing
-// would fail every response from those servers.
+// Normalize provider finish reasons so callers can reject truncated HTTP 200
+// responses. UNKNOWN is not treated as truncation because some compatible
+// servers omit finish_reason.
 
 /** @enum {string} */
 export const FinishReason = Object.freeze({
@@ -25,24 +12,17 @@ export const FinishReason = Object.freeze({
   UNKNOWN: 'unknown',
 });
 
-// Values that mean "output stopped at a token limit". `max_tokens` is
-// Anthropic's; `length` is OpenAI's (and Ollama's `done_reason`).
-// `model_context_window_exceeded` is Anthropic's newer variant for a request
-// that ran out of context window mid-generation — also a missing tail.
+// Output or context limit reached: the response is missing its tail.
 const TRUNCATED_REASONS = new Set(['length', 'max_tokens', 'model_context_window_exceeded']);
-// Normal completion: the model chose to stop, or hit a caller stop sequence.
-// `pause_turn` (Anthropic pausing a long server-tool turn) belongs here too:
-// the text produced so far is valid and nothing was cut off at a token limit.
+// Anthropic's pause_turn is valid text, not token-limit truncation.
 const COMPLETE_REASONS = new Set(['stop', 'end_turn', 'stop_sequence', 'pause_turn']);
-// The model stopped to call a tool. Complete for chat (the tool result
-// continues the turn), and never produced by the pipeline's text-only calls.
+// Tool calls continue the chat turn.
 const TOOL_CALL_REASONS = new Set(['tool_calls', 'function_call', 'tool_use']);
 const CONTENT_FILTER_REASONS = new Set(['content_filter', 'refusal']);
 
 /**
  * Maps a raw provider finish/stop reason onto the internal vocabulary.
- * Absent or unrecognized values become UNKNOWN — callers must not read that as
- * truncation (see file header).
+ * Absent or unrecognized values become UNKNOWN.
  *
  * @param {unknown} rawReason Provider `finish_reason` / `stop_reason` value.
  * @returns {string} A `FinishReason` value.

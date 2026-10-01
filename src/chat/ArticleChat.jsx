@@ -23,26 +23,14 @@ function ChatHeaderActions({ disabled, onShowHistory, onNewChat }) {
 }
 
 /**
- * Article chat panel: composes the persisted-session hook with the
- * presentational pieces and owns the send path. One LLM turn runs entirely
- * in memory (highlights are painted as they stream in) and is then
- * committed with one idempotent chatRepository.append call. A stable turn id
- * makes retrying safe when the storage commit succeeded but its acknowledgement
- * was lost.
- *
- * Storage and turn execution arrive as injected ports. They default to the
- * production adapters because ArticleChat is itself the composition root for
- * the content-script realm (unlike canvas/main.jsx, the rails have no place to
- * thread them from); tests pass fakes through these props instead of mocking
- * the modules.
+ * Article chat panel. A turn streams highlights, then commits once with a stable
+ * turn id so a lost storage acknowledgement can be retried safely. Storage and
+ * turn execution use injectable ports.
  *
  * @param {object} props
  * @param {string} props.recordKey
  * @param {string[]} props.sentences
- * @param {string} [props.contentRevision] Revision of the record `sentences`
- *   came from. Carried through to the append so a turn answered from a source
- *   snapshot that has since been reanalyzed is not persisted against the new
- *   revision.
+ * @param {string} [props.contentRevision] Rejects persistence after reanalysis.
  * @param {function(object): void} [props.onHighlight]
  * @param {function(): void} [props.onClearHighlights]
  * @param {function(): void} [props.onClose]

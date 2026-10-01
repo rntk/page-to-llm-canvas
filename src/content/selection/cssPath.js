@@ -2,21 +2,13 @@ import { SELECTION_MARKER_CLASSES, SELECTION_MARKER_SELECTOR } from './markers.j
 
 export function buildCssPath(el) {
   if (!(el instanceof Element)) return '';
-  // Resolve against the element's own document, not the global one: the
-  // selection controller supports an injected contentDocument, and a
-  // connected element from that document must not be mistaken for detached.
+  // Check the element's own document, including injected documents.
   const doc = el.ownerDocument;
   if (!doc) return '';
-  // An element inside a shadow root (or otherwise detached from its document)
-  // cannot be addressed by a document-level selector at all: the walk below
-  // would stop at a null parentElement and emit a path rooted inside the
-  // shadow tree, which then matches an unrelated light-DOM element.  Refuse
-  // rather than hand back a misleading path.
+  // Document selectors cannot address shadow or detached elements.
   if (el.getRootNode && el.getRootNode() !== doc) return '';
 
-  // The id branch trusts that ids are unique, which pages routinely violate.
-  // Verify the path resolves back to the element and fall back to a purely
-  // structural path when it does not.
+  // Duplicate IDs require a structural selector fallback.
   const withId = walkCssPath(el, doc, true);
   if (withId && resolvesTo(doc, withId, el)) return withId;
 
@@ -25,9 +17,7 @@ export function buildCssPath(el) {
 }
 
 /**
- * Whether `selector` selects exactly `el` within `doc`.  A selector the CSS
- * parser rejects — a namespaced type name such as `svg:rect`, say — counts as
- * a non-match rather than throwing, so an unusable path never aborts a capture.
+ * Check that a selector resolves to `el`; invalid selectors count as misses.
  *
  * @param {Document} doc
  * @param {string} selector

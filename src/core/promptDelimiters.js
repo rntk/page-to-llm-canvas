@@ -1,8 +1,5 @@
-// One delimiter for every untrusted payload block. Each prompt embeds exactly
-// one payload, so a per-prompt tag name carried no information the surrounding
-// prose ("Source:", "Chunk summaries:", ...) did not already carry, and it made
-// the Anthropic cache-prefix split depend on matching the right name out of a
-// list. A single name keeps that split unambiguous.
+// One delimiter for every untrusted payload keeps Anthropic's cache-prefix
+// split unambiguous across prompts.
 const NAME = 'pagetollm_input';
 
 export const PROMPT_DELIMITER = Object.freeze({

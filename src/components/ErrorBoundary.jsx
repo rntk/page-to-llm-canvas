@@ -45,21 +45,14 @@ export function SurfaceError({
 }
 
 /**
- * Shared React error boundary used at surface roots and around record-driven
- * views. One malformed record shape or a
- * bug in a deeply-nested component used to blank the whole surface with no
- * message and no way out; this renders a plain-language error and a reload
- * affordance instead.
+ * Shared boundary for surface roots and record views. Shows an error and a
+ * recovery action when rendering fails.
  *
  * Class component because `componentDidCatch`/`getDerivedStateFromError`
  * have no hook equivalent.
  *
- * `window` at the content-script rails is the HOST ARTICLE PAGE, not our
- * surface — a Reload button there would discard the reader's scroll position
- * and unsaved state. Callers on those rails should pass `onRetry` to recreate
- * the surface from freshly loaded data and `onDismiss` to tear down just the
- * rail. Try again always clears the boundary locally before invoking `onRetry`;
- * options/canvas roots also retain Reload as a fallback.
+ * Content-script rails run in the host page, so callers provide `onRetry` and
+ * `onDismiss` to recover without reloading it. Retry clears local error first.
  */
 export default class ErrorBoundary extends React.Component {
   constructor(props) {

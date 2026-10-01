@@ -225,9 +225,7 @@ describe('createPipelineRunner', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // runPipeline
-// ---------------------------------------------------------------------------
 
 describe('runPipeline', () => {
   it('clears stale topic and summary state before a fresh run', async () => {

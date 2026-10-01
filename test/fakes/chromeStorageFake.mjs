@@ -3,11 +3,8 @@ import { vi } from 'vitest';
 const DEFAULT_INDEX_KEY = 'pagetollm:index';
 
 /**
- * Builds an in-memory fake of chrome.storage.local.
- *
- * The returned `_state` object stays mutable so a test can seed data before
- * enabling a failure. Set failures can target every write, a numbered write,
- * or only writes containing the configured index key.
+ * Builds an in-memory chrome.storage.local fake. Mutate `_state` to configure
+ * failures after seeding data.
  *
  * @param {{
  *   lastErrorOnSet?: boolean,

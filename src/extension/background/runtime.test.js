@@ -1,10 +1,4 @@
-// Covers the listener wiring itself, which is otherwise asserted nowhere: the
-// existing background suite only ever pulls the `onMessage` listener back out
-// of its chrome mock. A mistake here (a listener attached to the wrong event, a
-// dropped storage-prefix filter, a lost synchronous `return false`) is silent
-// in production, because MV3 just stops delivering the event.
-//
-// No `chrome` global: the namespaces are plain fakes passed in.
+// Verify MV3 listener wiring using injected Chrome namespace fakes.
 import { describe, it, expect, vi } from 'vitest';
 import { installBackgroundRuntime, RECORD_STORAGE_PREFIX } from './runtime.js';
 
