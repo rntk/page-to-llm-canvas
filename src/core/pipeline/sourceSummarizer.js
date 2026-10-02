@@ -36,19 +36,18 @@ const SUMMARY_PROFILES = {
     buildMergePrompt: buildLeafSummaryMergePrompt,
     taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY,
     parse: parseSummaryResult,
-    fallback: (parsed, source) => parsed.text || (parsed.noSummary ? source : ''),
+    fallback: (parsed) => parsed.text,
   },
 };
 
 export function parseSummaryResult(raw) {
-  if (!raw) return { text: '', noSummary: false };
+  if (!raw) return { text: '' };
   let summary = String(raw).trim();
   summary = summary
     .replace(/^```[a-z0-9_-]*\s*/i, '')
     .replace(/```\s*$/i, '')
     .trim();
-  if (/^NO_SUMMARY\.?$/i.test(summary)) return { text: '', noSummary: true };
-  return { text: summary, noSummary: false };
+  return { text: summary };
 }
 
 function wordCount(text) {

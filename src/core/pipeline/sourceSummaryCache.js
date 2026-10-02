@@ -4,8 +4,8 @@ import { markProviderFailure } from './providerFailure.js';
 
 const SOURCE_SUMMARY_INPUT_VERSION = 'source-summary-v1';
 const SOURCE_SUMMARY_MERGE_INPUT_VERSION = 'source-summary-merge-v1';
-const LEAF_SUMMARY_INPUT_VERSION = 'leaf-summary-v1';
-const LEAF_SUMMARY_MERGE_INPUT_VERSION = 'leaf-summary-merge-v1';
+const LEAF_SUMMARY_INPUT_VERSION = 'leaf-summary-v2';
+const LEAF_SUMMARY_MERGE_INPUT_VERSION = 'leaf-summary-merge-v2';
 
 function normalizeContentRevision(value) {
   const revision = typeof value === 'string' ? value.trim() : '';

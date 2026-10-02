@@ -11,32 +11,19 @@ import { isProviderFailure, markProviderFailure } from './providerFailure.js';
 import { SUMMARY_MAX_MERGE_ROUNDS } from './pipelineConfig.js';
 
 describe('parseSummaryResult', () => {
-  it('normalizes empty, fenced, and explicit no-summary responses', () => {
-    expect(parseSummaryResult(null)).toEqual({ text: '', noSummary: false });
+  it('normalizes empty and fenced responses', () => {
+    expect(parseSummaryResult(null)).toEqual({ text: '' });
     expect(parseSummaryResult('  summary with surrounding whitespace  ')).toEqual({
       text: 'summary with surrounding whitespace',
-      noSummary: false,
     });
     expect(parseSummaryResult('```text   \nA concise summary.\n```')).toEqual({
       text: 'A concise summary.',
-      noSummary: false,
-    });
-    expect(parseSummaryResult(' NO_SUMMARY. ')).toEqual({ text: '', noSummary: true });
-    expect(parseSummaryResult('NO_SUMMARY extra')).toEqual({
-      text: 'NO_SUMMARY extra',
-      noSummary: false,
     });
     expect(parseSummaryResult('prefix ```text\ncontent')).toEqual({
       text: 'prefix ```text\ncontent',
-      noSummary: false,
     });
     expect(parseSummaryResult('content ``` trailing')).toEqual({
       text: 'content ``` trailing',
-      noSummary: false,
-    });
-    expect(parseSummaryResult('content NO_SUMMARY')).toEqual({
-      text: 'content NO_SUMMARY',
-      noSummary: false,
     });
   });
 });
@@ -333,7 +320,7 @@ describe('makeSourceSummarizer', () => {
     );
     let chunkCall = 0;
     const callLLMWithRetry = vi.fn(async ({ prompt }) => {
-      if (prompt.includes('Merge the summaries below')) return 'NO_SUMMARY';
+      if (prompt.includes('Merge the summaries below')) return '';
       chunkCall++;
       return `chunk-${chunkCall}-${'s'.repeat(34)}`;
     });

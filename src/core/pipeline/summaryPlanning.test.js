@@ -56,10 +56,10 @@ describe('planSummaryWork', () => {
     expect(second).toEqual(first);
   });
 
-  it('reuses a stored NO_SUMMARY fallback but retries error-flagged entries', () => {
+  it('reuses stored source text but retries error-flagged entries', () => {
     const plan = planSummaryWork(topics, {
       A: { runs: [{ sentences: [1], text: 'Good A' }] },
-      // NO_SUMMARY stores source text; an empty run list suggests damage.
+      // Legacy summaries may contain source text; an empty run list suggests damage.
       B: { runs: [{ sentences: [2], text: 'Beta.' }] },
       C: { runs: [{ sentences: [3], text: '', error: true }] }, // failed — retry
     });

@@ -224,10 +224,10 @@ describe('runSummaries', () => {
     },
   );
 
-  it('uses the source text when the LLM returns NO_SUMMARY', async () => {
+  it('summarizes long source text instead of keeping it verbatim', async () => {
     const runtime = makeRuntime();
     const source = 'word '.repeat(120).trim();
-    const callLLMWithRetry = vi.fn(async () => ' NO_SUMMARY. ');
+    const callLLMWithRetry = vi.fn(async () => 'A concise summary.');
 
     await runSummaries({
       runtime,
@@ -241,7 +241,7 @@ describe('runSummaries', () => {
     expect(lastUpdate(runtime)).toMatchObject({
       status: PIPELINE_STATUS.DONE,
       topic_summaries: {
-        A: { runs: [{ sentences: [1], text: source }], source_sentences: [1] },
+        A: { runs: [{ sentences: [1], text: 'A concise summary.' }], source_sentences: [1] },
       },
       source_summary_units: {},
       summaryErrors: [],

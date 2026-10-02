@@ -60,6 +60,7 @@ describe('buildArticleSummaryPrompt', () => {
     const prompt = buildArticleSummaryPrompt('My article text');
     expect(prompt).toContain('one concise sentence');
     expect(prompt).toContain('no bullets');
+    expect(prompt).not.toContain('NO_SUMMARY');
   });
 });
 
@@ -133,14 +134,14 @@ describe('preferContentLanguage option', () => {
       it('carves out literal tokens so parsing/format stay intact', () => {
         const prompt = build({ preferContentLanguage: true });
         // The carve-out must protect the exact tokens downstream code matches.
-        expect(prompt).toContain('NO_SUMMARY');
+        expect(prompt).not.toContain('NO_SUMMARY');
         expect(prompt).toContain('match the content language');
       });
     });
   }
 
-  it('LANGUAGE_INSTRUCTION protects the NO_SUMMARY sentinel and marker IDs', () => {
-    expect(LANGUAGE_INSTRUCTION).toContain('NO_SUMMARY');
+  it('LANGUAGE_INSTRUCTION protects marker IDs', () => {
+    expect(LANGUAGE_INSTRUCTION).not.toContain('NO_SUMMARY');
     expect(LANGUAGE_INSTRUCTION).toContain('{0}');
   });
 

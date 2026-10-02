@@ -51,10 +51,10 @@ describe('prompt contract fingerprints', () => {
       topicSource: sha256(currentPrompts.TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE),
     }).toEqual({
       system: 'ce93e60e740ccefbf1f8d97b1d943a454a7c638e5475bc245d9ca56875b96c78',
-      language: 'e9c6cdd8dedb466e5cd5277b1ef73530747d1afaad1987b880f97fae790e9d5b',
-      articleSummary: '78a69fb1fa2d4f65dac38a56d59c6f4c69fbfc733e28fd81b0394a0cdb2e0270',
+      language: 'f4b9f1be994770184d44278f12075d08c37da99ee9660bcf5ea7b3603d0cdd51',
+      articleSummary: 'c9169d04d8b32cf7acea5cfb3d7bacc6ad01ee39f2c95c3909677676a3086866',
       articleMerge: 'a9fb4e06cb44c2dba5d81f75730a922395d4994ef63557055cdb35e1a18df568',
-      leafMerge: 'f5452ed341bd821f6c2e35e21d4790ebb33ba3c4e2f8273f44088be6ad5a5603',
+      leafMerge: '5640676a05aba9d802f88173e7e947a9959c9f98a431b15e343d9dd99318bcbf',
       topicSource: 'a8a17a2f95f6ecb70364d99fcf55b49cb134fe824b09c40e9353268759180de1',
     });
   });

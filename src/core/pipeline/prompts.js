@@ -56,7 +56,7 @@ ASSIGNMENT RULES:
 Respond as fast as possible with ONLY the formatted output. Minimal preamble, reasoning, or explanation.
 `;
 
-// Localize prose while preserving parser tokens (NO_SUMMARY, sentence markers,
+// Localize prose while preserving parser tokens (sentence markers,
 // and range syntax) and canonical names. Topic-range examples are in English,
 // so the instruction explicitly covers both category and tag labels.
 export const LANGUAGE_INSTRUCTION =
@@ -64,7 +64,7 @@ export const LANGUAGE_INSTRUCTION =
   '- Detect the dominant language of the content and write EVERY human-readable part of your output in that language: both the broad top-level category and the specific lower-level topic labels, plus any summary text.\n' +
   '- The category words used as examples elsewhere in these instructions (Technology, Business, Science, Politics, etc.) only illustrate the KIND of category expected — translate them into the content language; never emit English category names when the content is in another language.\n' +
   '- If the content is not in English, do NOT translate, restate, or default your output to English; match the content language.\n' +
-  '- Do NOT translate or alter any of: the literal token NO_SUMMARY, the sentence marker IDs like {0}, the required output format (the ">" separators and the ":" before marker ranges), or canonical product, company, person, and technology names.\n';
+  '- Do NOT translate or alter any of: the sentence marker IDs like {0}, the required output format (the ">" separators and the ":" before marker ranges), or canonical product, company, person, and technology names.\n';
 
 function withLanguageInstruction(prompt, preferContentLanguage) {
   return preferContentLanguage ? `${LANGUAGE_INSTRUCTION}\n${prompt}` : prompt;
@@ -109,8 +109,7 @@ export const ARTICLE_SUMMARY_PROMPT_TEMPLATE =
   '- Begin with the substance itself, not a reference to the text or the act of summarizing. Write "Acme acquired Beta for $4B" not "The text says Acme acquired Beta."\n' +
   '- Only include facts explicitly stated in the text. Do not infer, speculate, or add external knowledge.\n' +
   '- Preserve names, numbers, and technical terms, but compress into concise wording instead of copying full source sentences.\n' +
-  '- Do not return JSON, markdown fences, headings, labels, or commentary.\n' +
-  '- If the text is already so short that any summary would be as long as or longer than the original (for example a single short sentence, or only 2-3 short sentences with one clear fact), respond with exactly NO_SUMMARY and nothing else. Do not paraphrase short text just to produce a summary.\n\n' +
+  '- Do not return JSON, markdown fences, headings, labels, or commentary.\n\n' +
   `Text:\n${payloadPrefix}{text}\n${close}\n`;
 
 // Merge per-chunk summaries for an internal topic. If the result is empty,
@@ -145,7 +144,7 @@ export const LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE =
   '- Only include facts explicitly present in the chunk summaries.\n' +
   '- Preserve key names, numbers, and technical terms.\n' +
   '- Do not mention chunks or the act of summarizing.\n' +
-  '- Do not return NO_SUMMARY, JSON, markdown, headings, labels, or commentary.\n\n' +
+  '- Do not return JSON, markdown, headings, labels, or commentary.\n\n' +
   `Chunk summaries:\n${payloadPrefix}{chunk_summaries}\n${close}\n`;
 
 // Internal topics summarize their aggregated source to preserve details across
