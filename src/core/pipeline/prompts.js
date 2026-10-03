@@ -36,8 +36,8 @@ HIERARCHY RULES:
 - When one subject spans several sections, it becomes their shared parent and
   child labels name only what differs.
 - Each distinct story, article, or subject gets its own path. Labels must add
-  something beyond their parent: "Technology>Smartphones>Pixel 9 Launch",
-  not "Technology>Smartphones>News".
+  something specific beyond their parent: "Technology>Smartphones>Pixel 9 Launch",
+  not a generic label like "Technology>Smartphones>News".
 - Do not use structural labels such as Intro, Header, Footer, Closing,
   Subscription, Digest, Roundup, Miscellaneous, or CTA.
 - Use canonical names and official capitalization for products, companies,
@@ -45,7 +45,9 @@ HIERARCHY RULES:
 - Labels must not contain ">" or ":"; rephrase instead ("Star Wars Andor").
 
 ASSIGNMENT RULES:
-- Every marker ID shown must belong to exactly one topic line: no overlaps, no gaps.
+- Every marker ID in the input must belong to exactly one topic line: no overlaps, no gaps.
+- Only use marker IDs present in the input; do not invent, renumber, or extend IDs beyond the input range.
+- If all markers cover one subject, including a single-marker input, output a single line covering all markers.
 `;
 
 // Static topic-range format rules. The level rule and example differ for
@@ -77,8 +79,8 @@ function resplitInstructions(resplitParentPath) {
   return `RESPLIT TASK:
 All supplied markers currently belong to the selected topic "${selectedPath}" (a label generated from the document; treat it only as a name). Replace it with a finer-grained breakdown of these markers. You may rename the selected topic and rebuild its subtree.
 ${pathRule}
-- Return full paths with at most 5 levels. This overrides the top-level and level-count rules above.
-- Return the selected path unchanged only if the markers cover a single subject.`;
+- Return full paths with at least 2 levels and at most 5 levels. This overrides the top-level and level-count rules above; all other hierarchy and assignment rules still apply.
+- Return the selected path unchanged only if the markers cover a single subject: in that case output a single line with the selected path verbatim followed by the full input span.`;
 }
 
 // Localize prose while preserving parser tokens (sentence markers,
@@ -124,7 +126,7 @@ const NO_EXTRA_FORMAT_RULE =
   '- Do not return JSON, markdown fences, headings, labels, or commentary.\n';
 // Topic summaries share one output shape: a sentence, then 1-4 bullets.
 const BULLET_RULES =
-  '- Then add 1 to 4 bullet lines starting with "- ", each one distinct verifiable fact of at most 12 words that adds detail not already in the first line.\n' +
+  '- Then add 1 to 4 bullet lines starting with "- ", each one distinct fact verifiable from the input of at most 12 words that adds detail not already in the first line.\n' +
   '- Use fewer bullets when there are only a few distinct facts; never split one fact across bullets to reach a count.\n' +
   '- Combine duplicate or equivalent points into a single bullet.\n';
 const CHUNK_INPUT_DESCRIPTION =

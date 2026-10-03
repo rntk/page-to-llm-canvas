@@ -59,13 +59,13 @@ describe('prompt contract fingerprints', () => {
       leafMerge: sha256(currentPrompts.LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE),
       topicSource: sha256(currentPrompts.TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE),
     }).toEqual({
-      system: 'b6bcac292f69ae906c0aa8e03499c720b661b5803bc62dafc85f493a83aedabc',
+      system: 'fe8d4dff9bffeaf618865195b761a060c4d87c62198f3907d994cc11cd39057a',
       language: 'c5e749798d193785ff6c649ebcd2279f46532a21d5a1ec6fc9a0f142367c6425',
       summaryLanguage: 'c20569562d3aae8c28ecf50004b221e3604983576d612d443f29ca419cd4ec62',
       articleSummary: '5474b73cb0f2cbcd51e19f31a804e5b299155b684b6b5f23b963ccba82392231',
-      articleMerge: '76132e7f35bfc734f7e7587d3f4bf09a42cf8c5adc24c7c72dd44d7f3d5f9df0',
+      articleMerge: '87f55592ff5bec9a1a8a39db6d9dd08dd190b6a4964b2de6ea4c36423b02a467',
       leafMerge: '875464fb3cfe43d1097396f964c73b107e85133080824e70ad15a757a9bcc50d',
-      topicSource: '3509f6cc5f443610bec448e541f3541f7835b9e9e2545e09712168ca7dc7bdb7',
+      topicSource: '51f4519076f1679bc7c0a05769986b4ea0e7725e5b024454c54e645addbd0727',
     });
   });
 });
