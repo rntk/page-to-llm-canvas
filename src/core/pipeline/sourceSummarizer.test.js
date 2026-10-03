@@ -320,7 +320,7 @@ describe('makeSourceSummarizer', () => {
     );
     let chunkCall = 0;
     const callLLMWithRetry = vi.fn(async ({ prompt }) => {
-      if (prompt.includes('Merge the summaries below')) return '';
+      if (prompt.includes('Merge the partial summaries')) return '';
       chunkCall++;
       return `chunk-${chunkCall}-${'s'.repeat(34)}`;
     });
@@ -332,7 +332,7 @@ describe('makeSourceSummarizer', () => {
       Array.from({ length: 24 }, (_, index) => `chunk-${index + 1}-${'s'.repeat(34)}`).join('\n'),
     );
     const mergeCalls = callLLMWithRetry.mock.calls.filter(([options]) =>
-      options.prompt.includes('Merge the summaries below'),
+      options.prompt.includes('Merge the partial summaries'),
     );
     expect(mergeCalls).toHaveLength(24);
   });
@@ -341,7 +341,7 @@ describe('makeSourceSummarizer', () => {
     'stops singleton rewrites of %i characters without compression',
     async (size) => {
       const callLLMWithRetry = vi.fn(async ({ prompt }) =>
-        prompt.includes('Merge the summaries below') ? 'm'.repeat(size) : 's'.repeat(400),
+        prompt.includes('Merge the partial summaries') ? 'm'.repeat(size) : 's'.repeat(400),
       );
       const { summarize } = make(['x'.repeat(700), 'y'.repeat(700)], callLLMWithRetry, {
         maxChars: 700,
@@ -357,7 +357,7 @@ describe('makeSourceSummarizer', () => {
   it('continues after singleton compression enables a later combined merge', async () => {
     const mergeSources = [];
     const callLLMWithRetry = vi.fn(async ({ prompt }) => {
-      if (!prompt.includes('Merge the summaries below')) return 's'.repeat(400);
+      if (!prompt.includes('Merge the partial summaries')) return 's'.repeat(400);
       mergeSources.push(prompt);
       return prompt.includes('Chunk 2') ? 'combined summary' : 'c'.repeat(50);
     });
@@ -377,7 +377,7 @@ describe('makeSourceSummarizer', () => {
   it('returns the latest successful records when the merge-round cap is reached', async () => {
     let mergeCall = 0;
     const callLLMWithRetry = vi.fn(async ({ prompt }) => {
-      if (!prompt.includes('Merge the summaries below')) return 's'.repeat(400);
+      if (!prompt.includes('Merge the partial summaries')) return 's'.repeat(400);
       const round = Math.floor(mergeCall++ / 2);
       return 'm'.repeat(399 - round);
     });

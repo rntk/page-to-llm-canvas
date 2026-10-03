@@ -9,6 +9,7 @@ import {
   buildTopicSummaryFromSourcePrompt,
   formatChunkSummariesForMerge,
   LANGUAGE_INSTRUCTION,
+  SUMMARY_LANGUAGE_INSTRUCTION,
   ARTICLE_SUMMARY_PROMPT_TEMPLATE,
   ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE,
   LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE,
@@ -21,6 +22,13 @@ function interpolateOnce(template, marker, value) {
   const markerIndex = template.indexOf(marker);
   expect(markerIndex).toBeGreaterThanOrEqual(0);
   return `${template.slice(0, markerIndex)}${value}${template.slice(markerIndex + marker.length)}`;
+}
+
+// The summary language block sits on its own paragraph right before the
+// payload label line ("Text:", "Source:", "Chunk summaries:").
+function withSummaryLanguage(interpolated) {
+  const labelStart = interpolated.lastIndexOf('\n\n', interpolated.indexOf('\n<pagetollm_input>\n')) + 2;
+  return `${interpolated.slice(0, labelStart)}${SUMMARY_LANGUAGE_INSTRUCTION}\n${interpolated.slice(labelStart)}`;
 }
 
 function promptContentArb(marker, closingTag) {
@@ -45,17 +53,19 @@ describe('prompt contract fingerprints', () => {
     expect({
       system: sha256(systemPromptFromRangePrompt(currentPrompts.buildTopicRangesPrompt(''))),
       language: sha256(currentPrompts.LANGUAGE_INSTRUCTION),
+      summaryLanguage: sha256(currentPrompts.SUMMARY_LANGUAGE_INSTRUCTION),
       articleSummary: sha256(currentPrompts.ARTICLE_SUMMARY_PROMPT_TEMPLATE),
       articleMerge: sha256(currentPrompts.ARTICLE_SUMMARY_MERGE_PROMPT_TEMPLATE),
       leafMerge: sha256(currentPrompts.LEAF_SUMMARY_MERGE_PROMPT_TEMPLATE),
       topicSource: sha256(currentPrompts.TOPIC_SOURCE_SUMMARY_PROMPT_TEMPLATE),
     }).toEqual({
-      system: 'ce93e60e740ccefbf1f8d97b1d943a454a7c638e5475bc245d9ca56875b96c78',
-      language: 'f4b9f1be994770184d44278f12075d08c37da99ee9660bcf5ea7b3603d0cdd51',
-      articleSummary: 'c9169d04d8b32cf7acea5cfb3d7bacc6ad01ee39f2c95c3909677676a3086866',
-      articleMerge: 'a9fb4e06cb44c2dba5d81f75730a922395d4994ef63557055cdb35e1a18df568',
-      leafMerge: '5640676a05aba9d802f88173e7e947a9959c9f98a431b15e343d9dd99318bcbf',
-      topicSource: 'a8a17a2f95f6ecb70364d99fcf55b49cb134fe824b09c40e9353268759180de1',
+      system: 'b6bcac292f69ae906c0aa8e03499c720b661b5803bc62dafc85f493a83aedabc',
+      language: 'c5e749798d193785ff6c649ebcd2279f46532a21d5a1ec6fc9a0f142367c6425',
+      summaryLanguage: 'c20569562d3aae8c28ecf50004b221e3604983576d612d443f29ca419cd4ec62',
+      articleSummary: '5474b73cb0f2cbcd51e19f31a804e5b299155b684b6b5f23b963ccba82392231',
+      articleMerge: '76132e7f35bfc734f7e7587d3f4bf09a42cf8c5adc24c7c72dd44d7f3d5f9df0',
+      leafMerge: '875464fb3cfe43d1097396f964c73b107e85133080824e70ad15a757a9bcc50d',
+      topicSource: '3509f6cc5f443610bec448e541f3541f7835b9e9e2545e09712168ca7dc7bdb7',
     });
   });
 });
@@ -120,7 +130,7 @@ describe.each(interpolatingBuilders)('%s properties', (_name, build, template, m
         (content, preferContentLanguage) => {
           const interpolated = interpolateOnce(template, marker, content);
           const expected = preferContentLanguage
-            ? `${LANGUAGE_INSTRUCTION}\n${interpolated}`
+            ? withSummaryLanguage(interpolated)
             : interpolated;
           expect(build(content, { preferContentLanguage })).toBe(expected);
         },

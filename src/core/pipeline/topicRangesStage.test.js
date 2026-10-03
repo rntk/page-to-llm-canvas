@@ -195,7 +195,7 @@ describe('splitTopicRanges', () => {
 
     expect(callLLMWithRetry).toHaveBeenCalledTimes(2);
     expect(callLLMWithRetry.mock.calls[0][0].prompt).toContain(
-      'RESPLIT CONTEXT: Replace the selected topic "Science>AI"',
+      'RESPLIT TASK:\nAll supplied markers currently belong to the selected topic "Science>AI"',
     );
     expect(recordMetric).toHaveBeenCalledWith(
       expect.objectContaining({ ok: true, scope: 'resplit' }),
@@ -356,7 +356,7 @@ describe('computeTopics', () => {
     });
 
     expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
-    expect(callLLMWithRetry.mock.calls[0][0].prompt).not.toContain('RESPLIT CONTEXT');
+    expect(callLLMWithRetry.mock.calls[0][0].prompt).not.toContain('RESPLIT TASK');
     expect(result.topics).toEqual([
       { name: 'Science>AI', sentences: Array.from({ length: 45 }, (_, index) => index + 1) },
     ]);
