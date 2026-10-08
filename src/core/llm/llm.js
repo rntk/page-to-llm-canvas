@@ -24,6 +24,7 @@ const log = createLogger('LLM');
  * @property {boolean} ok Whether the request succeeded.
  * @property {string} [content] Completion content.
  * @property {string} [reasoning] Provider reasoning text.
+ * @property {Array<Record<string, unknown>>} [thinkingBlocks] Raw Anthropic thinking blocks to replay in tool loops.
  * @property {Array<Record<string, unknown>>} [toolCalls] Normalized tool calls.
  * @property {string} [finishReason] Normalized provider completion status (`FinishReason`).
  * @property {string} [error] Failure message.
@@ -183,6 +184,7 @@ async function callLLMDirectWithDependencies(options, dependencies) {
       provider: clientProvider,
       usage,
       reasoning,
+      thinkingBlocks,
       toolCalls,
       finishReason,
     } = await client.complete({
@@ -228,6 +230,7 @@ async function callLLMDirectWithDependencies(options, dependencies) {
       content,
       finishReason: finishReason || FinishReason.UNKNOWN,
       ...(reasoning ? { reasoning } : {}),
+      ...(thinkingBlocks?.length ? { thinkingBlocks } : {}),
       ...(toolCalls?.length ? { toolCalls } : {}),
     };
   } catch (e) {

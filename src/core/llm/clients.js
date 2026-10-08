@@ -5,7 +5,11 @@
 // supplies a signal combining cancellation and the configured timeout.
 
 import { ProviderType, ServiceTier } from './providers.js';
-import { normalizeFinishReason } from './completionStatus.js';
+import {
+  isTruncatedFinish,
+  normalizeFinishReason,
+  TRUNCATED_RESPONSE_ERROR,
+} from './completionStatus.js';
 import { resolveMaxOutputTokens } from './outputBudget.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { PROMPT_DELIMITER } from '../promptDelimiters.js';
@@ -542,7 +546,9 @@ function toAnthropicMessages(messages) {
     }
     const toolCalls = message?.toolCalls;
     if (role === 'assistant' && Array.isArray(toolCalls) && toolCalls.length) {
-      const blocks = [];
+      // Thinking is always on for newer models and a tool loop must replay the
+      // turn's thinking blocks, unmodified and first, or the API returns a 400.
+      const blocks = Array.isArray(message?.thinkingBlocks) ? [...message.thinkingBlocks] : [];
       if (text.trim()) blocks.push({ type: 'text', text });
       toolCalls.forEach((toolCall, index) => {
         const args = toolCall?.arguments;
@@ -617,7 +623,9 @@ function anthropicClient({ apiKey, model, serviceTier, maxOutputTokens, fetchImp
       if (anthropicToolChoice) body.tool_choice = anthropicToolChoice;
       const anthropicServiceTier = toAnthropicServiceTier(serviceTier);
       if (anthropicServiceTier) body.service_tier = anthropicServiceTier;
-      if (typeof temperature === 'number') body.temperature = temperature;
+      if (typeof temperature === 'number' && !anthropicRejectsSamplingParams(model)) {
+        body.temperature = temperature;
+      }
 
       logClientVerbose(logger, verboseLogs, 'raw prompt:', prompt);
       logClientVerbose(logger, verboseLogs, 'request:', { endpoint, body });
@@ -628,8 +636,13 @@ function anthropicClient({ apiKey, model, serviceTier, maxOutputTokens, fetchImp
       const blocks = Array.isArray(data?.content) ? data.content : [];
       const textParts = [];
       const reasoningParts = [];
+      const thinkingBlocks = [];
       const toolCalls = [];
       for (const block of blocks) {
+        if (block?.type === 'thinking' || block?.type === 'redacted_thinking') {
+          // Kept verbatim (signature included, even when `thinking` is empty).
+          thinkingBlocks.push(block);
+        }
         if (block?.type === 'text' && typeof block.text === 'string') {
           textParts.push(block.text);
         } else if (block?.type === 'thinking' && typeof block.thinking === 'string') {
@@ -648,12 +661,20 @@ function anthropicClient({ apiKey, model, serviceTier, maxOutputTokens, fetchImp
         }
       }
       const content = textParts.join('\n').trim();
-      if (!content && toolCalls.length === 0) throw new Error('Empty LLM response');
+      const finishReason = normalizeFinishReason(data?.stop_reason);
+      if (!content && toolCalls.length === 0) {
+        // Thinking tokens count toward max_tokens, so a response can stop after
+        // its thinking block and before any text.
+        throw new Error(
+          isTruncatedFinish(finishReason) ? TRUNCATED_RESPONSE_ERROR : 'Empty LLM response',
+        );
+      }
       return {
         content,
         reasoning: reasoningParts.join('\n\n').trim() || undefined,
+        ...(thinkingBlocks.length ? { thinkingBlocks } : {}),
         toolCalls,
-        finishReason: normalizeFinishReason(data?.stop_reason),
+        finishReason,
         endpoint,
         model,
         provider: 'anthropic',
@@ -661,6 +682,20 @@ function anthropicClient({ apiKey, model, serviceTier, maxOutputTokens, fetchImp
       };
     },
   };
+}
+
+/**
+ * Claude Haiku 5.5 returns a 400 for any `temperature` other than 1, so the
+ * parameter is left out and the model default applies. Models from 4.7 on are
+ * treated the same way.
+ * @param {string} model
+ */
+function anthropicRejectsSamplingParams(model) {
+  const match = /^claude-(?:opus|sonnet|haiku)-(\d+)-(\d+)/.exec(String(model || ''));
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return major > 4 || (major === 4 && minor >= 7);
 }
 
 function toAnthropicServiceTier(serviceTier) {
@@ -681,7 +716,9 @@ function toAnthropicServiceTier(serviceTier) {
  * function:{...}}` wrappers, string-encoded `arguments`, Anthropic's
  * `input_schema`) are never accepted as input. The sole producer of this
  * shape is src/chat/articleChat.js.
- *   - message: `{ role, content, reasoning?, toolCallId?, toolCalls? }`
+ *   - message: `{ role, content, reasoning?, thinkingBlocks?, toolCallId?, toolCalls? }`
+ *     where `thinkingBlocks` are an Anthropic response's raw thinking blocks,
+ *     replayed on assistant tool-call messages
  *     where `toolCalls` items are `{ id, name, arguments }` and `arguments`
  *     is always a plain object (never a JSON string).
  *   - tool: `{ name, description, parameters }`.

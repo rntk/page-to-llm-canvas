@@ -933,6 +933,63 @@ describe('createClient dispatch', () => {
     await expect(client.complete({ prompt: 'p' })).rejects.toThrow('Empty LLM response');
   });
 
+  it('anthropic client omits temperature for models that reject sampling parameters', async () => {
+    vi.mocked(fetch).mockResolvedValue(okJson({ content: [{ type: 'text', text: 'ok' }] }));
+    for (const model of ['claude-haiku-5-5', 'claude-opus-4-7']) {
+      const client = createClient({ type: 'anthropic', model, token: 'k' });
+      await client.complete({ prompt: 'p', temperature: 0.5 });
+    }
+    for (const [, init] of vi.mocked(fetch).mock.calls) {
+      expect('temperature' in JSON.parse(init.body)).toBe(false);
+    }
+  });
+
+  it('anthropic client reports a thinking-only max_tokens stop as truncation', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      okJson({
+        content: [{ type: 'thinking', thinking: '', signature: 'sig' }],
+        stop_reason: 'max_tokens',
+      }),
+    );
+    const client = createClient({ type: 'anthropic', model: 'claude-haiku-5-5', token: 'k' });
+    await expect(client.complete({ prompt: 'p' })).rejects.toThrow(/truncated/);
+  });
+
+  it('anthropic client returns raw thinking blocks and replays them first on tool-call messages', async () => {
+    const thinking = [
+      { type: 'thinking', thinking: '', signature: 'sig-1' },
+      { type: 'redacted_thinking', data: 'opaque' },
+    ];
+    vi.mocked(fetch).mockResolvedValue(
+      okJson({
+        content: [...thinking, { type: 'tool_use', id: 't1', name: 'f', input: { a: 1 } }],
+        stop_reason: 'tool_use',
+      }),
+    );
+    const client = createClient({ type: 'anthropic', model: 'claude-sonnet-5-5', token: 'k' });
+    const out = await client.complete({ prompt: 'p' });
+    expect(out.thinkingBlocks).toEqual(thinking);
+
+    await client.complete({
+      messages: [
+        { role: 'user', content: 'q' },
+        {
+          role: 'assistant',
+          content: 'calling',
+          thinkingBlocks: out.thinkingBlocks,
+          toolCalls: out.toolCalls,
+        },
+        { role: 'tool', toolCallId: 't1', content: 'result' },
+      ],
+    });
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[1][1].body);
+    expect(body.messages[1].content).toEqual([
+      ...thinking,
+      { type: 'text', text: 'calling' },
+      { type: 'tool_use', id: 't1', name: 'f', input: { a: 1 } },
+    ]);
+  });
+
   it('anthropic client translates history, tools and tool_choice to the Messages API format', async () => {
     vi.mocked(fetch).mockResolvedValue(okJson({ content: [{ type: 'text', text: 'done' }] }));
     const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'k' });

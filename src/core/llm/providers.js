@@ -72,8 +72,8 @@ export const PROVIDER_DEFINITIONS = Object.freeze([
   {
     type: ProviderType.ANTHROPIC,
     displayName: 'Anthropic',
-    models: ['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-6'],
-    defaultModel: 'claude-haiku-4-5',
+    models: ['claude-haiku-5-5', 'claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-6'],
+    defaultModel: 'claude-haiku-5-5',
     requiresUrl: false,
   },
   {

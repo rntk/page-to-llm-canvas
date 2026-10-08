@@ -215,6 +215,7 @@ async function runArticleChatChunk({
       role: 'assistant',
       content: typeof response.content === 'string' ? response.content : '',
       reasoning: response.reasoning,
+      ...(response.thinkingBlocks?.length ? { thinkingBlocks: response.thinkingBlocks } : {}),
       toolCalls,
     };
     messages.push(assistantToolMessage);
