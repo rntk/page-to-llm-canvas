@@ -43,7 +43,7 @@ async function sequentialMap(items, _limit, fn) {
 const noSleep = vi.fn(async () => undefined);
 
 const questionIds = (call) => Object.keys(call[1]);
-const contentIds = (call) => call[0].content.map((item) => item.id);
+const contentIds = (call) => call[0].sentences.map((item) => item.id);
 
 describe('decideTopicBoundaries', () => {
   it('asks one question per gap with 1-based right-hand sentence ids', async () => {
@@ -55,11 +55,12 @@ describe('decideTopicBoundaries', () => {
     const [state, questions] = decide.mock.calls[0];
     expect(Object.keys(questions)).toEqual(['b2', 'b3', 'b4']);
     expect(questions.b3).toMatchObject({ type: 'choice' });
-    expect(questions.b3.instructions).toContain('{2}');
-    expect(questions.b3.instructions).toContain('{3}');
+    expect(questions.b3.instructions).toContain('after the sentence with id 2?');
+    expect(questions.b3.instructions).toContain('sentence with id 3 in');
     expect(Object.keys(questions.b3.criteria)).toEqual(['continue', 'split']);
-    expect(state.task).toEqual(expect.any(String));
-    expect(state.content.map((item) => item.text)).toEqual(['S1.', 'S2.', 'S3.', 'S4.']);
+    expect(state.segmentation_rules).toEqual(expect.any(String));
+    expect(questions.b3.instructions).not.toMatch(/[{}]/);
+    expect(state.sentences.map((item) => item.text)).toEqual(['S1.', 'S2.', 'S3.', 'S4.']);
     expect(boundaries).toEqual([
       { after: 0, value: 0.1, split: false },
       { after: 1, value: 0.9, split: true },
@@ -84,7 +85,7 @@ describe('decideTopicBoundaries', () => {
     expect(decide).toHaveBeenCalledTimes(1);
     const [state, questions] = decide.mock.calls[0];
     expect(Object.keys(questions)).toEqual(['b2', 'b3']);
-    expect(state.content.map((item) => [item.id, item.text])).toEqual([
+    expect(state.sentences.map((item) => [item.id, item.text])).toEqual([
       [1, 'Intro here.'],
       [2, 'Four kinds: alpha one; beta two; gamma three.'],
       [3, 'Next topic.'],
@@ -115,7 +116,7 @@ describe('decideTopicBoundaries', () => {
 
     const boundaries = await decideTopicBoundaries({ decide, sentences });
 
-    expect(decide.mock.calls[0][0].content.map((item) => item.text)).toEqual([
+    expect(decide.mock.calls[0][0].sentences.map((item) => item.text)).toEqual([
       'A one.',
       'B starts and ends.',
     ]);
@@ -184,7 +185,7 @@ describe('decideTopicBoundaries', () => {
 
     await decideTopicBoundaries({ decide, sentences, text });
 
-    expect(decide.mock.calls[0][0].content.map((item) => item.paragraph_break_before)).toEqual([
+    expect(decide.mock.calls[0][0].sentences.map((item) => item.paragraph_break_before)).toEqual([
       false,
       true,
       false,
@@ -195,7 +196,7 @@ describe('decideTopicBoundaries', () => {
   it('treats sentences without offsets as having no paragraph break', async () => {
     const decide = makeDecide();
     await decideTopicBoundaries({ decide, sentences: makeSentences(2), text: 'A.\n\nB.' });
-    expect(decide.mock.calls[0][0].content.every((item) => !item.paragraph_break_before)).toBe(
+    expect(decide.mock.calls[0][0].sentences.every((item) => !item.paragraph_break_before)).toBe(
       true,
     );
   });
@@ -206,7 +207,7 @@ describe('decideTopicBoundaries', () => {
 
     await decideTopicBoundaries({ decide, sentences, maxSentenceChars: 11 });
 
-    const [first, second] = decide.mock.calls[0][0].content;
+    const [first, second] = decide.mock.calls[0][0].sentences;
     expect(first.text).toBe('aaaaa…zzzzz');
     expect(second.text).toBe('short');
   });
@@ -497,7 +498,7 @@ describe('decideTopicBoundaries', () => {
 
   it('succeeds without context when only the context made the request too large', async () => {
     const decide = vi.fn(async (state, questions) => {
-      if (state.content.length > 2) throw oversizedError();
+      if (state.sentences.length > 2) throw oversizedError();
       return { answers: Object.fromEntries(Object.keys(questions).map((id) => [id, answer(1)])) };
     });
 

@@ -14,6 +14,11 @@ describe('choice', () => {
     });
   });
 
+  it('accepts structured option descriptions', () => {
+    const criteria = { split: { what: 'New section', includes: ['a heading'] }, other: ['x'] };
+    expect(choice('?', criteria).criteria).toEqual(criteria);
+  });
+
   it('rejects empty, array, or invalid descriptions', () => {
     for (const criteria of [{}, ['a', 'b'], { bad: 2 }, { '': null }, null]) {
       expect(() => choice('?', criteria)).toThrow();
@@ -78,6 +83,17 @@ describe('DecisionClient', () => {
       responseChars: JSON.stringify(response).length,
       usage: { inputTokens: 40, outputTokens: 2, totalTokens: 42 },
     });
+  });
+
+  it('maps TypeSafe API usage field names', async () => {
+    const response = { answers: {}, usage: { input_tokens: 30, output_tokens: 0 } };
+    const transport = vi.fn().mockResolvedValue(okJson(response));
+    const client = new DecisionClient({ baseUrl: 'http://localhost:8080', transport });
+    const metricsCollector = vi.fn();
+
+    await client.decide('state', { ok: question() }, { metricsCollector });
+
+    expect(metricsCollector.mock.calls[0][0].usage).toEqual({ inputTokens: 30, outputTokens: 0 });
   });
 
   it('omits unset model and credentials', async () => {

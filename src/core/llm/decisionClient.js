@@ -22,8 +22,9 @@ function decisionUsage(usage) {
   if (!isRecord(usage)) return undefined;
   const mapped = Object.fromEntries(
     [
-      ['inputTokens', tokenCount(usage.prompt_tokens)],
-      ['outputTokens', tokenCount(usage.completion_tokens)],
+      // OpenAI-style names from llama.cpp; the TypeSafe API uses input/output_tokens.
+      ['inputTokens', tokenCount(usage.prompt_tokens ?? usage.input_tokens)],
+      ['outputTokens', tokenCount(usage.completion_tokens ?? usage.output_tokens)],
       ['totalTokens', tokenCount(usage.total_tokens)],
       ['cacheReadTokens', tokenCount(usage.prompt_tokens_details?.cached_tokens)],
     ].filter(([, value]) => value !== undefined),
@@ -34,17 +35,19 @@ function decisionUsage(usage) {
 /**
  * Builds a choice question from named option descriptions.
  * @param {*} instructions Text, JSON, or message instructions.
- * @param {Record<string, string|null>} criteria Choice options.
+ * @param {Record<string, string|object|Array|null>} criteria Choice options. A structured
+ *   description (e.g. `what`, `not_for`, `examples`) separates easily confused options.
  */
 export function choice(instructions, criteria) {
   if (
     !isRecord(criteria) ||
     !Object.keys(criteria).length ||
     Object.entries(criteria).some(
-      ([name, value]) => !name || (value !== null && typeof value !== 'string'),
+      ([name, value]) =>
+        !name || (value !== null && typeof value !== 'string' && typeof value !== 'object'),
     )
   ) {
-    throw new Error('Choice requires nonempty string names with string or null descriptions');
+    throw new Error('Choice requires nonempty names with text, JSON, or null descriptions');
   }
   return { type: 'choice', instructions, criteria: { ...criteria } };
 }

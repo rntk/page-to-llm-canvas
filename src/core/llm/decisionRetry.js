@@ -1,7 +1,8 @@
 import { sleepWithAbort } from './abortSignals.js';
 
 export const DECISION_MAX_ATTEMPTS = 3;
-const TRANSIENT_STATUSES = new Set([429, 502, 503, 504]);
+// 529 is the TypeSafe API's "overloaded" status.
+const TRANSIENT_STATUSES = new Set([429, 502, 503, 504, 529]);
 
 /**
  * Execute a decision request with bounded transport retries. Each attempt calls

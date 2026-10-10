@@ -28,7 +28,16 @@ describe('decision transport retry policy', () => {
     expect(sleep).toHaveBeenLastCalledWith(750, undefined);
   });
 
-  it.each([400, 401, 403, 413])('does not retry permanent HTTP %s', async (status) => {
+  it('retries an overloaded TypeSafe API (529)', async () => {
+    const execute = vi
+      .fn()
+      .mockRejectedValueOnce(Object.assign(new Error('overloaded'), { status: 529 }))
+      .mockResolvedValue('ok');
+    expect(await executeDecisionWithRetry(execute, { sleep: async () => {} })).toBe('ok');
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([400, 401, 403, 413, 422])('does not retry permanent HTTP %s', async (status) => {
     const error = Object.assign(new Error('failed'), { status });
     const execute = vi.fn().mockRejectedValue(error);
     await expect(executeDecisionWithRetry(execute)).rejects.toBe(error);

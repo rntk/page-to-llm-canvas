@@ -2,6 +2,8 @@ import {
   boundariesToRanges,
   decideTopicBoundaries,
   SEGMENTATION_BRIEF,
+  SPLIT_CHOICES,
+  boundaryQuestion,
   DECISION_SPLIT_THRESHOLD,
   DECISION_BATCH_SIZE,
   DECISION_CONTEXT_SENTENCES,
@@ -44,7 +46,10 @@ async function splitDecisionRanges({
     text: JSON.stringify([text, sentenceObjs]),
     policy: [
       decisionOptions,
+      // Any wording change in the request invalidates cached probabilities.
       SEGMENTATION_BRIEF,
+      SPLIT_CHOICES,
+      boundaryQuestion(1, 2),
       threshold,
       DECISION_BATCH_SIZE,
       DECISION_CONTEXT_SENTENCES,
