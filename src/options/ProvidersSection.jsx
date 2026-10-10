@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   PROVIDER_DEFINITIONS,
+  ProviderType,
   SERVICE_TIER_DEFINITIONS,
   getProviderDefinition,
+  isCompletionProvider,
 } from '../core/llm/providers.js';
 import {
   PIPELINE_MIN_CONTEXT_WINDOW_TOKENS,
@@ -69,6 +71,7 @@ export function ProvidersSection() {
 
   const def = getProviderDefinition(form.type);
   const requiresUrl = !!def?.requiresUrl;
+  const isDecision = form.type === ProviderType.LLAMA_DECISION;
   const serviceTiers = SERVICE_TIER_DEFINITIONS[form.type] || [];
   const isEditing = !!form.id;
   const editingProvider = isEditing ? providers.find((provider) => provider.id === form.id) : null;
@@ -94,7 +97,7 @@ export function ProvidersSection() {
     if (
       shouldWarnTokenWipe(editingProvider, form) &&
       !confirm(
-        'Changing this OpenAI-compatible base URL will wipe the stored token for the previous URL. Save anyway?',
+        'Changing this provider base URL will wipe the stored token for the previous URL. Save anyway?',
       )
     ) {
       return;
@@ -199,13 +202,15 @@ export function ProvidersSection() {
             {providers.map((provider) => (
               <tr key={provider.id}>
                 <td className="active-cell">
-                  <input
-                    type="radio"
-                    name="active-provider"
-                    checked={provider.id === activeId}
-                    onChange={() => activate(provider.id)}
-                    aria-label={`Set ${provider.name} active`}
-                  />
+                  {isCompletionProvider(provider) ? (
+                    <input
+                      type="radio"
+                      name="active-provider"
+                      checked={provider.id === activeId}
+                      onChange={() => activate(provider.id)}
+                      aria-label={`Set ${provider.name} active`}
+                    />
+                  ) : null}
                 </td>
                 <td>
                   {provider.name}{' '}
@@ -213,7 +218,7 @@ export function ProvidersSection() {
                 </td>
                 <td>{providerTypeLabel(provider.type)}</td>
                 <td className="mono">
-                  {provider.model}
+                  {provider.model || 'Server default'}
                   {provider.serviceTier ? (
                     <span className="badge">{provider.serviceTier}</span>
                   ) : null}
@@ -261,14 +266,14 @@ export function ProvidersSection() {
           </div>
 
           <div className="field">
-            <label htmlFor="provider-model">Model</label>
+            <label htmlFor="provider-model">Model{isDecision ? ' (optional)' : ''}</label>
             <input
               id="provider-model"
               type="text"
               list="provider-model-options"
               value={form.model}
               onChange={setField('model')}
-              placeholder={def?.defaultModel || 'model id'}
+              placeholder={isDecision ? 'Server default' : def?.defaultModel || 'model id'}
             />
             <datalist id="provider-model-options">
               {(def?.models || []).map((model) => (
@@ -320,8 +325,14 @@ export function ProvidersSection() {
                 type="text"
                 value={form.url}
                 onChange={setField('url')}
-                placeholder="http://localhost:8989"
+                placeholder={isDecision ? 'http://localhost:8080' : 'http://localhost:8989'}
               />
+              {isDecision ? (
+                <div className="note">
+                  Accepts a server root or /v1 URL. Supports structured choice, score, and yes/no
+                  decisions. This API cannot generate pipeline summaries or chat replies.
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -343,45 +354,47 @@ export function ProvidersSection() {
             </div>
           ) : null}
 
-          <fieldset className="field-group">
-            <legend>Sampling temperature</legend>
-            <div className="field-group__fields">
-              {TEMPERATURE_TASK_DEFINITIONS.map(({ task, label, hint }) => {
-                const value = form.temperatures?.[task] ?? '';
-                const inputId = `provider-temperature-${task}`;
-                const noteId = `${inputId}-note`;
-                return (
-                  <div className="field" key={task}>
-                    <label htmlFor={inputId}>{label}</label>
-                    <input
-                      id={inputId}
-                      type="number"
-                      min={PROVIDER_MIN_TEMPERATURE}
-                      max={PROVIDER_MAX_TEMPERATURE}
-                      step="0.1"
-                      value={value}
-                      onChange={setTemperature(task)}
-                      placeholder="Not sent"
-                      aria-describedby={noteId}
-                    />
-                    <div id={noteId} className="note">
-                      {hint}{' '}
-                      {value === '' ? (
-                        <strong>
-                          Optional — empty, so no temperature parameter is sent for these requests
-                          and the model&apos;s own default applies.
-                        </strong>
-                      ) : null}
+          {!isDecision ? (
+            <fieldset className="field-group">
+              <legend>Sampling temperature</legend>
+              <div className="field-group__fields">
+                {TEMPERATURE_TASK_DEFINITIONS.map(({ task, label, hint }) => {
+                  const value = form.temperatures?.[task] ?? '';
+                  const inputId = `provider-temperature-${task}`;
+                  const noteId = `${inputId}-note`;
+                  return (
+                    <div className="field" key={task}>
+                      <label htmlFor={inputId}>{label}</label>
+                      <input
+                        id={inputId}
+                        type="number"
+                        min={PROVIDER_MIN_TEMPERATURE}
+                        max={PROVIDER_MAX_TEMPERATURE}
+                        step="0.1"
+                        value={value}
+                        onChange={setTemperature(task)}
+                        placeholder="Not sent"
+                        aria-describedby={noteId}
+                      />
+                      <div id={noteId} className="note">
+                        {hint}{' '}
+                        {value === '' ? (
+                          <strong>
+                            Optional — empty, so no temperature parameter is sent for these requests
+                            and the model&apos;s own default applies.
+                          </strong>
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="note">
-              Leave a field empty for models that reject <code>temperature</code>, such as OpenAI
-              reasoning models — sending it there fails the request outright.
-            </div>
-          </fieldset>
+                  );
+                })}
+              </div>
+              <div className="note">
+                Leave a field empty for models that reject <code>temperature</code>, such as OpenAI
+                reasoning models — sending it there fails the request outright.
+              </div>
+            </fieldset>
+          ) : null}
 
           {error ? <div className="form-error">{error}</div> : null}
 

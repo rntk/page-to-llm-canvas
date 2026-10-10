@@ -3,6 +3,8 @@ import { splitSentences } from './sentenceSplitter.js';
 import { groupsToTopics } from './topicRangeMapping.js';
 import { createTopicRangeDependencies } from './topicRangeDependencies.js';
 import { splitTopicRanges } from './topicRangeSplit.js';
+import { boundariesToRanges, decideTopicBoundaries } from './decisionTopicBoundaries.js';
+import { labelTopicRanges } from './topicRangeLabels.js';
 import { PIPELINE_STAGE } from '../../shared/runtime/contracts.js';
 import {
   doneTransition,
@@ -13,19 +15,61 @@ import {
 } from '../../shared/runtime/recordTransitions.js';
 
 /**
- * Cleans the HTML, splits sentences, and runs the LLM topic-ranges stage.
+ * Decision-API split: the decision model places range boundaries, then the
+ * completion LLM names each range. Not checkpointed; a retry starts over.
+ */
+async function splitWithDecisions({
+  runtime,
+  record,
+  text,
+  sentenceObjs,
+  sentenceTexts,
+  decide,
+  callLLMWithRetry,
+  dependencies,
+}) {
+  await runtime.update({
+    sentences: sentenceTexts,
+    progress: progressAt(PIPELINE_STAGE.TOPIC_RANGES, 0, sentenceTexts.length),
+    ...(record?.topic_range_chunks ? { topic_range_chunks: null } : {}),
+  });
+  const boundaries = await decideTopicBoundaries({
+    decide,
+    sentences: sentenceObjs,
+    text,
+    runtime,
+  });
+  const ranges = boundariesToRanges(sentenceTexts.length, boundaries);
+  await runtime.log('topic_boundaries_done', {
+    rangeCount: ranges.length,
+    boundaryCount: boundaries.length,
+  });
+  return labelTopicRanges({
+    runtime,
+    ranges,
+    sentenceTexts,
+    callLLMWithRetry,
+    parallelMap: dependencies.parallelMap,
+  });
+}
+
+/**
+ * Cleans the HTML, splits sentences, and runs the topic-ranges stage.
  * Returns topics:null when no sentences were found and the record was finalized.
  *
  * @param {object} input
  * @param {PipelineRuntime} input.runtime
  * @param {object} input.record
  * @param {Function} input.callLLMWithRetry
+ * @param {Function} [input.decide] Decision API request; when present, ranges come
+ *   from decision boundaries and the LLM only names them.
  * @param {object} [input.dependencies] Telemetry, execution, and checkpoint capabilities.
  */
 export async function computeTopics({
   runtime,
   record,
   callLLMWithRetry,
+  decide,
   dependencies: overrides,
 }) {
   const dependencies = createTopicRangeDependencies(overrides);
@@ -86,22 +130,33 @@ export async function computeTopics({
     return { topics: null, sentenceTexts };
   }
 
-  const groups = await splitTopicRanges({
-    runtime,
-    sentenceTexts,
-    callLLMWithRetry,
-    dependencies,
-    readCheckpoint: (chunks) => dependencies.readCheckpoint(record, chunks),
-    onPrepared: async (_chunks, checkpoint) => {
-      await runtime.update({
-        sentences: sentenceTexts,
-        progress: progressAt(PIPELINE_STAGE.TOPIC_RANGES, 0, sentenceTexts.length),
-        ...(record?.topic_range_chunks && !checkpoint ? { topic_range_chunks: null } : {}),
+  const groups = decide
+    ? await splitWithDecisions({
+        runtime,
+        record,
+        text,
+        sentenceObjs,
+        sentenceTexts,
+        decide,
+        callLLMWithRetry,
+        dependencies,
+      })
+    : await splitTopicRanges({
+        runtime,
+        sentenceTexts,
+        callLLMWithRetry,
+        dependencies,
+        readCheckpoint: (chunks) => dependencies.readCheckpoint(record, chunks),
+        onPrepared: async (_chunks, checkpoint) => {
+          await runtime.update({
+            sentences: sentenceTexts,
+            progress: progressAt(PIPELINE_STAGE.TOPIC_RANGES, 0, sentenceTexts.length),
+            ...(record?.topic_range_chunks && !checkpoint ? { topic_range_chunks: null } : {}),
+          });
+        },
+        saveCheckpoint: (chunkStates, sentenceCount, error) =>
+          dependencies.saveCheckpoint(runtime, record, chunkStates, sentenceCount, error),
       });
-    },
-    saveCheckpoint: (chunkStates, sentenceCount, error) =>
-      dependencies.saveCheckpoint(runtime, record, chunkStates, sentenceCount, error),
-  });
 
   const topics = groupsToTopics(groups);
   await runtime.update({

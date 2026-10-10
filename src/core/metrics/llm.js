@@ -48,6 +48,8 @@ const LLM_METRIC_TOTAL_FIELDS = Object.freeze({
 /** Human-readable labels for known task types (UI). */
 export const LLM_TASK_TYPE_LABELS = Object.freeze({
   [LLM_TASK_TYPES.TOPIC_RANGES]: 'Topic ranges',
+  [LLM_TASK_TYPES.TOPIC_BOUNDARIES]: 'Topic boundaries (decision)',
+  [LLM_TASK_TYPES.TOPIC_LABELS]: 'Topic labels',
   [LLM_TASK_TYPES.ARTICLE_SUMMARY]: 'Article summary',
   [LLM_TASK_TYPES.TOPIC_SUMMARY_FROM_SOURCE]: 'Topic summary (from source)',
   [LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE]: 'Summary merge',
@@ -330,6 +332,49 @@ export function wrapCallLLMWithRetry(callLLMWithRetry) {
           durationMs: Date.now() - startedAt,
           ok: false,
           taskType,
+          error: (err && err.message) || String(err),
+        });
+        throw err;
+      }
+    }
+  );
+}
+
+/**
+ * Wraps a decision request `(state, questions, options)` so every call records
+ * duration, outcome, and usage under `LLM_TASK_TYPES.TOPIC_BOUNDARIES` (or
+ * `options.taskType`). Failures while recording never affect the request.
+ *
+ * @template {(...args: any[]) => Promise<any>} F
+ * @param {F} decide
+ * @returns {F}
+ */
+export function wrapDecide(decide) {
+  return /** @type {F} */ (
+    async function timedDecide(state, questions, options) {
+      const taskType = normalizeTaskType(options?.taskType ?? LLM_TASK_TYPES.TOPIC_BOUNDARIES);
+      const startedAt = Date.now();
+      let responseMetric;
+      const upstreamCollector = options?.metricsCollector;
+      const metricsCollector = (sample) => {
+        if (sample && typeof sample === 'object') responseMetric = sample;
+        if (typeof upstreamCollector === 'function') upstreamCollector(sample);
+      };
+      try {
+        const result = await decide(state, questions, { ...options, metricsCollector });
+        void recordLlmMetric({
+          durationMs: Date.now() - startedAt,
+          ok: true,
+          taskType,
+          ...responseMetric,
+        });
+        return result;
+      } catch (err) {
+        void recordLlmMetric({
+          durationMs: Date.now() - startedAt,
+          ok: false,
+          taskType,
+          provider: 'llama_decision',
           error: (err && err.message) || String(err),
         });
         throw err;

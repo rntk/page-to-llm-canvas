@@ -4,6 +4,7 @@ set -e
 cd "$(dirname "$0")/.."
 
 HOST="${1:-http://192.168.0.147:8989}"
+EXTRA_HOST="${2:-http://192.168.0.147:18989}"
 
 # Bind-mount a host-owned cache so the container user can write to it.
 NPM_CACHE_DIR="$HOME/.cache/pagetollm-npm"
@@ -15,6 +16,7 @@ sudo docker run --rm \
   --volume "$NPM_CACHE_DIR:/npm-cache" \
   --workdir /app \
   --env HOST="$HOST" \
+  --env EXTRA_HOST="$EXTRA_HOST" \
   --env npm_config_cache=/npm-cache \
   node:24 \
   sh -euc '
@@ -38,7 +40,7 @@ sudo docker run --rm \
         .map((part) => {
           const trimmed = part.trim();
           if (trimmed.startsWith(\"connect-src\")) {
-            return trimmed + \" \" + process.env.HOST;
+            return trimmed + \" \" + process.env.HOST + \" \" + process.env.EXTRA_HOST;
           }
           return trimmed;
         })

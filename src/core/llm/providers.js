@@ -21,6 +21,7 @@ export const ProviderType = Object.freeze({
   ANTHROPIC: 'anthropic',
   OPENROUTER: 'openrouter',
   OPENAI_COMP: 'openai_comp',
+  LLAMA_DECISION: 'llama_decision',
 });
 
 export const PROVIDER_TYPES = Object.freeze(Object.values(ProviderType));
@@ -91,6 +92,13 @@ export const PROVIDER_DEFINITIONS = Object.freeze([
     requiresUrl: false,
   },
   {
+    type: ProviderType.LLAMA_DECISION,
+    displayName: 'llama.cpp Decision API',
+    models: [],
+    defaultModel: '',
+    requiresUrl: true,
+  },
+  {
     type: ProviderType.OPENAI_COMP,
     displayName: 'OpenAI-compatible (custom URL)',
     models: [],
@@ -104,6 +112,15 @@ export function getProviderDefinition(type) {
   return PROVIDER_DEFINITIONS.find((definition) => definition.type === type) || null;
 }
 
+/**
+ * Whether a provider can serve generated-text requests.
+ * @param {ProviderEntry} provider
+ * @returns {boolean}
+ */
+export function isCompletionProvider(provider) {
+  return provider.type !== ProviderType.LLAMA_DECISION;
+}
+
 /** Storage key holding the full provider state ({ providers, activeId }). */
 export const PROVIDERS_KEY = 'pagetollm:llm:providers';
 
@@ -114,7 +131,7 @@ export const PROVIDERS_KEY = 'pagetollm:llm:providers';
  * @property {string} type        One of ProviderType.
  * @property {string} model       Model identifier sent to the provider.
  * @property {string} token       API key / bearer token (may be empty for local).
- * @property {string} [url]       Base URL — required for openai_comp.
+ * @property {string} [url]       Base URL — required for custom and decision providers.
  * @property {string} [serviceTier] Optional provider service tier.
  * @property {number} [contextWindowTokens] Optional model context window.
  * @property {{summaries?: number, chat?: number, splitting?: number}} [temperatures] Optional
@@ -137,8 +154,11 @@ export async function getProvidersState() {
   const raw = items[PROVIDERS_KEY];
   const providers = Array.isArray(raw?.providers) ? raw.providers.filter(isValidStored) : [];
   let activeId = typeof raw?.activeId === 'string' ? raw.activeId : null;
-  if (activeId && !providers.some((p) => p.id === activeId)) {
+  const activeProvider = providers.find((p) => p.id === activeId);
+  if (!activeProvider) {
     activeId = null;
+  } else if (!isCompletionProvider(activeProvider)) {
+    activeId = providers.find(isCompletionProvider)?.id ?? null;
   }
   return { providers, activeId };
 }
@@ -197,17 +217,27 @@ export function normalizeProvider(input) {
   const name = String(input.name || '').trim();
   if (!name) throw new Error('Provider name is required');
   const model = String(input.model || '').trim();
-  if (!model) throw new Error('Provider model is required');
+  if (!model && type !== ProviderType.LLAMA_DECISION) throw new Error('Provider model is required');
 
   const url = String(input.url || '').trim();
   if (type === ProviderType.OPENAI_COMP && !url) {
     throw new Error('A base URL is required for OpenAI-compatible providers');
   }
+  if (type === ProviderType.LLAMA_DECISION) {
+    if (!url) throw new Error('A base URL is required for decision providers');
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.search || parsed.hash) {
+      throw new Error('Decision base URL must be an HTTP(S) URL without query or fragment');
+    }
+  }
 
   const token = String(input.token || '').trim();
   const serviceTier = normalizeServiceTier(type, input.serviceTier);
   const contextWindowTokens = normalizeContextWindowTokens(input.contextWindowTokens);
-  const temperatures = normalizeProviderTemperatures(input.temperatures);
+  const temperatures =
+    type === ProviderType.LLAMA_DECISION
+      ? undefined
+      : normalizeProviderTemperatures(input.temperatures);
   const id = String(input.id || '').trim() || generateId();
 
   return {
@@ -254,7 +284,7 @@ function generateId() {
 }
 
 /**
- * Creates or updates a provider. The first provider added becomes active.
+ * Creates or updates a provider. The first completion provider added becomes active.
  * @param {Partial<ProviderEntry>} input
  * @returns {Promise<ProviderEntry>}
  */
@@ -267,14 +297,17 @@ export async function saveProvider(input) {
       state.providers.push(entry);
     } else {
       const existing = state.providers[existingIndex];
-      const openAiCompatibleUrlChanged =
-        entry.type === ProviderType.OPENAI_COMP && (existing.url || '') !== (entry.url || '');
-      if (!entry.token && existing.type === entry.type && !openAiCompatibleUrlChanged) {
+      const customUrlChanged =
+        getProviderDefinition(entry.type)?.requiresUrl &&
+        (existing.url || '') !== (entry.url || '');
+      if (!entry.token && existing.type === entry.type && !customUrlChanged) {
         entry.token = existing.token || '';
       }
       state.providers[existingIndex] = entry;
     }
-    if (!state.activeId) state.activeId = entry.id;
+    if (!state.providers.some((p) => p.id === state.activeId && isCompletionProvider(p))) {
+      state.activeId = state.providers.find(isCompletionProvider)?.id ?? null;
+    }
     await writeProvidersState(state);
     return entry;
   });
@@ -282,7 +315,7 @@ export async function saveProvider(input) {
 
 /**
  * Removes a provider. If it was active, activeId falls back to the first
- * remaining provider (or null).
+ * remaining completion provider (or null).
  * @param {string} id
  * @returns {Promise<ProvidersState>}
  */
@@ -291,7 +324,7 @@ export async function deleteProvider(id) {
     const state = await getProvidersState();
     state.providers = state.providers.filter((p) => p.id !== id);
     if (state.activeId === id) {
-      state.activeId = state.providers.length ? state.providers[0].id : null;
+      state.activeId = state.providers.find(isCompletionProvider)?.id ?? null;
     }
     await writeProvidersState(state);
     return state;
@@ -305,8 +338,12 @@ export async function deleteProvider(id) {
 export async function setActiveProvider(id) {
   return queuedUpdate(PROVIDERS_KEY, async () => {
     const state = await getProvidersState();
-    if (!state.providers.some((p) => p.id === id)) {
+    const provider = state.providers.find((p) => p.id === id);
+    if (!provider) {
       throw new Error(`Unknown provider id: ${id}`);
+    }
+    if (!isCompletionProvider(provider)) {
+      throw new Error('Decision providers cannot be active completion providers');
     }
     state.activeId = id;
     await writeProvidersState(state);
@@ -322,4 +359,14 @@ export async function getActiveProvider() {
   const { providers, activeId } = await getProvidersState();
   if (!activeId) return null;
   return providers.find((p) => p.id === activeId) || null;
+}
+
+/**
+ * Returns the first saved decision provider, used for topic splitting
+ * alongside the active completion provider, or null when none is saved.
+ * @returns {Promise<ProviderEntry|null>}
+ */
+export async function getDecisionProvider() {
+  const { providers } = await getProvidersState();
+  return providers.find((p) => p.type === ProviderType.LLAMA_DECISION) || null;
 }

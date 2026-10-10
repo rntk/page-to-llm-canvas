@@ -23,8 +23,14 @@ import {
   isSummaryCheckpointRevisionCurrent,
 } from './pipeline/orchestrator.js';
 import { callLLMDirectWithRetry, callLLMWithRetry } from '../../core/llm/llm.js';
+import { createClient } from '../../core/llm/clients.js';
 import { createAdjustableLimiter } from '../../core/llm/concurrency.js';
-import { clearLlmMetrics, recordLlmMetric, wrapCallLLMWithRetry } from '../../core/metrics/llm.js';
+import {
+  clearLlmMetrics,
+  recordLlmMetric,
+  wrapCallLLMWithRetry,
+  wrapDecide,
+} from '../../core/metrics/llm.js';
 import { clearChatToolMetrics, recordChatToolMetric } from '../../core/metrics/chatTool.js';
 import { clearParserMetrics } from '../../core/metrics/parser.js';
 import { clearAllExtensionData, getStorageOverview } from '../../core/storage/dataManagement.js';
@@ -39,6 +45,7 @@ import {
 } from '../../core/settings/llmConcurrency.js';
 import {
   getActiveProvider,
+  getDecisionProvider,
   getProvidersState,
   sanitizeProvider,
   sanitizeProvidersState,
@@ -120,11 +127,11 @@ const pipelineRunner = createPipelineRunner({
     subscribeToMaxParallelLlmRequests: (onValue) =>
       browserLocalStore.subscribe(MAX_PARALLEL_LLM_REQUESTS_KEY, onValue),
   },
-  providerRepository: { getActiveProvider },
-  llm: { callLLMWithRetry },
+  providerRepository: { getActiveProvider, getDecisionProvider },
+  llm: { callLLMWithRetry, createClient },
   // The limiter starts at the same default used by setting normalization.
   limiterFactory: () => providerLimiter,
-  telemetry: { wrapCallLLMWithRetry },
+  telemetry: { wrapCallLLMWithRetry, wrapDecide },
   logger: log.child('pipeline'),
 });
 const { runPipeline } = pipelineRunner;

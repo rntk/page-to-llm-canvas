@@ -118,13 +118,13 @@ export function planResume(record) {
  * @param {{getPreferContentLanguage: Function, getVerboseLogs: Function,
  *   getMaxParallelLlmRequests: Function, normalizeMaxParallelLlmRequests: Function,
  *   subscribeToMaxParallelLlmRequests: Function}} deps.settings
- * @param {{getActiveProvider: Function}} deps.providerRepository
- * @param {{callLLMWithRetry: Function}} deps.llm
+ * @param {{getActiveProvider: Function, getDecisionProvider?: Function}} deps.providerRepository
+ * @param {{callLLMWithRetry: Function, createClient?: Function}} deps.llm
  * @param {function(): {run: Function, setLimit: Function}} deps.limiterFactory
  *   Called exactly once per runner. A realm-level composition root may return
  *   its existing shared limiter; otherwise the factory may create one seeded
  *   with the same default the settings module normalizes towards.
- * @param {{wrapCallLLMWithRetry: Function}} deps.telemetry
+ * @param {{wrapCallLLMWithRetry: Function, wrapDecide?: Function}} deps.telemetry
  * @param {{info: Function, error: Function}} deps.logger
  * @returns {{runPipeline: Function, dispose: Function}}
  */
@@ -139,6 +139,7 @@ export function createPipelineRunner({
 }) {
   const limiter = limiterFactory();
   const measuredCallLLMWithRetry = telemetry.wrapCallLLMWithRetry(llm.callLLMWithRetry);
+  const measureDecide = telemetry.wrapDecide ?? ((decide) => decide);
   // The limiter slot is held for the whole retry loop, including backoff sleeps,
   // not just the HTTP call, so a replacement request can't hit the same
   // failing/rate-limited provider mid-backoff. The signal is passed through so a
@@ -176,16 +177,24 @@ export function createPipelineRunner({
 
     const concurrencyRevisionAtRead = concurrencySettingRevision;
     try {
-      const [preferContentLanguage, verboseLogs, maxParallelLlmRequests, activeProvider] =
-        await Promise.all([
-          settings.getPreferContentLanguage(),
-          settings.getVerboseLogs(),
-          settings.getMaxParallelLlmRequests(),
-          // The provider snapshot sizes and handles every request in this run.
-          // A missing provider remains an ordinary request-boundary error, but an
-          // inability to read provider storage must retain its real cause.
-          providerRepository.getActiveProvider(),
-        ]);
+      const [
+        preferContentLanguage,
+        verboseLogs,
+        maxParallelLlmRequests,
+        activeProvider,
+        decisionProvider,
+      ] = await Promise.all([
+        settings.getPreferContentLanguage(),
+        settings.getVerboseLogs(),
+        settings.getMaxParallelLlmRequests(),
+        // The provider snapshot sizes and handles every request in this run.
+        // A missing provider remains an ordinary request-boundary error, but an
+        // inability to read provider storage must retain its real cause.
+        providerRepository.getActiveProvider(),
+        // A saved decision provider places topic boundaries; the active
+        // provider still names ranges and writes summaries.
+        providerRepository.getDecisionProvider?.() ?? null,
+      ]);
       if (concurrencySettingRevision === concurrencyRevisionAtRead) {
         limiter.setLimit(maxParallelLlmRequests);
       }
@@ -194,6 +203,15 @@ export function createPipelineRunner({
       // context limit between requests or retries.
       const callRunLLMWithRetry = (opts, maxRetries) =>
         callLLMWithRetry({ ...opts, provider: activeProvider }, maxRetries);
+      const decisionClient =
+        decisionProvider && llm.createClient ? llm.createClient(decisionProvider) : null;
+      const measuredDecide = decisionClient
+        ? measureDecide((state, questions, opts) => decisionClient.decide(state, questions, opts))
+        : undefined;
+      const decide = measuredDecide
+        ? (state, questions, opts) =>
+            limiter.run(() => measuredDecide(state, questions, opts), opts?.signal)
+        : undefined;
 
       runtime = runtimeFactory({
         ...runtimeContext,
@@ -205,7 +223,12 @@ export function createPipelineRunner({
           resolveMaxOutputTokens(activeProvider?.contextWindowTokens),
         ),
       });
-      await runtime.log('pipeline_start');
+      await runtime.log('pipeline_start', {
+        topicSplitter: decide ? 'decision' : 'llm',
+        ...(decisionProvider
+          ? { decisionProvider: decisionProvider.name, decisionModel: decisionProvider.model || '' }
+          : {}),
+      });
       const record = await runtime.read();
       if (!record) throw new Error(`record not found: ${key}`);
       runtime.setSummariesDisabled(record.skipSummaries === true);
@@ -329,6 +352,7 @@ export function createPipelineRunner({
           runtime,
           record,
           callLLMWithRetry: callRunLLMWithRetry,
+          decide,
         }));
         if (!topics) return;
       }

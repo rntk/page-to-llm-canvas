@@ -134,3 +134,62 @@ describe('ProvidersSection retry banners', () => {
     }
   });
 });
+
+describe('decision provider form', () => {
+  it('does not offer decision providers as the active completion provider', async () => {
+    listProviders.mockResolvedValue({
+      providers: [
+        { id: 'decision', name: 'Decisions', type: 'llama_decision', model: '' },
+        { id: 'completion', name: 'Completion', type: 'openai', model: 'gpt-4o' },
+      ],
+      activeId: 'completion',
+      error: null,
+    });
+    const { container, mount, cleanup } = renderSection();
+    try {
+      await mount();
+      const radios = Array.from(container.querySelectorAll('input[type="radio"]'));
+      expect(radios).toHaveLength(1);
+      expect(radios[0].getAttribute('aria-label')).toBe('Set Completion active');
+      expect(container.querySelector('[aria-label="Set Decisions active"]')).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('shows decision settings, saves an optional model, and hides temperature controls', async () => {
+    listProviders.mockResolvedValue({ providers: [], activeId: null, error: null });
+    sendMessage.mockResolvedValue({ ok: true });
+    const { container, mount, cleanup } = renderSection();
+    try {
+      await mount();
+      await act(async () => {
+        Array.from(container.querySelectorAll('button'))
+          .find((button) => button.textContent === 'Add provider')
+          .click();
+      });
+      await act(async () => {
+        const select = container.querySelector('#provider-type');
+        select.value = 'llama_decision';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      expect(container.querySelector('#provider-url').placeholder).toBe('http://localhost:8080');
+      expect(container.querySelector('#provider-model').placeholder).toBe('Server default');
+      expect(container.textContent).toContain('Model (optional)');
+      expect(container.textContent).toContain('cannot generate pipeline summaries or chat replies');
+      expect(container.querySelector('#provider-temperature-chat')).toBeNull();
+      await act(async () => {
+        container
+          .querySelector('form')
+          .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: expect.objectContaining({ type: 'llama_decision', model: '' }),
+        }),
+      );
+    } finally {
+      cleanup();
+    }
+  });
+});

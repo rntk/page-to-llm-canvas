@@ -2,6 +2,7 @@ import {
   buildArticleSummaryMergePrompt,
   buildArticleSummaryPrompt,
   buildLeafSummaryMergePrompt,
+  buildTopicLabelsPrompt,
   buildTopicRangesPrompt,
   buildTopicSummaryFromSourcePrompt,
 } from './prompts.js';
@@ -38,6 +39,7 @@ export const TOPIC_RANGE_INPUT_MAX_SENTENCES =
 // The baseline uses the shared estimator; resplits charge for longer parent paths.
 export const PIPELINE_FIXED_PROMPT_TOKENS = Math.max(
   estimateTokens(buildTopicRangesPrompt('', { preferContentLanguage: true })),
+  estimateTokens(buildTopicLabelsPrompt('', { preferContentLanguage: true })),
   estimateTokens(
     buildTopicRangesPrompt('', {
       preferContentLanguage: true,

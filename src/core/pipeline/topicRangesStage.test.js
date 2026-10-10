@@ -308,6 +308,49 @@ describe('computeTopics', () => {
     });
   });
 
+  it('uses decision boundaries and LLM labels instead of splitting ranges when decide is given', async () => {
+    const runtime = makeRuntime();
+    splitSentences.mockReturnValue([
+      { text: 'Cats purr.', start: 0, end: 10 },
+      { text: 'Cats nap.', start: 11, end: 20 },
+      { text: 'Stocks fell.', start: 21, end: 33 },
+    ]);
+    const answer = (split) => ({
+      choice: split ? 'split' : 'continue',
+      probabilities: { split: split ? 1 : 0, continue: split ? 0 : 1 },
+    });
+    const decide = vi.fn(async () => ({ answers: { b2: answer(false), b3: answer(true) } }));
+    const callLLMWithRetry = vi.fn(async () => '1: Pets>Cats\n2: Markets');
+
+    const result = await computeTopics({
+      runtime,
+      record: { capturedText: 'Cats purr. Cats nap. Stocks fell.', contentRevision: 'rev-d' },
+      callLLMWithRetry,
+      decide,
+    });
+
+    expect(decide).toHaveBeenCalledTimes(1);
+    expect(Object.keys(decide.mock.calls[0][1])).toEqual(['b2', 'b3']);
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
+    const { prompt } = callLLMWithRetry.mock.calls[0][0];
+    expect(prompt).toContain('[1]\nCats purr. Cats nap.');
+    expect(prompt).toContain('[2]\nStocks fell.');
+    expect(result.topics).toEqual([
+      expect.objectContaining({ name: 'Pets>Cats', sentences: [1, 2] }),
+      expect.objectContaining({ name: 'Markets', sentences: [3] }),
+    ]);
+    expect(runtime.update).toHaveBeenCalledWith(
+      expect.objectContaining({ sentences: ['Cats purr.', 'Cats nap.', 'Stocks fell.'] }),
+    );
+    expect(runtime.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: 'summarizing',
+        topic_range_chunks: null,
+        summaryCheckpointContentRevision: 'rev-d',
+      }),
+    );
+  });
+
   it('accepts execution, telemetry, and checkpoint capabilities without module mocks', async () => {
     const runtime = makeRuntime();
     const callLLMWithRetry = vi.fn(async () => 'Science: 0-1');

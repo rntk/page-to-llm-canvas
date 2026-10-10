@@ -5,7 +5,7 @@ import * as storage from '../../../core/storage/storage.js';
 import * as capturedText from '../../../core/pipeline/capturedText.js';
 import * as sentenceSplitter from '../../../core/pipeline/sentenceSplitter.js';
 import * as llm from '../../../core/llm/llm.js';
-import { getActiveProvider } from '../../../core/llm/providers.js';
+import { getActiveProvider, getDecisionProvider } from '../../../core/llm/providers.js';
 import { LLM_TASK_TYPES, wrapCallLLMWithRetry } from '../../../core/metrics/llm.js';
 import { getStoredVerboseLogs } from '../../../shared/runtime/verboseLogSettings.js';
 import { getStoredPreferContentLanguage } from '../../../core/settings/language.js';
@@ -18,6 +18,16 @@ import {
 const pipelineLimiter = vi.hoisted(() => ({
   run: vi.fn((fn) => fn()),
   setLimit: vi.fn(),
+}));
+const decisionClient = vi.hoisted(() => ({
+  decide: vi.fn(async (_state, questions) => ({
+    answers: Object.fromEntries(
+      Object.keys(questions).map((id) => [
+        id,
+        { choice: 'continue', probabilities: { continue: 1, split: 0 } },
+      ]),
+    ),
+  })),
 }));
 
 vi.mock('../../../core/storage/storage.js', () => ({
@@ -48,6 +58,7 @@ vi.mock('../../../core/pipeline/sentenceSplitter.js', () => ({
 
 vi.mock('../../../core/llm/llm.js', () => ({
   callLLMWithRetry: vi.fn(),
+  createClient: vi.fn(() => decisionClient),
 }));
 
 vi.mock('../../../core/llm/concurrency.js', () => ({
@@ -64,6 +75,7 @@ vi.mock('../../../core/llm/concurrency.js', () => ({
 
 vi.mock('../../../core/llm/providers.js', () => ({
   getActiveProvider: vi.fn(async () => null),
+  getDecisionProvider: vi.fn(async () => null),
 }));
 
 vi.mock('../../../shared/runtime/verboseLogSettings.js', async (importOriginal) => ({
@@ -91,8 +103,8 @@ const { runPipeline } = createPipelineRunner({
     normalizeMaxParallelLlmRequests,
     subscribeToMaxParallelLlmRequests: vi.fn(() => () => {}),
   },
-  providerRepository: { getActiveProvider },
-  llm: { callLLMWithRetry: llm.callLLMWithRetry },
+  providerRepository: { getActiveProvider, getDecisionProvider },
+  llm: { callLLMWithRetry: llm.callLLMWithRetry, createClient: llm.createClient },
   limiterFactory: () => pipelineLimiter,
   telemetry: { wrapCallLLMWithRetry },
   logger: { info: vi.fn(), error: vi.fn() },
@@ -834,6 +846,52 @@ describe('runPipeline', () => {
     expect(llm.callLLMWithRetry).toHaveBeenCalled();
     for (const [options] of llm.callLLMWithRetry.mock.calls) {
       expect(options.provider).toBe(provider);
+    }
+  });
+
+  it('runs decision requests through the shared limiter with the pipeline signal', async () => {
+    const decisionProvider = {
+      id: 'decision-provider',
+      name: 'Decisions',
+      type: 'llama_decision',
+      model: '',
+      url: 'http://decision.local',
+      token: '',
+    };
+    const source = 'First sentence. Second sentence.';
+    const controller = new AbortController();
+    getDecisionProvider.mockResolvedValueOnce(decisionProvider);
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('decision-limited', source),
+      skipSummaries: true,
+    });
+    capturedText.normalizeCapturedText.mockReturnValue(source);
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'First sentence.', start: 0, end: 15 },
+      { text: 'Second sentence.', start: 16, end: source.length },
+    ]);
+    llm.callLLMWithRetry.mockResolvedValue('1: Topic');
+    let decisionRanInsideLimiter = false;
+    pipelineLimiter.run.mockImplementation(async (fn, signal) => {
+      const decisionCallsBefore = decisionClient.decide.mock.calls.length;
+      const result = await fn();
+      if (decisionClient.decide.mock.calls.length > decisionCallsBefore) {
+        decisionRanInsideLimiter = true;
+        expect(signal).toBe(controller.signal);
+      }
+      return result;
+    });
+    try {
+      await runPipeline('decision-limited', { signal: controller.signal });
+
+      expect(decisionRanInsideLimiter).toBe(true);
+      expect(decisionClient.decide).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.any(Object),
+        expect.objectContaining({ signal: controller.signal }),
+      );
+    } finally {
+      pipelineLimiter.run.mockImplementation((fn) => fn());
     }
   });
 

@@ -218,6 +218,35 @@ describe('provider storage', () => {
     expect((await mod.getActiveProvider()).name).toBe('A');
   });
 
+  it('returns the saved decision provider, independent of the active provider', async () => {
+    const mod = await freshProviders();
+    expect(await mod.getDecisionProvider()).toBeNull();
+    await mod.saveProvider({ type: 'openai', name: 'A', model: 'gpt-4o', token: 'k' });
+    expect(await mod.getDecisionProvider()).toBeNull();
+    const decision = await mod.saveProvider({
+      type: 'llama_decision',
+      name: 'Decisions',
+      url: 'http://localhost:8080',
+    });
+    expect((await mod.getDecisionProvider()).id).toBe(decision.id);
+    expect((await mod.getActiveProvider()).name).toBe('A');
+  });
+
+  it('does not activate a decision provider and activates the first completion provider', async () => {
+    const mod = await freshProviders();
+    const decision = await mod.saveProvider({
+      type: 'llama_decision',
+      name: 'Decisions',
+      url: 'http://localhost:8080',
+    });
+    expect((await mod.getProvidersState()).activeId).toBeNull();
+
+    const completion = await mod.saveProvider({ type: 'openai', name: 'A', model: 'gpt-4o' });
+    expect((await mod.getProvidersState()).activeId).toBe(completion.id);
+    await expect(mod.setActiveProvider(decision.id)).rejects.toThrow(/Decision providers/);
+    expect((await mod.getProvidersState()).activeId).toBe(completion.id);
+  });
+
   it('serializes concurrent provider mutations without losing updates', async () => {
     const mod = await freshProviders();
     const first = await mod.saveProvider({
@@ -321,6 +350,42 @@ describe('provider storage', () => {
     expect(state.activeId).toBe(a.id);
   });
 
+  it('deleting the active completion provider skips decision providers when falling back', async () => {
+    const mod = await freshProviders();
+    const first = await mod.saveProvider({ type: 'openai', name: 'A', model: 'm' });
+    const active = await mod.saveProvider({
+      type: 'anthropic',
+      name: 'B',
+      model: 'claude-haiku-4-5',
+    });
+    const decision = await mod.saveProvider({
+      type: 'llama_decision',
+      name: 'Decisions',
+      url: 'http://localhost:8080',
+    });
+    await mod.setActiveProvider(active.id);
+
+    const state = await mod.deleteProvider(active.id);
+    expect(state.providers.map((provider) => provider.id)).toEqual([first.id, decision.id]);
+    expect(state.activeId).toBe(first.id);
+  });
+
+  it('repairs a legacy stored decision active id to a completion provider', async () => {
+    installFakeStorage({
+      [PROVIDERS_KEY]: {
+        providers: [
+          { id: 'decision', type: 'llama_decision', name: 'Decisions', url: 'http://localhost' },
+          { id: 'completion', type: 'openai', name: 'A', model: 'gpt-4o' },
+        ],
+        activeId: 'decision',
+      },
+    });
+    const mod = await freshProviders();
+
+    expect((await mod.getProvidersState()).activeId).toBe('completion');
+    expect((await mod.getActiveProvider()).id).toBe('completion');
+  });
+
   it('deleting the last provider clears the active id', async () => {
     const mod = await freshProviders();
     const a = await mod.saveProvider({ type: 'openai', name: 'A', model: 'm' });
@@ -396,5 +461,46 @@ describe('provider storage', () => {
     const state = await mod.getProvidersState();
     expect(state.providers.map((p) => p.id)).toEqual(['ok']);
     expect(state.activeId).toBeNull();
+  });
+});
+
+describe('decision providers', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('accepts a server URL and an optional model, without sampling settings', () => {
+    const entry = normalizeProvider({
+      type: ProviderType.LLAMA_DECISION,
+      name: 'Decisions',
+      url: 'http://localhost:8080',
+      temperatures: { chat: '0.8' },
+    });
+    expect(entry.model).toBe('');
+    expect(entry.temperatures).toBeUndefined();
+    expect(getProviderDefinition(entry.type).requiresUrl).toBe(true);
+  });
+
+  it.each(['', 'ftp://server', 'http://server?key=secret', 'http://server#fragment'])(
+    'rejects invalid server URL %s',
+    (url) => {
+      expect(() =>
+        normalizeProvider({ type: ProviderType.LLAMA_DECISION, name: 'Decisions', url }),
+      ).toThrow();
+    },
+  );
+
+  it('preserves a token for the same server and clears it when the server changes', async () => {
+    installFakeStorage();
+    const mod = await freshProviders();
+    const saved = await mod.saveProvider({
+      type: 'llama_decision',
+      name: 'Decisions',
+      url: 'http://localhost:8080',
+      token: 'secret',
+    });
+    const same = await mod.saveProvider({ ...saved, token: '' });
+    expect(same.token).toBe('secret');
+    const changed = await mod.saveProvider({ ...saved, url: 'http://localhost:8081', token: '' });
+    expect(changed.token).toBe('');
+    expect((await mod.getProvidersState()).providers[0].type).toBe('llama_decision');
   });
 });

@@ -22,4 +22,8 @@ These notes are short orientation docs for the extension’s main user-facing fl
 
 11. [Providers, settings, and data management](./11-providers-settings-and-data.md) — configure the active LLM, preferences, diagnostics, and saved data.
 
+## Shared request scheduling
+
+12. [LLM and Decision API concurrency](./12-llm-and-decision-concurrency.md) — understand the shared request queue, chat reservation, local stage limits, and retry slot lifetime.
+
 The shared runtime message names live in [`src/shared/runtime/messages.js`](../src/shared/runtime/messages.js), and the service-worker composition root that connects the flows is [`src/extension/background/background.js`](../src/extension/background/background.js).

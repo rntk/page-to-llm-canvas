@@ -10,6 +10,7 @@ import {
   normalizeLlmUsage,
   normalizeTaskType,
   wrapCallLLMWithRetry,
+  wrapDecide,
   recordLlmMetric,
   getLlmMetrics,
   clearLlmMetrics,
@@ -324,6 +325,69 @@ describe('wrapCallLLMWithRetry', () => {
       requestChars: 4000,
       responseChars: 200,
       usage: { inputTokens: 1000, outputTokens: 50, cacheReadTokens: 750 },
+    });
+  });
+});
+
+describe('wrapDecide', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+  });
+
+  it('records a topic_boundaries sample with the client metrics', async () => {
+    stubChromeStore();
+    const signal = new AbortController().signal;
+    const raw = vi.fn(async (_state, _questions, { metricsCollector }) => {
+      vi.setSystemTime(Date.now() + 120);
+      metricsCollector({
+        provider: 'llama_decision',
+        model: 'qwen',
+        requestChars: 900,
+        responseChars: 300,
+        usage: { inputTokens: 400, totalTokens: 410 },
+      });
+      return { answers: {} };
+    });
+
+    await expect(wrapDecide(raw)('state', { b2: {} }, { signal })).resolves.toEqual({
+      answers: {},
+    });
+    expect(raw).toHaveBeenCalledWith('state', { b2: {} }, expect.objectContaining({ signal }));
+
+    await vi.waitFor(async () => {
+      expect((await getLlmMetrics()).totalCount).toBe(1);
+    });
+    const metrics = await getLlmMetrics();
+    expect(metrics.recent[0]).toMatchObject({
+      ok: true,
+      durationMs: 120,
+      taskType: LLM_TASK_TYPES.TOPIC_BOUNDARIES,
+      provider: 'llama_decision',
+      model: 'qwen',
+      requestChars: 900,
+      responseChars: 300,
+      usage: { inputTokens: 400, totalTokens: 410 },
+    });
+    expect(metrics.byTaskType.topic_boundaries.totalInputTokens).toBe(400);
+  });
+
+  it('records failures and rethrows', async () => {
+    stubChromeStore();
+    const raw = vi.fn(async () => {
+      throw new Error('llama.cpp returned HTTP 503: busy');
+    });
+
+    await expect(wrapDecide(raw)('state', {})).rejects.toThrow('HTTP 503');
+
+    await vi.waitFor(async () => {
+      expect((await getLlmMetrics()).failureCount).toBe(1);
+    });
+    expect((await getLlmMetrics()).recent[0]).toMatchObject({
+      ok: false,
+      taskType: LLM_TASK_TYPES.TOPIC_BOUNDARIES,
+      provider: 'llama_decision',
+      error: 'llama.cpp returned HTTP 503: busy',
     });
   });
 });

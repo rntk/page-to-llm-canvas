@@ -4,6 +4,7 @@
 
 import { MSG } from '../shared/runtime/messages.js';
 import { TEMPERATURE_TASKS } from '../core/llm/temperatures.js';
+import { getProviderDefinition } from '../core/llm/providers.js';
 import { isStaleActionResponse, STALE_ACTION_MESSAGE } from '../shared/runtime/actionResponses.js';
 import { isImportableRecord } from '../shared/runtime/contracts.js';
 import { decodeImportedRecords, extractImportedRecords } from '../shared/runtime/recordImport.js';
@@ -161,7 +162,7 @@ export function actionResponseError(resp, action) {
 }
 
 /**
- * Returns true when saving an openai_comp provider edit should prompt the user
+ * Returns true when saving a custom-URL provider edit should prompt the user
  * about wiping the stored token because the base URL changed while the token
  * field was left blank.
  *
@@ -171,7 +172,7 @@ export function actionResponseError(resp, action) {
  */
 export function shouldWarnTokenWipe(editingProvider, form) {
   return (
-    editingProvider?.type === 'openai_comp' &&
+    !!getProviderDefinition(editingProvider?.type)?.requiresUrl &&
     !!editingProvider.hasToken &&
     !form.token.trim() &&
     (editingProvider.url || '') !== form.url.trim()
