@@ -32,6 +32,15 @@ import {
   getStoredLlmRequestTimeoutSeconds,
   setStoredLlmRequestTimeoutSeconds,
 } from './llmTimeout.js';
+import {
+  DECISION_SPLIT_THRESHOLD_KEY,
+  DEFAULT_DECISION_SPLIT_THRESHOLD,
+  MAX_DECISION_SPLIT_THRESHOLD,
+  MIN_DECISION_SPLIT_THRESHOLD,
+  normalizeDecisionSplitThreshold,
+  getStoredDecisionSplitThreshold,
+  setStoredDecisionSplitThreshold,
+} from './decisionThreshold.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -102,6 +111,23 @@ const settings = [
       [30.9, 30],
       [0, MIN_LLM_REQUEST_TIMEOUT_SECONDS],
       [Number.MAX_SAFE_INTEGER, MAX_LLM_REQUEST_TIMEOUT_SECONDS],
+    ],
+  },
+  {
+    name: 'decision split threshold',
+    key: DECISION_SPLIT_THRESHOLD_KEY,
+    fallback: DEFAULT_DECISION_SPLIT_THRESHOLD,
+    normalize: normalizeDecisionSplitThreshold,
+    get: getStoredDecisionSplitThreshold,
+    set: setStoredDecisionSplitThreshold,
+    value: 0.7,
+    invalid: 'invalid',
+    normalizedInvalid: DEFAULT_DECISION_SPLIT_THRESHOLD,
+    cases: [
+      ['0.65', 0.65],
+      [0.333, 0.33],
+      [0, MIN_DECISION_SPLIT_THRESHOLD],
+      [1, MAX_DECISION_SPLIT_THRESHOLD],
     ],
   },
 ];

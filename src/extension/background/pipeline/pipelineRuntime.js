@@ -13,6 +13,7 @@ import {
   MAX_TAGGED_CHARS,
   TOPIC_RANGE_INPUT_MAX_SENTENCES,
 } from '../../../core/pipeline/pipelineConfig.js';
+import { DEFAULT_DECISION_SPLIT_THRESHOLD } from '../../../core/settings/decisionThreshold.js';
 
 const logger = createLogger('pipeline');
 
@@ -24,6 +25,7 @@ const logger = createLogger('pipeline');
  * @property {boolean} [preferContentLanguage]
  * @property {boolean} [verboseLogs]
  * @property {boolean} [summariesDisabled]
+ * @property {number} [decisionSplitThreshold]
  * @property {number} [maxTextChunkChars]
  * @property {number} [maxTopicRangeSentences]
  */
@@ -36,6 +38,7 @@ const logger = createLogger('pipeline');
  * @property {boolean|undefined} preferContentLanguage
  * @property {boolean|undefined} verboseLogs
  * @property {boolean} summariesDisabled
+ * @property {number} decisionSplitThreshold
  * @property {number} maxTextChunkChars
  * @property {number} maxTopicRangeSentences
  * @property {function(): void} assertActive
@@ -63,6 +66,7 @@ export function createPipelineRuntime({
   preferContentLanguage,
   verboseLogs,
   summariesDisabled = false,
+  decisionSplitThreshold = DEFAULT_DECISION_SPLIT_THRESHOLD,
   maxTextChunkChars = MAX_TAGGED_CHARS,
   maxTopicRangeSentences = TOPIC_RANGE_INPUT_MAX_SENTENCES,
 }) {
@@ -73,6 +77,7 @@ export function createPipelineRuntime({
     preferContentLanguage,
     verboseLogs,
     summariesDisabled,
+    decisionSplitThreshold,
     maxTextChunkChars,
     maxTopicRangeSentences,
 

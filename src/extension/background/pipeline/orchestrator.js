@@ -170,16 +170,22 @@ export function createPipelineRunner({
 
     const concurrencyRevisionAtRead = concurrencySettingRevision;
     try {
-      const [preferContentLanguage, verboseLogs, maxParallelLlmRequests, activeProvider] =
-        await Promise.all([
-          settings.getPreferContentLanguage(),
-          settings.getVerboseLogs(),
-          settings.getMaxParallelLlmRequests(),
-          // The provider snapshot sizes and handles every request in this run.
-          // A missing provider remains an ordinary request-boundary error, but an
-          // inability to read provider storage must retain its real cause.
-          providerRepository.getActiveProvider(),
-        ]);
+      const [
+        preferContentLanguage,
+        verboseLogs,
+        maxParallelLlmRequests,
+        decisionSplitThreshold,
+        activeProvider,
+      ] = await Promise.all([
+        settings.getPreferContentLanguage(),
+        settings.getVerboseLogs(),
+        settings.getMaxParallelLlmRequests(),
+        settings.getDecisionSplitThreshold(),
+        // The provider snapshot sizes and handles every request in this run.
+        // A missing provider remains an ordinary request-boundary error, but an
+        // inability to read provider storage must retain its real cause.
+        providerRepository.getActiveProvider(),
+      ]);
       if (concurrencySettingRevision === concurrencyRevisionAtRead) {
         limiter.setLimit(maxParallelLlmRequests);
       }
@@ -188,6 +194,7 @@ export function createPipelineRunner({
         ...runtimeContext,
         preferContentLanguage,
         verboseLogs,
+        decisionSplitThreshold,
         ...providers.runtimeOptions,
       });
       await runtime.log('pipeline_start');

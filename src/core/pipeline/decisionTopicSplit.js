@@ -35,6 +35,7 @@ async function splitDecisionRanges({
   parallelMap,
   decisionOptions = {},
 }) {
+  const threshold = runtime.decisionSplitThreshold ?? DECISION_SPLIT_THRESHOLD;
   const checkpoint = await createDecisionCheckpoint({
     // Sibling failure stops requests, but completed work must still be saved.
     // The parent runtime retains user cancellation and run-ownership guards.
@@ -44,7 +45,7 @@ async function splitDecisionRanges({
     policy: [
       decisionOptions,
       SEGMENTATION_BRIEF,
-      DECISION_SPLIT_THRESHOLD,
+      threshold,
       DECISION_BATCH_SIZE,
       DECISION_CONTEXT_SENTENCES,
       DECISION_MAX_SENTENCE_CHARS,
@@ -59,6 +60,7 @@ async function splitDecisionRanges({
     sentences: sentenceObjs,
     text,
     runtime,
+    threshold,
     parallelMap,
     contextWindowTokens: decisionOptions.contextWindowTokens,
     checkpoint,

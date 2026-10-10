@@ -36,6 +36,7 @@ import { clearParserMetrics } from '../../core/metrics/parser.js';
 import { clearAllExtensionData, getStorageOverview } from '../../core/storage/dataManagement.js';
 import { getStoredSummariesDisabled } from '../../core/settings/summary.js';
 import { getStoredPreferContentLanguage } from '../../core/settings/language.js';
+import { getStoredDecisionSplitThreshold } from '../../core/settings/decisionThreshold.js';
 import { getStoredVerboseLogs } from '../../shared/runtime/verboseLogSettings.js';
 import {
   DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
@@ -124,6 +125,7 @@ const pipelineRunner = createPipelineRunner({
     getPreferContentLanguage: getStoredPreferContentLanguage,
     getVerboseLogs: getStoredVerboseLogs,
     getMaxParallelLlmRequests: getStoredMaxParallelLlmRequests,
+    getDecisionSplitThreshold: getStoredDecisionSplitThreshold,
     normalizeMaxParallelLlmRequests,
     subscribeToMaxParallelLlmRequests: (onValue) =>
       browserLocalStore.subscribe(MAX_PARALLEL_LLM_REQUESTS_KEY, onValue),

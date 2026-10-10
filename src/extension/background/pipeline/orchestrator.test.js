@@ -100,6 +100,7 @@ const { runPipeline } = createPipelineRunner({
     getPreferContentLanguage: getStoredPreferContentLanguage,
     getVerboseLogs: getStoredVerboseLogs,
     getMaxParallelLlmRequests: getStoredMaxParallelLlmRequests,
+    getDecisionSplitThreshold: vi.fn(async () => 0.5),
     normalizeMaxParallelLlmRequests,
     subscribeToMaxParallelLlmRequests: vi.fn(() => () => {}),
   },
@@ -175,6 +176,7 @@ describe('createPipelineRunner', () => {
               resolveInitialLimit = resolve;
             }),
         ),
+        getDecisionSplitThreshold: vi.fn(async () => 0.5),
         normalizeMaxParallelLlmRequests: Number,
         subscribeToMaxParallelLlmRequests: vi.fn((listener) => {
           onConcurrencyChanged = listener;
@@ -213,6 +215,7 @@ describe('createPipelineRunner', () => {
         getPreferContentLanguage: vi.fn(),
         getVerboseLogs: vi.fn(),
         getMaxParallelLlmRequests: vi.fn(),
+        getDecisionSplitThreshold: vi.fn(),
         normalizeMaxParallelLlmRequests: (value) => Math.max(1, Number(value) || 4),
         subscribeToMaxParallelLlmRequests,
       },

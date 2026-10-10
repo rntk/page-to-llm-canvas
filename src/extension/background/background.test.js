@@ -244,6 +244,7 @@ describe('pipeline runner composition', () => {
       'getPreferContentLanguage',
       'getVerboseLogs',
       'getMaxParallelLlmRequests',
+      'getDecisionSplitThreshold',
       'normalizeMaxParallelLlmRequests',
       'subscribeToMaxParallelLlmRequests',
     ]) {

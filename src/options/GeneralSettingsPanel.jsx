@@ -53,6 +53,16 @@ import {
   setStoredLlmRequestTimeoutSeconds,
   normalizeLlmRequestTimeoutSeconds,
 } from '../core/settings/llmTimeout.js';
+import {
+  DECISION_SPLIT_THRESHOLD_KEY,
+  DEFAULT_DECISION_SPLIT_THRESHOLD,
+  MIN_DECISION_SPLIT_THRESHOLD,
+  MAX_DECISION_SPLIT_THRESHOLD,
+  DECISION_SPLIT_THRESHOLD_STEP,
+  getStoredDecisionSplitThreshold,
+  setStoredDecisionSplitThreshold,
+  normalizeDecisionSplitThreshold,
+} from '../core/settings/decisionThreshold.js';
 
 function ThemeToggle() {
   const [controller] = useState(() => createThemeController());
@@ -252,6 +262,22 @@ const LLM_TIMEOUT_PREFERENCE = {
   normalize: normalizeLlmRequestTimeoutSeconds,
 };
 
+const DECISION_SPLIT_THRESHOLD_PREFERENCE = {
+  title: 'Decision topic splitting',
+  id: 'decision-split-threshold',
+  type: 'range',
+  label: 'Split threshold',
+  note: 'Used when a decision API topic splitter is configured. A new topic starts where the model’s split probability is at or above this value. Lower values produce more, smaller topics; higher values produce fewer, larger ones. The default is 0.50. Applies to the next processing run.',
+  min: MIN_DECISION_SPLIT_THRESHOLD,
+  max: MAX_DECISION_SPLIT_THRESHOLD,
+  step: DECISION_SPLIT_THRESHOLD_STEP,
+  storageKey: DECISION_SPLIT_THRESHOLD_KEY,
+  defaultValue: DEFAULT_DECISION_SPLIT_THRESHOLD,
+  readPreference: getStoredDecisionSplitThreshold,
+  writePreference: setStoredDecisionSplitThreshold,
+  normalize: normalizeDecisionSplitThreshold,
+};
+
 const VERBOSE_LOGS_PREFERENCE = {
   title: 'Diagnostics',
   id: 'verbose-logs',
@@ -274,18 +300,17 @@ function StoredPreferenceSection({ store, preference }) {
     normalize: preference.normalize,
     subscribe: store.subscribe,
   });
+  const isCheckbox = preference.type === 'checkbox';
   const input = (
     <input
       id={preference.id}
       type={preference.type}
       min={preference.min}
       max={preference.max}
-      step={preference.type === 'number' ? '1' : undefined}
-      checked={preference.type === 'checkbox' ? value : undefined}
-      value={preference.type === 'number' ? value : undefined}
-      onChange={(event) =>
-        setValue(preference.type === 'checkbox' ? event.target.checked : event.target.value)
-      }
+      step={isCheckbox ? undefined : (preference.step ?? '1')}
+      checked={isCheckbox ? value : undefined}
+      value={isCheckbox ? undefined : value}
+      onChange={(event) => setValue(isCheckbox ? event.target.checked : event.target.value)}
     />
   );
 
@@ -300,7 +325,10 @@ function StoredPreferenceSection({ store, preference }) {
         ) : (
           <>
             <label htmlFor={preference.id}>{preference.label}</label>
-            <div>{input}</div>
+            <div>
+              {input}
+              {preference.type === 'range' && <span className="mono"> {value.toFixed(2)}</span>}
+            </div>
           </>
         )}
         <div className="note">{preference.note}</div>
@@ -325,6 +353,10 @@ export function LlmRequestTimeoutSection({ store }) {
   return <StoredPreferenceSection preference={LLM_TIMEOUT_PREFERENCE} store={store} />;
 }
 
+export function DecisionSplitThresholdSection({ store }) {
+  return <StoredPreferenceSection preference={DECISION_SPLIT_THRESHOLD_PREFERENCE} store={store} />;
+}
+
 export function VerboseLogsSection({ store }) {
   return <StoredPreferenceSection preference={VERBOSE_LOGS_PREFERENCE} store={store} />;
 }
@@ -345,6 +377,7 @@ export function GeneralSettingsPanel({ store, scheduler }) {
         <SummaryGenerationSection store={store} />
         <LlmConcurrencySection store={store} />
         <LlmRequestTimeoutSection store={store} />
+        <DecisionSplitThresholdSection store={store} />
         <VerboseLogsSection store={store} />
         <HighlightColorSection scheduler={scheduler} store={store} />
       </div>
