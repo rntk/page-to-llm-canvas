@@ -1,5 +1,7 @@
 // Port of clef/split_topics.py: the decision model classifies each gap between
 // adjacent sentences; ranges are assembled deterministically from those answers.
+// Pieces the splitter cut from one long sentence (`continued`) are rejoined, so
+// the model only judges real sentence gaps and never splits mid-sentence.
 
 import { choice } from '../llm/decisionClient.js';
 import { throwIfCancelled } from './cancellation.js';
@@ -82,6 +84,37 @@ export function summarizeBoundaries(boundaries, threshold) {
 }
 
 /**
+ * Group splitter pieces into whole sentences: a `continued` piece joins the
+ * previous unit. Joined text comes from the source when offsets allow.
+ * @param {Array<{text: string, start?: number, end?: number, continued?: boolean}>} sentences
+ * @param {string} text Source text the offsets point into.
+ * @returns {Array<{first: number, last: number, text: string, start?: number, end?: number}>}
+ */
+function joinContinuedSentences(sentences, text) {
+  const units = [];
+  sentences.forEach((sentence, index) => {
+    const unit = units.at(-1);
+    if (!unit || sentence.continued !== true) {
+      units.push({
+        first: index,
+        last: index,
+        text: String(sentence.text ?? ''),
+        start: sentence.start,
+        end: sentence.end,
+      });
+      return;
+    }
+    const sliceable = text && Number.isFinite(unit.start) && Number.isFinite(sentence.end);
+    unit.text = sliceable
+      ? text.slice(unit.start, sentence.end)
+      : `${unit.text} ${String(sentence.text ?? '')}`;
+    unit.last = index;
+    unit.end = sentence.end;
+  });
+  return units;
+}
+
+/**
  * Ask once per sentence gap whether a new topical section starts. Requests
  * carry a local numbered window plus context on each side. A size error halves
  * the failing batch, then drops its context; the next batch starts again at the
@@ -89,16 +122,18 @@ export function summarizeBoundaries(boundaries, threshold) {
  *
  * @param {object} input
  * @param {Function} input.decide `(state, questions, {signal})` decision request.
- * @param {Array<{text: string, start?: number, end?: number}>} input.sentences Sentences
- *   with optional offsets into `text`, used to report paragraph breaks.
+ * @param {Array<{text: string, start?: number, end?: number, continued?: boolean}>}
+ *   input.sentences Sentences with optional offsets into `text`, used to report paragraph
+ *   breaks. A `continued` piece is rejoined with the previous one and never split from it.
  * @param {string} [input.text] Source text for paragraph-break detection.
  * @param {object} [input.runtime] Pipeline runtime for cancellation and logs.
  * @param {number} [input.threshold] Split when P(split) >= threshold.
  * @param {number} [input.batchSize] Boundaries per request.
  * @param {number} [input.contextSentences] Extra sentences on each side.
  * @param {number} [input.maxSentenceChars] Per-sentence cap in the request state.
- * @returns {Promise<Array<{after: number, value: number, split: boolean}>>} One entry
- *   per gap; `after` is the zero-based index of the sentence before the gap.
+ * @returns {Promise<Array<{after: number, value: number|null, split: boolean,
+ *   withinSentence?: true}>>} One entry per gap; `after` is the zero-based index of the
+ *   sentence before the gap. Gaps inside a rejoined sentence are not asked: `value` is null.
  */
 export async function decideTopicBoundaries({
   decide,
@@ -114,15 +149,16 @@ export async function decideTopicBoundaries({
   if (!Number.isInteger(contextSentences) || contextSentences < 0) {
     throw new Error('contextSentences must be >= 0');
   }
-  const content = sentences.map((sentence, index) => {
-    const previous = sentences[index - 1];
+  const units = joinContinuedSentences(sentences, text);
+  const content = units.map((unit, index) => {
+    const previous = units[index - 1];
     const gap =
-      previous && Number.isFinite(previous.end) && Number.isFinite(sentence.start)
-        ? text.slice(previous.end, sentence.start)
+      previous && Number.isFinite(previous.end) && Number.isFinite(unit.start)
+        ? text.slice(previous.end, unit.start)
         : '';
     return {
       id: index + 1,
-      text: fitText(String(sentence.text ?? ''), maxSentenceChars),
+      text: fitText(unit.text, maxSentenceChars),
       paragraph_break_before: /\n\s*\n/.test(gap),
     };
   });
@@ -137,7 +173,8 @@ export async function decideTopicBoundaries({
   await runtime?.log(
     'topic_boundaries_start',
     {
-      sentenceCount: content.length,
+      sentenceCount: sentences.length,
+      unitCount: units.length,
       gapCount: Math.max(0, content.length - 1),
       batchSize,
       contextSentences,
@@ -203,7 +240,10 @@ export async function decideTopicBoundaries({
     for (let index = pos; index < stop; index++) {
       const value = readSplitProbability(result, `b${content[index].id}`);
       if (value >= threshold) batchSplits++;
-      boundaries.push({ after: index - 1, value, split: value >= threshold });
+      for (let after = units[index - 1].first; after < units[index - 1].last; after++) {
+        boundaries.push({ after, value: null, split: false, withinSentence: true });
+      }
+      boundaries.push({ after: units[index].first - 1, value, split: value >= threshold });
     }
     pos = stop;
     size = batchSize;
@@ -220,8 +260,14 @@ export async function decideTopicBoundaries({
       { verbose: true },
     );
   }
+  const lastUnit = units.at(-1);
+  for (let after = lastUnit?.first ?? 0; after < (lastUnit?.last ?? 0); after++) {
+    boundaries.push({ after, value: null, split: false, withinSentence: true });
+  }
+  const decided = boundaries.filter((boundary) => !boundary.withinSentence);
   await runtime?.log('topic_boundaries_decided', {
-    ...summarizeBoundaries(boundaries, threshold),
+    ...summarizeBoundaries(decided, threshold),
+    withinSentenceGapCount: boundaries.length - decided.length,
     requestCount,
     shrinkCount,
     durationMs: Date.now() - startedAt,

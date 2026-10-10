@@ -56,6 +56,74 @@ describe('decideTopicBoundaries', () => {
     ]);
   });
 
+  it('rejoins continued pieces and asks only about real sentence gaps', async () => {
+    const text = 'Intro here. Four kinds: alpha one; beta two; gamma three. Next topic.';
+    const sentences = [
+      { text: 'Intro here.', start: 0, end: 11 },
+      { text: 'Four kinds: alpha one;', start: 12, end: 34 },
+      { text: 'beta two;', start: 35, end: 44, continued: true },
+      { text: 'gamma three.', start: 45, end: 57, continued: true },
+      { text: 'Next topic.', start: 58, end: 69 },
+    ];
+    const decide = makeDecide((id) => (id === 'b3' ? 0.9 : 0.2));
+    const runtime = makeRuntime();
+
+    const boundaries = await decideTopicBoundaries({ decide, sentences, text, runtime });
+
+    expect(decide).toHaveBeenCalledTimes(1);
+    const [state, questions] = decide.mock.calls[0];
+    expect(Object.keys(questions)).toEqual(['b2', 'b3']);
+    expect(state.content.map((item) => [item.id, item.text])).toEqual([
+      [1, 'Intro here.'],
+      [2, 'Four kinds: alpha one; beta two; gamma three.'],
+      [3, 'Next topic.'],
+    ]);
+    expect(boundaries).toEqual([
+      { after: 0, value: 0.2, split: false },
+      { after: 1, value: null, split: false, withinSentence: true },
+      { after: 2, value: null, split: false, withinSentence: true },
+      { after: 3, value: 0.9, split: true },
+    ]);
+    expect(boundariesToRanges(5, boundaries)).toEqual([
+      { start: 0, end: 3 },
+      { start: 4, end: 4 },
+    ]);
+    expect(runtime.log).toHaveBeenCalledWith(
+      'topic_boundaries_decided',
+      expect.objectContaining({ gapCount: 2, withinSentenceGapCount: 2 }),
+    );
+  });
+
+  it('records trailing within-sentence gaps and joins pieces without offsets', async () => {
+    const sentences = [
+      { text: 'A one.' },
+      { text: 'B starts' },
+      { text: 'and ends.', continued: true },
+    ];
+    const decide = makeDecide(() => 0.7);
+
+    const boundaries = await decideTopicBoundaries({ decide, sentences });
+
+    expect(decide.mock.calls[0][0].content.map((item) => item.text)).toEqual([
+      'A one.',
+      'B starts and ends.',
+    ]);
+    expect(boundaries).toEqual([
+      { after: 0, value: 0.7, split: true },
+      { after: 1, value: null, split: false, withinSentence: true },
+    ]);
+  });
+
+  it('makes no request when every piece belongs to one sentence', async () => {
+    const decide = makeDecide();
+    const boundaries = await decideTopicBoundaries({
+      decide,
+      sentences: [{ text: 'a b' }, { text: 'c d', continued: true }],
+    });
+    expect(decide).not.toHaveBeenCalled();
+    expect(boundaries).toEqual([{ after: 0, value: null, split: false, withinSentence: true }]);
+  });
+
   it('makes no request for zero or one sentence', async () => {
     const decide = makeDecide();
     expect(await decideTopicBoundaries({ decide, sentences: [] })).toEqual([]);

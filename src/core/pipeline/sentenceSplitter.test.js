@@ -218,6 +218,37 @@ describe('splitSentences', () => {
     ]);
   });
 
+  it('marks pieces cut from a long sentence as continued', () => {
+    const words = Array.from({ length: 39 }, (_, i) => `word${i}`).join(' ');
+    const result = splitSentences(
+      `First real sentence here. Then ${words}. This is a trailing sentence here.`,
+      {
+        anchorEveryWords: 10,
+        longSentenceWordThreshold: 20,
+        minSentenceWords: 2,
+      },
+    );
+    expect(result.map(({ continued }) => continued === true)).toEqual([
+      false,
+      false,
+      true,
+      true,
+      false,
+    ]);
+  });
+
+  it('keeps the continued flag off a short first piece merged forward', () => {
+    const words = Array.from({ length: 30 }, (_, i) => `w${i}`).join(' ');
+    const result = splitSentences(`Hi. ${words}.`, {
+      anchorEveryWords: 10,
+      longSentenceWordThreshold: 20,
+      minSentenceWords: 2,
+    });
+    expect(result[0].text.startsWith('Hi. w0')).toBe(true);
+    expect(result[0].continued).toBeUndefined();
+    expect(result.slice(1).every(({ continued }) => continued === true)).toBe(true);
+  });
+
   it('finishes a long span when remaining words drop below the anchor window', () => {
     const words = Array.from({ length: 25 }, (_, i) => `word${i}`).join(' ');
     const result = splitSentences(`${words}.`, {

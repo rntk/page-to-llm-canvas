@@ -1,5 +1,7 @@
 // Simplified port of txt_splitt's SparseRegexSentenceSplitter: terminal
 // boundaries, long-span anchoring, and short-span merging across scripts.
+// Pieces cut from a long sentence by anchoring carry `continued: true`, so
+// consumers can tell an anchor cut from a real sentence boundary.
 
 const CLOSING = `"'”’)\\]»›」』）】》〉〕`;
 const TERMINAL = `.!?…。！？؟।॥`;
@@ -105,7 +107,8 @@ function anchorLongSpan(text, start, end, anchorEvery, longThreshold, minWords) 
     cursor = cut;
     while (wi < wordPositions.length && wordPositions[wi][0] < cursor) wi++;
   }
-  return result.length > 0 ? result : [[start, end]];
+  // Every piece after the first continues the same sentence.
+  return result.length > 0 ? result.map(([s, e], index) => [s, e, index > 0]) : [[start, end]];
 }
 
 function mergeShortNonterminal(text, spans, minWords) {
@@ -117,11 +120,12 @@ function mergeShortNonterminal(text, spans, minWords) {
     if (words < minWords) {
       out[out.length - 1][1] = e;
     } else {
-      out.push([s, e]);
+      out.push(spans[i].slice());
     }
   }
   if (out.length >= 2 && countWords(text, out[0][0], out[0][1]) < minWords) {
     out[1][0] = out[0][0];
+    out[1][2] = out[0][2];
     out.shift();
   }
   return out;
@@ -142,5 +146,10 @@ export function splitSentences(text, opts = {}) {
   }
   spans = mergeShortNonterminal(text, anchored, minWords);
 
-  return spans.map(([s, e]) => ({ text: text.slice(s, e), start: s, end: e }));
+  return spans.map(([s, e, continued]) => ({
+    text: text.slice(s, e),
+    start: s,
+    end: e,
+    ...(continued ? { continued: true } : {}),
+  }));
 }
