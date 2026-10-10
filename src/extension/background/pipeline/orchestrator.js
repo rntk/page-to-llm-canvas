@@ -206,7 +206,9 @@ export function createPipelineRunner({
       const decisionClient =
         decisionProvider && llm.createClient ? llm.createClient(decisionProvider) : null;
       const measuredDecide = decisionClient
-        ? measureDecide((state, questions, opts) => decisionClient.decide(state, questions, opts))
+        ? measureDecide((state, questions, opts) =>
+            decisionClient.decide(state, questions, { ...opts, verboseLogs }),
+          )
         : undefined;
       const decide = measuredDecide
         ? (state, questions, opts) =>

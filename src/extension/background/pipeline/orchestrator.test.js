@@ -860,6 +860,7 @@ describe('runPipeline', () => {
     };
     const source = 'First sentence. Second sentence.';
     const controller = new AbortController();
+    getStoredVerboseLogs.mockResolvedValueOnce(true);
     getDecisionProvider.mockResolvedValueOnce(decisionProvider);
     storage.readRecord.mockResolvedValue({
       ...makeRecord('decision-limited', source),
@@ -888,7 +889,7 @@ describe('runPipeline', () => {
       expect(decisionClient.decide).toHaveBeenCalledWith(
         expect.any(Object),
         expect.any(Object),
-        expect.objectContaining({ signal: controller.signal }),
+        expect.objectContaining({ signal: controller.signal, verboseLogs: true }),
       );
     } finally {
       pipelineLimiter.run.mockImplementation((fn) => fn());

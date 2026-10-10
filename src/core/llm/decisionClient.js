@@ -1,5 +1,8 @@
 // Browser counterpart of clef/llama_decisions.py. Responses retain all server fields.
+import { createLogger } from '../../shared/runtime/log.js';
 import { createRequestTimeoutSignal, mergeAbortSignals } from './abortSignals.js';
+
+const log = createLogger('Decision client');
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -99,6 +102,7 @@ export class DecisionClient {
    * @param {string} [options.apiKey] Optional bearer token.
    * @param {number} [options.timeout] Timeout in seconds.
    * @param {Function} [options.transport] Injectable fetch implementation.
+   * @param {{info: Function}} [options.logger] Logger for verbose raw request/response output.
    */
   constructor({
     baseUrl = 'http://localhost:8080',
@@ -106,6 +110,7 @@ export class DecisionClient {
     apiKey,
     timeout = 60,
     transport = (...args) => globalThis.fetch(...args),
+    logger = log,
   } = {}) {
     const parsed = new URL(baseUrl);
     if (!['http:', 'https:'].includes(parsed.protocol) || parsed.search || parsed.hash) {
@@ -127,6 +132,7 @@ export class DecisionClient {
     this.apiKey = apiKey;
     this.timeout = timeout;
     this.transport = transport;
+    this.logger = logger;
   }
 
   /**
@@ -138,13 +144,14 @@ export class DecisionClient {
    * @param {string[]} [options.images] Image data URLs.
    * @param {string[]} [options.files] File data URLs.
    * @param {AbortSignal} [options.signal] Caller cancellation signal.
+   * @param {boolean} [options.verboseLogs] Logs the raw request and response bodies.
    * @param {function(Record<string, unknown>): void} [options.metricsCollector] Receives
    *   provider, model, request/response sizes, and token usage after a successful request.
    */
   async decide(
     state,
     questions,
-    { model = this.model, images, files, signal, metricsCollector } = {},
+    { model = this.model, images, files, signal, metricsCollector, verboseLogs = false } = {},
   ) {
     if (
       !isRecord(questions) ||
@@ -170,9 +177,15 @@ export class DecisionClient {
       }
     }
     let sizes;
-    const response = await this.request('systemone', payload, signal, (value) => {
-      sizes = value;
-    });
+    const response = await this.request(
+      'systemone',
+      payload,
+      signal,
+      (value) => {
+        sizes = value;
+      },
+      verboseLogs,
+    );
     if (!isRecord(response.answers)) throw new Error("Server response has no 'answers' object");
     metricsCollector?.({
       provider: 'llama_decision',
@@ -187,9 +200,10 @@ export class DecisionClient {
    * Returns the complete /v1/models response.
    * @param {object} [options] Request options.
    * @param {AbortSignal} [options.signal] Caller cancellation signal.
+   * @param {boolean} [options.verboseLogs] Logs the raw request and response bodies.
    */
-  listModels({ signal } = {}) {
-    return this.request('models', undefined, signal);
+  listModels({ signal, verboseLogs = false } = {}) {
+    return this.request('models', undefined, signal, undefined, verboseLogs);
   }
 
   /** Decision models cannot satisfy the extension's generated-text contract. */
@@ -209,24 +223,32 @@ export class DecisionClient {
    * @param {AbortSignal} [signal] Caller cancellation signal.
    * @param {function({requestChars: number, responseChars: number}): void} [onSizes]
    *   Receives request and response sizes of a successful request.
+   * @param {boolean} [verboseLogs] Logs the raw request, response, and HTTP error body.
+   *   The Authorization header is never logged.
    */
-  async request(endpoint, payload, signal, onSizes) {
+  async request(endpoint, payload, signal, onSizes, verboseLogs = false) {
     const headers = { Accept: 'application/json' };
     if (payload !== undefined) headers['Content-Type'] = 'application/json';
     if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
     const timeoutSignal = createRequestTimeoutSignal(this.timeout * 1000);
     const merged = mergeAbortSignals(signal, timeoutSignal.signal);
     const requestBody = payload !== undefined ? JSON.stringify(payload) : undefined;
+    const url = `${this.baseUrl}/${endpoint}`;
+    const method = payload === undefined ? 'GET' : 'POST';
     try {
       merged.signal.throwIfAborted();
-      const response = await this.transport(`${this.baseUrl}/${endpoint}`, {
-        method: payload === undefined ? 'GET' : 'POST',
+      if (verboseLogs) this.logger.info('request:', { endpoint: url, method, body: payload });
+      const response = await this.transport(url, {
+        method,
         headers,
         ...(requestBody !== undefined ? { body: requestBody } : {}),
         signal: merged.signal,
       });
       if (!response.ok) {
         const body = await response.text();
+        if (verboseLogs) {
+          this.logger.info('raw error response:', { endpoint: url, status: response.status, body });
+        }
         let parsed;
         try {
           parsed = JSON.parse(body);
@@ -246,6 +268,7 @@ export class DecisionClient {
         if (merged.signal.aborted) throw error;
         throw new Error('Server returned invalid JSON');
       }
+      if (verboseLogs) this.logger.info('raw response data:', result);
       if (!isRecord(result)) throw new Error('Server response must be a JSON object');
       // Re-serialized size; whitespace may differ from the wire body.
       onSizes?.({

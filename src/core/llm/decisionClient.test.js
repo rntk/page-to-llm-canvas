@@ -118,6 +118,44 @@ describe('DecisionClient', () => {
     expect(transport).toHaveBeenCalledTimes(1);
   });
 
+  it('logs the raw request and response only when verbose logs are enabled', async () => {
+    const response = { answers: { ok: { noul: 0.5 } }, extra: 'kept' };
+    const logger = { info: vi.fn() };
+    const transport = vi.fn().mockResolvedValue(okJson(response));
+    const client = new DecisionClient({ transport, logger, apiKey: 'secret', model: 'm' });
+
+    await client.decide('state', { ok: noul('?') });
+    expect(logger.info).not.toHaveBeenCalled();
+
+    await client.decide('state', { ok: noul('?') }, { verboseLogs: true });
+    expect(logger.info).toHaveBeenCalledWith('request:', {
+      endpoint: 'http://localhost:8080/v1/systemone',
+      method: 'POST',
+      body: { state: 'state', questions: { ok: noul('?') }, model: 'm' },
+    });
+    expect(logger.info).toHaveBeenCalledWith('raw response data:', response);
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain('secret');
+  });
+
+  it('logs the raw HTTP error body when verbose logs are enabled', async () => {
+    const logger = { info: vi.fn() };
+    const body = '{"error":"model unavailable"}';
+    const transport = vi.fn().mockResolvedValue({ ok: false, status: 503, text: async () => body });
+    await expect(
+      new DecisionClient({ transport, logger }).listModels({ verboseLogs: true }),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(logger.info).toHaveBeenCalledWith('request:', {
+      endpoint: 'http://localhost:8080/v1/models',
+      method: 'GET',
+      body: undefined,
+    });
+    expect(logger.info).toHaveBeenCalledWith('raw error response:', {
+      endpoint: 'http://localhost:8080/v1/models',
+      status: 503,
+      body,
+    });
+  });
+
   it.each([null, [], {}, { answers: [] }])(
     'rejects malformed decision response %j',
     async (response) => {
