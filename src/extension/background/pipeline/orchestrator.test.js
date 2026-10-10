@@ -873,12 +873,14 @@ describe('runPipeline', () => {
     ]);
     llm.callLLMWithRetry.mockResolvedValue('1: Topic');
     let decisionRanInsideLimiter = false;
+    let decisionSignal;
     pipelineLimiter.run.mockImplementation(async (fn, signal) => {
       const decisionCallsBefore = decisionClient.decide.mock.calls.length;
       const result = await fn();
       if (decisionClient.decide.mock.calls.length > decisionCallsBefore) {
         decisionRanInsideLimiter = true;
-        expect(signal).toBe(controller.signal);
+        decisionSignal = signal;
+        expect(signal.aborted).toBe(false);
       }
       return result;
     });
@@ -886,10 +888,12 @@ describe('runPipeline', () => {
       await runPipeline('decision-limited', { signal: controller.signal });
 
       expect(decisionRanInsideLimiter).toBe(true);
+      controller.abort();
+      expect(decisionSignal.aborted).toBe(true);
       expect(decisionClient.decide).toHaveBeenCalledWith(
         expect.any(Object),
         expect.any(Object),
-        expect.objectContaining({ signal: controller.signal, verboseLogs: true }),
+        expect.objectContaining({ signal: decisionSignal, verboseLogs: true }),
       );
     } finally {
       pipelineLimiter.run.mockImplementation((fn) => fn());

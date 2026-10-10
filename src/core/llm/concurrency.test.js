@@ -471,3 +471,101 @@ describe('createAdjustableLimiter', () => {
     expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
   });
 });
+
+describe('provider isolation and record fairness', () => {
+  it.each([4, 10])(
+    'uses all standard slots for one server at a global limit of %s',
+    async (limit) => {
+      const { createAdjustableLimiter } = await getConcurrency();
+      const limiter = createAdjustableLimiter(limit, { reservedPrioritySlots: 1 });
+      const started = [];
+      const releases = new Map();
+      const run = (id, options) =>
+        limiter.run(
+          () => {
+            started.push(id);
+            return new Promise((resolve) => {
+              releases.set(id, resolve);
+            });
+          },
+          undefined,
+          options,
+        );
+      const tasks = Array.from({ length: limit }, (_, index) =>
+        run(index, { providerKey: 'built-in-completion' }),
+      );
+      await vi.waitFor(() => expect(started).toHaveLength(limit - 1));
+      tasks.push(run('chat', { priority: true }));
+      await vi.waitFor(() => expect(started).toContain('chat'));
+      expect(started).toHaveLength(limit);
+      releases.get(0)();
+      await vi.waitFor(() => expect(started).toContain(limit - 1));
+      releases.forEach((release) => release());
+      await Promise.all(tasks);
+    },
+  );
+
+  it('prefers a competing server at the next free slot and preserves chat capacity', async () => {
+    const { createAdjustableLimiter } = await getConcurrency();
+    const limiter = createAdjustableLimiter(4, { reservedPrioritySlots: 1 });
+    const releases = new Map();
+    const started = [];
+    const run = (id, options) =>
+      limiter.run(
+        () => {
+          started.push(id);
+          return new Promise((resolve) => {
+            releases.set(id, resolve);
+          });
+        },
+        undefined,
+        options,
+      );
+    const tasks = ['d1', 'd2', 'd3', 'd4'].map((id) => run(id, { providerKey: 'decision' }));
+    await vi.waitFor(() => expect(started).toEqual(['d1', 'd2', 'd3']));
+    tasks.push(run('completion', { providerKey: 'completion' }));
+    tasks.push(run('chat', { priority: true }));
+    await vi.waitFor(() => expect(started).toContain('chat'));
+    releases.get('d1')();
+    await vi.waitFor(() => expect(started).toContain('completion'));
+    expect(started).not.toContain('d4');
+    releases.get('d2')();
+    await vi.waitFor(() => expect(started).toContain('d4'));
+    releases.forEach((release) => release());
+    await Promise.all(tasks);
+  });
+
+  it('rotates queued work across three records while keeping each record ordered', async () => {
+    const { createAdjustableLimiter } = await getConcurrency();
+    const limiter = createAdjustableLimiter(1);
+    let release;
+    const blocker = limiter.run(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const started = [];
+    const enqueue = (record, id) =>
+      limiter.run(
+        async () => {
+          started.push(id);
+        },
+        undefined,
+        { providerKey: 'server', fairnessKey: record },
+      );
+    const tasks = [
+      enqueue('a', 'a1'),
+      enqueue('a', 'a2'),
+      enqueue('a', 'a3'),
+      enqueue('b', 'b1'),
+      enqueue('b', 'b2'),
+      enqueue('c', 'c1'),
+      enqueue('c', 'c2'),
+    ];
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    release();
+    await Promise.all([blocker, ...tasks]);
+    expect(started).toEqual(['a1', 'b1', 'c1', 'a2', 'b2', 'c2', 'a3']);
+  });
+});

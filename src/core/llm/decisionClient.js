@@ -2,6 +2,7 @@
 import { createLogger } from '../../shared/runtime/log.js';
 import { createRequestTimeoutSignal, mergeAbortSignals } from './abortSignals.js';
 import { ProviderType, validateDecisionUrl } from './providers.js';
+import { parseRetryAfterMs } from './clients.js';
 
 const log = createLogger('Decision client');
 
@@ -165,6 +166,7 @@ export class DecisionClient {
         }
         throw Object.assign(new Error(`llama.cpp returned HTTP ${response.status}: ${body}`), {
           status: response.status,
+          retryAfterMs: parseRetryAfterMs(response.headers?.get?.('Retry-After')),
           body,
           response: parsed,
         });

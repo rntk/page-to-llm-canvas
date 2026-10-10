@@ -961,3 +961,191 @@ describe('topic-ranges incremental retry', () => {
     expect(cleared.topic_range_chunks).toBeNull();
   });
 });
+
+describe('resumable decision splitting', () => {
+  beforeEach(() => vi.clearAllMocks());
+  const answers = (questions, split = 1) => ({
+    answers: Object.fromEntries(
+      Object.keys(questions).map((id) => [
+        id,
+        { choice: split ? 'split' : 'continue', probabilities: { split, continue: 1 - split } },
+      ]),
+    ),
+  });
+
+  it('reuses boundaries and partial labels after a labeling failure in a previous worker', async () => {
+    const texts = ['Cats purr.', 'Stocks fall.', 'Rain falls.'];
+    splitSentences.mockReturnValue(texts.map((text) => ({ text })));
+    const record = { capturedText: texts.join(' '), contentRevision: 'rev-resume' };
+    let persisted;
+    const runtime = makePipelineRuntime({
+      maxTextChunkChars: 50000,
+      update: vi.fn(async (patch) => {
+        if (patch.topic_range_chunks) persisted = structuredClone(patch.topic_range_chunks);
+      }),
+    });
+    const decide = vi.fn(async (_state, questions) => answers(questions));
+    const failedLabels = vi
+      .fn()
+      .mockResolvedValueOnce('1: Cats')
+      .mockRejectedValue(Object.assign(new Error('unauthorized'), { status: 401 }));
+    await expect(
+      computeTopics({ runtime, record, decide, callLLMWithRetry: failedLabels }),
+    ).rejects.toThrow('unauthorized');
+    expect(persisted.labels).toEqual({ '0:0': ['Cats'] });
+    expect(persisted.probabilities).toEqual({ b2: 1, b3: 1 });
+
+    const restoredRuntime = makePipelineRuntime({ maxTextChunkChars: 50000 });
+    const retryDecide = vi.fn();
+    const retryLabels = vi.fn(async () => '1: Markets\n2: Weather');
+    const result = await computeTopics({
+      runtime: restoredRuntime,
+      record: { ...record, topic_range_chunks: persisted },
+      decide: retryDecide,
+      callLLMWithRetry: retryLabels,
+    });
+    expect(retryDecide).not.toHaveBeenCalled();
+    expect(retryLabels).toHaveBeenCalledTimes(1);
+    expect(retryLabels.mock.calls[0][0].prompt).not.toContain('Cats purr.');
+    expect(result.topics.map((topic) => topic.name)).toEqual(['Cats', 'Markets', 'Weather']);
+    expect(restoredRuntime.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ topic_range_chunks: null }),
+    );
+  });
+
+  it('reuses successful boundary batches after a later boundary failure', async () => {
+    const texts = Array.from({ length: 10 }, (_, index) => `Sentence ${index}.`);
+    splitSentences.mockReturnValue(texts.map((text) => ({ text })));
+    const record = { capturedText: texts.join(' '), contentRevision: 'rev-boundaries' };
+    let persisted;
+    const runtime = makePipelineRuntime({
+      maxTextChunkChars: 50000,
+      update: vi.fn(async (patch) => {
+        if (patch.topic_range_chunks) persisted = structuredClone(patch.topic_range_chunks);
+      }),
+    });
+    const sequential = async (items, _limit, fn) => {
+      const results = [];
+      for (const [index, item] of items.entries()) results.push(await fn(item, index));
+      return results;
+    };
+    const decide = vi.fn(async (_state, questions) => {
+      if (Object.hasOwn(questions, 'b10')) throw new Error('server failed');
+      return answers(questions, 0);
+    });
+    await expect(
+      computeTopics({
+        runtime,
+        record,
+        decide,
+        callLLMWithRetry: vi.fn(),
+        dependencies: { parallelMap: sequential },
+      }),
+    ).rejects.toThrow('server failed');
+    expect(Object.keys(persisted.probabilities)).toHaveLength(8);
+    const retryDecide = vi.fn(async (_state, questions) => answers(questions, 0));
+    await computeTopics({
+      runtime: makePipelineRuntime({ maxTextChunkChars: 50000 }),
+      record: { ...record, topic_range_chunks: persisted },
+      decide: retryDecide,
+      callLLMWithRetry: vi.fn(async () => '1: Topic'),
+    });
+    expect(retryDecide).toHaveBeenCalledTimes(1);
+    expect(Object.keys(retryDecide.mock.calls[0][1])).toEqual(['b10']);
+  });
+});
+
+describe('checkpoint persistence during sibling failure', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it.each([false, true])(
+    'keeps successful queued saves, including a response racing with abort=%s',
+    async (lateResponse) => {
+      const texts = Array.from({ length: 18 }, (_, index) => `Sentence ${index}.`);
+      splitSentences.mockReturnValue(texts.map((text) => ({ text })));
+      const record = { capturedText: texts.join(' '), contentRevision: 'rev-queued-saves' };
+      const parent = new AbortController();
+      let releaseWrite;
+      let persisted;
+      let checkpointWrites = 0;
+      const runtime = makePipelineRuntime({
+        signal: parent.signal,
+        maxTextChunkChars: 50000,
+        update: vi.fn(async (patch) => {
+          if (!patch.topic_range_chunks) return;
+          if (++checkpointWrites === 1)
+            await new Promise((resolve) => {
+              releaseWrite = resolve;
+            });
+          persisted = structuredClone(patch.topic_range_chunks);
+        }),
+      });
+      const requests = [];
+      const decide = vi.fn(
+        (_state, questions, { signal }) =>
+          new Promise((resolve, reject) => {
+            requests.push({
+              questions,
+              signal,
+              resolve: () =>
+                resolve({
+                  answers: Object.fromEntries(
+                    Object.keys(questions).map((id) => [
+                      id,
+                      { choice: 'continue', probabilities: { split: 0, continue: 1 } },
+                    ]),
+                  ),
+                }),
+              reject,
+            });
+          }),
+      );
+      let settled = false;
+      const outcome = computeTopics({ runtime, record, decide, callLLMWithRetry: vi.fn() }).then(
+        () => {
+          settled = true;
+          return null;
+        },
+        (error) => {
+          settled = true;
+          return error;
+        },
+      );
+      await vi.waitFor(() => expect(requests).toHaveLength(3));
+      requests[0].resolve();
+      await vi.waitFor(() => expect(releaseWrite).toBeTypeOf('function'));
+      if (!lateResponse) {
+        requests[1].resolve();
+        // Drain successful-response continuations while A's storage write remains blocked.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      const failure = new Error('third batch failed');
+      requests[2].reject(failure);
+      await vi.waitFor(() => expect(requests[1].signal.aborted).toBe(true));
+      if (lateResponse) requests[1].resolve();
+      expect(parent.signal.aborted).toBe(false);
+      expect(settled).toBe(false);
+      releaseWrite();
+      expect(await outcome).toBe(failure);
+      expect(checkpointWrites).toBe(2);
+      expect(Object.keys(persisted.probabilities)).toHaveLength(16);
+
+      const retryDecide = vi.fn(async (_state, questions) => ({
+        answers: Object.fromEntries(
+          Object.keys(questions).map((id) => [
+            id,
+            { choice: 'continue', probabilities: { split: 0, continue: 1 } },
+          ]),
+        ),
+      }));
+      await computeTopics({
+        runtime: makePipelineRuntime({ maxTextChunkChars: 50000 }),
+        record: { ...record, topic_range_chunks: persisted },
+        decide: retryDecide,
+        callLLMWithRetry: vi.fn(async () => '1: Topic'),
+      });
+      expect(retryDecide).toHaveBeenCalledTimes(1);
+      expect(Object.keys(retryDecide.mock.calls[0][1])).toEqual(['b18']);
+    },
+  );
+});

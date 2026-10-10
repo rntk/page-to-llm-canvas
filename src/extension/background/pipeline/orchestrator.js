@@ -28,6 +28,24 @@ import { resolveMaxOutputTokens } from '../../../core/llm/outputBudget.js';
 import { resolveProviderTemperature } from '../../../core/llm/temperatures.js';
 import { LLM_TASK_TYPES } from '../../../core/metrics/llm.js';
 
+function providerQueueKey(provider) {
+  return provider?.url
+    ? new URL(provider.url).href.replace(/\/+$/, '').replace(/\/v1$/, '')
+    : (provider?.type ?? 'completion');
+}
+
+function providerCacheIdentity(provider) {
+  return provider
+    ? [
+        provider.id,
+        provider.type,
+        provider.url ?? null,
+        provider.model ?? null,
+        provider.contextWindowTokens ?? null,
+      ]
+    : null;
+}
+
 // Reject malformed topics or missing sentence references without erasing saved
 // summaries. Empty topics may coexist with valid ones, but at least one topic
 // must resolve to nonblank source text.
@@ -145,8 +163,11 @@ export function createPipelineRunner({
   // not just the HTTP call, so a replacement request can't hit the same
   // failing/rate-limited provider mid-backoff. The signal is passed through so a
   // queued call can still be cancelled without waiting for a slot.
-  const callLLMWithRetry = (opts, maxRetries) =>
-    limiter.run(() => measuredCallLLMWithRetry(opts, maxRetries), opts?.signal);
+  const callLLMWithRetry = (opts, maxRetries, fairnessKey) =>
+    limiter.run(() => measuredCallLLMWithRetry(opts, maxRetries), opts?.signal, {
+      providerKey: providerQueueKey(opts?.provider),
+      fairnessKey,
+    });
   let concurrencySettingRevision = 0;
   let disposed = false;
   const unsubscribe = settings.subscribeToMaxParallelLlmRequests((newValue) => {
@@ -203,8 +224,11 @@ export function createPipelineRunner({
       // picked up by the next pipeline run instead of silently changing this run's
       // context limit between requests or retries.
       const callRunLLMWithRetry = (opts, maxRetries) =>
-        callLLMWithRetry({ ...opts, provider: activeProvider }, maxRetries);
+        callLLMWithRetry({ ...opts, provider: activeProvider }, maxRetries, key);
       let decisionClient = null;
+      if (decisionProvider && !llm.createDecisionClient) {
+        throw new Error('The selected topic splitter has no Decision API client factory');
+      }
       if (decisionProvider && llm.createDecisionClient) {
         try {
           decisionClient = llm.createDecisionClient(decisionProvider);
@@ -223,7 +247,10 @@ export function createPipelineRunner({
         : undefined;
       const decide = measuredDecide
         ? (state, questions, opts) =>
-            limiter.run(() => measuredDecide(state, questions, opts), opts?.signal)
+            limiter.run(() => measuredDecide(state, questions, opts), opts?.signal, {
+              providerKey: providerQueueKey(decisionProvider),
+              fairnessKey: key,
+            })
         : undefined;
 
       runtime = runtimeFactory({
@@ -366,6 +393,14 @@ export function createPipelineRunner({
           record,
           callLLMWithRetry: callRunLLMWithRetry,
           decide,
+          decisionOptions: {
+            contextWindowTokens: decisionProvider?.contextWindowTokens,
+            inputFingerprint: JSON.stringify([
+              providerCacheIdentity(decisionProvider),
+              providerCacheIdentity(activeProvider),
+              resolveProviderTemperature(activeProvider, LLM_TASK_TYPES.TOPIC_LABELS) ?? null,
+            ]),
+          },
         }));
         if (!topics) return;
       }

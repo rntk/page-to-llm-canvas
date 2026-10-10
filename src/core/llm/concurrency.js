@@ -62,10 +62,14 @@ export function createLimiter(limit) {
 
 /**
  * Returns a concurrency limiter whose cap can be changed without replacing the
- * queue. Each priority lane remains FIFO. Optional reserved priority capacity
+ * queue. Priority tasks remain FIFO. Optional reserved priority capacity
  * keeps background work from occupying every slot, while priority work may use
  * any free slot. When the limit is one, normal work remains enabled and strict
  * reservation is impossible.
+ * Standard tasks may supply a providerKey and fairnessKey. Prefer providers
+ * below half (rounded up) of standard capacity when servers compete. Otherwise
+ * use idle standard slots. Eligible records rotate; requests within a record
+ * remain FIFO. Running tasks are never preempted when another server arrives.
  *
  * @param {number} initialLimit
  * @param {object} [options]
@@ -78,6 +82,7 @@ export function createAdjustableLimiter(initialLimit, { reservedPrioritySlots = 
   let active = 0;
   let activeStandard = 0;
   const queue = [];
+  const activeProviders = new Map();
 
   function drain() {
     while (active < limit && queue.length > 0) {
@@ -89,31 +94,61 @@ export function createAdjustableLimiter(initialLimit, { reservedPrioritySlots = 
         const standardLimit =
           limit === 1 ? 1 : Math.max(1, limit - Math.min(priorityReserve, limit - 1));
         if (activeStandard >= standardLimit) return;
-        next = queue.shift();
+        const providerLimit = Math.max(1, Math.ceil(standardLimit / 2));
+        const eligible = (entry) =>
+          !entry.providerKey || (activeProviders.get(entry.providerKey) ?? 0) < providerLimit;
+        const preferredIndex = queue.findIndex(eligible);
+        // A provider share is a scheduling preference, not an idle reservation.
+        // If no underserved provider can use this slot, let queued work use it.
+        const index = preferredIndex >= 0 ? preferredIndex : 0;
+        next = queue.splice(index, 1)[0];
+        if (next.fairnessKey != null) {
+          // Move this record's remaining requests behind its peers. This is a
+          // round-robin rotation rather than merely alternating two records.
+          const peers = queue.filter((entry) => entry.fairnessKey !== next.fairnessKey);
+          const siblings = queue.filter((entry) => entry.fairnessKey === next.fairnessKey);
+          queue.splice(0, queue.length, ...peers, ...siblings);
+        }
       }
       // The entry has started now; its abort listener (if any) no longer
       // needs to watch the queue — the running fn handles its own abort.
       if (next.signal) next.signal.removeEventListener('abort', next.onAbort);
       active++;
       if (!next.priority) activeStandard++;
+      if (!next.priority && next.providerKey) {
+        activeProviders.set(next.providerKey, (activeProviders.get(next.providerKey) ?? 0) + 1);
+      }
       Promise.resolve()
         .then(next.fn)
         .then(next.resolve, next.reject)
         .finally(() => {
           active--;
           if (!next.priority) activeStandard--;
+          if (!next.priority && next.providerKey) {
+            const count = activeProviders.get(next.providerKey) - 1;
+            if (count === 0) activeProviders.delete(next.providerKey);
+            else activeProviders.set(next.providerKey, count);
+          }
           drain();
         });
     }
   }
 
   return {
-    run(fn, signal, { priority = false } = {}) {
+    run(fn, signal, { priority = false, providerKey, fairnessKey } = {}) {
       if (signal?.aborted) {
         return Promise.reject(makeAbortError('LLM request aborted'));
       }
       return new Promise((resolve, reject) => {
-        const entry = { fn, resolve, reject, signal, priority: priority === true };
+        const entry = {
+          fn,
+          resolve,
+          reject,
+          signal,
+          priority: priority === true,
+          providerKey,
+          fairnessKey,
+        };
         if (signal) {
           entry.onAbort = () => {
             const index = queue.indexOf(entry);

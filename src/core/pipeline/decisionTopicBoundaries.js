@@ -5,6 +5,8 @@
 
 import { choice } from '../llm/decisionClient.js';
 import { sleepWithAbort } from '../llm/abortSignals.js';
+import { executeDecisionWithRetry, DECISION_MAX_ATTEMPTS } from '../llm/decisionRetry.js';
+import { estimateTokens } from '../llm/tokenEstimator.js';
 import { parallelMap as defaultParallelMap } from '../llm/concurrency.js';
 import { rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
 import { TOPIC_RANGE_CONCURRENCY } from './pipelineConfig.js';
@@ -35,9 +37,7 @@ export const DECISION_BATCH_SIZE = 8;
 export const DECISION_CONTEXT_SENTENCES = 2;
 export const DECISION_MAX_SENTENCE_CHARS = 2000;
 // Attempts per request for transient failures (busy/loading server, reset connection).
-export const DECISION_MAX_ATTEMPTS = 3;
-const DECISION_RETRY_DELAY_MS = 500;
-const TRANSIENT_STATUSES = [429, 502, 503, 504];
+export { DECISION_MAX_ATTEMPTS };
 
 const OVERSIZED_RE =
   /input.*too large|context.*(?:exceed|too (?:large|long))|exceed.*context|too many tokens/i;
@@ -47,11 +47,6 @@ function isOversizedError(error) {
     [400, 413, 500].includes(error?.status) &&
     OVERSIZED_RE.test(String(error?.body ?? error?.message ?? ''))
   );
-}
-
-// fetch rejects network failures with a statusless TypeError.
-function isTransientError(error) {
-  return TRANSIENT_STATUSES.includes(error?.status) || error instanceof TypeError;
 }
 
 function readSplitProbability(result, questionId) {
@@ -141,6 +136,9 @@ function joinContinuedSentences(sentences, text) {
  * @param {number} [input.contextSentences] Extra sentences on each side.
  * @param {number} [input.maxSentenceChars] Per-sentence cap in the request state.
  * @param {Function} [input.parallelMap] Concurrency helper.
+ * @param {number} [input.contextWindowTokens] Decision provider context budget.
+ * @param {object} [input.checkpoint] Validated gap cache and persistence callback.
+ * @param {Function} [input.random] Retry jitter source.
  * @param {Function} [input.sleep] `(ms, signal)` abortable retry backoff.
  * @returns {Promise<Array<{after: number, value: number|null, split: boolean,
  *   withinSentence?: true}>>} One entry per gap; `after` is the zero-based index of the
@@ -157,7 +155,16 @@ export async function decideTopicBoundaries({
   maxSentenceChars = DECISION_MAX_SENTENCE_CHARS,
   parallelMap = defaultParallelMap,
   sleep = sleepWithAbort,
+  random = Math.random,
+  contextWindowTokens,
+  checkpoint,
 }) {
+  if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+    throw new Error('threshold must be between 0 and 1');
+  }
+  if (!Number.isInteger(maxSentenceChars) || maxSentenceChars < 1) {
+    throw new Error('maxSentenceChars must be >= 1');
+  }
   if (!Number.isInteger(batchSize) || batchSize < 1) throw new Error('batchSize must be >= 1');
   if (!Number.isInteger(contextSentences) || contextSentences < 0) {
     throw new Error('contextSentences must be >= 0');
@@ -196,33 +203,46 @@ export async function decideTopicBoundaries({
 
   // One request with transient-error retries; the backoff aborts with the run.
   async function requestWithRetry(state, questions, request) {
-    for (let attempt = 1; ; attempt++) {
-      if (runtime) throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
-      requestCount++;
-      try {
-        return await decide(state, questions, { signal: runtime?.signal });
-      } catch (error) {
-        rethrowIfCancelled(error, runtime, TOPIC_RANGE_ABORT_MESSAGE);
-        if (attempt >= DECISION_MAX_ATTEMPTS || !isTransientError(error)) throw error;
-        retryCount++;
-        const delayMs = DECISION_RETRY_DELAY_MS * 2 ** (attempt - 1);
-        await runtime?.log('topic_boundaries_retry', {
-          ...request,
-          attempt,
-          delayMs,
-          ...(Number.isFinite(error?.status) ? { status: error.status } : {}),
-          error: String(error?.message ?? error).slice(0, 500),
-        });
-        await sleep(delayMs, runtime?.signal);
-      }
-    }
+    return executeDecisionWithRetry(
+      async () => {
+        if (runtime) throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
+        requestCount++;
+        return decide(state, questions, { signal: runtime?.signal });
+      },
+      {
+        signal: runtime?.signal,
+        sleep,
+        random,
+        onRetry: async ({ attempt, delayMs, error }) => {
+          retryCount++;
+          await runtime?.log('topic_boundaries_retry', {
+            ...request,
+            attempt,
+            delayMs,
+            ...(Number.isFinite(error?.status) ? { status: error.status } : {}),
+            error: String(error?.message ?? error).slice(0, 500),
+          });
+        },
+      },
+    );
   }
 
   // Split probabilities for gaps [start, stop); gap `index` sits before content[index].
   // An oversized batch shrinks locally, independent of other batches.
   async function decideGaps(start, stop, context) {
+    if (runtime) throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
+    const cached = checkpoint?.probabilities ?? {};
+    const ids = Array.from(
+      { length: stop - start },
+      (_, offset) => `b${content[start + offset].id}`,
+    );
+    if (ids.every((id) => Object.hasOwn(cached, id))) {
+      decidedCount += ids.length;
+      return ids.map((id) => cached[id]);
+    }
     const questions = {};
     for (let index = start; index < stop; index++) {
+      if (Object.hasOwn(cached, `b${content[index].id}`)) continue;
       const left = content[index - 1].id;
       const right = content[index].id;
       questions[`b${right}`] = choice(
@@ -232,13 +252,45 @@ export async function decideTopicBoundaries({
         SPLIT_CHOICES,
       );
     }
-    const state = {
+    let state = {
       task: SEGMENTATION_BRIEF,
       content: content.slice(
         Math.max(0, start - 1 - context),
         Math.min(content.length, stop + context),
       ),
     };
+    // Include instructions, JSON framing, questions, and reserved answer space.
+    const contextTokens = Number(contextWindowTokens);
+    const fits = () =>
+      !Number.isFinite(contextTokens) ||
+      contextTokens <= 0 ||
+      estimateTokens(JSON.stringify({ state, questions })) +
+        256 +
+        Object.keys(questions).length * 128 <=
+        contextTokens;
+    if (!fits()) {
+      if (stop - start > 1) {
+        const middle = start + Math.floor((stop - start) / 2);
+        return [
+          ...(await decideGaps(start, middle, context)),
+          ...(await decideGaps(middle, stop, context)),
+        ];
+      }
+      if (context > 0) return decideGaps(start, stop, 0);
+      let cap = maxSentenceChars;
+      while (!fits() && cap > 1) {
+        cap = Math.max(1, Math.floor(cap / 2));
+        state = {
+          ...state,
+          content: state.content.map((item) => ({
+            ...item,
+            text: fitTextToChars(item.text, cap),
+          })),
+        };
+      }
+      if (!fits())
+        throw new Error('Decision context window is too small for one boundary question');
+    }
     const request = { gapStart: start, gapEnd: stop - 1, questionCount: stop - start };
     const requestStartedAt = Date.now();
     let result;
@@ -273,7 +325,15 @@ export async function decideTopicBoundaries({
     }
     const values = [];
     for (let index = start; index < stop; index++) {
-      values.push(readSplitProbability(result, `b${content[index].id}`));
+      const id = `b${content[index].id}`;
+      values.push(Object.hasOwn(cached, id) ? cached[id] : readSplitProbability(result, id));
+    }
+    // Validate the full batch before committing any answers.
+    if (checkpoint) {
+      ids.forEach((id, index) => {
+        cached[id] = values[index];
+      });
+      await checkpoint.save();
     }
     decidedCount += values.length;
     await runtime?.log(

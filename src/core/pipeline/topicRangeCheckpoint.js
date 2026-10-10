@@ -11,6 +11,7 @@ export const TOPIC_RANGE_ABORT_MESSAGE = 'pipeline aborted during topic ranging'
 export function readTopicRangeChunkCheckpoint(record, chunks) {
   const checkpoint = record?.topic_range_chunks;
   if (!checkpoint || typeof checkpoint !== 'object') return null;
+  if (checkpoint.mode === 'decision') return null;
   if (!Array.isArray(chunks) || chunks.length === 0) return null;
   if (!Array.isArray(checkpoint.chunks) || checkpoint.chunks.length !== chunks.length) return null;
   const revision = record?.contentRevision;

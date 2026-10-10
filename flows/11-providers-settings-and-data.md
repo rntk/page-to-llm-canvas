@@ -36,7 +36,23 @@ or shrunk batch (`topic_boundaries_error`, `topic_boundaries_shrink`), and a run
 summary (`topic_boundaries_decided`) with split, near-threshold, request, and
 shrink counts. Per-batch progress and labeling requests need verbose logging.
 
-Each decision request times out after 60 seconds and is not retried. A splitter
+Each decision request times out after 60 seconds. The reusable decision executor
+retries transient HTTP/network failures up to three attempts with jitter and
+Retry-After support; backoff releases the shared request slot. The selected
+decision provider's context-window setting sizes the full request before sending,
+including instructions, questions, and reserved answer space. Batches shrink,
+then surrounding context is removed, then sentence excerpts shorten as needed.
+Server-reported size errors still trigger local batch shrinking.
+
+Completed gap probabilities and range labels are saved in the existing topic
+work document, including partially parsed labels. Retry and service-worker
+restart reuse only work matching the content revision, source/sentence digest,
+provider/model settings, prompt policy, and checkpoint version. Checkpoint
+writes are serialized and best effort. They use the parent run cancellation
+signal, so a sibling failure does not discard completed work waiting to be
+saved. User cancellation or loss of run ownership still stops writes.
+A terminal batch failure cancels sibling requests and drains them before the
+pipeline records failure. A splitter
 whose client cannot be constructed (e.g. a legacy invalid URL) fails the run with
 a "Topic splitter ... is misconfigured" error.
 

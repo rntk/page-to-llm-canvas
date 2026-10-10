@@ -98,6 +98,7 @@ export function parseTopicLabels(response, sectionCount) {
  * @param {string[]} input.sentenceTexts Source sentences.
  * @param {Function} input.callLLMWithRetry Completion provider call.
  * @param {Function} [input.parallelMap] Concurrency helper.
+ * @param {object} [input.checkpoint] Validated range-label cache and writer.
  * @returns {Promise<object[]>} Groups with labels and zero-based ranges.
  */
 export async function labelTopicRanges({
@@ -106,6 +107,7 @@ export async function labelTopicRanges({
   sentenceTexts,
   callLLMWithRetry,
   parallelMap = defaultParallelMap,
+  checkpoint,
 }) {
   if (ranges.length === 0) return [];
   const batches = batchRangesForLabels(ranges, sentenceTexts, runtime.maxTextChunkChars);
@@ -115,9 +117,22 @@ export async function labelTopicRanges({
     { verbose: true },
   );
   const labelled = await parallelMap(batches, TOPIC_RANGE_CONCURRENCY, async (batch, index) => {
-    const labels = new Array(batch.ranges.length).fill(null);
+    const keys = batch.ranges.map((range) => `${range.start}:${range.end}`);
+    const labels = keys.map((key) => checkpoint?.labels[key] ?? null);
+    const saveLabels = async () => {
+      if (!checkpoint) return;
+      let changed = false;
+      labels.forEach((label, position) => {
+        if (label && checkpoint.labels[keys[position]] !== label) {
+          checkpoint.labels[keys[position]] = label;
+          changed = true;
+        }
+      });
+      if (changed) await checkpoint.save();
+    };
     // Positions still unlabelled; a retry re-asks only these, renumbered from 1.
-    let pending = batch.ranges.map((_, position) => position);
+    let pending = batch.ranges.flatMap((_, position) => (labels[position] ? [] : [position]));
+    if (!pending.length) return labels;
     for (let attempt = 1; ; attempt++) {
       throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
       const prompt = buildTopicLabelsPrompt(
@@ -147,9 +162,15 @@ export async function labelTopicRanges({
         );
         const parsed = parseTopicLabels(response, pending.length);
         pending.forEach((position, local) => (labels[position] = parsed[local]));
+        await saveLabels();
         return labels;
       } catch (error) {
         rethrowIfCancelled(error, runtime, TOPIC_RANGE_ABORT_MESSAGE);
+        if (error instanceof TopicParseError) {
+          const partial = error.diagnostics?.labels ?? [];
+          pending.forEach((position, local) => (labels[position] = partial[local] ?? null));
+          await saveLabels();
+        }
         if (!(error instanceof TopicParseError) || attempt > TOPIC_RANGE_STAGE_MAX_RETRIES) {
           await runtime.log('topic_labels_llm_error', {
             batchIndex: index,
@@ -158,8 +179,6 @@ export async function labelTopicRanges({
           });
           throw error;
         }
-        const partial = error.diagnostics?.labels ?? [];
-        pending.forEach((position, local) => (labels[position] = partial[local] ?? null));
         pending = pending.filter((position) => !labels[position]);
         await runtime.log('topic_labels_parse_retry', {
           batchIndex: index,

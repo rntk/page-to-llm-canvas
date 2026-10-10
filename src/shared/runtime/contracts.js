@@ -149,8 +149,13 @@ export function isImportableRecord(record) {
  *   absolute segments for chunk `i`. Updated after successful parse rounds
  *   and cleared when the stage succeeds, so a Retry re-requests only chunks
  *   that never landed. Validated structurally on read (see
- *   `readTopicRangeChunkCheckpoint` in `src/core/pipeline/topicRangeCheckpoint.js`)
- *   and discarded whole unless `contentRevision` still matches, since an
+ *   `readTopicRangeChunkCheckpoint` in `src/core/pipeline/topicRangeCheckpoint.js`).
+ *   Decision splitting uses `{mode: 'decision', contentRevision, identity,
+ *   probabilities, labels}` in the same work document. Its identity includes a
+ *   source/sentence digest, request settings, prompts, and schema version;
+ *   probabilities are keyed by gap id and labels by absolute range start:end.
+ *   Both variants are cleared with the final topic write and discarded whole
+ *   unless `contentRevision` still matches, since an
  *   imported record can carry an arbitrary user-supplied value here.
  * @property {Record<string, object>} [topic_summaries] - Resumable summary
  *   checkpoints for paths without children, keyed by topic id and containing

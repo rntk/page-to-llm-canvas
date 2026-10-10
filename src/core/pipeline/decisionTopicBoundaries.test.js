@@ -257,7 +257,13 @@ describe('decideTopicBoundaries', () => {
     const sleep = vi.fn(async () => undefined);
 
     await expect(
-      decideTopicBoundaries({ decide, sentences: makeSentences(3), runtime, sleep }),
+      decideTopicBoundaries({
+        decide,
+        sentences: makeSentences(3),
+        runtime,
+        sleep,
+        random: () => 0.5,
+      }),
     ).rejects.toBe(error);
 
     expect(decide).toHaveBeenCalledTimes(DECISION_MAX_ATTEMPTS);
@@ -285,6 +291,7 @@ describe('decideTopicBoundaries', () => {
       sentences: makeSentences(3),
       runtime,
       sleep,
+      random: () => 0.5,
     });
 
     expect(boundaries.map((boundary) => boundary.split)).toEqual([true, true]);
@@ -611,5 +618,34 @@ describe('boundariesToRanges', () => {
     expect(() => boundariesToRanges(1, [boundary(0, true)])).toThrow(message);
     expect(() => boundariesToRanges(3, [boundary(1, true), boundary(0, true)])).toThrow(message);
     expect(() => boundariesToRanges(3, [boundary(0, true), boundary(2, true)])).toThrow(message);
+  });
+});
+
+describe('provider-aware decision sizing', () => {
+  it('sizes multilingual requests before sending and retains all boundary decisions', async () => {
+    const { estimateTokens } = await import('../llm/tokenEstimator.js');
+    const decide = makeDecide(() => 0.9);
+    const boundaries = await decideTopicBoundaries({
+      decide,
+      sentences: Array.from({ length: 10 }, () => ({ text: '漢'.repeat(2000) })),
+      contextWindowTokens: 4096,
+    });
+    expect(boundaries).toHaveLength(9);
+    expect(boundaries.every((boundary) => boundary.split)).toBe(true);
+    for (const [state, questions] of decide.mock.calls) {
+      expect(
+        estimateTokens(JSON.stringify({ state, questions })) +
+          256 +
+          Object.keys(questions).length * 128,
+      ).toBeLessThanOrEqual(4096);
+    }
+  });
+
+  it('fails before transport when even the minimum question cannot fit', async () => {
+    const decide = makeDecide();
+    await expect(
+      decideTopicBoundaries({ decide, sentences: makeSentences(2), contextWindowTokens: 10 }),
+    ).rejects.toThrow('too small');
+    expect(decide).not.toHaveBeenCalled();
   });
 });

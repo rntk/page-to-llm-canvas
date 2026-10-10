@@ -3,8 +3,19 @@ import { splitSentences } from './sentenceSplitter.js';
 import { groupsToTopics } from './topicRangeMapping.js';
 import { createTopicRangeDependencies } from './topicRangeDependencies.js';
 import { splitTopicRanges } from './topicRangeSplit.js';
-import { boundariesToRanges, decideTopicBoundaries } from './decisionTopicBoundaries.js';
+import {
+  boundariesToRanges,
+  decideTopicBoundaries,
+  SEGMENTATION_BRIEF,
+  DECISION_SPLIT_THRESHOLD,
+  DECISION_BATCH_SIZE,
+  DECISION_CONTEXT_SENTENCES,
+  DECISION_MAX_SENTENCE_CHARS,
+} from './decisionTopicBoundaries.js';
 import { labelTopicRanges } from './topicRangeLabels.js';
+import { buildTopicLabelsPrompt } from './prompts.js';
+import { createDecisionCheckpoint } from './decisionCheckpoint.js';
+import { executeDecisionStage } from './decisionStageExecution.js';
 import { PIPELINE_STAGE } from '../../shared/runtime/contracts.js';
 import {
   doneTransition,
@@ -16,10 +27,26 @@ import {
 
 /**
  * Decision-API split: the decision model places range boundaries, then the
- * completion LLM names each range. Not checkpointed; a retry starts over.
+ * completion LLM names each range. Completed gaps and labels are checkpointed.
+ * @param {object} input Stage capabilities and source snapshot.
  */
-async function splitWithDecisions({
+async function splitWithDecisions(input) {
+  return executeDecisionStage(
+    input.runtime,
+    input.dependencies.parallelMap,
+    (runtime, parallelMap) =>
+      splitDecisionRanges({
+        ...input,
+        runtime,
+        checkpointRuntime: input.runtime,
+        dependencies: { ...input.dependencies, parallelMap },
+      }),
+  );
+}
+
+async function splitDecisionRanges({
   runtime,
+  checkpointRuntime,
   record,
   text,
   sentenceObjs,
@@ -27,11 +54,30 @@ async function splitWithDecisions({
   decide,
   callLLMWithRetry,
   dependencies,
+  decisionOptions = {},
 }) {
+  const checkpoint = await createDecisionCheckpoint({
+    // Sibling failure stops requests, but completed work must still be saved.
+    // The parent runtime retains user cancellation and run-ownership guards.
+    runtime: checkpointRuntime,
+    record,
+    text: JSON.stringify([text, sentenceObjs]),
+    policy: [
+      decisionOptions,
+      SEGMENTATION_BRIEF,
+      DECISION_SPLIT_THRESHOLD,
+      DECISION_BATCH_SIZE,
+      DECISION_CONTEXT_SENTENCES,
+      DECISION_MAX_SENTENCE_CHARS,
+      runtime.maxTextChunkChars,
+      buildTopicLabelsPrompt('', {
+        preferContentLanguage: runtime.preferContentLanguage,
+      }),
+    ],
+  });
   await runtime.update({
     sentences: sentenceTexts,
     progress: progressAt(PIPELINE_STAGE.TOPIC_RANGES, 0, sentenceTexts.length),
-    ...(record?.topic_range_chunks ? { topic_range_chunks: null } : {}),
   });
   const boundaries = await decideTopicBoundaries({
     decide,
@@ -39,6 +85,8 @@ async function splitWithDecisions({
     text,
     runtime,
     parallelMap: dependencies.parallelMap,
+    contextWindowTokens: decisionOptions.contextWindowTokens,
+    checkpoint,
   });
   const ranges = boundariesToRanges(sentenceTexts.length, boundaries);
   const sizes = ranges.map((range) => range.end - range.start + 1).sort((a, b) => a - b);
@@ -56,6 +104,7 @@ async function splitWithDecisions({
     sentenceTexts,
     callLLMWithRetry,
     parallelMap: dependencies.parallelMap,
+    checkpoint,
   });
 }
 
@@ -70,6 +119,7 @@ async function splitWithDecisions({
  * @param {Function} [input.decide] Decision API request; when present, ranges come
  *   from decision boundaries and the LLM only names them.
  * @param {object} [input.dependencies] Telemetry, execution, and checkpoint capabilities.
+ * @param {object} [input.decisionOptions] Decision budget and provider cache identity.
  */
 export async function computeTopics({
   runtime,
@@ -77,6 +127,7 @@ export async function computeTopics({
   callLLMWithRetry,
   decide,
   dependencies: overrides,
+  decisionOptions,
 }) {
   const dependencies = createTopicRangeDependencies(overrides);
   await runtime.update({
@@ -146,6 +197,7 @@ export async function computeTopics({
         decide,
         callLLMWithRetry,
         dependencies,
+        decisionOptions,
       })
     : await splitTopicRanges({
         runtime,

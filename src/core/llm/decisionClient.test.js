@@ -22,6 +22,18 @@ describe('choice', () => {
 });
 
 describe('DecisionClient', () => {
+  it('preserves Retry-After for the reusable decision executor', async () => {
+    const transport = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: async () => 'busy',
+      headers: { get: (name) => (name === 'Retry-After' ? '7' : null) },
+    });
+    await expect(
+      new DecisionClient({ transport }).decide('state', { ok: question() }),
+    ).rejects.toMatchObject({ status: 429, retryAfterMs: 7000 });
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
   it.each(['http://localhost:8080/proxy', 'http://localhost:8080/proxy/v1/'])(
     'normalizes %s and sends the decision wire format',
     async (baseUrl) => {
