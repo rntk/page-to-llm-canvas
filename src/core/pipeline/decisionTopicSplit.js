@@ -10,7 +10,7 @@ import {
 import { labelTopicRanges } from './topicRangeLabels.js';
 import { buildTopicLabelsPrompt } from './prompts.js';
 import { createDecisionCheckpoint } from './decisionCheckpoint.js';
-import { executeDecisionStage } from './decisionStageExecution.js';
+import { runFailFastStage } from './failFastStage.js';
 
 /**
  * Decision-API split: the decision model places range boundaries, then the
@@ -18,16 +18,8 @@ import { executeDecisionStage } from './decisionStageExecution.js';
  * @param {object} input Stage capabilities and source snapshot.
  */
 export async function splitDecisionTopicRanges(input) {
-  return executeDecisionStage(
-    input.runtime,
-    input.dependencies.parallelMap,
-    (runtime, parallelMap) =>
-      splitDecisionRanges({
-        ...input,
-        runtime,
-        checkpointRuntime: input.runtime,
-        dependencies: { ...input.dependencies, parallelMap },
-      }),
+  return runFailFastStage(input.runtime, input.parallelMap, (runtime, parallelMap) =>
+    splitDecisionRanges({ ...input, runtime, checkpointRuntime: input.runtime, parallelMap }),
   );
 }
 
@@ -40,7 +32,7 @@ async function splitDecisionRanges({
   sentenceTexts,
   decide,
   callLLMWithRetry,
-  dependencies,
+  parallelMap,
   decisionOptions = {},
 }) {
   const checkpoint = await createDecisionCheckpoint({
@@ -67,7 +59,7 @@ async function splitDecisionRanges({
     sentences: sentenceObjs,
     text,
     runtime,
-    parallelMap: dependencies.parallelMap,
+    parallelMap,
     contextWindowTokens: decisionOptions.contextWindowTokens,
     checkpoint,
   });
@@ -86,7 +78,7 @@ async function splitDecisionRanges({
     ranges,
     sentenceTexts,
     callLLMWithRetry,
-    parallelMap: dependencies.parallelMap,
+    parallelMap,
     checkpoint,
   });
 }

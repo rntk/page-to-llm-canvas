@@ -112,14 +112,14 @@ export function planResume(record) {
  * @param {{getPreferContentLanguage: Function, getVerboseLogs: Function,
  *   getMaxParallelLlmRequests: Function, normalizeMaxParallelLlmRequests: Function,
  *   subscribeToMaxParallelLlmRequests: Function}} deps.settings
- * @param {{getActiveProvider: Function, getDecisionProvider?: Function}} deps.providerRepository
- * @param {{callLLMWithRetry: Function, createDecisionClient?: Function}} deps.llm
+ * @param {{getActiveProvider: Function, getDecisionProvider: Function}} deps.providerRepository
+ * @param {{callLLMWithRetry: Function, createDecisionClient: Function}} deps.llm
  *   `createDecisionClient(provider)` returns a client exposing `decide(state, questions, options)`.
  * @param {function(): {run: Function, setLimit: Function}} deps.limiterFactory
  *   Called exactly once per runner. A realm-level composition root may return
  *   its existing shared limiter; otherwise the factory may create one seeded
  *   with the same default the settings module normalizes towards.
- * @param {{wrapCallLLMWithRetry: Function, wrapDecide?: Function}} deps.telemetry
+ * @param {{wrapCallLLMWithRetry: Function, wrapDecide: Function}} deps.telemetry
  * @param {{info: Function, error: Function}} deps.logger
  * @returns {{runPipeline: Function, dispose: Function}}
  */
@@ -133,7 +133,12 @@ export function createPipelineRunner({
   logger,
 }) {
   const limiter = limiterFactory();
-  const bindProviders = createPipelineProviderServices({ llm, telemetry, limiter });
+  const bindProviders = createPipelineProviderServices({
+    providerRepository,
+    llm,
+    telemetry,
+    limiter,
+  });
   let concurrencySettingRevision = 0;
   let disposed = false;
   const unsubscribe = settings.subscribeToMaxParallelLlmRequests((newValue) => {
@@ -179,7 +184,6 @@ export function createPipelineRunner({
         limiter.setLimit(maxParallelLlmRequests);
       }
       const providers = bindProviders({ activeProvider, key, verboseLogs });
-      const callRunLLMWithRetry = providers.callLLMWithRetry;
       runtime = runtimeFactory({
         ...runtimeContext,
         preferContentLanguage,
@@ -250,7 +254,7 @@ export function createPipelineRunner({
             end: intent.endSentence - 1,
           },
           sentenceTexts,
-          callRunLLMWithRetry,
+          providers.callLLMWithRetry,
         );
         const applied = applyTopicResplit(record, intent, groupsToTopics(groups));
         if (!applied) {
@@ -306,17 +310,8 @@ export function createPipelineRunner({
           summariesIncomplete: false,
         });
       } else {
-        const decisionProvider = await providerRepository.getDecisionProvider?.();
-        const splitter = providers.createTopicSplitter(decisionProvider);
-        await runtime.log('topic_splitter_selected', {
-          topicSplitter: splitter.kind,
-          ...(decisionProvider
-            ? {
-                decisionProvider: decisionProvider.name,
-                decisionModel: decisionProvider.model || '',
-              }
-            : {}),
-        });
+        const splitter = await providers.resolveTopicSplitter();
+        await runtime.log('topic_splitter_selected', splitter.diagnostics);
         ({ topics, sentenceTexts } = await computeTopics({ runtime, record, splitter }));
         if (!topics) return;
       }
@@ -351,7 +346,7 @@ export function createPipelineRunner({
             : null,
         forceFinalize,
         acceptedMergeFailurePaths,
-        callLLMWithRetry: callRunLLMWithRetry,
+        callLLMWithRetry: providers.callLLMWithRetry,
       });
     } catch (error) {
       if (isCancellationError(error, runtime)) {

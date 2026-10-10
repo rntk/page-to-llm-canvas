@@ -379,7 +379,9 @@ describe('wrapDecide', () => {
       throw new Error('llama.cpp returned HTTP 503: busy');
     });
 
-    await expect(wrapDecide(raw, { model: 'qwen' })('state', {})).rejects.toThrow('HTTP 503');
+    await expect(
+      wrapDecide(raw, { provider: 'llama_decision', model: 'qwen' })('state', {}),
+    ).rejects.toThrow('HTTP 503');
 
     await vi.waitFor(async () => {
       expect((await getLlmMetrics()).failureCount).toBe(1);

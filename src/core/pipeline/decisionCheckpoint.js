@@ -29,8 +29,6 @@ export async function createDecisionCheckpoint({ runtime, record, text, policy }
     value.length > 0 &&
     value.every((part) => typeof part === 'string' && part.trim());
   const reusable =
-    typeof revision === 'string' &&
-    revision &&
     stored?.mode === 'decision' &&
     stored.contentRevision === revision &&
     stored.identity === identity &&
@@ -57,7 +55,6 @@ export async function createDecisionCheckpoint({ runtime, record, text, policy }
   }
   let writes = Promise.resolve();
   const save = () => {
-    if (typeof revision !== 'string' || !revision) return Promise.resolve();
     // Snapshot at submission time; serialize writes so a slower earlier write
     // cannot overwrite a newer snapshot from another completed batch.
     const checkpoint = structuredClone({

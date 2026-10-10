@@ -5,11 +5,10 @@ import { buildTopicLabelsPrompt } from './prompts.js';
 import { groupsFromSegments, TopicParseError } from './topicParser.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { TOPIC_RANGE_CONCURRENCY, TOPIC_RANGE_STAGE_MAX_RETRIES } from './pipelineConfig.js';
-import { rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
-import { TOPIC_RANGE_ABORT_MESSAGE } from './topicRangeCheckpoint.js';
+import { rethrowIfCancelled, throwIfCancelled, TOPIC_RANGE_ABORT_MESSAGE } from './cancellation.js';
 import { splitTopicPath } from '../../shared/runtime/topicPath.js';
 import { parallelMap as defaultParallelMap } from '../llm/concurrency.js';
-import { fitTextToChars } from './topicRangeChunking.js';
+import { fitTextToChars } from './textFit.js';
 
 // Enough of a section to name it; long sections keep their head and tail.
 export const LABEL_SECTION_MAX_CHARS = 1500;

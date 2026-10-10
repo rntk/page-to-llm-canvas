@@ -15,6 +15,12 @@ export const LLM_TASK_TYPES = Object.freeze({
   UNKNOWN: 'unknown',
 });
 
+// Primary topic-splitting strategies. Pipeline logs and split metrics share these ids.
+export const TOPIC_SPLITTER_KINDS = Object.freeze({
+  COMPLETION: 'llm',
+  DECISION: 'decision',
+});
+
 export const CHAT_TOOL_OUTCOMES = Object.freeze({
   HIGHLIGHTED: 'highlighted',
   BUDGET_EXHAUSTED: 'budget_exhausted',

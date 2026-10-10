@@ -35,8 +35,9 @@ function setup() {
     wrapCallLLMWithRetry: vi.fn((call) => call),
     wrapDecide: vi.fn((call) => call),
   };
-  const bind = createPipelineProviderServices({ llm, telemetry, limiter });
-  return { bind, llm, decide, limiter, telemetry };
+  const providerRepository = { getDecisionProvider: vi.fn(async () => decisionProvider) };
+  const bind = createPipelineProviderServices({ providerRepository, llm, telemetry, limiter });
+  return { bind, llm, decide, limiter, telemetry, providerRepository };
 }
 
 async function split(services, record = {}) {
@@ -47,7 +48,8 @@ async function split(services, record = {}) {
       if (patch.topic_range_chunks) checkpoint = structuredClone(patch.topic_range_chunks);
     }),
   });
-  const groups = await services.createTopicSplitter(decisionProvider).split({
+  const splitter = await services.resolveTopicSplitter();
+  const groups = await splitter.split({
     runtime,
     record: { contentRevision: 'revision', ...record },
     text: 'First. Second.',
@@ -76,6 +78,7 @@ describe('pipeline provider composition', () => {
       expect(keys).toEqual({ providerKey: 'https://models.example', fairnessKey: 'article' });
     }
     expect(telemetry.wrapDecide).toHaveBeenCalledWith(expect.any(Function), {
+      provider: 'llama_decision',
       model: 'decision-model',
     });
     expect(decide).toHaveBeenCalledWith(
@@ -90,6 +93,30 @@ describe('pipeline provider composition', () => {
       }),
       expect.any(Number),
     );
+  });
+
+  it('selects completion splitting without constructing a decision client', async () => {
+    const { bind, llm, providerRepository } = setup();
+    providerRepository.getDecisionProvider.mockResolvedValueOnce(null);
+    const splitter = await bind({
+      activeProvider: completionProvider,
+      key: 'a',
+    }).resolveTopicSplitter();
+    expect(splitter.diagnostics).toEqual({ topicSplitter: 'llm' });
+    expect(llm.createDecisionClient).not.toHaveBeenCalled();
+  });
+
+  it('describes the selected decision splitter for pipeline logs', async () => {
+    const { bind } = setup();
+    const splitter = await bind({
+      activeProvider: completionProvider,
+      key: 'a',
+    }).resolveTopicSplitter();
+    expect(splitter.diagnostics).toEqual({
+      topicSplitter: 'decision',
+      decisionProvider: 'Decisions',
+      decisionModel: 'decision-model',
+    });
   });
 
   it('pins completion dispatch to each run even when requests supply another provider', async () => {

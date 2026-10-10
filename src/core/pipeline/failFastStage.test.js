@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { executeDecisionStage } from './decisionStageExecution.js';
+import { runFailFastStage } from './failFastStage.js';
 import { parallelMap } from '../llm/concurrency.js';
 import { makeRuntime } from '../../../test/fakes/pipelineFixtures.mjs';
 
-describe('decision stage cancellation', () => {
+describe('fail-fast stage cancellation', () => {
   it('aborts and drains sibling work while preserving the initiating failure and parent signal', async () => {
     const parent = new AbortController();
     const error = new Error('invalid answer');
@@ -16,7 +16,7 @@ describe('decision stage cancellation', () => {
       signal.throwIfAborted();
     });
     await expect(
-      executeDecisionStage(makeRuntime({ signal: parent.signal }), parallelMap, (runtime, map) =>
+      runFailFastStage(makeRuntime({ signal: parent.signal }), parallelMap, (runtime, map) =>
         map([0, 1, 2, 3, 4], 2, (item) => workers(item, runtime.signal)),
       ),
     ).rejects.toBe(error);

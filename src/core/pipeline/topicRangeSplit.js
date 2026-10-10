@@ -15,10 +15,9 @@ import {
   TOPIC_RANGE_PROVIDER_MAX_ATTEMPTS,
   TOPIC_RANGE_STAGE_MAX_RETRIES,
 } from './pipelineConfig.js';
-import { rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
+import { rethrowIfCancelled, throwIfCancelled, TOPIC_RANGE_ABORT_MESSAGE } from './cancellation.js';
 import { isPermanentProviderError } from './providerFailure.js';
 import { runProviderBurst } from './providerBurst.js';
-import { TOPIC_RANGE_ABORT_MESSAGE } from './topicRangeCheckpoint.js';
 
 const TOPIC_RANGE_RETRY_BASE_DELAY_MS = 2000;
 // Same ceiling callLLMWithRetry applies to a provider's Retry-After, so a

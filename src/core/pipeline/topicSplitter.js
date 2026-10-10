@@ -1,13 +1,16 @@
 import { createTopicRangeDependencies } from './topicRangeDependencies.js';
 import { splitTopicRanges } from './topicRangeSplit.js';
 import { splitDecisionTopicRanges } from './decisionTopicSplit.js';
+import { parallelMap as defaultParallelMap } from '../llm/concurrency.js';
+import { TOPIC_SPLITTER_KINDS } from '../../shared/runtime/telemetry.js';
 
 /**
  * A primary splitter consumes prepared source and returns labelled groups with
  * zero-based inclusive sentence ranges. Strategies own intermediate checkpoints;
  * the topic stage owns source preparation, final writes, and lifecycle transitions.
  * @typedef {object} TopicSplitter
- * @property {'llm'|'decision'} kind Diagnostic strategy name.
+ * @property {string} kind One of `TOPIC_SPLITTER_KINDS`.
+ * @property {object} diagnostics Log-safe strategy description.
  * @property {function(object): Promise<object[]>} split Receives runtime, record,
  *   normalized text, sentenceObjs (offsets/continuations), and sentenceTexts.
  */
@@ -20,7 +23,8 @@ import { splitDecisionTopicRanges } from './decisionTopicSplit.js';
 export function createCompletionTopicSplitter({ callLLMWithRetry, dependencies: overrides }) {
   const dependencies = createTopicRangeDependencies(overrides);
   return {
-    kind: 'llm',
+    kind: TOPIC_SPLITTER_KINDS.COMPLETION,
+    diagnostics: { topicSplitter: TOPIC_SPLITTER_KINDS.COMPLETION },
     split: ({ runtime, record, sentenceTexts }) =>
       splitTopicRanges({
         runtime,
@@ -41,25 +45,32 @@ export function createCompletionTopicSplitter({ callLLMWithRetry, dependencies: 
 
 /**
  * Compose boundary decisions and completion labels into the same splitter contract.
- * @param {object} options Request capabilities, decision policy, and optional dependencies.
+ * @param {object} options Request capabilities and decision policy.
+ * @param {Function} options.decide Decision request bound to the selected provider.
+ * @param {Function} options.callLLMWithRetry Completion request used for labels.
+ * @param {{contextWindowTokens?: number, inputFingerprint?: string}} [options.decisionOptions]
+ *   Request budget and provider identity for checkpoint reuse.
+ * @param {object} [options.diagnostics] Log-safe provider description.
+ * @param {{parallelMap?: Function}} [options.dependencies] Execution override.
  * @returns {TopicSplitter}
  */
 export function createDecisionTopicSplitter({
   decide,
   callLLMWithRetry,
   decisionOptions,
-  dependencies: overrides,
+  diagnostics,
+  dependencies: { parallelMap = defaultParallelMap } = {},
 }) {
-  const dependencies = createTopicRangeDependencies(overrides);
   return {
-    kind: 'decision',
+    kind: TOPIC_SPLITTER_KINDS.DECISION,
+    diagnostics: { topicSplitter: TOPIC_SPLITTER_KINDS.DECISION, ...diagnostics },
     split: (input) =>
       splitDecisionTopicRanges({
         ...input,
         decide,
         callLLMWithRetry,
         decisionOptions,
-        dependencies,
+        parallelMap,
       }),
   };
 }

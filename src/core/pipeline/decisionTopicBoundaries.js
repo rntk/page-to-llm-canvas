@@ -7,11 +7,11 @@ import { choice } from '../llm/decisionClient.js';
 import { sleepWithAbort } from '../llm/abortSignals.js';
 import { executeDecisionWithRetry, DECISION_MAX_ATTEMPTS } from '../llm/decisionRetry.js';
 import { estimateTokens } from '../llm/tokenEstimator.js';
+import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { parallelMap as defaultParallelMap } from '../llm/concurrency.js';
-import { rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
+import { rethrowIfCancelled, throwIfCancelled, TOPIC_RANGE_ABORT_MESSAGE } from './cancellation.js';
 import { TOPIC_RANGE_CONCURRENCY } from './pipelineConfig.js';
-import { TOPIC_RANGE_ABORT_MESSAGE } from './topicRangeCheckpoint.js';
-import { fitTextToChars } from './topicRangeChunking.js';
+import { fitTextToChars } from './textFit.js';
 
 export const SPLIT_CHOICES = Object.freeze({
   continue: 'The next sentence continues the same concrete subject or idea.',
@@ -207,7 +207,10 @@ export async function decideTopicBoundaries({
       async () => {
         if (runtime) throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
         requestCount++;
-        return decide(state, questions, { signal: runtime?.signal });
+        return decide(state, questions, {
+          signal: runtime?.signal,
+          taskType: LLM_TASK_TYPES.TOPIC_BOUNDARIES,
+        });
       },
       {
         signal: runtime?.signal,

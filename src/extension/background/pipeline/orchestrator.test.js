@@ -6,7 +6,7 @@ import * as capturedText from '../../../core/pipeline/capturedText.js';
 import * as sentenceSplitter from '../../../core/pipeline/sentenceSplitter.js';
 import * as llm from '../../../core/llm/llm.js';
 import { getActiveProvider, getDecisionProvider } from '../../../core/llm/providers.js';
-import { LLM_TASK_TYPES, wrapCallLLMWithRetry } from '../../../core/metrics/llm.js';
+import { LLM_TASK_TYPES, wrapCallLLMWithRetry, wrapDecide } from '../../../core/metrics/llm.js';
 import { getStoredVerboseLogs } from '../../../shared/runtime/verboseLogSettings.js';
 import { getStoredPreferContentLanguage } from '../../../core/settings/language.js';
 import { RESPLIT_NO_CHANGE_NOTICE } from '../../../shared/runtime/recordTransitions.js';
@@ -106,7 +106,7 @@ const { runPipeline } = createPipelineRunner({
   providerRepository: { getActiveProvider, getDecisionProvider },
   llm: { callLLMWithRetry: llm.callLLMWithRetry, createDecisionClient },
   limiterFactory: () => pipelineLimiter,
-  telemetry: { wrapCallLLMWithRetry },
+  telemetry: { wrapCallLLMWithRetry, wrapDecide },
   logger: { info: vi.fn(), error: vi.fn() },
 });
 
@@ -184,7 +184,7 @@ describe('createPipelineRunner', () => {
       providerRepository: { getActiveProvider: vi.fn(async () => null) },
       llm: { callLLMWithRetry: vi.fn() },
       limiterFactory: () => limiter,
-      telemetry: { wrapCallLLMWithRetry: (call) => call },
+      telemetry: { wrapCallLLMWithRetry: (call) => call, wrapDecide: (call) => call },
       logger: { info: vi.fn(), error: vi.fn() },
     });
 
@@ -219,7 +219,7 @@ describe('createPipelineRunner', () => {
       providerRepository: { getActiveProvider: vi.fn() },
       llm: { callLLMWithRetry: vi.fn() },
       limiterFactory,
-      telemetry: { wrapCallLLMWithRetry: (call) => call },
+      telemetry: { wrapCallLLMWithRetry: (call) => call, wrapDecide: (call) => call },
       logger: { info: vi.fn(), error: vi.fn() },
     });
 

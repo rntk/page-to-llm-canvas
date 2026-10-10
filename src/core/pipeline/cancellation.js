@@ -2,6 +2,9 @@
 
 const CANCELLATION = Symbol.for('pipeline.cancellation');
 
+// Shared by every topic-splitting strategy and manual resplits.
+export const TOPIC_RANGE_ABORT_MESSAGE = 'pipeline aborted during topic ranging';
+
 /** Mark cancellation exits that do not abort the signal, such as losing run
  * ownership to a newer pipeline instance.
  * @param {Error} error Error created for a cancellation exit.

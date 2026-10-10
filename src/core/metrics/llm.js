@@ -1,9 +1,8 @@
 // LLM request duration, token, and prompt-cache metrics.
 
-import { LLM_TASK_TYPES } from '../../shared/runtime/telemetry.js';
+import { LLM_TASK_TYPES, TOPIC_SPLITTER_KINDS } from '../../shared/runtime/telemetry.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { getLocal, setLocal } from '../storage/primitives.js';
-import { ProviderType } from '../llm/providers.js';
 
 export { LLM_TASK_TYPES } from '../../shared/runtime/telemetry.js';
 
@@ -69,12 +68,12 @@ const KNOWN_TASK_TYPES = new Set(Object.values(LLM_TASK_TYPES));
  */
 export const TOPIC_SPLITTER_MODES = Object.freeze([
   Object.freeze({
-    mode: 'llm',
+    mode: TOPIC_SPLITTER_KINDS.COMPLETION,
     label: 'Completion LLM',
     taskTypes: Object.freeze([LLM_TASK_TYPES.TOPIC_RANGES]),
   }),
   Object.freeze({
-    mode: 'decision',
+    mode: TOPIC_SPLITTER_KINDS.DECISION,
     label: 'Decision API',
     taskTypes: Object.freeze([LLM_TASK_TYPES.TOPIC_BOUNDARIES, LLM_TASK_TYPES.TOPIC_LABELS]),
   }),
@@ -384,11 +383,11 @@ export function wrapCallLLMWithRetry(callLLMWithRetry) {
  *
  * @template {(...args: any[]) => Promise<any>} F
  * @param {F} decide
- * @param {{model?: string}} [defaults] Model recorded when a request fails before
- *   the client reports one.
+ * @param {{provider?: string, model?: string}} [defaults] Provider type and model
+ *   recorded when a request fails before the client reports them.
  * @returns {F}
  */
-export function wrapDecide(decide, { model } = {}) {
+export function wrapDecide(decide, { provider, model } = {}) {
   return /** @type {F} */ (
     async function timedDecide(state, questions, options) {
       const taskType = normalizeTaskType(options?.taskType ?? LLM_TASK_TYPES.TOPIC_BOUNDARIES);
@@ -413,7 +412,7 @@ export function wrapDecide(decide, { model } = {}) {
           durationMs: Date.now() - startedAt,
           ok: false,
           taskType,
-          provider: ProviderType.LLAMA_DECISION,
+          ...(provider ? { provider } : {}),
           ...(model ? { model } : {}),
           error: (err && err.message) || String(err),
         });

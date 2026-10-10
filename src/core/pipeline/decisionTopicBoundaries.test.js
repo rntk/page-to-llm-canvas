@@ -7,6 +7,7 @@ import {
   summarizeBoundaries,
 } from './decisionTopicBoundaries.js';
 import { makeRuntime } from '../../../test/fakes/pipelineFixtures.mjs';
+import { LLM_TASK_TYPES } from '../metrics/llm.js';
 
 function makeSentences(count) {
   return Array.from({ length: count }, (_, index) => ({ text: `S${index + 1}.` }));
@@ -232,7 +233,10 @@ describe('decideTopicBoundaries', () => {
 
     await decideTopicBoundaries({ decide, sentences: makeSentences(3), runtime });
 
-    expect(decide.mock.calls[0][2]).toEqual({ signal: controller.signal });
+    expect(decide.mock.calls[0][2]).toEqual({
+      signal: controller.signal,
+      taskType: LLM_TASK_TYPES.TOPIC_BOUNDARIES,
+    });
     expect(runtime.log).toHaveBeenCalledWith(
       'topic_boundaries_progress',
       expect.objectContaining({ decided: 2, total: 2, gapStart: 1, gapEnd: 2, splitCount: 0 }),

@@ -29,14 +29,20 @@ function providerCacheIdentity(provider) {
 }
 
 /**
- * Own provider dispatch, measurement, budgets, and request cache identities.
- * The limiter belongs to the composition root and is shared across all runs.
- * @param {object} deps Provider factories, telemetry, and shared limiter.
+ * Own provider dispatch, measurement, budgets, request cache identities, and
+ * topic-splitter selection. The limiter belongs to the composition root and is
+ * shared across all runs.
+ * @param {object} deps
+ * @param {{getDecisionProvider: Function}} deps.providerRepository Reads the
+ *   selected topic-splitter provider; null selects completion splitting.
+ * @param {{callLLMWithRetry: Function, createDecisionClient: Function}} deps.llm
+ *   `createDecisionClient(provider)` returns a client exposing `decide(state, questions, options)`.
+ * @param {{wrapCallLLMWithRetry: Function, wrapDecide: Function}} deps.telemetry
+ * @param {{run: Function}} deps.limiter Shared request limiter.
  * @returns {Function} Binds provider capabilities to a single run's snapshot.
  */
-export function createPipelineProviderServices({ llm, telemetry, limiter }) {
+export function createPipelineProviderServices({ providerRepository, llm, telemetry, limiter }) {
   const measuredCompletion = telemetry.wrapCallLLMWithRetry(llm.callLLMWithRetry);
-  const measureDecide = telemetry.wrapDecide ?? ((decide) => decide);
 
   return ({ activeProvider, key, verboseLogs }) => {
     // Completion retries hold one slot, including backoff. Decision transport
@@ -47,6 +53,43 @@ export function createPipelineProviderServices({ llm, telemetry, limiter }) {
         opts?.signal,
         { providerKey: providerQueueKey(activeProvider), fairnessKey: key },
       );
+
+    function createDecisionSplitter(decisionProvider) {
+      let client;
+      try {
+        client = llm.createDecisionClient(decisionProvider);
+      } catch (error) {
+        // Fail visibly rather than silently switching strategies.
+        throw new Error(
+          `Topic splitter "${decisionProvider.name}" is misconfigured: ${error?.message || error}`,
+        );
+      }
+      const measuredDecide = telemetry.wrapDecide(
+        (state, questions, opts) => client.decide(state, questions, { ...opts, verboseLogs }),
+        { provider: decisionProvider.type, model: decisionProvider.model },
+      );
+      const decide = (state, questions, opts) =>
+        limiter.run(() => measuredDecide(state, questions, opts), opts?.signal, {
+          providerKey: providerQueueKey(decisionProvider),
+          fairnessKey: key,
+        });
+      return createDecisionTopicSplitter({
+        decide,
+        callLLMWithRetry,
+        decisionOptions: {
+          contextWindowTokens: decisionProvider.contextWindowTokens,
+          inputFingerprint: JSON.stringify([
+            providerCacheIdentity(decisionProvider),
+            providerCacheIdentity(activeProvider),
+            resolveProviderTemperature(activeProvider, LLM_TASK_TYPES.TOPIC_LABELS) ?? null,
+          ]),
+        },
+        diagnostics: {
+          decisionProvider: decisionProvider.name,
+          decisionModel: decisionProvider.model || '',
+        },
+      });
+    }
 
     return {
       callLLMWithRetry,
@@ -63,42 +106,16 @@ export function createPipelineProviderServices({ llm, telemetry, limiter }) {
         resolveProviderTemperature(activeProvider, LLM_TASK_TYPES.ARTICLE_SUMMARY) ?? null,
       ]),
 
-      // Only primary splitting needs a decision client. Summary resumes and
-      // manual resplits must not depend on an unrelated provider's configuration.
-      createTopicSplitter(decisionProvider) {
-        if (!decisionProvider) return createCompletionTopicSplitter({ callLLMWithRetry });
-        if (!llm.createDecisionClient) {
-          throw new Error('The selected topic splitter has no Decision API client factory');
-        }
-        let client;
-        try {
-          client = llm.createDecisionClient(decisionProvider);
-        } catch (error) {
-          throw new Error(
-            `Topic splitter "${decisionProvider.name}" is misconfigured: ${error?.message || error}`,
-          );
-        }
-        const measuredDecide = measureDecide(
-          (state, questions, opts) => client.decide(state, questions, { ...opts, verboseLogs }),
-          { model: decisionProvider.model },
-        );
-        const decide = (state, questions, opts) =>
-          limiter.run(() => measuredDecide(state, questions, opts), opts?.signal, {
-            providerKey: providerQueueKey(decisionProvider),
-            fairnessKey: key,
-          });
-        return createDecisionTopicSplitter({
-          decide,
-          callLLMWithRetry,
-          decisionOptions: {
-            contextWindowTokens: decisionProvider.contextWindowTokens,
-            inputFingerprint: JSON.stringify([
-              providerCacheIdentity(decisionProvider),
-              providerCacheIdentity(activeProvider),
-              resolveProviderTemperature(activeProvider, LLM_TASK_TYPES.TOPIC_LABELS) ?? null,
-            ]),
-          },
-        });
+      /**
+       * Resolve the selected primary splitter. Only primary splitting calls this:
+       * summary resumes and manual resplits never read decision-provider settings.
+       * @returns {Promise<import('../../../core/pipeline/topicSplitter.js').TopicSplitter>}
+       */
+      async resolveTopicSplitter() {
+        const decisionProvider = await providerRepository.getDecisionProvider();
+        return decisionProvider
+          ? createDecisionSplitter(decisionProvider)
+          : createCompletionTopicSplitter({ callLLMWithRetry });
       },
     };
   };
