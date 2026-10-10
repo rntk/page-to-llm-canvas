@@ -369,7 +369,7 @@ describe('runPipeline', () => {
     expect(llm.callLLMWithRetry).toHaveBeenCalledTimes(4);
     expect(llm.callLLMWithRetry.mock.calls[0][0]).toEqual(
       expect.objectContaining({
-        taskType: LLM_TASK_TYPES.TOPIC_RANGES,
+        taskType: LLM_TASK_TYPES.TOPIC_RESPLIT,
         prompt: expect.stringContaining('Science'),
       }),
     );
@@ -392,7 +392,7 @@ describe('runPipeline', () => {
       false,
     );
     expect(llm.callLLMWithRetry.mock.calls.map(([request]) => request.taskType)).toEqual(
-      Array(4).fill(LLM_TASK_TYPES.TOPIC_RANGES),
+      Array(4).fill(LLM_TASK_TYPES.TOPIC_RESPLIT),
     );
   });
 
@@ -585,7 +585,7 @@ describe('runPipeline', () => {
     expect(Object.keys(summaryIndex)).toEqual(['Science', 'History']);
     expect(Object.keys(sourceUnits)).toEqual(['science', 'history']);
     expect(llm.callLLMWithRetry.mock.calls.map(([request]) => request.taskType)).toEqual([
-      LLM_TASK_TYPES.TOPIC_RANGES,
+      LLM_TASK_TYPES.TOPIC_RESPLIT,
     ]);
   });
 
@@ -633,7 +633,7 @@ describe('runPipeline', () => {
       },
     });
     llm.callLLMWithRetry.mockImplementation(async ({ taskType }) =>
-      taskType === LLM_TASK_TYPES.TOPIC_RANGES
+      taskType === LLM_TASK_TYPES.TOPIC_RESPLIT
         ? 'Science>Climate: 0\nScience>Oceans: 1'
         : 'Fresh summary.',
     );
@@ -641,7 +641,7 @@ describe('runPipeline', () => {
     await runPipeline('manual-resplit-success');
 
     const rangeCalls = llm.callLLMWithRetry.mock.calls.filter(
-      ([request]) => request.taskType === LLM_TASK_TYPES.TOPIC_RANGES,
+      ([request]) => request.taskType === LLM_TASK_TYPES.TOPIC_RESPLIT,
     );
     expect(rangeCalls).toHaveLength(1);
     expect(rangeCalls[0][0].prompt).toContain('Science');
@@ -710,7 +710,7 @@ describe('runPipeline', () => {
       },
     });
     llm.callLLMWithRetry.mockImplementation(async ({ taskType }) =>
-      taskType === LLM_TASK_TYPES.TOPIC_RANGES ? 'Science Recap: 0' : 'Fresh summary.',
+      taskType === LLM_TASK_TYPES.TOPIC_RESPLIT ? 'Science Recap: 0' : 'Fresh summary.',
     );
 
     await runPipeline('manual-resplit-forced-empty');

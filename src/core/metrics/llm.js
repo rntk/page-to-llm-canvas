@@ -48,9 +48,10 @@ const LLM_METRIC_TOTAL_FIELDS = Object.freeze({
 
 /** Human-readable labels for known task types (UI). */
 export const LLM_TASK_TYPE_LABELS = Object.freeze({
-  [LLM_TASK_TYPES.TOPIC_RANGES]: 'Topic ranges',
-  [LLM_TASK_TYPES.TOPIC_BOUNDARIES]: 'Topic boundaries (decision)',
-  [LLM_TASK_TYPES.TOPIC_LABELS]: 'Topic labels',
+  [LLM_TASK_TYPES.TOPIC_RANGES]: 'Topic ranges (LLM splitter)',
+  [LLM_TASK_TYPES.TOPIC_BOUNDARIES]: 'Topic boundaries (decision splitter)',
+  [LLM_TASK_TYPES.TOPIC_LABELS]: 'Topic labels (decision splitter)',
+  [LLM_TASK_TYPES.TOPIC_RESPLIT]: 'Topic resplit (manual)',
   [LLM_TASK_TYPES.ARTICLE_SUMMARY]: 'Article summary',
   [LLM_TASK_TYPES.TOPIC_SUMMARY_FROM_SOURCE]: 'Topic summary (from source)',
   [LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE]: 'Summary merge',
@@ -60,6 +61,24 @@ export const LLM_TASK_TYPE_LABELS = Object.freeze({
 });
 
 const KNOWN_TASK_TYPES = new Set(Object.values(LLM_TASK_TYPES));
+
+/**
+ * Task types each topic-splitting mode issues for a page's initial split, so
+ * the modes can be compared without mixing. Manual resplits always use the
+ * completion LLM and are excluded from both.
+ */
+export const TOPIC_SPLITTER_MODES = Object.freeze([
+  Object.freeze({
+    mode: 'llm',
+    label: 'Completion LLM',
+    taskTypes: Object.freeze([LLM_TASK_TYPES.TOPIC_RANGES]),
+  }),
+  Object.freeze({
+    mode: 'decision',
+    label: 'Decision API',
+    taskTypes: Object.freeze([LLM_TASK_TYPES.TOPIC_BOUNDARIES, LLM_TASK_TYPES.TOPIC_LABELS]),
+  }),
+]);
 
 /**
  * @param {unknown} value
@@ -250,6 +269,23 @@ function mergeTotals(a, b) {
 }
 
 /**
+ * Totals per topic-splitting mode that has recorded requests.
+ * @param {LlmMetrics} metrics
+ * @returns {Array<{mode: string, label: string, totals: LlmMetricTotals}>}
+ */
+export function topicSplitterTotals(metrics) {
+  const byTaskType = metrics?.byTaskType || {};
+  return TOPIC_SPLITTER_MODES.map(({ mode, label, taskTypes }) => ({
+    mode,
+    label,
+    totals: taskTypes
+      .map((taskType) => byTaskType[taskType])
+      .filter(Boolean)
+      .reduce(mergeTotals, emptyLlmMetricTotals()),
+  })).filter(({ totals }) => totals.totalCount > 0);
+}
+
+/**
  * @param {unknown} value
  * @returns {LlmMetrics}
  */
@@ -348,9 +384,11 @@ export function wrapCallLLMWithRetry(callLLMWithRetry) {
  *
  * @template {(...args: any[]) => Promise<any>} F
  * @param {F} decide
+ * @param {{model?: string}} [defaults] Model recorded when a request fails before
+ *   the client reports one.
  * @returns {F}
  */
-export function wrapDecide(decide) {
+export function wrapDecide(decide, { model } = {}) {
   return /** @type {F} */ (
     async function timedDecide(state, questions, options) {
       const taskType = normalizeTaskType(options?.taskType ?? LLM_TASK_TYPES.TOPIC_BOUNDARIES);
@@ -376,6 +414,7 @@ export function wrapDecide(decide) {
           ok: false,
           taskType,
           provider: ProviderType.LLAMA_DECISION,
+          ...(model ? { model } : {}),
           error: (err && err.message) || String(err),
         });
         throw err;

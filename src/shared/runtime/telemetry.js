@@ -4,6 +4,7 @@
 
 export const LLM_TASK_TYPES = Object.freeze({
   TOPIC_RANGES: 'topic_ranges',
+  TOPIC_RESPLIT: 'topic_resplit',
   TOPIC_BOUNDARIES: 'topic_boundaries',
   TOPIC_LABELS: 'topic_labels',
   ARTICLE_SUMMARY: 'article_summary',

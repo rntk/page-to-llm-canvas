@@ -251,7 +251,7 @@ export function ProvidersSection() {
       )}
 
       {decisionProviders.length ? (
-        <div className="field">
+        <div className="topic-splitter">
           <label htmlFor="topic-splitter">Topic splitter</label>
           <select
             id="topic-splitter"

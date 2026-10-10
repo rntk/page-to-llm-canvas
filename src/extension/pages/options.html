@@ -357,7 +357,20 @@
       .provider-form .field.full {
         grid-column: 1 / -1;
       }
-      .provider-form label {
+      .topic-splitter {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px 16px;
+        margin-top: 16px;
+      }
+      .topic-splitter select {
+        width: 280px;
+        max-width: 100%;
+        min-width: 0;
+      }
+      .provider-form label,
+      .topic-splitter label {
         font-size: 11px;
         font-weight: 700;
         letter-spacing: 0.06em;
@@ -365,8 +378,12 @@
         color: var(--on-surface-muted);
         margin-bottom: 6px;
       }
+      .topic-splitter label {
+        margin-bottom: 0;
+      }
       .provider-form input,
-      .provider-form select {
+      .provider-form select,
+      .topic-splitter select {
         padding: 8px 10px;
         border: 1px solid var(--ink);
         border-radius: 0;
@@ -376,7 +393,8 @@
         font-size: 13px;
       }
       .provider-form input:focus,
-      .provider-form select:focus {
+      .provider-form select:focus,
+      .topic-splitter select:focus {
         outline: none;
         border-width: 2px;
         padding: 7px 9px;
@@ -525,6 +543,13 @@
         }
         .provider-form {
           grid-template-columns: 1fr;
+        }
+        .topic-splitter {
+          align-items: stretch;
+          flex-direction: column;
+        }
+        .topic-splitter select {
+          width: 100%;
         }
         .data-actions {
           grid-template-columns: 1fr;

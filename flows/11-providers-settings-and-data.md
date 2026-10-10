@@ -25,7 +25,12 @@ summaries as before. With no splitter selected, the LLM splits topics itself.
 
 Each decision request is recorded in LLM metrics under the `topic_boundaries`
 task type (duration, outcome, model, request/response size, and token usage when
-the server reports it). Labeling requests are recorded under `topic_labels`. The
+the server reports it). Labeling requests are recorded under `topic_labels`. LLM
+splitting keeps its own `topic_ranges` task type, and manual resplits are recorded
+as `topic_resplit` in either mode, so the two splitters never share a bucket. The
+**By topic splitter** table in LLM Request Metrics totals each mode's initial
+splitting (Completion LLM: `topic_ranges`; Decision API: `topic_boundaries` +
+`topic_labels`) for side-by-side comparison. The
 record's processing log shows which splitter ran (`pipeline_start`), every failed
 or shrunk batch (`topic_boundaries_error`, `topic_boundaries_shrink`), and a run
 summary (`topic_boundaries_decided`) with split, near-threshold, request, and

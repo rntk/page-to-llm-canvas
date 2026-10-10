@@ -14,6 +14,7 @@ import {
   recordLlmMetric,
   getLlmMetrics,
   clearLlmMetrics,
+  topicSplitterTotals,
 } from './llm.js';
 import { listTaskTypes } from './format.js';
 
@@ -378,7 +379,7 @@ describe('wrapDecide', () => {
       throw new Error('llama.cpp returned HTTP 503: busy');
     });
 
-    await expect(wrapDecide(raw)('state', {})).rejects.toThrow('HTTP 503');
+    await expect(wrapDecide(raw, { model: 'qwen' })('state', {})).rejects.toThrow('HTTP 503');
 
     await vi.waitFor(async () => {
       expect((await getLlmMetrics()).failureCount).toBe(1);
@@ -387,8 +388,53 @@ describe('wrapDecide', () => {
       ok: false,
       taskType: LLM_TASK_TYPES.TOPIC_BOUNDARIES,
       provider: 'llama_decision',
+      model: 'qwen',
       error: 'llama.cpp returned HTTP 503: busy',
     });
+  });
+});
+
+describe('topicSplitterTotals', () => {
+  it('keeps LLM and decision splitting apart and excludes resplits', () => {
+    const metrics = normalizeLlmMetrics({
+      byTaskType: {
+        topic_ranges: { totalCount: 2, successCount: 2, totalDurationMs: 400 },
+        topic_boundaries: { totalCount: 5, successCount: 4, failureCount: 1, totalDurationMs: 250 },
+        topic_labels: {
+          totalCount: 1,
+          successCount: 1,
+          totalDurationMs: 300,
+          usageSampleCount: 1,
+          totalInputTokens: 90,
+        },
+        topic_resplit: { totalCount: 3, successCount: 3, totalDurationMs: 900 },
+      },
+    });
+
+    expect(topicSplitterTotals(metrics)).toEqual([
+      expect.objectContaining({
+        mode: 'llm',
+        totals: expect.objectContaining({ totalCount: 2, totalDurationMs: 400 }),
+      }),
+      expect.objectContaining({
+        mode: 'decision',
+        totals: expect.objectContaining({
+          totalCount: 6,
+          successCount: 5,
+          failureCount: 1,
+          totalDurationMs: 550,
+          totalInputTokens: 90,
+        }),
+      }),
+    ]);
+  });
+
+  it('omits modes without requests', () => {
+    const metrics = normalizeLlmMetrics({
+      byTaskType: { topic_ranges: { totalCount: 1, successCount: 1, totalDurationMs: 10 } },
+    });
+    expect(topicSplitterTotals(metrics).map(({ mode }) => mode)).toEqual(['llm']);
+    expect(topicSplitterTotals(emptyLlmMetrics())).toEqual([]);
   });
 });
 

@@ -119,7 +119,8 @@ async function dispatchPendingChunks({
           {
             prompt,
             signal: runtime.signal,
-            taskType: LLM_TASK_TYPES.TOPIC_RANGES,
+            // Manual resplits are measured apart from primary LLM splitting.
+            taskType: parentPath ? LLM_TASK_TYPES.TOPIC_RESPLIT : LLM_TASK_TYPES.TOPIC_RANGES,
           },
           TOPIC_RANGE_PROVIDER_MAX_ATTEMPTS,
         );

@@ -157,6 +157,8 @@ describe('resplitTopicRange', () => {
       { dependencies: createDependencies() },
     );
     expect(callLLM).toHaveBeenCalledOnce();
+    // Resplits are measured apart from primary LLM topic splitting.
+    expect(callLLM.mock.calls[0][0].taskType).toBe('topic_resplit');
     expect(groups).toEqual([
       { label: ['Physics'], ranges: [{ start: 2, end: 3 }] },
       { label: ['Chemistry'], ranges: [{ start: 4, end: 4 }] },

@@ -5,6 +5,7 @@ import {
   getLlmMetrics,
   clearLlmMetrics,
   normalizeLlmMetrics,
+  topicSplitterTotals,
 } from '../core/metrics/llm.js';
 import {
   averageDurationMs,
@@ -44,6 +45,7 @@ export function LlmMetricsSection({ store }) {
 
   const average = averageDurationMs(metrics);
   const taskTypes = listTaskTypes(metrics);
+  const splitterModes = topicSplitterTotals(metrics);
   const hasUsage = metrics.usageSampleCount > 0;
   const hasCacheUsage = metrics.cacheSampleCount > 0;
 
@@ -141,6 +143,47 @@ export function LlmMetricsSection({ store }) {
               </tbody>
             </table>
           </div>
+          {splitterModes.length > 0 ? (
+            <CollapsibleSection variant="field" title="By topic splitter">
+              <div className="note">
+                Initial topic splitting per mode. Completion LLM covers topic range requests;
+                Decision API covers boundary requests plus the LLM requests that label the resulting
+                ranges. Manual resplits are not included.
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Splitter</th>
+                    <th>Requests</th>
+                    <th>Ok / err</th>
+                    <th>Total time</th>
+                    <th>Input / output</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {splitterModes.map(({ mode, label, totals }) => (
+                    <tr key={mode}>
+                      <td>{label}</td>
+                      <td className="mono">{totals.totalCount}</td>
+                      <td className="mono">
+                        {totals.successCount} / {totals.failureCount}
+                      </td>
+                      <td className="mono">{formatDurationMs(totals.totalDurationMs)}</td>
+                      <td className="mono">
+                        {formatMetricCount(
+                          totals.usageSampleCount ? totals.totalInputTokens : null,
+                        )}{' '}
+                        /{' '}
+                        {formatMetricCount(
+                          totals.usageSampleCount ? totals.totalOutputTokens : null,
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CollapsibleSection>
+          ) : null}
           {taskTypes.length > 0 ? (
             <CollapsibleSection variant="field" title="By task type">
               <table>

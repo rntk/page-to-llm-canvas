@@ -215,8 +215,10 @@ export function createPipelineRunner({
         }
       }
       const measuredDecide = decisionClient
-        ? measureDecide((state, questions, opts) =>
-            decisionClient.decide(state, questions, { ...opts, verboseLogs }),
+        ? measureDecide(
+            (state, questions, opts) =>
+              decisionClient.decide(state, questions, { ...opts, verboseLogs }),
+            { model: decisionProvider.model },
           )
         : undefined;
       const decide = measuredDecide
