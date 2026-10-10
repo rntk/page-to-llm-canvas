@@ -249,7 +249,6 @@ async function callLLMDirectWithDependencies(options, dependencies) {
     return {
       ok: false,
       error: message,
-      ...(e?.retryable === false ? { retryable: false } : {}),
       ...(Number.isFinite(e?.status) ? { status: e.status } : {}),
       ...(Number.isFinite(e?.retryAfterMs) ? { retryAfterMs: e.retryAfterMs } : {}),
     };

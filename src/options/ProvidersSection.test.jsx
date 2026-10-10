@@ -157,6 +157,36 @@ describe('decision provider form', () => {
     }
   });
 
+  it('selects the topic splitter explicitly', async () => {
+    listProviders.mockResolvedValue({
+      providers: [
+        { id: 'decision', name: 'Decisions', type: 'llama_decision', model: '' },
+        { id: 'completion', name: 'Completion', type: 'openai', model: 'gpt-4o' },
+      ],
+      activeId: 'completion',
+      splitterId: null,
+      error: null,
+    });
+    sendMessage.mockResolvedValue({ ok: true });
+    const { container, mount, cleanup } = renderSection();
+    try {
+      await mount();
+      const select = container.querySelector('#topic-splitter');
+      expect(select.value).toBe('');
+      expect(Array.from(select.options).map((option) => option.textContent)).toEqual([
+        'Completion LLM',
+        'Decisions',
+      ]);
+      await act(async () => {
+        select.value = 'decision';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      expect(sendMessage).toHaveBeenCalledWith({ type: 'setTopicSplitter', id: 'decision' });
+    } finally {
+      cleanup();
+    }
+  });
+
   it('shows decision settings, saves an optional model, and hides temperature controls', async () => {
     listProviders.mockResolvedValue({ providers: [], activeId: null, error: null });
     sendMessage.mockResolvedValue({ ok: true });

@@ -4,8 +4,12 @@
 // the model only judges real sentence gaps and never splits mid-sentence.
 
 import { choice } from '../llm/decisionClient.js';
-import { throwIfCancelled } from './cancellation.js';
+import { sleepWithAbort } from '../llm/abortSignals.js';
+import { parallelMap as defaultParallelMap } from '../llm/concurrency.js';
+import { rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
+import { TOPIC_RANGE_CONCURRENCY } from './pipelineConfig.js';
 import { TOPIC_RANGE_ABORT_MESSAGE } from './topicRangeCheckpoint.js';
+import { fitTextToChars } from './topicRangeChunking.js';
 
 export const SPLIT_CHOICES = Object.freeze({
   continue: 'The next sentence continues the same concrete subject or idea.',
@@ -30,6 +34,10 @@ export const DECISION_SPLIT_THRESHOLD = 0.5;
 export const DECISION_BATCH_SIZE = 8;
 export const DECISION_CONTEXT_SENTENCES = 2;
 export const DECISION_MAX_SENTENCE_CHARS = 2000;
+// Attempts per request for transient failures (busy/loading server, reset connection).
+export const DECISION_MAX_ATTEMPTS = 3;
+const DECISION_RETRY_DELAY_MS = 500;
+const TRANSIENT_STATUSES = [429, 502, 503, 504];
 
 const OVERSIZED_RE =
   /input.*too large|context.*(?:exceed|too (?:large|long))|exceed.*context|too many tokens/i;
@@ -41,10 +49,9 @@ function isOversizedError(error) {
   );
 }
 
-function fitText(text, maxChars) {
-  if (text.length <= maxChars) return text;
-  const head = Math.ceil((maxChars - 1) / 2);
-  return `${text.slice(0, head)}…${text.slice(text.length - (maxChars - 1 - head))}`;
+// fetch rejects network failures with a statusless TypeError.
+function isTransientError(error) {
+  return TRANSIENT_STATUSES.includes(error?.status) || error instanceof TypeError;
 }
 
 function readSplitProbability(result, questionId) {
@@ -115,10 +122,12 @@ function joinContinuedSentences(sentences, text) {
 }
 
 /**
- * Ask once per sentence gap whether a new topical section starts. Requests
- * carry a local numbered window plus context on each side. A size error halves
- * the failing batch, then drops its context; the next batch starts again at the
- * configured sizes. Other failures propagate rather than inventing splits.
+ * Ask once per sentence gap whether a new topical section starts. Gaps are cut
+ * into fixed batches that run in parallel; each request carries a local
+ * numbered window plus context on each side. A size error halves that batch,
+ * then drops its context, independently of other batches. 429/502/503/504 and
+ * network errors are retried with a short backoff; other failures propagate
+ * rather than inventing splits.
  *
  * @param {object} input
  * @param {Function} input.decide `(state, questions, {signal})` decision request.
@@ -131,6 +140,8 @@ function joinContinuedSentences(sentences, text) {
  * @param {number} [input.batchSize] Boundaries per request.
  * @param {number} [input.contextSentences] Extra sentences on each side.
  * @param {number} [input.maxSentenceChars] Per-sentence cap in the request state.
+ * @param {Function} [input.parallelMap] Concurrency helper.
+ * @param {Function} [input.sleep] `(ms, signal)` abortable retry backoff.
  * @returns {Promise<Array<{after: number, value: number|null, split: boolean,
  *   withinSentence?: true}>>} One entry per gap; `after` is the zero-based index of the
  *   sentence before the gap. Gaps inside a rejoined sentence are not asked: `value` is null.
@@ -144,6 +155,8 @@ export async function decideTopicBoundaries({
   batchSize = DECISION_BATCH_SIZE,
   contextSentences = DECISION_CONTEXT_SENTENCES,
   maxSentenceChars = DECISION_MAX_SENTENCE_CHARS,
+  parallelMap = defaultParallelMap,
+  sleep = sleepWithAbort,
 }) {
   if (!Number.isInteger(batchSize) || batchSize < 1) throw new Error('batchSize must be >= 1');
   if (!Number.isInteger(contextSentences) || contextSentences < 0) {
@@ -158,17 +171,15 @@ export async function decideTopicBoundaries({
         : '';
     return {
       id: index + 1,
-      text: fitText(unit.text, maxSentenceChars),
+      text: fitTextToChars(unit.text, maxSentenceChars),
       paragraph_break_before: /\n\s*\n/.test(gap),
     };
   });
 
-  const boundaries = [];
-  let pos = 1;
-  let size = batchSize;
-  let context = contextSentences;
   let requestCount = 0;
   let shrinkCount = 0;
+  let retryCount = 0;
+  let decidedCount = 0;
   const startedAt = Date.now();
   await runtime?.log(
     'topic_boundaries_start',
@@ -182,11 +193,36 @@ export async function decideTopicBoundaries({
     },
     { verbose: true },
   );
-  while (pos < content.length) {
-    if (runtime) throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
-    const stop = Math.min(content.length, pos + size);
+
+  // One request with transient-error retries; the backoff aborts with the run.
+  async function requestWithRetry(state, questions, request) {
+    for (let attempt = 1; ; attempt++) {
+      if (runtime) throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
+      requestCount++;
+      try {
+        return await decide(state, questions, { signal: runtime?.signal });
+      } catch (error) {
+        rethrowIfCancelled(error, runtime, TOPIC_RANGE_ABORT_MESSAGE);
+        if (attempt >= DECISION_MAX_ATTEMPTS || !isTransientError(error)) throw error;
+        retryCount++;
+        const delayMs = DECISION_RETRY_DELAY_MS * 2 ** (attempt - 1);
+        await runtime?.log('topic_boundaries_retry', {
+          ...request,
+          attempt,
+          delayMs,
+          ...(Number.isFinite(error?.status) ? { status: error.status } : {}),
+          error: String(error?.message ?? error).slice(0, 500),
+        });
+        await sleep(delayMs, runtime?.signal);
+      }
+    }
+  }
+
+  // Split probabilities for gaps [start, stop); gap `index` sits before content[index].
+  // An oversized batch shrinks locally, independent of other batches.
+  async function decideGaps(start, stop, context) {
     const questions = {};
-    for (let index = pos; index < stop; index++) {
+    for (let index = start; index < stop; index++) {
       const left = content[index - 1].id;
       const right = content[index].id;
       questions[`b${right}`] = choice(
@@ -199,77 +235,92 @@ export async function decideTopicBoundaries({
     const state = {
       task: SEGMENTATION_BRIEF,
       content: content.slice(
-        Math.max(0, pos - 1 - context),
+        Math.max(0, start - 1 - context),
         Math.min(content.length, stop + context),
       ),
     };
-    const request = { gapStart: pos, gapEnd: stop - 1, questionCount: stop - pos };
-    let result;
+    const request = { gapStart: start, gapEnd: stop - 1, questionCount: stop - start };
     const requestStartedAt = Date.now();
-    requestCount++;
+    let result;
     try {
-      result = await decide(state, questions, { signal: runtime?.signal });
+      result = await requestWithRetry(state, questions, request);
     } catch (error) {
-      const failure = {
+      rethrowIfCancelled(error, runtime, TOPIC_RANGE_ABORT_MESSAGE);
+      if (isOversizedError(error) && (stop - start > 1 || context > 0)) {
+        const half = Math.max(1, Math.floor((stop - start) / 2));
+        const shrinkBatch = stop - start > 1;
+        shrinkCount++;
+        await runtime?.log('topic_boundaries_shrink', {
+          ...request,
+          status: error.status,
+          batchSize: shrinkBatch ? half : 1,
+          contextSentences: shrinkBatch ? context : 0,
+        });
+        if (!shrinkBatch) return decideGaps(start, stop, 0);
+        return [
+          ...(await decideGaps(start, start + half, context)),
+          ...(await decideGaps(start + half, stop, context)),
+        ];
+      }
+      await runtime?.log('topic_boundaries_error', {
         ...request,
         contextSentences: context,
         durationMs: Date.now() - requestStartedAt,
         ...(Number.isFinite(error?.status) ? { status: error.status } : {}),
         error: String(error?.message ?? error).slice(0, 500),
-      };
-      if (!isOversizedError(error)) {
-        if (!runtime?.signal?.aborted) await runtime?.log('topic_boundaries_error', failure);
-        throw error;
-      }
-      if (stop - pos > 1) size = Math.max(1, Math.floor((stop - pos) / 2));
-      else if (context > 0) context = 0;
-      else {
-        await runtime?.log('topic_boundaries_error', failure);
-        throw error;
-      }
-      shrinkCount++;
-      await runtime?.log('topic_boundaries_shrink', {
-        ...request,
-        status: error.status,
-        batchSize: size,
-        contextSentences: context,
       });
-      continue;
+      throw error;
     }
-    let batchSplits = 0;
-    for (let index = pos; index < stop; index++) {
-      const value = readSplitProbability(result, `b${content[index].id}`);
-      if (value >= threshold) batchSplits++;
-      for (let after = units[index - 1].first; after < units[index - 1].last; after++) {
-        boundaries.push({ after, value: null, split: false, withinSentence: true });
-      }
-      boundaries.push({ after: units[index].first - 1, value, split: value >= threshold });
+    const values = [];
+    for (let index = start; index < stop; index++) {
+      values.push(readSplitProbability(result, `b${content[index].id}`));
     }
-    pos = stop;
-    size = batchSize;
-    context = contextSentences;
+    decidedCount += values.length;
     await runtime?.log(
       'topic_boundaries_progress',
       {
-        decided: pos - 1,
+        decided: decidedCount,
         total: content.length - 1,
         ...request,
-        splitCount: batchSplits,
+        splitCount: values.filter((value) => value >= threshold).length,
         durationMs: Date.now() - requestStartedAt,
       },
       { verbose: true },
     );
+    return values;
   }
-  const lastUnit = units.at(-1);
-  for (let after = lastUnit?.first ?? 0; after < (lastUnit?.last ?? 0); after++) {
-    boundaries.push({ after, value: null, split: false, withinSentence: true });
+
+  const batches = [];
+  for (let start = 1; start < content.length; start += batchSize) {
+    batches.push({ start, stop: Math.min(content.length, start + batchSize) });
   }
+  const values = (
+    await parallelMap(batches, TOPIC_RANGE_CONCURRENCY, (batch) =>
+      decideGaps(batch.start, batch.stop, contextSentences),
+    )
+  ).flat();
+
+  // values[index] is the gap after unit `index`; gaps inside a unit are not asked.
+  const boundaries = [];
+  units.forEach((unit, index) => {
+    for (let after = unit.first; after < unit.last; after++) {
+      boundaries.push({ after, value: null, split: false, withinSentence: true });
+    }
+    if (index < values.length) {
+      boundaries.push({
+        after: unit.last,
+        value: values[index],
+        split: values[index] >= threshold,
+      });
+    }
+  });
   const decided = boundaries.filter((boundary) => !boundary.withinSentence);
   await runtime?.log('topic_boundaries_decided', {
     ...summarizeBoundaries(decided, threshold),
     withinSentenceGapCount: boundaries.length - decided.length,
     requestCount,
     shrinkCount,
+    retryCount,
     durationMs: Date.now() - startedAt,
   });
   return boundaries;

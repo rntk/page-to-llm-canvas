@@ -5,7 +5,6 @@
 // supplies a signal combining cancellation and the configured timeout.
 
 import { ProviderType, ServiceTier } from './providers.js';
-import { DecisionClient } from './decisionClient.js';
 import {
   isTruncatedFinish,
   normalizeFinishReason,
@@ -706,11 +705,9 @@ function toAnthropicServiceTier(serviceTier) {
 }
 
 /**
- * Creates a client for a stored provider entry. Decision providers expose
- * `decide(state, questions, options)` and `listModels(options)`; their `complete`
- * method rejects generated-text requests. Completion clients
- * accept the same options — including message history and function tools —
- * and return tool calls in the normalized `{id, name, arguments}` shape with
+ * Creates a completion client for a stored provider entry. Every client
+ * accepts the same options — including message history and function tools —
+ * and returns tool calls in the normalized `{id, name, arguments}` shape with
  * `arguments` as a parsed object.
  *
  * `messages` and `tools` follow one strict internal contract; the client's
@@ -741,7 +738,7 @@ function toAnthropicServiceTier(serviceTier) {
  * @param {object} [dependencies] Client dependencies.
  * @param {Function} [dependencies.transport] HTTP transport.
  * @param {{info: Function, warn?: Function}} [dependencies.logger] Client logger.
- * @returns {DecisionClient|{complete: function({
+ * @returns {{complete: function({
  *   prompt: string,
  *   messages: Array<{role: string, content: string, reasoning: string, toolCallId: string, toolCalls: Array<{id: string, name: string, arguments: Record<string, unknown>}>}>,
  *   tools: Array<{name: string, description: string, parameters: Record<string, unknown>}>,
@@ -770,9 +767,6 @@ export function createClient(
   const { type, model, token, url, serviceTier, contextWindowTokens } = provider;
   if (typeof transport !== 'function') throw new Error('LLM transport is required');
   switch (type) {
-    case ProviderType.LLAMA_DECISION:
-      if (!url) throw new Error('Decision provider requires a base URL');
-      return new DecisionClient({ baseUrl: url, apiKey: token, model, transport });
     case ProviderType.OPENAI:
       return openAICompatibleClient({
         baseUrl: 'https://api.openai.com/v1',

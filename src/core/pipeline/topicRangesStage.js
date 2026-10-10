@@ -38,11 +38,17 @@ async function splitWithDecisions({
     sentences: sentenceObjs,
     text,
     runtime,
+    parallelMap: dependencies.parallelMap,
   });
   const ranges = boundariesToRanges(sentenceTexts.length, boundaries);
+  const sizes = ranges.map((range) => range.end - range.start + 1).sort((a, b) => a - b);
   await runtime.log('topic_boundaries_done', {
     rangeCount: ranges.length,
     boundaryCount: boundaries.length,
+    minSentences: sizes[0] ?? 0,
+    maxSentences: sizes.at(-1) ?? 0,
+    medianSentences: sizes.length ? sizes[Math.floor((sizes.length - 1) / 2)] : 0,
+    singleSentenceRangeCount: sizes.filter((size) => size === 1).length,
   });
   return labelTopicRanges({
     runtime,

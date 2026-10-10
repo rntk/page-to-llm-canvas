@@ -23,7 +23,7 @@ import {
   isSummaryCheckpointRevisionCurrent,
 } from './pipeline/orchestrator.js';
 import { callLLMDirectWithRetry, callLLMWithRetry } from '../../core/llm/llm.js';
-import { createClient } from '../../core/llm/clients.js';
+import { DecisionClient } from '../../core/llm/decisionClient.js';
 import { createAdjustableLimiter } from '../../core/llm/concurrency.js';
 import {
   clearLlmMetrics,
@@ -52,6 +52,7 @@ import {
   saveProvider,
   deleteProvider,
   setActiveProvider,
+  setTopicSplitter,
 } from '../../core/llm/providers.js';
 import { createActionIconController, createActionIconDependencies } from './actionIcon.js';
 import { createLogger } from '../../shared/runtime/log.js';
@@ -128,7 +129,11 @@ const pipelineRunner = createPipelineRunner({
       browserLocalStore.subscribe(MAX_PARALLEL_LLM_REQUESTS_KEY, onValue),
   },
   providerRepository: { getActiveProvider, getDecisionProvider },
-  llm: { callLLMWithRetry, createClient },
+  llm: {
+    callLLMWithRetry,
+    createDecisionClient: ({ url, token, model }) =>
+      new DecisionClient({ baseUrl: url, apiKey: token, model }),
+  },
   // The limiter starts at the same default used by setting normalization.
   limiterFactory: () => providerLimiter,
   telemetry: { wrapCallLLMWithRetry, wrapDecide },
@@ -217,6 +222,7 @@ const MESSAGE_HANDLERS = {
     saveProvider,
     deleteProvider,
     setActiveProvider,
+    setTopicSplitter,
     sanitizeProvider,
     sanitizeProvidersState,
   }),

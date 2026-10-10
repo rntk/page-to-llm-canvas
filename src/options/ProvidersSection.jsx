@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   PROVIDER_DEFINITIONS,
-  ProviderType,
   SERVICE_TIER_DEFINITIONS,
   getProviderDefinition,
   isCompletionProvider,
+  isDecisionProvider,
 } from '../core/llm/providers.js';
 import {
   PIPELINE_MIN_CONTEXT_WINDOW_TOKENS,
@@ -33,6 +33,7 @@ function providerTypeLabel(type) {
 export function ProvidersSection() {
   const [providers, setProviders] = useState([]);
   const [activeId, setActiveId] = useState(null);
+  const [splitterId, setSplitterId] = useState(null);
   const [form, setForm] = useState(() => createEmptyProviderForm());
   const [error, setError] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -45,6 +46,7 @@ export function ProvidersSection() {
     if (next.providers) {
       setProviders(next.providers);
       setActiveId(next.activeId);
+      setSplitterId(next.splitterId ?? null);
       setLoadError(null);
     } else {
       setLoadError(next.error || 'Failed to load providers');
@@ -71,7 +73,8 @@ export function ProvidersSection() {
 
   const def = getProviderDefinition(form.type);
   const requiresUrl = !!def?.requiresUrl;
-  const isDecision = form.type === ProviderType.LLAMA_DECISION;
+  const isDecision = def?.capability === 'decision';
+  const decisionProviders = providers.filter(isDecisionProvider);
   const serviceTiers = SERVICE_TIER_DEFINITIONS[form.type] || [];
   const isEditing = !!form.id;
   const editingProvider = isEditing ? providers.find((provider) => provider.id === form.id) : null;
@@ -147,6 +150,16 @@ export function ProvidersSection() {
     const response = await sendMessage({ type: MSG.setActiveProvider, id });
     if (!response || !response.ok) {
       setError((response && response.error) || 'Failed to set active provider');
+      return;
+    }
+    await load();
+  };
+
+  const chooseSplitter = async (id) => {
+    setError('');
+    const response = await sendMessage({ type: MSG.setTopicSplitter, id: id || null });
+    if (!response || !response.ok) {
+      setError((response && response.error) || 'Failed to set topic splitter');
       return;
     }
     await load();
@@ -236,6 +249,24 @@ export function ProvidersSection() {
           </tbody>
         </table>
       )}
+
+      {decisionProviders.length ? (
+        <div className="field">
+          <label htmlFor="topic-splitter">Topic splitter</label>
+          <select
+            id="topic-splitter"
+            value={splitterId || ''}
+            onChange={(event) => chooseSplitter(event.target.value)}
+          >
+            <option value="">Completion LLM</option>
+            {decisionProviders.map((provider) => (
+              <option key={provider.id} value={provider.id}>
+                {provider.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
 
       {isFormOpen ? (
         <form className="provider-form" onSubmit={submit}>
@@ -329,8 +360,8 @@ export function ProvidersSection() {
               />
               {isDecision ? (
                 <div className="note">
-                  Accepts a server root or /v1 URL. Supports structured choice, score, and yes/no
-                  decisions. This API cannot generate pipeline summaries or chat replies.
+                  Accepts a server root or /v1 URL. Select it as the topic splitter to place topic
+                  boundaries. This API cannot generate pipeline summaries or chat replies.
                 </div>
               ) : null}
             </div>

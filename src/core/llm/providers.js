@@ -53,7 +53,8 @@ export const SERVICE_TIER_DEFINITIONS = Object.freeze({
 /**
  * Default model suggestions per provider type, used to seed the options-page
  * dropdowns.
- * @type {ReadonlyArray<{type: string, displayName: string, models: string[], defaultModel: string, requiresUrl: boolean}>}
+ * `capability` is 'completion' (generated text) or 'decision' (structured answers only).
+ * @type {ReadonlyArray<{type: string, displayName: string, models: string[], defaultModel: string, requiresUrl: boolean, capability: 'completion'|'decision'}>}
  */
 export const PROVIDER_DEFINITIONS = Object.freeze([
   {
@@ -62,6 +63,7 @@ export const PROVIDER_DEFINITIONS = Object.freeze([
     models: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-5-mini', 'gpt-5-nano'],
     defaultModel: 'gpt-5.4-nano',
     requiresUrl: false,
+    capability: 'completion',
   },
   {
     type: ProviderType.DEEPSEEK,
@@ -69,6 +71,7 @@ export const PROVIDER_DEFINITIONS = Object.freeze([
     models: ['deepseek-flash', 'deepseek-v4-pro'],
     defaultModel: 'deepseek-flash',
     requiresUrl: false,
+    capability: 'completion',
   },
   {
     type: ProviderType.ANTHROPIC,
@@ -76,6 +79,7 @@ export const PROVIDER_DEFINITIONS = Object.freeze([
     models: ['claude-haiku-5-5', 'claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-6'],
     defaultModel: 'claude-haiku-5-5',
     requiresUrl: false,
+    capability: 'completion',
   },
   {
     type: ProviderType.OPENROUTER,
@@ -90,6 +94,7 @@ export const PROVIDER_DEFINITIONS = Object.freeze([
     ],
     defaultModel: 'openai/gpt-4o-mini',
     requiresUrl: false,
+    capability: 'completion',
   },
   {
     type: ProviderType.LLAMA_DECISION,
@@ -97,6 +102,7 @@ export const PROVIDER_DEFINITIONS = Object.freeze([
     models: [],
     defaultModel: '',
     requiresUrl: true,
+    capability: 'decision',
   },
   {
     type: ProviderType.OPENAI_COMP,
@@ -104,6 +110,7 @@ export const PROVIDER_DEFINITIONS = Object.freeze([
     models: [],
     defaultModel: '',
     requiresUrl: true,
+    capability: 'completion',
   },
 ]);
 
@@ -118,10 +125,46 @@ export function getProviderDefinition(type) {
  * @returns {boolean}
  */
 export function isCompletionProvider(provider) {
-  return provider.type !== ProviderType.LLAMA_DECISION;
+  return getProviderDefinition(provider.type)?.capability === 'completion';
 }
 
-/** Storage key holding the full provider state ({ providers, activeId }). */
+/**
+ * Whether a provider only answers structured decision requests.
+ * @param {ProviderEntry} provider
+ * @returns {boolean}
+ */
+export function isDecisionProvider(provider) {
+  return getProviderDefinition(provider.type)?.capability === 'decision';
+}
+
+/**
+ * Validates a decision server base URL. Shared by save-time normalization and
+ * the DecisionClient constructor so a saved provider cannot fail at run time.
+ * @param {string} url
+ * @param {boolean} hasToken Whether a bearer token will be sent.
+ * @returns {URL}
+ */
+export function validateDecisionUrl(url, hasToken) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (_) {
+    throw new Error(`Decision base URL is not a valid URL: ${url}`);
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.search || parsed.hash) {
+    throw new Error('Decision base URL must be an HTTP(S) URL without query or fragment');
+  }
+  if (
+    hasToken &&
+    parsed.protocol !== 'https:' &&
+    !['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)
+  ) {
+    throw new Error('An API token requires an HTTPS base URL (plain HTTP only for localhost)');
+  }
+  return parsed;
+}
+
+/** Storage key holding the full provider state ({ providers, activeId, splitterId }). */
 export const PROVIDERS_KEY = 'pagetollm:llm:providers';
 
 /**
@@ -143,6 +186,8 @@ export const PROVIDERS_KEY = 'pagetollm:llm:providers';
  * @typedef {Object} ProvidersState
  * @property {ProviderEntry[]} providers
  * @property {string|null} activeId
+ * @property {string|null} splitterId Decision provider placing topic boundaries;
+ *   null lets the completion LLM split topics.
  */
 
 /**
@@ -160,7 +205,8 @@ export async function getProvidersState() {
   } else if (!isCompletionProvider(activeProvider)) {
     activeId = providers.find(isCompletionProvider)?.id ?? null;
   }
-  return { providers, activeId };
+  const splitterId = typeof raw?.splitterId === 'string' ? raw.splitterId : null;
+  return { providers, activeId, splitterId };
 }
 
 /**
@@ -174,12 +220,13 @@ export function sanitizeProvider(provider) {
 
 /**
  * @param {ProvidersState} state
- * @returns {{providers: Array<{id: string, name: string, type: string, model: string, url: string, serviceTier: string, contextWindowTokens: number, hasToken: boolean}>, activeId: string|null}}
+ * @returns {{providers: Array<{id: string, name: string, type: string, model: string, url: string, serviceTier: string, contextWindowTokens: number, hasToken: boolean}>, activeId: string|null, splitterId: string|null}}
  */
 export function sanitizeProvidersState(state) {
   return {
     providers: state.providers.map(sanitizeProvider),
     activeId: state.activeId,
+    splitterId: state.splitterId ?? null,
   };
 }
 
@@ -216,28 +263,23 @@ export function normalizeProvider(input) {
   }
   const name = String(input.name || '').trim();
   if (!name) throw new Error('Provider name is required');
+  const isDecision = isDecisionProvider({ type });
   const model = String(input.model || '').trim();
-  if (!model && type !== ProviderType.LLAMA_DECISION) throw new Error('Provider model is required');
+  if (!model && !isDecision) throw new Error('Provider model is required');
 
   const url = String(input.url || '').trim();
+  const token = String(input.token || '').trim();
   if (type === ProviderType.OPENAI_COMP && !url) {
     throw new Error('A base URL is required for OpenAI-compatible providers');
   }
-  if (type === ProviderType.LLAMA_DECISION) {
+  if (isDecision) {
     if (!url) throw new Error('A base URL is required for decision providers');
-    const parsed = new URL(url);
-    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.search || parsed.hash) {
-      throw new Error('Decision base URL must be an HTTP(S) URL without query or fragment');
-    }
+    validateDecisionUrl(url, !!token);
   }
 
-  const token = String(input.token || '').trim();
   const serviceTier = normalizeServiceTier(type, input.serviceTier);
   const contextWindowTokens = normalizeContextWindowTokens(input.contextWindowTokens);
-  const temperatures =
-    type === ProviderType.LLAMA_DECISION
-      ? undefined
-      : normalizeProviderTemperatures(input.temperatures);
+  const temperatures = isDecision ? undefined : normalizeProviderTemperatures(input.temperatures);
   const id = String(input.id || '').trim() || generateId();
 
   return {
@@ -326,6 +368,7 @@ export async function deleteProvider(id) {
     if (state.activeId === id) {
       state.activeId = state.providers.find(isCompletionProvider)?.id ?? null;
     }
+    if (state.splitterId === id) state.splitterId = null;
     await writeProvidersState(state);
     return state;
   });
@@ -362,11 +405,36 @@ export async function getActiveProvider() {
 }
 
 /**
- * Returns the first saved decision provider, used for topic splitting
- * alongside the active completion provider, or null when none is saved.
+ * Selects the decision provider that places topic boundaries; null lets the
+ * completion LLM split topics.
+ * @param {string|null} id
+ * @returns {Promise<ProvidersState>}
+ */
+export async function setTopicSplitter(id) {
+  return queuedUpdate(PROVIDERS_KEY, async () => {
+    const state = await getProvidersState();
+    if (id != null) {
+      const provider = state.providers.find((p) => p.id === id);
+      if (!provider) {
+        throw new Error(`Unknown provider id: ${id}`);
+      }
+      if (!isDecisionProvider(provider)) {
+        throw new Error('Only decision providers can split topics');
+      }
+    }
+    state.splitterId = id ?? null;
+    await writeProvidersState(state);
+    return state;
+  });
+}
+
+/**
+ * Returns the selected topic-splitter decision provider, used alongside the
+ * active completion provider, or null when the LLM splits topics.
  * @returns {Promise<ProviderEntry|null>}
  */
 export async function getDecisionProvider() {
-  const { providers } = await getProvidersState();
-  return providers.find((p) => p.type === ProviderType.LLAMA_DECISION) || null;
+  const { providers, splitterId } = await getProvidersState();
+  const provider = providers.find((p) => p.id === splitterId);
+  return provider && isDecisionProvider(provider) ? provider : null;
 }

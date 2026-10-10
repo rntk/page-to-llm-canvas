@@ -331,6 +331,16 @@ describe('computeTopics', () => {
 
     expect(decide).toHaveBeenCalledTimes(1);
     expect(Object.keys(decide.mock.calls[0][1])).toEqual(['b2', 'b3']);
+    // Boundary batches and label batches both run through the injected parallelMap.
+    expect(parallelMap.mock.calls.map((call) => call[0].length)).toEqual([1, 1]);
+    expect(runtime.log).toHaveBeenCalledWith('topic_boundaries_done', {
+      rangeCount: 2,
+      boundaryCount: 2,
+      minSentences: 1,
+      maxSentences: 2,
+      medianSentences: 1,
+      singleSentenceRangeCount: 1,
+    });
     expect(callLLMWithRetry).toHaveBeenCalledTimes(1);
     const { prompt } = callLLMWithRetry.mock.calls[0][0];
     expect(prompt).toContain('[1]\nCats purr. Cats nap.');

@@ -30,5 +30,6 @@ export const MSG = Object.freeze({
   saveProvider: 'saveProvider',
   deleteProvider: 'deleteProvider',
   setActiveProvider: 'setActiveProvider',
+  setTopicSplitter: 'setTopicSplitter',
   openOptionsPage: 'openOptionsPage',
 });

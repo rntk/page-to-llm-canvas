@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   boundariesToRanges,
   DECISION_BATCH_SIZE,
+  DECISION_MAX_ATTEMPTS,
   decideTopicBoundaries,
   summarizeBoundaries,
 } from './decisionTopicBoundaries.js';
@@ -30,6 +31,15 @@ function makeDecide(probabilityFor = () => 0) {
 function oversizedError(status = 400, body = 'input is too large for the context') {
   return Object.assign(new Error(`HTTP ${status}`), { status, body });
 }
+
+/** Runs batches one at a time so call order is deterministic. */
+async function sequentialMap(items, _limit, fn) {
+  const results = [];
+  for (const [index, item] of items.entries()) results.push(await fn(item, index));
+  return results;
+}
+
+const noSleep = vi.fn(async () => undefined);
 
 const questionIds = (call) => Object.keys(call[1]);
 const contentIds = (call) => call[0].content.map((item) => item.id);
@@ -230,23 +240,146 @@ describe('decideTopicBoundaries', () => {
     );
     expect(runtime.log).toHaveBeenCalledWith(
       'topic_boundaries_decided',
-      expect.objectContaining({ gapCount: 2, splitCount: 0, requestCount: 1, shrinkCount: 0 }),
+      expect.objectContaining({
+        gapCount: 2,
+        splitCount: 0,
+        requestCount: 1,
+        shrinkCount: 0,
+        retryCount: 0,
+      }),
     );
   });
 
-  it('logs a non-size failure with its batch and status before rethrowing', async () => {
+  it('logs a failure with its batch and status after exhausting retries', async () => {
     const error = Object.assign(new Error('HTTP 503'), { status: 503 });
     const decide = vi.fn().mockRejectedValue(error);
     const runtime = makeRuntime();
+    const sleep = vi.fn(async () => undefined);
 
     await expect(
-      decideTopicBoundaries({ decide, sentences: makeSentences(3), runtime }),
+      decideTopicBoundaries({ decide, sentences: makeSentences(3), runtime, sleep }),
     ).rejects.toBe(error);
 
+    expect(decide).toHaveBeenCalledTimes(DECISION_MAX_ATTEMPTS);
+    expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([500, 1000]);
     expect(runtime.log).toHaveBeenCalledWith(
       'topic_boundaries_error',
       expect.objectContaining({ gapStart: 1, gapEnd: 2, status: 503, error: 'HTTP 503' }),
     );
+  });
+
+  it.each([
+    ['a 503', Object.assign(new Error('loading model'), { status: 503 })],
+    ['a 429', Object.assign(new Error('busy'), { status: 429, body: 'input too large' })],
+    ['a 502', Object.assign(new Error('bad gateway'), { status: 502 })],
+    ['a network TypeError', new TypeError('Failed to fetch')],
+  ])('retries %s and then succeeds', async (_name, error) => {
+    const controller = new AbortController();
+    const runtime = makeRuntime({ signal: controller.signal });
+    const succeed = makeDecide(() => 0.9);
+    const decide = vi.fn().mockRejectedValueOnce(error).mockImplementation(succeed);
+    const sleep = vi.fn(async () => undefined);
+
+    const boundaries = await decideTopicBoundaries({
+      decide,
+      sentences: makeSentences(3),
+      runtime,
+      sleep,
+    });
+
+    expect(boundaries.map((boundary) => boundary.split)).toEqual([true, true]);
+    expect(decide).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(500, controller.signal);
+    expect(runtime.log).toHaveBeenCalledWith(
+      'topic_boundaries_retry',
+      expect.objectContaining({ gapStart: 1, gapEnd: 2, attempt: 1, delayMs: 500 }),
+    );
+    expect(runtime.log).toHaveBeenCalledWith(
+      'topic_boundaries_decided',
+      expect.objectContaining({ requestCount: 2, retryCount: 1, shrinkCount: 0 }),
+    );
+  });
+
+  it('stops promptly when the run is aborted during the retry backoff', async () => {
+    const controller = new AbortController();
+    const runtime = makeRuntime({ signal: controller.signal });
+    runtime.log.mockImplementation(async (name) => {
+      if (name === 'topic_boundaries_retry') setTimeout(() => controller.abort(), 0);
+    });
+    const decide = vi.fn().mockRejectedValue(Object.assign(new Error('busy'), { status: 503 }));
+    const startedAt = Date.now();
+
+    // The real abortable sleep would otherwise wait 500 ms.
+    await expect(
+      decideTopicBoundaries({ decide, sentences: makeSentences(3), runtime }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(Date.now() - startedAt).toBeLessThan(400);
+    expect(decide).toHaveBeenCalledTimes(1);
+    expect(runtime.log).not.toHaveBeenCalledWith('topic_boundaries_error', expect.anything());
+  });
+
+  it('does not retry a request that failed because the run was cancelled', async () => {
+    const controller = new AbortController();
+    const runtime = makeRuntime({ signal: controller.signal });
+    const decide = vi.fn(async () => {
+      controller.abort();
+      throw new TypeError('Failed to fetch');
+    });
+    const sleep = vi.fn(async () => undefined);
+
+    await expect(
+      decideTopicBoundaries({ decide, sentences: makeSentences(3), runtime, sleep }),
+    ).rejects.toThrow('Failed to fetch');
+    expect(decide).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it('runs batches in parallel and assembles boundaries in gap order', async () => {
+    // Units: [0], [1,2], [3], [4,5,6], [7]; asked gaps b2..b5 after sentences 0, 2, 3, 6.
+    const sentences = [
+      { text: 'A.' },
+      { text: 'B1' },
+      { text: 'B2.', continued: true },
+      { text: 'C.' },
+      { text: 'D1' },
+      { text: 'D2', continued: true },
+      { text: 'D3.', continued: true },
+      { text: 'E.' },
+    ];
+    const probabilities = { b2: 0.1, b3: 0.9, b4: 0.2, b5: 0.8 };
+    const parallelMap = vi.fn(async (items, _limit, fn) =>
+      Promise.all(items.map((item, index) => fn(item, index))),
+    );
+    // Later batches answer first.
+    const decide = vi.fn(async (_state, questions) => {
+      const ids = Object.keys(questions);
+      await new Promise((resolve) => setTimeout(resolve, 20 - Number(ids[0].slice(1)) * 4));
+      return { answers: Object.fromEntries(ids.map((id) => [id, answer(probabilities[id])])) };
+    });
+
+    const boundaries = await decideTopicBoundaries({
+      decide,
+      sentences,
+      batchSize: 1,
+      parallelMap,
+    });
+
+    expect(parallelMap.mock.calls[0][0]).toHaveLength(4);
+    expect(boundaries).toEqual([
+      { after: 0, value: 0.1, split: false },
+      { after: 1, value: null, split: false, withinSentence: true },
+      { after: 2, value: 0.9, split: true },
+      { after: 3, value: 0.2, split: false },
+      { after: 4, value: null, split: false, withinSentence: true },
+      { after: 5, value: null, split: false, withinSentence: true },
+      { after: 6, value: 0.8, split: true },
+    ]);
+    expect(boundariesToRanges(8, boundaries)).toEqual([
+      { start: 0, end: 2 },
+      { start: 3, end: 6 },
+      { start: 7, end: 7 },
+    ]);
   });
 
   it('summarizes split and near-threshold counts', () => {
@@ -263,7 +396,7 @@ describe('decideTopicBoundaries', () => {
     expect(summarizeBoundaries([], 0.5).meanSplitProbability).toBeNull();
   });
 
-  it('halves an oversized batch, then restores the configured size afterwards', async () => {
+  it('halves only the oversized batch; other batches keep the configured size', async () => {
     let failed = false;
     const decide = vi.fn(async (_state, questions) => {
       if (!failed) {
@@ -284,8 +417,15 @@ describe('decideTopicBoundaries', () => {
       contextSentences: 2,
     });
 
-    expect(decide.mock.calls.map((call) => questionIds(call).length)).toEqual([8, 4, 5]);
-    expect(boundaries).toHaveLength(9);
+    // The 1-gap second batch runs alongside; only the failed 8-gap batch splits.
+    expect(decide.mock.calls.map((call) => questionIds(call).length)).toEqual([8, 1, 4, 4]);
+    expect(decide.mock.calls.map((call) => questionIds(call)[0])).toEqual([
+      'b2',
+      'b10',
+      'b2',
+      'b6',
+    ]);
+    expect(boundaries.map((boundary) => boundary.after)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
     expect(runtime.log).toHaveBeenCalledWith('topic_boundaries_shrink', {
       gapStart: 1,
       gapEnd: 8,
@@ -296,7 +436,7 @@ describe('decideTopicBoundaries', () => {
     });
     expect(runtime.log).toHaveBeenCalledWith(
       'topic_boundaries_decided',
-      expect.objectContaining({ requestCount: 3, shrinkCount: 1 }),
+      expect.objectContaining({ requestCount: 4, shrinkCount: 1 }),
     );
   });
 
@@ -332,6 +472,7 @@ describe('decideTopicBoundaries', () => {
         sentences: makeSentences(5),
         batchSize: 2,
         contextSentences: 2,
+        parallelMap: sequentialMap,
       }),
     ).rejects.toBe(error);
 
@@ -362,17 +503,19 @@ describe('decideTopicBoundaries', () => {
 
   it.each([
     ['a non-size 400', Object.assign(new Error('bad'), { status: 400, body: 'invalid json' })],
-    ['a 429', Object.assign(new Error('rate'), { status: 429, body: 'input too large' })],
-    ['a plain error', new Error('network down')],
-  ])('propagates %s without shrinking', async (_name, error) => {
+    ['a 401', Object.assign(new Error('auth'), { status: 401, body: 'unauthorized' })],
+    ['a plain error', new Error('Server returned invalid JSON')],
+  ])('propagates %s without shrinking or retrying', async (_name, error) => {
     const decide = vi.fn(async () => {
       throw error;
     });
+    noSleep.mockClear();
 
-    await expect(decideTopicBoundaries({ decide, sentences: makeSentences(5) })).rejects.toBe(
-      error,
-    );
+    await expect(
+      decideTopicBoundaries({ decide, sentences: makeSentences(5), sleep: noSleep }),
+    ).rejects.toBe(error);
     expect(decide).toHaveBeenCalledTimes(1);
+    expect(noSleep).not.toHaveBeenCalled();
   });
 
   it.each([

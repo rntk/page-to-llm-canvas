@@ -1,55 +1,39 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DecisionClient, choice, score, noul } from './decisionClient.js';
-import { createClient } from './clients.js';
-import { createLLMService } from './llm.js';
+import { DecisionClient, choice } from './decisionClient.js';
 
 const okJson = (value) => ({ ok: true, json: async () => value });
+const question = () => choice('Split here?', { split: null, continue: 'Same topic' });
 afterEach(() => vi.useRealTimers());
 
-describe('decision question helpers', () => {
-  it('builds choice, score, and noul questions without flattening instructions', () => {
-    expect(choice({ text: 'Route this' }, ['returns', 'billing'])).toEqual({
+describe('choice', () => {
+  it('builds a choice question without flattening instructions', () => {
+    expect(choice({ text: 'Route this' }, { returns: null, billing: 'Payments' })).toEqual({
       type: 'choice',
       instructions: { text: 'Route this' },
-      criteria: { returns: null, billing: null },
+      criteria: { returns: null, billing: 'Payments' },
     });
-    expect(score('Priority?', ['Routine', 'Urgent']).criteria).toEqual(['Routine', 'Urgent']);
-    expect(noul('Replace?', { trueDescription: 'Damaged' }).criteria).toEqual({
-      true: 'Damaged',
-      false: null,
-    });
-    expect(noul('Replace?')).not.toHaveProperty('criteria');
   });
 
-  it('rejects duplicate choices, invalid descriptions, and invalid score levels', () => {
-    for (const criteria of [[], ['same', 'same'], [1], { bad: 2 }]) {
+  it('rejects empty, array, or invalid descriptions', () => {
+    for (const criteria of [{}, ['a', 'b'], { bad: 2 }, { '': null }, null]) {
       expect(() => choice('?', criteria)).toThrow();
     }
-    for (const criteria of [['one'], Array(11).fill('level'), [1, 2], 'bad']) {
-      expect(() => score('?', criteria)).toThrow();
-    }
-    expect(() => noul('?', { falseDescription: false })).toThrow();
   });
 });
 
 describe('DecisionClient', () => {
   it.each(['http://localhost:8080/proxy', 'http://localhost:8080/proxy/v1/'])(
-    'normalizes %s and sends the decision wire format with optional inputs',
+    'normalizes %s and sends the decision wire format',
     async (baseUrl) => {
       const response = {
-        answers: { ok: { noul: 0.83 } },
+        answers: { ok: { choice: 'split' } },
         model: 'test',
         usage: { total_tokens: 12 },
       };
       const transport = vi.fn().mockResolvedValue(okJson(response));
       const client = new DecisionClient({ baseUrl, model: 'default', apiKey: 'secret', transport });
-      const questions = { ok: noul('Accept?') };
-      const images = ['data:image/png;base64,YQ=='];
-      const result = await client.decide({ text: 'Example' }, questions, {
-        model: 'override',
-        images,
-        files: [],
-      });
+      const questions = { ok: question() };
+      const result = await client.decide({ text: 'Example' }, questions, { model: 'override' });
       expect(result).toBe(response);
       const [url, options] = transport.mock.calls[0];
       expect(url).toBe('http://localhost:8080/proxy/v1/systemone');
@@ -59,15 +43,13 @@ describe('DecisionClient', () => {
         state: { text: 'Example' },
         questions,
         model: 'override',
-        images,
-        files: [],
       });
     },
   );
 
   it('reports provider, model, sizes, and usage to the metrics collector', async () => {
     const response = {
-      answers: { ok: { noul: 0.5 } },
+      answers: { ok: { choice: 'split' } },
       model: 'served-model',
       usage: { prompt_tokens: 40, completion_tokens: 2, total_tokens: 42 },
     };
@@ -75,7 +57,7 @@ describe('DecisionClient', () => {
     const client = new DecisionClient({ baseUrl: 'http://localhost:8080', transport });
     const metricsCollector = vi.fn();
 
-    await client.decide('state', { ok: noul('?') }, { metricsCollector });
+    await client.decide('state', { ok: question() }, { metricsCollector });
 
     expect(metricsCollector).toHaveBeenCalledWith({
       provider: 'llama_decision',
@@ -86,31 +68,19 @@ describe('DecisionClient', () => {
     });
   });
 
-  it('uses GET for models and omits unset model and credentials for decisions', async () => {
-    const transport = vi
-      .fn()
-      .mockResolvedValueOnce(okJson({ data: [{ id: 'local' }] }))
-      .mockResolvedValueOnce(okJson({ answers: {} }));
-    const client = createClient(
-      { type: 'llama_decision', url: 'http://localhost:8080' },
-      { transport },
-    );
-    expect(await client.listModels()).toEqual({ data: [{ id: 'local' }] });
-    expect(transport.mock.calls[0][0]).toBe('http://localhost:8080/v1/models');
-    expect(transport.mock.calls[0][1]).toMatchObject({
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-    });
-    expect(transport.mock.calls[0][1]).not.toHaveProperty('body');
-    await client.decide('state', { ok: noul('?') });
-    expect(JSON.parse(transport.mock.calls[1][1].body)).not.toHaveProperty('model');
-    expect(transport.mock.calls[1][1].headers).not.toHaveProperty('Authorization');
+  it('omits unset model and credentials', async () => {
+    const transport = vi.fn().mockResolvedValue(okJson({ answers: {} }));
+    await new DecisionClient({ transport }).decide('state', { ok: question() });
+    expect(JSON.parse(transport.mock.calls[0][1].body)).not.toHaveProperty('model');
+    expect(transport.mock.calls[0][1].headers).not.toHaveProperty('Authorization');
   });
 
   it('retains HTTP status, original body, and parsed server error', async () => {
     const body = '{"error":"model unavailable"}';
     const transport = vi.fn().mockResolvedValue({ ok: false, status: 503, text: async () => body });
-    await expect(new DecisionClient({ transport }).listModels()).rejects.toMatchObject({
+    await expect(
+      new DecisionClient({ transport }).decide('state', { ok: question() }),
+    ).rejects.toMatchObject({
       status: 503,
       body,
       response: { error: 'model unavailable' },
@@ -119,19 +89,19 @@ describe('DecisionClient', () => {
   });
 
   it('logs the raw request and response only when verbose logs are enabled', async () => {
-    const response = { answers: { ok: { noul: 0.5 } }, extra: 'kept' };
+    const response = { answers: { ok: { choice: 'split' } }, extra: 'kept' };
     const logger = { info: vi.fn() };
     const transport = vi.fn().mockResolvedValue(okJson(response));
     const client = new DecisionClient({ transport, logger, apiKey: 'secret', model: 'm' });
 
-    await client.decide('state', { ok: noul('?') });
+    await client.decide('state', { ok: question() });
     expect(logger.info).not.toHaveBeenCalled();
 
-    await client.decide('state', { ok: noul('?') }, { verboseLogs: true });
+    await client.decide('state', { ok: question() }, { verboseLogs: true });
     expect(logger.info).toHaveBeenCalledWith('request:', {
       endpoint: 'http://localhost:8080/v1/systemone',
       method: 'POST',
-      body: { state: 'state', questions: { ok: noul('?') }, model: 'm' },
+      body: { state: 'state', questions: { ok: question() }, model: 'm' },
     });
     expect(logger.info).toHaveBeenCalledWith('raw response data:', response);
     expect(JSON.stringify(logger.info.mock.calls)).not.toContain('secret');
@@ -142,15 +112,14 @@ describe('DecisionClient', () => {
     const body = '{"error":"model unavailable"}';
     const transport = vi.fn().mockResolvedValue({ ok: false, status: 503, text: async () => body });
     await expect(
-      new DecisionClient({ transport, logger }).listModels({ verboseLogs: true }),
+      new DecisionClient({ transport, logger }).decide(
+        'state',
+        { ok: question() },
+        { verboseLogs: true },
+      ),
     ).rejects.toMatchObject({ status: 503 });
-    expect(logger.info).toHaveBeenCalledWith('request:', {
-      endpoint: 'http://localhost:8080/v1/models',
-      method: 'GET',
-      body: undefined,
-    });
     expect(logger.info).toHaveBeenCalledWith('raw error response:', {
-      endpoint: 'http://localhost:8080/v1/models',
+      endpoint: 'http://localhost:8080/v1/systemone',
       status: 503,
       body,
     });
@@ -160,7 +129,7 @@ describe('DecisionClient', () => {
     'rejects malformed decision response %j',
     async (response) => {
       const client = new DecisionClient({ transport: vi.fn().mockResolvedValue(okJson(response)) });
-      await expect(client.decide('state', { ok: noul('?') })).rejects.toThrow(/response/i);
+      await expect(client.decide('state', { ok: question() })).rejects.toThrow(/response/i);
     },
   );
 
@@ -175,29 +144,26 @@ describe('DecisionClient', () => {
       })
       .mockRejectedValueOnce(new Error('network down'));
     const client = new DecisionClient({ transport });
-    await expect(client.listModels()).rejects.toThrow('invalid JSON');
-    await expect(client.listModels()).rejects.toThrow('network down');
+    await expect(client.decide('state', { ok: question() })).rejects.toThrow('invalid JSON');
+    await expect(client.decide('state', { ok: question() })).rejects.toThrow('network down');
   });
 
-  it('validates questions and data URLs before making a request', async () => {
+  it('validates questions before making a request', async () => {
     const transport = vi.fn();
     const client = new DecisionClient({ transport });
     for (const questions of [{}, [], { '': {} }, { bad: [] }]) {
       await expect(client.decide('state', questions)).rejects.toThrow(/Questions/);
     }
-    await expect(
-      client.decide('state', { ok: noul('?') }, { images: ['path.png'] }),
-    ).rejects.toThrow(/data URLs/);
-    await expect(
-      client.decide('state', { ok: noul('?') }, { files: 'data:text/plain,x' }),
-    ).rejects.toThrow(/data URLs/);
     expect(transport).not.toHaveBeenCalled();
   });
 
   it('rejects unsafe token transport and invalid URLs or timeouts', () => {
     expect(
       () => new DecisionClient({ baseUrl: 'http://remote.example', apiKey: 'secret' }),
-    ).toThrow(/non-HTTPS/);
+    ).toThrow(/requires an HTTPS/);
+    expect(
+      () => new DecisionClient({ baseUrl: 'http://127.0.0.1:8080', apiKey: 'secret' }),
+    ).not.toThrow();
     for (const baseUrl of ['ftp://server', 'http://server?key=secret', 'http://server#fragment']) {
       expect(() => new DecisionClient({ baseUrl })).toThrow();
     }
@@ -215,7 +181,11 @@ describe('DecisionClient', () => {
         }),
     );
     const caller = new AbortController();
-    const pending = new DecisionClient({ transport }).listModels({ signal: caller.signal });
+    const pending = new DecisionClient({ transport }).decide(
+      'state',
+      { ok: question() },
+      { signal: caller.signal },
+    );
     const assertion = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
     caller.abort();
     await assertion;
@@ -231,35 +201,17 @@ describe('DecisionClient', () => {
         }),
     );
     const client = new DecisionClient({ transport, timeout: 0.1 });
-    const assertion = expect(client.listModels()).rejects.toMatchObject({ name: 'TimeoutError' });
+    const assertion = expect(client.decide('state', { ok: question() })).rejects.toMatchObject({
+      name: 'TimeoutError',
+    });
     await vi.advanceTimersByTimeAsync(100);
     await assertion;
     const caller = new AbortController();
     caller.abort();
-    await expect(client.listModels({ signal: caller.signal })).rejects.toMatchObject({
-      name: 'AbortError',
-    });
+    await expect(
+      client.decide('state', { ok: question() }, { signal: caller.signal }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
     expect(transport).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it('rejects completion requests without retries or HTTP calls', async () => {
-    const transport = vi.fn();
-    const service = createLLMService({
-      transport,
-      getRequestTimeoutSeconds: async () => 60,
-      getVerboseLogs: async () => false,
-      logWarn: vi.fn(),
-    });
-    const result = await service.callLLMDirectWithRetry({
-      prompt: 'Summarize',
-      provider: { type: 'llama_decision', url: 'http://localhost:8080' },
-    });
-    expect(result).toMatchObject({
-      ok: false,
-      retryable: false,
-      error: expect.stringContaining('structured decisions only'),
-    });
-    expect(transport).not.toHaveBeenCalled();
   });
 });

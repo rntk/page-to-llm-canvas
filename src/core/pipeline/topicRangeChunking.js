@@ -1,6 +1,12 @@
 import { MAX_TAGGED_CHARS, TOPIC_RANGE_INPUT_MAX_SENTENCES } from './pipelineConfig.js';
 
-function fitTextToChars(text, maxChars) {
+/**
+ * Cap text at `maxChars`, keeping its head and tail around a middle "…".
+ * @param {string} text Text to fit.
+ * @param {number} maxChars Maximum length of the result.
+ * @returns {string}
+ */
+export function fitTextToChars(text, maxChars) {
   const value = String(text || '');
   if (value.length <= maxChars) return value;
   if (maxChars <= 1) return value.slice(0, maxChars);

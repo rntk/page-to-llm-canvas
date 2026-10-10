@@ -119,7 +119,8 @@ export function planResume(record) {
  *   getMaxParallelLlmRequests: Function, normalizeMaxParallelLlmRequests: Function,
  *   subscribeToMaxParallelLlmRequests: Function}} deps.settings
  * @param {{getActiveProvider: Function, getDecisionProvider?: Function}} deps.providerRepository
- * @param {{callLLMWithRetry: Function, createClient?: Function}} deps.llm
+ * @param {{callLLMWithRetry: Function, createDecisionClient?: Function}} deps.llm
+ *   `createDecisionClient(provider)` returns a client exposing `decide(state, questions, options)`.
  * @param {function(): {run: Function, setLimit: Function}} deps.limiterFactory
  *   Called exactly once per runner. A realm-level composition root may return
  *   its existing shared limiter; otherwise the factory may create one seeded
@@ -191,8 +192,8 @@ export function createPipelineRunner({
         // A missing provider remains an ordinary request-boundary error, but an
         // inability to read provider storage must retain its real cause.
         providerRepository.getActiveProvider(),
-        // A saved decision provider places topic boundaries; the active
-        // provider still names ranges and writes summaries.
+        // The selected topic-splitter decision provider places topic boundaries;
+        // the active provider still names ranges and writes summaries.
         providerRepository.getDecisionProvider?.() ?? null,
       ]);
       if (concurrencySettingRevision === concurrencyRevisionAtRead) {
@@ -203,8 +204,16 @@ export function createPipelineRunner({
       // context limit between requests or retries.
       const callRunLLMWithRetry = (opts, maxRetries) =>
         callLLMWithRetry({ ...opts, provider: activeProvider }, maxRetries);
-      const decisionClient =
-        decisionProvider && llm.createClient ? llm.createClient(decisionProvider) : null;
+      let decisionClient = null;
+      if (decisionProvider && llm.createDecisionClient) {
+        try {
+          decisionClient = llm.createDecisionClient(decisionProvider);
+        } catch (error) {
+          throw new Error(
+            `Topic splitter "${decisionProvider.name}" is misconfigured: ${error?.message || error}`,
+          );
+        }
+      }
       const measuredDecide = decisionClient
         ? measureDecide((state, questions, opts) =>
             decisionClient.decide(state, questions, { ...opts, verboseLogs }),

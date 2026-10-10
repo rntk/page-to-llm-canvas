@@ -37,10 +37,19 @@ describe('provider form helpers', () => {
   it('normalizes a provider response into a safe list shape', () => {
     expect(normalizeProvidersResponse(null)).toBeNull();
     expect(normalizeProvidersResponse({ ok: false })).toBeNull();
-    expect(normalizeProvidersResponse({ ok: true })).toEqual({ providers: [], activeId: null });
+    expect(normalizeProvidersResponse({ ok: true })).toEqual({
+      providers: [],
+      activeId: null,
+      splitterId: null,
+    });
     expect(
-      normalizeProvidersResponse({ ok: true, providers: [{ id: 'p1' }], activeId: 'p1' }),
-    ).toEqual({ providers: [{ id: 'p1' }], activeId: 'p1' });
+      normalizeProvidersResponse({
+        ok: true,
+        providers: [{ id: 'p1' }],
+        activeId: 'p1',
+        splitterId: 'd1',
+      }),
+    ).toEqual({ providers: [{ id: 'p1' }], activeId: 'p1', splitterId: 'd1' });
   });
 
   it('builds an edit form without exposing the stored token', () => {

@@ -126,6 +126,7 @@ describe('parseTopicLabels', () => {
     expect(error).toBeInstanceOf(TopicParseError);
     expect(error.message).toBe('Topic labels missing for sections 2, 3');
     expect(error.diagnostics.missing).toEqual([2, 3]);
+    expect(error.diagnostics.labels).toEqual([['A'], null, null, ['D']]);
   });
 
   it('treats a label with no usable path segments as missing', () => {
@@ -209,27 +210,41 @@ describe('labelTopicRanges', () => {
     expect(groups.map((group) => group.ranges[0].start)).toEqual([0, 1, 2, 3]);
   });
 
-  it('retries a response with missing sections and then succeeds', async () => {
+  it('keeps parsed labels and re-asks only the missing sections, renumbered', async () => {
     const callLLMWithRetry = vi
       .fn()
-      .mockResolvedValueOnce('1: A\n2: B')
+      .mockResolvedValueOnce('1: A\n3: C')
       .mockResolvedValueOnce('gibberish')
-      .mockResolvedValueOnce('1: A\n2: B\n3: C\n4: D');
+      .mockResolvedValueOnce('1: B\n2: D');
     const runtime = makeLabelRuntime();
 
     const groups = await labelTopicRanges({ runtime, ranges, sentenceTexts, callLLMWithRetry });
 
     expect(callLLMWithRetry).toHaveBeenCalledTimes(3);
-    expect(groups).toHaveLength(4);
+    const retryPrompt = callLLMWithRetry.mock.calls[1][0].prompt;
+    expect(retryPrompt).toContain('[1]\nDogs bark.\n[2]\nBirds sing.');
+    expect(retryPrompt).not.toContain('Cats');
+    expect(callLLMWithRetry.mock.calls[2][0].prompt).toBe(retryPrompt);
+    expect(groups.map((group) => [group.label, group.ranges[0].start])).toEqual([
+      [['A'], 0],
+      [['B'], 1],
+      [['C'], 2],
+      [['D'], 3],
+    ]);
     const retryLogs = runtime.log.mock.calls.filter(
       ([name]) => name === 'topic_labels_parse_retry',
     );
     expect(retryLogs.map(([, details]) => details.attempt)).toEqual([1, 2]);
-    expect(retryLogs[0][1].error).toContain('missing for sections 3, 4');
+    expect(retryLogs[0][1].error).toContain('missing for sections 2, 4');
+    expect(
+      runtime.log.mock.calls
+        .filter(([name]) => name === 'topic_labels_llm_request')
+        .map(([, details]) => details.sectionCount),
+    ).toEqual([4, 2, 2]);
   });
 
   it('throws the parse error after exhausting retries', async () => {
-    const callLLMWithRetry = vi.fn(async () => '1: only one');
+    const callLLMWithRetry = vi.fn(async () => 'no labels here');
 
     await expect(
       labelTopicRanges({ runtime: makeLabelRuntime(), ranges, sentenceTexts, callLLMWithRetry }),

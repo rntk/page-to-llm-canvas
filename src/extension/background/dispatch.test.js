@@ -136,6 +136,21 @@ describe('provider message handlers', () => {
     expect(a.provider.id).not.toBe(b.provider.id);
   });
 
+  it('setTopicSplitter selects and clears the decision splitter', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatch = await loadDispatcher(chromeMock);
+
+    const saved = await dispatch({
+      type: 'saveProvider',
+      provider: { type: 'llama_decision', name: 'D', url: 'http://localhost:8080' },
+    });
+    expect(saved.splitterId).toBeNull();
+    const res = await dispatch({ type: 'setTopicSplitter', id: saved.provider.id });
+    expect(res.ok).toBe(true);
+    expect(res.splitterId).toBe(saved.provider.id);
+    expect((await dispatch({ type: 'setTopicSplitter', id: null })).splitterId).toBeNull();
+  });
+
   it('deleteProvider removes a provider', async () => {
     const chromeMock = makeChromeMock();
     const dispatch = await loadDispatcher(chromeMock);
@@ -304,6 +319,7 @@ describe('dispatchMessage unit tests', () => {
       'saveProvider',
       'deleteProvider',
       'setActiveProvider',
+      'setTopicSplitter',
       'getStorageOverview',
       'deleteAllExtensionData',
     ]) {

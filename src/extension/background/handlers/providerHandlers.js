@@ -9,6 +9,7 @@ import { MSG } from '../../../shared/runtime/messages.js';
  * @param {Function} deps.saveProvider
  * @param {Function} deps.deleteProvider
  * @param {Function} deps.setActiveProvider
+ * @param {Function} deps.setTopicSplitter
  * @param {Function} deps.sanitizeProvider
  * @param {Function} deps.sanitizeProvidersState
  */
@@ -17,6 +18,7 @@ export function createProviderHandlers({
   saveProvider,
   deleteProvider,
   setActiveProvider,
+  setTopicSplitter,
   sanitizeProvider,
   sanitizeProvidersState,
 }) {
@@ -56,6 +58,17 @@ export function createProviderHandlers({
       validate: requireId,
       async handle(msg) {
         const state = await setActiveProvider(msg.id);
+        return { ok: true, ...sanitizeProvidersState(state) };
+      },
+    },
+
+    // A null id returns topic splitting to the completion LLM.
+    [MSG.setTopicSplitter]: {
+      requiresExtensionPage: true,
+      validate: (msg) =>
+        msg.id == null || typeof msg.id === 'string' ? null : 'id must be a string or null',
+      async handle(msg) {
+        const state = await setTopicSplitter(msg.id || null);
         return { ok: true, ...sanitizeProvidersState(state) };
       },
     },

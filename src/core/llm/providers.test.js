@@ -5,6 +5,8 @@ import {
   PROVIDER_DEFINITIONS,
   ServiceTier,
   getProviderDefinition,
+  isCompletionProvider,
+  isDecisionProvider,
   normalizeProvider,
   sanitizeProvider,
   PROVIDERS_KEY,
@@ -200,7 +202,11 @@ describe('provider storage', () => {
 
   it('returns empty state when nothing stored', async () => {
     const mod = await freshProviders();
-    expect(await mod.getProvidersState()).toEqual({ providers: [], activeId: null });
+    expect(await mod.getProvidersState()).toEqual({
+      providers: [],
+      activeId: null,
+      splitterId: null,
+    });
     expect(await mod.getActiveProvider()).toBeNull();
   });
 
@@ -218,18 +224,54 @@ describe('provider storage', () => {
     expect((await mod.getActiveProvider()).name).toBe('A');
   });
 
-  it('returns the saved decision provider, independent of the active provider', async () => {
+  it('uses a decision provider only once selected as topic splitter', async () => {
     const mod = await freshProviders();
     expect(await mod.getDecisionProvider()).toBeNull();
-    await mod.saveProvider({ type: 'openai', name: 'A', model: 'gpt-4o', token: 'k' });
-    expect(await mod.getDecisionProvider()).toBeNull();
+    const completion = await mod.saveProvider({
+      type: 'openai',
+      name: 'A',
+      model: 'gpt-4o',
+      token: 'k',
+    });
     const decision = await mod.saveProvider({
       type: 'llama_decision',
       name: 'Decisions',
       url: 'http://localhost:8080',
     });
+    expect(await mod.getDecisionProvider()).toBeNull();
+    expect((await mod.setTopicSplitter(decision.id)).splitterId).toBe(decision.id);
     expect((await mod.getDecisionProvider()).id).toBe(decision.id);
+    expect(mod.sanitizeProvidersState(await mod.getProvidersState()).splitterId).toBe(decision.id);
     expect((await mod.getActiveProvider()).name).toBe('A');
+
+    await expect(mod.setTopicSplitter(completion.id)).rejects.toThrow(/Only decision/);
+    await expect(mod.setTopicSplitter('nope')).rejects.toThrow(/Unknown provider/);
+    expect((await mod.setTopicSplitter(null)).splitterId).toBeNull();
+    expect(await mod.getDecisionProvider()).toBeNull();
+  });
+
+  it('clears the topic splitter when its provider is deleted', async () => {
+    const mod = await freshProviders();
+    const decision = await mod.saveProvider({
+      type: 'llama_decision',
+      name: 'Decisions',
+      url: 'http://localhost:8080',
+    });
+    await mod.setTopicSplitter(decision.id);
+    expect((await mod.deleteProvider(decision.id)).splitterId).toBeNull();
+    expect(await mod.getDecisionProvider()).toBeNull();
+  });
+
+  it('ignores a stored splitter id that is not a decision provider', async () => {
+    installFakeStorage({
+      [PROVIDERS_KEY]: {
+        providers: [{ id: 'completion', type: 'openai', name: 'A', model: 'gpt-4o' }],
+        activeId: 'completion',
+        splitterId: 'completion',
+      },
+    });
+    const mod = await freshProviders();
+    expect(await mod.getDecisionProvider()).toBeNull();
   });
 
   it('does not activate a decision provider and activates the first completion provider', async () => {
@@ -279,6 +321,7 @@ describe('provider storage', () => {
         expect.objectContaining({ id: 'third' }),
       ],
       activeId: second.id,
+      splitterId: null,
     });
   });
 
@@ -479,7 +522,7 @@ describe('decision providers', () => {
     expect(getProviderDefinition(entry.type).requiresUrl).toBe(true);
   });
 
-  it.each(['', 'ftp://server', 'http://server?key=secret', 'http://server#fragment'])(
+  it.each(['', 'not a url', 'ftp://server', 'http://server?key=secret', 'http://server#fragment'])(
     'rejects invalid server URL %s',
     (url) => {
       expect(() =>
@@ -487,6 +530,25 @@ describe('decision providers', () => {
       ).toThrow();
     },
   );
+
+  it('requires HTTPS to send a token to a non-localhost server', () => {
+    const base = { type: ProviderType.LLAMA_DECISION, name: 'Decisions', token: 'secret' };
+    expect(() => normalizeProvider({ ...base, url: 'http://remote.example' })).toThrow(
+      /requires an HTTPS/,
+    );
+    expect(normalizeProvider({ ...base, url: 'https://remote.example' }).token).toBe('secret');
+    expect(normalizeProvider({ ...base, url: 'http://localhost:8080' }).token).toBe('secret');
+    expect(normalizeProvider({ ...base, url: 'http://remote.example', token: '' }).token).toBe('');
+  });
+
+  it('reads model and temperature rules from the capability field', () => {
+    for (const definition of PROVIDER_DEFINITIONS) {
+      expect(['completion', 'decision']).toContain(definition.capability);
+    }
+    expect(isCompletionProvider({ type: ProviderType.LLAMA_DECISION })).toBe(false);
+    expect(isDecisionProvider({ type: ProviderType.LLAMA_DECISION })).toBe(true);
+    expect(isCompletionProvider({ type: ProviderType.OPENAI_COMP })).toBe(true);
+  });
 
   it('preserves a token for the same server and clears it when the server changes', async () => {
     installFakeStorage();

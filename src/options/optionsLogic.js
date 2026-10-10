@@ -51,6 +51,7 @@ export function normalizeProvidersResponse(resp) {
   return {
     providers: resp.providers || [],
     activeId: resp.activeId || null,
+    splitterId: resp.splitterId || null,
   };
 }
 

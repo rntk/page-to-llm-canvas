@@ -3,6 +3,7 @@
 import { LLM_TASK_TYPES } from '../../shared/runtime/telemetry.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { getLocal, setLocal } from '../storage/primitives.js';
+import { ProviderType } from '../llm/providers.js';
 
 export { LLM_TASK_TYPES } from '../../shared/runtime/telemetry.js';
 
@@ -374,7 +375,7 @@ export function wrapDecide(decide) {
           durationMs: Date.now() - startedAt,
           ok: false,
           taskType,
-          provider: 'llama_decision',
+          provider: ProviderType.LLAMA_DECISION,
           error: (err && err.message) || String(err),
         });
         throw err;

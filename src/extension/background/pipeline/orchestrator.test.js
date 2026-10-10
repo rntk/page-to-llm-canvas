@@ -58,8 +58,8 @@ vi.mock('../../../core/pipeline/sentenceSplitter.js', () => ({
 
 vi.mock('../../../core/llm/llm.js', () => ({
   callLLMWithRetry: vi.fn(),
-  createClient: vi.fn(() => decisionClient),
 }));
+const createDecisionClient = vi.fn(() => decisionClient);
 
 vi.mock('../../../core/llm/concurrency.js', () => ({
   createAdjustableLimiter: vi.fn(() => pipelineLimiter),
@@ -104,7 +104,7 @@ const { runPipeline } = createPipelineRunner({
     subscribeToMaxParallelLlmRequests: vi.fn(() => () => {}),
   },
   providerRepository: { getActiveProvider, getDecisionProvider },
-  llm: { callLLMWithRetry: llm.callLLMWithRetry, createClient: llm.createClient },
+  llm: { callLLMWithRetry: llm.callLLMWithRetry, createDecisionClient },
   limiterFactory: () => pipelineLimiter,
   telemetry: { wrapCallLLMWithRetry },
   logger: { info: vi.fn(), error: vi.fn() },
@@ -894,6 +894,24 @@ describe('runPipeline', () => {
     } finally {
       pipelineLimiter.run.mockImplementation((fn) => fn());
     }
+  });
+
+  it('names the topic splitter when its client cannot be constructed', async () => {
+    getDecisionProvider.mockResolvedValueOnce({
+      id: 'decision-provider',
+      name: 'Decisions',
+      type: 'llama_decision',
+      url: 'http://remote.example',
+      token: 'secret',
+    });
+    createDecisionClient.mockImplementationOnce(() => {
+      throw new Error('An API token requires an HTTPS base URL');
+    });
+    storage.readRecord.mockResolvedValue(makeRecord('decision-broken', 'One.'));
+
+    await expect(runPipeline('decision-broken')).rejects.toThrow(
+      'Topic splitter "Decisions" is misconfigured: An API token requires an HTTPS base URL',
+    );
   });
 
   it('marks done with empty topics when no sentences are found', async () => {

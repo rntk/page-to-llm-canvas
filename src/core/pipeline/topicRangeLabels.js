@@ -9,6 +9,7 @@ import { rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
 import { TOPIC_RANGE_ABORT_MESSAGE } from './topicRangeCheckpoint.js';
 import { splitTopicPath } from '../../shared/runtime/topicPath.js';
 import { parallelMap as defaultParallelMap } from '../llm/concurrency.js';
+import { fitTextToChars } from './topicRangeChunking.js';
 
 // Enough of a section to name it; long sections keep their head and tail.
 export const LABEL_SECTION_MAX_CHARS = 1500;
@@ -17,10 +18,8 @@ const LABEL_MAX_SECTIONS = 60;
 const LABEL_PROVIDER_MAX_ATTEMPTS = 3;
 const LABEL_LINE_RE = /^\W*\[?(\d+)\]?\s*[:.)\]-]\s*(.+)$/u;
 
-function fitText(text, maxChars) {
-  if (text.length <= maxChars) return text;
-  const head = Math.ceil((maxChars - 1) / 2);
-  return `${text.slice(0, head)}…${text.slice(text.length - (maxChars - 1 - head))}`;
+function numberSections(bodies) {
+  return bodies.map((body, index) => `[${index + 1}]\n${body}`).join('\n');
 }
 
 /**
@@ -28,14 +27,14 @@ function fitText(text, maxChars) {
  * @param {Array<{start: number, end: number}>} ranges Zero-based inclusive ranges.
  * @param {string[]} sentenceTexts Source sentences.
  * @param {number} maxChars Request text budget.
- * @returns {Array<{ranges: object[], text: string}>}
+ * @returns {Array<{ranges: object[], bodies: string[], text: string}>}
  */
 export function batchRangesForLabels(ranges, sentenceTexts, maxChars) {
   const sectionMaxChars = Math.max(1, Math.min(LABEL_SECTION_MAX_CHARS, maxChars - 8));
   const batches = [];
   let current = null;
   for (const range of ranges) {
-    const body = fitText(
+    const body = fitTextToChars(
       sentenceTexts
         .slice(range.start, range.end + 1)
         .join(' ')
@@ -48,12 +47,12 @@ export function batchRangesForLabels(ranges, sentenceTexts, maxChars) {
       current.ranges.length < LABEL_MAX_SECTIONS &&
       current.text.length + `\n[${current.ranges.length + 1}]\n${body}`.length <= maxChars;
     if (!fits) {
-      current = { ranges: [], text: '' };
+      current = { ranges: [], bodies: [], text: '' };
       batches.push(current);
     }
     current.ranges.push(range);
-    const section = `[${current.ranges.length}]\n${body}`;
-    current.text = current.text ? `${current.text}\n${section}` : section;
+    current.bodies.push(body);
+    current.text = numberSections(current.bodies);
   }
   return batches;
 }
@@ -63,6 +62,8 @@ export function batchRangesForLabels(ranges, sentenceTexts, maxChars) {
  * @param {string} response Raw model response.
  * @param {number} sectionCount Sections in the request.
  * @returns {string[][]} Label parts per section.
+ * @throws {TopicParseError} With `diagnostics.missing` section numbers and
+ *   `diagnostics.labels` holding the parsed labels (null where missing).
  */
 export function parseTopicLabels(response, sectionCount) {
   const labels = new Array(sectionCount).fill(null);
@@ -81,6 +82,7 @@ export function parseTopicLabels(response, sectionCount) {
   if (missing.length > 0) {
     throw new TopicParseError(`Topic labels missing for sections ${missing.join(', ')}`, {
       missing,
+      labels,
     });
   }
   return labels;
@@ -113,17 +115,21 @@ export async function labelTopicRanges({
     { verbose: true },
   );
   const labelled = await parallelMap(batches, TOPIC_RANGE_CONCURRENCY, async (batch, index) => {
-    const prompt = buildTopicLabelsPrompt(batch.text, {
-      preferContentLanguage: runtime.preferContentLanguage,
-    });
+    const labels = new Array(batch.ranges.length).fill(null);
+    // Positions still unlabelled; a retry re-asks only these, renumbered from 1.
+    let pending = batch.ranges.map((_, position) => position);
     for (let attempt = 1; ; attempt++) {
       throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
+      const prompt = buildTopicLabelsPrompt(
+        numberSections(pending.map((position) => batch.bodies[position])),
+        { preferContentLanguage: runtime.preferContentLanguage },
+      );
       let response;
       await runtime.log(
         'topic_labels_llm_request',
         {
           batchIndex: index,
-          sectionCount: batch.ranges.length,
+          sectionCount: pending.length,
           promptLength: prompt.length,
           attempt,
         },
@@ -139,7 +145,9 @@ export async function labelTopicRanges({
           { batchIndex: index, responseLength: response.length, attempt },
           { verbose: true },
         );
-        return parseTopicLabels(response, batch.ranges.length);
+        const parsed = parseTopicLabels(response, pending.length);
+        pending.forEach((position, local) => (labels[position] = parsed[local]));
+        return labels;
       } catch (error) {
         rethrowIfCancelled(error, runtime, TOPIC_RANGE_ABORT_MESSAGE);
         if (!(error instanceof TopicParseError) || attempt > TOPIC_RANGE_STAGE_MAX_RETRIES) {
@@ -150,6 +158,9 @@ export async function labelTopicRanges({
           });
           throw error;
         }
+        const partial = error.diagnostics?.labels ?? [];
+        pending.forEach((position, local) => (labels[position] = partial[local] ?? null));
+        pending = pending.filter((position) => !labels[position]);
         await runtime.log('topic_labels_parse_retry', {
           batchIndex: index,
           attempt,

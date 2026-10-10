@@ -27,6 +27,7 @@ describe('options API', () => {
     await expect(listProviders()).resolves.toEqual({
       providers: [{ id: 'p1' }],
       activeId: 'p1',
+      splitterId: null,
       error: null,
       transportError: false,
     });
