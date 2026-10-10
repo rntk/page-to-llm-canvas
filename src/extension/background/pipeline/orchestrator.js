@@ -1,4 +1,4 @@
-// Service-worker pipeline: clean HTML, split sentences, find topics, summarize.
+// Service-worker pipeline: prepare source, split topics, resume or generate summaries.
 
 import { formatPipelineError } from './pipelineRuntime.js';
 import { computeTopics } from '../../../core/pipeline/topicRangesStage.js';
@@ -20,31 +20,7 @@ import {
   restoreAfterResplitPatch,
   summarizingTransition,
 } from '../../../shared/runtime/recordTransitions.js';
-import {
-  getPipelineTextChunkMaxChars,
-  getTopicRangeInputMaxSentences,
-} from '../../../core/pipeline/pipelineConfig.js';
-import { resolveMaxOutputTokens } from '../../../core/llm/outputBudget.js';
-import { resolveProviderTemperature } from '../../../core/llm/temperatures.js';
-import { LLM_TASK_TYPES } from '../../../core/metrics/llm.js';
-
-function providerQueueKey(provider) {
-  return provider?.url
-    ? new URL(provider.url).href.replace(/\/+$/, '').replace(/\/v1$/, '')
-    : (provider?.type ?? 'completion');
-}
-
-function providerCacheIdentity(provider) {
-  return provider
-    ? [
-        provider.id,
-        provider.type,
-        provider.url ?? null,
-        provider.model ?? null,
-        provider.contextWindowTokens ?? null,
-      ]
-    : null;
-}
+import { createPipelineProviderServices } from './pipelineProviders.js';
 
 // Reject malformed topics or missing sentence references without erasing saved
 // summaries. Empty topics may coexist with valid ones, but at least one topic
@@ -157,17 +133,7 @@ export function createPipelineRunner({
   logger,
 }) {
   const limiter = limiterFactory();
-  const measuredCallLLMWithRetry = telemetry.wrapCallLLMWithRetry(llm.callLLMWithRetry);
-  const measureDecide = telemetry.wrapDecide ?? ((decide) => decide);
-  // The limiter slot is held for the whole retry loop, including backoff sleeps,
-  // not just the HTTP call, so a replacement request can't hit the same
-  // failing/rate-limited provider mid-backoff. The signal is passed through so a
-  // queued call can still be cancelled without waiting for a slot.
-  const callLLMWithRetry = (opts, maxRetries, fairnessKey) =>
-    limiter.run(() => measuredCallLLMWithRetry(opts, maxRetries), opts?.signal, {
-      providerKey: providerQueueKey(opts?.provider),
-      fairnessKey,
-    });
+  const bindProviders = createPipelineProviderServices({ llm, telemetry, limiter });
   let concurrencySettingRevision = 0;
   let disposed = false;
   const unsubscribe = settings.subscribeToMaxParallelLlmRequests((newValue) => {
@@ -199,76 +165,28 @@ export function createPipelineRunner({
 
     const concurrencyRevisionAtRead = concurrencySettingRevision;
     try {
-      const [
-        preferContentLanguage,
-        verboseLogs,
-        maxParallelLlmRequests,
-        activeProvider,
-        decisionProvider,
-      ] = await Promise.all([
-        settings.getPreferContentLanguage(),
-        settings.getVerboseLogs(),
-        settings.getMaxParallelLlmRequests(),
-        // The provider snapshot sizes and handles every request in this run.
-        // A missing provider remains an ordinary request-boundary error, but an
-        // inability to read provider storage must retain its real cause.
-        providerRepository.getActiveProvider(),
-        // The selected topic-splitter decision provider places topic boundaries;
-        // the active provider still names ranges and writes summaries.
-        providerRepository.getDecisionProvider?.() ?? null,
-      ]);
+      const [preferContentLanguage, verboseLogs, maxParallelLlmRequests, activeProvider] =
+        await Promise.all([
+          settings.getPreferContentLanguage(),
+          settings.getVerboseLogs(),
+          settings.getMaxParallelLlmRequests(),
+          // The provider snapshot sizes and handles every request in this run.
+          // A missing provider remains an ordinary request-boundary error, but an
+          // inability to read provider storage must retain its real cause.
+          providerRepository.getActiveProvider(),
+        ]);
       if (concurrencySettingRevision === concurrencyRevisionAtRead) {
         limiter.setLimit(maxParallelLlmRequests);
       }
-      // Size and dispatch against the same snapshot. A provider selected later is
-      // picked up by the next pipeline run instead of silently changing this run's
-      // context limit between requests or retries.
-      const callRunLLMWithRetry = (opts, maxRetries) =>
-        callLLMWithRetry({ ...opts, provider: activeProvider }, maxRetries, key);
-      let decisionClient = null;
-      if (decisionProvider && !llm.createDecisionClient) {
-        throw new Error('The selected topic splitter has no Decision API client factory');
-      }
-      if (decisionProvider && llm.createDecisionClient) {
-        try {
-          decisionClient = llm.createDecisionClient(decisionProvider);
-        } catch (error) {
-          throw new Error(
-            `Topic splitter "${decisionProvider.name}" is misconfigured: ${error?.message || error}`,
-          );
-        }
-      }
-      const measuredDecide = decisionClient
-        ? measureDecide(
-            (state, questions, opts) =>
-              decisionClient.decide(state, questions, { ...opts, verboseLogs }),
-            { model: decisionProvider.model },
-          )
-        : undefined;
-      const decide = measuredDecide
-        ? (state, questions, opts) =>
-            limiter.run(() => measuredDecide(state, questions, opts), opts?.signal, {
-              providerKey: providerQueueKey(decisionProvider),
-              fairnessKey: key,
-            })
-        : undefined;
-
+      const providers = bindProviders({ activeProvider, key, verboseLogs });
+      const callRunLLMWithRetry = providers.callLLMWithRetry;
       runtime = runtimeFactory({
         ...runtimeContext,
         preferContentLanguage,
         verboseLogs,
-        maxTextChunkChars: getPipelineTextChunkMaxChars(activeProvider?.contextWindowTokens),
-        maxTopicRangeSentences: getTopicRangeInputMaxSentences(
-          activeProvider?.contextWindowTokens,
-          resolveMaxOutputTokens(activeProvider?.contextWindowTokens),
-        ),
+        ...providers.runtimeOptions,
       });
-      await runtime.log('pipeline_start', {
-        topicSplitter: decide ? 'decision' : 'llm',
-        ...(decisionProvider
-          ? { decisionProvider: decisionProvider.name, decisionModel: decisionProvider.model || '' }
-          : {}),
-      });
+      await runtime.log('pipeline_start');
       const record = await runtime.read();
       if (!record) throw new Error(`record not found: ${key}`);
       runtime.setSummariesDisabled(record.skipSummaries === true);
@@ -388,20 +306,18 @@ export function createPipelineRunner({
           summariesIncomplete: false,
         });
       } else {
-        ({ topics, sentenceTexts } = await computeTopics({
-          runtime,
-          record,
-          callLLMWithRetry: callRunLLMWithRetry,
-          decide,
-          decisionOptions: {
-            contextWindowTokens: decisionProvider?.contextWindowTokens,
-            inputFingerprint: JSON.stringify([
-              providerCacheIdentity(decisionProvider),
-              providerCacheIdentity(activeProvider),
-              resolveProviderTemperature(activeProvider, LLM_TASK_TYPES.TOPIC_LABELS) ?? null,
-            ]),
-          },
-        }));
+        const decisionProvider = await providerRepository.getDecisionProvider?.();
+        const splitter = providers.createTopicSplitter(decisionProvider);
+        await runtime.log('topic_splitter_selected', {
+          topicSplitter: splitter.kind,
+          ...(decisionProvider
+            ? {
+                decisionProvider: decisionProvider.name,
+                decisionModel: decisionProvider.model || '',
+              }
+            : {}),
+        });
+        ({ topics, sentenceTexts } = await computeTopics({ runtime, record, splitter }));
         if (!topics) return;
       }
 
@@ -427,13 +343,7 @@ export function createPipelineRunner({
         sentenceTexts,
         previousSummaries: carried('topic_summaries'),
         previousSummaryIndex: carried('topic_summary_index'),
-        // Cache identity follows the same provider snapshot as request dispatch.
-        // Null distinguishes an omitted temperature from an explicit zero.
-        inputFingerprint: JSON.stringify([
-          activeProvider?.type ?? null,
-          activeProvider?.model ?? null,
-          resolveProviderTemperature(activeProvider, LLM_TASK_TYPES.ARTICLE_SUMMARY) ?? null,
-        ]),
+        inputFingerprint: providers.summaryInputFingerprint,
         previousSourceSummaryUnits: carried('source_summary_units'),
         contentRevision:
           typeof record.contentRevision === 'string' && record.contentRevision

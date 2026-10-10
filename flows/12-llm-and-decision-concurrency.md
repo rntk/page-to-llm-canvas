@@ -2,7 +2,7 @@
 
 Pipeline completion requests and Decision API requests share one concurrency queue across all records being processed by the background service worker. Article chat uses the same queue with higher priority. Pipeline requests also carry a server key and record key for provider isolation and fair scheduling within the shared capacity.
 
-Entrypoint: [`src/extension/background/background.js`](../src/extension/background/background.js) (queue construction and wiring); [`src/extension/background/pipeline/orchestrator.js`](../src/extension/background/pipeline/orchestrator.js) (pipeline request wrappers).
+Entrypoint: [`src/extension/background/background.js`](../src/extension/background/background.js) (queue construction and wiring); [`src/extension/background/pipeline/pipelineProviders.js`](../src/extension/background/pipeline/pipelineProviders.js) (pipeline request wrappers).
 
 ## Shared capacity
 
@@ -54,7 +54,7 @@ Pipeline completion and chat tasks hold a shared slot for the entire provider re
 
 Queued requests with an abort signal can be removed immediately on cancellation without consuming a slot. Once started, the underlying request or retry loop handles cancellation; the limiter releases capacity when that task settles.
 
-Implementation: [`orchestrator.js`](../src/extension/background/pipeline/orchestrator.js), [`chatCompletionService.js`](../src/extension/background/chatCompletionService.js), [`decisionClient.js`](../src/core/llm/decisionClient.js), and [`topicRangesStage.js`](../src/core/pipeline/topicRangesStage.js).
+Implementation: [`pipelineProviders.js`](../src/extension/background/pipeline/pipelineProviders.js), [`chatCompletionService.js`](../src/extension/background/chatCompletionService.js), [`decisionClient.js`](../src/core/llm/decisionClient.js), and [`decisionTopicSplit.js`](../src/core/pipeline/decisionTopicSplit.js).
 
 ## Guidance for code changes
 

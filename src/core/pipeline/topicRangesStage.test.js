@@ -1,3 +1,4 @@
+import { createCompletionTopicSplitter, createDecisionTopicSplitter } from './topicSplitter.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeTopics as computeTopicsWithDefaults } from './topicRangesStage.js';
 import { splitTopicRanges } from './topicRangeSplit.js';
@@ -42,13 +43,16 @@ const recordParserMetric = vi.fn(async () => undefined);
 
 /** Exercise the production dependency seam without repeating test defaults. */
 function computeTopics(input) {
-  return computeTopicsWithDefaults({
+  const options = {
     ...input,
-    dependencies: {
-      parallelMap,
-      recordParserMetric,
-      ...input.dependencies,
-    },
+    dependencies: { parallelMap, recordParserMetric, ...input.dependencies },
+  };
+  return computeTopicsWithDefaults({
+    runtime: input.runtime,
+    record: input.record,
+    splitter: input.decide
+      ? createDecisionTopicSplitter(options)
+      : createCompletionTopicSplitter(options),
   });
 }
 
@@ -243,6 +247,38 @@ describe('computeTopics', () => {
         status: 'done',
         topics: [],
         progress: { stage: 'done', done: 0, total: 0 },
+      }),
+    );
+  });
+
+  it('composes an injected splitter with source preparation and final checkpoint commit', async () => {
+    const runtime = makeRuntime();
+    const record = { capturedText: 'A long sentence.', contentRevision: 'source-v1' };
+    const sentenceObjs = [
+      { text: 'A long', start: 0, end: 6 },
+      { text: 'sentence.', start: 7, end: 16, continued: true },
+    ];
+    splitSentences.mockReturnValue(sentenceObjs);
+    const splitter = {
+      split: vi.fn(async () => [{ label: ['Topic'], ranges: [{ start: 0, end: 1 }] }]),
+    };
+
+    const result = await computeTopicsWithDefaults({ runtime, record, splitter });
+
+    expect(splitter.split).toHaveBeenCalledWith({
+      runtime,
+      record,
+      text: record.capturedText,
+      sentenceObjs,
+      sentenceTexts: ['A long', 'sentence.'],
+    });
+    expect(result.topics).toEqual([{ name: 'Topic', sentences: [1, 2] }]);
+    expect(runtime.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        topics: result.topics,
+        topic_range_chunks: null,
+        summaryCheckpointContentRevision: 'source-v1',
+        status: 'summarizing',
       }),
     );
   });
@@ -955,10 +991,13 @@ describe('topic-ranges incremental retry', () => {
     });
 
     expect(callLLMWithRetry).toHaveBeenCalledTimes(2);
-    const cleared = runtime.update.mock.calls
-      .map(([patch]) => patch)
-      .find((patch) => 'sentences' in patch);
-    expect(cleared.topic_range_chunks).toBeNull();
+    const clearedIndex = runtime.update.mock.calls.findIndex(
+      ([patch]) => patch.topic_range_chunks === null && !patch.topics,
+    );
+    expect(clearedIndex).toBeGreaterThanOrEqual(0);
+    expect(runtime.update.mock.invocationCallOrder[clearedIndex]).toBeLessThan(
+      callLLMWithRetry.mock.invocationCallOrder[0],
+    );
   });
 });
 

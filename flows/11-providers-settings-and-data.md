@@ -31,8 +31,9 @@ as `topic_resplit` in either mode, so the two splitters never share a bucket. Th
 **By topic splitter** table in LLM Request Metrics totals each mode's initial
 splitting (Completion LLM: `topic_ranges`; Decision API: `topic_boundaries` +
 `topic_labels`) for side-by-side comparison. The
-record's processing log shows which splitter ran (`pipeline_start`), every failed
-or shrunk batch (`topic_boundaries_error`, `topic_boundaries_shrink`), and a run
+record's processing log shows which splitter ran (`topic_splitter_selected`, logged
+only when topics are split from scratch, not on summary resume or manual resplit),
+every failed or shrunk batch (`topic_boundaries_error`, `topic_boundaries_shrink`), and a run
 summary (`topic_boundaries_decided`) with split, near-threshold, request, and
 shrink counts. Per-batch progress and labeling requests need verbose logging.
 

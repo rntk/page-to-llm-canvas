@@ -6,7 +6,7 @@ These notes are short orientation docs for the extension’s main user-facing fl
 
 1. [Selection and submission](./01-selection-and-submission.md) — pick page blocks and create or resubmit an analysis record.
 2. [Text cleaning and sentence splitting](./02-text-cleaning-and-splitting.md) — normalize the captured page text into source sentences.
-3. [Topic extraction](./03-topic-extraction.md) — ask the LLM for topic ranges and build the topic hierarchy.
+3. [Topic extraction](./03-topic-extraction.md) — split with completion or decision requests and build the topic hierarchy.
 4. [Topic summaries](./04-topic-summaries.md) — generate summaries for topic and source ranges, reusing child summaries where a parent run allows it.
 5. [Record lifecycle and recovery](./05-record-lifecycle-and-recovery.md) — persist progress, resume, retry, cancel, and surface failures.
 
@@ -25,5 +25,7 @@ These notes are short orientation docs for the extension’s main user-facing fl
 ## Shared request scheduling
 
 12. [LLM and Decision API concurrency](./12-llm-and-decision-concurrency.md) — understand the shared request queue, chat reservation, local stage limits, and retry slot lifetime.
+
+13. [Pipeline composition](./13-pipeline-composition.md) — understand splitter contracts, provider ownership, lifecycle isolation, and architecture tradeoffs.
 
 The shared runtime message names live in [`src/shared/runtime/messages.js`](../src/shared/runtime/messages.js), and the service-worker composition root that connects the flows is [`src/extension/background/background.js`](../src/extension/background/background.js).

@@ -155,6 +155,7 @@ beforeEach(() => {
   sentenceSplitter.splitSentences.mockReturnValue([]);
   llm.callLLMWithRetry.mockResolvedValue('');
   getActiveProvider.mockResolvedValue(null);
+  getDecisionProvider.mockReset().mockResolvedValue(null);
   getStoredPreferContentLanguage.mockResolvedValue(false);
 });
 
@@ -522,6 +523,7 @@ describe('runPipeline', () => {
   });
 
   it('keeps the saved summaries and restores status when a manual resplit changes no topic', async () => {
+    getDecisionProvider.mockRejectedValue(new Error('Unused splitter storage is unavailable'));
     const source = 'Science sentence one. Science sentence two. History sentence.';
     const topics = [
       { name: 'Science', sentences: [1, 2] },
@@ -559,6 +561,9 @@ describe('runPipeline', () => {
     llm.callLLMWithRetry.mockResolvedValue('Science: 0-1');
 
     await runPipeline('manual-resplit-no-change');
+
+    expect(getDecisionProvider).not.toHaveBeenCalled();
+    expect(createDecisionClient).not.toHaveBeenCalled();
 
     const noChangeWrite = storage.updateRecord.mock.calls.find(
       ([, patch]) => patch.manualResplitIntent === null,
@@ -1021,6 +1026,7 @@ describe('runPipeline', () => {
   });
 
   it('resumes a summarizing record without redoing topic ranges and only summarizes missing topics', async () => {
+    getDecisionProvider.mockRejectedValue(new Error('Unused splitter storage is unavailable'));
     // A record left in 'summarizing' with topics + one completed summary, as
     // happens after a service-worker recycle mid-summary.
     storage.readRecord.mockResolvedValue({
@@ -1051,6 +1057,9 @@ describe('runPipeline', () => {
     });
 
     await runPipeline('resume1');
+
+    expect(getDecisionProvider).not.toHaveBeenCalled();
+    expect(createDecisionClient).not.toHaveBeenCalled();
 
     // Topic-ranges stage must be skipped entirely on resume.
     const topicRangeCalls = llm.callLLMWithRetry.mock.calls.filter(
