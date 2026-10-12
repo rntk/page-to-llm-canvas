@@ -22,15 +22,20 @@ export function buildTopicRunMenu(actions, path, sentences) {
 
   return {
     topic,
-    actions: runs.flatMap((run, index) => {
-      const target = targetForRun(run);
-      return actions.map((action) => ({
-        ...action,
-        id: `${action.id}-${index}`,
-        label: `${action.label} sentences ${target.startSentence}–${target.endSentence}`,
-        title: () => action.title?.(target),
-        onSelect: () => action.onSelect(target),
-      }));
-    }),
+    actions: [
+      ...actions.filter((action) => action.wholeTopic),
+      ...runs.flatMap((run, index) => {
+        const target = targetForRun(run);
+        return actions
+          .filter((action) => !action.wholeTopic)
+          .map((action) => ({
+            ...action,
+            id: `${action.id}-${index}`,
+            label: `${action.label} sentences ${target.startSentence}–${target.endSentence}`,
+            title: () => action.title?.(target),
+            onSelect: () => action.onSelect(target),
+          }));
+      }),
+    ],
   };
 }

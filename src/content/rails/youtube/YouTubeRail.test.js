@@ -71,7 +71,9 @@ describe('YouTubeRail', () => {
       container.querySelectorAll('.pagetollm__actions-trigger')[1].click();
     });
     await act(async () => {
-      document.querySelector('[role="menuitem"]').click();
+      [...document.querySelectorAll('[role="menuitem"]')]
+        .find((item) => item.textContent.includes('Resplit'))
+        .click();
     });
     expect(onSelect).toHaveBeenCalledWith({
       path: 'Intro > Middle',
@@ -108,11 +110,12 @@ describe('YouTubeRail', () => {
     });
     const items = document.querySelectorAll('[role="menuitem"]');
     expect([...items].map((item) => item.textContent)).toEqual([
+      'To chat',
       'Resplit sentences 2–2',
       'Resplit sentences 4–4',
     ]);
     await act(async () => {
-      items[1].click();
+      items[2].click();
     });
     const target = onSelect.mock.calls[0][0];
     expect(target).toEqual({ path: 'Pricing', startSentence: 4, endSentence: 4 });

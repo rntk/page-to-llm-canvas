@@ -59,6 +59,7 @@ function chatSummary(chat) {
     messageCount: chat.messages.filter((message) => !message.hidden).length,
     eventCount: chat.events.length,
     contentRevision: chat.contentRevision,
+    scope: chat.scope || [],
   };
 }
 
@@ -342,6 +343,9 @@ export async function appendChatTurn(key, chatId, turn = {}, options = {}) {
       chat = { ...stored };
     } else {
       chat = newChat(contentRevision);
+      chat.scope = Array.isArray(turn.scope)
+        ? [...new Set(turn.scope.filter((path) => typeof path === 'string' && path.trim()))]
+        : [];
     }
 
     const now = Date.now();

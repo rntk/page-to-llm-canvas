@@ -40,6 +40,19 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('per-chat history and events', () => {
+  it('persists a normalized topic scope on the chat and restores it from storage', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const { chat } = await appendChatTurn('article', null, {
+      scope: ['Research > Child', '', 'Research > Child', 4],
+      messages: [{ role: 'user', content: 'Scoped question' }],
+    });
+
+    expect(chat.scope).toEqual(['Research > Child']);
+    expect((await readChat('article', chat.chatId)).scope).toEqual(['Research > Child']);
+  });
+
   // 'persists messages and events under one chat and updates its summary' is
   // covered by the appendChatTurn describe block below (same assertions:
   // hidden messages excluded from messageCount, events included in

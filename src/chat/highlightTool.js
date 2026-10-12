@@ -52,13 +52,13 @@ function toolArgError(message, code) {
  * the chunk the model was actually shown.
  * @param {object} args Raw tool arguments.
  * @param {number} sentenceCount Article sentence count.
- * @param {{startLine?: number, endLine?: number}} [visible] Lines the model was shown.
+ * @param {{startLine?: number, endLine?: number, lineNumbers?: number[]}} [visible] Lines the model was shown.
  * @returns {{startLine: number, endLine: number, label: string}}
  */
 export function validateHighlightArgs(
   args,
   sentenceCount,
-  { startLine: visibleStartLine = 1, endLine: visibleEndLine = sentenceCount } = {},
+  { startLine: visibleStartLine = 1, endLine: visibleEndLine = sentenceCount, lineNumbers } = {},
 ) {
   const startLine = Number(args?.start_line);
   const endLine = Number(args?.end_line);
@@ -77,6 +77,18 @@ export function validateHighlightArgs(
   if (startLine < visibleStartLine || endLine > visibleEndLine) {
     throw toolArgError(
       `line range must stay within the supplied lines ${visibleStartLine}-${visibleEndLine}`,
+      CHAT_TOOL_OUTCOMES.OUT_OF_CHUNK,
+    );
+  }
+  // Scoped chunks may contain gaps. Both endpoints can be visible while the
+  // span between them includes excluded source sentences.
+  if (
+    lineNumbers &&
+    new Set(lineNumbers.filter((line) => line >= startLine && line <= endLine)).size !==
+      endLine - startLine + 1
+  ) {
+    throw toolArgError(
+      'line range must contain only supplied lines; use separate highlights across gaps',
       CHAT_TOOL_OUTCOMES.OUT_OF_CHUNK,
     );
   }

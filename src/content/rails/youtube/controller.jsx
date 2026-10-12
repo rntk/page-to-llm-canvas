@@ -199,6 +199,7 @@ export function createYouTubeRailController({
           onClose={closeRail}
           getCurrentTime={getCurrentTime}
           onSeek={seekTo}
+          topics={record.topics}
           sentences={sentences}
           recordKey={record.key}
           contentRevision={record.contentRevision}

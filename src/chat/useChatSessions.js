@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { normalizeChatScope } from './topicScope.js';
 
 /** Map a stored highlight_span event to a paintable sentence range.
  * @param {object} event Stored chat event.
@@ -30,6 +31,7 @@ const USE_LATEST_EVENT = Symbol('use latest event');
  */
 export function useChatSessions({ recordKey, applyEvents, chatRepository }) {
   const [chats, setChats] = useState([]);
+  const [scope, setScope] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [events, setEvents] = useState([]);
@@ -45,6 +47,9 @@ export function useChatSessions({ recordKey, applyEvents, chatRepository }) {
   const mountedRef = useRef(true);
   const recordKeyRef = useRef(recordKey);
   const activeChatIdRef = useRef(activeChatId);
+  // A hidden Activity resumes its effects. Keep an explicitly scoped draft
+  // instead of replacing it with the latest (possibly whole-document) chat.
+  const scopedDraftRef = useRef(null);
   const loadGenerationRef = useRef(0);
   const mutationQueueRef = useRef(Promise.resolve());
 
@@ -71,8 +76,11 @@ export function useChatSessions({ recordKey, applyEvents, chatRepository }) {
         preferredEvent === USE_LATEST_EVENT ? nextEvents.at(-1) || null : preferredEvent;
       const nextPaintedEvents = eventsForTurn(nextEvents, selected);
       activeChatIdRef.current = chat?.chatId || null;
+      scopedDraftRef.current =
+        !chat?.chatId && chat?.scope?.length ? { recordKey: recordKeyRef.current } : null;
       setActiveChatId(activeChatIdRef.current);
       setMessages(nextMessages);
+      setScope(normalizeChatScope(chat?.scope));
       setEvents(nextEvents);
       setPaintedEvents(nextPaintedEvents);
       setSelectedEventSeq(selected?.seq ?? null);
@@ -136,6 +144,7 @@ export function useChatSessions({ recordKey, applyEvents, chatRepository }) {
       .then(async (nextChats) => {
         if (cancelled || generation !== loadGenerationRef.current) return;
         setChats(nextChats);
+        if (scopedDraftRef.current?.recordKey === recordKey) return;
         if (nextChats.length) {
           const chat = await getChat(recordKey, nextChats[0].chatId);
           if (cancelled || generation !== loadGenerationRef.current) return;
@@ -158,12 +167,15 @@ export function useChatSessions({ recordKey, applyEvents, chatRepository }) {
     };
   }, [adoptChat, getChat, listChats, recordKey]);
 
-  const startNewChat = useCallback(() => {
-    loadGenerationRef.current += 1;
-    setIsLoadingHistory(false);
-    adoptChat(null);
-    setError('');
-  }, [adoptChat]);
+  const startNewChat = useCallback(
+    (nextScope = []) => {
+      loadGenerationRef.current += 1;
+      setIsLoadingHistory(false);
+      adoptChat({ scope: nextScope });
+      setError('');
+    },
+    [adoptChat],
+  );
 
   const selectEvent = useCallback(
     (event) => {
@@ -251,6 +263,7 @@ export function useChatSessions({ recordKey, applyEvents, chatRepository }) {
 
   return {
     chats,
+    scope,
     activeChatId,
     messages,
     events,

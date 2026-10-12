@@ -774,3 +774,27 @@
     opacity: 1;
   }
 }
+
+.th-chat-panel {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+  inset: 60px 16px 16px auto;
+  width: min(420px, calc(100vw - 32px));
+  border: 1px solid var(--ink);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 20%);
+}
+
+.th-chat-evidence {
+  flex: 0 0 auto;
+  max-height: 25vh;
+  overflow: auto;
+  background: var(--th-surface);
+  border-top: 1px solid var(--th-border-strong);
+  font-size: 12px;
+}
+
+.th-chat-evidence blockquote {
+  margin: 12px;
+}

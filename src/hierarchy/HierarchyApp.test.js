@@ -145,7 +145,9 @@ describe('HierarchyApp', () => {
     );
 
     act(() => container.querySelector('.th-node__actions-trigger').click());
-    const action = document.body.querySelector('.th-node__actions-menu [role="menuitem"]');
+    const action = [
+      ...document.body.querySelectorAll('.th-node__actions-menu [role="menuitem"]'),
+    ].find((item) => item.textContent.includes('Resplit'));
     await act(async () => action.click());
 
     expect(recordSource.resplitTopic).toHaveBeenCalledWith('key1', {
@@ -157,7 +159,7 @@ describe('HierarchyApp', () => {
     unmount();
   });
 
-  it('hides topic actions when the record source cannot resplit', () => {
+  it('keeps topic chat available when the record source cannot resplit', () => {
     useRecord.mockReturnValue({
       record: { status: 'done', topics: [{ name: 'Fruit', sentences: [2, 3] }] },
       error: null,
@@ -166,7 +168,11 @@ describe('HierarchyApp', () => {
       createElement(HierarchyApp, { initialKey: 'key1', recordSource: {} }),
     );
 
-    expect(container.querySelector('.th-node__actions-trigger')).toBeNull();
+    expect(container.querySelector('.th-node__actions-trigger')).not.toBeNull();
+    act(() => container.querySelector('.th-node__actions-trigger').click());
+    expect(
+      document.body.querySelector('.th-node__actions-menu [role="menuitem"]').textContent,
+    ).toBe('To chat');
     unmount();
   });
 
@@ -183,10 +189,11 @@ describe('HierarchyApp', () => {
     act(() => container.querySelector('.th-node__actions-trigger').click());
     const actions = document.body.querySelectorAll('.th-node__actions-menu [role="menuitem"]');
     expect([...actions].map((action) => action.textContent)).toEqual([
+      'To chat',
       'Resplit sentences 1–1',
       'Resplit sentences 3–3',
     ]);
-    await act(async () => actions[1].click());
+    await act(async () => actions[2].click());
 
     expect(recordSource.resplitTopic).toHaveBeenCalledWith('key1', {
       path: 'Fruit',

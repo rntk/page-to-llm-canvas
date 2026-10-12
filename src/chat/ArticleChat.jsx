@@ -8,6 +8,11 @@ import ChatComposer from './ChatComposer.jsx';
 import ChatEventsList from './ChatEventsList.jsx';
 import ChatHistoryPanel from './ChatHistoryPanel.jsx';
 import ChatMessageList from './ChatMessageList.jsx';
+import { buildTopicSentenceIndex, getTopicPaths } from '../domain/topicDomain.js';
+import { scopeChatSentences } from './topicScope.js';
+import TopicScopeDialog from './TopicScopeDialog.jsx';
+
+const EMPTY_TOPICS = [];
 
 function ChatHeaderActions({ disabled, onShowHistory, onNewChat }) {
   return (
@@ -30,6 +35,9 @@ function ChatHeaderActions({ disabled, onShowHistory, onNewChat }) {
  * @param {object} props
  * @param {string} props.recordKey
  * @param {string[]} props.sentences
+ * @param {object[]} [props.topics] Topics and their document sentence numbers.
+ * @param {{paths: string[]}} [props.scopeRequest] Starts a fresh scoped chat.
+ * @param {Function} [props.onScopeRequestHandled] Consumes an external scope request.
  * @param {string} [props.contentRevision] Rejects persistence after reanalysis.
  * @param {function(object): void} [props.onHighlight]
  * @param {function(): void} [props.onClearHighlights]
@@ -46,6 +54,9 @@ function ArticleChat({
   recordKey,
   sentences,
   contentRevision,
+  topics = EMPTY_TOPICS,
+  scopeRequest,
+  onScopeRequestHandled,
   onHighlight,
   onClearHighlights,
   onClose,
@@ -58,6 +69,10 @@ function ArticleChat({
   getChatLimits = getArticleChatLimits,
 }) {
   const panelId = useId();
+  const [showScopeDialog, setShowScopeDialog] = useState(false);
+  const appliedScopeRequest = useRef(null);
+  const topicPaths = useMemo(() => getTopicPaths(topics), [topics]);
+  const topicSentenceIndex = useMemo(() => buildTopicSentenceIndex(topics), [topics]);
   const subjectLabel = subject === 'video' ? 'video' : 'article';
   const subjectTitle = `${subjectLabel[0].toUpperCase()}${subjectLabel.slice(1)}`;
   const [input, setInput] = useState('');
@@ -144,6 +159,7 @@ function ArticleChat({
 
   const {
     chats,
+    scope,
     activeChatId,
     messages,
     events,
@@ -162,6 +178,42 @@ function ArticleChat({
     adoptPersistedTurn,
     reconcilePersistedTurn,
   } = useChatSessions({ recordKey, applyEvents, chatRepository });
+
+  useEffect(() => {
+    if (!scopeRequest || appliedScopeRequest.current === scopeRequest) return;
+    appliedScopeRequest.current = scopeRequest;
+    operationRef.current?.controller.abort();
+    operationRef.current = null;
+    setIsLoading(false);
+    setPendingQuestion('');
+    setRetryTurn(null);
+    setInput('');
+    setShowHistory(false);
+    setActiveTab('chat');
+    startNewChat(scopeRequest.paths);
+    void refreshChats().catch(() => {});
+    onScopeRequestHandled?.();
+  }, [scopeRequest, startNewChat, refreshChats, onScopeRequestHandled]);
+
+  const missingScopePaths = useMemo(
+    () => scope.filter((path) => !topicPaths.includes(path)),
+    [scope, topicPaths],
+  );
+  // The topics still exist but none of them covers any text, so a turn would
+  // send the model an all-blank document.
+  const isScopeEmpty = useMemo(
+    () =>
+      scope.length > 0 &&
+      missingScopePaths.length === 0 &&
+      scope.every((path) => !topicSentenceIndex.get(path)?.size),
+    [scope, missingScopePaths, topicSentenceIndex],
+  );
+  const isScopeBlocked = missingScopePaths.length > 0 || isScopeEmpty;
+
+  const scopedSentences = useMemo(
+    () => scopeChatSentences(sentences, topics, scope),
+    [sentences, topics, scope],
+  );
 
   // Unmounting the panel (chat closed) must not leave a stale highlight
   // painted on the article behind it.
@@ -240,15 +292,18 @@ function ArticleChat({
     [isLoading, isMutatingHistory, loadChat],
   );
 
-  const handleNewChat = useCallback(() => {
-    if (isLoading || isMutatingHistory) return;
-    startNewChat();
-    setRetryTurn(null);
-    setInput('');
-    setShowHistory(false);
-    setActiveTab('chat');
-    setNotice(null);
-  }, [isLoading, isMutatingHistory, startNewChat]);
+  const handleNewChat = useCallback(
+    (nextScope = []) => {
+      if (isLoading || isMutatingHistory) return;
+      startNewChat(nextScope);
+      setRetryTurn(null);
+      setInput('');
+      setShowHistory(false);
+      setActiveTab('chat');
+      setNotice(null);
+    },
+    [isLoading, isMutatingHistory, startNewChat],
+  );
 
   const warnActiveTurn = useCallback(() => {
     setNotice({
@@ -347,7 +402,8 @@ function ArticleChat({
 
   const send = useCallback(async () => {
     const question = input.trim();
-    if (!question || isLoading || isMutatingHistory || !recordKey) return;
+    if (!question || isLoading || isMutatingHistory || !recordKey || isScopeBlocked)
+      return;
     const candidate = retryTurn;
     const retry =
       candidate?.recordKey === recordKey &&
@@ -384,7 +440,7 @@ function ArticleChat({
           turnResult = await runTurn({
             article: {
               history: messages,
-              sentences,
+              sentences: scopedSentences,
               highlightedRanges,
             },
             question,
@@ -410,6 +466,7 @@ function ArticleChat({
           operation.chatId,
           {
             turnId,
+            scope,
             messages: [
               { role: 'user', content: question },
               { role: 'assistant', content: turnResult.reply },
@@ -515,6 +572,7 @@ function ArticleChat({
     isLoading,
     isMutatingHistory,
     messages,
+    isScopeBlocked,
     onHighlight,
     paintedEvents,
     reconcilePersistedTurn,
@@ -522,7 +580,8 @@ function ArticleChat({
     refreshChats,
     retryTurn,
     runTurn,
-    sentences,
+    scope,
+    scopedSentences,
     setError,
     subjectLabel,
   ]);
@@ -552,7 +611,7 @@ function ArticleChat({
           <ChatHeaderActions
             disabled={isLoading || isMutatingHistory}
             onShowHistory={() => setShowHistory((value) => !value)}
-            onNewChat={handleNewChat}
+            onNewChat={() => handleNewChat()}
           />
           {onClose ? (
             <button
@@ -572,11 +631,51 @@ function ArticleChat({
           <ChatHeaderActions
             disabled={isLoading || isMutatingHistory}
             onShowHistory={() => setShowHistory((value) => !value)}
-            onNewChat={handleNewChat}
+            onNewChat={() => handleNewChat()}
           />,
           headerActionsTarget,
         )
       ) : null}
+
+      <div className="pagetollm-chat-scope">
+        <span>{scope.length ? `Scoped chat: ${scope.join(', ')}` : 'Whole document'}</span>
+        <button
+          type="button"
+          disabled={isLoading || isLoadingHistory || isMutatingHistory}
+          onClick={() => setShowScopeDialog(true)}
+        >
+          Choose topics
+        </button>
+      </div>
+      {missingScopePaths.length > 0 && (
+        <div className="pagetollm-chat-error" role="alert">
+          Some selected topics no longer exist: {missingScopePaths.join(', ')}. Choose topics to
+          start a new chat before sending another message.
+        </div>
+      )}
+      {isScopeEmpty && (
+        <div className="pagetollm-chat-error" role="alert">
+          The selected topics contain no text. Choose topics to start a new chat before sending
+          another message.
+        </div>
+      )}
+      {showScopeDialog && (
+        <TopicScopeDialog
+          paths={topicPaths}
+          scope={scope.filter((path) => topicPaths.includes(path))}
+          onClose={() => setShowScopeDialog(false)}
+          onApply={(paths) => {
+            // A blocked chat can never send again, so Apply must always leave it.
+            if (
+              isScopeBlocked ||
+              JSON.stringify([...paths].sort()) !== JSON.stringify([...scope].sort())
+            ) {
+              handleNewChat(paths);
+            }
+            setShowScopeDialog(false);
+          }}
+        />
+      )}
 
       {showHistory ? (
         <ChatHistoryPanel
@@ -658,7 +757,9 @@ function ArticleChat({
             onSend={() => void send()}
             onStop={stopActiveTurn}
             isLoading={isLoading}
-            disabled={isLoading || isLoadingHistory || isMutatingHistory}
+            disabled={
+              isLoading || isLoadingHistory || isMutatingHistory || isScopeBlocked
+            }
             placeholder={`Ask about this ${subjectLabel}…`}
           />
         </div>

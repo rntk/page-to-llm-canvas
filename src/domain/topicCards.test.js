@@ -4,6 +4,7 @@ import {
   buildTopicSentenceIndex,
   getMaxTopicLevel,
   getTopicSentenceNumbers,
+  getTopicPaths,
 } from './topicDomain.js';
 import {
   getZoomAdjustedCardWidth,
@@ -93,6 +94,19 @@ describe('buildTopicSentenceIndex', () => {
 
     expect(index.has('Tech')).toBe(false);
     expect(index.has('Science')).toBe(false);
+  });
+});
+
+describe('getTopicPaths', () => {
+  it('lists every path and ancestor, including topics without sentences', () => {
+    expect(
+      getTopicPaths([
+        { name: 'Tech>AI', sentences: [2] },
+        { name: 'Tech > AI > Models', sentences: [] },
+        { name: 'Science' },
+        { name: '', sentences: [1] },
+      ]),
+    ).toEqual(['Tech', 'Tech > AI', 'Tech > AI > Models', 'Science']);
   });
 });
 

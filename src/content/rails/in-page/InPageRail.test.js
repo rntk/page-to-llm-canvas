@@ -82,8 +82,15 @@ describe('InPageRail', () => {
       await act(async () => {
         trigger.click();
       });
+      expect(
+        [...document.querySelectorAll('[role="menuitem"]')].some(
+          (item) => item.textContent === 'To chat',
+        ),
+      ).toBe(true);
       await act(async () => {
-        document.querySelector('[role="menuitem"]').click();
+        [...document.querySelectorAll('[role="menuitem"]')]
+          .find((item) => item.textContent.includes('Resplit'))
+          .click();
       });
       expect(onSelect).toHaveBeenCalledWith({
         path: 'Topic A',

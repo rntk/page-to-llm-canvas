@@ -248,6 +248,7 @@ export function createInPageRailController({
             projectedScrollContainerTop={projectedScrollContainerTop}
             railOriginTop={railOriginTop}
             summariesDisabled={record.summariesDisabled === true}
+            topics={record.topics}
             sentences={sentences}
             onChatHighlight={handleChatHighlight}
             onClearChatHighlights={handleClearChatHighlights}

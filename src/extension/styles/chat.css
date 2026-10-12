@@ -184,6 +184,7 @@
 }
 
 .pagetollm-chat-actions button,
+.pagetollm-chat-scope button,
 .pagetollm-chat-composer button {
   appearance: none;
   border: 1px solid var(--ink);
@@ -196,7 +197,8 @@
   cursor: pointer;
 }
 
-.pagetollm-chat-actions button {
+.pagetollm-chat-actions button,
+.pagetollm-chat-scope button {
   min-width: 32px;
   height: 28px;
   padding: 0 8px;
@@ -229,12 +231,14 @@
 }
 
 .pagetollm-chat-actions button:hover:not(:disabled),
+.pagetollm-chat-scope button:hover:not(:disabled),
 .pagetollm-chat-composer button:hover:not(:disabled) {
   background: var(--ink);
   color: var(--surface);
 }
 
 .pagetollm-chat-actions button:disabled,
+.pagetollm-chat-scope button:disabled,
 .pagetollm-chat-composer button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
@@ -372,4 +376,54 @@
 .pagetollm-chat-status.is-error {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.pagetollm-chat-scope {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--ink);
+  font-size: 12px;
+}
+
+.pagetollm-chat-scope span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.pagetollm-chat-scope-dialog {
+  width: min(480px, 85vw);
+  max-height: 80vh;
+  padding: 20px;
+  border: 1px solid var(--ink, #777);
+  border-radius: 8px;
+  background: var(--surface, white);
+  color: var(--on-surface, #222);
+  font-family: var(--font-data, sans-serif);
+}
+
+.pagetollm-chat-scope-dialog::backdrop {
+  background: rgb(0 0 0 / 35%);
+}
+
+.pagetollm-chat-scope-dialog input[type='search'] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+}
+
+.pagetollm-chat-scope-options {
+  max-height: 35vh;
+  overflow: auto;
+  margin-block: 12px;
+}
+
+.pagetollm-chat-scope-options label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  overflow-wrap: anywhere;
 }

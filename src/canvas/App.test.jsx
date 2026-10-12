@@ -197,8 +197,13 @@ describe('App composition behavior', () => {
   it('offers Resplit for topics at the maximum hierarchy depth', async () => {
     const { root } = await renderApp();
     const resplit = state.childProps.rail.topicActions.find((action) => action.id === 'resplit');
+    const toChat = state.childProps.rail.topicActions.find((action) => action.id === 'to-chat');
 
     expect(resplit.title({ path: 'A > B > C > D > E' })).toMatch(/name and subtopics may change/i);
+    expect(toChat.label).toBe('To chat');
+    expect(toChat.wholeTopic).toBe(true);
+    act(() => toChat.onSelect({ path: 'Topic', startSentence: 1, endSentence: 3 }));
+    expect(state.childProps.chat.scopeRequest.paths).toEqual(['Topic']);
 
     await act(async () => root.unmount());
   });

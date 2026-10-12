@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { computeSummaryCursorState, SUMMARY_CURSOR_MIN_TOP } from './summaryCursor.js';
 import ArticleChat from '../../../chat/ArticleChat.jsx';
+import { createToChatAction } from '../../../chat/topicScope.js';
 import { HierarchicalCardTitle, RailHead } from '../shared/RailControls.jsx';
 import TopicActionsMenu from '../../../components/TopicActionsMenu.jsx';
 import {
@@ -473,7 +474,8 @@ export default function InPageRail({
   maxLevel,
   selectedLevel,
   cards,
-  topicActions = [],
+  topicActions: suppliedTopicActions = [],
+  topics = [],
   onClose,
   onSelectMode,
   onSelectLevel,
@@ -495,6 +497,18 @@ export default function InPageRail({
 }) {
   const [frontCardId, setFrontCardId] = useState(null);
   const [chatActionsTarget, setChatActionsTarget] = useState(null);
+  const [scopeRequest, setScopeRequest] = useState(null);
+  const handleScopeRequestHandled = useCallback(() => setScopeRequest(null), []);
+  const topicActions = useMemo(
+    () => [
+      ...suppliedTopicActions,
+      createToChatAction(({ path }) => {
+        setScopeRequest({ paths: [path] });
+        onSelectMode('chat');
+      }),
+    ],
+    [suppliedTopicActions, onSelectMode],
+  );
   const bodyRef = useRef(null);
   const trackRef = useRef(null);
   const isSummary = mode === 'summaries';
@@ -636,6 +650,9 @@ export default function InPageRail({
       >
         {isChat ? (
           <ArticleChat
+            topics={topics}
+            scopeRequest={scopeRequest}
+            onScopeRequestHandled={handleScopeRequestHandled}
             recordKey={recordKey}
             sentences={sentences}
             contentRevision={contentRevision}

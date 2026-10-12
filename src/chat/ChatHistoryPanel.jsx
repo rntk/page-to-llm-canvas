@@ -35,6 +35,7 @@ export default function ChatHistoryPanel({
         >
           <button type="button" onClick={() => onSelectChat(chat.chatId)} disabled={disabled}>
             <strong>{chat.title || 'New chat'}</strong>
+            {chat.scope?.length > 0 && <span>Scoped: {chat.scope.join(', ')}</span>}
             <span>
               {formatDate(chat.updatedAt)} · {chat.messageCount} msg · {chat.eventCount} ev
             </span>

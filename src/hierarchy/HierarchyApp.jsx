@@ -13,6 +13,8 @@ import { buildTopicTree, collectNonLeafPaths } from '../domain/topicTree.js';
 import { getMaxTopicLevel } from '../domain/topicDomain.js';
 import { PIPELINE_STATUS } from '../shared/runtime/contracts.js';
 import './hierarchy.css';
+import ArticleChat from '../chat/ArticleChat.jsx';
+import { createToChatAction } from '../chat/topicScope.js';
 
 const noop = () => {};
 
@@ -24,6 +26,12 @@ export default function HierarchyApp({
 }) {
   const { record, error, isDeleted } = useRecord(initialKey, recordSource);
   const bodyRef = useRef(null);
+  const [scopeRequest, setScopeRequest] = useState(null);
+  const [chatEvidence, setChatEvidence] = useState([]);
+  const handleChatHighlight = useCallback((range) => {
+    setChatEvidence((previous) => [...previous, range]);
+  }, []);
+  const handleClearChatHighlights = useCallback(() => setChatEvidence([]), []);
   const deletionCloseSentRef = useRef(false);
 
   useEffect(() => {
@@ -67,6 +75,9 @@ export default function HierarchyApp({
         if (activeSummaryRef.current) {
           event.preventDefault();
           setActiveSummary(null);
+        } else if (scopeRequest) {
+          event.preventDefault();
+          setScopeRequest(null);
         } else {
           onClose();
         }
@@ -76,7 +87,7 @@ export default function HierarchyApp({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [onClose]);
+  }, [onClose, scopeRequest]);
 
   // Serialize on record identity changes; downstream topics memo deduplicates by content.
   const article = projectArticleView(record);
@@ -94,8 +105,9 @@ export default function HierarchyApp({
 
   const handleResplitAccepted = useCallback(() => onClose(), [onClose]);
   const topicActions = useMemo(
-    () =>
-      typeof recordSource?.resplitTopic === 'function'
+    () => [
+      createToChatAction(({ path }) => setScopeRequest({ paths: [path] })),
+      ...(typeof recordSource?.resplitTopic === 'function'
         ? [
             createResplitAction({
               topics,
@@ -103,7 +115,8 @@ export default function HierarchyApp({
               onAccepted: handleResplitAccepted,
             }),
           ]
-        : [],
+        : []),
+    ],
     [topics, recordSource, initialKey, handleResplitAccepted],
   );
 
@@ -128,6 +141,7 @@ export default function HierarchyApp({
     setCollapsedPaths(new Set());
     setSelectedLevel(null);
     setActiveSummary(null);
+    setScopeRequest(null);
   }
 
   const roots = useMemo(() => buildTopicTree(topics, 0), [topics]);
@@ -268,6 +282,33 @@ export default function HierarchyApp({
           </div>
         </div>
       </div>
+      {scopeRequest && (
+        <div className="th-chat-panel">
+          <ArticleChat
+            key={`${initialKey}:${record?.contentRevision || ''}`}
+            recordKey={initialKey}
+            sentences={article.sentences}
+            topics={topics}
+            scopeRequest={scopeRequest}
+            contentRevision={record?.contentRevision}
+            onHighlight={handleChatHighlight}
+            onClearHighlights={handleClearChatHighlights}
+            onClose={() => setScopeRequest(null)}
+          />
+          {chatEvidence.length > 0 && (
+            <aside className="th-chat-evidence" aria-label="Chat evidence">
+              {chatEvidence.map((range, index) => (
+                <blockquote key={index}>
+                  <strong>
+                    Sentences {range.startLine}–{range.endLine}
+                  </strong>
+                  <p>{article.sentences.slice(range.startLine - 1, range.endLine).join(' ')}</p>
+                </blockquote>
+              ))}
+            </aside>
+          )}
+        </div>
+      )}
       {activeSummary && (
         <div className="th-summary-modal-overlay" onClick={() => setActiveSummary(null)}>
           <div

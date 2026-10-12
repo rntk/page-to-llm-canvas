@@ -88,6 +88,28 @@ export function getTopicSentenceNumbers(topic) {
 }
 
 /**
+ * List every normalized display path (`A > B`) in the hierarchy, including
+ * ancestors and topics that cover no sentences, in first-seen order.
+ *
+ * @param {Array<{name: string}>} topics
+ * @returns {string[]}
+ */
+export function getTopicPaths(topics) {
+  /** @type {Set<string>} */
+  const paths = new Set();
+  if (!Array.isArray(topics)) return [];
+
+  for (const topic of topics) {
+    const parts = splitTopicPath(topic?.name);
+    for (let depth = 1; depth <= parts.length; depth += 1) {
+      paths.add(formatTopicPath(parts.slice(0, depth)));
+    }
+  }
+
+  return [...paths];
+}
+
+/**
  * Build a lookup from normalized display path (`A > B`) to the sentence
  * numbers covered by that path and all of its descendants.
  *

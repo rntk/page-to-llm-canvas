@@ -31,6 +31,7 @@ import { selectCurrentTopicSummary } from '../domain/summaryCards.js';
 import { createResplitAction } from '../shared/runtime/topicResplit.js';
 import { getFloatingSummaryFontSizes, getSummaryFontSizes } from '../utils/denseCardLayout.js';
 import ArticleChat from '../chat/ArticleChat.jsx';
+import { createToChatAction } from '../chat/topicScope.js';
 import { buildSentenceDomRange } from '../highlights/sentenceHighlight.js';
 import { PIPELINE_STATUS } from '../shared/runtime/contracts.js';
 
@@ -84,6 +85,8 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
   const [showSummaryModeRaw, setShowSummaryMode] = useState(false);
   const [showTopicHierarchy, setShowTopicHierarchy] = useState(true);
   const [showChat, setShowChat] = useState(false);
+  const [scopeRequest, setScopeRequest] = useState(null);
+  const handleScopeRequestHandled = useCallback(() => setScopeRequest(null), []);
   const [chatSentenceNumbers, setChatSentenceNumbers] = useState([]);
   const {
     selectedTarget,
@@ -391,6 +394,10 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
 
   const topicActions = useMemo(() => {
     return [
+      createToChatAction(({ path }) => {
+        setScopeRequest({ paths: [path] });
+        setShowChat(true);
+      }),
       createResplitAction({
         topics,
         confirm: (message) => window.confirm(message),
@@ -616,6 +623,9 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
           <Activity mode={showChat ? 'visible' : 'hidden'}>
             <div className="canvas-chat-panel">
               <ArticleChat
+                topics={topics}
+                scopeRequest={scopeRequest}
+                onScopeRequestHandled={handleScopeRequestHandled}
                 recordKey={initialKey}
                 sentences={sentences}
                 contentRevision={contentRevision}

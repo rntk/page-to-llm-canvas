@@ -101,6 +101,18 @@ describe('eventRange', () => {
 });
 
 describe('useChatSessions', () => {
+  it('restores the selected scope with a loaded saved chat', async () => {
+    const saved = { ...chat('chat-scoped'), scope: ['Research > Child'] };
+    api.list.mockResolvedValue([{ chatId: 'chat-scoped' }]);
+    api.get.mockResolvedValue(saved);
+    const ctx = setup();
+    await flushAsyncWork();
+
+    expect(ctx.current.scope).toEqual(['Research > Child']);
+    act(() => ctx.current.startNewChat(['Other']));
+    expect(ctx.current.scope).toEqual(['Other']);
+  });
+
   it('loads the first stored chat and paints every event from its latest turn', async () => {
     const summaries = [{ chatId: 'chat-1' }, { chatId: 'chat-2' }];
     const events = [

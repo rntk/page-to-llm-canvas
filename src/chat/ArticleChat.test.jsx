@@ -124,6 +124,334 @@ describe('ArticleChat persisted history', () => {
     unmount();
   });
 
+  it('searches and applies multiple topic scopes as a new chat', async () => {
+    turnLoop.runArticleChatTurn.mockResolvedValue({ reply: 'Scoped answer.', highlightRanges: [] });
+    api.append.mockImplementation(async (_key, _chatId, turn) => ({
+      chat: {
+        chatId: 'scoped-chat',
+        scope: turn.scope,
+        messages: [
+          { role: 'user', content: 'Question about scope' },
+          { role: 'assistant', content: 'Scoped answer.' },
+        ],
+        events: [],
+      },
+    }));
+    const { container, unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['Alpha sentence.', 'Beta sentence.', 'Gamma sentence.']}
+        topics={[
+          { name: 'Alpha', sentences: [1] },
+          { name: 'Beta', sentences: [2] },
+          { name: 'Gamma', sentences: [3] },
+        ]}
+      />,
+    );
+    await flushAsyncWork();
+    act(() => container.querySelector('.pagetollm-chat-scope button').click());
+    const search = container.querySelector('[aria-label="Search topics"]');
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    act(() => {
+      setter.call(search, 'Beta');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    let options = Array.from(container.querySelectorAll('.pagetollm-chat-scope-dialog label'));
+    expect(options.map((option) => option.textContent)).toEqual(['Beta']);
+    act(() => {
+      options[0].querySelector('input').click();
+      setter.call(search, '');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    options = Array.from(container.querySelectorAll('.pagetollm-chat-scope-dialog label'));
+    act(() => {
+      options
+        .find((option) => option.textContent === 'Alpha')
+        .querySelector('input')
+        .click();
+      container
+        .querySelector('.pagetollm-chat-scope-dialog .pagetollm-chat-actions button:last-child')
+        .click();
+    });
+    expect(container.textContent).toContain('Scoped chat: Beta, Alpha');
+    typeQuestion(container, 'Question about scope');
+    await clickSend(container);
+
+    expect(turnLoop.runArticleChatTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        article: expect.objectContaining({
+          sentences: ['Alpha sentence.', 'Beta sentence.', ''],
+        }),
+      }),
+    );
+    expect(api.append.mock.calls.at(-1)[2].scope).toEqual(['Beta', 'Alpha']);
+    unmount();
+  });
+
+  it('applies a scope request as a fresh chat instead of showing loaded history', async () => {
+    const { container, unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['One', 'Two']}
+        scopeRequest={{ paths: ['Research'], nonce: 1 }}
+      />,
+    );
+    await flushAsyncWork();
+
+    expect(container.textContent).toContain('Scoped chat: Research');
+    expect(container.textContent).not.toContain('Question chat-1');
+    expect(container.textContent).not.toContain('Question chat-2');
+    unmount();
+  });
+
+  it('normalizes a scope request and persists its display paths', async () => {
+    turnLoop.runArticleChatTurn.mockResolvedValue({ reply: 'Scoped answer.', highlightRanges: [] });
+    api.append.mockImplementation(async (_key, _chatId, turn) => ({
+      chat: { chatId: 'new-scoped-chat', scope: turn.scope, messages: [], events: [] },
+    }));
+    const { container, unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['Child sentence.', 'Other sentence.']}
+        topics={[
+          { name: 'Research > Child', sentences: [1] },
+          { name: 'Research > Other', sentences: [2] },
+        ]}
+        scopeRequest={{ paths: ['Research>Child', 'Research > Child'], nonce: 3 }}
+      />,
+    );
+    await flushAsyncWork();
+
+    expect(container.textContent).toContain('Scoped chat: Research > Child');
+    act(() => container.querySelector('.pagetollm-chat-scope button').click());
+    const choices = Array.from(container.querySelectorAll('.pagetollm-chat-scope-dialog label'));
+    expect(choices.map((choice) => choice.textContent)).toEqual([
+      'Research',
+      'Research > Child',
+      'Research > Other',
+    ]);
+    act(() =>
+      container
+        .querySelector('.pagetollm-chat-scope-dialog .pagetollm-chat-actions button:last-child')
+        .click(),
+    );
+    typeQuestion(container, 'Question');
+    await clickSend(container);
+
+    expect(api.append.mock.calls.at(-1)[2].scope).toEqual(['Research > Child']);
+    expect(turnLoop.runArticleChatTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        article: expect.objectContaining({ sentences: ['Child sentence.', ''] }),
+      }),
+    );
+    unmount();
+  });
+
+  it('normalizes a saved scope when loading its chat', async () => {
+    api.list.mockResolvedValue([{ chatId: 'saved-scoped' }]);
+    api.get.mockResolvedValue({
+      chatId: 'saved-scoped',
+      scope: ['Research>Child', 'Research > Child'],
+      messages: [{ id: 'saved-user', role: 'user', content: 'Saved question' }],
+      events: [],
+    });
+    const { container, unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['Child sentence.']}
+        topics={[{ name: 'Research > Child', sentences: [1] }]}
+      />,
+    );
+    await flushAsyncWork();
+
+    expect(container.textContent).toContain('Scoped chat: Research > Child');
+    expect(container.textContent).toContain('Saved question');
+    act(() => container.querySelector('.pagetollm-chat-scope button').click());
+    expect(
+      Array.from(container.querySelectorAll('.pagetollm-chat-scope-dialog label')).map(
+        (choice) => choice.textContent,
+      ),
+    ).toEqual(['Research', 'Research > Child']);
+    unmount();
+  });
+
+  it.each([
+    { label: 'all', scope: ['Removed'], topics: [{ name: 'Current', sentences: [1] }] },
+    {
+      label: 'partially',
+      scope: ['Research > Missing', 'Research > Present'],
+      topics: [{ name: 'Research > Present', sentences: [1] }],
+    },
+  ])(
+    'keeps saved history readable and blocks sending when $label saved scope is missing',
+    async ({ scope, topics }) => {
+      api.list.mockResolvedValue([{ chatId: 'chat-1' }]);
+      api.get.mockResolvedValue({
+        chatId: 'chat-1',
+        scope,
+        messages: [{ id: 'saved-user', role: 'user', content: 'Saved question' }],
+        events: [],
+      });
+      const { container, unmount } = render(
+        <ArticleChat recordKey="record-1" sentences={['Current sentence.']} topics={topics} />,
+      );
+      await flushAsyncWork();
+
+      expect(container.textContent).toContain('Saved question');
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain('no longer exist');
+      typeQuestion(container, 'Blocked question');
+      const send = container.querySelector('.pagetollm-chat-composer button');
+      expect(send.disabled).toBe(true);
+      await clickSend(container);
+      expect(turnLoop.runArticleChatTurn).not.toHaveBeenCalled();
+      unmount();
+    },
+  );
+
+  it('blocks a scope whose topic exists but has no text, and Apply leaves it unchanged', async () => {
+    api.list.mockResolvedValue([{ chatId: 'chat-1' }]);
+    api.get.mockResolvedValue({
+      chatId: 'chat-1',
+      scope: ['Empty'],
+      messages: [{ id: 'saved-user', role: 'user', content: 'Saved question' }],
+      events: [],
+    });
+    const { container, unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['Current sentence.']}
+        topics={[
+          { name: 'Empty', sentences: [] },
+          { name: 'Current', sentences: [1] },
+        ]}
+      />,
+    );
+    await flushAsyncWork();
+
+    const alert = container.querySelector('[role="alert"]')?.textContent;
+    expect(alert).toContain('contain no text');
+    expect(alert).not.toContain('no longer exist');
+    expect(container.querySelector('.pagetollm-chat-composer button').disabled).toBe(true);
+
+    act(() => container.querySelector('.pagetollm-chat-scope button').click());
+    const choices = Array.from(container.querySelectorAll('.pagetollm-chat-scope-dialog label'));
+    expect(choices.map((choice) => choice.textContent)).toEqual(['Empty', 'Current']);
+    act(() => {
+      container
+        .querySelector('.pagetollm-chat-scope-dialog .pagetollm-chat-actions button:last-child')
+        .click();
+    });
+
+    expect(container.querySelector('.pagetollm-chat-scope-dialog')).toBeNull();
+    expect(container.textContent).not.toContain('Saved question');
+    unmount();
+  });
+
+  it('omits missing topics from the dialog and starts a new chat on Apply', async () => {
+    api.list.mockResolvedValue([{ chatId: 'chat-1' }]);
+    api.get.mockResolvedValue({
+      chatId: 'chat-1',
+      scope: ['Removed', 'Current'],
+      messages: [{ id: 'saved-user', role: 'user', content: 'Saved question' }],
+      events: [],
+    });
+    const { container, unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['Current sentence.']}
+        topics={[{ name: 'Current', sentences: [1] }]}
+      />,
+    );
+    await flushAsyncWork();
+
+    act(() => container.querySelector('.pagetollm-chat-scope button').click());
+    const choices = Array.from(container.querySelectorAll('.pagetollm-chat-scope-dialog label'));
+    expect(choices.map((choice) => choice.textContent)).toEqual(['Current']);
+    expect(choices[0].querySelector('input').checked).toBe(true);
+    act(() => {
+      container
+        .querySelector('.pagetollm-chat-scope-dialog .pagetollm-chat-actions button:last-child')
+        .click();
+    });
+
+    expect(container.textContent).not.toContain('Saved question');
+    expect(container.textContent).toContain('Scoped chat: Current');
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    typeQuestion(container, 'Fresh question');
+    expect(container.querySelector('.pagetollm-chat-composer button').disabled).toBe(false);
+    unmount();
+  });
+
+  it('starts a fresh chat after topics remove a saved scope and the user chooses current topics', async () => {
+    api.list.mockResolvedValue([{ chatId: 'chat-1' }]);
+    api.get.mockResolvedValue({
+      chatId: 'chat-1',
+      scope: ['Research > Old'],
+      messages: [{ id: 'saved-user', role: 'user', content: 'Saved question' }],
+      events: [],
+    });
+    turnLoop.runArticleChatTurn.mockResolvedValue({ reply: 'Fresh answer.', highlightRanges: [] });
+    api.append.mockImplementation(async (_key, _chatId, turn) => ({
+      chat: { chatId: 'fresh-chat', scope: turn.scope, messages: [], events: [] },
+    }));
+    const props = {
+      recordKey: 'record-1',
+      sentences: ['Current sentence.'],
+      topics: [{ name: 'Research > Old', sentences: [1] }],
+    };
+    const { container, rerender, unmount } = render(<ArticleChat {...props} />);
+    await flushAsyncWork();
+    rerender(<ArticleChat {...props} topics={[{ name: 'Research > Current', sentences: [1] }]} />);
+
+    expect(container.textContent).toContain('Saved question');
+    expect(container.querySelector('.pagetollm-chat-composer button').disabled).toBe(true);
+    act(() => container.querySelector('.pagetollm-chat-scope button').click());
+    const currentChoice = Array.from(
+      container.querySelectorAll('.pagetollm-chat-scope-dialog label'),
+    ).find((choice) => choice.textContent === 'Research > Current');
+    act(() => {
+      container
+        .querySelector('.pagetollm-chat-scope-dialog .pagetollm-chat-actions button:first-child')
+        .click();
+      currentChoice.querySelector('input').click();
+      container
+        .querySelector('.pagetollm-chat-scope-dialog .pagetollm-chat-actions button:last-child')
+        .click();
+    });
+
+    expect(container.textContent).not.toContain('Saved question');
+    expect(container.textContent).toContain('Scoped chat: Research > Current');
+    typeQuestion(container, 'Fresh question');
+    expect(container.querySelector('.pagetollm-chat-composer button').disabled).toBe(false);
+    await clickSend(container);
+    expect(api.append.mock.calls.at(-1)[2].scope).toEqual(['Research > Current']);
+    unmount();
+  });
+
+  it('preserves an unsaved scoped chat while hidden and shown in Activity', async () => {
+    const props = {
+      recordKey: 'record-1',
+      sentences: ['One', 'Two'],
+      scopeRequest: { paths: ['Research'], nonce: 2 },
+    };
+    const visible = (isVisible) => (
+      <Activity mode={isVisible ? 'visible' : 'hidden'}>
+        <ArticleChat {...props} />
+      </Activity>
+    );
+    const view = render(visible(true));
+    await flushAsyncWork();
+    view.rerender(visible(false));
+    await flushAsyncWork();
+    view.rerender(visible(true));
+    await flushAsyncWork();
+
+    expect(view.container.textContent).toContain('Scoped chat: Research');
+    expect(view.container.textContent).not.toContain('Question chat-1');
+    expect(api.get).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
   it('loads the latest chat and switches messages and events by chat id', async () => {
     const onHighlight = vi.fn();
     const onClearHighlights = vi.fn();
@@ -410,6 +738,7 @@ describe('ArticleChat persisted history', () => {
       'chat-1',
       {
         turnId: expect.any(String),
+        scope: [],
         messages: [
           { role: 'user', content: 'What about line three?' },
           { role: 'assistant', content: 'Line three answers it.' },

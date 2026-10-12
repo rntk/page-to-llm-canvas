@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import ArticleChat from '../../../chat/ArticleChat.jsx';
+import { createToChatAction } from '../../../chat/topicScope.js';
 import { formatTimestampLabel } from '../../../utils/youtubeTimestamp.js';
 import { HierarchicalCardTitle, RailHead } from '../shared/RailControls.jsx';
 import TopicActionsMenu from '../../../components/TopicActionsMenu.jsx';
@@ -37,7 +38,8 @@ export default function YouTubeRail({
   maxLevel,
   selectedLevel,
   cards,
-  topicActions = [],
+  topicActions: suppliedTopicActions = [],
+  topics = [],
   onSelectMode,
   onSelectLevel,
   onClose,
@@ -55,6 +57,18 @@ export default function YouTubeRail({
   const isChat = mode === 'chat';
   const [activeId, setActiveId] = useState(null);
   const [chatActionsTarget, setChatActionsTarget] = useState(null);
+  const [scopeRequest, setScopeRequest] = useState(null);
+  const handleScopeRequestHandled = useCallback(() => setScopeRequest(null), []);
+  const topicActions = useMemo(
+    () => [
+      ...suppliedTopicActions,
+      createToChatAction(({ path }) => {
+        setScopeRequest({ paths: [path] });
+        onSelectMode('chat');
+      }),
+    ],
+    [suppliedTopicActions, onSelectMode],
+  );
   // Slide forward from below and backward from above.
   const [enterDirection, setEnterDirection] = useState('down');
   const previousActiveIndexRef = useRef(-1);
@@ -322,6 +336,9 @@ export default function YouTubeRail({
       >
         {isChat ? (
           <ArticleChat
+            topics={topics}
+            scopeRequest={scopeRequest}
+            onScopeRequestHandled={handleScopeRequestHandled}
             recordKey={recordKey}
             sentences={sentences}
             contentRevision={contentRevision}

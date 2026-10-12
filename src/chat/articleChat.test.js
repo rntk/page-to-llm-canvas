@@ -3,6 +3,7 @@ import { chunkNumberedArticle, rangesOverlap, runArticleChatTurn } from './artic
 import { buildSynthesisMessages, groupSynthesisReplies } from './articleSynthesis.js';
 import { CHAT_TOOL_OUTCOMES } from '../shared/runtime/telemetry.js';
 import { makeArticle } from '../../test/fakes/pipelineFixtures.mjs';
+import { scopeChatSentences } from './topicScope.js';
 
 function buildTurnOptions({
   history = [],
@@ -33,10 +34,21 @@ function buildTurnOptions({
 describe('article chat tool loop', () => {
   it('chunks at sentence boundaries while preserving global line numbers', () => {
     expect(chunkNumberedArticle(['First.', '', 'Second.', 'A very long sentence.'], 19)).toEqual([
-      { startLine: 1, endLine: 1, text: '1: First.' },
-      { startLine: 3, endLine: 3, text: '3: Second.' },
-      { startLine: 4, endLine: 4, text: '4: A very long ' },
-      { startLine: 4, endLine: 4, text: '4: sentence.' },
+      { startLine: 1, endLine: 1, lineNumbers: [1], text: '1: First.' },
+      { startLine: 3, endLine: 3, lineNumbers: [3], text: '3: Second.' },
+      { startLine: 4, endLine: 4, lineNumbers: [4], text: '4: A very long ' },
+      { startLine: 4, endLine: 4, lineNumbers: [4], text: '4: sentence.' },
+    ]);
+  });
+
+  it('keeps scope gaps in one chunk and preserves original numbering', () => {
+    expect(chunkNumberedArticle(['First.', '', 'Third.', 'Fourth.'], 40)).toEqual([
+      {
+        startLine: 1,
+        endLine: 4,
+        lineNumbers: [1, 3, 4],
+        text: '1: First.\n3: Third.\n4: Fourth.',
+      },
     ]);
   });
 
@@ -58,9 +70,40 @@ describe('article chat tool loop', () => {
 
   it('allows a following sentence to share the final oversized-part chunk', () => {
     expect(chunkNumberedArticle(['one two three four', 'x'], 20)).toEqual([
-      { startLine: 1, endLine: 1, text: '1: one two three ' },
-      { startLine: 1, endLine: 2, text: '1: four\n2: x' },
+      { startLine: 1, endLine: 1, lineNumbers: [1], text: '1: one two three ' },
+      { startLine: 1, endLine: 2, lineNumbers: [1, 2], text: '1: four\n2: x' },
     ]);
+  });
+
+  it('sends many discontiguous scoped passages in one request without synthesis', async () => {
+    const sentences = Array.from({ length: 20 }, (_, index) =>
+      index % 2 === 0 ? `Included passage ${index + 1}.` : `Unrelated passage ${index + 1}.`,
+    );
+    const topics = [{ name: 'Selected', sentences: [1, 3, 5, 7, 9, 11, 13, 15, 17, 19] }];
+    const scopedSentences = scopeChatSentences(sentences, topics, ['Selected']);
+    const send = vi.fn().mockResolvedValue({ ok: true, content: 'Scoped answer.' });
+
+    const result = await runArticleChatTurn(
+      buildTurnOptions({
+        question: 'Summarize the selected passages.',
+        sentences: scopedSentences,
+        maxChunkChars: 512,
+        send,
+      }),
+    );
+
+    expect(result.reply).toBe('Scoped answer.');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0].tools).toBeDefined();
+    expect(JSON.parse(send.mock.calls[0][0].messages[1].content)).toMatchObject({
+      kind: 'article_chunk',
+      startLine: 1,
+      endLine: 19,
+      numberedText: [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]
+        .map((line) => `${line}: Included passage ${line}.`)
+        .join('\n'),
+    });
+    expect(send.mock.calls[0][0].messages[1].content).not.toContain('Unrelated passage');
   });
 
   it('deduplicates highlights from sibling pieces of one oversized sentence', async () => {
@@ -506,6 +549,65 @@ describe('article chat tool loop', () => {
       request.messages.at(-1)?.content?.includes('must stay within the supplied lines 1-1'),
     );
     expect(retryCall).toBeDefined();
+  });
+
+  it('rejects highlights across scoped gaps and accepts a contiguous shown range', async () => {
+    for (const args of [
+      { start_line: 1, end_line: 3 },
+      { start_line: 2, end_line: 2 },
+    ]) {
+      const send = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          content: '',
+          toolCalls: [{ id: 'invalid-scoped-range', name: 'highlight_span', arguments: args }],
+        })
+        .mockResolvedValueOnce({ ok: true, content: 'The shown passages are separate.' });
+      const onHighlight = vi.fn();
+      const metrics = [];
+
+      await runArticleChatTurn(
+        buildTurnOptions({
+          question: 'Highlight the evidence.',
+          sentences: ['First included.', '', 'Third included.'],
+          onHighlight,
+          recordToolMetric: (metric) => metrics.push(metric),
+          send,
+        }),
+      );
+
+      expect(onHighlight).not.toHaveBeenCalled();
+      expect(metrics.some(({ outcome }) => outcome === CHAT_TOOL_OUTCOMES.OUT_OF_CHUNK)).toBe(true);
+      expect(send.mock.calls[1][0].messages.at(-1).content).toMatch(/only supplied lines/);
+    }
+
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        content: '',
+        toolCalls: [
+          {
+            id: 'valid-scoped-range',
+            name: 'highlight_span',
+            arguments: { start_line: 4, end_line: 5 },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ ok: true, content: 'The two shown lines form one passage.' });
+    const onHighlight = vi.fn();
+    const result = await runArticleChatTurn(
+      buildTurnOptions({
+        question: 'Highlight the passage.',
+        sentences: ['', '', '', 'Fourth included.', 'Fifth included.'],
+        onHighlight,
+        send,
+      }),
+    );
+
+    expect(result.highlightRanges).toEqual([{ startLine: 4, endLine: 5, label: '' }]);
+    expect(onHighlight).toHaveBeenCalledWith({ startLine: 4, endLine: 5, label: '' });
   });
 
   it('keeps conversational history but omits prior tool transcripts', async () => {
