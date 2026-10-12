@@ -34,13 +34,27 @@ export class TopicParseError extends Error {
   }
 }
 
+// Invisible characters that never carry meaning in a label: soft hyphen,
+// Mongolian vowel separator, zero-width space, word joiner, BOM, and control
+// characters. ZWJ/ZWNJ and variation selectors stay because emoji and some
+// scripts render differently without them.
+const INVISIBLE_LABEL_CHARS_RE = /[\u00AD\u180E\u200B\u2060\uFEFF]|(?!\s)\p{Cc}/gu;
+
+// Every default-ignorable code point, including ZWJ/ZWNJ, variation selectors
+// and bidi marks. Only removed from the comparison key.
+const IGNORABLE_KEY_CHARS_RE = /\p{Default_Ignorable_Code_Point}/gu;
+
 /**
- * Decode entities and normalize whitespace so equivalent labels have the same
- * display spelling and dedup key.
+ * Decode entities, drop invisible characters, and fold every Unicode space
+ * (NBSP, thin space, ideographic space, ...) to a single ASCII space so
+ * equivalent labels have the same display spelling and dedup key.
  * @param {string} raw Raw label segment.
  */
 function normalizeSegment(raw) {
-  return decodeEntities(raw).replace(/\s+/gu, ' ').trim();
+  return decodeEntities(raw)
+    .replace(INVISIBLE_LABEL_CHARS_RE, '')
+    .replace(/\s+/gu, ' ')
+    .trim();
 }
 
 function normalizeLabelParts(parts) {
@@ -58,13 +72,19 @@ function normalizeLabelParts(parts) {
 }
 
 /**
- * Fold case and spacing for comparison while preserving punctuation (for
- * example, "C++" and "C#" remain distinct). Display uses the original segment.
+ * Fold case, spacing, default-ignorable characters and dash variants for
+ * comparison while preserving other punctuation (for example, "C++" and "C#"
+ * remain distinct). Display uses the original segment.
  *
  * @param {string} segment Display-normalized label segment.
  */
 function normalizeSegmentKey(segment) {
-  const key = segment.normalize('NFKC').toLocaleLowerCase().replace(/\s+/gu, '');
+  const key = segment
+    .normalize('NFKC')
+    .replace(IGNORABLE_KEY_CHARS_RE, '')
+    .replace(/\p{Pd}/gu, '-')
+    .toLocaleLowerCase()
+    .replace(/\s+/gu, '');
   // Preserve a nonempty key if normalization removes every character.
   return key || segment;
 }

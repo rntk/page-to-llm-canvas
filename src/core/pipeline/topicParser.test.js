@@ -576,6 +576,45 @@ describe('label normalization', () => {
     expect(groups[0].label).toEqual(['Tech', 'DeepSeek V4 Flash']);
   });
 
+  it('merges segments that differ only in invisible characters and dash variants', () => {
+    const groups = parseTopicRanges(
+      [
+        'Science>Well‑being>A: 0-1',
+        'Science>Well‑be­ing>B: 2-3',
+        'Science>Well‑b​eing>C: 4-5',
+        'Science>Well-­be­ing>D: 6-7',
+      ].join('\n'),
+      8,
+    );
+
+    expect(groups.map((g) => g.label.join('>'))).toEqual([
+      'Science>Well‑being>A',
+      'Science>Well‑being>B',
+      'Science>Well‑being>C',
+      'Science>Well‑being>D',
+    ]);
+  });
+
+  it('strips invisible characters and folds Unicode spaces in display labels', () => {
+    const groups = parseTopicRanges(
+      'Science>﻿Well­-​being⁠ and More　: 0-1',
+      2,
+    );
+
+    expect(groups[0].label).toEqual(['Science', 'Well-being and More']);
+  });
+
+  it('keeps emoji joiners in display but ignores them in the merge key', () => {
+    const family = '\u{1F468}‍\u{1F469}‍\u{1F467}';
+    const groups = parseTopicRanges(
+      `Life>${family} Family: 0-1\nLife>\u{1F468}\u{1F469}\u{1F467} Family: 2-3`,
+      4,
+    );
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toEqual(['Life', `${family} Family`]);
+  });
+
   it('does not merge segments that differ in more than case and spacing', () => {
     const groups = parseTopicRanges('Tech>DeepSeek V4 Flash: 0-1\nTech>DeepSeek 4 Flash: 2-3', 4);
 
