@@ -187,6 +187,8 @@ export function isImportableRecord(record) {
  * @property {string[]} [selectors] - CSS selectors used to capture the page.
  * @property {number|null} [captureVersion] - Browser-side capture schema version.
  * @property {string|null} [capturedText] - Text extracted while source CSS/layout was available.
+ * @property {string} [splittingInstructions] - User guidance for topic splitting and labeling.
+ * @property {string} [summaryInstructions] - User guidance for summaries and summary merges.
  * @property {boolean} [skipSummaries] - Run directive: summaries disabled for
  *   this run (decided at kickoff from the global toggle).
  * @property {boolean} [summariesDisabled] - Outcome flag: summary generation
@@ -228,6 +230,8 @@ export function isImportableRecord(record) {
  * @param {string[]} [input.selectors]
  * @param {number} [input.captureVersion]
  * @param {string} [input.capturedText]
+ * @param {string} [input.splittingInstructions]
+ * @param {string} [input.summaryInstructions]
  * @param {string} input.pipelineRunId
  * @param {boolean} [input.skipSummaries]
  * @param {number} [input.now]
@@ -239,6 +243,8 @@ export function createQueuedRecord({
   selectors = [],
   captureVersion,
   capturedText,
+  splittingInstructions = '',
+  summaryInstructions = '',
   pipelineRunId,
   skipSummaries = false,
   now = Date.now(),
@@ -264,6 +270,9 @@ export function createQueuedRecord({
     selectors: Array.isArray(selectors) ? selectors : [],
     captureVersion: Number.isInteger(captureVersion) ? captureVersion : null,
     capturedText: typeof capturedText === 'string' ? capturedText : null,
+    splittingInstructions:
+      typeof splittingInstructions === 'string' ? splittingInstructions.trim() : '',
+    summaryInstructions: typeof summaryInstructions === 'string' ? summaryInstructions.trim() : '',
     pipelineRunId,
     skipSummaries,
     summaryCheckpointContentRevision: null,

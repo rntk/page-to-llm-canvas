@@ -36,6 +36,8 @@ const logger = createLogger('pipeline');
  * @property {string|undefined} pipelineRunId
  * @property {AbortSignal|undefined} signal
  * @property {boolean|undefined} preferContentLanguage
+ * @property {string} [splittingInstructions]
+ * @property {string} [summaryInstructions]
  * @property {boolean|undefined} verboseLogs
  * @property {boolean} summariesDisabled
  * @property {number} decisionSplitThreshold

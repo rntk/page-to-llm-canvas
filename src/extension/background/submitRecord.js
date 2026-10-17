@@ -5,6 +5,7 @@ import {
 } from '../../shared/runtime/recordTransitions.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { sha256Hex } from './summaryResolution.js';
+import { normalizeCustomInstructions } from '../../core/pipeline/customInstructions.js';
 
 function comparableCapturedText(value) {
   return String(value ?? '')
@@ -64,10 +65,14 @@ export function createSubmitRecord({
    * @param {string[]} [submission.selectors]
    * @param {number} [submission.captureVersion]
    * @param {string} [submission.capturedText]
+   * @param {string} [submission.splittingInstructions]
+   * @param {string} [submission.summaryInstructions]
    * @returns {Promise<{ok: boolean, key: string, error: string}>}
    */
   async function submit(submission) {
     const { html, sourceUrl, selectors, captureVersion, capturedText } = submission;
+    const splittingInstructions = normalizeCustomInstructions(submission.splittingInstructions);
+    const summaryInstructions = normalizeCustomInstructions(submission.summaryInstructions);
     if (!html) return { ok: false, error: 'missing html' };
 
     let existing = null;
@@ -97,7 +102,15 @@ export function createSubmitRecord({
         existingHasCurrentCapture &&
         comparableCapturedText(existing.capturedText) === comparableIncomingText
       : false;
-    if (existing && existing.status === PIPELINE_STATUS.DONE && sameCapturedContent) {
+    const sameInstructions =
+      normalizeCustomInstructions(existing?.splittingInstructions) === splittingInstructions &&
+      normalizeCustomInstructions(existing?.summaryInstructions) === summaryInstructions;
+    if (
+      existing &&
+      existing.status === PIPELINE_STATUS.DONE &&
+      sameCapturedContent &&
+      sameInstructions
+    ) {
       // Refresh the browser snapshot and selectors without invalidating the
       // analysis when their canonical text is unchanged.
       const patch = {
@@ -138,6 +151,8 @@ export function createSubmitRecord({
         html,
         captureVersion: Number.isInteger(captureVersion) ? captureVersion : null,
         capturedText: typeof capturedText === 'string' ? capturedText : null,
+        splittingInstructions,
+        summaryInstructions,
         processingLog: [],
         skipSummaries,
         // A submission for a non-terminal URL replaces its HTML and therefore
@@ -171,6 +186,8 @@ export function createSubmitRecord({
           selectors,
           captureVersion,
           capturedText,
+          splittingInstructions,
+          summaryInstructions,
           pipelineRunId,
           skipSummaries,
           now,

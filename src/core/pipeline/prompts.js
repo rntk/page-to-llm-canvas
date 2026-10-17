@@ -3,6 +3,7 @@
 
 import { PROMPT_DELIMITER } from '../promptDelimiters.js';
 import { untrustedContentRules } from '../../shared/runtime/promptSecurity.js';
+import { customInstructionsBlock } from './customInstructions.js';
 
 const { open, close, payloadPrefix, boundaryMarker } = PROMPT_DELIMITER;
 
@@ -105,7 +106,7 @@ export const SUMMARY_LANGUAGE_INSTRUCTION =
 
 export function buildTopicRangesPrompt(
   taggedText,
-  { preferContentLanguage = false, resplitParentPath = '' } = {},
+  { preferContentLanguage = false, resplitParentPath = '', splittingInstructions = '' } = {},
 ) {
   // Place language guidance after English examples to reduce English anchoring.
   const languageBlock = preferContentLanguage ? `${LANGUAGE_INSTRUCTION}\n` : '';
@@ -115,7 +116,7 @@ export function buildTopicRangesPrompt(
   return `${SYSTEM_PROMPT}
 ${TOPIC_RANGES_OUTPUT_FORMAT}${taskBlock}
 
-${languageBlock}${payloadPrefix}${taggedText}
+${languageBlock}${customInstructionsBlock(splittingInstructions)}${payloadPrefix}${taggedText}
 ${close}
 `;
 }
@@ -153,12 +154,16 @@ Example output for four sections (labels are illustrative):
  * @param {string} sectionsText Sections with one-based headers.
  * @param {object} [options]
  * @param {boolean} [options.preferContentLanguage]
+ * @param {string} [options.splittingInstructions]
  */
-export function buildTopicLabelsPrompt(sectionsText, { preferContentLanguage = false } = {}) {
+export function buildTopicLabelsPrompt(
+  sectionsText,
+  { preferContentLanguage = false, splittingInstructions = '' } = {},
+) {
   const languageBlock = preferContentLanguage ? `${LANGUAGE_INSTRUCTION}\n` : '';
   return `${TOPIC_LABELS_SYSTEM_PROMPT}
 
-${languageBlock}${payloadPrefix}${sectionsText}
+${languageBlock}${customInstructionsBlock(splittingInstructions)}${payloadPrefix}${sectionsText}
 ${close}
 `;
 }
@@ -259,9 +264,12 @@ function makePromptBuilder(template, slot) {
   const labelIndex = payloadLabelIndex(template);
   const instructions = template.slice(0, labelIndex);
   const payload = template.slice(labelIndex);
-  return function buildPrompt(value, { preferContentLanguage = false } = {}) {
+  return function buildPrompt(
+    value,
+    { preferContentLanguage = false, summaryInstructions = '' } = {},
+  ) {
     const languageBlock = preferContentLanguage ? `${SUMMARY_LANGUAGE_INSTRUCTION}\n` : '';
-    return `${instructions}${languageBlock}${payload.replace(slot, () => value)}`;
+    return `${instructions}${languageBlock}${customInstructionsBlock(summaryInstructions)}${payload.replace(slot, () => value)}`;
   };
 }
 

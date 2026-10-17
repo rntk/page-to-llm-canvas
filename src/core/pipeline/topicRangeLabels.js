@@ -136,7 +136,10 @@ export async function labelTopicRanges({
       throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
       const prompt = buildTopicLabelsPrompt(
         numberSections(pending.map((position) => batch.bodies[position])),
-        { preferContentLanguage: runtime.preferContentLanguage },
+        {
+          preferContentLanguage: runtime.preferContentLanguage,
+          splittingInstructions: runtime.splittingInstructions,
+        },
       );
       let response;
       await runtime.log(

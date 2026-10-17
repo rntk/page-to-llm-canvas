@@ -13,6 +13,33 @@ function makeSummarizer(callLLMWithRetry, options = {}) {
 }
 
 describe('source summary cache', () => {
+  it('invalidates cached summaries when custom guidance changes, including short source', async () => {
+    let saved;
+    const provider = vi.fn(async () => 'ABC grew.');
+    const options = {
+      sentenceTexts: ['ABC grew. XYZ declined.'],
+      contentRevision: 'rev-1',
+      summaryInstructions: 'Focus on ABC.',
+      persistUnit: async (unit) => {
+        saved = unit;
+      },
+    };
+    await makeSummarizer(provider, options)([1]);
+    expect(provider).toHaveBeenCalledOnce();
+    expect(provider.mock.calls[0][0].prompt).toContain('Focus on ABC.');
+    const priorUnits = { [saved.unitId]: saved };
+    provider.mockClear();
+    await makeSummarizer(provider, { ...options, priorUnits })([1]);
+    expect(provider).not.toHaveBeenCalled();
+    await makeSummarizer(provider, {
+      ...options,
+      priorUnits,
+      summaryInstructions: 'Focus on XYZ.',
+    })([1]);
+    expect(provider).toHaveBeenCalledOnce();
+    expect(provider.mock.calls[0][0].prompt).toContain('Focus on XYZ.');
+  });
+
   it('reuses a completed unit only when revision and request inputs match', async () => {
     const persisted = [];
     const persistUnit = vi.fn(async (unit) => persisted.push(unit));

@@ -57,6 +57,7 @@ async function splitDecisionRanges({
       runtime.maxTextChunkChars,
       buildTopicLabelsPrompt('', {
         preferContentLanguage: runtime.preferContentLanguage,
+        splittingInstructions: runtime.splittingInstructions,
       }),
     ],
   });

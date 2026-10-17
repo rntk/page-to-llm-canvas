@@ -136,6 +136,45 @@ export const TOOLBAR_SHADOW_STYLES = `
     gap: 4px;
   }
 
+  #pagetollm-custom-instructions {
+    margin-top: 8px;
+    font-size: 13px;
+  }
+
+  #pagetollm-custom-instructions summary {
+    cursor: pointer;
+    font-weight: 700;
+  }
+
+  #pagetollm-custom-instructions label {
+    display: block;
+    margin: 10px 0 4px;
+    font-weight: 600;
+  }
+
+  #pagetollm-custom-instructions textarea {
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--ghost);
+    border-radius: 0;
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    resize: vertical;
+  }
+
+  #pagetollm-custom-instructions textarea:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  #pagetollm-custom-instructions textarea:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
   #pagetollm-block-list:empty {
     display: none;
   }

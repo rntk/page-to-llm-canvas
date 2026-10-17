@@ -96,6 +96,8 @@ describe('runtime contracts', () => {
       selectors: ['main'],
       captureVersion: null,
       capturedText: null,
+      splittingInstructions: '',
+      summaryInstructions: '',
       pipelineRunId: 'run-1',
       skipSummaries: true,
       summaryCheckpointContentRevision: null,

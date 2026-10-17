@@ -8,6 +8,10 @@ export default function SelectionToolbar({
   selectedBlocks,
   draggingIndex,
   dragOverIndex,
+  splittingInstructions = '',
+  summaryInstructions = '',
+  onSplittingInstructionsChange,
+  onSummaryInstructionsChange,
   onTogglePicking,
   onFind,
   onSubmit,
@@ -95,6 +99,27 @@ export default function SelectionToolbar({
           <span />
         </div>
       )}
+      <details id="pagetollm-custom-instructions">
+        <summary>Custom instructions</summary>
+        <label htmlFor="pagetollm-splitting-instructions">Splitting instructions</label>
+        <textarea
+          id="pagetollm-splitting-instructions"
+          rows={3}
+          placeholder="How should the content be split into topics?"
+          value={splittingInstructions}
+          disabled={isBusy}
+          onChange={onSplittingInstructionsChange}
+        />
+        <label htmlFor="pagetollm-summary-instructions">Summary instructions</label>
+        <textarea
+          id="pagetollm-summary-instructions"
+          rows={3}
+          placeholder="Please focus on company ABC and ignore company XYZ."
+          value={summaryInstructions}
+          disabled={isBusy}
+          onChange={onSummaryInstructionsChange}
+        />
+      </details>
       <ul id="pagetollm-block-list">
         {selectedBlocks.map((block, index) => {
           const classes = [

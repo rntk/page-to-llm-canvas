@@ -83,6 +83,8 @@ export function createSelectionController({
   let isSubmitting = false;
   let isFinding = false;
   let findStatus = '';
+  let splittingInstructions = '';
+  let summaryInstructions = '';
   let findAbortController = null;
   let destroyed = false;
   const document = contentDocument;
@@ -187,6 +189,10 @@ export function createSelectionController({
         selectedBlocks={selectedBlocks}
         draggingIndex={dragSrcIndex}
         dragOverIndex={dragOverIndex}
+        splittingInstructions={splittingInstructions}
+        summaryInstructions={summaryInstructions}
+        onSplittingInstructionsChange={changeSplittingInstructions}
+        onSummaryInstructionsChange={changeSummaryInstructions}
         onTogglePicking={toggleSelectionMode}
         onFind={findSelection}
         onSubmit={submitSelection}
@@ -210,6 +216,18 @@ export function createSelectionController({
     pickCounter = selectedElements.length;
     // Clear stale scan counts after the list changes.
     findStatus = '';
+    renderSelectionToolbar();
+  }
+
+  function changeSplittingInstructions(event) {
+    if (!guardTrustedUserEvent(event) || destroyed || isSubmitting || isFinding) return;
+    splittingInstructions = event.target.value;
+    renderSelectionToolbar();
+  }
+
+  function changeSummaryInstructions(event) {
+    if (!guardTrustedUserEvent(event) || destroyed || isSubmitting || isFinding) return;
+    summaryInstructions = event.target.value;
     renderSelectionToolbar();
   }
 
@@ -420,6 +438,8 @@ export function createSelectionController({
         captureVersion: capture.captureVersion,
         sourceUrl,
         selectors,
+        splittingInstructions: splittingInstructions.trim(),
+        summaryInstructions: summaryInstructions.trim(),
       });
 
       if (!response || !response.ok) {

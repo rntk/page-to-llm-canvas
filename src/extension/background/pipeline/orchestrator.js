@@ -21,6 +21,11 @@ import {
   summarizingTransition,
 } from '../../../shared/runtime/recordTransitions.js';
 import { createPipelineProviderServices } from './pipelineProviders.js';
+import { normalizeCustomInstructions } from '../../../core/pipeline/customInstructions.js';
+import {
+  getCustomInstructionsTextChunkMaxChars,
+  MAX_TAGGED_CHARS,
+} from '../../../core/pipeline/pipelineConfig.js';
 
 // Reject malformed topics or missing sentence references without erasing saved
 // summaries. Empty topics may coexist with valid ones, but at least one topic
@@ -200,6 +205,13 @@ export function createPipelineRunner({
       await runtime.log('pipeline_start');
       const record = await runtime.read();
       if (!record) throw new Error(`record not found: ${key}`);
+      runtime.splittingInstructions = normalizeCustomInstructions(record.splittingInstructions);
+      runtime.summaryInstructions = normalizeCustomInstructions(record.summaryInstructions);
+      runtime.maxTextChunkChars = getCustomInstructionsTextChunkMaxChars(
+        runtime.maxTextChunkChars ?? MAX_TAGGED_CHARS,
+        runtime.splittingInstructions,
+        runtime.summaryInstructions,
+      );
       runtime.setSummariesDisabled(record.skipSummaries === true);
 
       // `topic_summaries` is the leaf checkpoint used to resume/retry summary

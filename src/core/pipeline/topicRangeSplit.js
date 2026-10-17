@@ -104,6 +104,7 @@ async function dispatchPendingChunks({
       state.parseError = null;
       const prompt = buildTopicRangesPrompt(state.chunk.tagged, {
         preferContentLanguage: runtime.preferContentLanguage,
+        splittingInstructions: runtime.splittingInstructions,
         resplitParentPath: parentPath,
       });
       await runtime.log(

@@ -37,6 +37,8 @@ describe('SelectionToolbar', () => {
     onDragOver: vi.fn(),
     onDrop: vi.fn(),
     onDragEnd: vi.fn(),
+    onSplittingInstructionsChange: vi.fn(),
+    onSummaryInstructionsChange: vi.fn(),
   };
 
   it('renders correctly with empty blocks', () => {
@@ -52,6 +54,9 @@ describe('SelectionToolbar', () => {
     expect(findBtn.getAttribute('aria-label')).toBe('Find article text on this page');
     expect(submitBtn.textContent).toBe('Submit');
     expect(submitBtn.disabled).toBe(true);
+    expect(container.querySelector('details').open).toBe(false);
+    expect(container.querySelectorAll('textarea')).toHaveLength(2);
+    expect(container.querySelectorAll('label')).toHaveLength(2);
 
     unmount();
   });
@@ -192,6 +197,7 @@ describe('SelectionToolbar', () => {
     expect(container.querySelector('#pagetollm-submit-btn').className).toContain('submitting');
     expect(container.querySelector('#pagetollm-pick-btn').disabled).toBe(true);
     expect(container.querySelector('#pagetollm-cancel-btn').disabled).toBe(true);
+    expect([...container.querySelectorAll('textarea')].every((field) => field.disabled)).toBe(true);
     expect(container.querySelector('.pagetollm-remove-btn').disabled).toBe(true);
     expect(container.querySelector('.pagetollm-stepup-btn').disabled).toBe(true);
     expect(container.querySelector('#pagetollm-toolbar-top').getAttribute('aria-busy')).toBe(

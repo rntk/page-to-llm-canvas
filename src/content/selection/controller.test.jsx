@@ -261,9 +261,39 @@ describe('selection controller', () => {
       captureVersion: 2,
       sourceUrl: expect.stringContaining('/article'),
       selectors: ['article#submitted'],
+      splittingInstructions: '',
+      summaryInstructions: '',
     });
     expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
     expect(block.classList.contains('pagetollm-selected')).toBe(false);
+  });
+
+  it('keeps custom instructions across selection edits and submits both fields', async () => {
+    const block = mountBlock('instructions', 'ABC and XYZ stock results.');
+    act(() => showSelectionToolbar(runtimeMessenger));
+    const details = toolbarRoot().querySelector('details');
+    expect(details.open).toBe(false);
+    details.open = true;
+    const split = toolbarRoot().querySelector('#pagetollm-splitting-instructions');
+    const summary = toolbarRoot().querySelector('#pagetollm-summary-instructions');
+    act(() => {
+      reactProps(split).onChange({ target: { value: '  Split by company.  ' } });
+      reactProps(summary).onChange({ target: { value: ' Focus on ABC and ignore XYZ. ' } });
+    });
+    click(toolbarButton('pagetollm-pick-btn'));
+    act(() => block.dispatchEvent(event('click')));
+    expect(details.open).toBe(true);
+    expect(split.value).toBe('  Split by company.  ');
+    expect(summary.value).toBe(' Focus on ABC and ignore XYZ. ');
+
+    await act(async () => click(toolbarButton('pagetollm-submit-btn')));
+    await vi.waitFor(() => expect(runtimeMessenger.send).toHaveBeenCalledOnce());
+    expect(runtimeMessenger.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        splittingInstructions: 'Split by company.',
+        summaryInstructions: 'Focus on ABC and ignore XYZ.',
+      }),
+    );
   });
 
   it('shows progress before preprocessing and sending the capture', async () => {

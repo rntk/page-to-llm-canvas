@@ -22,6 +22,7 @@ import {
   estimateTokensForCharCount,
   WORST_CASE_BYTES_PER_CODE_UNIT,
 } from '../llm/tokenEstimator.js';
+import { customInstructionsBlock } from './customInstructions.js';
 
 // Share a conservative fallback across topic and source text; provider context
 // windows can reduce it through getPipelineTextChunkMaxChars.
@@ -54,6 +55,32 @@ export const PIPELINE_FIXED_PROMPT_TOKENS = Math.max(
 
 export const MAX_TAGGED_CHARS = PIPELINE_TEXT_CHUNK_MAX_CHARS;
 export const SOURCE_SUMMARY_MAX_CHARS = PIPELINE_TEXT_CHUNK_MAX_CHARS;
+
+/** Reserve payload space for optional user guidance added to pipeline prompts.
+ * @param {number} baseMaxChars Pipeline text cap for this provider.
+ * @param {string} [splittingInstructions] User guidance for splitting.
+ * @param {string} [summaryInstructions] User guidance for summaries.
+ * @returns {number}
+ */
+export function getCustomInstructionsTextChunkMaxChars(
+  baseMaxChars,
+  splittingInstructions,
+  summaryInstructions,
+) {
+  const extraTokens = Math.max(
+    estimateTokens(customInstructionsBlock(splittingInstructions)),
+    estimateTokens(customInstructionsBlock(summaryInstructions)),
+  );
+  if (extraTokens === 0) return baseMaxChars;
+  const payloadTokens = estimateTokensForCharCount(baseMaxChars, {
+    bytesPerChar: WORST_CASE_BYTES_PER_CODE_UNIT,
+  });
+  const remainingTokens = payloadTokens - extraTokens;
+  if (remainingTokens < estimateTokensForCharCount(4)) {
+    throw new Error('Custom instructions leave no room for source text. Please shorten them.');
+  }
+  return Math.min(baseMaxChars, estimateMaxCharsForTokens(remainingTokens));
+}
 
 /**
  * Charge a longer resplit parent path to the text budget while preserving

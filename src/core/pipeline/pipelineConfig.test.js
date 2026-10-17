@@ -6,6 +6,7 @@ import {
   SOURCE_SUMMARY_MAX_CHARS,
   TOPIC_RANGE_INPUT_MAX_SENTENCES,
   getArticleChatLimits,
+  getCustomInstructionsTextChunkMaxChars,
   getPipelineTextChunkMaxChars,
   getResplitTextChunkMaxChars,
   getTopicRangeInputMaxSentences,
@@ -34,6 +35,34 @@ const SMALL_CONTEXT = PIPELINE_MIN_CONTEXT_WINDOW_TOKENS;
 const MEDIUM_CONTEXT = SMALL_CONTEXT * 2;
 const LARGE_CONTEXT = SMALL_CONTEXT * 4;
 const OVERSIZED_CONTEXT = Number.MAX_SAFE_INTEGER;
+
+describe('custom instruction budgets', () => {
+  it('preserves the default cap and reserves room for the larger instruction block', () => {
+    const base = getPipelineTextChunkMaxChars(SMALL_CONTEXT);
+    expect(getCustomInstructionsTextChunkMaxChars(base, '', '')).toBe(base);
+    const splitCap = getCustomInstructionsTextChunkMaxChars(base, 'Split by company.', '');
+    const summaryCap = getCustomInstructionsTextChunkMaxChars(
+      base,
+      '',
+      'Focus on ABC. '.repeat(10),
+    );
+    expect(splitCap).toBeLessThan(base);
+    expect(summaryCap).toBeLessThan(splitCap);
+    expect(
+      getCustomInstructionsTextChunkMaxChars(
+        base,
+        'Split by company.',
+        'Focus on ABC. '.repeat(10),
+      ),
+    ).toBe(summaryCap);
+  });
+
+  it('rejects guidance that leaves no room for the article', () => {
+    expect(() => getCustomInstructionsTextChunkMaxChars(100, 'x'.repeat(1000), '')).toThrow(
+      'Please shorten them',
+    );
+  });
+});
 
 const FIXED_PIPELINE_PROMPTS = [
   ['topic ranges', buildTopicRangesPrompt],

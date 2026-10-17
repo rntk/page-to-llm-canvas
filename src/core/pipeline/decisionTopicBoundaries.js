@@ -13,6 +13,7 @@ import { rethrowIfCancelled, throwIfCancelled, TOPIC_RANGE_ABORT_MESSAGE } from 
 import { TOPIC_RANGE_CONCURRENCY } from './pipelineConfig.js';
 import { fitTextToChars } from './textFit.js';
 import { DEFAULT_DECISION_SPLIT_THRESHOLD } from '../settings/decisionThreshold.js';
+import { customInstructionsBlock } from './customInstructions.js';
 
 // System One models only return probabilities over these options, so the
 // request carries no output-format directives. Structured descriptions mark
@@ -275,7 +276,11 @@ export async function decideTopicBoundaries({
       questions[`b${right}`] = choice(boundaryQuestion(left, right), SPLIT_CHOICES);
     }
     let state = {
-      segmentation_rules: SEGMENTATION_BRIEF,
+      segmentation_rules:
+        SEGMENTATION_BRIEF +
+        (runtime?.splittingInstructions
+          ? `\n\n${customInstructionsBlock(runtime.splittingInstructions)}`
+          : ''),
       sentences: content.slice(
         Math.max(0, start - 1 - context),
         Math.min(content.length, stop + context),

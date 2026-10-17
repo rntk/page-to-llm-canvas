@@ -161,6 +161,66 @@ beforeEach(() => {
 });
 
 describe('createPipelineRunner', () => {
+  it.each(['completion', 'decision'])(
+    'applies saved custom instructions through the %s pipeline',
+    async (strategy) => {
+      const splittingInstructions = 'Split by company.';
+      const summaryInstructions = 'Focus on ABC and ignore XYZ.';
+      const source = 'ABC grew. XYZ declined.';
+      storage.readRecord.mockResolvedValue({
+        ...makeRecord('custom-guidance', `<p>${source}</p>`),
+        capturedText: source,
+        captureVersion: 2,
+        splittingInstructions,
+        summaryInstructions,
+      });
+      capturedText.normalizeCapturedText.mockReturnValue(source);
+      sentenceSplitter.splitSentences.mockReturnValue([
+        { text: 'ABC grew.', start: 0, end: 9 },
+        { text: 'XYZ declined.', start: 10, end: source.length },
+      ]);
+      if (strategy === 'decision') {
+        getDecisionProvider.mockResolvedValueOnce({
+          id: 'decision',
+          name: 'Decision',
+          type: 'llama_decision',
+          url: 'http://decision.local',
+        });
+      }
+      llm.callLLMWithRetry.mockImplementation(async ({ taskType }) => {
+        if (taskType === LLM_TASK_TYPES.TOPIC_RANGES) return 'Business>Stocks: 0-1';
+        if (taskType === LLM_TASK_TYPES.TOPIC_LABELS) return '1: Business>Stocks';
+        return 'ABC grew.';
+      });
+
+      await runPipeline('custom-guidance');
+
+      const requests = llm.callLLMWithRetry.mock.calls.map(([request]) => request);
+      const splitRequests = requests.filter(({ taskType }) =>
+        [LLM_TASK_TYPES.TOPIC_RANGES, LLM_TASK_TYPES.TOPIC_LABELS].includes(taskType),
+      );
+      const summaryRequests = requests.filter((request) => !splitRequests.includes(request));
+      expect(splitRequests).toHaveLength(1);
+      expect(summaryRequests.length).toBeGreaterThan(0);
+      for (const { prompt } of splitRequests) {
+        expect(prompt).toContain(splittingInstructions);
+        expect(prompt).not.toContain(summaryInstructions);
+      }
+      for (const { prompt } of summaryRequests) {
+        expect(prompt).toContain(summaryInstructions);
+        expect(prompt).not.toContain(splittingInstructions);
+      }
+      if (strategy === 'decision') {
+        expect(decisionClient.decide.mock.calls.at(-1)[0].segmentation_rules).toContain(
+          splittingInstructions,
+        );
+      }
+      expect(storage.updateRecord.mock.calls.some(([, patch]) => patch.status === 'done')).toBe(
+        true,
+      );
+    },
+  );
+
   it('does not apply a stale concurrency read after a newer setting event', async () => {
     let onConcurrencyChanged;
     let resolveInitialLimit;

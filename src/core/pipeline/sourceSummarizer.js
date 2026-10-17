@@ -177,6 +177,7 @@ export function makeSourceSummarizer({
   limit,
   signal,
   preferContentLanguage = false,
+  summaryInstructions = '',
   callLLMWithRetry,
   summaryMode = 'topic',
   maxChars = SOURCE_SUMMARY_MAX_CHARS,
@@ -190,7 +191,7 @@ export function makeSourceSummarizer({
     const response = await limit(() =>
       callLLMWithRetry(
         {
-          prompt: profile.buildPrompt(text, { preferContentLanguage }),
+          prompt: profile.buildPrompt(text, { preferContentLanguage, summaryInstructions }),
           signal,
           taskType: profile.taskType,
           sourceSummaryUnit: { ...sourceSummaryUnit, profile: summaryMode },
@@ -257,7 +258,10 @@ export function makeSourceSummarizer({
           const mergeResponse = await limit(() =>
             callLLMWithRetry(
               {
-                prompt: profile.buildMergePrompt(mergeSource, { preferContentLanguage }),
+                prompt: profile.buildMergePrompt(mergeSource, {
+                  preferContentLanguage,
+                  summaryInstructions,
+                }),
                 signal,
                 taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE,
                 sourceSummaryUnit: {
@@ -320,7 +324,9 @@ export function makeSourceSummarizer({
       try {
         const text = runSourceText(runIds, sentenceTexts);
         if (!text) return { sentences: runIds, text: '' };
-        if (shouldInlineRun(text, summaryMode)) return { sentences: runIds, text };
+        if (!summaryInstructions.trim() && shouldInlineRun(text, summaryMode)) {
+          return { sentences: runIds, text };
+        }
         return {
           sentences: runIds,
           text: await summarizeRun(runIds, text, typeof info?.path === 'string' ? info.path : ''),

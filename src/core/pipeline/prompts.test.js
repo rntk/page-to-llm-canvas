@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildTopicRangesPrompt,
+  buildTopicLabelsPrompt,
   buildArticleSummaryPrompt,
   buildArticleSummaryMergePrompt,
   buildLeafSummaryMergePrompt,
@@ -9,6 +10,41 @@ import {
   SUMMARY_LANGUAGE_INSTRUCTION,
 } from './prompts.js';
 import { PROMPT_DELIMITER } from '../promptDelimiters.js';
+
+describe('custom instructions', () => {
+  const split = 'Split ABC and XYZ into separate topics.\nKeep product names.';
+  const summary = "Please focus on company ABC and ignore company XYZ. $& $'";
+  const builders = [
+    ['ranges', buildTopicRangesPrompt, 'splittingInstructions', split],
+    ['labels', buildTopicLabelsPrompt, 'splittingInstructions', split],
+    ['leaf summary', buildArticleSummaryPrompt, 'summaryInstructions', summary],
+    ['topic summary', buildTopicSummaryFromSourcePrompt, 'summaryInstructions', summary],
+    ['topic merge', buildArticleSummaryMergePrompt, 'summaryInstructions', summary],
+    ['leaf merge', buildLeafSummaryMergePrompt, 'summaryInstructions', summary],
+  ];
+
+  it.each(builders)('adds guidance to %s outside the article payload', (_, build, field, value) => {
+    const prompt = build('Article content', {
+      splittingInstructions: split,
+      summaryInstructions: summary,
+      preferContentLanguage: true,
+    });
+    const payloadStart = prompt.indexOf(PROMPT_DELIMITER.payloadPrefix);
+    expect(prompt.slice(0, payloadStart)).toContain(value);
+    expect(prompt.slice(payloadStart)).toContain('Article content');
+    expect(prompt.slice(payloadStart)).not.toContain(value);
+    expect(prompt).not.toContain(field === 'summaryInstructions' ? split : summary);
+  });
+
+  it.each(builders)(
+    'keeps default %s prompts unchanged for blank or invalid guidance',
+    (_, build, field) => {
+      for (const value of ['', ' \n ', null, 42, {}]) {
+        expect(build('Article content', { [field]: value })).toBe(build('Article content'));
+      }
+    },
+  );
+});
 
 describe('buildTopicRangesPrompt', () => {
   it('includes the system prompt', () => {
