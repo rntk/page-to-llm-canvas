@@ -187,8 +187,9 @@ export function isImportableRecord(record) {
  * @property {string[]} [selectors] - CSS selectors used to capture the page.
  * @property {number|null} [captureVersion] - Browser-side capture schema version.
  * @property {string|null} [capturedText] - Text extracted while source CSS/layout was available.
- * @property {string} [splittingInstructions] - User guidance for topic splitting and labeling.
- * @property {string} [summaryInstructions] - User guidance for summaries and summary merges.
+ * @property {{splittingInstructions: string, summaryInstructions: string}|null} [runInstructions] -
+ *   Run directive: user guidance for the current run only. Kept through resume
+ *   and Retry, cleared when the run completes.
  * @property {boolean} [skipSummaries] - Run directive: summaries disabled for
  *   this run (decided at kickoff from the global toggle).
  * @property {boolean} [summariesDisabled] - Outcome flag: summary generation
@@ -230,10 +231,9 @@ export function isImportableRecord(record) {
  * @param {string[]} [input.selectors]
  * @param {number} [input.captureVersion]
  * @param {string} [input.capturedText]
- * @param {string} [input.splittingInstructions]
- * @param {string} [input.summaryInstructions]
  * @param {string} input.pipelineRunId
  * @param {boolean} [input.skipSummaries]
+ * @param {{splittingInstructions: string, summaryInstructions: string}|null} [input.runInstructions]
  * @param {number} [input.now]
  */
 export function createQueuedRecord({
@@ -243,10 +243,9 @@ export function createQueuedRecord({
   selectors = [],
   captureVersion,
   capturedText,
-  splittingInstructions = '',
-  summaryInstructions = '',
   pipelineRunId,
   skipSummaries = false,
+  runInstructions = null,
   now = Date.now(),
 }) {
   return {
@@ -270,11 +269,9 @@ export function createQueuedRecord({
     selectors: Array.isArray(selectors) ? selectors : [],
     captureVersion: Number.isInteger(captureVersion) ? captureVersion : null,
     capturedText: typeof capturedText === 'string' ? capturedText : null,
-    splittingInstructions:
-      typeof splittingInstructions === 'string' ? splittingInstructions.trim() : '',
-    summaryInstructions: typeof summaryInstructions === 'string' ? summaryInstructions.trim() : '',
     pipelineRunId,
     skipSummaries,
+    runInstructions: runInstructions ?? null,
     summaryCheckpointContentRevision: null,
     summaryCheckpointPreferContentLanguage: null,
     createdAt: now,

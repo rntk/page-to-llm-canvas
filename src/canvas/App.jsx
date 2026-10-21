@@ -400,13 +400,7 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
       }),
       createResplitAction({
         topics,
-        confirm: (message) => window.confirm(message),
-        request: (topic) =>
-          recordSource.resplitTopic(initialKey, {
-            path: topic.path,
-            startSentence: topic.startSentence,
-            endSentence: topic.endSentence,
-          }),
+        request: (topic) => recordSource.resplitTopic(initialKey, topic),
         onAccepted: onResplitAccepted,
       }),
     ];

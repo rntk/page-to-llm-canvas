@@ -11,6 +11,7 @@ export default function TopicActionsMenu({ actions, topic, classPrefix = 'topic-
   const [pendingActionId, setPendingActionId] = React.useState(null);
   const triggerRef = React.useRef(null);
   const menuRef = React.useRef(null);
+  const pendingActionRef = React.useRef(false);
   const triggerClass = `${classPrefix}__actions-trigger`;
   const menuClass = `${classPrefix}__actions-menu`;
 
@@ -47,12 +48,14 @@ export default function TopicActionsMenu({ actions, topic, classPrefix = 'topic-
   React.useEffect(() => {
     if (!menu) return undefined;
     const closeOnOutside = (event) => {
+      if (pendingActionRef.current) return;
       if (menuRef.current?.contains(event.target) || triggerRef.current?.contains(event.target)) {
         return;
       }
       closeMenu();
     };
     const closeOnEscape = (event) => {
+      if (pendingActionRef.current) return;
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
@@ -60,10 +63,13 @@ export default function TopicActionsMenu({ actions, topic, classPrefix = 'topic-
       }
     };
     const closeOnWheel = (event) => {
+      if (pendingActionRef.current) return;
       if (menuRef.current?.contains(event.target)) return;
       closeMenu();
     };
-    const closeOnViewportChange = () => closeMenu();
+    const closeOnViewportChange = () => {
+      if (!pendingActionRef.current) closeMenu();
+    };
     document.addEventListener('pointerdown', closeOnOutside);
     document.addEventListener('keydown', closeOnEscape);
     document.addEventListener('wheel', closeOnWheel, { capture: true, passive: true });
@@ -77,12 +83,13 @@ export default function TopicActionsMenu({ actions, topic, classPrefix = 'topic-
   }, [menu, closeMenu]);
 
   React.useEffect(() => {
-    if (!menu) return;
+    if (!menu || pendingActionId !== null) return;
     menuRef.current?.querySelector('[role="menuitem"]:not(:disabled)')?.focus();
-  }, [menu]);
+  }, [menu, pendingActionId]);
 
   const toggleMenu = (event) => {
     event.stopPropagation();
+    if (pendingActionRef.current) return;
     if (menu) {
       closeMenu();
       return;
@@ -113,10 +120,17 @@ export default function TopicActionsMenu({ actions, topic, classPrefix = 'topic-
     items[(index + step + items.length) % items.length].focus();
   };
 
+  const setPendingAction = (id) => {
+    pendingActionRef.current = id !== null;
+    setPendingActionId(id);
+  };
+
   const runAction = async (action) => {
-    if (pendingActionId) return;
+    // Actions can open a modal before React commits the pending state. Keep
+    // dismissal listeners and duplicate clicks guarded during that interval too.
+    if (pendingActionRef.current) return;
     setError('');
-    setPendingActionId(action.id);
+    setPendingAction(action.id);
     try {
       const result = await action.onSelect(topic);
       if (result?.stale) {
@@ -124,11 +138,14 @@ export default function TopicActionsMenu({ actions, topic, classPrefix = 'topic-
         return;
       }
       if (result?.ok === false) throw new Error(result.error || 'Action failed.');
-      closeMenu();
+      // A modal action returns focus to the menu item it was opened from, which
+      // is disabled while pending, so focus can fall back to the body.
+      const focusLost = !document.activeElement || document.activeElement === document.body;
+      closeMenu({ restoreFocus: result?.dismissed === true || focusLost });
     } catch (cause) {
       setError(cause?.message || 'Action failed.');
     } finally {
-      setPendingActionId(null);
+      setPendingAction(null);
     }
   };
 

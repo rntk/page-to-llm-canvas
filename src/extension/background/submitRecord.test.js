@@ -34,58 +34,57 @@ const capture = {
 };
 
 describe('custom instructions on submission', () => {
-  it('saves normalized instructions with new articles', async () => {
-    const { submit, recordRepository } = setup();
+  it('persists normalized instructions as a run directive on new articles', async () => {
+    const { submit, recordRepository, pipelineSupervisor } = setup();
     await submit({
       ...capture,
       splittingInstructions: ' Split by company. ',
       summaryInstructions: ' Focus on ABC. ',
     });
-    expect(recordRepository.writeRecord).toHaveBeenCalledWith(
-      expect.objectContaining({
-        splittingInstructions: 'Split by company.',
-        summaryInstructions: 'Focus on ABC.',
-      }),
-      { onlyIfAbsent: true },
-    );
+    const record = recordRepository.writeRecord.mock.calls[0][0];
+    expect(record.runInstructions).toEqual({
+      splittingInstructions: 'Split by company.',
+      summaryInstructions: 'Focus on ABC.',
+    });
+    expect(record).not.toHaveProperty('splittingInstructions');
+    expect(record).not.toHaveProperty('summaryInstructions');
+    expect(pipelineSupervisor.startPipeline).toHaveBeenCalledWith('content-key');
+  });
+
+  it('stores no run instructions for an unguided submission', async () => {
+    const { submit, recordRepository } = setup();
+    await submit({ ...capture, summaryInstructions: '  ' });
+    expect(recordRepository.writeRecord.mock.calls[0][0].runInstructions).toBeNull();
   });
 
   it.each(['splittingInstructions', 'summaryInstructions'])(
-    'reruns unchanged article text when %s changes or is cleared',
+    'reruns unchanged article text with run-scoped %s',
     async (field) => {
-      for (const value of ['Focus on XYZ.', '']) {
-        const { submit, recordRepository, pipelineSupervisor } = setup({
-          ...capture,
-          key: 'saved',
-          pipelineRunId: 'run-old',
-          status: 'done',
-          [field]: 'Focus on ABC.',
-          topics: [{ name: 'Old', sentences: [1] }],
-        });
-        await submit({ ...capture, [field]: value });
-        expect(recordRepository.updateRecord).toHaveBeenCalledWith(
-          'saved',
-          expect.objectContaining({
-            [field]: value,
-            status: 'pending',
-            topics: [],
-          }),
-          expect.objectContaining({ bumpContentRevision: true }),
-        );
-        expect(pipelineSupervisor.startPipeline).toHaveBeenCalledWith('saved');
-      }
+      const { submit, recordRepository, pipelineSupervisor } = setup({
+        ...capture,
+        key: 'saved',
+        pipelineRunId: 'run-old',
+        status: 'done',
+        topics: [{ name: 'Old', sentences: [1] }],
+      });
+      await submit({ ...capture, [field]: 'Focus on XYZ.' });
+      const patch = recordRepository.updateRecord.mock.calls[0][1];
+      expect(patch).toMatchObject({ status: 'pending', topics: [] });
+      expect(patch.runInstructions).toMatchObject({ [field]: 'Focus on XYZ.' });
+      expect(patch).not.toHaveProperty('splittingInstructions');
+      expect(patch).not.toHaveProperty('summaryInstructions');
+      expect(pipelineSupervisor.startPipeline).toHaveBeenCalledWith('saved');
     },
   );
 
-  it('reuses completed results when text and normalized instructions match', async () => {
+  it('reuses completed results when text matches and no instructions are supplied', async () => {
     const { submit, pipelineSupervisor } = setup({
       ...capture,
       key: 'saved',
       pipelineRunId: 'run-old',
       status: 'done',
-      summaryInstructions: 'Focus on ABC.',
     });
-    await submit({ ...capture, summaryInstructions: '  Focus on ABC.  ' });
+    await submit({ ...capture, summaryInstructions: '  ' });
     expect(pipelineSupervisor.startPipeline).not.toHaveBeenCalled();
   });
 });

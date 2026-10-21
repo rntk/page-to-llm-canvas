@@ -9,7 +9,7 @@ function createAction(overrides = {}) {
     topics: [SUBTOPIC, SIBLING],
     request: vi.fn(async () => ({ ok: true })),
     onAccepted: vi.fn(),
-    confirm: vi.fn(() => true),
+    getInstructions: vi.fn(async () => ({})),
     ...overrides,
   });
 }
@@ -91,31 +91,32 @@ describe('createResplitAction without saved topics', () => {
 });
 
 describe('createResplitAction onSelect', () => {
-  it('asks for confirmation naming the consequence when subtopics overlap', async () => {
-    const confirm = vi.fn(() => true);
-    const request = vi.fn(async () => ({ ok: true }));
-    const action = createAction({ confirm, request });
-    await action.onSelect(TARGET);
-    expect(confirm).toHaveBeenCalledOnce();
-    expect(confirm.mock.calls[0][0]).toContain('Continue?');
-    expect(request).toHaveBeenCalledWith(TARGET);
-  });
+  it.each([TARGET, { path: 'History', startSentence: 3, endSentence: 3 }])(
+    'opens the instructions dialog before sending %j',
+    async (topic) => {
+      const getInstructions = vi.fn(async () => ({
+        splittingInstructions: 'Split by company.',
+        summaryInstructions: 'Focus on ABC.',
+      }));
+      const request = vi.fn(async () => ({ ok: true }));
+      const action = createAction({ getInstructions, request });
+      await action.onSelect(topic);
+      expect(getInstructions).toHaveBeenCalledWith({ topic, hasSubtopics: topic === TARGET });
+      expect(request).toHaveBeenCalledWith({
+        ...topic,
+        splittingInstructions: 'Split by company.',
+        summaryInstructions: 'Focus on ABC.',
+      });
+    },
+  );
 
-  it('dismisses without requesting when confirmation is declined', async () => {
-    const confirm = vi.fn(() => false);
-    const request = vi.fn(async () => ({ ok: true }));
-    const action = createAction({ confirm, request });
+  it('dismisses without requesting when the dialog is cancelled', async () => {
+    const request = vi.fn();
+    const onAccepted = vi.fn();
+    const action = createAction({ getInstructions: async () => null, request, onAccepted });
     await expect(action.onSelect(TARGET)).resolves.toEqual({ ok: true, dismissed: true });
     expect(request).not.toHaveBeenCalled();
-  });
-
-  it('skips confirmation when no subtopics overlap', async () => {
-    const confirm = vi.fn(() => true);
-    const request = vi.fn(async () => ({ ok: true }));
-    const action = createAction({ confirm, request });
-    await action.onSelect({ path: 'History', startSentence: 3, endSentence: 3 });
-    expect(confirm).not.toHaveBeenCalled();
-    expect(request).toHaveBeenCalled();
+    expect(onAccepted).not.toHaveBeenCalled();
   });
 
   it('notifies acceptance with the response and topic', async () => {

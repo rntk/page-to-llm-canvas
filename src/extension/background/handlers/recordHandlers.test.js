@@ -122,6 +122,35 @@ describe('manual topic resplit handler', () => {
     expect(pipelineSupervisor.startPipeline).toHaveBeenCalledWith('topic-record');
   });
 
+  it('persists normalized custom instructions as a run directive', async () => {
+    const { handler, recordRepository, pipelineSupervisor } = makeResplitHandler();
+    await handler.handle({
+      key: 'topic-record',
+      path: 'Science',
+      startSentence: 1,
+      endSentence: 3,
+      splittingInstructions: ' Split by company. ',
+      summaryInstructions: ' Focus on ABC. ',
+    });
+    const patch = recordRepository.updateRecord.mock.calls[0][1];
+    expect(patch.runInstructions).toEqual({
+      splittingInstructions: 'Split by company.',
+      summaryInstructions: 'Focus on ABC.',
+    });
+    expect(pipelineSupervisor.startPipeline).toHaveBeenCalledWith('topic-record');
+  });
+
+  it('clears earlier run instructions for an unguided resplit', async () => {
+    const { handler, recordRepository } = makeResplitHandler();
+    await handler.handle({
+      key: 'topic-record',
+      path: 'Science',
+      startSentence: 1,
+      endSentence: 3,
+    });
+    expect(recordRepository.updateRecord.mock.calls[0][1].runInstructions).toBeNull();
+  });
+
   it('rejects an incomplete checkpoint before changing the record', async () => {
     const { handler, recordRepository } = makeResplitHandler({ checkpointComplete: false });
     await expect(

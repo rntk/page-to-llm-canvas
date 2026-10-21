@@ -54,6 +54,23 @@ export function resetContentCheckpointPatch() {
     ...resetSummaryCheckpointPatch(),
     sentences: [],
     text: '',
+    runInstructions: null,
+  };
+}
+
+/**
+ * Persists custom guidance for the run being started so resume, Retry, and
+ * summary-error resolution keep applying it. Terminal success clears it, so a
+ * later run never inherits it.
+ * @param {string} splittingInstructions Normalized splitting guidance.
+ * @param {string} summaryInstructions Normalized summary guidance.
+ */
+export function runInstructionsPatch(splittingInstructions, summaryInstructions) {
+  return {
+    runInstructions:
+      splittingInstructions || summaryInstructions
+        ? { splittingInstructions, summaryInstructions }
+        : null,
   };
 }
 
@@ -148,6 +165,8 @@ export function doneTransition({
 }) {
   return {
     status: PIPELINE_STATUS.DONE,
+    // Guidance belongs to the run that just finished.
+    runInstructions: null,
     summariesDisabled,
     summariesIncomplete,
     progress: progressAt(PIPELINE_STAGE.DONE, done, total),
@@ -174,6 +193,7 @@ export function restoreAfterResplitPatch(record, notice) {
   return {
     manualResplitIntent: null,
     resplitNotice: notice,
+    runInstructions: null,
     status: PIPELINE_STATUS.DONE,
     error: null,
     progress:

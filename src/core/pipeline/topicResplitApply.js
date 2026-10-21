@@ -117,10 +117,18 @@ function asObject(value) {
  * @param {object} record Record holding a complete topic checkpoint.
  * @param {ResplitTarget} target Validated target.
  * @param {Array<{name: string, sentences: number[]}>} replacementTopics
+ * @param {object} [options]
+ * @param {boolean} [options.invalidateAncestorSummaries] Regenerate overlapping
+ *   ancestor runs when this resplit supplies new summary guidance.
  * @returns {{topics: object[], topic_summaries: object, topic_summary_index: object,
  *   source_summary_units: object}|null} Null when the topics would not change.
  */
-export function applyTopicResplit(record, target, replacementTopics) {
+export function applyTopicResplit(
+  record,
+  target,
+  replacementTopics,
+  { invalidateAncestorSummaries = false } = {},
+) {
   const canonicalPath = canonicalTopicPath(target.path);
   const selectedIds = new Set(targetSentenceIds(target));
   const touchesSelection = (sentenceIds) =>
@@ -153,12 +161,15 @@ export function applyTopicResplit(record, target, replacementTopics) {
       topic_summaries[path] = { ...summary, runs, source_sentences: sourceSentences };
     }
   }
-  // Ancestor membership is unchanged by a scoped resplit. Keep its summaries;
-  // the tree planner still verifies exact sentence lists before reusing runs.
-  // At the selected level and below, only runs outside the selection stay.
+  // Ancestor membership is unchanged, but new summary guidance invalidates
+  // overlapping ancestor runs even when their sentence lists still match.
+  // Unguided resplits can keep them; untouched runs remain reusable in either case.
   const topic_summary_index = {};
   for (const [path, entry] of Object.entries(asObject(record.topic_summary_index))) {
-    if (!isWithinPath(canonicalTopicPath(path), canonicalPath)) {
+    const affectsPath = invalidateAncestorSummaries
+      ? isOnTargetLine(canonicalTopicPath(path), canonicalPath)
+      : isWithinPath(canonicalTopicPath(path), canonicalPath);
+    if (!affectsPath) {
       topic_summary_index[path] = entry;
       continue;
     }

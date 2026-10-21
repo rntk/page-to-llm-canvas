@@ -203,43 +203,47 @@ describe('applyTopicResplit', () => {
     });
   });
 
-  it('keeps ancestor tree runs both inside and outside the replaced range', () => {
-    const record = makeRecord({
-      topics: [
-        { name: 'Root>Science', sentences: [2, 3] },
-        { name: 'Other', sentences: [4] },
-        { name: 'Root>Science', sentences: [5, 6] },
-      ],
-      topic_summary_index: {
+  it.each([false, true])(
+    'keeps unaffected ancestor runs when invalidation is %j',
+    (invalidateAncestorSummaries) => {
+      const record = makeRecord({
+        topics: [
+          { name: 'Root>Science', sentences: [2, 3] },
+          { name: 'Other', sentences: [4] },
+          { name: 'Root>Science', sentences: [5, 6] },
+        ],
+        topic_summary_index: {
+          Root: {
+            level: 1,
+            source_sentences: [2, 3, 5, 6],
+            runs: [
+              { sentences: [2, 3], text: 'first' },
+              { sentences: [5, 6], text: 'second' },
+            ],
+          },
+        },
+      });
+
+      const result = applyTopicResplit(
+        record,
+        { path: 'Root>Science', startSentence: 2, endSentence: 3 },
+        [
+          { name: 'Root>Science>Physics', sentences: [2] },
+          { name: 'Root>Science>Chemistry', sentences: [3] },
+        ],
+        { invalidateAncestorSummaries },
+      );
+
+      expect(result.topic_summary_index).toEqual({
         Root: {
           level: 1,
           source_sentences: [2, 3, 5, 6],
           runs: [
-            { sentences: [2, 3], text: 'first' },
+            ...(!invalidateAncestorSummaries ? [{ sentences: [2, 3], text: 'first' }] : []),
             { sentences: [5, 6], text: 'second' },
           ],
         },
-      },
-    });
-
-    const result = applyTopicResplit(
-      record,
-      { path: 'Root>Science', startSentence: 2, endSentence: 3 },
-      [
-        { name: 'Root>Science>Physics', sentences: [2] },
-        { name: 'Root>Science>Chemistry', sentences: [3] },
-      ],
-    );
-
-    expect(result.topic_summary_index).toEqual({
-      Root: {
-        level: 1,
-        source_sentences: [2, 3, 5, 6],
-        runs: [
-          { sentences: [2, 3], text: 'first' },
-          { sentences: [5, 6], text: 'second' },
-        ],
-      },
-    });
-  });
+      });
+    },
+  );
 });

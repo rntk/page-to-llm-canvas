@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { completeResplitDialog } from '../../../../test/resplitDialog.mjs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
 
@@ -372,6 +373,10 @@ describe('openInPageRail', () => {
       });
       await act(async () => {
         document.querySelector('[role="menuitem"]').click();
+        completeResplitDialog({
+          splittingInstructions: 'Split by company.',
+          summaryInstructions: 'Focus on ABC.',
+        });
       });
       expect(runtimeSend).toHaveBeenCalledWith({
         type: 'resplitTopic',
@@ -379,6 +384,8 @@ describe('openInPageRail', () => {
         path: 'Parent > Child',
         startSentence: 1,
         endSentence: 2,
+        splittingInstructions: 'Split by company.',
+        summaryInstructions: 'Focus on ABC.',
       });
       expect(rail()).toBeNull();
     });

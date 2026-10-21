@@ -205,8 +205,15 @@ export function createPipelineRunner({
       await runtime.log('pipeline_start');
       const record = await runtime.read();
       if (!record) throw new Error(`record not found: ${key}`);
-      runtime.splittingInstructions = normalizeCustomInstructions(record.splittingInstructions);
-      runtime.summaryInstructions = normalizeCustomInstructions(record.summaryInstructions);
+      if (record.manualResplitIntent) pendingResplitRecord = record;
+      // Guidance is a persisted run directive (like skipSummaries) so that
+      // resume after service-worker recycling and Retry keep applying it.
+      runtime.splittingInstructions = normalizeCustomInstructions(
+        record.runInstructions?.splittingInstructions,
+      );
+      runtime.summaryInstructions = normalizeCustomInstructions(
+        record.runInstructions?.summaryInstructions,
+      );
       runtime.maxTextChunkChars = getCustomInstructionsTextChunkMaxChars(
         runtime.maxTextChunkChars ?? MAX_TAGGED_CHARS,
         runtime.splittingInstructions,
@@ -275,7 +282,9 @@ export function createPipelineRunner({
           sentenceTexts,
           providers.callLLMWithRetry,
         );
-        const applied = applyTopicResplit(record, intent, groupsToTopics(groups));
+        const applied = applyTopicResplit(record, intent, groupsToTopics(groups), {
+          invalidateAncestorSummaries: Boolean(runtime.summaryInstructions),
+        });
         if (!applied) {
           await runtime.log('topic_resplit_no_change', { path: intent.path });
           await runtime.update(restoreAfterResplitPatch(record, RESPLIT_NO_CHANGE_NOTICE));

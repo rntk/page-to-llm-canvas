@@ -149,7 +149,6 @@ export function createInPageRailController({
         request: (topic) =>
           runtimeMessenger.send({ type: MSG.resplitTopic, key: record.key, ...topic }),
         onAccepted: closeRail,
-        confirm,
       }),
     ];
 

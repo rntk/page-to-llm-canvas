@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import React, { act } from 'react';
+import { completeResplitDialog, resplitDialogRoot } from '../../test/resplitDialog.mjs';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -339,12 +340,16 @@ describe('App composition behavior', () => {
     const resplit = state.childProps.rail.topicActions.find((action) => action.id === 'resplit');
 
     await act(async () => {
-      await resplit.onSelect({ path: 'Topic', startSentence: 1, endSentence: 1 });
+      const pending = resplit.onSelect({ path: 'Topic', startSentence: 1, endSentence: 1 });
+      completeResplitDialog();
+      await pending;
     });
     expect(recordSource.resplitTopic).toHaveBeenCalledWith('record-1', {
       path: 'Topic',
       startSentence: 1,
       endSentence: 1,
+      splittingInstructions: '',
+      summaryInstructions: '',
     });
     expect(onClose).toHaveBeenCalledTimes(1);
     state.record = { ...state.record, status: 'splitting', pipelineRunId: 'run-2' };
@@ -369,8 +374,12 @@ describe('App composition behavior', () => {
     const resplit = state.childProps.rail.topicActions.find((action) => action.id === 'resplit');
 
     await act(async () => {
-      await resplit.onSelect({ path: 'Topic', startSentence: 1, endSentence: 1 });
-      await resplit.onSelect({ path: 'Topic', startSentence: 1, endSentence: 1 });
+      const pending = resplit.onSelect({ path: 'Topic', startSentence: 1, endSentence: 1 });
+      completeResplitDialog();
+      await pending;
+      const secondPending = resplit.onSelect({ path: 'Topic', startSentence: 1, endSentence: 1 });
+      completeResplitDialog();
+      await secondPending;
     });
     expect(onClose).not.toHaveBeenCalled();
 
@@ -387,9 +396,6 @@ describe('App composition behavior', () => {
         { name: 'Topic>Child', sentences: [2] },
       ],
     };
-    const originalConfirm = window.confirm;
-    const confirm = vi.fn(() => false);
-    window.confirm = confirm;
     const { root } = await renderApp('record-1', { onClose, recordSource });
     const resplit = state.childProps.rail.topicActions.find((action) => action.id === 'resplit');
 
@@ -397,15 +403,17 @@ describe('App composition behavior', () => {
       /Replace this topic and its subtopics/,
     );
     await act(async () => {
-      await expect(
-        resplit.onSelect({ path: 'Topic', startSentence: 1, endSentence: 2 }),
-      ).resolves.toMatchObject({ dismissed: true });
+      const pending = resplit.onSelect({ path: 'Topic', startSentence: 1, endSentence: 2 });
+      const dialog = resplitDialogRoot();
+      expect(dialog.querySelector('#resplit-description').textContent).toContain(
+        'replaces its subtopics',
+      );
+      completeResplitDialog({ cancel: true });
+      await expect(pending).resolves.toMatchObject({ dismissed: true });
     });
-    expect(confirm).toHaveBeenCalledOnce();
     expect(recordSource.resplitTopic).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
 
-    window.confirm = originalConfirm;
     await act(async () => root.unmount());
   });
 

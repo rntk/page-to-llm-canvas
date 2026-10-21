@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { completeResplitDialog } from '../../../../test/resplitDialog.mjs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
 
@@ -251,6 +252,10 @@ describe('openYouTubeRail', () => {
       });
       await act(async () => {
         document.querySelector('[role="menuitem"]').click();
+        completeResplitDialog({
+          splittingInstructions: 'Split by company.',
+          summaryInstructions: 'Focus on ABC.',
+        });
       });
       expect(runtimeSend).toHaveBeenCalledWith({
         type: 'resplitTopic',
@@ -258,6 +263,8 @@ describe('openYouTubeRail', () => {
         path: 'Parent > Intro',
         startSentence: 1,
         endSentence: 1,
+        splittingInstructions: 'Split by company.',
+        summaryInstructions: 'Focus on ABC.',
       });
       expect(rail()).toBeNull();
     });

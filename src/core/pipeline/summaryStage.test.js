@@ -82,6 +82,7 @@ describe('finalizeSummariesDisabled', () => {
 
     expect(lastUpdate(runtime)).toEqual({
       status: PIPELINE_STATUS.DONE,
+      runInstructions: null,
       topic_summaries: {},
       topic_summary_index: {},
       source_summary_units: {},

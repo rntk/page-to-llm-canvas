@@ -14,7 +14,6 @@ import { createResplitAction } from '../../../shared/runtime/topicResplit.js';
 
 const defaultDialogs = {
   alert: (...args) => globalThis.alert(...args),
-  confirm: (...args) => globalThis.confirm(...args),
 };
 
 export function createYouTubeRailController({
@@ -26,7 +25,7 @@ export function createYouTubeRailController({
   onDestroy,
 } = {}) {
   const closeRail = surfaceManager.close;
-  const { alert, confirm } = { ...defaultDialogs, ...(dialogs ?? {}) };
+  const { alert } = { ...defaultDialogs, ...(dialogs ?? {}) };
   const openOptionsForRecovery = createOptionsRecoveryOpener({ runtimeMessenger, alert, logger });
   let videoElement = null;
 
@@ -95,7 +94,6 @@ export function createYouTubeRailController({
         request: (topic) =>
           runtimeMessenger.send({ type: MSG.resplitTopic, key: record.key, ...topic }),
         onAccepted: closeRail,
-        confirm,
       }),
     ];
 

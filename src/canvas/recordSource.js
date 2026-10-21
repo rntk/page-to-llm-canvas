@@ -28,7 +28,8 @@ export const browserRecordSource = Object.freeze({
   /**
    * Starts the worker-side Resplit of one topic card.
    * @param {string} key Record key.
-   * @param {{path: string, startSentence: number, endSentence: number}} target
+   * @param {{path: string, startSentence: number, endSentence: number,
+   *   splittingInstructions?: string, summaryInstructions?: string}} target
    */
   resplitTopic(key, target) {
     return browserRuntimeMessenger.send({ type: MSG.resplitTopic, key, ...target });

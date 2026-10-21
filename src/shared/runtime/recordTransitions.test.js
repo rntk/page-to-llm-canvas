@@ -14,6 +14,7 @@ import {
   RESPLIT_NO_CHANGE_NOTICE,
   restoreAfterResplitPatch,
   resumeSummariesTransition,
+  runInstructionsPatch,
   splittingTransition,
   summarizingTransition,
 } from './recordTransitions.js';
@@ -51,6 +52,7 @@ describe('recordTransitions', () => {
       ...SUMMARY_CHECKPOINT_RESET,
       sentences: [],
       text: '',
+      runInstructions: null,
     });
   });
 
@@ -112,6 +114,7 @@ describe('recordTransitions', () => {
   it('doneTransition clears review state and carries the incomplete marker', () => {
     expect(doneTransition({ done: 3, total: 3, summariesDisabled: false })).toEqual({
       status: PIPELINE_STATUS.DONE,
+      runInstructions: null,
       summariesDisabled: false,
       summariesIncomplete: false,
       progress: { stage: PIPELINE_STAGE.DONE, done: 3, total: 3 },
@@ -142,6 +145,7 @@ describe('recordTransitions', () => {
     ).toEqual({
       manualResplitIntent: null,
       resplitNotice: 'No change.',
+      runInstructions: null,
       status: PIPELINE_STATUS.DONE,
       error: null,
       progress: previousProgress,
@@ -161,10 +165,18 @@ describe('recordTransitions', () => {
     expect(restoreAfterResplitPatch(undefined, 'No change.')).toEqual({
       manualResplitIntent: null,
       resplitNotice: 'No change.',
+      runInstructions: null,
       status: PIPELINE_STATUS.DONE,
       error: null,
       progress: { stage: PIPELINE_STAGE.DONE, done: 0, total: 0 },
     });
+  });
+
+  it('stores run instructions only when guidance is present', () => {
+    expect(runInstructionsPatch('Split.', '')).toEqual({
+      runInstructions: { splittingInstructions: 'Split.', summaryInstructions: '' },
+    });
+    expect(runInstructionsPatch('', '')).toEqual({ runInstructions: null });
   });
 
   it('pins the user-facing resplit notices', () => {

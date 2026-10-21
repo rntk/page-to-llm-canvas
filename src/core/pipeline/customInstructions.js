@@ -1,4 +1,4 @@
-/** Normalize optional instructions from toolbar submissions or saved records.
+/** Normalize optional instructions supplied for the current pipeline run.
  * @param {unknown} value Optional user guidance.
  * @returns {string}
  */

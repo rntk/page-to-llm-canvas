@@ -1,4 +1,5 @@
 import { canonicalTopicPath, isCanonicalDescendantPath } from './topicPath.js';
+import { showResplitInstructionsDialog } from '../dom/resplitInstructionsDialog.js';
 
 /**
  * Build the standard topic resplit action.
@@ -8,7 +9,7 @@ export function createResplitAction({
   topics = [],
   request,
   onAccepted,
-  confirm = globalThis.confirm,
+  getInstructions = showResplitInstructionsDialog,
 }) {
   const hasSubtopicsInRange = ({ path, startSentence, endSentence }) => {
     const target = canonicalTopicPath(path);
@@ -30,15 +31,14 @@ export function createResplitAction({
         ? 'Replace this topic and its subtopics within this sentence range.'
         : 'Resplit this topic; its name and subtopics may change.',
     onSelect: async (topic) => {
-      if (
-        hasSubtopicsInRange(topic) &&
-        !confirm(
-          'Resplitting may rename this topic and replaces its subtopics within this sentence range. Continue?',
-        )
-      ) {
+      const instructions = await getInstructions({
+        topic,
+        hasSubtopics: hasSubtopicsInRange(topic),
+      });
+      if (!instructions) {
         return { ok: true, dismissed: true };
       }
-      const response = await request(topic);
+      const response = await request({ ...topic, ...instructions });
       if (response?.ok && !response.stale) onAccepted?.(response, topic);
       return response;
     },

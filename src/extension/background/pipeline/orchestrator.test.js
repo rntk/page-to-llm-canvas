@@ -162,7 +162,7 @@ beforeEach(() => {
 
 describe('createPipelineRunner', () => {
   it.each(['completion', 'decision'])(
-    'applies saved custom instructions through the %s pipeline',
+    'applies run-scoped custom instructions through the %s pipeline',
     async (strategy) => {
       const splittingInstructions = 'Split by company.';
       const summaryInstructions = 'Focus on ABC and ignore XYZ.';
@@ -171,8 +171,7 @@ describe('createPipelineRunner', () => {
         ...makeRecord('custom-guidance', `<p>${source}</p>`),
         capturedText: source,
         captureVersion: 2,
-        splittingInstructions,
-        summaryInstructions,
+        runInstructions: { splittingInstructions, summaryInstructions },
       });
       capturedText.normalizeCapturedText.mockReturnValue(source);
       sentenceSplitter.splitSentences.mockReturnValue([
@@ -215,11 +214,62 @@ describe('createPipelineRunner', () => {
           splittingInstructions,
         );
       }
-      expect(storage.updateRecord.mock.calls.some(([, patch]) => patch.status === 'done')).toBe(
-        true,
-      );
+      const done = storage.updateRecord.mock.calls.find(([, patch]) => patch.status === 'done');
+      // Completion ends the run, so its guidance is not inherited by a later one.
+      expect(done?.[1].runInstructions).toBeNull();
     },
   );
+
+  it('ignores legacy top-level instruction fields on saved records', async () => {
+    const source = 'ABC grew. XYZ declined.';
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('old-guidance', `<p>${source}</p>`),
+      capturedText: source,
+      captureVersion: 2,
+      skipSummaries: true,
+      splittingInstructions: 'Old splitting instructions.',
+      summaryInstructions: 'Old summary instructions.',
+    });
+    capturedText.normalizeCapturedText.mockReturnValue(source);
+    sentenceSplitter.splitSentences.mockReturnValue([
+      { text: 'ABC grew.', start: 0, end: 9 },
+      { text: 'XYZ declined.', start: 10, end: source.length },
+    ]);
+    llm.callLLMWithRetry.mockResolvedValue('Business: 0-1');
+    await runPipeline('old-guidance');
+    expect(llm.callLLMWithRetry).toHaveBeenCalled();
+    for (const [request] of llm.callLLMWithRetry.mock.calls) {
+      expect(request.prompt).not.toContain('Old splitting instructions.');
+      expect(request.prompt).not.toContain('Old summary instructions.');
+    }
+  });
+
+  it('preserves the topic checkpoint when resplit instructions exceed the request budget', async () => {
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('resplit-oversized-guidance', '<p>Science.</p>'),
+      status: 'splitting',
+      manualResplitIntent: { path: 'Science', startSentence: 1, endSentence: 1 },
+      sentences: ['Science.'],
+      topics: [{ name: 'Science', sentences: [1] }],
+      runInstructions: { splittingInstructions: 'x'.repeat(1_000_000), summaryInstructions: '' },
+    });
+    await runPipeline('resplit-oversized-guidance');
+    expect(llm.callLLMWithRetry).not.toHaveBeenCalled();
+    expect(storage.updateRecord).toHaveBeenCalledWith(
+      'resplit-oversized-guidance',
+      expect.objectContaining({
+        status: 'done',
+        manualResplitIntent: null,
+        runInstructions: null,
+        resplitNotice: expect.stringContaining('Please shorten them'),
+      }),
+      expect.any(Object),
+    );
+    for (const [, patch] of storage.updateRecord.mock.calls) {
+      expect(patch).not.toHaveProperty('topics');
+      expect(patch).not.toHaveProperty('topic_summaries');
+    }
+  });
 
   it('does not apply a stale concurrency read after a newer setting event', async () => {
     let onConcurrencyChanged;
@@ -446,6 +496,7 @@ describe('runPipeline', () => {
     expect(restoreWrite[1]).toEqual({
       manualResplitIntent: null,
       resplitNotice: expect.stringMatching(/^Resplit failed: .*provider unavailable/),
+      runInstructions: null,
       status: 'done',
       error: null,
       progress: { stage: 'done', done: 2, total: 2 },
@@ -668,6 +719,10 @@ describe('runPipeline', () => {
     storage.readRecord.mockResolvedValue({
       ...makeRecord('manual-resplit-success', '<p>captured article</p>'),
       status: 'splitting',
+      runInstructions: {
+        splittingInstructions: 'Separate the studies by research area.',
+        summaryInstructions: 'Focus on measurements.',
+      },
       skipSummaries: false,
       manualResplitIntent: { path: 'Science', startSentence: 1, endSentence: 2 },
       // The checkpoint's language policy wins over the current global setting.
@@ -706,11 +761,29 @@ describe('runPipeline', () => {
         : 'Fresh summary.',
     );
 
+    const splittingInstructions = 'Separate the studies by research area.';
+    const summaryInstructions = 'Focus on measurements.';
     await runPipeline('manual-resplit-success');
 
     const rangeCalls = llm.callLLMWithRetry.mock.calls.filter(
       ([request]) => request.taskType === LLM_TASK_TYPES.TOPIC_RESPLIT,
     );
+    for (const [request] of llm.callLLMWithRetry.mock.calls) {
+      if (request.taskType === LLM_TASK_TYPES.TOPIC_RESPLIT) {
+        expect(request.prompt).toContain(splittingInstructions);
+        expect(request.prompt).not.toContain(summaryInstructions);
+      } else {
+        expect(request.prompt).toContain(summaryInstructions);
+        expect(request.prompt).not.toContain(splittingInstructions);
+      }
+    }
+    const stored = JSON.stringify([
+      storage.updateRecord.mock.calls,
+      storage.appendProcessingLog.mock.calls,
+      storage.putSourceSummaryUnit.mock.calls,
+    ]);
+    expect(stored).not.toContain(splittingInstructions);
+    expect(stored).not.toContain(summaryInstructions);
     expect(rangeCalls).toHaveLength(1);
     expect(rangeCalls[0][0].prompt).toContain('Science');
     expect(rangeCalls[0][0].prompt).not.toContain('History account');
@@ -739,6 +812,78 @@ describe('runPipeline', () => {
       later: { unitId: 'later', run: [4, 5] },
       history: { unitId: 'history', run: [3] },
     });
+  });
+
+  it('regenerates guided ancestors across a nested resplit and preserves unaffected summary runs', async () => {
+    storage.readRecord.mockResolvedValue({
+      ...makeRecord('nested-guidance', '<p>Science studies and other research.</p>'),
+      status: 'splitting',
+      runInstructions: { splittingInstructions: '', summaryInstructions: 'Focus on measurements.' },
+      manualResplitIntent: { path: 'Root>Research>Science', startSentence: 1, endSentence: 2 },
+      sentences: ['First measurement.', 'Second measurement.', 'Other branch.', 'Stable research.'],
+      topics: [
+        { name: 'Root>Research>Science', sentences: [1, 2] },
+        { name: 'Root>Other', sentences: [3] },
+        { name: 'Root>Research>Stable', sentences: [4] },
+      ],
+      topic_summaries: {
+        'Root>Research>Science': {
+          runs: [{ sentences: [1, 2], text: 'Old science.' }],
+          source_sentences: [1, 2],
+        },
+        'Root>Other': {
+          runs: [{ sentences: [3], text: 'Saved other branch.' }],
+          source_sentences: [3],
+        },
+        'Root>Research>Stable': {
+          runs: [{ sentences: [4], text: 'Saved stable research.' }],
+          source_sentences: [4],
+        },
+      },
+      topic_summary_index: {
+        Root: { runs: [{ sentences: [1, 2, 3, 4], text: 'Old root overview.' }] },
+        'Root>Research': {
+          runs: [
+            { sentences: [1, 2], text: 'Old research overview.' },
+            { sentences: [4], text: 'Saved stable research.' },
+          ],
+        },
+      },
+    });
+    llm.callLLMWithRetry.mockImplementation(async ({ taskType }) =>
+      taskType === LLM_TASK_TYPES.TOPIC_RESPLIT
+        ? 'Root>Research>Science>One: 0\nRoot>Research>Science>Two: 1'
+        : 'Guided measurements summary.',
+    );
+
+    await runPipeline('nested-guidance');
+
+    const checkpoint = storage.updateRecord.mock.calls.find(
+      ([, patch]) => patch.manualResplitIntent === null,
+    )[1];
+    expect(checkpoint.topic_summary_index).not.toHaveProperty('Root');
+    expect(checkpoint.topic_summary_index['Root>Research'].runs).toEqual([
+      { sentences: [4], text: 'Saved stable research.' },
+    ]);
+    const final = storage.updateRecord.mock.calls
+      .map(([, patch]) => patch)
+      .findLast((patch) => patch.status === 'done');
+    for (const path of ['Root', 'Root>Research', 'Root>Research>Science']) {
+      expect(final.topic_summary_index[path].runs[0].text).toBe('Guided measurements summary.');
+    }
+    expect(final.topic_summary_index['Root>Research'].runs[1]).toEqual({
+      sentences: [4],
+      text: 'Saved stable research.',
+    });
+    expect(final.topic_summary_index['Root>Other'].runs[0].text).toBe('Saved other branch.');
+    expect(final.topic_summary_index['Root>Research>Stable'].runs[0].text).toBe(
+      'Saved stable research.',
+    );
+    for (const [request] of llm.callLLMWithRetry.mock.calls) {
+      if (request.taskType !== LLM_TASK_TYPES.TOPIC_RESPLIT) {
+        expect(request.prompt).toContain('Focus on measurements.');
+      }
+    }
   });
 
   it('carries a forcedEmpty leaf from an unrelated topic through a resplit instead of re-querying it', async () => {

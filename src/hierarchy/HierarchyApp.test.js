@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { completeResplitDialog } from '../../test/resplitDialog.mjs';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { cloneElement, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -148,12 +149,20 @@ describe('HierarchyApp', () => {
     const action = [
       ...document.body.querySelectorAll('.th-node__actions-menu [role="menuitem"]'),
     ].find((item) => item.textContent.includes('Resplit'));
-    await act(async () => action.click());
+    await act(async () => {
+      action.click();
+      completeResplitDialog({
+        splittingInstructions: 'Split by company.',
+        summaryInstructions: 'Focus on ABC.',
+      });
+    });
 
     expect(recordSource.resplitTopic).toHaveBeenCalledWith('key1', {
       path: 'Fruit',
       startSentence: 2,
       endSentence: 3,
+      splittingInstructions: 'Split by company.',
+      summaryInstructions: 'Focus on ABC.',
     });
     expect(hostActions.onClose).toHaveBeenCalledOnce();
     unmount();
@@ -193,12 +202,17 @@ describe('HierarchyApp', () => {
       'Resplit sentences 1–1',
       'Resplit sentences 3–3',
     ]);
-    await act(async () => actions[2].click());
+    await act(async () => {
+      actions[2].click();
+      completeResplitDialog();
+    });
 
     expect(recordSource.resplitTopic).toHaveBeenCalledWith('key1', {
       path: 'Fruit',
       startSentence: 3,
       endSentence: 3,
+      splittingInstructions: '',
+      summaryInstructions: '',
     });
     expect(hostActions.onClose).toHaveBeenCalledOnce();
     unmount();

@@ -16,11 +16,13 @@ import {
   RESPLIT_CANCELLED_NOTICE,
   restoreAfterResplitPatch,
   resumeSummariesTransition,
+  runInstructionsPatch,
   splittingTransition,
 } from '../../../shared/runtime/recordTransitions.js';
 import { clearSummaryErrorFlags, getAcceptedMergeFailurePaths } from '../summaryResolution.js';
 import { canonicalTopicPath } from '../../../shared/runtime/topicPath.js';
 import { validateResplitTarget } from '../../../core/pipeline/topicResplitApply.js';
+import { normalizeCustomInstructions } from '../../../core/pipeline/customInstructions.js';
 
 /**
  * Handlers for the record lifecycle: submit, run control (retry / reprocess /
@@ -271,6 +273,12 @@ export function createRecordHandlers({
               // Restored if the resplit ends without replacing any topics.
               previousProgress: rec.progress,
             },
+            // Persisted with the run claim so a resumed resplit keeps the
+            // guidance; an unguided resplit stores null.
+            ...runInstructionsPatch(
+              normalizeCustomInstructions(msg.splittingInstructions),
+              normalizeCustomInstructions(msg.summaryInstructions),
+            ),
             // `skipSummaries` is left untouched: new subtopics are summarized
             // exactly when the rest of the record was.
           },

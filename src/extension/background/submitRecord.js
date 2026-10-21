@@ -2,6 +2,7 @@ import { createQueuedRecord, PIPELINE_STATUS } from '../../shared/runtime/contra
 import {
   queuedTransition,
   resetContentCheckpointPatch,
+  runInstructionsPatch,
 } from '../../shared/runtime/recordTransitions.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { sha256Hex } from './summaryResolution.js';
@@ -102,14 +103,14 @@ export function createSubmitRecord({
         existingHasCurrentCapture &&
         comparableCapturedText(existing.capturedText) === comparableIncomingText
       : false;
-    const sameInstructions =
-      normalizeCustomInstructions(existing?.splittingInstructions) === splittingInstructions &&
-      normalizeCustomInstructions(existing?.summaryInstructions) === summaryInstructions;
+    // Custom guidance belongs to one run only (see runInstructions), so a guided
+    // submission always reruns the analysis instead of comparing against it.
+    const hasInstructions = Boolean(splittingInstructions || summaryInstructions);
     if (
       existing &&
       existing.status === PIPELINE_STATUS.DONE &&
       sameCapturedContent &&
-      sameInstructions
+      !hasInstructions
     ) {
       // Refresh the browser snapshot and selectors without invalidating the
       // analysis when their canonical text is unchanged.
@@ -151,8 +152,6 @@ export function createSubmitRecord({
         html,
         captureVersion: Number.isInteger(captureVersion) ? captureVersion : null,
         capturedText: typeof capturedText === 'string' ? capturedText : null,
-        splittingInstructions,
-        summaryInstructions,
         processingLog: [],
         skipSummaries,
         // A submission for a non-terminal URL replaces its HTML and therefore
@@ -160,6 +159,7 @@ export function createSubmitRecord({
         // same reset reprocessRecord applies): retry may otherwise mistake the
         // old topics/sentences for a checkpoint belonging to this new revision.
         ...resetContentCheckpointPatch(),
+        ...runInstructionsPatch(splittingInstructions, summaryInstructions),
       };
       if (Array.isArray(selectors)) patch.selectors = selectors;
       const updated = await updateRecord(key, patch, {
@@ -186,10 +186,9 @@ export function createSubmitRecord({
           selectors,
           captureVersion,
           capturedText,
-          splittingInstructions,
-          summaryInstructions,
           pipelineRunId,
           skipSummaries,
+          ...runInstructionsPatch(splittingInstructions, summaryInstructions),
           now,
         }),
         { onlyIfAbsent: true },
