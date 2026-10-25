@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as capture from './html.js';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -296,28 +297,87 @@ describe('selection controller', () => {
     );
   });
 
-  it('shows progress before preprocessing and sending the capture', async () => {
+  it('commits progress immediately and waits for a paint before capturing, ignoring repeat clicks', async () => {
     const block = mountBlock('progress', 'Wait for me');
-    let resolveSubmission;
-    runtimeMessenger.send.mockReturnValue(
-      new Promise((resolve) => {
-        resolveSubmission = resolve;
-      }),
-    );
+    const pending = deferred();
+    runtimeMessenger.send.mockReturnValue(pending.promise);
     act(() => showSelectionToolbar(runtimeMessenger));
     click(toolbarButton('pagetollm-pick-btn'));
     act(() => block.dispatchEvent(event('click')));
 
-    click(toolbarButton('pagetollm-submit-btn'));
+    vi.useFakeTimers();
+    let paintFrame;
+    const frameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      paintFrame = callback;
+      return 1;
+    });
+    const captureSpy = vi.spyOn(capture, 'buildCapture');
+    try {
+      const submit = toolbarButton('pagetollm-submit-btn');
+      const onSubmit = reactProps(submit).onClick;
+      act(() => {
+        onSubmit(event('click'));
+        // Assert within the same event, before act can flush a queued render.
+        expect(submit.textContent).toBe('Submitting...');
+        expect(submit.disabled).toBe(true);
+        expect(toolbarRoot().querySelector('[role="progressbar"]')).not.toBeNull();
+        onSubmit(event('click'));
+      });
 
-    expect(toolbarButton('pagetollm-submit-btn').textContent).toBe('Submitting...');
-    expect(toolbarButton('pagetollm-submit-btn').disabled).toBe(true);
-    expect(toolbarRoot().querySelector('[role="progressbar"]')).not.toBeNull();
-    expect(runtimeMessenger.send).not.toHaveBeenCalled();
+      expect(frameSpy).toHaveBeenCalledOnce();
+      await act(async () => vi.advanceTimersByTimeAsync(0));
+      expect(captureSpy).not.toHaveBeenCalled();
+      expect(runtimeMessenger.send).not.toHaveBeenCalled();
 
-    await vi.waitFor(() => expect(runtimeMessenger.send).toHaveBeenCalledOnce());
-    resolveSubmission({ ok: true });
-    await flush();
+      // Frame callbacks run before paint; capture must also wait for the timer.
+      await act(async () => paintFrame(0));
+      expect(captureSpy).not.toHaveBeenCalled();
+      expect(runtimeMessenger.send).not.toHaveBeenCalled();
+
+      await act(async () => vi.advanceTimersByTimeAsync(0));
+      expect(captureSpy).toHaveBeenCalledOnce();
+      expect(runtimeMessenger.send).toHaveBeenCalledOnce();
+      expect(submit.textContent).toBe('Submitting...');
+      expect(submit.disabled).toBe(true);
+
+      pending.resolve({ ok: true });
+      await flush();
+    } finally {
+      frameSpy.mockRestore();
+      captureSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not capture or send if destroyed while waiting for the submitting paint', async () => {
+    const block = mountBlock('closed', 'Do not submit');
+    act(() => showSelectionToolbar(runtimeMessenger));
+    click(toolbarButton('pagetollm-pick-btn'));
+    act(() => block.dispatchEvent(event('click')));
+
+    vi.useFakeTimers();
+    let paintFrame;
+    const frameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      paintFrame = callback;
+      return 1;
+    });
+    const captureSpy = vi.spyOn(capture, 'buildCapture');
+    try {
+      click(toolbarButton('pagetollm-submit-btn'));
+      act(() => activeController.destroy());
+      await act(async () => {
+        paintFrame(0);
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(captureSpy).not.toHaveBeenCalled();
+      expect(runtimeMessenger.send).not.toHaveBeenCalled();
+      expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
+    } finally {
+      frameSpy.mockRestore();
+      captureSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('alerts on submission failure and still cleans up', async () => {

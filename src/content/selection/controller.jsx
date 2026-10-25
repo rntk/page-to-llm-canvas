@@ -1,4 +1,5 @@
 import React from 'react';
+import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import SelectionToolbar from './SelectionToolbar.jsx';
 import { findTextBlocks } from './findTextBlocks.js';
@@ -419,13 +420,17 @@ export function createSelectionController({
     }
 
     isSubmitting = true;
-    renderSelectionToolbar();
+    flushSync(() => renderSelectionToolbar());
 
     try {
-      // Yield so the submitting state paints before costly HTML capture.
+      // A timer alone can run before the next paint. Schedule it from a frame
+      // so the committed busy state can paint before costly HTML capture.
       await new Promise((resolve) => {
-        window.setTimeout(resolve, 0);
+        window.requestAnimationFrame(() => {
+          window.setTimeout(resolve, 0);
+        });
       });
+      if (destroyed) return;
 
       const sourceUrl = window.location.href;
       const els = selectedElements.map(({ el }) => el);
