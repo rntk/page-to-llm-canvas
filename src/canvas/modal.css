@@ -1403,8 +1403,7 @@ body.canvas-global-dragging * {
 
 .canvas-summary-source-preview__highlight {
   padding: 0 2px;
-  background: transparent;
-  background-color: var(--pagetollm-highlight-color);
+  background: var(--pagetollm-highlight-color);
   color: inherit;
 }
 

@@ -516,7 +516,9 @@ describe('content script main.jsx', () => {
     const submitBtn = toolbarQuery('#pagetollm-submit-btn');
     await act(async () => {
       submitBtn.click();
-      await Promise.resolve();
+      await vi.waitFor(() => {
+        expect(chrome.runtime.sendMessage).toHaveBeenCalled();
+      });
     });
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({

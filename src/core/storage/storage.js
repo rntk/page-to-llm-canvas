@@ -202,6 +202,8 @@ function summaryGenerationsChanged(before, after) {
  * Reads and reassembles the full logical record from its normalized documents.
  * Returns `null` if none of them hold anything.
  * @param {string} key
+ * @param {object} [options] Document read options.
+ * @param {boolean} [options.includeWork=true] Include in-progress summary work.
  * @returns {Promise<ArticleRecord | null>}
  */
 async function readRecordDocuments(key, { includeWork = true } = {}) {
@@ -465,8 +467,7 @@ export async function updateRecord(key, patch, options = {}) {
         const processingLog = Array.isArray(patch.processingLog) ? patch.processingLog : [];
         if (processingLog.length === 0) removes.push(documentKey);
         else writes[documentKey] = { processingLog };
-        const value = { processingLog };
-        mergedPayloads.diagnostics = value;
+        mergedPayloads.diagnostics = { processingLog };
       }
       if (hasOwn(patch, 'topic_summaries')) {
         const current = Object.fromEntries(

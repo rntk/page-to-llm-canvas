@@ -40,6 +40,8 @@ export async function writeIndex(idx) {
  * reading or writing every record's full payload (html/text/sentences/
  * topics/summaries) just to keep listings up to date.
  * @param {object} rec Record metadata source.
+ * @param {object} [options] Index projection options.
+ * @param {string} [options.snippet] Precomputed snippet; derived from the record by default.
  */
 export function buildRecordMeta(rec, { snippet = buildRecordSnippet(rec) } = {}) {
   return {
