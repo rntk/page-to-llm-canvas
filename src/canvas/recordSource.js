@@ -34,4 +34,19 @@ export const browserRecordSource = Object.freeze({
   resplitTopic(key, target) {
     return browserRuntimeMessenger.send({ type: MSG.resplitTopic, key, ...target });
   },
+  /**
+   * Starts or resumes the worker-side summary tree build.
+   * @param {string} key Record key.
+   * @param {{fresh?: boolean}} [options] `fresh` rebuilds instead of resuming.
+   */
+  buildSummaryTree(key, { fresh = false } = {}) {
+    return browserRuntimeMessenger.send({ type: MSG.buildSummaryTree, key, fresh });
+  },
+  /**
+   * Stops a running summary tree build.
+   * @param {string} key Record key.
+   */
+  stopSummaryTree(key) {
+    return browserRuntimeMessenger.send({ type: MSG.stopSummaryTree, key });
+  },
 });

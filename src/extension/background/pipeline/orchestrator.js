@@ -21,6 +21,11 @@ import {
   summarizingTransition,
 } from '../../../shared/runtime/recordTransitions.js';
 import { createPipelineProviderServices } from './pipelineProviders.js';
+import {
+  runSummaryTree as runSummaryTreeStage,
+  SUMMARY_TREE_STATUS,
+  SUMMARY_TREE_VERSION,
+} from '../../../core/pipeline/summaryTreeStage.js';
 import { normalizeCustomInstructions } from '../../../core/pipeline/customInstructions.js';
 import {
   getCustomInstructionsTextChunkMaxChars,
@@ -97,6 +102,14 @@ export function planResume(record) {
     resuming: revisionCurrent && checkpointComplete,
     rejectionReason: hasCheckpointTopics && !revisionCurrent ? 'content_revision_mismatch' : null,
   };
+}
+
+function sourceHost(sourceUrl) {
+  try {
+    return new URL(sourceUrl).hostname || 'Article';
+  } catch (_) {
+    return 'Article';
+  }
 }
 
 /**
@@ -426,8 +439,96 @@ export function createPipelineRunner({
     }
   }
 
+  /**
+   * Builds or resumes the summary tree of a completed record, beside its
+   * primary topics and summaries. The record stays completed: the run owns it
+   * only while its run id is current, so any newer pipeline run supersedes it.
+   * Failures are stored on the tree, never on the record.
+   *
+   * @param {string} key
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal] User stop.
+   * @param {boolean} [options.fresh] Rebuild instead of resuming a checkpoint.
+   * @returns {Promise<void>}
+   */
+  async function runSummaryTree(key, options = {}) {
+    const { signal, fresh = false } = options;
+    let runtime = runtimeFactory({ key, signal });
+    const record = await runtime.read();
+    if (!record) throw new Error(`record not found: ${key}`);
+    if (record.status !== PIPELINE_STATUS.DONE) {
+      throw new Error('The record must finish processing before building a summary tree.');
+    }
+    const concurrencyRevisionAtRead = concurrencySettingRevision;
+    const [verboseLogs, maxParallelLlmRequests, activeProvider] = await Promise.all([
+      settings.getVerboseLogs(),
+      settings.getMaxParallelLlmRequests(),
+      providerRepository.getActiveProvider(),
+    ]);
+    if (concurrencySettingRevision === concurrencyRevisionAtRead) {
+      limiter.setLimit(maxParallelLlmRequests);
+    }
+    const providers = bindProviders({ activeProvider, key, verboseLogs });
+    const runContext = {
+      key,
+      pipelineRunId: record.pipelineRunId,
+      verboseLogs,
+      ...providers.runtimeOptions,
+    };
+    runtime = runtimeFactory({ ...runContext, signal });
+    try {
+      const judge = await providers.resolveSummaryTreeDecide();
+      if (judge.error)
+        await runtime.log('summary_tree_decisions_unavailable', { error: judge.error });
+      await runSummaryTreeStage({
+        runtime,
+        record,
+        callLLMWithRetry: providers.callLLMWithRetry,
+        decide: judge.decide,
+        fingerprint: JSON.stringify([providers.summaryInputFingerprint, judge.identity]),
+        rootTitle: sourceHost(record.sourceUrl),
+        fresh,
+      });
+    } catch (error) {
+      const lostRun = isCancellationError(error, runtime) && !signal?.aborted;
+      if (lostRun) {
+        logger.info('summary tree superseded:', key);
+        return;
+      }
+      const stopped = signal?.aborted === true;
+      const message = stopped ? 'Stopped.' : String(error?.message || error);
+      await runtime.log(
+        stopped ? 'summary_tree_stopped' : 'summary_tree_error',
+        { error: message },
+        { allowAborted: true },
+      );
+      // Mark the saved partial tree so the view offers a resume. Read without
+      // the stop signal: the record is still owned by this run.
+      const owner = runtimeFactory(runContext);
+      try {
+        const latest = await owner.read();
+        const tree = latest?.summary_tree;
+        await owner.saveSummaryTree({
+          version: SUMMARY_TREE_VERSION,
+          ...(tree && typeof tree === 'object' ? tree : {}),
+          status: stopped ? SUMMARY_TREE_STATUS.CANCELLED : SUMMARY_TREE_STATUS.ERROR,
+          error: message,
+          updatedAt: Date.now(),
+        });
+      } catch (writeError) {
+        if (!isCancellationError(writeError, owner)) {
+          logger.error('failed to persist summary tree failure:', writeError);
+        }
+      }
+      if (!stopped) logger.error('summary tree failed for', key, error);
+    } finally {
+      await runtime.flushLogs();
+    }
+  }
+
   return {
     runPipeline,
+    runSummaryTree,
     dispose() {
       if (disposed) return;
       disposed = true;

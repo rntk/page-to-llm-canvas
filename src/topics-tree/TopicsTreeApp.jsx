@@ -1,16 +1,102 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { projectArticleView } from '../domain/articleView.js';
 import { useRecord } from '../canvas/hooks/useRecord.js';
 import { getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
 import { splitError } from '../utils/errorUtils.js';
 import ErrorDetails from '../components/ErrorDetails.jsx';
 import { PIPELINE_STATUS } from '../shared/runtime/contracts.js';
-import { articleRootTitle, buildTopicsDisplayTree } from './topicsTreeModel.js';
+import {
+  readSummaryTree,
+  SUMMARY_TREE_STAGE,
+  SUMMARY_TREE_STALE_MS,
+  SUMMARY_TREE_STATUS,
+} from '../shared/runtime/summaryTree.js';
+import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
+import {
+  articleRootTitle,
+  buildSummaryTreeDisplayTree,
+  buildTopicsDisplayTree,
+} from './topicsTreeModel.js';
 import TopicsTreeCanvas from './TopicsTreeCanvas.jsx';
 import '../hierarchy/hierarchy.css';
 import './topics-tree.css';
 
 const noop = () => {};
+
+// Which topics and summaries the tree shows: the pipeline's, or the summary
+// tree built beside them.
+const TREE_SOURCES = Object.freeze(['pipeline', 'summary_tree']);
+const SOURCE_LABELS = { pipeline: 'Pipeline', summary_tree: 'Summary tree' };
+
+const STAGE_LABELS = {
+  [SUMMARY_TREE_STAGE.PASSAGES]: 'Summarizing passages',
+  [SUMMARY_TREE_STAGE.TOPICS]: 'Grouping topics',
+  [SUMMARY_TREE_STAGE.SUMMARIES]: 'Summarizing topics',
+};
+
+function progressText(tree) {
+  const label = STAGE_LABELS[tree?.stage] || 'Starting';
+  const { done = 0, total = 0 } = tree?.progress || {};
+  return total > 0 ? `${label} ${done}/${total}…` : `${label}…`;
+}
+
+/**
+ * Status and actions of the summary tree build.
+ * @param {object} props
+ * @param {string} props.status Effective summary tree status.
+ * @param {object|null} props.tree Saved summary tree.
+ * @param {string} props.notice Last action error.
+ * @param {function({fresh: boolean}): void} [props.onBuild]
+ * @param {function(): void} [props.onStop]
+ */
+function SummaryTreeBar({ status, tree, notice, onBuild, onStop }) {
+  let text;
+  const actions = [];
+  const action = (label, onClick, title) =>
+    onClick &&
+    actions.push(
+      <button key={label} type="button" className="tt-btn" title={title} onClick={onClick}>
+        {label}
+      </button>,
+    );
+  const build = onBuild && (() => onBuild({ fresh: false }));
+  const rebuild = onBuild && (() => onBuild({ fresh: true }));
+  switch (status) {
+    case SUMMARY_TREE_STATUS.RUNNING:
+      text = progressText(tree);
+      action('Stop', onStop);
+      break;
+    case SUMMARY_TREE_STATUS.DONE: {
+      const metrics = tree?.metrics || {};
+      text = `${metrics.passages ?? 0} passages · ${metrics.topics ?? 0} topics`;
+      action('Rebuild', rebuild, 'Build the summary tree again from scratch');
+      break;
+    }
+    case SUMMARY_TREE_STATUS.ERROR:
+    case SUMMARY_TREE_STATUS.CANCELLED:
+    case SUMMARY_TREE_STATUS.INTERRUPTED:
+      text =
+        status === SUMMARY_TREE_STATUS.INTERRUPTED
+          ? 'The build was interrupted.'
+          : status === SUMMARY_TREE_STATUS.CANCELLED
+            ? 'The build was stopped.'
+            : `The build failed: ${tree?.error || 'unknown error'}`;
+      action('Resume', build, 'Continue from the completed summaries');
+      action('Rebuild', rebuild, 'Build the summary tree again from scratch');
+      break;
+    default:
+      text =
+        'Not built yet. The summary tree groups brief passage summaries into topics and summarizes each level from the one below, citing its sources.';
+      action('Build summary tree', build);
+  }
+  return (
+    <div className="tt-toolbar tt-source-bar" role="status">
+      <span className="tt-muted">{text}</span>
+      {notice && <span className="tt-source-bar__notice">{notice}</span>}
+      {actions}
+    </div>
+  );
+}
 
 function ErrorState({ title, message, details, onClose }) {
   return (
@@ -67,19 +153,40 @@ export default function TopicsTreeApp({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
+  const [source, setSource] = useState(TREE_SOURCES[0]);
+  const [notice, setNotice] = useState('');
+  const isSummaryTree = source === 'summary_tree';
+  const [now, setNow] = useState(() => Date.now());
+  const summaryTree = readSummaryTree(record, now);
+
+  // A running build that stops saving becomes resumable without a record change.
+  // A save newer than `now` is never stale, so ticking only while running suffices.
+  const running = summaryTree.status === SUMMARY_TREE_STATUS.RUNNING;
+  useEffect(() => {
+    if (!running) return undefined;
+    const timer = setInterval(() => setNow(Date.now()), SUMMARY_TREE_STALE_MS / 4);
+    return () => clearInterval(timer);
+  }, [running]);
+
   const article = projectArticleView(record);
   // Serialize on record identity changes so polling does not rebuild an unchanged tree.
   const treeInputJson = useMemo(
-    () => JSON.stringify([record?.topics || null, record?.topic_summary_index || null]),
-    [record?.topics, record?.topic_summary_index],
+    () =>
+      JSON.stringify(
+        isSummaryTree
+          ? [summaryTree.tree?.rootId || null, summaryTree.tree?.nodes || null]
+          : [record?.topics || null, record?.topic_summary_index || null],
+      ),
+    [isSummaryTree, summaryTree.tree, record?.topics, record?.topic_summary_index],
   );
   const sourceUrl = record?.sourceUrl;
   const tree = useMemo(() => {
-    const [topics, summaryIndex] = JSON.parse(treeInputJson);
-    return buildTopicsDisplayTree(topics, summaryIndex, {
-      title: articleRootTitle(sourceUrl),
-    });
-  }, [treeInputJson, sourceUrl]);
+    const [first, second] = JSON.parse(treeInputJson);
+    const title = articleRootTitle(sourceUrl);
+    return isSummaryTree
+      ? buildSummaryTreeDisplayTree({ rootId: first, nodes: second }, { title })
+      : buildTopicsDisplayTree(first, second, { title });
+  }, [treeInputJson, sourceUrl, isSummaryTree]);
   const isYouTube = Boolean(getYouTubeVideoId(sourceUrl));
 
   const handleShowInPage = useCallback(
@@ -89,11 +196,29 @@ export default function TopicsTreeApp({
         rail: isYouTube ? 'youtube' : 'page',
         sentenceNumbers: node.sentences,
         level: node.depth - 1,
-        topicPath: node.path,
+        // Summary tree paths are not record topics.
+        topicPath: isSummaryTree ? undefined : node.path,
       });
     },
-    [onNavigateToSentences, initialKey, isYouTube],
+    [onNavigateToSentences, initialKey, isYouTube, isSummaryTree],
   );
+
+  const send = (request) => {
+    setNotice('');
+    Promise.resolve(request())
+      .then((response) => {
+        if (response?.ok === false) setNotice(String(response.error || 'Request failed.'));
+      })
+      .catch((err) => setNotice(String(err?.message || err)));
+  };
+  const handleBuild =
+    typeof recordSource?.buildSummaryTree === 'function'
+      ? ({ fresh }) => send(() => recordSource.buildSummaryTree(initialKey, { fresh }))
+      : undefined;
+  const handleStop =
+    typeof recordSource?.stopSummaryTree === 'function'
+      ? () => send(() => recordSource.stopSummaryTree(initialKey))
+      : undefined;
 
   let body;
   if (error && !record) {
@@ -120,16 +245,29 @@ export default function TopicsTreeApp({
     );
   } else if (record.status !== PIPELINE_STATUS.DONE) {
     body = <div className="th-page__state">Still processing this page…</div>;
-  } else if (!tree) {
-    body = <div className="th-page__state">No topics were found for this page.</div>;
   } else {
-    body = (
+    const canvas = tree ? (
       <TopicsTreeCanvas
-        key={`${initialKey}:${treeInputJson}`}
+        key={`${initialKey}:${source}:${treeInputJson}`}
         tree={tree}
         sentences={article.sentences}
         onShowInPage={handleShowInPage}
       />
+    ) : null;
+    body = isSummaryTree ? (
+      <>
+        <SummaryTreeBar
+          status={summaryTree.status}
+          tree={summaryTree.tree}
+          notice={notice}
+          onBuild={handleBuild}
+          onStop={handleStop}
+        />
+        {/* Saves arrive every second while running; remounting would reset the view. */}
+        {!running && canvas}
+      </>
+    ) : (
+      canvas || <div className="th-page__state">No topics were found for this page.</div>
     );
   }
 
@@ -140,6 +278,16 @@ export default function TopicsTreeApp({
     <div className="th-page tt-page">
       <header className="th-page__bar">
         <h1 className="th-page__title">Topics Tree</h1>
+        {record?.status === PIPELINE_STATUS.DONE && (
+          <TopicLevelSwitcher
+            className="th-page__level-switcher tt-source-switcher"
+            label="Topics:"
+            selectedLevel={TREE_SOURCES.indexOf(source)}
+            maxLevel={TREE_SOURCES.length - 1}
+            getOptionLabel={(index) => SOURCE_LABELS[TREE_SOURCES[index]]}
+            onChange={(index) => setSource(TREE_SOURCES[index])}
+          />
+        )}
         <button
           type="button"
           className="th-page__close"

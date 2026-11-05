@@ -54,25 +54,29 @@ export function createPipelineProviderServices({ providerRepository, llm, teleme
         { providerKey: providerQueueKey(activeProvider), fairnessKey: key },
       );
 
+    function bindDecide(decisionProvider) {
+      const client = llm.createDecisionClient(decisionProvider);
+      const measuredDecide = telemetry.wrapDecide(
+        (state, questions, opts) => client.decide(state, questions, { ...opts, verboseLogs }),
+        { provider: decisionProvider.type, model: decisionProvider.model },
+      );
+      return (state, questions, opts) =>
+        limiter.run(() => measuredDecide(state, questions, opts), opts?.signal, {
+          providerKey: providerQueueKey(decisionProvider),
+          fairnessKey: key,
+        });
+    }
+
     function createDecisionSplitter(decisionProvider) {
-      let client;
+      let decide;
       try {
-        client = llm.createDecisionClient(decisionProvider);
+        decide = bindDecide(decisionProvider);
       } catch (error) {
         // Fail visibly rather than silently switching strategies.
         throw new Error(
           `Topic splitter "${decisionProvider.name}" is misconfigured: ${error?.message || error}`,
         );
       }
-      const measuredDecide = telemetry.wrapDecide(
-        (state, questions, opts) => client.decide(state, questions, { ...opts, verboseLogs }),
-        { provider: decisionProvider.type, model: decisionProvider.model },
-      );
-      const decide = (state, questions, opts) =>
-        limiter.run(() => measuredDecide(state, questions, opts), opts?.signal, {
-          providerKey: providerQueueKey(decisionProvider),
-          fairnessKey: key,
-        });
       return createDecisionTopicSplitter({
         decide,
         callLLMWithRetry,
@@ -116,6 +120,25 @@ export function createPipelineProviderServices({ providerRepository, llm, teleme
         return decisionProvider
           ? createDecisionSplitter(decisionProvider)
           : createCompletionTopicSplitter({ callLLMWithRetry });
+      },
+
+      /**
+       * Decision requests for the summary tree, which uses the selected decision
+       * provider as an optional judge. A missing or misconfigured provider
+       * selects the completion-only path instead of failing.
+       * @returns {Promise<{decide: Function|null, identity: Array|null, error?: string}>}
+       */
+      async resolveSummaryTreeDecide() {
+        const decisionProvider = await providerRepository.getDecisionProvider();
+        if (!decisionProvider) return { decide: null, identity: null };
+        try {
+          return {
+            decide: bindDecide(decisionProvider),
+            identity: providerCacheIdentity(decisionProvider),
+          };
+        } catch (error) {
+          return { decide: null, identity: null, error: String(error?.message || error) };
+        }
       },
     };
   };

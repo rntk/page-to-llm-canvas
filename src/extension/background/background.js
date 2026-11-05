@@ -56,6 +56,7 @@ import {
   setTopicSplitter,
 } from '../../core/llm/providers.js';
 import { createActionIconController, createActionIconDependencies } from './actionIcon.js';
+import { createSummaryTreeJobs } from './summaryTreeJobs.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { browserLocalStore } from '../../shared/runtime/localStore.js';
 import { createPipelineSupervisor } from './pipelineSupervisor.js';
@@ -142,6 +143,10 @@ const pipelineRunner = createPipelineRunner({
   logger: log.child('pipeline'),
 });
 const { runPipeline } = pipelineRunner;
+const summaryTreeJobs = createSummaryTreeJobs({
+  runSummaryTree: pipelineRunner.runSummaryTree,
+  logger: log.child('summary tree'),
+});
 
 function isExtensionPageSender(sender) {
   if (!chrome.runtime.id || sender?.id !== chrome.runtime.id || !sender?.url) return false;
@@ -207,6 +212,7 @@ const MESSAGE_HANDLERS = {
       isComplete: isSummaryCheckpointComplete,
       isRevisionCurrent: isSummaryCheckpointRevisionCurrent,
     },
+    summaryTreeJobs,
     logger: log,
   }),
   ...createChatHandlers({

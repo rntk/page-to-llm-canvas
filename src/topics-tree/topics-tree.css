@@ -290,3 +290,22 @@
   background: linear-gradient(135deg, transparent 50%, var(--th-border-strong) 50%);
   cursor: nwse-resize;
 }
+
+/* Summary tree build status, above its canvas. */
+.tt-source-bar {
+  gap: 6px 12px;
+}
+
+.tt-source-bar .tt-muted {
+  flex: 1 1 20em;
+}
+
+.tt-source-bar__notice {
+  color: var(--th-error-fg);
+  font-size: 12px;
+}
+
+.tt-source-switcher {
+  margin-right: auto;
+  margin-left: 12px;
+}

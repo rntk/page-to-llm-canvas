@@ -1,6 +1,7 @@
 import { buildTopicTree } from '../domain/topicTree.js';
 import { getTopicSentenceNumbers } from '../domain/topicDomain.js';
 import { buildSummaryLookup } from '../hierarchy/hierarchyUtils.js';
+import { joinTopicPath } from '../shared/runtime/topicPath.js';
 
 // Topics tree view model: saved topics + summaries -> collapsible display tree.
 // Pure functions only, so they run without a DOM.
@@ -61,6 +62,47 @@ export function buildTopicsDisplayTree(topics, topicSummaryIndex, { title = '' }
     sentences: Array.from(sentences).sort((a, b) => a - b),
     children,
   };
+}
+
+/**
+ * Build the display tree of a saved summary tree: its root overview, topic
+ * nodes with their summaries, and passages as leaf cards. Unlike the pipeline
+ * tree it keeps the saved structure as is, since passages under one topic may
+ * share a title. Returns null until the topic structure exists.
+ *
+ * @param {object|null} summaryTree Saved `summary_tree`.
+ * @param {{title?: string}} [options]
+ * @returns {object|null}
+ */
+export function buildSummaryTreeDisplayTree(summaryTree, { title = '' } = {}) {
+  const nodes = summaryTree?.nodes;
+  const root = nodes?.[summaryTree?.rootId];
+  if (!root) return null;
+  const text = (node) =>
+    (Array.isArray(node.segments) ? node.segments : [])
+      .map((segment) => segment?.text || '')
+      .join('')
+      .trim();
+  const sorted = (sentences) =>
+    [...new Set(Array.isArray(sentences) ? sentences : [])].sort((a, b) => a - b);
+
+  const visit = (node, titles) => {
+    const children = (node.kind === 'passage' ? [] : node.children)
+      .map((id) => nodes[id])
+      .filter(Boolean)
+      .map((child) => visit(child, [...titles, child.title]));
+    return {
+      key: `summary:${node.id}`,
+      kind: children.length ? TOPIC_KIND : LEAF_KIND,
+      title: node.title,
+      path: joinTopicPath(titles),
+      depth: titles.length,
+      summary: text(node),
+      sentences: sorted(node.sentences),
+      children,
+    };
+  };
+  return { ...visit(root, []), key: ROOT_KEY, kind: ROOT_KIND, title };
 }
 
 /**

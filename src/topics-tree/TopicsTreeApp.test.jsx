@@ -162,4 +162,87 @@ describe('TopicsTreeApp', () => {
     expect(onClose).toHaveBeenCalledTimes(2);
     unmount();
   });
+
+  it('switches to the summary tree and starts, stops, and resumes its build', async () => {
+    const recordSource = {
+      buildSummaryTree: vi.fn().mockResolvedValue({ ok: true }),
+      stopSummaryTree: vi.fn().mockResolvedValue({ ok: true }),
+    };
+    const sourceButton = (container, label) =>
+      [...container.querySelectorAll('.tt-source-switcher button')].find(
+        (button) => button.textContent === label,
+      );
+    const actionButton = (container, label) =>
+      [...container.querySelectorAll('.tt-source-bar button')].find(
+        (button) => button.textContent === label,
+      );
+
+    useRecord.mockReturnValue({ record: { ...doneRecord, contentRevision: 'r1' }, error: null });
+    let view = render({ recordSource });
+    act(() => sourceButton(view.container, 'Summary tree').click());
+    expect(view.container.textContent).toContain('Not built yet');
+    expect(titles(view.container)).toEqual([]);
+    await act(async () => actionButton(view.container, 'Build summary tree').click());
+    expect(recordSource.buildSummaryTree).toHaveBeenCalledWith('k1', { fresh: false });
+    view.unmount();
+
+    const nodes = {
+      n0: {
+        id: 'n0',
+        kind: 'passage',
+        title: 'Crisp',
+        children: [],
+        sentences: [1, 2],
+        segments: [{ text: 'Apples are crisp.', sources: [{ kind: 'rows', first: 1, last: 1 }] }],
+      },
+      n1: {
+        id: 'n1',
+        kind: 'root',
+        title: 'x',
+        children: ['n0'],
+        sentences: [1, 2],
+        segments: [
+          { text: 'An apple story.', sources: [{ kind: 'claim', child: 'n0', segment: 0 }] },
+        ],
+      },
+    };
+    const tree = (status) => ({
+      version: 1,
+      status,
+      stage: 'summaries',
+      contentRevision: 'r1',
+      rootId: 'n1',
+      nodes,
+      progress: { done: 0, total: 1 },
+      updatedAt: Date.now(),
+      error: status === 'error' ? 'Model down' : null,
+      metrics: { passages: 1, topics: 0 },
+    });
+
+    useRecord.mockReturnValue({
+      record: { ...doneRecord, contentRevision: 'r1', summary_tree: tree('running') },
+      error: null,
+    });
+    view = render({ recordSource });
+    act(() => sourceButton(view.container, 'Summary tree').click());
+    expect(view.container.textContent).toContain('Summarizing topics 0/1…');
+    await act(async () => actionButton(view.container, 'Stop').click());
+    expect(recordSource.stopSummaryTree).toHaveBeenCalledWith('k1');
+    view.unmount();
+
+    useRecord.mockReturnValue({
+      record: { ...doneRecord, contentRevision: 'r1', summary_tree: tree('error') },
+      error: null,
+    });
+    view = render({ recordSource });
+    act(() => sourceButton(view.container, 'Summary tree').click());
+    expect(view.container.textContent).toContain('The build failed: Model down');
+    expect(titles(view.container)).toEqual(['news.example.com', 'Crisp']);
+    expect(view.container.textContent).toContain('An apple story.');
+    await act(async () => actionButton(view.container, 'Rebuild').click());
+    expect(recordSource.buildSummaryTree).toHaveBeenLastCalledWith('k1', { fresh: true });
+    act(() => sourceButton(view.container, 'Pipeline').click());
+    expect(titles(view.container)).toContain('Fruit');
+    view.unmount();
+  });
 });

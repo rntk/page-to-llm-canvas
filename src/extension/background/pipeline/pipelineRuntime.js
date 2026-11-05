@@ -14,6 +14,7 @@ import {
   TOPIC_RANGE_INPUT_MAX_SENTENCES,
 } from '../../../core/pipeline/pipelineConfig.js';
 import { DEFAULT_DECISION_SPLIT_THRESHOLD } from '../../../core/settings/decisionThreshold.js';
+import { PIPELINE_STATUS } from '../../../shared/runtime/contracts.js';
 
 const logger = createLogger('pipeline');
 
@@ -48,6 +49,7 @@ const logger = createLogger('pipeline');
  * @property {function(object, object=): Promise<object>} update
  * @property {function(string, object): Promise<object>} checkpointTopicSummary
  * @property {function(object): Promise<object>} checkpointSourceSummaryUnit
+ * @property {function(object, object=): Promise<object>} saveSummaryTree
  * @property {function(boolean): void} setSummariesDisabled
  * @property {function(string, object, object=): Promise<void>} log
  * @property {function(): Promise<void>} flushLogs
@@ -139,6 +141,27 @@ export function createPipelineRuntime({
       }
       if (!persisted) throwLostRun();
       return persisted;
+    },
+
+    /**
+     * Saves the summary tree beside a completed record's topics. The record
+     * must stay completed and owned by this run; any other run supersedes it.
+     * @param {object} tree `summary_tree` snapshot.
+     * @param {object} [options]
+     * @param {boolean} [options.allowAborted] Persist a failure after an abort.
+     */
+    async saveSummaryTree(tree, options = {}) {
+      if (!options.allowAborted) runtime.assertActive();
+      const updated = await updateRecord(
+        runtime.key,
+        { summary_tree: tree },
+        {
+          expectedPipelineRunId: runtime.pipelineRunId,
+          expectedStatuses: [PIPELINE_STATUS.DONE],
+        },
+      );
+      if (!updated) throwLostRun();
+      return updated;
     },
 
     setSummariesDisabled(disabled) {

@@ -39,6 +39,7 @@ export function resetSummaryCheckpointPatch() {
     topic_summaries: {},
     topic_summary_index: {},
     source_summary_units: {},
+    summary_tree: null,
     ...resetSummaryReviewPatch(),
     summaryCheckpointContentRevision: null,
     summaryCheckpointPreferContentLanguage: null,

@@ -34,6 +34,7 @@ import { normalizeCustomInstructions } from '../../../core/pipeline/customInstru
  * @param {object} deps.pipelineSupervisor
  * @param {function(): Promise<boolean>} deps.getStoredSummariesDisabled
  * @param {{isComplete: Function, isRevisionCurrent: Function}} deps.summaryCheckpoint
+ * @param {{start: Function, stop: Function}} [deps.summaryTreeJobs] Summary tree builds.
  * @param {object} [deps.logger]
  */
 export function createRecordHandlers({
@@ -42,6 +43,7 @@ export function createRecordHandlers({
   pipelineSupervisor,
   getStoredSummariesDisabled,
   summaryCheckpoint,
+  summaryTreeJobs = null,
   logger = createLogger(),
 }) {
   const {
@@ -290,6 +292,38 @@ export function createRecordHandlers({
         if (!updated) return { ok: true, stale: true };
         cancelActivePipeline(msg.key, { expectedPipelineRunId: rec.pipelineRunId });
         restart(msg.key, 'resplitTopic');
+        return { ok: true };
+      },
+    },
+
+    // Builds the alternative summary tree beside a completed record's topics
+    // and summaries. The record stays completed; `fresh` rebuilds instead of
+    // resuming saved work.
+    [MSG.buildSummaryTree]: {
+      requiresExtensionPage: false,
+      validate: requireKey,
+      async handle(msg) {
+        if (!summaryTreeJobs) return { ok: false, error: 'summary trees are unavailable' };
+        const rec = await requireRecord(msg.key);
+        if (rec.status !== PIPELINE_STATUS.DONE) {
+          return { ok: false, error: 'record is not complete — wait for it to finish first' };
+        }
+        if (!isSummaryCheckpointComplete(rec) || !isSummaryCheckpointRevisionCurrent(rec)) {
+          return {
+            ok: false,
+            error: 'record topic checkpoint is incomplete or stale — reprocess the record first',
+          };
+        }
+        const started = summaryTreeJobs.start(msg.key, { fresh: msg.fresh === true });
+        return started ? { ok: true } : { ok: true, stale: true };
+      },
+    },
+
+    [MSG.stopSummaryTree]: {
+      requiresExtensionPage: false,
+      validate: requireKey,
+      async handle(msg) {
+        if (!summaryTreeJobs?.stop(msg.key)) return { ok: true, stale: true };
         return { ok: true };
       },
     },

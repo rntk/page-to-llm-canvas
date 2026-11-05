@@ -6,6 +6,8 @@ export const MSG = Object.freeze({
   reprocessRecord: 'reprocessRecord',
   generateRecordSummaries: 'generateRecordSummaries',
   resplitTopic: 'resplitTopic',
+  buildSummaryTree: 'buildSummaryTree',
+  stopSummaryTree: 'stopSummaryTree',
   cancelRecordProcessing: 'cancelRecordProcessing',
   resolveSummaryErrors: 'resolveSummaryErrors',
   getRecord: 'getRecord',

@@ -61,7 +61,8 @@ export const SOURCE_SUMMARY_UNIT_REVISION_MISMATCH = Object.freeze({
 // Partition by mutation unit: static content, final output, checkpoints, and
 // diagnostics have separate documents; each summary has its own key.
 const CONTENT_FIELDS = ['html', 'capturedText', 'text', 'sentences', 'topics'];
-const SUMMARY_OUTPUT_FIELDS = ['topic_summary_index'];
+// `summary_tree` is the alternative summary-tree approach, kept beside the index.
+const SUMMARY_OUTPUT_FIELDS = ['topic_summary_index', 'summary_tree'];
 const SPECIAL_FIELDS = [
   ...CONTENT_FIELDS,
   ...SUMMARY_OUTPUT_FIELDS,
