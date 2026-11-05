@@ -161,6 +161,7 @@ describe('popup pure functions', () => {
     expect(popup.getRecordActions({ status: 'done' }).map((action) => action.label)).toEqual([
       'Canvas',
       'Hierarchy',
+      'Tree',
       'Topics',
       'Summaries',
       'Chat',
@@ -193,6 +194,7 @@ describe('popup pure functions', () => {
     expect(popup.getRecordActions({ status: 'done' })).toEqual([
       expect.objectContaining({ kind: 'view', label: 'Canvas', mode: 'canvas' }),
       expect.objectContaining({ kind: 'view', label: 'Hierarchy', mode: 'hierarchy' }),
+      expect.objectContaining({ kind: 'view', label: 'Tree', mode: 'tree' }),
       expect.objectContaining({ kind: 'view', label: 'Topics', mode: 'topics' }),
       expect.objectContaining({ kind: 'view', label: 'Summaries', mode: 'summaries' }),
       expect.objectContaining({ kind: 'view', label: 'Chat', mode: 'chat' }),
@@ -235,6 +237,7 @@ describe('popup pure functions', () => {
     ).toEqual([
       'Canvas',
       'Hierarchy',
+      'Tree',
       'Topics',
       'Summaries',
       'Chat',
@@ -282,6 +285,7 @@ describe('popup pure functions', () => {
     expect(labels).toEqual([
       'Canvas',
       'Hierarchy',
+      'Tree',
       'Topics',
       'Summaries',
       'Chat',
@@ -752,13 +756,14 @@ describe('buildRecordDisplayData', () => {
     expect(result.records).toEqual([]);
   });
 
-  it('includes all five view actions for done records', () => {
+  it('includes all six view actions for done records', () => {
     const records = [{ key: 'r4', sourceUrl: 'https://x.com/', createdAt: 0, status: 'done' }];
     const result = popup.buildRecordDisplayData(records);
     const viewActions = result.records[0].actions.filter((a) => a.kind === 'view');
     expect(viewActions.map((a) => a.mode)).toEqual([
       'canvas',
       'hierarchy',
+      'tree',
       'topics',
       'summaries',
       'chat',

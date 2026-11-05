@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import HierarchyApp from '../hierarchy/HierarchyApp.jsx';
+import TopicsTreeApp from '../topics-tree/TopicsTreeApp.jsx';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
 import './modal.css';
 import { createThemeController } from '../shared/runtime/theme.js';
@@ -36,10 +37,15 @@ const root = createRoot(container);
 const modalHost = createModalHost();
 // `window` here is our own iframe document, so the boundary's Reload fallback
 // recreates the surface without touching the host article page.
+const routes = {
+  hierarchy: { label: 'The hierarchy view', App: HierarchyApp },
+  tree: { label: 'The topics tree view', App: TopicsTreeApp },
+};
+const route = routes[view];
 root.render(
-  <ErrorBoundary label={view === 'hierarchy' ? 'The hierarchy view' : 'The canvas view'}>
-    {view === 'hierarchy' ? (
-      <HierarchyApp
+  <ErrorBoundary label={route ? route.label : 'The canvas view'}>
+    {route ? (
+      <route.App
         initialKey={key}
         recordSource={browserRecordSource}
         onClose={modalHost.onClose}

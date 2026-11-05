@@ -18,6 +18,10 @@ These notes are short orientation docs for the extension’s main user-facing fl
 9. [Hierarchy](./09-hierarchy.md) — explore the topic tree as a focused document view.
 10. [Article chat](./10-article-chat.md) — ask questions against the selected article/transcript and connect answers to source lines.
 
+Also a record view, added after the flows below:
+
+14. [Topics tree](./14-topics-tree.md) — unfold topics and their summaries as a tree on a pan/zoom canvas.
+
 ## Extension management
 
 11. [Providers, settings, and data management](./11-providers-settings-and-data.md) — configure the active LLM, preferences, diagnostics, and saved data.

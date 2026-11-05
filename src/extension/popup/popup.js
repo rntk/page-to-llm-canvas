@@ -156,6 +156,11 @@ export function getRecordActions(record) {
         description: 'View the content structure and relationships.',
       },
       {
+        label: 'Tree',
+        mode: 'tree',
+        description: 'Explore topics and their summaries as an expandable tree.',
+      },
+      {
         label: 'Topics',
         mode: 'topics',
         ...(useYouTubeRail ? { rail: 'youtube' } : {}),

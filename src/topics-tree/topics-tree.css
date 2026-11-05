@@ -1,0 +1,292 @@
+/* Topics tree route. Page chrome (bar, title, close, states) comes from
+   hierarchy.css' .th-page; this file styles the tree canvas only. */
+
+.tt-page__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.tt-view {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.tt-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--th-border);
+  background: var(--th-surface);
+  font-size: 12px;
+}
+
+.tt-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--th-text-secondary);
+  cursor: pointer;
+}
+
+.tt-btn,
+.tt-link-button {
+  padding: 3px 8px;
+  border: 1px solid var(--th-border-strong);
+  border-radius: 0;
+  background: var(--th-surface);
+  color: var(--th-accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.tt-btn:hover,
+.tt-link-button:hover {
+  background: var(--th-accent);
+  border-color: var(--th-accent);
+  color: var(--th-surface);
+}
+
+.tt-muted {
+  color: var(--th-muted);
+  font-size: 12px;
+}
+
+/* ---------- canvas ---------- */
+
+.tt-canvas {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--th-page-bg);
+  cursor: grab;
+  touch-action: none;
+}
+
+.tt-canvas.is-panning,
+.tt-canvas.is-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.tt-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+.tt-links {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.tt-link {
+  fill: none;
+  stroke: var(--th-border);
+  stroke-width: 1.5;
+}
+
+.tt-link.is-on-path {
+  stroke: var(--th-accent);
+  stroke-width: 2.5;
+}
+
+.tt-nodes {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.tt-hint {
+  position: absolute;
+  bottom: 6px;
+  left: 8px;
+  margin: 0;
+  pointer-events: none;
+}
+
+/* ---------- topic nodes ---------- */
+
+.tt-node {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  width: max-content;
+  padding: 4px 8px 6px;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+}
+
+.tt-node:hover {
+  background: var(--th-hover);
+}
+
+.tt-node:focus-visible {
+  outline: 2px solid var(--th-accent);
+  outline-offset: 2px;
+}
+
+.tt-node.is-on-path {
+  border-left-color: var(--th-border);
+}
+
+.tt-node.is-selected {
+  border-left-color: var(--th-accent);
+}
+
+.tt-node__title {
+  color: var(--th-title);
+  font-family: var(--font-voice, serif);
+  font-size: var(--tt-font, 16px);
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.tt-node.is-collapsed .tt-node__title {
+  color: var(--th-text-secondary);
+}
+
+.tt-node--root .tt-node__title {
+  font-family: var(--font-data, sans-serif);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tt-node__prose {
+  margin: 4px 0 0;
+  color: var(--th-paragraph);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tt-node__meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  color: var(--th-muted);
+  font-size: 11px;
+}
+
+.tt-node__count {
+  padding: 0 4px;
+  border: 1px solid var(--th-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--th-muted);
+  cursor: pointer;
+  font: inherit;
+}
+
+.tt-node__count:hover {
+  border-color: var(--th-border-strong);
+  color: var(--th-fg);
+}
+
+/* ---------- leaf cards ---------- */
+
+.tt-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 360px;
+  border: 1px solid var(--th-border);
+  background: var(--th-surface);
+  cursor: default;
+}
+
+.tt-card.is-on-path {
+  border-color: var(--th-border-strong);
+}
+
+.tt-card.is-selected {
+  border-color: var(--th-accent);
+  box-shadow: 0 0 0 1px var(--th-accent);
+}
+
+.tt-card.is-front {
+  z-index: 1;
+}
+
+.tt-card__head {
+  flex: 0 0 auto;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--th-border);
+  background: var(--th-surface-2);
+  cursor: move;
+  user-select: none;
+}
+
+.tt-card__title {
+  color: var(--th-title);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.tt-card__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 6px 8px 8px;
+  overflow: auto;
+}
+
+.tt-card:not(.is-sized) .tt-card__body {
+  max-height: 420px;
+}
+
+.tt-card__summary {
+  margin: 0 0 6px;
+  color: var(--th-paragraph);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.tt-card__more summary {
+  color: var(--th-text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.tt-passages {
+  margin: 4px 0 0;
+  padding-left: 28px;
+  color: var(--th-paragraph);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.tt-passages li + li {
+  margin-top: 3px;
+}
+
+.tt-card__links {
+  margin: 6px 0 0;
+}
+
+.tt-card__resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  background: linear-gradient(135deg, transparent 50%, var(--th-border-strong) 50%);
+  cursor: nwse-resize;
+}

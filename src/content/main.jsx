@@ -104,8 +104,8 @@ async function handleRecordViewRequest(rec, mode, rail) {
   if (mode === 'canvas') {
     return surfaces.openRecordFrame(rec.key);
   }
-  if (mode === 'hierarchy') {
-    return surfaces.openRecordFrame(rec.key, 'hierarchy');
+  if (mode === 'hierarchy' || mode === 'tree') {
+    return surfaces.openRecordFrame(rec.key, mode);
   }
   return surfaces.openRail(rec, mode, rail);
 }

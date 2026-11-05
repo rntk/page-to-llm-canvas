@@ -271,6 +271,18 @@ describe('content script main.jsx', () => {
     expect(iframe.src).toContain('view=hierarchy');
   });
 
+  it('handles openRecordView tree mode', async () => {
+    const sendResponse = vi.fn();
+    messageListener({ action: 'openRecordView', key: 'tree-key', mode: 'tree' }, {}, sendResponse);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(sendResponse).toHaveBeenCalledWith({ status: 'ok' });
+    const iframe = document.getElementById('pagetollm-canvas-iframe');
+    expect(iframe.src).toContain('tree-key');
+    expect(iframe.src).toContain('view=tree');
+  });
+
   it('keeps selection, rail, and record-frame surfaces mutually exclusive', async () => {
     await act(async () => {
       messageListener({ action: 'startSelection' }, {}, vi.fn());
