@@ -1,12 +1,12 @@
 # Summary tree
 
-The summary tree is an alternative topics-and-summaries approach, built beside a completed record's primary topics and summaries. It never replaces them: the [topics tree](14-topics-tree.md) switches between the two. Each level down is more specific and more detailed, ending at cited source sentences.
+The summary tree is an alternative topics-and-summaries approach, built beside a completed record's primary topics and summaries. It never replaces them: the [topics tree](14-topics-tree.md) switches between the two. Its purpose is to separate the material and reduce what a reader needs to inspect. Each level down narrows the subject, ending at cited source sentences. Summaries are short introductions that help readers choose a branch; the source text supplies the details.
 
 ```
-root (article)         one or two segments naming the main topics
-├─ Topic               abstract overview of its sub-topics
-│  ├─ Sub-topic        detailed summary: names, numbers, disagreements
-│  │  ├─ passage       brief summary → cited sentences
+root (article)         orientation: subject and main areas of focus
+├─ Topic               scope and main distinction among branches
+│  ├─ Sub-topic        specific subject or central issue
+│  │  ├─ passage       subject and one distinguishing point → cited sentences
 │  │  └─ passage
 │  └─ Sub-topic
 └─ Topic
@@ -14,9 +14,11 @@ root (article)         one or two segments naming the main topics
 
 Stages:
 
-1. **Passages:** the article is cut into contiguous passages (about 1,500 characters, preferring the primary topics' boundaries). Every passage gets a brief summary and a short title, each segment citing sentence numbers. Passages without substance return no segments and are skipped; a passage that never gets a valid answer is marked failed instead of failing the build.
+1. **Passages:** the article is cut into contiguous passages (about 1,500 characters, preferring the primary topics' boundaries). Every passage gets a one-sentence selection hint (at most 25 words requested) and a short title, each segment citing sentence numbers. The hint keeps the specific subject and one distinguishing fact, finding or question so it also supports topic grouping. Passages without substance return no segments and are skipped; a passage that never gets a valid answer is marked failed instead of failing the build.
 2. **Topics:** only the short passage digests are sent to the completion model, which splits them into 2–7 distinct sub-topics one level more specific than the current path. A topic with more than four passages is split again, up to three levels. Large sets are grouped in batches against the topics found so far. Invalid answers are rejected, unassigned passages go to "Other", and when no real split is found the passages stay directly under the topic.
-3. **Summaries:** bottom-up along that structure, with one intent per level: `detail` just above passages, `overview` for topics of topics, `root` for the article. Every segment cites child claims (`C1.S2`), so any statement resolves down to sentence numbers. A topic with a single child reuses that child's prose.
+3. **Summaries:** bottom-up along that structure, with one intent per level: `detail` introduces a narrow topic just above passages, `overview` introduces the scope and main distinction among sub-topics, and `root` orients the reader to the article. The prompts request one sentence of at most 30 words for `detail` and `overview`, and one or two sentences of at most 40 words for `root`. Budgets cover all segment text for a node, excluding titles and citations; shorter evidence should produce shorter hints. Summaries avoid repeating titles, listing every child, or collecting supporting details. Attribution, uncertainty and disagreement remain where needed to keep the selected claims accurate. Every segment cites child claims (`C1.S2`), so any statement resolves down to sentence numbers. A topic with a single child reuses that child's prose.
+
+These length budgets guide generation; they are not enforced by truncating prose or rejecting answers. Existing saved summaries are reused on **Resume**; use **Rebuild** to regenerate a completed tree with the current prompts.
 
 Every substantive segment needs valid local citations; unknown and out-of-range references reject the answer. An invalid answer is retried up to three times. Three consecutive provider outages, or a permanent provider error, fail the build.
 
