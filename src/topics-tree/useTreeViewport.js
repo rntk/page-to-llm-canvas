@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { clampScale, cursorAnchoredTranslate } from '../utils/canvasMath.js';
 import { fitTransform } from './treeLayout.js';
+import { isTypingTarget } from '../utils/isTypingTarget.js';
 
 // A pointer has to travel this far before a press on a topic turns into a pan
 // (and its click is swallowed).
@@ -27,6 +28,7 @@ export function useTreeViewport() {
   const stageRef = useRef(null);
   const transformRef = useRef({ k: 1, x: 24, y: 24 });
   const suppressClickRef = useRef(false);
+  const boundsRef = useRef(null);
 
   const apply = useCallback((transform) => {
     transformRef.current = transform;
@@ -127,17 +129,53 @@ export function useTreeViewport() {
       event.preventDefault();
     };
 
+    const onKeyDown = (event) => {
+      if (
+        event.defaultPrevented ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        isTypingTarget(event.target) ||
+        event.target?.closest?.('.tt-card')
+      )
+        return;
+      const height = canvas.clientHeight || 600;
+      const page = Math.max(120, height * 0.8);
+      const moves = {
+        ArrowUp: [0, 80],
+        ArrowDown: [0, -80],
+        ArrowLeft: [80, 0],
+        ArrowRight: [-80, 0],
+        PageUp: [0, page],
+        PageDown: [0, -page],
+      };
+      if (moves[event.key]) {
+        event.preventDefault();
+        translateBy(...moves[event.key]);
+      } else if ((event.key === 'Home' || event.key === 'End') && boundsRef.current) {
+        event.preventDefault();
+        const { k, x } = transformRef.current;
+        const { minY, height: boundsHeight } = boundsRef.current;
+        const top = 24 - minY * k;
+        const bottom = height - 24 - (minY + boundsHeight) * k;
+        apply({ k, x, y: event.key === 'Home' ? top : Math.min(top, bottom) });
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
     canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('click', onClickCapture, true);
     apply(transformRef.current);
     return () => {
       endPan();
+      window.removeEventListener('keydown', onKeyDown);
       canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('click', onClickCapture, true);
     };
   }, [apply, translateBy, zoomAt]);
 
-  return { canvasRef, stageRef, transformRef, translateBy, fit, zoomAt };
+  return { canvasRef, stageRef, transformRef, boundsRef, translateBy, fit, zoomAt };
 }

@@ -6,7 +6,8 @@ The summary tree is an alternative topics-and-summaries approach, built beside a
 root (article)         orientation: subject and main areas of focus
 ├─ Topic               scope and main distinction among branches
 │  ├─ Sub-topic        specific subject or central issue
-│  │  ├─ passage       subject and one distinguishing point → cited sentences
+│  │  ├─ passage       subject and one distinguishing point
+│  │  │  └─ source     original passage sentences
 │  │  └─ passage
 │  └─ Sub-topic
 └─ Topic

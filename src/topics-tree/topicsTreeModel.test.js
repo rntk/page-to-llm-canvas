@@ -60,12 +60,20 @@ describe('buildTopicsDisplayTree', () => {
     });
     expect(fruit.children[0]).toMatchObject({
       key: key('Fruit>Apples'),
-      kind: LEAF_KIND,
+      kind: TOPIC_KIND,
       depth: 2,
       summary: 'Apples are red.',
       sentences: [1, 3],
     });
-    expect(veg.children.map((child) => child.kind)).toEqual([TOPIC_KIND, LEAF_KIND]);
+    expect(fruit.children[0].children).toEqual([expect.objectContaining({
+      key: 'source:Fruit>Apples',
+      kind: LEAF_KIND,
+      title: 'Source',
+      depth: 3,
+      sentences: [1, 3],
+      children: [],
+    })]);
+    expect(veg.children.map((child) => child.kind)).toEqual([TOPIC_KIND, TOPIC_KIND]);
     expect(veg.children[0].children[0]).toMatchObject({ title: 'Carrots', depth: 3 });
   });
 });
@@ -110,10 +118,10 @@ describe('expansion helpers', () => {
     expect(expanded.has(key('Veg>Roots'))).toBe(false);
   });
 
-  it('ignores leaves when toggling', () => {
+  it('ignores source leaves when toggling', () => {
     const tree = build();
     const expanded = initialExpanded(tree);
-    expect(toggleNode(tree, expanded, key('Fruit>Apples'))).toEqual(expanded);
+    expect(toggleNode(tree, expanded, 'source:Fruit>Apples')).toEqual(expanded);
   });
 
   it('closes sibling branches in exclusive mode', () => {
@@ -126,7 +134,7 @@ describe('expansion helpers', () => {
 
   it('expands to a given level and recognises it again', () => {
     const tree = build();
-    expect(treeDepth(tree)).toBe(4);
+    expect(treeDepth(tree)).toBe(5);
     const level2 = expandToLevel(tree, 2);
     expect([...level2]).toEqual([ROOT_KEY]);
     const level3 = expandToLevel(tree, 3);
@@ -138,11 +146,13 @@ describe('expansion helpers', () => {
   it('expands a whole branch, its ancestors, and everything', () => {
     const tree = build();
     const branch = expandBranch(tree, new Set(), key('Veg'));
-    expect([...branch].sort()).toEqual([ROOT_KEY, key('Veg'), key('Veg>Roots')].sort());
+    expect([...branch].sort()).toEqual([
+      ROOT_KEY, key('Veg'), key('Veg>Roots'), key('Veg>Roots>Carrots'), key('Veg>Leaves'),
+    ].sort());
     expect([...revealNode(tree, new Set(), key('Veg>Roots>Carrots'))].sort()).toEqual(
       [ROOT_KEY, key('Veg'), key('Veg>Roots')].sort(),
     );
-    expect(expandAll(tree).size).toBe(4);
+    expect(expandAll(tree).size).toBe(8);
     expect(expandAll(null).size).toBe(0);
   });
 });
@@ -154,7 +164,7 @@ describe('labelSize', () => {
     expect(labelSize(tree, 6)).toBe(36);
     expect(labelSize(fruit, 6)).toBeLessThan(36);
     expect(labelSize(fruit, 6)).toBeGreaterThan(15);
-    expect(labelSize(fruit.children[0], 6)).toBe(14);
+    expect(labelSize(fruit.children[0].children[0], 6)).toBe(14);
     expect(labelSize(fruit, 0)).toBe(15);
   });
 });

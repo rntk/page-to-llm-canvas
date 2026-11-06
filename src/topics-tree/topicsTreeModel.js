@@ -38,9 +38,15 @@ export function buildTopicsDisplayTree(topics, topicSummaryIndex, { title = '' }
     const children = Array.from(entry.children.values(), visit);
     const sentences = new Set(node.topic ? getTopicSentenceNumbers(node.topic) : []);
     children.forEach((child) => child.sentences.forEach((n) => sentences.add(n)));
+    const ownSentences = node.topic ? getTopicSentenceNumbers(node.topic) : [];
+    if (ownSentences.length) children.push({
+      key: `source:${node.fullPath}`, kind: LEAF_KIND, title: 'Source',
+      path: node.fullPath, depth: node.depth + 2, summary: '',
+      sentences: [...new Set(ownSentences)].sort((a, b) => a - b), children: [],
+    });
     return {
       key: topicKey(node.fullPath),
-      kind: children.length ? TOPIC_KIND : LEAF_KIND,
+      kind: TOPIC_KIND,
       title: node.name,
       path: node.fullPath,
       depth: node.depth + 1,
@@ -91,9 +97,14 @@ export function buildSummaryTreeDisplayTree(summaryTree, { title = '' } = {}) {
       .map((id) => nodes[id])
       .filter(Boolean)
       .map((child) => visit(child, [...titles, child.title]));
+    if (node.kind === 'passage' && sorted(node.sentences).length) children.push({
+      key: `source:${node.id}`, kind: LEAF_KIND, title: 'Source',
+      path: joinTopicPath(titles), depth: titles.length + 1, summary: '',
+      sentences: sorted(node.sentences), children: [],
+    });
     return {
       key: `summary:${node.id}`,
-      kind: children.length ? TOPIC_KIND : LEAF_KIND,
+      kind: TOPIC_KIND,
       title: node.title,
       path: joinTopicPath(titles),
       depth: titles.length,

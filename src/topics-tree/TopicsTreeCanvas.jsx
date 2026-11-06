@@ -91,7 +91,7 @@ const TopicNode = React.memo(function TopicNode({
         <button
           type="button"
           className="tt-node__count"
-          title="Unfold this branch down to its leaf topics"
+          title="Unfold this branch down to its sources"
           onClick={(event) => {
             event.stopPropagation();
             onExpandBranch(node.key);
@@ -116,12 +116,11 @@ const LeafCard = React.memo(function LeafCard({
   registerElement,
   onSelect,
   onStartDrag,
-  onContentResize,
   onShowInPage,
 }) {
-  const [showSources, setShowSources] = useState(false);
   const ref = useCallback((el) => registerElement(node.key, el), [registerElement, node.key]);
-  const parentPath = formatTopicPath(splitTopicPath(node.path).slice(0, -1));
+  // A source card carries its topic's path, so show it whole to name that topic.
+  const parentPath = formatTopicPath(splitTopicPath(node.path));
   const className = [
     'tt-card',
     size ? 'is-sized' : '',
@@ -150,31 +149,13 @@ const LeafCard = React.memo(function LeafCard({
         {parentPath && <div className="tt-muted">{parentPath}</div>}
       </header>
       <div className="tt-card__body">
-        {node.summary ? (
-          <p className="tt-card__summary">{node.summary}</p>
-        ) : (
-          <p className="tt-muted">No summary for this topic.</p>
-        )}
-        {node.sentences.length > 0 && (
-          <details
-            className="tt-card__more"
-            onToggle={(event) => {
-              setShowSources(event.currentTarget.open);
-              onContentResize(node.key);
-            }}
-          >
-            <summary>Source sentences ({node.sentences.length})</summary>
-            {showSources && (
-              <ol className="tt-passages">
-                {node.sentences.map((number) => (
-                  <li key={number} value={number}>
-                    {articleSentences[number - 1] || ''}
-                  </li>
-                ))}
-              </ol>
-            )}
-          </details>
-        )}
+        <ol className="tt-passages">
+          {node.sentences.map((number) => (
+            <li key={number} value={number}>
+              {articleSentences[number - 1] || ''}
+            </li>
+          ))}
+        </ol>
         <p className="tt-card__links">
           <button
             type="button"
@@ -213,7 +194,7 @@ const LeafCard = React.memo(function LeafCard({
  *   (the page bar); no controls are shown without one.
  */
 export default function TopicsTreeCanvas({ tree, sentences, onShowInPage, controlsHost = null }) {
-  const { canvasRef, stageRef, transformRef, translateBy, fit } = useTreeViewport();
+  const { canvasRef, stageRef, transformRef, boundsRef, translateBy, fit } = useTreeViewport();
   const [expanded, setExpanded] = useState(() => initialExpanded(tree));
   const [selectedKey, setSelectedKey] = useState(tree.key);
   const [frontKey, setFrontKey] = useState(null);
@@ -240,6 +221,9 @@ export default function TopicsTreeCanvas({ tree, sentences, onShowInPage, contro
     if (drag) return new Map(drag.frozen).set(drag.key, drag.pos);
     return positions || EMPTY_MAP;
   }, [drag, positions]);
+  useLayoutEffect(() => {
+    boundsRef.current = boundsOf(displayPositions.values());
+  }, [boundsRef, displayPositions]);
   const onPath = useMemo(
     () => new Set(pathTo(tree, selectedKey).map((node) => node.key)),
     [tree, selectedKey],
@@ -334,14 +318,6 @@ export default function TopicsTreeCanvas({ tree, sentences, onShowInPage, contro
     setSelectedKey(key);
     setFrontKey(key);
   }, []);
-
-  const handleContentResize = useCallback(
-    (key) => {
-      anchorOn(key);
-      remeasure();
-    },
-    [anchorOn, remeasure],
-  );
 
   const handleStartDrag = useCallback(
     (event, key, mode) => {
@@ -463,7 +439,6 @@ export default function TopicsTreeCanvas({ tree, sentences, onShowInPage, contro
                   registerElement={registerElement}
                   onSelect={handleSelectCard}
                   onStartDrag={handleStartDrag}
-                  onContentResize={handleContentResize}
                   onShowInPage={onShowInPage}
                 />
               ) : (
@@ -484,8 +459,9 @@ export default function TopicsTreeCanvas({ tree, sentences, onShowInPage, contro
           </div>
         </div>
         <p className="tt-hint tt-muted">
-          Drag to pan · wheel to zoom (Ctrl+wheel over a card) · click a topic to unfold it · drag a
-          card header to move it, its corner to resize
+          Drag or use arrow keys to pan · Page Up/Down to move by a page · Home/End to reach the
+          ends · wheel to zoom (Ctrl+wheel over a card) · click a topic to unfold it · drag a card
+          header to move it, its corner to resize
         </p>
       </div>
     </div>

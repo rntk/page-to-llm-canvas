@@ -116,7 +116,7 @@ describe('TopicsTreeApp', () => {
     expect(button('Reset')).toBeUndefined();
 
     act(() => button('L1').click());
-    expect(titles(container)).toHaveLength(5);
+    expect(titles(container)).toHaveLength(6);
     expect(button('L1').className).toContain('active');
 
     act(() => button('L0').click());
@@ -128,16 +128,13 @@ describe('TopicsTreeApp', () => {
     useRecord.mockReturnValue({ record: doneRecord, error: null });
     const onNavigateToSentences = vi.fn();
     const { container, unmount } = render({ onNavigateToSentences });
-    const veg = [...container.querySelectorAll('.tt-card')].find((el) =>
+    const vegNode = [...container.querySelectorAll('.tt-node')].find((el) =>
       el.textContent.startsWith('Veg'),
     );
-    expect(veg.textContent).toContain('No summary for this topic.');
-
-    const details = veg.querySelector('details');
-    act(() => {
-      details.open = true;
-      details.dispatchEvent(new Event('toggle'));
-    });
+    act(() => vegNode.click());
+    const veg = container.querySelector('.tt-card');
+    expect(veg.querySelector('.tt-card__title').textContent).toBe('Source');
+    expect(veg.querySelector('.tt-card__head .tt-muted').textContent).toBe('Veg');
     expect(veg.querySelector('.tt-passages').textContent).toBe('Four.');
 
     const show = [...veg.querySelectorAll('button')].find(
