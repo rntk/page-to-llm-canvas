@@ -52,6 +52,7 @@
         "content-in-page-rail.js",
         "content-youtube-rail.js",
         "content-record-frame.js",
+        "content-page-text.js",
         "content-chunks/*.js",
         "content-assets/*"
       ],

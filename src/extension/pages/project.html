@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <title>PageToLLM Canvas - Project</title>
+    <link rel="stylesheet" href="chat.css" />
     <style>
       /* Same token approach as options.html: `light-dark()` declares each token
          once; `data-theme` only flips color-scheme. */
@@ -14,6 +15,7 @@
         --surface-highest: light-dark(#e4e7eb, #24272e);
         --on-surface: light-dark(#141414, #ececec);
         --on-surface-muted: light-dark(#5f646b, #a0a6af);
+        --accent: light-dark(#3a404d, #aab2c0);
         --ghost: light-dark(rgba(0, 0, 0, 0.2), rgba(255, 255, 255, 0.22));
         --font-voice: georgia, 'Times New Roman', times, serif;
         --font-data:
@@ -191,6 +193,8 @@
         position: absolute;
         top: 0;
         left: 0;
+        display: flex;
+        align-items: flex-start;
       }
       .canvas-controls {
         position: absolute;
@@ -319,6 +323,60 @@
       .tab-card-error {
         color: var(--on-surface-muted);
         font-size: 11px;
+      }
+
+      /* Per-page chat drawer, unfolded beside its tab card */
+      .page-chat-drawer {
+        box-sizing: border-box;
+        width: 380px;
+        height: 460px;
+        display: flex;
+        flex-direction: column;
+        margin-left: -1px;
+        background: var(--surface);
+        border: 1px solid var(--ink);
+        box-shadow: 4px 4px 0 var(--ink);
+        cursor: default;
+        user-select: text;
+      }
+      .page-chat-header {
+        flex: none;
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--ghost);
+        background: var(--surface-highest);
+      }
+      .page-chat-label {
+        color: var(--on-surface-muted);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .page-chat-body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .page-chat-note {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 16px;
+      }
+      .page-chat-fold {
+        flex: none;
+        margin-top: 12px;
+        margin-left: -1px;
+        padding: 10px 4px;
+        writing-mode: vertical-rl;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+      }
+      .page-chat-fold[aria-expanded='true'] {
+        background: var(--ink);
+        color: var(--surface);
       }
 
       /* Global chat stub */

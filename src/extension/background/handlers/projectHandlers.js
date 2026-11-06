@@ -3,6 +3,9 @@ import { isProjectId, isTabGroupId } from '../../../core/projects/projects.js';
 
 const validateGroupId = (msg) => (isTabGroupId(msg.groupId) ? null : 'invalid groupId');
 const validateProjectId = (msg) => (isProjectId(msg.projectId) ? null : 'invalid projectId');
+const validateProjectTab = (msg) =>
+  validateProjectId(msg) ||
+  (Number.isInteger(msg.tabId) && msg.tabId >= 0 ? null : 'invalid tabId');
 
 /**
  * Project (tab group) handlers. All of them drive or expose tab state, so only
@@ -10,8 +13,9 @@ const validateProjectId = (msg) => (isProjectId(msg.projectId) ? null : 'invalid
  *
  * @param {object} deps
  * @param {ReturnType<typeof import('../projects.js').createProjectService>} deps.projectService
+ * @param {ReturnType<typeof import('../projectPageChat.js').createProjectPageChatService>} deps.pageChatService
  */
-export function createProjectHandlers({ projectService }) {
+export function createProjectHandlers({ projectService, pageChatService }) {
   const entry = (validate, run) => ({
     requiresExtensionPage: true,
     validate,
@@ -40,6 +44,12 @@ export function createProjectHandlers({ projectService }) {
     ),
     [MSG.getProjectView]: entry(validateProjectId, (msg) =>
       projectService.getProjectView(msg.projectId),
+    ),
+    [MSG.getProjectPageChat]: entry(validateProjectTab, async (msg) => ({
+      source: await pageChatService.getPageChat(msg.projectId, msg.tabId),
+    })),
+    [MSG.captureProjectPageText]: entry(validateProjectTab, (msg) =>
+      pageChatService.capturePageText(msg.projectId, msg.tabId),
     ),
   };
 }

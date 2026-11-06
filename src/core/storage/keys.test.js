@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   chatDocumentStorageKey,
   chatIndexStorageKey,
+  canonicalPageUrl,
+  isPageChatKey,
+  pageChatKey,
   recordContentStorageKey,
   recordDiagnosticsStorageKey,
   recordMetaStorageKey,
@@ -41,5 +44,21 @@ describe('storage key helpers', () => {
     expect(recordSummaryLeafStorageKey('a:summary-leaf:x', 'Topic')).toBe(
       'pagetollm:rec:a%3Asummary-leaf%3Ax:summary-leaf:Topic',
     );
+  });
+});
+
+describe('page chat keys', () => {
+  it('anchors page chats to the URL without its fragment', () => {
+    expect(canonicalPageUrl('https://a.test/p?q=1#top')).toBe('https://a.test/p?q=1');
+    expect(pageChatKey('https://a.test/p#x')).toBe(pageChatKey('https://a.test/p#y'));
+    expect(pageChatKey('https://a.test/p')).not.toBe(pageChatKey('https://a.test/q'));
+    expect(isPageChatKey(pageChatKey('https://a.test/p'))).toBe(true);
+    expect(isPageChatKey('rec_123')).toBe(false);
+  });
+
+  it('rejects unusable URLs', () => {
+    expect(canonicalPageUrl('not a url')).toBe('');
+    expect(pageChatKey('')).toBe('');
+    expect(pageChatKey(undefined)).toBe('');
   });
 });

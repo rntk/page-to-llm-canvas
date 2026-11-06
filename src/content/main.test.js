@@ -104,17 +104,19 @@ beforeAll(async () => {
     pageChange = onPageChange;
     return vi.fn();
   });
-  const [selection, inPageRail, youTubeRail, recordFrame] = await Promise.all([
+  const [selection, inPageRail, youTubeRail, recordFrame, pageText] = await Promise.all([
     import('./lazy/selectionSurface.js'),
     import('./lazy/inPageRailSurface.js'),
     import('./lazy/youTubeRailSurface.js'),
     import('./lazy/recordFrameSurface.js'),
+    import('./lazy/pageTextSurface.js'),
   ]);
   const lazyModules = {
     'content-selection.js': selection,
     'content-in-page-rail.js': inPageRail,
     'content-youtube-rail.js': youTubeRail,
     'content-record-frame.js': recordFrame,
+    'content-page-text.js': pageText,
   };
   loadContentModule = vi.fn((path) => {
     const module = lazyModules[path];
@@ -228,6 +230,26 @@ describe('content script main.jsx', () => {
     expect(toolbar).not.toBeNull();
     expect(toolbar.shadowRoot).toBeNull();
     expect(toolbarQuery('#pagetollm-pick-btn')).not.toBeNull();
+  });
+
+  it('captures page text for project chat without opening any surface', async () => {
+    const article = document.createElement('article');
+    article.textContent = 'Project chat reads this paragraph of page text.';
+    document.body.appendChild(article);
+    const sendResponse = vi.fn();
+    try {
+      await act(async () => {
+        expect(messageListener({ action: 'capturePageText' }, {}, sendResponse)).toBe(true);
+      });
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const [response] = sendResponse.mock.calls[0];
+      expect(response.status).toBe('ok');
+      expect(response.text).toContain('Project chat reads this paragraph of page text.');
+      expect(chromeApi.runtime.sendMessage).not.toHaveBeenCalled();
+      expect(document.getElementById('pagetollm-canvas-iframe')).toBeNull();
+    } finally {
+      article.remove();
+    }
   });
 
   it('handles openRecordView with missing key', async () => {

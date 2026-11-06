@@ -49,6 +49,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((err) => sendResponse({ status: 'error', error: err?.message || String(err) }));
     return true;
   }
+  if (message.action === 'capturePageText') {
+    // Only the extension (project canvas chat) sends this; the text goes back
+    // to the worker and nothing is submitted for processing.
+    Promise.resolve()
+      .then(() => loadContentModule('content-page-text.js'))
+      .then((module) => module.capturePageText(document))
+      .then((text) => sendResponse({ status: 'ok', text }))
+      .catch((err) => sendResponse({ status: 'error', error: err?.message || String(err) }));
+    return true;
+  }
   if (message.action === 'openRecordView') {
     const key = message.key;
     const mode = message.mode || 'canvas';

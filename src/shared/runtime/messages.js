@@ -41,4 +41,6 @@ export const MSG = Object.freeze({
   focusProjectGroup: 'focusProjectGroup',
   deleteProject: 'deleteProject',
   getProjectView: 'getProjectView',
+  getProjectPageChat: 'getProjectPageChat',
+  captureProjectPageText: 'captureProjectPageText',
 });

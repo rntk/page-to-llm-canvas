@@ -76,7 +76,7 @@ function buildGroups() {
       metricsClears: [],
     }),
     navigation: createNavigationHandlers({ openOptionsPage: vi.fn(async () => {}) }),
-    project: createProjectHandlers({ projectService: {} }),
+    project: createProjectHandlers({ projectService: {}, pageChatService: {} }),
   };
 }
 
@@ -154,6 +154,8 @@ describe('message handler registry (no chrome global)', () => {
         MSG.focusProjectGroup,
         MSG.deleteProject,
         MSG.getProjectView,
+        MSG.getProjectPageChat,
+        MSG.captureProjectPageText,
       ].sort(),
     );
     // No group may lose an entry to a later spread.

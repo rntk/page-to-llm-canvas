@@ -104,6 +104,7 @@ function configForContentFeatures() {
           'content-in-page-rail': path.join(root, 'src/content/lazy/inPageRailSurface.js'),
           'content-youtube-rail': path.join(root, 'src/content/lazy/youTubeRailSurface.js'),
           'content-record-frame': path.join(root, 'src/content/lazy/recordFrameSurface.js'),
+          'content-page-text': path.join(root, 'src/content/lazy/pageTextSurface.js'),
         },
         output: {
           format: 'es',

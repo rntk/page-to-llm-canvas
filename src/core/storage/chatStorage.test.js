@@ -5,8 +5,10 @@ import {
   appendChatTurn,
   deleteChatHistory,
   reconcileChatStorage,
+  adoptPageChats,
   MAX_CHAT_TURNS,
 } from './chatStorage.js';
+import { pageChatKey } from './keys.js';
 import {
   writeRecord,
   updateRecord,
@@ -953,5 +955,76 @@ describe('appendChatTurn', () => {
     expect(currentRevision).not.toBe(staleRevision);
     expect(result.chat?.contentRevision ?? staleRevision).toBe(staleRevision);
     expect(await listChats('article')).toEqual([]);
+  });
+});
+
+describe('page chats (no saved record)', () => {
+  const url = 'https://example.com/article#section';
+  const key = pageChatKey(url);
+
+  it('stores, lists and reads chats under a page key without a record', async () => {
+    vi.stubGlobal('chrome', makeChromeMock());
+    const { chat } = await appendChatTurn(key, null, {
+      events: [{ eventType: 'highlight_span', data: { startLine: 1, endLine: 1 } }],
+      messages: [
+        { role: 'user', content: 'What is it about?' },
+        { role: 'assistant', content: 'Cats.' },
+      ],
+    });
+    expect(key).toBe('page:https://example.com/article');
+    expect((await listChats(key)).map((item) => item.chatId)).toEqual([chat.chatId]);
+    expect((await readChat(key, chat.chatId)).messages).toHaveLength(2);
+    // Another page never sees it.
+    expect(await listChats(pageChatKey('https://example.com/other'))).toEqual([]);
+  });
+
+  it('keeps page chats through reconciliation even though no record owns them', async () => {
+    vi.stubGlobal('chrome', makeChromeMock());
+    const { chat } = await appendChatTurn(key, null, {
+      messages: [{ role: 'user', content: 'Keep me' }],
+    });
+    await reconcileChatStorage();
+    expect((await listChats(key)).map((item) => item.chatId)).toEqual([chat.chatId]);
+  });
+
+  it('moves page chats into the record saved for that URL, dropping stale highlights', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    const { chat } = await appendChatTurn(key, null, {
+      turnId: 'turn-page',
+      scope: ['Ignored'],
+      events: [{ eventType: 'highlight_span', data: { startLine: 3, endLine: 4 } }],
+      messages: [
+        { role: 'user', content: 'Before saving' },
+        { role: 'assistant', content: 'Answer' },
+      ],
+    });
+    await seedRecord(mock, makeRecord('saved', { sourceUrl: 'https://example.com/article' }));
+
+    expect(await adoptPageChats('saved')).toBe(1);
+    expect(await listChats(key)).toEqual([]);
+    const [summary] = await listChats('saved');
+    expect(summary.chatId).toBe(chat.chatId);
+    const moved = await readChat('saved', chat.chatId);
+    expect(moved.messages.map((message) => message.content)).toEqual(['Before saving', 'Answer']);
+    expect(moved.events).toEqual([]);
+    expect(moved.scope).toEqual([]);
+    // The moved chat continues as a normal record chat, retry mapping included.
+    const retried = await appendChatTurn('saved', null, {
+      turnId: 'turn-page',
+      messages: [{ role: 'user', content: 'Before saving' }],
+    });
+    expect(retried.chat.chatId).toBe(chat.chatId);
+    expect(await adoptPageChats('saved')).toBe(0);
+  });
+
+  it('leaves page chats alone when no record matches their URL', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await appendChatTurn(key, null, { messages: [{ role: 'user', content: 'Stay' }] });
+    await seedRecord(mock, makeRecord('elsewhere', { sourceUrl: 'https://example.com/other' }));
+    expect(await adoptPageChats('elsewhere')).toBe(0);
+    expect(await adoptPageChats(key)).toBe(0);
+    expect(await listChats(key)).toHaveLength(1);
   });
 });

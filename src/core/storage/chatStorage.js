@@ -15,7 +15,14 @@ import {
   chatIndexStorageKey,
   chatDocumentStorageKey,
   isSafeChatId,
+  isPageChatKey,
+  pageChatKey,
 } from './keys.js';
+
+// Page chats have no record to supply a content revision. Their source text is
+// re-read from the live tab on each session, so every page chat stays
+// compatible under one fixed revision instead of being pruned on change.
+export const PAGE_CHAT_CONTENT_REVISION = 'page';
 
 const CHAT_TITLE_MAX_CHARS = 60;
 export const MAX_CHAT_TURNS = 50;
@@ -205,14 +212,21 @@ function deriveChatTitle(chat, message) {
   }
 }
 
-async function readRecordContentRevision(key) {
-  if (!key) return null;
-  const metaKey = recordMetaStorageKey(key);
-  const meta = (await getLocal(metaKey))[metaKey];
-  if (!meta) return null;
-  return typeof meta.contentRevision === 'string' && meta.contentRevision
+function metaContentRevision(meta) {
+  return typeof meta?.contentRevision === 'string' && meta.contentRevision
     ? meta.contentRevision
     : null;
+}
+
+/**
+ * The revision chats under `key` must carry: the record's, or the fixed page one.
+ * @param {string} key Record key or page chat key.
+ */
+async function readRecordContentRevision(key) {
+  if (!key) return null;
+  if (isPageChatKey(key)) return PAGE_CHAT_CONTENT_REVISION;
+  const metaKey = recordMetaStorageKey(key);
+  return metaContentRevision((await getLocal(metaKey))[metaKey]);
 }
 
 function normalizedChatRevision(chat) {
@@ -415,6 +429,65 @@ export async function deleteChatHistory(key, chatId) {
 }
 
 /**
+ * Moves chats held under the record's page key (started from the project canvas
+ * before the page was saved) into the record, so every chat surface for that
+ * page shares one history. Messages carry over; highlight events are dropped
+ * because their line numbers refer to the live page text, not the record's
+ * sentences. Moved chats adopt the record's revision, so a later reanalysis
+ * prunes them like any other chat of the record.
+ * @param {string} key Record key.
+ * @returns {Promise<number>} Number of chats moved.
+ */
+export async function adoptPageChats(key) {
+  if (!key || isPageChatKey(key)) return 0;
+  return queuedChatUpdate(async () => {
+    const metaKey = recordMetaStorageKey(key);
+    const meta = (await getLocal(metaKey))[metaKey];
+    const contentRevision = metaContentRevision(meta);
+    const fromKey = pageChatKey(meta?.sourceUrl);
+    if (!contentRevision || !fromKey) return 0;
+    const fromIndex = await readChatIndex(fromKey);
+    if (fromIndex.chats.length === 0) return 0;
+
+    const index = await readChatIndex(key);
+    const writes = {};
+    const removals = [chatIndexStorageKey(fromKey)];
+    let moved = 0;
+    for (const summary of fromIndex.chats) {
+      if (!isSafeChatId(summary?.chatId)) continue;
+      removals.push(chatDocumentStorageKey(fromKey, summary.chatId));
+      const stored = await readStoredChat(fromKey, summary.chatId);
+      if (!isStoredChatDocument(stored)) continue;
+      const chat = {
+        ...stored,
+        contentRevision,
+        scope: [],
+        events: [],
+        nextEventSeq: 1,
+      };
+      writes[chatDocumentStorageKey(key, chat.chatId)] = chat;
+      index.chats = [
+        chatSummary(chat),
+        ...index.chats.filter((item) => item.chatId !== chat.chatId),
+      ];
+      const turns = chatTurnMappings(chat).map(({ turnId, chatId }) => ({ turnId, chatId }));
+      const movedTurnIds = new Set(turns.map((turn) => turn.turnId));
+      index.turns = [
+        ...index.turns.filter((turn) => !movedTurnIds.has(turn.turnId)),
+        ...turns,
+      ].slice(-MAX_TURN_INDEX_ENTRIES);
+      moved += 1;
+    }
+    index.chats.sort((a, b) => b.updatedAt - a.updatedAt);
+    // Write the record copies before dropping the page originals: a failure in
+    // between leaves duplicates (recoverable) rather than lost history.
+    if (moved) await setLocal({ ...writes, [chatIndexStorageKey(key)]: index });
+    await removeLocal(removals);
+    return moved;
+  });
+}
+
+/**
  * Removes chats grounded in superseded record content. Deliberately unqueued:
  * callers in storage.js already hold the global mutation queue while changing
  * the content revision, so queueing again here would self-deadlock.
@@ -534,7 +607,9 @@ export async function reconcileChatStorage() {
       }
     }
 
-    const metaKeys = [...groups.keys()].map((key) => recordMetaStorageKey(key));
+    const metaKeys = [...groups.keys()]
+      .filter((key) => !isPageChatKey(key))
+      .map((key) => recordMetaStorageKey(key));
     const recordMetas = metaKeys.length ? await getLocal(metaKeys) : {};
 
     const removeKeys = new Set(invalidKeys);
@@ -542,12 +617,9 @@ export async function reconcileChatStorage() {
     let keptChats = 0;
 
     for (const [key, group] of groups) {
-      const meta = recordMetas[recordMetaStorageKey(key)];
-      const contentRevision = meta
-        ? typeof meta.contentRevision === 'string' && meta.contentRevision
-          ? meta.contentRevision
-          : null
-        : null;
+      const contentRevision = isPageChatKey(key)
+        ? PAGE_CHAT_CONTENT_REVISION
+        : metaContentRevision(recordMetas[recordMetaStorageKey(key)]);
 
       if (!contentRevision) {
         removeKeys.add(group.indexKey);

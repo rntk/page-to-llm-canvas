@@ -15,6 +15,7 @@ import {
   readChat,
   appendChatTurn,
   deleteChatHistory,
+  adoptPageChats,
   reconcileChatStorage,
 } from '../../core/storage/chatStorage.js';
 import {
@@ -74,6 +75,7 @@ import { createNavigationHandlers } from './handlers/navigationHandlers.js';
 import { createPipelineRuntime } from './pipeline/pipelineRuntime.js';
 import { createProjectHandlers } from './handlers/projectHandlers.js';
 import { createProjectService, installProjectRuntime } from './projects.js';
+import { createProjectPageChatService } from './projectPageChat.js';
 import { createProjectStore } from '../../core/projects/projectStorage.js';
 
 export { clearSummaryErrorFlags, getAcceptedMergeFailurePaths } from './summaryResolution.js';
@@ -103,7 +105,7 @@ const recordRepository = {
   findRecordByUrl,
 };
 
-const chatRepository = { listChats, readChat, appendChatTurn, deleteChatHistory };
+const chatRepository = { listChats, readChat, appendChatTurn, deleteChatHistory, adoptPageChats };
 
 // Resolve Chrome namespaces at call time; tests can replace the global after import.
 const alarms = {
@@ -200,6 +202,12 @@ const projectService = createProjectService({
   logger: log.child('projects'),
 });
 
+const pageChatService = createProjectPageChatService({
+  projectService,
+  findRecordByUrl,
+  sendTabMessage: (...args) => chrome.tabs.sendMessage(...args),
+});
+
 const pipelineSupervisor = createPipelineSupervisor({
   recordRepository,
   runPipeline,
@@ -281,7 +289,7 @@ const MESSAGE_HANDLERS = {
   ...createNavigationHandlers({
     openOptionsPage: () => chrome.runtime.openOptionsPage(),
   }),
-  ...createProjectHandlers({ projectService }),
+  ...createProjectHandlers({ projectService, pageChatService }),
 };
 
 /**

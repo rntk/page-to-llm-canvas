@@ -39,6 +39,21 @@ export function createProjectsApi(messenger = browserRuntimeMessenger) {
     deleteProject: (projectId) => request({ type: MSG.deleteProject, projectId }),
     /** @param {string} projectId @returns {Promise<{project: object, isOpen: boolean, tabs: object[]}>} */
     getProjectView: (projectId) => request({ type: MSG.getProjectView, projectId }),
+    /**
+     * Where a tab's per-page chat lives: its saved record, or a URL page key.
+     * @param {string} projectId
+     * @param {number} tabId
+     * @returns {Promise<{source: object}>}
+     */
+    getPageChat: (projectId, tabId) => request({ type: MSG.getProjectPageChat, projectId, tabId }),
+    /**
+     * Reads a tab's live text as chat sentences.
+     * @param {string} projectId
+     * @param {number} tabId
+     * @returns {Promise<{sentences: string[], truncated: boolean}>}
+     */
+    capturePageText: (projectId, tabId) =>
+      request({ type: MSG.captureProjectPageText, projectId, tabId }),
   });
 }
 
@@ -52,6 +67,8 @@ export const {
   focusGroup,
   deleteProject,
   getProjectView,
+  getPageChat,
+  capturePageText,
 } = browserProjectsApi;
 
 const TAB_EVENTS = ['onCreated', 'onRemoved', 'onUpdated', 'onMoved', 'onAttached', 'onDetached'];

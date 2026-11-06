@@ -7,12 +7,14 @@ import { getArticleChatLimits } from '../../../core/pipeline/pipelineConfig.js';
  * persisted chat history.
  *
  * @param {object} deps
- * @param {{listChats: Function, readChat: Function, appendChatTurn: Function, deleteChatHistory: Function}} deps.chatRepository
+ * @param {{listChats: Function, readChat: Function, appendChatTurn: Function, deleteChatHistory: Function, adoptPageChats?: Function}} deps.chatRepository
+ *   `adoptPageChats` (optional) moves chats started on the project canvas
+ *   before the page was saved into its record, so listing shows them.
  * @param {{complete: Function, cancelTurn: Function}} deps.chatService
  * @param {{getActiveProvider: Function}} deps.providerRepository
  */
 export function createChatHandlers({ chatRepository, chatService, providerRepository }) {
-  const { listChats, readChat, appendChatTurn, deleteChatHistory } = chatRepository;
+  const { listChats, readChat, appendChatTurn, deleteChatHistory, adoptPageChats } = chatRepository;
 
   return {
     [MSG.getArticleChatLimits]: {
@@ -49,6 +51,8 @@ export function createChatHandlers({ chatRepository, chatService, providerReposi
         return msg.key ? null : 'missing key';
       },
       async handle(msg) {
+        // Best effort: a failed move must not hide the record's own chats.
+        if (adoptPageChats) await adoptPageChats(msg.key).catch(() => {});
         return { ok: true, chats: await listChats(msg.key) };
       },
     },

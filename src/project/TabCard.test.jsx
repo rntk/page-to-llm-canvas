@@ -37,7 +37,7 @@ describe('TabCard', () => {
     await render({ tab: tab() });
     expect(container.querySelector('.tab-card-title').textContent).toBe('Docs home');
     expect(container.querySelector('.tab-card-host').textContent).toBe('www.example.com');
-    expect(container.textContent).toContain('Page content & chat will appear here');
+    expect(container.textContent).toContain('Page content will appear here');
     expect(container.querySelector('img.tab-card-favicon').getAttribute('src')).toBe(
       'https://www.example.com/icon.png',
     );

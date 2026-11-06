@@ -1343,3 +1343,48 @@ describe('ArticleChat persisted history', () => {
     view.unmount();
   });
 });
+
+describe('ArticleChat late-bound sources', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.list.mockResolvedValue([]);
+    api.append.mockImplementation(async (key, chatId, turn) => ({
+      chat: { chatId: 'chat-new', messages: turn.messages, events: [], scope: turn.scope },
+    }));
+    chatLimits.getChatLimits.mockResolvedValue({ maxChunkChars: 1258, maxHistoryChars: 628 });
+    turnLoop.runArticleChatTurn.mockResolvedValue({ reply: 'Done', highlightRanges: [] });
+  });
+
+  it('hides topic scoping when the source has no topics', async () => {
+    const view = render(<ArticleChat recordKey="page:https://a.test/" sentences={[]} />);
+    await flushAsyncWork();
+    expect(view.container.querySelector('.pagetollm-chat-scope').textContent).toBe(
+      'Whole document',
+    );
+    expect(view.container.querySelector('.pagetollm-chat-scope button')).toBeNull();
+    view.unmount();
+  });
+
+  it('sends the sentences resolved at send time instead of the prop', async () => {
+    const resolveSentences = vi.fn(async () => ['Live one.', 'Live two.']);
+    const view = render(
+      <ArticleChat
+        recordKey="page:https://a.test/"
+        sentences={[]}
+        resolveSentences={resolveSentences}
+        emptyPrompt="Ask about this page."
+      />,
+    );
+    await flushAsyncWork();
+    expect(view.container.textContent).toContain('Ask about this page.');
+    typeQuestion(view.container, 'What?');
+    await clickSend(view.container);
+    expect(resolveSentences).toHaveBeenCalledTimes(1);
+    expect(turnLoop.runArticleChatTurn.mock.calls[0][0].article.sentences).toEqual([
+      'Live one.',
+      'Live two.',
+    ]);
+    expect(api.append.mock.calls[0][0]).toBe('page:https://a.test/');
+    view.unmount();
+  });
+});

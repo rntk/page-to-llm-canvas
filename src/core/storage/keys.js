@@ -64,6 +64,41 @@ export function chatDocumentStorageKey(key, chatId) {
   return `pagetollm:chats:${key}:${chatId}`;
 }
 
+// Chats about a page that has no saved record (project canvas per-page chat)
+// live under a URL-derived key in the same chat namespace. The prefix keeps
+// them apart from record keys, which are generated ids.
+export const PAGE_CHAT_KEY_PREFIX = 'page:';
+
+/**
+ * The URL a page chat is anchored to: the fragment only scrolls the same
+ * document, so `#a` and `#b` share one history.
+ * @param {string} url
+ * @returns {string} The URL without its fragment, or '' when unparseable.
+ */
+export function canonicalPageUrl(url) {
+  if (typeof url !== 'string' || !url) return '';
+  try {
+    const parsed = new URL(url);
+    parsed.hash = '';
+    return parsed.href;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * @param {string} url
+ * @returns {string} The page chat key, or '' when the URL is unusable.
+ */
+export function pageChatKey(url) {
+  const canonical = canonicalPageUrl(url);
+  return canonical ? `${PAGE_CHAT_KEY_PREFIX}${canonical}` : '';
+}
+
+export function isPageChatKey(key) {
+  return typeof key === 'string' && key.startsWith(PAGE_CHAT_KEY_PREFIX);
+}
+
 // Guards the `:` separator that `chatDocumentStorageKey` composes with: a
 // chatId containing a colon could otherwise forge a different record's key.
 // Shared by the storage layer and the message-handler validation so the two

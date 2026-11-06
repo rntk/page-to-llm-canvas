@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ProjectCanvas } from './ProjectCanvas.jsx';
 import { ProjectChatPanel } from './ProjectChatPanel.jsx';
 import { ProjectHeader } from './ProjectHeader.jsx';
+import { PageChatDrawer } from './PageChatDrawer.jsx';
 import { UNTITLED_PROJECT } from './projectText.js';
 import { useProjectView } from './useProjectView.js';
 import { browserScheduler } from '../shared/runtime/browserHosts.js';
@@ -25,7 +26,8 @@ function ErrorState({ title, message, pageHost }) {
  *
  * @param {object} props
  * @param {string|null} props.projectId
- * @param {{getProjectView: function(string): Promise<{project: object, isOpen: boolean, tabs: object[]}>}} props.api
+ * @param {{getProjectView: function(string): Promise<{project: object, isOpen: boolean, tabs: object[]}>, getPageChat?: Function, capturePageText?: Function}} props.api
+ *   `getPageChat`/`capturePageText` back the per-page chat drawers.
  * @param {function(function(): void): function(): void} [props.subscribe]
  *   Change subscription (see `subscribeProjectChanges`).
  * @param {{activateTab: function(number): Promise<void>}} props.tabsHost
@@ -42,6 +44,12 @@ export function ProjectApp({
 }) {
   const { status, view, error } = useProjectView({ projectId, api, subscribe, scheduler });
   const [chatOpen, setChatOpen] = useState(true);
+  const renderPageChat = useCallback(
+    (tab, { onClose }) => (
+      <PageChatDrawer projectId={projectId} tab={tab} api={api} onClose={onClose} />
+    ),
+    [api, projectId],
+  );
 
   const title = view ? view.project.title || UNTITLED_PROJECT : null;
   useEffect(() => {
@@ -80,7 +88,7 @@ export function ProjectApp({
       />
       <div className="project-body">
         <div className="project-canvas-wrap">
-          <ProjectCanvas tabs={tabs} tabsHost={tabsHost} />
+          <ProjectCanvas tabs={tabs} tabsHost={tabsHost} renderPageChat={renderPageChat} />
           {!view.isOpen && (
             <p className="canvas-hint" role="status">
               This project&apos;s tab group is closed

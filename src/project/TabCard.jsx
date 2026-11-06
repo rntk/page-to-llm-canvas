@@ -25,8 +25,8 @@ function FaviconTile({ tab, title }) {
 }
 
 /**
- * Placeholder card for one tab in the group. The body is reserved for future
- * per-page content and chat.
+ * Card for one tab in the group. The body is reserved for future per-page
+ * content; the page chat unfolds beside the card (see ProjectCanvas).
  *
  * @param {object} props
  * @param {{id: number, title?: string, url?: string, favIconUrl?: string, active?: boolean, status?: string}} props.tab
@@ -63,7 +63,7 @@ export function TabCard({ tab, tabsHost, onDragStart }) {
         </div>
         {loading && <span className="tab-card-loading" role="status" aria-label="Loading" />}
       </header>
-      <div className="tab-card-body">Page content &amp; chat will appear here</div>
+      <div className="tab-card-body">Page content will appear here</div>
       <footer className="tab-card-footer">
         {goError && <span className="tab-card-error">Could not switch to tab</span>}
         <button type="button" onClick={goToTab}>

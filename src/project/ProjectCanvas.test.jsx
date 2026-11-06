@@ -166,3 +166,66 @@ describe('ProjectCanvas', () => {
     expect(nodes()[1].style.transform).toBe('translate(352px, 0px)');
   });
 });
+
+describe('ProjectCanvas page chat folds', () => {
+  const renderPageChat = (tab, { onClose }) => (
+    <aside className="page-chat-drawer" data-tab={tab.id}>
+      <div className="scroller">messages</div>
+      <button type="button" onClick={onClose}>
+        Close drawer
+      </button>
+    </aside>
+  );
+  const drawers = () => [...container.querySelectorAll('.page-chat-drawer')];
+  const folds = () => [...container.querySelectorAll('.page-chat-fold')];
+
+  beforeEach(async () => {
+    await act(async () =>
+      root.render(<ProjectCanvas tabs={tabs} tabsHost={{}} renderPageChat={renderPageChat} />),
+    );
+  });
+
+  it('folds and unfolds each page chat independently from its side tab', async () => {
+    expect(folds().map((fold) => fold.getAttribute('aria-expanded'))).toEqual(['false', 'false']);
+    expect(drawers()).toEqual([]);
+
+    await act(async () => button('Unfold chat for Two').click());
+    expect(drawers().map((drawer) => drawer.dataset.tab)).toEqual(['2']);
+    expect(folds()[1].getAttribute('aria-expanded')).toBe('true');
+    // The drawer sits between its card and the fold tab, inside the card's node.
+    expect([...nodes()[1].children].map((child) => child.className)).toEqual([
+      'tab-card',
+      'page-chat-drawer',
+      'page-chat-fold',
+    ]);
+
+    await act(async () => button('Unfold chat for One').click());
+    expect(drawers().map((drawer) => drawer.dataset.tab)).toEqual(['1', '2']);
+
+    await act(async () => button('Fold chat for Two').click());
+    expect(drawers().map((drawer) => drawer.dataset.tab)).toEqual(['1']);
+    await act(async () => button('Close drawer').click());
+    expect(drawers()).toEqual([]);
+  });
+
+  it('lets the chat scroll and take arrow keys instead of zooming or panning', async () => {
+    await act(async () => button('Unfold chat for One').click());
+    const scroller = container.querySelector('.scroller');
+    const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -100 });
+    await act(async () => scroller.dispatchEvent(wheel));
+    expect(wheel.defaultPrevented).toBe(false);
+    expect(container.querySelector('.canvas-zoom-level').textContent).toBe('100%');
+
+    const ctrl = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -100 });
+    // Happy DOM ignores modifier keys in the WheelEvent init dictionary.
+    Object.defineProperty(ctrl, 'ctrlKey', { value: true });
+    await act(async () => scroller.dispatchEvent(ctrl));
+    expect(ctrl.defaultPrevented).toBe(true);
+
+    const before = layer().style.transform;
+    const key = new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true });
+    await act(async () => scroller.dispatchEvent(key));
+    expect(key.defaultPrevented).toBe(false);
+    expect(layer().style.transform).toBe(before);
+  });
+});

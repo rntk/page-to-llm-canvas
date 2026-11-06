@@ -29,18 +29,54 @@ function trackPointer(start, onMove) {
   return stop;
 }
 
+// The per-page chat drawer scrolls and takes keys of its own, so canvas
+// wheel-zoom and keyboard panning leave it alone.
+const PAGE_CHAT_SELECTOR = '.page-chat-drawer';
+
+function insidePageChat(target) {
+  return typeof target?.closest === 'function' && !!target.closest(PAGE_CHAT_SELECTOR);
+}
+
 /**
- * Pannable, zoomable surface with draggable tab cards. Card positions are kept
- * in component state only (keyed by tab id): they reset when the page reloads.
+ * Tab-like button on the right edge of a card (or of its unfolded chat) that
+ * folds and unfolds the page chat.
+ * @param {object} props
+ * @param {{id: number, title?: string, url?: string}} props.tab
+ * @param {boolean} props.open
+ * @param {function(): void} props.onToggle
+ */
+function PageChatFold({ tab, open, onToggle }) {
+  const name = tab.title || tab.url || 'this page';
+  return (
+    <button
+      type="button"
+      className="page-chat-fold"
+      aria-expanded={open}
+      aria-label={`${open ? 'Fold' : 'Unfold'} chat for ${name}`}
+      title={open ? 'Fold chat' : 'Chat about this page'}
+      onClick={onToggle}
+    >
+      {open ? '‹ Chat' : 'Chat ›'}
+    </button>
+  );
+}
+
+/**
+ * Pannable, zoomable surface with draggable tab cards. Card positions and
+ * which page chats are unfolded are kept in component state only (keyed by
+ * tab id): they reset when the page reloads.
  *
  * @param {object} props
  * @param {object[]} props.tabs
  * @param {{activateTab: function(number): Promise<void>}} props.tabsHost
+ * @param {function(object, {onClose: function(): void}): import('react').ReactNode} [props.renderPageChat]
+ *   Renders a tab's chat drawer; without it cards have no chat fold.
  */
-export function ProjectCanvas({ tabs, tabsHost }) {
+export function ProjectCanvas({ tabs, tabsHost, renderPageChat }) {
   const [viewport, setViewport] = useState(DEFAULT_VIEWPORT);
   const [moved, setMoved] = useState({});
   const [topId, setTopId] = useState(null);
+  const [openChats, setOpenChats] = useState(() => new Set());
   const surfaceRef = useRef(null);
   const viewportRef = useRef(viewport);
   useEffect(() => {
@@ -63,6 +99,8 @@ export function ProjectCanvas({ tabs, tabsHost }) {
     const surface = surfaceRef.current;
     if (!surface) return undefined;
     const handleWheel = (event) => {
+      // Plain wheel over a chat scrolls its messages; Ctrl/⌘+wheel still zooms.
+      if (insidePageChat(event.target) && !event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
       const rect = surface.getBoundingClientRect();
       setViewport((current) =>
@@ -80,7 +118,7 @@ export function ProjectCanvas({ tabs, tabsHost }) {
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (isTypingTarget(event.target)) return;
+      if (isTypingTarget(event.target) || insidePageChat(event.target)) return;
       const arrows = {
         ArrowUp: [0, 80],
         ArrowDown: [0, -80],
@@ -143,6 +181,17 @@ export function ProjectCanvas({ tabs, tabsHost }) {
     );
   };
 
+  const setChatOpen = useCallback((tabId, open) => {
+    setOpenChats((current) => {
+      if (current.has(tabId) === open) return current;
+      const next = new Set(current);
+      if (open) next.add(tabId);
+      else next.delete(tabId);
+      return next;
+    });
+    if (open) setTopId(tabId);
+  }, []);
+
   const { x, y, zoom } = viewport;
   const dot = 24 * zoom;
 
@@ -162,13 +211,18 @@ export function ProjectCanvas({ tabs, tabsHost }) {
         >
           {tabs.map((tab) => {
             const position = moved[tab.id] || grid[tab.id];
+            const chatOpen = !!renderPageChat && openChats.has(tab.id);
             return (
               <div
                 key={tab.id}
                 className="canvas-node"
                 style={{
                   transform: `translate(${position.x}px, ${position.y}px)`,
-                  zIndex: tab.id === topId ? 2 : 1,
+                  // An unfolded chat overlaps its neighbours, so keep it above them.
+                  zIndex: tab.id === topId ? 3 : chatOpen ? 2 : 1,
+                }}
+                onPointerDown={() => {
+                  if (chatOpen) setTopId(tab.id);
                 }}
               >
                 <TabCard
@@ -176,6 +230,14 @@ export function ProjectCanvas({ tabs, tabsHost }) {
                   tabsHost={tabsHost}
                   onDragStart={(event) => startCardDrag(tab.id, event)}
                 />
+                {chatOpen && renderPageChat(tab, { onClose: () => setChatOpen(tab.id, false) })}
+                {renderPageChat && (
+                  <PageChatFold
+                    tab={tab}
+                    open={chatOpen}
+                    onToggle={() => setChatOpen(tab.id, !chatOpen)}
+                  />
+                )}
               </div>
             );
           })}

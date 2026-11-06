@@ -49,6 +49,9 @@ function ChatHeaderActions({ disabled, onShowHistory, onNewChat }) {
  * @param {{list: Function, get: Function, append: Function, remove: Function}} [props.chatRepository]
  * @param {function(object): Promise<object>} [props.runTurn]
  * @param {function(): Promise<{maxChunkChars: number, maxHistoryChars: number}>} [props.getChatLimits]
+ * @param {function(): Promise<string[]>} [props.resolveSentences] Supplies the
+ *   source at send time instead of `sentences` (e.g. text read from a live tab).
+ * @param {string} [props.emptyPrompt] Overrides the empty-chat hint.
  */
 function ArticleChat({
   recordKey,
@@ -67,6 +70,8 @@ function ArticleChat({
   chatRepository = browserChatRepository,
   runTurn = runArticleChatTurn,
   getChatLimits = getArticleChatLimits,
+  resolveSentences,
+  emptyPrompt,
 }) {
   const panelId = useId();
   const [showScopeDialog, setShowScopeDialog] = useState(false);
@@ -437,10 +442,16 @@ function ArticleChat({
         if (!turnResult) {
           const limits = await getChatLimits();
           if (!isCurrentOperation(operation)) return;
+          // Late-bound sources (a live tab read on first send) resolve here, so
+          // a failed read surfaces like any other turn error.
+          const turnSentences = resolveSentences
+            ? scopeChatSentences(await resolveSentences(), topics, scope)
+            : scopedSentences;
+          if (!isCurrentOperation(operation)) return;
           turnResult = await runTurn({
             article: {
               history: messages,
-              sentences: scopedSentences,
+              sentences: turnSentences,
               highlightedRanges,
             },
             question,
@@ -578,10 +589,12 @@ function ArticleChat({
     reconcilePersistedTurn,
     recordKey,
     refreshChats,
+    resolveSentences,
     retryTurn,
     runTurn,
     scope,
     scopedSentences,
+    topics,
     setError,
     subjectLabel,
   ]);
@@ -639,13 +652,17 @@ function ArticleChat({
 
       <div className="pagetollm-chat-scope">
         <span>{scope.length ? `Scoped chat: ${scope.join(', ')}` : 'Whole document'}</span>
-        <button
-          type="button"
-          disabled={isLoading || isLoadingHistory || isMutatingHistory}
-          onClick={() => setShowScopeDialog(true)}
-        >
-          Choose topics
-        </button>
+        {/* A source without topics has nothing to choose, unless a saved scope
+            must be cleared before the chat can send again. */}
+        {topicPaths.length > 0 || scope.length > 0 ? (
+          <button
+            type="button"
+            disabled={isLoading || isLoadingHistory || isMutatingHistory}
+            onClick={() => setShowScopeDialog(true)}
+          >
+            Choose topics
+          </button>
+        ) : null}
       </div>
       {missingScopePaths.length > 0 && (
         <div className="pagetollm-chat-error" role="alert">
@@ -749,7 +766,7 @@ function ArticleChat({
             messages={visibleMessages}
             isLoading={isLoading}
             isLoadingHistory={isLoadingHistory}
-            emptyPrompt={`Ask a question about this ${subjectLabel}.`}
+            emptyPrompt={emptyPrompt || `Ask a question about this ${subjectLabel}.`}
           />
           <ChatComposer
             value={input}
