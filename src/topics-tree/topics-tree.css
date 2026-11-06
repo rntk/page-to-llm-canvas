@@ -15,15 +15,18 @@
   min-height: 0;
 }
 
-.tt-toolbar {
+/* View controls render into the page bar (see TopicsTreeCanvas' controlsHost). */
+.tt-bar-controls {
   display: flex;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tt-controls {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 10px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--th-border);
-  background: var(--th-surface);
   font-size: 12px;
 }
 
@@ -291,21 +294,35 @@
   cursor: nwse-resize;
 }
 
-/* Summary tree build status, above its canvas. */
-.tt-source-bar {
+/* Summary tree build status, in the page bar. Long text is cut short; the
+   full text is in its tooltip. */
+.tt-source-status {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
   gap: 6px 12px;
+  min-width: 0;
+  max-width: 50%;
+  font-size: 12px;
 }
 
-.tt-source-bar .tt-muted {
-  flex: 1 1 20em;
+.tt-source-status__text,
+.tt-source-status__notice {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.tt-source-bar__notice {
+.tt-source-status__notice {
   color: var(--th-error-fg);
   font-size: 12px;
 }
 
+.tt-source-status .tt-btn {
+  flex: 0 0 auto;
+}
+
 .tt-source-switcher {
-  margin-right: auto;
   margin-left: 12px;
 }

@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
 import { formatTopicPath, splitTopicPath } from '../shared/runtime/topicPath.js';
 import {
   LEAF_KIND,
   currentLevel,
-  expandAll,
   expandBranch,
   expandToLevel,
   flattenTree,
@@ -209,8 +209,10 @@ const LeafCard = React.memo(function LeafCard({
  * @param {object} props.tree Display tree from `buildTopicsDisplayTree`.
  * @param {string[]} props.sentences Article sentences (1-based numbers index into it).
  * @param {(node: object) => void} props.onShowInPage
+ * @param {HTMLElement|null} [props.controlsHost] Element the view controls render into
+ *   (the page bar); no controls are shown without one.
  */
-export default function TopicsTreeCanvas({ tree, sentences, onShowInPage }) {
+export default function TopicsTreeCanvas({ tree, sentences, onShowInPage, controlsHost = null }) {
   const { canvasRef, stageRef, transformRef, translateBy, fit } = useTreeViewport();
   const [expanded, setExpanded] = useState(() => initialExpanded(tree));
   const [selectedKey, setSelectedKey] = useState(tree.key);
@@ -399,68 +401,38 @@ export default function TopicsTreeCanvas({ tree, sentences, onShowInPage }) {
     requestFit();
   };
 
-  const handleExpandAll = () => {
-    setExpanded(expandAll(tree));
-    requestFit();
-  };
-
-  const handleTidy = () => {
-    anchorOn(selectedKey);
-    setOffsets(new Map());
-    setCardSizes(new Map());
-  };
-
-  const handleReset = () => {
-    setExpanded(initialExpanded(tree));
-    setSelectedKey(tree.key);
-    setFrontKey(null);
-    setOffsets(new Map());
-    setCardSizes(new Map());
-    requestFit();
-  };
-
   return (
     <div className="tt-view">
-      <div className="tt-toolbar" role="toolbar" aria-label="Topics tree controls">
-        <label className="tt-check">
-          <input
-            type="checkbox"
-            checked={exclusive}
-            onChange={(event) => setExclusive(event.target.checked)}
-          />
-          One branch at a time
-        </label>
-        {maxTopicLevel > 0 && (
-          <TopicLevelSwitcher
-            className="th-page__level-switcher"
-            label="Levels:"
-            selectedLevel={selectedTopicLevel}
-            maxLevel={maxTopicLevel}
-            onChange={handleSelectLevel}
-          />
+      {controlsHost &&
+        createPortal(
+          <div className="tt-controls" role="toolbar" aria-label="Topics tree controls">
+            <label className="tt-check">
+              <input
+                type="checkbox"
+                checked={exclusive}
+                onChange={(event) => setExclusive(event.target.checked)}
+              />
+              One branch at a time
+            </label>
+            {maxTopicLevel > 0 && (
+              <TopicLevelSwitcher
+                className="th-page__level-switcher"
+                label="Levels:"
+                selectedLevel={selectedTopicLevel}
+                maxLevel={maxTopicLevel}
+                onChange={handleSelectLevel}
+              />
+            )}
+            <button
+              type="button"
+              className="tt-btn"
+              onClick={() => fit(boundsOf(displayPositions.values()))}
+            >
+              Fit
+            </button>
+          </div>,
+          controlsHost,
         )}
-        <button type="button" className="tt-btn" onClick={handleExpandAll}>
-          Expand all
-        </button>
-        <button
-          type="button"
-          className="tt-btn"
-          title="Undo manual moves and resizes"
-          onClick={handleTidy}
-        >
-          Tidy
-        </button>
-        <button
-          type="button"
-          className="tt-btn"
-          onClick={() => fit(boundsOf(displayPositions.values()))}
-        >
-          Fit
-        </button>
-        <button type="button" className="tt-btn" onClick={handleReset}>
-          Reset
-        </button>
-      </div>
       <div ref={canvasRef} className={`tt-canvas${drag ? ' is-dragging' : ''}`}>
         <div ref={stageRef} className="tt-stage">
           <svg className="tt-links" aria-hidden="true">

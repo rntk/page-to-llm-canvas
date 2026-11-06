@@ -41,7 +41,7 @@ function progressText(tree) {
 }
 
 /**
- * Status and actions of the summary tree build.
+ * Status and actions of the summary tree build, shown in the page bar.
  * @param {object} props
  * @param {string} props.status Effective summary tree status.
  * @param {object|null} props.tree Saved summary tree.
@@ -90,9 +90,15 @@ function SummaryTreeBar({ status, tree, notice, onBuild, onStop }) {
       action('Build summary tree', build);
   }
   return (
-    <div className="tt-toolbar tt-source-bar" role="status">
-      <span className="tt-muted">{text}</span>
-      {notice && <span className="tt-source-bar__notice">{notice}</span>}
+    <div className="tt-source-status" role="status">
+      <span className="tt-muted tt-source-status__text" title={text}>
+        {text}
+      </span>
+      {notice && (
+        <span className="tt-source-status__notice" title={notice}>
+          {notice}
+        </span>
+      )}
       {actions}
     </div>
   );
@@ -153,6 +159,7 @@ export default function TopicsTreeApp({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
+  const [controlsHost, setControlsHost] = useState(null);
   const [source, setSource] = useState(TREE_SOURCES[0]);
   const [notice, setNotice] = useState('');
   const isSummaryTree = source === 'summary_tree';
@@ -252,20 +259,12 @@ export default function TopicsTreeApp({
         tree={tree}
         sentences={article.sentences}
         onShowInPage={handleShowInPage}
+        controlsHost={controlsHost}
       />
     ) : null;
     body = isSummaryTree ? (
-      <>
-        <SummaryTreeBar
-          status={summaryTree.status}
-          tree={summaryTree.tree}
-          notice={notice}
-          onBuild={handleBuild}
-          onStop={handleStop}
-        />
-        {/* Saves arrive every second while running; remounting would reset the view. */}
-        {!running && canvas}
-      </>
+      // Saves arrive every second while running; remounting would reset the view.
+      !running && canvas
     ) : (
       canvas || <div className="th-page__state">No topics were found for this page.</div>
     );
@@ -286,6 +285,16 @@ export default function TopicsTreeApp({
             maxLevel={TREE_SOURCES.length - 1}
             getOptionLabel={(index) => SOURCE_LABELS[TREE_SOURCES[index]]}
             onChange={(index) => setSource(TREE_SOURCES[index])}
+          />
+        )}
+        <div className="tt-bar-controls" ref={setControlsHost} />
+        {record?.status === PIPELINE_STATUS.DONE && isSummaryTree && (
+          <SummaryTreeBar
+            status={summaryTree.status}
+            tree={summaryTree.tree}
+            notice={notice}
+            onBuild={handleBuild}
+            onStop={handleStop}
           />
         )}
         <button

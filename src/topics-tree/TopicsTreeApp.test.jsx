@@ -104,21 +104,22 @@ describe('TopicsTreeApp', () => {
     unmount();
   });
 
-  it('switches levels and expands everything from the toolbar', () => {
+  it('switches levels from the controls in the page bar', () => {
     useRecord.mockReturnValue({ record: doneRecord, error: null });
     const { container, unmount } = render();
     const button = (label) =>
       [...container.querySelectorAll('button')].find((el) => el.textContent === label);
 
-    act(() => button('Expand all').click());
+    expect(container.querySelector('.th-page__bar .tt-controls')).not.toBeNull();
+    expect(button('Expand all')).toBeUndefined();
+    expect(button('Tidy')).toBeUndefined();
+    expect(button('Reset')).toBeUndefined();
+
+    act(() => button('L1').click());
     expect(titles(container)).toHaveLength(5);
     expect(button('L1').className).toContain('active');
 
     act(() => button('L0').click());
-    expect(titles(container)).toEqual(['news.example.com', 'Fruit', 'Veg']);
-
-    act(() => button('Expand all').click());
-    act(() => button('Reset').click());
     expect(titles(container)).toEqual(['news.example.com', 'Fruit', 'Veg']);
     unmount();
   });
@@ -173,7 +174,7 @@ describe('TopicsTreeApp', () => {
         (button) => button.textContent === label,
       );
     const actionButton = (container, label) =>
-      [...container.querySelectorAll('.tt-source-bar button')].find(
+      [...container.querySelectorAll('.th-page__bar .tt-source-status button')].find(
         (button) => button.textContent === label,
       );
 
