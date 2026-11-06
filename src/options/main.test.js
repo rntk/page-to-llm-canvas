@@ -108,7 +108,7 @@ describe('options main.jsx', () => {
     currentRoot = (await import('./main.jsx')).root;
 
     await waitFor(() => {
-      expect(document.querySelectorAll('[role="tab"]')).toHaveLength(5);
+      expect(document.querySelectorAll('[role="tab"]')).toHaveLength(6);
     });
 
     const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
@@ -133,9 +133,36 @@ describe('options main.jsx', () => {
 
     tabs[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
     await waitFor(() => {
-      expect(tabs[4].getAttribute('aria-selected')).toBe('true');
-      expect(document.activeElement).toBe(tabs[4]);
+      expect(tabs[5].getAttribute('aria-selected')).toBe('true');
+      expect(document.activeElement).toBe(tabs[5]);
       expect(window.location.hash).toBe('#diagnostics');
+    });
+  });
+
+  it('places the Projects tab after Records and deep-links to it', async () => {
+    window.history.replaceState(null, '', '#projects');
+    sendMessageMock.mockImplementation((msg, cb) => {
+      if (msg.type === 'listProjectsOverview') cb({ ok: true, projects: [], ungroupedGroups: [] });
+    });
+
+    currentRoot = (await import('./main.jsx')).root;
+    await waitFor(() => {
+      expect(document.querySelectorAll('[role="tab"]')).toHaveLength(6);
+    });
+
+    const labels = Array.from(document.querySelectorAll('[role="tab"]')).map(
+      (tab) => tab.textContent,
+    );
+    expect(labels.slice(2, 4)).toEqual(['Records', 'Projects']);
+    expect(document.getElementById('options-tab-projects').getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledWith(
+        { type: 'listProjectsOverview' },
+        expect.any(Function),
+      );
+      expect(document.body.textContent).toContain('No projects yet');
     });
   });
 
@@ -161,6 +188,7 @@ describe('options main.jsx', () => {
     const sent = sendMessageMock.mock.calls.map(([msg]) => msg.type);
     expect(sent).not.toContain('listRecords');
     expect(sent).not.toContain('listProviders');
+    expect(sent).not.toContain('listProjectsOverview');
     expect(sent).not.toContain('getStorageOverview');
   });
 

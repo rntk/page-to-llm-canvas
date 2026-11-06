@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { clampScale, cursorAnchoredTranslate } from '../../utils/canvasMath.js';
+import { clampScale, cursorAnchoredTranslate, wheelZoomFactor } from '../../utils/canvasMath.js';
 import { isTypingTarget } from '../../utils/isTypingTarget.js';
 
-// Exponential scaling preserves trackpad precision across event frequencies.
-const WHEEL_ZOOM_SENSITIVITY = 0.0008;
-const MAX_WHEEL_DELTA_PX = 240;
 const WHEEL_COMMIT_DELAY = 80;
 // Outlast the 280ms CSS transition to avoid snapping its final frame.
 const CARD_ZOOM_SMOOTHING_HOLD = 340;
@@ -448,14 +445,9 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
       stopCardZoomSmoothing();
       const currentScale = scaleRef.current || 1;
       // Normalize pixel, line, and page deltas before applying the zoom curve.
-      const deltaPixels =
-        e.deltaMode === WheelEvent.DOM_DELTA_LINE
-          ? e.deltaY * 16
-          : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
-            ? e.deltaY * Math.max(1, wrapRect.height)
-            : e.deltaY;
-      const boundedDelta = Math.max(-MAX_WHEEL_DELTA_PX, Math.min(MAX_WHEEL_DELTA_PX, deltaPixels));
-      const nextScale = clampScale(currentScale * Math.exp(-boundedDelta * WHEEL_ZOOM_SENSITIVITY));
+      const nextScale = clampScale(
+        currentScale * wheelZoomFactor(e.deltaY, e.deltaMode, wrapRect.height),
+      );
       if (nextScale === currentScale) return;
       const nextTranslate = cursorAnchoredTranslate({
         cursor: { x: e.clientX - wrapRect.left, y: e.clientY - wrapRect.top },

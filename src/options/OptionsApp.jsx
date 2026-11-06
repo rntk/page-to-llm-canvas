@@ -5,12 +5,14 @@ import { ChatToolMetricsSection } from './ChatToolMetricsSection.jsx';
 import { ParserMetricsSection } from './ParserMetricsSection.jsx';
 import { ProvidersSection } from './ProvidersSection.jsx';
 import { RecordsSection } from './RecordsSection.jsx';
+import { ProjectsSection } from './ProjectsSection.jsx';
 import { DataManagementSection } from './DataManagementSection.jsx';
 
 const OPTION_TABS = [
   { id: 'general', label: 'General' },
   { id: 'providers', label: 'Providers' },
   { id: 'records', label: 'Records' },
+  { id: 'projects', label: 'Projects' },
   { id: 'data', label: 'Data' },
   { id: 'diagnostics', label: 'Diagnostics' },
 ];
@@ -21,7 +23,15 @@ function tabFromHash() {
   return OPTION_TABS.some((tab) => tab.id === candidate) ? candidate : OPTION_TABS[0].id;
 }
 
-export function OptionsApp({ store, scheduler, fileHost, pageHost, subscribeRecords }) {
+export function OptionsApp({
+  store,
+  scheduler,
+  fileHost,
+  pageHost,
+  subscribeRecords,
+  projectsApi,
+  subscribeProjects,
+}) {
   const [activeTab, setActiveTab] = useState(tabFromHash);
   // Mount panels on first visit and retain them to avoid repeating storage loads.
   const [visitedTabs, setVisitedTabs] = useState(() => new Set([tabFromHash()]));
@@ -122,6 +132,22 @@ export function OptionsApp({ store, scheduler, fileHost, pageHost, subscribeReco
             fileHost={fileHost}
             pageHost={pageHost}
             subscribeRecords={subscribeRecords}
+          />
+        )}
+      </section>
+
+      <section
+        id="options-panel-projects"
+        className="tab-panel section"
+        role="tabpanel"
+        aria-labelledby="options-tab-projects"
+        hidden={activeTab !== 'projects'}
+      >
+        {visitedTabs.has('projects') && (
+          <ProjectsSection
+            pageHost={pageHost}
+            projectsApi={projectsApi}
+            subscribeProjects={subscribeProjects}
           />
         )}
       </section>

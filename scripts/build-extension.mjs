@@ -16,6 +16,7 @@ const STATIC_ASSETS = [
   { source: 'src/extension/pages/popup.html', output: 'popup.html' },
   { source: 'src/extension/pages/options.html', output: 'options.html' },
   { source: 'src/extension/pages/modal.html', output: 'modal.html' },
+  { source: 'src/extension/pages/project.html', output: 'project.html' },
 ];
 
 const STATIC_DIRS = [{ source: 'icons', output: 'icons' }];
@@ -134,6 +135,11 @@ const entries = [
   {
     name: 'options',
     input: path.join(root, 'src/options/main.jsx'),
+    emptyOutDir: false,
+  },
+  {
+    name: 'project',
+    input: path.join(root, 'src/project/main.jsx'),
     emptyOutDir: false,
   },
   {

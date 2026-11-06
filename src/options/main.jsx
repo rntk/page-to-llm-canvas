@@ -4,6 +4,7 @@ import { OptionsApp } from './OptionsApp.jsx';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
 import { browserLocalStore } from '../shared/runtime/localStore.js';
 import { subscribeRecordChanges } from './recordChanges.js';
+import { browserProjectsApi, subscribeProjectChanges } from '../projects/projectsApi.js';
 import {
   browserFileHost,
   browserPageHost,
@@ -18,8 +19,10 @@ root.render(
     <OptionsApp
       fileHost={browserFileHost}
       pageHost={browserPageHost}
+      projectsApi={browserProjectsApi}
       scheduler={browserScheduler}
       store={browserLocalStore}
+      subscribeProjects={subscribeProjectChanges}
       subscribeRecords={subscribeRecordChanges}
     />
   </ErrorBoundary>,

@@ -72,6 +72,9 @@ import { createProviderHandlers } from './handlers/providerHandlers.js';
 import { createDataManagementHandlers } from './handlers/dataManagementHandlers.js';
 import { createNavigationHandlers } from './handlers/navigationHandlers.js';
 import { createPipelineRuntime } from './pipeline/pipelineRuntime.js';
+import { createProjectHandlers } from './handlers/projectHandlers.js';
+import { createProjectService, installProjectRuntime } from './projects.js';
+import { createProjectStore } from '../../core/projects/projectStorage.js';
 
 export { clearSummaryErrorFlags, getAcceptedMergeFailurePaths } from './summaryResolution.js';
 
@@ -157,11 +160,45 @@ function isExtensionPageSender(sender) {
     url.hash = '';
     // The web-accessible modal renders inside arbitrary sites. Only the private
     // management surfaces need provider settings, exports, or destructive actions.
-    return ['options.html', 'popup.html'].some((page) => url.href === chrome.runtime.getURL(page));
+    return ['options.html', 'popup.html', 'project.html'].some(
+      (page) => url.href === chrome.runtime.getURL(page),
+    );
   } catch {
     return false;
   }
 }
+
+// Projects bind persistent ids to runtime-only tab group ids. storage.session
+// survives worker restarts but not browser restarts, which is exactly when
+// cached groupIds stop being trustworthy.
+const PROJECT_BINDING_SESSION_KEY = 'pagetollm:projects-bound';
+const projectService = createProjectService({
+  tabs: {
+    query: (...args) => chrome.tabs.query(...args),
+    create: (...args) => chrome.tabs.create(...args),
+    update: (...args) => chrome.tabs.update(...args),
+    group: (...args) => chrome.tabs.group(...args),
+  },
+  tabGroups: {
+    query: (...args) => chrome.tabGroups.query(...args),
+    get: (...args) => chrome.tabGroups.get(...args),
+  },
+  windows: { update: (...args) => chrome.windows.update(...args) },
+  getURL: (path) => chrome.runtime.getURL(path),
+  projectStore: createProjectStore(),
+  bindingSession: {
+    async isTrusted() {
+      const area = chrome.storage?.session;
+      if (!area?.get) return true;
+      const items = await area.get(PROJECT_BINDING_SESSION_KEY);
+      return !!items?.[PROJECT_BINDING_SESSION_KEY];
+    },
+    async markTrusted() {
+      await chrome.storage?.session?.set?.({ [PROJECT_BINDING_SESSION_KEY]: true });
+    },
+  },
+  logger: log.child('projects'),
+});
 
 const pipelineSupervisor = createPipelineSupervisor({
   recordRepository,
@@ -244,6 +281,7 @@ const MESSAGE_HANDLERS = {
   ...createNavigationHandlers({
     openOptionsPage: () => chrome.runtime.openOptionsPage(),
   }),
+  ...createProjectHandlers({ projectService }),
 };
 
 /**
@@ -285,6 +323,15 @@ installBackgroundRuntime({
   scheduleActionProgressIconRefresh,
   // Defer access to backgroundReady until after its declaration initializes.
   bootstrapReady: () => backgroundReady,
+});
+installProjectRuntime({
+  projectService,
+  chromeRuntime: chrome.runtime,
+  chromeTabs: chrome.tabs,
+  chromeTabGroups: chrome.tabGroups,
+  chromeContextMenus: chrome.contextMenus,
+  chromeCommands: chrome.commands,
+  logger: log.child('projects'),
 });
 
 // Reconcile records before their dependent chats, then resume in-flight runs on

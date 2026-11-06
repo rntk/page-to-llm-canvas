@@ -23,6 +23,10 @@ Also a record view, added after the flows below:
 14. [Topics tree](./14-topics-tree.md) — unfold topics and their summaries as a tree on a pan/zoom canvas.
 15. [Summary tree](./15-summary-tree.md) — an alternative topics-and-summaries approach (cited passage summaries, a topic taxonomy over them, bottom-up summaries), built beside the primary ones.
 
+## Projects
+
+16. [Project canvas](./16-project-canvas.md) — turn a browser tab group into a project and view its tabs as a pan/zoom canvas.
+
 ## Extension management
 
 11. [Providers, settings, and data management](./11-providers-settings-and-data.md) — configure the active LLM, preferences, diagnostics, and saved data.

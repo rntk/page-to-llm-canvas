@@ -7,6 +7,7 @@ import { createMetricsHandlers } from './metricsHandlers.js';
 import { createProviderHandlers } from './providerHandlers.js';
 import { createDataManagementHandlers } from './dataManagementHandlers.js';
 import { createNavigationHandlers } from './navigationHandlers.js';
+import { createProjectHandlers } from './projectHandlers.js';
 
 const stubSupervisor = () => ({
   startPipeline: vi.fn(async () => {}),
@@ -75,6 +76,7 @@ function buildGroups() {
       metricsClears: [],
     }),
     navigation: createNavigationHandlers({ openOptionsPage: vi.fn(async () => {}) }),
+    project: createProjectHandlers({ projectService: {} }),
   };
 }
 
@@ -107,6 +109,7 @@ describe('message handler registry (no chrome global)', () => {
       ...groups.provider,
       ...groups.dataManagement,
       ...groups.navigation,
+      ...groups.project,
     };
 
     expect(Object.keys(merged).sort()).toEqual(
@@ -144,6 +147,13 @@ describe('message handler registry (no chrome global)', () => {
         MSG.getStorageOverview,
         MSG.deleteAllExtensionData,
         MSG.openOptionsPage,
+        MSG.listProjectsOverview,
+        MSG.createProjectFromGroup,
+        MSG.openProjectForGroup,
+        MSG.openProject,
+        MSG.focusProjectGroup,
+        MSG.deleteProject,
+        MSG.getProjectView,
       ].sort(),
     );
     // No group may lose an entry to a later spread.
@@ -167,7 +177,7 @@ describe('message handler registry (no chrome global)', () => {
 
   it('keeps every provider and data-management action extension-page only', () => {
     const groups = buildGroups();
-    for (const handlers of [groups.provider, groups.dataManagement]) {
+    for (const handlers of [groups.provider, groups.dataManagement, groups.project]) {
       for (const [type, entry] of Object.entries(handlers)) {
         expect(entry.requiresExtensionPage, type).toBe(true);
       }

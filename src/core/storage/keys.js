@@ -71,3 +71,7 @@ export function chatDocumentStorageKey(key, chatId) {
 export function isSafeChatId(value) {
   return typeof value === 'string' && !!value && !value.includes(':');
 }
+
+// One document holding every project (see src/core/projects/). Projects are few
+// and small, so a single key keeps rebinding a single read-modify-write.
+export const PROJECTS_STORAGE_KEY = 'pagetollm:projects';

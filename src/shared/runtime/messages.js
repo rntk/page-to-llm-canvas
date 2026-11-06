@@ -34,4 +34,11 @@ export const MSG = Object.freeze({
   setActiveProvider: 'setActiveProvider',
   setTopicSplitter: 'setTopicSplitter',
   openOptionsPage: 'openOptionsPage',
+  listProjectsOverview: 'listProjectsOverview',
+  createProjectFromGroup: 'createProjectFromGroup',
+  openProjectForGroup: 'openProjectForGroup',
+  openProject: 'openProject',
+  focusProjectGroup: 'focusProjectGroup',
+  deleteProject: 'deleteProject',
+  getProjectView: 'getProjectView',
 });

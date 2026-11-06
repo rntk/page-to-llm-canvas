@@ -563,6 +563,45 @@
         }
       }
 
+      /* Projects tab */
+      .projects-subheading {
+        margin: 24px 0 10px;
+        color: var(--on-surface-muted);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .project-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        word-break: break-word;
+      }
+      .project-color-chip {
+        flex: 0 0 auto;
+        width: 12px;
+        height: 12px;
+        border: 1px solid var(--ink);
+        border-radius: 50%;
+      }
+      .row-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .row-actions button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .row-actions button:disabled:hover {
+        background: var(--surface);
+        color: var(--ink);
+      }
+      .row-actions button.danger:disabled:hover {
+        color: var(--accent);
+      }
+
       /* Clickable error/needs-attention status chips in the records table. */
       .status-button {
         cursor: pointer;
