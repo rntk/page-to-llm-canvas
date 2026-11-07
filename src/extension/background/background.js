@@ -16,6 +16,7 @@ import {
   appendChatTurn,
   deleteChatHistory,
   adoptPageChats,
+  deleteDetachedChats,
   reconcileChatStorage,
 } from '../../core/storage/chatStorage.js';
 import {
@@ -77,6 +78,8 @@ import { createProjectHandlers } from './handlers/projectHandlers.js';
 import { createProjectService, installProjectRuntime } from './projects.js';
 import { createProjectPageChatService } from './projectPageChat.js';
 import { createProjectStore } from '../../core/projects/projectStorage.js';
+import { createExcerptStore } from '../../core/projects/excerpts.js';
+import { createProjectExcerptService } from './projectExcerpts.js';
 
 export { clearSummaryErrorFlags, getAcceptedMergeFailurePaths } from './summaryResolution.js';
 
@@ -208,6 +211,15 @@ const pageChatService = createProjectPageChatService({
   sendTabMessage: (...args) => chrome.tabs.sendMessage(...args),
 });
 
+const excerptService = createProjectExcerptService({
+  projectService,
+  pageChatService,
+  excerptStore: createExcerptStore(),
+  deleteChats: deleteDetachedChats,
+  sendTabMessage: (...args) => chrome.tabs.sendMessage(...args),
+  logger: log.child('projects'),
+});
+
 const pipelineSupervisor = createPipelineSupervisor({
   recordRepository,
   runPipeline,
@@ -289,7 +301,7 @@ const MESSAGE_HANDLERS = {
   ...createNavigationHandlers({
     openOptionsPage: () => chrome.runtime.openOptionsPage(),
   }),
-  ...createProjectHandlers({ projectService, pageChatService }),
+  ...createProjectHandlers({ projectService, pageChatService, excerptService }),
 };
 
 /**
@@ -334,6 +346,7 @@ installBackgroundRuntime({
 });
 installProjectRuntime({
   projectService,
+  excerptService,
   chromeRuntime: chrome.runtime,
   chromeTabs: chrome.tabs,
   chromeTabGroups: chrome.tabGroups,

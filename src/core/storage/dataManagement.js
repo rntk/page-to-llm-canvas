@@ -4,7 +4,7 @@
 
 import { INDEX_KEY } from './recordIndex.js';
 import { RECORD_STORAGE_PREFIX } from './recordMeta.js';
-import { PROJECTS_STORAGE_KEY } from './keys.js';
+import { PROJECT_EXCERPTS_STORAGE_KEY, PROJECTS_STORAGE_KEY } from './keys.js';
 import { disposeProcessingLogs } from './processingLog.js';
 import { PROVIDERS_KEY } from '../llm/providers.js';
 import { LLM_METRICS_KEY, LLM_METRICS_EPOCH_KEY } from '../metrics/llm.js';
@@ -48,6 +48,7 @@ function categoryForKey(key) {
   if (
     key === INDEX_KEY ||
     key === PROJECTS_STORAGE_KEY ||
+    key === PROJECT_EXCERPTS_STORAGE_KEY ||
     key.startsWith(RECORD_STORAGE_PREFIX) ||
     key.startsWith(CHAT_STORAGE_PREFIX)
   ) {

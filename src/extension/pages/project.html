@@ -325,6 +325,101 @@
         font-size: 11px;
       }
 
+      /* Excerpt card, stacked under the tab card of its page */
+      .canvas-links {
+        position: absolute;
+        top: 0;
+        left: 0;
+        overflow: visible;
+        pointer-events: none;
+      }
+      .excerpt-link {
+        fill: none;
+        stroke: var(--accent);
+        stroke-width: 1.5;
+        stroke-dasharray: 4 3;
+      }
+      .excerpt-card {
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        background: var(--surface);
+        border: 1px solid var(--ink);
+        border-left-width: 4px;
+        cursor: default;
+      }
+      .excerpt-card.is-detached {
+        border-style: dashed;
+      }
+      .excerpt-card-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--ghost);
+        background: var(--surface-highest);
+        cursor: move;
+      }
+      .excerpt-card-label {
+        flex: none;
+        color: var(--on-surface-muted);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .excerpt-card-source {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        padding: 2px 6px;
+        border: none;
+        background: none;
+        color: var(--on-surface);
+        font-size: 11px;
+        text-align: left;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .excerpt-card-source:disabled {
+        color: var(--on-surface-muted);
+        cursor: default;
+      }
+      .excerpt-card-source:not(:disabled):hover .excerpt-card-source-title {
+        text-decoration: underline;
+      }
+      .excerpt-card-source-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .excerpt-card-source-host {
+        flex: none;
+      }
+      .excerpt-card-text {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        margin: 8px 10px 0;
+        padding: 0 0 0 8px;
+        border-left: 2px solid var(--ghost);
+        font-family: var(--font-voice);
+        font-size: 13px;
+        line-height: 1.4;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        user-select: text;
+      }
+      .excerpt-card-truncated {
+        color: var(--on-surface-muted);
+      }
+      .excerpt-card-footer {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 10px;
+        padding: 6px 10px 8px;
+      }
+
       /* Per-page chat drawer, unfolded beside its tab card */
       .page-chat-drawer {
         box-sizing: border-box;

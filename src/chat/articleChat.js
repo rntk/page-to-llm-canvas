@@ -5,9 +5,10 @@ import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 import { createChatLogger } from './chatLogger.js';
 import {
   ARTICLE_CHAT_SYSTEM_PROMPT,
+  EXCERPT_CHAT_SYSTEM_PROMPT,
   HIGHLIGHT_BUDGET_EXHAUSTED_PROMPT,
-  buildChunkDataMessage,
   buildQuestionDataMessage,
+  buildSourceDataMessage,
 } from './articleChatPrompts.js';
 import { ARTICLE_CHAT_CHUNK_MAX_CHARS, chunkNumberedArticle } from './articleChunking.js';
 import { CHAT_HISTORY_MAX_CHARS, compactConversationHistory } from './conversationHistory.js';
@@ -69,6 +70,10 @@ const DEFAULT_REQUESTS_PER_CHUNK = 3;
  * @property {object[]} [article.history]
  * @property {string[]} [article.sentences]
  * @property {object[]} [article.highlightedRanges]
+ * @property {{kind: 'excerpt', pageTitle?: string, pageUrl?: string}} [article.source]
+ *   Frames the sentences as an excerpt of a longer page.
+ * @property {Array<{definition: object, run: function(object, {maxChars: number, signal?: AbortSignal}): Promise<string>}>} [tools]
+ *   Tools offered besides highlight_span; each result is model-facing text.
  * @property {string} question
  * @property {object} [limits]
  * @property {number} [limits.maxChunkChars]
@@ -105,6 +110,8 @@ function normalizeArticleChatTurnOptions(options = {}) {
     sentences: article.sentences,
     onHighlight: effects.onHighlight,
     highlightedRanges: article.highlightedRanges ?? [],
+    source: article.source ?? null,
+    tools: Array.isArray(options.tools) ? options.tools : [],
     maxChunkChars: limits.maxChunkChars ?? ARTICLE_CHAT_CHUNK_MAX_CHARS,
     maxToolRounds: limits.maxToolRounds ?? MAX_TOOL_ROUNDS,
     maxHistoryChars: limits.maxHistoryChars ?? CHAT_HISTORY_MAX_CHARS,
@@ -116,6 +123,39 @@ function normalizeArticleChatTurnOptions(options = {}) {
     cancelTurn: dependencies.cancelTurn ?? postCancelChatTurn,
     recordToolMetric: dependencies.recordToolMetric ?? postToolMetric,
   };
+}
+
+// Below this a tool result cannot carry anything useful.
+const MIN_TOOL_RESULT_CHARS = 200;
+
+/**
+ * Run one non-highlight tool call. Results share the chunk's leftover context
+ * budget, so repeated reads cannot overflow the provider's window.
+ * @param {{definition: object, run: Function}} tool
+ * @param {{arguments?: object}} call
+ * @param {{remaining: number}} budget Characters still available for results.
+ * @param {AbortSignal} signal
+ * @returns {Promise<{result: string, outcome: string, outcomeError?: string}>}
+ */
+async function runExtraTool(tool, call, budget, signal) {
+  if (budget.remaining < MIN_TOOL_RESULT_CHARS) {
+    const result =
+      'Skipped: no context budget is left for tool results in this turn. Answer with the text you already have.';
+    return { result, outcome: CHAT_TOOL_OUTCOMES.TOOL_FAILED, outcomeError: result };
+  }
+  try {
+    const output = await awaitWithAbort(
+      tool.run(call.arguments, { maxChars: budget.remaining, signal }),
+      signal,
+    );
+    const result = String(output ?? '').slice(0, budget.remaining);
+    budget.remaining -= result.length;
+    return { result, outcome: CHAT_TOOL_OUTCOMES.TOOL_RESULT };
+  } catch (error) {
+    throwIfAborted(signal);
+    const result = `Error: ${error?.message || String(error)}`;
+    return { result, outcome: CHAT_TOOL_OUTCOMES.TOOL_FAILED, outcomeError: result };
+  }
 }
 
 /**
@@ -141,20 +181,28 @@ async function runArticleChatChunk({
   turnId,
   log,
   recordToolMetric,
+  source,
+  tools,
+  toolCharBudget,
 }) {
+  const replayedHistory = compactConversationHistory(history, maxHistoryChars);
   const messages = [
     { role: 'system', content: ARTICLE_CHAT_SYSTEM_PROMPT },
-    { role: 'user', content: buildChunkDataMessage(chunk) },
-    ...compactConversationHistory(history, maxHistoryChars),
+    ...(source?.kind === 'excerpt'
+      ? [{ role: 'system', content: EXCERPT_CHAT_SYSTEM_PROMPT }]
+      : []),
+    { role: 'user', content: buildSourceDataMessage(chunk, source) },
+    ...replayedHistory,
     { role: 'user', content: buildQuestionDataMessage(question) },
   ];
+  const toolDefinitions = [HIGHLIGHT_SPAN_TOOL, ...tools.map((tool) => tool.definition)];
 
   log(
     'chunk_start',
     {
       lineRange: `${chunk.startLine}-${chunk.endLine}`,
       sourceChars: chunk.text.length,
-      historyMessageCount: messages.length - 3,
+      historyMessageCount: replayedHistory.length,
     },
     { verbose: true },
   );
@@ -179,7 +227,7 @@ async function runArticleChatChunk({
       chatTurnId: turnId,
       messages: requestMessages,
       // Keep schemas for historical tool calls; disable only new calls.
-      tools: [HIGHLIGHT_SPAN_TOOL],
+      tools: toolDefinitions,
       ...(exhausted ? { toolChoice: 'none' } : {}),
       taskType: LLM_TASK_TYPES.CHAT_ANSWER,
     });
@@ -234,7 +282,15 @@ async function runArticleChatChunk({
       // also carry the short model-facing message for the diagnostics recent list.
       let outcome;
       let outcomeError;
-      if (call.name !== HIGHLIGHT_SPAN_TOOL.name) {
+      const extraTool = tools.find((tool) => tool.definition.name === call.name);
+      if (extraTool) {
+        ({ result, outcome, outcomeError } = await runExtraTool(
+          extraTool,
+          call,
+          toolCharBudget,
+          signal,
+        ));
+      } else if (call.name !== HIGHLIGHT_SPAN_TOOL.name) {
         outcome = CHAT_TOOL_OUTCOMES.UNKNOWN_TOOL;
         // call.name is model-generated and may echo article-derived text, so it
         // goes to the model (result) but is never persisted as a metric detail.
@@ -345,6 +401,8 @@ export async function runArticleChatTurn(options = {}) {
     send,
     cancelTurn,
     recordToolMetric,
+    source,
+    tools,
   } = normalizeArticleChatTurnOptions(options);
   const log = createChatLogger();
   const startedAt = Date.now();
@@ -477,6 +535,9 @@ export async function runArticleChatTurn(options = {}) {
             turnId: resolvedTurnId,
             log,
             recordToolMetric,
+            source,
+            tools,
+            toolCharBudget: { remaining: Math.max(0, chunkBudget - chunk.text.length) },
           });
           throwIfAborted(turnController.signal);
           results[index] = {

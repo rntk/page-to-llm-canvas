@@ -3,9 +3,12 @@ import { ProjectCanvas } from './ProjectCanvas.jsx';
 import { ProjectChatPanel } from './ProjectChatPanel.jsx';
 import { ProjectHeader } from './ProjectHeader.jsx';
 import { PageChatDrawer } from './PageChatDrawer.jsx';
+import { ExcerptChatDrawer } from './ExcerptChatDrawer.jsx';
 import { UNTITLED_PROJECT } from './projectText.js';
 import { useProjectView } from './useProjectView.js';
 import { browserScheduler } from '../shared/runtime/browserHosts.js';
+
+const NO_EXCERPTS = [];
 
 function ErrorState({ title, message, pageHost }) {
   return (
@@ -26,8 +29,9 @@ function ErrorState({ title, message, pageHost }) {
  *
  * @param {object} props
  * @param {string|null} props.projectId
- * @param {{getProjectView: function(string): Promise<{project: object, isOpen: boolean, tabs: object[]}>, getPageChat?: Function, capturePageText?: Function}} props.api
- *   `getPageChat`/`capturePageText` back the per-page chat drawers.
+ * @param {{getProjectView: function(string): Promise<{project: object, isOpen: boolean, tabs: object[]}>, getPageChat?: Function, capturePageText?: Function, readExcerptPage?: Function, deleteExcerpt?: Function}} props.api
+ *   `getPageChat`/`capturePageText` back the per-page chat drawers;
+ *   `readExcerptPage`/`deleteExcerpt` back excerpt cards and their chats.
  * @param {function(function(): void): function(): void} [props.subscribe]
  *   Change subscription (see `subscribeProjectChanges`).
  * @param {{activateTab: function(number): Promise<void>}} props.tabsHost
@@ -48,6 +52,16 @@ export function ProjectApp({
     (tab, { onClose }) => (
       <PageChatDrawer projectId={projectId} tab={tab} api={api} onClose={onClose} />
     ),
+    [api, projectId],
+  );
+  const renderExcerptChat = useCallback(
+    (excerpt, { onClose }) => (
+      <ExcerptChatDrawer projectId={projectId} excerpt={excerpt} api={api} onClose={onClose} />
+    ),
+    [api, projectId],
+  );
+  const deleteExcerpt = useCallback(
+    (excerpt) => api.deleteExcerpt(projectId, excerpt.id),
     [api, projectId],
   );
 
@@ -88,7 +102,15 @@ export function ProjectApp({
       />
       <div className="project-body">
         <div className="project-canvas-wrap">
-          <ProjectCanvas tabs={tabs} tabsHost={tabsHost} renderPageChat={renderPageChat} />
+          <ProjectCanvas
+            tabs={tabs}
+            excerpts={view.excerpts || NO_EXCERPTS}
+            focusExcerptId={view.focusExcerptId || null}
+            tabsHost={tabsHost}
+            renderPageChat={renderPageChat}
+            renderExcerptChat={api.readExcerptPage ? renderExcerptChat : undefined}
+            onDeleteExcerpt={api.deleteExcerpt ? deleteExcerpt : undefined}
+          />
           {!view.isOpen && (
             <p className="canvas-hint" role="status">
               This project&apos;s tab group is closed

@@ -59,6 +59,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((err) => sendResponse({ status: 'error', error: err?.message || String(err) }));
     return true;
   }
+  if (message.action === 'captureSelectionText') {
+    // "Open excerpt in project": the menu's own copy of the selection loses its
+    // line breaks, so the worker asks for the page's.
+    sendResponse({ status: 'ok', text: String(window.getSelection?.() ?? '') });
+    return false;
+  }
   if (message.action === 'openRecordView') {
     const key = message.key;
     const mode = message.mode || 'canvas';

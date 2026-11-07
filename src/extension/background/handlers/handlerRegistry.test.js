@@ -156,6 +156,8 @@ describe('message handler registry (no chrome global)', () => {
         MSG.getProjectView,
         MSG.getProjectPageChat,
         MSG.captureProjectPageText,
+        MSG.deleteProjectExcerpt,
+        MSG.readProjectExcerptPage,
       ].sort(),
     );
     // No group may lose an entry to a later spread.

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  OPEN_EXCERPT_MENU_ID,
   OPEN_GROUP_PROJECT_COMMAND,
   OPEN_GROUP_PROJECT_MENU_ID,
   createCoalescedRunner,
@@ -425,5 +426,46 @@ describe('installProjectRuntime', () => {
     expect(projectService.sync).toHaveBeenCalledTimes(1);
     chromeTabGroups.onRemoved.listeners[0]({ id: 6 });
     expect(projectService.handleGroupRemoved).toHaveBeenCalledWith(6);
+  });
+});
+
+describe('project excerpts menu', () => {
+  const event = () => {
+    const listeners = [];
+    return { listeners, addListener: vi.fn((fn) => listeners.push(fn)) };
+  };
+
+  it('adds a selection menu limited to web pages', async () => {
+    const menus = { removeAll: vi.fn(async () => {}), create: vi.fn((_props, cb) => cb()) };
+    await createProjectMenus(menus);
+    expect(menus.create).toHaveBeenCalledWith(
+      {
+        id: OPEN_EXCERPT_MENU_ID,
+        title: 'Open excerpt in project',
+        contexts: ['selection'],
+        documentUrlPatterns: ['http://*/*', 'https://*/*', 'file:///*'],
+      },
+      expect.any(Function),
+    );
+  });
+
+  it('routes the selection menu to the excerpt service', async () => {
+    const onClicked = event();
+    const excerptService = { openExcerptFromSelection: vi.fn(async () => null) };
+    installProjectRuntime({
+      projectService: { sync: vi.fn(async () => {}), openProjectForTab: vi.fn() },
+      excerptService,
+      chromeContextMenus: { onClicked },
+      logger: { warn: vi.fn() },
+    });
+    const tab = { id: 1 };
+    onClicked.listeners[0](
+      { menuItemId: OPEN_EXCERPT_MENU_ID, selectionText: 'Hi', frameId: 0 },
+      tab,
+    );
+    expect(excerptService.openExcerptFromSelection).toHaveBeenCalledWith(tab, {
+      selectionText: 'Hi',
+      frameId: 0,
+    });
   });
 });

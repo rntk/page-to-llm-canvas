@@ -4,8 +4,8 @@
 
 import { MSG } from '../shared/runtime/messages.js';
 import { browserRuntimeMessenger } from '../utils/runtimeMessages.js';
-import { subscribeLocalKey } from '../shared/runtime/localStore.js';
-import { PROJECTS_STORAGE_KEY } from '../core/storage/keys.js';
+import { subscribeLocalChanges } from '../shared/runtime/localStore.js';
+import { PROJECT_EXCERPTS_STORAGE_KEY, PROJECTS_STORAGE_KEY } from '../core/storage/keys.js';
 
 /**
  * @param {{send: function(object): Promise<*>}} messenger
@@ -54,6 +54,21 @@ export function createProjectsApi(messenger = browserRuntimeMessenger) {
      */
     capturePageText: (projectId, tabId) =>
       request({ type: MSG.captureProjectPageText, projectId, tabId }),
+    /**
+     * @param {string} projectId
+     * @param {string} excerptId
+     * @returns {Promise<{deleted: boolean}>}
+     */
+    deleteExcerpt: (projectId, excerptId) =>
+      request({ type: MSG.deleteProjectExcerpt, projectId, excerptId }),
+    /**
+     * Reads the full text of the page an excerpt was taken from.
+     * @param {string} projectId
+     * @param {string} excerptId
+     * @returns {Promise<{sentences: string[], truncated: boolean, source: string}>}
+     */
+    readExcerptPage: (projectId, excerptId) =>
+      request({ type: MSG.readProjectExcerptPage, projectId, excerptId }),
   });
 }
 
@@ -69,13 +84,15 @@ export const {
   getProjectView,
   getPageChat,
   capturePageText,
+  deleteExcerpt,
+  readExcerptPage,
 } = browserProjectsApi;
 
 const TAB_EVENTS = ['onCreated', 'onRemoved', 'onUpdated', 'onMoved', 'onAttached', 'onDetached'];
 const GROUP_EVENTS = ['onCreated', 'onRemoved', 'onUpdated', 'onMoved'];
 
 /**
- * Calls `onChange()` (no arguments) whenever stored projects or live tabs/tab
+ * Calls `onChange()` (no arguments) whenever stored projects or excerpts, or live tabs/tab
  * groups change, so a page can refetch its view. Missing browser namespaces are
  * skipped. Callers should debounce; tab events can arrive in bursts.
  *
@@ -99,7 +116,10 @@ export function subscribeProjectChanges(
   };
   attach(apis.tabs, TAB_EVENTS);
   attach(apis.tabGroups, GROUP_EVENTS);
-  const unsubscribeStore = subscribeLocalKey(PROJECTS_STORAGE_KEY, listener);
+  const unsubscribeStore = subscribeLocalChanges(
+    [PROJECTS_STORAGE_KEY, PROJECT_EXCERPTS_STORAGE_KEY],
+    listener,
+  );
   return () => {
     unsubscribeStore();
     for (const event of attached) event.removeListener?.(listener);

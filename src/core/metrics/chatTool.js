@@ -19,6 +19,8 @@ export const CHAT_TOOL_OUTCOME_LABELS = Object.freeze({
   [CHAT_TOOL_OUTCOMES.OUT_OF_RANGE]: 'Out of range',
   [CHAT_TOOL_OUTCOMES.OUT_OF_CHUNK]: 'Outside chunk',
   [CHAT_TOOL_OUTCOMES.PAINT_FAILED]: 'Highlight paint failed',
+  [CHAT_TOOL_OUTCOMES.TOOL_RESULT]: 'Other tool result',
+  [CHAT_TOOL_OUTCOMES.TOOL_FAILED]: 'Other tool failed',
 });
 
 const OUTCOME_KEYS = Object.values(CHAT_TOOL_OUTCOMES);

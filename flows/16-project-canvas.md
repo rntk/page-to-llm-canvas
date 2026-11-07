@@ -20,6 +20,15 @@ A page chat only ever shows that page's history:
 
 Browser-internal pages (for example `chrome://`) cannot be read and say so. A tab that is discarded or still loading reports an error on send, and the next send tries the read again.
 
+## Excerpts
+
+An excerpt is a passage of a page that gets its own card and chat on the project canvas. Select text on any web page and choose **Open excerpt in project** from the context menu. The tab's project is opened the same way as **Open group project**: an ungrouped tab gets a group, and a group without a project gets one. The excerpt is saved to that project, and the project page opens with the excerpt's chat unfolded. The worker asks the content script for the selection so line breaks are kept. If the selection is in a subframe, or the page does not answer, it uses the menu's flattened copy of the selection instead. Excerpts are capped at 20,000 characters, and a longer selection is cut and marked.
+
+- **Linked to its page.** An excerpt is matched to its page by URL, ignoring the `#fragment`, because tab ids do not survive a restart. Its card stacks under the matching tab card, and a dashed connector joins the two. The card header names the page, and clicking the name switches to that tab. An excerpt follows its page card when the card is dragged, until the excerpt is dragged on its own. If no tab in the group shows its page, the excerpt waits in a trailing slot with a dashed border, and its page name is disabled.
+- **Local chat.** Each excerpt has a **Chat** fold like a tab card. Its history is stored under `excerpt:<id>`, so it never mixes with the page's own chat. A turn sends the excerpt's sentences as numbered lines, framed as an excerpt with the page's title and URL. The system prompt says that the text is part of a longer page. `highlight_span` cites excerpt lines.
+- **Reading the rest of the page.** The excerpt chat also offers a `read_page` tool. It returns numbered page lines, starting a few lines before the place where the excerpt was found unless the model asks for a `start_line`. Each result also gives `nextStartLine`, so the model can keep reading. The text comes from the page's saved record when there is one, or else from the live tab. It is read once per drawer session. Tool results share the space left in the chunk's context budget, so repeated reads cannot overflow the provider's window. If the page is neither saved nor open, the tool reports an error, and the model answers from the excerpt alone.
+- **Deleting.** **Delete** on the card removes the excerpt and its chats. Deleting a project from the options page also removes its excerpts.
+
 Entry points:
 
 - [Project domain](../src/core/projects/projects.js) — project identity and the rules for rebinding it to a group.
@@ -27,3 +36,6 @@ Entry points:
 - [Project page](../src/project/main.jsx) — the canvas that renders a project's tabs.
 - [Page chat drawer](../src/project/PageChatDrawer.jsx) — the per-page chat beside a tab card.
 - [Page chat service](../src/extension/background/projectPageChat.js) — resolves a tab to its record or page key and reads live tab text.
+- [Excerpt domain and store](../src/core/projects/excerpts.js) — excerpt shape and the one-shot request to unfold an excerpt's chat.
+- [Excerpt service](../src/extension/background/projectExcerpts.js) — the selection menu action, excerpt deletion, and reading an excerpt's page.
+- [Excerpt card](../src/project/ExcerptCard.jsx) and [excerpt chat drawer](../src/project/ExcerptChatDrawer.jsx) — the card linked to its page, and its chat with the [`read_page` tool](../src/chat/readPageTool.js).

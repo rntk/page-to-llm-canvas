@@ -33,4 +33,7 @@ export const CHAT_TOOL_OUTCOMES = Object.freeze({
   OUT_OF_RANGE: 'out_of_range',
   OUT_OF_CHUNK: 'out_of_chunk',
   PAINT_FAILED: 'paint_failed',
+  // Tools other than highlight_span (e.g. an excerpt chat's read_page).
+  TOOL_RESULT: 'tool_result',
+  TOOL_FAILED: 'tool_failed',
 });

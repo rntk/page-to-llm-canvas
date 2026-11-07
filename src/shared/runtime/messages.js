@@ -43,4 +43,6 @@ export const MSG = Object.freeze({
   getProjectView: 'getProjectView',
   getProjectPageChat: 'getProjectPageChat',
   captureProjectPageText: 'captureProjectPageText',
+  deleteProjectExcerpt: 'deleteProjectExcerpt',
+  readProjectExcerptPage: 'readProjectExcerptPage',
 });

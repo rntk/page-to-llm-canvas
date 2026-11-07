@@ -52,6 +52,10 @@ function ChatHeaderActions({ disabled, onShowHistory, onNewChat }) {
  * @param {function(): Promise<string[]>} [props.resolveSentences] Supplies the
  *   source at send time instead of `sentences` (e.g. text read from a live tab).
  * @param {string} [props.emptyPrompt] Overrides the empty-chat hint.
+ * @param {{kind: 'excerpt', pageTitle?: string, pageUrl?: string}} [props.source]
+ *   Frames the sentences for the model (an excerpt of a longer page).
+ * @param {object[]} [props.tools] Turn tools besides highlight_span (see runArticleChatTurn).
+ *   Keep it referentially stable.
  */
 function ArticleChat({
   recordKey,
@@ -72,6 +76,8 @@ function ArticleChat({
   getChatLimits = getArticleChatLimits,
   resolveSentences,
   emptyPrompt,
+  source,
+  tools,
 }) {
   const panelId = useId();
   const [showScopeDialog, setShowScopeDialog] = useState(false);
@@ -453,7 +459,9 @@ function ArticleChat({
               history: messages,
               sentences: turnSentences,
               highlightedRanges,
+              ...(source ? { source } : {}),
             },
+            ...(tools?.length ? { tools } : {}),
             question,
             limits,
             runtime: {
@@ -594,6 +602,8 @@ function ArticleChat({
     runTurn,
     scope,
     scopedSentences,
+    source,
+    tools,
     topics,
     setError,
     subjectLabel,

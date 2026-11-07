@@ -15,11 +15,11 @@ import {
   chatIndexStorageKey,
   chatDocumentStorageKey,
   isSafeChatId,
-  isPageChatKey,
+  isDetachedChatKey,
   pageChatKey,
 } from './keys.js';
 
-// Page chats have no record to supply a content revision. Their source text is
+// Page and excerpt chats have no record to supply a content revision. Their source text is
 // re-read from the live tab on each session, so every page chat stays
 // compatible under one fixed revision instead of being pruned on change.
 export const PAGE_CHAT_CONTENT_REVISION = 'page';
@@ -224,7 +224,7 @@ function metaContentRevision(meta) {
  */
 async function readRecordContentRevision(key) {
   if (!key) return null;
-  if (isPageChatKey(key)) return PAGE_CHAT_CONTENT_REVISION;
+  if (isDetachedChatKey(key)) return PAGE_CHAT_CONTENT_REVISION;
   const metaKey = recordMetaStorageKey(key);
   return metaContentRevision((await getLocal(metaKey))[metaKey]);
 }
@@ -429,6 +429,24 @@ export async function deleteChatHistory(key, chatId) {
 }
 
 /**
+ * Deletes every chat held under one detached key (e.g. a removed excerpt).
+ * Record keys are refused: their chats go with the record's own cascade.
+ * @param {string} key Page or excerpt chat key.
+ * @returns {Promise<number>} Number of storage keys removed.
+ */
+export async function deleteDetachedChats(key) {
+  if (!isDetachedChatKey(key)) return 0;
+  return queuedChatUpdate(async () => {
+    const keys = [...new Set(await chatStorageKeysForRecord(key))];
+    // Documents first, then the index, so a failure leaves them discoverable.
+    const documents = keys.filter((storageKey) => storageKey !== chatIndexStorageKey(key));
+    if (documents.length) await removeLocal(documents);
+    await removeLocal(chatIndexStorageKey(key));
+    return keys.length;
+  });
+}
+
+/**
  * Moves chats held under the record's page key (started from the project canvas
  * before the page was saved) into the record, so every chat surface for that
  * page shares one history. Messages carry over; highlight events are dropped
@@ -439,7 +457,7 @@ export async function deleteChatHistory(key, chatId) {
  * @returns {Promise<number>} Number of chats moved.
  */
 export async function adoptPageChats(key) {
-  if (!key || isPageChatKey(key)) return 0;
+  if (!key || isDetachedChatKey(key)) return 0;
   return queuedChatUpdate(async () => {
     const metaKey = recordMetaStorageKey(key);
     const meta = (await getLocal(metaKey))[metaKey];
@@ -608,7 +626,7 @@ export async function reconcileChatStorage() {
     }
 
     const metaKeys = [...groups.keys()]
-      .filter((key) => !isPageChatKey(key))
+      .filter((key) => !isDetachedChatKey(key))
       .map((key) => recordMetaStorageKey(key));
     const recordMetas = metaKeys.length ? await getLocal(metaKeys) : {};
 
@@ -617,7 +635,7 @@ export async function reconcileChatStorage() {
     let keptChats = 0;
 
     for (const [key, group] of groups) {
-      const contentRevision = isPageChatKey(key)
+      const contentRevision = isDetachedChatKey(key)
         ? PAGE_CHAT_CONTENT_REVISION
         : metaContentRevision(recordMetas[recordMetaStorageKey(key)]);
 

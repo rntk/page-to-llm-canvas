@@ -310,14 +310,21 @@ export function createProjectService({
      * @param {object|undefined} tab
      */
     async openProjectForTab(tab) {
+      const groupId = await service.groupForTab(tab);
+      return groupId === null ? null : service.openProjectForGroup(groupId);
+    },
+
+    /**
+     * The tab's group id, grouping an ungrouped tab on its own first.
+     * @param {object|undefined} tab
+     * @returns {Promise<number|null>} Null when there is no usable tab.
+     */
+    async groupForTab(tab) {
       if (!tab || !Number.isInteger(tab.id) || tab.id < 0) {
         logger.info?.('open group project: no tab available');
         return null;
       }
-      const groupId = isTabGroupId(tab.groupId)
-        ? tab.groupId
-        : await tabs.group({ tabIds: [tab.id] });
-      return service.openProjectForGroup(groupId);
+      return isTabGroupId(tab.groupId) ? tab.groupId : tabs.group({ tabIds: [tab.id] });
     },
   };
   return service;
@@ -355,6 +362,11 @@ export function createCoalescedRunner(run, logger = console) {
 
 export const OPEN_GROUP_PROJECT_MENU_ID = 'open-group-project';
 export const OPEN_GROUP_PROJECT_COMMAND = 'open-group-project';
+export const OPEN_EXCERPT_MENU_ID = 'open-excerpt-in-project';
+
+// Excerpts come from ordinary web pages; extension pages (the project canvas
+// itself) and browser-internal pages are left out.
+const EXCERPT_DOCUMENT_PATTERNS = ['http://*/*', 'https://*/*', 'file:///*'];
 
 /**
  * Creates the context menu entries. `tab` (tab strip) context exists only in
@@ -362,30 +374,44 @@ export const OPEN_GROUP_PROJECT_COMMAND = 'open-group-project';
  * @param {object} contextMenus `chrome.contextMenus`.
  */
 export function createProjectMenus(contextMenus) {
-  const base = { id: OPEN_GROUP_PROJECT_MENU_ID, title: 'Open group project' };
-  const create = (contexts) =>
+  const create = (properties) =>
     new Promise((resolve, reject) => {
-      contextMenus.create({ ...base, contexts }, () => {
+      contextMenus.create(properties, () => {
         const error = globalThis.chrome?.runtime?.lastError;
         if (error) reject(new Error(error.message));
         else resolve();
       });
     });
+  const groupMenu = (contexts) =>
+    create({ id: OPEN_GROUP_PROJECT_MENU_ID, title: 'Open group project', contexts });
   const types = contextMenus.ContextType ? Object.values(contextMenus.ContextType) : [];
   const supportsTab = types.includes('tab');
   return Promise.resolve(contextMenus.removeAll()).then(async () => {
+    let grouped = false;
     if (supportsTab) {
       try {
-        await create(['page', 'action', 'tab']);
-        return;
+        await groupMenu(['page', 'action', 'tab']);
+        grouped = true;
       } catch {
         /* Fall through to the portable contexts. */
       }
     }
+    if (!grouped) {
+      try {
+        await groupMenu(['page', 'action']);
+      } catch {
+        /* A duplicate id after a racing removeAll is harmless. */
+      }
+    }
     try {
-      await create(['page', 'action']);
+      await create({
+        id: OPEN_EXCERPT_MENU_ID,
+        title: 'Open excerpt in project',
+        contexts: ['selection'],
+        documentUrlPatterns: EXCERPT_DOCUMENT_PATTERNS,
+      });
     } catch {
-      /* A duplicate id after a racing removeAll is harmless. */
+      /* Same as above. */
     }
   });
 }
@@ -397,6 +423,8 @@ export function createProjectMenus(contextMenus) {
  *
  * @param {object} deps
  * @param {ReturnType<typeof createProjectService>} deps.projectService
+ * @param {{openExcerptFromSelection: Function}} [deps.excerptService]
+ *   Handles the "Open excerpt in project" selection menu.
  * @param {object} [deps.chromeRuntime]
  * @param {object} [deps.chromeTabs]
  * @param {object} [deps.chromeTabGroups]
@@ -406,6 +434,7 @@ export function createProjectMenus(contextMenus) {
  */
 export function installProjectRuntime({
   projectService,
+  excerptService,
   chromeRuntime,
   chromeTabs,
   chromeTabGroups,
@@ -440,6 +469,14 @@ export function installProjectRuntime({
 
   listen(chromeContextMenus?.onClicked, (info, tab) => {
     if (info?.menuItemId === OPEN_GROUP_PROJECT_MENU_ID) openForTab(tab);
+    if (info?.menuItemId === OPEN_EXCERPT_MENU_ID && excerptService) {
+      excerptService
+        .openExcerptFromSelection(tab, {
+          selectionText: info.selectionText,
+          frameId: info.frameId,
+        })
+        .catch((err) => logger.warn?.('open excerpt failed:', err));
+    }
   });
 
   listen(chromeCommands?.onCommand, (command, tab) => {

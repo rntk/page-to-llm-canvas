@@ -99,6 +99,31 @@ export function isPageChatKey(key) {
   return typeof key === 'string' && key.startsWith(PAGE_CHAT_KEY_PREFIX);
 }
 
+// Chats about a project excerpt (a passage selected on a page and opened on the
+// project canvas) live under the excerpt's id, apart from record and page keys.
+export const EXCERPT_CHAT_KEY_PREFIX = 'excerpt:';
+
+/**
+ * @param {string} excerptId
+ * @returns {string} The excerpt chat key, or '' for an empty id.
+ */
+export function excerptChatKey(excerptId) {
+  return typeof excerptId === 'string' && excerptId ? `${EXCERPT_CHAT_KEY_PREFIX}${excerptId}` : '';
+}
+
+export function isExcerptChatKey(key) {
+  return typeof key === 'string' && key.startsWith(EXCERPT_CHAT_KEY_PREFIX);
+}
+
+/**
+ * Chat keys no record owns (page and excerpt chats). Their source is not a
+ * record's sentences, so they share one fixed content revision.
+ * @param {string} key
+ */
+export function isDetachedChatKey(key) {
+  return isPageChatKey(key) || isExcerptChatKey(key);
+}
+
 // Guards the `:` separator that `chatDocumentStorageKey` composes with: a
 // chatId containing a colon could otherwise forge a different record's key.
 // Shared by the storage layer and the message-handler validation so the two
@@ -110,3 +135,6 @@ export function isSafeChatId(value) {
 // One document holding every project (see src/core/projects/). Projects are few
 // and small, so a single key keeps rebinding a single read-modify-write.
 export const PROJECTS_STORAGE_KEY = 'pagetollm:projects';
+
+// One document holding every project excerpt (see src/core/projects/excerpts.js).
+export const PROJECT_EXCERPTS_STORAGE_KEY = 'pagetollm:project-excerpts';

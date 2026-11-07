@@ -48,6 +48,8 @@ describe('project handlers', () => {
       project: { id: 'a' },
       isOpen: true,
       tabs: [],
+      excerpts: [],
+      focusExcerptId: null,
     });
     await handlers[MSG.openProjectForGroup].handle({ groupId: 4 });
     expect(projectService.openProjectForGroup).toHaveBeenCalledWith(4);
@@ -80,5 +82,60 @@ describe('project handlers', () => {
     expect(await handlers[MSG.captureProjectPageText].handle({ projectId: 'a', tabId: 3 })).toEqual(
       { ok: true, sentences: ['One.'], truncated: false },
     );
+  });
+});
+
+describe('project excerpt handlers', () => {
+  function makeExcerptService() {
+    return {
+      takeProjectExcerpts: vi.fn(async () => ({ excerpts: [{ id: 'e1' }], focusExcerptId: 'e1' })),
+      deleteExcerpt: vi.fn(async () => ({ deleted: true })),
+      readExcerptPage: vi.fn(async () => ({ sentences: ['One.'], truncated: false })),
+      deleteProject: vi.fn(async () => ({ deleted: true })),
+    };
+  }
+
+  it('merges excerpts into the project view', async () => {
+    const excerptService = makeExcerptService();
+    const handlers = createProjectHandlers({
+      projectService: makeService(),
+      pageChatService: {},
+      excerptService,
+    });
+    expect(await handlers[MSG.getProjectView].handle({ projectId: 'a' })).toEqual({
+      ok: true,
+      project: { id: 'a' },
+      isOpen: true,
+      tabs: [],
+      excerpts: [{ id: 'e1' }],
+      focusExcerptId: 'e1',
+    });
+  });
+
+  it('validates and forwards excerpt requests, and deletes projects with their excerpts', async () => {
+    const excerptService = makeExcerptService();
+    const projectService = makeService();
+    const handlers = createProjectHandlers({ projectService, pageChatService: {}, excerptService });
+    for (const type of [MSG.deleteProjectExcerpt, MSG.readProjectExcerptPage]) {
+      expect(handlers[type].requiresExtensionPage, type).toBe(true);
+      expect(handlers[type].validate({ excerptId: 'e' }), type).toBe('invalid projectId');
+      expect(handlers[type].validate({ projectId: 'a' }), type).toBe('invalid excerptId');
+      expect(handlers[type].validate({ projectId: 'a', excerptId: 'e' }), type).toBeNull();
+    }
+    await handlers[MSG.deleteProjectExcerpt].handle({ projectId: 'a', excerptId: 'e1' });
+    expect(excerptService.deleteExcerpt).toHaveBeenCalledWith('a', 'e1');
+    expect(
+      await handlers[MSG.readProjectExcerptPage].handle({ projectId: 'a', excerptId: 'e1' }),
+    ).toEqual({ ok: true, sentences: ['One.'], truncated: false });
+    await handlers[MSG.deleteProject].handle({ projectId: 'a' });
+    expect(excerptService.deleteProject).toHaveBeenCalledWith('a');
+    expect(projectService.deleteProject).not.toHaveBeenCalled();
+  });
+
+  it('rejects excerpt requests without an excerpt service', async () => {
+    const handlers = createProjectHandlers({ projectService: makeService(), pageChatService: {} });
+    await expect(
+      handlers[MSG.readProjectExcerptPage].handle({ projectId: 'a', excerptId: 'e' }),
+    ).rejects.toThrow('excerpts are not available');
   });
 });

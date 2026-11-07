@@ -10,6 +10,8 @@ const READABLE_URL = /^(?:https?|file):/i;
 const UNREADABLE_MESSAGE = 'Chat is not available for this kind of page.';
 const UNREACHABLE_MESSAGE =
   'Could not read this tab. Open or reload it so the page finishes loading, then try again.';
+const PAGE_NOT_OPEN_MESSAGE =
+  'The page is not open in this project and is not saved, so its full text cannot be read.';
 
 /**
  * Per-page chat sources for the project canvas. A tab whose URL has a saved
@@ -38,7 +40,7 @@ export function createProjectPageChatService({ projectService, findRecordByUrl, 
     return canonical && canonical !== url ? findRecordByUrl(canonical) : null;
   }
 
-  return {
+  const service = {
     /**
      * @param {string} projectId
      * @param {number} tabId
@@ -96,5 +98,27 @@ export function createProjectPageChatService({ projectService, findRecordByUrl, 
       if (!sentences.length) throw new Error('No readable text was found on this page.');
       return { sentences, truncated: raw.length > MAX_PAGE_TEXT_CHARS };
     },
+
+    /**
+     * The full text of a page by URL, for an excerpt's chat: the saved record's
+     * sentences when there is one, otherwise the live text of a project tab
+     * showing that page.
+     * @param {string} projectId
+     * @param {string} url
+     * @returns {Promise<{sentences: string[], truncated: boolean, source: 'record'|'tab'}>}
+     */
+    async readPageText(projectId, url) {
+      const canonical = canonicalPageUrl(url);
+      if (!canonical || !READABLE_URL.test(canonical)) throw new Error(UNREADABLE_MESSAGE);
+      const record = await findRecord(canonical);
+      if (record?.key && Array.isArray(record.sentences) && record.sentences.length) {
+        return { sentences: record.sentences, truncated: false, source: 'record' };
+      }
+      const view = await projectService.getProjectView(projectId);
+      const tab = view.tabs.find((candidate) => canonicalPageUrl(candidate.url) === canonical);
+      if (!tab) throw new Error(PAGE_NOT_OPEN_MESSAGE);
+      return { ...(await service.capturePageText(projectId, tab.id)), source: 'tab' };
+    },
   };
+  return service;
 }
