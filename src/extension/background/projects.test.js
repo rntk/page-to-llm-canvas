@@ -24,6 +24,11 @@ function makeBrowser({ groups = [], tabs = [] } = {}) {
       }),
       update: vi.fn(async () => ({})),
       group: vi.fn(async ({ groupId, tabIds }) => {
+        if (groupId === undefined) {
+          groupId = Math.max(0, ...state.groups.map((g) => g.id)) + 1;
+          const source = state.tabs.find((t) => tabIds.includes(t.id));
+          state.groups.push({ id: groupId, title: '', color: 'grey', windowId: source.windowId });
+        }
         for (const t of state.tabs) if (tabIds.includes(t.id)) t.groupId = groupId;
         return groupId;
       }),
@@ -125,12 +130,68 @@ describe('openProjectForGroup', () => {
     await expect(service.openProjectForGroup(3)).rejects.toThrow('tab group not found');
   });
 
-  it('does nothing for ungrouped tabs', async () => {
-    const browser = makeBrowser();
-    const { service } = makeService(browser);
-    expect(await service.openProjectForTab({ id: 1, groupId: -1 })).toBeNull();
+  it.each([-1, undefined])(
+    'creates a group and project for a tab with groupId %s',
+    async (groupId) => {
+      const source = tab(1, groupId, 2, { windowId: 4 });
+      const browser = makeBrowser({ tabs: [source, tab(2, -1, 3)] });
+      const { service, data } = makeService(browser);
+
+      const result = await service.openProjectForTab(source);
+
+      expect(result).toMatchObject({ createdProject: true, createdTab: true, tabId: 100 });
+      expect(browser.api.tabs.group).toHaveBeenNthCalledWith(1, { tabIds: [1] });
+      expect(browser.api.tabs.group).toHaveBeenNthCalledWith(2, { groupId: 1, tabIds: [100] });
+      expect(browser.state.tabs.map((t) => t.groupId)).toEqual([1, -1, 1]);
+      expect(data.projects).toEqual([expect.objectContaining({ id: 'p1', groupId: 1 })]);
+      expect(browser.api.tabs.create).toHaveBeenCalledWith({
+        url: `${BASE}?id=p1`,
+        windowId: 4,
+        index: 3,
+        active: true,
+      });
+    },
+  );
+
+  it('reuses a grouped tab’s existing project', async () => {
+    const source = tab(1, 7, 0);
+    const browser = makeBrowser({
+      groups: [group(7)],
+      tabs: [source, tab(2, 7, 1, { url: `${BASE}?id=a` })],
+    });
+    const { service, data } = makeService(browser, { stored: [stored('a', 7)] });
+
+    expect(await service.openProjectForTab(source)).toMatchObject({
+      createdProject: false,
+      createdTab: false,
+      tabId: 2,
+    });
+    expect(browser.api.tabs.group).not.toHaveBeenCalled();
+    expect(data.projects).toHaveLength(1);
+  });
+
+  it('does not create a project when grouping fails', async () => {
+    const browser = makeBrowser({ tabs: [tab(1, -1, 0)] });
+    browser.api.tabs.group.mockRejectedValueOnce(new Error('cannot group tab'));
+    const { service, data } = makeService(browser);
+
+    await expect(service.openProjectForTab(browser.state.tabs[0])).rejects.toThrow(
+      'cannot group tab',
+    );
+    expect(data.projects).toEqual([]);
     expect(browser.api.tabs.create).not.toHaveBeenCalled();
   });
+
+  it.each([undefined, {}, { id: -1 }])(
+    'does nothing when no usable tab is available: %s',
+    async (source) => {
+      const browser = makeBrowser();
+      const { service } = makeService(browser);
+      expect(await service.openProjectForTab(source)).toBeNull();
+      expect(browser.api.tabs.group).not.toHaveBeenCalled();
+      expect(browser.api.tabs.create).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('rebinding through the service', () => {

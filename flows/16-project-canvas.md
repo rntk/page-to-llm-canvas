@@ -2,6 +2,8 @@
 
 A project is a persistent identity for a browser tab group. A user turns an existing group into a project, and the project then opens as a pannable, zoomable canvas with one card per tab in that group.
 
+Choosing **Open group project** on a page that is not in a group first creates a browser tab group containing that page, then creates the project and opens its project page inside the same group. If the page already belongs to a group, the action opens that group's existing project or creates one when needed. The keyboard shortcut follows the same behavior for the active tab.
+
 Browser tab group ids do not survive a restart, so the project is anchored by a dedicated project page tab that lives inside its group. The worker uses that tab to rebind the project to its live group. Opening a project focuses this page tab, or recreates it inside the group if it is missing.
 
 The project page is its own extension page. It shares pan and zoom behavior with the [record canvas](08-canvas.md). The options page lists projects and their open state, and a chat panel beside the canvas is reserved for conversation across the project's pages.

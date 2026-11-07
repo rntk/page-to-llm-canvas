@@ -306,15 +306,18 @@ export function createProjectService({
     },
 
     /**
-     * Resolves the project for a tab's group, logging and skipping ungrouped tabs.
+     * Opens the project for a tab, creating a group around ungrouped tabs first.
      * @param {object|undefined} tab
      */
     async openProjectForTab(tab) {
-      if (!tab || !isTabGroupId(tab.groupId)) {
-        logger.info?.('open group project: tab is not in a group');
+      if (!tab || !Number.isInteger(tab.id) || tab.id < 0) {
+        logger.info?.('open group project: no tab available');
         return null;
       }
-      return service.openProjectForGroup(tab.groupId);
+      const groupId = isTabGroupId(tab.groupId)
+        ? tab.groupId
+        : await tabs.group({ tabIds: [tab.id] });
+      return service.openProjectForGroup(groupId);
     },
   };
   return service;
