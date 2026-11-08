@@ -4,30 +4,18 @@ import SourceArticle from '../topics-tree/SourceArticle.jsx';
 import { buildSummaryTreeDisplayTree } from '../topics-tree/displayTree.js';
 import { useSourceCardChats } from '../topics-tree/useSourceCardChats.js';
 import { SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
+import { describeMerge } from './projectMergeState.js';
 import '../hierarchy/hierarchy.css';
 import '../topics-tree/topics-tree.css';
 
 const NO_SENTENCES = [];
-const STAGES = {
-  passages: 'Reading primary topics',
-  topics: 'Merging similar topics',
-  summaries: 'Summarizing merged topics',
-};
-
-function mergeProgress(tree) {
-  const label = STAGES[tree?.stage] || 'Starting';
-  const { done = 0, total = 0 } = tree?.progress || {};
-  return total ? `${label} ${done}/${total}…` : `${label}…`;
-}
 
 /** The project's saved merge, rendered with the same progressive tree as article summaries. */
 export function ProjectTopicTree({ project, merge, pending, notice, onBuild, onStop }) {
   const [controlsHost, setControlsHost] = useState(null);
   const tree = merge?.tree;
-  const status = merge?.status || SUMMARY_TREE_STATUS.MISSING;
-  const running = status === SUMMARY_TREE_STATUS.RUNNING;
-  const eligible = Array.isArray(merge?.eligiblePages) ? merge.eligiblePages : [];
-  const skipped = Array.isArray(merge?.skippedPages) ? merge.skippedPages : [];
+  const { status, running, resumable, updatable, eligible, skipped, changeText, stateText } =
+    useMemo(() => describeMerge(merge, { pending }), [merge, pending]);
   const treeJson = useMemo(
     () =>
       JSON.stringify(
@@ -51,35 +39,6 @@ export function ProjectTopicTree({ project, merge, pending, notice, onBuild, onS
     records: tree?.records,
     projectId: project.id,
   });
-  const changes = merge?.changes;
-  const changeText = changes
-    ? [
-        changes.added && `${changes.added} new`,
-        changes.changed && `${changes.changed} updated`,
-        changes.removed && `${changes.removed} removed`,
-      ]
-        .filter(Boolean)
-        .join(', ')
-    : '';
-  const updatable = status === SUMMARY_TREE_STATUS.DONE && merge?.stale === true;
-  const resumable = [
-    SUMMARY_TREE_STATUS.CANCELLED,
-    SUMMARY_TREE_STATUS.INTERRUPTED,
-    SUMMARY_TREE_STATUS.ERROR,
-  ].includes(status);
-  const stateText = running
-    ? mergeProgress(tree)
-    : status === SUMMARY_TREE_STATUS.DONE
-      ? `Merged topics from ${tree?.records?.length || 0} articles`
-      : status === SUMMARY_TREE_STATUS.CANCELLED
-        ? 'The merge was stopped.'
-        : status === SUMMARY_TREE_STATUS.INTERRUPTED
-          ? 'The merge was interrupted.'
-          : status === SUMMARY_TREE_STATUS.ERROR
-            ? 'The merge failed.'
-            : pending
-              ? 'Starting the merge…'
-              : 'Merge primary topics from completed saved pages in this project.';
 
   return (
     <section className="th-page project-topic-tree" aria-label="Merged project topics">

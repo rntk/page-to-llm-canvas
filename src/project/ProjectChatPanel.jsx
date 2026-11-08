@@ -1,14 +1,20 @@
 import React from 'react';
 import { ProjectChat } from './ProjectChat.jsx';
+import { SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
+import { describeMerge } from './projectMergeState.js';
 
 const STALE_NOTICE =
   'Pages or topics changed since this merge. Answers use the saved merge — rebuild to include current pages.';
 
 const INCOMPLETE_TEXT = {
-  running: 'Similar topics are still being merged. Chat is available once the merge finishes.',
-  interrupted: 'The topic merge stopped before it finished. Resume it to chat over this project.',
-  cancelled: 'The topic merge was stopped. Resume it to chat over this project.',
-  error: 'The topic merge failed. Open it to retry and chat over this project.',
+  [SUMMARY_TREE_STATUS.RUNNING]:
+    'Similar topics are still being merged. Chat is available once the merge finishes.',
+  [SUMMARY_TREE_STATUS.INTERRUPTED]:
+    'The topic merge stopped before it finished. Resume it to chat over this project.',
+  [SUMMARY_TREE_STATUS.CANCELLED]:
+    'The topic merge was stopped. Resume it to chat over this project.',
+  [SUMMARY_TREE_STATUS.ERROR]:
+    'The topic merge failed. Open it to retry and chat over this project.',
 };
 
 const MISSING_TEXT =
@@ -28,7 +34,7 @@ const MISSING_TEXT =
  * @param {function(): void} props.onCollapse
  */
 export function ProjectChatPanel({ projectId, merge, onOpenMerge, onCollapse }) {
-  const data = merge || { status: undefined, tree: null };
+  const { status, ready, skipped } = describeMerge(merge);
   const mergeButton = (label) =>
     onOpenMerge ? (
       <button type="button" onClick={onOpenMerge}>
@@ -37,38 +43,37 @@ export function ProjectChatPanel({ projectId, merge, onOpenMerge, onCollapse }) 
     ) : null;
 
   let body;
-  if (data.status === 'done' && data.tree) {
-    const skipped = data.skippedPages?.length || 0;
+  if (ready) {
     body = (
       <>
-        {data.stale && (
+        {merge.stale && (
           <div className="chat-panel-notice" role="status">
             <p className="note">{STALE_NOTICE}</p>
             {mergeButton('Rebuild merge')}
           </div>
         )}
-        {skipped > 0 && (
+        {skipped.length > 0 && (
           <p className="note chat-panel-skipped" role="status">
-            {skipped === 1
+            {skipped.length === 1
               ? '1 page is not included (not saved or still processing).'
-              : `${skipped} pages are not included (not saved or still processing).`}
+              : `${skipped.length} pages are not included (not saved or still processing).`}
           </p>
         )}
         <ProjectChat
           projectId={projectId}
-          tree={data.tree}
-          eligiblePages={data.eligiblePages}
-          skippedPages={data.skippedPages}
-          stale={data.stale === true}
+          tree={merge.tree}
+          eligiblePages={merge.eligiblePages}
+          skippedPages={merge.skippedPages}
+          stale={merge.stale === true}
         />
       </>
     );
   } else {
-    const text = INCOMPLETE_TEXT[data.status] || MISSING_TEXT;
+    const incomplete = INCOMPLETE_TEXT[status];
     body = (
       <div className="chat-panel-empty">
-        <p className="note">{text}</p>
-        {mergeButton(INCOMPLETE_TEXT[data.status] ? 'Open topic merge' : 'Merge similar topics')}
+        <p className="note">{incomplete || MISSING_TEXT}</p>
+        {mergeButton(incomplete ? 'Open topic merge' : 'Merge similar topics')}
       </div>
     );
   }

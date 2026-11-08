@@ -1,8 +1,6 @@
 import { useState } from 'react';
-import { SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
 import { useStaleTick } from '../shared/useStaleTick.js';
-
-const REBUILD_STATUSES = ['cancelled', 'interrupted', 'error'];
+import { describeMerge } from './projectMergeState.js';
 
 /**
  * Topic-merge commands for a project (build, stop, open) plus polling of the
@@ -41,17 +39,12 @@ export function useProjectMerge({ projectId, api, merge, refresh, showTopics }) 
       ? () => run(() => api.stopProjectTopicTree(projectId))
       : undefined;
 
+  const { running, needsBuild } = describeMerge(merge);
   const open = () => {
     showTopics();
-    if (
-      merge?.eligiblePages?.length !== 0 &&
-      (!merge?.tree || merge?.stale === true || REBUILD_STATUSES.includes(merge?.status))
-    ) {
-      void build({ fresh: false });
-    }
+    if (needsBuild) void build({ fresh: false });
   };
 
-  const running = merge?.status === SUMMARY_TREE_STATUS.RUNNING;
   useStaleTick(running, refresh);
 
   return { canMerge, pending, notice, build, stop, open };
