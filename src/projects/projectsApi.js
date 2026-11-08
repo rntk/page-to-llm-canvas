@@ -12,6 +12,8 @@ import {
 } from '../core/storage/keys.js';
 import { INDEX_KEY } from '../core/storage/recordIndex.js';
 
+/** @typedef {ReturnType<typeof createProjectsApi>} ProjectsApi */
+
 /**
  * @param {{send: function(object): Promise<*>}} messenger
  */

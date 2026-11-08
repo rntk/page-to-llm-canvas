@@ -3,6 +3,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectApp } from './ProjectApp.jsx';
+import { createFakeProjectsApi } from '../../test/fakes/projectsApiFake.mjs';
 
 vi.mock('./ProjectChat.jsx', () => ({
   ProjectChat: ({ tree, stale, eligiblePages, skippedPages }) => (
@@ -40,7 +41,7 @@ const viewOf = (overrides = {}) => ({
 });
 
 async function renderApp({ view = viewOf(), api, projectId = 'a', ...rest } = {}) {
-  const resolvedApi = api || { getProjectView: vi.fn(async () => view) };
+  const resolvedApi = api || createFakeProjectsApi({ getProjectView: vi.fn(async () => view) });
   const hosts = {
     tabsHost: { activateTab: vi.fn(async () => {}) },
     pageHost: { openOptions: vi.fn() },
@@ -53,7 +54,7 @@ async function renderApp({ view = viewOf(), api, projectId = 'a', ...rest } = {}
 
 describe('ProjectApp', () => {
   it('shows a loading state before the view arrives', async () => {
-    const api = { getProjectView: vi.fn(() => new Promise(() => {})) };
+    const api = createFakeProjectsApi({ getProjectView: vi.fn(() => new Promise(() => {})) });
     await renderApp({ api });
     expect(container.textContent).toBe('Loading…');
   });
@@ -67,9 +68,9 @@ describe('ProjectApp', () => {
   });
 
   it('shows an error with an options link when the project cannot be loaded', async () => {
-    const api = {
+    const api = createFakeProjectsApi({
       getProjectView: vi.fn(async () => Promise.reject(new Error('project not found'))),
-    };
+    });
     const { pageHost } = await renderApp({ api });
     expect(container.querySelector('[role="alert"]').textContent).toContain('project not found');
     await act(async () => container.querySelector('button').click());
@@ -136,7 +137,7 @@ describe('ProjectApp', () => {
     );
     await act(async () => panel().querySelector('button').click());
     expect(panel()).toBeNull();
-    await act(async () => container.querySelector('.project-header button').click());
+    await act(async () => container.querySelector('.project-header button[aria-pressed]').click());
     expect(panel()).not.toBeNull();
   });
 
@@ -148,13 +149,13 @@ describe('ProjectApp', () => {
         eligiblePages: [{ key: 'a', title: 'First', url: 'https://a.test/x' }],
       },
     });
-    const api = {
+    const api = createFakeProjectsApi({
       getProjectView: vi.fn(async () => view),
       buildProjectTopicTree: vi.fn(async () => {
         view = { ...view, topicMerge: { ...view.topicMerge, status: 'running' } };
         return {};
       }),
-    };
+    });
     await renderApp({ api });
     const panel = container.querySelector('aside[aria-label="Project chat"]');
     expect(panel.textContent).toContain('Merge similar topics first');
@@ -186,7 +187,7 @@ describe('ProjectApp', () => {
         ...overrides,
       });
       let view = viewOf({ topicMerge: merge() });
-      const api = { getProjectView: vi.fn(async () => view) };
+      const api = createFakeProjectsApi({ getProjectView: vi.fn(async () => view) });
       await renderApp({ api, subscribe });
       const chat = () => container.querySelector('[data-testid="project-chat"]');
       expect(chat().textContent).toBe('chat root | Kept | Draft one');
@@ -220,11 +221,11 @@ describe('ProjectApp', () => {
         return unsubscribe;
       });
       let title = 'Before';
-      const api = {
+      const api = createFakeProjectsApi({
         getProjectView: vi.fn(async () =>
           viewOf({ tabs: [{ id: 1, title, url: 'https://a.test' }] }),
         ),
-      };
+      });
       await renderApp({ api, subscribe });
       expect(container.querySelector('.tab-card-title').textContent).toBe('Before');
       title = 'After';
@@ -249,7 +250,7 @@ describe('ProjectApp', () => {
         eligiblePages: [{ key: 'a', title: 'First', url: 'https://a.test/x' }],
       },
     });
-    const api = {
+    const api = createFakeProjectsApi({
       getProjectView: vi.fn(async () => view),
       buildProjectTopicTree: vi.fn(async () => {
         view = {
@@ -263,7 +264,7 @@ describe('ProjectApp', () => {
         return {};
       }),
       stopProjectTopicTree: vi.fn(async () => ({})),
-    };
+    });
     await renderApp({ api });
     const canvas = container.querySelector('.canvas-area');
     const toggle = container.querySelector('.project-actions__toggle');
@@ -290,10 +291,10 @@ describe('ProjectApp', () => {
   });
 
   it('switches between the canvas and topics tree tabs without building', async () => {
-    const api = {
+    const api = createFakeProjectsApi({
       getProjectView: vi.fn(async () => viewOf({ topicMerge: { status: 'missing', tree: null } })),
       buildProjectTopicTree: vi.fn(async () => ({})),
-    };
+    });
     await renderApp({ api });
     const tab = (name) =>
       [...container.querySelectorAll('[role="tab"]')].find((el) => el.textContent === name);

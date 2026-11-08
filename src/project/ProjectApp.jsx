@@ -30,9 +30,7 @@ function ErrorState({ title, message, pageHost }) {
  *
  * @param {object} props
  * @param {string|null} props.projectId
- * @param {{getProjectView: function(string): Promise<{project: object, isOpen: boolean, tabs: object[]}>, getPageChat?: Function, capturePageText?: Function, readExcerptPage?: Function, deleteExcerpt?: Function}} props.api
- *   `getPageChat`/`capturePageText` back the per-page chat drawers;
- *   `readExcerptPage`/`deleteExcerpt` back excerpt cards and their chats.
+ * @param {import('../projects/projectsApi.js').ProjectsApi} props.api
  * @param {function(function(): void): function(): void} [props.subscribe]
  *   Change subscription (see `subscribeProjectChanges`).
  * @param {{activateTab: function(number): Promise<void>}} props.tabsHost
@@ -51,7 +49,6 @@ export function ProjectApp({
   const [chatOpen, setChatOpen] = useState(true);
   const [activeView, setActiveView] = useState('canvas');
   const {
-    canMerge,
     actions: topicActions,
     pending: topicPending,
     notice: topicNotice,
@@ -88,7 +85,7 @@ export function ProjectApp({
   }
 
   const tabs = view.tabs;
-  const topicTreeOpen = canMerge && activeView === 'topics';
+  const topicTreeOpen = activeView === 'topics';
   return (
     <div className="project-shell">
       <ProjectHeader
@@ -98,7 +95,7 @@ export function ProjectApp({
         chatOpen={chatOpen}
         onToggleChat={() => setChatOpen((open) => !open)}
         actions={topicActions}
-        viewTabs={canMerge && <ProjectViewTabs activeView={activeView} onSelect={setActiveView} />}
+        viewTabs={<ProjectViewTabs activeView={activeView} onSelect={setActiveView} />}
       />
       <div className="project-body">
         <div className="project-canvas-wrap">
@@ -131,7 +128,7 @@ export function ProjectApp({
           <ProjectChatPanel
             projectId={projectId}
             merge={view.topicMerge}
-            onOpenMerge={canMerge ? openMerge : undefined}
+            onOpenMerge={openMerge}
             onCollapse={() => setChatOpen(false)}
           />
         )}

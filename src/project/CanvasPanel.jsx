@@ -10,7 +10,7 @@ const NO_EXCERPTS = [];
  * @param {object} props
  * @param {string} props.projectId
  * @param {object} props.view
- * @param {object} props.api
+ * @param {import('../projects/projectsApi.js').ProjectsApi} props.api
  * @param {object} props.tabsHost
  * @param {boolean} props.active
  */
@@ -34,7 +34,7 @@ export function CanvasPanel({ projectId, view, api, tabsHost, active }) {
   const acknowledgeFocus = useCallback(
     (excerptId) => {
       // A lost acknowledgement only means the request is offered again.
-      Promise.resolve(api.acknowledgeExcerptFocus?.(projectId, excerptId)).catch(() => {});
+      Promise.resolve(api.acknowledgeExcerptFocus(projectId, excerptId)).catch(() => {});
     },
     [api, projectId],
   );
@@ -52,11 +52,11 @@ export function CanvasPanel({ projectId, view, api, tabsHost, active }) {
         tabs={view.tabs}
         excerpts={view.excerpts || NO_EXCERPTS}
         focusExcerptId={view.focusExcerptId || null}
-        onFocusHandled={api.acknowledgeExcerptFocus ? acknowledgeFocus : undefined}
+        onFocusHandled={acknowledgeFocus}
         tabsHost={tabsHost}
         renderPageChat={renderPageChat}
-        renderExcerptChat={api.readExcerptPage ? renderExcerptChat : undefined}
-        onDeleteExcerpt={api.deleteExcerpt ? deleteExcerpt : undefined}
+        renderExcerptChat={renderExcerptChat}
+        onDeleteExcerpt={deleteExcerpt}
       />
       {!view.isOpen && (
         <p className="canvas-hint" role="status">
