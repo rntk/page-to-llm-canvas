@@ -3,8 +3,6 @@ import ArticleChat from '../chat/ArticleChat.jsx';
 import { createProjectChatContext } from '../core/projects/projectChatTools.js';
 import { projectChatKey } from '../core/storage/keys.js';
 
-const NO_SENTENCES = [];
-const NO_TOPICS = [];
 const PROJECT_PROMPT =
   'Ask about this project. The assistant searches the merged topics of the included pages and cites the articles it read.';
 
@@ -37,8 +35,6 @@ export function ProjectChat({ projectId, tree, eligiblePages, skippedPages, stal
     <div className="page-chat-body project-chat">
       <ArticleChat
         recordKey={projectChatKey(projectId)}
-        sentences={NO_SENTENCES}
-        topics={NO_TOPICS}
         source={source}
         tools={tools}
         emptyPrompt={PROJECT_PROMPT}

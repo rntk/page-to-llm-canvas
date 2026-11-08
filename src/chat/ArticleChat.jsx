@@ -12,6 +12,7 @@ import { buildTopicSentenceIndex, getTopicPaths } from '../domain/topicDomain.js
 import { scopeChatSentences } from './topicScope.js';
 import TopicScopeDialog from './TopicScopeDialog.jsx';
 
+const EMPTY_SENTENCES = [];
 const EMPTY_TOPICS = [];
 
 function ChatHeaderActions({ disabled, onShowHistory, onNewChat }) {
@@ -34,7 +35,8 @@ function ChatHeaderActions({ disabled, onShowHistory, onNewChat }) {
  *
  * @param {object} props
  * @param {string} props.recordKey
- * @param {string[]} props.sentences
+ * @param {string[]} [props.sentences] Omit when `resolveSentences` or a project
+ *   `source` supplies the text.
  * @param {object[]} [props.topics] Topics and their document sentence numbers.
  * @param {{paths: string[]}} [props.scopeRequest] Starts a fresh scoped chat.
  * @param {Function} [props.onScopeRequestHandled] Consumes an external scope request.
@@ -54,13 +56,13 @@ function ChatHeaderActions({ disabled, onShowHistory, onNewChat }) {
  * @param {string} [props.emptyPrompt] Overrides the empty-chat hint.
  * @param {{kind: 'excerpt', pageTitle?: string, pageUrl?: string}|{kind: 'sections', topic?: string, pages: object[]}|{kind: 'project', preamble: string}} [props.source]
  *   Frames the sentences for the model (an excerpt of a longer page). A project
- *   source chats over `tools` alone: pass empty `sentences` and `topics`.
+ *   source chats over `tools` alone: omit `sentences` and `topics`.
  * @param {object[]} [props.tools] Turn tools besides highlight_span (see runArticleChatTurn).
  *   Keep it referentially stable.
  */
 function ArticleChat({
   recordKey,
-  sentences,
+  sentences = EMPTY_SENTENCES,
   contentRevision,
   topics = EMPTY_TOPICS,
   scopeRequest,

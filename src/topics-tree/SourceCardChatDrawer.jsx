@@ -2,7 +2,6 @@ import React, { useCallback, useMemo } from 'react';
 import ArticleChat from '../chat/ArticleChat.jsx';
 import { createMultiPageTools, createPageTools } from '../chat/readPageTool.js';
 
-const NO_TOPICS = [];
 const CARD_PROMPT =
   'Ask about this source text. The assistant can read and search the rest of the article when the card is not enough.';
 const BLOCK_PROMPT =
@@ -80,7 +79,6 @@ export function SourceCardChatDrawer({
           key={`${chatKey}\u0000${contentRevision || ''}`}
           recordKey={chatKey}
           sentences={cardSentences}
-          topics={NO_TOPICS}
           contentRevision={contentRevision}
           source={source}
           tools={tools}

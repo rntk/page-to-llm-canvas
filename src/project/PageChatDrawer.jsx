@@ -1,9 +1,9 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useMemo } from 'react';
 import ArticleChat from '../chat/ArticleChat.jsx';
+import { onceWithRetry } from '../utils/onceWithRetry.js';
+import { ChatDrawer } from './ChatDrawer.jsx';
 import { usePageChatSource } from './usePageChatSource.js';
 
-const NO_SENTENCES = [];
-const NO_TOPICS = [];
 const LIVE_PAGE_PROMPT =
   'Ask a question about this page. Its text is read from the tab when you send.';
 
@@ -12,26 +12,14 @@ const LIVE_PAGE_PROMPT =
  * once per drawer session, on the first send, then reused for later turns.
  */
 function LivePageChat({ source, tabId, capture, onEscape, chatPorts }) {
-  const captureRef = useRef(null);
-  const resolveSentences = useCallback(() => {
-    if (!captureRef.current) {
-      captureRef.current = capture(tabId).then(
-        (result) => result.sentences,
-        (err) => {
-          // Let the next send try again (e.g. after the tab finishes loading).
-          captureRef.current = null;
-          throw err;
-        },
-      );
-    }
-    return captureRef.current;
-  }, [capture, tabId]);
+  const resolveSentences = useMemo(
+    () => onceWithRetry(() => capture(tabId).then((result) => result.sentences)),
+    [capture, tabId],
+  );
 
   return (
     <ArticleChat
       recordKey={source.key}
-      sentences={NO_SENTENCES}
-      topics={NO_TOPICS}
       resolveSentences={resolveSentences}
       emptyPrompt={LIVE_PAGE_PROMPT}
       onEscape={onEscape}
@@ -111,16 +99,11 @@ export function PageChatDrawer({ tab, loadSource, capture, onClose, chatPorts })
   }
 
   return (
-    <aside
-      className="page-chat-drawer"
-      aria-label={`Chat about ${tab.title || tab.url || 'this page'}`}
+    <ChatDrawer
+      label={status === 'ready' && source.kind === 'record' ? 'Saved page chat' : 'Page chat'}
+      ariaLabel={`Chat about ${tab.title || tab.url || 'this page'}`}
     >
-      <header className="page-chat-header">
-        <span className="page-chat-label">
-          {status === 'ready' && source.kind === 'record' ? 'Saved page chat' : 'Page chat'}
-        </span>
-      </header>
-      <div className="page-chat-body">{body}</div>
-    </aside>
+      {body}
+    </ChatDrawer>
   );
 }
