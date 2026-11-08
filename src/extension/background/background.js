@@ -80,6 +80,7 @@ import { createProjectPageChatService } from './projectPageChat.js';
 import { createProjectStore } from '../../core/projects/projectStorage.js';
 import { createExcerptStore } from '../../core/projects/excerpts.js';
 import { createProjectExcerptService } from './projectExcerpts.js';
+import { createProjectTopicTreeService } from './projectTopicTree.js';
 
 export { clearSummaryErrorFlags, getAcceptedMergeFailurePaths } from './summaryResolution.js';
 
@@ -177,6 +178,7 @@ function isExtensionPageSender(sender) {
 // survives worker restarts but not browser restarts, which is exactly when
 // cached groupIds stop being trustworthy.
 const PROJECT_BINDING_SESSION_KEY = 'pagetollm:projects-bound';
+const projectStore = createProjectStore();
 const projectService = createProjectService({
   tabs: {
     query: (...args) => chrome.tabs.query(...args),
@@ -190,7 +192,7 @@ const projectService = createProjectService({
   },
   windows: { update: (...args) => chrome.windows.update(...args) },
   getURL: (path) => chrome.runtime.getURL(path),
-  projectStore: createProjectStore(),
+  projectStore,
   bindingSession: {
     async isTrusted() {
       const area = chrome.storage?.session;
@@ -203,6 +205,15 @@ const projectService = createProjectService({
     },
   },
   logger: log.child('projects'),
+});
+
+const topicTreeService = createProjectTopicTreeService({
+  projectService,
+  projectStore,
+  listRecords,
+  readRecord,
+  runProjectTopicTree: pipelineRunner.runProjectTopicTree,
+  logger: log.child('project topics'),
 });
 
 const pageChatService = createProjectPageChatService({
@@ -301,7 +312,7 @@ const MESSAGE_HANDLERS = {
   ...createNavigationHandlers({
     openOptionsPage: () => chrome.runtime.openOptionsPage(),
   }),
-  ...createProjectHandlers({ projectService, pageChatService, excerptService }),
+  ...createProjectHandlers({ projectService, pageChatService, excerptService, topicTreeService }),
 };
 
 /**

@@ -16,6 +16,7 @@ export const TAB_GROUP_ID_NONE = -1;
  * @property {number|null} groupId Cached live group id, or null when no live group is bound.
  * @property {number} createdAt Epoch milliseconds.
  * @property {number} updatedAt Epoch milliseconds.
+ * @property {object} [topic_tree] Saved project-wide primary topic merge and its checkpoints.
  */
 
 /**
@@ -49,6 +50,9 @@ export function normalizeProject(value) {
     groupId: isTabGroupId(value.groupId) ? value.groupId : null,
     createdAt,
     updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : createdAt,
+    ...(value.topic_tree && typeof value.topic_tree === 'object' && !Array.isArray(value.topic_tree)
+      ? { topic_tree: value.topic_tree }
+      : {}),
   };
 }
 

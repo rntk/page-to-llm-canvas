@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { browserScheduler } from '../shared/runtime/browserHosts.js';
 
 export const REFRESH_DEBOUNCE_MS = 150;
@@ -17,7 +17,7 @@ const noSubscribe = () => () => {};
  *   Registers a change callback and returns an unsubscribe.
  * @param {{setTimeout: function, clearTimeout: function}} [options.scheduler]
  * @param {number} [options.debounceMs]
- * @returns {{status: 'idle'|'loading'|'ready'|'error', view: object|null, error: string|null}}
+ * @returns {{status: 'idle'|'loading'|'ready'|'error', view: object|null, error: string|null, refresh: Function}}
  */
 export function useProjectView({
   projectId,
@@ -26,6 +26,8 @@ export function useProjectView({
   scheduler = browserScheduler,
   debounceMs = REFRESH_DEBOUNCE_MS,
 }) {
+  const [refreshRevision, setRefreshRevision] = useState(0);
+  const refresh = useCallback(() => setRefreshRevision((revision) => revision + 1), []);
   // The state remembers which project it belongs to, so switching ids reads as
   // "loading" without resetting state from inside the effect.
   const [state, setState] = useState({
@@ -86,9 +88,9 @@ export function useProjectView({
       if (timer !== null) scheduler.clearTimeout(timer);
       if (typeof unsubscribe === 'function') unsubscribe();
     };
-  }, [projectId, api, subscribe, scheduler, debounceMs]);
+  }, [projectId, api, subscribe, scheduler, debounceMs, refreshRevision]);
 
-  if (!projectId) return { status: 'idle', view: null, error: null };
-  if (state.projectId !== projectId) return { status: 'loading', view: null, error: null };
-  return { status: state.status, view: state.view, error: state.error };
+  if (!projectId) return { status: 'idle', view: null, error: null, refresh };
+  if (state.projectId !== projectId) return { status: 'loading', view: null, error: null, refresh };
+  return { status: state.status, view: state.view, error: state.error, refresh };
 }

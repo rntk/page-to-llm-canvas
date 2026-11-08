@@ -1,0 +1,123 @@
+import { describe, expect, it, vi } from 'vitest';
+import { createProjectTopicTreeService } from './projectTopicTree.js';
+
+function fixture() {
+  let projects = [{ id: 'p', title: 'Research', groupId: 3 }];
+  const records = [
+    {
+      key: 'a',
+      status: 'done',
+      sourceUrl: 'https://a.test/#saved',
+      contentRevision: 'a1',
+      sentences: ['First.'],
+      topics: [{ name: 'One', sentences: [1] }],
+    },
+    { key: 'b', status: 'splitting', sourceUrl: 'https://b.test/', sentences: ['Pending.'] },
+  ];
+  const tabs = [
+    { id: 1, title: 'Article A', url: 'https://a.test/#one' },
+    { id: 2, title: 'Duplicate A', url: 'https://a.test/#two' },
+    { id: 3, title: 'Article B', url: 'https://b.test/' },
+    { id: 4, title: 'Unsaved', url: 'https://new.test/' },
+  ];
+  const projectStore = {
+    get: async (id) => projects.find((project) => project.id === id),
+    update: async (mutate) => {
+      const next = mutate(projects);
+      if (next) projects = next;
+      return projects;
+    },
+  };
+  const runProjectTopicTree = vi.fn(async ({ saveSummaryTree, records: sources }) => {
+    await saveSummaryTree({
+      version: 1,
+      status: 'done',
+      contentRevision: projects[0].topic_tree.contentRevision,
+      rootId: 'n1',
+      nodes: {},
+      records: sources.map(({ key }) => ({ key })),
+      updatedAt: 100,
+    });
+  });
+  const logger = { error: vi.fn() };
+  const service = createProjectTopicTreeService({
+    projectStore,
+    projectService: { getProjectView: async () => ({ project: projects[0], tabs }) },
+    listRecords: async () =>
+      records.map(({ key, sourceUrl, status }) => ({ key, sourceUrl, status })),
+    readRecord: async (key) => records.find((record) => record.key === key),
+    runProjectTopicTree,
+    logger,
+    now: () => 100,
+    createId: () => 'run',
+  });
+  return { service, records, projectStore, runProjectTopicTree, tabs, logger };
+}
+
+const waitDone = async (store, expected = 'done') => {
+  await vi.waitFor(async () => expect((await store.get('p')).topic_tree?.status).toBe(expected));
+};
+
+describe('project topic tree service', () => {
+  it('selects completed records by canonical URL once and explains skipped pages', async () => {
+    const { service } = fixture();
+    const view = await service.getView('p');
+    expect(view).toMatchObject({ status: 'missing', tree: null, topicCount: 1, stale: false });
+    expect(view.eligiblePages).toEqual([
+      { key: 'a', title: 'Article A', url: 'https://a.test/', topicCount: 1 },
+    ]);
+    expect(view.skippedPages).toHaveLength(2);
+    expect(view.skippedPages[0].reason).toMatch(/Finish processing/);
+  });
+
+  it('persists only the project tree and exposes input changes without discarding the old tree', async () => {
+    const { service, records, projectStore, runProjectTopicTree } = fixture();
+    const before = structuredClone(records);
+    expect(await service.build('p')).toEqual({ started: true });
+    await waitDone(projectStore);
+    expect(runProjectTopicTree).toHaveBeenCalledWith(
+      expect.objectContaining({ fresh: false, records: [expect.objectContaining({ key: 'a' })] }),
+    );
+    expect(records).toEqual(before);
+    expect((await service.getView('p')).stale).toBe(false);
+    records[0].topics[0].name = 'New split';
+    expect(await service.getView('p')).toMatchObject({
+      status: 'done',
+      stale: true,
+      tree: expect.objectContaining({ records: [{ key: 'a' }] }),
+    });
+  });
+
+  it('stops an active build, persists the partial tree, and allows resume', async () => {
+    const { service, projectStore, runProjectTopicTree } = fixture();
+    runProjectTopicTree.mockImplementationOnce(async ({ signal, saveSummaryTree }) => {
+      await saveSummaryTree({
+        ...(await projectStore.get('p')).topic_tree,
+        nodes: { n0: { title: 'Checkpoint' } },
+      });
+      await new Promise((_resolve, reject) =>
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+      );
+    });
+    await service.build('p');
+    await vi.waitFor(() => expect(runProjectTopicTree).toHaveBeenCalled());
+    expect(await service.build('p')).toEqual({ started: false });
+    expect(await service.stop('p')).toEqual({ stopped: true });
+    await waitDone(projectStore, 'cancelled');
+    expect((await projectStore.get('p')).topic_tree.nodes.n0.title).toBe('Checkpoint');
+    await vi.waitFor(async () => expect((await service.build('p')).started).toBe(true));
+    await waitDone(projectStore);
+  });
+
+  it('rejects checkpoint writes when project membership changes during generation', async () => {
+    const { service, projectStore, runProjectTopicTree, tabs } = fixture();
+    runProjectTopicTree.mockImplementationOnce(async ({ saveSummaryTree }) => {
+      tabs.splice(0, 2);
+      await saveSummaryTree({ status: 'done' });
+    });
+    await service.build('p');
+    await waitDone(projectStore, 'error');
+    expect((await projectStore.get('p')).topic_tree.error).toMatch(/changed/);
+    expect((await service.getView('p')).stale).toBe(true);
+  });
+});

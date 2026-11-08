@@ -6,6 +6,7 @@ import { MSG } from '../shared/runtime/messages.js';
 import { browserRuntimeMessenger } from '../utils/runtimeMessages.js';
 import { subscribeLocalChanges } from '../shared/runtime/localStore.js';
 import { PROJECT_EXCERPTS_STORAGE_KEY, PROJECTS_STORAGE_KEY } from '../core/storage/keys.js';
+import { INDEX_KEY } from '../core/storage/recordIndex.js';
 
 /**
  * @param {{send: function(object): Promise<*>}} messenger
@@ -39,6 +40,11 @@ export function createProjectsApi(messenger = browserRuntimeMessenger) {
     deleteProject: (projectId) => request({ type: MSG.deleteProject, projectId }),
     /** @param {string} projectId @returns {Promise<{project: object, isOpen: boolean, tabs: object[]}>} */
     getProjectView: (projectId) => request({ type: MSG.getProjectView, projectId }),
+    /** @param {string} projectId @param {object} [options] */
+    buildProjectTopicTree: (projectId, { fresh = false } = {}) =>
+      request({ type: MSG.buildProjectTopicTree, projectId, fresh }),
+    /** @param {string} projectId */
+    stopProjectTopicTree: (projectId) => request({ type: MSG.stopProjectTopicTree, projectId }),
     /**
      * Where a tab's per-page chat lives: its saved record, or a URL page key.
      * @param {string} projectId
@@ -82,6 +88,8 @@ export const {
   focusGroup,
   deleteProject,
   getProjectView,
+  buildProjectTopicTree,
+  stopProjectTopicTree,
   getPageChat,
   capturePageText,
   deleteExcerpt,
@@ -117,7 +125,7 @@ export function subscribeProjectChanges(
   attach(apis.tabs, TAB_EVENTS);
   attach(apis.tabGroups, GROUP_EVENTS);
   const unsubscribeStore = subscribeLocalChanges(
-    [PROJECTS_STORAGE_KEY, PROJECT_EXCERPTS_STORAGE_KEY],
+    [PROJECTS_STORAGE_KEY, PROJECT_EXCERPTS_STORAGE_KEY, INDEX_KEY],
     listener,
   );
   return () => {

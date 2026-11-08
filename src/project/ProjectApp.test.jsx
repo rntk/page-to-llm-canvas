@@ -151,4 +151,49 @@ describe('ProjectApp', () => {
       vi.useRealTimers();
     }
   });
+
+  it('starts a project merge from the actions menu and refreshes its background status', async () => {
+    let view = viewOf({
+      topicMerge: {
+        status: 'missing',
+        tree: null,
+        eligiblePages: [{ key: 'a', title: 'First', url: 'https://a.test/x' }],
+      },
+    });
+    const api = {
+      getProjectView: vi.fn(async () => view),
+      buildProjectTopicTree: vi.fn(async () => {
+        view = {
+          ...view,
+          topicMerge: {
+            ...view.topicMerge,
+            status: 'running',
+            tree: { status: 'running', stage: 'topics' },
+          },
+        };
+        return {};
+      }),
+      stopProjectTopicTree: vi.fn(async () => ({})),
+    };
+    await renderApp({ api });
+    const canvas = container.querySelector('.canvas-area');
+    const menu = container.querySelector('.project-actions');
+    menu.open = true;
+    await act(async () => menu.querySelector('button').click());
+    expect(api.buildProjectTopicTree).toHaveBeenCalledWith('a', { fresh: false });
+    expect(api.getProjectView).toHaveBeenCalledTimes(2);
+    expect(menu.open).toBe(false);
+    expect(container.querySelector('[aria-label="Merged project topics"]').textContent).toContain(
+      'Merging similar topics',
+    );
+    await act(async () =>
+      [...container.querySelectorAll('button')]
+        .find((el) => el.textContent === 'Back to canvas')
+        .click(),
+    );
+    expect(container.querySelector('.canvas-area')).toBe(canvas);
+    expect(container.querySelector('.project-canvas-content').classList.contains('is-hidden')).toBe(
+      false,
+    );
+  });
 });

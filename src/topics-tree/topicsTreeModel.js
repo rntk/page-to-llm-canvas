@@ -39,11 +39,17 @@ export function buildTopicsDisplayTree(topics, topicSummaryIndex, { title = '' }
     const sentences = new Set(node.topic ? getTopicSentenceNumbers(node.topic) : []);
     children.forEach((child) => child.sentences.forEach((n) => sentences.add(n)));
     const ownSentences = node.topic ? getTopicSentenceNumbers(node.topic) : [];
-    if (ownSentences.length) children.push({
-      key: `source:${node.fullPath}`, kind: LEAF_KIND, title: 'Source',
-      path: node.fullPath, depth: node.depth + 2, summary: '',
-      sentences: [...new Set(ownSentences)].sort((a, b) => a - b), children: [],
-    });
+    if (ownSentences.length)
+      children.push({
+        key: `source:${node.fullPath}`,
+        kind: LEAF_KIND,
+        title: 'Source',
+        path: node.fullPath,
+        depth: node.depth + 2,
+        summary: '',
+        sentences: [...new Set(ownSentences)].sort((a, b) => a - b),
+        children: [],
+      });
     return {
       key: topicKey(node.fullPath),
       kind: TOPIC_KIND,
@@ -97,11 +103,17 @@ export function buildSummaryTreeDisplayTree(summaryTree, { title = '' } = {}) {
       .map((id) => nodes[id])
       .filter(Boolean)
       .map((child) => visit(child, [...titles, child.title]));
-    if (node.kind === 'passage' && sorted(node.sentences).length) children.push({
-      key: `source:${node.id}`, kind: LEAF_KIND, title: 'Source',
-      path: joinTopicPath(titles), depth: titles.length + 1, summary: '',
-      sentences: sorted(node.sentences), children: [],
-    });
+    if (node.kind === 'passage' && sorted(node.sentences).length)
+      children.push({
+        key: `source:${node.id}`,
+        kind: LEAF_KIND,
+        title: 'Source',
+        path: joinTopicPath(titles),
+        depth: titles.length + 1,
+        summary: '',
+        sentences: sorted(node.sentences),
+        children: [],
+      });
     return {
       key: `summary:${node.id}`,
       kind: TOPIC_KIND,
@@ -110,10 +122,44 @@ export function buildSummaryTreeDisplayTree(summaryTree, { title = '' } = {}) {
       depth: titles.length,
       summary: text(node),
       sentences: sorted(node.sentences),
+      ...(summaryTree.sources
+        ? {
+            sourceCount: new Set(
+              sorted(node.sentences)
+                .map((number) => summaryTree.sources[number]?.recordKey)
+                .filter(Boolean),
+            ).size,
+          }
+        : {}),
       children,
     };
   };
   return { ...visit(root, []), key: ROOT_KEY, kind: ROOT_KIND, title };
+}
+
+/**
+ * Group synthetic project sentence numbers by article, retaining each article's
+ * own line numbers. A missing mapping is kept separate from attributed text.
+ * @param {number[]} sentenceNumbers Global, one-based sentence numbers.
+ * @param {object|null} [sources] Global sentence number to source identity/local line.
+ * @returns {Array<{id: string, source: object|null, sentences: object[]}>}
+ */
+export function groupSentenceSources(sentenceNumbers, sources) {
+  const groups = new Map();
+  for (const number of sentenceNumbers) {
+    const source = sources ? sources[number] || { title: 'Unknown source' } : null;
+    const id = source ? source.recordKey || source.url || 'unknown' : 'article';
+    if (!groups.has(id)) groups.set(id, { id, source, sentences: [] });
+    groups.get(id).sentences.push({
+      number,
+      sourceNumber: source
+        ? Number.isInteger(source.sentenceId)
+          ? source.sentenceId
+          : null
+        : number,
+    });
+  }
+  return [...groups.values()];
 }
 
 /**

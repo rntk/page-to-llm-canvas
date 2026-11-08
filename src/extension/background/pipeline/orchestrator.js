@@ -28,6 +28,10 @@ import {
 } from '../../../core/pipeline/summaryTreeStage.js';
 import { normalizeCustomInstructions } from '../../../core/pipeline/customInstructions.js';
 import {
+  buildProjectTopicSeed,
+  projectTopicSourceRevision,
+} from '../../../core/projects/projectTopicTree.js';
+import {
   getCustomInstructionsTextChunkMaxChars,
   MAX_TAGGED_CHARS,
 } from '../../../core/pipeline/pipelineConfig.js';
@@ -526,9 +530,62 @@ export function createPipelineRunner({
     }
   }
 
+  // Projects share the pipeline's provider dispatch, limiter, citation checking,
+  // and checkpoint protocol; they own a project document instead of a record.
+  async function runProjectTopicTree({ records, prior, title, signal, fresh, saveSummaryTree }) {
+    const revision = concurrencySettingRevision;
+    const [verboseLogs, maxParallelLlmRequests, activeProvider] = await Promise.all([
+      settings.getVerboseLogs(),
+      settings.getMaxParallelLlmRequests(),
+      providerRepository.getActiveProvider(),
+    ]);
+    if (revision === concurrencySettingRevision) limiter.setLimit(maxParallelLlmRequests);
+    const sourceRevision = projectTopicSourceRevision(records);
+    const providers = bindProviders({
+      activeProvider,
+      key: `project:${sourceRevision}`,
+      verboseLogs,
+    });
+    const judge = await providers.resolveSummaryTreeDecide();
+    const seed = buildProjectTopicSeed(records, {
+      maxChars: Math.min(3000, providers.runtimeOptions.maxTextChunkChars),
+    });
+    return runSummaryTreeStage({
+      runtime: {
+        signal,
+        ...providers.runtimeOptions,
+        log: async (event, data) => logger.info(event, data),
+        saveSummaryTree: (tree) =>
+          saveSummaryTree({
+            ...tree,
+            sources: seed.sources,
+            sentences: seed.sentences,
+            records: seed.records,
+            sourceRevision,
+          }),
+      },
+      record: { sentences: seed.sentences, contentRevision: sourceRevision, summary_tree: prior },
+      sourceNodes: seed.nodes,
+      sourceTopicIds: seed.sourceTopicIds,
+      groupSmallRoot: true,
+      callLLMWithRetry: providers.callLLMWithRetry,
+      decide: judge.decide,
+      fingerprint: JSON.stringify([
+        providers.summaryInputFingerprint,
+        activeProvider?.id ?? null,
+        activeProvider?.url ?? null,
+        activeProvider?.contextWindowTokens ?? null,
+        judge.identity,
+      ]),
+      rootTitle: title || 'Project topics',
+      fresh,
+    });
+  }
+
   return {
     runPipeline,
     runSummaryTree,
+    runProjectTopicTree,
     dispose() {
       if (disposed) return;
       disposed = true;

@@ -10,6 +10,7 @@ import {
   expandBranch,
   expandToLevel,
   flattenTree,
+  groupSentenceSources,
   initialExpanded,
   labelSize,
   pathTo,
@@ -18,6 +19,49 @@ import {
   treeDepth,
   visibleTree,
 } from './topicsTreeModel.js';
+
+describe('groupSentenceSources', () => {
+  it('keeps overlapping article-local sentence ids in distinct source groups', () => {
+    const a = { recordKey: 'a', title: 'First article', url: 'https://same.test/a', sentenceId: 1 };
+    const b = {
+      recordKey: 'b',
+      title: 'Second article',
+      url: 'https://same.test/b',
+      sentenceId: 1,
+    };
+    expect(groupSentenceSources([1, 3, 2], { 1: a, 2: { ...a, sentenceId: 9 }, 3: b })).toEqual([
+      {
+        id: 'a',
+        source: a,
+        sentences: [
+          { number: 1, sourceNumber: 1 },
+          { number: 2, sourceNumber: 9 },
+        ],
+      },
+      { id: 'b', source: b, sentences: [{ number: 3, sourceNumber: 1 }] },
+    ]);
+  });
+
+  it('keeps regular article numbering and does not borrow identity for unmapped rows', () => {
+    expect(groupSentenceSources([2, 8])).toEqual([
+      {
+        id: 'article',
+        source: null,
+        sentences: [
+          { number: 2, sourceNumber: 2 },
+          { number: 8, sourceNumber: 8 },
+        ],
+      },
+    ]);
+    expect(groupSentenceSources([7], {})).toEqual([
+      {
+        id: 'unknown',
+        source: { title: 'Unknown source' },
+        sentences: [{ number: 7, sourceNumber: null }],
+      },
+    ]);
+  });
+});
 
 const topics = [
   { name: 'Fruit>Apples', sentences: [3, 1] },
@@ -65,14 +109,16 @@ describe('buildTopicsDisplayTree', () => {
       summary: 'Apples are red.',
       sentences: [1, 3],
     });
-    expect(fruit.children[0].children).toEqual([expect.objectContaining({
-      key: 'source:Fruit>Apples',
-      kind: LEAF_KIND,
-      title: 'Source',
-      depth: 3,
-      sentences: [1, 3],
-      children: [],
-    })]);
+    expect(fruit.children[0].children).toEqual([
+      expect.objectContaining({
+        key: 'source:Fruit>Apples',
+        kind: LEAF_KIND,
+        title: 'Source',
+        depth: 3,
+        sentences: [1, 3],
+        children: [],
+      }),
+    ]);
     expect(veg.children.map((child) => child.kind)).toEqual([TOPIC_KIND, TOPIC_KIND]);
     expect(veg.children[0].children[0]).toMatchObject({ title: 'Carrots', depth: 3 });
   });
@@ -146,9 +192,9 @@ describe('expansion helpers', () => {
   it('expands a whole branch, its ancestors, and everything', () => {
     const tree = build();
     const branch = expandBranch(tree, new Set(), key('Veg'));
-    expect([...branch].sort()).toEqual([
-      ROOT_KEY, key('Veg'), key('Veg>Roots'), key('Veg>Roots>Carrots'), key('Veg>Leaves'),
-    ].sort());
+    expect([...branch].sort()).toEqual(
+      [ROOT_KEY, key('Veg'), key('Veg>Roots'), key('Veg>Roots>Carrots'), key('Veg>Leaves')].sort(),
+    );
     expect([...revealNode(tree, new Set(), key('Veg>Roots>Carrots'))].sort()).toEqual(
       [ROOT_KEY, key('Veg'), key('Veg>Roots')].sort(),
     );

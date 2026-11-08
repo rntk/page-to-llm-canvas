@@ -113,6 +113,7 @@ function linkExcerpts(tabs, excerpts) {
  *   Renders an excerpt's chat drawer; without it excerpt cards have no chat fold.
  * @param {function(object): Promise<*>} [props.onDeleteExcerpt]
  * @param {string|null} [props.focusExcerptId] Unfolds this excerpt's chat once.
+ * @param {boolean} [props.active] Enables keyboard navigation while this view is visible.
  */
 export function ProjectCanvas({
   tabs,
@@ -122,6 +123,7 @@ export function ProjectCanvas({
   renderExcerptChat,
   onDeleteExcerpt,
   focusExcerptId = null,
+  active = true,
 }) {
   const [viewport, setViewport] = useState(DEFAULT_VIEWPORT);
   const [moved, setMoved] = useState({});
@@ -201,6 +203,7 @@ export function ProjectCanvas({
   }, []);
 
   useEffect(() => {
+    if (!active) return undefined;
     const handleKeyDown = (event) => {
       if (isTypingTarget(event.target) || insideSelector(event.target, PAGE_CHAT_SELECTOR)) return;
       const arrows = {
@@ -236,7 +239,7 @@ export function ProjectCanvas({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [active]);
 
   const zoomFromCenter = (factor) => {
     const rect = surfaceRef.current?.getBoundingClientRect();

@@ -280,6 +280,34 @@
   margin-top: 3px;
 }
 
+.tt-passages__unknown::marker {
+  content: '? ';
+}
+
+.tt-source-group + .tt-source-group {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--th-border);
+}
+
+.tt-source-article {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.tt-source-article a {
+  color: var(--th-accent);
+  font-weight: 700;
+}
+
+.tt-source-article__url {
+  color: var(--th-muted);
+  font-size: 11px;
+}
+
 .tt-card__links {
   margin: 6px 0 0;
 }

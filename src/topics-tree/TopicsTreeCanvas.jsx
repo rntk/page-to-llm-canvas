@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
+import SourceArticle from './SourceArticle.jsx';
 import { formatTopicPath, splitTopicPath } from '../shared/runtime/topicPath.js';
 import {
   LEAF_KIND,
@@ -8,6 +9,7 @@ import {
   expandBranch,
   expandToLevel,
   flattenTree,
+  groupSentenceSources,
   initialExpanded,
   labelSize,
   pathTo,
@@ -99,6 +101,7 @@ const TopicNode = React.memo(function TopicNode({
         >
           {pluralize(node.sentences.length, 'sentence')}
         </button>
+        {node.sourceCount > 0 && <span>· {pluralize(node.sourceCount, 'article')}</span>}
         {node.hiddenCount > 0 && <span>· +{node.hiddenCount} hidden</span>}
       </div>
     </div>
@@ -108,6 +111,7 @@ const TopicNode = React.memo(function TopicNode({
 const LeafCard = React.memo(function LeafCard({
   node,
   articleSentences,
+  sentenceSources,
   isSelected,
   isOnPath,
   isFront,
@@ -149,25 +153,36 @@ const LeafCard = React.memo(function LeafCard({
         {parentPath && <div className="tt-muted">{parentPath}</div>}
       </header>
       <div className="tt-card__body">
-        <ol className="tt-passages">
-          {node.sentences.map((number) => (
-            <li key={number} value={number}>
-              {articleSentences[number - 1] || ''}
-            </li>
-          ))}
-        </ol>
-        <p className="tt-card__links">
-          <button
-            type="button"
-            className="tt-link-button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onShowInPage(node);
-            }}
-          >
-            Show in page
-          </button>
-        </p>
+        {groupSentenceSources(node.sentences, sentenceSources).map((group) => (
+          <section className="tt-source-group" key={group.id}>
+            {group.source && <SourceArticle source={group.source} />}
+            <ol className="tt-passages">
+              {group.sentences.map(({ number, sourceNumber }) => (
+                <li
+                  key={number}
+                  value={sourceNumber ?? undefined}
+                  className={sourceNumber === null ? 'tt-passages__unknown' : undefined}
+                >
+                  {articleSentences[number - 1] || ''}
+                </li>
+              ))}
+            </ol>
+          </section>
+        ))}
+        {onShowInPage && (
+          <p className="tt-card__links">
+            <button
+              type="button"
+              className="tt-link-button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onShowInPage(node);
+              }}
+            >
+              Show in page
+            </button>
+          </p>
+        )}
       </div>
       <div
         className="tt-card__resize"
@@ -189,11 +204,18 @@ const LeafCard = React.memo(function LeafCard({
  * @param {object} props
  * @param {object} props.tree Display tree from `buildTopicsDisplayTree`.
  * @param {string[]} props.sentences Article sentences (1-based numbers index into it).
- * @param {(node: object) => void} props.onShowInPage
+ * @param {object|null} [props.sentenceSources] Source article and local line for synthetic rows.
+ * @param {(node: object) => void} [props.onShowInPage]
  * @param {HTMLElement|null} [props.controlsHost] Element the view controls render into
  *   (the page bar); no controls are shown without one.
  */
-export default function TopicsTreeCanvas({ tree, sentences, onShowInPage, controlsHost = null }) {
+export default function TopicsTreeCanvas({
+  tree,
+  sentences,
+  sentenceSources = null,
+  onShowInPage,
+  controlsHost = null,
+}) {
   const { canvasRef, stageRef, transformRef, boundsRef, translateBy, fit } = useTreeViewport();
   const [expanded, setExpanded] = useState(() => initialExpanded(tree));
   const [selectedKey, setSelectedKey] = useState(tree.key);
@@ -427,6 +449,7 @@ export default function TopicsTreeCanvas({ tree, sentences, onShowInPage, contro
                   key={node.key}
                   node={node}
                   articleSentences={sentences}
+                  sentenceSources={sentenceSources}
                   isSelected={node.key === selectedKey}
                   isOnPath={onPath.has(node.key)}
                   isFront={node.key === frontKey}

@@ -18,8 +18,14 @@ const validateProjectExcerpt = (msg) =>
  * @param {ReturnType<typeof import('../projectPageChat.js').createProjectPageChatService>} deps.pageChatService
  * @param {ReturnType<typeof import('../projectExcerpts.js').createProjectExcerptService>} [deps.excerptService]
  *   Without it projects have no excerpts.
+ * @param {object} [deps.topicTreeService] Project-wide primary topic merging.
  */
-export function createProjectHandlers({ projectService, pageChatService, excerptService }) {
+export function createProjectHandlers({
+  projectService,
+  pageChatService,
+  excerptService,
+  topicTreeService,
+}) {
   const entry = (validate, run) => ({
     requiresExtensionPage: true,
     validate,
@@ -30,6 +36,10 @@ export function createProjectHandlers({ projectService, pageChatService, excerpt
   const requireExcerpts = () => {
     if (!excerptService) throw new Error('excerpts are not available');
     return excerptService;
+  };
+  const requireTopicTree = () => {
+    if (!topicTreeService) throw new Error('project topic merging is not available');
+    return topicTreeService;
   };
 
   return {
@@ -54,9 +64,23 @@ export function createProjectHandlers({ projectService, pageChatService, excerpt
     // should unfold (one just opened from a page's context menu).
     [MSG.getProjectView]: entry(validateProjectId, async (msg) => {
       const view = await projectService.getProjectView(msg.projectId);
-      if (!excerptService) return { ...view, excerpts: [], focusExcerptId: null };
-      return { ...view, ...(await excerptService.takeProjectExcerpts(msg.projectId)) };
+      const extras = excerptService
+        ? await excerptService.takeProjectExcerpts(msg.projectId)
+        : { excerpts: [], focusExcerptId: null };
+      const topicMerge = topicTreeService
+        ? { topicMerge: await topicTreeService.getView(msg.projectId, view) }
+        : {};
+      return { ...view, ...extras, ...topicMerge };
     }),
+    [MSG.buildProjectTopicTree]: entry(
+      (msg) =>
+        validateProjectId(msg) ||
+        (msg.fresh === undefined || typeof msg.fresh === 'boolean' ? null : 'invalid fresh'),
+      (msg) => requireTopicTree().build(msg.projectId, { fresh: msg.fresh === true }),
+    ),
+    [MSG.stopProjectTopicTree]: entry(validateProjectId, (msg) =>
+      requireTopicTree().stop(msg.projectId),
+    ),
     [MSG.getProjectPageChat]: entry(validateProjectTab, async (msg) => ({
       source: await pageChatService.getPageChat(msg.projectId, msg.tabId),
     })),

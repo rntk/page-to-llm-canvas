@@ -32,6 +32,7 @@ function passageAnswer(prompt) {
 
 function makeRunner({
   callLLMWithRetry = vi.fn(async ({ prompt }) => passageAnswer(prompt)),
+  getActiveProvider = vi.fn(async () => ({ id: 'p', type: 'openai', model: 'm' })),
 } = {}) {
   const runner = createPipelineRunner({
     runtimeFactory: createPipelineRuntime,
@@ -44,7 +45,7 @@ function makeRunner({
       subscribeToMaxParallelLlmRequests: vi.fn(() => () => {}),
     },
     providerRepository: {
-      getActiveProvider: vi.fn(async () => ({ id: 'p', type: 'openai', model: 'm' })),
+      getActiveProvider,
       getDecisionProvider: vi.fn(async () => null),
     },
     llm: { callLLMWithRetry, createDecisionClient: vi.fn() },
@@ -189,5 +190,54 @@ describe('summary tree jobs and handlers', () => {
       ok: true,
       stale: true,
     });
+  });
+});
+
+describe('runProjectTopicTree', () => {
+  it('uses shared providers, resumes completed work, and invalidates it when provider identity changes', async () => {
+    let activeProvider = { id: 'p', type: 'openai', model: 'm', url: 'https://one.test/v1' };
+    const callLLMWithRetry = vi.fn(async ({ prompt }) =>
+      prompt.includes('"passages"')
+        ? JSON.stringify({ topics: [{ title: 'Shared subject', passages: ['P1', 'P2'] }] })
+        : JSON.stringify({
+            summaries: [
+              { id: 'item', segments: [{ text: 'Shared overview.', from: ['C1.S1', 'C2.S1'] }] },
+            ],
+          }),
+    );
+    const { runner } = makeRunner({
+      callLLMWithRetry,
+      getActiveProvider: async () => activeProvider,
+    });
+    const records = ['a', 'b'].map((key) => ({
+      ...doneRecord(),
+      key,
+      sourceUrl: `https://${key}.test/`,
+      topic_summary_index: {
+        Fruit: { runs: [{ text: `${key} fruit summary.`, sentences: [1, 2] }] },
+      },
+    }));
+    const original = structuredClone(records);
+    let tree;
+    const saveSummaryTree = async (saved) => {
+      tree = structuredClone(saved);
+    };
+    await runner.runProjectTopicTree({ records, title: 'Research', saveSummaryTree });
+    expect(tree).toMatchObject({
+      status: 'done',
+      records: [
+        expect.objectContaining({ key: 'a', url: 'https://a.test/' }),
+        expect.objectContaining({ key: 'b', url: 'https://b.test/' }),
+      ],
+    });
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(2);
+    await runner.runProjectTopicTree({ records, prior: tree, title: 'Research', saveSummaryTree });
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(2);
+    activeProvider = { ...activeProvider, url: 'https://other.test/v1' };
+    await runner.runProjectTopicTree({ records, prior: tree, title: 'Research', saveSummaryTree });
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(4);
+    expect(records).toEqual(original);
+    expect(storage.updateRecord).not.toHaveBeenCalled();
+    expect(limiter.run).toHaveBeenCalled();
   });
 });

@@ -78,7 +78,19 @@ export function requestItem(node, nodes, sentenceTexts) {
       allowed.set(label, { kind: 'claim', child: child.id, segment: index });
       claims.push({ cite: label, text: segment.text.trim() });
     });
-    return { title: child.title, claims };
+    return {
+      title: child.title,
+      claims,
+      ...(child.recordKey
+        ? {
+            source: {
+              recordKey: child.recordKey,
+              title: child.sourceTitle || '',
+              url: child.sourceUrl || '',
+            },
+          }
+        : {}),
+    };
   });
   return { item, allowed };
 }
@@ -288,7 +300,7 @@ export async function generateSummaries({
       const node = nodes[id];
       if (value) {
         node.segments = value.segments;
-        if (value.title) node.title = value.title;
+        if (value.title && !node.topicName) node.title = value.title;
       } else if (tolerateFailures) {
         node.failed = true;
         node.segments = [];

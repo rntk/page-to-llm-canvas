@@ -76,13 +76,14 @@ export function isSummaryTreeReusable(tree, record, fingerprint) {
  * structure only once it was complete. Failed passages are retried only while
  * topics are still to be built; afterwards they are no longer in the tree.
  * @param {object} tree Reusable saved tree.
+ * @param {Set<string>} [sourceNodeIds] Project evidence nodes kept before grouping completes.
  * @returns {{nodes: Record<string, object>, rootId: string|null}}
  */
-export function resumableNodes(tree) {
+export function resumableNodes(tree, sourceNodeIds = new Set()) {
   const rootId = tree.rootId && tree.nodes[tree.rootId]?.kind === ROOT ? tree.rootId : null;
   const nodes = {};
   for (const [id, node] of Object.entries(tree.nodes)) {
-    if (node.kind !== PASSAGE && !rootId) continue;
+    if (node.kind !== PASSAGE && !rootId && !sourceNodeIds.has(id)) continue;
     nodes[id] = node.failed && !rootId ? { ...node, failed: false, segments: null } : { ...node };
   }
   return { nodes, rootId };
@@ -110,6 +111,9 @@ function fallbackTitle(sentences, topics) {
  * @param {number} [input.workers]
  * @param {number} [input.heartbeatMs] Save interval while requests are in flight; 0 disables.
  * @param {function(): number} [input.now]
+ * @param {object|null} [input.sourceNodes] Project primary-topic evidence nodes.
+ * @param {string[]|null} [input.sourceTopicIds] Primary-topic grouping units.
+ * @param {boolean} [input.groupSmallRoot] Group even small project source sets.
  * @returns {Promise<object>} The finished `summary_tree`.
  */
 export async function runSummaryTree({
@@ -123,6 +127,9 @@ export async function runSummaryTree({
   workers = SUMMARY_CONCURRENCY,
   heartbeatMs = SUMMARY_TREE_HEARTBEAT_MS,
   now = Date.now,
+  sourceNodes = null,
+  sourceTopicIds = null,
+  groupSmallRoot = false,
 }) {
   const sentenceTexts = Array.isArray(record?.sentences) ? record.sentences : [];
   if (!sentenceTexts.some((text) => typeof text === 'string' && text.trim())) {
@@ -144,7 +151,9 @@ export async function runSummaryTree({
   let nodes;
   let rootId = null;
   if (reusable) {
-    ({ nodes, rootId } = resumableNodes(prior));
+    ({ nodes, rootId } = resumableNodes(prior, new Set(Object.keys(sourceNodes || {}))));
+  } else if (sourceNodes) {
+    nodes = structuredClone(sourceNodes);
   } else {
     nodes = {};
     const passageMaxChars = Math.min(PASSAGE_MAX_CHARS, maxChars);
@@ -256,7 +265,7 @@ export async function runSummaryTree({
       .map((node) => node.id);
     await generateSummaries({
       nodes,
-      targets: passageIds,
+      targets: sourceTopicIds ? Object.keys(sourceNodes) : passageIds,
       sentenceTexts,
       llm,
       verifier,
@@ -265,7 +274,7 @@ export async function runSummaryTree({
       onNodeDone: save,
       controller,
     });
-    const relevant = passageIds.filter((id) => nodes[id].segments.length > 0);
+    const relevant = (sourceTopicIds || passageIds).filter((id) => nodes[id].segments?.length > 0);
     if (!relevant.length) {
       throw new SummaryTreeError(
         passageIds.every((id) => nodes[id].failed)
@@ -287,6 +296,7 @@ export async function runSummaryTree({
         workers,
         batchChars: Math.min(TOPIC_BATCH_CHARS, maxChars),
         onProgress: save,
+        groupSmallRoot,
       });
     }
 

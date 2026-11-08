@@ -251,9 +251,11 @@ describe('runSummaryTree', () => {
     expect(display.title).toBe('example.com');
     expect(display.children.map((child) => child.title)).toEqual(['Alpha', 'Beta']);
     const leaves = flattenTree(display).filter((node) => node.kind === 'leaf');
+    const passage = flattenTree(display).find((node) => node.title === 'About 1');
+    expect(passage).toMatchObject({ summary: 'Fact 1.', path: 'Alpha>About 1' });
     expect(leaves[0]).toMatchObject({
-      title: 'About 1',
-      summary: 'Fact 1.',
+      title: 'Source',
+      summary: '',
       path: 'Alpha>About 1',
     });
     expect(readSummaryTree(rec, tree.updatedAt).status).toBe(SUMMARY_TREE_STATUS.DONE);

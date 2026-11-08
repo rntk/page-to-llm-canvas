@@ -12,6 +12,14 @@ describe('projects api', () => {
     expect(send).toHaveBeenLastCalledWith({ type: MSG.openProjectForGroup, groupId: 4 });
     await api.focusGroup('b');
     expect(send).toHaveBeenLastCalledWith({ type: MSG.focusProjectGroup, projectId: 'b' });
+    await api.buildProjectTopicTree('a', { fresh: true });
+    expect(send).toHaveBeenLastCalledWith({
+      type: MSG.buildProjectTopicTree,
+      projectId: 'a',
+      fresh: true,
+    });
+    await api.stopProjectTopicTree('a');
+    expect(send).toHaveBeenLastCalledWith({ type: MSG.stopProjectTopicTree, projectId: 'a' });
   });
 
   it('rejects worker errors and empty responses', async () => {

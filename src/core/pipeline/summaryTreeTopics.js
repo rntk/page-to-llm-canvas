@@ -88,11 +88,12 @@ export function decodeAssignment(raw, local, existing, maxNew) {
 }
 
 /**
- * Validated proposal: 2..MAX_BRANCHES distinct titles with descriptions.
+ * Validated proposal: distinct titles with descriptions (one is allowed for projects).
  * @param {string} raw
+ * @param {boolean} [allowSingleGroup] Project inputs may share one subject.
  * @returns {Record<string, string>|null}
  */
-export function decodeTitles(raw) {
+export function decodeTitles(raw, allowSingleGroup = false) {
   const entries = extractObject(raw)?.topics;
   if (!Array.isArray(entries)) return null;
   const topics = {};
@@ -109,7 +110,7 @@ export function decodeTitles(raw) {
     topics[title] = description || title;
   }
   const count = Object.keys(topics).length;
-  return count >= 2 && count <= MAX_BRANCHES ? topics : null;
+  return count >= (allowSingleGroup ? 1 : 2) && count <= MAX_BRANCHES ? topics : null;
 }
 
 // Evenly spread digests that fit one proposal prompt.
@@ -129,16 +130,17 @@ function sample(ids, nodes, batchChars) {
  * @param {Map<string, string[]>} topics
  * @param {string[]} leftover
  * @param {string[]} ids
+ * @param {boolean} [allowSingleGroup] A project can merge all inputs under one shared topic.
  * @returns {Array<[string, string[]]>|null}
  */
-export function orderGroups(topics, leftover, ids) {
+export function orderGroups(topics, leftover, ids, allowSingleGroup = false) {
   const groups = [...topics].filter(([, members]) => members.length);
   const other = [...(groups.find(([title]) => title === OTHER_TITLE)?.[1] || []), ...leftover];
   const named = groups
     .filter(([title]) => title !== OTHER_TITLE)
     .sort((a, b) => b[1].length - a[1].length);
   if (other.length) named.push([OTHER_TITLE, other]);
-  if (named.length < 2) return null;
+  if (named.length < (allowSingleGroup ? 1 : 2)) return null;
   const order = new Map(ids.map((id, index) => [id, index]));
   return named.map(([title, members]) => [
     title,
@@ -157,6 +159,7 @@ export function orderGroups(topics, leftover, ids) {
  * @param {number} [input.workers]
  * @param {number} [input.batchChars] Digest characters per request.
  * @param {function(): Promise<void>} [input.onProgress]
+ * @param {boolean} [input.groupSmallRoot] Group small project source sets at the root.
  * @returns {Promise<string>} Root node id.
  */
 export async function buildTopics({
@@ -168,6 +171,7 @@ export async function buildTopics({
   workers = 4,
   batchChars = TOPIC_BATCH_CHARS,
   onProgress = async () => {},
+  groupSmallRoot = false,
 }) {
   const ask = (prompt, decode) => {
     let result = null;
@@ -186,10 +190,11 @@ export async function buildTopics({
   const propose = (ids, path) =>
     ask(
       buildTopicTitlesPrompt({
+        ...(groupSmallRoot ? { source_kind: 'project_primary_topics' } : {}),
         path: path.join(' › '),
         passages: sample(ids, nodes, batchChars).map((id) => digest(nodes, id)),
       }),
-      decodeTitles,
+      (raw) => decodeTitles(raw, groupSmallRoot && path.length === 0),
     );
 
   // The LLM proposes titles once; the judge assigns every passage. Null -> LLM fallback.
@@ -236,6 +241,7 @@ export async function buildTopics({
       const maxNew = existing.length ? Math.max(0, MAX_BRANCHES - existing.length) : MAX_BRANCHES;
       const assignment = await ask(
         buildTopicGroupingPrompt({
+          ...(groupSmallRoot ? { source_kind: 'project_primary_topics' } : {}),
           path: path.join(' › '),
           existing_topics: existing,
           max_new_topics: maxNew,
@@ -257,17 +263,21 @@ export async function buildTopics({
   async function split(ids, path) {
     const judged = judge?.active ? await splitJudged(ids, path) : null;
     const { topics, leftover } = judged ?? (await splitLlm(ids, path));
-    return orderGroups(topics, leftover, ids);
+    return orderGroups(topics, leftover, ids, groupSmallRoot && path.length === 0);
   }
 
   // Independent splits run concurrently; nodes are assembled afterwards in a stable order.
   const limit = createLimiter(workers);
   const splits = new Map();
+  const needsSplit = (ids, depth) =>
+    depth < MAX_DEPTH &&
+    (ids.length > LEAF_MAX_PASSAGES || (groupSmallRoot && depth === 0 && ids.length > 1));
   const plan = async (ids, path, depth) => {
-    if (ids.length <= LEAF_MAX_PASSAGES || depth >= MAX_DEPTH) return;
+    if (!needsSplit(ids, depth)) return;
     const groups = await limit(() => split(ids, path));
     splits.set(ids.join(','), groups);
     await onProgress();
+    if (groups?.length === 1) return;
     await Promise.all(
       (groups || []).map(([title, members]) => plan(members, [...path, title], depth + 1)),
     );
@@ -275,12 +285,17 @@ export async function buildTopics({
   await plan(passageIds, [], 0);
 
   const grow = (ids, path, depth) => {
-    const groups =
-      ids.length > LEAF_MAX_PASSAGES && depth < MAX_DEPTH ? splits.get(ids.join(',')) : null;
+    const groups = needsSplit(ids, depth) ? splits.get(ids.join(',')) : null;
     if (!groups) return ids;
     return groups.map(([title, members]) => {
       const subPath = [...path, title];
-      return addNode(nodes, TOPIC, title, grow(members, subPath, depth + 1), { path: subPath });
+      return addNode(
+        nodes,
+        TOPIC,
+        title,
+        groups.length === 1 ? members : grow(members, subPath, depth + 1),
+        { path: subPath },
+      );
     });
   };
   return addNode(nodes, ROOT, rootTitle, grow(passageIds, [], 0));

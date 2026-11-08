@@ -121,6 +121,8 @@ describe('message handler registry (no chrome global)', () => {
         MSG.resplitTopic,
         MSG.buildSummaryTree,
         MSG.stopSummaryTree,
+        MSG.buildProjectTopicTree,
+        MSG.stopProjectTopicTree,
         MSG.cancelRecordProcessing,
         MSG.resolveSummaryErrors,
         MSG.getRecord,

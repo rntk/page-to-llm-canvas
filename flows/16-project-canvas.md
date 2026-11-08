@@ -8,6 +8,18 @@ Browser tab group ids do not survive a restart, so the project is anchored by a 
 
 The project page is its own extension page. It shares pan and zoom behavior with the [record canvas](08-canvas.md). The options page lists projects and their open state, and a chat panel beside the canvas is reserved for conversation across the project's pages.
 
+## Project actions
+
+The header's **Project actions** menu holds actions over the whole project. Each action is a descriptor with its own label, explanation, availability and handler, so more project-wide operations can be added without changing the menu.
+
+**Merge similar topics** groups the saved primary topics of the project's pages into a single tree. It uses completed saved records whose URLs match tabs in the group, ignoring fragments and counting duplicate pages once. Unsaved pages, pages still processing and pages without usable primary topics are listed as skipped with the reason. Excerpts and live unsaved text do not become topic inputs. The merge view lists eligible pages and, for a saved result, the articles actually used in that snapshot.
+
+The merge starts from the pages' primary topics and their existing cited summaries. Topics without reusable summaries get bounded passages confined to that primary topic. Similar topic inputs are then grouped across articles, and each level is summarized from the level below using the [summary tree](15-summary-tree.md) pipeline. The merge is saved on the project and leaves every source record's topics and summaries intact.
+
+The result uses the same progressive tree, levels, one-branch option, pan/zoom and movable source cards as an article's summary tree. A branch may combine several articles; its sentence and article counts describe that coverage. Unfolding it reaches the original text, grouped by article with the article's title, full URL, source link and original sentence numbers. Global row ids used internally by the merged tree are mapped back to each source record's local line numbers, so two articles' line 1 can never be confused.
+
+**Stop**, **Resume** and **Rebuild** control the background merge. Completed work is checkpointed; resume reuses it while sources and provider identity match. A stopped worker becomes interrupted after a minute without a save and can be resumed. A saved result remains readable when the project's membership or primary topics change, with a notice to rebuild it from the current sources. **Back to canvas** keeps tab positions and open page/excerpt chats, and the merge can be reopened from **Project actions**.
+
 ## Per-page chat
 
 Each tab card has a small **Chat** fold tab on its right edge. It unfolds that page's [article chat](10-article-chat.md) beside the card, inside the canvas, so the chat pans and zooms with its card. Several page chats can be open at once. Inside an open chat, the wheel scrolls messages and arrow keys stay in the chat; Ctrl/⌘+wheel still zooms the canvas.
@@ -34,6 +46,8 @@ Entry points:
 - [Project domain](../src/core/projects/projects.js) — project identity and the rules for rebinding it to a group.
 - [Project service](../src/extension/background/projects.js) — binds projects to groups and opens or focuses their pages.
 - [Project page](../src/project/main.jsx) — the canvas that renders a project's tabs.
+- [Project actions menu](../src/project/ProjectActionsMenu.jsx) and [merged topics view](../src/project/ProjectTopicTree.jsx) — project-wide actions and the attributed summary tree.
+- [Project topic sources](../src/core/projects/projectTopicTree.js) and [project topic tree service](../src/extension/background/projectTopicTree.js) — primary-topic evidence, global-to-local source mapping and the background merge lifecycle.
 - [Page chat drawer](../src/project/PageChatDrawer.jsx) — the per-page chat beside a tab card.
 - [Page chat service](../src/extension/background/projectPageChat.js) — resolves a tab to its record or page key and reads live tab text.
 - [Excerpt domain and store](../src/core/projects/excerpts.js) — excerpt shape and the one-shot request to unfold an excerpt's chat.

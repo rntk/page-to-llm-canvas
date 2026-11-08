@@ -15,6 +15,34 @@ function makeService() {
 }
 
 describe('project handlers', () => {
+  it('exposes merged topics and validates project merge actions', async () => {
+    const topicTreeService = {
+      getView: vi.fn(async () => ({ status: 'missing', tree: null })),
+      build: vi.fn(async () => ({ started: true })),
+      stop: vi.fn(async () => ({ stopped: true })),
+    };
+    const handlers = createProjectHandlers({
+      projectService: makeService(),
+      pageChatService: {},
+      topicTreeService,
+    });
+    expect(handlers[MSG.buildProjectTopicTree].validate({ projectId: 'a', fresh: 'true' })).toBe(
+      'invalid fresh',
+    );
+    expect(handlers[MSG.buildProjectTopicTree].validate({ fresh: true })).toBe('invalid projectId');
+    expect(
+      await handlers[MSG.buildProjectTopicTree].handle({ projectId: 'a', fresh: true }),
+    ).toEqual({ ok: true, started: true });
+    expect(topicTreeService.build).toHaveBeenCalledWith('a', { fresh: true });
+    expect(await handlers[MSG.stopProjectTopicTree].handle({ projectId: 'a' })).toEqual({
+      ok: true,
+      stopped: true,
+    });
+    expect(await handlers[MSG.getProjectView].handle({ projectId: 'a' })).toMatchObject({
+      topicMerge: { status: 'missing', tree: null },
+    });
+  });
+
   it('keeps every project action extension-page only', () => {
     for (const [type, entry] of Object.entries(
       createProjectHandlers({ projectService: makeService(), pageChatService: {} }),

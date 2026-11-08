@@ -1,6 +1,7 @@
 import React from 'react';
 import { groupColorHex } from './projectColors.js';
 import { UNTITLED_PROJECT } from './projectText.js';
+import { ProjectActionsMenu } from './ProjectActionsMenu.jsx';
 
 /**
  * @param {object} props
@@ -9,8 +10,9 @@ import { UNTITLED_PROJECT } from './projectText.js';
  * @param {number} props.tabCount
  * @param {boolean} props.chatOpen
  * @param {function(): void} props.onToggleChat
+ * @param {object[]} [props.actions] Project-wide action descriptors.
  */
-export function ProjectHeader({ project, isOpen, tabCount, chatOpen, onToggleChat }) {
+export function ProjectHeader({ project, isOpen, tabCount, chatOpen, onToggleChat, actions }) {
   return (
     <header className="project-header">
       <span
@@ -28,6 +30,7 @@ export function ProjectHeader({ project, isOpen, tabCount, chatOpen, onToggleCha
       <button type="button" onClick={onToggleChat} aria-pressed={chatOpen}>
         Chat
       </button>
+      <ProjectActionsMenu actions={actions} />
     </header>
   );
 }

@@ -7,6 +7,8 @@ import { ExcerptChatDrawer } from './ExcerptChatDrawer.jsx';
 import { UNTITLED_PROJECT } from './projectText.js';
 import { useProjectView } from './useProjectView.js';
 import { browserScheduler } from '../shared/runtime/browserHosts.js';
+import { ProjectTopicTree } from './ProjectTopicTree.jsx';
+import { SUMMARY_TREE_STALE_MS, SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
 
 const NO_EXCERPTS = [];
 
@@ -46,8 +48,27 @@ export function ProjectApp({
   pageHost,
   scheduler = browserScheduler,
 }) {
-  const { status, view, error } = useProjectView({ projectId, api, subscribe, scheduler });
+  const { status, view, error, refresh } = useProjectView({ projectId, api, subscribe, scheduler });
   const [chatOpen, setChatOpen] = useState(true);
+  const [topicTreeOpen, setTopicTreeOpen] = useState(false);
+  const [topicPending, setTopicPending] = useState(false);
+  const [topicNotice, setTopicNotice] = useState('');
+  const runTopicAction = async (request) => {
+    if (topicPending) return;
+    setTopicPending(true);
+    setTopicNotice('');
+    try {
+      const response = await request();
+      if (response?.ok === false) throw new Error(response.error || 'Project request failed');
+    } catch (err) {
+      setTopicNotice(err?.message || String(err));
+    } finally {
+      refresh();
+      setTopicPending(false);
+    }
+  };
+  const buildTopicTree = (options) =>
+    runTopicAction(() => api.buildProjectTopicTree(projectId, options));
   const renderPageChat = useCallback(
     (tab, { onClose }) => (
       <PageChatDrawer projectId={projectId} tab={tab} api={api} onClose={onClose} />
@@ -70,6 +91,13 @@ export function ProjectApp({
     if (title) document.title = `${title} · Project`;
   }, [title]);
 
+  const mergeRunning = view?.topicMerge?.status === SUMMARY_TREE_STATUS.RUNNING;
+  useEffect(() => {
+    if (!mergeRunning) return undefined;
+    const timer = setInterval(refresh, SUMMARY_TREE_STALE_MS / 4);
+    return () => clearInterval(timer);
+  }, [mergeRunning, refresh]);
+
   if (status === 'idle') {
     return (
       <ErrorState
@@ -91,6 +119,28 @@ export function ProjectApp({
   }
 
   const tabs = view.tabs;
+  const topicActions =
+    typeof api.buildProjectTopicTree === 'function'
+      ? [
+          {
+            id: 'merge-primary-topics',
+            label: 'Merge similar topics',
+            description:
+              'Group primary topics across the project’s saved pages and read their sources together.',
+            disabled: topicPending,
+            onSelect: () => {
+              setTopicTreeOpen(true);
+              if (
+                view.topicMerge?.eligiblePages?.length !== 0 &&
+                (!view.topicMerge?.tree ||
+                  ['cancelled', 'interrupted', 'error'].includes(view.topicMerge?.status))
+              ) {
+                void buildTopicTree({ fresh: false });
+              }
+            },
+          },
+        ]
+      : [];
   return (
     <div className="project-shell">
       <ProjectHeader
@@ -99,27 +149,50 @@ export function ProjectApp({
         tabCount={tabs.length}
         chatOpen={chatOpen}
         onToggleChat={() => setChatOpen((open) => !open)}
+        actions={topicActions}
       />
       <div className="project-body">
         <div className="project-canvas-wrap">
-          <ProjectCanvas
-            tabs={tabs}
-            excerpts={view.excerpts || NO_EXCERPTS}
-            focusExcerptId={view.focusExcerptId || null}
-            tabsHost={tabsHost}
-            renderPageChat={renderPageChat}
-            renderExcerptChat={api.readExcerptPage ? renderExcerptChat : undefined}
-            onDeleteExcerpt={api.deleteExcerpt ? deleteExcerpt : undefined}
-          />
-          {!view.isOpen && (
-            <p className="canvas-hint" role="status">
-              This project&apos;s tab group is closed
-            </p>
-          )}
-          {view.isOpen && tabs.length === 0 && (
-            <p className="canvas-hint" role="status">
-              Add tabs to this tab group to see them here
-            </p>
+          <div
+            className={
+              topicTreeOpen ? 'project-canvas-content is-hidden' : 'project-canvas-content'
+            }
+          >
+            <ProjectCanvas
+              active={!topicTreeOpen}
+              tabs={tabs}
+              excerpts={view.excerpts || NO_EXCERPTS}
+              focusExcerptId={view.focusExcerptId || null}
+              tabsHost={tabsHost}
+              renderPageChat={renderPageChat}
+              renderExcerptChat={api.readExcerptPage ? renderExcerptChat : undefined}
+              onDeleteExcerpt={api.deleteExcerpt ? deleteExcerpt : undefined}
+            />
+            {!view.isOpen && (
+              <p className="canvas-hint" role="status">
+                This project&apos;s tab group is closed
+              </p>
+            )}
+            {view.isOpen && tabs.length === 0 && (
+              <p className="canvas-hint" role="status">
+                Add tabs to this tab group to see them here
+              </p>
+            )}
+          </div>
+          {topicTreeOpen && (
+            <ProjectTopicTree
+              project={view.project}
+              merge={view.topicMerge}
+              pending={topicPending}
+              notice={topicNotice}
+              onBuild={buildTopicTree}
+              onStop={
+                typeof api.stopProjectTopicTree === 'function'
+                  ? () => runTopicAction(() => api.stopProjectTopicTree(projectId))
+                  : undefined
+              }
+              onClose={() => setTopicTreeOpen(false)}
+            />
           )}
         </div>
         {chatOpen && <ProjectChatPanel onCollapse={() => setChatOpen(false)} />}
