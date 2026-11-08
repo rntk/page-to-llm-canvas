@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { EXCERPT_HEIGHT, EXCERPT_WIDTH } from './canvasLayout.js';
 import { hostnameOf } from './projectText.js';
+import { useActivateTab } from './useActivateTab.js';
 
 /**
  * Card for one excerpt: the selected passage and a link naming the page it was
@@ -15,6 +16,7 @@ import { hostnameOf } from './projectText.js';
  * @param {function(import('react').PointerEvent): void} [props.onDragStart]
  */
 export function ExcerptCard({ excerpt, page, tabsHost, onDelete, onDragStart }) {
+  const { go, error: goError, clearError } = useActivateTab(tabsHost);
   const [error, setError] = useState('');
   const [deleting, setDeleting] = useState(false);
   const pageTitle = page?.title || excerpt.title || excerpt.url;
@@ -22,12 +24,11 @@ export function ExcerptCard({ excerpt, page, tabsHost, onDelete, onDragStart }) 
   const goToPage = () => {
     if (!page) return;
     setError('');
-    Promise.resolve()
-      .then(() => tabsHost.activateTab(page.id))
-      .catch(() => setError('Could not switch to tab'));
+    go(page.id);
   };
 
   const remove = () => {
+    clearError();
     setError('');
     setDeleting(true);
     Promise.resolve()
@@ -65,7 +66,7 @@ export function ExcerptCard({ excerpt, page, tabsHost, onDelete, onDragStart }) 
         {excerpt.truncated && <span className="excerpt-card-truncated"> [cut]</span>}
       </blockquote>
       <footer className="excerpt-card-footer">
-        {error && <span className="tab-card-error">{error}</span>}
+        {(error || goError) && <span className="excerpt-card-error">{error || goError}</span>}
         <button type="button" onClick={remove} disabled={deleting}>
           Delete
         </button>

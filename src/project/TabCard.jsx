@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CARD_HEIGHT, CARD_WIDTH } from './canvasLayout.js';
 import { hostnameOf } from './projectText.js';
+import { useActivateTab } from './useActivateTab.js';
 
 function FaviconTile({ tab, title }) {
   // Remember which URL failed so a changed favicon gets another chance.
@@ -35,16 +36,9 @@ function FaviconTile({ tab, title }) {
  *   Called when a drag starts on the card header.
  */
 export function TabCard({ tab, tabsHost, onDragStart }) {
-  const [goError, setGoError] = useState(false);
+  const { go, error } = useActivateTab(tabsHost);
   const title = tab.title || tab.url || 'Untitled tab';
   const loading = tab.status === 'loading';
-
-  const goToTab = () => {
-    setGoError(false);
-    Promise.resolve()
-      .then(() => tabsHost.activateTab(tab.id))
-      .catch(() => setGoError(true));
-  };
 
   return (
     <article
@@ -65,8 +59,8 @@ export function TabCard({ tab, tabsHost, onDragStart }) {
       </header>
       <div className="tab-card-body">Page content will appear here</div>
       <footer className="tab-card-footer">
-        {goError && <span className="tab-card-error">Could not switch to tab</span>}
-        <button type="button" onClick={goToTab}>
+        {error && <span className="tab-card-error">{error}</span>}
+        <button type="button" onClick={() => go(tab.id)}>
           Go to tab
         </button>
       </footer>

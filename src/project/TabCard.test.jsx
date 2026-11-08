@@ -78,10 +78,30 @@ describe('TabCard', () => {
     expect(tabsHost.activateTab).toHaveBeenCalledWith(7);
   });
 
-  it('reports a failed activation', async () => {
-    const tabsHost = { activateTab: vi.fn(async () => Promise.reject(new Error('no tab'))) };
+  it('reports an async activation rejection and clears it after a successful retry', async () => {
+    const tabsHost = {
+      activateTab: vi.fn().mockRejectedValueOnce(new Error('no tab')).mockResolvedValueOnce(),
+    };
     await render({ tab: tab(), tabsHost });
     await act(async () => container.querySelector('button').click());
     expect(container.querySelector('.tab-card-error').textContent).toBe('Could not switch to tab');
+    await act(async () => container.querySelector('button').click());
+    expect(container.querySelector('.tab-card-error')).toBeNull();
+  });
+
+  it('reports synchronous activation errors and clears them after a successful retry', async () => {
+    const tabsHost = {
+      activateTab: vi
+        .fn()
+        .mockImplementationOnce(() => {
+          throw new Error('no tab');
+        })
+        .mockResolvedValueOnce(),
+    };
+    await render({ tab: tab(), tabsHost });
+    await act(async () => container.querySelector('button').click());
+    expect(container.querySelector('.tab-card-error').textContent).toBe('Could not switch to tab');
+    await act(async () => container.querySelector('button').click());
+    expect(container.querySelector('.tab-card-error')).toBeNull();
   });
 });
