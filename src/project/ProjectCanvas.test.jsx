@@ -3,6 +3,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ProjectCanvas } from './ProjectCanvas.jsx';
+import { ChatDrawer } from './ChatDrawer.jsx';
 import { DEFAULT_VIEWPORT } from './canvasLayout.js';
 
 let container;
@@ -28,7 +29,7 @@ const tabs = [
 
 const layer = () => container.querySelector('[data-testid="canvas-layer"]');
 const surface = () => container.querySelector('[data-testid="canvas-surface"]');
-const nodes = () => [...container.querySelectorAll('.canvas-node')];
+const nodes = () => [...container.querySelectorAll('[data-canvas-node]')];
 const button = (label) =>
   [...container.querySelectorAll('button')].find(
     (b) => b.textContent === label || b.getAttribute('aria-label') === label,
@@ -101,10 +102,11 @@ describe('ProjectCanvas', () => {
     expect(layer().style.transform).toBe('translate(40px, -80px) scale(1)');
   });
 
-  it('moves Home and End using the visible bounds of zoomed and dragged cards', async () => {
+  it('moves Home and End using card bounds even without styling classes', async () => {
     Object.defineProperty(surface(), 'clientHeight', { configurable: true, value: 200 });
     surface().getBoundingClientRect = () => ({ top: 20, left: 0, width: 0, height: 200 });
     nodes().forEach((node) => {
+      node.removeAttribute('class');
       node.getBoundingClientRect = () => {
         const [, y, zoom] = layer().style.transform.match(
           /translate\([^,]+, ([^)]+)px\) scale\(([^)]+)\)/,
@@ -154,6 +156,17 @@ describe('ProjectCanvas', () => {
     expect(layer().style.transform).toContain(`${DEFAULT_VIEWPORT.x + 50}px`);
   });
 
+  it('does not pan when dragging card content without node styling classes', async () => {
+    nodes().forEach((node) => node.removeAttribute('class'));
+    const before = layer().style.transform;
+    await act(async () => {
+      pointer(container.querySelector('.tab-card'), 'pointerdown', 10, 10);
+      pointer(window, 'pointermove', 30, 50);
+      pointer(window, 'pointerup', 30, 50);
+    });
+    expect(layer().style.transform).toBe(before);
+  });
+
   it('drags a card by its header without panning the canvas', async () => {
     const header = container.querySelector('.tab-card-header');
     await act(async () => {
@@ -169,12 +182,13 @@ describe('ProjectCanvas', () => {
 
 describe('ProjectCanvas page chat folds', () => {
   const renderPageChat = (tab, { onClose }) => (
-    <aside className="page-chat-drawer" data-tab={tab.id}>
+    <ChatDrawer label={tab.title} ariaLabel={`Chat for ${tab.title}`}>
+      <span data-tab={tab.id} />
       <div className="scroller">messages</div>
       <button type="button" onClick={onClose}>
         Close drawer
       </button>
-    </aside>
+    </ChatDrawer>
   );
   const drawers = () => [...container.querySelectorAll('.page-chat-drawer')];
   const folds = () => [...container.querySelectorAll('.page-chat-fold')];
@@ -190,7 +204,9 @@ describe('ProjectCanvas page chat folds', () => {
     expect(drawers()).toEqual([]);
 
     await act(async () => button('Unfold chat for Two').click());
-    expect(drawers().map((drawer) => drawer.dataset.tab)).toEqual(['2']);
+    expect(drawers().map((drawer) => drawer.querySelector('[data-tab]').dataset.tab)).toEqual([
+      '2',
+    ]);
     expect(folds()[1].getAttribute('aria-expanded')).toBe('true');
     // The drawer sits between its card and the fold tab, inside the card's node.
     expect([...nodes()[1].children].map((child) => child.className)).toEqual([
@@ -200,16 +216,22 @@ describe('ProjectCanvas page chat folds', () => {
     ]);
 
     await act(async () => button('Unfold chat for One').click());
-    expect(drawers().map((drawer) => drawer.dataset.tab)).toEqual(['1', '2']);
+    expect(drawers().map((drawer) => drawer.querySelector('[data-tab]').dataset.tab)).toEqual([
+      '1',
+      '2',
+    ]);
 
     await act(async () => button('Fold chat for Two').click());
-    expect(drawers().map((drawer) => drawer.dataset.tab)).toEqual(['1']);
+    expect(drawers().map((drawer) => drawer.querySelector('[data-tab]').dataset.tab)).toEqual([
+      '1',
+    ]);
     await act(async () => button('Close drawer').click());
     expect(drawers()).toEqual([]);
   });
 
-  it('lets the chat scroll and take arrow keys instead of zooming or panning', async () => {
+  it('lets chat scroll and take arrow keys without drawer styling classes', async () => {
     await act(async () => button('Unfold chat for One').click());
+    drawers()[0].removeAttribute('class');
     const scroller = container.querySelector('.scroller');
     const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -100 });
     await act(async () => scroller.dispatchEvent(wheel));

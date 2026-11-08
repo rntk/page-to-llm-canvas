@@ -210,6 +210,25 @@ describe('ProjectCanvas excerpts', () => {
     expect(nodeOf(card('e1')).style.transform).toBe(movedPosition);
   });
 
+  it('lets excerpt text scroll without styling classes and still supports Ctrl+wheel zoom', async () => {
+    await render();
+    const text = card('e1').querySelector('blockquote');
+    text.removeAttribute('class');
+    const layer = container.querySelector('[data-testid="canvas-layer"]');
+    const before = layer.style.transform;
+    const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -100 });
+    await act(async () => text.dispatchEvent(wheel));
+    expect(wheel.defaultPrevented).toBe(false);
+    expect(layer.style.transform).toBe(before);
+
+    const ctrl = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -100 });
+    // Happy DOM ignores modifier keys in the WheelEvent init dictionary.
+    Object.defineProperty(ctrl, 'ctrlKey', { value: true });
+    await act(async () => text.dispatchEvent(ctrl));
+    expect(ctrl.defaultPrevented).toBe(true);
+    expect(layer.style.transform).not.toBe(before);
+  });
+
   it('deletes an excerpt through the handler', async () => {
     const { onDeleteExcerpt } = await render();
     await act(async () => card('e1').querySelector('.excerpt-card-footer button').click());

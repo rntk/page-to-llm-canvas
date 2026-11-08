@@ -11,7 +11,12 @@ import React from 'react';
  */
 export function ChatDrawer({ label, ariaLabel, children }) {
   return (
-    <aside className="page-chat-drawer" aria-label={ariaLabel}>
+    <aside
+      className="page-chat-drawer"
+      data-canvas-chat=""
+      data-canvas-scroll=""
+      aria-label={ariaLabel}
+    >
       <header className="page-chat-header">
         <span className="page-chat-label">{label}</span>
       </header>

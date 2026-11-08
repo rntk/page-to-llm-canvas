@@ -24,8 +24,10 @@ function trackPointer(start, onMove) {
 
 // Chat drawers and excerpt text scroll (and chats take keys) on their own, so
 // canvas wheel-zoom and keyboard panning leave them alone.
-const PAGE_CHAT_SELECTOR = '.page-chat-drawer';
-const SCROLLABLE_SELECTOR = `${PAGE_CHAT_SELECTOR}, .excerpt-card-text`;
+// These data attributes describe input behavior independently of styling.
+const CHAT_SELECTOR = '[data-canvas-chat]';
+const SCROLLABLE_SELECTOR = '[data-canvas-scroll]';
+const NODE_SELECTOR = '[data-canvas-node]';
 
 function insideSelector(target, selector) {
   return typeof target?.closest === 'function' && !!target.closest(selector);
@@ -99,7 +101,7 @@ export function useCanvasViewport({ active }) {
   useEffect(() => {
     if (!active) return undefined;
     const handleKeyDown = (event) => {
-      if (isTypingTarget(event.target) || insideSelector(event.target, PAGE_CHAT_SELECTOR)) return;
+      if (isTypingTarget(event.target) || insideSelector(event.target, CHAT_SELECTOR)) return;
       const pan = ARROW_PAN[event.key];
       if (!pan && !NAV_KEYS.includes(event.key)) return;
       event.preventDefault();
@@ -107,7 +109,7 @@ export function useCanvasViewport({ active }) {
       const height = surface?.clientHeight || 0;
       const pageStep = Math.max(120, height * 0.8);
       // Measure live bounds so End includes cards dragged beyond the grid.
-      const nodes = event.key === 'End' ? [...surface.querySelectorAll('.canvas-node')] : [];
+      const nodes = event.key === 'End' ? [...surface.querySelectorAll(NODE_SELECTOR)] : [];
       const surfaceTop = surface.getBoundingClientRect().top;
       const bottom = nodes.length
         ? Math.max(...nodes.map((node) => node.getBoundingClientRect().bottom - surfaceTop))
@@ -137,7 +139,7 @@ export function useCanvasViewport({ active }) {
   const resetViewport = useCallback(() => setViewport(DEFAULT_VIEWPORT), []);
 
   const handleSurfacePointerDown = (event) => {
-    if (event.button !== 0 || event.target.closest('.canvas-node')) return;
+    if (event.button !== 0 || insideSelector(event.target, NODE_SELECTOR)) return;
     event.preventDefault();
     const origin = viewportRef.current;
     beginGesture(event, (dx, dy) => setViewport({ ...origin, x: origin.x + dx, y: origin.y + dy }));

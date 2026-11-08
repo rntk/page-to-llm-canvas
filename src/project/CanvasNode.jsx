@@ -19,6 +19,7 @@ export function CanvasNode({
   return (
     <div
       className="canvas-node"
+      data-canvas-node=""
       style={{
         transform: `translate(${position.x}px, ${position.y}px)`,
         zIndex,

@@ -61,7 +61,7 @@ export function ExcerptCard({ excerpt, page, tabsHost, onDelete, onDragStart }) 
           {!page && <span className="excerpt-card-source-host"> · {hostnameOf(excerpt.url)}</span>}
         </button>
       </header>
-      <blockquote className="excerpt-card-text" cite={excerpt.url}>
+      <blockquote className="excerpt-card-text" data-canvas-scroll="" cite={excerpt.url}>
         {excerpt.text}
         {excerpt.truncated && <span className="excerpt-card-truncated"> [cut]</span>}
       </blockquote>
