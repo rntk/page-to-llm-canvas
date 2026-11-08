@@ -235,8 +235,8 @@ function createTreeModel(tree) {
   const sentences = Array.isArray(tree.sentences) ? tree.sentences : [];
   const sources = tree.sources && typeof tree.sources === 'object' ? tree.sources : {};
 
-  // Article identity is the source record; titles are only labels. Two
-  // articles with the same title get their url appended to stay distinguishable.
+  // Keep historical sources available for stable citation lookup. Their presence
+  // does not establish current membership in the saved tree.
   const articleByKey = new Map();
   const sourceKey = (source) => source.recordKey ?? `${source.url || ''}|${source.title || ''}`;
   for (const record of Array.isArray(tree.records) ? tree.records : []) {
@@ -248,17 +248,6 @@ function createTreeModel(tree) {
     if (!articleByKey.has(key)) {
       articleByKey.set(key, { key, title: source.title, url: source.url || '' });
     }
-  }
-  const titleCounts = new Map();
-  for (const article of articleByKey.values()) {
-    article.title = String(article.title || article.url || 'Untitled article');
-    titleCounts.set(article.title, (titleCounts.get(article.title) || 0) + 1);
-  }
-  for (const article of articleByKey.values()) {
-    article.label =
-      titleCounts.get(article.title) > 1 && article.url
-        ? `${article.title} (${article.url})`
-        : article.title;
   }
 
   const hasNode = (id) => typeof id === 'string' && Object.hasOwn(nodes, id);
@@ -367,6 +356,32 @@ function createTreeModel(tree) {
       return order;
     });
 
+  // Records explicitly define membership, including an empty list. Older
+  // snapshots without records fall back to evidence in reachable nodes only.
+  const includedKeys = new Set(
+    Array.isArray(tree.records)
+      ? tree.records.filter((record) => record?.key != null).map((record) => record.key)
+      : reachable().flatMap((node) =>
+          (node.sentences || []).flatMap((id) => (sources[id] ? [sourceKey(sources[id])] : [])),
+        ),
+  );
+  const articles = [...articleByKey.values()].filter((article) => includedKeys.has(article.key));
+  for (const article of articleByKey.values()) {
+    article.title = String(article.title || article.url || 'Untitled article');
+    article.label = article.title;
+  }
+  // Only included articles need disambiguation from each other.
+  const titleCounts = new Map();
+  for (const article of articles) {
+    titleCounts.set(article.title, (titleCounts.get(article.title) || 0) + 1);
+  }
+  for (const article of articles) {
+    article.label =
+      titleCounts.get(article.title) > 1 && article.url
+        ? `${article.title} (${article.url})`
+        : article.title;
+  }
+
   return {
     tree,
     root,
@@ -381,7 +396,7 @@ function createTreeModel(tree) {
     hasSummary,
     pathTitles,
     reachable,
-    articles: [...articleByKey.values()],
+    articles,
   };
 }
 

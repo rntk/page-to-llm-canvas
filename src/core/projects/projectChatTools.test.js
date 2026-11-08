@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildProjectTopicSeed } from './projectTopicTree.js';
+import { buildProjectTopicSeed, prepareIncrementalProjectTree } from './projectTopicTree.js';
 import { addNode, TOPIC, ROOT } from '../pipeline/summaryTreeModel.js';
 import { createProjectChatTools, tokenize } from './projectChatTools.js';
 
@@ -131,6 +131,55 @@ describe('createProjectChatTools', () => {
 });
 
 describe('preamble', () => {
+  it('excludes removed articles after an incremental update while retaining historical rows', async () => {
+    const prior = makeTree({ betaWindSummary: true });
+    const incremental = prepareIncrementalProjectTree(prior, [record('b', 'Beta article')], {
+      contentRevision: 'removed-alpha',
+    });
+    const tree = {
+      ...incremental.tree,
+      sentences: incremental.seed.sentences,
+      sources: incremental.seed.sources,
+      records: incremental.seed.records,
+    };
+    expect(tree.sources[1].recordKey).toBe('a');
+    expect(tree.sentences[0]).toBe(prior.sentences[0]);
+
+    const { chat, tool } = setup({
+      tree,
+      eligiblePages: [{ title: 'Alpha article', url: 'https://a.test/' }],
+    });
+    expect(chat.preamble).toContain('Included articles (1)');
+    expect(chat.preamble).toContain('Beta article <https://b.test/>');
+    expect(chat.preamble).toContain('Eligible pages not merged into this tree (1)');
+    const content = await run(tool('read_topic_content'), { node_id: tree.rootId });
+    expect(content.sentences_by_article.map((group) => group.article)).toEqual(['Beta article']);
+    const search = await run(tool('search_topics'), { query: 'a' });
+    expect(search.hits).toEqual([]);
+  });
+
+  it('treats an empty records list as explicit membership', () => {
+    const { chat } = setup({ tree: { ...makeTree(), records: [] } });
+    expect(chat.preamble).not.toContain('Included articles (');
+    expect(chat.preamble).not.toContain('Alpha article <https://a.test/>');
+    expect(chat.preamble).not.toContain('Beta article <https://b.test/>');
+  });
+
+  it('uses reachable evidence when records are absent, excluding historical and detached rows', () => {
+    const tree = makeTree();
+    delete tree.records;
+    const extra = buildProjectTopicSeed([record('c', 'Historical article')], { base: tree });
+    tree.sentences = extra.sentences;
+    tree.sources = extra.sources;
+    // A detached node is not evidence of membership in a tree with a saved root.
+    tree.nodes.detached = { ...extra.nodes.n0, id: 'detached' };
+    const { chat } = setup({ tree });
+    expect(chat.preamble).toContain('Included articles (2)');
+    expect(chat.preamble).toContain('Alpha article <https://a.test/>');
+    expect(chat.preamble).toContain('Beta article <https://b.test/>');
+    expect(chat.preamble).not.toContain('Historical article');
+  });
+
   it('lists articles, branches with ids, root summary, skipped reasons and guidance', () => {
     const { chat, ids } = setup({
       skippedPages: [
