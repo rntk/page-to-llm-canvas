@@ -10,7 +10,9 @@ import { articlesFromMergedRows, describeSourceCard } from './sourceCardChat.js'
  * @param {object} options
  * @param {string[]} options.sentences Tree sentences.
  * @param {object|null} [options.sentenceSources] Set for merged trees (see describeSourceCard).
- * @param {object|null} [options.article] Set for single-article trees.
+ * @param {object|null} [options.article] Explicit single-article chat metadata.
+ * @param {object|null} [options.record] Single-article source record.
+ * @param {string} [options.recordKey] Key of the single-article source record.
  * @param {object[]} [options.records] Merged trees: the articles merged.
  * @param {string} [options.projectId] Merged trees: owner of chats over text from several articles.
  * @param {object} [options.chatPorts] ArticleChat port overrides (tests).
@@ -20,10 +22,21 @@ export function useSourceCardChats({
   sentences,
   sentenceSources = null,
   article = null,
+  record = null,
+  recordKey,
   records,
   projectId,
   chatPorts,
 }) {
+  const key = record ? recordKey : null;
+  const title = record?.title || record?.sourceTitle || record?.sourceUrl || '';
+  const url = record?.sourceUrl || '';
+  const contentRevision = record?.contentRevision;
+  const recordArticle = useMemo(
+    () => (key ? { key, title, url, contentRevision } : null),
+    [key, title, url, contentRevision],
+  );
+  const chatArticle = article || recordArticle;
   return useMemo(() => {
     const cards = new Map();
     let articles = null;
@@ -36,7 +49,7 @@ export function useSourceCardChats({
             node,
             sentences,
             sentenceSources,
-            article,
+            article: chatArticle,
             records,
             getArticles,
             projectId,
@@ -60,5 +73,5 @@ export function useSourceCardChats({
           : null;
       },
     };
-  }, [sentences, sentenceSources, article, records, projectId, chatPorts]);
+  }, [sentences, sentenceSources, chatArticle, records, projectId, chatPorts]);
 }

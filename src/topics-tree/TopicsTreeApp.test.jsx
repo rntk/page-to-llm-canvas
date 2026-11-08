@@ -32,6 +32,9 @@ function render(props) {
   act(() => root.render(createElement(TopicsTreeApp, { initialKey: 'k1', ...props })));
   return {
     container,
+    rerender(nextProps = props) {
+      act(() => root.render(createElement(TopicsTreeApp, { initialKey: 'k1', ...nextProps })));
+    },
     unmount() {
       act(() => root.unmount());
       container.remove();
@@ -108,6 +111,89 @@ describe('TopicsTreeApp', () => {
     act(() => fruit.click());
     expect(titles(container)).toEqual(['news.example.com', 'Fruit', 'Veg']);
     unmount();
+  });
+
+  it('preserves expanded topics when polling returns fresh objects for the same revision', () => {
+    const record = { ...doneRecord, contentRevision: 'content-1', projectTopicRevision: 1 };
+    useRecord.mockReturnValue({ record, error: null });
+    const view = render();
+    const fruit = [...view.container.querySelectorAll('.tt-node')].find((node) =>
+      node.textContent.startsWith('Fruit'),
+    );
+    act(() => fruit.click());
+    expect(titles(view.container)).toContain('Apples');
+
+    useRecord.mockReturnValue({ record: structuredClone(record), error: null });
+    view.rerender();
+    expect(titles(view.container)).toContain('Apples');
+    expect(view.container.querySelector('.tt-node[aria-expanded="true"]')).not.toBeNull();
+    view.unmount();
+  });
+
+  it('refreshes pipeline summaries when the project topic revision changes', () => {
+    const record = { ...doneRecord, contentRevision: 'content-1', projectTopicRevision: 1 };
+    useRecord.mockReturnValue({ record, error: null });
+    const view = render();
+    expect(view.container.textContent).toContain('Fruit overview.');
+
+    useRecord.mockReturnValue({
+      record: {
+        ...record,
+        projectTopicRevision: 2,
+        topic_summary_index: {
+          ...record.topic_summary_index,
+          Fruit: { level: 0, runs: [{ text: 'Updated fruit overview.', sentences: [1, 2, 3] }] },
+        },
+      },
+      error: null,
+    });
+    view.rerender();
+    expect(view.container.textContent).toContain('Updated fruit overview.');
+    expect(view.container.textContent).not.toContain('Fruit overview.');
+    view.unmount();
+  });
+
+  it('refreshes the summary tree when its saved timestamp changes', () => {
+    const tree = {
+      version: 1,
+      status: 'done',
+      contentRevision: 'content-1',
+      rootId: 'root',
+      nodes: {
+        root: {
+          id: 'root',
+          kind: 'root',
+          children: [],
+          sentences: [1],
+          segments: [{ text: 'First summary.' }],
+        },
+      },
+      updatedAt: 1,
+    };
+    const record = { ...doneRecord, contentRevision: 'content-1', summary_tree: tree };
+    useRecord.mockReturnValue({ record, error: null });
+    const view = render();
+    const summaryButton = [...view.container.querySelectorAll('.tt-source-switcher button')].find(
+      (button) => button.textContent === 'Summary tree',
+    );
+    act(() => summaryButton.click());
+    expect(view.container.textContent).toContain('First summary.');
+
+    useRecord.mockReturnValue({
+      record: {
+        ...record,
+        summary_tree: {
+          ...tree,
+          updatedAt: 2,
+          nodes: { root: { ...tree.nodes.root, segments: [{ text: 'Revised summary.' }] } },
+        },
+      },
+      error: null,
+    });
+    view.rerender();
+    expect(view.container.textContent).toContain('Revised summary.');
+    expect(view.container.textContent).not.toContain('First summary.');
+    view.unmount();
   });
 
   it('folds a reused summary in the primary Business > Risk branch', () => {
@@ -294,11 +380,27 @@ describe('TopicsTreeApp', () => {
       record: { ...doneRecord, contentRevision: 'r1', summary_tree: tree('error') },
       error: null,
     });
-    view = render({ recordSource });
+    const onNavigateToSentences = vi.fn();
+    view = render({ recordSource, onNavigateToSentences });
     act(() => sourceButton(view.container, 'Summary tree').click());
     expect(view.container.textContent).toContain('The build failed: Model down');
     expect(titles(view.container)).toEqual(['news.example.com', 'Crisp']);
     expect(view.container.textContent).toContain('An apple story.');
+    const crisp = [...view.container.querySelectorAll('.tt-node')].find((node) =>
+      node.textContent.startsWith('Crisp'),
+    );
+    act(() => crisp.click());
+    const show = [...view.container.querySelectorAll('.tt-card button')].find(
+      (button) => button.textContent === 'Show in page',
+    );
+    act(() => show.click());
+    expect(onNavigateToSentences).toHaveBeenCalledWith({
+      key: 'k1',
+      rail: 'page',
+      sentenceNumbers: [1, 2],
+      level: 0,
+      topicPath: undefined,
+    });
     await act(async () => actionButton(view.container, 'Rebuild').click());
     expect(recordSource.buildSummaryTree).toHaveBeenLastCalledWith('k1', { fresh: true });
     act(() => sourceButton(view.container, 'Pipeline').click());
