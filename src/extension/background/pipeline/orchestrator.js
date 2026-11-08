@@ -470,6 +470,27 @@ export function createPipelineRunner({
     return { providers, judge, fingerprint, maxChars, verboseLogs };
   }
 
+  // Marks the saved partial tree so the view offers a resume. Reads without the
+  // stop signal: the record is still owned by this run.
+  async function persistSummaryTreeFailure(runContext, { stopped, message }) {
+    const owner = runtimeFactory(runContext);
+    try {
+      const latest = await owner.read();
+      const tree = latest?.summary_tree;
+      await owner.saveSummaryTree({
+        version: SUMMARY_TREE_VERSION,
+        ...(tree && typeof tree === 'object' ? tree : {}),
+        status: stopped ? SUMMARY_TREE_STATUS.CANCELLED : SUMMARY_TREE_STATUS.ERROR,
+        error: message,
+        updatedAt: Date.now(),
+      });
+    } catch (writeError) {
+      if (!isCancellationError(writeError, owner)) {
+        logger.error('failed to persist summary tree failure:', writeError);
+      }
+    }
+  }
+
   /**
    * Builds or resumes the summary tree of a completed record, beside its
    * primary topics and summaries. The record stays completed: the run owns it
@@ -523,24 +544,7 @@ export function createPipelineRunner({
         { error: message },
         { allowAborted: true },
       );
-      // Mark the saved partial tree so the view offers a resume. Read without
-      // the stop signal: the record is still owned by this run.
-      const owner = runtimeFactory(runContext);
-      try {
-        const latest = await owner.read();
-        const tree = latest?.summary_tree;
-        await owner.saveSummaryTree({
-          version: SUMMARY_TREE_VERSION,
-          ...(tree && typeof tree === 'object' ? tree : {}),
-          status: stopped ? SUMMARY_TREE_STATUS.CANCELLED : SUMMARY_TREE_STATUS.ERROR,
-          error: message,
-          updatedAt: Date.now(),
-        });
-      } catch (writeError) {
-        if (!isCancellationError(writeError, owner)) {
-          logger.error('failed to persist summary tree failure:', writeError);
-        }
-      }
+      await persistSummaryTreeFailure(runContext, { stopped, message });
       if (!stopped) logger.error('summary tree failed for', key, error);
     } finally {
       await runtime.flushLogs();

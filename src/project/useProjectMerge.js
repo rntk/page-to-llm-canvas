@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { SUMMARY_TREE_STALE_MS, SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
+import { useState } from 'react';
+import { SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
+import { useStaleTick } from '../shared/useStaleTick.js';
 
 const REBUILD_STATUSES = ['cancelled', 'interrupted', 'error'];
 
@@ -51,11 +52,7 @@ export function useProjectMerge({ projectId, api, merge, refresh, showTopics }) 
   };
 
   const running = merge?.status === SUMMARY_TREE_STATUS.RUNNING;
-  useEffect(() => {
-    if (!running) return undefined;
-    const timer = setInterval(refresh, SUMMARY_TREE_STALE_MS / 4);
-    return () => clearInterval(timer);
-  }, [running, refresh]);
+  useStaleTick(running, refresh);
 
   return { canMerge, pending, notice, build, stop, open };
 }

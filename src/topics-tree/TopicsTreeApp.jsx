@@ -3,11 +3,8 @@ import { projectArticleView } from '../domain/articleView.js';
 import { useRecord } from '../canvas/hooks/useRecord.js';
 import { getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
 import { PIPELINE_STATUS } from '../shared/runtime/contracts.js';
-import {
-  readSummaryTree,
-  SUMMARY_TREE_STALE_MS,
-  SUMMARY_TREE_STATUS,
-} from '../shared/runtime/summaryTree.js';
+import { readSummaryTree, SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
+import { useStaleTick } from '../shared/useStaleTick.js';
 import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
 import { LEAF_KIND } from './displayTree.js';
 import RecordStateGate from './RecordStateGate.jsx';
@@ -60,11 +57,8 @@ export default function TopicsTreeApp({
   // A running build that stops saving becomes resumable without a record change.
   // A save newer than `now` is never stale, so ticking only while running suffices.
   const running = summaryTree.status === SUMMARY_TREE_STATUS.RUNNING;
-  useEffect(() => {
-    if (!running) return undefined;
-    const timer = setInterval(() => setNow(Date.now()), SUMMARY_TREE_STALE_MS / 4);
-    return () => clearInterval(timer);
-  }, [running]);
+  const tick = useCallback(() => setNow(Date.now()), []);
+  useStaleTick(running, tick);
 
   const article = projectArticleView(record);
   const leafChat = useSourceCardChats({
