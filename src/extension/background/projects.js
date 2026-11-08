@@ -77,14 +77,17 @@ export function createProjectService({
     } catch {
       /* Without session storage the cache is the best information available. */
     }
-    const projects = await projectStore.update((current) => {
-      const result = rebindProjects(current, live.groups, live.tabs, {
-        pageBaseUrl: pageBaseUrl(),
-        now: now(),
-        trustCached,
-      });
-      return result.changed ? result.projects : null;
-    });
+    const projects = await projectStore.update(
+      (current) => {
+        const result = rebindProjects(current, live.groups, live.tabs, {
+          pageBaseUrl: pageBaseUrl(),
+          now: now(),
+          trustCached,
+        });
+        return result.changed ? result.projects : null;
+      },
+      { includeTrees: false },
+    );
     if (!trustCached) await bindingSession.markTrusted().catch(() => {});
     return { projects, ...live };
   }
@@ -151,12 +154,17 @@ export function createProjectService({
     const bound = state.projects.find((p) => p.groupId === groupId);
     if (bound) return { project: bound, createdProject: false, group, state };
     const project = createProjectFromGroup(group, { id: createId(), now: now() });
-    await projectStore.update((current) => {
-      // Another event may have bound the group meanwhile; keep that binding.
-      if (current.some((p) => p.groupId === groupId)) return null;
-      return [...current, project];
-    });
-    const stored = (await projectStore.list()).find((p) => p.groupId === groupId) || project;
+    await projectStore.update(
+      (current) => {
+        // Another event may have bound the group meanwhile; keep that binding.
+        if (current.some((p) => p.groupId === groupId)) return null;
+        return [...current, project];
+      },
+      { includeTrees: false },
+    );
+    const stored =
+      (await projectStore.list({ includeTrees: false })).find((p) => p.groupId === groupId) ||
+      project;
     return { project: stored, createdProject: stored.id === project.id, group, state };
   }
 
@@ -237,11 +245,14 @@ export function createProjectService({
      */
     async deleteProject(projectId) {
       let deleted = false;
-      await projectStore.update((current) => {
-        const next = current.filter((p) => p.id !== projectId);
-        deleted = next.length !== current.length;
-        return deleted ? next : null;
-      });
+      await projectStore.update(
+        (current) => {
+          const next = current.filter((p) => p.id !== projectId);
+          deleted = next.length !== current.length;
+          return deleted ? next : null;
+        },
+        { includeTrees: false },
+      );
       return { deleted };
     },
 
@@ -281,7 +292,9 @@ export function createProjectService({
      */
     async getProjectView(projectId) {
       const state = await sync();
-      const project = await requireProject(projectId, state.projects);
+      await requireProject(projectId, state.projects);
+      const project = await projectStore.get(projectId);
+      if (!project) throw new Error('project not found');
       const isOpen = isTabGroupId(project.groupId);
       if (!isOpen) return { project, isOpen, tabs: [] };
       const ownTabIds = new Set(
@@ -299,10 +312,13 @@ export function createProjectService({
      * @param {number|null} groupId
      */
     async handleGroupRemoved(groupId) {
-      await projectStore.update((current) => {
-        const result = unbindGroup(current, groupId, now());
-        return result.changed ? result.projects : null;
-      });
+      await projectStore.update(
+        (current) => {
+          const result = unbindGroup(current, groupId, now());
+          return result.changed ? result.projects : null;
+        },
+        { includeTrees: false },
+      );
     },
 
     /**

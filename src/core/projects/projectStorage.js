@@ -1,9 +1,7 @@
-// chrome.storage.local repository for projects. Every write is a serialized
-// read-modify-write over the single PROJECTS_STORAGE_KEY document, so event
-// storms (session restore, group drags) cannot lose updates.
+// Project metadata and separate topic snapshots share one mutation queue.
 
 import { getLocal, setLocal, queuedUpdate } from '../storage/primitives.js';
-import { PROJECTS_STORAGE_KEY } from '../storage/keys.js';
+import { PROJECTS_STORAGE_KEY, projectTopicTreeStorageKey } from '../storage/keys.js';
 import { normalizeProject } from './projects.js';
 
 /**
@@ -36,33 +34,80 @@ export function createProjectStore({
   queue = queuedUpdate,
   key = PROJECTS_STORAGE_KEY,
 } = {}) {
-  async function list() {
+  const treeKey = (id) =>
+    key === PROJECTS_STORAGE_KEY
+      ? projectTopicTreeStorageKey(id)
+      : key + ':tree:' + encodeURIComponent(id);
+  const metadata = ({ topic_tree: _tree, ...project }) => project;
+  async function readMetadata() {
     const items = await get(key);
     return normalizeStoredProjects(items?.[key]);
   }
-
+  async function hydrate(project) {
+    if (project.topic_tree) return project;
+    const items = await get(treeKey(project.id));
+    const tree = items?.[treeKey(project.id)];
+    return tree ? normalizeProject({ ...project, topic_tree: tree }) : project;
+  }
+  async function list({ includeTrees = true } = {}) {
+    const projects = await readMetadata();
+    return includeTrees ? Promise.all(projects.map(hydrate)) : projects.map(metadata);
+  }
+  async function persist(current, next, raw, includeTrees = true) {
+    const writes = {};
+    const previous = new Map(current.map((project) => [project.id, project]));
+    const legacy = new Map(
+      raw.filter((project) => project.topic_tree).map((p) => [p.id, p.topic_tree]),
+    );
+    for (const project of next) {
+      if (
+        legacy.has(project.id) ||
+        (includeTrees && project.topic_tree !== previous.get(project.id)?.topic_tree)
+      ) {
+        writes[treeKey(project.id)] =
+          (includeTrees ? project.topic_tree : legacy.get(project.id)) || null;
+      }
+    }
+    const ids = new Set(next.map((project) => project.id));
+    for (const project of current) {
+      if (!ids.has(project.id)) writes[treeKey(project.id)] = null;
+    }
+    const stripped = next.map(metadata);
+    if (JSON.stringify(raw) !== JSON.stringify(stripped)) writes[key] = stripped;
+    if (Object.keys(writes).length) await set(writes);
+  }
   return {
     key,
     list,
-
-    /** @param {string} projectId */
     async get(projectId) {
-      return (await list()).find((project) => project.id === projectId) || null;
+      const project = (await readMetadata()).find((item) => item.id === projectId);
+      return project ? hydrate(project) : null;
     },
-
-    /**
-     * Applies `mutate` to the current list and persists its result. Returning
-     * null (or the same array) from `mutate` skips the write.
-     * @param {function(import('./projects.js').Project[]): (import('./projects.js').Project[]|null)} mutate
-     * @returns {Promise<import('./projects.js').Project[]>} The list after the update.
-     */
-    update(mutate) {
+    update(mutate, { includeTrees = true } = {}) {
       return queue(key, async () => {
-        const current = await list();
+        const raw = await readMetadata();
+        const current = includeTrees ? await Promise.all(raw.map(hydrate)) : raw.map(metadata);
         const next = mutate(current);
         if (!next || next === current) return current;
-        await set({ [key]: next });
+        await persist(current, next, raw, includeTrees);
         return next;
+      });
+    },
+    // Shares the collection queue so deletion and ownership checks serialize.
+    updateProject(projectId, mutate) {
+      return queue(key, async () => {
+        const raw = await readMetadata();
+        const index = raw.findIndex((project) => project.id === projectId);
+        if (index < 0) return null;
+        const project = await hydrate(raw[index]);
+        const updated = mutate(project);
+        if (!updated || updated === project) return project;
+        const current = [...raw];
+        current[index] = project;
+        const next = [...current];
+        next[index] = updated;
+        await persist(current, next, raw);
+        return updated;
       });
     },
   };

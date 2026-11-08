@@ -152,6 +152,7 @@ function mergeAuthoritativeMetaIntoProjection(meta, cached = {}) {
   return {
     ...cached,
     sourceUrl: meta.sourceUrl,
+    projectTopicRevision: meta.projectTopicRevision,
     createdAt: meta.createdAt,
     status: meta.status,
     progress: meta.progress,

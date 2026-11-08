@@ -42,6 +42,7 @@ export function useProjectView({
     let active = true;
     let latest = 0;
     let timer = null;
+    let currentView = null;
 
     const load = () => {
       latest += 1;
@@ -51,6 +52,7 @@ export function useProjectView({
         .then(
           (view) => {
             if (active && request === latest) {
+              currentView = view;
               setState({ projectId, status: 'ready', view, error: null });
             }
           },
@@ -82,7 +84,10 @@ export function useProjectView({
     };
 
     load();
-    const unsubscribe = subscribe(scheduleRefresh);
+    const unsubscribe = subscribe(scheduleRefresh, undefined, {
+      projectId,
+      getView: () => currentView,
+    });
     return () => {
       active = false;
       if (timer !== null) scheduler.clearTimeout(timer);

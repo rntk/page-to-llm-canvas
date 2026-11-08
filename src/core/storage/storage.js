@@ -316,6 +316,7 @@ export async function writeRecord(rec, options = {}) {
           storageSchemaVersion: RECORD_STORAGE_SCHEMA_VERSION,
           contentRevision,
           textRevision,
+          projectTopicRevision: createContentRevision(),
           topicSummariesRevision,
           sourceSummaryUnitsRevision,
         },
@@ -442,6 +443,14 @@ export async function updateRecord(key, patch, options = {}) {
       if (replacesContentGeneration) {
         mergedMeta.contentRevision = createContentRevision();
       }
+      // Splits and summary indexes can change without replacing text.
+      if (
+        replacesContentGeneration ||
+        ['sentences', 'topics', 'topic_summary_index', 'sourceUrl', 'contentRevision'].some(
+          (field) => hasOwn(patch, field),
+        )
+      )
+        mergedMeta.projectTopicRevision = createContentRevision();
       // Committed in the same setLocal() as the content document below, so a
       // worker that dies before the index projection is updated always leaves
       // a meta document whose marker no longer matches the cached snippet.

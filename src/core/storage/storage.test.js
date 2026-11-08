@@ -1708,3 +1708,26 @@ describe('findRecordByUrl', () => {
     expect(found.key).toBe('imported');
   });
 });
+
+describe('project topic source revisions', () => {
+  it('changes for source edits but not progress, with authoritative listing markers', async () => {
+    vi.stubGlobal('chrome', makeChromeMock());
+    await writeRecord(makeRecord('project-source'));
+    let revision = (await readRecord('project-source')).projectTopicRevision;
+    expect(revision).toBeTruthy();
+    await updateRecord('project-source', { progress: 50 });
+    expect((await readRecord('project-source')).projectTopicRevision).toBe(revision);
+    for (const patch of [
+      { topics: [{ name: 'Changed', sentences: [1] }] },
+      { sentences: ['Changed sentence.'] },
+      { topic_summary_index: { Changed: ['Summary'] } },
+      { sourceUrl: 'https://changed.test/' },
+    ]) {
+      await updateRecord('project-source', patch);
+      const next = (await readRecord('project-source')).projectTopicRevision;
+      expect(next).not.toBe(revision);
+      expect((await listRecords())[0].projectTopicRevision).toBe(next);
+      revision = next;
+    }
+  });
+});

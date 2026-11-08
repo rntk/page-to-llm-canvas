@@ -50,3 +50,34 @@ describe('project storage', () => {
     expect(deps.set).not.toHaveBeenCalled();
   });
 });
+
+describe('separate project snapshots', () => {
+  it('migrates embedded trees and writes only the targeted checkpoint thereafter', async () => {
+    const deps = memoryStore([
+      { id: 'a', topic_tree: { runId: 'a' } },
+      { id: 'b', topic_tree: { runId: 'b' } },
+    ]);
+    const store = createProjectStore(deps);
+    await store.updateProject('a', (p) => ({ ...p, topic_tree: { runId: 'next' } }));
+    expect(deps.data.k.every((p) => !p.topic_tree)).toBe(true);
+    expect((await store.get('b')).topic_tree.runId).toBe('b');
+    deps.get.mockClear();
+    deps.set.mockClear();
+    await store.updateProject('a', (p) => ({ ...p, topic_tree: { runId: 'latest' } }));
+    expect(deps.get.mock.calls.map(([key]) => key)).toEqual(['k', 'k:tree:a']);
+    expect(Object.keys(deps.set.mock.calls[0][0])).toEqual(['k:tree:a']);
+  });
+
+  it('preserves snapshots on metadata updates and clears them on deletion', async () => {
+    const deps = memoryStore([{ id: 'a', topic_tree: { runId: 'saved' } }]);
+    const store = createProjectStore(deps);
+    await store.update((ps) => ps.map((p) => ({ ...p, title: 'new' })), { includeTrees: false });
+    expect((await store.get('a')).topic_tree.runId).toBe('saved');
+    deps.get.mockClear();
+    await store.update((ps) => ps.map((p) => ({ ...p, title: 'again' })), { includeTrees: false });
+    expect(deps.get.mock.calls.map(([key]) => key)).toEqual(['k']);
+    await store.update(() => [], { includeTrees: false });
+    expect(deps.data['k:tree:a']).toBeNull();
+    expect(await store.updateProject('a', () => ({ id: 'a' }))).toBeNull();
+  });
+});

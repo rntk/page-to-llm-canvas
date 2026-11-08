@@ -45,18 +45,24 @@ function fixture() {
     });
   });
   const logger = { error: vi.fn() };
+  const readRecord = vi.fn(async (key) => records.find((record) => record.key === key));
   const service = createProjectTopicTreeService({
     projectStore,
     projectService: { getProjectView: async () => ({ project: projects[0], tabs }) },
     listRecords: async () =>
-      records.map(({ key, sourceUrl, status }) => ({ key, sourceUrl, status })),
-    readRecord: async (key) => records.find((record) => record.key === key),
+      records.map(({ key, sourceUrl, status, projectTopicRevision }) => ({
+        key,
+        sourceUrl,
+        status,
+        projectTopicRevision,
+      })),
+    readRecord,
     runProjectTopicTree,
     logger,
     now: () => 100,
     createId: () => 'run',
   });
-  return { service, records, projectStore, runProjectTopicTree, tabs, logger };
+  return { service, records, projectStore, runProjectTopicTree, tabs, logger, readRecord };
 }
 
 const waitDone = async (store, expected = 'done') => {
@@ -64,6 +70,21 @@ const waitDone = async (store, expected = 'done') => {
 };
 
 describe('project topic tree service', () => {
+  it('reuses revisioned sources and reloads changed sources', async () => {
+    const { service, records, readRecord } = fixture();
+    records[0].projectTopicRevision = 'source-1';
+    await service.getView('p');
+    await service.getView('p');
+    expect(readRecord).toHaveBeenCalledTimes(1);
+    records[0] = { ...records[0], projectTopicRevision: 'source-2' };
+    await service.getView('p');
+    expect(readRecord).toHaveBeenCalledTimes(2);
+    delete records[0].projectTopicRevision;
+    await service.getView('p');
+    await service.getView('p');
+    expect(readRecord).toHaveBeenCalledTimes(4);
+  });
+
   it('selects completed records by canonical URL once and explains skipped pages', async () => {
     const { service } = fixture();
     const view = await service.getView('p');

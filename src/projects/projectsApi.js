@@ -5,7 +5,11 @@
 import { MSG } from '../shared/runtime/messages.js';
 import { browserRuntimeMessenger } from '../utils/runtimeMessages.js';
 import { subscribeLocalChanges } from '../shared/runtime/localStore.js';
-import { PROJECT_EXCERPTS_STORAGE_KEY, PROJECTS_STORAGE_KEY } from '../core/storage/keys.js';
+import {
+  projectTopicTreeStorageKey,
+  PROJECT_EXCERPTS_STORAGE_KEY,
+  PROJECTS_STORAGE_KEY,
+} from '../core/storage/keys.js';
 import { INDEX_KEY } from '../core/storage/recordIndex.js';
 
 /**
@@ -115,30 +119,72 @@ const GROUP_EVENTS = ['onCreated', 'onRemoved', 'onUpdated', 'onMoved'];
  *
  * @param {function(): void} onChange
  * @param {{tabs?: object, tabGroups?: object}} [apis]
+ * @param {{projectId: string, getView: function(): object|null}} [scope] Current project view; omitted for overview subscriptions.
  * @returns {function(): void} Unsubscribe.
  */
 export function subscribeProjectChanges(
   onChange,
   apis = { tabs: globalThis.chrome?.tabs, tabGroups: globalThis.chrome?.tabGroups },
+  scope,
 ) {
-  const listener = () => onChange();
   const attached = [];
-  const attach = (namespace, names) => {
+  const attach = (namespace, names, groups = false) => {
     for (const name of names) {
       const event = namespace?.[name];
       if (!event?.addListener) continue;
+      const listener = (...args) => {
+        const view = scope?.getView();
+        if (!scope || !view) return onChange();
+        const groupId = view.project?.groupId;
+        if (groups) {
+          if (args[0]?.id === groupId) onChange();
+          return;
+        }
+        const tab = name === 'onCreated' ? args[0] : name === 'onUpdated' ? args[2] : null;
+        const id = name === 'onCreated' ? tab?.id : args[0];
+        const belongs = (value) => groupId != null && value?.groupId === groupId;
+        if (view.tabs?.some((item) => item.id === id) || belongs(tab)) return onChange();
+        // Attach events omit group identity; resolve arrivals across windows.
+        if (name === 'onAttached' && namespace?.get) {
+          Promise.resolve(namespace.get(id))
+            .then((live) => {
+              if (belongs(live)) onChange();
+            })
+            .catch(() => {});
+        }
+      };
       event.addListener(listener);
-      attached.push(event);
+      attached.push([event, listener]);
     }
   };
   attach(apis.tabs, TAB_EVENTS);
-  attach(apis.tabGroups, GROUP_EVENTS);
+  attach(apis.tabGroups, GROUP_EVENTS, true);
+  const treeKey = scope && projectTopicTreeStorageKey(scope.projectId);
   const unsubscribeStore = subscribeLocalChanges(
-    [PROJECTS_STORAGE_KEY, PROJECT_EXCERPTS_STORAGE_KEY, INDEX_KEY],
-    listener,
+    [PROJECTS_STORAGE_KEY, PROJECT_EXCERPTS_STORAGE_KEY, INDEX_KEY, ...(treeKey ? [treeKey] : [])],
+    (changes) => {
+      if (!scope || !scope.getView()) return onChange();
+      if (changes[treeKey] || changes[INDEX_KEY]) return onChange();
+      const differs = (change, select) =>
+        change &&
+        JSON.stringify(select(change.oldValue)) !== JSON.stringify(select(change.newValue));
+      if (
+        differs(changes[PROJECTS_STORAGE_KEY], (items) =>
+          items?.find?.((item) => item.id === scope.projectId),
+        )
+      )
+        return onChange();
+      if (
+        differs(changes[PROJECT_EXCERPTS_STORAGE_KEY], (doc) => ({
+          excerpts: doc?.excerpts?.filter((item) => item.projectId === scope.projectId),
+          focus: doc?.focus?.projectId === scope.projectId ? doc.focus : null,
+        }))
+      )
+        onChange();
+    },
   );
   return () => {
     unsubscribeStore();
-    for (const event of attached) event.removeListener?.(listener);
+    for (const [event, listener] of attached) event.removeListener?.(listener);
   };
 }

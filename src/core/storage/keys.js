@@ -220,9 +220,13 @@ export function isSafeChatId(value) {
   return typeof value === 'string' && !!value && !value.includes(':');
 }
 
-// One document holding every project (see src/core/projects/). Projects are few
-// and small, so a single key keeps rebinding a single read-modify-write.
+// Lightweight project metadata. Topic snapshots live under per-project keys.
 export const PROJECTS_STORAGE_KEY = 'pagetollm:projects';
+export const PROJECT_TOPIC_TREE_STORAGE_PREFIX = `${PROJECTS_STORAGE_KEY}:tree:`;
 
 // One document holding every project excerpt (see src/core/projects/excerpts.js).
 export const PROJECT_EXCERPTS_STORAGE_KEY = 'pagetollm:project-excerpts';
+
+export function projectTopicTreeStorageKey(projectId) {
+  return `${PROJECT_TOPIC_TREE_STORAGE_PREFIX}${encodeURIComponent(projectId)}`;
+}

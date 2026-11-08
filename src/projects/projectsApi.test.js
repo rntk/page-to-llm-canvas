@@ -46,3 +46,27 @@ describe('projects api', () => {
     expect(tabGroups.onUpdated.removeListener).toHaveBeenCalled();
   });
 });
+
+it('scopes tab events to members and arrivals, including departures', () => {
+  const event = () => ({ addListener: vi.fn(), removeListener: vi.fn() });
+  const tabs = { onUpdated: event(), onRemoved: event() };
+  const tabGroups = { onUpdated: event() };
+  const onChange = vi.fn();
+  const unsubscribe = subscribeProjectChanges(
+    onChange,
+    { tabs, tabGroups },
+    {
+      projectId: 'a',
+      getView: () => ({ project: { groupId: 4 }, tabs: [{ id: 1 }] }),
+    },
+  );
+  const update = tabs.onUpdated.addListener.mock.calls[0][0];
+  update(2, {}, { id: 2, groupId: 5 });
+  expect(onChange).not.toHaveBeenCalled();
+  update(2, { groupId: 4 }, { id: 2, groupId: 4 });
+  update(1, { groupId: 5 }, { id: 1, groupId: 5 });
+  tabs.onRemoved.addListener.mock.calls[0][0](1, {});
+  tabGroups.onUpdated.addListener.mock.calls[0][0]({ id: 5 });
+  expect(onChange).toHaveBeenCalledTimes(3);
+  unsubscribe();
+});

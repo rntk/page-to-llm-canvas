@@ -34,6 +34,29 @@ export function createProjectTopicTreeService({
   now = Date.now,
   createId = () => crypto.randomUUID(),
 }) {
+  // Bounded across projects; legacy records without a marker always get read.
+  const recordCache = new Map();
+  async function readSource(candidate) {
+    const cached = recordCache.get(candidate.key);
+    if (
+      candidate.projectTopicRevision &&
+      cached?.projectTopicRevision === candidate.projectTopicRevision &&
+      cached.status === candidate.status
+    )
+      return cached;
+    const saved = await readRecord(candidate.key);
+    recordCache.delete(candidate.key);
+    if (
+      saved &&
+      candidate.projectTopicRevision &&
+      saved.projectTopicRevision === candidate.projectTopicRevision
+    ) {
+      recordCache.set(candidate.key, saved);
+      if (recordCache.size > 32) recordCache.delete(recordCache.keys().next().value);
+    }
+    return saved;
+  }
+
   async function inputs(projectId, providedView) {
     const view = providedView || (await projectService.getProjectView(projectId));
     const projections = await listRecords();
@@ -60,7 +83,7 @@ export function createProjectTopicTreeService({
       const completed = candidates.filter((item) => item.status === 'done');
       let record = null;
       for (const candidate of completed) {
-        const saved = await readRecord(candidate.key);
+        const saved = await readSource(candidate);
         if (hasProjectTopicSource(saved)) {
           record = saved;
           break;
@@ -90,15 +113,19 @@ export function createProjectTopicTreeService({
     };
   }
 
+  function updateProject(projectId, mutate) {
+    if (projectStore.updateProject) return projectStore.updateProject(projectId, mutate);
+    return projectStore.update((projects) =>
+      projects.map((project) => (project.id === projectId ? mutate(project) || project : project)),
+    );
+  }
+
   async function saveOwned(projectId, runId, tree) {
     let owned = false;
-    await projectStore.update((projects) => {
-      const next = projects.map((project) => {
-        if (project.id !== projectId || project.topic_tree?.runId !== runId) return project;
-        owned = true;
-        return { ...project, topic_tree: structuredClone({ ...tree, runId }) };
-      });
-      return owned ? next : null;
+    await updateProject(projectId, (project) => {
+      if (project.topic_tree?.runId !== runId) return null;
+      owned = true;
+      return { ...project, topic_tree: structuredClone({ ...tree, runId }) };
     });
     if (!owned) throw new Error('This project topic build was superseded or deleted.');
   }
@@ -125,11 +152,7 @@ export function createProjectTopicTreeService({
       error: null,
       updatedAt: now(),
     };
-    await projectStore.update((projects) =>
-      projects.map((project) =>
-        project.id === projectId ? { ...project, topic_tree: initial } : project,
-      ),
-    );
+    await updateProject(projectId, (project) => ({ ...project, topic_tree: initial }));
     try {
       signal.throwIfAborted();
       await runProjectTopicTree({
