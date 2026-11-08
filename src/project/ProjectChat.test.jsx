@@ -124,13 +124,10 @@ describe('ProjectChat', () => {
   it('rebuilds the tools only when the merge changes', async () => {
     const chatPorts = makePorts();
     const props = { eligiblePages: pages, skippedPages: skipped, stale: false, chatPorts };
-    await render({ ...props, tree: { sourceRevision: 'r1', runId: 'run-1' } });
-    // A reload of the same merge hands over fresh objects.
-    await render({
-      ...props,
-      tree: { sourceRevision: 'r1', runId: 'run-1' },
-      eligiblePages: [...pages],
-    });
+    const tree = { sourceRevision: 'r1', runId: 'run-1' };
+    await render({ ...props, tree });
+    // useProjectView hands an unchanged merge back as the same objects.
+    await render({ ...props, tree, stale: true });
     expect(toolsMock.createProjectChatContext).toHaveBeenCalledTimes(1);
 
     await render({ ...props, tree: { sourceRevision: 'r2', runId: 'run-2' } });

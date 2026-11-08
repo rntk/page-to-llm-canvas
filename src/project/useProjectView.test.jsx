@@ -115,6 +115,46 @@ describe('useProjectView', () => {
     expect(api.getProjectView).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps unchanged topic merge parts identical across refetches', async () => {
+    let notify;
+    const subscribe = (cb) => {
+      notify = cb;
+      return () => {};
+    };
+    let nodes = { root: { id: 'root', children: [] } };
+    const api = {
+      getProjectView: vi.fn(async () => ({
+        ...viewOf('One'),
+        topicMerge: structuredClone({
+          status: 'running',
+          tree: { runId: 'r', nodes },
+          eligiblePages: [{ url: 'u' }],
+        }),
+      })),
+    };
+    await setup({ api, subscribe });
+    const first = latest.view.topicMerge;
+
+    await act(async () => {
+      notify();
+      vi.advanceTimersByTime(150);
+    });
+    expect(api.getProjectView).toHaveBeenCalledTimes(2);
+    expect(latest.view.topicMerge).toBe(first);
+
+    // Same run, new progress: the tree changes, untouched siblings stay shared.
+    nodes = { ...nodes, child: { id: 'child', children: [] } };
+    await act(async () => {
+      notify();
+      vi.advanceTimersByTime(150);
+    });
+    expect(latest.view.topicMerge).not.toBe(first);
+    expect(latest.view.topicMerge.tree).not.toBe(first.tree);
+    expect(latest.view.topicMerge.tree.nodes.child).toEqual({ id: 'child', children: [] });
+    expect(latest.view.topicMerge.tree.nodes.root).toBe(first.tree.nodes.root);
+    expect(latest.view.topicMerge.eligiblePages).toBe(first.eligiblePages);
+  });
+
   it('ignores a stale response that resolves after a newer one', async () => {
     let notify;
     const subscribe = (cb) => {

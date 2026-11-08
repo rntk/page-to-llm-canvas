@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { browserScheduler } from '../shared/runtime/browserHosts.js';
+import { shareEqual } from '../shared/runtime/shareEqual.js';
 
 export const REFRESH_DEBOUNCE_MS = 150;
 
@@ -52,6 +53,11 @@ export function useProjectView({
         .then(
           (view) => {
             if (active && request === latest) {
+              // Polls during a merge refetch the whole topic tree; unchanged parts
+              // keep their identity so consumers can memoize on them directly.
+              if (currentView?.topicMerge && view?.topicMerge) {
+                view = { ...view, topicMerge: shareEqual(currentView.topicMerge, view.topicMerge) };
+              }
               currentView = view;
               setState({ projectId, status: 'ready', view, error: null });
             }

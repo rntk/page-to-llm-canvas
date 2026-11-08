@@ -16,22 +16,18 @@ export function ProjectTopicTree({ project, merge, pending, notice, onBuild, onS
   const tree = merge?.tree;
   const { status, running, resumable, updatable, eligible, skipped, changeText, stateText } =
     useMemo(() => describeMerge(merge, { pending }), [merge, pending]);
-  const treeJson = useMemo(
-    () =>
-      JSON.stringify(
-        !running && tree
-          ? {
-              rootId: tree.rootId,
-              nodes: tree.nodes,
-              sources: tree.sources,
-            }
-          : null,
-      ),
-    [running, tree],
-  );
+  // useProjectView keeps unchanged tree parts identical across polls, so these
+  // dependencies only change when the tree's content does.
+  const hasTree = !!tree;
+  const rootId = tree?.rootId;
+  const nodes = tree?.nodes;
+  const sources = tree?.sources;
   const displayTree = useMemo(
-    () => buildSummaryTreeDisplayTree(JSON.parse(treeJson), { title: project.title || 'Project' }),
-    [treeJson, project.title],
+    () =>
+      buildSummaryTreeDisplayTree(!running && hasTree ? { rootId, nodes, sources } : null, {
+        title: project.title || 'Project',
+      }),
+    [running, hasTree, rootId, nodes, sources, project.title],
   );
   const leafChat = useSourceCardChats({
     sentences: tree?.sentences || NO_SENTENCES,
