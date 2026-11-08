@@ -27,6 +27,7 @@ import {
   SUMMARY_TREE_VERSION,
 } from '../../../core/pipeline/summaryTreeStage.js';
 import { createArticleStrategy } from '../../../core/pipeline/summaryTreeStrategy.js';
+import { PASSAGE_MAX_CHARS } from '../../../core/pipeline/summaryTreeModel.js';
 import { normalizeCustomInstructions } from '../../../core/pipeline/customInstructions.js';
 import { createProjectStrategy } from '../../../core/projects/projectTopicStrategy.js';
 import {
@@ -446,6 +447,29 @@ export function createPipelineRunner({
     }
   }
 
+  // Setup shared by article and project summary trees. The fingerprint covers
+  // the provider identity, so changing providers invalidates a saved tree.
+  async function prepareSummaryTreeRun({ key }) {
+    const revision = concurrencySettingRevision;
+    const [verboseLogs, maxParallelLlmRequests, activeProvider] = await Promise.all([
+      settings.getVerboseLogs(),
+      settings.getMaxParallelLlmRequests(),
+      providerRepository.getActiveProvider(),
+    ]);
+    if (revision === concurrencySettingRevision) limiter.setLimit(maxParallelLlmRequests);
+    const providers = bindProviders({ activeProvider, key, verboseLogs });
+    const judge = await providers.resolveSummaryTreeDecide();
+    const fingerprint = JSON.stringify([
+      providers.summaryInputFingerprint,
+      activeProvider?.id ?? null,
+      activeProvider?.url ?? null,
+      activeProvider?.contextWindowTokens ?? null,
+      judge.identity,
+    ]);
+    const maxChars = Math.min(PASSAGE_MAX_CHARS, providers.runtimeOptions.maxTextChunkChars);
+    return { providers, judge, fingerprint, maxChars, verboseLogs };
+  }
+
   /**
    * Builds or resumes the summary tree of a completed record, beside its
    * primary topics and summaries. The record stays completed: the run owns it
@@ -466,16 +490,7 @@ export function createPipelineRunner({
     if (record.status !== PIPELINE_STATUS.DONE) {
       throw new Error('The record must finish processing before building a summary tree.');
     }
-    const concurrencyRevisionAtRead = concurrencySettingRevision;
-    const [verboseLogs, maxParallelLlmRequests, activeProvider] = await Promise.all([
-      settings.getVerboseLogs(),
-      settings.getMaxParallelLlmRequests(),
-      providerRepository.getActiveProvider(),
-    ]);
-    if (concurrencySettingRevision === concurrencyRevisionAtRead) {
-      limiter.setLimit(maxParallelLlmRequests);
-    }
-    const providers = bindProviders({ activeProvider, key, verboseLogs });
+    const { providers, judge, fingerprint, verboseLogs } = await prepareSummaryTreeRun({ key });
     const runContext = {
       key,
       pipelineRunId: record.pipelineRunId,
@@ -484,7 +499,6 @@ export function createPipelineRunner({
     };
     runtime = runtimeFactory({ ...runContext, signal });
     try {
-      const judge = await providers.resolveSummaryTreeDecide();
       if (judge.error)
         await runtime.log('summary_tree_decisions_unavailable', { error: judge.error });
       await runSummaryTreeStage({
@@ -492,7 +506,7 @@ export function createPipelineRunner({
         strategy: createArticleStrategy(record),
         callLLMWithRetry: providers.callLLMWithRetry,
         decide: judge.decide,
-        fingerprint: JSON.stringify([providers.summaryInputFingerprint, judge.identity]),
+        fingerprint,
         rootTitle: sourceHost(record.sourceUrl),
         fresh,
       });
@@ -536,28 +550,10 @@ export function createPipelineRunner({
   // Projects share the pipeline's provider dispatch, limiter, citation checking,
   // and checkpoint protocol; they own a project document instead of a record.
   async function runProjectTopicTree({ records, prior, title, signal, fresh, saveSummaryTree }) {
-    const revision = concurrencySettingRevision;
-    const [verboseLogs, maxParallelLlmRequests, activeProvider] = await Promise.all([
-      settings.getVerboseLogs(),
-      settings.getMaxParallelLlmRequests(),
-      providerRepository.getActiveProvider(),
-    ]);
-    if (revision === concurrencySettingRevision) limiter.setLimit(maxParallelLlmRequests);
     const sourceRevision = projectTopicSourceRevision(records);
-    const providers = bindProviders({
-      activeProvider,
+    const { providers, judge, fingerprint, maxChars } = await prepareSummaryTreeRun({
       key: `project:${sourceRevision}`,
-      verboseLogs,
     });
-    const judge = await providers.resolveSummaryTreeDecide();
-    const fingerprint = JSON.stringify([
-      providers.summaryInputFingerprint,
-      activeProvider?.id ?? null,
-      activeProvider?.url ?? null,
-      activeProvider?.contextWindowTokens ?? null,
-      judge.identity,
-    ]);
-    const maxChars = Math.min(3000, providers.runtimeOptions.maxTextChunkChars);
     // A finished tree made by the same provider is extended with the pages that
     // changed instead of being grouped again from scratch.
     const incremental =

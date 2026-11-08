@@ -3,7 +3,14 @@
 // sentence number so overlapping article-local ids can never alias.
 
 import { PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
-import { PASSAGE, ROOT, TOPIC, addNode, buildPassages } from '../pipeline/summaryTreeModel.js';
+import {
+  PASSAGE,
+  PASSAGE_MAX_CHARS,
+  ROOT,
+  TOPIC,
+  addNode,
+  buildPassages,
+} from '../pipeline/summaryTreeModel.js';
 import { splitTopicPath } from '../../shared/runtime/topicPath.js';
 
 /** Whether this saved record has a completed, usable primary topic split.
@@ -128,7 +135,7 @@ function savedSegments(record, topic, offset) {
  * @param {{sentences: string[], sources: object, records: object[]}} [options.base]
  *   Rows already in a saved tree; new pages append after them so existing ids stay valid.
  */
-export function buildProjectTopicSeed(records, { maxChars = 3000, base = null } = {}) {
+export function buildProjectTopicSeed(records, { maxChars = PASSAGE_MAX_CHARS, base = null } = {}) {
   const sentences = [...(base?.sentences || [])];
   const sources = { ...base?.sources };
   const nodes = {};
