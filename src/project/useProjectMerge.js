@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useStaleTick } from '../shared/useStaleTick.js';
 import { describeMerge } from './projectMergeState.js';
 
@@ -16,9 +16,13 @@ import { describeMerge } from './projectMergeState.js';
 export function useProjectMerge({ buildTopics, stopTopics, merge, refresh, showTopics }) {
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState('');
+  // State lags a render behind, so two clicks in one tick would both see
+  // `pending === false`; the ref closes that window.
+  const inFlight = useRef(false);
 
   const run = async (request) => {
-    if (pending) return;
+    if (inFlight.current) return;
+    inFlight.current = true;
     setPending(true);
     setNotice('');
     try {
@@ -26,6 +30,9 @@ export function useProjectMerge({ buildTopics, stopTopics, merge, refresh, showT
     } catch (err) {
       setNotice(err?.message || String(err));
     } finally {
+      // Only the run that set the flag reaches here, so the reset is safe.
+      // eslint-disable-next-line require-atomic-updates
+      inFlight.current = false;
       refresh();
       setPending(false);
     }

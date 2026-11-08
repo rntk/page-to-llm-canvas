@@ -8,7 +8,6 @@ import { ProjectHeader } from './ProjectHeader.jsx';
 import { UNTITLED_PROJECT } from './projectText.js';
 import { useProjectView } from './useProjectView.js';
 import { useProjectMerge } from './useProjectMerge.js';
-import { browserScheduler } from '../shared/runtime/browserHosts.js';
 import { ProjectTopicTree } from './ProjectTopicTree.jsx';
 import './project-actions.css';
 
@@ -38,14 +37,7 @@ function ErrorState({ title, message, pageHost }) {
  * @param {{openOptions: function(): void}} props.pageHost
  * @param {{setTimeout: function, clearTimeout: function}} [props.scheduler]
  */
-export function ProjectApp({
-  projectId,
-  api,
-  subscribe,
-  tabsHost,
-  pageHost,
-  scheduler = browserScheduler,
-}) {
+export function ProjectApp({ projectId, api, subscribe, tabsHost, pageHost, scheduler }) {
   const projectApi = useMemo(() => bindProjectApi(api, projectId), [api, projectId]);
   const { status, view, error, refresh } = useProjectView({ projectId, api, subscribe, scheduler });
   const [chatOpen, setChatOpen] = useState(true);
