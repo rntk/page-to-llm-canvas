@@ -8,35 +8,44 @@ const NO_EXCERPTS = [];
 /**
  * Keeps the canvas mounted across view switches and connects its per-card actions.
  * @param {object} props
- * @param {string} props.projectId
  * @param {object} props.view
- * @param {import('../projects/projectsApi.js').ProjectsApi} props.api
+ * @param {function(number): Promise<{source: object}>} props.loadSource
+ * @param {function(number): Promise<{sentences: string[]}>} props.capture
+ * @param {function(string): Promise<{sentences: string[]}>} props.readPage
+ * @param {function(string): Promise<*>} props.deleteExcerpt
+ * @param {function(string): Promise<*>} props.acknowledgeFocus
  * @param {object} props.tabsHost
  * @param {boolean} props.active
  */
-export function CanvasPanel({ projectId, view, api, tabsHost, active }) {
+export function CanvasPanel({
+  view,
+  loadSource,
+  capture,
+  readPage,
+  deleteExcerpt,
+  acknowledgeFocus,
+  tabsHost,
+  active,
+}) {
   const renderPageChat = useCallback(
     (tab, { onClose }) => (
-      <PageChatDrawer projectId={projectId} tab={tab} api={api} onClose={onClose} />
+      <PageChatDrawer tab={tab} loadSource={loadSource} capture={capture} onClose={onClose} />
     ),
-    [api, projectId],
+    [loadSource, capture],
   );
   const renderExcerptChat = useCallback(
     (excerpt, { onClose }) => (
-      <ExcerptChatDrawer projectId={projectId} excerpt={excerpt} api={api} onClose={onClose} />
+      <ExcerptChatDrawer excerpt={excerpt} readPage={readPage} onClose={onClose} />
     ),
-    [api, projectId],
+    [readPage],
   );
-  const deleteExcerpt = useCallback(
-    (excerpt) => api.deleteExcerpt(projectId, excerpt.id),
-    [api, projectId],
-  );
-  const acknowledgeFocus = useCallback(
+  const handleDeleteExcerpt = useCallback((excerpt) => deleteExcerpt(excerpt.id), [deleteExcerpt]);
+  const handleFocus = useCallback(
     (excerptId) => {
       // A lost acknowledgement only means the request is offered again.
-      Promise.resolve(api.acknowledgeExcerptFocus(projectId, excerptId)).catch(() => {});
+      Promise.resolve(acknowledgeFocus(excerptId)).catch(() => {});
     },
-    [api, projectId],
+    [acknowledgeFocus],
   );
 
   return (
@@ -52,11 +61,11 @@ export function CanvasPanel({ projectId, view, api, tabsHost, active }) {
         tabs={view.tabs}
         excerpts={view.excerpts || NO_EXCERPTS}
         focusExcerptId={view.focusExcerptId || null}
-        onFocusHandled={acknowledgeFocus}
+        onFocusHandled={handleFocus}
         tabsHost={tabsHost}
         renderPageChat={renderPageChat}
         renderExcerptChat={renderExcerptChat}
-        onDeleteExcerpt={deleteExcerpt}
+        onDeleteExcerpt={handleDeleteExcerpt}
       />
       {!view.isOpen && (
         <p className="canvas-hint" role="status">

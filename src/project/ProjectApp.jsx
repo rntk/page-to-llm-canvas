@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { bindProjectApi } from './bindProjectApi.js';
 import { CanvasPanel } from './CanvasPanel.jsx';
 import { ProjectViewTabs } from './ProjectViewTabs.jsx';
 import { useDocumentTitle } from './useDocumentTitle.js';
@@ -45,6 +46,7 @@ export function ProjectApp({
   pageHost,
   scheduler = browserScheduler,
 }) {
+  const projectApi = useMemo(() => bindProjectApi(api, projectId), [api, projectId]);
   const { status, view, error, refresh } = useProjectView({ projectId, api, subscribe, scheduler });
   const [chatOpen, setChatOpen] = useState(true);
   const [activeView, setActiveView] = useState('canvas');
@@ -56,8 +58,8 @@ export function ProjectApp({
     stop: stopTopicTree,
     open: openMerge,
   } = useProjectMerge({
-    projectId,
-    api,
+    buildTopics: projectApi.buildTopics,
+    stopTopics: projectApi.stopTopics,
     merge: view?.topicMerge,
     refresh,
     showTopics: () => setActiveView('topics'),
@@ -100,9 +102,13 @@ export function ProjectApp({
       <div className="project-body">
         <div className="project-canvas-wrap">
           <CanvasPanel
-            projectId={projectId}
+            key={projectId}
             view={view}
-            api={api}
+            loadSource={projectApi.loadSource}
+            capture={projectApi.capture}
+            readPage={projectApi.readPage}
+            deleteExcerpt={projectApi.deleteExcerpt}
+            acknowledgeFocus={projectApi.acknowledgeFocus}
             tabsHost={tabsHost}
             active={!topicTreeOpen}
           />

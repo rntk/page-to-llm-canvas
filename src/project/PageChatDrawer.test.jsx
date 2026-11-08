@@ -47,9 +47,9 @@ async function render(api, chatPorts = makePorts()) {
   await act(async () =>
     root.render(
       <PageChatDrawer
-        projectId="p1"
         tab={tab}
-        api={api}
+        loadSource={api.getPageChat}
+        capture={api.capturePageText}
         onClose={() => {}}
         chatPorts={chatPorts}
       />,
@@ -71,6 +71,42 @@ async function send(text) {
 }
 
 describe('PageChatDrawer', () => {
+  it('ignores an earlier source request when the project-bound loader changes', async () => {
+    let resolveOld;
+    const oldLoader = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveOld = resolve;
+        }),
+    );
+    const newLoader = vi.fn(async () => ({
+      source: { kind: 'unsupported', url: tab.url, reason: 'New project' },
+    }));
+    const capture = vi.fn();
+    await act(async () =>
+      root.render(
+        <PageChatDrawer tab={tab} loadSource={oldLoader} capture={capture} onClose={() => {}} />,
+      ),
+    );
+    await flush();
+    await act(async () =>
+      root.render(
+        <PageChatDrawer tab={tab} loadSource={newLoader} capture={capture} onClose={() => {}} />,
+      ),
+    );
+    await flush();
+    expect(newLoader).toHaveBeenCalledWith(7);
+    expect(container.textContent).toContain('New project');
+
+    await act(async () =>
+      resolveOld({
+        source: { kind: 'unsupported', url: tab.url, reason: 'Old project' },
+      }),
+    );
+    expect(container.textContent).toContain('New project');
+    expect(container.textContent).not.toContain('Old project');
+  });
+
   it('chats against the saved record, sharing its history key and topics', async () => {
     const api = {
       getPageChat: vi.fn(async () => ({
@@ -86,7 +122,7 @@ describe('PageChatDrawer', () => {
       capturePageText: vi.fn(),
     };
     const ports = await render(api);
-    expect(api.getPageChat).toHaveBeenCalledWith('p1', 7);
+    expect(api.getPageChat).toHaveBeenCalledWith(7);
     expect(ports.chatRepository.list).toHaveBeenCalledWith('rec-1');
     expect(container.textContent).toContain('Choose topics');
 
@@ -114,7 +150,7 @@ describe('PageChatDrawer', () => {
     await send('Summarize');
     await send('More');
     expect(api.capturePageText).toHaveBeenCalledTimes(1);
-    expect(api.capturePageText).toHaveBeenCalledWith('p1', 7);
+    expect(api.capturePageText).toHaveBeenCalledWith(7);
     expect(ports.runTurn.mock.calls.map((call) => call[0].article.sentences)).toEqual([
       ['Live text.'],
       ['Live text.'],

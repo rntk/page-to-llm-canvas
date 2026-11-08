@@ -14,14 +14,13 @@ const EXCERPT_PROMPT =
  * per drawer session, on the first call that needs it.
  *
  * @param {object} props
- * @param {string} props.projectId
  * @param {{id: string, url: string, title?: string, text: string}} props.excerpt
- * @param {{readExcerptPage: function(string, string): Promise<{sentences: string[], truncated?: boolean}>}} props.api
+ * @param {function(string): Promise<{sentences: string[], truncated?: boolean}>} props.readPage
  * @param {function(): void} props.onClose
  * @param {{chatRepository?: object, runTurn?: Function, getChatLimits?: Function}} [props.chatPorts]
  *   ArticleChat port overrides (tests); the browser defaults apply otherwise.
  */
-export function ExcerptChatDrawer({ projectId, excerpt, api, onClose, chatPorts }) {
+export function ExcerptChatDrawer({ excerpt, readPage, onClose, chatPorts }) {
   const { id, text, title, url } = excerpt;
   const sentences = useMemo(() => excerptSentences(text), [text]);
   const source = useMemo(
@@ -31,7 +30,7 @@ export function ExcerptChatDrawer({ projectId, excerpt, api, onClose, chatPorts 
   const tools = useMemo(() => {
     let page = null;
     const loadPage = () => {
-      page ??= api.readExcerptPage(projectId, id).catch((err) => {
+      page ??= readPage(id).catch((err) => {
         // Let a later call try again (e.g. after the tab finishes loading).
         page = null;
         throw err;
@@ -39,7 +38,7 @@ export function ExcerptChatDrawer({ projectId, excerpt, api, onClose, chatPorts 
       return page;
     };
     return createPageTools({ excerptSentences: sentences, loadPage });
-  }, [api, projectId, id, sentences]);
+  }, [readPage, id, sentences]);
 
   return (
     <aside className="page-chat-drawer" aria-label={`Chat about the excerpt from ${title || url}`}>

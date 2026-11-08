@@ -7,13 +7,13 @@ import { describeMerge } from './projectMergeState.js';
  * project view while a merge is running.
  *
  * @param {object} options
- * @param {string|null} options.projectId
- * @param {import('../projects/projectsApi.js').ProjectsApi} options.api
+ * @param {function(object): Promise<*>} options.buildTopics
+ * @param {function(): Promise<*>} options.stopTopics
  * @param {object|undefined} options.merge The view's `topicMerge` state.
  * @param {function(): *} options.refresh Reloads the project view.
  * @param {function(): void} options.showTopics Switches to the topics view.
  */
-export function useProjectMerge({ projectId, api, merge, refresh, showTopics }) {
+export function useProjectMerge({ buildTopics, stopTopics, merge, refresh, showTopics }) {
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState('');
 
@@ -32,8 +32,8 @@ export function useProjectMerge({ projectId, api, merge, refresh, showTopics }) 
     }
   };
 
-  const build = (options) => run(() => api.buildProjectTopicTree(projectId, options));
-  const stop = () => run(() => api.stopProjectTopicTree(projectId));
+  const build = (options) => run(() => buildTopics(options));
+  const stop = () => run(() => stopTopics());
 
   const { running, needsBuild } = describeMerge(merge);
   const open = () => {

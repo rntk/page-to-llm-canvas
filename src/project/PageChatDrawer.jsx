@@ -11,11 +11,11 @@ const LIVE_PAGE_PROMPT =
  * Chat about a page the user has not saved. Its text is read from the live tab
  * once per drawer session, on the first send, then reused for later turns.
  */
-function LivePageChat({ source, projectId, tabId, api, onEscape, chatPorts }) {
+function LivePageChat({ source, tabId, capture, onEscape, chatPorts }) {
   const captureRef = useRef(null);
   const resolveSentences = useCallback(() => {
     if (!captureRef.current) {
-      captureRef.current = api.capturePageText(projectId, tabId).then(
+      captureRef.current = capture(tabId).then(
         (result) => result.sentences,
         (err) => {
           // Let the next send try again (e.g. after the tab finishes loading).
@@ -25,7 +25,7 @@ function LivePageChat({ source, projectId, tabId, api, onEscape, chatPorts }) {
       );
     }
     return captureRef.current;
-  }, [api, projectId, tabId]);
+  }, [capture, tabId]);
 
   return (
     <ArticleChat
@@ -46,19 +46,18 @@ function LivePageChat({ source, projectId, tabId, api, onEscape, chatPorts }) {
  * its live text under a URL-scoped history. Histories never mix across pages.
  *
  * @param {object} props
- * @param {string} props.projectId
  * @param {{id: number, url?: string, title?: string}} props.tab
- * @param {{getPageChat: Function, capturePageText: Function}} props.api
+ * @param {function(number): Promise<{source: object}>} props.loadSource
+ * @param {function(number): Promise<{sentences: string[]}>} props.capture
  * @param {function(): void} props.onClose
  * @param {{chatRepository?: object, runTurn?: Function, getChatLimits?: Function}} [props.chatPorts]
  *   ArticleChat port overrides (tests); the browser defaults apply otherwise.
  */
-export function PageChatDrawer({ projectId, tab, api, onClose, chatPorts }) {
+export function PageChatDrawer({ tab, loadSource, capture, onClose, chatPorts }) {
   const { status, source, error, reload } = usePageChatSource({
-    projectId,
     tabId: tab.id,
     url: tab.url || '',
-    api,
+    loadSource,
   });
 
   let body;
@@ -103,9 +102,8 @@ export function PageChatDrawer({ projectId, tab, api, onClose, chatPorts }) {
       <LivePageChat
         key={source.key}
         source={source}
-        projectId={projectId}
         tabId={tab.id}
-        api={api}
+        capture={capture}
         onEscape={onClose}
         chatPorts={chatPorts}
       />
