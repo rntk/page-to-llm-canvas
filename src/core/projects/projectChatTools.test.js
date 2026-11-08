@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildProjectTopicSeed, prepareIncrementalProjectTree } from './projectTopicTree.js';
 import { addNode, TOPIC, ROOT } from '../pipeline/summaryTreeModel.js';
-import { createProjectChatContext, createProjectChatTools, tokenize } from './projectChatTools.js';
+import { createProjectChatContext, createProjectChatTools } from './projectChatTools.js';
 
 const record = (key, title, overrides = {}) => ({
   key,
@@ -91,19 +91,6 @@ const setup = (options = {}) => {
   const tool = (name) => chat.tools.find((item) => item.definition.name === name);
   return { tree, chat, tool, ids: tree.ids };
 };
-
-describe('tokenize', () => {
-  it('lowercases, splits on unicode words and folds diacritics', () => {
-    expect(tokenize('Éolienne, WIND-power: 2024! Ünïcode 風力')).toEqual([
-      'eolienne',
-      'wind',
-      'power',
-      '2024',
-      'unicode',
-      '風力',
-    ]);
-  });
-});
 
 describe('createProjectChatTools', () => {
   it('exposes the four tools', () => {

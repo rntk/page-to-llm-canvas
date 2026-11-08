@@ -5,7 +5,12 @@
 // have a "sentence 1" can never be confused. Node ids ("n3") are opaque
 // handles for these tools, not citations.
 
-import { PASSAGE, ROOT, claimSentences, summaryText } from '../pipeline/summaryTreeModel.js';
+import { claimSentences } from '../pipeline/summaryTreeModel.js';
+import { createTreeModel } from './projectTreeModel.js';
+import { createTopicSearch } from './projectTopicSearch.js';
+
+// Retain the existing export for callers; generic search imports the utility directly.
+export { tokenize } from '../search/tokenize.js';
 
 export const GET_TOPIC_TOOL = Object.freeze({
   name: 'get_topic',
@@ -99,27 +104,12 @@ const DEFAULT_CONTENT_LIMIT = 100;
 const MAX_CONTENT_LIMIT = 500;
 const DEFAULT_SEARCH_LIMIT = 8;
 const MAX_SEARCH_LIMIT = 20;
-// Ranked hits kept before paging, and the most one single article may take.
-const MAX_SEARCH_HITS = 60;
-const MAX_HITS_PER_ARTICLE = 3;
-const MAX_SENTENCES_PER_HIT = 3;
 const MAX_DEPTH = 2;
 const SUMMARY_LIMITS = [2000, 800, 300, 100];
 const SNIPPET_CHARS = 160;
 const SENTENCE_SNIPPET_CHARS = 200;
 const TITLE_CHARS = 120;
 const ARTICLE_TITLES_SHOWN = 4;
-const TITLE_WEIGHT = 3;
-const SUMMARY_WEIGHT = 2;
-const BM25_K1 = 1.2;
-const BM25_B = 0.75;
-const SENTENCE_RANK_WEIGHTS = [1, 0.5, 0.25];
-
-const STOPWORDS = new Set(
-  'a an and are as at be but by for from has have in is it its of on or that the their this to was were which with'.split(
-    ' ',
-  ),
-);
 
 const noBudget = () => new Error('no context budget is left to return this result');
 
@@ -147,63 +137,6 @@ function intArg(value, name, { min = 0, max = Infinity, fallback }) {
 }
 
 /**
- * Lowercased unicode word tokens; diacritics are folded away.
- * @param {string} text
- * @returns {string[]}
- */
-export function tokenize(text) {
-  return (
-    String(text ?? '')
-      .normalize('NFKD')
-      .replace(/\p{M}+/gu, '')
-      .toLowerCase()
-      .match(/[\p{L}\p{N}]+/gu) || []
-  );
-}
-
-const terms = (text) => {
-  const all = tokenize(text);
-  const kept = all.filter((token) => !STOPWORDS.has(token));
-  return kept.length ? kept : all;
-};
-
-/**
- * Small in-memory BM25 over pre-tokenized documents.
- * @param {string[][]} docs
- * @returns {{score: function(string[]): Map<number, number>}}
- */
-function createBm25(docs) {
-  const postings = new Map();
-  let totalLength = 0;
-  docs.forEach((tokens, index) => {
-    totalLength += tokens.length;
-    const counts = new Map();
-    for (const token of tokens) counts.set(token, (counts.get(token) || 0) + 1);
-    for (const [token, count] of counts) {
-      if (!postings.has(token)) postings.set(token, []);
-      postings.get(token).push([index, count]);
-    }
-  });
-  const average = totalLength / Math.max(1, docs.length) || 1;
-  return {
-    score(queryTerms) {
-      const scores = new Map();
-      for (const term of queryTerms) {
-        const list = postings.get(term);
-        if (!list) continue;
-        const idf = Math.log(1 + (docs.length - list.length + 0.5) / (list.length + 0.5));
-        for (const [index, tf] of list) {
-          const norm = 1 - BM25_B + (BM25_B * docs[index].length) / average;
-          const part = (idf * tf * (BM25_K1 + 1)) / (tf + BM25_K1 * norm);
-          scores.set(index, (scores.get(index) || 0) + part);
-        }
-      }
-      return scores;
-    },
-  };
-}
-
-/**
  * Largest count in [0, total] whose built result fits the budget, or -1 when
  * even the empty result does not fit. Results grow with the count.
  * @param {number} total
@@ -222,182 +155,6 @@ function fitCount(total, build, maxChars) {
     else high = mid - 1;
   }
   return low;
-}
-
-/**
- * Read-only view over a saved project tree snapshot.
- * @param {object|null|undefined} tree
- * @returns {object|null} Null when the snapshot has no nodes.
- */
-function createTreeModel(tree) {
-  const nodes = tree?.nodes && typeof tree.nodes === 'object' ? tree.nodes : null;
-  if (!nodes || !Object.keys(nodes).length) return null;
-  const sentences = Array.isArray(tree.sentences) ? tree.sentences : [];
-  const sources = tree.sources && typeof tree.sources === 'object' ? tree.sources : {};
-
-  // Keep historical sources available for stable citation lookup. Their presence
-  // does not establish current membership in the saved tree.
-  const articleByKey = new Map();
-  const sourceKey = (source) => source.recordKey ?? `${source.url || ''}|${source.title || ''}`;
-  for (const record of Array.isArray(tree.records) ? tree.records : []) {
-    if (record?.key == null) continue;
-    articleByKey.set(record.key, { key: record.key, title: record.title, url: record.url || '' });
-  }
-  for (const source of Object.values(sources)) {
-    const key = sourceKey(source);
-    if (!articleByKey.has(key)) {
-      articleByKey.set(key, { key, title: source.title, url: source.url || '' });
-    }
-  }
-
-  const hasNode = (id) => typeof id === 'string' && Object.hasOwn(nodes, id);
-  const parentOf = new Map();
-  for (const node of Object.values(nodes)) {
-    for (const child of Array.isArray(node.children) ? node.children : []) {
-      if (hasNode(child) && !parentOf.has(child)) parentOf.set(child, node.id);
-    }
-  }
-  const savedRoot = tree.rootId ?? (typeof tree.root === 'string' ? tree.root : null);
-  const rootId = hasNode(savedRoot)
-    ? savedRoot
-    : (Object.values(nodes).find((node) => node.kind === ROOT)?.id ?? null);
-
-  // An unfinished tree has no root yet: a virtual root lists its loose branches.
-  const virtualRoot = rootId
-    ? null
-    : {
-        id: 'root',
-        kind: ROOT,
-        title: String(tree.title || 'Project topics'),
-        children: Object.values(nodes)
-          .filter((node) => !parentOf.has(node.id))
-          .map((node) => node.id),
-        sentences: [
-          ...new Set(
-            Object.values(nodes)
-              .filter((node) => !parentOf.has(node.id))
-              .flatMap((node) => node.sentences || []),
-          ),
-        ].sort((a, b) => a - b),
-        segments: null,
-      };
-  const root = virtualRoot || nodes[rootId];
-
-  const getNode = (id) => {
-    if (virtualRoot && id === virtualRoot.id) return virtualRoot;
-    if (!hasNode(id)) {
-      throw new Error(
-        `Unknown node_id ${JSON.stringify(String(id))}. Use a node id returned by get_topic or search_topics.`,
-      );
-    }
-    return nodes[id];
-  };
-  const childrenOf = (node) =>
-    node.kind === PASSAGE || !Array.isArray(node.children)
-      ? []
-      : node.children.filter(hasNode).map((id) => nodes[id]);
-  const isLeaf = (node) => childrenOf(node).length === 0;
-
-  const cache = new Map();
-  const memo = (kind, node, compute) => {
-    const key = `${kind}:${node.id}`;
-    if (!cache.has(key)) cache.set(key, compute());
-    return cache.get(key);
-  };
-
-  const cite = (id) => {
-    const source = sources[id];
-    const text = sentences[id - 1];
-    if (!source || typeof text !== 'string' || !text.trim()) return null;
-    const article = articleByKey.get(sourceKey(source));
-    return { id, article, line: source.sentenceId, text: text.trim() };
-  };
-  const usable = (ids) => ids.filter((id) => cite(id));
-  const sentenceIds = (node) =>
-    memo('ids', node, () => usable([...new Set(node.sentences || [])].sort((a, b) => a - b)));
-  const articlesOf = (node) =>
-    memo('articles', node, () => {
-      const seen = new Map();
-      for (const id of sentenceIds(node)) {
-        const { article } = cite(id);
-        if (!seen.has(article.key)) seen.set(article.key, article);
-      }
-      return [...seen.values()];
-    });
-  const summaryOf = (node) =>
-    memo('summary', node, () => {
-      if (node.failed || !Array.isArray(node.segments)) return '';
-      return summaryText(node);
-    });
-  const hasSummary = (node) => !!summaryOf(node);
-
-  const pathTitles = (node) => {
-    const titles = [];
-    let current = node;
-    for (let guard = 0; current && current.kind !== ROOT && guard < 50; guard++) {
-      titles.unshift(current.title);
-      current = nodes[parentOf.get(current.id)];
-    }
-    return titles;
-  };
-
-  const reachable = () =>
-    memo('reachable', root, () => {
-      const seen = new Set();
-      const order = [];
-      const visit = (node) => {
-        if (seen.has(node.id) || node === virtualRoot) return;
-        seen.add(node.id);
-        order.push(node);
-        childrenOf(node).forEach(visit);
-      };
-      if (virtualRoot) childrenOf(virtualRoot).forEach(visit);
-      else visit(root);
-      return order;
-    });
-
-  // Records explicitly define membership, including an empty list. Older
-  // snapshots without records fall back to evidence in reachable nodes only.
-  const includedKeys = new Set(
-    Array.isArray(tree.records)
-      ? tree.records.filter((record) => record?.key != null).map((record) => record.key)
-      : reachable().flatMap((node) =>
-          (node.sentences || []).flatMap((id) => (sources[id] ? [sourceKey(sources[id])] : [])),
-        ),
-  );
-  const articles = [...articleByKey.values()].filter((article) => includedKeys.has(article.key));
-  for (const article of articleByKey.values()) {
-    article.title = String(article.title || article.url || 'Untitled article');
-    article.label = article.title;
-  }
-  // Only included articles need disambiguation from each other.
-  const titleCounts = new Map();
-  for (const article of articles) {
-    titleCounts.set(article.title, (titleCounts.get(article.title) || 0) + 1);
-  }
-  for (const article of articles) {
-    article.label =
-      titleCounts.get(article.title) > 1 && article.url
-        ? `${article.title} (${article.url})`
-        : article.title;
-  }
-
-  return {
-    tree,
-    root,
-    getNode,
-    childrenOf,
-    isLeaf,
-    cite,
-    sentenceIds,
-    usable,
-    articlesOf,
-    summaryOf,
-    hasSummary,
-    pathTitles,
-    reachable,
-    articles,
-  };
 }
 
 /**
@@ -664,93 +421,21 @@ function createGetClaimSources(model) {
   };
 }
 
-function buildSearchIndex(model) {
-  const nodes = model.reachable().filter((node) => node.kind !== ROOT);
-  const titles = createBm25(nodes.map((node) => terms(node.title)));
-  const summaries = createBm25(nodes.map((node) => terms(model.summaryOf(node))));
-
-  // Each sentence is scored once and credited to the leaf nodes that hold it.
-  const sentenceIds = [];
-  const owners = new Map();
-  nodes.forEach((node, index) => {
-    if (!model.isLeaf(node)) return;
-    for (const id of model.sentenceIds(node)) {
-      if (!owners.has(id)) {
-        owners.set(id, []);
-        sentenceIds.push(id);
-      }
-      owners.get(id).push(index);
-    }
-  });
-  const sentenceIndex = createBm25(sentenceIds.map((id) => terms(model.cite(id).text)));
-  return { nodes, titles, summaries, sentenceIds, owners, sentenceIndex };
-}
-
 function createSearchTopics(model) {
-  let index = null;
+  const search = createTopicSearch(model);
   return {
     definition: SEARCH_TOPICS_TOOL,
     async run(rawArgs, { maxChars } = {}) {
       const args = asArgs(rawArgs);
       const budget = resolveBudget(maxChars);
       const query = String(args.query ?? '').trim();
-      const queryTerms = [...new Set(terms(query))];
-      if (!queryTerms.length) throw new Error('query must contain at least one word to search for');
+      const ranked = search(query);
       const limit = intArg(args.limit, 'limit', {
         min: 1,
         max: MAX_SEARCH_LIMIT,
         fallback: DEFAULT_SEARCH_LIMIT,
       });
       const offset = intArg(args.offset, 'offset', { fallback: 0 });
-      index ??= buildSearchIndex(model);
-
-      const titleScores = index.titles.score(queryTerms);
-      const summaryScores = index.summaries.score(queryTerms);
-      const matched = new Map();
-      for (const [position, score] of index.sentenceIndex.score(queryTerms)) {
-        const id = index.sentenceIds[position];
-        for (const owner of index.owners.get(id)) {
-          if (!matched.has(owner)) matched.set(owner, []);
-          matched.get(owner).push({ id, score });
-        }
-      }
-
-      const candidates = [];
-      index.nodes.forEach((node, position) => {
-        const hits = (matched.get(position) || []).sort((a, b) => b.score - a.score || a.id - b.id);
-        const sentenceScore = hits
-          .slice(0, SENTENCE_RANK_WEIGHTS.length)
-          .reduce((sum, hit, rank) => sum + hit.score * SENTENCE_RANK_WEIGHTS[rank], 0);
-        const score =
-          TITLE_WEIGHT * (titleScores.get(position) || 0) +
-          SUMMARY_WEIGHT * (summaryScores.get(position) || 0) +
-          sentenceScore;
-        if (score > 0) {
-          candidates.push({
-            node,
-            position,
-            score,
-            hits: hits.slice(0, MAX_SENTENCES_PER_HIT),
-            inSummary: summaryScores.has(position),
-          });
-        }
-      });
-      candidates.sort((a, b) => b.score - a.score || a.position - b.position);
-
-      // One article's passages must not crowd out the other articles.
-      const perArticle = new Map();
-      const ranked = [];
-      for (const candidate of candidates) {
-        const articles = model.articlesOf(candidate.node);
-        if (articles.length === 1) {
-          const used = perArticle.get(articles[0].key) || 0;
-          if (used >= MAX_HITS_PER_ARTICLE) continue;
-          perArticle.set(articles[0].key, used + 1);
-        }
-        ranked.push({ ...candidate, articles });
-        if (ranked.length >= MAX_SEARCH_HITS) break;
-      }
-
       const toHit = ({ node, score, hits, inSummary, articles }) => {
         const lines = hits
           .map((hit) => model.cite(hit.id))
