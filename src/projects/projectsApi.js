@@ -94,23 +94,6 @@ export function createProjectsApi(messenger = browserRuntimeMessenger) {
 
 export const browserProjectsApi = createProjectsApi();
 
-export const {
-  listProjectsOverview,
-  createProjectFromGroup,
-  openProjectForGroup,
-  openProject,
-  focusGroup,
-  deleteProject,
-  getProjectView,
-  buildProjectTopicTree,
-  stopProjectTopicTree,
-  getPageChat,
-  capturePageText,
-  deleteExcerpt,
-  acknowledgeExcerptFocus,
-  readExcerptPage,
-} = browserProjectsApi;
-
 const TAB_EVENTS = ['onCreated', 'onRemoved', 'onUpdated', 'onMoved', 'onAttached', 'onDetached'];
 const GROUP_EVENTS = ['onCreated', 'onRemoved', 'onUpdated', 'onMoved'];
 
@@ -209,10 +192,7 @@ function subscribeStoreChanges(onChange, scope) {
  */
 export function subscribeProjectChanges(
   onChange,
-  {
-    scope,
-    apis = { tabs: globalThis.chrome?.tabs, tabGroups: globalThis.chrome?.tabGroups },
-  } = {},
+  { scope, apis = { tabs: globalThis.chrome?.tabs, tabGroups: globalThis.chrome?.tabGroups } } = {},
 ) {
   const unsubscribeTabs = subscribeTabEvents(onChange, apis, scope);
   const unsubscribeStore = subscribeStoreChanges(onChange, scope);

@@ -22,8 +22,7 @@ export function useProjectMerge({ buildTopics, stopTopics, merge, refresh, showT
     setPending(true);
     setNotice('');
     try {
-      const response = await request();
-      if (response?.ok === false) throw new Error(response.error || 'Project request failed');
+      await request();
     } catch (err) {
       setNotice(err?.message || String(err));
     } finally {

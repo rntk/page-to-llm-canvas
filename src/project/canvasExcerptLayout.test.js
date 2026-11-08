@@ -7,14 +7,25 @@ import {
   EXCERPT_HEIGHT,
   EXCERPT_INDENT,
   excerptConnectorPath,
-  layoutGrid,
   layoutProjectCanvas,
 } from './canvasLayout.js';
 
 describe('layoutProjectCanvas', () => {
-  it('matches the plain grid when there are no excerpts', () => {
-    const { pages, excerpts } = layoutProjectCanvas([1, 2, 3, 4], {});
-    expect(pages).toEqual(layoutGrid([1, 2, 3, 4]));
+  it('returns empty positions when there are no cards', () => {
+    expect(layoutProjectCanvas([], {})).toEqual({ pages: {}, excerpts: {} });
+  });
+
+  it('places pages row-major in a grid when there are no excerpts', () => {
+    const { pages, excerpts } = layoutProjectCanvas([10, 11, 12, 13, 14], {});
+    const stepX = CARD_WIDTH + CARD_GAP;
+    const stepY = CARD_HEIGHT + CARD_GAP;
+    expect(pages).toEqual({
+      10: { x: 0, y: 0 },
+      11: { x: stepX, y: 0 },
+      12: { x: 2 * stepX, y: 0 },
+      13: { x: 0, y: stepY },
+      14: { x: stepX, y: stepY },
+    });
     expect(excerpts).toEqual({});
   });
 
