@@ -200,7 +200,8 @@ async function judgeAssign({ judge, nodes, ids, path, proposed }) {
  * @param {number} [input.workers]
  * @param {number} [input.batchChars] Digest characters per request.
  * @param {function(): Promise<void>} [input.onProgress]
- * @param {boolean} [input.groupSmallRoot] Group small project source sets at the root.
+ * @param {string|null} [input.sourceKind] What the nodes are, when not passages of one document.
+ * @param {boolean} [input.groupSmallRoot] Group small source sets at the root.
  * @returns {Promise<string>} Root node id.
  */
 export async function buildTopics({
@@ -212,8 +213,10 @@ export async function buildTopics({
   workers = 4,
   batchChars = TOPIC_BATCH_CHARS,
   onProgress = async () => {},
+  sourceKind = null,
   groupSmallRoot = false,
 }) {
+  const kind = sourceKind ? { source_kind: sourceKind } : {};
   const ask = (prompt, decode) => {
     let result = null;
     return llm
@@ -231,7 +234,7 @@ export async function buildTopics({
   const propose = (ids, path) =>
     ask(
       buildTopicTitlesPrompt({
-        ...(groupSmallRoot ? { source_kind: 'project_primary_topics' } : {}),
+        ...kind,
         path: path.join(' › '),
         passages: sample(ids, nodes, batchChars).map((id) => digest(nodes, id)),
       }),
@@ -254,7 +257,7 @@ export async function buildTopics({
       const maxNew = existing.length ? Math.max(0, MAX_BRANCHES - existing.length) : MAX_BRANCHES;
       const assignment = await ask(
         buildTopicGroupingPrompt({
-          ...(groupSmallRoot ? { source_kind: 'project_primary_topics' } : {}),
+          ...kind,
           path: path.join(' › '),
           existing_topics: existing,
           max_new_topics: maxNew,
@@ -328,6 +331,8 @@ export async function buildTopics({
  * @param {number} [input.workers]
  * @param {number} [input.batchChars]
  * @param {function(): Promise<void>} [input.onProgress]
+ * @param {string|null} [input.sourceKind] What the nodes are, as in `buildTopics`.
+ * @param {function(object): boolean} [input.isBranch] Whether a node is a grouping branch.
  */
 export async function placeTopics({
   nodes,
@@ -338,9 +343,10 @@ export async function placeTopics({
   workers = 4,
   batchChars = TOPIC_BATCH_CHARS,
   onProgress = async () => {},
+  sourceKind = null,
+  isBranch = (node) => node.kind === TOPIC,
 }) {
   const limit = createLimiter(workers);
-  const isBranch = (id) => !nodes[id].recordKey && nodes[id].kind === TOPIC;
   const trail = new Map(unitIds.map((id) => [id, [rootId]]));
 
   const attach = (id) => {
@@ -386,7 +392,7 @@ export async function placeTopics({
       let decoded = null;
       const accepted = await llm.ask(
         buildTopicGroupingPrompt({
-          source_kind: 'project_primary_topics',
+          ...(sourceKind ? { source_kind: sourceKind } : {}),
           path,
           existing_topics: existing,
           max_new_topics: 1,
@@ -417,7 +423,7 @@ export async function placeTopics({
     await Promise.all(
       [...byParent].map(([parentId, ids]) =>
         limit(async () => {
-          const branches = nodes[parentId].children.filter(isBranch);
+          const branches = nodes[parentId].children.filter((id) => isBranch(nodes[id]));
           const choice = branches.length ? await choose(ids, parentId, branches) : new Map();
           for (const id of ids) {
             const branchId = choice.get(id);

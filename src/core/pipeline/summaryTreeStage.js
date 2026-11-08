@@ -19,21 +19,9 @@ import { mergeAbortSignals } from '../llm/abortSignals.js';
 import { isCancellationError } from './cancellation.js';
 import { SUMMARY_CONCURRENCY } from './pipelineConfig.js';
 import { createClaimVerifier, generateSummaries } from './summaryTreeGeneration.js';
-import {
-  PASSAGE,
-  PASSAGE_MAX_CHARS,
-  PASSAGE_MIN_CHARS,
-  PASSAGE_TARGET_CHARS,
-  ROOT,
-  TOPIC,
-  addNode,
-  buildPassages,
-  topicIds,
-  treeLevels,
-} from './summaryTreeModel.js';
+import { PASSAGE, ROOT, TOPIC, topicIds, treeLevels } from './summaryTreeModel.js';
 import { createSummaryTreeJudge, createSummaryTreeLlm } from './summaryTreeRequests.js';
 import { TOPIC_BATCH_CHARS, buildTopics, placeTopics } from './summaryTreeTopics.js';
-import { splitTopicPath } from '../../shared/runtime/topicPath.js';
 import {
   SUMMARY_TREE_HEARTBEAT_MS,
   SUMMARY_TREE_STAGE,
@@ -76,7 +64,7 @@ export function isSummaryTreeReusable(tree, record, fingerprint) {
  * structure only once it was complete. Failed passages are retried only while
  * topics are still to be built; afterwards they are no longer in the tree.
  * @param {object} tree Reusable saved tree.
- * @param {Set<string>} [sourceNodeIds] Project evidence nodes kept before grouping completes.
+ * @param {Set<string>} [sourceNodeIds] Strategy seed nodes kept before grouping completes.
  * @returns {{nodes: Record<string, object>, rootId: string|null}}
  */
 export function resumableNodes(tree, sourceNodeIds = new Set()) {
@@ -89,20 +77,13 @@ export function resumableNodes(tree, sourceNodeIds = new Set()) {
   return { nodes, rootId };
 }
 
-function fallbackTitle(sentences, topics) {
-  const first = sentences[0];
-  const topic = (Array.isArray(topics) ? topics : []).find((item) =>
-    item?.sentences?.includes(first),
-  );
-  const name = topic ? splitTopicPath(topic.name).at(-1) : '';
-  return name || `Sentences ${first}–${sentences.at(-1)}`;
-}
-
 /**
- * Build or resume the summary tree of a completed record.
+ * Build or resume a summary tree. What the tree is made of (article passages
+ * or project primary topics) comes from the strategy; this stage only drives
+ * summarizing, grouping, and checkpointing.
  * @param {object} input
  * @param {object} input.runtime `{signal, log, saveSummaryTree, maxTextChunkChars}`.
- * @param {object} input.record Record with `sentences`, `topics`, and `contentRevision`.
+ * @param {object} input.strategy Tree strategy, see `summaryTreeStrategy.js`.
  * @param {Function} input.callLLMWithRetry Shared-limiter completion request.
  * @param {Function|null} [input.decide] Shared-limiter decision request, when configured.
  * @param {string} input.fingerprint Provider identity; a change invalidates the checkpoint.
@@ -111,14 +92,11 @@ function fallbackTitle(sentences, topics) {
  * @param {number} [input.workers]
  * @param {number} [input.heartbeatMs] Save interval while requests are in flight; 0 disables.
  * @param {function(): number} [input.now]
- * @param {object|null} [input.sourceNodes] Project primary-topic evidence nodes.
- * @param {string[]|null} [input.sourceTopicIds] Primary-topic grouping units.
- * @param {boolean} [input.groupSmallRoot] Group even small project source sets.
  * @returns {Promise<object>} The finished `summary_tree`.
  */
 export async function runSummaryTree({
   runtime,
-  record,
+  strategy,
   callLLMWithRetry,
   decide = null,
   fingerprint,
@@ -127,11 +105,8 @@ export async function runSummaryTree({
   workers = SUMMARY_CONCURRENCY,
   heartbeatMs = SUMMARY_TREE_HEARTBEAT_MS,
   now = Date.now,
-  sourceNodes = null,
-  sourceTopicIds = null,
-  groupSmallRoot = false,
 }) {
-  const sentenceTexts = Array.isArray(record?.sentences) ? record.sentences : [];
+  const sentenceTexts = Array.isArray(strategy.sentences) ? strategy.sentences : [];
   if (!sentenceTexts.some((text) => typeof text === 'string' && text.trim())) {
     throw new SummaryTreeError('The record has no sentences to summarize.');
   }
@@ -146,25 +121,14 @@ export async function runSummaryTree({
   const llm = createSummaryTreeLlm({ callLLMWithRetry, signal, runtime });
   const judge = createSummaryTreeJudge({ decide, signal, runtime });
 
-  const prior = record.summary_tree;
-  const reusable = !fresh && isSummaryTreeReusable(prior, record, fingerprint);
+  const prior = strategy.prior;
+  const reusable = !fresh && isSummaryTreeReusable(prior, strategy, fingerprint);
   let nodes;
   let rootId = null;
   if (reusable) {
-    ({ nodes, rootId } = resumableNodes(prior, new Set(Object.keys(sourceNodes || {}))));
-  } else if (sourceNodes) {
-    nodes = structuredClone(sourceNodes);
+    ({ nodes, rootId } = resumableNodes(prior, strategy.seedIds()));
   } else {
-    nodes = {};
-    const passageMaxChars = Math.min(PASSAGE_MAX_CHARS, maxChars);
-    const passages = buildPassages(sentenceTexts, record.topics, {
-      targetChars: Math.min(PASSAGE_TARGET_CHARS, Math.floor(passageMaxChars / 2)),
-      minChars: Math.min(PASSAGE_MIN_CHARS, Math.floor(passageMaxChars / 4)),
-      maxChars: passageMaxChars,
-    });
-    for (const sentences of passages) {
-      addNode(nodes, PASSAGE, fallbackTitle(sentences, record.topics), [], { sentences });
-    }
+    nodes = strategy.seedNodes({ maxChars });
   }
   const verifier = judge.active ? createClaimVerifier({ judge, nodes, sentenceTexts }) : null;
   const startedAt = reusable && Number.isFinite(prior.startedAt) ? prior.startedAt : now();
@@ -197,7 +161,7 @@ export async function runSummaryTree({
       version: SUMMARY_TREE_VERSION,
       status,
       stage,
-      contentRevision: record.contentRevision ?? null,
+      contentRevision: strategy.contentRevision ?? null,
       fingerprint,
       rootId,
       nodes,
@@ -260,23 +224,13 @@ export async function runSummaryTree({
       : null;
   try {
     await enterStage(SUMMARY_TREE_STAGE.PASSAGES);
-    const passageIds = Object.values(nodes)
-      .filter((node) => node.kind === PASSAGE)
+    // A finished tree extended with new pages carries sources still to summarize.
+    const sourceIds = Object.values(nodes)
+      .filter((node) => strategy.isSource(node))
       .map((node) => node.id);
-    // A finished tree extended with new pages carries source nodes still to summarize.
-    const pendingSources = rootId
-      ? Object.values(nodes)
-          .filter((node) => node.recordKey && node.segments === null)
-          .map((node) => node.id)
-      : [];
     await generateSummaries({
       nodes,
-      targets: [
-        ...new Set([
-          ...(sourceTopicIds ? Object.keys(sourceNodes) : passageIds),
-          ...pendingSources,
-        ]),
-      ],
+      targets: sourceIds,
       sentenceTexts,
       llm,
       verifier,
@@ -284,11 +238,13 @@ export async function runSummaryTree({
       tolerateFailures: true,
       onNodeDone: save,
       controller,
+      sourceOf: strategy.sourceOf,
     });
-    const relevant = (sourceTopicIds || passageIds).filter((id) => nodes[id].segments?.length > 0);
+    const groupIds = strategy.groupIds(nodes);
+    const relevant = groupIds.filter((id) => nodes[id].segments?.length > 0);
     if (!relevant.length && !rootId) {
       throw new SummaryTreeError(
-        passageIds.every((id) => nodes[id].failed)
+        groupIds.every((id) => nodes[id].failed)
           ? 'Could not summarize any passage. Retry to resume.'
           : 'No passage had content to summarize.',
       );
@@ -310,6 +266,8 @@ export async function runSummaryTree({
           workers,
           batchChars: Math.min(TOPIC_BATCH_CHARS, maxChars),
           onProgress: save,
+          sourceKind: strategy.sourceKind,
+          isBranch: strategy.isBranch,
         });
       }
     } else {
@@ -325,7 +283,8 @@ export async function runSummaryTree({
         workers,
         batchChars: Math.min(TOPIC_BATCH_CHARS, maxChars),
         onProgress: save,
-        groupSmallRoot,
+        sourceKind: strategy.sourceKind,
+        groupSmallRoot: strategy.groupSmallRoot,
       });
     }
 
@@ -339,6 +298,7 @@ export async function runSummaryTree({
       workers,
       onNodeDone: save,
       controller,
+      sourceOf: strategy.sourceOf,
     });
     if (!nodes[rootId].segments?.length) {
       throw new SummaryTreeError('Could not produce a supported overview. Retry to resume.');

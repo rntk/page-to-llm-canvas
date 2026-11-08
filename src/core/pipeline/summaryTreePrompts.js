@@ -108,10 +108,13 @@ which passages belong there, naming what separates it from its neighbours.
 Return JSON: {"topics":[{"title":"Sub-topic","description":"Passages about ..."}]}
 `;
 
+// Source kind of project inputs: existing primary topics of several articles.
+export const PRIMARY_TOPICS_SOURCE = 'project_primary_topics';
+
 // Project inputs are existing primary topics, not a new split of combined
 // article text. A single shared subject is a useful merge at the project root.
 function projectGroupingRules(prompt, payload) {
-  if (payload.source_kind !== 'project_primary_topics') return prompt;
+  if (payload.source_kind !== PRIMARY_TOPICS_SOURCE) return prompt;
   return prompt
     .replace(
       'passages of one document',

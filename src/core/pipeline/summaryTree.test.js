@@ -11,6 +11,7 @@ import { decodeEntry, levelOf, requestItem } from './summaryTreeGeneration.js';
 import { decodeAssignment, decodeTitles, orderGroups, OTHER_TITLE } from './summaryTreeTopics.js';
 import { createSummaryTreeLlm, extractObject } from './summaryTreeRequests.js';
 import { isSummaryTreeReusable, runSummaryTree } from './summaryTreeStage.js';
+import { createArticleStrategy } from './summaryTreeStrategy.js';
 import { PROMPT_DELIMITER } from '../promptDelimiters.js';
 import { readSummaryTree, SUMMARY_TREE_STATUS } from '../../shared/runtime/summaryTree.js';
 import { buildSummaryTreeDisplayTree, flattenTree } from '../../topics-tree/topicsTreeModel.js';
@@ -234,7 +235,7 @@ describe('runSummaryTree', () => {
     const callLLMWithRetry = fakeModel();
     const tree = await runSummaryTree({
       runtime,
-      record: rec,
+      strategy: createArticleStrategy(rec),
       callLLMWithRetry,
       fingerprint: 'fp',
       heartbeatMs: 0,
@@ -266,7 +267,7 @@ describe('runSummaryTree', () => {
     const { runtime } = makeRuntime(rec);
     await runSummaryTree({
       runtime,
-      record: rec,
+      strategy: createArticleStrategy(rec),
       callLLMWithRetry: fakeModel(),
       fingerprint: 'fp',
       heartbeatMs: 0,
@@ -277,7 +278,7 @@ describe('runSummaryTree', () => {
     const again = fakeModel();
     await runSummaryTree({
       runtime,
-      record: rec,
+      strategy: createArticleStrategy(rec),
       callLLMWithRetry: again,
       fingerprint: 'fp',
       heartbeatMs: 0,
@@ -287,7 +288,7 @@ describe('runSummaryTree', () => {
     const fresh = fakeModel();
     await runSummaryTree({
       runtime,
-      record: rec,
+      strategy: createArticleStrategy(rec),
       callLLMWithRetry: fresh,
       fingerprint: 'fp',
       fresh: true,
@@ -320,7 +321,7 @@ describe('runSummaryTree', () => {
     }));
     const tree = await runSummaryTree({
       runtime,
-      record: rec,
+      strategy: createArticleStrategy(rec),
       callLLMWithRetry: fakeModel(),
       decide,
       fingerprint: 'fp',
@@ -338,7 +339,7 @@ describe('runSummaryTree', () => {
     const again = fakeModel();
     await runSummaryTree({
       runtime,
-      record: rec,
+      strategy: createArticleStrategy(rec),
       callLLMWithRetry: again,
       decide,
       fingerprint: 'fp',
@@ -353,7 +354,7 @@ describe('runSummaryTree', () => {
     await expect(
       runSummaryTree({
         runtime,
-        record: rec,
+        strategy: createArticleStrategy(rec),
         callLLMWithRetry: vi.fn().mockResolvedValue('{}'),
         fingerprint: 'fp',
         heartbeatMs: 0,

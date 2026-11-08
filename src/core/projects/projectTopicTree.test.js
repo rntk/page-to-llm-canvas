@@ -7,6 +7,7 @@ import {
   projectTopicSourceRevision,
 } from './projectTopicTree.js';
 import { runSummaryTree } from '../pipeline/summaryTreeStage.js';
+import { createProjectStrategy } from './projectTopicStrategy.js';
 import { claimSentences } from '../pipeline/summaryTreeModel.js';
 import {
   buildTopicGroupingPrompt,
@@ -113,10 +114,11 @@ describe('project primary topic sources', () => {
         log: async () => {},
         saveSummaryTree: async (tree) => saved.push(structuredClone(tree)),
       },
-      record: { sentences: seed.sentences, contentRevision: 'project-rev' },
-      sourceNodes: seed.nodes,
-      sourceTopicIds: seed.sourceTopicIds,
-      groupSmallRoot: true,
+      strategy: createProjectStrategy({
+        seed,
+        prior: null,
+        contentRevision: 'project-rev',
+      }),
       fingerprint: 'provider',
       callLLMWithRetry: completion,
       heartbeatMs: 0,
@@ -127,10 +129,11 @@ describe('project primary topic sources', () => {
     expect(completion).toHaveBeenCalledTimes(2); // grouping + merged overview; root relays it
     const resumed = await runSummaryTree({
       runtime: { log: async () => {}, saveSummaryTree: async () => {} },
-      record: { sentences: seed.sentences, contentRevision: 'project-rev', summary_tree: tree },
-      sourceNodes: seed.nodes,
-      sourceTopicIds: seed.sourceTopicIds,
-      groupSmallRoot: true,
+      strategy: createProjectStrategy({
+        seed,
+        prior: tree,
+        contentRevision: 'project-rev',
+      }),
       fingerprint: 'provider',
       callLLMWithRetry: completion,
       heartbeatMs: 0,
@@ -173,14 +176,12 @@ describe('project primary topic sources', () => {
               }),
             ),
         },
-        record: {
-          sentences: seed.sentences,
+        strategy: createProjectStrategy({
+          seed,
+          prior: incremental ? incremental.tree : prior,
           contentRevision: projectTopicSourceRevision(records),
-          summary_tree: incremental ? incremental.tree : prior,
-        },
-        sourceNodes: incremental ? null : seed.nodes,
-        sourceTopicIds: incremental ? null : seed.sourceTopicIds,
-        groupSmallRoot: true,
+          extending: Boolean(incremental),
+        }),
         fingerprint: 'provider',
         callLLMWithRetry: completion,
         heartbeatMs: 0,

@@ -55,9 +55,10 @@ export function levelOf(node, nodes) {
  * @param {object} node
  * @param {Record<string, object>} nodes
  * @param {string[]} sentenceTexts
+ * @param {function(object): object|null} [sourceOf] Origin shown to the model for a child node.
  * @returns {{item: object, allowed: Map<string, object>}}
  */
-export function requestItem(node, nodes, sentenceTexts) {
+export function requestItem(node, nodes, sentenceTexts, sourceOf = () => null) {
   const allowed = new Map();
   const item = { id: ITEM_ID, kind: node.kind };
   if (node.kind === PASSAGE) {
@@ -78,19 +79,8 @@ export function requestItem(node, nodes, sentenceTexts) {
       allowed.set(label, { kind: 'claim', child: child.id, segment: index });
       claims.push({ cite: label, text: segment.text.trim() });
     });
-    return {
-      title: child.title,
-      claims,
-      ...(child.recordKey
-        ? {
-            source: {
-              recordKey: child.recordKey,
-              title: child.sourceTitle || '',
-              url: child.sourceUrl || '',
-            },
-          }
-        : {}),
-    };
+    const source = sourceOf(child);
+    return { title: child.title, claims, ...(source ? { source } : {}) };
   });
   return { item, allowed };
 }
@@ -222,6 +212,7 @@ export function createClaimVerifier({ judge, nodes, sentenceTexts }) {
  * @param {boolean} [input.tolerateFailures]
  * @param {function(object): Promise<void>} [input.onNodeDone] Persists progress.
  * @param {AbortController} [input.controller] Aborted to stop siblings after a failure.
+ * @param {function(object): object|null} [input.sourceOf] Origin shown to the model for a child node.
  */
 export async function generateSummaries({
   nodes,
@@ -233,9 +224,10 @@ export async function generateSummaries({
   tolerateFailures = false,
   onNodeDone = async () => {},
   controller,
+  sourceOf,
 }) {
   const generateOne = async (node) => {
-    const { item, allowed } = requestItem(node, nodes, sentenceTexts);
+    const { item, allowed } = requestItem(node, nodes, sentenceTexts, sourceOf);
     const level = levelOf(node, nodes);
     let result = null;
     let title = null;

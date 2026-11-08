@@ -26,7 +26,9 @@ import {
   SUMMARY_TREE_STATUS,
   SUMMARY_TREE_VERSION,
 } from '../../../core/pipeline/summaryTreeStage.js';
+import { createArticleStrategy } from '../../../core/pipeline/summaryTreeStrategy.js';
 import { normalizeCustomInstructions } from '../../../core/pipeline/customInstructions.js';
+import { createProjectStrategy } from '../../../core/projects/projectTopicStrategy.js';
 import {
   buildProjectTopicSeed,
   prepareIncrementalProjectTree,
@@ -487,7 +489,7 @@ export function createPipelineRunner({
         await runtime.log('summary_tree_decisions_unavailable', { error: judge.error });
       await runSummaryTreeStage({
         runtime,
-        record,
+        strategy: createArticleStrategy(record),
         callLLMWithRetry: providers.callLLMWithRetry,
         decide: judge.decide,
         fingerprint: JSON.stringify([providers.summaryInputFingerprint, judge.identity]),
@@ -580,14 +582,12 @@ export function createPipelineRunner({
             sourceRevision,
           }),
       },
-      record: {
-        sentences: seed.sentences,
+      strategy: createProjectStrategy({
+        seed,
+        prior: incremental ? incremental.tree : prior,
         contentRevision: sourceRevision,
-        summary_tree: incremental ? incremental.tree : prior,
-      },
-      sourceNodes: incremental ? null : seed.nodes,
-      sourceTopicIds: incremental ? null : seed.sourceTopicIds,
-      groupSmallRoot: true,
+        extending: Boolean(incremental),
+      }),
       callLLMWithRetry: providers.callLLMWithRetry,
       decide: judge.decide,
       fingerprint,
