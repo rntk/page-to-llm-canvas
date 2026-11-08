@@ -169,7 +169,7 @@ describe('project handlers', () => {
 describe('project excerpt handlers', () => {
   function makeExcerptService() {
     return {
-      takeProjectExcerpts: vi.fn(async () => ({ excerpts: [{ id: 'e1' }], focusExcerptId: 'e1' })),
+      getProjectExcerpts: vi.fn(async () => ({ excerpts: [{ id: 'e1' }], focusExcerptId: 'e1' })),
       deleteExcerpt: vi.fn(async () => ({ deleted: true })),
       readExcerptPage: vi.fn(async () => ({ sentences: ['One.'], truncated: false })),
       deleteProject: vi.fn(async () => ({ deleted: true })),

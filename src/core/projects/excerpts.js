@@ -177,18 +177,27 @@ export function createExcerptStore({
     },
 
     /**
-     * Hands out (and clears) the project's pending focus request.
+     * The project's pending focus request, without consuming it.
      * @param {string} projectId
      * @returns {Promise<string|null>} The excerpt id to unfold, if any.
      */
-    async takeFocus(projectId) {
-      let excerptId = null;
-      await update((current) => {
-        if (current.focus?.projectId !== projectId) return null;
-        excerptId = current.focus.excerptId;
-        return { ...current, focus: null };
-      });
-      return excerptId;
+    async peekFocus(projectId) {
+      const { focus } = await read();
+      return focus?.projectId === projectId ? focus.excerptId : null;
+    },
+
+    /**
+     * Clears the project's pending focus request if it still points at the
+     * excerpt (a newer request is left alone). Idempotent.
+     * @param {string} projectId
+     * @param {string} excerptId
+     */
+    async acknowledgeFocus(projectId, excerptId) {
+      await update((current) =>
+        current.focus?.projectId === projectId && current.focus.excerptId === excerptId
+          ? { ...current, focus: null }
+          : null,
+      );
     },
   };
 }

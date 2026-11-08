@@ -47,5 +47,6 @@ export const MSG = Object.freeze({
   getProjectPageChat: 'getProjectPageChat',
   captureProjectPageText: 'captureProjectPageText',
   deleteProjectExcerpt: 'deleteProjectExcerpt',
+  acknowledgeProjectExcerptFocus: 'acknowledgeProjectExcerptFocus',
   readProjectExcerptPage: 'readProjectExcerptPage',
 });

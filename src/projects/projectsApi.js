@@ -74,6 +74,14 @@ export function createProjectsApi(messenger = browserRuntimeMessenger) {
     deleteExcerpt: (projectId, excerptId) =>
       request({ type: MSG.deleteProjectExcerpt, projectId, excerptId }),
     /**
+     * Tells the background the project page handled the excerpt focus request.
+     * @param {string} projectId
+     * @param {string} excerptId
+     * @returns {Promise<{acknowledged: boolean}>}
+     */
+    acknowledgeExcerptFocus: (projectId, excerptId) =>
+      request({ type: MSG.acknowledgeProjectExcerptFocus, projectId, excerptId }),
+    /**
      * Reads the full text of the page an excerpt was taken from.
      * @param {string} projectId
      * @param {string} excerptId
@@ -100,6 +108,7 @@ export const {
   getPageChat,
   capturePageText,
   deleteExcerpt,
+  acknowledgeExcerptFocus,
   readExcerptPage,
 } = browserProjectsApi;
 

@@ -91,6 +91,14 @@ export function ProjectApp({
     [api, projectId],
   );
 
+  const acknowledgeFocus = useCallback(
+    (excerptId) => {
+      // A lost acknowledgement only means the request is offered again.
+      Promise.resolve(api.acknowledgeExcerptFocus?.(projectId, excerptId)).catch(() => {});
+    },
+    [api, projectId],
+  );
+
   const title = view ? view.project.title || UNTITLED_PROJECT : null;
   useEffect(() => {
     if (title) document.title = `${title} · Project`;
@@ -202,6 +210,7 @@ export function ProjectApp({
               tabs={tabs}
               excerpts={view.excerpts || NO_EXCERPTS}
               focusExcerptId={view.focusExcerptId || null}
+              onFocusHandled={api.acknowledgeExcerptFocus ? acknowledgeFocus : undefined}
               tabsHost={tabsHost}
               renderPageChat={renderPageChat}
               renderExcerptChat={api.readExcerptPage ? renderExcerptChat : undefined}

@@ -97,6 +97,14 @@ describe('ProjectCanvas excerpts', () => {
     expect(container.querySelector('[data-chat-for="e2"]')).not.toBeNull();
   });
 
+  it('reports a focus id as handled once', async () => {
+    const onFocusHandled = vi.fn();
+    const { rerender } = await render({ focusExcerptId: 'e1', onFocusHandled });
+    await act(async () => rerender({ focusExcerptId: 'e1', onFocusHandled }));
+    expect(onFocusHandled).toHaveBeenCalledTimes(1);
+    expect(onFocusHandled).toHaveBeenCalledWith('e1');
+  });
+
   it('follows its page when the page card is dragged', async () => {
     await render();
     const header = container.querySelector('[data-tab-id="1"] .tab-card-header');

@@ -93,14 +93,27 @@ export function createProjectExcerptService({
     },
 
     /**
-     * The project's excerpts, plus the excerpt its page should unfold (handed
-     * out once).
+     * The project's excerpts, plus the excerpt its page should unfold. Read-only:
+     * the request stays pending until `acknowledgeExcerptFocus`.
      * @param {string} projectId
      * @returns {Promise<{excerpts: object[], focusExcerptId: string|null}>}
      */
-    async takeProjectExcerpts(projectId) {
-      const focusExcerptId = await excerptStore.takeFocus(projectId);
-      return { excerpts: await excerptStore.listForProject(projectId), focusExcerptId };
+    async getProjectExcerpts(projectId) {
+      return {
+        excerpts: await excerptStore.listForProject(projectId),
+        focusExcerptId: await excerptStore.peekFocus(projectId),
+      };
+    },
+
+    /**
+     * Marks the pending focus request as handled by the project page.
+     * @param {string} projectId
+     * @param {string} excerptId
+     * @returns {Promise<{acknowledged: boolean}>}
+     */
+    async acknowledgeExcerptFocus(projectId, excerptId) {
+      await excerptStore.acknowledgeFocus(projectId, excerptId);
+      return { acknowledged: true };
     },
 
     /**

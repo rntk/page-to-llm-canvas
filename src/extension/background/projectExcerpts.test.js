@@ -51,11 +51,13 @@ describe('createProjectExcerptService', () => {
       text: 'Selected text.\nLine two.',
     });
     expect(projectService.openProjectForGroup).toHaveBeenCalledWith(7);
-    expect(await service.takeProjectExcerpts('p1')).toEqual({
-      excerpts: [result.excerpt],
-      focusExcerptId: 'ex1',
-    });
+    const view = { excerpts: [result.excerpt], focusExcerptId: 'ex1' };
+    expect(await service.getProjectExcerpts('p1')).toEqual(view);
+    // Reading is repeatable until the page acknowledges the focus.
+    expect(await service.getProjectExcerpts('p1')).toEqual(view);
+    await service.acknowledgeExcerptFocus('p1', 'ex1');
     expect((await excerptStore.read()).focus).toBe(null);
+    expect((await service.getProjectExcerpts('p1')).focusExcerptId).toBe(null);
   });
 
   it('falls back to the menu selection when the page cannot answer', async () => {
@@ -94,7 +96,7 @@ describe('createProjectExcerptService', () => {
     expect(projectService.deleteProject).toHaveBeenCalledWith('p1');
     expect(deleteChats).toHaveBeenCalledWith('excerpt:ex2');
     expect(deleteChats).toHaveBeenCalledWith('project:p1');
-    expect((await service.takeProjectExcerpts('p1')).excerpts).toEqual([]);
+    expect((await service.getProjectExcerpts('p1')).excerpts).toEqual([]);
   });
 
   it('reads the excerpt’s page by its URL', async () => {

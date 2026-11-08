@@ -89,16 +89,21 @@ describe('createExcerptStore', () => {
   const excerpt = (id, projectId = 'p1') =>
     createExcerpt({ projectId, url: 'https://a.test', text: `text ${id}` }, { id, now: 1 });
 
-  it('lists a project’s excerpts and hands its focus request out once', async () => {
+  it('lists a project’s excerpts and keeps its focus request until acknowledged', async () => {
     const { store } = memoryStore();
     await store.add(excerpt('a'));
     await store.add(excerpt('b', 'p2'));
     await store.add(excerpt('c'), { focus: true });
 
     expect((await store.listForProject('p1')).map((e) => e.id)).toEqual(['a', 'c']);
-    expect(await store.takeFocus('p2')).toBe(null);
-    expect(await store.takeFocus('p1')).toBe('c');
-    expect(await store.takeFocus('p1')).toBe(null);
+    expect(await store.peekFocus('p2')).toBe(null);
+    expect(await store.peekFocus('p1')).toBe('c');
+    expect(await store.peekFocus('p1')).toBe('c');
+    await store.acknowledgeFocus('p1', 'a');
+    expect(await store.peekFocus('p1')).toBe('c');
+    await store.acknowledgeFocus('p1', 'c');
+    await store.acknowledgeFocus('p1', 'c');
+    expect(await store.peekFocus('p1')).toBe(null);
   });
 
   it('removes matching excerpts and clears a focus that pointed at them', async () => {

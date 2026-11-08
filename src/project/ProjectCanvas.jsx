@@ -113,6 +113,7 @@ function linkExcerpts(tabs, excerpts) {
  *   Renders an excerpt's chat drawer; without it excerpt cards have no chat fold.
  * @param {function(object): Promise<*>} [props.onDeleteExcerpt]
  * @param {string|null} [props.focusExcerptId] Unfolds this excerpt's chat once.
+ * @param {function(string): *} [props.onFocusHandled] Called once a focus id has been handled.
  * @param {boolean} [props.active] Enables keyboard navigation while this view is visible.
  */
 export function ProjectCanvas({
@@ -123,6 +124,7 @@ export function ProjectCanvas({
   renderExcerptChat,
   onDeleteExcerpt,
   focusExcerptId = null,
+  onFocusHandled,
   active = true,
 }) {
   const [viewport, setViewport] = useState(DEFAULT_VIEWPORT);
@@ -147,6 +149,12 @@ export function ProjectCanvas({
       setTopId(key);
     }
   }
+
+  // Reported once per focus id; the callback's identity is irrelevant.
+  useEffect(() => {
+    if (focusExcerptId && focusExcerptId === handledFocus) onFocusHandled?.(focusExcerptId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusExcerptId, handledFocus]);
 
   const links = useMemo(() => linkExcerpts(tabs, excerpts), [tabs, excerpts]);
   const layout = useMemo(

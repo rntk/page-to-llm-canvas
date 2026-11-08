@@ -60,12 +60,13 @@ export function createProjectHandlers({
     [MSG.deleteProject]: entry(validateProjectId, (msg) =>
       (excerptService || projectService).deleteProject(msg.projectId),
     ),
-    // The view carries the project's excerpts and, once, the excerpt the page
-    // should unfold (one just opened from a page's context menu).
+    // The view carries the project's excerpts and the excerpt the page should
+    // unfold (one just opened from a page's context menu). Reading it has no
+    // side effects; the page acknowledges the focus once it has handled it.
     [MSG.getProjectView]: entry(validateProjectId, async (msg) => {
       const view = await projectService.getProjectView(msg.projectId);
       const extras = excerptService
-        ? await excerptService.takeProjectExcerpts(msg.projectId)
+        ? await excerptService.getProjectExcerpts(msg.projectId)
         : { excerpts: [], focusExcerptId: null };
       const topicMerge = topicTreeService
         ? { topicMerge: await topicTreeService.getView(msg.projectId, view) }
@@ -102,6 +103,9 @@ export function createProjectHandlers({
     ),
     [MSG.deleteProjectExcerpt]: entry(validateProjectExcerpt, (msg) =>
       requireExcerpts().deleteExcerpt(msg.projectId, msg.excerptId),
+    ),
+    [MSG.acknowledgeProjectExcerptFocus]: entry(validateProjectExcerpt, (msg) =>
+      requireExcerpts().acknowledgeExcerptFocus(msg.projectId, msg.excerptId),
     ),
     [MSG.readProjectExcerptPage]: entry(validateProjectExcerpt, (msg) =>
       requireExcerpts().readExcerptPage(msg.projectId, msg.excerptId),
