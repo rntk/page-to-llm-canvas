@@ -4,6 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import TopicsTreeCanvas from './TopicsTreeCanvas.jsx';
+import { pointTreeTools } from '../chat/pointTreeTool.js';
 import {
   buildSummaryTreeDisplayTree,
   buildTopicsDisplayTree,
@@ -278,6 +279,55 @@ it('shows a topic’s whole source text as sections in place of its branches, wi
 
     act(() => toggle().click());
     expect(container.querySelector('.tt-card')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('reveals a hidden descendant and its source text through @point', async () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  const node = (id, children) => ({
+    id,
+    title: id,
+    kind: 'topic',
+    children,
+    sentences: [1],
+    segments: [{ text: id + ' summary' }],
+  });
+  const tree = buildSummaryTreeDisplayTree({
+    rootId: 'parent',
+    nodes: {
+      parent: node('parent', ['child']),
+      child: node('child', ['last']),
+      last: { ...node('last', []), kind: 'passage' },
+    },
+  });
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    act(() => root.render(createElement(TopicsTreeCanvas, { tree, sentences: ['Source.'] })));
+    const run = pointTreeTools('@point')[0].run;
+    const discovery = await run({ query: 'last' });
+    const target = JSON.parse(
+      discovery
+        .split('\n')
+        .find((line) => line.startsWith('{') && JSON.parse(line).title === 'last'),
+    );
+    await act(async () => {
+      await run({ nodeKey: target.key });
+    });
+    expect(
+      [...container.querySelectorAll('.tt-node__title')].some((el) => el.textContent === 'last'),
+    ).toBe(true);
+    await act(async () => {
+      await run({ nodeKey: tree.children[0].textCard.key });
+    });
+    expect(container.querySelector('.tt-card.is-selected .tt-card__title').textContent).toBe(
+      'Source text',
+    );
   } finally {
     act(() => root.unmount());
     container.remove();

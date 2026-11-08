@@ -1,3 +1,4 @@
+import { pointTreeTools } from './pointTreeTool.js';
 import { MAX_TURN_EVENTS } from '../shared/runtime/contracts.js';
 import { MSG } from '../shared/runtime/messages.js';
 import { CHAT_TOOL_OUTCOMES, LLM_TASK_TYPES } from '../shared/runtime/telemetry.js';
@@ -116,7 +117,10 @@ function normalizeArticleChatTurnOptions(options = {}) {
     onHighlight: effects.onHighlight,
     highlightedRanges: article.highlightedRanges ?? [],
     source: article.source ?? null,
-    tools: Array.isArray(options.tools) ? options.tools : [],
+    tools: [
+      ...(Array.isArray(options.tools) ? options.tools : []),
+      ...pointTreeTools(options.question),
+    ],
     maxChunkChars: limits.maxChunkChars ?? ARTICLE_CHAT_CHUNK_MAX_CHARS,
     maxToolRounds: limits.maxToolRounds ?? MAX_TOOL_ROUNDS,
     maxHistoryChars: limits.maxHistoryChars ?? CHAT_HISTORY_MAX_CHARS,

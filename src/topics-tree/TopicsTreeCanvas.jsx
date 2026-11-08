@@ -1,3 +1,4 @@
+import { registerPointTree } from '../chat/pointTreeTool.js';
 import React, {
   useCallback,
   useEffect,
@@ -416,6 +417,7 @@ export default function TopicsTreeCanvas({
   const elementsRef = useRef(new Map());
   const pendingAnchorRef = useRef(null);
   const pendingFitRef = useRef(true);
+  const pendingPointRef = useRef(null);
   const dragCleanupRef = useRef(null);
   // True while a fold/unfold animates: only then do new nodes and links animate in.
   const motionRef = useRef(false);
@@ -481,6 +483,13 @@ export default function TopicsTreeCanvas({
       return;
     }
     if (!positions) return;
+    if (pendingPointRef.current) {
+      const target = positions.get(pendingPointRef.current);
+      pendingPointRef.current = null;
+      pendingFitRef.current = false;
+      if (target) fit(boundsOf([target]));
+      return;
+    }
     if (pendingFitRef.current) {
       pendingFitRef.current = false;
       pendingAnchorRef.current = null;
@@ -543,6 +552,32 @@ export default function TopicsTreeCanvas({
       setExpanded(next);
     },
     [canvasRef, tree],
+  );
+
+  useEffect(
+    () =>
+      registerPointTree({
+        nodes: flattenTree(tree).flatMap((node) =>
+          node.textCard ? [node, node.textCard] : [node],
+        ),
+        point: (key) => {
+          const textOwner = flattenTree(tree).find((node) => node.textCard?.key === key);
+          const path = pathTo(tree, textOwner?.key || key);
+          pendingPointRef.current = key;
+          setSelectedKey(key);
+          setFrontKey(key);
+          changeExpanded((previous) => {
+            const next = new Set(previous);
+            path.forEach((node) => {
+              next.delete(textKey(node.key));
+              next.add(node.key);
+            });
+            if (textOwner) next.add(key);
+            return next;
+          });
+        },
+      }),
+    [tree, changeExpanded],
   );
 
   const anchorOn = useCallback((key) => {

@@ -32,6 +32,16 @@ function buildTurnOptions({
 }
 
 describe('article chat tool loop', () => {
+  it('exposes point_tree only for the current opted-in turn', async () => {
+    const send = vi.fn().mockResolvedValue({ ok: true, content: 'Answer.' });
+    for (const question of ['@point locate it', 'Explain it']) {
+      await runArticleChatTurn(buildTurnOptions({ question, sentences: ['Source.'], send }));
+    }
+    const names = send.mock.calls.map(([request]) => request.tools.map((tool) => tool.name));
+    expect(names[0]).toContain('point_tree');
+    expect(names[1]).not.toContain('point_tree');
+  });
+
   it('chunks at sentence boundaries while preserving global line numbers', () => {
     expect(chunkNumberedArticle(['First.', '', 'Second.', 'A very long sentence.'], 19)).toEqual([
       { startLine: 1, endLine: 1, lineNumbers: [1], text: '1: First.' },
