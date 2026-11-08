@@ -4,6 +4,8 @@ The topics tree lays out a completed record's topics as a progressive-disclosure
 
 Like the [hierarchy](09-hierarchy.md), the topics tree is **aggregated**: it is built on [`buildTopicTree`](../src/domain/topicTree.js), so each unique topic path is one node, unlike the chronological [canvas](08-canvas.md) cards. Branch title sizes grow with the share of the article's sentences the topic covers.
 
+In both the primary topics and the summary tree, when a parent has only one child and both share the same summary, the child shows **Same summary as parent · Show summary** in place of that prose. Readers can reveal and hide the copy locally without changing the branch's expansion. The first copy and distinct summaries stay visible; primary topics with additional source text or sibling topics are not treated as single-child branches.
+
 Node sizes are measured from the DOM and placed by a contour-based tidy layout in [`treeLayout.js`](../src/topics-tree/treeLayout.js), so the layout follows the rendered text. The display tree and its expand/collapse rules are pure functions in [`topicsTreeModel.js`](../src/topics-tree/topicsTreeModel.js).
 
 The **Topics** switcher in the header chooses which topics and summaries are shown: the pipeline's, or the [summary tree](15-summary-tree.md) built beside them. The summary tree is laid out from its saved structure rather than from topic paths: passage summaries lead to source sentence leaf cards, and the root carries the article overview. Its status bar starts, stops, resumes and rebuilds the build; the canvas is hidden while a build is running.

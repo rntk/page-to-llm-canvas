@@ -110,6 +110,36 @@ describe('TopicsTreeApp', () => {
     unmount();
   });
 
+  it('folds a reused summary in the primary Business > Risk branch', () => {
+    const summary = 'OpenAI and Anthropic plan gigawatt-scale chip data centers.';
+    useRecord.mockReturnValue({
+      record: {
+        ...doneRecord,
+        topics: [{ name: 'Business>Risk>Balance Sheet Business', sentences: [1] }],
+        topic_summary_index: {
+          Business: { runs: [{ text: 'Business overview.' }] },
+          'Business>Risk': { runs: [{ text: summary }] },
+          'Business>Risk>Balance Sheet Business': { runs: [{ text: summary }] },
+        },
+      },
+      error: null,
+    });
+    const { container, unmount } = render();
+    const topic = (title) =>
+      [...container.querySelectorAll('.tt-node')].find(
+        (el) => el.querySelector('.tt-node__title').textContent === title,
+      );
+    act(() => topic('Business').click());
+    act(() => topic('Risk').click());
+    const duplicate = topic('Balance Sheet Business');
+    expect(topic('Risk').querySelector('.tt-node__prose').hidden).toBe(false);
+    expect(duplicate.querySelector('.tt-node__prose').hidden).toBe(true);
+    act(() => duplicate.querySelector('.tt-node__summary-toggle button').click());
+    expect(duplicate.querySelector('.tt-node__prose').hidden).toBe(false);
+    expect(duplicate.getAttribute('aria-expanded')).toBe('false');
+    unmount();
+  });
+
   it('keeps folded nodes as inert ghosts until the fold animation is over', () => {
     vi.useFakeTimers();
     vi.stubGlobal('matchMedia', () => ({ matches: false }));

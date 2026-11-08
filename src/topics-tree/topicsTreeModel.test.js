@@ -5,6 +5,7 @@ import {
   ROOT_KIND,
   TOPIC_KIND,
   buildTopicsDisplayTree,
+  buildSummaryTreeDisplayTree,
   currentLevel,
   expandAll,
   expandBranch,
@@ -76,6 +77,68 @@ const summaries = {
 };
 
 const key = (path) => `topic:${path}`;
+
+describe('reused summary disclosure', () => {
+  it('folds the primary-topic duplicate in Business > Risk > Balance Sheet Business', () => {
+    const summary =
+      'OpenAI and Anthropic plan gigawatt‑scale chip data centers, debt‑free now but may take debt, targeting five gigawatts by year end.';
+    const tree = buildTopicsDisplayTree(
+      [{ name: 'Business>Risk>Balance Sheet Business', sentences: [1686, 1687] }],
+      {
+        Business: { runs: [{ text: 'A distinct business overview.' }] },
+        'Business>Risk': { runs: [{ text: summary }] },
+        'Business>Risk>Balance Sheet Business': { runs: [{ text: summary }] },
+      },
+    );
+    const [business, risk, balanceSheet, source] = flattenTree(tree).slice(1);
+    expect(business.summarySameAsParent).toBe(false);
+    expect(risk.summarySameAsParent).toBe(false);
+    expect(balanceSheet.summarySameAsParent).toBe(true);
+    expect(balanceSheet.summary).toBe(summary);
+    expect(source.kind).toBe(LEAF_KIND);
+  });
+
+  it('keeps primary summaries visible when there are siblings or additional parent source text', () => {
+    const paths = ['Business>Risk', 'Business>Risk>Balance Sheet Business', 'Business>Other'];
+    const tree = buildTopicsDisplayTree(
+      paths.map((name, i) => ({ name, sentences: [i + 1] })),
+      Object.fromEntries(
+        ['Business', ...paths].map((path) => [path, { runs: [{ text: 'Same prose.' }] }]),
+      ),
+    );
+    expect(flattenTree(tree).filter((n) => n.summarySameAsParent)).toEqual([]);
+  });
+
+  it('marks only matching prose across single-child edges, including chains in saved trees', () => {
+    const node = (id, children, text) => ({
+      id,
+      title: id,
+      kind: 'topic',
+      children,
+      sentences: [1],
+      segments: [{ text }],
+    });
+    const tree = buildSummaryTreeDisplayTree({
+      rootId: 'r',
+      nodes: {
+        r: node('r', ['a'], 'Shared summary.'),
+        a: node('a', ['b'], 'Shared  summary.'),
+        b: node('b', ['c', 'd'], 'Shared summary.'),
+        c: node('c', ['e'], 'Shared summary.'),
+        d: node('d', [], ''),
+        e: node('e', [], 'A distinct summary.'),
+      },
+    });
+    expect(flattenTree(tree).map((n) => n.summarySameAsParent)).toEqual([
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+    ]);
+  });
+});
 
 function build() {
   return buildTopicsDisplayTree(topics, summaries, { title: 'example.com' });

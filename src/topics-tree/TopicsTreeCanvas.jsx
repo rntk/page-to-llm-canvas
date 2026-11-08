@@ -1,4 +1,12 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
 import SourceArticle from './SourceArticle.jsx';
@@ -73,7 +81,10 @@ const TopicNode = React.memo(function TopicNode({
   registerElement,
   onToggle,
   onExpandBranch,
+  summaryShown,
+  onToggleSummary,
 }) {
+  const summaryId = useId();
   const className = [
     'tt-node',
     `tt-node--${node.kind}`,
@@ -113,7 +124,32 @@ const TopicNode = React.memo(function TopicNode({
       }}
     >
       <div className="tt-node__title">{node.title}</div>
-      {node.summary && <p className="tt-node__prose">{node.summary}</p>}
+      {node.summarySameAsParent && (
+        <div className="tt-node__summary-toggle">
+          <span>Same summary as parent · </span>
+          <button
+            type="button"
+            className="tt-link-button"
+            aria-expanded={summaryShown}
+            aria-controls={summaryId}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleSummary(node.key);
+            }}
+          >
+            {summaryShown ? 'Hide summary' : 'Show summary'}
+          </button>
+        </div>
+      )}
+      {node.summary && (
+        <p
+          id={summaryId}
+          className="tt-node__prose"
+          hidden={node.summarySameAsParent && !summaryShown}
+        >
+          {node.summary}
+        </p>
+      )}
       <div className="tt-node__meta">
         <button
           type="button"
@@ -253,6 +289,7 @@ export default function TopicsTreeCanvas({
 }) {
   const { canvasRef, stageRef, transformRef, boundsRef, translateBy, fit } = useTreeViewport();
   const [expanded, setExpanded] = useState(() => initialExpanded(tree));
+  const [shownSummaries, setShownSummaries] = useState(() => new Set());
   const [selectedKey, setSelectedKey] = useState(tree.key);
   const [frontKey, setFrontKey] = useState(null);
   const [exclusive, setExclusive] = useState(false);
@@ -346,7 +383,18 @@ export default function TopicsTreeCanvas({
     if (!after) return;
     const { k } = transformRef.current;
     translateBy((anchor.before.left - after.left) * k, (anchor.before.top - after.top) * k);
-  }, [drag, sizes, positions, visible, cardSizes, measureTick, fit, translateBy, transformRef]);
+  }, [
+    drag,
+    sizes,
+    positions,
+    visible,
+    cardSizes,
+    shownSummaries,
+    measureTick,
+    fit,
+    translateBy,
+    transformRef,
+  ]);
 
   useEffect(
     () => () => {
@@ -415,6 +463,19 @@ export default function TopicsTreeCanvas({
       changeExpanded((prev) => expandBranch(tree, prev, key));
     },
     [anchorOn, changeExpanded, tree],
+  );
+
+  const handleToggleSummary = useCallback(
+    (key) => {
+      anchorOn(key);
+      setShownSummaries((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+    },
+    [anchorOn],
   );
 
   const handleSelectCard = useCallback((key) => {
@@ -571,6 +632,8 @@ export default function TopicsTreeCanvas({
                   registerElement={registerElement}
                   onToggle={handleToggle}
                   onExpandBranch={handleExpandBranch}
+                  summaryShown={shownSummaries.has(node.key)}
+                  onToggleSummary={handleToggleSummary}
                 />
               ),
             )}
@@ -612,6 +675,8 @@ export default function TopicsTreeCanvas({
                     registerElement={NOOP}
                     onToggle={NOOP}
                     onExpandBranch={NOOP}
+                    summaryShown={shownSummaries.has(node.key)}
+                    onToggleSummary={NOOP}
                   />
                 )}
               </div>

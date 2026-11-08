@@ -14,6 +14,14 @@ export const ROOT_KEY = 'root';
 
 const topicKey = (fullPath) => `topic:${fullPath}`;
 
+function sameParentSummary(summary, parentSummary, onlyChild) {
+  return Boolean(
+    onlyChild &&
+    summary.trim() &&
+    summary.trim().replace(/\s+/g, ' ') === parentSummary.trim().replace(/\s+/g, ' '),
+  );
+}
+
 /**
  * Build the display tree: a virtual article root, branch topics as children,
  * and the deepest topics as leaf cards. It is built on the aggregated
@@ -33,9 +41,9 @@ export function buildTopicsDisplayTree(topics, topicSummaryIndex, { title = '' }
   if (!roots.length) return null;
   const summaries = buildSummaryLookup(topicSummaryIndex);
 
-  const visit = (entry) => {
+  const visit = (entry, parent = null) => {
     const { node } = entry;
-    const children = Array.from(entry.children.values(), visit);
+    const children = Array.from(entry.children.values(), (child) => visit(child, entry));
     const sentences = new Set(node.topic ? getTopicSentenceNumbers(node.topic) : []);
     children.forEach((child) => child.sentences.forEach((n) => sentences.add(n)));
     const ownSentences = node.topic ? getTopicSentenceNumbers(node.topic) : [];
@@ -57,12 +65,17 @@ export function buildTopicsDisplayTree(topics, topicSummaryIndex, { title = '' }
       path: node.fullPath,
       depth: node.depth + 1,
       summary: summaries.get(node.fullPath) || '',
+      summarySameAsParent: sameParentSummary(
+        summaries.get(node.fullPath) || '',
+        summaries.get(parent?.node.fullPath) || '',
+        parent?.children.size === 1 && !getTopicSentenceNumbers(parent.node.topic).length,
+      ),
       sentences: Array.from(sentences).sort((a, b) => a - b),
       children,
     };
   };
 
-  const children = roots.map(visit);
+  const children = roots.map((entry) => visit(entry));
   const sentences = new Set(children.flatMap((child) => child.sentences));
   return {
     key: ROOT_KEY,
@@ -98,11 +111,11 @@ export function buildSummaryTreeDisplayTree(summaryTree, { title = '' } = {}) {
   const sorted = (sentences) =>
     [...new Set(Array.isArray(sentences) ? sentences : [])].sort((a, b) => a - b);
 
-  const visit = (node, titles) => {
+  const visit = (node, titles, parent = null) => {
     const children = (node.kind === 'passage' ? [] : node.children)
       .map((id) => nodes[id])
       .filter(Boolean)
-      .map((child) => visit(child, [...titles, child.title]));
+      .map((child) => visit(child, [...titles, child.title], node));
     if (node.kind === 'passage' && sorted(node.sentences).length)
       children.push({
         key: `source:${node.id}`,
@@ -121,6 +134,12 @@ export function buildSummaryTreeDisplayTree(summaryTree, { title = '' } = {}) {
       path: joinTopicPath(titles),
       depth: titles.length,
       summary: text(node),
+      // Only suppress a copy along a single-child edge, never a distinct summary.
+      summarySameAsParent: sameParentSummary(
+        text(node),
+        parent ? text(parent) : '',
+        parent?.children?.length === 1,
+      ),
       sentences: sorted(node.sentences),
       ...(summaryTree.sources
         ? {

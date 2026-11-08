@@ -247,6 +247,13 @@
   font-size: 11px;
 }
 
+.tt-node__summary-toggle {
+  margin-top: 4px;
+  color: var(--th-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .tt-node__count {
   padding: 0 4px;
   border: 1px solid var(--th-border);
