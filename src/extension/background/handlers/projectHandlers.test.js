@@ -43,59 +43,6 @@ describe('project handlers', () => {
     });
   });
 
-  it('returns the chat tree only for a completed merge', async () => {
-    const tree = { status: 'done', contentRevision: 'r' };
-    const eligiblePages = [{ key: 'p1' }];
-    const skippedPages = [{ key: 'p2' }];
-    const getView = vi.fn();
-    const handlers = createProjectHandlers({
-      projectService: makeService(),
-      pageChatService: {},
-      topicTreeService: { getView },
-    });
-    const entry = handlers[MSG.getProjectChatTree];
-    expect(entry.requiresExtensionPage).toBe(true);
-    expect(entry.validate({})).toBe('invalid projectId');
-    expect(entry.validate({ projectId: 'a' })).toBeNull();
-
-    getView.mockResolvedValueOnce({
-      status: 'done',
-      tree,
-      stale: true,
-      eligiblePages,
-      skippedPages,
-      topicCount: 3,
-    });
-    expect(await entry.handle({ projectId: 'a' })).toEqual({
-      ok: true,
-      status: 'done',
-      tree,
-      stale: true,
-      eligiblePages,
-      skippedPages,
-    });
-    expect(getView).toHaveBeenCalledWith('a');
-
-    getView.mockResolvedValueOnce({ status: 'running', tree, stale: true, eligiblePages });
-    expect(await entry.handle({ projectId: 'a' })).toEqual({
-      ok: true,
-      status: 'running',
-      tree: null,
-      stale: false,
-      eligiblePages,
-      skippedPages: [],
-    });
-    getView.mockResolvedValueOnce({ status: 'missing', tree: null });
-    expect(await entry.handle({ projectId: 'a' })).toMatchObject({ status: 'missing', tree: null });
-  });
-
-  it('rejects chat tree requests when topic merging is unavailable', async () => {
-    const handlers = createProjectHandlers({ projectService: makeService(), pageChatService: {} });
-    await expect(handlers[MSG.getProjectChatTree].handle({ projectId: 'a' })).rejects.toThrow(
-      'project topic merging is not available',
-    );
-  });
-
   it('keeps every project action extension-page only', () => {
     for (const [type, entry] of Object.entries(
       createProjectHandlers({ projectService: makeService(), pageChatService: {} }),

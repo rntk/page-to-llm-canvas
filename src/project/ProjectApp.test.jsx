@@ -5,7 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectApp } from './ProjectApp.jsx';
 
 vi.mock('./ProjectChat.jsx', () => ({
-  ProjectChat: ({ tree }) => <div data-testid="project-chat">chat {tree.rootId}</div>,
+  ProjectChat: ({ tree, stale, eligiblePages, skippedPages }) => (
+    <div data-testid="project-chat" data-stale={String(stale)}>
+      chat {tree.rootId} | {(eligiblePages || []).map((page) => page.title).join(',')} |{' '}
+      {(skippedPages || []).map((page) => page.title).join(',')}
+    </div>
+  ),
 }));
 
 let container;
@@ -115,20 +120,20 @@ describe('ProjectApp', () => {
   });
 
   it('toggles the project chat panel', async () => {
-    const api = {
-      getProjectView: vi.fn(async () => viewOf()),
-      getProjectChatTree: vi.fn(async () => ({
+    const view = viewOf({
+      topicMerge: {
         status: 'done',
         tree: { rootId: 'root' },
         stale: false,
         eligiblePages: [],
         skippedPages: [],
-      })),
-    };
-    await renderApp({ api });
+      },
+    });
+    await renderApp({ view });
     const panel = () => container.querySelector('aside[aria-label="Project chat"]');
-    expect(api.getProjectChatTree).toHaveBeenCalledWith('a');
-    expect(panel().querySelector('[data-testid="project-chat"]').textContent).toBe('chat root');
+    expect(panel().querySelector('[data-testid="project-chat"]').textContent).toBe(
+      'chat root |  | ',
+    );
     await act(async () => panel().querySelector('button').click());
     expect(panel()).toBeNull();
     await act(async () => container.querySelector('.project-header button').click());
@@ -145,7 +150,6 @@ describe('ProjectApp', () => {
     });
     const api = {
       getProjectView: vi.fn(async () => view),
-      getProjectChatTree: vi.fn(async () => ({ status: view.topicMerge.status, tree: null })),
       buildProjectTopicTree: vi.fn(async () => {
         view = { ...view, topicMerge: { ...view.topicMerge, status: 'running' } };
         return {};
@@ -161,8 +165,49 @@ describe('ProjectApp', () => {
     );
     expect(api.buildProjectTopicTree).toHaveBeenCalledWith('a', { fresh: false });
     expect(container.querySelector('[aria-label="Merged project topics"]')).not.toBeNull();
-    // The merge status change refreshes the chat tree.
-    expect(api.getProjectChatTree.mock.calls.length).toBeGreaterThan(1);
+    // The chat follows the refreshed merge status.
+    expect(panel.textContent).toContain('still being merged');
+  });
+
+  it('keeps the chat in sync with view.topicMerge, even when only the skipped pages differ', async () => {
+    vi.useFakeTimers();
+    try {
+      let notify;
+      const subscribe = vi.fn((cb) => {
+        notify = cb;
+        return () => {};
+      });
+      const merge = (overrides) => ({
+        status: 'done',
+        tree: { rootId: 'root', contentRevision: 'c1' },
+        stale: false,
+        eligiblePages: [{ title: 'Kept' }],
+        skippedPages: [{ title: 'Draft one' }],
+        ...overrides,
+      });
+      let view = viewOf({ topicMerge: merge() });
+      const api = { getProjectView: vi.fn(async () => view) };
+      await renderApp({ api, subscribe });
+      const chat = () => container.querySelector('[data-testid="project-chat"]');
+      expect(chat().textContent).toBe('chat root | Kept | Draft one');
+      expect(chat().dataset.stale).toBe('false');
+      const refresh = async () =>
+        act(async () => {
+          notify();
+          vi.advanceTimersByTime(150);
+        });
+
+      view = viewOf({ topicMerge: merge({ skippedPages: [{ title: 'Draft two' }] }) });
+      await refresh();
+      expect(chat().textContent).toBe('chat root | Kept | Draft two');
+
+      view = viewOf({ topicMerge: merge({ stale: true, skippedPages: [{ title: 'Draft two' }] }) });
+      await refresh();
+      expect(chat().dataset.stale).toBe('true');
+      expect(api.getProjectView.mock.calls.length).toBeGreaterThan(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('refetches on change notifications and unsubscribes on unmount', async () => {

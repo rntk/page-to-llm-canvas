@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildProjectTopicSeed, prepareIncrementalProjectTree } from './projectTopicTree.js';
 import { addNode, TOPIC, ROOT } from '../pipeline/summaryTreeModel.js';
-import { createProjectChatTools, tokenize } from './projectChatTools.js';
+import { createProjectChatContext, createProjectChatTools, tokenize } from './projectChatTools.js';
 
 const record = (key, title, overrides = {}) => ({
   key,
@@ -127,6 +127,30 @@ describe('createProjectChatTools', () => {
     expect(chat.tools).toEqual([]);
     expect(chat.preamble).toMatch(/No merged topic tree/);
     expect(chat.preamble).toContain('Page <https://p.test/>');
+  });
+});
+
+describe('createProjectChatContext', () => {
+  it('shares one tool set across preambles and matches createProjectChatTools', () => {
+    const tree = makeTree();
+    const context = createProjectChatContext(tree);
+    expect(context.tools.map((tool) => tool.definition.name)).toEqual([
+      'get_topic',
+      'read_topic_content',
+      'search_topics',
+      'get_claim_sources',
+    ]);
+    const first = context.buildPreamble({
+      skippedPages: [{ title: 'Draft one', url: 'https://d1.test/' }],
+    });
+    const second = context.buildPreamble({
+      skippedPages: [{ title: 'Draft two', url: 'https://d2.test/' }],
+    });
+    expect(first).toContain('Draft one');
+    expect(first).not.toContain('Draft two');
+    expect(second).toContain('Draft two');
+    expect(context.buildPreamble()).toBe(createProjectChatTools({ tree }).preamble);
+    expect(createProjectChatContext(null).tools).toEqual([]);
   });
 });
 

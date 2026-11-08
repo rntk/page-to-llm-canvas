@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { ProjectChat } from './ProjectChat.jsx';
 
 const STALE_NOTICE =
@@ -17,48 +17,18 @@ const MISSING_TEXT =
 /**
  * Collapsible project chat over the project's merged topic tree.
  *
- * Loads the chat tree when it mounts and again whenever `mergeKey` changes (the
- * project view's merge status/revision). A refresh keeps the current content on
- * screen, so an open conversation is not torn down while the tree reloads.
+ * Renders straight from the project view's `topicMerge` (the single owner of
+ * the merge snapshot), so the chat can never lag behind what the merge view shows.
  *
  * @param {object} props
  * @param {string} props.projectId
- * @param {{getProjectChatTree?: function(string): Promise<{status: string, tree: object|null, stale: boolean, eligiblePages: object[], skippedPages: object[]}>}} props.api
- * @param {string} [props.mergeKey] Changes whenever the project's topic merge changes.
+ * @param {{status?: string, tree?: object|null, stale?: boolean, eligiblePages?: object[], skippedPages?: object[]}|null} [props.merge]
+ *   The project view's topic merge.
  * @param {function(): void} [props.onOpenMerge] Opens the merge view (hidden when absent).
  * @param {function(): void} props.onCollapse
  */
-export function ProjectChatPanel({ projectId, api, mergeKey = '', onOpenMerge, onCollapse }) {
-  const [state, setState] = useState({ projectId: null, loading: true, data: null, error: null });
-
-  useEffect(() => {
-    let active = true;
-    Promise.resolve()
-      .then(() => {
-        if (typeof api?.getProjectChatTree !== 'function') {
-          throw new Error('Project chat is not available');
-        }
-        return api.getProjectChatTree(projectId);
-      })
-      .then(
-        (data) => active && setState({ projectId, loading: false, data, error: null }),
-        (err) =>
-          active &&
-          setState((prev) => ({
-            projectId,
-            loading: false,
-            // A failed refresh keeps the last good tree for the same project.
-            data: prev.projectId === projectId ? prev.data : null,
-            error: (err && err.message) || String(err),
-          })),
-      );
-    return () => {
-      active = false;
-    };
-  }, [api, projectId, mergeKey]);
-
-  const current = state.projectId === projectId ? state : null;
-  const data = current?.data || null;
+export function ProjectChatPanel({ projectId, merge, onOpenMerge, onCollapse }) {
+  const data = merge || { status: undefined, tree: null };
   const mergeButton = (label) =>
     onOpenMerge ? (
       <button type="button" onClick={onOpenMerge}>
@@ -67,15 +37,7 @@ export function ProjectChatPanel({ projectId, api, mergeKey = '', onOpenMerge, o
     ) : null;
 
   let body;
-  if (!current) {
-    body = <p className="note">Loading project chat…</p>;
-  } else if (!data) {
-    body = (
-      <p className="note" role="alert">
-        {current.error}
-      </p>
-    );
-  } else if (data.status === 'done' && data.tree) {
+  if (data.status === 'done' && data.tree) {
     const skipped = data.skippedPages?.length || 0;
     body = (
       <>
@@ -97,7 +59,7 @@ export function ProjectChatPanel({ projectId, api, mergeKey = '', onOpenMerge, o
           tree={data.tree}
           eligiblePages={data.eligiblePages}
           skippedPages={data.skippedPages}
-          stale={data.stale}
+          stale={data.stale === true}
         />
       </>
     );

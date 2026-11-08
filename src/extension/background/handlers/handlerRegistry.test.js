@@ -123,7 +123,7 @@ describe('message handler registry (no chrome global)', () => {
         MSG.stopSummaryTree,
         MSG.buildProjectTopicTree,
         MSG.stopProjectTopicTree,
-        MSG.getProjectChatTree,
+        MSG.acknowledgeProjectExcerptFocus,
         MSG.cancelRecordProcessing,
         MSG.resolveSummaryErrors,
         MSG.getRecord,

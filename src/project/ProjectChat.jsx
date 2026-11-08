@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react';
 import ArticleChat from '../chat/ArticleChat.jsx';
-import { createProjectChatTools } from '../core/projects/projectChatTools.js';
+import { createProjectChatContext } from '../core/projects/projectChatTools.js';
 import { projectChatKey } from '../core/storage/keys.js';
 
+const pageKey = (page) => [page?.title, page?.url, page?.reason];
 const NO_SENTENCES = [];
 const NO_TOPICS = [];
 const PROJECT_PROMPT =
@@ -23,14 +24,26 @@ const PROJECT_PROMPT =
  *   ArticleChat port overrides (tests); the browser defaults apply otherwise.
  */
 export function ProjectChat({ projectId, tree, eligiblePages, skippedPages, stale, chatPorts }) {
-  // A reload of the same merge hands over fresh objects; rebuilding the tools
-  // only when the merge itself changes keeps ArticleChat's props stable.
-  const treeKey = `${tree?.sourceRevision ?? ''}\u0000${tree?.runId ?? ''}\u0000${!!stale}`;
-  const { preamble, tools } = useMemo(
-    () => createProjectChatTools({ tree, eligiblePages, skippedPages, stale }),
+  // A reload of the same merge hands over fresh objects; rebuilding the (costly)
+  // tree tools only when the tree itself changes keeps ArticleChat's props stable.
+  const treeKey = [tree?.sourceRevision, tree?.runId, tree?.contentRevision].join('\u0000');
+  const context = useMemo(
+    () => createProjectChatContext(tree),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [treeKey],
   );
+  // The preamble also lists pages and staleness, so it follows their content.
+  const pagesKey = JSON.stringify([
+    !!stale,
+    (eligiblePages || []).map(pageKey),
+    (skippedPages || []).map(pageKey),
+  ]);
+  const preamble = useMemo(
+    () => context.buildPreamble({ eligiblePages, skippedPages, stale }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [context, pagesKey],
+  );
+  const { tools } = context;
   const source = useMemo(() => ({ kind: 'project', preamble }), [preamble]);
 
   return (

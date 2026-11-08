@@ -157,14 +157,6 @@ export function ProjectApp({
       ]
     : [];
   const topicTreeOpen = canMerge && activeView === 'topics';
-  const { topicMerge } = view;
-  const mergeKey = [
-    topicMerge?.status,
-    topicMerge?.tree?.contentRevision,
-    topicMerge?.stale,
-    topicMerge?.eligiblePages?.length,
-    topicMerge?.skippedPages?.length,
-  ].join('|');
   return (
     <div className="project-shell">
       <ProjectHeader
@@ -252,8 +244,7 @@ export function ProjectApp({
         {chatOpen && (
           <ProjectChatPanel
             projectId={projectId}
-            api={api}
-            mergeKey={mergeKey}
+            merge={view.topicMerge}
             onOpenMerge={canMerge ? openMerge : undefined}
             onCollapse={() => setChatOpen(false)}
           />

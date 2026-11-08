@@ -4,15 +4,23 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const toolsMock = vi.hoisted(() => ({
-  createProjectChatTools: vi.fn(({ tree }) => ({
-    preamble: `Overview of ${tree.runId}`,
-    tools: [
+  createProjectChatContext: vi.fn((tree) => {
+    const tools = [
       {
         definition: { name: 'search_topics', description: 'Search.', parameters: {} },
         run: async () => '',
       },
-    ],
-  })),
+    ];
+    return {
+      tools,
+      buildPreamble: vi.fn(
+        ({ skippedPages = [], stale = false } = {}) =>
+          `Overview of ${tree.runId}${stale ? ' (stale)' : ''} skipped: ${skippedPages
+            .map((page) => page.title)
+            .join(',')}`,
+      ),
+    };
+  }),
 }));
 vi.mock('../core/projects/projectChatTools.js', () => toolsMock);
 
@@ -26,7 +34,7 @@ beforeEach(() => {
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
-  toolsMock.createProjectChatTools.mockClear();
+  toolsMock.createProjectChatContext.mockClear();
 });
 
 afterEach(() => {
@@ -83,12 +91,7 @@ describe('ProjectChat', () => {
     const tree = { sourceRevision: 'r1', runId: 'run-1' };
     await render({ tree, eligiblePages: pages, skippedPages: skipped, stale: false, chatPorts });
 
-    expect(toolsMock.createProjectChatTools).toHaveBeenCalledWith({
-      tree,
-      eligiblePages: pages,
-      skippedPages: skipped,
-      stale: false,
-    });
+    expect(toolsMock.createProjectChatContext).toHaveBeenCalledWith(tree);
     expect(chatPorts.chatRepository.list).toHaveBeenCalledWith('project:p1');
     expect(container.textContent).toContain('Ask about this project.');
     expect(container.textContent).not.toContain('Choose topics');
@@ -98,7 +101,10 @@ describe('ProjectChat', () => {
 
     const options = chatPorts.runTurn.mock.calls[0][0];
     expect(options.article.sentences).toEqual([]);
-    expect(options.article.source).toEqual({ kind: 'project', preamble: 'Overview of run-1' });
+    expect(options.article.source).toEqual({
+      kind: 'project',
+      preamble: 'Overview of run-1 skipped: Draft',
+    });
     expect(options.tools.map((tool) => tool.definition.name)).toEqual(['search_topics']);
     expect(chatPorts.chatRepository.append).toHaveBeenCalledWith(
       'project:p1',
@@ -125,9 +131,43 @@ describe('ProjectChat', () => {
       tree: { sourceRevision: 'r1', runId: 'run-1' },
       eligiblePages: [...pages],
     });
-    expect(toolsMock.createProjectChatTools).toHaveBeenCalledTimes(1);
+    expect(toolsMock.createProjectChatContext).toHaveBeenCalledTimes(1);
 
     await render({ ...props, tree: { sourceRevision: 'r2', runId: 'run-2' } });
-    expect(toolsMock.createProjectChatTools).toHaveBeenCalledTimes(2);
+    expect(toolsMock.createProjectChatContext).toHaveBeenCalledTimes(2);
+  });
+
+  it('updates the preamble when a skipped page is swapped for another, keeping the tools', async () => {
+    const chatPorts = makePorts();
+    const tree = { sourceRevision: 'r1', runId: 'run-1' };
+    const props = { tree, eligiblePages: pages, stale: false, chatPorts };
+    await render({ ...props, skippedPages: [{ title: 'Draft', url: 'https://d.test/' }] });
+    await ask('First?');
+    await render({
+      ...props,
+      skippedPages: [{ title: 'Other draft', url: 'https://o.test/' }],
+    });
+    await ask('Second?');
+
+    const [first, second] = chatPorts.runTurn.mock.calls.map(([options]) => options);
+    expect(first.article.source.preamble).toBe('Overview of run-1 skipped: Draft');
+    expect(second.article.source.preamble).toBe('Overview of run-1 skipped: Other draft');
+    expect(second.tools).toBe(first.tools);
+    expect(toolsMock.createProjectChatContext).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the preamble for equal page content and refreshes it when staleness flips', async () => {
+    const chatPorts = makePorts();
+    const tree = { sourceRevision: 'r1', runId: 'run-1' };
+    const props = { tree, eligiblePages: pages, chatPorts, stale: false };
+    await render({ ...props, skippedPages: skipped });
+    await render({ ...props, skippedPages: skipped.map((page) => ({ ...page })) });
+    await ask('One?');
+    await render({ ...props, skippedPages: skipped, stale: true });
+    await ask('Two?');
+    const [first, second] = chatPorts.runTurn.mock.calls.map(([options]) => options);
+    expect(first.article.source.preamble).toBe('Overview of run-1 skipped: Draft');
+    expect(second.article.source.preamble).toBe('Overview of run-1 (stale) skipped: Draft');
+    expect(second.tools).toBe(first.tools);
   });
 });

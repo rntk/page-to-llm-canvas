@@ -955,20 +955,22 @@ function buildPreamble(model, { tree, eligiblePages, skippedPages, stale, maxCha
  * @returns {{preamble: string, tools: Array<{definition: object,
  *   run: function(object, {maxChars: number}): Promise<string>}>}}
  */
-export function createProjectChatTools({
-  tree,
-  eligiblePages = [],
-  skippedPages = [],
-  stale = false,
-  preambleMaxChars = PREAMBLE_MAX_CHARS,
-} = {}) {
+export function createProjectChatTools({ tree, ...preambleInput } = {}) {
+  const { tools, buildPreamble: preamble } = createProjectChatContext(tree);
+  return { preamble: preamble(preambleInput), tools };
+}
+
+/**
+ * Tools over a project's merged topic tree plus a cheap preamble builder that
+ * reuses the same parsed tree. Build this once per tree; call `buildPreamble`
+ * whenever the page lists or staleness change.
+ * @param {object|null} tree Saved project snapshot (`project.topic_tree`).
+ * @returns {{tools: Array<{definition: object, run: function(object, {maxChars: number}): Promise<string>}>,
+ *   buildPreamble: function({eligiblePages?: object[], skippedPages?: object[], stale?: boolean, preambleMaxChars?: number}=): string}}
+ */
+export function createProjectChatContext(tree) {
   const model = createTreeModel(tree);
-  const maxChars = Number.isFinite(preambleMaxChars)
-    ? Math.max(1500, preambleMaxChars)
-    : PREAMBLE_MAX_CHARS;
-  const preamble = buildPreamble(model, { tree, eligiblePages, skippedPages, stale, maxChars });
   return {
-    preamble,
     tools: model
       ? [
           createGetTopic(model),
@@ -977,5 +979,16 @@ export function createProjectChatTools({
           createGetClaimSources(model),
         ]
       : [],
+    buildPreamble({
+      eligiblePages = [],
+      skippedPages = [],
+      stale = false,
+      preambleMaxChars = PREAMBLE_MAX_CHARS,
+    } = {}) {
+      const maxChars = Number.isFinite(preambleMaxChars)
+        ? Math.max(1500, preambleMaxChars)
+        : PREAMBLE_MAX_CHARS;
+      return buildPreamble(model, { tree, eligiblePages, skippedPages, stale, maxChars });
+    },
   };
 }
