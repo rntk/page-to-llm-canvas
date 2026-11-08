@@ -19,7 +19,7 @@ import { mergeAbortSignals } from '../llm/abortSignals.js';
 import { isCancellationError } from './cancellation.js';
 import { SUMMARY_CONCURRENCY } from './pipelineConfig.js';
 import { createCheckpointer } from './summaryTreeCheckpoint.js';
-import { createClaimVerifier, generateSummaries } from './summaryTreeGeneration.js';
+import { createClaimVerifier, generateSummaries, markFailed } from './summaryTreeGeneration.js';
 import { PASSAGE, ROOT, topicIds } from './summaryTreeModel.js';
 import { createSummaryTreeJudge, createSummaryTreeLlm } from './summaryTreeRequests.js';
 import { TOPIC_BATCH_CHARS, buildTopics, placeTopics } from './summaryTreeTopics.js';
@@ -198,9 +198,9 @@ export async function runSummaryTree({
       llm,
       verifier,
       workers,
-      tolerateFailures: true,
+      onFailure: markFailed,
       onNodeDone: save,
-      controller,
+      onAbort: () => controller.abort(),
       sourceOf: strategy.sourceOf,
     });
     const groupIds = strategy.groupIds(nodes);
@@ -252,7 +252,7 @@ export async function runSummaryTree({
       verifier,
       workers,
       onNodeDone: save,
-      controller,
+      onAbort: () => controller.abort(),
       sourceOf: strategy.sourceOf,
     });
     if (!nodes[rootId].segments?.length) {

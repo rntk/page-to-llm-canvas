@@ -186,9 +186,27 @@ export function createClaimVerifier({ judge, nodes, sentenceTexts }) {
 }
 
 /**
+ * Failure policy: a node that never gets a valid answer fails the stage.
+ * @param {SummaryTreeNode} node
+ */
+export function failStage(node) {
+  throw new SummaryTreeGenerationError(
+    `Could not generate a valid cited summary for “${node.title}”. Retry to resume; completed summaries are kept.`,
+  );
+}
+
+/**
+ * Failure policy: a node that never gets a valid answer is marked `failed`
+ * with no segments and the stage carries on.
+ * @param {SummaryTreeNode} node
+ */
+export function markFailed(node) {
+  node.failed = true;
+  node.segments = [];
+}
+
+/**
  * Summarize `targets` bottom-up; their descendants must be done or among them.
- * With `tolerateFailures` a node that never gets a valid answer is marked
- * `failed` with no segments instead of failing the stage.
  * @param {object} input
  * @param {Record<string, SummaryTreeNode>} input.nodes
  * @param {string[]} input.targets
@@ -196,9 +214,10 @@ export function createClaimVerifier({ judge, nodes, sentenceTexts }) {
  * @param {{ask: Function}} input.llm
  * @param {{filter: Function}} [input.verifier]
  * @param {number} [input.workers]
- * @param {boolean} [input.tolerateFailures]
+ * @param {function(SummaryTreeNode): void} [input.onFailure] Called for a node without a valid
+ *   answer; must mark the node done or throw (default {@link failStage}).
  * @param {function(object): Promise<void>} [input.onNodeDone] Persists progress.
- * @param {AbortController} [input.controller] Aborted to stop siblings after a failure.
+ * @param {function(): void} [input.onAbort] Stops siblings after a fatal error.
  * @param {function(object): object|null} [input.sourceOf] Origin shown to the model for a child node.
  */
 export async function generateSummaries({
@@ -208,9 +227,9 @@ export async function generateSummaries({
   llm,
   verifier,
   workers = 4,
-  tolerateFailures = false,
+  onFailure = failStage,
   onNodeDone = async () => {},
-  controller,
+  onAbort = () => {},
   sourceOf,
 }) {
   const generateOne = async (node) => {
@@ -248,7 +267,7 @@ export async function generateSummaries({
       const ready = todo.filter((id) =>
         nodes[id].children.every((child) => nodes[child].segments !== null),
       );
-      let relayed = false;
+      const relayed = [];
       for (const id of ready) {
         const node = nodes[id];
         const reused = node.children.length
@@ -256,8 +275,7 @@ export async function generateSummaries({
           : null;
         if (reused) {
           node.segments = reused;
-          relayed = true;
-          await onNodeDone(node);
+          relayed.push(node);
         } else if (pending.size < workers) {
           pending.set(
             id,
@@ -268,9 +286,11 @@ export async function generateSummaries({
           );
         }
       }
+      // Persist after dispatch so saving never delays starting workers.
+      for (const node of relayed) await onNodeDone(node);
       if (!pending.size) {
         if (!todo.length) return;
-        if (relayed) continue;
+        if (relayed.length) continue;
         throw new Error('Summary tree has unresolved dependencies');
       }
       const { id, value, error } = await Promise.race(pending.values());
@@ -281,18 +301,13 @@ export async function generateSummaries({
         node.failed = false;
         node.segments = value.segments;
         if (value.title && !node.topicName) node.title = value.title;
-      } else if (tolerateFailures) {
-        node.failed = true;
-        node.segments = [];
       } else {
-        throw new SummaryTreeGenerationError(
-          `Could not generate a valid cited summary for “${node.title}”. Retry to resume; completed summaries are kept.`,
-        );
+        onFailure(node);
       }
       await onNodeDone(node);
     }
   } catch (error) {
-    controller?.abort();
+    onAbort();
     await settle();
     throw error;
   }
