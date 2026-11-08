@@ -243,8 +243,8 @@ describe('useProjectView', () => {
 
   it('provides a subscription getter that observes the latest view', async () => {
     let getView;
-    const subscribe = (_notify, _unused, options) => {
-      getView = options.getView;
+    const subscribe = (_notify, { scope }) => {
+      getView = scope.getView;
       return () => {};
     };
     const api = {

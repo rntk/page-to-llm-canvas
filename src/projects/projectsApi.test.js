@@ -38,7 +38,7 @@ describe('projects api', () => {
     const tabs = { onUpdated: event(), onRemoved: event() };
     const tabGroups = { onUpdated: event() };
     const onChange = vi.fn();
-    const unsubscribe = subscribeProjectChanges(onChange, { tabs, tabGroups });
+    const unsubscribe = subscribeProjectChanges(onChange, { apis: { tabs, tabGroups } });
     tabs.onUpdated.addListener.mock.calls[0][0](1, {});
     expect(onChange).toHaveBeenCalledWith();
     unsubscribe();
@@ -54,10 +54,12 @@ it('scopes tab events to members and arrivals, including departures', () => {
   const onChange = vi.fn();
   const unsubscribe = subscribeProjectChanges(
     onChange,
-    { tabs, tabGroups },
     {
-      projectId: 'a',
-      getView: () => ({ project: { groupId: 4 }, tabs: [{ id: 1 }] }),
+      apis: { tabs, tabGroups },
+      scope: {
+        projectId: 'a',
+        getView: () => ({ project: { groupId: 4 }, tabs: [{ id: 1 }] }),
+      },
     },
   );
   const update = tabs.onUpdated.addListener.mock.calls[0][0];

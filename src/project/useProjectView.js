@@ -62,9 +62,8 @@ export function useProjectView({
       }, debounceMs);
     };
 
-    const unsubscribe = subscribe(scheduleRefresh, undefined, {
-      projectId,
-      getView: () => currentView.current,
+    const unsubscribe = subscribe(scheduleRefresh, {
+      scope: { projectId, getView: () => currentView.current },
     });
     return () => {
       if (timer !== null) scheduler.clearTimeout(timer);

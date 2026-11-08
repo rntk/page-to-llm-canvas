@@ -115,78 +115,109 @@ const TAB_EVENTS = ['onCreated', 'onRemoved', 'onUpdated', 'onMoved', 'onAttache
 const GROUP_EVENTS = ['onCreated', 'onRemoved', 'onUpdated', 'onMoved'];
 
 /**
- * Calls `onChange()` (no arguments) whenever stored projects or excerpts, or live tabs/tab
- * groups change, so a page can refetch its view. Missing browser namespaces are
- * skipped. Callers should debounce; tab events can arrive in bursts.
+ * Listens to live tab/tab group events and calls `onChange()` for those relevant to
+ * `scope` (every event when unscoped or before the view loads). Missing namespaces are
+ * skipped.
  *
  * @param {function(): void} onChange
- * @param {{tabs?: object, tabGroups?: object}} [apis]
- * @param {{projectId: string, getView: function(): object|null}} [scope] Current project view; omitted for overview subscriptions.
+ * @param {{tabs?: object, tabGroups?: object}} apis
+ * @param {{projectId: string, getView: function(): object|null}} [scope]
  * @returns {function(): void} Unsubscribe.
  */
-export function subscribeProjectChanges(
-  onChange,
-  apis = { tabs: globalThis.chrome?.tabs, tabGroups: globalThis.chrome?.tabGroups },
-  scope,
-) {
+function subscribeTabEvents(onChange, { tabs, tabGroups }, scope) {
+  const groupChanged = (_name, [group], view) => {
+    if (group?.id === view.project?.groupId) onChange();
+  };
+  const tabChanged = (name, args, view) => {
+    const groupId = view.project?.groupId;
+    const tab = name === 'onCreated' ? args[0] : name === 'onUpdated' ? args[2] : null;
+    const id = name === 'onCreated' ? tab?.id : args[0];
+    const belongs = (value) => groupId != null && value?.groupId === groupId;
+    if (view.tabs?.some((item) => item.id === id) || belongs(tab)) return onChange();
+    // Attach events omit group identity; resolve arrivals across windows.
+    if (name === 'onAttached' && tabs?.get) {
+      Promise.resolve(tabs.get(id))
+        .then((live) => {
+          if (belongs(live)) onChange();
+        })
+        .catch(() => {});
+    }
+  };
   const attached = [];
-  const attach = (namespace, names, groups = false) => {
+  const attach = (namespace, names, handle) => {
     for (const name of names) {
       const event = namespace?.[name];
       if (!event?.addListener) continue;
       const listener = (...args) => {
         const view = scope?.getView();
-        if (!scope || !view) return onChange();
-        const groupId = view.project?.groupId;
-        if (groups) {
-          if (args[0]?.id === groupId) onChange();
-          return;
-        }
-        const tab = name === 'onCreated' ? args[0] : name === 'onUpdated' ? args[2] : null;
-        const id = name === 'onCreated' ? tab?.id : args[0];
-        const belongs = (value) => groupId != null && value?.groupId === groupId;
-        if (view.tabs?.some((item) => item.id === id) || belongs(tab)) return onChange();
-        // Attach events omit group identity; resolve arrivals across windows.
-        if (name === 'onAttached' && namespace?.get) {
-          Promise.resolve(namespace.get(id))
-            .then((live) => {
-              if (belongs(live)) onChange();
-            })
-            .catch(() => {});
-        }
+        if (!view) return onChange();
+        handle(name, args, view);
       };
       event.addListener(listener);
       attached.push([event, listener]);
     }
   };
-  attach(apis.tabs, TAB_EVENTS);
-  attach(apis.tabGroups, GROUP_EVENTS, true);
+  attach(tabs, TAB_EVENTS, tabChanged);
+  attach(tabGroups, GROUP_EVENTS, groupChanged);
+  return () => {
+    for (const [event, listener] of attached) event.removeListener?.(listener);
+  };
+}
+
+const differs = (change, select) =>
+  change && JSON.stringify(select(change.oldValue)) !== JSON.stringify(select(change.newValue));
+
+/**
+ * Listens to stored projects, excerpts, the index and (when scoped) the project's topic
+ * tree. When scoped, project/excerpt writes only notify if the project's slice changed.
+ *
+ * @param {function(): void} onChange
+ * @param {{projectId: string, getView: function(): object|null}} [scope]
+ * @returns {function(): void} Unsubscribe.
+ */
+function subscribeStoreChanges(onChange, scope) {
   const treeKey = scope && projectTopicTreeStorageKey(scope.projectId);
-  const unsubscribeStore = subscribeLocalChanges(
-    [PROJECTS_STORAGE_KEY, PROJECT_EXCERPTS_STORAGE_KEY, INDEX_KEY, ...(treeKey ? [treeKey] : [])],
-    (changes) => {
-      if (!scope || !scope.getView()) return onChange();
-      if (changes[treeKey] || changes[INDEX_KEY]) return onChange();
-      const differs = (change, select) =>
-        change &&
-        JSON.stringify(select(change.oldValue)) !== JSON.stringify(select(change.newValue));
-      if (
-        differs(changes[PROJECTS_STORAGE_KEY], (items) =>
-          items?.find?.((item) => item.id === scope.projectId),
-        )
-      )
-        return onChange();
-      if (
-        differs(changes[PROJECT_EXCERPTS_STORAGE_KEY], (doc) => ({
-          excerpts: doc?.excerpts?.filter((item) => item.projectId === scope.projectId),
-          focus: doc?.focus?.projectId === scope.projectId ? doc.focus : null,
-        }))
-      )
-        onChange();
-    },
-  );
+  const keys = [PROJECTS_STORAGE_KEY, PROJECT_EXCERPTS_STORAGE_KEY, INDEX_KEY];
+  if (treeKey) keys.push(treeKey);
+  return subscribeLocalChanges(keys, (changes) => {
+    if (!scope?.getView()) return onChange();
+    if (changes[treeKey] || changes[INDEX_KEY]) return onChange();
+    const { projectId } = scope;
+    const projectChanged = differs(changes[PROJECTS_STORAGE_KEY], (items) =>
+      items?.find?.((item) => item.id === projectId),
+    );
+    const excerptsChanged = differs(changes[PROJECT_EXCERPTS_STORAGE_KEY], (doc) => ({
+      excerpts: doc?.excerpts?.filter((item) => item.projectId === projectId),
+      focus: doc?.focus?.projectId === projectId ? doc.focus : null,
+    }));
+    if (projectChanged || excerptsChanged) onChange();
+  });
+}
+
+/**
+ * Calls `onChange()` (no arguments) whenever stored projects or excerpts, or live tabs/tab
+ * groups change, so a page can refetch its view. Callers should debounce; tab events can
+ * arrive in bursts.
+ *
+ * @param {function(): void} onChange
+ * @param {object} [options]
+ * @param {{projectId: string, getView: function(): object|null}} [options.scope] Current
+ *   project view; omit for overview subscriptions.
+ * @param {{tabs?: object, tabGroups?: object}} [options.apis] Browser namespaces; defaults
+ *   to `chrome.tabs` and `chrome.tabGroups`.
+ * @returns {function(): void} Unsubscribe.
+ */
+export function subscribeProjectChanges(
+  onChange,
+  {
+    scope,
+    apis = { tabs: globalThis.chrome?.tabs, tabGroups: globalThis.chrome?.tabGroups },
+  } = {},
+) {
+  const unsubscribeTabs = subscribeTabEvents(onChange, apis, scope);
+  const unsubscribeStore = subscribeStoreChanges(onChange, scope);
   return () => {
     unsubscribeStore();
-    for (const [event, listener] of attached) event.removeListener?.(listener);
+    unsubscribeTabs();
   };
 }
