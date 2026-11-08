@@ -206,6 +206,34 @@ export function markFailed(node) {
 }
 
 /**
+ * One model round trip for `node`; null when no answer was accepted.
+ * @returns {Promise<{segments: Array<{text: string, sources: object[]}>, title: string|null}|null>}
+ */
+async function generateNode({ node, nodes, sentenceTexts, llm, verifier, sourceOf }) {
+  const { item, allowed } = requestItem(node, nodes, sentenceTexts, sourceOf);
+  const level = levelOf(node, nodes);
+  let result = null;
+  let title = null;
+  const accepted = await llm.ask(
+    buildSummaryTreeSummaryPrompt(level, [item]),
+    async (raw) => {
+      const entries = extractObject(raw)?.summaries;
+      if (!Array.isArray(entries) || entries.length !== 1 || entries[0]?.id !== ITEM_ID) {
+        return false;
+      }
+      let parsed = decodeEntry(entries[0], allowed);
+      if (parsed && verifier) parsed = await verifier.filter(level, parsed);
+      if (!parsed || (node.kind !== PASSAGE && !parsed.length)) return false;
+      result = parsed;
+      title = node.kind === PASSAGE ? cleanTitle(entries[0].title) : null;
+      return true;
+    },
+    LLM_TASK_TYPES.SUMMARY_TREE_SUMMARY,
+  );
+  return accepted ? { segments: result, title } : null;
+}
+
+/**
  * Summarize `targets` bottom-up; their descendants must be done or among them.
  * @param {object} input
  * @param {Record<string, SummaryTreeNode>} input.nodes
@@ -232,30 +260,6 @@ export async function generateSummaries({
   onAbort = () => {},
   sourceOf,
 }) {
-  const generateOne = async (node) => {
-    const { item, allowed } = requestItem(node, nodes, sentenceTexts, sourceOf);
-    const level = levelOf(node, nodes);
-    let result = null;
-    let title = null;
-    const accepted = await llm.ask(
-      buildSummaryTreeSummaryPrompt(level, [item]),
-      async (raw) => {
-        const entries = extractObject(raw)?.summaries;
-        if (!Array.isArray(entries) || entries.length !== 1 || entries[0]?.id !== ITEM_ID) {
-          return false;
-        }
-        let parsed = decodeEntry(entries[0], allowed);
-        if (parsed && verifier) parsed = await verifier.filter(level, parsed);
-        if (!parsed || (node.kind !== PASSAGE && !parsed.length)) return false;
-        result = parsed;
-        title = node.kind === PASSAGE ? cleanTitle(entries[0].title) : null;
-        return true;
-      },
-      LLM_TASK_TYPES.SUMMARY_TREE_SUMMARY,
-    );
-    return accepted ? { segments: result, title } : null;
-  };
-
   const pending = new Map();
   const settle = async () => {
     await Promise.all(pending.values());
@@ -279,7 +283,7 @@ export async function generateSummaries({
         } else if (pending.size < workers) {
           pending.set(
             id,
-            generateOne(node).then(
+            generateNode({ node, nodes, sentenceTexts, llm, verifier, sourceOf }).then(
               (value) => ({ id, value }),
               (error) => ({ id, error }),
             ),
