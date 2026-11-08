@@ -105,6 +105,72 @@ describe('ProjectCanvas excerpts', () => {
     expect(onFocusHandled).toHaveBeenCalledWith('e1');
   });
 
+  it('waits for the focused excerpt and its chat renderer before acknowledging', async () => {
+    const onFocusHandled = vi.fn();
+    const { rerender, renderExcerptChat } = await render({
+      focusExcerptId: 'e1',
+      excerpts: [],
+      onFocusHandled,
+    });
+    expect(onFocusHandled).not.toHaveBeenCalled();
+    await act(async () => rerender({ excerpts, renderExcerptChat: undefined }));
+    expect(onFocusHandled).not.toHaveBeenCalled();
+    await act(async () => rerender({ excerpts, renderExcerptChat }));
+    expect(container.querySelector('[data-chat-for="e1"]')).not.toBeNull();
+    expect(onFocusHandled).toHaveBeenCalledExactlyOnceWith('e1');
+  });
+
+  it('does not repeat a handled focus when its acknowledgement callback changes', async () => {
+    const onFocusHandled = vi.fn();
+    const { rerender } = await render({ focusExcerptId: 'e1', onFocusHandled });
+    await act(async () => button('Fold chat for the excerpt from One').click());
+    const nextAcknowledgement = vi.fn();
+    await act(async () => rerender({ onFocusHandled: nextAcknowledgement }));
+    expect(container.querySelector('[data-chat-for="e1"]')).toBeNull();
+    expect(onFocusHandled).toHaveBeenCalledExactlyOnceWith('e1');
+    expect(nextAcknowledgement).not.toHaveBeenCalled();
+  });
+
+  it('handles focus once when Strict Mode replays effects', async () => {
+    const onFocusHandled = vi.fn();
+    await act(async () =>
+      root.render(
+        <React.StrictMode>
+          <ProjectCanvas
+            tabs={tabs}
+            excerpts={excerpts}
+            tabsHost={{}}
+            focusExcerptId="e1"
+            onFocusHandled={onFocusHandled}
+            renderExcerptChat={(excerpt) => <aside data-chat-for={excerpt.id} />}
+          />
+        </React.StrictMode>,
+      ),
+    );
+    expect(container.querySelector('[data-chat-for="e1"]')).not.toBeNull();
+    expect(onFocusHandled).toHaveBeenCalledExactlyOnceWith('e1');
+  });
+
+  it('raises an excerpt chat above other chats when opened or interacted with', async () => {
+    await render({
+      renderPageChat: () => <aside className="page-chat-drawer" />,
+    });
+    const pageNode = container.querySelector('[data-tab-id="1"]').closest('.canvas-node');
+    const excerptNode = nodeOf(card('e1'));
+    await act(async () => button('Unfold chat for One').click());
+    expect(pageNode.style.zIndex).toBe('3');
+    await act(async () => button('Unfold chat for the excerpt from One').click());
+    expect(pageNode.style.zIndex).toBe('2');
+    expect(excerptNode.style.zIndex).toBe('3');
+    await act(async () =>
+      pageNode
+        .querySelector('aside')
+        .dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })),
+    );
+    expect(pageNode.style.zIndex).toBe('3');
+    expect(excerptNode.style.zIndex).toBe('2');
+  });
+
   it('follows its page when the page card is dragged', async () => {
     await render();
     const header = container.querySelector('[data-tab-id="1"] .tab-card-header');
@@ -118,6 +184,30 @@ describe('ProjectCanvas excerpts', () => {
     expect(nodeOf(card('e1')).style.transform).toBe(
       `translate(${EXCERPT_INDENT + 100}px, ${CARD_HEIGHT + EXCERPT_GAP + 50}px)`,
     );
+  });
+
+  it('keeps a separately dragged excerpt in place when its page moves', async () => {
+    await render();
+    const drag = async (header, dx, dy) =>
+      act(async () => {
+        header.dispatchEvent(
+          new MouseEvent('pointerdown', {
+            bubbles: true,
+            clientX: 0,
+            clientY: 0,
+            button: 0,
+          }),
+        );
+        window.dispatchEvent(new MouseEvent('pointermove', { clientX: dx, clientY: dy }));
+        window.dispatchEvent(new MouseEvent('pointerup'));
+      });
+    await drag(card('e1').querySelector('.excerpt-card-header'), 30, 20);
+    const movedPosition = nodeOf(card('e1')).style.transform;
+    expect(movedPosition).toBe(
+      `translate(${EXCERPT_INDENT + 30}px, ${CARD_HEIGHT + EXCERPT_GAP + 20}px)`,
+    );
+    await drag(container.querySelector('[data-tab-id="1"] .tab-card-header'), 100, 50);
+    expect(nodeOf(card('e1')).style.transform).toBe(movedPosition);
   });
 
   it('deletes an excerpt through the handler', async () => {

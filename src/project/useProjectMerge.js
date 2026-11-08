@@ -47,5 +47,18 @@ export function useProjectMerge({ projectId, api, merge, refresh, showTopics }) 
 
   useStaleTick(running, refresh);
 
-  return { canMerge, pending, notice, build, stop, open };
+  const actions = canMerge
+    ? [
+        {
+          id: 'merge-primary-topics',
+          label: 'Merge similar topics',
+          description:
+            'Group primary topics across the project’s saved pages and read their sources together.',
+          disabled: pending,
+          onSelect: open,
+        },
+      ]
+    : [];
+
+  return { canMerge, pending, notice, build, stop, open, actions };
 }

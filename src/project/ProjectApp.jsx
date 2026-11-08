@@ -1,21 +1,15 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { ProjectCanvas } from './ProjectCanvas.jsx';
+import React, { useState } from 'react';
+import { CanvasPanel } from './CanvasPanel.jsx';
+import { ProjectViewTabs } from './ProjectViewTabs.jsx';
+import { useDocumentTitle } from './useDocumentTitle.js';
 import { ProjectChatPanel } from './ProjectChatPanel.jsx';
 import { ProjectHeader } from './ProjectHeader.jsx';
-import { PageChatDrawer } from './PageChatDrawer.jsx';
-import { ExcerptChatDrawer } from './ExcerptChatDrawer.jsx';
 import { UNTITLED_PROJECT } from './projectText.js';
 import { useProjectView } from './useProjectView.js';
 import { useProjectMerge } from './useProjectMerge.js';
 import { browserScheduler } from '../shared/runtime/browserHosts.js';
 import { ProjectTopicTree } from './ProjectTopicTree.jsx';
 import './project-actions.css';
-
-const NO_EXCERPTS = [];
-const VIEWS = [
-  { id: 'canvas', label: 'Canvas' },
-  { id: 'topics', label: 'Topics tree' },
-];
 
 function ErrorState({ title, message, pageHost }) {
   return (
@@ -58,6 +52,7 @@ export function ProjectApp({
   const [activeView, setActiveView] = useState('canvas');
   const {
     canMerge,
+    actions: topicActions,
     pending: topicPending,
     notice: topicNotice,
     build: buildTopicTree,
@@ -70,35 +65,7 @@ export function ProjectApp({
     refresh,
     showTopics: () => setActiveView('topics'),
   });
-  const renderPageChat = useCallback(
-    (tab, { onClose }) => (
-      <PageChatDrawer projectId={projectId} tab={tab} api={api} onClose={onClose} />
-    ),
-    [api, projectId],
-  );
-  const renderExcerptChat = useCallback(
-    (excerpt, { onClose }) => (
-      <ExcerptChatDrawer projectId={projectId} excerpt={excerpt} api={api} onClose={onClose} />
-    ),
-    [api, projectId],
-  );
-  const deleteExcerpt = useCallback(
-    (excerpt) => api.deleteExcerpt(projectId, excerpt.id),
-    [api, projectId],
-  );
-
-  const acknowledgeFocus = useCallback(
-    (excerptId) => {
-      // A lost acknowledgement only means the request is offered again.
-      Promise.resolve(api.acknowledgeExcerptFocus?.(projectId, excerptId)).catch(() => {});
-    },
-    [api, projectId],
-  );
-
-  const title = view ? view.project.title || UNTITLED_PROJECT : null;
-  useEffect(() => {
-    if (title) document.title = `${title} · Project`;
-  }, [title]);
+  useDocumentTitle(view ? `${view.project.title || UNTITLED_PROJECT} · Project` : null);
 
   if (status === 'idle') {
     return (
@@ -121,18 +88,6 @@ export function ProjectApp({
   }
 
   const tabs = view.tabs;
-  const topicActions = canMerge
-    ? [
-        {
-          id: 'merge-primary-topics',
-          label: 'Merge similar topics',
-          description:
-            'Group primary topics across the project’s saved pages and read their sources together.',
-          disabled: topicPending,
-          onSelect: openMerge,
-        },
-      ]
-    : [];
   const topicTreeOpen = canMerge && activeView === 'topics';
   return (
     <div className="project-shell">
@@ -143,59 +98,17 @@ export function ProjectApp({
         chatOpen={chatOpen}
         onToggleChat={() => setChatOpen((open) => !open)}
         actions={topicActions}
-        viewTabs={
-          canMerge && (
-            <div className="project-view-tabs" role="tablist" aria-label="Project views">
-              {VIEWS.map(({ id, label }) => (
-                <button
-                  key={id}
-                  type="button"
-                  role="tab"
-                  id={`project-tab-${id}`}
-                  aria-controls={`project-panel-${id}`}
-                  aria-selected={activeView === id}
-                  onClick={() => setActiveView(id)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )
-        }
+        viewTabs={canMerge && <ProjectViewTabs activeView={activeView} onSelect={setActiveView} />}
       />
       <div className="project-body">
         <div className="project-canvas-wrap">
-          <div
-            hidden={topicTreeOpen}
-            role="tabpanel"
-            id="project-panel-canvas"
-            aria-labelledby="project-tab-canvas"
-            className={
-              topicTreeOpen ? 'project-canvas-content is-hidden' : 'project-canvas-content'
-            }
-          >
-            <ProjectCanvas
-              active={!topicTreeOpen}
-              tabs={tabs}
-              excerpts={view.excerpts || NO_EXCERPTS}
-              focusExcerptId={view.focusExcerptId || null}
-              onFocusHandled={api.acknowledgeExcerptFocus ? acknowledgeFocus : undefined}
-              tabsHost={tabsHost}
-              renderPageChat={renderPageChat}
-              renderExcerptChat={api.readExcerptPage ? renderExcerptChat : undefined}
-              onDeleteExcerpt={api.deleteExcerpt ? deleteExcerpt : undefined}
-            />
-            {!view.isOpen && (
-              <p className="canvas-hint" role="status">
-                This project&apos;s tab group is closed
-              </p>
-            )}
-            {view.isOpen && tabs.length === 0 && (
-              <p className="canvas-hint" role="status">
-                Add tabs to this tab group to see them here
-              </p>
-            )}
-          </div>
+          <CanvasPanel
+            projectId={projectId}
+            view={view}
+            api={api}
+            tabsHost={tabsHost}
+            active={!topicTreeOpen}
+          />
           {topicTreeOpen && (
             <div
               className="project-topics-content"
