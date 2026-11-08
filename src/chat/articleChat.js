@@ -8,6 +8,7 @@ import {
   EXCERPT_CHAT_SYSTEM_PROMPT,
   HIGHLIGHT_BUDGET_EXHAUSTED_PROMPT,
   PROJECT_CHAT_SYSTEM_PROMPT,
+  SECTIONS_CHAT_SYSTEM_PROMPT,
   buildQuestionDataMessage,
   buildSourceDataMessage,
 } from './articleChatPrompts.js';
@@ -71,8 +72,9 @@ const DEFAULT_REQUESTS_PER_CHUNK = 3;
  * @property {object[]} [article.history]
  * @property {string[]} [article.sentences]
  * @property {object[]} [article.highlightedRanges]
- * @property {{kind: 'excerpt', pageTitle?: string, pageUrl?: string}|{kind: 'project', preamble: string}} [article.source]
- *   Frames the sentences as an excerpt of a longer page. A project source sends
+ * @property {{kind: 'excerpt', pageTitle?: string, pageUrl?: string}|{kind: 'sections', topic?: string, pages: object[]}|{kind: 'project', preamble: string}} [article.source]
+ *   Frames the sentences as an excerpt of a longer page, or as sections of one topic's text
+ *   drawn from several pages. A project source sends
  *   no sentences: its preamble is the data message and the model answers from
  *   `tools` alone, without highlight_span (citations are prose).
  * @property {Array<{definition: object, run: function(object, {maxChars: number, signal?: AbortSignal}): Promise<string>}>} [tools]
@@ -213,6 +215,9 @@ async function runArticleChatChunk({
     },
     ...(source?.kind === 'excerpt'
       ? [{ role: 'system', content: EXCERPT_CHAT_SYSTEM_PROMPT }]
+      : []),
+    ...(source?.kind === 'sections'
+      ? [{ role: 'system', content: SECTIONS_CHAT_SYSTEM_PROMPT }]
       : []),
     { role: 'user', content: buildSourceDataMessage(chunk, source) },
     ...replayedHistory,

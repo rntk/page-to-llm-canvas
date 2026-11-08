@@ -21,7 +21,9 @@ import {
   initialExpanded,
   labelSize,
   pathTo,
+  textKey,
   toggleNode,
+  toggleText,
   topicMaxWidth,
   treeDepth,
   visibleTree,
@@ -72,6 +74,7 @@ const TreeLink = React.memo(function TreeLink({ d, isOnPath, motionRef }) {
 const TopicNode = React.memo(function TopicNode({
   node,
   isExpanded,
+  textShown = false,
   fontSize,
   isSelected,
   isOnPath,
@@ -81,6 +84,7 @@ const TopicNode = React.memo(function TopicNode({
   registerElement,
   onToggle,
   onExpandBranch,
+  onToggleText,
   summaryShown,
   onToggleSummary,
 }) {
@@ -162,12 +166,45 @@ const TopicNode = React.memo(function TopicNode({
         >
           {pluralize(node.sentences.length, 'sentence')}
         </button>
+        {node.textCard && (
+          <button
+            type="button"
+            className="tt-node__count"
+            aria-pressed={textShown}
+            title="Show all the source text of this topic in one block"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleText(node.key);
+            }}
+          >
+            Source text
+          </button>
+        )}
         {node.sourceCount > 0 && <span>· {pluralize(node.sourceCount, 'article')}</span>}
         {node.hiddenCount > 0 && <span>· +{node.hiddenCount} hidden</span>}
       </div>
     </div>
   );
 });
+
+function SourceGroups({ sentenceNumbers, articleSentences, sentenceSources }) {
+  return groupSentenceSources(sentenceNumbers, sentenceSources).map((group) => (
+    <section className="tt-source-group" key={group.id}>
+      {group.source && <SourceArticle source={group.source} />}
+      <ol className="tt-passages">
+        {group.sentences.map(({ number, sourceNumber }) => (
+          <li
+            key={number}
+            value={sourceNumber ?? undefined}
+            className={sourceNumber === null ? 'tt-passages__unknown' : undefined}
+          >
+            {articleSentences[number - 1] || ''}
+          </li>
+        ))}
+      </ol>
+    </section>
+  ));
+}
 
 const LeafCard = React.memo(function LeafCard({
   node,
@@ -205,7 +242,7 @@ const LeafCard = React.memo(function LeafCard({
     size ? 'is-sized' : '',
     isSelected ? 'is-selected' : '',
     isOnPath ? 'is-on-path' : '',
-    isFront || chatOpen ? 'is-front' : '',
+    isFront ? 'is-front' : '',
     chatOpen ? 'is-chat-open' : '',
   ]
     .filter(Boolean)
@@ -229,22 +266,27 @@ const LeafCard = React.memo(function LeafCard({
         {parentPath && <div className="tt-muted">{parentPath}</div>}
       </header>
       <div className="tt-card__body">
-        {groupSentenceSources(node.sentences, sentenceSources).map((group) => (
-          <section className="tt-source-group" key={group.id}>
-            {group.source && <SourceArticle source={group.source} />}
-            <ol className="tt-passages">
-              {group.sentences.map(({ number, sourceNumber }) => (
-                <li
-                  key={number}
-                  value={sourceNumber ?? undefined}
-                  className={sourceNumber === null ? 'tt-passages__unknown' : undefined}
-                >
-                  {articleSentences[number - 1] || ''}
-                </li>
-              ))}
-            </ol>
-          </section>
-        ))}
+        {node.sections ? (
+          node.sections.map((section, index) => (
+            <section className="tt-text-section" key={section.key}>
+              <h4 className="tt-text-section__title">
+                <span className="tt-muted">{index + 1}.</span>{' '}
+                {formatTopicPath(splitTopicPath(section.path))}
+              </h4>
+              <SourceGroups
+                sentenceNumbers={section.sentences}
+                articleSentences={articleSentences}
+                sentenceSources={sentenceSources}
+              />
+            </section>
+          ))
+        ) : (
+          <SourceGroups
+            sentenceNumbers={node.sentences}
+            articleSentences={articleSentences}
+            sentenceSources={sentenceSources}
+          />
+        )}
         {onShowInPage && (
           <p className="tt-card__links">
             <button
@@ -491,6 +533,15 @@ export default function TopicsTreeCanvas({
     [anchorOn, changeExpanded, tree],
   );
 
+  const handleToggleText = useCallback(
+    (key) => {
+      anchorOn(key);
+      setSelectedKey(key);
+      changeExpanded((prev) => toggleText(tree, prev, key));
+    },
+    [anchorOn, changeExpanded, tree],
+  );
+
   const handleToggleSummary = useCallback(
     (key) => {
       anchorOn(key);
@@ -661,7 +712,8 @@ export default function TopicsTreeCanvas({
                 <TopicNode
                   key={node.key}
                   node={node}
-                  isExpanded={expanded.has(node.key)}
+                  isExpanded={expanded.has(node.key) || expanded.has(textKey(node.key))}
+                  textShown={expanded.has(textKey(node.key))}
                   fontSize={labelSize(node, totalSentences)}
                   isSelected={node.key === selectedKey}
                   isOnPath={onPath.has(node.key)}
@@ -671,6 +723,7 @@ export default function TopicsTreeCanvas({
                   registerElement={registerElement}
                   onToggle={handleToggle}
                   onExpandBranch={handleExpandBranch}
+                  onToggleText={handleToggleText}
                   summaryShown={shownSummaries.has(node.key)}
                   onToggleSummary={handleToggleSummary}
                 />
@@ -714,6 +767,7 @@ export default function TopicsTreeCanvas({
                     registerElement={NOOP}
                     onToggle={NOOP}
                     onExpandBranch={NOOP}
+                    onToggleText={NOOP}
                     summaryShown={shownSummaries.has(node.key)}
                     onToggleSummary={NOOP}
                   />

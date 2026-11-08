@@ -293,8 +293,12 @@
   box-shadow: 0 0 0 1px var(--th-accent);
 }
 
-.tt-card.is-front {
+.tt-card.is-chat-open {
   z-index: 1;
+}
+
+.tt-card.is-front {
+  z-index: 2;
 }
 
 .tt-card__head {
@@ -350,6 +354,21 @@
 
 .tt-passages__unknown::marker {
   content: '? ';
+}
+
+/* A topic's whole source text: one section per sub-topic, set apart by a rule. */
+.tt-text-section + .tt-text-section {
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 2px solid var(--th-border-strong);
+}
+
+.tt-text-section__title {
+  margin: 0 0 4px;
+  color: var(--th-fg);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
 }
 
 .tt-source-group + .tt-source-group {

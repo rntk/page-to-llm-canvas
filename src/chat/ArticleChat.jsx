@@ -52,7 +52,7 @@ function ChatHeaderActions({ disabled, onShowHistory, onNewChat }) {
  * @param {function(): Promise<string[]>} [props.resolveSentences] Supplies the
  *   source at send time instead of `sentences` (e.g. text read from a live tab).
  * @param {string} [props.emptyPrompt] Overrides the empty-chat hint.
- * @param {{kind: 'excerpt', pageTitle?: string, pageUrl?: string}|{kind: 'project', preamble: string}} [props.source]
+ * @param {{kind: 'excerpt', pageTitle?: string, pageUrl?: string}|{kind: 'sections', topic?: string, pages: object[]}|{kind: 'project', preamble: string}} [props.source]
  *   Frames the sentences for the model (an excerpt of a longer page). A project
  *   source chats over `tools` alone: pass empty `sentences` and `topics`.
  * @param {object[]} [props.tools] Turn tools besides highlight_span (see runArticleChatTurn).

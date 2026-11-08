@@ -222,7 +222,7 @@ export default function TopicsTreeApp({
         rail: isYouTube ? 'youtube' : 'page',
         sentenceNumbers: node.sentences,
         // Source leaves sit one level below the topic whose path they carry.
-        level: node.depth - (node.kind === LEAF_KIND ? 2 : 1),
+        level: Math.max(0, node.depth - (node.kind === LEAF_KIND ? 2 : 1)),
         // Summary tree paths are not record topics.
         topicPath: isSummaryTree ? undefined : node.path,
       });

@@ -49,6 +49,7 @@ export function ProjectTopicTree({ project, merge, pending, notice, onBuild, onS
     sentences: tree?.sentences || NO_SENTENCES,
     sentenceSources: tree?.sources || null,
     records: tree?.records,
+    projectId: project.id,
   });
   const changes = merge?.changes;
   const changeText = changes

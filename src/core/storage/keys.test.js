@@ -15,6 +15,9 @@ import {
   recordSummaryLeafStorageKey,
   recordSummaryOutputStorageKey,
   sourceCardChatKey,
+  projectBlockChatKey,
+  sentenceSetFingerprint,
+  sourceBlockChatKey,
   sourceCardOwnerKey,
   recordTopicRangeCheckpointStorageKey,
 } from './keys.js';
@@ -94,5 +97,34 @@ describe('source card chat keys', () => {
     expect(sourceCardChatKey('a', 1.5, 2)).toBe('');
     expect(sourceCardOwnerKey('page:https://example.com')).toBeNull();
     expect(sourceCardOwnerKey(undefined)).toBeNull();
+  });
+});
+
+describe('source block chat keys', () => {
+  it('fingerprints a sentence set regardless of order and repeats', () => {
+    const fingerprint = sentenceSetFingerprint([3, 1, 2]);
+    expect(fingerprint).toMatch(/^[0-9a-z]+$/);
+    expect(sentenceSetFingerprint([1, 2, 2, 3])).toBe(fingerprint);
+    expect(sentenceSetFingerprint([1, 2, 4])).not.toBe(fingerprint);
+    expect(sentenceSetFingerprint([])).toBe('');
+    expect(sentenceSetFingerprint([0, 1])).toBe('');
+  });
+
+  it('names an article-owned block and reads its article back', () => {
+    const key = sourceBlockChatKey('rec:1', [4, 2, 9]);
+    expect(key).toBe(`block:${sentenceSetFingerprint([2, 4, 9])}:rec:1`);
+    expect(sourceCardOwnerKey(key)).toBe('rec:1');
+    expect(isDetachedChatKey(key)).toBe(false);
+    expect(sourceBlockChatKey('', [1])).toBe('');
+    expect(sourceBlockChatKey('rec', [])).toBe('');
+  });
+
+  it('keeps a block spanning articles under the project', () => {
+    const key = projectBlockChatKey('p1', [1, 5]);
+    expect(key).toBe(`project:p1:block:${sentenceSetFingerprint([1, 5])}`);
+    expect(isDetachedChatKey(key)).toBe(true);
+    expect(sourceCardOwnerKey(key)).toBeNull();
+    expect(projectBlockChatKey('', [1])).toBe('');
+    expect(projectBlockChatKey('p1', [])).toBe('');
   });
 });

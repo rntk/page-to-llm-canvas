@@ -180,7 +180,12 @@ export function createSearchPageTool({ loadPage }) {
       const matches = [];
       let used = 0;
       for (const { line } of ranked.slice(0, limit)) {
-        const match = { line, text: String(sentences[line - 1] || '').trim().slice(0, MAX_HIT_CHARS) };
+        const match = {
+          line,
+          text: String(sentences[line - 1] || '')
+            .trim()
+            .slice(0, MAX_HIT_CHARS),
+        };
         const cost = JSON.stringify(match).length + 1;
         if (used + cost > budget) break;
         matches.push(match);
@@ -205,4 +210,41 @@ export function createSearchPageTool({ loadPage }) {
  */
 export function createPageTools(options) {
   return [createReadPageTool(options), createSearchPageTool(options)];
+}
+
+const PAGE_PARAMETER = Object.freeze({
+  type: 'integer',
+  description: 'Number of the page to use, as listed in the data message (1-based). Default 1.',
+});
+
+/**
+ * The page tools for text drawn from several pages: the same `read_page` and
+ * `search_page`, each taking the number of the page to use.
+ * @param {Array<{loadPage: function(): Promise<{sentences: string[]}>, excerptSentences: string[]}>} pages
+ *   In the order the data message numbers them.
+ * @returns {Array<{definition: object, run: Function}>}
+ */
+export function createMultiPageTools(pages) {
+  const perPage = pages.map((page) => createPageTools(page));
+  return [0, 1].map((toolIndex) => {
+    const { definition } = perPage[0][toolIndex];
+    return {
+      definition: {
+        ...definition,
+        parameters: {
+          ...definition.parameters,
+          properties: { page: PAGE_PARAMETER, ...definition.parameters.properties },
+        },
+      },
+      async run(args, context) {
+        const requested = args?.page === undefined ? 1 : Number(args.page);
+        if (!Number.isInteger(requested) || requested < 1 || requested > pages.length) {
+          throw new Error(`page must be a number from 1 to ${pages.length}`);
+        }
+        const { page: _page, ...rest } = args || {};
+        const result = JSON.parse(await perPage[requested - 1][toolIndex].run(rest, context));
+        return JSON.stringify({ page: requested, ...result });
+      },
+    };
+  });
 }

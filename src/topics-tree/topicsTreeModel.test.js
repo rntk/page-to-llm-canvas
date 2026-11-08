@@ -16,6 +16,8 @@ import {
   labelSize,
   pathTo,
   revealNode,
+  textKey,
+  toggleText,
   toggleNode,
   treeDepth,
   visibleTree,
@@ -275,5 +277,69 @@ describe('labelSize', () => {
     expect(labelSize(fruit, 6)).toBeGreaterThan(15);
     expect(labelSize(fruit.children[0].children[0], 6)).toBe(14);
     expect(labelSize(fruit, 0)).toBe(15);
+  });
+});
+
+describe('source text blocks', () => {
+  const topics = [
+    { name: 'Fruit>Apples', sentences: [1, 2] },
+    { name: 'Fruit>Pears', sentences: [2, 3] },
+    { name: 'Veg', sentences: [4] },
+  ];
+  const build = () => buildTopicsDisplayTree(topics, null, { title: 'site' });
+
+  it('gives branches with sub-topics a text block with one section per source card', () => {
+    const tree = build();
+    const fruit = tree.children[0];
+    expect(fruit.textCard).toMatchObject({
+      key: 'text:topic:Fruit',
+      kind: LEAF_KIND,
+      path: 'Fruit',
+      depth: fruit.depth + 1,
+      sentences: [1, 2, 3],
+    });
+    expect(fruit.textCard.sections.map((s) => [s.path, s.sentences])).toEqual([
+      ['Fruit>Apples', [1, 2]],
+      ['Fruit>Pears', [2, 3]],
+    ]);
+    expect(tree.textCard.sentences).toEqual([1, 2, 3, 4]);
+    expect(tree.textCard.sections).toHaveLength(3);
+    // A branch whose only child is its own source card needs none.
+    expect(fruit.children[0].textCard).toBeUndefined();
+    expect(tree.children[1].textCard).toBeUndefined();
+    expect(pathTo(tree, 'text:topic:Fruit').map((node) => node.key)).toEqual([
+      ROOT_KEY,
+      'topic:Fruit',
+      'text:topic:Fruit',
+    ]);
+  });
+
+  it('shows the block in place of the child branches and folds back', () => {
+    const tree = build();
+    const open = toggleText(tree, expandBranch(tree, new Set(), 'topic:Fruit'), 'topic:Fruit');
+    expect(open.has('topic:Fruit')).toBe(false);
+    expect(open.has(textKey('topic:Fruit'))).toBe(true);
+    expect(open.has(ROOT_KEY)).toBe(true);
+    const shown = visibleTree(tree, open).children[0];
+    expect(shown.children.map((child) => child.key)).toEqual(['text:topic:Fruit']);
+
+    expect(toggleText(tree, open, 'topic:Fruit').has(textKey('topic:Fruit'))).toBe(false);
+    expect(toggleNode(tree, open, 'topic:Fruit').has(textKey('topic:Fruit'))).toBe(false);
+    // Unfolding the branch instead drops the text.
+    expect(expandBranch(tree, open, 'topic:Fruit').has(textKey('topic:Fruit'))).toBe(false);
+    // Nodes without a block are left alone.
+    expect(toggleText(tree, new Set([ROOT_KEY]), 'topic:Veg')).toEqual(new Set([ROOT_KEY]));
+  });
+
+  it('is also attached to summary trees', () => {
+    const tree = buildSummaryTreeDisplayTree({
+      rootId: 'r',
+      nodes: {
+        r: { id: 'r', title: 'r', kind: 'topic', children: ['a', 'b'], sentences: [1, 2] },
+        a: { id: 'a', title: 'a', kind: 'passage', children: [], sentences: [1] },
+        b: { id: 'b', title: 'b', kind: 'passage', children: [], sentences: [2] },
+      },
+    });
+    expect(tree.textCard.sections.map((section) => section.sentences)).toEqual([[1], [2]]);
   });
 });

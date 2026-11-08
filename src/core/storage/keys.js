@@ -117,11 +117,14 @@ export function isExcerptChatKey(key) {
 
 // Chats about one source card of a topics tree live beside the article they
 // quote: `card:<first>-<last>:<recordKey>`, where first/last are the card's
-// lowest and highest sentence numbers in that article. Unlike detached chats
+// lowest and highest sentence numbers in that article. A topic's whole source
+// text (several cards in one block) is `block:<fingerprint>:<recordKey>`, the
+// fingerprint standing for exactly the sentences shown. Unlike detached chats
 // they follow the article's content revision, so reanalysis or deletion drops
 // them.
 export const SOURCE_CARD_CHAT_KEY_PREFIX = 'card:';
-const SOURCE_CARD_CHAT_KEY = /^card:(\d+)-(\d+):(.+)$/;
+export const SOURCE_BLOCK_CHAT_KEY_PREFIX = 'block:';
+const SOURCE_CARD_CHAT_KEY = /^(?:card:\d+-\d+|block:[0-9a-z]+):(.+)$/;
 
 /**
  * @param {string} recordKey The article the card quotes.
@@ -136,11 +139,39 @@ export function sourceCardChatKey(recordKey, first, last) {
 }
 
 /**
+ * Short stable fingerprint of a set of sentence numbers (FNV-1a, base 36).
+ * @param {number[]} numbers
+ * @returns {string} '' when none is given or one is not a positive integer.
+ */
+export function sentenceSetFingerprint(numbers) {
+  if (!Array.isArray(numbers) || !numbers.length) return '';
+  if (!numbers.every((number) => Number.isInteger(number) && number >= 1)) return '';
+  const sorted = [...new Set(numbers)].sort((x, y) => x - y);
+  let hash = 0x811c9dc5;
+  for (const char of sorted.join(',')) {
+    hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+/**
+ * Chat key of a topic's source block drawn from one article.
+ * @param {string} recordKey The article the block quotes.
+ * @param {number[]} sentenceNumbers The block's sentence numbers in that article.
+ * @returns {string} The block chat key, or '' when an input is unusable.
+ */
+export function sourceBlockChatKey(recordKey, sentenceNumbers) {
+  const fingerprint = sentenceSetFingerprint(sentenceNumbers);
+  if (typeof recordKey !== 'string' || !recordKey || !fingerprint) return '';
+  return `${SOURCE_BLOCK_CHAT_KEY_PREFIX}${fingerprint}:${recordKey}`;
+}
+
+/**
  * @param {string} key
- * @returns {string|null} The record a card chat key belongs to, else null.
+ * @returns {string|null} The record a card or block chat key belongs to, else null.
  */
 export function sourceCardOwnerKey(key) {
-  return typeof key === 'string' ? (SOURCE_CARD_CHAT_KEY.exec(key)?.[3] ?? null) : null;
+  return typeof key === 'string' ? (SOURCE_CARD_CHAT_KEY.exec(key)?.[1] ?? null) : null;
 }
 
 // A project's own chat (over its merged topic tree) lives under the project id.
@@ -152,6 +183,20 @@ export const PROJECT_CHAT_KEY_PREFIX = 'project:';
  */
 export function projectChatKey(projectId) {
   return typeof projectId === 'string' && projectId ? `${PROJECT_CHAT_KEY_PREFIX}${projectId}` : '';
+}
+
+/**
+ * Chat key of a topic's source block that mixes several articles, so no single
+ * article owns it. It lives under the project like the project's own chat.
+ * @param {string} projectId
+ * @param {number[]} sentenceNumbers The block's rows in the project's merged tree.
+ * @returns {string} '' when an input is unusable.
+ */
+export function projectBlockChatKey(projectId, sentenceNumbers) {
+  const fingerprint = sentenceSetFingerprint(sentenceNumbers);
+  return typeof projectId === 'string' && projectId && fingerprint
+    ? `${PROJECT_CHAT_KEY_PREFIX}${projectId}:block:${fingerprint}`
+    : '';
 }
 
 export function isProjectChatKey(key) {

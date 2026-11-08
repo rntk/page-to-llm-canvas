@@ -14,6 +14,51 @@ export const ROOT_KEY = 'root';
 
 const topicKey = (fullPath) => `topic:${fullPath}`;
 
+/**
+ * Expanded-set key meaning "this node shows its whole source text" in place of
+ * its child branches.
+ * @param {string} nodeKey Display node key.
+ */
+export const textKey = (nodeKey) => `text:${nodeKey}`;
+
+function leavesOf(node) {
+  return node.kind === LEAF_KIND ? [node] : node.children.flatMap(leavesOf);
+}
+
+/**
+ * Give every branch with sub-topics a `textCard`: one source block holding the
+ * text of all its leaf cards, one section per leaf so topics stay apart. A
+ * branch whose only child is its own source card has no use for one.
+ * @param {object} tree Display tree (mutated).
+ * @returns {object} The same tree.
+ */
+function attachTextCards(tree) {
+  const visit = (node) => {
+    if (node.kind === LEAF_KIND) return;
+    node.children.forEach(visit);
+    if (!node.children.some((child) => child.kind !== LEAF_KIND)) return;
+    const sections = leavesOf(node).map((leaf) => ({
+      key: leaf.key,
+      path: leaf.path,
+      sentences: leaf.sentences,
+    }));
+    if (!sections.length) return;
+    node.textCard = {
+      key: textKey(node.key),
+      kind: LEAF_KIND,
+      title: 'Source text',
+      path: node.path,
+      depth: node.depth + 1,
+      summary: '',
+      sentences: node.sentences,
+      sections,
+      children: [],
+    };
+  };
+  visit(tree);
+  return tree;
+}
+
 function sameParentSummary(summary, parentSummary, onlyChild) {
   return Boolean(
     onlyChild &&
@@ -77,7 +122,7 @@ export function buildTopicsDisplayTree(topics, topicSummaryIndex, { title = '' }
 
   const children = roots.map((entry) => visit(entry));
   const sentences = new Set(children.flatMap((child) => child.sentences));
-  return {
+  return attachTextCards({
     key: ROOT_KEY,
     kind: ROOT_KIND,
     title,
@@ -86,7 +131,7 @@ export function buildTopicsDisplayTree(topics, topicSummaryIndex, { title = '' }
     summary: '',
     sentences: Array.from(sentences).sort((a, b) => a - b),
     children,
-  };
+  });
 }
 
 /**
@@ -153,7 +198,7 @@ export function buildSummaryTreeDisplayTree(summaryTree, { title = '' } = {}) {
       children,
     };
   };
-  return { ...visit(root, []), key: ROOT_KEY, kind: ROOT_KIND, title };
+  return attachTextCards({ ...visit(root, []), key: ROOT_KEY, kind: ROOT_KIND, title });
 }
 
 /**
@@ -210,6 +255,7 @@ export function initialExpanded(tree) {
 export function pathTo(tree, key) {
   if (!tree) return [];
   if (tree.key === key) return [tree];
+  if (tree.textCard?.key === key) return [tree, tree.textCard];
   for (const child of tree.children) {
     const path = pathTo(child, key);
     if (path.length) return [tree, ...path];
@@ -220,6 +266,7 @@ export function pathTo(tree, key) {
 function collapseSubtree(node, expanded) {
   if (!node) return;
   expanded.delete(node.key);
+  expanded.delete(textKey(node.key));
   node.children.forEach((child) => collapseSubtree(child, expanded));
 }
 
@@ -237,6 +284,11 @@ export function toggleNode(tree, expanded, key, exclusive = false) {
   const path = pathTo(tree, key);
   const node = path.at(-1);
   if (!node || !node.children.length) return next;
+  if (next.has(textKey(key))) {
+    // Folding a node that shows its source text closes that text.
+    next.delete(textKey(key));
+    return next;
+  }
   if (next.has(key)) {
     collapseSubtree(node, next);
     return next;
@@ -317,10 +369,33 @@ export function expandBranch(tree, expanded, key) {
   const walk = (node) => {
     if (!node.children.length) return;
     next.add(node.key);
+    next.delete(textKey(node.key));
     node.children.forEach(walk);
   };
   const start = pathTo(tree, key).at(-1);
   if (start) walk(start);
+  return next;
+}
+
+/**
+ * Show a node's whole source text in place of its child branches (or close it
+ * again). The node's ancestors open so the block is visible.
+ * @param {object|null} tree Display tree.
+ * @param {Set<string>} expanded Keys of the open nodes.
+ * @param {string} key Display node key.
+ * @returns {Set<string>}
+ */
+export function toggleText(tree, expanded, key) {
+  const node = pathTo(tree, key).at(-1);
+  if (!node?.textCard) return new Set(expanded);
+  if (expanded.has(textKey(key))) {
+    const next = new Set(expanded);
+    next.delete(textKey(key));
+    return next;
+  }
+  const next = revealNode(tree, expanded, key);
+  collapseSubtree(node, next);
+  next.add(textKey(key));
   return next;
 }
 
@@ -339,6 +414,9 @@ export function expandAll(tree) {
  */
 export function visibleTree(tree, expanded) {
   if (!tree) return null;
+  if (tree.textCard && expanded.has(textKey(tree.key))) {
+    return { ...tree, hiddenCount: 0, children: [tree.textCard] };
+  }
   const open = expanded.has(tree.key);
   return {
     ...tree,

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   READ_PAGE_TOOL,
   SEARCH_PAGE_TOOL,
+  createMultiPageTools,
   createPageTools,
   createReadPageTool,
   createSearchPageTool,
@@ -133,5 +134,46 @@ describe('createPageTools', () => {
       loadPage: async () => ({ sentences: [] }),
     });
     expect(tools.map((t) => t.definition.name)).toEqual(['read_page', 'search_page']);
+  });
+});
+
+describe('createMultiPageTools', () => {
+  const pageA = ['Alpha one.', 'Alpha two about apples.', 'Alpha three.'];
+  const pageB = ['Beta one.', 'Beta two about pears.'];
+  const tools = () =>
+    createMultiPageTools([
+      {
+        excerptSentences: ['Alpha two about apples.'],
+        loadPage: async () => ({ sentences: pageA }),
+      },
+      { excerptSentences: ['Beta one.'], loadPage: async () => ({ sentences: pageB }) },
+    ]);
+  const ctx = { maxChars: 4000 };
+
+  it('offers read_page and search_page that take a page number', () => {
+    const [read, search] = tools();
+    expect(read.definition.name).toBe('read_page');
+    expect(search.definition.name).toBe('search_page');
+    expect(read.definition.parameters.properties.page.type).toBe('integer');
+    expect(read.definition.parameters.properties.start_line).toBeTruthy();
+    expect(search.definition.parameters.required).toEqual(['query']);
+  });
+
+  it('reads and searches the page asked for, defaulting to the first', async () => {
+    const [read, search] = tools();
+    const second = JSON.parse(await read.run({ page: 2 }, ctx));
+    expect(second).toMatchObject({ page: 2, totalLines: 2 });
+    expect(second.numberedText).toContain('Beta one.');
+    const first = JSON.parse(await read.run({}, ctx));
+    expect(first).toMatchObject({ page: 1, totalLines: 3, excerptStartsAtLine: 2 });
+    const hits = JSON.parse(await search.run({ query: 'pears', page: 2 }, ctx));
+    expect(hits).toMatchObject({ page: 2, totalMatches: 1 });
+    expect(JSON.parse(await search.run({ query: 'pears' }, ctx)).totalMatches).toBe(0);
+  });
+
+  it('rejects a page that is not in the list', async () => {
+    const [read] = tools();
+    await expect(read.run({ page: 3 }, ctx)).rejects.toThrow('page must be a number from 1 to 2');
+    await expect(read.run({ page: 'x' }, ctx)).rejects.toThrow('page must be');
   });
 });

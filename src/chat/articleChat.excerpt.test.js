@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runArticleChatTurn } from './articleChat.js';
-import { EXCERPT_CHAT_SYSTEM_PROMPT } from './articleChatPrompts.js';
+import { EXCERPT_CHAT_SYSTEM_PROMPT, SECTIONS_CHAT_SYSTEM_PROMPT } from './articleChatPrompts.js';
 import { CHAT_TOOL_OUTCOMES } from '../shared/runtime/telemetry.js';
 
 const source = { kind: 'excerpt', pageTitle: 'A page', pageUrl: 'https://a.test/' };
@@ -97,5 +97,39 @@ describe('excerpt chat turns', () => {
     const total = toolMessages.reduce((sum, message) => sum + message.content.length, 0);
     expect(total).toBeLessThanOrEqual(1200 + 200);
     expect(toolMessages.at(-1).content).toMatch(/^Skipped: no context budget/);
+  });
+});
+
+describe('sections chat turns', () => {
+  it('frames the lines as sections of numbered pages', async () => {
+    const send = vi.fn().mockResolvedValue({ ok: true, content: 'Answer.' });
+    await runArticleChatTurn({
+      article: {
+        history: [],
+        sentences: ['### Section 1', 'Line.'],
+        source: {
+          kind: 'sections',
+          topic: 'Fruit',
+          pages: [{ title: 'A', url: 'https://a.test/' }, { title: 'B' }],
+        },
+      },
+      tools: [],
+      question: 'Q?',
+      limits: { maxChunkChars: 4000, maxHistoryChars: 0 },
+      dependencies: { send, cancelTurn: vi.fn(), recordToolMetric: vi.fn() },
+    });
+    const { messages } = send.mock.calls[0][0];
+    expect(messages[1]).toEqual({ role: 'system', content: SECTIONS_CHAT_SYSTEM_PROMPT });
+    expect(JSON.parse(messages[2].content)).toEqual({
+      kind: 'sections_chunk',
+      topic: 'Fruit',
+      pages: [
+        { page: 1, title: 'A', url: 'https://a.test/' },
+        { page: 2, title: 'B', url: '' },
+      ],
+      startLine: 1,
+      endLine: 2,
+      numberedText: '1: ### Section 1\n2: Line.',
+    });
   });
 });

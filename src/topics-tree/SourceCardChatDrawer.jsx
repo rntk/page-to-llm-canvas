@@ -1,38 +1,60 @@
 import React, { useMemo } from 'react';
 import ArticleChat from '../chat/ArticleChat.jsx';
-import { createPageTools } from '../chat/readPageTool.js';
+import { createMultiPageTools, createPageTools } from '../chat/readPageTool.js';
 
 const NO_TOPICS = [];
 const CARD_PROMPT =
   'Ask about this source text. The assistant can read and search the rest of the article when the card is not enough.';
+const BLOCK_PROMPT =
+  'Ask about the text of this topic. The sections come from different sub-topics and pages, and the assistant can read and search the pages beyond them.';
 
 /**
- * The chat of one source card, unfolded beside it. A turn sends the card's
- * lines (framed as part of their article) and offers `read_page` and
- * `search_page` over the whole article, which is already in memory.
+ * The chat of one source card, or of a topic's whole source text, unfolded
+ * beside it. A turn sends the card's lines (framed as part of their article, or
+ * as sections of several) and offers `read_page` and `search_page` over the
+ * whole article(s), already in memory.
  *
  * @param {object} props
- * @param {import('./sourceCardChat.js').SourceCardChat} props.card
+ * @param {import('./sourceCardChat.js').SourceCardChat|import('./sourceCardChat.js').SourceBlockChat} props.card
  * @param {function(): void} props.onClose
  * @param {{chatRepository?: object, runTurn?: Function, getChatLimits?: Function}} [props.chatPorts]
  *   ArticleChat port overrides (tests); the browser defaults apply otherwise.
  */
 export function SourceCardChatDrawer({ card, onClose, chatPorts }) {
-  const { chatKey, title, url, contentRevision, cardSentences, pageSentences } = card;
-  const source = useMemo(() => ({ kind: 'excerpt', pageTitle: title, pageUrl: url }), [title, url]);
-  const tools = useMemo(
+  const { chatKey, contentRevision, cardSentences } = card;
+  const pages = card.pages || null;
+  const title = pages ? card.topic || 'this topic' : card.title;
+  const url = card.url;
+  const source = useMemo(
     () =>
-      createPageTools({
-        excerptSentences: cardSentences,
-        loadPage: async () => ({ sentences: pageSentences }),
-      }),
-    [cardSentences, pageSentences],
+      pages
+        ? { kind: 'sections', topic: card.topic, pages }
+        : { kind: 'excerpt', pageTitle: title, pageUrl: url },
+    [pages, card.topic, title, url],
   );
+  const tools = useMemo(() => {
+    if (pages) {
+      return createMultiPageTools(
+        pages.map((page) => ({
+          excerptSentences: page.excerptSentences,
+          loadPage: async () => ({ sentences: page.pageSentences }),
+        })),
+      );
+    }
+    return createPageTools({
+      excerptSentences: cardSentences,
+      loadPage: async () => ({ sentences: card.pageSentences }),
+    });
+  }, [pages, cardSentences, card.pageSentences]);
 
   return (
     <aside
       className="tt-card__chat"
-      aria-label={`Chat about the source text from ${title || url || 'this article'}`}
+      aria-label={
+        pages
+          ? `Chat about the source text of ${title}`
+          : `Chat about the source text from ${title || url || 'this article'}`
+      }
     >
       <header className="tt-card__chat-head">Source chat</header>
       <div className="tt-card__chat-body">
@@ -44,7 +66,7 @@ export function SourceCardChatDrawer({ card, onClose, chatPorts }) {
           contentRevision={contentRevision}
           source={source}
           tools={tools}
-          emptyPrompt={CARD_PROMPT}
+          emptyPrompt={pages ? BLOCK_PROMPT : CARD_PROMPT}
           onEscape={onClose}
           {...chatPorts}
         />

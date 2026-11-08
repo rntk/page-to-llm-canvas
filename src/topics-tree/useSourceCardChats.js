@@ -12,6 +12,7 @@ import { articlesFromMergedRows, describeSourceCard } from './sourceCardChat.js'
  * @param {object|null} [options.sentenceSources] Set for merged trees (see describeSourceCard).
  * @param {object|null} [options.article] Set for single-article trees.
  * @param {object[]} [options.records] Merged trees: the articles merged.
+ * @param {string} [options.projectId] Merged trees: owner of chats over text from several articles.
  * @param {object} [options.chatPorts] ArticleChat port overrides (tests).
  * @returns {{available: function(object): boolean, render: function(object, {onClose: function(): void}): import('react').ReactNode}}
  */
@@ -20,6 +21,7 @@ export function useSourceCardChats({
   sentenceSources = null,
   article = null,
   records,
+  projectId,
   chatPorts,
 }) {
   return useMemo(() => {
@@ -30,7 +32,15 @@ export function useSourceCardChats({
       if (!cards.has(node.key)) {
         cards.set(
           node.key,
-          describeSourceCard({ node, sentences, sentenceSources, article, records, getArticles }),
+          describeSourceCard({
+            node,
+            sentences,
+            sentenceSources,
+            article,
+            records,
+            getArticles,
+            projectId,
+          }),
         );
       }
       return cards.get(node.key);
@@ -42,5 +52,5 @@ export function useSourceCardChats({
         return card ? createElement(SourceCardChatDrawer, { card, onClose, chatPorts }) : null;
       },
     };
-  }, [sentences, sentenceSources, article, records, chatPorts]);
+  }, [sentences, sentenceSources, article, records, projectId, chatPorts]);
 }

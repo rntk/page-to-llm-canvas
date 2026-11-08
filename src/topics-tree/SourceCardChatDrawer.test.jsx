@@ -91,4 +91,58 @@ describe('SourceCardChatDrawer', () => {
     const read = JSON.parse(await received.tools[0].run({}, { maxChars: 5000 }));
     expect(read).toMatchObject({ excerptStartsAtLine: 2, startLine: 1, totalLines: 3 });
   });
+
+  it('chats over the sections of a topic with page tools that take a page number', async () => {
+    let received;
+    const runTurn = vi.fn(async (args) => {
+      received = args;
+      return { reply: 'Answer', highlightRanges: [] };
+    });
+    const ports = makePorts(runTurn);
+    const block = {
+      chatKey: 'project:p1:block:abc',
+      topic: 'Fruit',
+      cardSentences: [
+        '### Section 1 - topic: Fruit > Apples - page 1 - page lines 2',
+        'Apples are red.',
+      ],
+      pages: [
+        {
+          title: 'Fruit facts',
+          url: 'https://a.test/fruit',
+          excerptSentences: ['Apples are red.'],
+          pageSentences: ['Fruit intro.', 'Apples are red.'],
+        },
+        {
+          title: 'Veg facts',
+          url: 'https://b.test/veg',
+          excerptSentences: [],
+          pageSentences: ['Carrots are orange.'],
+        },
+      ],
+    };
+    await act(async () =>
+      root.render(<SourceCardChatDrawer card={block} onClose={() => {}} chatPorts={ports} />),
+    );
+    await flush();
+    expect(container.querySelector('aside').getAttribute('aria-label')).toContain('Fruit');
+    expect(container.textContent).toContain('sub-topics and pages');
+
+    const textarea = container.querySelector('.pagetollm-chat-composer textarea');
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+    act(() => {
+      setter.call(textarea, 'What colour?');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => container.querySelector('.pagetollm-chat-composer button').click());
+    await flush();
+
+    expect(ports.chatRepository.list).toHaveBeenCalledWith('project:p1:block:abc');
+    expect(received.article.source).toMatchObject({ kind: 'sections', topic: 'Fruit' });
+    expect(received.article.source.pages).toHaveLength(2);
+    const search = JSON.parse(
+      await received.tools[1].run({ query: 'carrots', page: 2 }, { maxChars: 5000 }),
+    );
+    expect(search).toMatchObject({ page: 2, matches: [{ line: 1, text: 'Carrots are orange.' }] });
+  });
 });
