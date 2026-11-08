@@ -6,10 +6,10 @@ import { PageChatDrawer } from './PageChatDrawer.jsx';
 import { ExcerptChatDrawer } from './ExcerptChatDrawer.jsx';
 import { UNTITLED_PROJECT } from './projectText.js';
 import { useProjectView } from './useProjectView.js';
+import { useProjectMerge } from './useProjectMerge.js';
 import { browserScheduler } from '../shared/runtime/browserHosts.js';
 import { ProjectTopicTree } from './ProjectTopicTree.jsx';
 import './project-actions.css';
-import { SUMMARY_TREE_STALE_MS, SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
 
 const NO_EXCERPTS = [];
 const VIEWS = [
@@ -56,24 +56,20 @@ export function ProjectApp({
   const { status, view, error, refresh } = useProjectView({ projectId, api, subscribe, scheduler });
   const [chatOpen, setChatOpen] = useState(true);
   const [activeView, setActiveView] = useState('canvas');
-  const [topicPending, setTopicPending] = useState(false);
-  const [topicNotice, setTopicNotice] = useState('');
-  const runTopicAction = async (request) => {
-    if (topicPending) return;
-    setTopicPending(true);
-    setTopicNotice('');
-    try {
-      const response = await request();
-      if (response?.ok === false) throw new Error(response.error || 'Project request failed');
-    } catch (err) {
-      setTopicNotice(err?.message || String(err));
-    } finally {
-      refresh();
-      setTopicPending(false);
-    }
-  };
-  const buildTopicTree = (options) =>
-    runTopicAction(() => api.buildProjectTopicTree(projectId, options));
+  const {
+    canMerge,
+    pending: topicPending,
+    notice: topicNotice,
+    build: buildTopicTree,
+    stop: stopTopicTree,
+    open: openMerge,
+  } = useProjectMerge({
+    projectId,
+    api,
+    merge: view?.topicMerge,
+    refresh,
+    showTopics: () => setActiveView('topics'),
+  });
   const renderPageChat = useCallback(
     (tab, { onClose }) => (
       <PageChatDrawer projectId={projectId} tab={tab} api={api} onClose={onClose} />
@@ -104,13 +100,6 @@ export function ProjectApp({
     if (title) document.title = `${title} · Project`;
   }, [title]);
 
-  const mergeRunning = view?.topicMerge?.status === SUMMARY_TREE_STATUS.RUNNING;
-  useEffect(() => {
-    if (!mergeRunning) return undefined;
-    const timer = setInterval(refresh, SUMMARY_TREE_STALE_MS / 4);
-    return () => clearInterval(timer);
-  }, [mergeRunning, refresh]);
-
   if (status === 'idle') {
     return (
       <ErrorState
@@ -132,18 +121,6 @@ export function ProjectApp({
   }
 
   const tabs = view.tabs;
-  const canMerge = typeof api.buildProjectTopicTree === 'function';
-  const openMerge = () => {
-    setActiveView('topics');
-    if (
-      view.topicMerge?.eligiblePages?.length !== 0 &&
-      (!view.topicMerge?.tree ||
-        view.topicMerge?.stale === true ||
-        ['cancelled', 'interrupted', 'error'].includes(view.topicMerge?.status))
-    ) {
-      void buildTopicTree({ fresh: false });
-    }
-  };
   const topicActions = canMerge
     ? [
         {
@@ -232,11 +209,7 @@ export function ProjectApp({
                 pending={topicPending}
                 notice={topicNotice}
                 onBuild={buildTopicTree}
-                onStop={
-                  typeof api.stopProjectTopicTree === 'function'
-                    ? () => runTopicAction(() => api.stopProjectTopicTree(projectId))
-                    : undefined
-                }
+                onStop={stopTopicTree}
               />
             </div>
           )}
