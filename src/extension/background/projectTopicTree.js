@@ -2,6 +2,7 @@
 // are explicitly resumed after a worker restart, like an article summary tree.
 import { canonicalPageUrl } from '../../core/storage/keys.js';
 import {
+  diffProjectRecords,
   hasProjectTopicSource,
   projectTopicSourceRevision,
 } from '../../core/projects/projectTopicTree.js';
@@ -108,15 +109,18 @@ export function createProjectTopicTreeService({
       throw new Error('No completed saved topics are available in this project.');
     const runId = createId();
     const prior = source.view.project.topic_tree;
-    const sameSource = prior?.contentRevision === source.sourceRevision;
+    // A finished tree is extended with the page changes, so it is kept as is
+    // until the first save replaces it; other checkpoints need identical sources.
+    const keep =
+      !fresh && !!prior && (!!prior.rootId || prior.contentRevision === source.sourceRevision);
     const initial = {
-      ...(sameSource && !fresh ? prior : {}),
+      ...(keep ? prior : {}),
       version: SUMMARY_TREE_VERSION,
       status: SUMMARY_TREE_STATUS.RUNNING,
       stage: 'passages',
       contentRevision: source.sourceRevision,
       sourceRevision: source.sourceRevision,
-      nodes: sameSource && !fresh ? prior.nodes || {} : {},
+      nodes: keep ? prior.nodes || {} : {},
       runId,
       error: null,
       updatedAt: now(),
@@ -170,13 +174,24 @@ export function createProjectTopicTreeService({
         },
         now(),
       );
+      // Pages added, edited or removed since the saved tree was built.
+      const changes =
+        tree && Array.isArray(tree.records)
+          ? diffProjectRecords(tree.records, source.records)
+          : null;
       return {
         tree,
         status,
         eligiblePages: source.eligiblePages,
         skippedPages: source.skippedPages,
         topicCount: source.topicCount,
-        stale: !!tree && tree.contentRevision !== source.sourceRevision,
+        stale:
+          !!tree && (changes ? changes.total > 0 : tree.contentRevision !== source.sourceRevision),
+        changes: changes && {
+          added: changes.added.length,
+          changed: changes.changed.length,
+          removed: changes.removed.length,
+        },
       };
     },
     async build(projectId, { fresh = false } = {}) {
@@ -185,6 +200,15 @@ export function createProjectTopicTreeService({
         throw new Error(
           'Save and finish processing at least one project page before merging topics.',
         );
+      const saved = source.view.project.topic_tree;
+      if (
+        !fresh &&
+        saved?.status === SUMMARY_TREE_STATUS.DONE &&
+        Array.isArray(saved.records) &&
+        !diffProjectRecords(saved.records, source.records).total
+      ) {
+        return { started: false };
+      }
       return { started: jobs.start(projectId, { fresh }) };
     },
     async stop(projectId) {

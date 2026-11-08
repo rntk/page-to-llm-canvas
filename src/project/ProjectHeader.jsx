@@ -10,9 +10,18 @@ import { ProjectActionsMenu } from './ProjectActionsMenu.jsx';
  * @param {number} props.tabCount
  * @param {boolean} props.chatOpen
  * @param {function(): void} props.onToggleChat
+ * @param {React.ReactNode} [props.viewTabs] View switcher displayed inside the header.
  * @param {object[]} [props.actions] Project-wide action descriptors.
  */
-export function ProjectHeader({ project, isOpen, tabCount, chatOpen, onToggleChat, actions }) {
+export function ProjectHeader({
+  project,
+  isOpen,
+  tabCount,
+  chatOpen,
+  onToggleChat,
+  actions,
+  viewTabs,
+}) {
   return (
     <header className="project-header">
       <span
@@ -26,6 +35,7 @@ export function ProjectHeader({ project, isOpen, tabCount, chatOpen, onToggleCha
         {tabCount} {tabCount === 1 ? 'tab' : 'tabs'}
       </span>
       <span className={`status${isOpen ? ' done' : ''}`}>{isOpen ? 'Open' : 'Closed'}</span>
+      {viewTabs}
       <span className="project-header-spacer" />
       <button type="button" onClick={onToggleChat} aria-pressed={chatOpen}>
         Chat

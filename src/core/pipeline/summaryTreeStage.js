@@ -32,7 +32,7 @@ import {
   treeLevels,
 } from './summaryTreeModel.js';
 import { createSummaryTreeJudge, createSummaryTreeLlm } from './summaryTreeRequests.js';
-import { TOPIC_BATCH_CHARS, buildTopics } from './summaryTreeTopics.js';
+import { TOPIC_BATCH_CHARS, buildTopics, placeTopics } from './summaryTreeTopics.js';
 import { splitTopicPath } from '../../shared/runtime/topicPath.js';
 import {
   SUMMARY_TREE_HEARTBEAT_MS,
@@ -263,9 +263,20 @@ export async function runSummaryTree({
     const passageIds = Object.values(nodes)
       .filter((node) => node.kind === PASSAGE)
       .map((node) => node.id);
+    // A finished tree extended with new pages carries source nodes still to summarize.
+    const pendingSources = rootId
+      ? Object.values(nodes)
+          .filter((node) => node.recordKey && node.segments === null)
+          .map((node) => node.id)
+      : [];
     await generateSummaries({
       nodes,
-      targets: sourceTopicIds ? Object.keys(sourceNodes) : passageIds,
+      targets: [
+        ...new Set([
+          ...(sourceTopicIds ? Object.keys(sourceNodes) : passageIds),
+          ...pendingSources,
+        ]),
+      ],
       sentenceTexts,
       llm,
       verifier,
@@ -275,7 +286,7 @@ export async function runSummaryTree({
       controller,
     });
     const relevant = (sourceTopicIds || passageIds).filter((id) => nodes[id].segments?.length > 0);
-    if (!relevant.length) {
+    if (!relevant.length && !rootId) {
       throw new SummaryTreeError(
         passageIds.every((id) => nodes[id].failed)
           ? 'Could not summarize any passage. Retry to resume.'
@@ -283,7 +294,25 @@ export async function runSummaryTree({
       );
     }
 
-    if (!rootId) {
+    if (rootId) {
+      const unplaced = Object.values(nodes).filter((node) => node.unplaced);
+      // Units that could not be summarized stay out of the tree, as in a first build.
+      unplaced.filter((node) => !node.segments?.length).forEach((node) => delete node.unplaced);
+      const units = unplaced.filter((node) => node.unplaced).map((node) => node.id);
+      if (units.length) {
+        await enterStage(SUMMARY_TREE_STAGE.TOPICS);
+        await placeTopics({
+          nodes,
+          rootId,
+          unitIds: units,
+          llm,
+          judge,
+          workers,
+          batchChars: Math.min(TOPIC_BATCH_CHARS, maxChars),
+          onProgress: save,
+        });
+      }
+    } else {
       await enterStage(SUMMARY_TREE_STAGE.TOPICS);
       // Only this coordinator assigns the root; snapshots merely read it.
       // eslint-disable-next-line require-atomic-updates

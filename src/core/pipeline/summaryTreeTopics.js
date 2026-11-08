@@ -149,6 +149,47 @@ export function orderGroups(topics, leftover, ids, allowSingleGroup = false) {
 }
 
 /**
+ * The judge assigns each node to one of the proposed sub-topics or to none.
+ * @param {object} input
+ * @param {{askMany: Function}} input.judge
+ * @param {Record<string, object>} input.nodes
+ * @param {string[]} input.ids Summarized nodes to assign.
+ * @param {string} input.path Parent topic path.
+ * @param {Record<string, string>} input.proposed Sub-topic title -> description.
+ * @returns {Promise<{topics: Map<string, string[]>, leftover: string[]}|null>} Null when any answer is missing.
+ */
+async function judgeAssign({ judge, nodes, ids, path, proposed }) {
+  const titles = Object.keys(proposed);
+  const state = { path, topics: proposed };
+  const requests = [];
+  for (let start = 0; start < ids.length; start += ASSIGN_PASSAGES) {
+    const questions = {};
+    ids.slice(start, start + ASSIGN_PASSAGES).forEach((id, index) => {
+      const text = digest(nodes, id);
+      questions[`fits_${index}`] = topicFitsQuestion(text);
+      questions[`topic_${index}`] = topicChoiceQuestion(text, path, proposed);
+    });
+    requests.push([state, questions]);
+  }
+  const answers = await judge.askMany(requests);
+  if (answers.some((item) => !item)) return null;
+  const topics = new Map();
+  const leftover = [];
+  ids.forEach((id, position) => {
+    const item = answers[Math.floor(position / ASSIGN_PASSAGES)];
+    const index = position % ASSIGN_PASSAGES;
+    const fits = yesProbability(item, `fits_${index}`);
+    const title = fits !== null && fits < NO ? null : chosenOption(item, `topic_${index}`, titles);
+    if (!title) leftover.push(id);
+    else {
+      if (!topics.has(title)) topics.set(title, []);
+      topics.get(title).push(id);
+    }
+  });
+  return { topics, leftover };
+}
+
+/**
  * Grow topic nodes above summarized passages.
  * @param {object} input
  * @param {Record<string, object>} input.nodes Mutated: topic and root nodes are added.
@@ -201,35 +242,7 @@ export async function buildTopics({
   async function splitJudged(ids, path) {
     const proposed = await propose(ids, path);
     if (!proposed || !judge?.active) return null;
-    const titles = Object.keys(proposed);
-    const state = { path: path.join(' › '), topics: proposed };
-    const requests = [];
-    for (let start = 0; start < ids.length; start += ASSIGN_PASSAGES) {
-      const questions = {};
-      ids.slice(start, start + ASSIGN_PASSAGES).forEach((id, index) => {
-        const text = digest(nodes, id);
-        questions[`fits_${index}`] = topicFitsQuestion(text);
-        questions[`topic_${index}`] = topicChoiceQuestion(text, state.path, proposed);
-      });
-      requests.push([state, questions]);
-    }
-    const answers = await judge.askMany(requests);
-    if (answers.some((item) => !item)) return null;
-    const topics = new Map();
-    const leftover = [];
-    ids.forEach((id, position) => {
-      const item = answers[Math.floor(position / ASSIGN_PASSAGES)];
-      const index = position % ASSIGN_PASSAGES;
-      const fits = yesProbability(item, `fits_${index}`);
-      const title =
-        fits !== null && fits < NO ? null : chosenOption(item, `topic_${index}`, titles);
-      if (!title) leftover.push(id);
-      else {
-        if (!topics.has(title)) topics.set(title, []);
-        topics.get(title).push(id);
-      }
-    });
-    return { topics, leftover };
+    return judgeAssign({ judge, nodes, ids, path: path.join(' › '), proposed });
   }
 
   async function splitLlm(ids, path) {
@@ -299,4 +312,126 @@ export async function buildTopics({
     });
   };
   return addNode(nodes, ROOT, rootTitle, grow(passageIds, [], 0));
+}
+
+/**
+ * Attach new, summarized units to a finished tree. Each unit descends from the
+ * root through the grouping branch it fits best and joins the first level where
+ * no branch fits. Every branch on its way loses its summary so it is rewritten.
+ * Units are attached as soon as they settle, so a saved snapshot is always whole.
+ * @param {object} input
+ * @param {Record<string, object>} input.nodes Mutated.
+ * @param {string} input.rootId
+ * @param {string[]} input.unitIds Summarized units flagged `unplaced`.
+ * @param {{ask: Function}} input.llm
+ * @param {object} [input.judge]
+ * @param {number} [input.workers]
+ * @param {number} [input.batchChars]
+ * @param {function(): Promise<void>} [input.onProgress]
+ */
+export async function placeTopics({
+  nodes,
+  rootId,
+  unitIds,
+  llm,
+  judge = null,
+  workers = 4,
+  batchChars = TOPIC_BATCH_CHARS,
+  onProgress = async () => {},
+}) {
+  const limit = createLimiter(workers);
+  const isBranch = (id) => !nodes[id].recordKey && nodes[id].kind === TOPIC;
+  const trail = new Map(unitIds.map((id) => [id, [rootId]]));
+
+  const attach = (id) => {
+    const path = trail.get(id);
+    const parent = nodes[path.at(-1)];
+    parent.children.push(id);
+    for (const ancestor of path) {
+      const node = nodes[ancestor];
+      node.segments = null;
+      node.sentences = [...new Set([...node.sentences, ...nodes[id].sentences])].sort(
+        (a, b) => a - b,
+      );
+    }
+    delete nodes[id].unplaced;
+  };
+
+  // The branch each unit joins, or null when none fits; unanswered units stay at this level.
+  async function choose(ids, parentId, branches) {
+    const titles = new Map();
+    for (const branchId of branches) {
+      const title = nodes[branchId].title;
+      if (!titles.has(title)) titles.set(title, branchId);
+    }
+    const path = nodes[parentId].path?.join(' › ') || nodes[parentId].title;
+    const choice = new Map();
+    const proposed = Object.fromEntries(
+      [...titles].map(([title, branchId]) => [
+        title,
+        summaryText(nodes[branchId]).slice(0, DESCRIPTION_CHARS) || title,
+      ]),
+    );
+    const judged = judge?.active ? await judgeAssign({ judge, nodes, ids, path, proposed }) : null;
+    if (judged) {
+      for (const [title, members] of judged.topics) {
+        members.forEach((id) => choice.set(id, titles.get(title)));
+      }
+      return choice;
+    }
+    for (const batch of digestBatches(nodes, ids, batchChars)) {
+      const existing = [...titles.keys()];
+      const local = new Map(batch.map((id, index) => [`P${index + 1}`, id]));
+      // One new title is allowed to mean that no existing branch fits.
+      let decoded = null;
+      const accepted = await llm.ask(
+        buildTopicGroupingPrompt({
+          source_kind: 'project_primary_topics',
+          path,
+          existing_topics: existing,
+          max_new_topics: 1,
+          passages: [...local].map(([id, nodeId]) => ({ id, summary: digest(nodes, nodeId) })),
+        }),
+        (raw) => {
+          decoded = decodeAssignment(raw, local, existing, 1);
+          return decoded !== null;
+        },
+        LLM_TASK_TYPES.SUMMARY_TREE_TOPICS,
+      );
+      for (const [title, members] of (accepted && decoded) || []) {
+        if (titles.has(title)) members.forEach((id) => choice.set(id, titles.get(title)));
+      }
+    }
+    return choice;
+  }
+
+  let active = [...unitIds];
+  while (active.length) {
+    const byParent = new Map();
+    for (const id of active) {
+      const parentId = trail.get(id).at(-1);
+      if (!byParent.has(parentId)) byParent.set(parentId, []);
+      byParent.get(parentId).push(id);
+    }
+    const next = [];
+    await Promise.all(
+      [...byParent].map(([parentId, ids]) =>
+        limit(async () => {
+          const branches = nodes[parentId].children.filter(isBranch);
+          const choice = branches.length ? await choose(ids, parentId, branches) : new Map();
+          for (const id of ids) {
+            const branchId = choice.get(id);
+            if (branchId) {
+              trail.get(id).push(branchId);
+              next.push(id);
+            } else {
+              attach(id);
+            }
+          }
+          await onProgress();
+        }),
+      ),
+    );
+    active = next;
+  }
 }

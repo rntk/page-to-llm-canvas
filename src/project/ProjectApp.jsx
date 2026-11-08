@@ -8,9 +8,14 @@ import { UNTITLED_PROJECT } from './projectText.js';
 import { useProjectView } from './useProjectView.js';
 import { browserScheduler } from '../shared/runtime/browserHosts.js';
 import { ProjectTopicTree } from './ProjectTopicTree.jsx';
+import './project-actions.css';
 import { SUMMARY_TREE_STALE_MS, SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
 
 const NO_EXCERPTS = [];
+const VIEWS = [
+  { id: 'canvas', label: 'Canvas' },
+  { id: 'topics', label: 'Topics tree' },
+];
 
 function ErrorState({ title, message, pageHost }) {
   return (
@@ -50,7 +55,7 @@ export function ProjectApp({
 }) {
   const { status, view, error, refresh } = useProjectView({ projectId, api, subscribe, scheduler });
   const [chatOpen, setChatOpen] = useState(true);
-  const [topicTreeOpen, setTopicTreeOpen] = useState(false);
+  const [activeView, setActiveView] = useState('canvas');
   const [topicPending, setTopicPending] = useState(false);
   const [topicNotice, setTopicNotice] = useState('');
   const runTopicAction = async (request) => {
@@ -121,10 +126,11 @@ export function ProjectApp({
   const tabs = view.tabs;
   const canMerge = typeof api.buildProjectTopicTree === 'function';
   const openMerge = () => {
-    setTopicTreeOpen(true);
+    setActiveView('topics');
     if (
       view.topicMerge?.eligiblePages?.length !== 0 &&
       (!view.topicMerge?.tree ||
+        view.topicMerge?.stale === true ||
         ['cancelled', 'interrupted', 'error'].includes(view.topicMerge?.status))
     ) {
       void buildTopicTree({ fresh: false });
@@ -142,6 +148,7 @@ export function ProjectApp({
         },
       ]
     : [];
+  const topicTreeOpen = canMerge && activeView === 'topics';
   const { topicMerge } = view;
   const mergeKey = [
     topicMerge?.status,
@@ -159,10 +166,33 @@ export function ProjectApp({
         chatOpen={chatOpen}
         onToggleChat={() => setChatOpen((open) => !open)}
         actions={topicActions}
+        viewTabs={
+          canMerge && (
+            <div className="project-view-tabs" role="tablist" aria-label="Project views">
+              {VIEWS.map(({ id, label }) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  id={`project-tab-${id}`}
+                  aria-controls={`project-panel-${id}`}
+                  aria-selected={activeView === id}
+                  onClick={() => setActiveView(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )
+        }
       />
       <div className="project-body">
         <div className="project-canvas-wrap">
           <div
+            hidden={topicTreeOpen}
+            role="tabpanel"
+            id="project-panel-canvas"
+            aria-labelledby="project-tab-canvas"
             className={
               topicTreeOpen ? 'project-canvas-content is-hidden' : 'project-canvas-content'
             }
@@ -189,19 +219,25 @@ export function ProjectApp({
             )}
           </div>
           {topicTreeOpen && (
-            <ProjectTopicTree
-              project={view.project}
-              merge={view.topicMerge}
-              pending={topicPending}
-              notice={topicNotice}
-              onBuild={buildTopicTree}
-              onStop={
-                typeof api.stopProjectTopicTree === 'function'
-                  ? () => runTopicAction(() => api.stopProjectTopicTree(projectId))
-                  : undefined
-              }
-              onClose={() => setTopicTreeOpen(false)}
-            />
+            <div
+              className="project-topics-content"
+              role="tabpanel"
+              id="project-panel-topics"
+              aria-labelledby="project-tab-topics"
+            >
+              <ProjectTopicTree
+                project={view.project}
+                merge={view.topicMerge}
+                pending={topicPending}
+                notice={topicNotice}
+                onBuild={buildTopicTree}
+                onStop={
+                  typeof api.stopProjectTopicTree === 'function'
+                    ? () => runTopicAction(() => api.stopProjectTopicTree(projectId))
+                    : undefined
+                }
+              />
+            </div>
           )}
         </div>
         {chatOpen && (

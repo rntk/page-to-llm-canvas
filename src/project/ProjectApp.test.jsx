@@ -221,23 +221,54 @@ describe('ProjectApp', () => {
     };
     await renderApp({ api });
     const canvas = container.querySelector('.canvas-area');
-    const menu = container.querySelector('.project-actions');
-    menu.open = true;
-    await act(async () => menu.querySelector('button').click());
+    const toggle = container.querySelector('.project-actions__toggle');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+    await act(async () => toggle.click());
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    await act(async () => container.querySelector('[role="menuitem"]').click());
     expect(api.buildProjectTopicTree).toHaveBeenCalledWith('a', { fresh: false });
     expect(api.getProjectView).toHaveBeenCalledTimes(2);
-    expect(menu.open).toBe(false);
+    expect(container.querySelector('[role="menu"]')).toBeNull();
     expect(container.querySelector('[aria-label="Merged project topics"]').textContent).toContain(
       'Merging similar topics',
     );
     await act(async () =>
       [...container.querySelectorAll('button')]
-        .find((el) => el.textContent === 'Back to canvas')
+        .find((el) => el.getAttribute('role') === 'tab' && el.textContent === 'Canvas')
         .click(),
     );
     expect(container.querySelector('.canvas-area')).toBe(canvas);
     expect(container.querySelector('.project-canvas-content').classList.contains('is-hidden')).toBe(
       false,
     );
+  });
+
+  it('switches between the canvas and topics tree tabs without building', async () => {
+    const api = {
+      getProjectView: vi.fn(async () => viewOf({ topicMerge: { status: 'missing', tree: null } })),
+      buildProjectTopicTree: vi.fn(async () => ({})),
+    };
+    await renderApp({ api });
+    const tab = (name) =>
+      [...container.querySelectorAll('[role="tab"]')].find((el) => el.textContent === name);
+    expect(container.querySelector('.project-header .project-view-tabs')).not.toBeNull();
+    const canvasPanel = container.querySelector('#project-panel-canvas');
+    expect(canvasPanel.hidden).toBe(false);
+    expect(tab('Canvas').getAttribute('aria-selected')).toBe('true');
+    expect(container.querySelector('[aria-label="Merged project topics"]')).toBeNull();
+    await act(async () => tab('Topics tree').click());
+    expect(tab('Topics tree').getAttribute('aria-selected')).toBe('true');
+    expect(canvasPanel.hidden).toBe(true);
+    expect(
+      container
+        .querySelector('#project-panel-topics')
+        .contains(container.querySelector('[aria-label="Merged project topics"]')),
+    ).toBe(true);
+    expect(container.querySelector('[aria-label="Merged project topics"]')).not.toBeNull();
+    expect(api.buildProjectTopicTree).not.toHaveBeenCalled();
+    await act(async () => tab('Canvas').click());
+    expect(canvasPanel.hidden).toBe(false);
+    expect(container.querySelector('#project-panel-topics')).toBeNull();
   });
 });

@@ -3,27 +3,41 @@
   flex: none;
 }
 
-.project-actions > summary {
-  padding: 6px 12px;
-  border: 1px solid var(--ink);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
+.project-actions__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 30px;
+  padding: 0;
 }
 
-.project-actions > summary:focus-visible {
+.project-actions__toggle:focus-visible,
+.project-actions__list button:focus-visible,
+.project-view-tabs button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Three bars drawn from one element so they follow the button's text color. */
+.project-actions__icon {
+  width: 14px;
+  height: 2px;
+  background: currentcolor;
+  box-shadow:
+    0 -5px 0 currentcolor,
+    0 5px 0 currentcolor;
 }
 
 .project-actions__list {
   position: absolute;
   z-index: 10;
-  top: calc(100% + 8px);
+  top: calc(100% + 6px);
   right: 0;
-  width: min(340px, 80vw);
-  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  width: min(300px, 80vw);
+  padding: 4px 0;
   border: 1px solid var(--ink);
   background: var(--surface);
   box-shadow: 4px 4px 0 var(--ghost);
@@ -32,9 +46,16 @@
 .project-actions__list button {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
   width: 100%;
+  padding: 8px 14px;
+  border: 0;
   text-align: left;
+  text-transform: none;
+}
+
+.project-actions__list button + button {
+  border-top: 1px solid var(--ghost);
 }
 
 .project-actions__list small {
@@ -42,10 +63,37 @@
   font-weight: 400;
   letter-spacing: normal;
   line-height: 1.4;
-  text-transform: none;
 }
 
-.project-canvas-content {
+.project-view-tabs {
+  display: flex;
+  flex: none;
+  margin-left: 12px;
+  padding: 0;
+  background: var(--surface);
+}
+
+.project-view-tabs button {
+  margin-bottom: -1px;
+  padding: 8px 16px;
+  border-width: 0 0 3px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.project-view-tabs button[aria-selected='true'] {
+  border-bottom-color: var(--ink);
+  background: transparent;
+  color: var(--ink);
+}
+
+.project-view-tabs button:hover:not(:disabled) {
+  background: var(--ghost);
+  color: var(--ink);
+}
+
+.project-canvas-content,
+.project-topics-content {
   position: absolute;
   inset: 0;
 }
@@ -56,6 +104,8 @@
 
 .project-topic-tree {
   height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .project-topic-tree__bar,

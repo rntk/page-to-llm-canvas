@@ -5,7 +5,6 @@ import { buildSummaryTreeDisplayTree } from '../topics-tree/topicsTreeModel.js';
 import { SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
 import '../hierarchy/hierarchy.css';
 import '../topics-tree/topics-tree.css';
-import './project-actions.css';
 
 const STAGES = {
   passages: 'Reading primary topics',
@@ -20,7 +19,7 @@ function mergeProgress(tree) {
 }
 
 /** The project's saved merge, rendered with the same progressive tree as article summaries. */
-export function ProjectTopicTree({ project, merge, pending, notice, onBuild, onStop, onClose }) {
+export function ProjectTopicTree({ project, merge, pending, notice, onBuild, onStop }) {
   const [controlsHost, setControlsHost] = useState(null);
   const tree = merge?.tree;
   const status = merge?.status || SUMMARY_TREE_STATUS.MISSING;
@@ -44,6 +43,17 @@ export function ProjectTopicTree({ project, merge, pending, notice, onBuild, onS
     () => buildSummaryTreeDisplayTree(JSON.parse(treeJson), { title: project.title || 'Project' }),
     [treeJson, project.title],
   );
+  const changes = merge?.changes;
+  const changeText = changes
+    ? [
+        changes.added && `${changes.added} new`,
+        changes.changed && `${changes.changed} updated`,
+        changes.removed && `${changes.removed} removed`,
+      ]
+        .filter(Boolean)
+        .join(', ')
+    : '';
+  const updatable = status === SUMMARY_TREE_STATUS.DONE && merge?.stale === true;
   const resumable = [
     SUMMARY_TREE_STATUS.CANCELLED,
     SUMMARY_TREE_STATUS.INTERRUPTED,
@@ -77,13 +87,13 @@ export function ProjectTopicTree({ project, merge, pending, notice, onBuild, onS
             )
           ) : (
             <>
-              {status !== SUMMARY_TREE_STATUS.DONE && (
+              {(status !== SUMMARY_TREE_STATUS.DONE || updatable) && (
                 <button
                   type="button"
                   disabled={pending || !eligible.length}
                   onClick={() => onBuild({ fresh: false })}
                 >
-                  {resumable ? 'Resume' : 'Merge similar topics'}
+                  {updatable ? 'Add changes' : resumable ? 'Resume' : 'Merge similar topics'}
                 </button>
               )}
               {tree && (
@@ -97,9 +107,6 @@ export function ProjectTopicTree({ project, merge, pending, notice, onBuild, onS
               )}
             </>
           )}
-          <button type="button" onClick={onClose}>
-            Back to canvas
-          </button>
         </div>
       </header>
       <div className="project-topic-tree__status">
@@ -108,8 +115,9 @@ export function ProjectTopicTree({ project, merge, pending, notice, onBuild, onS
         {status === SUMMARY_TREE_STATUS.ERROR && tree?.error && <p role="alert">{tree.error}</p>}
         {merge?.stale && (
           <p>
-            The project&apos;s pages or primary topics have changed. Rebuild to include the current
-            sources.
+            The project&apos;s pages or primary topics have changed
+            {changeText && ` (${changeText})`}. Add the changes to the merged topics, or Rebuild to
+            regroup everything.
           </p>
         )}
         <details className="project-topic-tree__sources">
@@ -168,7 +176,7 @@ export function ProjectTopicTree({ project, merge, pending, notice, onBuild, onS
       ) : (
         <div className="th-page__state">
           {running || pending
-            ? 'The merge runs in the background. You can return to the canvas and reopen it from Project actions.'
+            ? 'The merge runs in the background. You can switch to the Canvas tab and come back later.'
             : eligible.length
               ? 'Similar primary topics will share a branch. Unfold a branch to read each article’s original text with its source and line numbers.'
               : 'No completed saved pages with primary topics are available in this project.'}

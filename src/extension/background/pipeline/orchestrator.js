@@ -29,6 +29,7 @@ import {
 import { normalizeCustomInstructions } from '../../../core/pipeline/customInstructions.js';
 import {
   buildProjectTopicSeed,
+  prepareIncrementalProjectTree,
   projectTopicSourceRevision,
 } from '../../../core/projects/projectTopicTree.js';
 import {
@@ -547,9 +548,24 @@ export function createPipelineRunner({
       verboseLogs,
     });
     const judge = await providers.resolveSummaryTreeDecide();
-    const seed = buildProjectTopicSeed(records, {
-      maxChars: Math.min(3000, providers.runtimeOptions.maxTextChunkChars),
-    });
+    const fingerprint = JSON.stringify([
+      providers.summaryInputFingerprint,
+      activeProvider?.id ?? null,
+      activeProvider?.url ?? null,
+      activeProvider?.contextWindowTokens ?? null,
+      judge.identity,
+    ]);
+    const maxChars = Math.min(3000, providers.runtimeOptions.maxTextChunkChars);
+    // A finished tree made by the same provider is extended with the pages that
+    // changed instead of being grouped again from scratch.
+    const incremental =
+      !fresh && prior?.fingerprint === fingerprint
+        ? prepareIncrementalProjectTree(prior, records, {
+            contentRevision: sourceRevision,
+            maxChars,
+          })
+        : null;
+    const seed = incremental ? incremental.seed : buildProjectTopicSeed(records, { maxChars });
     return runSummaryTreeStage({
       runtime: {
         signal,
@@ -564,19 +580,17 @@ export function createPipelineRunner({
             sourceRevision,
           }),
       },
-      record: { sentences: seed.sentences, contentRevision: sourceRevision, summary_tree: prior },
-      sourceNodes: seed.nodes,
-      sourceTopicIds: seed.sourceTopicIds,
+      record: {
+        sentences: seed.sentences,
+        contentRevision: sourceRevision,
+        summary_tree: incremental ? incremental.tree : prior,
+      },
+      sourceNodes: incremental ? null : seed.nodes,
+      sourceTopicIds: incremental ? null : seed.sourceTopicIds,
       groupSmallRoot: true,
       callLLMWithRetry: providers.callLLMWithRetry,
       decide: judge.decide,
-      fingerprint: JSON.stringify([
-        providers.summaryInputFingerprint,
-        activeProvider?.id ?? null,
-        activeProvider?.url ?? null,
-        activeProvider?.contextWindowTokens ?? null,
-        judge.identity,
-      ]),
+      fingerprint,
       rootTitle: title || 'Project topics',
       fresh,
     });

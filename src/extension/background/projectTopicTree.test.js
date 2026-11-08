@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { projectRecordRevision } from '../../core/projects/projectTopicTree.js';
 import { createProjectTopicTreeService } from './projectTopicTree.js';
 
 function fixture() {
@@ -35,7 +36,11 @@ function fixture() {
       contentRevision: projects[0].topic_tree.contentRevision,
       rootId: 'n1',
       nodes: {},
-      records: sources.map(({ key }) => ({ key })),
+      records: sources.map((source) => ({
+        key: source.key,
+        contentRevision: source.contentRevision || null,
+        revision: projectRecordRevision(source),
+      })),
       updatedAt: 100,
     });
   });
@@ -84,8 +89,39 @@ describe('project topic tree service', () => {
     expect(await service.getView('p')).toMatchObject({
       status: 'done',
       stale: true,
-      tree: expect.objectContaining({ records: [{ key: 'a' }] }),
+      changes: { added: 0, changed: 1, removed: 0 },
     });
+  });
+
+  it('reports added pages, skips no-op builds, and keeps the finished tree while extending it', async () => {
+    const { service, records, projectStore, runProjectTopicTree, tabs } = fixture();
+    await service.build('p');
+    await waitDone(projectStore);
+    expect(await service.build('p')).toEqual({ started: false });
+    expect(runProjectTopicTree).toHaveBeenCalledTimes(1);
+
+    records[1] = {
+      key: 'b',
+      status: 'done',
+      sourceUrl: 'https://b.test/',
+      contentRevision: 'b1',
+      sentences: ['Second.'],
+      topics: [{ name: 'Two', sentences: [1] }],
+    };
+    // Tab order must not matter; only the new page counts as a change.
+    tabs.reverse();
+    expect(await service.getView('p')).toMatchObject({
+      stale: true,
+      changes: { added: 1, changed: 0, removed: 0 },
+    });
+    const saved = (await projectStore.get('p')).topic_tree;
+    runProjectTopicTree.mockImplementationOnce(async ({ prior }) => {
+      // The run starts from the finished tree rather than an emptied one.
+      expect(prior.rootId).toBe('n1');
+      expect((await projectStore.get('p')).topic_tree.rootId).toBe(saved.rootId);
+    });
+    expect(await service.build('p')).toEqual({ started: true });
+    await vi.waitFor(() => expect(runProjectTopicTree).toHaveBeenCalledTimes(2));
   });
 
   it('stops an active build, persists the partial tree, and allows resume', async () => {

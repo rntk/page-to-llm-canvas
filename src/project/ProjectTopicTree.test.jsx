@@ -68,7 +68,7 @@ afterEach(() => {
 });
 
 function render(props = {}) {
-  const callbacks = { onBuild: vi.fn(), onStop: vi.fn(), onClose: vi.fn() };
+  const callbacks = { onBuild: vi.fn(), onStop: vi.fn() };
   act(() =>
     root.render(
       <ProjectTopicTree
@@ -91,6 +91,17 @@ const button = (label) =>
   [...container.querySelectorAll('button')].find((el) => el.textContent === label);
 
 describe('ProjectTopicTree', () => {
+  it('switches levels from merged topics to sources and back', () => {
+    render();
+    act(() => button('L2').click());
+    expect(container.querySelectorAll('.tt-card')).toHaveLength(2);
+    expect(button('L2').classList.contains('active')).toBe(true);
+    act(() => button('L0').click());
+    expect(container.querySelectorAll('.tt-card')).toHaveLength(0);
+    expect(button('L0').classList.contains('active')).toBe(true);
+    expect(container.querySelector('.tt-node__title').textContent).toBe('Research');
+  });
+
   it('unfolds original text with distinct article titles, URLs and local sentence numbers', () => {
     render();
     expect(container.querySelector('.tt-node--root').textContent).toContain('2 articles');
@@ -108,13 +119,14 @@ describe('ProjectTopicTree', () => {
   });
 
   it('explains skipped pages and source changes, and rebuilds from current inputs', () => {
-    const { onBuild, onClose } = render({
+    const { onBuild } = render({
       merge: {
         status: 'done',
         tree,
         eligiblePages: [articleA],
         topicCount: 1,
         stale: true,
+        changes: { added: 2, changed: 0, removed: 1 },
         skippedPages: [
           { title: 'Unprocessed', url: 'https://other.test/', reason: 'Page is still processing.' },
         ],
@@ -122,11 +134,11 @@ describe('ProjectTopicTree', () => {
     });
     expect(container.textContent).toContain('1 eligible page · 1 primary topic · 1 skipped');
     expect(container.textContent).toContain('Page is still processing.');
-    expect(container.textContent).toContain('Rebuild to include the current sources.');
+    expect(container.textContent).toContain('2 new, 1 removed');
+    act(() => button('Add changes').click());
+    expect(onBuild).toHaveBeenLastCalledWith({ fresh: false });
     act(() => button('Rebuild').click());
-    expect(onBuild).toHaveBeenCalledWith({ fresh: true });
-    act(() => button('Back to canvas').click());
-    expect(onClose).toHaveBeenCalledOnce();
+    expect(onBuild).toHaveBeenLastCalledWith({ fresh: true });
   });
 
   it('offers stop while running and resume after interruption', () => {
