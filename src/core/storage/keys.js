@@ -115,6 +115,34 @@ export function isExcerptChatKey(key) {
   return typeof key === 'string' && key.startsWith(EXCERPT_CHAT_KEY_PREFIX);
 }
 
+// Chats about one source card of a topics tree live beside the article they
+// quote: `card:<first>-<last>:<recordKey>`, where first/last are the card's
+// lowest and highest sentence numbers in that article. Unlike detached chats
+// they follow the article's content revision, so reanalysis or deletion drops
+// them.
+export const SOURCE_CARD_CHAT_KEY_PREFIX = 'card:';
+const SOURCE_CARD_CHAT_KEY = /^card:(\d+)-(\d+):(.+)$/;
+
+/**
+ * @param {string} recordKey The article the card quotes.
+ * @param {number} first Lowest sentence number on the card (1-based).
+ * @param {number} last Highest sentence number on the card.
+ * @returns {string} The card chat key, or '' when an input is unusable.
+ */
+export function sourceCardChatKey(recordKey, first, last) {
+  if (typeof recordKey !== 'string' || !recordKey) return '';
+  if (!Number.isInteger(first) || !Number.isInteger(last) || first < 1 || last < first) return '';
+  return `${SOURCE_CARD_CHAT_KEY_PREFIX}${first}-${last}:${recordKey}`;
+}
+
+/**
+ * @param {string} key
+ * @returns {string|null} The record a card chat key belongs to, else null.
+ */
+export function sourceCardOwnerKey(key) {
+  return typeof key === 'string' ? (SOURCE_CARD_CHAT_KEY.exec(key)?.[3] ?? null) : null;
+}
+
 // A project's own chat (over its merged topic tree) lives under the project id.
 export const PROJECT_CHAT_KEY_PREFIX = 'project:';
 

@@ -8,7 +8,7 @@ import {
   adoptPageChats,
   MAX_CHAT_TURNS,
 } from './chatStorage.js';
-import { pageChatKey, projectChatKey } from './keys.js';
+import { pageChatKey, projectChatKey, sourceCardChatKey } from './keys.js';
 import {
   writeRecord,
   updateRecord,
@@ -1044,5 +1044,44 @@ describe('project chats (no saved record)', () => {
     expect((await listChats(key)).map((item) => item.chatId)).toEqual([chat.chatId]);
     expect((await readChat(key, chat.chatId)).messages).toHaveLength(2);
     expect(await listChats(projectChatKey('proj-2'))).toEqual([]);
+  });
+});
+
+describe('source card chats', () => {
+  const key = sourceCardChatKey('article', 2, 4);
+
+  it('lives under its article and is dropped when the article is reprocessed', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+    const { chat } = await appendChatTurn(key, null, {
+      turnId: 'card-turn',
+      messages: [{ role: 'user', content: 'About this card' }],
+    });
+    expect((await listChats(key)).map((item) => item.chatId)).toEqual([chat.chatId]);
+    // Another card of the same article has its own history.
+    expect(await listChats(sourceCardChatKey('article', 5, 6))).toEqual([]);
+
+    await updateRecord('article', { text: 'replacement' }, { bumpContentRevision: true });
+    expect(await listChats(key)).toEqual([]);
+  });
+
+  it('has no chat once its article is gone, and reconciliation removes the leftovers', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await expect(
+      appendChatTurn(key, null, { messages: [{ role: 'user', content: 'No article' }] }),
+    ).rejects.toThrow('record not found');
+
+    await seedRecord(mock, makeRecord('article'));
+    const { chat } = await appendChatTurn(key, null, {
+      messages: [{ role: 'user', content: 'Soon orphaned' }],
+    });
+    await deleteRecord('article');
+    await reconcileChatStorage();
+    expect(await readChat(key, chat.chatId)).toBeNull();
+    expect([...mock.storage.local._store.keys()].some((k) => k.includes(':chats:card:'))).toBe(
+      false,
+    );
   });
 });

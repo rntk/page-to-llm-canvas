@@ -14,6 +14,8 @@ import {
   recordSourceSummaryUnitStorageKey,
   recordSummaryLeafStorageKey,
   recordSummaryOutputStorageKey,
+  sourceCardChatKey,
+  sourceCardOwnerKey,
   recordTopicRangeCheckpointStorageKey,
 } from './keys.js';
 
@@ -74,5 +76,23 @@ describe('project chat keys', () => {
     expect(isProjectChatKey(projectChatKey('p1'))).toBe(true);
     expect(isProjectChatKey('rec_123')).toBe(false);
     expect(isDetachedChatKey(projectChatKey('p1'))).toBe(true);
+  });
+});
+
+describe('source card chat keys', () => {
+  it('names a card by its article and sentence span and reads the article back', () => {
+    const key = sourceCardChatKey('rec:1', 3, 9);
+    expect(key).toBe('card:3-9:rec:1');
+    expect(sourceCardOwnerKey(key)).toBe('rec:1');
+    expect(isDetachedChatKey(key)).toBe(false);
+  });
+
+  it('refuses unusable inputs and ignores other keys', () => {
+    expect(sourceCardChatKey('', 1, 2)).toBe('');
+    expect(sourceCardChatKey('a', 0, 2)).toBe('');
+    expect(sourceCardChatKey('a', 4, 2)).toBe('');
+    expect(sourceCardChatKey('a', 1.5, 2)).toBe('');
+    expect(sourceCardOwnerKey('page:https://example.com')).toBeNull();
+    expect(sourceCardOwnerKey(undefined)).toBeNull();
   });
 });

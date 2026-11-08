@@ -2,10 +2,12 @@ import React, { useMemo, useState } from 'react';
 import TopicsTreeCanvas from '../topics-tree/TopicsTreeCanvas.jsx';
 import SourceArticle from '../topics-tree/SourceArticle.jsx';
 import { buildSummaryTreeDisplayTree } from '../topics-tree/topicsTreeModel.js';
+import { useSourceCardChats } from '../topics-tree/useSourceCardChats.js';
 import { SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
 import '../hierarchy/hierarchy.css';
 import '../topics-tree/topics-tree.css';
 
+const NO_SENTENCES = [];
 const STAGES = {
   passages: 'Reading primary topics',
   topics: 'Merging similar topics',
@@ -43,6 +45,11 @@ export function ProjectTopicTree({ project, merge, pending, notice, onBuild, onS
     () => buildSummaryTreeDisplayTree(JSON.parse(treeJson), { title: project.title || 'Project' }),
     [treeJson, project.title],
   );
+  const leafChat = useSourceCardChats({
+    sentences: tree?.sentences || NO_SENTENCES,
+    sentenceSources: tree?.sources || null,
+    records: tree?.records,
+  });
   const changes = merge?.changes;
   const changeText = changes
     ? [
@@ -77,6 +84,55 @@ export function ProjectTopicTree({ project, merge, pending, notice, onBuild, onS
     <section className="th-page project-topic-tree" aria-label="Merged project topics">
       <header className="th-page__bar project-topic-tree__bar">
         <h2 className="th-page__title">Merged project topics</h2>
+        <p className="project-topic-tree__state" role="status" title={stateText}>
+          {stateText}
+        </p>
+        <details className="project-topic-tree__sources">
+          <summary>
+            {eligible.length} eligible {eligible.length === 1 ? 'page' : 'pages'} ·{' '}
+            {merge?.topicCount || 0} primary {merge?.topicCount === 1 ? 'topic' : 'topics'}
+            {skipped.length > 0 && ` · ${skipped.length} skipped`}
+          </summary>
+          <div className="project-topic-tree__sources-body">
+            {tree?.records?.length > 0 && (
+              <>
+                <h3>Articles in this merge</h3>
+                <ul>
+                  {tree.records.map((record) => (
+                    <li key={record.key}>
+                      <SourceArticle source={record} />
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <h3>Current eligible pages</h3>
+            {eligible.length ? (
+              <ul>
+                {eligible.map((page) => (
+                  <li key={page.key || page.url}>
+                    <SourceArticle source={page} />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>Save and finish processing pages in this tab group, then merge their topics.</p>
+            )}
+            {skipped.length > 0 && (
+              <>
+                <h3>Skipped pages</h3>
+                <ul>
+                  {skipped.map((page, index) => (
+                    <li key={page.url || index}>
+                      <SourceArticle source={page} />
+                      <span>{page.reason || 'No completed primary topics are available.'}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        </details>
         <div className="tt-bar-controls" ref={setControlsHost} />
         <div className="project-topic-tree__actions">
           {running ? (
@@ -109,68 +165,26 @@ export function ProjectTopicTree({ project, merge, pending, notice, onBuild, onS
           )}
         </div>
       </header>
-      <div className="project-topic-tree__status">
-        <p role="status">{stateText}</p>
-        {notice && <p role="alert">{notice}</p>}
-        {status === SUMMARY_TREE_STATUS.ERROR && tree?.error && <p role="alert">{tree.error}</p>}
-        {merge?.stale && (
-          <p>
-            The project&apos;s pages or primary topics have changed
-            {changeText && ` (${changeText})`}. Add the changes to the merged topics, or Rebuild to
-            regroup everything.
-          </p>
-        )}
-        <details className="project-topic-tree__sources">
-          <summary>
-            {eligible.length} eligible {eligible.length === 1 ? 'page' : 'pages'} ·{' '}
-            {merge?.topicCount || 0} primary {merge?.topicCount === 1 ? 'topic' : 'topics'}
-            {skipped.length > 0 && ` · ${skipped.length} skipped`}
-          </summary>
-          {tree?.records?.length > 0 && (
-            <>
-              <h3>Articles in this merge</h3>
-              <ul>
-                {tree.records.map((record) => (
-                  <li key={record.key}>
-                    <SourceArticle source={record} />
-                  </li>
-                ))}
-              </ul>
-            </>
+      {(notice || (status === SUMMARY_TREE_STATUS.ERROR && tree?.error) || merge?.stale) && (
+        <div className="project-topic-tree__status">
+          {notice && <p role="alert">{notice}</p>}
+          {status === SUMMARY_TREE_STATUS.ERROR && tree?.error && <p role="alert">{tree.error}</p>}
+          {merge?.stale && (
+            <p>
+              The project&apos;s pages or primary topics have changed
+              {changeText && ` (${changeText})`}. Add the changes to the merged topics, or Rebuild
+              to regroup everything.
+            </p>
           )}
-          <h3>Current eligible pages</h3>
-          {eligible.length ? (
-            <ul>
-              {eligible.map((page) => (
-                <li key={page.key || page.url}>
-                  <SourceArticle source={page} />
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>Save and finish processing pages in this tab group, then merge their topics.</p>
-          )}
-          {skipped.length > 0 && (
-            <>
-              <h3>Skipped pages</h3>
-              <ul>
-                {skipped.map((page, index) => (
-                  <li key={page.url || index}>
-                    <SourceArticle source={page} />
-                    <span>{page.reason || 'No completed primary topics are available.'}</span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </details>
-      </div>
+        </div>
+      )}
       {displayTree && !running ? (
         <TopicsTreeCanvas
           key={tree.runId || tree.contentRevision}
           tree={displayTree}
           sentences={tree.sentences || []}
           sentenceSources={tree.sources || {}}
+          leafChat={leafChat}
           controlsHost={controlsHost}
         />
       ) : (

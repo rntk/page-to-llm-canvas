@@ -19,6 +19,7 @@ import {
   LEAF_KIND,
 } from './topicsTreeModel.js';
 import TopicsTreeCanvas from './TopicsTreeCanvas.jsx';
+import { useSourceCardChats } from './useSourceCardChats.js';
 import '../hierarchy/hierarchy.css';
 import './topics-tree.css';
 
@@ -177,6 +178,23 @@ export default function TopicsTreeApp({
   }, [running]);
 
   const article = projectArticleView(record);
+  const recordKey = record ? initialKey : null;
+  const recordTitle = record?.title || record?.sourceTitle;
+  const recordUrl = record?.sourceUrl;
+  const recordRevision = record?.contentRevision;
+  const chatArticle = useMemo(
+    () =>
+      recordKey
+        ? {
+            key: recordKey,
+            title: recordTitle || recordUrl || '',
+            url: recordUrl || '',
+            contentRevision: recordRevision,
+          }
+        : null,
+    [recordKey, recordTitle, recordUrl, recordRevision],
+  );
+  const leafChat = useSourceCardChats({ sentences: article.sentences, article: chatArticle });
   // Serialize on record identity changes so polling does not rebuild an unchanged tree.
   const treeInputJson = useMemo(
     () =>
@@ -260,6 +278,7 @@ export default function TopicsTreeApp({
         key={`${initialKey}:${source}:${treeInputJson}`}
         tree={tree}
         sentences={article.sentences}
+        leafChat={leafChat}
         onShowInPage={handleShowInPage}
         controlsHost={controlsHost}
       />

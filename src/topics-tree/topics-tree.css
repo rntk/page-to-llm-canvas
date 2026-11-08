@@ -422,3 +422,65 @@
 .tt-source-switcher {
   margin-left: 12px;
 }
+
+/* ---------- source card chat ---------- */
+
+/* Unfolds to the right of the card; the card's measured size is unaffected. */
+.tt-card__chat {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 380px;
+  height: 460px;
+  margin-left: -1px;
+  border: 1px solid var(--th-border-strong);
+  background: var(--th-surface);
+  cursor: default;
+  user-select: text;
+}
+
+.tt-card__chat-head {
+  flex: 0 0 auto;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--th-border);
+  background: var(--th-surface-2);
+  color: var(--th-text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tt-card__chat-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.tt-card__chat-fold {
+  position: absolute;
+  top: 12px;
+  left: 100%;
+  margin-left: -1px;
+  padding: 10px 4px;
+  border: 1px solid var(--th-border-strong);
+  background: var(--th-surface-2);
+  color: var(--th-text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  writing-mode: vertical-rl;
+}
+
+.tt-card.is-chat-open .tt-card__chat-fold {
+  left: calc(100% + 380px);
+}
+
+.tt-card__chat-fold[aria-expanded='true'] {
+  background: var(--th-accent);
+  color: var(--th-surface);
+}

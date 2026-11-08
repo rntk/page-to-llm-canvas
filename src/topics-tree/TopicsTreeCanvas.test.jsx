@@ -57,3 +57,86 @@ it('reveals a repeated summary locally and remembers it across branch folding', 
     vi.unstubAllGlobals();
   }
 });
+
+it('gives source cards a Chat tab that unfolds and folds their chat', () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  const tree = buildSummaryTreeDisplayTree({
+    rootId: 'root',
+    nodes: {
+      root: {
+        id: 'root',
+        title: 'root',
+        kind: 'topic',
+        children: ['p1', 'p2'],
+        sentences: [1, 2],
+        segments: [{ text: 'Root summary.' }],
+      },
+      p1: { id: 'p1', title: 'one', kind: 'passage', children: [], sentences: [1] },
+      p2: { id: 'p2', title: 'two', kind: 'passage', children: [], sentences: [2] },
+    },
+  });
+  // Only the first card can chat.
+  const leafChat = {
+    available: (node) => node.sentences[0] === 1,
+    render: (node, { onClose }) =>
+      createElement(
+        'aside',
+        { className: 'fake-chat' },
+        createElement('button', { className: 'fake-close', onClick: onClose }, 'close'),
+      ),
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    act(() =>
+      root.render(
+        createElement(TopicsTreeCanvas, { tree, sentences: ['First.', 'Second.'], leafChat }),
+      ),
+    );
+    container
+      .querySelectorAll('.tt-node:not(.tt-node--root)')
+      .forEach((node) => act(() => node.click()));
+    const folds = () => container.querySelectorAll('.tt-card__chat-fold');
+    expect(container.querySelectorAll('.tt-card')).toHaveLength(2);
+    expect(folds()).toHaveLength(1);
+    expect(container.querySelector('.fake-chat')).toBeNull();
+
+    act(() => folds()[0].click());
+    expect(container.querySelector('.fake-chat')).not.toBeNull();
+    expect(folds()[0].getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelector('.tt-card.is-chat-open')).not.toBeNull();
+
+    act(() => folds()[0].click());
+    expect(container.querySelector('.fake-chat')).toBeNull();
+
+    act(() => folds()[0].click());
+    act(() => container.querySelector('.fake-close').click());
+    expect(container.querySelector('.fake-chat')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('shows no Chat tab without leafChat', () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  const tree = buildSummaryTreeDisplayTree({
+    rootId: 'root',
+    nodes: {
+      root: { id: 'root', title: 'root', kind: 'passage', children: [], sentences: [1] },
+    },
+  });
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    act(() => root.render(createElement(TopicsTreeCanvas, { tree, sentences: ['First.'] })));
+    expect(container.querySelector('.tt-card__chat-fold')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  }
+});

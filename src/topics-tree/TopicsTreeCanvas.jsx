@@ -184,6 +184,9 @@ const LeafCard = React.memo(function LeafCard({
   onSelect,
   onStartDrag,
   onShowInPage,
+  leafChat,
+  chatOpen = false,
+  onToggleChat,
 }) {
   const elRef = useRef(null);
   const ref = useCallback(
@@ -194,6 +197,7 @@ const LeafCard = React.memo(function LeafCard({
     [registerElement, node.key],
   );
   useEnterMotion(elRef, position, origin, motionRef);
+  const hasChat = !!leafChat && leafChat.available(node);
   // A source card carries its topic's path, so show it whole to name that topic.
   const parentPath = formatTopicPath(splitTopicPath(node.path));
   const className = [
@@ -201,7 +205,8 @@ const LeafCard = React.memo(function LeafCard({
     size ? 'is-sized' : '',
     isSelected ? 'is-selected' : '',
     isOnPath ? 'is-on-path' : '',
-    isFront ? 'is-front' : '',
+    isFront || chatOpen ? 'is-front' : '',
+    chatOpen ? 'is-chat-open' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -261,6 +266,22 @@ const LeafCard = React.memo(function LeafCard({
         aria-hidden="true"
         onPointerDown={(event) => onStartDrag(event, node.key, 'resize')}
       />
+      {chatOpen && hasChat && leafChat.render(node, { onClose: () => onToggleChat(node.key) })}
+      {hasChat && (
+        <button
+          type="button"
+          className="tt-card__chat-fold"
+          aria-expanded={chatOpen}
+          aria-label={`${chatOpen ? 'Fold' : 'Unfold'} chat for this source text`}
+          title={chatOpen ? 'Fold chat' : 'Chat about this source text'}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleChat(node.key);
+          }}
+        >
+          {chatOpen ? '‹ Chat' : 'Chat ›'}
+        </button>
+      )}
     </article>
   );
 });
@@ -277,6 +298,9 @@ const LeafCard = React.memo(function LeafCard({
  * @param {string[]} props.sentences Article sentences (1-based numbers index into it).
  * @param {object|null} [props.sentenceSources] Source article and local line for synthetic rows.
  * @param {(node: object) => void} [props.onShowInPage]
+ * @param {{available: function(object): boolean, render: function(object, {onClose: function(): void}): import('react').ReactNode}|null} [props.leafChat]
+ *   Gives source cards a Chat tab that unfolds this chat beside them. Keep it
+ *   referentially stable.
  * @param {HTMLElement|null} [props.controlsHost] Element the view controls render into
  *   (the page bar); no controls are shown without one.
  */
@@ -285,11 +309,13 @@ export default function TopicsTreeCanvas({
   sentences,
   sentenceSources = null,
   onShowInPage,
+  leafChat = null,
   controlsHost = null,
 }) {
   const { canvasRef, stageRef, transformRef, boundsRef, translateBy, fit } = useTreeViewport();
   const [expanded, setExpanded] = useState(() => initialExpanded(tree));
   const [shownSummaries, setShownSummaries] = useState(() => new Set());
+  const [openChats, setOpenChats] = useState(() => new Set());
   const [selectedKey, setSelectedKey] = useState(tree.key);
   const [frontKey, setFrontKey] = useState(null);
   const [exclusive, setExclusive] = useState(false);
@@ -478,6 +504,16 @@ export default function TopicsTreeCanvas({
     [anchorOn],
   );
 
+  const handleToggleChat = useCallback((key) => {
+    setOpenChats((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+    setFrontKey(key);
+  }, []);
+
   const handleSelectCard = useCallback((key) => {
     setSelectedKey(key);
     setFrontKey(key);
@@ -617,6 +653,9 @@ export default function TopicsTreeCanvas({
                   onSelect={handleSelectCard}
                   onStartDrag={handleStartDrag}
                   onShowInPage={onShowInPage}
+                  leafChat={leafChat}
+                  chatOpen={openChats.has(node.key)}
+                  onToggleChat={handleToggleChat}
                 />
               ) : (
                 <TopicNode

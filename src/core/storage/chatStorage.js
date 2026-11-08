@@ -17,6 +17,7 @@ import {
   isSafeChatId,
   isDetachedChatKey,
   pageChatKey,
+  sourceCardOwnerKey,
 } from './keys.js';
 
 // Page and excerpt chats have no record to supply a content revision. Their source text is
@@ -225,7 +226,8 @@ function metaContentRevision(meta) {
 async function readRecordContentRevision(key) {
   if (!key) return null;
   if (isDetachedChatKey(key)) return PAGE_CHAT_CONTENT_REVISION;
-  const metaKey = recordMetaStorageKey(key);
+  // A source card chat takes its article's revision.
+  const metaKey = recordMetaStorageKey(sourceCardOwnerKey(key) ?? key);
   return metaContentRevision((await getLocal(metaKey))[metaKey]);
 }
 
@@ -627,7 +629,7 @@ export async function reconcileChatStorage() {
 
     const metaKeys = [...groups.keys()]
       .filter((key) => !isDetachedChatKey(key))
-      .map((key) => recordMetaStorageKey(key));
+      .map((key) => recordMetaStorageKey(sourceCardOwnerKey(key) ?? key));
     const recordMetas = metaKeys.length ? await getLocal(metaKeys) : {};
 
     const removeKeys = new Set(invalidKeys);
@@ -637,7 +639,7 @@ export async function reconcileChatStorage() {
     for (const [key, group] of groups) {
       const contentRevision = isDetachedChatKey(key)
         ? PAGE_CHAT_CONTENT_REVISION
-        : metaContentRevision(recordMetas[recordMetaStorageKey(key)]);
+        : metaContentRevision(recordMetas[recordMetaStorageKey(sourceCardOwnerKey(key) ?? key)]);
 
       if (!contentRevision) {
         removeKeys.add(group.indexKey);

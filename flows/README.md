@@ -10,7 +10,7 @@ These notes are short orientation docs for the extension’s main user-facing fl
 4. [Topic summaries](./04-topic-summaries.md) — generate summaries for topic and source ranges, reusing child summaries where a parent run allows it.
 5. [Record lifecycle and recovery](./05-record-lifecycle-and-recovery.md) — persist progress, resume, retry, cancel, and surface failures.
 
-## Views and interaction surfaces
+## Views and interaction surfaces4
 
 6. [In-page rails](./06-in-page-rails.md) — show topic or summary cards alongside the original page.
 7. [YouTube rail](./07-youtube-rail.md) — synchronize topic, summary, and chat context with video playback.

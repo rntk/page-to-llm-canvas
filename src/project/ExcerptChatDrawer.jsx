@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import ArticleChat from '../chat/ArticleChat.jsx';
-import { createReadPageTool } from '../chat/readPageTool.js';
+import { createPageTools } from '../chat/readPageTool.js';
 import { excerptChatKey } from '../core/storage/keys.js';
 import { excerptSentences } from './excerptText.js';
 
@@ -10,7 +10,7 @@ const EXCERPT_PROMPT =
 
 /**
  * The excerpt's own chat, beside its card. Turns send the excerpt (framed as
- * part of its page) and offer a `read_page` tool; the page is read at most once
+ * part of its page) and offer `read_page` and `search_page` tools; the page is read at most once
  * per drawer session, on the first call that needs it.
  *
  * @param {object} props
@@ -38,7 +38,7 @@ export function ExcerptChatDrawer({ projectId, excerpt, api, onClose, chatPorts 
       });
       return page;
     };
-    return [createReadPageTool({ excerptSentences: sentences, loadPage })];
+    return createPageTools({ excerptSentences: sentences, loadPage });
   }, [api, projectId, id, sentences]);
 
   return (

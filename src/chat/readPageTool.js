@@ -1,5 +1,7 @@
-// The excerpt chat's `read_page` tool: lets the model read the page an excerpt
-// was taken from, a bounded window of numbered page lines at a time.
+// The excerpt chat's page tools: `read_page` reads the page an excerpt was taken
+// from, a bounded window of numbered lines at a time, and `search_page` finds
+// lines by keyword.
+import { tokenize } from '../core/projects/projectChatTools.js';
 
 export const READ_PAGE_TOOL = Object.freeze({
   name: 'read_page',
@@ -112,4 +114,95 @@ export function createReadPageTool({ loadPage, excerptSentences }) {
       });
     },
   };
+}
+
+export const SEARCH_PAGE_TOOL = Object.freeze({
+  name: 'search_page',
+  description:
+    'Search the full web page the excerpt was taken from for keywords. Returns the best matching page lines with their line numbers, best first. Use read_page with start_line to read around a hit.',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'Keywords to look for.' },
+      limit: { type: 'integer', description: 'Most lines to return (default 8, at most 20).' },
+    },
+    required: ['query'],
+    additionalProperties: false,
+  },
+});
+
+const DEFAULT_SEARCH_LIMIT = 8;
+const MAX_SEARCH_LIMIT = 20;
+// Longest stretch of one matching line returned, so a few long lines cannot
+// use up the whole result budget.
+const MAX_HIT_CHARS = 400;
+
+/**
+ * Ranks page lines by how many distinct query words they contain.
+ * @param {string[]} pageSentences
+ * @param {string} query
+ * @returns {Array<{line: number, score: number}>} Best first; ties keep page order.
+ */
+export function rankPageLines(pageSentences, query) {
+  const wanted = [...new Set(tokenize(query))];
+  if (!wanted.length) return [];
+  const hits = [];
+  pageSentences.forEach((sentence, index) => {
+    const words = new Set(tokenize(sentence));
+    const score = wanted.reduce((sum, word) => sum + (words.has(word) ? 1 : 0), 0);
+    if (score) hits.push({ line: index + 1, score });
+  });
+  return hits.sort((a, b) => b.score - a.score || a.line - b.line);
+}
+
+/**
+ * @param {object} options
+ * @param {function(): Promise<{sentences: string[]}>} options.loadPage
+ *   Reads the page; callers cache it so repeated searches cost one capture.
+ * @returns {{definition: object, run: function(object, {maxChars: number}): Promise<string>}}
+ */
+export function createSearchPageTool({ loadPage }) {
+  return {
+    definition: SEARCH_PAGE_TOOL,
+    async run(args, { maxChars }) {
+      const query = String(args?.query ?? '').trim();
+      if (!query) throw new Error('query is required');
+      const requested = Number(args?.limit);
+      const limit = Number.isInteger(requested)
+        ? Math.min(Math.max(requested, 1), MAX_SEARCH_LIMIT)
+        : DEFAULT_SEARCH_LIMIT;
+      const page = await loadPage();
+      const sentences = Array.isArray(page?.sentences) ? page.sentences : [];
+      if (!sentences.length) throw new Error('the page has no readable text');
+
+      const ranked = rankPageLines(sentences, query);
+      const budget = Math.max(0, Math.floor(maxChars) - 400);
+      const matches = [];
+      let used = 0;
+      for (const { line } of ranked.slice(0, limit)) {
+        const match = { line, text: String(sentences[line - 1] || '').trim().slice(0, MAX_HIT_CHARS) };
+        const cost = JSON.stringify(match).length + 1;
+        if (used + cost > budget) break;
+        matches.push(match);
+        used += cost;
+      }
+      return JSON.stringify({
+        kind: 'page_search',
+        totalLines: sentences.length,
+        totalMatches: ranked.length,
+        matches,
+        ...(page.truncated ? { truncated: true } : {}),
+        note: 'Page line numbers are not excerpt line numbers; highlight_span accepts excerpt lines only.',
+      });
+    },
+  };
+}
+
+/**
+ * The tools that let a chat about an excerpt reach the rest of its page.
+ * @param {object} options See createReadPageTool.
+ * @returns {Array<{definition: object, run: Function}>}
+ */
+export function createPageTools(options) {
+  return [createReadPageTool(options), createSearchPageTool(options)];
 }
