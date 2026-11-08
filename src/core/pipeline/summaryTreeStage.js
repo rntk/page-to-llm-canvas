@@ -72,7 +72,8 @@ export function resumableNodes(tree, sourceNodeIds = new Set()) {
   const nodes = {};
   for (const [id, node] of Object.entries(tree.nodes)) {
     if (node.kind !== PASSAGE && !rootId && !sourceNodeIds.has(id)) continue;
-    nodes[id] = node.failed && !rootId ? { ...node, failed: false, segments: null } : { ...node };
+    const restored = { failed: false, unplaced: false, ...node };
+    nodes[id] = node.failed && !rootId ? { ...restored, failed: false, segments: null } : restored;
   }
   return { nodes, rootId };
 }
@@ -90,7 +91,7 @@ async function resumeFinishedTree({
 }) {
   const unplaced = Object.values(nodes).filter((node) => node.unplaced);
   // Units that could not be summarized stay out of the tree, as in a first build.
-  unplaced.filter((node) => !node.segments?.length).forEach((node) => delete node.unplaced);
+  unplaced.filter((node) => !node.segments?.length).forEach((node) => (node.unplaced = false));
   const units = unplaced.filter((node) => node.unplaced).map((node) => node.id);
   if (units.length) {
     await enterStage(SUMMARY_TREE_STAGE.TOPICS);

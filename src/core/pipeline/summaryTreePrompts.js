@@ -5,6 +5,9 @@
 
 import { choice } from '../llm/decisionClient.js';
 import { PROMPT_DELIMITER } from '../promptDelimiters.js';
+import { LEVEL } from './summaryTreeModel.js';
+
+/** @import { SummaryLevel } from './summaryTreeModel.js' */
 
 const { payloadPrefix, close } = PROMPT_DELIMITER;
 
@@ -32,7 +35,7 @@ Return exactly the requested ids, once each, using this JSON envelope:
 
 // Deeper hints narrow the subject; source text supplies the detail at every level.
 export const LEVEL_INTENTS = Object.freeze({
-  passage: `TASK: PASSAGE SELECTION HINTS
+  [LEVEL.PASSAGE]: `TASK: PASSAGE SELECTION HINTS
 Each node is one passage of a longer document; its evidence is numbered sentences.
 Write one short sentence, at most 25 words total: identify its specific subject and one
 central fact, finding or question that distinguishes it from other passages. These hints
@@ -43,7 +46,7 @@ its specific subject, like a search tag, not a headline. If none of a node's
 evidence has substance (only navigation, advertisements or signatures), return an
 empty segments list.
 `,
-  detail: `TASK: NARROW TOPIC SELECTION HINTS
+  [LEVEL.DETAIL]: `TASK: NARROW TOPIC SELECTION HINTS
 Each node is a narrow topic under the given path; its children are passage summaries.
 Write one short sentence, at most 30 words total, introducing the specific subject or
 central issue that connects these passages and helps a reader decide whether to open them.
@@ -51,13 +54,13 @@ Keep at most one distinguishing finding or contrast. Include names, numbers, ver
 dates only when needed to identify the subject or distinguish it from neighbouring branches.
 Leave the detailed account to the cited passages.
 `,
-  overview: `TASK: TOPIC SELECTION HINTS
+  [LEVEL.OVERVIEW]: `TASK: TOPIC SELECTION HINTS
 Each node is a topic under the given path; its children are its sub-topics.
 Write one short sentence, at most 30 words total, introducing their shared subject and
 the main distinction that helps a reader choose among the branches. Describe the scope
 without listing every sub-topic or repeating their findings.
 `,
-  root: `TASK: DOCUMENT OVERVIEW
+  [LEVEL.ROOT]: `TASK: DOCUMENT OVERVIEW
 The node is the whole document; its children are its main topics.
 Write one or two short sentences, at most 40 words total, introducing the document's
 dominant subject and its main areas of focus so a reader knows where to start exploring.
@@ -70,12 +73,12 @@ const TITLE_FIELD = '"title":"Passage subject",';
 /**
  * Prompt for one summary level; the payload follows the static rules so they
  * stay a cacheable prefix.
- * @param {'passage'|'detail'|'overview'|'root'} level
+ * @param {SummaryLevel} level
  * @param {object[]} items Request nodes.
  * @returns {string}
  */
 export function buildSummaryTreeSummaryPrompt(level, items) {
-  const rules = COMMON_RULES.replace('{TITLE}', level === 'passage' ? TITLE_FIELD : '');
+  const rules = COMMON_RULES.replace('{TITLE}', level === LEVEL.PASSAGE ? TITLE_FIELD : '');
   const payload = { required_output_ids: items.map((item) => item.id), nodes: items };
   return `${LEVEL_INTENTS[level]}${rules}\n${payloadPrefix}${JSON.stringify(payload)}\n${close}\n`;
 }

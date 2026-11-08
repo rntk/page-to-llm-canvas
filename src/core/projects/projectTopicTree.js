@@ -4,11 +4,11 @@
 
 import { PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
 import {
-  PASSAGE,
   PASSAGE_MAX_CHARS,
   ROOT,
   TOPIC,
-  addNode,
+  createPassage,
+  createTopic,
   buildPassages,
 } from '../pipeline/summaryTreeModel.js';
 import { splitTopicPath } from '../../shared/runtime/topicPath.js';
@@ -178,29 +178,29 @@ export function buildProjectTopicSeed(records, { maxChars = PASSAGE_MAX_CHARS, b
             [],
             { targetChars: Math.min(1500, maxChars), minChars: 0, maxChars },
           ).map((ids) => ids.map((id) => localIds[id - 1]));
+      const origin = {
+        recordKey: record.key,
+        topicName: topic.name,
+        sourceTitle: title,
+        sourceUrl: record.sourceUrl || '',
+      };
       const children = chunks.map((ids) => {
-        const id = addNode(nodes, PASSAGE, topicTitle, [], {
-          sentences: ids.map((local) => offset + local),
-        });
-        Object.assign(nodes[id], {
-          recordKey: record.key,
-          topicName: topic.name,
-          sourceTitle: title,
-          sourceUrl: record.sourceUrl || '',
-        });
+        const id = createPassage(
+          nodes,
+          topicTitle,
+          ids.map((local) => offset + local),
+          origin,
+        );
         if (segments) nodes[id].segments = segments;
         return id;
       });
       const id =
         children.length === 1
           ? children[0]
-          : addNode(nodes, TOPIC, topicTitle, children, { path: splitTopicPath(topic.name) });
-      Object.assign(nodes[id], {
-        recordKey: record.key,
-        topicName: topic.name,
-        sourceTitle: title,
-        sourceUrl: record.sourceUrl || '',
-      });
+          : createTopic(nodes, topicTitle, children, {
+              ...origin,
+              path: splitTopicPath(topic.name),
+            });
       sourceTopicIds.push(id);
     }
   }
@@ -282,7 +282,7 @@ export function prepareIncrementalProjectTree(prior, records, { contentRevision,
       ...node,
       id: rename(node.id),
       children: node.children.map(rename),
-      ...(seed.sourceTopicIds.includes(node.id) ? { unplaced: true } : {}),
+      unplaced: seed.sourceTopicIds.includes(node.id),
     };
   }
   seed.sourceTopicIds.forEach((id) => touched.add(rename(id)));

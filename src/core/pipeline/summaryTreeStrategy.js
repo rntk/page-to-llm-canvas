@@ -19,7 +19,7 @@ import {
   PASSAGE_MIN_CHARS,
   PASSAGE_TARGET_CHARS,
   TOPIC,
-  addNode,
+  createPassage,
   buildPassages,
 } from './summaryTreeModel.js';
 
@@ -52,7 +52,7 @@ export function createArticleStrategy(record) {
         maxChars: passageMaxChars,
       });
       for (const sentences of passages) {
-        addNode(nodes, PASSAGE, fallbackTitle(sentences, record.topics), [], { sentences });
+        createPassage(nodes, fallbackTitle(sentences, record.topics), sentences);
       }
       return nodes;
     },

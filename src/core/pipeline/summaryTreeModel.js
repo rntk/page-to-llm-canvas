@@ -7,6 +7,13 @@ export const PASSAGE = 'passage';
 export const TOPIC = 'topic';
 export const ROOT = 'root';
 
+export const LEVEL = Object.freeze({
+  PASSAGE: 'passage',
+  DETAIL: 'detail',
+  OVERVIEW: 'overview',
+  ROOT: 'root',
+});
+
 // A passage is the unit a brief summary is written for. Passages prefer the
 // primary split's topic boundaries, so one passage rarely mixes subjects.
 export const PASSAGE_TARGET_CHARS = 1500;
@@ -17,8 +24,35 @@ export const PASSAGE_MAX_CHARS = 3000;
  * @typedef {{kind: 'rows', first: number, last: number}
  *   | {kind: 'claim', child: string, segment: number}} SegmentSource
  * @typedef {{text: string, sources: SegmentSource[]}} Segment
- * @typedef {{id: string, kind: string, title: string, children: string[],
- *   sentences: number[], path: string[], segments: Segment[]|null, failed?: boolean}} SummaryTreeNode
+ * @typedef {'passage'|'topic'|'root'} NodeKind
+ * @typedef {'passage'|'detail'|'overview'|'root'} SummaryLevel
+ */
+
+/**
+ * @typedef {object} SummaryTreeNode
+ * @property {string} id
+ * @property {NodeKind} kind
+ * @property {string} title
+ * @property {string[]} children Child node ids; empty for passages.
+ * @property {number[]} sentences One-based source sentence numbers.
+ * @property {string[]} path Topic titles from the root down.
+ * @property {Segment[]|null} segments Null means pending; empty means skipped or failed.
+ * @property {boolean} failed Whether generation exhausted its retries.
+ * @property {boolean} unplaced Whether an incremental source unit needs placement.
+ * @property {string} [recordKey] Source record identity for project source nodes.
+ * @property {string} [topicName] Original primary topic path; preserves its title during generation.
+ * @property {string} [sourceTitle] Source article title.
+ * @property {string} [sourceUrl] Source article URL.
+ */
+
+/**
+ * @typedef {object} NodeOptions
+ * @property {number[]} [sentences] Explicit evidence rows; otherwise union the children's.
+ * @property {string[]} [path] Topic titles from the root down.
+ * @property {string} [recordKey] Source record identity.
+ * @property {string} [topicName] Original primary topic path.
+ * @property {string} [sourceTitle] Source article title.
+ * @property {string} [sourceUrl] Source article URL.
  */
 
 function charsOf(sentenceIds, sentenceTexts) {
@@ -105,21 +139,74 @@ export function buildPassages(
 /**
  * Append a node; topic and root sentences are the union of their children's.
  * @param {Record<string, SummaryTreeNode>} nodes
- * @param {string} kind
+ * @param {NodeKind} kind
  * @param {string} title
  * @param {string[]} children
- * @param {object} [options]
- * @param {number[]} [options.sentences] Passage sentence numbers.
- * @param {string[]} [options.path] Topic titles from the root down.
+ * @param {NodeOptions} [options]
  * @returns {string} The new node id.
  */
-export function addNode(nodes, kind, title, children, { sentences, path = [] } = {}) {
+export function addNode(
+  nodes,
+  kind,
+  title,
+  children,
+  { sentences, path = [], recordKey, topicName, sourceTitle, sourceUrl } = {},
+) {
   const id = `n${Object.keys(nodes).length}`;
   const own =
     sentences ??
     [...new Set(children.flatMap((child) => nodes[child].sentences))].sort((a, b) => a - b);
-  nodes[id] = { id, kind, title, children, sentences: own, path, segments: null };
+  nodes[id] = {
+    id,
+    kind,
+    title,
+    children,
+    sentences: own,
+    path,
+    segments: null,
+    failed: false,
+    unplaced: false,
+    ...(recordKey !== undefined ? { recordKey } : {}),
+    ...(topicName !== undefined ? { topicName } : {}),
+    ...(sourceTitle !== undefined ? { sourceTitle } : {}),
+    ...(sourceUrl !== undefined ? { sourceUrl } : {}),
+  };
   return id;
+}
+
+/**
+ * Append a passage with explicit evidence rows and no children.
+ * @param {Record<string, SummaryTreeNode>} nodes
+ * @param {string} title
+ * @param {number[]} sentences
+ * @param {NodeOptions} [options]
+ * @returns {string} The new node id.
+ */
+export function createPassage(nodes, title, sentences, options = {}) {
+  return addNode(nodes, PASSAGE, title, [], { ...options, sentences });
+}
+
+/**
+ * Append a grouping topic over existing children.
+ * @param {Record<string, SummaryTreeNode>} nodes
+ * @param {string} title
+ * @param {string[]} children
+ * @param {NodeOptions} [options]
+ * @returns {string} The new node id.
+ */
+export function createTopic(nodes, title, children, options = {}) {
+  return addNode(nodes, TOPIC, title, children, options);
+}
+
+/**
+ * Append an article or project root over existing children.
+ * @param {Record<string, SummaryTreeNode>} nodes
+ * @param {string} title
+ * @param {string[]} children
+ * @returns {string} The new node id.
+ */
+export function createRoot(nodes, title, children) {
+  return addNode(nodes, ROOT, title, children);
 }
 
 /**

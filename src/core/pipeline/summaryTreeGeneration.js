@@ -4,14 +4,16 @@
 // nodes; workers return validated segments.
 
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
-import { PASSAGE, TOPIC, relay } from './summaryTreeModel.js';
+import { LEVEL, PASSAGE, TOPIC, relay } from './summaryTreeModel.js';
 import { buildSummaryTreeSummaryPrompt, claimSupportedQuestion, NO } from './summaryTreePrompts.js';
 import { extractObject, yesProbability } from './summaryTreeRequests.js';
+
+/** @import { SummaryTreeNode, SummaryLevel } from './summaryTreeModel.js' */
 
 const ITEM_ID = 'item';
 const TITLE_CHARS = 80;
 const CITED_CHARS = 4000;
-const VERIFIED_LEVELS = new Set(['passage', 'detail']);
+const VERIFIED_LEVELS = new Set([LEVEL.PASSAGE, LEVEL.DETAIL]);
 const CONNECTORS = new Set(['and', 'or', 'but', 'while', 'also', 'и', 'а', 'но', 'или']);
 
 /**
@@ -40,20 +42,20 @@ export function cleanTitle(value) {
 
 /**
  * Which prompt intent summarizes `node`.
- * @param {object} node
- * @param {Record<string, object>} nodes
- * @returns {'passage'|'detail'|'overview'|'root'}
+ * @param {SummaryTreeNode} node
+ * @param {Record<string, SummaryTreeNode>} nodes
+ * @returns {SummaryLevel}
  */
 export function levelOf(node, nodes) {
-  if (node.kind === PASSAGE) return 'passage';
-  if (!node.children.some((child) => nodes[child].kind === TOPIC)) return 'detail';
-  return node.kind === TOPIC ? 'overview' : 'root';
+  if (node.kind === PASSAGE) return LEVEL.PASSAGE;
+  if (!node.children.some((child) => nodes[child].kind === TOPIC)) return LEVEL.DETAIL;
+  return node.kind === TOPIC ? LEVEL.OVERVIEW : LEVEL.ROOT;
 }
 
 /**
  * Request payload for one node and the citation labels its answer may use.
- * @param {object} node
- * @param {Record<string, object>} nodes
+ * @param {SummaryTreeNode} node
+ * @param {Record<string, SummaryTreeNode>} nodes
  * @param {string[]} sentenceTexts
  * @param {function(object): object|null} [sourceOf] Origin shown to the model for a child node.
  * @returns {{item: object, allowed: Map<string, object>}}
@@ -138,7 +140,7 @@ export function decodeEntry(entry, allowed) {
  * Judge failures keep the answer as validated by citations alone.
  * @param {object} input
  * @param {object} input.judge Summary tree judge.
- * @param {Record<string, object>} input.nodes
+ * @param {Record<string, SummaryTreeNode>} input.nodes
  * @param {string[]} input.sentenceTexts
  */
 export function createClaimVerifier({ judge, nodes, sentenceTexts }) {
@@ -161,7 +163,7 @@ export function createClaimVerifier({ judge, nodes, sentenceTexts }) {
   };
 
   /**
-   * @param {string} level
+   * @param {SummaryLevel} level
    * @param {Array<{text: string, sources: object[]}>} segments
    * @returns {Promise<Array<{text: string, sources: object[]}>|null>} Null when every claim failed.
    */
@@ -203,7 +205,7 @@ export function createClaimVerifier({ judge, nodes, sentenceTexts }) {
  * With `tolerateFailures` a node that never gets a valid answer is marked
  * `failed` with no segments instead of failing the stage.
  * @param {object} input
- * @param {Record<string, object>} input.nodes
+ * @param {Record<string, SummaryTreeNode>} input.nodes
  * @param {string[]} input.targets
  * @param {string[]} input.sentenceTexts
  * @param {{ask: Function}} input.llm
@@ -291,6 +293,7 @@ export async function generateSummaries({
       if (error) throw error;
       const node = nodes[id];
       if (value) {
+        node.failed = false;
         node.segments = value.segments;
         if (value.title && !node.topicName) node.title = value.title;
       } else if (tolerateFailures) {

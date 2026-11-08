@@ -1,3 +1,4 @@
+import { PASSAGE } from '../core/pipeline/summaryTreeModel.js';
 import { buildTopicTree } from '../domain/topicTree.js';
 import { getTopicSentenceNumbers } from '../domain/topicDomain.js';
 import { buildSummaryLookup } from '../hierarchy/hierarchyUtils.js';
@@ -157,11 +158,11 @@ export function buildSummaryTreeDisplayTree(summaryTree, { title = '' } = {}) {
     [...new Set(Array.isArray(sentences) ? sentences : [])].sort((a, b) => a - b);
 
   const visit = (node, titles, parent = null) => {
-    const children = (node.kind === 'passage' ? [] : node.children)
+    const children = (node.kind === PASSAGE ? [] : node.children)
       .map((id) => nodes[id])
       .filter(Boolean)
       .map((child) => visit(child, [...titles, child.title], node));
-    if (node.kind === 'passage' && sorted(node.sentences).length)
+    if (node.kind === PASSAGE && sorted(node.sentences).length)
       children.push({
         key: `source:${node.id}`,
         kind: LEAF_KIND,

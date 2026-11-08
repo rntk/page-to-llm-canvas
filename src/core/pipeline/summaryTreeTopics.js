@@ -6,7 +6,7 @@
 
 import { createLimiter } from '../llm/concurrency.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
-import { ROOT, TOPIC, addNode, summaryText } from './summaryTreeModel.js';
+import { TOPIC, createRoot, createTopic, summaryText } from './summaryTreeModel.js';
 import {
   MAX_BRANCHES,
   NO,
@@ -17,6 +17,8 @@ import {
 } from './summaryTreePrompts.js';
 import { chosenOption, extractObject, yesProbability } from './summaryTreeRequests.js';
 import { cleanTitle } from './summaryTreeGeneration.js';
+
+/** @import { SummaryTreeNode } from './summaryTreeModel.js' */
 
 export const LEAF_MAX_PASSAGES = 4; // a topic with at most this many passages is not split further
 export const MAX_DEPTH = 3; // topic levels between the root and the passages
@@ -29,7 +31,7 @@ const ASSIGN_PASSAGES = 20; // passages per decision request (two questions each
 
 /**
  * One-line digest of a summarized passage.
- * @param {Record<string, object>} nodes
+ * @param {Record<string, SummaryTreeNode>} nodes
  * @param {string} id
  */
 export function digest(nodes, id) {
@@ -152,7 +154,7 @@ export function orderGroups(topics, leftover, ids, allowSingleGroup = false) {
  * The judge assigns each node to one of the proposed sub-topics or to none.
  * @param {object} input
  * @param {{askMany: Function}} input.judge
- * @param {Record<string, object>} input.nodes
+ * @param {Record<string, SummaryTreeNode>} input.nodes
  * @param {string[]} input.ids Summarized nodes to assign.
  * @param {string} input.path Parent topic path.
  * @param {Record<string, string>} input.proposed Sub-topic title -> description.
@@ -192,7 +194,7 @@ async function judgeAssign({ judge, nodes, ids, path, proposed }) {
 /**
  * Grow topic nodes above summarized passages.
  * @param {object} input
- * @param {Record<string, object>} input.nodes Mutated: topic and root nodes are added.
+ * @param {Record<string, SummaryTreeNode>} input.nodes Mutated: topic and root nodes are added.
  * @param {string[]} input.passageIds Summarized passages, in article order.
  * @param {string} input.rootTitle
  * @param {{ask: Function}} input.llm
@@ -305,16 +307,15 @@ export async function buildTopics({
     if (!groups) return ids;
     return groups.map(([title, members]) => {
       const subPath = [...path, title];
-      return addNode(
+      return createTopic(
         nodes,
-        TOPIC,
         title,
         groups.length === 1 ? members : grow(members, subPath, depth + 1),
         { path: subPath },
       );
     });
   };
-  return addNode(nodes, ROOT, rootTitle, grow(passageIds, [], 0));
+  return createRoot(nodes, rootTitle, grow(passageIds, [], 0));
 }
 
 /**
@@ -323,7 +324,7 @@ export async function buildTopics({
  * no branch fits. Every branch on its way loses its summary so it is rewritten.
  * Units are attached as soon as they settle, so a saved snapshot is always whole.
  * @param {object} input
- * @param {Record<string, object>} input.nodes Mutated.
+ * @param {Record<string, SummaryTreeNode>} input.nodes Mutated.
  * @param {string} input.rootId
  * @param {string[]} input.unitIds Summarized units flagged `unplaced`.
  * @param {{ask: Function}} input.llm
@@ -360,7 +361,7 @@ export async function placeTopics({
         (a, b) => a - b,
       );
     }
-    delete nodes[id].unplaced;
+    nodes[id].unplaced = false;
   };
 
   // The branch each unit joins, or null when none fits; unanswered units stay at this level.
