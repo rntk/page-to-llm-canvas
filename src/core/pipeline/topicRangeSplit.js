@@ -1,3 +1,4 @@
+import { errorMessage } from '../../shared/runtime/errorMessage.js';
 import { buildTopicRangesPrompt } from './prompts.js';
 import { parseTopicRangesDetailed, groupsFromSegments, TopicParseError } from './topicParser.js';
 import {
@@ -131,7 +132,7 @@ async function dispatchPendingChunks({
         await runtime.log('topic_ranges_llm_error', {
           chunkIndex: state.chunkIndex,
           attempt,
-          error: (error && error.message) || String(error),
+          error: errorMessage(error),
         });
         return { error };
       }

@@ -1,10 +1,18 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
+import { useAsyncResource } from '../shared/useAsyncResource.js';
 import { browserScheduler } from '../shared/runtime/browserHosts.js';
 import { shareEqual } from '../shared/runtime/shareEqual.js';
 
 export const REFRESH_DEBOUNCE_MS = 150;
 
 const noSubscribe = () => () => {};
+
+function reconcileView(previous, view) {
+  // Keep unchanged merge branches identical so consumers can memoize on them.
+  return previous?.topicMerge && view?.topicMerge
+    ? { ...view, topicMerge: shareEqual(previous.topicMerge, view.topicMerge) }
+    : view;
+}
 
 /**
  * Loads a project view and keeps it fresh. Change notifications trigger a
@@ -27,81 +35,42 @@ export function useProjectView({
   scheduler = browserScheduler,
   debounceMs = REFRESH_DEBOUNCE_MS,
 }) {
-  const [refreshRevision, setRefreshRevision] = useState(0);
-  const refresh = useCallback(() => setRefreshRevision((revision) => revision + 1), []);
-  // The state remembers which project it belongs to, so switching ids reads as
-  // "loading" without resetting state from inside the effect.
-  const [state, setState] = useState({
-    projectId: null,
-    status: 'loading',
-    view: null,
-    error: null,
+  const load = useCallback(() => api.getProjectView(projectId), [api, projectId]);
+  const {
+    status,
+    data: view,
+    error,
+    reload: refresh,
+  } = useAsyncResource(projectId || null, load, {
+    keepPrevious: true,
+    reconcile: reconcileView,
   });
+  const currentView = useRef(null);
+  useEffect(() => {
+    currentView.current = view;
+  }, [view]);
 
   useEffect(() => {
     if (!projectId) return undefined;
-    let active = true;
-    let latest = 0;
     let timer = null;
-    let currentView = null;
-
-    const load = () => {
-      latest += 1;
-      const request = latest;
-      Promise.resolve()
-        .then(() => api.getProjectView(projectId))
-        .then(
-          (view) => {
-            if (active && request === latest) {
-              // Polls during a merge refetch the whole topic tree; unchanged parts
-              // keep their identity so consumers can memoize on them directly.
-              if (currentView?.topicMerge && view?.topicMerge) {
-                view = { ...view, topicMerge: shareEqual(currentView.topicMerge, view.topicMerge) };
-              }
-              currentView = view;
-              setState({ projectId, status: 'ready', view, error: null });
-            }
-          },
-          (err) => {
-            if (active && request === latest) {
-              // A failed background refresh keeps the last good view (and the
-              // in-memory card layout); only a failed first load is an error.
-              setState((prev) =>
-                prev.projectId === projectId && prev.status === 'ready'
-                  ? prev
-                  : {
-                      projectId,
-                      status: 'error',
-                      view: null,
-                      error: (err && err.message) || String(err),
-                    },
-              );
-            }
-          },
-        );
-    };
 
     const scheduleRefresh = () => {
       if (timer !== null) scheduler.clearTimeout(timer);
       timer = scheduler.setTimeout(() => {
         timer = null;
-        load();
+        refresh();
       }, debounceMs);
     };
 
-    load();
     const unsubscribe = subscribe(scheduleRefresh, undefined, {
       projectId,
-      getView: () => currentView,
+      getView: () => currentView.current,
     });
     return () => {
-      active = false;
       if (timer !== null) scheduler.clearTimeout(timer);
       if (typeof unsubscribe === 'function') unsubscribe();
     };
-  }, [projectId, api, subscribe, scheduler, debounceMs, refreshRevision]);
+  }, [projectId, api, subscribe, scheduler, debounceMs, refresh]);
 
-  if (!projectId) return { status: 'idle', view: null, error: null, refresh };
-  if (state.projectId !== projectId) return { status: 'loading', view: null, error: null, refresh };
-  return { status: state.status, view: state.view, error: state.error, refresh };
+  return { status, view, error, refresh };
 }

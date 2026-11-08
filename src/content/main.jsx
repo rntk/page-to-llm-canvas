@@ -1,3 +1,4 @@
+import { errorMessage } from '../shared/runtime/errorMessage.js';
 import { createContentSurfaceCoordinator } from './surfaceCoordinator.js';
 import { observePageNavigation } from './pageNavigation.js';
 import { browserRuntimeMessenger } from '../utils/runtimeMessages.js';
@@ -80,9 +81,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             : { status: 'ok' },
         ),
       )
-      .catch((err) =>
-        sendResponse({ status: 'error', error: err && err.message ? err.message : String(err) }),
-      );
+      .catch((err) => sendResponse({ status: 'error', error: errorMessage(err) }));
     return true;
   }
   return false;

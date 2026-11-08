@@ -1,3 +1,4 @@
+import { errorMessage } from '../../shared/runtime/errorMessage.js';
 import { createLimiter } from '../llm/concurrency.js';
 import { planSummaryWork } from './summaryPlanning.js';
 import {
@@ -28,7 +29,7 @@ const ABORT_MESSAGE = 'pipeline aborted during summarization';
  * @param {unknown} error Provider or transport error.
  */
 export function classifyLlmError(error) {
-  const raw = (error && error.message) || String(error);
+  const raw = errorMessage(error);
   if (/timed out|timeout/i.test(raw)) {
     return { kind: 'timeout', message: 'The model did not respond in time.' };
   }
@@ -339,7 +340,7 @@ export async function runSummaries({
           const isPermanentFailure = isPermanentProviderError(error);
           if (!providerError || isPermanentFailure) providerError = error;
           const { kind, message } = classifyLlmError(error);
-          const detail = (error && error.message) || String(error);
+          const detail = errorMessage(error);
           await runtime.log('topic_summary_llm_error', {
             topic: topic.name,
             error_kind: kind,

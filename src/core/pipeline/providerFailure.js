@@ -1,5 +1,6 @@
 // Mark provider failures so internal bugs surface as pipeline errors.
 
+import { errorMessage } from '../../shared/runtime/errorMessage.js';
 const PROVIDER_FAILURE = Symbol.for('pipeline.providerFailure');
 
 /** Marks an error as a genuine provider/transport failure.
@@ -16,7 +17,7 @@ export function markProviderFailure(error) {
       /* Frozen or otherwise unwritable: fall through to the wrapper. */
     }
   }
-  const wrapped = new Error((error && error.message) || String(error), { cause: error });
+  const wrapped = new Error(errorMessage(error), { cause: error });
   // Keep AbortError visible to cancellation detection through `cause`.
   if (error && error.name) wrapped.name = error.name;
   if (error && error.code !== undefined) wrapped.code = error.code;

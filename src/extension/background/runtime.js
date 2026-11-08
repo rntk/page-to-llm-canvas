@@ -1,3 +1,4 @@
+import { errorMessage } from '../../shared/runtime/errorMessage.js';
 export const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
 export const BOOTSTRAP_WAIT_TIMEOUT_MS = 10_000;
 
@@ -68,7 +69,7 @@ export function installBackgroundRuntime({
       .then(() => waitForBootstrap(bootstrapReady, bootstrapWaitTimeoutMs))
       .then(() => dispatchMessage(msg, sender))
       .then(sendResponse, (err) => {
-        sendResponse({ ok: false, error: (err && err.message) || String(err) });
+        sendResponse({ ok: false, error: errorMessage(err) });
       });
 
     return true;

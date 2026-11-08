@@ -1,6 +1,7 @@
 // Names fixed sentence ranges with the completion LLM. Ranges come from the
 // decision stage; the model only supplies one topic path per range.
 
+import { errorMessage } from '../../shared/runtime/errorMessage.js';
 import { buildTopicLabelsPrompt } from './prompts.js';
 import { groupsFromSegments, TopicParseError } from './topicParser.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
@@ -177,7 +178,7 @@ export async function labelTopicRanges({
           await runtime.log('topic_labels_llm_error', {
             batchIndex: index,
             attempt,
-            error: (error && error.message) || String(error),
+            error: errorMessage(error),
           });
           throw error;
         }

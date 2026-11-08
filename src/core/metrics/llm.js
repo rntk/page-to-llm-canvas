@@ -1,5 +1,6 @@
 // LLM request duration, token, and prompt-cache metrics.
 
+import { errorMessage } from '../../shared/runtime/errorMessage.js';
 import { LLM_TASK_TYPES, TOPIC_SPLITTER_KINDS } from '../../shared/runtime/telemetry.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { getLocal, setLocal } from '../storage/primitives.js';
@@ -371,7 +372,7 @@ export function wrapCallLLMWithRetry(callLLMWithRetry) {
           durationMs: Date.now() - startedAt,
           ok: false,
           taskType,
-          error: (err && err.message) || String(err),
+          error: errorMessage(err),
         });
         throw err;
       }
@@ -417,7 +418,7 @@ export function wrapDecide(decide, { provider, model } = {}) {
           taskType,
           ...(provider ? { provider } : {}),
           ...(model ? { model } : {}),
-          error: (err && err.message) || String(err),
+          error: errorMessage(err),
         });
         throw err;
       }

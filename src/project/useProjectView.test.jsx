@@ -207,4 +207,56 @@ describe('useProjectView', () => {
     // re-create root so afterEach unmount has something valid to unmount
     root = createRoot(container);
   });
+
+  it('retains the last view when a background refresh fails', async () => {
+    const pending = deferred();
+    const api = {
+      getProjectView: vi
+        .fn()
+        .mockResolvedValueOnce(viewOf('Saved'))
+        .mockReturnValueOnce(pending.promise),
+    };
+    await setup({ api });
+    const saved = latest.view;
+    await act(async () => latest.refresh());
+    expect(latest).toMatchObject({ status: 'ready', view: saved, error: null });
+    await act(async () => pending.reject(new Error('offline')));
+    expect(latest).toMatchObject({ status: 'ready', view: saved, error: null });
+  });
+
+  it.each(['success', 'failure'])(
+    'ignores a late %s after project and loader change',
+    async (outcome) => {
+      const pending = deferred();
+      const oldApi = { getProjectView: vi.fn().mockReturnValue(pending.promise) };
+      const newApi = { getProjectView: vi.fn().mockResolvedValue(viewOf('Current')) };
+      await setup({ api: oldApi });
+      await setup({ api: newApi, projectId: 'b' });
+      expect(newApi.getProjectView).toHaveBeenCalledWith('b');
+      await act(async () => {
+        if (outcome === 'success') pending.resolve(viewOf('Old'));
+        else pending.reject(new Error('old failure'));
+      });
+      expect(latest).toMatchObject({ status: 'ready', view: viewOf('Current'), error: null });
+    },
+  );
+
+  it('provides a subscription getter that observes the latest view', async () => {
+    let getView;
+    const subscribe = (_notify, _unused, options) => {
+      getView = options.getView;
+      return () => {};
+    };
+    const api = {
+      getProjectView: vi
+        .fn()
+        .mockResolvedValueOnce(viewOf('First'))
+        .mockResolvedValueOnce(viewOf('Second')),
+    };
+    await setup({ api, subscribe });
+    expect(getView()).toBe(latest.view);
+    await act(async () => latest.refresh());
+    expect(getView()).toBe(latest.view);
+    expect(getView().project.title).toBe('Second');
+  });
 });

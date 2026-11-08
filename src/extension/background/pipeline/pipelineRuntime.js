@@ -1,3 +1,4 @@
+import { errorMessage } from '../../../shared/runtime/errorMessage.js';
 import {
   appendProcessingLog,
   flushProcessingLog,
@@ -219,7 +220,7 @@ function throwLostRun() {
  */
 export function formatPipelineError(error) {
   if (error == null) return 'Unknown error';
-  const message = (error && error.message) || String(error);
+  const message = errorMessage(error);
   const stack = typeof error?.stack === 'string' ? error.stack : '';
   if (!stack) return message;
   return stack.includes(message) ? stack : `${message}\n${stack}`;
