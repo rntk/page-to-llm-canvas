@@ -18,8 +18,9 @@
 import { mergeAbortSignals } from '../llm/abortSignals.js';
 import { isCancellationError } from './cancellation.js';
 import { SUMMARY_CONCURRENCY } from './pipelineConfig.js';
+import { createCheckpointer } from './summaryTreeCheckpoint.js';
 import { createClaimVerifier, generateSummaries } from './summaryTreeGeneration.js';
-import { PASSAGE, ROOT, TOPIC, topicIds, treeLevels } from './summaryTreeModel.js';
+import { PASSAGE, ROOT, topicIds } from './summaryTreeModel.js';
 import { createSummaryTreeJudge, createSummaryTreeLlm } from './summaryTreeRequests.js';
 import { TOPIC_BATCH_CHARS, buildTopics, placeTopics } from './summaryTreeTopics.js';
 import {
@@ -30,7 +31,6 @@ import {
 } from '../../shared/runtime/summaryTree.js';
 
 export { SUMMARY_TREE_STATUS, SUMMARY_TREE_VERSION };
-const SAVE_INTERVAL_MS = 1000;
 
 /**
  * Raised for an expected failure with a user-facing message.
@@ -75,6 +75,38 @@ export function resumableNodes(tree, sourceNodeIds = new Set()) {
     nodes[id] = node.failed && !rootId ? { ...node, failed: false, segments: null } : { ...node };
   }
   return { nodes, rootId };
+}
+
+async function resumeFinishedTree({
+  nodes,
+  rootId,
+  enterStage,
+  llm,
+  judge,
+  workers,
+  maxChars,
+  save,
+  strategy,
+}) {
+  const unplaced = Object.values(nodes).filter((node) => node.unplaced);
+  // Units that could not be summarized stay out of the tree, as in a first build.
+  unplaced.filter((node) => !node.segments?.length).forEach((node) => delete node.unplaced);
+  const units = unplaced.filter((node) => node.unplaced).map((node) => node.id);
+  if (units.length) {
+    await enterStage(SUMMARY_TREE_STAGE.TOPICS);
+    await placeTopics({
+      nodes,
+      rootId,
+      unitIds: units,
+      llm,
+      judge,
+      workers,
+      batchChars: Math.min(TOPIC_BATCH_CHARS, maxChars),
+      onProgress: save,
+      sourceKind: strategy.sourceKind,
+      isBranch: strategy.isBranch,
+    });
+  }
 }
 
 /**
@@ -132,96 +164,26 @@ export async function runSummaryTree({
   }
   const verifier = judge.active ? createClaimVerifier({ judge, nodes, sentenceTexts }) : null;
   const startedAt = reusable && Number.isFinite(prior.startedAt) ? prior.startedAt : now();
-  let stage = SUMMARY_TREE_STAGE.PASSAGES;
-  let lastSaved = 0;
-  let unsaved = false;
-
-  const progress = () => {
-    const all = Object.values(nodes);
-    if (stage === SUMMARY_TREE_STAGE.PASSAGES) {
-      const passages = all.filter((node) => node.kind === PASSAGE);
-      return {
-        done: passages.filter((node) => node.segments !== null).length,
-        total: passages.length,
-      };
-    }
-    if (stage === SUMMARY_TREE_STAGE.TOPICS) {
-      return { done: all.filter((node) => node.kind === TOPIC).length, total: 0 };
-    }
-    const targets = topicIds(nodes);
-    return {
-      done: targets.filter((id) => nodes[id].segments !== null).length,
-      total: targets.length,
-    };
-  };
-
-  const snapshot = (status, extra = {}) => {
-    const all = Object.values(nodes);
-    return {
-      version: SUMMARY_TREE_VERSION,
-      status,
-      stage,
-      contentRevision: strategy.contentRevision ?? null,
-      fingerprint,
-      rootId,
-      nodes,
-      progress: progress(),
-      error: null,
-      startedAt,
-      updatedAt: now(),
-      metrics: {
-        passages: all.filter((node) => node.kind === PASSAGE).length,
-        failedPassages: all.filter((node) => node.failed).length,
-        skippedPassages: all.filter(
-          (node) => node.kind === PASSAGE && !node.failed && node.segments?.length === 0,
-        ).length,
-        topics: all.filter((node) => node.kind === TOPIC).length,
-        levels: treeLevels(rootId, nodes),
-        llmCalls: llm.metrics.calls,
-        llmInvalidAnswers: llm.metrics.invalidAnswers,
-        llmFailures: llm.metrics.failures,
-        decisionCalls: judge.metrics.calls,
-        decisionFailures: judge.metrics.failures,
-        decisionsActive: judge.active,
-        claimsDropped: verifier?.metrics.dropped ?? 0,
-      },
-      ...extra,
-    };
-  };
-
-  // Throttled to once per second; `flush` publishes what the throttle skipped.
-  const save = async () => {
-    if (now() - lastSaved < SAVE_INTERVAL_MS) {
-      unsaved = true;
-      return;
-    }
-    lastSaved = now();
-    unsaved = false;
-    await runtime.saveSummaryTree(snapshot(SUMMARY_TREE_STATUS.RUNNING));
-  };
-  const flush = async () => {
-    lastSaved = 0;
-    await save();
-  };
-  const enterStage = async (next) => {
-    stage = next;
-    await flush();
-    await runtime.log('summary_tree_stage', { stage: next, ...progress() });
-  };
-
   await runtime.log('summary_tree_start', {
     resumed: reusable,
     passageCount: Object.values(nodes).filter((node) => node.kind === PASSAGE).length,
     decisions: judge.active,
   });
-  // Losing ownership (a newer run, a changed record) stops the workers with
-  // the save's cancellation error.
-  const heartbeat =
-    heartbeatMs > 0
-      ? setInterval(() => {
-          flush().catch((error) => controller.abort(error));
-        }, heartbeatMs)
-      : null;
+  const checkpointer = createCheckpointer({
+    runtime,
+    now,
+    nodes,
+    getRootId: () => rootId,
+    strategy,
+    fingerprint,
+    startedAt,
+    llm,
+    judge,
+    verifier,
+    heartbeatMs,
+    controller,
+  });
+  const { save, flush, enterStage } = checkpointer;
   try {
     await enterStage(SUMMARY_TREE_STAGE.PASSAGES);
     // A finished tree extended with new pages carries sources still to summarize.
@@ -251,25 +213,17 @@ export async function runSummaryTree({
     }
 
     if (rootId) {
-      const unplaced = Object.values(nodes).filter((node) => node.unplaced);
-      // Units that could not be summarized stay out of the tree, as in a first build.
-      unplaced.filter((node) => !node.segments?.length).forEach((node) => delete node.unplaced);
-      const units = unplaced.filter((node) => node.unplaced).map((node) => node.id);
-      if (units.length) {
-        await enterStage(SUMMARY_TREE_STAGE.TOPICS);
-        await placeTopics({
-          nodes,
-          rootId,
-          unitIds: units,
-          llm,
-          judge,
-          workers,
-          batchChars: Math.min(TOPIC_BATCH_CHARS, maxChars),
-          onProgress: save,
-          sourceKind: strategy.sourceKind,
-          isBranch: strategy.isBranch,
-        });
-      }
+      await resumeFinishedTree({
+        nodes,
+        rootId,
+        enterStage,
+        llm,
+        judge,
+        workers,
+        maxChars,
+        save,
+        strategy,
+      });
     } else {
       await enterStage(SUMMARY_TREE_STAGE.TOPICS);
       // Only this coordinator assigns the root; snapshots merely read it.
@@ -307,15 +261,14 @@ export async function runSummaryTree({
     const lost = controller.signal.reason;
     if (controller.signal.aborted && isCancellationError(lost, runtime)) throw lost;
     // Keep completed work for the resume; the caller records the failure.
-    if (unsaved && !runtime.signal?.aborted) await flush().catch(() => {});
+    if (checkpointer.unsaved && !runtime.signal?.aborted) await flush().catch(() => {});
     throw error;
   } finally {
-    if (heartbeat) clearInterval(heartbeat);
+    checkpointer.dispose();
     merged.dispose();
   }
 
-  stage = SUMMARY_TREE_STAGE.DONE;
-  const result = snapshot(SUMMARY_TREE_STATUS.DONE);
+  const result = checkpointer.finish();
   await runtime.saveSummaryTree(result);
   await runtime.log('summary_tree_done', { ...result.progress, ...result.metrics });
   return result;
