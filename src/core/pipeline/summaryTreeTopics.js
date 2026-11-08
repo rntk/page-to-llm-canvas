@@ -191,12 +191,62 @@ async function judgeAssign({ judge, nodes, ids, path, proposed }) {
 }
 
 /**
+ * Assign batches sequentially, reusing titles discovered in earlier batches.
+ * With fixed titles, allow one new title per batch to mean that no branch fits.
+ * @param {object} input
+ * @param {Record<string, SummaryTreeNode>} input.nodes
+ * @param {string[]} input.ids
+ * @param {string} input.path
+ * @param {{askDecoded: Function}} input.llm
+ * @param {number} input.batchChars
+ * @param {string|null} input.sourceKind
+ * @param {string[]|null} [input.fixedTitles] Existing branches for placement.
+ * @returns {Promise<{topics: Map<string, string[]>, leftover: string[]}>}
+ */
+async function assignInBatches({
+  nodes,
+  ids,
+  path,
+  llm,
+  batchChars,
+  sourceKind,
+  fixedTitles = null,
+}) {
+  const topics = new Map();
+  const leftover = [];
+  for (const batch of digestBatches(nodes, ids, batchChars)) {
+    const existing = fixedTitles ?? [...topics.keys()];
+    const local = new Map(batch.map((id, index) => [`P${index + 1}`, id]));
+    const maxNew = fixedTitles ? 1 : Math.max(0, MAX_BRANCHES - existing.length);
+    const assignment = await llm.askDecoded(
+      buildTopicGroupingPrompt({
+        ...(sourceKind ? { source_kind: sourceKind } : {}),
+        path,
+        existing_topics: existing,
+        max_new_topics: maxNew,
+        passages: [...local].map(([id, nodeId]) => ({ id, summary: digest(nodes, nodeId) })),
+      }),
+      (raw) => decodeAssignment(raw, local, existing, maxNew),
+      LLM_TASK_TYPES.SUMMARY_TREE_TOPICS,
+    );
+    const assigned = new Set();
+    for (const [title, members] of assignment || []) {
+      if (!topics.has(title)) topics.set(title, []);
+      topics.get(title).push(...members);
+      members.forEach((id) => assigned.add(id));
+    }
+    leftover.push(...batch.filter((id) => !assigned.has(id)));
+  }
+  return { topics, leftover };
+}
+
+/**
  * Grow topic nodes above summarized passages.
  * @param {object} input
  * @param {Record<string, SummaryTreeNode>} input.nodes Mutated: topic and root nodes are added.
  * @param {string[]} input.passageIds Summarized passages, in article order.
  * @param {string} input.rootTitle
- * @param {{ask: Function}} input.llm
+ * @param {{askDecoded: Function}} input.llm
  * @param {object} [input.judge] Assigns passages with typed questions while active.
  * @param {number} [input.workers]
  * @param {number} [input.batchChars] Digest characters per request.
@@ -218,28 +268,16 @@ export async function buildTopics({
   groupSmallRoot = false,
 }) {
   const kind = sourceKind ? { source_kind: sourceKind } : {};
-  const ask = (prompt, decode) => {
-    let result = null;
-    return llm
-      .ask(
-        prompt,
-        (raw) => {
-          result = decode(raw);
-          return result !== null;
-        },
-        LLM_TASK_TYPES.SUMMARY_TREE_TOPICS,
-      )
-      .then((accepted) => (accepted ? result : null));
-  };
 
   const propose = (ids, path) =>
-    ask(
+    llm.askDecoded(
       buildTopicTitlesPrompt({
         ...kind,
         path: path.join(' › '),
         passages: sample(ids, nodes, batchChars).map((id) => digest(nodes, id)),
       }),
       (raw) => decodeTitles(raw, groupSmallRoot && path.length === 0),
+      LLM_TASK_TYPES.SUMMARY_TREE_TOPICS,
     );
 
   // The LLM proposes titles once; the judge assigns every passage. Null -> LLM fallback.
@@ -249,37 +287,18 @@ export async function buildTopics({
     return judgeAssign({ judge, nodes, ids, path: path.join(' › '), proposed });
   }
 
-  async function splitLlm(ids, path) {
-    const topics = new Map();
-    const leftover = [];
-    for (const batch of digestBatches(nodes, ids, batchChars)) {
-      const existing = [...topics.keys()];
-      const local = new Map(batch.map((id, index) => [`P${index + 1}`, id]));
-      const maxNew = existing.length ? Math.max(0, MAX_BRANCHES - existing.length) : MAX_BRANCHES;
-      const assignment = await ask(
-        buildTopicGroupingPrompt({
-          ...kind,
-          path: path.join(' › '),
-          existing_topics: existing,
-          max_new_topics: maxNew,
-          passages: [...local].map(([id, nodeId]) => ({ id, summary: digest(nodes, nodeId) })),
-        }),
-        (raw) => decodeAssignment(raw, local, existing, maxNew),
-      );
-      const assigned = new Set();
-      for (const [title, members] of assignment || []) {
-        if (!topics.has(title)) topics.set(title, []);
-        topics.get(title).push(...members);
-        members.forEach((id) => assigned.add(id));
-      }
-      leftover.push(...batch.filter((id) => !assigned.has(id)));
-    }
-    return { topics, leftover };
-  }
-
   async function split(ids, path) {
     const judged = judge?.active ? await splitJudged(ids, path) : null;
-    const { topics, leftover } = judged ?? (await splitLlm(ids, path));
+    const { topics, leftover } =
+      judged ??
+      (await assignInBatches({
+        nodes,
+        ids,
+        path: path.join(' › '),
+        llm,
+        batchChars,
+        sourceKind,
+      }));
     return orderGroups(topics, leftover, ids, groupSmallRoot && path.length === 0);
   }
 
@@ -326,7 +345,7 @@ export async function buildTopics({
  * @param {Record<string, SummaryTreeNode>} input.nodes Mutated.
  * @param {string} input.rootId
  * @param {string[]} input.unitIds Summarized units flagged `unplaced`.
- * @param {{ask: Function}} input.llm
+ * @param {{askDecoded: Function}} input.llm
  * @param {object} [input.judge]
  * @param {number} [input.workers]
  * @param {number} [input.batchChars]
@@ -385,28 +404,17 @@ export async function placeTopics({
       }
       return choice;
     }
-    for (const batch of digestBatches(nodes, ids, batchChars)) {
-      const existing = [...titles.keys()];
-      const local = new Map(batch.map((id, index) => [`P${index + 1}`, id]));
-      // One new title is allowed to mean that no existing branch fits.
-      let decoded = null;
-      const accepted = await llm.ask(
-        buildTopicGroupingPrompt({
-          ...(sourceKind ? { source_kind: sourceKind } : {}),
-          path,
-          existing_topics: existing,
-          max_new_topics: 1,
-          passages: [...local].map(([id, nodeId]) => ({ id, summary: digest(nodes, nodeId) })),
-        }),
-        (raw) => {
-          decoded = decodeAssignment(raw, local, existing, 1);
-          return decoded !== null;
-        },
-        LLM_TASK_TYPES.SUMMARY_TREE_TOPICS,
-      );
-      for (const [title, members] of (accepted && decoded) || []) {
-        if (titles.has(title)) members.forEach((id) => choice.set(id, titles.get(title)));
-      }
+    const { topics } = await assignInBatches({
+      nodes,
+      ids,
+      path,
+      llm,
+      batchChars,
+      sourceKind,
+      fixedTitles: [...titles.keys()],
+    });
+    for (const [title, members] of topics) {
+      if (titles.has(title)) members.forEach((id) => choice.set(id, titles.get(title)));
     }
     return choice;
   }

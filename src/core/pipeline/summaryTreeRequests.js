@@ -76,7 +76,28 @@ export function createSummaryTreeLlm({ callLLMWithRetry, signal, runtime }) {
     return false;
   }
 
-  return { ask, metrics };
+  /**
+   * Ask until decoding succeeds, returning null when the ask fails.
+   * @template T
+   * @param {string} prompt
+   * @param {function(string): T|null} decode Null marks an invalid answer.
+   * @param {string} [taskType]
+   * @returns {Promise<T|null>}
+   */
+  async function askDecoded(prompt, decode, taskType) {
+    let result = null;
+    const accepted = await ask(
+      prompt,
+      (raw) => {
+        result = decode(raw);
+        return result !== null;
+      },
+      taskType,
+    );
+    return accepted ? result : null;
+  }
+
+  return { ask, askDecoded, metrics };
 }
 
 /**

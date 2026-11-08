@@ -1,7 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
 import { PASSAGE, addNode, claimSentences, relay, treeLevels } from './summaryTreeModel.js';
 import { decodeEntry, levelOf, requestItem } from './summaryTreeGeneration.js';
-import { decodeAssignment, decodeTitles, orderGroups, OTHER_TITLE } from './summaryTreeTopics.js';
+import {
+  buildTopics,
+  decodeAssignment,
+  decodeTitles,
+  orderGroups,
+  OTHER_TITLE,
+  placeTopics,
+} from './summaryTreeTopics.js';
 import { buildPassages } from './summaryTreePassages.js';
 import { createSummaryTreeLlm } from './summaryTreeRequests.js';
 import { extractObject } from './summaryTreeAnswers.js';
@@ -132,6 +139,23 @@ describe('topic answers', () => {
 });
 
 describe('createSummaryTreeLlm', () => {
+  it('retries null decodes, accepts falsy values and forwards the task type', async () => {
+    const callLLMWithRetry = vi.fn().mockResolvedValueOnce('bad').mockResolvedValueOnce('0');
+    const llm = createSummaryTreeLlm({ callLLMWithRetry });
+    await expect(llm.askDecoded('p', (raw) => (raw === '0' ? 0 : null), 'custom')).resolves.toBe(0);
+    expect(callLLMWithRetry).toHaveBeenCalledTimes(2);
+    expect(callLLMWithRetry.mock.calls[0][0]).toMatchObject({ prompt: 'p', taskType: 'custom' });
+    expect(llm.metrics.invalidAnswers).toBe(1);
+    await expect(llm.askDecoded('p', () => false)).resolves.toBe(false);
+    await expect(llm.askDecoded('p', () => null)).resolves.toBeNull();
+    const error = new Error('decode failed');
+    await expect(
+      llm.askDecoded('p', () => {
+        throw error;
+      }),
+    ).rejects.toBe(error);
+  });
+
   it('retries invalid answers and gives up after the bounded attempts', async () => {
     const callLLMWithRetry = vi.fn().mockResolvedValue('not json');
     const llm = createSummaryTreeLlm({ callLLMWithRetry });
@@ -162,6 +186,89 @@ function payloadOf(prompt) {
     prompt.indexOf(PROMPT_DELIMITER.payloadPrefix) + PROMPT_DELIMITER.payloadPrefix.length;
   return JSON.parse(prompt.slice(start, prompt.lastIndexOf(PROMPT_DELIMITER.close)).trim());
 }
+
+describe('topic batching', () => {
+  const makePassages = (nodes, count) =>
+    Array.from({ length: count }, (_, i) =>
+      addNode(nodes, PASSAGE, `P${i}`, [], { sentences: [i + 1] }),
+    );
+  const answer = (topics) => JSON.stringify({ topics });
+
+  it('reuses discovered titles and places unassigned passages in Other', async () => {
+    const nodes = {};
+    const ids = makePassages(nodes, 8);
+    const payloads = [];
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      const payload = payloadOf(prompt);
+      payloads.push(payload);
+      return payloads.length === 1
+        ? answer([
+            { title: 'Alpha', passages: ['P1', 'P2'] },
+            { title: 'Beta', passages: ['P3'] },
+          ])
+        : answer([
+            { title: 'alpha', passages: ['P1'] },
+            { title: 'Beta', passages: ['P2', 'P3'] },
+          ]);
+    });
+    const root = await buildTopics({
+      nodes,
+      passageIds: ids,
+      rootTitle: 'Root',
+      batchChars: 56,
+      llm: createSummaryTreeLlm({ callLLMWithRetry }),
+    });
+    expect(payloads.map((p) => p.existing_topics)).toEqual([[], ['Alpha', 'Beta']]);
+    expect(nodes[root].children.map((id) => [nodes[id].title, nodes[id].children])).toEqual([
+      ['Alpha', [ids[0], ids[1], ids[4]]],
+      ['Beta', [ids[2], ids[5], ids[6]]],
+      ['Other', [ids[3], ids[7]]],
+    ]);
+  });
+
+  it('keeps placement titles fixed and attaches unmatched and failed batches at the parent', async () => {
+    const nodes = {};
+    const alpha = addNode(nodes, 'topic', 'Alpha', []);
+    const beta = addNode(nodes, 'topic', 'Beta', []);
+    const root = addNode(nodes, 'root', 'Root', [alpha, beta]);
+    const ids = makePassages(nodes, 12);
+    ids.forEach((id) => {
+      nodes[id].unplaced = true;
+    });
+    const payloads = [];
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      const payload = payloadOf(prompt);
+      payloads.push(payload);
+      if (payloads.length === 1) return answer([{ title: 'New', passages: ['P1', 'P2', 'P3'] }]);
+      if (payloads.length === 2) return answer([{ title: 'Alpha', passages: ['P1', 'P2', 'P3'] }]);
+      return '{}';
+    });
+    await placeTopics({
+      nodes,
+      rootId: root,
+      unitIds: ids,
+      batchChars: 56,
+      llm: createSummaryTreeLlm({ callLLMWithRetry }),
+    });
+    expect(payloads).toHaveLength(5);
+    expect(
+      payloads.every(
+        (p) =>
+          JSON.stringify(p.existing_topics) === JSON.stringify(['Alpha', 'Beta']) &&
+          p.max_new_topics === 1,
+      ),
+    ).toBe(true);
+    expect(nodes[alpha].children).toEqual(ids.slice(4, 7));
+    expect(nodes[root].children).toEqual([
+      alpha,
+      beta,
+      ...ids.slice(0, 4),
+      ids[7],
+      ...ids.slice(8),
+    ]);
+    expect(ids.every((id) => !nodes[id].unplaced)).toBe(true);
+  });
+});
 
 // Deterministic stand-in for the completion model, answering by task.
 function fakeModel() {
