@@ -19,9 +19,18 @@ import {
   visibleTree,
 } from './topicsTreeModel.js';
 import { boundsOf, clampCardSize, layoutTree, treeLinks } from './treeLayout.js';
+import {
+  MOTION_LINGER_MS,
+  MOTION_MS,
+  leavingNodes,
+  prefersReducedMotion,
+  useEnterMotion,
+  useFadeInMotion,
+} from './treeMotion.js';
 import { useTreeViewport } from './useTreeViewport.js';
 
 const EMPTY_MAP = new Map();
+const NOOP = () => {};
 
 // The root is tree level 1 and top-level topics are level 2, so topic level L
 // (as shown by the level switcher) is tree level L + 2.
@@ -46,6 +55,12 @@ function pluralize(count, noun) {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
 
+const TreeLink = React.memo(function TreeLink({ d, isOnPath, motionRef }) {
+  const elRef = useRef(null);
+  useFadeInMotion(elRef, motionRef);
+  return <path ref={elRef} className={isOnPath ? 'tt-link is-on-path' : 'tt-link'} d={d} />;
+});
+
 const TopicNode = React.memo(function TopicNode({
   node,
   isExpanded,
@@ -53,6 +68,8 @@ const TopicNode = React.memo(function TopicNode({
   isSelected,
   isOnPath,
   position,
+  origin,
+  motionRef,
   registerElement,
   onToggle,
   onExpandBranch,
@@ -66,7 +83,15 @@ const TopicNode = React.memo(function TopicNode({
   ]
     .filter(Boolean)
     .join(' ');
-  const ref = useCallback((el) => registerElement(node.key, el), [registerElement, node.key]);
+  const elRef = useRef(null);
+  const ref = useCallback(
+    (el) => {
+      elRef.current = el;
+      registerElement(node.key, el);
+    },
+    [registerElement, node.key],
+  );
+  useEnterMotion(elRef, position, origin, motionRef);
   return (
     <div
       ref={ref}
@@ -116,13 +141,23 @@ const LeafCard = React.memo(function LeafCard({
   isOnPath,
   isFront,
   position,
+  origin,
   size,
+  motionRef,
   registerElement,
   onSelect,
   onStartDrag,
   onShowInPage,
 }) {
-  const ref = useCallback((el) => registerElement(node.key, el), [registerElement, node.key]);
+  const elRef = useRef(null);
+  const ref = useCallback(
+    (el) => {
+      elRef.current = el;
+      registerElement(node.key, el);
+    },
+    [registerElement, node.key],
+  );
+  useEnterMotion(elRef, position, origin, motionRef);
   // A source card carries its topic's path, so show it whole to name that topic.
   const parentPath = formatTopicPath(splitTopicPath(node.path));
   const className = [
@@ -227,14 +262,24 @@ export default function TopicsTreeCanvas({
   const [measureTick, setMeasureTick] = useState(0);
   // Live card move/resize: the layout is frozen while the pointer is down.
   const [drag, setDrag] = useState(null);
+  // Nodes that just folded away, kept on screen while they shrink into their parent.
+  const [leaving, setLeaving] = useState([]);
 
   const elementsRef = useRef(new Map());
   const pendingAnchorRef = useRef(null);
   const pendingFitRef = useRef(true);
   const dragCleanupRef = useRef(null);
+  // True while a fold/unfold animates: only then do new nodes and links animate in.
+  const motionRef = useRef(false);
+  const motionTimerRef = useRef(null);
 
   const visible = useMemo(() => visibleTree(tree, expanded), [tree, expanded]);
   const nodes = useMemo(() => flattenTree(visible), [visible]);
+  const parentKeys = useMemo(() => {
+    const parents = new Map();
+    nodes.forEach((node) => node.children.forEach((child) => parents.set(child.key, node.key)));
+    return parents;
+  }, [nodes]);
   const positions = useMemo(
     () => layoutTree(visible, sizes, { offsets }),
     [visible, sizes, offsets],
@@ -266,9 +311,9 @@ export default function TopicsTreeCanvas({
 
   // Handlers read the latest layout through a ref so they stay stable for the
   // memoized nodes.
-  const latestRef = useRef({ positions, offsets, displayPositions });
+  const latestRef = useRef({ positions, offsets, displayPositions, expanded, visible });
   useLayoutEffect(() => {
-    latestRef.current = { positions, offsets, displayPositions };
+    latestRef.current = { positions, offsets, displayPositions, expanded, visible };
   });
 
   // After a change that can resize nodes: re-measure, and only once the sizes
@@ -303,7 +348,43 @@ export default function TopicsTreeCanvas({
     translateBy((anchor.before.left - after.left) * k, (anchor.before.top - after.top) * k);
   }, [drag, sizes, positions, visible, cardSizes, measureTick, fit, translateBy, transformRef]);
 
-  useEffect(() => () => dragCleanupRef.current?.(), []);
+  useEffect(
+    () => () => {
+      dragCleanupRef.current?.();
+      clearTimeout(motionTimerRef.current);
+    },
+    [],
+  );
+
+  // Switch to a new fold state, animating the change unless the user prefers
+  // reduced motion. Layout transitions are keyed off `data-motion` on the canvas
+  // (CSS); entering nodes read `motionRef`; leaving ones are kept as ghosts.
+  const changeExpanded = useCallback(
+    (update) => {
+      const { expanded: prev, visible: before, displayPositions: placed } = latestRef.current;
+      const next = update(prev);
+      clearTimeout(motionTimerRef.current);
+      const canvas = canvasRef.current;
+      if (prefersReducedMotion() || !canvas) {
+        motionRef.current = false;
+        delete canvas?.dataset.motion;
+        setLeaving([]);
+      } else {
+        motionRef.current = true;
+        canvas.dataset.motion = 'on';
+        setLeaving(
+          leavingNodes(before, visibleTree(tree, next), placed, (node) => node.kind === LEAF_KIND),
+        );
+        motionTimerRef.current = setTimeout(() => {
+          motionRef.current = false;
+          delete canvas.dataset.motion;
+          setLeaving((current) => (current.length ? [] : current));
+        }, MOTION_LINGER_MS);
+      }
+      setExpanded(next);
+    },
+    [canvasRef, tree],
+  );
 
   const anchorOn = useCallback((key) => {
     const before = latestRef.current.displayPositions.get(key);
@@ -322,18 +403,18 @@ export default function TopicsTreeCanvas({
     (key) => {
       anchorOn(key);
       setSelectedKey(key);
-      setExpanded((prev) => toggleNode(tree, prev, key, exclusive));
+      changeExpanded((prev) => toggleNode(tree, prev, key, exclusive));
     },
-    [anchorOn, tree, exclusive],
+    [anchorOn, changeExpanded, tree, exclusive],
   );
 
   const handleExpandBranch = useCallback(
     (key) => {
       anchorOn(key);
       setSelectedKey(key);
-      setExpanded((prev) => expandBranch(tree, prev, key));
+      changeExpanded((prev) => expandBranch(tree, prev, key));
     },
-    [anchorOn, tree],
+    [anchorOn, changeExpanded, tree],
   );
 
   const handleSelectCard = useCallback((key) => {
@@ -394,7 +475,7 @@ export default function TopicsTreeCanvas({
   );
 
   const handleSelectLevel = (topicLevel) => {
-    setExpanded(expandToLevel(tree, topicLevel + TOPIC_LEVEL_OFFSET));
+    changeExpanded(() => expandToLevel(tree, topicLevel + TOPIC_LEVEL_OFFSET));
     setSelectedKey(tree.key);
     requestFit();
   };
@@ -431,16 +512,26 @@ export default function TopicsTreeCanvas({
           </div>,
           controlsHost,
         )}
-      <div ref={canvasRef} className={`tt-canvas${drag ? ' is-dragging' : ''}`}>
+      <div
+        ref={canvasRef}
+        className={`tt-canvas${drag ? ' is-dragging' : ''}`}
+        style={{ '--tt-motion': `${MOTION_MS}ms` }}
+      >
         <div ref={stageRef} className="tt-stage">
           <svg className="tt-links" aria-hidden="true">
             {links.map((link) => (
-              <path
+              <TreeLink
                 key={link.key}
-                className={onPath.has(link.key) ? 'tt-link is-on-path' : 'tt-link'}
                 d={link.d}
+                isOnPath={onPath.has(link.key)}
+                motionRef={motionRef}
               />
             ))}
+            {leaving.map(({ node, link }) =>
+              link ? (
+                <path key={`leaving:${node.key}`} className="tt-link is-leaving" d={link} />
+              ) : null,
+            )}
           </svg>
           <div className="tt-nodes">
             {nodes.map((node) =>
@@ -454,6 +545,8 @@ export default function TopicsTreeCanvas({
                   isOnPath={onPath.has(node.key)}
                   isFront={node.key === frontKey}
                   position={displayPositions.get(node.key)}
+                  origin={displayPositions.get(parentKeys.get(node.key))}
+                  motionRef={motionRef}
                   size={
                     drag?.key === node.key && drag.mode === 'resize'
                       ? drag.pos
@@ -473,12 +566,56 @@ export default function TopicsTreeCanvas({
                   isSelected={node.key === selectedKey}
                   isOnPath={onPath.has(node.key)}
                   position={displayPositions.get(node.key)}
+                  origin={displayPositions.get(parentKeys.get(node.key))}
+                  motionRef={motionRef}
                   registerElement={registerElement}
                   onToggle={handleToggle}
                   onExpandBranch={handleExpandBranch}
                 />
               ),
             )}
+            {leaving.map(({ node, from, to }) => (
+              <div
+                key={`leaving:${node.key}`}
+                className="tt-leaving"
+                aria-hidden="true"
+                inert
+                style={{
+                  '--tt-dx': `${to.left - from.left}px`,
+                  '--tt-dy': `${to.top - from.top}px`,
+                }}
+              >
+                {node.kind === LEAF_KIND ? (
+                  <LeafCard
+                    node={node}
+                    articleSentences={sentences}
+                    sentenceSources={sentenceSources}
+                    isSelected={false}
+                    isOnPath={false}
+                    isFront={false}
+                    position={from}
+                    size={cardSizes.get(node.key)}
+                    motionRef={motionRef}
+                    registerElement={NOOP}
+                    onSelect={NOOP}
+                    onStartDrag={NOOP}
+                  />
+                ) : (
+                  <TopicNode
+                    node={node}
+                    isExpanded={false}
+                    fontSize={labelSize(node, totalSentences)}
+                    isSelected={false}
+                    isOnPath={false}
+                    position={from}
+                    motionRef={motionRef}
+                    registerElement={NOOP}
+                    onToggle={NOOP}
+                    onExpandBranch={NOOP}
+                  />
+                )}
+              </div>
+            ))}
           </div>
         </div>
         <p className="tt-hint tt-muted">

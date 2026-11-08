@@ -56,6 +56,8 @@ const tree = {
 };
 
 beforeEach(() => {
+  // Reduced motion: folded nodes disappear at once instead of lingering to animate out.
+  vi.stubGlobal('matchMedia', () => ({ matches: true }));
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -65,6 +67,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+  vi.unstubAllGlobals();
 });
 
 function render(props = {}) {

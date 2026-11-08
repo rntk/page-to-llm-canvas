@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createElement, act } from 'react';
 import { createRoot } from 'react-dom/client';
 import TopicsTreeApp from './TopicsTreeApp.jsx';
@@ -52,6 +52,12 @@ describe('articleRootTitle', () => {
 describe('TopicsTreeApp', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reduced motion: folded nodes disappear at once instead of lingering to animate out.
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('renders loading, error, processing and empty states', () => {
@@ -102,6 +108,32 @@ describe('TopicsTreeApp', () => {
     act(() => fruit.click());
     expect(titles(container)).toEqual(['news.example.com', 'Fruit', 'Veg']);
     unmount();
+  });
+
+  it('keeps folded nodes as inert ghosts until the fold animation is over', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    try {
+      useRecord.mockReturnValue({ record: doneRecord, error: null });
+      const { container, unmount } = render();
+      const fruit = [...container.querySelectorAll('.tt-node')].find((el) =>
+        el.textContent.startsWith('Fruit'),
+      );
+      act(() => fruit.click());
+      act(() => fruit.click());
+
+      const ghosts = container.querySelectorAll('.tt-leaving');
+      expect(ghosts).toHaveLength(2);
+      expect(container.querySelector('.tt-canvas').dataset.motion).toBe('on');
+      expect(container.querySelectorAll('.tt-link.is-leaving')).toHaveLength(2);
+
+      act(() => vi.advanceTimersByTime(1000));
+      expect(container.querySelectorAll('.tt-leaving')).toHaveLength(0);
+      expect(container.querySelector('.tt-canvas').dataset.motion).toBeUndefined();
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('switches levels from the controls in the page bar', () => {

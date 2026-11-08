@@ -114,6 +114,67 @@
   left: 0;
 }
 
+/* ---------- fold / unfold motion ----------
+   `data-motion` is set on the canvas by TopicsTreeCanvas only while a fold or
+   unfold plays (and not under reduced motion), so nothing eases for dragging a
+   card, panning, or the first layout. The stage glides with the nodes so the
+   clicked topic stays put under the pointer. New nodes and links animate in
+   from script (they have no earlier style to transition from). */
+.tt-canvas[data-motion] .tt-stage {
+  transition: transform var(--tt-motion) cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.tt-canvas[data-motion] .tt-node,
+.tt-canvas[data-motion] .tt-card {
+  transition: transform var(--tt-motion) cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.tt-canvas[data-motion] .tt-link {
+  transition: d var(--tt-motion) cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.tt-canvas.is-dragging .tt-stage,
+.tt-canvas.is-dragging .tt-node,
+.tt-canvas.is-dragging .tt-card,
+.tt-canvas.is-dragging .tt-link {
+  transition: none;
+}
+
+/* A folded-away node shrinks back into the node that now stands in for it. */
+.tt-leaving {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  animation: tt-leave var(--tt-motion) cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+
+.tt-link.is-leaving {
+  animation: tt-fade-out var(--tt-motion) ease forwards;
+}
+
+@keyframes tt-leave {
+  to {
+    opacity: 0;
+    transform: translate(var(--tt-dx), var(--tt-dy));
+  }
+}
+
+@keyframes tt-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-canvas .tt-stage,
+  .tt-canvas .tt-node,
+  .tt-canvas .tt-card,
+  .tt-canvas .tt-link {
+    transition: none;
+  }
+}
+
 .tt-hint {
   position: absolute;
   bottom: 6px;

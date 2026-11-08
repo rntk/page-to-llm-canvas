@@ -3,7 +3,7 @@
 export const CARD_MIN = { w: 240, h: 120 };
 
 /** Default gaps (stage px) between depth columns, siblings and cousins. */
-export const LAYOUT_GAPS = Object.freeze({ column: 64, sibling: 12, branch: 28 });
+export const LAYOUT_GAPS = Object.freeze({ column: 64, sibling: 12, branch: 44 });
 
 /** Link target height on a leaf card: its header, not its (possibly tall) middle. */
 const CARD_ANCHOR_Y = 20;
