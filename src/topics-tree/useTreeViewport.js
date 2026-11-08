@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { clampScale, cursorAnchoredTranslate } from '../utils/canvasMath.js';
+import {
+  ARROW_PAN,
+  clampScale,
+  cursorAnchoredTranslate,
+  pagePanStep,
+} from '../utils/canvasMath.js';
 import { fitTransform } from './treeLayout.js';
 import { isTypingTarget } from '../utils/isTypingTarget.js';
+import { trackPointer } from '../utils/trackPointer.js';
 
 // A pointer has to travel this far before a press on a topic turns into a pan
 // (and its click is swallowed).
@@ -77,7 +83,8 @@ export function useTreeViewport() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
-    let pan = null;
+    let stopPan = null;
+    let panning = false;
 
     const onWheel = (event) => {
       if (!event.ctrlKey && event.target?.closest?.(NATIVE_WHEEL_SELECTOR)) return;
@@ -89,36 +96,34 @@ export function useTreeViewport() {
       });
     };
 
-    const onPointerMove = (event) => {
-      if (!pan) return;
-      const dx = event.clientX - pan.x;
-      const dy = event.clientY - pan.y;
-      if (!pan.moved && Math.hypot(dx, dy) < PAN_THRESHOLD_PX) return;
-      if (!pan.moved) {
-        pan.moved = true;
-        canvas.classList.add('is-panning');
-      }
-      pan.x = event.clientX;
-      pan.y = event.clientY;
-      translateBy(dx, dy);
-    };
-
-    const endPan = () => {
-      if (pan?.moved) suppressClickRef.current = true;
-      pan = null;
+    const cancelPan = () => {
+      stopPan?.();
+      stopPan = null;
+      panning = false;
       canvas.classList.remove('is-panning');
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', endPan);
-      window.removeEventListener('pointercancel', endPan);
     };
 
     const onPointerDown = (event) => {
       if (event.button !== 0 || event.target?.closest?.(NO_PAN_SELECTOR)) return;
+      cancelPan();
       suppressClickRef.current = false;
-      pan = { x: event.clientX, y: event.clientY, moved: false };
-      window.addEventListener('pointermove', onPointerMove);
-      window.addEventListener('pointerup', endPan);
-      window.addEventListener('pointercancel', endPan);
+      // Apply increments so a wheel zoom mid-drag isn't undone.
+      let last = { dx: 0, dy: 0 };
+      const onMove = (dx, dy) => {
+        if (!panning && Math.hypot(dx, dy) < PAN_THRESHOLD_PX) return;
+        if (!panning) {
+          panning = true;
+          canvas.classList.add('is-panning');
+        }
+        translateBy(dx - last.dx, dy - last.dy);
+        last = { dx, dy };
+      };
+      const onEnd = () => {
+        if (panning) suppressClickRef.current = true;
+        stopPan = null;
+        cancelPan();
+      };
+      stopPan = trackPointer(event, onMove, onEnd);
     };
 
     // A pan that started on a topic must not also toggle it on release.
@@ -141,12 +146,9 @@ export function useTreeViewport() {
       )
         return;
       const height = canvas.clientHeight || 600;
-      const page = Math.max(120, height * 0.8);
+      const page = pagePanStep(height);
       const moves = {
-        ArrowUp: [0, 80],
-        ArrowDown: [0, -80],
-        ArrowLeft: [80, 0],
-        ArrowRight: [-80, 0],
+        ...ARROW_PAN,
         PageUp: [0, page],
         PageDown: [0, -page],
       };
@@ -169,7 +171,7 @@ export function useTreeViewport() {
     canvas.addEventListener('click', onClickCapture, true);
     apply(transformRef.current);
     return () => {
-      endPan();
+      cancelPan();
       window.removeEventListener('keydown', onKeyDown);
       canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('pointerdown', onPointerDown);

@@ -33,6 +33,22 @@ export function cursorAnchoredTranslate({ cursor, translate, currentScale, nextS
   };
 }
 
+/** Screen-space pan [dx, dy] per arrow key press. */
+export const ARROW_PAN = Object.freeze({
+  ArrowUp: [0, 80],
+  ArrowDown: [0, -80],
+  ArrowLeft: [80, 0],
+  ArrowRight: [-80, 0],
+});
+
+/** PageUp/PageDown pan distance for a viewport of the given height.
+ * @param {number} viewportHeight
+ * @returns {number}
+ */
+export function pagePanStep(viewportHeight) {
+  return Math.max(120, viewportHeight * 0.8);
+}
+
 /** Convert wheel deltas to the shared canvas zoom curve.
  * @param {number} deltaY
  * @param {number} [deltaMode]

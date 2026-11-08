@@ -1,26 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isTypingTarget } from '../utils/isTypingTarget.js';
+import { ARROW_PAN, pagePanStep } from '../utils/canvasMath.js';
+import { trackPointer } from '../utils/trackPointer.js';
 import { DEFAULT_VIEWPORT, wheelZoomFactor, zoomViewport } from './canvasLayout.js';
-
-/**
- * Follows a pointer gesture on the window until release.
- * @param {PointerEvent} start
- * @param {function(number, number): void} onMove Receives total dx, dy in px.
- * @returns {function(): void} Cancel (also called on release).
- */
-function trackPointer(start, onMove) {
-  const { clientX: x0, clientY: y0 } = start;
-  const handleMove = (event) => onMove(event.clientX - x0, event.clientY - y0);
-  const stop = () => {
-    window.removeEventListener('pointermove', handleMove);
-    window.removeEventListener('pointerup', stop);
-    window.removeEventListener('pointercancel', stop);
-  };
-  window.addEventListener('pointermove', handleMove);
-  window.addEventListener('pointerup', stop);
-  window.addEventListener('pointercancel', stop);
-  return stop;
-}
 
 // Chat drawers and excerpt text scroll (and chats take keys) on their own, so
 // canvas wheel-zoom and keyboard panning leave them alone.
@@ -33,12 +15,6 @@ function insideSelector(target, selector) {
   return typeof target?.closest === 'function' && !!target.closest(selector);
 }
 
-const ARROW_PAN = {
-  ArrowUp: [0, 80],
-  ArrowDown: [0, -80],
-  ArrowLeft: [80, 0],
-  ArrowRight: [-80, 0],
-};
 const NAV_KEYS = ['Home', 'End', 'PageUp', 'PageDown'];
 
 /**
@@ -107,7 +83,7 @@ export function useCanvasViewport({ active }) {
       event.preventDefault();
       const surface = surfaceRef.current;
       const height = surface?.clientHeight || 0;
-      const pageStep = Math.max(120, height * 0.8);
+      const pageStep = pagePanStep(height);
       // Measure live bounds so End includes cards dragged beyond the grid.
       const nodes = event.key === 'End' ? [...surface.querySelectorAll(NODE_SELECTOR)] : [];
       const surfaceTop = surface.getBoundingClientRect().top;

@@ -36,6 +36,7 @@ import {
   useFadeInMotion,
 } from './treeMotion.js';
 import { useTreeViewport } from './useTreeViewport.js';
+import { trackPointer } from '../utils/trackPointer.js';
 
 const EMPTY_MAP = new Map();
 const NOOP = () => {};
@@ -653,15 +654,14 @@ export default function TopicsTreeCanvas({
       event.preventDefault();
       event.stopPropagation();
       handleSelectCard(key);
-      const origin = { x: event.clientX, y: event.clientY };
       const shift = moved.get(key) || { dx: 0, dy: 0 };
       let latest = { ...start };
       setDrag({ key, mode, pos: latest, frozen: layout });
 
-      const onMove = (moveEvent) => {
+      const onMove = (totalX, totalY) => {
         const k = transformRef.current.k || 1;
-        const dx = (moveEvent.clientX - origin.x) / k;
-        const dy = (moveEvent.clientY - origin.y) / k;
+        const dx = totalX / k;
+        const dy = totalY / k;
         latest =
           mode === 'move'
             ? { ...start, left: start.left + dx, top: start.top + dy }
@@ -669,7 +669,7 @@ export default function TopicsTreeCanvas({
         setDrag((current) => (current ? { ...current, pos: latest } : current));
       };
       const onUp = () => {
-        dragCleanupRef.current?.();
+        dragCleanupRef.current = null;
         if (mode === 'move') {
           setOffsets((prev) =>
             new Map(prev).set(key, {
@@ -683,15 +683,8 @@ export default function TopicsTreeCanvas({
         }
         setDrag(null);
       };
-      dragCleanupRef.current = () => {
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
-        window.removeEventListener('pointercancel', onUp);
-        dragCleanupRef.current = null;
-      };
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
-      window.addEventListener('pointercancel', onUp);
+      dragCleanupRef.current?.();
+      dragCleanupRef.current = trackPointer(event, onMove, onUp);
     },
     [handleSelectCard, transformRef],
   );
