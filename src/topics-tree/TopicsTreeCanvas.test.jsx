@@ -5,11 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import TopicsTreeCanvas from './TopicsTreeCanvas.jsx';
 import { pointTreeTools } from '../chat/pointTreeTool.js';
-import {
-  buildSummaryTreeDisplayTree,
-  buildTopicsDisplayTree,
-  passageKey,
-} from './topicsTreeModel.js';
+import { buildSummaryTreeDisplayTree, buildTopicsDisplayTree, passageKey } from './displayTree.js';
 
 it('reveals a repeated summary locally and remembers it across branch folding', () => {
   vi.stubGlobal('matchMedia', () => ({ matches: true }));

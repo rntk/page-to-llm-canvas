@@ -6,6 +6,7 @@ import {
   splitTopicPath,
 } from '../../shared/runtime/topicPath.js';
 import { topicLabelKey } from './topicParser.js';
+import { sortedUnique } from '../../shared/runtime/sortedUnique.js';
 
 /**
  * @typedef {object} ResplitTarget
@@ -94,7 +95,7 @@ function normalizeTopics(entries) {
     .filter(([, sentenceIds]) => sentenceIds.size > 0)
     .map(([name, sentenceIds]) => ({
       name,
-      sentences: [...sentenceIds].sort((a, b) => a - b),
+      sentences: sortedUnique(sentenceIds),
     }))
     .sort((a, b) => a.sentences[0] - b.sentences[0] || a.name.localeCompare(b.name));
 }

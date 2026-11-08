@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from 'react';
-import { flattenTree } from './topicsTreeModel.js';
+import { flattenTree } from './expansion.js';
 import { treeLinks } from './treeLayout.js';
 
 // Fold/unfold motion for the topics tree. Kept light: nodes glide to their new

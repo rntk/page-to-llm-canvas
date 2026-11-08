@@ -4,7 +4,8 @@ import {
   sourceCardChatKey,
 } from '../core/storage/keys.js';
 import { formatTopicPath, splitTopicPath } from '../shared/runtime/topicPath.js';
-import { groupSentenceSources, passageKey } from './topicsTreeModel.js';
+import { groupSentenceSources, passageKey } from './displayTree.js';
+import { sortedUnique } from '../shared/runtime/sortedUnique.js';
 
 /**
  * @typedef {object} SourceCardChat
@@ -36,7 +37,7 @@ import { groupSentenceSources, passageKey } from './topicsTreeModel.js';
  * @returns {string}
  */
 function lineRanges(numbers) {
-  const sorted = [...new Set(numbers)].sort((a, b) => a - b);
+  const sorted = sortedUnique(numbers);
   const ranges = [];
   for (const number of sorted) {
     const last = ranges.at(-1);

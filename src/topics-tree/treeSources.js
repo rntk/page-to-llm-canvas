@@ -5,7 +5,7 @@ import {
   articleRootTitle,
   buildSummaryTreeDisplayTree,
   buildTopicsDisplayTree,
-} from './topicsTreeModel.js';
+} from './displayTree.js';
 
 export const TREE_SOURCES = Object.freeze({
   pipeline: {

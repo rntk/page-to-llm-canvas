@@ -16,7 +16,8 @@ import { isSummaryTreeReusable, runSummaryTree } from './summaryTreeStage.js';
 import { createArticleStrategy } from './summaryTreeStrategy.js';
 import { PROMPT_DELIMITER } from '../promptDelimiters.js';
 import { readSummaryTree, SUMMARY_TREE_STATUS } from '../../shared/runtime/summaryTree.js';
-import { buildSummaryTreeDisplayTree, flattenTree } from '../../topics-tree/topicsTreeModel.js';
+import { buildSummaryTreeDisplayTree } from '../../topics-tree/displayTree.js';
+import { flattenTree } from '../../topics-tree/expansion.js';
 
 const sentence = (n, chars = 100) => `S${n} ${'x'.repeat(chars)}.`;
 

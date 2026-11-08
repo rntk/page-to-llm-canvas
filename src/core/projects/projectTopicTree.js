@@ -6,6 +6,7 @@ import { PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
 import { ROOT, TOPIC, createPassage, createTopic } from '../pipeline/summaryTreeModel.js';
 import { PASSAGE_MAX_CHARS, buildPassages } from '../pipeline/summaryTreePassages.js';
 import { splitTopicPath } from '../../shared/runtime/topicPath.js';
+import { sortedUnique } from '../../shared/runtime/sortedUnique.js';
 
 /** Whether this saved record has a completed, usable primary topic split.
  * @param {object} record
@@ -155,11 +156,9 @@ export function buildProjectTopicSeed(records, { maxChars = PASSAGE_MAX_CHARS, b
       };
     });
     for (const topic of record.topics) {
-      const localIds = [...new Set(topic.sentences)]
-        .sort((a, b) => a - b)
-        .filter(
-          (id) => typeof record.sentences[id - 1] === 'string' && record.sentences[id - 1].trim(),
-        );
+      const localIds = sortedUnique(topic.sentences).filter(
+        (id) => typeof record.sentences[id - 1] === 'string' && record.sentences[id - 1].trim(),
+      );
       if (!localIds.length) continue;
       const topicTitle = splitTopicPath(topic.name).at(-1) || topic.name;
       const segments = savedSegments(record, topic, offset);

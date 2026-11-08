@@ -12,24 +12,20 @@ import { createPortal } from 'react-dom';
 import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
 import SourceArticle from './SourceArticle.jsx';
 import { formatTopicPath, splitTopicPath } from '../shared/runtime/topicPath.js';
+import { LEAF_KIND, groupSentenceSources, passageKey, textKey } from './displayTree.js';
 import {
-  LEAF_KIND,
   currentLevel,
   expandBranch,
   expandToLevel,
   flattenTree,
-  groupSentenceSources,
   initialExpanded,
-  labelSize,
-  passageKey,
   pathTo,
-  textKey,
   toggleNode,
   toggleText,
-  topicMaxWidth,
   treeDepth,
   visibleTree,
-} from './topicsTreeModel.js';
+} from './expansion.js';
+import { labelSize, topicMaxWidth } from './labelMetrics.js';
 import { boundsOf, clampCardSize, layoutTree, treeLinks } from './treeLayout.js';
 import {
   MOTION_LINGER_MS,

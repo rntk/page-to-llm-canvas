@@ -9,7 +9,7 @@ import {
   SUMMARY_TREE_STATUS,
 } from '../shared/runtime/summaryTree.js';
 import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
-import { LEAF_KIND } from './topicsTreeModel.js';
+import { LEAF_KIND } from './displayTree.js';
 import RecordStateGate from './RecordStateGate.jsx';
 import { TREE_SOURCES, TREE_SOURCE_IDS, useSourceTree } from './treeSources.js';
 import TopicsTreeCanvas from './TopicsTreeCanvas.jsx';

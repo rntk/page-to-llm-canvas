@@ -6,22 +6,24 @@ import {
   TOPIC_KIND,
   buildTopicsDisplayTree,
   buildSummaryTreeDisplayTree,
+  groupSentenceSources,
+  textKey,
+} from './displayTree.js';
+import {
   currentLevel,
   expandAll,
   expandBranch,
   expandToLevel,
   flattenTree,
-  groupSentenceSources,
   initialExpanded,
-  labelSize,
   pathTo,
   revealNode,
-  textKey,
   toggleText,
   toggleNode,
   treeDepth,
   visibleTree,
-} from './topicsTreeModel.js';
+} from './expansion.js';
+import { labelSize } from './labelMetrics.js';
 
 describe('groupSentenceSources', () => {
   it('keeps overlapping article-local sentence ids in distinct source groups', () => {

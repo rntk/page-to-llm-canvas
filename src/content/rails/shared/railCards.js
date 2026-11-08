@@ -9,6 +9,7 @@ import {
   splitSentenceRuns,
 } from '../../../domain/topicDomain.js';
 import { formatTopicPath } from '../../../shared/runtime/topicPath.js';
+import { sortedUnique } from '../../../shared/runtime/sortedUnique.js';
 
 /**
  * Compute the deepest topic level present in a record, considering both the
@@ -86,7 +87,7 @@ export function buildHierarchicalTopicEntries(record, selectedLevel) {
     path: node.fullPath,
     name: node.name,
     level: node.depth,
-    sentences: Array.from(node.sentences).sort((a, b) => a - b),
+    sentences: sortedUnique(node.sentences),
   }));
 }
 

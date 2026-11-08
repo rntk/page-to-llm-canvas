@@ -4,6 +4,7 @@
 
 import { hasSummaryRunMarker, isFailedSummaryRun, publicSummaryRun } from './summaryRunMarkers.js';
 import { TOPIC_PATH_DELIMITER, isCanonicalDescendantPath } from '../../shared/runtime/topicPath.js';
+import { sortedUnique } from '../../shared/runtime/sortedUnique.js';
 
 /**
  * Builds the worker's summary tree from flat hierarchical topic paths and
@@ -57,7 +58,7 @@ export function buildTopicTree(topics) {
     for (const child of node.children) {
       for (const sentence of aggregate(child)) aggregated.add(sentence);
     }
-    node.sourceSentences = Array.from(aggregated).sort((a, b) => a - b);
+    node.sourceSentences = sortedUnique(aggregated);
     return node.sourceSentences;
   }
   aggregate(root);
@@ -72,9 +73,7 @@ export function buildTopicTree(topics) {
  * @returns {number[][]} ordered runs of consecutive ids
  */
 export function splitContiguousRuns(sentenceIds) {
-  const sorted = Array.isArray(sentenceIds)
-    ? Array.from(new Set(sentenceIds)).sort((a, b) => a - b)
-    : [];
+  const sorted = Array.isArray(sentenceIds) ? sortedUnique(sentenceIds) : [];
   const runs = [];
   let cur = [];
   for (const id of sorted) {

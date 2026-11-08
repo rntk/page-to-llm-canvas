@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { articlesFromMergedRows, describeSourceCard } from './sourceCardChat.js';
-import { passageKey } from './topicsTreeModel.js';
+import { passageKey } from './displayTree.js';
 import { buildProjectTopicSeed } from '../core/projects/projectTopicTree.js';
 
 // Two articles merged into rows 1-5: A has 3 sentences, B has 2.

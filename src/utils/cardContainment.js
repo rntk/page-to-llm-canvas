@@ -1,4 +1,5 @@
 import { formatTopicPath, splitTopicPath } from '../shared/runtime/topicPath.js';
+import { sortedUnique } from '../shared/runtime/sortedUnique.js';
 
 /**
  * Cross-column layout invariant: a child topic card never extends outside the
@@ -48,7 +49,7 @@ export function clampCardsToParents(cards, minHeight) {
     byPath.set(card.fullPath, list);
   };
 
-  const levels = [...new Set(cards.map((card) => card.levelIndex))].sort((a, b) => a - b);
+  const levels = sortedUnique(cards.map((card) => card.levelIndex));
   const result = cards.slice();
   for (const level of levels) {
     for (let index = 0; index < result.length; index += 1) {

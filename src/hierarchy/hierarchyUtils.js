@@ -1,5 +1,6 @@
 import { getTopicSentenceNumbers } from '../domain/topicDomain.js';
 import { formatTopicPath, joinTopicPath, splitTopicPath } from '../shared/runtime/topicPath.js';
+import { sortedUnique } from '../shared/runtime/sortedUnique.js';
 
 /**
  * Collect all sentence numbers for a topic tree entry and its descendants.
@@ -22,7 +23,7 @@ export function getSentencesForNode(entry) {
     }
   };
   traverse(entry);
-  return Array.from(sentenceNumbers).sort((a, b) => a - b);
+  return sortedUnique(sentenceNumbers);
 }
 
 /**

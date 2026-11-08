@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import TopicsTreeCanvas from '../topics-tree/TopicsTreeCanvas.jsx';
 import SourceArticle from '../topics-tree/SourceArticle.jsx';
-import { buildSummaryTreeDisplayTree } from '../topics-tree/topicsTreeModel.js';
+import { buildSummaryTreeDisplayTree } from '../topics-tree/displayTree.js';
 import { useSourceCardChats } from '../topics-tree/useSourceCardChats.js';
 import { SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
 import '../hierarchy/hierarchy.css';

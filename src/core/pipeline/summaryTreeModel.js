@@ -1,3 +1,4 @@
+import { sortedUnique } from '../../shared/runtime/sortedUnique.js';
 // Summary tree nodes: passages of source sentences (the evidence layer), topic
 // nodes grouping them, and the article root. Segments link every claim either
 // to sentence numbers (passages) or to child claims (topics and the root), so
@@ -82,9 +83,7 @@ export function addNode(
   { sentences, path = [], recordKey, topicName, sourceTitle, sourceUrl } = {},
 ) {
   const id = `n${Object.keys(nodes).length}`;
-  const own =
-    sentences ??
-    [...new Set(children.flatMap((child) => nodes[child].sentences))].sort((a, b) => a - b);
+  const own = sentences ?? sortedUnique(children.flatMap((child) => nodes[child].sentences));
   nodes[id] = {
     id,
     kind,
@@ -180,7 +179,7 @@ export function claimSentences(node, index, nodes) {
       claimSentences(nodes[source.child], source.segment, nodes).forEach((id) => ids.add(id));
     }
   }
-  return [...ids].sort((a, b) => a - b);
+  return sortedUnique(ids);
 }
 
 /**

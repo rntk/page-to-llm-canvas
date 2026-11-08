@@ -1,4 +1,5 @@
 import { PASSAGE, ROOT, summaryText } from '../pipeline/summaryTreeModel.js';
+import { sortedUnique } from '../../shared/runtime/sortedUnique.js';
 
 /**
  * Read-only view over a saved project tree snapshot.
@@ -48,13 +49,11 @@ export function createTreeModel(tree) {
         children: Object.values(nodes)
           .filter((node) => !parentOf.has(node.id))
           .map((node) => node.id),
-        sentences: [
-          ...new Set(
-            Object.values(nodes)
-              .filter((node) => !parentOf.has(node.id))
-              .flatMap((node) => node.sentences || []),
-          ),
-        ].sort((a, b) => a - b),
+        sentences: sortedUnique(
+          Object.values(nodes)
+            .filter((node) => !parentOf.has(node.id))
+            .flatMap((node) => node.sentences || []),
+        ),
         segments: null,
       };
   const root = virtualRoot || nodes[rootId];
@@ -89,8 +88,7 @@ export function createTreeModel(tree) {
     return { id, article, line: source.sentenceId, text: text.trim() };
   };
   const usable = (ids) => ids.filter((id) => cite(id));
-  const sentenceIds = (node) =>
-    memo('ids', node, () => usable([...new Set(node.sentences || [])].sort((a, b) => a - b)));
+  const sentenceIds = (node) => memo('ids', node, () => usable(sortedUnique(node.sentences || [])));
   const articlesOf = (node) =>
     memo('articles', node, () => {
       const seen = new Map();
