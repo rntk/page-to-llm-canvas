@@ -495,7 +495,18 @@
       }
       .chat-panel-body {
         flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
         padding: 16px;
+      }
+      .chat-panel-empty,
+      .chat-panel-notice {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
       }
       .chat-panel-composer {
         display: flex;

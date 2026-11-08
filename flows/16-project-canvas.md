@@ -6,7 +6,7 @@ Choosing **Open group project** on a page that is not in a group first creates a
 
 Browser tab group ids do not survive a restart, so the project is anchored by a dedicated project page tab that lives inside its group. The worker uses that tab to rebind the project to its live group. Opening a project focuses this page tab, or recreates it inside the group if it is missing.
 
-The project page is its own extension page. It shares pan and zoom behavior with the [record canvas](08-canvas.md). The options page lists projects and their open state, and a chat panel beside the canvas is reserved for conversation across the project's pages.
+The project page is its own extension page. It shares pan and zoom behavior with the [record canvas](08-canvas.md). The options page lists projects and their open state, and a [project chat](#project-chat) panel beside the canvas answers questions across the project's merged topics.
 
 ## Project actions
 
@@ -19,6 +19,20 @@ The merge starts from the pages' primary topics and their existing cited summari
 The result uses the same progressive tree, levels, one-branch option, pan/zoom and movable source cards as an article's summary tree. A branch may combine several articles; its sentence and article counts describe that coverage. Unfolding it reaches the original text, grouped by article with the article's title, full URL, source link and original sentence numbers. Global row ids used internally by the merged tree are mapped back to each source record's local line numbers, so two articles' line 1 can never be confused.
 
 **Stop**, **Resume** and **Rebuild** control the background merge. Completed work is checkpointed; resume reuses it while sources and provider identity match. A stopped worker becomes interrupted after a minute without a save and can be resumed. A saved result remains readable when the project's membership or primary topics change, with a notice to rebuild it from the current sources. **Back to canvas** keeps tab positions and open page/excerpt chats, and the merge can be reopened from **Project actions**.
+
+## Project chat
+
+The chat panel beside the canvas (**Hide** collapses it) talks to the project as a whole. In v1 it works only over the project's merged topic tree: the merged summaries and the original sentences under them. It does not read live or unsaved pages, excerpts, or raw page text.
+
+The model has four tools over that tree: `get_topic` (a topic's summary and children), `read_topic_content` (the original sentences under a topic, grouped by article), `search_topics` (find topics by words) and `get_claim_sources` (the sources behind a summary claim). Answers cite in prose, naming the article and its local sentence numbers, never the merged tree's internal global row ids.
+
+Chat needs a completed merge and never starts one itself. The panel asks the worker for the chat tree (`getProjectChatTree`, built on the same view as the merge) when it opens and again whenever the merge's status or revision changes:
+
+- **No merge yet, or an incomplete one** (running, interrupted, stopped, failed). The panel explains the state and offers a button that opens the merge view, where the merge can be started or resumed. Chat appears once the merge finishes.
+- **Stale merge.** If pages or topics changed after the merge, the saved merge still answers, and a non-blocking notice above the chat says "Pages or topics changed since this merge. Answers use the saved merge — rebuild to include current pages." with a button to the merge view.
+- **Skipped pages.** If some pages were skipped by the merge, the panel notes how many are not included.
+
+Conversation history is stored under a project chat key, separate from page and excerpt chats, so it never mixes with any article's history.
 
 ## Per-page chat
 
@@ -48,6 +62,8 @@ Entry points:
 - [Project page](../src/project/main.jsx) — the canvas that renders a project's tabs.
 - [Project actions menu](../src/project/ProjectActionsMenu.jsx) and [merged topics view](../src/project/ProjectTopicTree.jsx) — project-wide actions and the attributed summary tree.
 - [Project topic sources](../src/core/projects/projectTopicTree.js) and [project topic tree service](../src/extension/background/projectTopicTree.js) — primary-topic evidence, global-to-local source mapping and the background merge lifecycle.
+- [Project chat panel](../src/project/ProjectChatPanel.jsx) and [project chat](../src/project/ProjectChat.jsx) — the panel's merge states and the chat over the merged tree.
+- [Project chat tools](../src/core/projects/projectChatTools.js) — `get_topic`, `read_topic_content`, `search_topics` and `get_claim_sources`.
 - [Page chat drawer](../src/project/PageChatDrawer.jsx) — the per-page chat beside a tab card.
 - [Page chat service](../src/extension/background/projectPageChat.js) — resolves a tab to its record or page key and reads live tab text.
 - [Excerpt domain and store](../src/core/projects/excerpts.js) — excerpt shape and the one-shot request to unfold an excerpt's chat.

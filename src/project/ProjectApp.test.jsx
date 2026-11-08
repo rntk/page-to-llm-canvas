@@ -4,6 +4,10 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectApp } from './ProjectApp.jsx';
 
+vi.mock('./ProjectChat.jsx', () => ({
+  ProjectChat: ({ tree }) => <div data-testid="project-chat">chat {tree.rootId}</div>,
+}));
+
 let container;
 let root;
 
@@ -110,15 +114,55 @@ describe('ProjectApp', () => {
     expect(tabsHost.activateTab).toHaveBeenCalledWith(2);
   });
 
-  it('toggles the disabled project chat panel', async () => {
-    await renderApp();
+  it('toggles the project chat panel', async () => {
+    const api = {
+      getProjectView: vi.fn(async () => viewOf()),
+      getProjectChatTree: vi.fn(async () => ({
+        status: 'done',
+        tree: { rootId: 'root' },
+        stale: false,
+        eligiblePages: [],
+        skippedPages: [],
+      })),
+    };
+    await renderApp({ api });
     const panel = () => container.querySelector('aside[aria-label="Project chat"]');
-    expect(panel().textContent).toContain('Coming soon — chat across all pages in this project');
-    expect(panel().querySelector('textarea').disabled).toBe(true);
+    expect(api.getProjectChatTree).toHaveBeenCalledWith('a');
+    expect(panel().querySelector('[data-testid="project-chat"]').textContent).toBe('chat root');
     await act(async () => panel().querySelector('button').click());
     expect(panel()).toBeNull();
     await act(async () => container.querySelector('.project-header button').click());
     expect(panel()).not.toBeNull();
+  });
+
+  it('opens the merge view from the chat panel when no merge exists yet', async () => {
+    let view = viewOf({
+      topicMerge: {
+        status: 'missing',
+        tree: null,
+        eligiblePages: [{ key: 'a', title: 'First', url: 'https://a.test/x' }],
+      },
+    });
+    const api = {
+      getProjectView: vi.fn(async () => view),
+      getProjectChatTree: vi.fn(async () => ({ status: view.topicMerge.status, tree: null })),
+      buildProjectTopicTree: vi.fn(async () => {
+        view = { ...view, topicMerge: { ...view.topicMerge, status: 'running' } };
+        return {};
+      }),
+    };
+    await renderApp({ api });
+    const panel = container.querySelector('aside[aria-label="Project chat"]');
+    expect(panel.textContent).toContain('Merge similar topics first');
+    await act(async () =>
+      [...panel.querySelectorAll('button')]
+        .find((el) => el.textContent === 'Merge similar topics')
+        .click(),
+    );
+    expect(api.buildProjectTopicTree).toHaveBeenCalledWith('a', { fresh: false });
+    expect(container.querySelector('[aria-label="Merged project topics"]')).not.toBeNull();
+    // The merge status change refreshes the chat tree.
+    expect(api.getProjectChatTree.mock.calls.length).toBeGreaterThan(1);
   });
 
   it('refetches on change notifications and unsubscribes on unmount', async () => {

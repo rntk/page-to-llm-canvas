@@ -115,13 +115,28 @@ export function isExcerptChatKey(key) {
   return typeof key === 'string' && key.startsWith(EXCERPT_CHAT_KEY_PREFIX);
 }
 
+// A project's own chat (over its merged topic tree) lives under the project id.
+export const PROJECT_CHAT_KEY_PREFIX = 'project:';
+
 /**
- * Chat keys no record owns (page and excerpt chats). Their source is not a
- * record's sentences, so they share one fixed content revision.
+ * @param {string} projectId
+ * @returns {string} The project chat key, or '' for an empty id.
+ */
+export function projectChatKey(projectId) {
+  return typeof projectId === 'string' && projectId ? `${PROJECT_CHAT_KEY_PREFIX}${projectId}` : '';
+}
+
+export function isProjectChatKey(key) {
+  return typeof key === 'string' && key.startsWith(PROJECT_CHAT_KEY_PREFIX);
+}
+
+/**
+ * Chat keys no record owns (page, excerpt and project chats). Their source is
+ * not a record's sentences, so they share one fixed content revision.
  * @param {string} key
  */
 export function isDetachedChatKey(key) {
-  return isPageChatKey(key) || isExcerptChatKey(key);
+  return isPageChatKey(key) || isExcerptChatKey(key) || isProjectChatKey(key);
 }
 
 // Guards the `:` separator that `chatDocumentStorageKey` composes with: a

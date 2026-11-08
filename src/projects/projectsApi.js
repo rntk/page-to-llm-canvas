@@ -46,6 +46,12 @@ export function createProjectsApi(messenger = browserRuntimeMessenger) {
     /** @param {string} projectId */
     stopProjectTopicTree: (projectId) => request({ type: MSG.stopProjectTopicTree, projectId }),
     /**
+     * The merged topic tree for the project chat; `tree` is null unless the merge is complete.
+     * @param {string} projectId
+     * @returns {Promise<{status: string, tree: object|null, stale: boolean, eligiblePages: object[], skippedPages: object[]}>}
+     */
+    getProjectChatTree: (projectId) => request({ type: MSG.getProjectChatTree, projectId }),
+    /**
      * Where a tab's per-page chat lives: its saved record, or a URL page key.
      * @param {string} projectId
      * @param {number} tabId
@@ -90,6 +96,7 @@ export const {
   getProjectView,
   buildProjectTopicTree,
   stopProjectTopicTree,
+  getProjectChatTree,
   getPageChat,
   capturePageText,
   deleteExcerpt,

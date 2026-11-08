@@ -20,6 +20,8 @@ describe('projects api', () => {
     });
     await api.stopProjectTopicTree('a');
     expect(send).toHaveBeenLastCalledWith({ type: MSG.stopProjectTopicTree, projectId: 'a' });
+    await api.getProjectChatTree('a');
+    expect(send).toHaveBeenLastCalledWith({ type: MSG.getProjectChatTree, projectId: 'a' });
   });
 
   it('rejects worker errors and empty responses', async () => {

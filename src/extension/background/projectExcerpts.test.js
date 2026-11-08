@@ -93,6 +93,7 @@ describe('createProjectExcerptService', () => {
     expect(await service.deleteProject('p1')).toEqual({ deleted: true });
     expect(projectService.deleteProject).toHaveBeenCalledWith('p1');
     expect(deleteChats).toHaveBeenCalledWith('excerpt:ex2');
+    expect(deleteChats).toHaveBeenCalledWith('project:p1');
     expect((await service.takeProjectExcerpts('p1')).excerpts).toEqual([]);
   });
 

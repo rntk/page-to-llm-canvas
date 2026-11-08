@@ -43,6 +43,7 @@ export const MSG = Object.freeze({
   getProjectView: 'getProjectView',
   buildProjectTopicTree: 'buildProjectTopicTree',
   stopProjectTopicTree: 'stopProjectTopicTree',
+  getProjectChatTree: 'getProjectChatTree',
   getProjectPageChat: 'getProjectPageChat',
   captureProjectPageText: 'captureProjectPageText',
   deleteProjectExcerpt: 'deleteProjectExcerpt',

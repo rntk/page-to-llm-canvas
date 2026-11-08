@@ -7,6 +7,7 @@ import {
   ARTICLE_CHAT_SYSTEM_PROMPT,
   EXCERPT_CHAT_SYSTEM_PROMPT,
   HIGHLIGHT_BUDGET_EXHAUSTED_PROMPT,
+  PROJECT_CHAT_SYSTEM_PROMPT,
   buildQuestionDataMessage,
   buildSourceDataMessage,
 } from './articleChatPrompts.js';
@@ -70,8 +71,10 @@ const DEFAULT_REQUESTS_PER_CHUNK = 3;
  * @property {object[]} [article.history]
  * @property {string[]} [article.sentences]
  * @property {object[]} [article.highlightedRanges]
- * @property {{kind: 'excerpt', pageTitle?: string, pageUrl?: string}} [article.source]
- *   Frames the sentences as an excerpt of a longer page.
+ * @property {{kind: 'excerpt', pageTitle?: string, pageUrl?: string}|{kind: 'project', preamble: string}} [article.source]
+ *   Frames the sentences as an excerpt of a longer page. A project source sends
+ *   no sentences: its preamble is the data message and the model answers from
+ *   `tools` alone, without highlight_span (citations are prose).
  * @property {Array<{definition: object, run: function(object, {maxChars: number, signal?: AbortSignal}): Promise<string>}>} [tools]
  *   Tools offered besides highlight_span; each result is model-facing text.
  * @property {string} question
@@ -127,6 +130,22 @@ function normalizeArticleChatTurnOptions(options = {}) {
 
 // Below this a tool result cannot carry anything useful.
 const MIN_TOOL_RESULT_CHARS = 200;
+
+/**
+ * A project source's single pseudo-chunk: the preamble, capped to half the
+ * source budget so tool results (which share that budget) keep room.
+ * @param {{preamble?: string}} source
+ * @param {number} chunkBudget
+ */
+function projectSourceChunk(source, chunkBudget) {
+  const preamble = String(source.preamble || '');
+  const cap = Math.floor(chunkBudget / 2);
+  const text =
+    preamble.length > cap
+      ? `${preamble.slice(0, Math.max(0, cap - 24))}\n[overview truncated]`
+      : preamble;
+  return { startLine: 0, endLine: 0, text };
+}
 
 /**
  * Run one non-highlight tool call. Results share the chunk's leftover context
@@ -186,8 +205,12 @@ async function runArticleChatChunk({
   toolCharBudget,
 }) {
   const replayedHistory = compactConversationHistory(history, maxHistoryChars);
+  const isProject = source?.kind === 'project';
   const messages = [
-    { role: 'system', content: ARTICLE_CHAT_SYSTEM_PROMPT },
+    {
+      role: 'system',
+      content: isProject ? PROJECT_CHAT_SYSTEM_PROMPT : ARTICLE_CHAT_SYSTEM_PROMPT,
+    },
     ...(source?.kind === 'excerpt'
       ? [{ role: 'system', content: EXCERPT_CHAT_SYSTEM_PROMPT }]
       : []),
@@ -195,7 +218,10 @@ async function runArticleChatChunk({
     ...replayedHistory,
     { role: 'user', content: buildQuestionDataMessage(question) },
   ];
-  const toolDefinitions = [HIGHLIGHT_SPAN_TOOL, ...tools.map((tool) => tool.definition)];
+  const toolDefinitions = [
+    ...(isProject ? [] : [HIGHLIGHT_SPAN_TOOL]),
+    ...tools.map((tool) => tool.definition),
+  ];
 
   log(
     'chunk_start',
@@ -290,7 +316,7 @@ async function runArticleChatChunk({
           toolCharBudget,
           signal,
         ));
-      } else if (call.name !== HIGHLIGHT_SPAN_TOOL.name) {
+      } else if (isProject || call.name !== HIGHLIGHT_SPAN_TOOL.name) {
         outcome = CHAT_TOOL_OUTCOMES.UNKNOWN_TOOL;
         // call.name is model-generated and may echo article-derived text, so it
         // goes to the model (result) but is never persisted as a metric detail.
@@ -449,7 +475,10 @@ export async function runArticleChatTurn(options = {}) {
     if (chunkBudget < Math.min(maxChunkChars, MIN_SOURCE_CHUNK_CHARS)) {
       throw new Error(QUESTION_TOO_LONG_MESSAGE);
     }
-    const chunks = chunkNumberedArticle(sentences, chunkBudget);
+    const chunks =
+      source?.kind === 'project'
+        ? [projectSourceChunk(source, chunkBudget)]
+        : chunkNumberedArticle(sentences, chunkBudget);
     if (!chunks.length) throw new Error('This record has no article text to chat about.');
     // Merging repeats the question in every payload. Reject a question that
     // leaves no room for the smallest possible merge before spending any

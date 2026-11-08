@@ -81,6 +81,19 @@ export function createProjectHandlers({
     [MSG.stopProjectTopicTree]: entry(validateProjectId, (msg) =>
       requireTopicTree().stop(msg.projectId),
     ),
+    // What the project chat needs from the merge view; the tree itself is only
+    // handed out once the merge is complete.
+    [MSG.getProjectChatTree]: entry(validateProjectId, async (msg) => {
+      const view = await requireTopicTree().getView(msg.projectId);
+      const complete = view.status === 'done' && !!view.tree;
+      return {
+        status: view.status,
+        tree: complete ? view.tree : null,
+        stale: complete && view.stale === true,
+        eligiblePages: view.eligiblePages || [],
+        skippedPages: view.skippedPages || [],
+      };
+    }),
     [MSG.getProjectPageChat]: entry(validateProjectTab, async (msg) => ({
       source: await pageChatService.getPageChat(msg.projectId, msg.tabId),
     })),

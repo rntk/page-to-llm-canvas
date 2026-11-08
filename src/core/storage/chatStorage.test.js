@@ -8,7 +8,7 @@ import {
   adoptPageChats,
   MAX_CHAT_TURNS,
 } from './chatStorage.js';
-import { pageChatKey } from './keys.js';
+import { pageChatKey, projectChatKey } from './keys.js';
 import {
   writeRecord,
   updateRecord,
@@ -1026,5 +1026,23 @@ describe('page chats (no saved record)', () => {
     expect(await adoptPageChats('elsewhere')).toBe(0);
     expect(await adoptPageChats(key)).toBe(0);
     expect(await listChats(key)).toHaveLength(1);
+  });
+});
+
+describe('project chats (no saved record)', () => {
+  const key = projectChatKey('proj-1');
+
+  it('keeps project chats through reconciliation even though no record owns them', async () => {
+    vi.stubGlobal('chrome', makeChromeMock());
+    const { chat } = await appendChatTurn(key, null, {
+      messages: [
+        { role: 'user', content: 'What do the pages agree on?' },
+        { role: 'assistant', content: 'Cats.' },
+      ],
+    });
+    await reconcileChatStorage();
+    expect((await listChats(key)).map((item) => item.chatId)).toEqual([chat.chatId]);
+    expect((await readChat(key, chat.chatId)).messages).toHaveLength(2);
+    expect(await listChats(projectChatKey('proj-2'))).toEqual([]);
   });
 });

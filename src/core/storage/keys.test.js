@@ -3,8 +3,11 @@ import {
   chatDocumentStorageKey,
   chatIndexStorageKey,
   canonicalPageUrl,
+  isDetachedChatKey,
   isPageChatKey,
+  isProjectChatKey,
   pageChatKey,
+  projectChatKey,
   recordContentStorageKey,
   recordDiagnosticsStorageKey,
   recordMetaStorageKey,
@@ -60,5 +63,16 @@ describe('page chat keys', () => {
     expect(canonicalPageUrl('not a url')).toBe('');
     expect(pageChatKey('')).toBe('');
     expect(pageChatKey(undefined)).toBe('');
+  });
+});
+
+describe('project chat keys', () => {
+  it('keys a project chat by its id, apart from record keys', () => {
+    expect(projectChatKey('p1')).toBe('project:p1');
+    expect(projectChatKey('')).toBe('');
+    expect(projectChatKey(undefined)).toBe('');
+    expect(isProjectChatKey(projectChatKey('p1'))).toBe(true);
+    expect(isProjectChatKey('rec_123')).toBe(false);
+    expect(isDetachedChatKey(projectChatKey('p1'))).toBe(true);
   });
 });

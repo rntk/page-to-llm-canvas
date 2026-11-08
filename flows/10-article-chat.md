@@ -8,4 +8,6 @@ Use **Choose topics** to search and select one or more topics. The chat displays
 
 The [project canvas](16-project-canvas.md#per-page-chat) opens the same chat beside each tab card. A saved page shares its history with that page's other chat surfaces, and an unsaved page chats over its live tab text under a URL-scoped history.
 
+The [project canvas](16-project-canvas.md) also runs this chat as a project chat in its side panel, over the project's merged topic tree. No article sentences are sent: the model gets an overview of the included and skipped pages and answers through topic search, read and claim-source tools. It cites evidence in prose as an article title and its sentence numbers, without highlight tool events or topic scope. Its history is stored under a project-scoped key.
+
 Entrypoint: [`src/chat/ArticleChat.jsx`](../src/chat/ArticleChat.jsx)

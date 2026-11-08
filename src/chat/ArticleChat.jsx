@@ -52,8 +52,9 @@ function ChatHeaderActions({ disabled, onShowHistory, onNewChat }) {
  * @param {function(): Promise<string[]>} [props.resolveSentences] Supplies the
  *   source at send time instead of `sentences` (e.g. text read from a live tab).
  * @param {string} [props.emptyPrompt] Overrides the empty-chat hint.
- * @param {{kind: 'excerpt', pageTitle?: string, pageUrl?: string}} [props.source]
- *   Frames the sentences for the model (an excerpt of a longer page).
+ * @param {{kind: 'excerpt', pageTitle?: string, pageUrl?: string}|{kind: 'project', preamble: string}} [props.source]
+ *   Frames the sentences for the model (an excerpt of a longer page). A project
+ *   source chats over `tools` alone: pass empty `sentences` and `topics`.
  * @param {object[]} [props.tools] Turn tools besides highlight_span (see runArticleChatTurn).
  *   Keep it referentially stable.
  */
@@ -84,7 +85,8 @@ function ArticleChat({
   const appliedScopeRequest = useRef(null);
   const topicPaths = useMemo(() => getTopicPaths(topics), [topics]);
   const topicSentenceIndex = useMemo(() => buildTopicSentenceIndex(topics), [topics]);
-  const subjectLabel = subject === 'video' ? 'video' : 'article';
+  const isProjectSource = source?.kind === 'project';
+  const subjectLabel = subject === 'video' ? 'video' : isProjectSource ? 'project' : 'article';
   const subjectTitle = `${subjectLabel[0].toUpperCase()}${subjectLabel.slice(1)}`;
   const [input, setInput] = useState('');
   const [activeTab, setActiveTab] = useState('chat');
@@ -413,8 +415,7 @@ function ArticleChat({
 
   const send = useCallback(async () => {
     const question = input.trim();
-    if (!question || isLoading || isMutatingHistory || !recordKey || isScopeBlocked)
-      return;
+    if (!question || isLoading || isMutatingHistory || !recordKey || isScopeBlocked) return;
     const candidate = retryTurn;
     const retry =
       candidate?.recordKey === recordKey &&
@@ -660,20 +661,23 @@ function ArticleChat({
         )
       ) : null}
 
-      <div className="pagetollm-chat-scope">
-        <span>{scope.length ? `Scoped chat: ${scope.join(', ')}` : 'Whole document'}</span>
-        {/* A source without topics has nothing to choose, unless a saved scope
+      {/* A project chat has no document scope to show or choose. */}
+      {isProjectSource && !scope.length ? null : (
+        <div className="pagetollm-chat-scope">
+          <span>{scope.length ? `Scoped chat: ${scope.join(', ')}` : 'Whole document'}</span>
+          {/* A source without topics has nothing to choose, unless a saved scope
             must be cleared before the chat can send again. */}
-        {topicPaths.length > 0 || scope.length > 0 ? (
-          <button
-            type="button"
-            disabled={isLoading || isLoadingHistory || isMutatingHistory}
-            onClick={() => setShowScopeDialog(true)}
-          >
-            Choose topics
-          </button>
-        ) : null}
-      </div>
+          {topicPaths.length > 0 || scope.length > 0 ? (
+            <button
+              type="button"
+              disabled={isLoading || isLoadingHistory || isMutatingHistory}
+              onClick={() => setShowScopeDialog(true)}
+            >
+              Choose topics
+            </button>
+          ) : null}
+        </div>
+      )}
       {missingScopePaths.length > 0 && (
         <div className="pagetollm-chat-error" role="alert">
           Some selected topics no longer exist: {missingScopePaths.join(', ')}. Choose topics to
@@ -784,9 +788,7 @@ function ArticleChat({
             onSend={() => void send()}
             onStop={stopActiveTurn}
             isLoading={isLoading}
-            disabled={
-              isLoading || isLoadingHistory || isMutatingHistory || isScopeBlocked
-            }
+            disabled={isLoading || isLoadingHistory || isMutatingHistory || isScopeBlocked}
             placeholder={`Ask about this ${subjectLabel}…`}
           />
         </div>

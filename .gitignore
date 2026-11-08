@@ -7,3 +7,4 @@ docs/api/
 reports/mutation
 .idea
 .code_agents/
+.claude/

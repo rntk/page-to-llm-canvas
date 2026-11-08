@@ -119,28 +119,37 @@ export function ProjectApp({
   }
 
   const tabs = view.tabs;
-  const topicActions =
-    typeof api.buildProjectTopicTree === 'function'
-      ? [
-          {
-            id: 'merge-primary-topics',
-            label: 'Merge similar topics',
-            description:
-              'Group primary topics across the project’s saved pages and read their sources together.',
-            disabled: topicPending,
-            onSelect: () => {
-              setTopicTreeOpen(true);
-              if (
-                view.topicMerge?.eligiblePages?.length !== 0 &&
-                (!view.topicMerge?.tree ||
-                  ['cancelled', 'interrupted', 'error'].includes(view.topicMerge?.status))
-              ) {
-                void buildTopicTree({ fresh: false });
-              }
-            },
-          },
-        ]
-      : [];
+  const canMerge = typeof api.buildProjectTopicTree === 'function';
+  const openMerge = () => {
+    setTopicTreeOpen(true);
+    if (
+      view.topicMerge?.eligiblePages?.length !== 0 &&
+      (!view.topicMerge?.tree ||
+        ['cancelled', 'interrupted', 'error'].includes(view.topicMerge?.status))
+    ) {
+      void buildTopicTree({ fresh: false });
+    }
+  };
+  const topicActions = canMerge
+    ? [
+        {
+          id: 'merge-primary-topics',
+          label: 'Merge similar topics',
+          description:
+            'Group primary topics across the project’s saved pages and read their sources together.',
+          disabled: topicPending,
+          onSelect: openMerge,
+        },
+      ]
+    : [];
+  const { topicMerge } = view;
+  const mergeKey = [
+    topicMerge?.status,
+    topicMerge?.tree?.contentRevision,
+    topicMerge?.stale,
+    topicMerge?.eligiblePages?.length,
+    topicMerge?.skippedPages?.length,
+  ].join('|');
   return (
     <div className="project-shell">
       <ProjectHeader
@@ -195,7 +204,15 @@ export function ProjectApp({
             />
           )}
         </div>
-        {chatOpen && <ProjectChatPanel onCollapse={() => setChatOpen(false)} />}
+        {chatOpen && (
+          <ProjectChatPanel
+            projectId={projectId}
+            api={api}
+            mergeKey={mergeKey}
+            onOpenMerge={canMerge ? openMerge : undefined}
+            onCollapse={() => setChatOpen(false)}
+          />
+        )}
       </div>
     </div>
   );

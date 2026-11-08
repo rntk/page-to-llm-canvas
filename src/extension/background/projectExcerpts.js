@@ -1,5 +1,5 @@
 import { createExcerpt } from '../../core/projects/excerpts.js';
-import { excerptChatKey } from '../../core/storage/keys.js';
+import { excerptChatKey, projectChatKey } from '../../core/storage/keys.js';
 
 /**
  * Project excerpts: passages selected on a page and opened on its project
@@ -116,13 +116,16 @@ export function createProjectExcerptService({
     },
 
     /**
-     * Forgets a project along with its excerpts and their chats.
+     * Forgets a project along with its excerpts, their chats and the project chat.
      * @param {string} projectId
      * @returns {Promise<{deleted: boolean}>}
      */
     async deleteProject(projectId) {
       const result = await projectService.deleteProject(projectId);
       await removeExcerpts((excerpt) => excerpt.projectId === projectId);
+      await deleteChats(projectChatKey(projectId)).catch((err) =>
+        logger.warn?.('project chat cleanup failed:', err),
+      );
       return result;
     },
 
