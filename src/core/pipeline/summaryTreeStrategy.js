@@ -13,15 +13,13 @@
 // - sourceOf(node): origin shown to the model beside a child's claims, or null.
 
 import { splitTopicPath } from '../../shared/runtime/topicPath.js';
+import { PASSAGE, TOPIC, createPassage } from './summaryTreeModel.js';
 import {
-  PASSAGE,
   PASSAGE_MAX_CHARS,
   PASSAGE_MIN_CHARS,
   PASSAGE_TARGET_CHARS,
-  TOPIC,
-  createPassage,
   buildPassages,
-} from './summaryTreeModel.js';
+} from './summaryTreePassages.js';
 
 function fallbackTitle(sentences, topics) {
   const first = sentences[0];

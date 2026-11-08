@@ -3,14 +3,8 @@
 // sentence number so overlapping article-local ids can never alias.
 
 import { PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
-import {
-  PASSAGE_MAX_CHARS,
-  ROOT,
-  TOPIC,
-  createPassage,
-  createTopic,
-  buildPassages,
-} from '../pipeline/summaryTreeModel.js';
+import { ROOT, TOPIC, createPassage, createTopic } from '../pipeline/summaryTreeModel.js';
+import { PASSAGE_MAX_CHARS, buildPassages } from '../pipeline/summaryTreePassages.js';
 import { splitTopicPath } from '../../shared/runtime/topicPath.js';
 
 /** Whether this saved record has a completed, usable primary topic split.

@@ -4,14 +4,13 @@
 // nodes; workers return validated segments.
 
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
-import { LEVEL, PASSAGE, TOPIC, relay } from './summaryTreeModel.js';
+import { LEVEL, PASSAGE, TOPIC, cleanTitle, relay } from './summaryTreeModel.js';
 import { buildSummaryTreeSummaryPrompt, claimSupportedQuestion, NO } from './summaryTreePrompts.js';
-import { extractObject, yesProbability } from './summaryTreeRequests.js';
+import { extractObject, yesProbability } from './summaryTreeAnswers.js';
 
 /** @import { SummaryTreeNode, SummaryLevel } from './summaryTreeModel.js' */
 
 const ITEM_ID = 'item';
-const TITLE_CHARS = 80;
 const CITED_CHARS = 4000;
 const VERIFIED_LEVELS = new Set([LEVEL.PASSAGE, LEVEL.DETAIL]);
 const CONNECTORS = new Set(['and', 'or', 'but', 'while', 'also', 'и', 'а', 'но', 'или']);
@@ -24,20 +23,6 @@ export class SummaryTreeGenerationError extends Error {
     super(message);
     this.name = 'SummaryTreeGenerationError';
   }
-}
-
-/**
- * Collapse whitespace and trim separators; topic paths use ">" so it is replaced.
- * @param {unknown} value
- * @returns {string|null}
- */
-export function cleanTitle(value) {
-  if (typeof value !== 'string') return null;
-  const title = value
-    .replace(/[>:]/gu, ' ')
-    .replace(/\s+/gu, ' ')
-    .replace(/^[\s.;:\-–—]+|[\s.;:\-–—]+$/gu, '');
-  return title ? title.slice(0, TITLE_CHARS) : null;
 }
 
 /**

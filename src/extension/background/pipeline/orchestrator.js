@@ -27,7 +27,7 @@ import {
   SUMMARY_TREE_VERSION,
 } from '../../../core/pipeline/summaryTreeStage.js';
 import { createArticleStrategy } from '../../../core/pipeline/summaryTreeStrategy.js';
-import { PASSAGE_MAX_CHARS } from '../../../core/pipeline/summaryTreeModel.js';
+import { PASSAGE_MAX_CHARS } from '../../../core/pipeline/summaryTreePassages.js';
 import { normalizeCustomInstructions } from '../../../core/pipeline/customInstructions.js';
 import { createProjectStrategy } from '../../../core/projects/projectTopicStrategy.js';
 import {

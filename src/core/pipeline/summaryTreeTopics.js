@@ -6,7 +6,7 @@
 
 import { createLimiter } from '../llm/concurrency.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
-import { TOPIC, createRoot, createTopic, summaryText } from './summaryTreeModel.js';
+import { TOPIC, cleanTitle, createRoot, createTopic, summaryText } from './summaryTreeModel.js';
 import {
   MAX_BRANCHES,
   NO,
@@ -15,8 +15,7 @@ import {
   topicChoiceQuestion,
   topicFitsQuestion,
 } from './summaryTreePrompts.js';
-import { chosenOption, extractObject, yesProbability } from './summaryTreeRequests.js';
-import { cleanTitle } from './summaryTreeGeneration.js';
+import { chosenOption, extractObject, yesProbability } from './summaryTreeAnswers.js';
 
 /** @import { SummaryTreeNode } from './summaryTreeModel.js' */
 

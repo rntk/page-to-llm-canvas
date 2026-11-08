@@ -1,15 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  PASSAGE,
-  addNode,
-  buildPassages,
-  claimSentences,
-  relay,
-  treeLevels,
-} from './summaryTreeModel.js';
+import { PASSAGE, addNode, claimSentences, relay, treeLevels } from './summaryTreeModel.js';
 import { decodeEntry, levelOf, requestItem } from './summaryTreeGeneration.js';
 import { decodeAssignment, decodeTitles, orderGroups, OTHER_TITLE } from './summaryTreeTopics.js';
-import { createSummaryTreeLlm, extractObject } from './summaryTreeRequests.js';
+import { buildPassages } from './summaryTreePassages.js';
+import { createSummaryTreeLlm } from './summaryTreeRequests.js';
+import { extractObject } from './summaryTreeAnswers.js';
 import { isSummaryTreeReusable, runSummaryTree } from './summaryTreeStage.js';
 import { createArticleStrategy } from './summaryTreeStrategy.js';
 import { PROMPT_DELIMITER } from '../promptDelimiters.js';
