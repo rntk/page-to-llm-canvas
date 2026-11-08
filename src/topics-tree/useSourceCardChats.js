@@ -14,7 +14,7 @@ import { articlesFromMergedRows, describeSourceCard } from './sourceCardChat.js'
  * @param {object[]} [options.records] Merged trees: the articles merged.
  * @param {string} [options.projectId] Merged trees: owner of chats over text from several articles.
  * @param {object} [options.chatPorts] ArticleChat port overrides (tests).
- * @returns {{available: function(object): boolean, render: function(object, {onClose: function(): void}): import('react').ReactNode}}
+ * @returns {{available: function(object): boolean, render: function(object, {onClose: function(): void, onHighlightLines?: function(string[], {focus: boolean}): void, onClearHighlights?: function(): void}): import('react').ReactNode}}
  */
 export function useSourceCardChats({
   sentences,
@@ -47,9 +47,17 @@ export function useSourceCardChats({
     };
     return {
       available: (node) => describe(node) !== null,
-      render: (node, { onClose }) => {
+      render: (node, { onClose, onHighlightLines, onClearHighlights }) => {
         const card = describe(node);
-        return card ? createElement(SourceCardChatDrawer, { card, onClose, chatPorts }) : null;
+        return card
+          ? createElement(SourceCardChatDrawer, {
+              card,
+              onClose,
+              onHighlightLines,
+              onClearHighlights,
+              chatPorts,
+            })
+          : null;
       },
     };
   }, [sentences, sentenceSources, article, records, projectId, chatPorts]);

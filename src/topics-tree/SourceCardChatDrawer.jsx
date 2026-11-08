@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import ArticleChat from '../chat/ArticleChat.jsx';
 import { createMultiPageTools, createPageTools } from '../chat/readPageTool.js';
 
@@ -17,11 +17,20 @@ const BLOCK_PROMPT =
  * @param {object} props
  * @param {import('./sourceCardChat.js').SourceCardChat|import('./sourceCardChat.js').SourceBlockChat} props.card
  * @param {function(): void} props.onClose
+ * @param {function(string[], {focus: boolean}): void} [props.onHighlightLines]
+ *   Receives the passage keys of a highlighted span of the chat's lines.
+ * @param {function(): void} [props.onClearHighlights]
  * @param {{chatRepository?: object, runTurn?: Function, getChatLimits?: Function}} [props.chatPorts]
  *   ArticleChat port overrides (tests); the browser defaults apply otherwise.
  */
-export function SourceCardChatDrawer({ card, onClose, chatPorts }) {
-  const { chatKey, contentRevision, cardSentences } = card;
+export function SourceCardChatDrawer({
+  card,
+  onClose,
+  onHighlightLines,
+  onClearHighlights,
+  chatPorts,
+}) {
+  const { chatKey, contentRevision, cardSentences, lineKeys } = card;
   const pages = card.pages || null;
   const title = pages ? card.topic || 'this topic' : card.title;
   const url = card.url;
@@ -47,6 +56,15 @@ export function SourceCardChatDrawer({ card, onClose, chatPorts }) {
     });
   }, [pages, cardSentences, card.pageSentences]);
 
+  // Chat lines are 1-based positions in cardSentences; the card shows them as passages.
+  const onHighlight = useCallback(
+    ({ startLine, endLine }, { focus = false } = {}) => {
+      const keys = (lineKeys || []).slice(startLine - 1, endLine).filter(Boolean);
+      onHighlightLines?.(keys, { focus });
+    },
+    [lineKeys, onHighlightLines],
+  );
+
   return (
     <aside
       className="tt-card__chat"
@@ -68,6 +86,8 @@ export function SourceCardChatDrawer({ card, onClose, chatPorts }) {
           tools={tools}
           emptyPrompt={pages ? BLOCK_PROMPT : CARD_PROMPT}
           onEscape={onClose}
+          onHighlight={onHighlightLines ? onHighlight : undefined}
+          onClearHighlights={onClearHighlights}
           {...chatPorts}
         />
       </div>

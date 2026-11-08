@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { articlesFromMergedRows, describeSourceCard } from './sourceCardChat.js';
+import { passageKey } from './topicsTreeModel.js';
 import { buildProjectTopicSeed } from '../core/projects/projectTopicTree.js';
 
 // Two articles merged into rows 1-5: A has 3 sentences, B has 2.
@@ -66,6 +67,7 @@ describe('describeSourceCard', () => {
         url: 'https://x.test/',
         contentRevision: 'r1',
         cardSentences: ['Two.', 'Three.'],
+        lineKeys: [passageKey('', 2), passageKey('', 3)],
         pageSentences: single,
       },
     );
@@ -128,6 +130,15 @@ describe('describeSourceCard for a topic source block', () => {
       '### Section 2 - topic: Fruit > Pears - page 1 - page lines 2, 4',
       'Two.',
       'Four.',
+    ]);
+    // Headings show no passage; the same sentence stays distinct per section.
+    expect(card.lineKeys).toEqual([
+      null,
+      passageKey('source:x', 1),
+      passageKey('source:x', 2),
+      null,
+      passageKey('source:y', 2),
+      passageKey('source:y', 4),
     ]);
     expect(card.pages).toEqual([
       {

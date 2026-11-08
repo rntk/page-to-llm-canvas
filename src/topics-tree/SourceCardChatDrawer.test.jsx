@@ -92,6 +92,51 @@ describe('SourceCardChatDrawer', () => {
     expect(read).toMatchObject({ excerptStartsAtLine: 2, startLine: 1, totalLines: 3 });
   });
 
+  it('reports the passages of a highlighted span, skipping heading lines', async () => {
+    const onHighlightLines = vi.fn();
+    // Highlights stream while the turn runs; the chat ignores them afterwards.
+    const runTurn = vi.fn(async (args) => {
+      await args.effects.onHighlight({ startLine: 1, endLine: 2 });
+      await args.effects.onHighlight({ startLine: 2, endLine: 3 });
+      return { reply: 'Answer', highlightRanges: [] };
+    });
+    const onClearHighlights = vi.fn();
+    const block = {
+      chatKey: 'block:abc:rec',
+      topic: 'Fruit',
+      lineKeys: [null, 'k1', 'k2'],
+      cardSentences: ['### Section 1', 'Apples are red.', 'Pears are green.'],
+      pages: [
+        { title: 'Fruit', url: 'https://a.test/', excerptSentences: [], pageSentences: ['x'] },
+      ],
+    };
+    await act(async () =>
+      root.render(
+        <SourceCardChatDrawer
+          card={block}
+          onClose={() => {}}
+          onHighlightLines={onHighlightLines}
+          onClearHighlights={onClearHighlights}
+          chatPorts={makePorts(runTurn)}
+        />,
+      ),
+    );
+    await flush();
+    const textarea = container.querySelector('.pagetollm-chat-composer textarea');
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+    act(() => {
+      setter.call(textarea, 'Which?');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => container.querySelector('.pagetollm-chat-composer button').click());
+    await flush();
+
+    expect(onHighlightLines.mock.calls).toEqual([
+      [['k1'], { focus: false }],
+      [['k1', 'k2'], { focus: false }],
+    ]);
+  });
+
   it('chats over the sections of a topic with page tools that take a page number', async () => {
     let received;
     const runTurn = vi.fn(async (args) => {

@@ -4,7 +4,7 @@ import {
   sourceCardChatKey,
 } from '../core/storage/keys.js';
 import { formatTopicPath, splitTopicPath } from '../shared/runtime/topicPath.js';
-import { groupSentenceSources } from './topicsTreeModel.js';
+import { groupSentenceSources, passageKey } from './topicsTreeModel.js';
 
 /**
  * @typedef {object} SourceCardChat
@@ -13,6 +13,7 @@ import { groupSentenceSources } from './topicsTreeModel.js';
  * @property {string} url URL of that article.
  * @property {string} [contentRevision] Revision of the article the card was read from.
  * @property {string[]} cardSentences The card's lines, in article order.
+ * @property {string[]} lineKeys The passage (see passageKey) shown by each chat line.
  * @property {string[]} pageSentences The whole article, one-based by sentence number.
  */
 
@@ -23,6 +24,8 @@ import { groupSentenceSources } from './topicsTreeModel.js';
  * @property {string} [contentRevision] Revision of the article, when the block quotes just one.
  * @property {string[]} cardSentences The block's lines in reading order, each section
  *   and page introduced by a "###" heading line.
+ * @property {Array<string|null>} lineKeys The passage (see passageKey) shown by each chat
+ *   line; null for heading lines.
  * @property {Array<{title: string, url: string, excerptSentences: string[], pageSentences: string[]}>} pages
  *   The pages quoted, numbered by position (1-based) in the headings and tools.
  */
@@ -58,6 +61,7 @@ function describeSourceBlock({
 }) {
   const pages = new Map();
   const lines = [];
+  const lineKeys = [];
   const localNumbers = [];
   for (const [index, section] of node.sections.entries()) {
     const groups = groupSentenceSources(section.sentences, sentenceSources);
@@ -80,9 +84,13 @@ function describeSourceBlock({
         });
       }
       const page = pages.get(recordKey);
-      const texts = group.sentences
-        .map((row) => String(sentences[row.number - 1] ?? '').trim())
-        .filter(Boolean);
+      const quoted = group.sentences
+        .map((row) => ({
+          number: row.number,
+          text: String(sentences[row.number - 1] ?? '').trim(),
+        }))
+        .filter((row) => row.text);
+      const texts = quoted.map((row) => row.text);
       if (!texts.length) continue;
       page.excerptSentences.push(...texts);
       localNumbers.push(...numbers.map((number) => ({ recordKey, number })));
@@ -92,6 +100,7 @@ function describeSourceBlock({
         `### Section ${index + 1} - topic: ${topic || 'whole article'} - page ${pageNumber} - page lines ${lineRanges(numbers)}`,
         ...texts,
       );
+      lineKeys.push(null, ...quoted.map((row) => passageKey(section.key, row.number)));
     }
   }
   if (!pages.size || lines.length === 0) return null;
@@ -109,6 +118,7 @@ function describeSourceBlock({
     topic: formatTopicPath(splitTopicPath(node.path)),
     ...(owner?.contentRevision ? { contentRevision: owner.contentRevision } : {}),
     cardSentences: lines,
+    lineKeys,
     pages: [...pages.values()].map(({ title, url, excerptSentences, pageSentences }) => ({
       title,
       url,
@@ -218,9 +228,10 @@ export function describeSourceCard({
     Math.min(...localNumbers),
     Math.max(...localNumbers),
   );
-  const cardSentences = numbers
-    .map((number) => String(sentences[number - 1] ?? '').trim())
-    .filter(Boolean);
+  const quoted = numbers
+    .map((number) => ({ number, text: String(sentences[number - 1] ?? '').trim() }))
+    .filter((row) => row.text);
+  const cardSentences = quoted.map((row) => row.text);
   if (!chatKey || !cardSentences.length) return null;
   return {
     chatKey,
@@ -228,6 +239,7 @@ export function describeSourceCard({
     url: meta.url || '',
     ...(meta.contentRevision ? { contentRevision: meta.contentRevision } : {}),
     cardSentences,
+    lineKeys: quoted.map((row) => passageKey('', row.number)),
     pageSentences,
   };
 }

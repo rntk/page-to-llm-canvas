@@ -20,6 +20,7 @@ import {
   groupSentenceSources,
   initialExpanded,
   labelSize,
+  passageKey,
   pathTo,
   textKey,
   toggleNode,
@@ -187,7 +188,13 @@ const TopicNode = React.memo(function TopicNode({
   );
 });
 
-function SourceGroups({ sentenceNumbers, articleSentences, sentenceSources }) {
+function SourceGroups({
+  sentenceNumbers,
+  articleSentences,
+  sentenceSources,
+  sectionKey = '',
+  highlighted,
+}) {
   return groupSentenceSources(sentenceNumbers, sentenceSources).map((group) => (
     <section className="tt-source-group" key={group.id}>
       {group.source && <SourceArticle source={group.source} />}
@@ -196,7 +203,14 @@ function SourceGroups({ sentenceNumbers, articleSentences, sentenceSources }) {
           <li
             key={number}
             value={sourceNumber ?? undefined}
-            className={sourceNumber === null ? 'tt-passages__unknown' : undefined}
+            className={
+              [
+                sourceNumber === null ? 'tt-passages__unknown' : '',
+                highlighted?.has(passageKey(sectionKey, number)) ? 'is-chat-highlighted' : '',
+              ]
+                .filter(Boolean)
+                .join(' ') || undefined
+            }
           >
             {articleSentences[number - 1] || ''}
           </li>
@@ -235,6 +249,26 @@ const LeafCard = React.memo(function LeafCard({
   );
   useEnterMotion(elRef, position, origin, motionRef);
   const hasChat = !!leafChat && leafChat.available(node);
+  // Passages the card's chat has highlighted, by passageKey.
+  const [highlighted, setHighlighted] = useState(() => new Set());
+  const [focusRequest, setFocusRequest] = useState(0);
+  const handleHighlightLines = useCallback((keys, { focus = false } = {}) => {
+    setHighlighted((current) => {
+      const next = new Set(current);
+      for (const key of keys) next.add(key);
+      return next.size === current.size ? current : next;
+    });
+    if (focus && keys.length) setFocusRequest((count) => count + 1);
+  }, []);
+  const handleClearHighlights = useCallback(
+    () => setHighlighted((current) => (current.size ? new Set() : current)),
+    [],
+  );
+  // Bring the first highlighted passage into view when the reader picks an event.
+  useEffect(() => {
+    if (!focusRequest) return;
+    elRef.current?.querySelector('.is-chat-highlighted')?.scrollIntoView?.({ block: 'nearest' });
+  }, [focusRequest]);
   // A source card carries its topic's path, so show it whole to name that topic.
   const parentPath = formatTopicPath(splitTopicPath(node.path));
   const className = [
@@ -277,6 +311,8 @@ const LeafCard = React.memo(function LeafCard({
                 sentenceNumbers={section.sentences}
                 articleSentences={articleSentences}
                 sentenceSources={sentenceSources}
+                sectionKey={section.key}
+                highlighted={highlighted}
               />
             </section>
           ))
@@ -285,6 +321,7 @@ const LeafCard = React.memo(function LeafCard({
             sentenceNumbers={node.sentences}
             articleSentences={articleSentences}
             sentenceSources={sentenceSources}
+            highlighted={highlighted}
           />
         )}
         {onShowInPage && (
@@ -308,7 +345,13 @@ const LeafCard = React.memo(function LeafCard({
         aria-hidden="true"
         onPointerDown={(event) => onStartDrag(event, node.key, 'resize')}
       />
-      {chatOpen && hasChat && leafChat.render(node, { onClose: () => onToggleChat(node.key) })}
+      {chatOpen &&
+        hasChat &&
+        leafChat.render(node, {
+          onClose: () => onToggleChat(node.key),
+          onHighlightLines: handleHighlightLines,
+          onClearHighlights: handleClearHighlights,
+        })}
       {hasChat && (
         <button
           type="button"
@@ -340,7 +383,7 @@ const LeafCard = React.memo(function LeafCard({
  * @param {string[]} props.sentences Article sentences (1-based numbers index into it).
  * @param {object|null} [props.sentenceSources] Source article and local line for synthetic rows.
  * @param {(node: object) => void} [props.onShowInPage]
- * @param {{available: function(object): boolean, render: function(object, {onClose: function(): void}): import('react').ReactNode}|null} [props.leafChat]
+ * @param {{available: function(object): boolean, render: function(object, {onClose: function(): void, onHighlightLines: function(string[], {focus: boolean}): void, onClearHighlights: function(): void}): import('react').ReactNode}|null} [props.leafChat]
  *   Gives source cards a Chat tab that unfolds this chat beside them. Keep it
  *   referentially stable.
  * @param {HTMLElement|null} [props.controlsHost] Element the view controls render into

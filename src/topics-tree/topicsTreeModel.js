@@ -202,6 +202,17 @@ export function buildSummaryTreeDisplayTree(summaryTree, { title = '' } = {}) {
 }
 
 /**
+ * Identity of one quoted passage on a source card. A block can quote the same
+ * sentence under several sub-topics, so the section is part of the identity.
+ * @param {string} sectionKey Key of the block section, or '' on a single card.
+ * @param {number} number Tree sentence number.
+ * @returns {string}
+ */
+export function passageKey(sectionKey, number) {
+  return `${sectionKey}\u0000${number}`;
+}
+
+/**
  * Group synthetic project sentence numbers by article, retaining each article's
  * own line numbers. A missing mapping is kept separate from attributed text.
  * @param {number[]} sentenceNumbers Global, one-based sentence numbers.

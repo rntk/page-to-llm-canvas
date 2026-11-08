@@ -4,7 +4,11 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import TopicsTreeCanvas from './TopicsTreeCanvas.jsx';
-import { buildSummaryTreeDisplayTree, buildTopicsDisplayTree } from './topicsTreeModel.js';
+import {
+  buildSummaryTreeDisplayTree,
+  buildTopicsDisplayTree,
+  passageKey,
+} from './topicsTreeModel.js';
 
 it('reveals a repeated summary locally and remembers it across branch folding', () => {
   vi.stubGlobal('matchMedia', () => ({ matches: true }));
@@ -114,6 +118,48 @@ it('gives source cards a Chat tab that unfolds and folds their chat', () => {
     act(() => folds()[0].click());
     act(() => container.querySelector('.fake-close').click());
     expect(container.querySelector('.fake-chat')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('marks the passages its chat highlights and clears them', () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  const tree = buildTopicsDisplayTree([{ name: 'First', sentences: [1, 2] }]);
+  let handlers;
+  const leafChat = {
+    available: () => true,
+    render: (_node, props) => {
+      handlers = props;
+      return createElement('aside', { className: 'fake-chat' });
+    },
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    act(() =>
+      root.render(
+        createElement(TopicsTreeCanvas, { tree, sentences: ['First.', 'Second.'], leafChat }),
+      ),
+    );
+    container
+      .querySelectorAll('.tt-node:not(.tt-node--root)')
+      .forEach((node) => act(() => node.click()));
+    act(() => container.querySelector('.tt-card__chat-fold').click());
+    const marked = () =>
+      Array.from(container.querySelectorAll('.tt-passages li.is-chat-highlighted')).map(
+        (li) => li.textContent,
+      );
+    expect(marked()).toEqual([]);
+
+    act(() => handlers.onHighlightLines([passageKey('', 2)], { focus: false }));
+    expect(marked()).toEqual(['Second.']);
+
+    act(() => handlers.onClearHighlights());
+    expect(marked()).toEqual([]);
   } finally {
     act(() => root.unmount());
     container.remove();

@@ -352,6 +352,13 @@
   margin-top: 3px;
 }
 
+/* A passage the card's chat highlighted (same tint and underline as the page highlight). */
+.tt-passages .is-chat-highlighted {
+  background-color: var(--pagetollm-highlight-active-color, rgb(58 64 77 / 20%));
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+}
+
 .tt-passages__unknown::marker {
   content: '? ';
 }
