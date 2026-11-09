@@ -5,7 +5,7 @@ import { treeLinks } from './treeLayout.js';
 // Fold/unfold motion for the topics tree. Kept light: nodes glide to their new
 // place, new ones grow out of their parent, removed ones shrink back into it.
 
-export const MOTION_MS = 260;
+export const MOTION_MS = 180;
 export const MOTION_EASING = 'cubic-bezier(0.22, 0.61, 0.36, 1)';
 /** Ghosts and the motion flag outlive the animation a little so it never gets cut. */
 export const MOTION_LINGER_MS = MOTION_MS + 40;

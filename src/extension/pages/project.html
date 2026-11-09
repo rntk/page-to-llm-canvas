@@ -22,6 +22,38 @@
         --font-data:
           -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, oxygen, ubuntu, cantarell,
           'Helvetica Neue', helvetica, arial, sans-serif;
+
+        /* Spacing, type and control scales: use these rather than raw px. */
+        --space-1: 2px;
+        --space-2: 4px;
+        --space-3: 6px;
+        --space-4: 8px;
+        --space-5: 12px;
+        --space-6: 16px;
+        --text-2xs: 10px;
+        --text-xs: 11px;
+        --text-sm: 12px;
+        --text-md: 13px;
+        --text-lg: 14px;
+        --text-xl: 16px;
+        --control-h: 24px;
+        /* Header rows: the page header, then chat drawer and panel heads. */
+        --header-h: 36px;
+        --bar-h: 32px;
+
+        /* Motion: short, opacity plus a few px at most. Reduced motion zeroes it. */
+        --ease: cubic-bezier(0.2, 0, 0, 1);
+        --motion-fast: 120ms;
+        --motion-base: 160ms;
+        --nudge: 4px;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        :root {
+          --motion-fast: 0ms;
+          --motion-base: 0ms;
+          --nudge: 0px;
+        }
       }
 
       :root[data-theme='light'] {
@@ -30,6 +62,31 @@
 
       :root[data-theme='dark'] {
         color-scheme: dark;
+      }
+
+      /* Entrances only: panels unmount when hidden, so they leave instantly. */
+      @keyframes project-fade-in {
+        from {
+          opacity: 0;
+        }
+      }
+      @keyframes project-reveal-right {
+        from {
+          opacity: 0;
+          transform: translateX(calc(-1 * var(--nudge)));
+        }
+      }
+      @keyframes project-reveal-left {
+        from {
+          opacity: 0;
+          transform: translateX(var(--nudge));
+        }
+      }
+      @keyframes project-reveal-down {
+        from {
+          opacity: 0;
+          transform: translateY(calc(-0.5 * var(--nudge)));
+        }
       }
 
       html,
@@ -51,21 +108,33 @@
         font-family: var(--font-voice);
         margin: 0;
       }
+
+      /* Base button. ArticleChat's composer buttons inherit this padding, so it
+         stays as is; project controls get a fixed height below. */
       button {
-        padding: 6px 12px;
+        padding: var(--space-3) var(--space-5);
         border: 1px solid var(--ink);
         border-radius: 0;
         background: var(--surface);
         color: var(--ink);
         cursor: pointer;
-        font-size: 12px;
+        font-size: var(--text-sm);
         font-weight: 700;
         letter-spacing: 0.03em;
         text-transform: uppercase;
+        transition:
+          background-color var(--motion-fast) var(--ease),
+          border-color var(--motion-fast) var(--ease),
+          color var(--motion-fast) var(--ease),
+          opacity var(--motion-fast) var(--ease);
       }
       button:hover:not(:disabled) {
         background: var(--ink);
         color: var(--surface);
+      }
+      button:focus-visible {
+        outline: 2px solid var(--ink);
+        outline-offset: 2px;
       }
       button:disabled {
         opacity: 0.5;
@@ -75,18 +144,45 @@
         background: var(--ink);
         color: var(--surface);
       }
+      .project-header > button,
+      .canvas-controls button,
+      .tab-card-footer button,
+      .excerpt-card-footer button,
+      .chat-panel-header > button,
+      .chat-panel-notice > button,
+      .chat-panel-empty > button,
+      .page-chat-note > button,
+      .project-state > button,
+      .project-shell .pagetollm-chat-actions button,
+      .project-shell .pagetollm-chat-scope button {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+        height: var(--control-h);
+        padding: 0 var(--space-4);
+        line-height: 1;
+        white-space: nowrap;
+      }
       .note {
         color: var(--on-surface-muted);
-        font-size: 13px;
+        font-size: var(--text-md);
+        line-height: 1.4;
         margin: 0;
       }
       .status {
-        display: inline-block;
-        padding: 2px 8px;
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        box-sizing: border-box;
+        height: 20px;
+        padding: 0 var(--space-3);
         border: 1px solid var(--ink);
-        font-size: 11px;
+        font-size: var(--text-xs);
         font-weight: 800;
         letter-spacing: 0.04em;
+        line-height: 1;
         text-transform: uppercase;
         background: var(--surface);
         color: var(--on-surface-muted);
@@ -98,21 +194,22 @@
 
       /* Page states */
       .project-loading {
-        padding: 32px;
+        padding: var(--space-5);
+        animation: project-fade-in var(--motion-base) var(--ease);
       }
       .project-state {
-        max-width: 520px;
+        max-width: 480px;
         margin: 15vh auto 0;
-        padding: 24px;
+        padding: var(--space-6);
         border: 2px solid var(--ink);
         background: var(--surface);
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: var(--space-4);
         align-items: flex-start;
       }
       .project-state h1 {
-        font-size: 26px;
+        font-size: var(--text-xl);
       }
 
       /* Layout */
@@ -122,21 +219,22 @@
         flex-direction: column;
       }
       .project-header {
+        flex: none;
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 4px 12px;
+        gap: var(--space-4);
+        box-sizing: border-box;
+        min-height: var(--header-h);
+        padding: 0 var(--space-5);
         background: var(--surface);
         border-bottom: 2px solid var(--ink);
       }
-      .project-header > button {
-        padding: 4px 10px;
-      }
       .project-header h1 {
-        font-size: 16px;
+        font-size: var(--text-xl);
         font-weight: 700;
         letter-spacing: -0.01em;
-        line-height: 1.1;
+        /* Room for descenders: the title clips to one line. */
+        line-height: 1.25;
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -146,8 +244,9 @@
         flex: 1;
       }
       .project-meta {
+        flex: none;
         color: var(--on-surface-muted);
-        font-size: 11px;
+        font-size: var(--text-xs);
         font-weight: 800;
         letter-spacing: 0.06em;
         text-transform: uppercase;
@@ -155,6 +254,7 @@
       }
       .color-chip {
         flex: none;
+        box-sizing: border-box;
         width: 14px;
         height: 14px;
         border: 1px solid var(--ink);
@@ -170,7 +270,8 @@
         position: relative;
       }
 
-      /* Canvas */
+      /* Canvas. Nothing here transitions `transform`: nodes and the layer are
+         repositioned on every pointer move while dragging or panning. */
       .canvas-area {
         position: absolute;
         inset: 0;
@@ -202,37 +303,51 @@
       }
       .canvas-controls {
         position: absolute;
-        right: 16px;
-        bottom: 16px;
+        right: var(--space-5);
+        bottom: var(--space-5);
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 6px;
+        gap: var(--space-2);
+        padding: var(--space-2);
         background: var(--surface);
         border: 2px solid var(--ink);
       }
+      /* The labelled − and + buttons are square icon controls. */
+      .canvas-controls button[aria-label] {
+        width: var(--control-h);
+        padding: 0;
+        font-size: var(--text-lg);
+      }
       .canvas-zoom-level {
-        min-width: 44px;
+        min-width: 40px;
         text-align: center;
-        font-size: 12px;
+        font-size: var(--text-sm);
         font-weight: 800;
+        font-variant-numeric: tabular-nums;
       }
       .canvas-hint {
         position: absolute;
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
+        max-width: calc(100% - 2 * var(--space-6));
+        box-sizing: border-box;
         margin: 0;
-        padding: 14px 20px;
+        padding: var(--space-4) var(--space-5);
         background: var(--surface);
         border: 2px solid var(--ink);
         font-family: var(--font-voice);
-        font-size: 16px;
+        font-size: var(--text-lg);
+        text-align: center;
         pointer-events: none;
+        animation: project-fade-in var(--motion-base) var(--ease);
       }
 
-      /* Tab card */
-      .tab-card {
+      /* Cards share one structure: a draggable head, a body inset by
+         --space-4 and a footer of controls on the same inset. Sizes come from
+         canvasLayout.js (inline style), so nothing here changes outer dimensions. */
+      .tab-card,
+      .excerpt-card {
         box-sizing: border-box;
         display: flex;
         flex-direction: column;
@@ -240,65 +355,105 @@
         border: 1px solid var(--ink);
         cursor: default;
       }
+      .tab-card-header,
+      .excerpt-card-header {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: var(--space-4);
+        border-bottom: 1px solid var(--ghost);
+        background: var(--surface-highest);
+        cursor: grab;
+      }
+      .tab-card-header:active,
+      .excerpt-card-header:active {
+        cursor: grabbing;
+      }
+      .tab-card-footer,
+      .excerpt-card-footer {
+        flex: none;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: var(--space-4);
+        padding: var(--space-4);
+      }
+      .tab-card-error,
+      .excerpt-card-error {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        color: var(--on-surface-muted);
+        font-size: var(--text-xs);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      /* Tab card. The active state is an inset outline, not a wider border, so
+         its content does not shift by the extra border width. */
+      .tab-card {
+        transition: box-shadow var(--motion-base) var(--ease);
+      }
       .tab-card.is-active {
-        border-width: 3px;
+        outline: 3px solid var(--ink);
+        outline-offset: -3px;
         box-shadow: 4px 4px 0 var(--ink);
       }
       .tab-card-header {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 10px 12px;
-        border-bottom: 1px solid var(--ghost);
-        background: var(--surface-highest);
-        cursor: move;
+        padding: var(--space-4);
       }
       .tab-card-favicon {
         flex: none;
-        width: 24px;
-        height: 24px;
+        box-sizing: border-box;
+        width: 20px;
+        height: 20px;
         object-fit: contain;
       }
       .tab-card-favicon-fallback {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        box-sizing: border-box;
         border: 1px solid var(--ink);
         background: var(--surface);
         font-family: var(--font-voice);
         font-weight: 700;
-        font-size: 13px;
+        font-size: var(--text-sm);
       }
       .tab-card-heading {
         flex: 1;
         min-width: 0;
       }
       .tab-card-title {
-        font-size: 14px;
+        font-size: var(--text-lg);
         line-height: 1.25;
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
-        word-break: break-word;
+        overflow-wrap: anywhere;
       }
       .tab-card-host {
-        margin: 2px 0 0;
+        margin: var(--space-1) 0 0;
         color: var(--on-surface-muted);
-        font-size: 11px;
+        font-size: var(--text-xs);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
       .tab-card-loading {
         flex: none;
+        box-sizing: border-box;
         width: 12px;
         height: 12px;
         border: 2px solid var(--ghost);
         border-top-color: var(--ink);
         border-radius: 50%;
         animation: tab-card-spin 0.8s linear infinite;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .tab-card-loading {
+          animation-duration: 2.4s;
+        }
       }
       @keyframes tab-card-spin {
         to {
@@ -307,27 +462,16 @@
       }
       .tab-card-body {
         flex: 1;
+        min-height: 0;
         display: flex;
         align-items: center;
         justify-content: center;
-        margin: 10px 12px;
-        padding: 8px;
+        margin: var(--space-4) var(--space-4) 0;
+        padding: var(--space-4);
         border: 1px dashed var(--ghost);
         color: var(--on-surface-muted);
-        font-size: 12px;
+        font-size: var(--text-sm);
         text-align: center;
-      }
-      .tab-card-footer {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 10px;
-        padding: 0 12px 10px;
-      }
-      .tab-card-error,
-      .excerpt-card-error {
-        color: var(--on-surface-muted);
-        font-size: 11px;
       }
 
       /* Excerpt card, stacked under the tab card of its page */
@@ -345,57 +489,64 @@
         stroke-dasharray: 4 3;
       }
       .excerpt-card {
-        box-sizing: border-box;
-        display: flex;
-        flex-direction: column;
-        background: var(--surface);
-        border: 1px solid var(--ink);
         border-left-width: 4px;
-        cursor: default;
       }
       .excerpt-card.is-detached {
         border-style: dashed;
       }
       .excerpt-card-header {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 6px 10px;
-        border-bottom: 1px solid var(--ghost);
-        background: var(--surface-highest);
-        cursor: move;
+        box-sizing: border-box;
+        min-height: 28px;
+        padding: 0 var(--space-4);
       }
       .excerpt-card-label {
         flex: none;
         color: var(--on-surface-muted);
-        font-size: 10px;
+        font-size: var(--text-2xs);
         font-weight: 800;
         letter-spacing: 0.06em;
         text-transform: uppercase;
       }
+      /* A text link styled button: no base button chrome, case or inverted hover. */
       .excerpt-card-source {
         flex: 1;
         min-width: 0;
         display: flex;
-        padding: 2px 6px;
+        align-items: center;
+        height: 20px;
+        padding: 0 var(--space-2);
         border: none;
         background: none;
         color: var(--on-surface);
-        font-size: 11px;
+        font-size: var(--text-xs);
+        font-weight: 600;
+        letter-spacing: normal;
         text-align: left;
+        text-transform: none;
         white-space: nowrap;
         cursor: pointer;
+      }
+      .excerpt-card-source:hover:not(:disabled) {
+        background: none;
+        color: var(--ink);
+      }
+      .excerpt-card-source:focus-visible {
+        outline-offset: 0;
       }
       .excerpt-card-source:disabled {
         color: var(--on-surface-muted);
         cursor: default;
-      }
-      .excerpt-card-source:not(:disabled):hover .excerpt-card-source-title {
-        text-decoration: underline;
+        opacity: 1;
       }
       .excerpt-card-source-title {
+        min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
+        text-decoration: underline transparent;
+        transition: text-decoration-color var(--motion-fast) var(--ease);
+      }
+      .excerpt-card-source:not(:disabled):hover .excerpt-card-source-title {
+        text-decoration-color: currentcolor;
       }
       .excerpt-card-source-host {
         flex: none;
@@ -404,25 +555,19 @@
         flex: 1;
         min-height: 0;
         overflow-y: auto;
-        margin: 8px 10px 0;
-        padding: 0 0 0 8px;
+        margin: var(--space-4) var(--space-4) 0;
+        padding: 0 0 0 var(--space-4);
         border-left: 2px solid var(--ghost);
         font-family: var(--font-voice);
-        font-size: 13px;
+        font-size: var(--text-md);
         line-height: 1.4;
         white-space: pre-wrap;
         overflow-wrap: anywhere;
+        cursor: text;
         user-select: text;
       }
       .excerpt-card-truncated {
         color: var(--on-surface-muted);
-      }
-      .excerpt-card-footer {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 10px;
-        padding: 6px 10px 8px;
       }
 
       /* Per-page chat drawer, unfolded beside its tab card */
@@ -438,19 +583,42 @@
         box-shadow: 4px 4px 0 var(--ink);
         cursor: default;
         user-select: text;
+        animation: project-reveal-right var(--motion-base) var(--ease);
+      }
+      .page-chat-header,
+      .chat-panel-header {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: var(--space-4);
+        box-sizing: border-box;
+        min-height: var(--bar-h);
+        border-bottom: 1px solid var(--ink);
       }
       .page-chat-header {
-        flex: none;
-        padding: 6px 12px;
-        border-bottom: 1px solid var(--ghost);
+        padding: 0 var(--space-2) 0 var(--space-4);
         background: var(--surface-highest);
       }
       .page-chat-label {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
         color: var(--on-surface-muted);
-        font-size: 11px;
+        font-size: var(--text-xs);
         font-weight: 800;
         letter-spacing: 0.06em;
+        text-overflow: ellipsis;
         text-transform: uppercase;
+        white-space: nowrap;
+      }
+      .page-chat-actions,
+      .chat-panel-actions {
+        flex: none;
+        display: flex;
+      }
+      .page-chat-actions:empty,
+      .chat-panel-actions:empty {
+        display: none;
       }
       .page-chat-body {
         flex: 1;
@@ -462,24 +630,32 @@
         display: flex;
         flex-direction: column;
         align-items: flex-start;
-        gap: 10px;
-        padding: 16px;
+        gap: var(--space-4);
+        padding: var(--space-5);
+        animation: project-fade-in var(--motion-base) var(--ease);
       }
       .page-chat-fold {
         flex: none;
-        margin-top: 12px;
+        box-sizing: border-box;
+        width: var(--control-h);
+        margin-top: var(--space-4);
         margin-left: -1px;
-        padding: 10px 4px;
+        padding: var(--space-4) 0;
         writing-mode: vertical-rl;
-        font-size: 11px;
+        font-size: var(--text-xs);
         letter-spacing: 0.08em;
+        line-height: 1;
       }
       .page-chat-fold[aria-expanded='true'] {
         background: var(--ink);
         color: var(--surface);
       }
+      .page-chat-fold[aria-expanded='true']:hover {
+        background: var(--accent);
+        border-color: var(--accent);
+      }
 
-      /* Global chat stub */
+      /* Project chat panel */
       .chat-panel {
         flex: none;
         width: 320px;
@@ -487,48 +663,74 @@
         flex-direction: column;
         background: var(--surface);
         border-left: 2px solid var(--ink);
+        animation: project-reveal-left var(--motion-base) var(--ease);
       }
       .chat-panel-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 12px 16px;
-        border-bottom: 1px solid var(--ghost);
+        padding: 0 var(--space-2) 0 var(--space-5);
       }
       .chat-panel-header h2 {
-        font-size: 16px;
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        font-size: var(--text-lg);
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .chat-panel-body {
         flex: 1;
         min-height: 0;
         display: flex;
         flex-direction: column;
-        gap: 8px;
-        padding: 16px;
       }
       .chat-panel-empty,
       .chat-panel-notice {
         display: flex;
         flex-direction: column;
         align-items: flex-start;
-        gap: 8px;
+        gap: var(--space-4);
+        padding: var(--space-5);
       }
-      .chat-panel-composer {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        padding: 12px 16px 16px;
-        border-top: 1px solid var(--ghost);
+      .chat-panel-notice,
+      .chat-panel-skipped {
+        flex: none;
+        border-bottom: 1px solid var(--ghost);
       }
-      .chat-panel-composer textarea {
-        resize: none;
-        padding: 8px;
-        border: 1px solid var(--ghost);
-        border-radius: 0;
-        background: var(--surface-low);
-        color: var(--on-surface);
-        font: inherit;
-        font-size: 13px;
+      .chat-panel-skipped {
+        padding: var(--space-4) var(--space-5);
+        font-size: var(--text-sm);
+      }
+
+      /* View switching: the visible tab panel fades in. */
+      .project-canvas-content:not(.is-hidden),
+      .project-topics-content {
+        animation: project-fade-in var(--motion-fast) var(--ease);
+      }
+
+      /* ArticleChat (chat.css, shared with other pages) made compact for this
+         page only. Its History/New actions sit in the drawer or panel head, so
+         the history overlay starts at the top of the chat. */
+      .project-shell .pagetollm-chat-actions {
+        gap: var(--space-2);
+      }
+      .project-shell .pagetollm-chat-actions button {
+        min-width: 0;
+      }
+      .project-shell .pagetollm-chat.has-external-header-actions .pagetollm-chat-history-panel {
+        inset: 0;
+        border-top: 0;
+      }
+      .project-shell .pagetollm-chat-history {
+        padding: var(--space-4);
+      }
+      .project-shell .pagetollm-chat-empty {
+        padding: var(--space-6) var(--space-5);
+      }
+      .project-shell .pagetollm-chat-composer {
+        padding: var(--space-4);
+      }
+      .project-shell .pagetollm-chat-history-panel,
+      .project-shell .pagetollm-chat-scope-dialog {
+        animation: project-fade-in var(--motion-fast) var(--ease);
       }
     </style>
   </head>

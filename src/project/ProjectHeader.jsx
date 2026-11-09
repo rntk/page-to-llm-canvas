@@ -1,6 +1,6 @@
 import React from 'react';
 import { groupColorHex } from './projectColors.js';
-import { UNTITLED_PROJECT } from './projectText.js';
+import { PROJECT_CHAT_PANEL_ID, UNTITLED_PROJECT } from './projectText.js';
 import { ProjectActionsMenu } from './ProjectActionsMenu.jsx';
 
 /**
@@ -37,7 +37,12 @@ export function ProjectHeader({
       <span className={`status${isOpen ? ' done' : ''}`}>{isOpen ? 'Open' : 'Closed'}</span>
       {viewTabs}
       <span className="project-header-spacer" />
-      <button type="button" onClick={onToggleChat} aria-pressed={chatOpen}>
+      <button
+        type="button"
+        onClick={onToggleChat}
+        aria-pressed={chatOpen}
+        aria-controls={chatOpen ? PROJECT_CHAT_PANEL_ID : undefined}
+      >
         Chat
       </button>
       <ProjectActionsMenu actions={actions} />

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import ArticleChat from '../chat/ArticleChat.jsx';
 import { onceWithRetry } from '../utils/onceWithRetry.js';
 import { ChatDrawer } from './ChatDrawer.jsx';
@@ -11,7 +11,7 @@ const LIVE_PAGE_PROMPT =
  * Chat about a page the user has not saved. Its text is read from the live tab
  * once per drawer session, on the first send, then reused for later turns.
  */
-function LivePageChat({ source, tabId, capture, onEscape, chatPorts }) {
+function LivePageChat({ source, tabId, capture, onEscape, headerActionsTarget, chatPorts }) {
   const resolveSentences = useMemo(
     () => onceWithRetry(() => capture(tabId).then((result) => result.sentences)),
     [capture, tabId],
@@ -23,6 +23,7 @@ function LivePageChat({ source, tabId, capture, onEscape, chatPorts }) {
       resolveSentences={resolveSentences}
       emptyPrompt={LIVE_PAGE_PROMPT}
       onEscape={onEscape}
+      headerActionsTarget={headerActionsTarget}
       {...chatPorts}
     />
   );
@@ -34,6 +35,7 @@ function LivePageChat({ source, tabId, capture, onEscape, chatPorts }) {
  * its live text under a URL-scoped history. Histories never mix across pages.
  *
  * @param {object} props
+ * @param {string} [props.drawerId] The drawer element id.
  * @param {{id: number, url?: string, title?: string}} props.tab
  * @param {function(number): Promise<{source: object}>} props.loadSource
  * @param {function(number): Promise<{sentences: string[]}>} props.capture
@@ -41,7 +43,9 @@ function LivePageChat({ source, tabId, capture, onEscape, chatPorts }) {
  * @param {{chatRepository?: object, runTurn?: Function, getChatLimits?: Function}} [props.chatPorts]
  *   ArticleChat port overrides (tests); the browser defaults apply otherwise.
  */
-export function PageChatDrawer({ tab, loadSource, capture, onClose, chatPorts }) {
+export function PageChatDrawer({ drawerId, tab, loadSource, capture, onClose, chatPorts }) {
+  // The chat's History/New actions share the drawer header row (see ChatDrawer).
+  const [actionsTarget, setActionsTarget] = useState(null);
   const { status, source, error, reload } = usePageChatSource({
     tabId: tab.id,
     url: tab.url || '',
@@ -82,6 +86,7 @@ export function PageChatDrawer({ tab, loadSource, capture, onClose, chatPorts })
         topics={source.topics}
         contentRevision={source.contentRevision}
         onEscape={onClose}
+        headerActionsTarget={actionsTarget}
         {...chatPorts}
       />
     );
@@ -93,6 +98,7 @@ export function PageChatDrawer({ tab, loadSource, capture, onClose, chatPorts })
         tabId={tab.id}
         capture={capture}
         onEscape={onClose}
+        headerActionsTarget={actionsTarget}
         chatPorts={chatPorts}
       />
     );
@@ -100,6 +106,8 @@ export function PageChatDrawer({ tab, loadSource, capture, onClose, chatPorts })
 
   return (
     <ChatDrawer
+      id={drawerId}
+      actionsRef={setActionsTarget}
       label={status === 'ready' && source.kind === 'record' ? 'Saved page chat' : 'Page chat'}
       ariaLabel={`Chat about ${tab.title || tab.url || 'this page'}`}
     >

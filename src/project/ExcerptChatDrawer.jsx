@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import ArticleChat from '../chat/ArticleChat.jsx';
 import { createPageTools } from '../chat/readPageTool.js';
 import { excerptChatKey } from '../core/storage/keys.js';
@@ -15,13 +15,16 @@ const EXCERPT_PROMPT =
  * per drawer session, on the first call that needs it.
  *
  * @param {object} props
+ * @param {string} [props.drawerId] The drawer element id.
  * @param {{id: string, url: string, title?: string, text: string}} props.excerpt
  * @param {function(string): Promise<{sentences: string[], truncated?: boolean}>} props.readPage
  * @param {function(): void} props.onClose
  * @param {{chatRepository?: object, runTurn?: Function, getChatLimits?: Function}} [props.chatPorts]
  *   ArticleChat port overrides (tests); the browser defaults apply otherwise.
  */
-export function ExcerptChatDrawer({ excerpt, readPage, onClose, chatPorts }) {
+export function ExcerptChatDrawer({ drawerId, excerpt, readPage, onClose, chatPorts }) {
+  // The chat's History/New actions share the drawer header row (see ChatDrawer).
+  const [actionsTarget, setActionsTarget] = useState(null);
   const { id, text, title, url } = excerpt;
   const sentences = useMemo(() => excerptSentences(text), [text]);
   const source = useMemo(
@@ -38,7 +41,12 @@ export function ExcerptChatDrawer({ excerpt, readPage, onClose, chatPorts }) {
   );
 
   return (
-    <ChatDrawer label="Excerpt chat" ariaLabel={`Chat about the excerpt from ${title || url}`}>
+    <ChatDrawer
+      id={drawerId}
+      actionsRef={setActionsTarget}
+      label="Excerpt chat"
+      ariaLabel={`Chat about the excerpt from ${title || url}`}
+    >
       <ArticleChat
         recordKey={excerptChatKey(id)}
         sentences={sentences}
@@ -46,6 +54,7 @@ export function ExcerptChatDrawer({ excerpt, readPage, onClose, chatPorts }) {
         tools={tools}
         emptyPrompt={EXCERPT_PROMPT}
         onEscape={onClose}
+        headerActionsTarget={actionsTarget}
         {...chatPorts}
       />
     </ChatDrawer>

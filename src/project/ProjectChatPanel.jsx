@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ProjectChat } from './ProjectChat.jsx';
 import { SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
 import { describeMerge } from './projectMergeState.js';
+import { PROJECT_CHAT_PANEL_ID } from './projectText.js';
 
 const STALE_NOTICE =
   'Pages or topics changed since this merge. Answers use the saved merge — rebuild to include current pages.';
@@ -34,6 +35,8 @@ const MISSING_TEXT =
  * @param {function(): void} props.onCollapse
  */
 export function ProjectChatPanel({ projectId, merge, onOpenMerge, onCollapse }) {
+  // The chat's History/New actions share the panel header row.
+  const [actionsTarget, setActionsTarget] = useState(null);
   const { status, ready, skipped } = describeMerge(merge);
   const mergeButton = (label) =>
     onOpenMerge ? (
@@ -65,6 +68,7 @@ export function ProjectChatPanel({ projectId, merge, onOpenMerge, onCollapse }) 
           eligiblePages={merge.eligiblePages}
           skippedPages={merge.skippedPages}
           stale={merge.stale === true}
+          headerActionsTarget={actionsTarget}
         />
       </>
     );
@@ -79,9 +83,10 @@ export function ProjectChatPanel({ projectId, merge, onOpenMerge, onCollapse }) 
   }
 
   return (
-    <aside className="chat-panel" aria-label="Project chat">
+    <aside id={PROJECT_CHAT_PANEL_ID} className="chat-panel" aria-label="Project chat">
       <header className="chat-panel-header">
         <h2>Project chat</h2>
+        <span className="chat-panel-actions" ref={setActionsTarget} />
         <button type="button" onClick={onCollapse} aria-label="Collapse project chat">
           Hide
         </button>

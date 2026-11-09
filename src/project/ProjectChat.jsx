@@ -17,10 +17,20 @@ const PROJECT_PROMPT =
  * @param {object[]} props.eligiblePages Pages included in the chat.
  * @param {object[]} props.skippedPages Pages left out (not saved or still processing).
  * @param {boolean} props.stale Whether pages or topics changed since the merge.
+ * @param {?HTMLElement} [props.headerActionsTarget] Where the chat's History/New
+ *   actions render (the panel header); see ArticleChat.
  * @param {{chatRepository?: object, runTurn?: Function, getChatLimits?: Function}} [props.chatPorts]
  *   ArticleChat port overrides (tests); the browser defaults apply otherwise.
  */
-export function ProjectChat({ projectId, tree, eligiblePages, skippedPages, stale, chatPorts }) {
+export function ProjectChat({
+  projectId,
+  tree,
+  eligiblePages,
+  skippedPages,
+  stale,
+  headerActionsTarget,
+  chatPorts,
+}) {
   // useProjectView keeps an unchanged merge's objects identical across reloads,
   // so the (costly) tree tools and ArticleChat's props only change with content.
   const context = useMemo(() => createProjectChatContext(tree), [tree]);
@@ -38,6 +48,7 @@ export function ProjectChat({ projectId, tree, eligiblePages, skippedPages, stal
         source={source}
         tools={tools}
         emptyPrompt={PROJECT_PROMPT}
+        headerActionsTarget={headerActionsTarget}
         {...chatPorts}
       />
     </div>

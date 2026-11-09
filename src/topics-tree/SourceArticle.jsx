@@ -24,7 +24,11 @@ export default function SourceArticle({ source }) {
       ) : (
         <strong>{title}</strong>
       )}
-      {source.url && <span className="tt-source-article__url">{source.url}</span>}
+      {source.url && (
+        <span className="tt-source-article__url" title={source.url}>
+          {source.url}
+        </span>
+      )}
     </div>
   );
 }

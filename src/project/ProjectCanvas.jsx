@@ -22,9 +22,10 @@ const NO_EXCERPTS = [];
  * @param {object[]} props.tabs
  * @param {object[]} [props.excerpts] The project's excerpts, oldest first.
  * @param {{activateTab: function(number): Promise<void>}} props.tabsHost
- * @param {function(object, {onClose: function(): void}): import('react').ReactNode} [props.renderPageChat]
- *   Renders a tab's chat drawer; without it cards have no chat fold.
- * @param {function(object, {onClose: function(): void}): import('react').ReactNode} [props.renderExcerptChat]
+ * @param {function(object, {id: string, onClose: function(): void}): import('react').ReactNode} [props.renderPageChat]
+ *   Renders a tab's chat drawer (`id` is the one its fold controls); without it
+ *   cards have no chat fold.
+ * @param {function(object, {id: string, onClose: function(): void}): import('react').ReactNode} [props.renderExcerptChat]
  *   Renders an excerpt's chat drawer; without it excerpt cards have no chat fold.
  * @param {function(object): Promise<*>} [props.onDeleteExcerpt]
  * @param {string|null} [props.focusExcerptId] Unfolds this excerpt's chat once.

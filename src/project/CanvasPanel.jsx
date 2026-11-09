@@ -28,14 +28,20 @@ export function CanvasPanel({
   active,
 }) {
   const renderPageChat = useCallback(
-    (tab, { onClose }) => (
-      <PageChatDrawer tab={tab} loadSource={loadSource} capture={capture} onClose={onClose} />
+    (tab, { id, onClose }) => (
+      <PageChatDrawer
+        drawerId={id}
+        tab={tab}
+        loadSource={loadSource}
+        capture={capture}
+        onClose={onClose}
+      />
     ),
     [loadSource, capture],
   );
   const renderExcerptChat = useCallback(
-    (excerpt, { onClose }) => (
-      <ExcerptChatDrawer excerpt={excerpt} readPage={readPage} onClose={onClose} />
+    (excerpt, { id, onClose }) => (
+      <ExcerptChatDrawer drawerId={id} excerpt={excerpt} readPage={readPage} onClose={onClose} />
     ),
     [readPage],
   );

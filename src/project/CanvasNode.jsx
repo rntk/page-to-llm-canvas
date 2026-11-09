@@ -16,6 +16,7 @@ export function CanvasNode({
   foldHint,
   children,
 }) {
+  const chatId = `canvas-chat-${nodeKey}`;
   return (
     <div
       className="canvas-node"
@@ -29,12 +30,13 @@ export function CanvasNode({
       }}
     >
       {children}
-      {chatOpen && renderChat({ onClose: () => setChatOpen(nodeKey, false) })}
+      {chatOpen && renderChat({ id: chatId, onClose: () => setChatOpen(nodeKey, false) })}
       {renderChat && (
         <button
           type="button"
           className="page-chat-fold"
           aria-expanded={chatOpen}
+          aria-controls={chatOpen ? chatId : undefined}
           aria-label={`${chatOpen ? 'Fold' : 'Unfold'} chat for ${foldName}`}
           title={chatOpen ? 'Fold chat' : foldHint}
           onClick={() => setChatOpen(nodeKey, !chatOpen)}

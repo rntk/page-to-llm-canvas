@@ -295,7 +295,11 @@ const LeafCard = React.memo(function LeafCard({
         onPointerDown={(event) => onStartDrag(event, node.key, 'move')}
       >
         <div className="tt-card__title">{node.title}</div>
-        {parentPath && <div className="tt-muted">{parentPath}</div>}
+        {parentPath && (
+          <div className="tt-muted tt-card__path" title={parentPath}>
+            {parentPath}
+          </div>
+        )}
       </header>
       <div className="tt-card__body">
         {node.sections ? (

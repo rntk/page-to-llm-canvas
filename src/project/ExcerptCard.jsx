@@ -66,7 +66,11 @@ export function ExcerptCard({ excerpt, page, tabsHost, onDelete, onDragStart }) 
         {excerpt.truncated && <span className="excerpt-card-truncated"> [cut]</span>}
       </blockquote>
       <footer className="excerpt-card-footer">
-        {(error || goError) && <span className="excerpt-card-error">{error || goError}</span>}
+        {(error || goError) && (
+          <span className="excerpt-card-error" title={error || goError}>
+            {error || goError}
+          </span>
+        )}
         <button type="button" onClick={remove} disabled={deleting}>
           Delete
         </button>

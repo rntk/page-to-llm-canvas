@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 
 /** A project-wide action menu. New actions supply a descriptor rather than header markup. */
 export function ProjectActionsMenu({ actions }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const toggleRef = useRef(null);
+  const menuId = useId();
 
   useEffect(() => {
     if (!open) return undefined;
@@ -33,6 +34,12 @@ export function ProjectActionsMenu({ actions }) {
     <div
       className="project-actions"
       ref={rootRef}
+      // Tabbing out of the open menu closes it, as a click outside does. A blur
+      // with no new focus (e.g. clicking a disabled item) is left to the click handler.
+      onBlur={(event) => {
+        const next = event.relatedTarget;
+        if (open && next && !rootRef.current?.contains(next)) setOpen(false);
+      }}
       onKeyDown={(event) => {
         if (!open) return;
         if (event.key === 'Escape') {
@@ -53,12 +60,13 @@ export function ProjectActionsMenu({ actions }) {
         title="Project actions"
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
         onClick={() => setOpen((value) => !value)}
       >
         <span className="project-actions__icon" aria-hidden="true" />
       </button>
       {open && (
-        <div className="project-actions__list" role="menu" aria-label="Project actions">
+        <div id={menuId} className="project-actions__list" role="menu" aria-label="Project actions">
           {actions.map((action) => (
             <button
               key={action.id}
@@ -67,6 +75,8 @@ export function ProjectActionsMenu({ actions }) {
               disabled={action.disabled}
               onClick={() => {
                 setOpen(false);
+                // Keep focus in the header rather than losing it with the unmounted item.
+                toggleRef.current?.focus();
                 action.onSelect();
               }}
             >

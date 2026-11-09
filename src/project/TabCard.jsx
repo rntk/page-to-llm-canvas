@@ -59,7 +59,11 @@ export function TabCard({ tab, tabsHost, onDragStart }) {
       </header>
       <div className="tab-card-body">Page content will appear here</div>
       <footer className="tab-card-footer">
-        {error && <span className="tab-card-error">{error}</span>}
+        {error && (
+          <span className="tab-card-error" title={error}>
+            {error}
+          </span>
+        )}
         <button type="button" onClick={() => go(tab.id)}>
           Go to tab
         </button>
