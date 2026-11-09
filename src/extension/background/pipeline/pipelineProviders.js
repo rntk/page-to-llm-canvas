@@ -126,7 +126,7 @@ export function createPipelineProviderServices({ providerRepository, llm, teleme
        * Decision requests for the summary tree, which uses the selected decision
        * provider as an optional judge. A missing or misconfigured provider
        * selects the completion-only path instead of failing.
-       * @returns {Promise<{decide: Function|null, identity: Array|null, error?: string}>}
+       * @returns {Promise<{decide: Function|null, identity: Array|null, contextWindowTokens?: number, error?: string}>}
        */
       async resolveSummaryTreeDecide() {
         const decisionProvider = await providerRepository.getDecisionProvider();
@@ -135,6 +135,7 @@ export function createPipelineProviderServices({ providerRepository, llm, teleme
           return {
             decide: bindDecide(decisionProvider),
             identity: providerCacheIdentity(decisionProvider),
+            contextWindowTokens: decisionProvider.contextWindowTokens,
           };
         } catch (error) {
           return { decide: null, identity: null, error: String(error?.message || error) };

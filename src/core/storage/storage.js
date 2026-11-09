@@ -45,6 +45,7 @@ import {
 } from './recordIndex.js';
 import { disposeProcessingLogs } from './processingLog.js';
 import { createLogger } from '../../shared/runtime/log.js';
+import { SUMMARY_TREE_STATUS } from '../../shared/runtime/summaryTree.js';
 
 // Public record repository: partitioning, CRUD, checkpoint writers, and
 // re-exported operations. Storage keys and schema constants stay internal.
@@ -252,6 +253,59 @@ async function readRecordDocuments(key, { includeWork = true } = {}) {
 
 export async function readRecord(key) {
   return readRecordDocuments(key);
+}
+
+/**
+ * Reads only the authoritative metadata and summary output used by recovery.
+ * @param {string} key Record key.
+ * @returns {Promise<object|null>} Tree state without content or work documents.
+ */
+export async function readRecordSummaryTreeState(key) {
+  const metaKey = metaStorageKey(key);
+  const outputKey = summaryOutputStorageKey(key);
+  const items = await getLocal([metaKey, outputKey]);
+  const meta = items[metaKey];
+  if (!isCurrentRecordMeta(meta)) return null;
+  return {
+    key,
+    status: meta.status,
+    contentRevision: meta.contentRevision,
+    pipelineRunId: meta.pipelineRunId,
+    summary_tree: items[outputKey]?.summary_tree,
+  };
+}
+
+/**
+ * Cancels a saved running tree even when no worker owns it in memory.
+ * Both queues serialize the status check with replacement, deletion and saves.
+ * @param {string} key Record key.
+ * @returns {Promise<boolean>} Whether a running tree was cancelled.
+ */
+export async function cancelRecordSummaryTree(key) {
+  return queuedUpdate(MUTATION_QUEUE_KEY, () =>
+    queuedUpdate(key, async () => {
+      const meta = await loadMetaForWrite(key);
+      if (!meta || meta.status !== 'done') return false;
+      const outputKey = summaryOutputStorageKey(key);
+      const output = (await getLocal(outputKey))[outputKey];
+      const tree = output?.summary_tree;
+      if (tree?.status !== SUMMARY_TREE_STATUS.RUNNING) return false;
+      const updatedAt = Date.now();
+      await setLocal({
+        [metaStorageKey(key)]: { ...meta, updatedAt },
+        [outputKey]: {
+          ...output,
+          summary_tree: {
+            ...tree,
+            status: SUMMARY_TREE_STATUS.CANCELLED,
+            error: 'Stopped.',
+            updatedAt,
+          },
+        },
+      });
+      return true;
+    }),
+  );
 }
 
 export async function readRecordView(key) {

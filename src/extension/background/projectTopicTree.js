@@ -1,5 +1,5 @@
 // Project-owned topic merging. Builds never write to their source records and
-// are explicitly resumed after a worker restart, like an article summary tree.
+// resume from saved checkpoints after a worker restart, like an article pipeline.
 import { canonicalPageUrl } from '../../core/storage/keys.js';
 import {
   diffProjectRecords,
@@ -8,6 +8,7 @@ import {
 } from '../../core/projects/projectTopicTree.js';
 import {
   readSummaryTree,
+  canRecoverSummaryTree,
   SUMMARY_TREE_STATUS,
   SUMMARY_TREE_VERSION,
 } from '../../shared/runtime/summaryTree.js';
@@ -21,6 +22,8 @@ import { createSummaryTreeJobs } from './summaryTreeJobs.js';
  * @param {function(string): Promise<object|null>} deps.readRecord
  * @param {Function} deps.runProjectTopicTree
  * @param {object} deps.logger
+ * @param {object} [deps.alarms] Background recovery alarms.
+ * @param {object} [deps.failureBreaker] Shared pipeline recovery breaker.
  * @param {function(): number} [deps.now]
  * @param {function(): string} [deps.createId]
  */
@@ -31,6 +34,8 @@ export function createProjectTopicTreeService({
   readRecord,
   runProjectTopicTree,
   logger,
+  alarms,
+  failureBreaker,
   now = Date.now,
   createId = () => crypto.randomUUID(),
 }) {
@@ -125,7 +130,10 @@ export function createProjectTopicTreeService({
     await updateProject(projectId, (project) => {
       if (project.topic_tree?.runId !== runId) return null;
       owned = true;
-      return { ...project, topic_tree: structuredClone({ ...tree, runId }) };
+      return {
+        ...project,
+        topic_tree: structuredClone({ ...tree, backgroundRecovery: true, runId }),
+      };
     });
     if (!owned) throw new Error('This project topic build was superseded or deleted.');
   }
@@ -143,6 +151,7 @@ export function createProjectTopicTreeService({
     const initial = {
       ...(keep ? prior : {}),
       version: SUMMARY_TREE_VERSION,
+      backgroundRecovery: true,
       status: SUMMARY_TREE_STATUS.RUNNING,
       stage: 'passages',
       contentRevision: source.sourceRevision,
@@ -185,8 +194,91 @@ export function createProjectTopicTreeService({
     }
   }
 
-  const jobs = createSummaryTreeJobs({ runSummaryTree: run, logger });
+  async function canRecoverProject(projectId) {
+    const source = await inputs(projectId);
+    return canRecoverSummaryTree({
+      summary_tree: source.view.project.topic_tree,
+      contentRevision: source.sourceRevision,
+    });
+  }
+
+  const jobs = createSummaryTreeJobs({
+    runSummaryTree: run,
+    logger,
+    alarms,
+    alarmName: 'project-topic-tree-keepalive',
+    failureBreaker,
+    async onStop(projectId) {
+      let cancelled = false;
+      await updateProject(projectId, (project) => {
+        if (project.topic_tree?.status !== SUMMARY_TREE_STATUS.RUNNING) return null;
+        cancelled = true;
+        return {
+          ...project,
+          topic_tree: {
+            ...project.topic_tree,
+            status: SUMMARY_TREE_STATUS.CANCELLED,
+            error: 'Stopped.',
+            updatedAt: now(),
+          },
+        };
+      });
+      return cancelled;
+    },
+    canRecover: canRecoverProject,
+    async onFailure(projectId, error, { signal }) {
+      await updateProject(projectId, (project) => {
+        if (project.topic_tree?.status !== SUMMARY_TREE_STATUS.RUNNING) return null;
+        return {
+          ...project,
+          topic_tree: {
+            ...project.topic_tree,
+            status: signal.aborted ? SUMMARY_TREE_STATUS.CANCELLED : SUMMARY_TREE_STATUS.ERROR,
+            error: signal.aborted ? 'Stopped.' : String(error?.message || error),
+            updatedAt: now(),
+          },
+        };
+      });
+    },
+    async prepareRun(projectId, { fresh }) {
+      const source = await inputs(projectId);
+      if (!source.topicCount)
+        throw new Error('No completed saved topics are available in this project.');
+      await updateProject(projectId, (project) => ({
+        ...project,
+        topic_tree: {
+          ...(!fresh &&
+          (project.topic_tree?.rootId ||
+            project.topic_tree?.contentRevision === source.sourceRevision)
+            ? project.topic_tree
+            : {}),
+          version: SUMMARY_TREE_VERSION,
+          backgroundRecovery: true,
+          contentRevision: source.sourceRevision,
+          status: SUMMARY_TREE_STATUS.RUNNING,
+          error: null,
+          updatedAt: now(),
+        },
+      }));
+    },
+    async listRunningKeys() {
+      const keys = [];
+      for (const project of await projectStore.list()) {
+        if (
+          !canRecoverSummaryTree({
+            summary_tree: project.topic_tree,
+            contentRevision: project.topic_tree?.contentRevision,
+          })
+        )
+          continue;
+        if (await canRecoverProject(project.id)) keys.push(project.id);
+      }
+      return keys;
+    },
+  });
   return {
+    resumeInFlight: jobs.resumeInFlight,
+    handleKeepAliveAlarm: jobs.handleKeepAliveAlarm,
     async getView(projectId, providedView) {
       const source = await inputs(projectId, providedView);
       const saved = source.view.project.topic_tree;
@@ -232,11 +324,11 @@ export function createProjectTopicTreeService({
       ) {
         return { started: false };
       }
-      return { started: jobs.start(projectId, { fresh }) };
+      return { started: await jobs.start(projectId, { fresh }) };
     },
     async stop(projectId) {
       await projectStore.get(projectId);
-      return { stopped: jobs.stop(projectId) };
+      return { stopped: await jobs.stop(projectId) };
     },
   };
 }

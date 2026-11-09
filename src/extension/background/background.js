@@ -2,6 +2,8 @@
 import {
   readRecord,
   readRecordView,
+  readRecordSummaryTreeState,
+  cancelRecordSummaryTree,
   writeRecord,
   updateRecord,
   listRecords,
@@ -59,6 +61,11 @@ import {
 } from '../../core/llm/providers.js';
 import { createActionIconController, createActionIconDependencies } from './actionIcon.js';
 import { createSummaryTreeJobs } from './summaryTreeJobs.js';
+import {
+  canRecoverSummaryTree,
+  SUMMARY_TREE_STATUS,
+  SUMMARY_TREE_VERSION,
+} from '../../shared/runtime/summaryTree.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { browserLocalStore } from '../../shared/runtime/localStore.js';
 import { createPipelineSupervisor } from './pipelineSupervisor.js';
@@ -152,9 +159,71 @@ const pipelineRunner = createPipelineRunner({
   logger: log.child('pipeline'),
 });
 const { runPipeline } = pipelineRunner;
+// Pipelines and background tree builds share one runaway-recovery breaker.
+const pipelineFailureBreaker = createPipelineFailureBreaker({
+  getStorageArea: () => chrome.storage.session,
+  runtime: runtimeErrors,
+});
+
 const summaryTreeJobs = createSummaryTreeJobs({
   runSummaryTree: pipelineRunner.runSummaryTree,
   logger: log.child('summary tree'),
+  alarms,
+  alarmName: 'summary-tree-keepalive',
+  failureBreaker: pipelineFailureBreaker,
+  onStop: cancelRecordSummaryTree,
+  async canRecover(key) {
+    const record = await readRecordSummaryTreeState(key);
+    return record?.status === 'done' && canRecoverSummaryTree(record);
+  },
+  async onFailure(key, error, { signal }) {
+    const record = await readRecord(key);
+    if (record?.status !== 'done' || record.summary_tree?.status !== SUMMARY_TREE_STATUS.RUNNING)
+      return;
+    await updateRecord(
+      key,
+      {
+        summary_tree: {
+          ...record.summary_tree,
+          status: signal.aborted ? SUMMARY_TREE_STATUS.CANCELLED : SUMMARY_TREE_STATUS.ERROR,
+          error: signal.aborted ? 'Stopped.' : String(error?.message || error),
+          updatedAt: Date.now(),
+        },
+      },
+      { expectedPipelineRunId: record.pipelineRunId, expectedStatuses: ['done'] },
+    );
+  },
+  async prepareRun(key, { fresh }) {
+    const record = await readRecord(key);
+    if (record?.status !== 'done') throw new Error('The record must finish processing first.');
+    const updated = await updateRecord(
+      key,
+      {
+        summary_tree: {
+          ...(!fresh && record.summary_tree?.contentRevision === record.contentRevision
+            ? record.summary_tree
+            : {}),
+          version: SUMMARY_TREE_VERSION,
+          backgroundRecovery: true,
+          contentRevision: record.contentRevision,
+          status: SUMMARY_TREE_STATUS.RUNNING,
+          error: null,
+          updatedAt: Date.now(),
+        },
+      },
+      { expectedPipelineRunId: record.pipelineRunId, expectedStatuses: ['done'] },
+    );
+    if (!updated) throw new Error('The article changed before the tree build started.');
+  },
+  async listRunningKeys() {
+    const keys = [];
+    for (const item of await listRecords()) {
+      if (item.status !== 'done') continue;
+      const record = await readRecordSummaryTreeState(item.key);
+      if (record?.status === 'done' && canRecoverSummaryTree(record)) keys.push(item.key);
+    }
+    return keys;
+  },
 });
 
 function isExtensionPageSender(sender) {
@@ -214,6 +283,8 @@ const topicTreeService = createProjectTopicTreeService({
   readRecord,
   runProjectTopicTree: pipelineRunner.runProjectTopicTree,
   logger: log.child('project topics'),
+  alarms,
+  failureBreaker: pipelineFailureBreaker,
 });
 
 const pageChatService = createProjectPageChatService({
@@ -236,10 +307,7 @@ const pipelineSupervisor = createPipelineSupervisor({
   runPipeline,
   alarms,
   runtime: runtimeErrors,
-  failureBreaker: createPipelineFailureBreaker({
-    getStorageArea: () => chrome.storage.session,
-    runtime: runtimeErrors,
-  }),
+  failureBreaker: pipelineFailureBreaker,
   logger: log,
 });
 
@@ -351,6 +419,7 @@ installBackgroundRuntime({
   chromeStorage: chrome.storage,
   dispatchMessage,
   pipelineSupervisor,
+  treeJobs: [summaryTreeJobs, topicTreeService],
   scheduleActionProgressIconRefresh,
   // Defer access to backgroundReady until after its declaration initializes.
   bootstrapReady: () => backgroundReady,
@@ -386,6 +455,7 @@ export const backgroundReady = (async () => {
   } catch (err) {
     log.warn('cold-start resume failed:', err);
   }
+  await Promise.all([summaryTreeJobs.resumeInFlight(), topicTreeService.resumeInFlight()]);
 })();
 
 void refreshActionProgressIcon();

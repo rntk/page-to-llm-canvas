@@ -1890,7 +1890,7 @@ describe('background service-worker boundaries', () => {
 
     await waitForPipelineCalls(2);
     expect(runPipeline.mock.calls.map(([key]) => key).sort()).toEqual(['alarm-a', 'alarm-b']);
-    expect(chromeMock.alarms.clear).not.toHaveBeenCalled();
+    expect(chromeMock.alarms.clear).not.toHaveBeenCalledWith('pipeline-keepalive');
   });
 
   it('does not produce an unhandled rejection when listRecords fails in the keepalive handler', async () => {

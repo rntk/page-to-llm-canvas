@@ -146,7 +146,7 @@ export function ProjectTopicTree({ project, merge, pending, notice, onBuild, onS
       ) : (
         <div className="th-page__state">
           {running || pending
-            ? 'The merge runs in the background. You can switch to the Canvas tab and come back later.'
+            ? 'The merge runs in the background. You can switch views or close this page and come back later.'
             : eligible.length
               ? 'Similar primary topics will share a branch. Unfold a branch to read each article’s original text with its source and line numbers.'
               : 'No completed saved pages with primary topics are available in this project.'}

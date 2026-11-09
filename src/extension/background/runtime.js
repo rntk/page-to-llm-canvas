@@ -26,6 +26,7 @@ async function waitForBootstrap(bootstrapReady, timeoutMs) {
  * @param {{onChanged: object}} [deps.chromeStorage]
  * @param {function(object, object): Promise<object>} deps.dispatchMessage
  * @param {{handleKeepAliveAlarm: Function, resumeInFlightRecords: Function}} deps.pipelineSupervisor
+ * @param {object[]} [deps.treeJobs] Background tree builds and their recovery.
  * @param {Function} deps.scheduleActionProgressIconRefresh
  * @param {function(): Promise<void>} [deps.bootstrapReady] Resolves once cold-start
  *   storage reconciliation has finished. Read lazily (a thunk, not the promise)
@@ -39,12 +40,14 @@ export function installBackgroundRuntime({
   chromeStorage,
   dispatchMessage,
   pipelineSupervisor,
+  treeJobs = [],
   scheduleActionProgressIconRefresh,
   bootstrapReady,
   bootstrapWaitTimeoutMs = BOOTSTRAP_WAIT_TIMEOUT_MS,
 }) {
   chromeAlarms.onAlarm.addListener((alarm) => {
     pipelineSupervisor.handleKeepAliveAlarm(alarm);
+    for (const jobs of treeJobs) jobs.handleKeepAliveAlarm(alarm);
   });
 
   try {
@@ -83,7 +86,10 @@ export function installBackgroundRuntime({
       // is a preference, resuming at all is the requirement. (`backgroundReady`
       // already swallows its own errors; this covers any other provider.)
       await waitForBootstrap(bootstrapReady, bootstrapWaitTimeoutMs).catch(() => {});
-      await pipelineSupervisor.resumeInFlightRecords();
+      await Promise.allSettled([
+        Promise.resolve().then(() => pipelineSupervisor.resumeInFlightRecords()),
+        ...treeJobs.map((jobs) => Promise.resolve().then(() => jobs.resumeInFlight())),
+      ]);
     } catch (_) {
       /* resumeInFlightRecords logs its own failures; nothing to add here. */
     }

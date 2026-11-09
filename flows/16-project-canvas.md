@@ -7,3 +7,5 @@ The canvas has two complementary views: the pages themselves and a combined topi
 Projects persist beyond a browser session and can be reopened from the project list. When their source pages change, the combined tree can be refreshed to reflect the current material; existing article records remain independent.
 
 The [summary tree](15-summary-tree.md) describes the shared topic-tree approach. The main code entry points are the [project page](../src/project/main.jsx) and the [project topic tree](../src/project/ProjectTopicTree.jsx).
+
+Topic merging runs as a project-owned background job. Readers can switch between Canvas and Topics, close the project view, or read source pages while it continues. Checkpoints and results are saved to the project, and running merges automatically resume after a background worker or browser restart. Reopening the project shows the saved progress or completed tree; Stop explicitly cancels processing.

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { projectRecordRevision } from '../../core/projects/projectTopicTree.js';
+import {
+  projectRecordRevision,
+  projectTopicSourceRevision,
+} from '../../core/projects/projectTopicTree.js';
 import { createProjectTopicTreeService } from './projectTopicTree.js';
 
 function fixture() {
@@ -22,6 +25,7 @@ function fixture() {
     { id: 4, title: 'Unsaved', url: 'https://new.test/' },
   ];
   const projectStore = {
+    list: async () => projects,
     get: async (id) => projects.find((project) => project.id === id),
     update: async (mutate) => {
       const next = mutate(projects);
@@ -46,23 +50,33 @@ function fixture() {
   });
   const logger = { error: vi.fn() };
   const readRecord = vi.fn(async (key) => records.find((record) => record.key === key));
-  const service = createProjectTopicTreeService({
+  const createService = () =>
+    createProjectTopicTreeService({
+      projectStore,
+      projectService: { getProjectView: async () => ({ project: projects[0], tabs }) },
+      listRecords: async () =>
+        records.map(({ key, sourceUrl, status, projectTopicRevision }) => ({
+          key,
+          sourceUrl,
+          status,
+          projectTopicRevision,
+        })),
+      readRecord,
+      runProjectTopicTree,
+      logger,
+      now: () => 100,
+      createId: () => 'run',
+    });
+  return {
+    service: createService(),
+    createService,
+    records,
     projectStore,
-    projectService: { getProjectView: async () => ({ project: projects[0], tabs }) },
-    listRecords: async () =>
-      records.map(({ key, sourceUrl, status, projectTopicRevision }) => ({
-        key,
-        sourceUrl,
-        status,
-        projectTopicRevision,
-      })),
-    readRecord,
     runProjectTopicTree,
+    tabs,
     logger,
-    now: () => 100,
-    createId: () => 'run',
-  });
-  return { service, records, projectStore, runProjectTopicTree, tabs, logger, readRecord };
+    readRecord,
+  };
 }
 
 const waitDone = async (store, expected = 'done') => {
@@ -70,6 +84,78 @@ const waitDone = async (store, expected = 'done') => {
 };
 
 describe('project topic tree service', () => {
+  it('automatically resumes saved progress in a replacement worker with no project view mounted', async () => {
+    const { createService, projectStore, runProjectTopicTree, records } = fixture();
+    await projectStore.update((projects) =>
+      projects.map((project) => ({
+        ...project,
+        topic_tree: {
+          version: 1,
+          status: 'running',
+          contentRevision: projectTopicSourceRevision([records[0]]),
+          backgroundRecovery: true,
+          nodes: { passage: { title: 'Saved work' } },
+          updatedAt: 1,
+        },
+      })),
+    );
+    runProjectTopicTree.mockImplementationOnce(async ({ prior, saveSummaryTree }) => {
+      expect(prior.nodes.passage.title).toBe('Saved work');
+      await saveSummaryTree({
+        ...(await projectStore.get('p')).topic_tree,
+        status: 'done',
+        rootId: 'n1',
+      });
+    });
+    await createService().resumeInFlight();
+    await waitDone(projectStore);
+    expect(runProjectTopicTree).toHaveBeenCalledTimes(1);
+    await createService().resumeInFlight();
+    expect(runProjectTopicTree).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves legacy interrupted and source-mismatched merges for manual Resume', async () => {
+    const { service, projectStore, records, runProjectTopicTree } = fixture();
+    for (const tree of [
+      { contentRevision: projectTopicSourceRevision([records[0]]), updatedAt: 1 },
+      { contentRevision: 'outdated', updatedAt: 100, backgroundRecovery: true },
+    ]) {
+      await projectStore.update((projects) =>
+        projects.map((project) => ({
+          ...project,
+          topic_tree: { version: 1, status: 'running', ...tree },
+        })),
+      );
+      await service.resumeInFlight();
+      expect(runProjectTopicTree).not.toHaveBeenCalled();
+      expect((await projectStore.get('p')).topic_tree.status).toBe('running');
+    }
+  });
+
+  it('persists Stop for an orphaned running merge and never recovers it', async () => {
+    const { service, projectStore, records, runProjectTopicTree } = fixture();
+    await projectStore.update((projects) =>
+      projects.map((project) => ({
+        ...project,
+        topic_tree: {
+          version: 1,
+          status: 'running',
+          backgroundRecovery: true,
+          contentRevision: projectTopicSourceRevision([records[0]]),
+          nodes: { saved: { title: 'Checkpoint' } },
+        },
+      })),
+    );
+    expect(await service.stop('p')).toEqual({ stopped: true });
+    expect((await projectStore.get('p')).topic_tree).toMatchObject({
+      status: 'cancelled',
+      nodes: { saved: { title: 'Checkpoint' } },
+    });
+    await service.resumeInFlight();
+    expect(runProjectTopicTree).not.toHaveBeenCalled();
+    expect(await service.stop('p')).toEqual({ stopped: false });
+  });
+
   it('reuses revisioned sources and reloads changed sources', async () => {
     const { service, records, readRecord } = fixture();
     records[0].projectTopicRevision = 'source-1';

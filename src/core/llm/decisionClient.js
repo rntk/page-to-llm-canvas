@@ -3,6 +3,7 @@ import { createLogger } from '../../shared/runtime/log.js';
 import { createRequestTimeoutSignal, mergeAbortSignals } from './abortSignals.js';
 import { ProviderType, validateDecisionUrl } from './providers.js';
 import { parseRetryAfterMs } from './clients.js';
+import { estimateTokens } from './tokenEstimator.js';
 
 const log = createLogger('Decision client');
 
@@ -50,6 +51,27 @@ export function choice(instructions, criteria) {
     throw new Error('Choice requires nonempty names with text, JSON, or null descriptions');
   }
   return { type: 'choice', instructions, criteria: { ...criteria } };
+}
+
+/**
+ * Whether a decision request fits the provider's context window, counting
+ * instructions, JSON framing, questions, and reserved answer space. An unknown
+ * window (missing or non-positive) does not constrain the request.
+ * @param {object} state
+ * @param {Record<string, object>} questions
+ * @param {number} [contextWindowTokens]
+ * @returns {boolean}
+ */
+export function decisionRequestFits(state, questions, contextWindowTokens) {
+  const contextTokens = Number(contextWindowTokens);
+  return (
+    !Number.isFinite(contextTokens) ||
+    contextTokens <= 0 ||
+    estimateTokens(JSON.stringify({ state, questions })) +
+      256 +
+      Object.keys(questions).length * 128 <=
+      contextTokens
+  );
 }
 
 /** Reusable, non-streaming decision client. Each request has a timeout and no retries. */

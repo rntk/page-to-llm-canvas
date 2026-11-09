@@ -39,6 +39,28 @@ function setup(overrides = {}) {
 }
 
 describe('installBackgroundRuntime (no chrome global)', () => {
+  it('recovers tree jobs on lifecycle events and routes their alarms', async () => {
+    const treeJobs = [{ resumeInFlight: vi.fn(async () => {}), handleKeepAliveAlarm: vi.fn() }];
+    const ctx = setup({ treeJobs });
+    const alarm = { name: 'project-topic-tree-keepalive' };
+    ctx.alarmListener(alarm);
+    expect(treeJobs[0].handleKeepAliveAlarm).toHaveBeenCalledWith(alarm);
+    ctx.startupListener();
+    await vi.waitFor(() => expect(treeJobs[0].resumeInFlight).toHaveBeenCalledTimes(1));
+    ctx.installedListener();
+    await vi.waitFor(() => expect(treeJobs[0].resumeInFlight).toHaveBeenCalledTimes(2));
+  });
+
+  it('recovers tree jobs even when pipeline recovery rejects', async () => {
+    const treeJobs = [{ resumeInFlight: vi.fn(async () => {}), handleKeepAliveAlarm: vi.fn() }];
+    const ctx = setup({ treeJobs });
+    ctx.pipelineSupervisor.resumeInFlightRecords.mockRejectedValue(
+      new Error('Pipeline unavailable'),
+    );
+    ctx.startupListener();
+    await vi.waitFor(() => expect(treeJobs[0].resumeInFlight).toHaveBeenCalledTimes(1));
+  });
+
   it('registers exactly one listener on each event', () => {
     expect(globalThis.chrome).toBeUndefined();
     const ctx = setup();

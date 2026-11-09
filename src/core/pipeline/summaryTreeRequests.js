@@ -4,6 +4,7 @@
 // rest of the run and callers fall back to the completion path.
 
 import { executeDecisionWithRetry } from '../llm/decisionRetry.js';
+import { decisionRequestFits } from '../llm/decisionClient.js';
 import { parallelMap } from '../llm/concurrency.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { isCancellationError } from './cancellation.js';
@@ -108,18 +109,55 @@ export function createSummaryTreeLlm({ callLLMWithRetry, signal, runtime }) {
  * @param {AbortSignal} [input.signal] Run cancellation.
  * @param {object} [input.runtime] Logs judge failures.
  * @param {number} [input.workers] Local request concurrency.
+ * @param {number} [input.contextWindowTokens] Decision provider context budget.
  */
-export function createSummaryTreeJudge({ decide, signal, runtime, workers = JUDGE_WORKERS }) {
-  const metrics = { calls: 0, failures: 0 };
+export function createSummaryTreeJudge({
+  decide,
+  signal,
+  runtime,
+  workers = JUDGE_WORKERS,
+  contextWindowTokens,
+}) {
+  const metrics = { calls: 0, failures: 0, oversized: 0 };
   let active = typeof decide === 'function';
 
   /**
+   * Requests that exceed the decision context window are split into halves of
+   * their questions, as topic splitting shrinks its decision requests. One
+   * question that still does not fit is left unanswered without a request.
    * @param {object} state
    * @param {Record<string, object>} questions
+   * @param {object} [options]
+   * @param {function(object, string[]): object} [options.narrow] State for a subset of
+   *   question ids; without it every part carries the whole state.
    * @returns {Promise<object|null>} Answers by question id; null after a failure.
    */
-  async function ask(state, questions) {
+  async function ask(state, questions, { narrow } = {}) {
     if (!active) return null;
+    if (decisionRequestFits(state, questions, contextWindowTokens)) {
+      return request(state, questions);
+    }
+    const names = Object.keys(questions);
+    if (names.length < 2) {
+      metrics.oversized++;
+      if (metrics.oversized === 1) {
+        await runtime?.log('summary_tree_decision_too_large', { contextWindowTokens });
+      }
+      return null;
+    }
+    const answers = {};
+    const middle = Math.ceil(names.length / 2);
+    for (const part of [names.slice(0, middle), names.slice(middle)]) {
+      const partQuestions = Object.fromEntries(part.map((name) => [name, questions[name]]));
+      const partState = narrow ? narrow(state, part) : state;
+      const partAnswers = await ask(partState, partQuestions, { narrow });
+      if (!partAnswers) return null;
+      Object.assign(answers, partAnswers);
+    }
+    return answers;
+  }
+
+  async function request(state, questions) {
     try {
       const response = await executeDecisionWithRetry(
         () => {

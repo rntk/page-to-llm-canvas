@@ -46,3 +46,16 @@ export function readSummaryTree(record, now = Date.now()) {
     !(Number.isFinite(tree.updatedAt) && now - tree.updatedAt <= SUMMARY_TREE_STALE_MS);
   return { status: stale ? SUMMARY_TREE_STATUS.INTERRUPTED : tree.status, tree };
 }
+
+/**
+ * Only builds explicitly started under background recovery may auto-resume.
+ * Legacy RUNNING trees retain the manual Resume behavior, even if recent.
+ * Opted-in builds may outlive the heartbeat window (e.g. a browser restart).
+ * @param {object|null|undefined} record
+ */
+export function canRecoverSummaryTree(record) {
+  return (
+    record?.summary_tree?.backgroundRecovery === true &&
+    readSummaryTree(record, record.summary_tree.updatedAt).status === SUMMARY_TREE_STATUS.RUNNING
+  );
+}

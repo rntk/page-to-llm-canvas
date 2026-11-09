@@ -61,6 +61,7 @@ export function createCheckpointer({
     const rootId = getRootId();
     return {
       version: SUMMARY_TREE_VERSION,
+      backgroundRecovery: true,
       status,
       stage,
       contentRevision: strategy.contentRevision ?? null,

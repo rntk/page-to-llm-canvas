@@ -162,7 +162,11 @@ export function createClaimVerifier({ judge, nodes, sentenceTexts }) {
       claims[key] = { claim: segment.text.trim(), cited: cited(segment) };
       questions[key] = claimSupportedQuestion(key);
     });
-    const answers = await judge.ask({ claims }, questions);
+    const answers = await judge.ask({ claims }, questions, {
+      narrow: (state, keys) => ({
+        claims: Object.fromEntries(keys.map((key) => [key, state.claims[key]])),
+      }),
+    });
     if (!answers) return segments;
     const kept = segments.filter((segment, index) => {
       const score = segment.sources.length ? yesProbability(answers, `s${index}`) : null;

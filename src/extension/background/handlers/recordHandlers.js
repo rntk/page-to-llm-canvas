@@ -314,7 +314,7 @@ export function createRecordHandlers({
             error: 'record topic checkpoint is incomplete or stale — reprocess the record first',
           };
         }
-        const started = summaryTreeJobs.start(msg.key, { fresh: msg.fresh === true });
+        const started = await summaryTreeJobs.start(msg.key, { fresh: msg.fresh === true });
         return started ? { ok: true } : { ok: true, stale: true };
       },
     },
@@ -323,7 +323,7 @@ export function createRecordHandlers({
       requiresExtensionPage: false,
       validate: requireKey,
       async handle(msg) {
-        if (!summaryTreeJobs?.stop(msg.key)) return { ok: true, stale: true };
+        if (!(await summaryTreeJobs?.stop(msg.key))) return { ok: true, stale: true };
         return { ok: true };
       },
     },

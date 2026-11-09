@@ -11,13 +11,22 @@ const makeInput = (overrides = {}) => {
     root: { kind: 'root', segments: null, children: ['t1'] },
   };
   const saves = [];
-  const runtime = { saveSummaryTree: vi.fn(async (tree) => saves.push(tree)), log: vi.fn(async () => {}) };
+  const runtime = {
+    saveSummaryTree: vi.fn(async (tree) => saves.push(tree)),
+    log: vi.fn(async () => {}),
+  };
   const args = {
-    runtime, now: () => Date.now(), nodes, getRootId: () => 'root',
-    strategy: { contentRevision: 'rev' }, fingerprint: 'fp', startedAt: 1,
+    runtime,
+    now: () => Date.now(),
+    nodes,
+    getRootId: () => 'root',
+    strategy: { contentRevision: 'rev' },
+    fingerprint: 'fp',
+    startedAt: 1,
     llm: { metrics: { calls: 4, invalidAnswers: 2, failures: 1 } },
     judge: { metrics: { calls: 3, failures: 1 }, active: true },
-    verifier: { metrics: { dropped: 5 } }, heartbeatMs: 0,
+    verifier: { metrics: { dropped: 5 } },
+    heartbeatMs: 0,
     controller: new AbortController(),
     ...overrides,
   };
@@ -49,7 +58,9 @@ describe('summary tree checkpointer', () => {
     const failure = new Error('lost ownership');
     const saveSummaryTree = vi.fn().mockRejectedValue(failure);
     const { args } = makeInput({
-      runtime: { saveSummaryTree, log: vi.fn(async () => {}) }, heartbeatMs: 10, controller,
+      runtime: { saveSummaryTree, log: vi.fn(async () => {}) },
+      heartbeatMs: 10,
+      controller,
     });
     const cp = createCheckpointer(args);
     await vi.advanceTimersByTimeAsync(10);
@@ -64,10 +75,21 @@ describe('summary tree checkpointer', () => {
     const cp = createCheckpointer(args);
     await cp.save();
     expect(saves[0]).toMatchObject({
+      backgroundRecovery: true,
       progress: { done: 2, total: 3 },
-      metrics: { passages: 3, failedPassages: 1, skippedPassages: 1, topics: 1, llmCalls: 4,
-        llmInvalidAnswers: 2, llmFailures: 1, decisionCalls: 3, decisionFailures: 1,
-        decisionsActive: true, claimsDropped: 5 },
+      metrics: {
+        passages: 3,
+        failedPassages: 1,
+        skippedPassages: 1,
+        topics: 1,
+        llmCalls: 4,
+        llmInvalidAnswers: 2,
+        llmFailures: 1,
+        decisionCalls: 3,
+        decisionFailures: 1,
+        decisionsActive: true,
+        claimsDropped: 5,
+      },
     });
     await cp.enterStage(SUMMARY_TREE_STAGE.TOPICS);
     expect(saves.at(-1).progress).toEqual({ done: 1, total: 0 });
@@ -76,7 +98,8 @@ describe('summary tree checkpointer', () => {
     expect(saves.at(-1).progress).toEqual({ done: 1, total: 2 });
     args.nodes.root.segments = [];
     expect(cp.finish()).toMatchObject({
-      status: SUMMARY_TREE_STATUS.DONE, progress: { done: 2, total: 2 },
+      status: SUMMARY_TREE_STATUS.DONE,
+      progress: { done: 2, total: 2 },
     });
     cp.dispose();
   });

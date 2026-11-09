@@ -119,6 +119,7 @@ async function resumeFinishedTree({
  * @param {object} input.strategy Tree strategy, see `summaryTreeStrategy.js`.
  * @param {Function} input.callLLMWithRetry Shared-limiter completion request.
  * @param {Function|null} [input.decide] Shared-limiter decision request, when configured.
+ * @param {number} [input.decisionContextWindowTokens] Decision provider context budget.
  * @param {string} input.fingerprint Provider identity; a change invalidates the checkpoint.
  * @param {string} [input.rootTitle]
  * @param {boolean} [input.fresh] Ignore a reusable checkpoint.
@@ -132,6 +133,7 @@ export async function runSummaryTree({
   strategy,
   callLLMWithRetry,
   decide = null,
+  decisionContextWindowTokens,
   fingerprint,
   rootTitle = 'Article',
   fresh = false,
@@ -152,7 +154,12 @@ export async function runSummaryTree({
   const merged = mergeAbortSignals(runtime.signal, controller.signal);
   const { signal } = merged;
   const llm = createSummaryTreeLlm({ callLLMWithRetry, signal, runtime });
-  const judge = createSummaryTreeJudge({ decide, signal, runtime });
+  const judge = createSummaryTreeJudge({
+    decide,
+    signal,
+    runtime,
+    contextWindowTokens: decisionContextWindowTokens,
+  });
 
   const prior = strategy.prior;
   const reusable = !fresh && isSummaryTreeReusable(prior, strategy, fingerprint);

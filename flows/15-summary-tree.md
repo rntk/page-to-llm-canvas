@@ -11,3 +11,5 @@ Every level that has sub-topics also offers a "Source text" link beside its sent
 The [topics tree](14-topics-tree.md) is the main place to view and manage an article's summary tree. The [project canvas](16-project-canvas.md) uses the same approach to organize topics from multiple saved articles.
 
 Entry points: [summary tree pipeline](../src/core/pipeline/summaryTreeStage.js) and [topics tree view](../src/topics-tree/TopicsTreeApp.jsx).
+
+Builds run as background jobs, independently of the visible view. Switching views or closing the reader does not stop processing. The worker saves checkpoints and automatically resumes running builds after a worker or browser restart; completed results stay saved. Only an explicit Stop cancels a build.

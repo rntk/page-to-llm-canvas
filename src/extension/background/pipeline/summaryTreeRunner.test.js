@@ -149,14 +149,14 @@ describe('summary tree jobs and handlers', () => {
         }),
     );
     const jobs = createSummaryTreeJobs({ runSummaryTree, logger: { error: vi.fn() } });
-    expect(jobs.start('k', { fresh: true })).toBe(true);
-    expect(jobs.start('k')).toBe(false);
+    expect(await jobs.start('k', { fresh: true })).toBe(true);
+    expect(await jobs.start('k')).toBe(false);
     await Promise.resolve();
     expect(runSummaryTree).toHaveBeenCalledWith('k', expect.objectContaining({ fresh: true }));
-    expect(jobs.stop('k')).toBe(true);
+    expect(await jobs.stop('k')).toBe(true);
     release();
     await vi.waitFor(() => expect(jobs.isActive('k')).toBe(false));
-    expect(jobs.stop('k')).toBe(false);
+    expect(await jobs.stop('k')).toBe(false);
   });
 
   it('starts builds only for completed records with a current checkpoint', async () => {

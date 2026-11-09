@@ -3,10 +3,9 @@
 // Pieces the splitter cut from one long sentence (`continued`) are rejoined, so
 // the model only judges real sentence gaps and never splits mid-sentence.
 
-import { choice } from '../llm/decisionClient.js';
+import { choice, decisionRequestFits } from '../llm/decisionClient.js';
 import { sleepWithAbort } from '../llm/abortSignals.js';
 import { executeDecisionWithRetry, DECISION_MAX_ATTEMPTS } from '../llm/decisionRetry.js';
-import { estimateTokens } from '../llm/tokenEstimator.js';
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { parallelMap as defaultParallelMap } from '../llm/concurrency.js';
 import { rethrowIfCancelled, throwIfCancelled, TOPIC_RANGE_ABORT_MESSAGE } from './cancellation.js';
@@ -286,15 +285,7 @@ export async function decideTopicBoundaries({
         Math.min(content.length, stop + context),
       ),
     };
-    // Include instructions, JSON framing, questions, and reserved answer space.
-    const contextTokens = Number(contextWindowTokens);
-    const fits = () =>
-      !Number.isFinite(contextTokens) ||
-      contextTokens <= 0 ||
-      estimateTokens(JSON.stringify({ state, questions })) +
-        256 +
-        Object.keys(questions).length * 128 <=
-        contextTokens;
+    const fits = () => decisionRequestFits(state, questions, contextWindowTokens);
     if (!fits()) {
       if (stop - start > 1) {
         const middle = start + Math.floor((stop - start) / 2);

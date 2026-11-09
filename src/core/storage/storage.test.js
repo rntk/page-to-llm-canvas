@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   readRecord,
   readRecordView,
+  readRecordSummaryTreeState,
+  cancelRecordSummaryTree,
   writeRecord,
   updateRecord,
   appendProcessingLog,
@@ -1729,5 +1731,96 @@ describe('project topic source revisions', () => {
       expect((await listRecords())[0].projectTopicRevision).toBe(next);
       revision = next;
     }
+  });
+});
+
+describe('summary tree recovery storage', () => {
+  it('reads only metadata and summary output for recovery', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(
+      makeRecord('tree:reader', {
+        status: 'done',
+        pipelineRunId: 'pipeline-1',
+        html: '<p>Large article</p>',
+        summary_tree: { version: 1, status: 'running', nodes: { p: { title: 'Saved' } } },
+      }),
+    );
+    mock.storage.local.get.mockClear();
+    mock.storage.local.getKeys.mockClear();
+    const state = await readRecordSummaryTreeState('tree:reader');
+    expect(state).toMatchObject({
+      key: 'tree:reader',
+      status: 'done',
+      pipelineRunId: 'pipeline-1',
+      summary_tree: { status: 'running', nodes: { p: { title: 'Saved' } } },
+    });
+    expect(readKeys(mock)).toEqual([
+      'pagetollm:rec:tree%3Areader:meta',
+      'pagetollm:rec:tree%3Areader:summary-output',
+    ]);
+    expect(mock.storage.local.getKeys).not.toHaveBeenCalled();
+    expect(state).not.toHaveProperty('html');
+  });
+
+  it('atomically cancels the latest checkpoint while preserving other output', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(
+      makeRecord('tree-stop', {
+        status: 'done',
+        summary_tree: { version: 1, status: 'running', nodes: { old: { title: 'Old' } } },
+        topic_summary_index: { Topic: { text: 'Primary summary' } },
+      }),
+    );
+    const saved = await readRecordSummaryTreeState('tree-stop');
+    const save = updateRecord('tree-stop', {
+      summary_tree: {
+        ...saved.summary_tree,
+        nodes: { latest: { title: 'Latest completed summary' } },
+      },
+    });
+    const cancel = cancelRecordSummaryTree('tree-stop');
+    await save;
+    expect(await cancel).toBe(true);
+    const record = await readRecord('tree-stop');
+    expect(record.summary_tree).toMatchObject({
+      status: 'cancelled',
+      error: 'Stopped.',
+      nodes: { latest: { title: 'Latest completed summary' } },
+    });
+    expect(record.topic_summary_index).toEqual({ Topic: { text: 'Primary summary' } });
+    expect(record.status).toBe('done');
+    expect(await cancelRecordSummaryTree('tree-stop')).toBe(false);
+  });
+
+  it('does not cancel terminal trees or trees on an active article pipeline', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(makeRecord('finished', { status: 'done', summary_tree: { status: 'done' } }));
+    await writeRecord(
+      makeRecord('processing', { status: 'splitting', summary_tree: { status: 'running' } }),
+    );
+    mock.storage.local.set.mockClear();
+    expect(await cancelRecordSummaryTree('finished')).toBe(false);
+    expect(await cancelRecordSummaryTree('processing')).toBe(false);
+    expect(await cancelRecordSummaryTree('missing')).toBe(false);
+    expect(mock.storage.local.set).not.toHaveBeenCalled();
+  });
+
+  it('ignores missing and future-schema records without overwriting them', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    mock.storage.local._store.set('pagetollm:rec:future-tree:meta', {
+      storageSchemaVersion: 999,
+      status: 'done',
+    });
+    mock.storage.local._store.set('pagetollm:rec:future-tree:summary-output', {
+      summary_tree: { status: 'running' },
+    });
+    expect(await readRecordSummaryTreeState('missing')).toBeNull();
+    expect(await readRecordSummaryTreeState('future-tree')).toBeNull();
+    expect(await cancelRecordSummaryTree('future-tree')).toBe(false);
+    expect(mock.storage.local.set).not.toHaveBeenCalled();
   });
 });
