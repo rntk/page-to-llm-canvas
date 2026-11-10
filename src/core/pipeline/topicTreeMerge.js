@@ -123,6 +123,18 @@ function collectUnusableLeafSentences(leafSummaries) {
   return unusable;
 }
 
+function addFailedRunsByPath(target, summaries, isFailedRun) {
+  for (const [path, summary] of Object.entries(summaries || {})) {
+    const failedRuns = (Array.isArray(summary?.runs) ? summary.runs : [])
+      .filter(
+        (run) =>
+          run && Array.isArray(run.sentences) && run.sentences.length > 0 && isFailedRun(run),
+      )
+      .map((run) => run.sentences);
+    if (failedRuns.length > 0) target.set(path, [...(target.get(path) ?? []), ...failedRuns]);
+  }
+}
+
 /**
  * Project available summaries before parents resolve. Reuse prior runs only
  * when their source still matches and no failed descendant overlaps them.
@@ -132,9 +144,15 @@ function collectUnusableLeafSentences(leafSummaries) {
  * @param {Array<{name: string, sentences: number[]}>} topics
  * @param {Record<string, {runs: Array<{sentences: number[], text: string}>, source_sentences: number[]}>} leafSummaries
  * @param {Record<string, {runs: Array<{sentences: number[], text: string}>}>} [previousSummaryIndex]
+ * @param {Record<string, object>} [previousSummaries]
  * @returns {Record<string, {runs: Array<{sentences: number[], text: string}>, level: number, source_sentences: number[]}>}
  */
-export function buildPartialTopicSummaryIndex(topics, leafSummaries, previousSummaryIndex = {}) {
+export function buildPartialTopicSummaryIndex(
+  topics,
+  leafSummaries,
+  previousSummaryIndex = {},
+  previousSummaries = {},
+) {
   const { nodes } = buildTopicTree(topics);
   const index = {};
   for (const [path, summary] of Object.entries(leafSummaries)) {
@@ -151,15 +169,10 @@ export function buildPartialTopicSummaryIndex(topics, leafSummaries, previousSum
 
   if (!previousSummaryIndex || typeof previousSummaryIndex !== 'object') return index;
   const unusableSentences = collectUnusableLeafSentences(leafSummaries);
-  // A failed internal run also invalidates overlapping ancestor runs.
+  // A failed internal or prior leaf run also invalidates overlapping ancestor runs.
   const priorFailedRunsByPath = new Map();
-  for (const [path, prior] of Object.entries(previousSummaryIndex)) {
-    const failedRuns = (Array.isArray(prior?.runs) ? prior.runs : [])
-      .filter((run) => run && Array.isArray(run.sentences) && run.sentences.length > 0)
-      .filter(isFailedSummaryRun)
-      .map((run) => run.sentences);
-    if (failedRuns.length > 0) priorFailedRunsByPath.set(path, failedRuns);
-  }
+  addFailedRunsByPath(priorFailedRunsByPath, previousSummaryIndex, isFailedSummaryRun);
+  addFailedRunsByPath(priorFailedRunsByPath, previousSummaries, isFailedSummaryRun);
   const hasPriorFailedDependency = (path, run) => {
     const source = new Set(run);
     for (const [failedPath, failedRuns] of priorFailedRunsByPath) {
@@ -215,6 +228,9 @@ function publicRuns(runs) {
  * @param {object} params
  * @param {Map<string, {path: string, level: number, children: Array<object>, sourceSentences: number[], summary: object}>} params.nodes
  * @param {Record<string, {runs: Array<{sentences: number[], text: string}>}>} params.leafSummaries  keyed by topic path
+ * @param {Record<string, object>} [params.previousSummaries] Prior leaf
+ *   checkpoints. Runs that were `error` or `forcedEmpty` before this run still
+ *   invalidate overlapping ancestor runs after the leaf retry succeeds.
  * @param {Record<string, object>} [params.previousSummaryIndex] Prior tree
  *   projection. Structurally valid successful paths are reused on normal
  *   Retry, while failed/missing paths are regenerated.
@@ -232,6 +248,7 @@ export async function summarizeTopicTree({
   leafSummaries,
   summarizeSource,
   onError,
+  previousSummaries = {},
   previousSummaryIndex = {},
   reusePriorSummaries = false,
 }) {
@@ -250,20 +267,21 @@ export async function summarizeTopicTree({
   // Failure markers are scoped to the source run that failed.
   const priorFailedRunsByPath = new Map();
   const priorRunsByPath = new Map();
-  if (reusePriorSummaries && previousSummaryIndex && typeof previousSummaryIndex === 'object') {
-    for (const [path, prior] of Object.entries(previousSummaryIndex)) {
-      if (!prior || !Array.isArray(prior.runs)) continue;
-      const byFirst = new Map();
-      const failedRuns = [];
-      for (const run of prior.runs) {
-        if (run && Array.isArray(run.sentences) && typeof run.text === 'string') {
-          byFirst.set(run.sentences[0], run);
-          if (isFailedSummaryRun(run) && run.sentences.length > 0) failedRuns.push(run.sentences);
+  if (reusePriorSummaries) {
+    if (previousSummaryIndex && typeof previousSummaryIndex === 'object') {
+      for (const [path, prior] of Object.entries(previousSummaryIndex)) {
+        if (!prior || !Array.isArray(prior.runs)) continue;
+        const byFirst = new Map();
+        for (const run of prior.runs) {
+          if (run && Array.isArray(run.sentences) && typeof run.text === 'string') {
+            byFirst.set(run.sentences[0], run);
+          }
         }
+        priorRunsByPath.set(path, byFirst);
       }
-      if (failedRuns.length > 0) priorFailedRunsByPath.set(path, failedRuns);
-      priorRunsByPath.set(path, byFirst);
     }
+    addFailedRunsByPath(priorFailedRunsByPath, previousSummaryIndex, isFailedSummaryRun);
+    addFailedRunsByPath(priorFailedRunsByPath, previousSummaries, isFailedSummaryRun);
   }
 
   const overlaps = (a, b) => {
@@ -271,20 +289,9 @@ export async function summarizeTopicTree({
     return Array.isArray(b) && b.some((sentence) => source.has(sentence));
   };
 
+  // Accepted leaf failures still invalidate overlapping ancestors.
   const failedLeafRunsByPath = new Map();
-  for (const [path, leaf] of Object.entries(leafSummaries || {})) {
-    const failedRuns = (Array.isArray(leaf?.runs) ? leaf.runs : [])
-      .filter(
-        (run) =>
-          run &&
-          Array.isArray(run.sentences) &&
-          run.sentences.length > 0 &&
-          // Accepted leaf failures still invalidate overlapping ancestors.
-          hasSummaryRunMarker(run),
-      )
-      .map((run) => run.sentences);
-    if (failedRuns.length > 0) failedLeafRunsByPath.set(path, failedRuns);
-  }
+  addFailedRunsByPath(failedLeafRunsByPath, leafSummaries, hasSummaryRunMarker);
 
   const isDescendantOrSelf = (candidate, path) =>
     candidate === path || isCanonicalDescendantPath(candidate, path);

@@ -1476,6 +1476,63 @@ describe('runSummaries', () => {
     expect(summariesDisabled).toBe(false);
     expect(summariesIncomplete).toBe(true);
   });
+
+  it('regenerates a skip-finalized ancestor summary after its forcedEmpty leaf succeeds on retry', async () => {
+    const long = (marker) => `${marker} ${'word '.repeat(120)}`.trim();
+    const sentenceTexts = [long('own1'), long('skipped2')];
+    const topics = [
+      { name: 'A', sentences: [1] },
+      { name: 'A>failed', sentences: [2] },
+    ];
+
+    const skipRuntime = makeRuntime();
+    await runSummaries({
+      runtime: skipRuntime,
+      topics,
+      sentenceTexts,
+      previousSummaries: {
+        A: { runs: [{ sentences: [1], text: 'Own leaf.' }], source_sentences: [1] },
+        'A>failed': {
+          runs: [{ sentences: [2], text: '', acceptedFailure: true }],
+          source_sentences: [2],
+        },
+      },
+      forceFinalize: true,
+      callLLMWithRetry: vi.fn(async () => 'Ancestor without skipped leaf.'),
+    });
+    const skippedPatch = lastUpdate(skipRuntime);
+    expect(skippedPatch.summariesIncomplete).toBe(true);
+    expect(skippedPatch.topic_summary_index.A.runs).toEqual([
+      { sentences: [1, 2], text: 'Ancestor without skipped leaf.' },
+    ]);
+
+    const retryRuntime = makeRuntime();
+    const retryLLM = vi.fn(async ({ prompt }) =>
+      prompt.includes('own1') ? 'Complete ancestor with both.' : 'Recovered leaf summary.',
+    );
+    await runSummaries({
+      runtime: retryRuntime,
+      topics,
+      sentenceTexts,
+      previousSummaries: skippedPatch.topic_summaries,
+      previousSummaryIndex: skippedPatch.topic_summary_index,
+      callLLMWithRetry: retryLLM,
+    });
+
+    const finalPatch = lastUpdate(retryRuntime);
+    expect(retryLLM).toHaveBeenCalledTimes(2);
+    expect(finalPatch).toMatchObject({
+      status: PIPELINE_STATUS.DONE,
+      summariesIncomplete: false,
+    });
+    expect(finalPatch.topic_summaries['A>failed']).toEqual({
+      runs: [{ sentences: [2], text: 'Recovered leaf summary.' }],
+      source_sentences: [2],
+    });
+    expect(finalPatch.topic_summary_index.A.runs).toEqual([
+      { sentences: [1, 2], text: 'Complete ancestor with both.' },
+    ]);
+  });
 });
 
 describe('classifyLlmError truncation', () => {

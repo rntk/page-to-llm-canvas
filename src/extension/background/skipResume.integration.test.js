@@ -226,4 +226,82 @@ describe('resolveSummaryErrors skip → resumed pipeline', () => {
     expect(done.topic_summaries['A>z'].forcedEmpty).toBe(true);
     expect(done.summariesIncomplete).toBe(true);
   });
+
+  it('regenerates a skip-finalized ancestor when generateRecordSummaries retries the skipped leaf', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    const record = makeParkedRecord('skip-then-generate');
+    record.topics = [
+      { name: 'A>x', sentences: [1, 2] },
+      { name: 'A>z', sentences: [3, 4] },
+    ];
+    record.topic_summaries = {
+      'A>x': { runs: [{ sentences: [1, 2], text: 'LEAF x' }], source_sentences: [1, 2] },
+      'A>z': {
+        runs: [
+          {
+            sentences: [3, 4],
+            text: '',
+            error: true,
+            error_kind: 'timeout',
+            error_message: 'The model timed out.',
+            error_detail: 'timed out',
+          },
+        ],
+        source_sentences: [3, 4],
+        error: true,
+        error_kind: 'timeout',
+        error_message: 'The model timed out.',
+        error_detail: 'timed out',
+      },
+    };
+    await writeRecord(record);
+
+    llm.callLLMWithRetry.mockResolvedValueOnce('PARTIAL PARENT WITHOUT Z');
+
+    const { dispatchMessage, _resetJobRegistry } = await import('./background.js');
+    _resetJobRegistry();
+
+    const skipRes = await dispatchMessage(
+      { type: 'resolveSummaryErrors', key: 'skip-then-generate', action: 'skip' },
+      {},
+    );
+    expect(skipRes.ok).toBe(true);
+    await vi.waitFor(async () => {
+      expect((await readRecord('skip-then-generate')).status).toBe('done');
+    });
+
+    const afterSkip = await readRecord('skip-then-generate');
+    expect(afterSkip.summariesIncomplete).toBe(true);
+    expect(afterSkip.topic_summary_index.A.runs).toEqual([
+      { sentences: [1, 2, 3, 4], text: 'PARTIAL PARENT WITHOUT Z' },
+    ]);
+
+    llm.callLLMWithRetry
+      .mockResolvedValueOnce('RECOVERED LEAF Z')
+      .mockResolvedValueOnce('FULL PARENT WITH X AND Z');
+
+    const genRes = await dispatchMessage(
+      { type: 'generateRecordSummaries', key: 'skip-then-generate' },
+      {},
+    );
+    expect(genRes.ok).toBe(true);
+    await vi.waitFor(async () => {
+      const current = await readRecord('skip-then-generate');
+      expect(current.status).toBe('done');
+      expect(current.summariesIncomplete).toBe(false);
+    });
+
+    const afterGenerate = await readRecord('skip-then-generate');
+    expect(afterGenerate.topic_summaries['A>z']).toEqual({
+      runs: [{ sentences: [3, 4], text: 'RECOVERED LEAF Z' }],
+      source_sentences: [3, 4],
+    });
+    expect(afterGenerate.topic_summary_index.A.runs).toEqual([
+      { sentences: [1, 2, 3, 4], text: 'FULL PARENT WITH X AND Z' },
+    ]);
+    expect(llm.callLLMWithRetry).toHaveBeenCalledTimes(3);
+    expect(llm.callLLMWithRetry.mock.calls[2][0].prompt).toContain(SENTENCES[0]);
+    expect(llm.callLLMWithRetry.mock.calls[2][0].prompt).toContain(SENTENCES[2]);
+  });
 });

@@ -282,6 +282,97 @@ describe('buildPartialTopicSummaryIndex', () => {
 
     expect(index['Tech>AI'].runs).toEqual([{ sentences: [1], text: 'Fresh.' }]);
   });
+
+  it('blanks a skip-finalized ancestor run overlapping a newly recovered forcedEmpty leaf', () => {
+    const index = buildPartialTopicSummaryIndex(
+      [
+        { name: 'Tech>AI', sentences: [1] },
+        { name: 'Tech>HW', sentences: [2] },
+        { name: 'Tech>Solo', sentences: [8] },
+        { name: 'News>Z', sentences: [12] },
+      ],
+      {
+        'Tech>AI': { runs: [{ sentences: [1], text: 'Recovered AI.' }], source_sentences: [1] },
+        'Tech>HW': { runs: [{ sentences: [2], text: 'HW.' }], source_sentences: [2] },
+        'Tech>Solo': { runs: [{ sentences: [8], text: 'Solo.' }], source_sentences: [8] },
+        'News>Z': {
+          runs: [{ sentences: [12], text: '', error: true }],
+          source_sentences: [12],
+          error: true,
+        },
+      },
+      {
+        Tech: {
+          runs: [
+            { sentences: [1, 2], text: 'HW-only ancestor from prior Skip.' },
+            { sentences: [8], text: 'Parent over solo.' },
+          ],
+          level: 0,
+          source_sentences: [1, 2, 8],
+        },
+      },
+      {
+        'Tech>AI': {
+          runs: [{ sentences: [1], text: '', forcedEmpty: true }],
+          source_sentences: [1],
+          forcedEmpty: true,
+        },
+      },
+    );
+
+    expect(index.Tech.runs).toEqual([
+      { sentences: [1, 2], text: '' },
+      { sentences: [8], text: 'Parent over solo.' },
+    ]);
+  });
+
+  it('unions failed runs for a path present in both the prior index and prior summaries', () => {
+    const index = buildPartialTopicSummaryIndex(
+      [
+        { name: 'Tech>AI', sentences: [1] },
+        { name: 'Tech>HW', sentences: [2] },
+        { name: 'Tech>Solo', sentences: [8] },
+        { name: 'Tech>Duo', sentences: [9] },
+        { name: 'Tech>Extra', sentences: [20] },
+      ],
+      {
+        'Tech>AI': { runs: [{ sentences: [1], text: 'AI.' }], source_sentences: [1] },
+        'Tech>HW': { runs: [{ sentences: [2], text: 'HW.' }], source_sentences: [2] },
+        'Tech>Solo': { runs: [{ sentences: [8], text: 'Solo.' }], source_sentences: [8] },
+        'Tech>Duo': { runs: [{ sentences: [9], text: 'Duo.' }], source_sentences: [9] },
+        'Tech>Extra': { runs: [{ sentences: [20], text: 'Extra.' }], source_sentences: [20] },
+      },
+      {
+        Tech: {
+          runs: [
+            // Failed sub-run from the prior index; the matching candidate
+            // below overwrites it in the by-first-sentence reuse map, so only
+            // the failed-dependency map can invalidate the [1, 2] run.
+            { sentences: [1], text: '', error: true },
+            { sentences: [1, 2], text: 'Ancestor 1-2.' },
+            { sentences: [8, 9], text: 'Ancestor 8-9.' },
+            { sentences: [20], text: 'Ancestor 20.' },
+          ],
+          level: 0,
+          source_sentences: [1, 2, 8, 9, 20],
+        },
+      },
+      {
+        // Same path as above, disjoint failed run from the prior summaries.
+        Tech: {
+          runs: [{ sentences: [8], text: '', forcedEmpty: true }],
+          source_sentences: [8],
+          forcedEmpty: true,
+        },
+      },
+    );
+
+    expect(index.Tech.runs).toEqual([
+      { sentences: [1, 2], text: '' },
+      { sentences: [8, 9], text: '' },
+      { sentences: [20], text: 'Ancestor 20.' },
+    ]);
+  });
 });
 
 describe('summarizeTopicTree', () => {
@@ -480,6 +571,62 @@ describe('summarizeTopicTree', () => {
 
     expect(summarizeSource).toHaveBeenCalledWith([1, 2], { path: 'Tech' });
     expect(index.Tech.runs).toEqual([{ sentences: [1, 2], text: 'fresh safe ancestor' }]);
+  });
+
+  it('regenerates a skip-finalized ancestor run after its forcedEmpty leaf is retried', async () => {
+    const topics = [
+      { name: 'Tech>AI', sentences: [1] },
+      { name: 'Tech>HW', sentences: [2] },
+      { name: 'Tech>Other1', sentences: [7] },
+      { name: 'Tech>Other2', sentences: [8] },
+    ];
+    const { nodes } = buildTopicTree(topics);
+    const summarizeSource = vi.fn(async (ids) => oneRun(ids, 'full ancestor with AI and HW'));
+
+    const index = await summarizeTopicTree({
+      nodes,
+      leafSummaries: {
+        'Tech>AI': oneRun([1], 'retried AI leaf'),
+        'Tech>HW': oneRun([2], 'hardware leaf'),
+        'Tech>Other1': oneRun([7], 'other 1'),
+        'Tech>Other2': oneRun([8], 'other 2'),
+      },
+      previousSummaries: {
+        'Tech>AI': {
+          runs: [{ sentences: [1], text: '', forcedEmpty: true }],
+          source_sentences: [1],
+          forcedEmpty: true,
+        },
+        'Tech>HW': oneRun([2], 'hardware leaf'),
+        'Tech>Other1': oneRun([7], 'other 1'),
+        'Tech>Other2': oneRun([8], 'other 2'),
+      },
+      previousSummaryIndex: {
+        Tech: {
+          runs: [
+            { sentences: [1, 2], text: 'HW-only ancestor from prior Skip' },
+            { sentences: [7, 8], text: 'unaffected ancestor run' },
+          ],
+          level: 0,
+          source_sentences: [1, 2, 7, 8],
+        },
+        'Tech>AI': { runs: [{ sentences: [1], text: '' }], level: 1, source_sentences: [1] },
+        'Tech>HW': {
+          runs: [{ sentences: [2], text: 'hardware leaf' }],
+          level: 1,
+          source_sentences: [2],
+        },
+      },
+      reusePriorSummaries: true,
+      summarizeSource,
+    });
+
+    expect(summarizeSource).toHaveBeenCalledTimes(1);
+    expect(summarizeSource).toHaveBeenCalledWith([1, 2], { path: 'Tech' });
+    expect(index.Tech.runs).toEqual([
+      { sentences: [1, 2], text: 'full ancestor with AI and HW' },
+      { sentences: [7, 8], text: 'unaffected ancestor run' },
+    ]);
   });
 
   it('never summarizes the empty root path, even with multiple top-level domains', async () => {

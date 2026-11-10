@@ -414,7 +414,12 @@ export async function runSummaries({
       leafErrors,
       'leaf',
       // Preserve valid internal summaries for later retries.
-      buildPartialTopicSummaryIndex(topics, topic_summaries, previousSummaryIndex),
+      buildPartialTopicSummaryIndex(
+        topics,
+        topic_summaries,
+        previousSummaryIndex,
+        previousSummaries,
+      ),
       { done, total },
     );
     return;
@@ -447,6 +452,7 @@ export async function runSummaries({
     leafSummaries: topic_summaries,
     summarizeSource,
     // Reuse successful runs while suppressing accepted failure paths.
+    previousSummaries,
     previousSummaryIndex,
     reusePriorSummaries: true,
     onError: ({ path, error }) => {
