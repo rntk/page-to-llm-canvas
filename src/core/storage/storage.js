@@ -5,6 +5,7 @@ import {
   setLocal,
   removeLocal,
   queuedUpdate,
+  queuedRecordUpdate,
   MUTATION_QUEUE_KEY,
   resetUpdateQueues,
 } from './primitives.js';
@@ -283,7 +284,7 @@ export async function readRecordSummaryTreeState(key) {
  */
 export async function cancelRecordSummaryTree(key) {
   return queuedUpdate(MUTATION_QUEUE_KEY, () =>
-    queuedUpdate(key, async () => {
+    queuedRecordUpdate(key, async () => {
       const meta = await loadMetaForWrite(key);
       if (!meta || meta.status !== 'done') return false;
       const outputKey = summaryOutputStorageKey(key);
@@ -325,7 +326,7 @@ export async function readRecordView(key) {
 export async function writeRecord(rec, options = {}) {
   if (!rec || !rec.key) throw new Error('writeRecord: record.key required');
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
-    return queuedUpdate(rec.key, async () => {
+    return queuedRecordUpdate(rec.key, async () => {
       const metaKey = metaStorageKey(rec.key);
       const docKeys = staticRecordDocumentKeys(rec.key);
       const storedMeta = (await getLocal(metaKey))[metaKey];
@@ -477,7 +478,7 @@ async function rollbackRecordDocs(priorDocs, docKeys) {
  */
 export async function updateRecord(key, patch, options = {}) {
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
-    return queuedUpdate(key, async () => {
+    return queuedRecordUpdate(key, async () => {
       const meta = await loadMetaForWrite(key);
       if (!meta) return null;
       if (isStaleRun(meta, options)) return null;
@@ -627,7 +628,7 @@ export async function putTopicSummaryCheckpoint(key, topicPath, summary, options
     throw new Error('putTopicSummaryCheckpoint: topicPath required');
   }
   return queuedUpdate(MUTATION_QUEUE_KEY, () =>
-    queuedUpdate(key, async () => {
+    queuedRecordUpdate(key, async () => {
       const meta = await loadMetaForWrite(key);
       if (!meta || isStaleRun(meta, options)) return null;
       await setLocal({
@@ -656,7 +657,7 @@ export async function putSourceSummaryUnit(key, unit, options = {}) {
     throw new Error('putSourceSummaryUnit: unit.unitId required');
   }
   return queuedUpdate(MUTATION_QUEUE_KEY, () =>
-    queuedUpdate(key, async () => {
+    queuedRecordUpdate(key, async () => {
       const meta = await loadMetaForWrite(key);
       if (!meta || isStaleRun(meta, options)) return null;
       if (unit.contentRevision !== meta.contentRevision) {
@@ -680,7 +681,7 @@ async function allRecordStorageKeys() {
 
 export async function deleteRecord(key) {
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
-    return queuedUpdate(key, () => {
+    return queuedRecordUpdate(key, () => {
       return queuedUpdate(INDEX_KEY, async () => {
         const idx = await readIndex();
         const nextMeta = { ...idx.meta };

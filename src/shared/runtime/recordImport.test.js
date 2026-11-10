@@ -17,6 +17,15 @@ describe('decodeImportedRecords', () => {
     expect(decoded.map((record) => [record.key, record.html])).toEqual([['r1', '<p>new</p>']]);
   });
 
+  it('drops reserved keys before normalization in mixed import payloads', () => {
+    const records = decodeImportedRecords([
+      { key: 'pagetollm:mutation-queue', html: '<p>x</p>' },
+      { key: ' pagetollm:index ', html: '<p>x</p>' },
+      { key: 'safe', html: '<p>x</p>' },
+    ]);
+    expect(records.map((record) => record.key)).toEqual(['safe']);
+  });
+
   it('accepts a single record object as the payload', () => {
     expect(decodeImportedRecords({ key: 'solo', html: '<p>x</p>' }, { now: 1 })).toHaveLength(1);
     expect(decodeImportedRecords('nope')).toEqual([]);

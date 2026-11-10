@@ -1,6 +1,12 @@
 // Buffer frequent pipeline diagnostics for one write per flush. Disposal and
 // stale-run checks prevent buffered entries from reaching replaced records.
-import { getLocal, setLocal, queuedUpdate, MUTATION_QUEUE_KEY } from './primitives.js';
+import {
+  getLocal,
+  setLocal,
+  queuedRecordUpdate,
+  queuedUpdate,
+  MUTATION_QUEUE_KEY,
+} from './primitives.js';
 import { recordDiagnosticsStorageKey as diagnosticsStorageKey } from './keys.js';
 import { isStaleRun, loadMetaForWrite } from './recordMeta.js';
 
@@ -55,7 +61,7 @@ async function doFlushProcessingLog(key) {
   const { entries, options } = buf;
   try {
     const result = await queuedUpdate(MUTATION_QUEUE_KEY, () =>
-      queuedUpdate(key, async () => {
+      queuedRecordUpdate(key, async () => {
         if (!_flushingBuffers.get(key)?.has(buf)) return null;
         const meta = await loadMetaForWrite(key);
         if (!meta) return null;

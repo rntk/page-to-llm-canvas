@@ -37,6 +37,14 @@ describe('runtime contracts', () => {
     expect(isImportableRecord({ key: 'record-1', html: '   ' })).toBe(false);
   });
 
+  it.each(['pagetollm:mutation-queue', 'pagetollm:index'])(
+    'rejects reserved import key %s, including surrounding whitespace',
+    (key) => {
+      expect(isImportableRecord({ key, html: '<p>Article</p>' })).toBe(false);
+      expect(isImportableRecord({ key: ` ${key} \n`, html: '<p>Article</p>' })).toBe(false);
+    },
+  );
+
   it('rejects imported summary indexes with invalid levels', () => {
     expect(
       isImportableRecord({

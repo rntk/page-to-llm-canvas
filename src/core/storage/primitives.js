@@ -29,7 +29,7 @@ export const MUTATION_QUEUE_KEY = 'pagetollm:mutation-queue';
  * A failed prior task does not stall subsequent ones (swallowed internally).
  * The Map entry is pruned once the queue goes idle to avoid a memory leak.
  * @template T
- * @param {string} key - logical record key or INDEX_KEY
+ * @param {string} key - internal lock name
  * @param {function(): Promise<T>} fn
  * @returns {Promise<T>}
  */
@@ -44,6 +44,18 @@ export function queuedUpdate(key, fn) {
     }
   });
   return next;
+}
+
+/**
+ * Serializes record mutations in a namespace disjoint from internal locks.
+ * Imported keys are arbitrary strings, including internal lock names.
+ * @template T
+ * @param {string} key Record key.
+ * @param {function(): Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+export function queuedRecordUpdate(key, fn) {
+  return queuedUpdate(`rec:${key}`, fn);
 }
 
 /** Clears all per-key queues. Exposed for testing only. */

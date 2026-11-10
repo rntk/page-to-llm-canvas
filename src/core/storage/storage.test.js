@@ -1824,3 +1824,44 @@ describe('summary tree recovery storage', () => {
     expect(mock.storage.local.set).not.toHaveBeenCalled();
   });
 });
+
+// Arbitrary record keys must never acquire an internal coordination lock.
+describe('record lock namespaces', () => {
+  it.each([MUTATION_QUEUE_KEY, INDEX_KEY, 'rec:pagetollm:index'])(
+    'can mutate and delete a record named %s without blocking later writes',
+    async (key) => {
+      vi.stubGlobal('chrome', makeChromeMock());
+      await writeRecord(
+        makeRecord(key, {
+          status: 'done',
+          summary_tree: { status: 'running' },
+        }),
+      );
+      await updateRecord(key, { text: 'Updated article' });
+      await putTopicSummaryCheckpoint(key, 'Topic', { text: 'Summary' });
+      const record = await readRecord(key);
+      await putSourceSummaryUnit(key, {
+        unitId: 'unit',
+        contentRevision: record.contentRevision,
+        text: 'Cached summary',
+      });
+      const pendingLog = appendProcessingLog(key, 'test');
+      await flushProcessingLog(key);
+      await pendingLog;
+      expect(await cancelRecordSummaryTree(key)).toBe(true);
+      expect(await readRecord(key)).toMatchObject({
+        text: 'Updated article',
+        topic_summaries: { Topic: { text: 'Summary' } },
+        source_summary_units: { unit: { text: 'Cached summary' } },
+        processingLog: [{ stage: 'test' }],
+      });
+      expect((await listRecords()).map((item) => item.key)).toContain(key);
+      // Also exercise cleanup after a worker restart for previously imported keys.
+      _resetUpdateQueues();
+      await deleteRecord(key);
+      expect(await readRecord(key)).toBeNull();
+      await writeRecord(makeRecord('later-record'));
+      expect((await listRecords()).map((item) => item.key)).toEqual(['later-record']);
+    },
+  );
+});

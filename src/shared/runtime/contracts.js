@@ -75,6 +75,9 @@ export function isSummaryGenerationSourceStatus(value) {
   return SUMMARY_GENERATION_SOURCE_STATUS_VALUES.has(value);
 }
 
+// Keep internal storage coordination names out of user-supplied imports.
+const RESERVED_RECORD_KEYS = new Set(['pagetollm:mutation-queue', 'pagetollm:index']);
+
 /**
  * Identifies records that contain enough article data to be imported. This is
  * shared by the options page and service worker so both import paths enforce
@@ -89,6 +92,7 @@ export function isImportableRecord(record) {
     typeof record === 'object' &&
     typeof record.key === 'string' &&
     !!record.key.trim() &&
+    !RESERVED_RECORD_KEYS.has(record.key.trim()) &&
     typeof record.html === 'string' &&
     !!record.html.trim() &&
     isImportableTopicSummaryIndex(record.topic_summary_index)
