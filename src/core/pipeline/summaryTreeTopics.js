@@ -19,6 +19,29 @@ import { chosenOption, extractObject, yesProbability } from './summaryTreeAnswer
 
 /** @import { SummaryTreeNode } from './summaryTreeModel.js' */
 
+/**
+ * Await concurrent tasks; the first failure stops siblings via `onAbort`, and
+ * every task settles before that failure is rethrown, so no sibling keeps
+ * saving progress or issuing requests after the stage has failed.
+ * @param {Promise<*>[]} tasks
+ * @param {function(): void} onAbort
+ */
+async function settleAll(tasks, onAbort) {
+  let failed = false;
+  let firstError;
+  await Promise.all(
+    tasks.map((task) =>
+      task.catch((error) => {
+        if (failed) return;
+        failed = true;
+        firstError = error;
+        onAbort();
+      }),
+    ),
+  );
+  if (failed) throw firstError;
+}
+
 export const LEAF_MAX_PASSAGES = 4; // a topic with at most this many passages is not split further
 export const MAX_DEPTH = 3; // topic levels between the root and the passages
 export const OTHER_TITLE = 'Other';
@@ -253,6 +276,7 @@ async function assignInBatches({
  * @param {function(): Promise<void>} [input.onProgress]
  * @param {string|null} [input.sourceKind] What the nodes are, when not passages of one document.
  * @param {boolean} [input.groupSmallRoot] Group small source sets at the root.
+ * @param {function(): void} [input.onAbort] Stops siblings after a fatal error.
  * @returns {Promise<string>} Root node id.
  */
 export async function buildTopics({
@@ -266,6 +290,7 @@ export async function buildTopics({
   onProgress = async () => {},
   sourceKind = null,
   groupSmallRoot = false,
+  onAbort = () => {},
 }) {
   const kind = sourceKind ? { source_kind: sourceKind } : {};
 
@@ -314,8 +339,9 @@ export async function buildTopics({
     splits.set(ids.join(','), groups);
     await onProgress();
     if (groups?.length === 1) return;
-    await Promise.all(
+    await settleAll(
       (groups || []).map(([title, members]) => plan(members, [...path, title], depth + 1)),
+      onAbort,
     );
   };
   await plan(passageIds, [], 0);
@@ -352,6 +378,7 @@ export async function buildTopics({
  * @param {function(): Promise<void>} [input.onProgress]
  * @param {string|null} [input.sourceKind] What the nodes are, as in `buildTopics`.
  * @param {function(object): boolean} [input.isBranch] Whether a node is a grouping branch.
+ * @param {function(): void} [input.onAbort] Stops siblings after a fatal error.
  */
 export async function placeTopics({
   nodes,
@@ -364,6 +391,7 @@ export async function placeTopics({
   onProgress = async () => {},
   sourceKind = null,
   isBranch = (node) => node.kind === TOPIC,
+  onAbort = () => {},
 }) {
   const limit = createLimiter(workers);
   const trail = new Map(unitIds.map((id) => [id, [rootId]]));
@@ -428,7 +456,7 @@ export async function placeTopics({
       byParent.get(parentId).push(id);
     }
     const next = [];
-    await Promise.all(
+    await settleAll(
       [...byParent].map(([parentId, ids]) =>
         limit(async () => {
           const branches = nodes[parentId].children.filter((id) => isBranch(nodes[id]));
@@ -445,6 +473,7 @@ export async function placeTopics({
           await onProgress();
         }),
       ),
+      onAbort,
     );
     active = next;
   }

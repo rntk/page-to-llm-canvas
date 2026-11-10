@@ -24,6 +24,7 @@ export function createCheckpointer({
   let stage = SUMMARY_TREE_STAGE.PASSAGES;
   let lastSaved = 0;
   let unsaved = false;
+  const inFlight = new Set();
 
   const counts = () => {
     const totals = {
@@ -98,7 +99,13 @@ export function createCheckpointer({
     }
     lastSaved = now();
     unsaved = false;
-    await runtime.saveSummaryTree(snapshot(SUMMARY_TREE_STATUS.RUNNING));
+    const write = runtime.saveSummaryTree(snapshot(SUMMARY_TREE_STATUS.RUNNING));
+    inFlight.add(write);
+    try {
+      await write;
+    } finally {
+      inFlight.delete(write);
+    }
   };
   const flush = async () => {
     lastSaved = 0;
@@ -124,6 +131,10 @@ export function createCheckpointer({
     enterStage,
     get unsaved() {
       return unsaved;
+    },
+    // Settles once no `running` save (worker or heartbeat) is still being written.
+    idle: async () => {
+      while (inFlight.size) await Promise.allSettled([...inFlight]);
     },
     finish: () => {
       stage = SUMMARY_TREE_STAGE.DONE;

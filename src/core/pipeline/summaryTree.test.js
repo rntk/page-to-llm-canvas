@@ -465,6 +465,48 @@ describe('runSummaryTree', () => {
     ).rejects.toThrow('Could not summarize any passage');
     expect(Object.values(rec.summary_tree.nodes).every((node) => node.failed)).toBe(true);
   });
+
+  it('stops and drains sibling topic splits before rethrowing a grouping failure', async () => {
+    const rec = {
+      ...record(),
+      sentences: Array.from({ length: 40 }, (_, i) => sentence(i + 1, 300)),
+      topics: Array.from({ length: 20 }, (_, i) => ({
+        name: `T>${i}`,
+        sentences: [2 * i + 1, 2 * i + 2],
+      })),
+    };
+    const { runtime, saves } = makeRuntime(rec);
+    const model = fakeModel();
+    const events = [];
+    let groupings = 0;
+    const callLLMWithRetry = vi.fn(async (request) => {
+      if (!request.prompt.startsWith('TASK: GROUP PASSAGES')) return model(request);
+      groupings++;
+      if (groupings === 1) return model(request);
+      if (groupings === 2) throw Object.assign(new Error('bad request'), { status: 400 });
+      // The sibling split only ends when the stage aborts it.
+      return new Promise((_, reject) => {
+        request.signal.addEventListener('abort', () => {
+          events.push('sibling aborted');
+          reject(request.signal.reason);
+        });
+      });
+    });
+    await expect(
+      runSummaryTree({
+        runtime,
+        strategy: createArticleStrategy(rec),
+        callLLMWithRetry,
+        fingerprint: 'fp',
+        heartbeatMs: 0,
+      }).finally(() => events.push('stage rejected')),
+    ).rejects.toThrow('bad request');
+    expect(events).toEqual(['sibling aborted', 'stage rejected']);
+    const savedCount = saves.length;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(saves).toHaveLength(savedCount);
+    expect(groupings).toBe(3);
+  });
 });
 
 describe('summary tree levels', () => {

@@ -87,6 +87,7 @@ async function resumeFinishedTree({
   workers,
   maxChars,
   save,
+  onAbort,
   strategy,
 }) {
   const unplaced = Object.values(nodes).filter((node) => node.unplaced);
@@ -104,6 +105,7 @@ async function resumeFinishedTree({
       workers,
       batchChars: Math.min(TOPIC_BATCH_CHARS, maxChars),
       onProgress: save,
+      onAbort,
       sourceKind: strategy.sourceKind,
       isBranch: strategy.isBranch,
     });
@@ -192,6 +194,7 @@ export async function runSummaryTree({
     controller,
   });
   const { save, flush, enterStage } = checkpointer;
+  const onAbort = () => controller.abort();
   try {
     await enterStage(SUMMARY_TREE_STAGE.PASSAGES);
     // A finished tree extended with new pages carries sources still to summarize.
@@ -207,7 +210,7 @@ export async function runSummaryTree({
       workers,
       onFailure: markFailed,
       onNodeDone: save,
-      onAbort: () => controller.abort(),
+      onAbort,
       sourceOf: strategy.sourceOf,
     });
     const groupIds = strategy.groupIds(nodes);
@@ -230,6 +233,7 @@ export async function runSummaryTree({
         workers,
         maxChars,
         save,
+        onAbort,
         strategy,
       });
     } else {
@@ -245,6 +249,7 @@ export async function runSummaryTree({
         workers,
         batchChars: Math.min(TOPIC_BATCH_CHARS, maxChars),
         onProgress: save,
+        onAbort,
         sourceKind: strategy.sourceKind,
         groupSmallRoot: strategy.groupSmallRoot,
       });
@@ -259,7 +264,7 @@ export async function runSummaryTree({
       verifier,
       workers,
       onNodeDone: save,
-      onAbort: () => controller.abort(),
+      onAbort,
       sourceOf: strategy.sourceOf,
     });
     if (!nodes[rootId].segments?.length) {
@@ -268,6 +273,9 @@ export async function runSummaryTree({
   } catch (error) {
     const lost = controller.signal.reason;
     if (controller.signal.aborted && isCancellationError(lost, runtime)) throw lost;
+    // Stop any sibling still running so none saves `running` over the recorded failure.
+    onAbort();
+    await checkpointer.idle();
     // Keep completed work for the resume; the caller records the failure.
     if (checkpointer.unsaved && !runtime.signal?.aborted) await flush().catch(() => {});
     throw error;
