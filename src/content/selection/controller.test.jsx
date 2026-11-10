@@ -380,7 +380,7 @@ describe('selection controller', () => {
     }
   });
 
-  it('alerts on submission failure and still cleans up', async () => {
+  it('alerts on submission failure and keeps the selection for retry', async () => {
     const block = mountBlock('failed', 'Fail me');
     runtimeMessenger.send.mockResolvedValue({ ok: false, error: 'network down' });
     act(() => showSelectionToolbar(runtimeMessenger));
@@ -391,7 +391,10 @@ describe('selection controller', () => {
     await vi.waitFor(() => expect(alert).toHaveBeenCalledWith('PageToLLM error: network down'));
     await flush();
 
-    expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
+    expect(document.getElementById('pagetollm-selection-toolbar')).not.toBeNull();
+    const submit = toolbarButton('pagetollm-submit-btn');
+    expect(submit.disabled).toBe(false);
+    expect(submit.textContent).not.toBe('Submitting...');
   });
 
   it('alerts instead of sending when submission has no selection', async () => {

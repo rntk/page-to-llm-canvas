@@ -420,6 +420,7 @@ export function createSelectionController({
     }
 
     isSubmitting = true;
+    let succeeded = false;
     flushSync(() => renderSelectionToolbar());
 
     try {
@@ -450,6 +451,7 @@ export function createSelectionController({
       if (!response || !response.ok) {
         throw new Error((response && response.error) || 'Submission failed');
       }
+      succeeded = true;
     } catch (err) {
       log.error('submit error:', err);
       alert('PageToLLM error: ' + err.message);
@@ -457,7 +459,9 @@ export function createSelectionController({
       // The isSubmitting guard prevents concurrent writers.
       // eslint-disable-next-line require-atomic-updates
       isSubmitting = false;
-      destroy();
+      // Keep the selection and typed instructions on failure so the user can retry.
+      if (succeeded) destroy();
+      else renderSelectionToolbar();
     }
   }
 
