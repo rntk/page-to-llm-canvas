@@ -1,6 +1,7 @@
 // Service-worker pipeline: prepare source, split topics, resume or generate summaries.
 
 import { formatPipelineError } from './pipelineRuntime.js';
+import { articleRootTitle } from '../../../domain/articleView.js';
 import { computeTopics } from '../../../core/pipeline/topicRangesStage.js';
 import { resplitTopicRange } from '../../../core/pipeline/topicRangeResplit.js';
 import {
@@ -110,14 +111,6 @@ export function planResume(record) {
     resuming: revisionCurrent && checkpointComplete,
     rejectionReason: hasCheckpointTopics && !revisionCurrent ? 'content_revision_mismatch' : null,
   };
-}
-
-function sourceHost(sourceUrl) {
-  try {
-    return new URL(sourceUrl).hostname || 'Article';
-  } catch (_) {
-    return 'Article';
-  }
 }
 
 /**
@@ -531,7 +524,7 @@ export function createPipelineRunner({
         decide: judge.decide,
         decisionContextWindowTokens: judge.contextWindowTokens,
         fingerprint,
-        rootTitle: sourceHost(record.sourceUrl),
+        rootTitle: articleRootTitle(record.sourceUrl),
         fresh,
       });
     } catch (error) {

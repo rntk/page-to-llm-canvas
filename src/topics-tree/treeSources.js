@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
+import { articleRootTitle } from '../domain/articleView.js';
 import { SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
 import SummaryTreeBar from './SummaryTreeBar.jsx';
 import {
-  articleRootTitle,
   buildSummaryTreeDisplayTree,
   buildTopicsDisplayTree,
 } from './displayTree.js';

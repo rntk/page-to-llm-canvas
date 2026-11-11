@@ -232,16 +232,3 @@ export function groupSentenceSources(sentenceNumbers, sources) {
   }
   return [...groups.values()];
 }
-
-/**
- * Label for the tree's root node: the article's host, as records carry no title.
- * @param {string} [sourceUrl] Record source URL.
- * @returns {string}
- */
-export function articleRootTitle(sourceUrl) {
-  try {
-    return new URL(sourceUrl).hostname || 'Article';
-  } catch (_) {
-    return 'Article';
-  }
-}

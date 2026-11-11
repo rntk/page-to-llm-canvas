@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createElement, act } from 'react';
 import { createRoot } from 'react-dom/client';
 import TopicsTreeApp from './TopicsTreeApp.jsx';
-import { articleRootTitle } from './displayTree.js';
+import { articleRootTitle } from '../domain/articleView.js';
 import { useRecord } from '../canvas/hooks/useRecord.js';
 
 vi.mock('../canvas/hooks/useRecord.js', () => ({
