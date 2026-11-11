@@ -5,7 +5,36 @@ import {
   acceptFailedSummaryRun,
   publicSummaryRun,
   reacceptForcedEmptySummaries,
+  finalizeSummaryEntries,
 } from './summaryRunMarkers.js';
+
+describe('finalizeSummaryEntries', () => {
+  it('retains successful runs and makes accepted failures retryable after completion', () => {
+    expect(
+      finalizeSummaryEntries({
+        A: {
+          source_sentences: [1, 3],
+          acceptedFailure: true,
+          runs: [
+            { sentences: [1], text: 'kept' },
+            { sentences: [3], text: '', acceptedFailure: true },
+          ],
+        },
+        Legacy: { source_sentences: [4], runs: [], acceptedFailure: true },
+      }),
+    ).toEqual({
+      A: {
+        source_sentences: [1, 3],
+        runs: [
+          { sentences: [1], text: 'kept' },
+          { sentences: [3], text: '', forcedEmpty: true },
+        ],
+        forcedEmpty: true,
+      },
+      Legacy: { source_sentences: [4], runs: [], forcedEmpty: true },
+    });
+  });
+});
 
 describe('hasSummaryRunMarker', () => {
   it('is true for error, forcedEmpty, or acceptedFailure runs', () => {

@@ -19,7 +19,7 @@ import { isCanonicalDescendantPath } from '../../shared/runtime/topicPath.js';
 import { isCancellationError, rethrowIfCancelled } from './cancellation.js';
 import { isPermanentProviderError, isProviderFailure } from './providerFailure.js';
 import { runProviderBurst } from './providerBurst.js';
-import { isFailedSummaryRun } from './summaryRunMarkers.js';
+import { finalizeSummaryEntries } from './summaryRunMarkers.js';
 
 export { isCancellationError };
 
@@ -176,70 +176,16 @@ export async function finalizeSummariesDisabled(
   });
 }
 
-/**
- * Generates missing leaf summaries, resolves the topic-summary tree, and
- * either finalizes the record or parks it for a retry/skip decision.
- * @param {object} input Summary-stage dependencies and state.
- */
-export async function runSummaries({
+/** Executes planned leaf summaries and checkpoints their progress. */
+async function executeLeafSummaries({
   runtime,
-  topics,
-  sentenceTexts,
-  previousSummaries,
-  previousSummaryIndex = {},
-  previousSourceSummaryUnits = {},
-  contentRevision,
-  inputFingerprint,
-  forceFinalize = false,
-  acceptedMergeFailurePaths = [],
-  callLLMWithRetry,
+  pending,
+  pendingCount,
+  reusedCount,
+  total,
+  topic_summaries,
+  leafSummarizeSource,
 }) {
-  const { nodes } = buildTopicTree(topics);
-  // Resolve paths with children from tree runs; a separate request could be
-  // discarded when own sentences share a run with a child.
-  const leafTopics = topics.filter((topic) => nodes.get(topic.name)?.children.length === 0);
-  const { reused, pending, reusedCount, pendingCount, total } = planSummaryWork(
-    leafTopics,
-    previousSummaries,
-  );
-  const topic_summaries = { ...reused };
-  // Skip on an older checkpoint can have accepted a mixed-depth path's own
-  // summary. Keep that directive so ancestor requests exclude its sentences.
-  if (forceFinalize) {
-    for (const topic of topics) {
-      if (nodes.get(topic.name)?.children.length === 0) continue;
-      const previous = previousSummaries?.[topic.name];
-      if (
-        previous?.acceptedFailure === true ||
-        previous?.runs?.some((run) => run?.acceptedFailure === true)
-      ) {
-        topic_summaries[topic.name] = previous;
-      }
-    }
-  }
-  const source_summary_units =
-    previousSourceSummaryUnits && typeof previousSourceSummaryUnits === 'object'
-      ? { ...previousSourceSummaryUnits }
-      : {};
-  const persistSourceSummaryUnit = async (unit) => {
-    source_summary_units[unit.unitId] = unit;
-    await runtime.checkpointSourceSummaryUnit(unit);
-  };
-  const leafSummarizeSource = makeCachedSourceSummarizer({
-    sentenceTexts,
-    limit: createLimiter(SUMMARY_CONCURRENCY),
-    signal: runtime.signal,
-    preferContentLanguage: runtime.preferContentLanguage,
-    summaryInstructions: runtime.summaryInstructions,
-    callLLMWithRetry,
-    priorUnits: source_summary_units,
-    contentRevision,
-    inputFingerprint,
-    persistUnit: persistSourceSummaryUnit,
-    summaryMode: 'leaf',
-    maxChars: runtime.maxTextChunkChars,
-  });
-
   let done = reusedCount;
   await runtime.update({
     progress: progressAt(PIPELINE_STAGE.SUMMARIZING_TOPICS, done, total),
@@ -406,6 +352,113 @@ export async function runSummaries({
     }
   }
 
+  return done;
+}
+
+/** Persist the completed tree and its durable leaf outcomes. */
+async function finalizeSummaries({
+  runtime,
+  topics,
+  total,
+  topic_summaries,
+  topic_summary_index,
+  acceptedMergeFailurePaths,
+}) {
+  const finalizedSummaries = finalizeSummaryEntries(topic_summaries);
+  await runtime.update({
+    // Keep successful summaries visible and skipped leaves retryable.
+    ...doneTransition({
+      done: total,
+      total,
+      summariesDisabled: false,
+      summariesIncomplete:
+        acceptedMergeFailurePaths.length > 0 ||
+        Object.values(finalizedSummaries).some((summary) => summary.forcedEmpty === true),
+    }),
+    topic_summaries: finalizedSummaries,
+    topic_summary_index,
+    source_summary_units: {},
+  });
+  await runtime.log('pipeline_done', {
+    topicCount: topics.length,
+    summaryNodeCount: Object.keys(topic_summary_index).length,
+  });
+}
+
+/**
+ * Generates missing leaf summaries, resolves the topic-summary tree, and
+ * either finalizes the record or parks it for a retry/skip decision.
+ * @param {object} input Summary-stage dependencies and state.
+ */
+export async function runSummaries({
+  runtime,
+  topics,
+  sentenceTexts,
+  previousSummaries,
+  previousSummaryIndex = {},
+  previousSourceSummaryUnits = {},
+  contentRevision,
+  inputFingerprint,
+  forceFinalize = false,
+  acceptedMergeFailurePaths = [],
+  callLLMWithRetry,
+}) {
+  const { nodes } = buildTopicTree(topics);
+  // Resolve paths with children from tree runs; a separate request could be
+  // discarded when own sentences share a run with a child.
+  const leafTopics = topics.filter((topic) => nodes.get(topic.name)?.children.length === 0);
+  const { reused, pending, reusedCount, pendingCount, total } = planSummaryWork(
+    leafTopics,
+    previousSummaries,
+  );
+  const topic_summaries = { ...reused };
+  // Skip on an older checkpoint can have accepted a mixed-depth path's own
+  // summary. Keep that directive so ancestor requests exclude its sentences.
+  if (forceFinalize) {
+    for (const topic of topics) {
+      if (nodes.get(topic.name)?.children.length === 0) continue;
+      const previous = previousSummaries?.[topic.name];
+      if (
+        previous?.acceptedFailure === true ||
+        previous?.runs?.some((run) => run?.acceptedFailure === true)
+      ) {
+        topic_summaries[topic.name] = previous;
+      }
+    }
+  }
+  const source_summary_units =
+    previousSourceSummaryUnits && typeof previousSourceSummaryUnits === 'object'
+      ? { ...previousSourceSummaryUnits }
+      : {};
+  const persistSourceSummaryUnit = async (unit) => {
+    source_summary_units[unit.unitId] = unit;
+    await runtime.checkpointSourceSummaryUnit(unit);
+  };
+  const leafSummarizeSource = makeCachedSourceSummarizer({
+    sentenceTexts,
+    limit: createLimiter(SUMMARY_CONCURRENCY),
+    signal: runtime.signal,
+    preferContentLanguage: runtime.preferContentLanguage,
+    summaryInstructions: runtime.summaryInstructions,
+    callLLMWithRetry,
+    priorUnits: source_summary_units,
+    contentRevision,
+    inputFingerprint,
+    persistUnit: persistSourceSummaryUnit,
+    summaryMode: 'leaf',
+    maxChars: runtime.maxTextChunkChars,
+  });
+
+  const done = await executeLeafSummaries({
+    runtime,
+    pending,
+    pendingCount,
+    reusedCount,
+    total,
+    topic_summaries,
+    leafSummarizeSource,
+  });
+
   const leafErrors = collectSummaryErrors(topic_summaries);
   // Errors collected after Skip are new; accepted failures lost their error flag.
   if (leafErrors.length) {
@@ -495,44 +548,12 @@ export async function runSummaries({
     return;
   }
 
-  // Finalization replaces in-flight `error`/`acceptedFailure` markers with
-  // `forcedEmpty`, which is the durable DONE-state signal for a later retry.
-  const finalizedSummaries = {};
-  for (const [name, summary] of Object.entries(topic_summaries)) {
-    const finalRuns = (Array.isArray(summary.runs) ? summary.runs : []).map((run) => {
-      const accepted = run?.acceptedFailure === true || isFailedSummaryRun(run);
-      return {
-        sentences: run.sentences,
-        text: typeof run.text === 'string' ? run.text : '',
-        ...(accepted ? { forcedEmpty: true } : {}),
-      };
-    });
-    const hasForcedEmptyRun = finalRuns.some((run) => run.forcedEmpty === true);
-    finalizedSummaries[name] = {
-      runs: finalRuns,
-      source_sentences: summary.source_sentences,
-      ...(summary.error || summary.acceptedFailure || hasForcedEmptyRun
-        ? { forcedEmpty: true }
-        : {}),
-    };
-  }
-
-  await runtime.update({
-    // Keep successful summaries visible and skipped leaves retryable.
-    ...doneTransition({
-      done: total,
-      total,
-      summariesDisabled: false,
-      summariesIncomplete:
-        acceptedMergeFailurePaths.length > 0 ||
-        Object.values(finalizedSummaries).some((summary) => summary.forcedEmpty === true),
-    }),
-    topic_summaries: finalizedSummaries,
+  await finalizeSummaries({
+    runtime,
+    topics,
+    total,
+    topic_summaries,
     topic_summary_index,
-    source_summary_units: {},
-  });
-  await runtime.log('pipeline_done', {
-    topicCount: topics.length,
-    summaryNodeCount: Object.keys(topic_summary_index).length,
+    acceptedMergeFailurePaths,
   });
 }
