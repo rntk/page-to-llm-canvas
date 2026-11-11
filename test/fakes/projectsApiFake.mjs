@@ -5,8 +5,8 @@ import { vi } from 'vitest';
  * a `vi.fn` resolving to an inert success; pass overrides for the calls a test
  * cares about.
  *
- * @param {Partial<import('../../src/projects/projectsApi.js').ProjectsApi>} [overrides]
- * @returns {import('../../src/projects/projectsApi.js').ProjectsApi}
+ * @param {Partial<import('../../src/project/projectsApi.js').ProjectsApi>} [overrides]
+ * @returns {import('../../src/project/projectsApi.js').ProjectsApi}
  */
 export function createFakeProjectsApi(overrides = {}) {
   return {

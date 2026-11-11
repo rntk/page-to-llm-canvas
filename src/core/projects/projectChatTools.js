@@ -9,9 +9,6 @@ import { claimSentences } from '../pipeline/summaryTreeModel.js';
 import { createTreeModel } from './projectTreeModel.js';
 import { createTopicSearch } from './projectTopicSearch.js';
 
-// Retain the existing export for callers; generic search imports the utility directly.
-export { tokenize } from '../search/tokenize.js';
-
 export const GET_TOPIC_TOOL = Object.freeze({
   name: 'get_topic',
   description:

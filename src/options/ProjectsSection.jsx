@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { browserProjectsApi, subscribeProjectChanges } from '../projects/projectsApi.js';
+import { browserProjectsApi, subscribeProjectChanges } from '../project/projectsApi.js';
 import { useProjectsOverview } from './useProjectsOverview.js';
 
 // Chrome tab group colors mapped to approximations of the browser's own chips.

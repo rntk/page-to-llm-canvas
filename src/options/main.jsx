@@ -4,7 +4,7 @@ import { OptionsApp } from './OptionsApp.jsx';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
 import { browserLocalStore } from '../shared/runtime/localStore.js';
 import { subscribeRecordChanges } from './recordChanges.js';
-import { browserProjectsApi, subscribeProjectChanges } from '../projects/projectsApi.js';
+import { browserProjectsApi, subscribeProjectChanges } from '../project/projectsApi.js';
 import {
   browserFileHost,
   browserPageHost,

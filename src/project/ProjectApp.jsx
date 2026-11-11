@@ -30,7 +30,7 @@ function ErrorState({ title, message, pageHost }) {
  *
  * @param {object} props
  * @param {string|null} props.projectId
- * @param {import('../projects/projectsApi.js').ProjectsApi} props.api
+ * @param {import('./projectsApi.js').ProjectsApi} props.api
  * @param {function(function(): void, {scope?: object}=): function(): void} [props.subscribe]
  *   Change subscription (see `subscribeProjectChanges`).
  * @param {{activateTab: function(number): Promise<void>}} props.tabsHost

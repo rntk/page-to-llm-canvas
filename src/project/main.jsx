@@ -2,7 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { ProjectApp } from './ProjectApp.jsx';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
-import { browserProjectsApi, subscribeProjectChanges } from '../projects/projectsApi.js';
+import { browserProjectsApi, subscribeProjectChanges } from './projectsApi.js';
 import { browserScheduler } from '../shared/runtime/browserHosts.js';
 import { createThemeController } from '../shared/runtime/theme.js';
 import { createProjectHosts } from './projectHosts.js';
