@@ -1,5 +1,6 @@
-// Realm-neutral key helpers shared by the record and chat repositories. Keep
-// this module dependency-free so repository dependency direction stays acyclic.
+import { fnv1a } from '../../shared/runtime/hash.js';
+
+// Realm-neutral key helpers shared by the record and chat repositories.
 
 // Record keys may come from imported files and therefore cannot be assumed to
 // exclude `:`, the separator used by every physical storage namespace. Encoding
@@ -147,11 +148,7 @@ export function sentenceSetFingerprint(numbers) {
   if (!Array.isArray(numbers) || !numbers.length) return '';
   if (!numbers.every((number) => Number.isInteger(number) && number >= 1)) return '';
   const sorted = [...new Set(numbers)].sort((x, y) => x - y);
-  let hash = 0x811c9dc5;
-  for (const char of sorted.join(',')) {
-    hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193) >>> 0;
-  }
-  return hash.toString(36);
+  return fnv1a(sorted.join(',')).toString(36);
 }
 
 /**

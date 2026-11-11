@@ -2,6 +2,7 @@
 // row ids are private to this snapshot; every id retains its record and original
 // sentence number so overlapping article-local ids can never alias.
 
+import { fnv1a } from '../../shared/runtime/hash.js';
 import { PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
 import { ROOT, TOPIC, createPassage, createTopic } from '../pipeline/summaryTreeModel.js';
 import { PASSAGE_MAX_CHARS, buildPassages } from '../pipeline/summaryTreePassages.js';
@@ -35,14 +36,12 @@ export function hasProjectTopicSource(record) {
 
 function hashText(text) {
   // Two independent 32-bit hashes keep the revision compact in every checkpoint.
-  let first = 2166136261;
   let second = 5381;
   for (let index = 0; index < text.length; index++) {
     const value = text.charCodeAt(index);
-    first = Math.imul(first ^ value, 16777619);
     second = Math.imul(second, 33) ^ value;
   }
-  return `${(first >>> 0).toString(16)}:${(second >>> 0).toString(16)}`;
+  return `${fnv1a(text).toString(16)}:${(second >>> 0).toString(16)}`;
 }
 
 const recordIdentity = (record) => [
