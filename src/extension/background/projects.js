@@ -34,14 +34,12 @@ const byIndex = (a, b) => a.index - b.index;
 
 /**
  * @param {object} deps
- * @param {{query: Function, create: Function, update: Function, group: Function}} deps.tabs
+ * @param {{query: Function, create: Function, update: Function, group: Function, remove: Function}} deps.tabs
  * @param {{query: Function, get: Function}} deps.tabGroups
  * @param {{update: Function}} deps.windows
  * @param {function(string): string} deps.getURL `chrome.runtime.getURL`.
  * @param {ReturnType<typeof import('../../core/projects/projectStorage.js').createProjectStore>} deps.projectStore
- * @param {{isTrusted: function(): Promise<boolean>, markTrusted: function(): Promise<void>}} [deps.bindingSession]
- *   Session-scoped flag: cached groupIds are only trusted once this browser
- *   session has rebound them (storage.session is cleared on restart).
+ * @param {{isTrusted: Function, markTrusted: Function}} [deps.bindingSession] Session cache guard.
  * @param {function(): number} [deps.now]
  * @param {function(): string} [deps.createId]
  * @param {{info: Function, warn: Function}} [deps.logger]
@@ -57,6 +55,47 @@ export function createProjectService({
   createId = () => crypto.randomUUID(),
   logger = console,
 }) {
+  let startupReset = null;
+  let cacheReady = false;
+  let resetRequested = false;
+
+  // Mark the session trusted only after invalidation persists. Failures leave
+  // the cache untrusted and are retried by the next sync.
+  function ensureCacheReady() {
+    if (startupReset) return startupReset;
+    if (cacheReady && !resetRequested) return Promise.resolve();
+    startupReset = (async () => {
+      const trusted = await bindingSession.isTrusted();
+      if (!trusted || resetRequested) {
+        do {
+          resetRequested = false;
+          try {
+            await projectStore.update(
+              (current) => {
+                if (!current.some((project) => isTabGroupId(project.groupId))) return null;
+                return current.map((project) =>
+                  isTabGroupId(project.groupId)
+                    ? { ...project, groupId: null, updatedAt: now() }
+                    : project,
+                );
+              },
+              { includeTrees: false },
+            );
+            await bindingSession.markTrusted();
+          } catch (err) {
+            // Failure and concurrent startup requests both require another reset.
+            // eslint-disable-next-line require-atomic-updates
+            resetRequested = true;
+            throw err;
+          }
+        } while (resetRequested);
+      }
+      cacheReady = true;
+    })().finally(() => {
+      startupReset = null;
+    });
+    return startupReset;
+  }
   const pageBaseUrl = () => getURL(PROJECT_PAGE_PATH);
   const pageUrl = (projectId) => buildProjectPageUrl(pageBaseUrl(), projectId);
 
@@ -70,25 +109,20 @@ export function createProjectService({
    * @returns {Promise<{projects: object[], groups: object[], tabs: object[]}>}
    */
   async function sync() {
+    do {
+      await ensureCacheReady();
+    } while (resetRequested);
     const live = await snapshot();
-    let trustCached = true;
-    try {
-      trustCached = await bindingSession.isTrusted();
-    } catch {
-      /* Without session storage the cache is the best information available. */
-    }
     const projects = await projectStore.update(
       (current) => {
         const result = rebindProjects(current, live.groups, live.tabs, {
           pageBaseUrl: pageBaseUrl(),
           now: now(),
-          trustCached,
         });
         return result.changed ? result.projects : null;
       },
       { includeTrees: false },
     );
-    if (!trustCached) await bindingSession.markTrusted().catch(() => {});
     return { projects, ...live };
   }
 
@@ -127,7 +161,7 @@ export function createProjectService({
       if (existing.groupId !== group.id) {
         await tabs.group({ groupId: group.id, tabIds: [existing.id] });
       }
-      await focusTab(existing);
+      await focusTab(existing).catch((err) => logger.warn?.('project tab focus failed:', err));
       return { tabId: existing.id, createdTab: false };
     }
     const groupTabs = allTabs.filter((t) => t.groupId === group.id);
@@ -138,8 +172,19 @@ export function createProjectService({
       ...(lastIndex >= 0 ? { index: lastIndex + 1 } : {}),
       active: true,
     });
-    await tabs.group({ groupId: group.id, tabIds: [created.id] });
-    if (Number.isInteger(group.windowId)) await windows.update(group.windowId, { focused: true });
+    try {
+      await tabs.group({ groupId: group.id, tabIds: [created.id] });
+    } catch (err) {
+      await tabs
+        .remove(created.id)
+        .catch((cleanupErr) => logger.warn?.('project tab cleanup failed:', cleanupErr));
+      throw err;
+    }
+    if (Number.isInteger(group.windowId)) {
+      await windows
+        .update(group.windowId, { focused: true })
+        .catch((err) => logger.warn?.('project tab focus failed:', err));
+    }
     return { tabId: created.id, createdTab: true };
   }
 
@@ -170,6 +215,82 @@ export function createProjectService({
 
   const service = {
     sync,
+
+    /**
+     * Browser startup can reuse group ids. Clear the persisted cache before any
+     * rebinding so a worker restart during startup cannot trust old ids.
+     * Extension install/update/reload must not take this path.
+     * @returns {Promise<object>}
+     */
+    handleStartup() {
+      resetRequested = true;
+      cacheReady = false;
+      return sync();
+    },
+
+    /**
+     * Restores a saved project's identity and data to a live, unclaimed group.
+     * @param {string} projectId
+     * @param {number} groupId
+     * @returns {Promise<{project: object, tabId: number, createdTab: boolean}>}
+     */
+    async attachProjectToGroup(projectId, groupId) {
+      const state = await sync();
+      const group = state.groups.find((item) => item.id === groupId);
+      if (!group) throw new Error('tab group not found');
+      let project;
+      let previous;
+      await projectStore.update(
+        (current) => {
+          const saved = current.find((item) => item.id === projectId);
+          if (!saved) throw new Error('project not found');
+          previous = saved;
+          if (isTabGroupId(saved.groupId) && saved.groupId !== groupId) {
+            throw new Error('project is already attached to another group');
+          }
+          if (current.some((item) => item.groupId === groupId && item.id !== projectId)) {
+            throw new Error('tab group already has a project');
+          }
+          project = {
+            ...saved,
+            groupId,
+            title: group.title || saved.title,
+            color: group.color || saved.color,
+            updatedAt: now(),
+          };
+          return current.map((item) => (item.id === projectId ? project : item));
+        },
+        { includeTrees: false },
+      );
+      try {
+        return { project, ...(await ensureProjectTabInGroup(project, group, state.tabs)) };
+      } catch (err) {
+        // Keep the project attachable: undo the binding if the tab could not be
+        // created (group closed meanwhile, window gone, ...).
+        if (previous.groupId !== groupId) {
+          await projectStore
+            .update(
+              (current) =>
+                current.some((item) => item.id === projectId && item.groupId === groupId)
+                  ? current.map((item) =>
+                      item.id === projectId
+                        ? {
+                            ...item,
+                            groupId: previous.groupId,
+                            title: item.title === project.title ? previous.title : item.title,
+                            color: item.color === project.color ? previous.color : item.color,
+                            updatedAt: now(),
+                          }
+                        : item,
+                    )
+                  : null,
+              { includeTrees: false },
+            )
+            .catch((rollbackErr) => logger.warn?.('attach rollback failed:', rollbackErr));
+        }
+        throw err;
+      }
+    },
 
     /** @param {string|undefined} url @returns {boolean} */
     isProjectPageUrl: (url) => parseProjectIdFromUrl(url, pageBaseUrl()) !== null,
@@ -326,8 +447,34 @@ export function createProjectService({
      * @param {object|undefined} tab
      */
     async openProjectForTab(tab) {
+      const wasGrouped = isTabGroupId(tab?.groupId);
       const groupId = await service.groupForTab(tab);
-      return groupId === null ? null : service.openProjectForGroup(groupId);
+      if (groupId === null) return null;
+      const state = await sync();
+      const group = state.groups.find((item) => item.id === groupId);
+      if (
+        wasGrouped &&
+        group?.title &&
+        !state.projects.some((project) => project.groupId === groupId) &&
+        state.projects.some(
+          (project) =>
+            !isTabGroupId(project.groupId) &&
+            project.title === group.title &&
+            project.color === group.color,
+        )
+      ) {
+        // A closed project may belong to this group. Offer an explicit choice
+        // before creating a fresh persistent identity.
+        const optionsUrl = `${getURL('options.html')}#projects`;
+        const existing = state.tabs.find((item) => (item.url || item.pendingUrl) === optionsUrl);
+        if (existing) {
+          await focusTab(existing);
+          return { needsAttachment: true, tabId: existing.id };
+        }
+        const created = await tabs.create({ url: optionsUrl, active: true });
+        return { needsAttachment: true, tabId: created.id };
+      }
+      return service.openProjectForGroup(groupId);
     },
 
     /**
@@ -480,7 +627,9 @@ export function installProjectRuntime({
   });
   listen(chromeRuntime?.onStartup, () => {
     installMenus();
-    void scheduleRebind();
+    projectService.handleStartup().catch((err) => {
+      logger.warn?.('project startup rebinding failed:', err);
+    });
   });
 
   listen(chromeContextMenus?.onClicked, (info, tab) => {

@@ -46,6 +46,9 @@ export const SUMMARY_GENERATION_SOURCE_STATUSES = Object.freeze([
 ]);
 const SUMMARY_GENERATION_SOURCE_STATUS_VALUES = new Set(SUMMARY_GENERATION_SOURCE_STATUSES);
 
+// Display consumers require explicit non-negative levels and throw on malformed
+// entries. Validate a supplied index here so imported records stay viewable,
+// while allowing absent/null indexes from older exports.
 /** @param {unknown} value @returns {boolean} */
 function isImportableTopicSummaryIndex(value) {
   if (value == null) return true;
@@ -87,16 +90,12 @@ const RESERVED_RECORD_KEYS = new Set(['pagetollm:mutation-queue', 'pagetollm:ind
  * @returns {boolean}
  */
 export function isImportableRecord(record) {
-  return (
-    !!record &&
-    typeof record === 'object' &&
-    typeof record.key === 'string' &&
-    !!record.key.trim() &&
-    !RESERVED_RECORD_KEYS.has(record.key.trim()) &&
-    typeof record.html === 'string' &&
-    !!record.html.trim() &&
-    isImportableTopicSummaryIndex(record.topic_summary_index)
-  );
+  if (!record || typeof record !== 'object') return false;
+  if (typeof record.key !== 'string') return false;
+  const key = record.key.trim();
+  if (!key || RESERVED_RECORD_KEYS.has(key)) return false;
+  if (typeof record.html !== 'string' || !record.html.trim()) return false;
+  return isImportableTopicSummaryIndex(record.topic_summary_index);
 }
 
 /**

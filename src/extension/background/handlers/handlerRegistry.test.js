@@ -153,6 +153,7 @@ describe('message handler registry (no chrome global)', () => {
         MSG.listProjectsOverview,
         MSG.createProjectFromGroup,
         MSG.openProjectForGroup,
+        MSG.attachProjectToGroup,
         MSG.openProject,
         MSG.focusProjectGroup,
         MSG.deleteProject,

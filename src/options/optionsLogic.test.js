@@ -5,7 +5,6 @@ import {
   providerToForm,
   updateProviderFormField,
   updateProviderFormType,
-  dedupeImportedRecords,
   extractImportedRecords,
   isImportableRecord,
   normalizeImportedRecords,
@@ -147,14 +146,15 @@ describe('record helpers', () => {
     ).toBe(false);
   });
 
-  it('deduplicates imported records by key with later entries winning', () => {
+  it('normalizes and deduplicates imported records by trimmed key with later entries winning', () => {
     expect(
-      dedupeImportedRecords([
+      normalizeImportedRecords([
         { key: 'r1', html: '<p>old</p>' },
         { key: 'r2', html: '<p>other</p>' },
-        { key: 'r1', html: '<p>new</p>' },
+        { key: ' r1 ', html: '<p>new</p>' },
         { key: 'metadata-only', sourceUrl: 'https://example.com' },
-      ]),
+        { key: ' pagetollm:index ', html: '<p>reserved</p>' },
+      ]).map(({ key, html }) => ({ key, html })),
     ).toEqual([
       { key: 'r1', html: '<p>new</p>' },
       { key: 'r2', html: '<p>other</p>' },

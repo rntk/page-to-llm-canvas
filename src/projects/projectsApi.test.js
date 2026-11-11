@@ -10,6 +10,12 @@ describe('projects api', () => {
     expect(send).toHaveBeenCalledWith({ type: MSG.getProjectView, projectId: 'a' });
     await api.openProjectForGroup(4);
     expect(send).toHaveBeenLastCalledWith({ type: MSG.openProjectForGroup, groupId: 4 });
+    await api.attachProjectToGroup('a', 4);
+    expect(send).toHaveBeenLastCalledWith({
+      type: MSG.attachProjectToGroup,
+      projectId: 'a',
+      groupId: 4,
+    });
     await api.focusGroup('b');
     expect(send).toHaveBeenLastCalledWith({ type: MSG.focusProjectGroup, projectId: 'b' });
     await api.buildProjectTopicTree('a', { fresh: true });
@@ -52,16 +58,13 @@ it('scopes tab events to members and arrivals, including departures', () => {
   const tabs = { onUpdated: event(), onRemoved: event() };
   const tabGroups = { onUpdated: event() };
   const onChange = vi.fn();
-  const unsubscribe = subscribeProjectChanges(
-    onChange,
-    {
-      apis: { tabs, tabGroups },
-      scope: {
-        projectId: 'a',
-        getView: () => ({ project: { groupId: 4 }, tabs: [{ id: 1 }] }),
-      },
+  const unsubscribe = subscribeProjectChanges(onChange, {
+    apis: { tabs, tabGroups },
+    scope: {
+      projectId: 'a',
+      getView: () => ({ project: { groupId: 4 }, tabs: [{ id: 1 }] }),
     },
-  );
+  });
   const update = tabs.onUpdated.addListener.mock.calls[0][0];
   update(2, {}, { id: 2, groupId: 5 });
   expect(onChange).not.toHaveBeenCalled();

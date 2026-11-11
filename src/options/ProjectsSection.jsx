@@ -55,11 +55,13 @@ export function ProjectsSection({
 }) {
   const [busyKeys, setBusyKeys] = useState(() => new Set());
   const [actionError, setActionError] = useState('');
+  const [selectedProjects, setSelectedProjects] = useState({});
   const { overview, isLoading, loadError, reload } = useProjectsOverview({
     listOverview: projectsApi.listProjectsOverview,
     subscribe: subscribeProjects,
   });
   const { projects, ungroupedGroups } = overview;
+  const closedProjects = projects.filter((project) => !project.isOpen);
 
   const runAction = useCallback(
     async (busyKey, action, { refresh = false } = {}) => {
@@ -195,6 +197,11 @@ export function ProjectsSection({
       )}
 
       <h3 className="projects-subheading">Tab groups without a project</h3>
+      {!isLoading && ungroupedGroups.length > 0 && closedProjects.length > 0 ? (
+        <div className="note note--stacked">
+          Attach a closed project to a tab group to keep its saved work, or create a new project.
+        </div>
+      ) : null}
       {isLoading ? null : ungroupedGroups.length === 0 ? (
         <div className="empty">
           No open tab groups. Group some tabs in your browser to start a project.
@@ -211,6 +218,8 @@ export function ProjectsSection({
           <tbody>
             {ungroupedGroups.map((group) => {
               const busy = busyKeys.has(`group:${group.groupId}`);
+              const selectedProject = selectedProjects[group.groupId] || '';
+              const canAttach = closedProjects.some((project) => project.id === selectedProject);
               return (
                 <tr key={group.groupId}>
                   <td>
@@ -222,6 +231,46 @@ export function ProjectsSection({
                   <td>{tabCountLabel(group.tabCount)}</td>
                   <td>
                     <div className="row-actions">
+                      {closedProjects.length > 0 ? (
+                        <>
+                          <label htmlFor={`attach-project-${group.groupId}`}>
+                            Existing project for {group.title || 'Untitled group'}
+                          </label>
+                          <select
+                            id={`attach-project-${group.groupId}`}
+                            value={canAttach ? selectedProject : ''}
+                            disabled={busy}
+                            onChange={(event) =>
+                              setSelectedProjects((prev) => ({
+                                ...prev,
+                                [group.groupId]: event.target.value,
+                              }))
+                            }
+                          >
+                            <option value="">Select a closed project</option>
+                            {closedProjects.map((project) => (
+                              <option key={project.id} value={project.id}>
+                                {project.title || 'Untitled project'} — {project.color || 'grey'}
+                                {project.createdAt ? ` — ${formatDate(project.createdAt)}` : ''}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            disabled={busy || !canAttach}
+                            onClick={() =>
+                              void runAction(
+                                `group:${group.groupId}`,
+                                () =>
+                                  projectsApi.attachProjectToGroup(selectedProject, group.groupId),
+                                { refresh: true },
+                              )
+                            }
+                          >
+                            Attach &amp; open project
+                          </button>
+                        </>
+                      ) : null}
                       <button
                         type="button"
                         disabled={busy}

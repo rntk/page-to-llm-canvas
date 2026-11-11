@@ -45,6 +45,12 @@ describe('runtime contracts', () => {
     },
   );
 
+  it.each([undefined, null, {}])('accepts legacy summary index %j', (topic_summary_index) => {
+    expect(
+      isImportableRecord({ key: 'record-1', html: '<p>Article</p>', topic_summary_index }),
+    ).toBe(true);
+  });
+
   it('rejects imported summary indexes with invalid levels', () => {
     expect(
       isImportableRecord({

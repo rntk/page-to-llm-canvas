@@ -53,6 +53,10 @@ export function createProjectHandlers({
     [MSG.openProjectForGroup]: entry(validateGroupId, (msg) =>
       projectService.openProjectForGroup(msg.groupId),
     ),
+    [MSG.attachProjectToGroup]: entry(
+      (msg) => validateProjectId(msg) || validateGroupId(msg),
+      (msg) => projectService.attachProjectToGroup(msg.projectId, msg.groupId),
+    ),
     [MSG.openProject]: entry(validateProjectId, (msg) => projectService.openProject(msg.projectId)),
     [MSG.focusProjectGroup]: entry(validateProjectId, (msg) =>
       projectService.focusGroup(msg.projectId),

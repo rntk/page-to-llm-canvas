@@ -37,6 +37,7 @@ export const MSG = Object.freeze({
   listProjectsOverview: 'listProjectsOverview',
   createProjectFromGroup: 'createProjectFromGroup',
   openProjectForGroup: 'openProjectForGroup',
+  attachProjectToGroup: 'attachProjectToGroup',
   openProject: 'openProject',
   focusProjectGroup: 'focusProjectGroup',
   deleteProject: 'deleteProject',

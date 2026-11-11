@@ -243,9 +243,8 @@ function isExtensionPageSender(sender) {
   }
 }
 
-// Projects bind persistent ids to runtime-only tab group ids. storage.session
-// survives worker restarts but not browser restarts, which is exactly when
-// cached groupIds stop being trustworthy.
+// A session guard protects syncs dispatched before onStartup and survives
+// worker restarts. Persist invalidation before marking cached ids trusted.
 const PROJECT_BINDING_SESSION_KEY = 'pagetollm:projects-bound';
 const projectStore = createProjectStore();
 const projectService = createProjectService({
@@ -254,6 +253,7 @@ const projectService = createProjectService({
     create: (...args) => chrome.tabs.create(...args),
     update: (...args) => chrome.tabs.update(...args),
     group: (...args) => chrome.tabs.group(...args),
+    remove: (...args) => chrome.tabs.remove(...args),
   },
   tabGroups: {
     query: (...args) => chrome.tabGroups.query(...args),
@@ -265,7 +265,7 @@ const projectService = createProjectService({
   bindingSession: {
     async isTrusted() {
       const area = chrome.storage?.session;
-      if (!area?.get) return true;
+      if (!area?.get) return false;
       const items = await area.get(PROJECT_BINDING_SESSION_KEY);
       return !!items?.[PROJECT_BINDING_SESSION_KEY];
     },

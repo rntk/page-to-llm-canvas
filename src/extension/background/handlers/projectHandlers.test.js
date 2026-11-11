@@ -7,6 +7,7 @@ function makeService() {
     listProjectsOverview: vi.fn(async () => ({ projects: [], ungroupedGroups: [] })),
     createProjectFromGroup: vi.fn(async () => ({ project: { id: 'a' }, createdProject: true })),
     openProjectForGroup: vi.fn(async () => ({ project: { id: 'a' }, tabId: 1 })),
+    attachProjectToGroup: vi.fn(async () => ({ project: { id: 'a' }, tabId: 1, createdTab: true })),
     openProject: vi.fn(async () => ({ isOpen: false })),
     focusGroup: vi.fn(async () => ({ isOpen: true, tabId: 2 })),
     deleteProject: vi.fn(async () => ({ deleted: true })),
@@ -56,6 +57,11 @@ describe('project handlers', () => {
     expect(handlers[MSG.openProjectForGroup].validate({ groupId: -1 })).toBe('invalid groupId');
     expect(handlers[MSG.createProjectFromGroup].validate({ groupId: '3' })).toBe('invalid groupId');
     expect(handlers[MSG.openProjectForGroup].validate({ groupId: 3 })).toBeNull();
+    expect(handlers[MSG.attachProjectToGroup].validate({ groupId: 3 })).toBe('invalid projectId');
+    expect(handlers[MSG.attachProjectToGroup].validate({ projectId: 'a', groupId: -1 })).toBe(
+      'invalid groupId',
+    );
+    expect(handlers[MSG.attachProjectToGroup].validate({ projectId: 'a', groupId: 3 })).toBeNull();
     for (const type of [
       MSG.openProject,
       MSG.focusProjectGroup,
@@ -81,6 +87,15 @@ describe('project handlers', () => {
     });
     await handlers[MSG.openProjectForGroup].handle({ groupId: 4 });
     expect(projectService.openProjectForGroup).toHaveBeenCalledWith(4);
+    expect(await handlers[MSG.attachProjectToGroup].handle({ projectId: 'a', groupId: 4 })).toEqual(
+      {
+        ok: true,
+        project: { id: 'a' },
+        tabId: 1,
+        createdTab: true,
+      },
+    );
+    expect(projectService.attachProjectToGroup).toHaveBeenCalledWith('a', 4);
     await handlers[MSG.focusProjectGroup].handle({ projectId: 'b' });
     expect(projectService.focusGroup).toHaveBeenCalledWith('b');
     expect(await handlers[MSG.listProjectsOverview].handle({})).toEqual({

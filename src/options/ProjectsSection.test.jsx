@@ -38,6 +38,7 @@ function makeApi(overview = { projects: [], ungroupedGroups: [] }) {
     deleteProject: vi.fn().mockResolvedValue({ deleted: true }),
     createProjectFromGroup: vi.fn().mockResolvedValue({}),
     openProjectForGroup: vi.fn().mockResolvedValue({}),
+    attachProjectToGroup: vi.fn().mockResolvedValue({}),
   };
 }
 
@@ -167,6 +168,47 @@ describe('ProjectsSection', () => {
     await click(button('Create project', row));
     expect(api.createProjectFromGroup).toHaveBeenCalledWith(21);
     expect(api.listProjectsOverview.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('offers closed projects for explicit attachment to each group', async () => {
+    const api = makeApi({
+      projects: [OPEN_PROJECT, CLOSED_PROJECT],
+      ungroupedGroups: [GROUP, UNTITLED_GROUP],
+    });
+    await mount(api);
+    expect(container.textContent).toContain('keep its saved work');
+    const [firstRow, secondRow] = rows(1);
+    const select = firstRow.querySelector('select');
+    expect(select.labels[0].textContent).toContain('Reading');
+    expect(Array.from(select.options, (option) => option.value)).toEqual(['', 'p2']);
+    expect(button('Attach & open project', firstRow).disabled).toBe(true);
+    await act(async () => {
+      select.value = 'p2';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(button('Attach & open project', secondRow).disabled).toBe(true);
+    api.listProjectsOverview.mockClear();
+    await click(button('Attach & open project', firstRow));
+    expect(api.attachProjectToGroup).toHaveBeenCalledWith('p2', 21);
+    expect(api.listProjectsOverview).toHaveBeenCalledTimes(1);
+    expect(api.openProjectForGroup).not.toHaveBeenCalled();
+  });
+
+  it('shows attachment errors and leaves the selection available for retry', async () => {
+    const api = makeApi({ projects: [CLOSED_PROJECT], ungroupedGroups: [GROUP] });
+    api.attachProjectToGroup.mockRejectedValue(new Error('Group no longer available'));
+    await mount(api);
+    const row = rows(1)[0];
+    const select = row.querySelector('select');
+    await act(async () => {
+      select.value = 'p2';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await click(button('Attach & open project', row));
+    expect(container.querySelector('.form-error').textContent).toContain(
+      'Group no longer available',
+    );
+    expect(button('Attach & open project', row).disabled).toBe(false);
   });
 
   it('disables a row while its call is in flight', async () => {

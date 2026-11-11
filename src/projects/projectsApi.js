@@ -37,6 +37,12 @@ export function createProjectsApi(messenger = browserRuntimeMessenger) {
     openProjectForGroup: (groupId) => request({ type: MSG.openProjectForGroup, groupId }),
     /**
      * @param {string} projectId
+     * @param {number} groupId
+     */
+    attachProjectToGroup: (projectId, groupId) =>
+      request({ type: MSG.attachProjectToGroup, projectId, groupId }),
+    /**
+     * @param {string} projectId
      * @returns {Promise<{project: object, isOpen: boolean, tabId: number, createdTab: boolean}>}
      */
     openProject: (projectId) => request({ type: MSG.openProject, projectId }),

@@ -10,7 +10,6 @@ import {
   actionResponseError,
   recordActionRouting,
   normalizeImportedRecords,
-  dedupeImportedRecords,
 } from './optionsLogic.js';
 import { safeFilenamePart } from '../utils/safeFilenamePart.js';
 import { listRecords, sendMessage } from './optionsApi.js';
@@ -245,7 +244,7 @@ export function RecordsSection({ fileHost, pageHost, subscribeRecords = subscrib
     setIsImporting(true);
     try {
       const payload = await fileHost.readJson(file);
-      const records = dedupeImportedRecords(normalizeImportedRecords(payload));
+      const records = normalizeImportedRecords(payload);
       if (records.length === 0) {
         setError('No importable records found in that file');
         return;

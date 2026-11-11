@@ -113,21 +113,6 @@ export function updateProviderFormType(form, type, defaultModel = '') {
 export { extractImportedRecords, isImportableRecord };
 
 /**
- * Deduplicates records by key. Later entries win because they are the values
- * that would overwrite earlier entries in storage anyway.
- *
- * @param {Array<object>} records
- * @returns {Array<object>}
- */
-export function dedupeImportedRecords(records) {
-  const byKey = new Map();
-  for (const record of Array.isArray(records) ? records : []) {
-    if (isImportableRecord(record)) byKey.set(record.key.trim(), record);
-  }
-  return Array.from(byKey.values());
-}
-
-/**
  * UI preview of what the worker will store for an import payload. The worker
  * re-runs the same decoder authoritatively (see `MSG.importRecords`); this only
  * feeds the "no importable records" / overwrite-confirmation checks.

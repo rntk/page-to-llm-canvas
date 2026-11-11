@@ -24,6 +24,9 @@ function makeBrowser({ groups = [], tabs = [] } = {}) {
         return created;
       }),
       update: vi.fn(async () => ({})),
+      remove: vi.fn(async (id) => {
+        state.tabs = state.tabs.filter((t) => t.id !== id);
+      }),
       group: vi.fn(async ({ groupId, tabIds }) => {
         if (groupId === undefined) {
           groupId = Math.max(0, ...state.groups.map((g) => g.id)) + 1;
@@ -43,7 +46,7 @@ function makeBrowser({ groups = [], tabs = [] } = {}) {
   return { state, api };
 }
 
-function makeService(browser, { stored = [], trusted = true } = {}) {
+function makeService(browser, { stored = [], bindingSession } = {}) {
   const data = { projects: stored };
   const projectStore = createProjectStore({
     key: 'projects',
@@ -52,20 +55,16 @@ function makeService(browser, { stored = [], trusted = true } = {}) {
     queue: (_key, fn) => fn(),
   });
   let ids = 0;
-  const bindingSession = {
-    isTrusted: vi.fn(async () => trusted),
-    markTrusted: vi.fn(async () => {}),
-  };
   const service = createProjectService({
     ...browser.api,
     getURL: (path) => `chrome-extension://ext/${path}`,
     projectStore,
-    bindingSession,
+    ...(bindingSession ? { bindingSession } : {}),
     now: () => 1000,
     createId: () => `p${++ids}`,
     logger: { info: vi.fn(), warn: vi.fn() },
   });
-  return { service, data, bindingSession };
+  return { service, data };
 }
 
 const group = (id, title = 'Work', windowId = 1) => ({ id, title, color: 'blue', windowId });
@@ -196,26 +195,314 @@ describe('openProjectForGroup', () => {
 });
 
 describe('rebinding through the service', () => {
-  it('rebinds after a restart via the project tab and marks the session trusted', async () => {
+  it('rebinds after browser startup via the project tab', async () => {
     const browser = makeBrowser({
       groups: [group(3, 'Other'), group(55, 'Renamed')],
       tabs: [tab(9, 55, 0, { url: `${BASE}?id=a` })],
     });
-    const { service, data, bindingSession } = makeService(browser, {
+    const { service, data } = makeService(browser, {
       stored: [stored('a', 3)],
-      trusted: false,
     });
 
-    await service.sync();
+    await service.handleStartup();
 
     expect(data.projects[0]).toMatchObject({ groupId: 55, title: 'Renamed' });
+  });
+
+  it.each(['', 'Duplicate'])(
+    'keeps anchorless %j groups bound across worker reloads',
+    async (title) => {
+      const browser = makeBrowser({ groups: [group(7, title), group(8, title)] });
+      const projects = [stored('a', 7, title), stored('b', 8, title)];
+      // The helper defaults to a trusted session when recreating the service.
+      const { service, data } = makeService(browser, { stored: projects });
+      await service.sync();
+      const result = await service.openProjectForTab(tab(1, 7, 0));
+      expect(result).toMatchObject({ project: { id: 'a' }, createdProject: false });
+      expect(data.projects).toHaveLength(2);
+      expect(data.projects.map((project) => project.groupId)).toEqual([7, 8]);
+    },
+  );
+
+  it('rejects reused ids only on browser startup and keeps them invalid after another reload', async () => {
+    const browser = makeBrowser({ groups: [group(7, ''), group(8, '')] });
+    const { service, data } = makeService(browser, { stored: [stored('a', 7, '')] });
+    await service.handleStartup();
+    expect(data.projects[0].groupId).toBeNull();
+    const reloaded = makeService(browser, { stored: data.projects });
+    await reloaded.service.sync();
+    expect(reloaded.data.projects[0].groupId).toBeNull();
+  });
+
+  it('uses an unambiguous title and color after browser startup', async () => {
+    const browser = makeBrowser({ groups: [group(7, 'Other'), group(55, 'Work')] });
+    const { service, data } = makeService(browser, { stored: [stored('a', 7)] });
+    await service.handleStartup();
+    expect(data.projects[0].groupId).toBe(55);
+  });
+
+  it('makes concurrent sync calls wait for startup invalidation to persist', async () => {
+    const browser = makeBrowser({ groups: [group(7, '')] });
+    let saved = [stored('a', 7, '')];
+    let finishReset;
+    const projectStore = createProjectStore({
+      get: async (key) => ({ [key]: saved }),
+      set: async (items) => {
+        await new Promise((resolve) => {
+          finishReset = resolve;
+        });
+        saved = items.projects;
+      },
+      queue: (_key, fn) => fn(),
+      key: 'projects',
+    });
+    const service = createProjectService({
+      ...browser.api,
+      getURL: () => BASE,
+      projectStore,
+    });
+    const startup = service.handleStartup();
+    const concurrent = service.sync();
+    await vi.waitFor(() => expect(finishReset).toBeTypeOf('function'));
+    expect(browser.api.tabGroups.query).not.toHaveBeenCalled();
+    finishReset();
+    await Promise.all([startup, concurrent]);
+    expect(saved[0].groupId).toBeNull();
+  });
+
+  it('keeps syncing after the startup reset write fails', async () => {
+    const browser = makeBrowser({ groups: [group(7, '')] });
+    let fail = true;
+    let saved = [stored('a', 7, '')];
+    const projectStore = createProjectStore({
+      get: async (key) => ({ [key]: saved }),
+      set: async (items) => {
+        if (fail) {
+          fail = false;
+          throw new Error('quota');
+        }
+        saved = items.projects;
+      },
+      queue: (_key, fn) => fn(),
+      key: 'projects',
+    });
+    const service = createProjectService({
+      ...browser.api,
+      getURL: () => BASE,
+      projectStore,
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+    await expect(service.handleStartup()).rejects.toThrow('quota');
+    await expect(service.sync()).resolves.toMatchObject({ projects: expect.any(Array) });
+    expect(saved[0].groupId).toBeNull();
+  });
+
+  it('offers project recovery from the menu instead of creating another project', async () => {
+    const browser = makeBrowser({ groups: [group(7), group(8)], tabs: [tab(1, 7, 0)] });
+    const { service, data } = makeService(browser, { stored: [stored('a', null)] });
+    expect(await service.openProjectForTab(browser.state.tabs[0])).toMatchObject({
+      needsAttachment: true,
+    });
+    expect(browser.api.tabs.create).toHaveBeenCalledWith({
+      url: 'chrome-extension://ext/options.html#projects',
+      active: true,
+    });
+    expect(data.projects).toHaveLength(1);
+    expect(browser.api.tabs.group).not.toHaveBeenCalled();
+  });
+
+  it('reuses the recovery options tab on repeated requests', async () => {
+    const browser = makeBrowser({ groups: [group(7), group(8)], tabs: [tab(1, 7, 0)] });
+    const { service } = makeService(browser, { stored: [stored('a', null)] });
+    expect(await service.openProjectForTab(browser.state.tabs[0])).toMatchObject({
+      needsAttachment: true,
+      tabId: 100,
+    });
+    expect(await service.openProjectForTab(browser.state.tabs[0])).toMatchObject({
+      needsAttachment: true,
+      tabId: 100,
+    });
+    expect(browser.api.tabs.create).toHaveBeenCalledTimes(1);
+    expect(browser.api.tabs.update).toHaveBeenCalledWith(100, { active: true });
+  });
+
+  it('creates projects for unrelated groups and ungrouped tabs despite closed projects', async () => {
+    const browser = makeBrowser({
+      groups: [group(7, 'Other')],
+      tabs: [tab(1, 7, 0), tab(2, -1, 1)],
+    });
+    const { service } = makeService(browser, { stored: [stored('a', null)] });
+    expect(await service.openProjectForTab(browser.state.tabs[0])).toMatchObject({
+      createdProject: true,
+    });
+    expect(await service.openProjectForTab(browser.state.tabs[1])).toMatchObject({
+      createdProject: true,
+    });
+  });
+
+  it('invalidates IDs before the first snapshot and retries after a worker restart', async () => {
+    const browser = makeBrowser({ groups: [group(7, '')] });
+    let trusted = false;
+    const bindingSession = {
+      isTrusted: vi.fn(async () => trusted),
+      markTrusted: vi.fn(async () => {
+        trusted = true;
+      }),
+    };
+    let saved = [stored('a', 7, '')];
+    let fail = true;
+    const projectStore = createProjectStore({
+      key: 'projects',
+      get: async (key) => ({ [key]: saved }),
+      set: async (items) => {
+        if (fail) {
+          fail = false;
+          throw new Error('quota');
+        }
+        saved = items.projects;
+      },
+      queue: (_key, fn) => fn(),
+    });
+    const makeWorker = () =>
+      createProjectService({ ...browser.api, getURL: () => BASE, projectStore, bindingSession });
+    const first = makeWorker();
+    await expect(Promise.all([first.sync(), first.sync()])).rejects.toThrow('quota');
+    expect(trusted).toBe(false);
+    expect(browser.api.tabGroups.query).not.toHaveBeenCalled();
+    await makeWorker().sync();
+    expect(saved[0].groupId).toBeNull();
+    expect(trusted).toBe(true);
+    expect(bindingSession.markTrusted).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['isTrusted', 'markTrusted'])('retries after %s fails', async (failingMethod) => {
+    const browser = makeBrowser({ groups: [group(7, '')] });
+    const bindingSession = {
+      isTrusted: vi.fn(async () => false),
+      markTrusted: vi.fn(async () => {}),
+    };
+    bindingSession[failingMethod].mockRejectedValueOnce(new Error('session failure'));
+    const { service, data } = makeService(browser, {
+      stored: [stored('a', 7, '')],
+      bindingSession,
+    });
+    await expect(service.sync()).rejects.toThrow('session failure');
+    expect(browser.api.tabGroups.query).not.toHaveBeenCalled();
+    await service.sync();
+    expect(data.projects[0].groupId).toBeNull();
     expect(bindingSession.markTrusted).toHaveBeenCalled();
+  });
+
+  it('preserves anchorless bindings in an already trusted session', async () => {
+    const browser = makeBrowser({ groups: [group(7, ''), group(8, '')] });
+    const bindingSession = { isTrusted: vi.fn(async () => true), markTrusted: vi.fn() };
+    const { service, data } = makeService(browser, {
+      stored: [stored('a', 7, '')],
+      bindingSession,
+    });
+    await service.sync();
+    expect(data.projects[0].groupId).toBe(7);
+    expect(bindingSession.markTrusted).not.toHaveBeenCalled();
   });
 
   it('unbinds removed groups', async () => {
     const { service, data } = makeService(makeBrowser(), { stored: [stored('a', 3)] });
     await service.handleGroupRemoved(3);
     expect(data.projects[0].groupId).toBeNull();
+  });
+});
+
+describe('attachProjectToGroup', () => {
+  it('recovers an unbound identity and saved tree and moves its standalone page into the group', async () => {
+    const browser = makeBrowser({
+      groups: [group(7, '')],
+      tabs: [tab(1, 7, 0), tab(2, -1, 1, { url: `${BASE}?id=a` })],
+    });
+    const tree = { status: 'done', topics: [{ title: 'Saved topic' }] };
+    const { service, data } = makeService(browser, {
+      stored: [{ ...stored('a', null, 'Saved'), topic_tree: tree }],
+    });
+    expect(await service.attachProjectToGroup('a', 7)).toMatchObject({
+      project: { id: 'a', groupId: 7, title: 'Saved' },
+      tabId: 2,
+      createdTab: false,
+    });
+    expect(data.projects).toHaveLength(1);
+    expect(data['projects:tree:a']).toEqual(tree);
+    expect(browser.api.tabs.group).toHaveBeenCalledWith({ groupId: 7, tabIds: [2] });
+    expect(browser.api.tabs.create).not.toHaveBeenCalled();
+    expect(await service.getProjectView('a')).toMatchObject({
+      project: { id: 'a', topic_tree: tree },
+      isOpen: true,
+    });
+  });
+
+  it('creates an anchor tab for an attached project', async () => {
+    const browser = makeBrowser({ groups: [group(7, 'New')], tabs: [tab(1, 7, 0)] });
+    const { service } = makeService(browser, { stored: [stored('a', null, 'Saved')] });
+    expect(await service.attachProjectToGroup('a', 7)).toMatchObject({
+      project: { id: 'a', groupId: 7, title: 'New' },
+      createdTab: true,
+    });
+    expect(browser.api.tabs.create).toHaveBeenCalledWith(
+      expect.objectContaining({ url: `${BASE}?id=a` }),
+    );
+  });
+
+  it('rolls back the binding when the anchor tab cannot be created', async () => {
+    const browser = makeBrowser({ groups: [group(7, '')], tabs: [tab(1, 7, 0)] });
+    browser.api.tabs.create.mockRejectedValueOnce(new Error('window gone'));
+    const { service, data } = makeService(browser, { stored: [stored('a', null, 'Saved')] });
+    await expect(service.attachProjectToGroup('a', 7)).rejects.toThrow('window gone');
+    expect(data.projects[0]).toMatchObject({ id: 'a', groupId: null, title: 'Saved' });
+  });
+
+  it('removes a newly created tab and rolls back when grouping fails', async () => {
+    const browser = makeBrowser({ groups: [group(7, 'New')], tabs: [tab(1, 7, 0)] });
+    browser.api.tabs.group.mockRejectedValueOnce(new Error('group failed'));
+    const { service, data } = makeService(browser, { stored: [stored('a', null, 'Saved')] });
+    await expect(service.attachProjectToGroup('a', 7)).rejects.toThrow('group failed');
+    expect(browser.api.tabs.remove).toHaveBeenCalledWith(100);
+    expect(browser.state.tabs.map((t) => t.id)).toEqual([1]);
+    expect(data.projects[0]).toMatchObject({ groupId: null, title: 'Saved' });
+  });
+
+  it.each([false, true])(
+    'keeps attachment when focus fails (existing tab: %s)',
+    async (existing) => {
+      const browser = makeBrowser({
+        groups: [group(7, 'New')],
+        tabs: [tab(1, 7, 0), ...(existing ? [tab(2, -1, 1, { url: BASE + '?id=a' })] : [])],
+      });
+      browser.api.windows.update.mockRejectedValueOnce(new Error('focus failed'));
+      const { service, data } = makeService(browser, { stored: [stored('a', null, 'Saved')] });
+      expect(await service.attachProjectToGroup('a', 7)).toMatchObject({ createdTab: !existing });
+      expect(data.projects[0].groupId).toBe(7);
+    },
+  );
+
+  it('preserves concurrent metadata updates when rolling back an attachment', async () => {
+    const browser = makeBrowser({ groups: [group(7, 'New')], tabs: [tab(1, 7, 0)] });
+    const { service, data } = makeService(browser, { stored: [stored('a', null, 'Saved')] });
+    browser.api.tabs.create.mockImplementationOnce(async () => {
+      data.projects[0] = { ...data.projects[0], title: 'Concurrent', color: 'red' };
+      throw new Error('window gone');
+    });
+    await expect(service.attachProjectToGroup('a', 7)).rejects.toThrow('window gone');
+    expect(data.projects[0]).toMatchObject({ groupId: null, title: 'Concurrent', color: 'red' });
+  });
+
+  it('refuses to steal a project or overwrite another project binding', async () => {
+    const browser = makeBrowser({ groups: [group(7, ''), group(8, '')] });
+    const { service, data } = makeService(browser, {
+      stored: [stored('a', 7, ''), stored('b', null, '')],
+    });
+    await expect(service.attachProjectToGroup('a', 8)).rejects.toThrow('already attached');
+    await expect(service.attachProjectToGroup('b', 7)).rejects.toThrow('already has a project');
+    await expect(service.attachProjectToGroup('missing', 8)).rejects.toThrow('project not found');
+    await expect(service.attachProjectToGroup('b', 99)).rejects.toThrow('tab group not found');
+    expect(data.projects.map((project) => project.groupId)).toEqual([7, null]);
+    expect(browser.api.tabs.create).not.toHaveBeenCalled();
   });
 });
 
@@ -366,6 +653,7 @@ describe('installProjectRuntime', () => {
   function install() {
     const projectService = {
       sync: vi.fn(async () => {}),
+      handleStartup: vi.fn(async () => {}),
       openProjectForTab: vi.fn(async () => null),
       handleGroupRemoved: vi.fn(async () => {}),
       isProjectPageUrl: (url) => typeof url === 'string' && url.startsWith(BASE),
@@ -398,6 +686,14 @@ describe('installProjectRuntime', () => {
     chromeRuntime.onInstalled.listeners[0]();
     await vi.waitFor(() => expect(chromeContextMenus.create).toHaveBeenCalled());
     expect(projectService.sync).toHaveBeenCalled();
+    expect(projectService.handleStartup).not.toHaveBeenCalled();
+  });
+
+  it('invalidates cached ids on browser startup', async () => {
+    const { chromeRuntime, projectService } = install();
+    chromeRuntime.onStartup.listeners[0]();
+    expect(projectService.handleStartup).toHaveBeenCalledTimes(1);
+    expect(projectService.sync).not.toHaveBeenCalled();
   });
 
   it('opens the group project from the menu and the command', async () => {

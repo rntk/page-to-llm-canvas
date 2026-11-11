@@ -13,6 +13,7 @@ export function createFakeProjectsApi(overrides = {}) {
     listProjectsOverview: vi.fn(async () => ({ projects: [], ungroupedGroups: [] })),
     createProjectFromGroup: vi.fn(async () => ({ project: null, createdProject: false })),
     openProjectForGroup: vi.fn(async () => ({})),
+    attachProjectToGroup: vi.fn(async () => ({})),
     openProject: vi.fn(async () => ({})),
     focusGroup: vi.fn(async () => ({ isOpen: false, tabId: null })),
     deleteProject: vi.fn(async () => ({ deleted: true })),
