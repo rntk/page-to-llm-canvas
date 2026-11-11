@@ -114,7 +114,7 @@ describe('TopicsTreeApp', () => {
   });
 
   it('preserves expanded topics when polling returns fresh objects for the same revision', () => {
-    const record = { ...doneRecord, contentRevision: 'content-1', projectTopicRevision: 1 };
+    const record = { ...doneRecord, contentRevision: 'content-1', topicsRevision: 1 };
     useRecord.mockReturnValue({ record, error: null });
     const view = render();
     const fruit = [...view.container.querySelectorAll('.tt-node')].find((node) =>
@@ -131,7 +131,7 @@ describe('TopicsTreeApp', () => {
   });
 
   it('refreshes pipeline summaries when the project topic revision changes', () => {
-    const record = { ...doneRecord, contentRevision: 'content-1', projectTopicRevision: 1 };
+    const record = { ...doneRecord, contentRevision: 'content-1', topicsRevision: 1 };
     useRecord.mockReturnValue({ record, error: null });
     const view = render();
     expect(view.container.textContent).toContain('Fruit overview.');
@@ -139,7 +139,7 @@ describe('TopicsTreeApp', () => {
     useRecord.mockReturnValue({
       record: {
         ...record,
-        projectTopicRevision: 2,
+        topicsRevision: 2,
         topic_summary_index: {
           ...record.topic_summary_index,
           Fruit: { level: 0, runs: [{ text: 'Updated fruit overview.', sentences: [1, 2, 3] }] },

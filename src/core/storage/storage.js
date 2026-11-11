@@ -92,7 +92,7 @@ function pickFields(obj, fields) {
 function pickMetaFields(obj) {
   const out = {};
   for (const [k, v] of Object.entries(obj)) {
-    if (!SPECIAL_FIELDS.includes(k)) out[k] = v;
+    if (k !== 'projectTopicRevision' && !SPECIAL_FIELDS.includes(k)) out[k] = v;
   }
   return out;
 }
@@ -434,7 +434,7 @@ export async function writeRecord(rec, options = {}) {
           storageSchemaVersion: RECORD_STORAGE_SCHEMA_VERSION,
           contentRevision,
           textRevision,
-          projectTopicRevision: createContentRevision(),
+          topicsRevision: createContentRevision(),
           ...collectionRevisions,
         },
         ...workPlan.writes,
@@ -551,6 +551,8 @@ export async function updateRecord(key, patch, options = {}) {
           ? await readSummaryWorkDocuments(key)
           : {};
       const mergedMeta = { ...meta, ...pickMetaFields(patch), updatedAt: Date.now() };
+      // Discard the old feature-specific marker when an existing record is written.
+      delete mergedMeta.projectTopicRevision;
       if (replacesContentGeneration) {
         mergedMeta.contentRevision = createContentRevision();
       }
@@ -561,7 +563,7 @@ export async function updateRecord(key, patch, options = {}) {
           (field) => hasOwn(patch, field),
         )
       )
-        mergedMeta.projectTopicRevision = createContentRevision();
+        mergedMeta.topicsRevision = createContentRevision();
       // Committed in the same setLocal() as the content document below, so a
       // worker that dies before the index projection is updated always leaves
       // a meta document whose marker no longer matches the cached snippet.

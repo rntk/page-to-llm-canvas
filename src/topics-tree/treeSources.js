@@ -11,7 +11,7 @@ export const TREE_SOURCES = Object.freeze({
   pipeline: {
     label: 'Pipeline',
     inputOf: (record) => [record?.topics, record?.topic_summary_index],
-    revisionOf: (record) => record?.projectTopicRevision,
+    revisionOf: (record) => record?.topicsRevision,
     build: ([topics, summaries], options) => buildTopicsDisplayTree(topics, summaries, options),
     topicPath: (node) => node.path,
     showCanvas: () => true,

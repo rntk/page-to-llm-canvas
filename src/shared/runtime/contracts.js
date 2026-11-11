@@ -212,6 +212,9 @@ export function isImportableRecord(record) {
  *   empty result without repeating the failed source-summary request.
  * @property {string} [contentRevision] - Opaque id bumped whenever
  *   html/text/sentences/topics change; used to invalidate cached chats.
+ * @property {string} [topicsRevision] - Opaque id changed when sentences,
+ *   topics, topic_summary_index, sourceUrl, or the content generation changes;
+ *   used to invalidate cached topic views. Older records may lack this marker.
  * @property {string|null} [summaryCheckpointContentRevision] - Content
  *   revision whose sentence/topic data reached the summarization stage. Retry
  *   only resumes a summary checkpoint when this matches `contentRevision`.

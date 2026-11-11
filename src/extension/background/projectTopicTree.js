@@ -44,8 +44,8 @@ export function createProjectTopicTreeService({
   async function readSource(candidate) {
     const cached = recordCache.get(candidate.key);
     if (
-      candidate.projectTopicRevision &&
-      cached?.projectTopicRevision === candidate.projectTopicRevision &&
+      candidate.topicsRevision &&
+      cached?.topicsRevision === candidate.topicsRevision &&
       cached.status === candidate.status
     )
       return cached;
@@ -53,8 +53,8 @@ export function createProjectTopicTreeService({
     recordCache.delete(candidate.key);
     if (
       saved &&
-      candidate.projectTopicRevision &&
-      saved.projectTopicRevision === candidate.projectTopicRevision
+      candidate.topicsRevision &&
+      saved.topicsRevision === candidate.topicsRevision
     ) {
       recordCache.set(candidate.key, saved);
       if (recordCache.size > 32) recordCache.delete(recordCache.keys().next().value);

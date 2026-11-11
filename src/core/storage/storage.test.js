@@ -1712,13 +1712,32 @@ describe('findRecordByUrl', () => {
 });
 
 describe('project topic source revisions', () => {
+  it('handles records with only the legacy marker until topic data changes', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(makeRecord('legacy-topic-source'));
+    const meta = mock.storage.local._store.get('pagetollm:rec:legacy-topic-source:meta');
+    meta.projectTopicRevision = meta.topicsRevision;
+    delete meta.topicsRevision;
+
+    await updateRecord('legacy-topic-source', { progress: 50 });
+    expect((await readRecord('legacy-topic-source')).topicsRevision).toBeUndefined();
+    expect(meta.projectTopicRevision).toBeTruthy();
+    expect(mock.storage.local._store.get('pagetollm:rec:legacy-topic-source:meta'))
+      .not.toHaveProperty('projectTopicRevision');
+    await updateRecord('legacy-topic-source', { topics: [{ name: 'New' }] });
+    const revision = (await readRecord('legacy-topic-source')).topicsRevision;
+    expect(revision).toBeTruthy();
+    expect((await listRecords())[0].topicsRevision).toBe(revision);
+  });
+
   it('changes for source edits but not progress, with authoritative listing markers', async () => {
     vi.stubGlobal('chrome', makeChromeMock());
     await writeRecord(makeRecord('project-source'));
-    let revision = (await readRecord('project-source')).projectTopicRevision;
+    let revision = (await readRecord('project-source')).topicsRevision;
     expect(revision).toBeTruthy();
     await updateRecord('project-source', { progress: 50 });
-    expect((await readRecord('project-source')).projectTopicRevision).toBe(revision);
+    expect((await readRecord('project-source')).topicsRevision).toBe(revision);
     for (const patch of [
       { topics: [{ name: 'Changed', sentences: [1] }] },
       { sentences: ['Changed sentence.'] },
@@ -1726,9 +1745,9 @@ describe('project topic source revisions', () => {
       { sourceUrl: 'https://changed.test/' },
     ]) {
       await updateRecord('project-source', patch);
-      const next = (await readRecord('project-source')).projectTopicRevision;
+      const next = (await readRecord('project-source')).topicsRevision;
       expect(next).not.toBe(revision);
-      expect((await listRecords())[0].projectTopicRevision).toBe(next);
+      expect((await listRecords())[0].topicsRevision).toBe(next);
       revision = next;
     }
   });

@@ -56,11 +56,11 @@ function fixture() {
       projectStore,
       projectService,
       listRecords: async () =>
-        records.map(({ key, sourceUrl, status, projectTopicRevision }) => ({
+        records.map(({ key, sourceUrl, status, topicsRevision }) => ({
           key,
           sourceUrl,
           status,
-          projectTopicRevision,
+          topicsRevision,
         })),
       readRecord,
       runProjectTopicTree,
@@ -160,14 +160,14 @@ describe('project topic tree service', () => {
 
   it('reuses revisioned sources and reloads changed sources', async () => {
     const { service, records, readRecord } = fixture();
-    records[0].projectTopicRevision = 'source-1';
+    records[0].topicsRevision = 'source-1';
     await service.getView('p');
     await service.getView('p');
     expect(readRecord).toHaveBeenCalledTimes(1);
-    records[0] = { ...records[0], projectTopicRevision: 'source-2' };
+    records[0] = { ...records[0], topicsRevision: 'source-2' };
     await service.getView('p');
     expect(readRecord).toHaveBeenCalledTimes(2);
-    delete records[0].projectTopicRevision;
+    delete records[0].topicsRevision;
     await service.getView('p');
     await service.getView('p');
     expect(readRecord).toHaveBeenCalledTimes(4);
