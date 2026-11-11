@@ -1,5 +1,6 @@
 dist
 node_modules
+.stryker-tmp
 coverage
 reports
 docs/api

@@ -42,8 +42,8 @@
     "test:mutation:full": "stryker run --force",
     "test:advanced": "npm run test:property && npm run test:mutation",
     "test:ci": "npm run lint && npm run test:coverage",
-    "lint": "eslint . && stylelint '**/*.css'",
-    "lint:fix": "eslint . --fix && stylelint '**/*.css' --fix",
+    "lint": "eslint . && stylelint --ignore-path .stylelintignore '**/*.css'",
+    "lint:fix": "eslint . --fix && stylelint --ignore-path .stylelintignore '**/*.css' --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   }
