@@ -25,19 +25,19 @@ export const SUMMARY_TREE_HEARTBEAT_MS = 20_000;
 export const SUMMARY_TREE_STALE_MS = 3 * SUMMARY_TREE_HEARTBEAT_MS;
 
 /**
- * The record's summary tree with its effective status. A tree saved for other
+ * A tree with its effective status. A tree saved for other
  * content, or a running tree that stopped saving, is reported as such.
- * @param {object|null|undefined} record
+ * @param {object|null|undefined} tree
+ * @param {*} expectedContentRevision
  * @param {number} [now]
  * @returns {{status: string, tree: object|null}}
  */
-export function readSummaryTree(record, now = Date.now()) {
-  const tree = record?.summary_tree;
+export function readSummaryTree(tree, expectedContentRevision, now = Date.now()) {
   if (
     !tree ||
     typeof tree !== 'object' ||
     tree.version !== SUMMARY_TREE_VERSION ||
-    tree.contentRevision !== record.contentRevision
+    tree.contentRevision !== expectedContentRevision
   ) {
     return { status: SUMMARY_TREE_STATUS.MISSING, tree: null };
   }
@@ -51,11 +51,13 @@ export function readSummaryTree(record, now = Date.now()) {
  * Only builds explicitly started under background recovery may auto-resume.
  * Legacy RUNNING trees retain the manual Resume behavior, even if recent.
  * Opted-in builds may outlive the heartbeat window (e.g. a browser restart).
- * @param {object|null|undefined} record
+ * @param {object|null|undefined} tree
+ * @param {*} expectedContentRevision
  */
-export function canRecoverSummaryTree(record) {
+export function canRecoverSummaryTree(tree, expectedContentRevision) {
   return (
-    record?.summary_tree?.backgroundRecovery === true &&
-    readSummaryTree(record, record.summary_tree.updatedAt).status === SUMMARY_TREE_STATUS.RUNNING
+    tree?.backgroundRecovery === true &&
+    readSummaryTree(tree, expectedContentRevision, tree.updatedAt).status ===
+      SUMMARY_TREE_STATUS.RUNNING
   );
 }

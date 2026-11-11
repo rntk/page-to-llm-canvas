@@ -51,11 +51,7 @@ export function createProjectTopicTreeService({
       return cached;
     const saved = await readRecord(candidate.key);
     recordCache.delete(candidate.key);
-    if (
-      saved &&
-      candidate.topicsRevision &&
-      saved.topicsRevision === candidate.topicsRevision
-    ) {
+    if (saved && candidate.topicsRevision && saved.topicsRevision === candidate.topicsRevision) {
       recordCache.set(candidate.key, saved);
       if (recordCache.size > 32) recordCache.delete(recordCache.keys().next().value);
     }
@@ -212,15 +208,13 @@ export function createProjectTopicTreeService({
 
   async function canRecoverProject(projectId) {
     const source = await inputs(projectId);
-    return canRecoverSummaryTree({
-      summary_tree: source.view.project.topic_tree,
-      contentRevision: source.sourceRevision,
-    });
+    return canRecoverSummaryTree(source.view.project.topic_tree, source.sourceRevision);
   }
 
   const jobs = createSummaryTreeJobs({
     runSummaryTree: run,
     logger,
+    label: 'project topic tree',
     alarms,
     alarmName: 'project-topic-tree-keepalive',
     failureBreaker,
@@ -280,12 +274,7 @@ export function createProjectTopicTreeService({
     async listRunningKeys() {
       const keys = [];
       for (const project of await projectStore.list()) {
-        if (
-          !canRecoverSummaryTree({
-            summary_tree: project.topic_tree,
-            contentRevision: project.topic_tree?.contentRevision,
-          })
-        )
+        if (!canRecoverSummaryTree(project.topic_tree, project.topic_tree?.contentRevision))
           continue;
         if (await canRecoverProject(project.id)) keys.push(project.id);
       }
@@ -298,13 +287,7 @@ export function createProjectTopicTreeService({
     async getView(projectId, providedView) {
       const source = await inputs(projectId, providedView);
       const saved = source.view.project.topic_tree;
-      const { tree, status } = readSummaryTree(
-        {
-          summary_tree: saved,
-          contentRevision: saved?.contentRevision,
-        },
-        now(),
-      );
+      const { tree, status } = readSummaryTree(saved, saved?.contentRevision, now());
       // Pages added, edited or removed since the saved tree was built.
       const changes =
         tree && Array.isArray(tree.records)

@@ -362,7 +362,9 @@ describe('runSummaryTree', () => {
       summary: '',
       path: 'Alpha>About 1',
     });
-    expect(readSummaryTree(rec, tree.updatedAt).status).toBe(SUMMARY_TREE_STATUS.DONE);
+    expect(readSummaryTree(rec.summary_tree, rec.contentRevision, tree.updatedAt).status).toBe(
+      SUMMARY_TREE_STATUS.DONE,
+    );
   });
 
   it('resumes a matching checkpoint without new requests and rebuilds when fresh', async () => {

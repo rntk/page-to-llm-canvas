@@ -52,7 +52,7 @@ export default function TopicsTreeApp({
   const [notice, setNotice] = useState('');
   const sourceConfig = TREE_SOURCES[source];
   const [now, setNow] = useState(() => Date.now());
-  const summaryTree = readSummaryTree(record, now);
+  const summaryTree = readSummaryTree(record?.summary_tree, record?.contentRevision, now);
 
   // A running build that stops saving becomes resumable without a record change.
   // A save newer than `now` is never stale, so ticking only while running suffices.

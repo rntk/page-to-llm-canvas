@@ -14,11 +14,15 @@ const record = (tree = {}) => ({
 
 describe('summary tree recovery eligibility', () => {
   it('requires explicit background recovery admission for legacy running trees', () => {
-    expect(canRecoverSummaryTree(record())).toBe(false);
-    expect(canRecoverSummaryTree(record({ updatedAt: Date.now() }))).toBe(false);
+    expect(canRecoverSummaryTree(record().summary_tree, 'current')).toBe(false);
+    expect(canRecoverSummaryTree(record({ updatedAt: Date.now() }).summary_tree, 'current')).toBe(
+      false,
+    );
   });
   it('recovers opted-in builds even after a long browser interruption', () => {
-    expect(canRecoverSummaryTree(record({ backgroundRecovery: true }))).toBe(true);
+    expect(
+      canRecoverSummaryTree(record({ backgroundRecovery: true }).summary_tree, 'current'),
+    ).toBe(true);
   });
   it('rejects obsolete versions, content revisions and terminal states', () => {
     for (const tree of [
@@ -28,7 +32,12 @@ describe('summary tree recovery eligibility', () => {
       { status: 'done' },
       { status: 'error' },
     ]) {
-      expect(canRecoverSummaryTree(record({ backgroundRecovery: true, ...tree }))).toBe(false);
+      expect(
+        canRecoverSummaryTree(
+          record({ backgroundRecovery: true, ...tree }).summary_tree,
+          'current',
+        ),
+      ).toBe(false);
     }
     expect(canRecoverSummaryTree(null)).toBe(false);
   });

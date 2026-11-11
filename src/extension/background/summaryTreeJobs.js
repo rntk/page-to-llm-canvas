@@ -4,6 +4,7 @@
  * @param {object} deps
  * @param {Function} deps.runSummaryTree
  * @param {{error: Function}} deps.logger
+ * @param {string} [deps.label] Human-readable tree name for diagnostics.
  * @param {Function} [deps.prepareRun] Persist RUNNING before acknowledging a start.
  * @param {Function} [deps.onFailure] Persist failures that occur before a runner can checkpoint.
  * @param {Function} [deps.listRunningKeys] Read running builds from authoritative storage.
@@ -17,6 +18,7 @@
 export function createSummaryTreeJobs({
   runSummaryTree,
   logger,
+  label = 'summary tree',
   prepareRun = async () => {},
   listRunningKeys = async () => [],
   onFailure = async () => {},
@@ -39,7 +41,7 @@ export function createSummaryTreeJobs({
       const entries = (await breaker.getAll()) || {};
       return new Set(Object.keys(entries).filter((id) => entries[id]?.open === true));
     } catch (error) {
-      logger.error('failed to read summary tree breaker:', error);
+      logger.error(`failed to read ${label} breaker:`, error);
       return null;
     }
   }
@@ -48,7 +50,7 @@ export function createSummaryTreeJobs({
     try {
       await breaker.recordFailure({ key: breakerId(key), pipelineRunId: breakerId(key), error });
     } catch (breakerError) {
-      logger.error('failed to persist summary tree breaker:', breakerError);
+      logger.error(`failed to persist ${label} breaker:`, breakerError);
     }
   }
 
@@ -56,7 +58,7 @@ export function createSummaryTreeJobs({
     try {
       await breaker.clear(breakerId(key));
     } catch (error) {
-      logger.error('failed to clear summary tree breaker:', key, error);
+      logger.error(`failed to clear ${label} breaker:`, key, error);
     }
   }
 
@@ -71,7 +73,7 @@ export function createSummaryTreeJobs({
       // Retain the fail-closed verdict.
     }
     if (stillRunning) {
-      await noteRecoveryFailure(key, new Error('summary tree run ended without a final status'));
+      await noteRecoveryFailure(key, new Error(`${label} run ended without a final status`));
     } else {
       await clearRecoveryFailure(key);
     }
@@ -122,7 +124,7 @@ export function createSummaryTreeJobs({
             try {
               await prepareRun(key, { fresh: false, recover: true });
             } catch (error) {
-              logger.error('summary tree recovery claim failed for', key, error);
+              logger.error(`${label} recovery claim failed for`, key, error);
               await noteRecoveryFailure(key, error);
               jobs.delete(key);
               return false;
@@ -134,10 +136,10 @@ export function createSummaryTreeJobs({
           void Promise.resolve()
             .then(() => runSummaryTree(key, { signal: controller.signal, fresh }))
             .catch(async (error) => {
-              logger.error('summary tree build failed for', key, error);
+              logger.error(`${label} build failed for`, key, error);
               await onFailure(key, error, { signal: controller.signal });
             })
-            .catch((error) => logger.error('failed to save tree failure:', key, error))
+            .catch((error) => logger.error(`failed to save ${label} failure:`, key, error))
             .then(() => settleRecovery(key))
             .finally(() => {
               if (jobs.get(key) === job) jobs.delete(key);
@@ -186,7 +188,7 @@ export function createSummaryTreeJobs({
         }
         for (const key of resumable) await service.start(key, { recover: true });
       } catch (error) {
-        logger.error('summary tree recovery failed:', error);
+        logger.error(`${label} recovery failed:`, error);
       }
     },
 

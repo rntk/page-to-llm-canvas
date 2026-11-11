@@ -174,7 +174,10 @@ const summaryTreeJobs = createSummaryTreeJobs({
   onStop: cancelRecordSummaryTree,
   async canRecover(key) {
     const record = await readRecordSummaryTreeState(key);
-    return record?.status === 'done' && canRecoverSummaryTree(record);
+    return (
+      record?.status === 'done' &&
+      canRecoverSummaryTree(record.summary_tree, record.contentRevision)
+    );
   },
   async onFailure(key, error, { signal }) {
     const record = await readRecord(key);
@@ -220,7 +223,11 @@ const summaryTreeJobs = createSummaryTreeJobs({
     for (const item of await listRecords()) {
       if (item.status !== 'done') continue;
       const record = await readRecordSummaryTreeState(item.key);
-      if (record?.status === 'done' && canRecoverSummaryTree(record)) keys.push(item.key);
+      if (
+        record?.status === 'done' &&
+        canRecoverSummaryTree(record.summary_tree, record.contentRevision)
+      )
+        keys.push(item.key);
     }
     return keys;
   },
