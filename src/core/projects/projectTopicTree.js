@@ -144,6 +144,8 @@ export function buildProjectTopicSeed(records, { maxChars = PASSAGE_MAX_CHARS, b
       url: record.sourceUrl || '',
       contentRevision: record.contentRevision || null,
       revision: projectRecordRevision(record),
+      offset,
+      length: record.sentences.length,
     });
     record.sentences.forEach((text, index) => {
       sentences.push(text);

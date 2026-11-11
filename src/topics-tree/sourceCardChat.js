@@ -130,14 +130,14 @@ function describeSourceBlock({
 }
 
 /**
- * Whole articles of a merged tree, rebuilt from the latest source rows.
- * Each version appends a contiguous article, so row minus sentenceId identifies
- * its offset. Earlier offsets can remain after incremental replacements.
+ * Whole articles of a merged tree, using saved ranges when available. Older
+ * snapshots fall back to the latest contiguous version inferred from sources.
  * @param {string[]} sentences Merged rows (one-based by row number).
  * @param {Record<number, {recordKey?: string, sentenceId?: number}>} sources
+ * @param {object[]} [records] Saved article ranges, if present.
  * @returns {Map<string, string[]>} Article sentences by record key.
  */
-export function articlesFromMergedRows(sentences, sources) {
+export function articlesFromMergedRows(sentences, sources, records = []) {
   const articles = new Map();
   const offsets = new Map();
   for (const [row, source] of Object.entries(sources || {})) {
@@ -155,6 +155,18 @@ export function articlesFromMergedRows(sentences, sources) {
   }
   for (const article of articles.values()) {
     for (let index = 0; index < article.length; index += 1) article[index] ??= '';
+  }
+  for (const record of records || []) {
+    if (
+      record?.key &&
+      Number.isInteger(record.offset) &&
+      record.offset >= 0 &&
+      Number.isInteger(record.length) &&
+      record.length >= 0 &&
+      record.offset + record.length <= sentences.length
+    ) {
+      articles.set(record.key, sentences.slice(record.offset, record.offset + record.length));
+    }
   }
   return articles;
 }

@@ -34,6 +34,22 @@ describe('articlesFromMergedRows', () => {
     expect(articles.size).toBe(1);
   });
 
+  it('uses persisted ranges even when later historical rows exist', () => {
+    const articles = articlesFromMergedRows(
+      rows,
+      {
+        ...sources,
+        3: { recordKey: 'a', sentenceId: 1 },
+      },
+      [
+        { key: 'a', offset: 0, length: 2 },
+        { key: 'b', offset: 3, length: 2 },
+      ],
+    );
+    expect(articles.get('a')).toEqual(['A one.', 'A two.']);
+    expect(articles.get('b')).toEqual(['B one.', 'B two.']);
+  });
+
   it('uses only the latest appended version when an article shrinks or grows', () => {
     const record = (key, sentences) => ({ key, sentences, topics: [] });
     const original = buildProjectTopicSeed([

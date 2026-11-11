@@ -40,7 +40,8 @@ export function useSourceCardChats({
   return useMemo(() => {
     const cards = new Map();
     let articles = null;
-    const getArticles = () => (articles ??= articlesFromMergedRows(sentences, sentenceSources));
+    const getArticles = () =>
+      (articles ??= articlesFromMergedRows(sentences, sentenceSources, records));
     const describe = (node) => {
       if (!cards.has(node.key)) {
         cards.set(

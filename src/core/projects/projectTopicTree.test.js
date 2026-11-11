@@ -57,6 +57,10 @@ describe('project primary topic sources', () => {
     ]);
     expect(seed.sources[1]).toMatchObject({ recordKey: 'a', sentenceId: 1 });
     expect(seed.sources[3]).toMatchObject({ recordKey: 'b', sentenceId: 1 });
+    expect(seed.records.map(({ key, offset, length }) => ({ key, offset, length }))).toEqual([
+      { key: 'a', offset: 0, length: 2 },
+      { key: 'b', offset: 2, length: 2 },
+    ]);
     const invalid = record('a');
     invalid.topic_summary_index['Shared topic'].runs[0].sentences = [9];
     expect(buildProjectTopicSeed([invalid]).nodes.n0.segments).toBeNull();
