@@ -345,3 +345,60 @@ describe('source text blocks', () => {
     expect(tree.textCard.sections.map((section) => section.sentences)).toEqual([[1], [2]]);
   });
 });
+
+describe('summary tree display sources', () => {
+  it('counts distinct source records per node and sorts source sentence numbers', () => {
+    const tree = buildSummaryTreeDisplayTree({
+      rootId: 'root',
+      nodes: {
+        root: {
+          id: 'root',
+          title: 'Overview',
+          kind: 'root',
+          children: ['a', 'b'],
+          sentences: [3, 1, 2, 1],
+        },
+        a: { id: 'a', title: 'A', kind: 'passage', children: [], sentences: [3, 1, 3] },
+        b: { id: 'b', title: 'B', kind: 'passage', children: [], sentences: [2] },
+      },
+      sources: {
+        1: { recordKey: 'article-a' },
+        2: { recordKey: 'article-b' },
+        3: { recordKey: 'article-a' },
+      },
+    });
+
+    expect(tree.sentences).toEqual([1, 2, 3]);
+    expect(tree.sourceCount).toBe(2);
+    expect(tree.children.map((node) => [node.sentences, node.sourceCount])).toEqual([
+      [[1, 3], 1],
+      [[2], 1],
+    ]);
+    expect(tree.children[0].children[0].sentences).toEqual([1, 3]);
+  });
+
+  it('ignores dangling child ids and reports zero when no sentence has a source record', () => {
+    const tree = buildSummaryTreeDisplayTree({
+      rootId: 'root',
+      nodes: {
+        root: {
+          id: 'root',
+          title: 'Overview',
+          kind: 'root',
+          children: ['missing', 'p'],
+          sentences: [5],
+        },
+        p: { id: 'p', title: 'Passage', kind: 'passage', children: [], sentences: [5] },
+      },
+      sources: { 5: { title: 'Unattributed' } },
+    });
+
+    expect(tree.children.map((node) => node.title)).toEqual(['Passage']);
+    expect(tree.sourceCount).toBe(0);
+    expect(tree.children[0].children[0]).toMatchObject({
+      key: 'source:p',
+      path: 'Passage',
+      sentences: [5],
+    });
+  });
+});
