@@ -123,6 +123,62 @@ function sourceSummaryUnitDocuments(key, units, contentRevision, collectionRevis
   return documents;
 }
 
+// Plan collection replacements with the same generation and stale-key rules
+// for full writes and patches. Callers provide revisions and storage snapshots.
+const WORK_COLLECTIONS = [
+  {
+    field: 'topic_summaries',
+    revision: 'topicSummariesRevision',
+    payload: 'topicSummaries',
+    prefix: summaryLeafStoragePrefix,
+    documents: summaryLeafDocuments,
+  },
+  {
+    field: 'source_summary_units',
+    revision: 'sourceSummaryUnitsRevision',
+    payload: 'sourceSummaryUnits',
+    prefix: sourceSummaryUnitStoragePrefix,
+    documents: sourceSummaryUnitDocuments,
+  },
+];
+
+function planWorkReplacement(key, values, contentRevision, revisions, current, clearAll) {
+  const writes = {};
+  const removes = [];
+  const payloads = {};
+  for (const collection of WORK_COLLECTIONS) {
+    if (!hasOwn(revisions, collection.revision)) continue;
+    const value = values[collection.field];
+    const replacement = collection.documents(
+      key,
+      value,
+      contentRevision,
+      revisions[collection.revision],
+    );
+    Object.assign(writes, replacement);
+    removes.push(
+      ...Object.keys(current).filter(
+        (storageKey) =>
+          storageKey.startsWith(collection.prefix(key)) && !hasOwn(replacement, storageKey),
+      ),
+    );
+    payloads[collection.payload] = {
+      [collection.field]: value && typeof value === 'object' ? value : {},
+    };
+  }
+  if (clearAll)
+    removes.push(...Object.keys(current).filter((storageKey) => !hasOwn(writes, storageKey)));
+  return { writes, removes: [...new Set(removes)], payloads };
+}
+
+function mintCollectionRevisions(values, replaceAll, mintRevision) {
+  return Object.fromEntries(
+    WORK_COLLECTIONS.filter(({ field }) => replaceAll || hasOwn(values, field)).map(
+      ({ revision }) => [revision, mintRevision()],
+    ),
+  );
+}
+
 function staticRecordDocumentKeys(key) {
   return [
     metaStorageKey(key),
@@ -360,8 +416,15 @@ export async function writeRecord(rec, options = {}) {
       // These generation markers are committed atomically with their new
       // leaves. If the worker dies before stale physical keys are removed,
       // the old generation remains unreadable and cannot be resurrected.
-      const topicSummariesRevision = createContentRevision();
-      const sourceSummaryUnitsRevision = createContentRevision();
+      const collectionRevisions = mintCollectionRevisions(rec, true, createContentRevision);
+      const workPlan = planWorkReplacement(
+        rec.key,
+        rec,
+        contentRevision,
+        collectionRevisions,
+        existingWorkDocuments,
+        true,
+      );
       // This write always replaces the content document, so the snippet the
       // index caches is always from this generation. See mintTextRevision().
       const textRevision = createContentRevision();
@@ -372,21 +435,9 @@ export async function writeRecord(rec, options = {}) {
           contentRevision,
           textRevision,
           projectTopicRevision: createContentRevision(),
-          topicSummariesRevision,
-          sourceSummaryUnitsRevision,
+          ...collectionRevisions,
         },
-        ...summaryLeafDocuments(
-          rec.key,
-          rec.topic_summaries,
-          contentRevision,
-          topicSummariesRevision,
-        ),
-        ...sourceSummaryUnitDocuments(
-          rec.key,
-          rec.source_summary_units,
-          contentRevision,
-          sourceSummaryUnitsRevision,
-        ),
+        ...workPlan.writes,
       };
       if (rec.topic_range_chunks != null) {
         documents[topicRangeCheckpointStorageKey(rec.key)] = {
@@ -402,7 +453,12 @@ export async function writeRecord(rec, options = {}) {
       const priorKeys = [
         ...new Set([...Object.keys(priorDocs || {}), ...Object.keys(existingWorkDocuments)]),
       ];
-      const staleKeys = priorKeys.filter((storageKey) => !hasOwn(documents, storageKey));
+      const staleKeys = [
+        ...new Set([
+          ...workPlan.removes,
+          ...Object.keys(priorDocs || {}).filter((storageKey) => !hasOwn(documents, storageKey)),
+        ]),
+      ];
       await setLocal(documents);
       if (staleKeys.length) await removeLocal(staleKeys);
 
@@ -534,60 +590,19 @@ export async function updateRecord(key, patch, options = {}) {
         else writes[documentKey] = { processingLog };
         mergedPayloads.diagnostics = { processingLog };
       }
-      if (hasOwn(patch, 'topic_summaries')) {
-        const current = Object.fromEntries(
-          Object.entries(workDocuments).filter(([storageKey]) =>
-            storageKey.startsWith(summaryLeafStoragePrefix(key)),
-          ),
-        );
-        mergedMeta.topicSummariesRevision = createContentRevision();
-        const replacement = summaryLeafDocuments(
-          key,
-          patch.topic_summaries,
-          mergedMeta.contentRevision,
-          mergedMeta.topicSummariesRevision,
-        );
-        Object.assign(writes, replacement);
-        removes.push(
-          ...Object.keys(current).filter((storageKey) => !hasOwn(replacement, storageKey)),
-        );
-        mergedPayloads.topicSummaries = {
-          topic_summaries:
-            patch.topic_summaries && typeof patch.topic_summaries === 'object'
-              ? patch.topic_summaries
-              : {},
-        };
-      }
-      if (hasOwn(patch, 'source_summary_units')) {
-        const current = Object.fromEntries(
-          Object.entries(workDocuments).filter(([storageKey]) =>
-            storageKey.startsWith(sourceSummaryUnitStoragePrefix(key)),
-          ),
-        );
-        mergedMeta.sourceSummaryUnitsRevision = createContentRevision();
-        const replacement = sourceSummaryUnitDocuments(
-          key,
-          patch.source_summary_units,
-          mergedMeta.contentRevision,
-          mergedMeta.sourceSummaryUnitsRevision,
-        );
-        Object.assign(writes, replacement);
-        removes.push(
-          ...Object.keys(current).filter((storageKey) => !hasOwn(replacement, storageKey)),
-        );
-        mergedPayloads.sourceSummaryUnits = {
-          source_summary_units:
-            patch.source_summary_units && typeof patch.source_summary_units === 'object'
-              ? patch.source_summary_units
-              : {},
-        };
-      }
-
-      if (replacesContentGeneration) {
-        removes.push(
-          ...Object.keys(workDocuments).filter((storageKey) => !hasOwn(writes, storageKey)),
-        );
-      }
+      const collectionRevisions = mintCollectionRevisions(patch, false, createContentRevision);
+      Object.assign(mergedMeta, collectionRevisions);
+      const workPlan = planWorkReplacement(
+        key,
+        patch,
+        mergedMeta.contentRevision,
+        collectionRevisions,
+        workDocuments,
+        replacesContentGeneration,
+      );
+      Object.assign(writes, workPlan.writes);
+      removes.push(...workPlan.removes);
+      Object.assign(mergedPayloads, workPlan.payloads);
 
       writes[metaStorageKey(key)] = mergedMeta;
 
