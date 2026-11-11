@@ -79,6 +79,16 @@ export function createRecordHandlers({
     });
   };
 
+  // Claim the next run before cancelling the specific run this snapshot observed.
+  // A stale claimant must neither cancel nor restart the winning run.
+  const claimAndRestart = async (key, scope, patch, options) => {
+    const updated = await updateRecord(key, patch, options);
+    if (!updated) return { ok: true, stale: true };
+    cancelActivePipeline(key, { expectedPipelineRunId: options.expectedPipelineRunId });
+    restart(key, scope);
+    return { ok: true };
+  };
+
   const requireKey = (msg) => (msg.key ? null : 'missing key');
 
   return {
@@ -114,8 +124,9 @@ export function createRecordHandlers({
           forceFinalize && Array.isArray(rec.acceptedMergeFailurePaths)
             ? rec.acceptedMergeFailurePaths
             : [];
-        const updated = await updateRecord(
+        return claimAndRestart(
           msg.key,
+          'retryRecord',
           {
             pipelineRunId: createPipelineRunId(),
             manualResplitIntent: retriesResplit ? rec.manualResplitIntent : null,
@@ -139,14 +150,6 @@ export function createRecordHandlers({
           },
           { expectedPipelineRunId: rec.pipelineRunId },
         );
-        if (!updated) {
-          return { ok: true, stale: true };
-        }
-        // Abort only the run represented by the snapshot that this successful
-        // compare-and-swap superseded.
-        cancelActivePipeline(msg.key, { expectedPipelineRunId: rec.pipelineRunId });
-        restart(msg.key, 'retryRecord');
-        return { ok: true };
       },
     },
 
@@ -155,8 +158,9 @@ export function createRecordHandlers({
       validate: requireKey,
       async handle(msg) {
         const rec = await requireRecord(msg.key);
-        const updated = await updateRecord(
+        return claimAndRestart(
           msg.key,
+          'reprocessRecord',
           {
             pipelineRunId: createPipelineRunId(),
             ...queuedTransition(),
@@ -169,14 +173,6 @@ export function createRecordHandlers({
             expectedPipelineRunId: rec.pipelineRunId,
           },
         );
-        if (!updated) {
-          return { ok: true, stale: true };
-        }
-        // Abort only after winning the CAS, and only abort the run represented
-        // by the snapshot that was just superseded.
-        cancelActivePipeline(msg.key, { expectedPipelineRunId: rec.pipelineRunId });
-        restart(msg.key, 'reprocessRecord');
-        return { ok: true };
       },
     },
 
@@ -213,8 +209,9 @@ export function createRecordHandlers({
             error: 'record summary checkpoint is stale — reprocess it instead',
           };
         }
-        const updated = await updateRecord(
+        return claimAndRestart(
           msg.key,
+          'generateRecordSummaries',
           {
             pipelineRunId: createPipelineRunId(),
             manualResplitIntent: null,
@@ -229,12 +226,6 @@ export function createRecordHandlers({
             expectedStatuses: [...SUMMARY_GENERATION_SOURCE_STATUSES],
           },
         );
-        if (!updated) {
-          return { ok: true, stale: true };
-        }
-        cancelActivePipeline(msg.key, { expectedPipelineRunId: rec.pipelineRunId });
-        restart(msg.key, 'generateRecordSummaries');
-        return { ok: true };
       },
     },
 
@@ -263,8 +254,9 @@ export function createRecordHandlers({
         };
         const invalidTarget = validateResplitTarget(rec, target);
         if (invalidTarget) return { ok: false, error: invalidTarget };
-        const updated = await updateRecord(
+        return claimAndRestart(
           msg.key,
+          'resplitTopic',
           {
             pipelineRunId: createPipelineRunId(),
             ...splittingTransition(),
@@ -289,10 +281,6 @@ export function createRecordHandlers({
             expectedStatuses: [PIPELINE_STATUS.DONE],
           },
         );
-        if (!updated) return { ok: true, stale: true };
-        cancelActivePipeline(msg.key, { expectedPipelineRunId: rec.pipelineRunId });
-        restart(msg.key, 'resplitTopic');
-        return { ok: true };
       },
     },
 
@@ -451,21 +439,13 @@ export function createRecordHandlers({
           // the carried, explicitly accepted paths.
           patch.topic_summary_index = {};
         }
-        const updated = await updateRecord(msg.key, patch, {
+        return claimAndRestart(msg.key, 'resolveSummaryErrors', patch, {
           // The handler derived the entire patch from this snapshot. Serialize
           // competing Retry/Skip decisions by accepting only the first writer;
           // its newly minted run id makes every stale sibling decision fail the
           // compare-and-swap inside storage's per-record update queue.
           expectedPipelineRunId: rec.pipelineRunId,
         });
-        if (!updated) {
-          return { ok: true, stale: true };
-        }
-        // Only the winning decision may abort/start jobs. A stale competing
-        // overlay must not cancel the pipeline that the winner just launched.
-        cancelActivePipeline(msg.key, { expectedPipelineRunId: rec.pipelineRunId });
-        restart(msg.key, 'resolveSummaryErrors');
-        return { ok: true };
       },
     },
 
