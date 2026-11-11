@@ -158,6 +158,37 @@ function fitCount(total, build, maxChars) {
 }
 
 /**
+ * Serialize a one-item result whose text is shrunk until the JSON fits the budget.
+ * Binary search on the text limit: JSON escaping makes characters cost a variable
+ * number of bytes, so the overshoot cannot be subtracted from the limit directly.
+ * Throws when not even one character of text fits.
+ * @param {number} textLength Full length of the text being shrunk.
+ * @param {function(number): object} build Result with the text limited to the given length.
+ * @param {number} maxChars
+ * @returns {string}
+ */
+function fitText(textLength, build, maxChars) {
+  const render = (limit) => JSON.stringify(build(limit));
+  let best = render(Math.max(1, textLength));
+  if (best.length <= maxChars) return best;
+  let low = 1;
+  let high = textLength - 1;
+  best = render(low);
+  if (best.length > maxChars) throw noBudget();
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    const json = render(mid);
+    if (json.length <= maxChars) {
+      low = mid;
+      best = json;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return best;
+}
+
+/**
  * Sentences as article-grouped citations; sentences of one article stay together
  * because their ids are sorted and each article's ids are contiguous.
  * @param {object} model
@@ -214,14 +245,7 @@ function packSentences(model, allIds, { head, offset, limit, maxChars }) {
   if (count < 0) throw noBudget();
   if (count === 0 && wanted > 0) {
     // Always make progress: return the start of one sentence rather than none.
-    let textLimit = model.cite(ids[0]).text.length;
-    let size = JSON.stringify(build(1, textLimit)).length;
-    while (size > maxChars) {
-      textLimit -= size - maxChars + 1;
-      if (textLimit <= 0) throw noBudget();
-      size = JSON.stringify(build(1, textLimit)).length;
-    }
-    return JSON.stringify(build(1, textLimit));
+    return fitText(model.cite(ids[0]).text.length, (textLimit) => build(1, textLimit), maxChars);
   }
   return JSON.stringify(build(count));
 }
@@ -484,20 +508,16 @@ function createSearchTopics(model) {
       if (count === 0 && page.length) {
         // Always make progress: shrink the first hit's snippet instead of returning none.
         const [first] = page;
-        let snippetLimit = first.snippet.length;
-        const withSnippet = () => ({
-          ...build(0),
-          hits: [{ ...first, snippet: clip(first.snippet, snippetLimit) }],
-          nextOffset: offset + 1 < ranked.length ? offset + 1 : undefined,
-          truncated: true,
-        });
-        let size = JSON.stringify(withSnippet()).length;
-        while (size > budget) {
-          snippetLimit -= size - budget + 1;
-          if (snippetLimit <= 0) throw noBudget();
-          size = JSON.stringify(withSnippet()).length;
-        }
-        return JSON.stringify(withSnippet());
+        return fitText(
+          first.snippet.length,
+          (snippetLimit) => ({
+            ...build(0),
+            hits: [{ ...first, snippet: clip(first.snippet, snippetLimit) }],
+            nextOffset: offset + 1 < ranked.length ? offset + 1 : undefined,
+            truncated: true,
+          }),
+          budget,
+        );
       }
       return JSON.stringify(build(count));
     },

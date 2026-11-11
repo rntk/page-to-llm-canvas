@@ -484,6 +484,29 @@ describe('read_topic_content', () => {
     ).rejects.toThrow(/no context budget/);
   });
 
+  it('fits escaped text and, at every tiny budget, fits and advances or fails clearly', async () => {
+    const tree = makeTree();
+    tree.sentences[0] = '"quoted"\n\\ \t'.repeat(300);
+    const { tool } = setup({ tree });
+    let served = 0;
+    for (let maxChars = 1; maxChars <= 900; maxChars += 7) {
+      let text;
+      try {
+        text = await tool('read_topic_content').run({ node_id: 'n0' }, { maxChars });
+      } catch (error) {
+        expect(error.message).toMatch(/no context budget/);
+        expect(served).toBe(0); // once something fits, larger budgets must too
+        continue;
+      }
+      served += 1;
+      expect(text.length).toBeLessThanOrEqual(maxChars);
+      const result = JSON.parse(text);
+      expect(result.returned).toBeGreaterThanOrEqual(1);
+      expect(result.nextOffset).toBe(result.offset + result.returned);
+    }
+    expect(served).toBeGreaterThan(0);
+  });
+
   it('rejects unknown nodes, bad paging arguments and offsets past the end', async () => {
     const { tool, ids } = setup();
     const read = tool('read_topic_content');
@@ -616,6 +639,30 @@ describe('search_topics', () => {
       offset = page.nextOffset;
     }
     expect(collected.map((hit) => hit.node_id)).toEqual(all.hits.map((hit) => hit.node_id));
+  });
+
+  it('at every tiny budget returns a fitting hit that advances, or fails clearly', async () => {
+    const { tool } = setup();
+    let served = 0;
+    for (let maxChars = 1; maxChars <= 700; maxChars += 7) {
+      let text;
+      try {
+        text = await tool('search_topics').run(
+          { query: 'solar wind article', limit: 20 },
+          { maxChars },
+        );
+      } catch (error) {
+        expect(error.message).toMatch(/no context budget/);
+        expect(served).toBe(0);
+        continue;
+      }
+      served += 1;
+      expect(text.length).toBeLessThanOrEqual(maxChars);
+      const result = JSON.parse(text);
+      expect(result.hits.length).toBeGreaterThanOrEqual(1);
+      expect(result.nextOffset).toBe(result.offset + result.hits.length);
+    }
+    expect(served).toBeGreaterThan(0);
   });
 
   it('reports no matches, empty queries and bad offsets', async () => {
