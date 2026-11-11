@@ -44,14 +44,14 @@ function providerCacheIdentity(provider) {
 export function createPipelineProviderServices({ providerRepository, llm, telemetry, limiter }) {
   const measuredCompletion = telemetry.wrapCallLLMWithRetry(llm.callLLMWithRetry);
 
-  return ({ activeProvider, key, verboseLogs }) => {
+  return ({ activeProvider, key, fairnessKey = key, verboseLogs }) => {
     // Completion retries hold one slot, including backoff. Decision transport
     // attempts enter separately; boundary policy owns their retry/shrink loop.
     const callLLMWithRetry = (opts, maxRetries) =>
       limiter.run(
         () => measuredCompletion({ ...opts, provider: activeProvider }, maxRetries),
         opts?.signal,
-        { providerKey: providerQueueKey(activeProvider), fairnessKey: key },
+        { providerKey: providerQueueKey(activeProvider), fairnessKey },
       );
 
     function bindDecide(decisionProvider) {
@@ -63,7 +63,7 @@ export function createPipelineProviderServices({ providerRepository, llm, teleme
       return (state, questions, opts) =>
         limiter.run(() => measuredDecide(state, questions, opts), opts?.signal, {
           providerKey: providerQueueKey(decisionProvider),
-          fairnessKey: key,
+          fairnessKey,
         });
     }
 

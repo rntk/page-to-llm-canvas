@@ -449,7 +449,7 @@ export function createPipelineRunner({
 
   // Setup shared by article and project summary trees. The fingerprint covers
   // the provider identity, so changing providers invalidates a saved tree.
-  async function prepareSummaryTreeRun({ key }) {
+  async function prepareSummaryTreeRun({ fairnessKey }) {
     const revision = concurrencySettingRevision;
     const [verboseLogs, maxParallelLlmRequests, activeProvider] = await Promise.all([
       settings.getVerboseLogs(),
@@ -457,7 +457,7 @@ export function createPipelineRunner({
       providerRepository.getActiveProvider(),
     ]);
     if (revision === concurrencySettingRevision) limiter.setLimit(maxParallelLlmRequests);
-    const providers = bindProviders({ activeProvider, key, verboseLogs });
+    const providers = bindProviders({ activeProvider, fairnessKey, verboseLogs });
     const judge = await providers.resolveSummaryTreeDecide();
     const fingerprint = JSON.stringify([
       providers.summaryInputFingerprint,
@@ -511,7 +511,9 @@ export function createPipelineRunner({
     if (record.status !== PIPELINE_STATUS.DONE) {
       throw new Error('The record must finish processing before building a summary tree.');
     }
-    const { providers, judge, fingerprint, verboseLogs } = await prepareSummaryTreeRun({ key });
+    const { providers, judge, fingerprint, verboseLogs } = await prepareSummaryTreeRun({
+      fairnessKey: key,
+    });
     const runContext = {
       key,
       pipelineRunId: record.pipelineRunId,
@@ -554,10 +556,18 @@ export function createPipelineRunner({
 
   // Projects share the pipeline's provider dispatch, limiter, citation checking,
   // and checkpoint protocol; they own a project document instead of a record.
-  async function runProjectTopicTree({ records, prior, title, signal, fresh, saveSummaryTree }) {
+  async function runProjectTopicTree({
+    projectId,
+    records,
+    prior,
+    title,
+    signal,
+    fresh,
+    saveSummaryTree,
+  }) {
     const sourceRevision = projectTopicSourceRevision(records);
     const { providers, judge, fingerprint, maxChars } = await prepareSummaryTreeRun({
-      key: `project:${sourceRevision}`,
+      fairnessKey: `project:${projectId}`,
     });
     // A finished tree made by the same provider is extended with the pages that
     // changed instead of being grouped again from scratch.

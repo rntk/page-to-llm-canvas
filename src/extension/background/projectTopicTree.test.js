@@ -50,10 +50,11 @@ function fixture() {
   });
   const logger = { error: vi.fn() };
   const readRecord = vi.fn(async (key) => records.find((record) => record.key === key));
+  const projectService = { getProjectView: async () => ({ project: projects[0], tabs }) };
   const createService = () =>
     createProjectTopicTreeService({
       projectStore,
-      projectService: { getProjectView: async () => ({ project: projects[0], tabs }) },
+      projectService,
       listRecords: async () =>
         records.map(({ key, sourceUrl, status, projectTopicRevision }) => ({
           key,
@@ -72,6 +73,7 @@ function fixture() {
     createService,
     records,
     projectStore,
+    projectService,
     runProjectTopicTree,
     tabs,
     logger,
@@ -250,6 +252,84 @@ describe('project topic tree service', () => {
     expect((await projectStore.get('p')).topic_tree.nodes.n0.title).toBe('Checkpoint');
     await vi.waitFor(async () => expect((await service.build('p')).started).toBe(true));
     await waitDone(projectStore);
+  });
+
+  it('does not let an in-flight checkpoint overwrite cancelled status', async () => {
+    const { service, projectStore, runProjectTopicTree } = fixture();
+    let releaseCheckpoint;
+    let checkpointReady;
+    const checkpointStarted = new Promise((resolve) => {
+      checkpointReady = resolve;
+    });
+    const originalUpdate = projectStore.update;
+    let deferCheckpoint = false;
+    projectStore.update = async (mutate) => {
+      if (deferCheckpoint) {
+        deferCheckpoint = false;
+        checkpointReady();
+        await new Promise((resolve) => {
+          releaseCheckpoint = resolve;
+        });
+      }
+      return originalUpdate(mutate);
+    };
+    let finishRun;
+    const runFinished = new Promise((resolve) => {
+      finishRun = resolve;
+    });
+    runProjectTopicTree.mockImplementationOnce(async ({ saveSummaryTree }) => {
+      deferCheckpoint = true;
+      try {
+        await saveSummaryTree({
+          ...(await projectStore.get('p')).topic_tree,
+          status: 'done',
+          nodes: { late: { title: 'Late checkpoint' } },
+        });
+      } finally {
+        finishRun();
+      }
+    });
+
+    await service.build('p');
+    await checkpointStarted;
+    expect(await service.stop('p')).toEqual({ stopped: true });
+    expect((await projectStore.get('p')).topic_tree.status).toBe('cancelled');
+    releaseCheckpoint();
+    await runFinished;
+    await vi.waitFor(async () =>
+      expect((await projectStore.get('p')).topic_tree.status).toBe('cancelled'),
+    );
+    expect((await projectStore.get('p')).topic_tree.nodes.late).toBeUndefined();
+  });
+
+  it('keeps a stopped run cancelled when its initial inputs finish loading', async () => {
+    const { service, projectStore, projectService, runProjectTopicTree } = fixture();
+    const originalGetProjectView = projectService.getProjectView;
+    let releaseInputs;
+    let inputsReady;
+    const waitingForInputs = new Promise((resolve) => {
+      inputsReady = resolve;
+    });
+    let calls = 0;
+    projectService.getProjectView = async (...args) => {
+      calls += 1;
+      if (calls === 3) {
+        inputsReady();
+        await new Promise((resolve) => {
+          releaseInputs = resolve;
+        });
+      }
+      return originalGetProjectView(...args);
+    };
+
+    await service.build('p');
+    await waitingForInputs;
+    expect(await service.stop('p')).toEqual({ stopped: true });
+    releaseInputs();
+    await vi.waitFor(async () =>
+      expect((await projectStore.get('p')).topic_tree.status).toBe('cancelled'),
+    );
+    expect(runProjectTopicTree).not.toHaveBeenCalled();
   });
 
   it('rejects checkpoint writes when project membership changes during generation', async () => {

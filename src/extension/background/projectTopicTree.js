@@ -125,10 +125,15 @@ export function createProjectTopicTreeService({
     );
   }
 
-  async function saveOwned(projectId, runId, tree) {
+  async function saveOwned(projectId, runId, tree, { signal } = {}) {
     let owned = false;
     await updateProject(projectId, (project) => {
-      if (project.topic_tree?.runId !== runId) return null;
+      if (
+        project.topic_tree?.runId !== runId ||
+        project.topic_tree?.status !== SUMMARY_TREE_STATUS.RUNNING ||
+        signal?.aborted
+      )
+        return null;
       owned = true;
       return {
         ...project,
@@ -161,10 +166,17 @@ export function createProjectTopicTreeService({
       error: null,
       updatedAt: now(),
     };
-    await updateProject(projectId, (project) => ({ ...project, topic_tree: initial }));
+    let claimed = false;
+    await updateProject(projectId, (project) => {
+      if (signal.aborted || project.topic_tree?.status !== SUMMARY_TREE_STATUS.RUNNING) return null;
+      claimed = true;
+      return { ...project, topic_tree: initial };
+    });
+    if (!claimed) return;
     try {
       signal.throwIfAborted();
       await runProjectTopicTree({
+        projectId,
         records: source.records,
         prior,
         title: source.view.project.title,
@@ -178,12 +190,16 @@ export function createProjectTopicTreeService({
               'The project pages or their saved topics changed. Rebuild to include the current pages.',
             );
           }
-          await saveOwned(projectId, runId, tree);
+          await saveOwned(projectId, runId, tree, { signal });
         },
       });
     } catch (error) {
       const project = await projectStore.get(projectId);
-      if (project?.topic_tree?.runId !== runId) return;
+      if (
+        project?.topic_tree?.runId !== runId ||
+        project.topic_tree.status !== SUMMARY_TREE_STATUS.RUNNING
+      )
+        return;
       await saveOwned(projectId, runId, {
         ...project.topic_tree,
         status: signal.aborted ? SUMMARY_TREE_STATUS.CANCELLED : SUMMARY_TREE_STATUS.ERROR,
