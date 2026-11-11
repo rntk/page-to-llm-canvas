@@ -277,62 +277,14 @@ export function createPipelineSupervisor({
     }
   }
 
-  /**
-   * Handles one keepalive tick: resumes in-flight records that lost their SW
-   * context, and clears the alarm once storage says nothing is left to do. This
-   * is the only place allowed to clear the keepalive.
-   *
-   * @param {{name: string}} alarm
-   */
-  function handleKeepAliveAlarm(alarm) {
-    if (alarm.name !== KEEPALIVE_ALARM) return;
-    // Resume any in-flight records that lost their SW context (e.g. after SW termination).
-    listRecords()
-      .then(async (items) => {
-        const inFlight = items.filter(isInFlightRecord);
-        if (inFlight.length === 0) {
-          if (jobRegistry.size > 0 || starting.size > 0) return;
-          alarms.clear(KEEPALIVE_ALARM);
-          return;
-        }
-        const snapshot = await readBreakerSnapshot();
-        if (!snapshot.ok) return;
-        const resumable = [];
-        for (const rec of inFlight) {
-          if (!openStateFromSnapshot(rec, snapshot)) resumable.push(rec);
-        }
-        if (resumable.length === 0) {
-          if (jobRegistry.size > 0 || starting.size > 0) return;
-          alarms.clear(KEEPALIVE_ALARM);
-          return;
-        }
-        for (const rec of resumable) {
-          startPipeline(rec.key, { automatic: true, breakerSnapshot: snapshot }).catch((err) => {
-            keepaliveLog.error('resume failed for', rec.key, err);
-          });
-        }
-      })
-      .catch((err) => {
-        keepaliveLog.error('listRecords failed:', err);
-      });
-  }
-
-  /**
-   * Reconciles storage against the in-memory job registry: any record still in an
-   * in-flight status is (re)started and the keepalive alarm is (re)armed. The
-   * job registry does not survive service-worker termination, and the keepalive
-   * alarm can be lost across a browser restart or extension update, so this scan
-   * is what repairs records that would otherwise be orphaned mid-pipeline. It
-   * runs on every cold start plus onStartup/onInstalled (see background.js).
-   * startPipeline dedupes against the registry, so calling this when jobs are
-   * already healthy is a no-op.
-   */
-  async function resumeInFlightRecords() {
+  // Lifecycle recovery and alarm ticks reconcile the same storage state. Only
+  // lifecycle recovery needs to re-arm an alarm that may have been lost.
+  async function reconcileInFlight({ rearm, log }) {
     let items;
     try {
       items = await listRecords();
     } catch (err) {
-      resumeLog.warn('scan failed:', err);
+      log.warn('scan failed:', err);
       return;
     }
     const inFlight = (Array.isArray(items) ? items : []).filter(isInFlightRecord);
@@ -344,7 +296,7 @@ export function createPipelineSupervisor({
     // Startup/install recovery must recreate the alarm before consulting the
     // session breaker: its read can fail transiently, and the prior alarm may
     // have been lost across the lifecycle event that invoked this scan.
-    scheduleKeepAlive();
+    if (rearm) scheduleKeepAlive();
     const snapshot = await readBreakerSnapshot();
     if (!snapshot.ok) return;
     const resumable = [];
@@ -358,9 +310,23 @@ export function createPipelineSupervisor({
     }
     for (const rec of resumable) {
       startPipeline(rec.key, { automatic: true, breakerSnapshot: snapshot }).catch((err) => {
-        resumeLog.error('failed for', rec.key, err);
+        log.error('resume failed for', rec.key, err);
       });
     }
+  }
+
+  /** Resume orphaned jobs on an alarm tick and clear the alarm when idle. */
+  function handleKeepAliveAlarm(alarm) {
+    if (alarm.name === KEEPALIVE_ALARM) {
+      void reconcileInFlight({ rearm: false, log: keepaliveLog }).catch((err) => {
+        keepaliveLog.error('reconciliation failed:', err);
+      });
+    }
+  }
+
+  /** Restore jobs and their alarm after a worker or browser lifecycle event. */
+  function resumeInFlightRecords() {
+    return reconcileInFlight({ rearm: true, log: resumeLog });
   }
 
   return {
