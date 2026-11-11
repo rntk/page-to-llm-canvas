@@ -1,4 +1,5 @@
 import { projectArticleView } from '../domain/articleView.js';
+import { useStableJsonValue } from '../shared/hooks/useStableJsonValue.js';
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { useRecord } from '../canvas/hooks/useRecord.js';
 import TopicHierarchyView from './TopicHierarchyView.jsx';
@@ -89,11 +90,8 @@ export default function HierarchyApp({
     };
   }, [onClose, scopeRequest]);
 
-  // Serialize on record identity changes; downstream topics memo deduplicates by content.
   const article = projectArticleView(record);
-  const topicsJson = useMemo(() => JSON.stringify(record?.topics || null), [record?.topics]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const topics = useMemo(() => article.topics, [topicsJson]);
+  const topics = useStableJsonValue(article.topics);
   const isDone = record?.status === PIPELINE_STATUS.DONE;
   const isRecordError =
     record?.status === PIPELINE_STATUS.ERROR || record?.status === PIPELINE_STATUS.CANCELLED;

@@ -122,6 +122,31 @@ describe('useCanvasRecordViewModel', () => {
     expect(ctx.apiRef.current.contentRevision).toBeUndefined();
   });
 
+  it.each([undefined, 'rev-a'])(
+    'updates same-length text even when revision is %s',
+    (contentRevision) => {
+      const record = {
+        contentRevision,
+        sentences: ['First sentence.'],
+        topics: [{ name: 'Topic', sentences: [1] }],
+        topic_summary_index: { Topic: { level: 0, runs: [{ sentences: [1], text: 'Summary' }] } },
+      };
+      const ctx = setup({ record, selectedLevel: 0, showSummaryModeRaw: false });
+      cleanups.push(ctx.cleanup);
+      const first = ctx.apiRef.current;
+      ctx.rerender({ record: JSON.parse(JSON.stringify(record)) });
+      expect(ctx.apiRef.current.sentences).toBe(first.sentences);
+      expect(ctx.apiRef.current.topics).toBe(first.topics);
+      expect(ctx.apiRef.current.topicSentenceIndex).toBe(first.topicSentenceIndex);
+      expect(ctx.apiRef.current.allSummaryCards).toBe(first.allSummaryCards);
+
+      ctx.rerender({ record: { ...record, sentences: ['Changed sentence.'] } });
+      expect(ctx.apiRef.current.sentences).toEqual(['Changed sentence.']);
+      expect(ctx.apiRef.current.sentences).not.toBe(first.sentences);
+      expect(ctx.apiRef.current.contentRevision).toBe(contentRevision);
+    },
+  );
+
   it('forces summary mode off when summaries become disabled', () => {
     const record = { status: 'done', summariesDisabled: false };
     const ctx = setup({

@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import { sanitizeArticleHtml } from '../../highlights/articleHtml.js';
 import { buildSummaryCards, filterSummaryCardsByLevel } from '../../domain/summaryCards.js';
 import { buildTopicSentenceIndex, getMaxTopicLevel } from '../../domain/topicDomain.js';
+import { useStableJsonValue } from '../../shared/hooks/useStableJsonValue.js';
 
 /**
  * Normalize a storage record into the stable, derived data consumed by the
@@ -16,31 +17,15 @@ import { buildTopicSentenceIndex, getMaxTopicLevel } from '../../domain/topicDom
 export function useCanvasRecordViewModel({ record, selectedLevel, showSummaryModeRaw }) {
   const article = projectArticleView(record);
 
-  // Serialize on record changes; downstream memos ignore equivalent topics.
-  const topicsJson = useMemo(() => JSON.stringify(record?.topics || null), [record?.topics]);
-  const topics = useMemo(
-    () => article.topics,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [topicsJson],
-  );
+  // Storage collections are immutable JSON values. Reuse snapshots by content,
+  // including for older records that do not have a content revision.
+  const topics = useStableJsonValue(article.topics);
+  const sentences = useStableJsonValue(article.sentences);
   const topicSentenceIndex = useMemo(() => buildTopicSentenceIndex(topics), [topics]);
-
-  // Sentence count and revision identify content. Revision distinguishes
-  // reanalysis with the same count, keeping chat evidence paired with its text.
-  const sentenceCount = article.sentences.length;
-  const recordContentRevision =
+  const contentRevision =
     typeof record?.contentRevision === 'string' && record.contentRevision
       ? record.contentRevision
       : undefined;
-  const sentenceSource = useMemo(
-    () => ({
-      sentences: article.sentences,
-      contentRevision: recordContentRevision,
-    }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sentenceCount, recordContentRevision],
-  );
-  const { sentences, contentRevision } = sentenceSource;
 
   // The source URL resolves the article's relative image/link URLs; without it
   // they would resolve against the extension origin and 404.
@@ -50,15 +35,8 @@ export function useCanvasRecordViewModel({ record, selectedLevel, showSummaryMod
   }, [record?.html, record?.sourceUrl]);
 
   const maxLevel = useMemo(() => getMaxTopicLevel(topics), [topics]);
-  const summaryIndexJson = useMemo(
-    () => JSON.stringify(record?.topic_summary_index || null),
-    [record?.topic_summary_index],
-  );
-  const allSummaryCards = useMemo(
-    () => buildSummaryCards(record?.topic_summary_index),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [summaryIndexJson],
-  );
+  const summaryIndex = useStableJsonValue(record?.topic_summary_index || null);
+  const allSummaryCards = useMemo(() => buildSummaryCards(summaryIndex), [summaryIndex]);
   const summaryCards = useMemo(
     () => filterSummaryCardsByLevel(allSummaryCards, selectedLevel),
     [allSummaryCards, selectedLevel],
