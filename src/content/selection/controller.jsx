@@ -4,23 +4,10 @@ import { createRoot } from 'react-dom/client';
 import SelectionToolbar from './SelectionToolbar.jsx';
 import { findTextBlocks } from './findTextBlocks.js';
 import { MSG } from '../../shared/runtime/messages.js';
-import {
-  canStepUpElement,
-  createSelectedEntry,
-  moveSelectedEntry,
-  renumberSelectedEntries,
-  removeSelectedEntry,
-  selectedBlocksForToolbar,
-  stepUpSelectedEntry,
-} from './state.js';
+import { createSelectedEntry, renumberSelectedEntries } from './state.js';
 import { buildCssPath } from './cssPath.js';
 import { buildCapture } from './html.js';
-import {
-  HIGHLIGHTED_ELEMENT_SELECTOR,
-  isElementSelected,
-  setElementHighlighted,
-  setElementSelected,
-} from './markers.js';
+import { createSelectionInteraction } from './interaction.js';
 import { TOOLBAR_SHADOW_STYLES } from './SelectionToolbar.styles.js';
 import { browserRuntimeMessenger } from '../../utils/runtimeMessages.js';
 import {
@@ -76,16 +63,6 @@ export function createSelectionController({
   let selectionToolbar = null;
   let selectionToolbarRoot = null;
   let selectionToolbarShadowRoot = null;
-  let selectionMode = false;
-  let selectedElements = [];
-  let pickCounter = 0;
-  let dragSrcIndex = null;
-  let dragOverIndex = null;
-  let isSubmitting = false;
-  let isFinding = false;
-  let findStatus = '';
-  let splittingInstructions = '';
-  let summaryInstructions = '';
   let findAbortController = null;
   let destroyed = false;
   const document = contentDocument;
@@ -93,6 +70,12 @@ export function createSelectionController({
   const { alert } = { ...defaultDialogs, ...(dialogs ?? {}) };
   const unregisterThemedSurface =
     preferences.registerThemedSurface(() => selectionToolbar) || (() => {});
+
+  const interaction = createSelectionInteraction({
+    document,
+    guardTrustedUserEvent,
+    onChange: renderSelectionToolbar,
+  });
 
   selectionToolbar = document.createElement('div');
   selectionToolbar.id = 'pagetollm-selection-toolbar';
@@ -112,74 +95,18 @@ export function createSelectionController({
   preferences.trackMountedSurface(contentDocument);
   renderSelectionToolbar();
 
-  function toggleSelectionMode(event) {
-    if (!guardTrustedUserEvent(event)) return;
-    if (destroyed || isSubmitting || isFinding) return;
-    selectionMode = !selectionMode;
-    if (selectionMode) {
-      enableSelection();
-    } else {
-      disableSelection();
-    }
-    renderSelectionToolbar();
-  }
-
-  function enableSelection() {
-    document.addEventListener('mouseover', highlightElement);
-    document.addEventListener('mouseout', unhighlightElement);
-    document.addEventListener('click', selectElement, true);
-  }
-
-  function disableSelection() {
-    document.removeEventListener('mouseover', highlightElement);
-    document.removeEventListener('mouseout', unhighlightElement);
-    document.removeEventListener('click', selectElement, true);
-    document.querySelectorAll(HIGHLIGHTED_ELEMENT_SELECTOR).forEach((el) => {
-      setElementHighlighted(el, false);
-    });
-  }
-
-  function highlightElement(event) {
-    if (!selectionMode) return;
-    if (event.target.closest('#pagetollm-selection-toolbar')) return;
-    const el = event.target;
-    if (el && el !== document.body && el !== document.documentElement) {
-      setElementHighlighted(el, true);
-    }
-  }
-
-  function unhighlightElement(event) {
-    if (!selectionMode) return;
-    if (event.target.closest('#pagetollm-selection-toolbar')) return;
-    const el = event.target;
-    if (el && !isElementSelected(el)) {
-      setElementHighlighted(el, false);
-    }
-  }
-
-  function selectElement(event) {
-    if (!guardTrustedUserEvent(event)) return;
-    if (destroyed || !selectionMode || isSubmitting || isFinding) return;
-    if (event.target.closest('#pagetollm-selection-toolbar')) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    const el = event.target;
-    setElementSelected(el, true);
-    pickCounter += 1;
-    selectedElements.push(createSelectedEntry(el, pickCounter));
-    findStatus = '';
-
-    selectionMode = false;
-    disableSelection();
-
-    renderSelectionToolbar();
-  }
-
   function renderSelectionToolbar() {
     if (!selectionToolbarRoot) return;
-    const selectedBlocks = selectedBlocksForToolbar(selectedElements, canStepUpElement);
+    const {
+      selectionMode,
+      isSubmitting,
+      isFinding,
+      findStatus,
+      dragSrcIndex,
+      dragOverIndex,
+      splittingInstructions,
+      summaryInstructions,
+    } = interaction.snapshot();
 
     selectionToolbarRoot.render(
       <SelectionToolbar
@@ -187,115 +114,24 @@ export function createSelectionController({
         isSubmitting={isSubmitting}
         isFinding={isFinding}
         status={findStatus}
-        selectedBlocks={selectedBlocks}
+        selectedBlocks={interaction.toolbarBlocks()}
         draggingIndex={dragSrcIndex}
         dragOverIndex={dragOverIndex}
         splittingInstructions={splittingInstructions}
         summaryInstructions={summaryInstructions}
-        onSplittingInstructionsChange={changeSplittingInstructions}
-        onSummaryInstructionsChange={changeSummaryInstructions}
-        onTogglePicking={toggleSelectionMode}
+        onSplittingInstructionsChange={interaction.changeSplittingInstructions}
+        onSummaryInstructionsChange={interaction.changeSummaryInstructions}
+        onTogglePicking={interaction.toggleSelectionMode}
         onFind={findSelection}
         onSubmit={submitSelection}
         onCancel={handleCancel}
-        onRemoveBlock={removeBlock}
-        onStepUpBlock={stepUpBlock}
-        onDragStart={onDragStart}
-        onDragOver={onDragOver}
-        onDrop={onDrop}
-        onDragEnd={onDragEnd}
+        onRemoveBlock={interaction.removeBlock}
+        onStepUpBlock={interaction.stepUpBlock}
+        onDragStart={interaction.onDragStart}
+        onDragOver={interaction.onDragOver}
+        onDrop={interaction.onDrop}
+        onDragEnd={interaction.onDragEnd}
       />,
-    );
-  }
-
-  function removeBlock(event, index) {
-    if (!guardTrustedUserEvent(event)) return;
-    if (destroyed || isSubmitting || isFinding) return;
-    const entry = selectedElements[index];
-    selectedElements = removeSelectedEntry(selectedElements, index);
-    syncSelectedMarker(entry?.el);
-    pickCounter = selectedElements.length;
-    // Clear stale scan counts after the list changes.
-    findStatus = '';
-    renderSelectionToolbar();
-  }
-
-  function changeSplittingInstructions(event) {
-    if (!guardTrustedUserEvent(event) || destroyed || isSubmitting || isFinding) return;
-    splittingInstructions = event.target.value;
-    renderSelectionToolbar();
-  }
-
-  function changeSummaryInstructions(event) {
-    if (!guardTrustedUserEvent(event) || destroyed || isSubmitting || isFinding) return;
-    summaryInstructions = event.target.value;
-    renderSelectionToolbar();
-  }
-
-  function stepUpBlock(event, index) {
-    if (!guardTrustedUserEvent(event)) return;
-    if (destroyed || isSubmitting || isFinding) return;
-    const result = stepUpSelectedEntry(selectedElements, index);
-    if (result.oldElement === null || result.newElement === null) return;
-
-    selectedElements = result.entries;
-    syncSelectedMarker(result.oldElement);
-    syncSelectedMarker(result.newElement);
-    pickCounter = selectedElements.length;
-    findStatus = '';
-
-    // Show the full parent block that will be captured.
-    renderSelectionToolbar();
-  }
-
-  function onDragStart(event, index) {
-    if (!guardTrustedUserEvent(event)) return;
-    if (destroyed || isSubmitting || isFinding) return;
-    dragSrcIndex = Number.isInteger(index) ? index : parseInt(event.currentTarget.dataset.index);
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-    renderSelectionToolbar();
-  }
-
-  function onDragOver(event, index) {
-    if (!guardTrustedUserEvent(event)) return;
-    if (destroyed || isSubmitting || isFinding) return;
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-    const nextDragOverIndex = Number.isInteger(index)
-      ? index
-      : parseInt(event.currentTarget.dataset.index);
-    if (dragOverIndex !== nextDragOverIndex) {
-      dragOverIndex = nextDragOverIndex;
-      renderSelectionToolbar();
-    }
-  }
-
-  function onDrop(event, index) {
-    if (!guardTrustedUserEvent(event)) return;
-    if (destroyed || isSubmitting || isFinding) return;
-    event.preventDefault();
-    const destIndex = Number.isInteger(index) ? index : parseInt(event.currentTarget.dataset.index);
-    if (dragSrcIndex === null || dragSrcIndex === destIndex) return;
-
-    selectedElements = moveSelectedEntry(selectedElements, dragSrcIndex, destIndex);
-    dragOverIndex = null;
-
-    renderSelectionToolbar();
-  }
-
-  function onDragEnd(event) {
-    if (!guardTrustedUserEvent(event)) return;
-    if (destroyed || isSubmitting || isFinding) return;
-    dragSrcIndex = null;
-    dragOverIndex = null;
-    renderSelectionToolbar();
-  }
-
-  function syncSelectedMarker(el) {
-    if (!el) return;
-    setElementSelected(
-      el,
-      selectedElements.some((entry) => entry.el === el),
     );
   }
 
@@ -322,21 +158,15 @@ export function createSelectionController({
 
   async function findSelection(event) {
     if (!guardTrustedUserEvent(event)) return;
-    if (isSubmitting || isFinding || destroyed) return;
+    if (destroyed || interaction.snapshot().isSubmitting || interaction.snapshot().isFinding)
+      return;
     event?.preventDefault?.();
     event?.stopPropagation?.();
 
     // Stop page picking before the scan and its busy paint.
-    selectionMode = false;
-    disableSelection();
-    dragSrcIndex = null;
-    dragOverIndex = null;
-    isFinding = true;
-    findStatus = 'Finding text blocks…';
+    interaction.startFind();
     const abortController = new AbortController();
     findAbortController = abortController;
-    renderSelectionToolbar();
-
     try {
       await new Promise((resolve) => {
         window.setTimeout(resolve, 0);
@@ -344,13 +174,14 @@ export function createSelectionController({
       if (destroyed || abortController.signal.aborted) return;
 
       const result = await findBlocks(document, {
-        selected: selectedElements.map(({ el }) => el),
+        selected: interaction.snapshot().selectedElements.map(({ el }) => el),
         signal: abortController.signal,
       });
       if (destroyed || abortController.signal.aborted || findAbortController !== abortController) {
         return;
       }
 
+      let selectedElements = interaction.snapshot().selectedElements;
       const resultBlocks = Array.isArray(result?.blocks) ? result.blocks : [];
       const additions = [];
       let skippedForOverlap = false;
@@ -377,11 +208,9 @@ export function createSelectionController({
       additions.sort((a, b) => compareDocumentOrder(a.el, b.el));
 
       if (additions.length > 0) {
-        additions.forEach(({ el }) => setElementSelected(el, true));
         selectedElements = renumberSelectedEntries([...selectedElements, ...additions], {
           mutate: false,
         });
-        pickCounter = selectedElements.length;
       }
 
       const resultStatus =
@@ -390,19 +219,18 @@ export function createSelectionController({
           : result?.status === 'found' && skippedForOverlap
             ? 'already-selected'
             : result?.status;
-      findStatus = statusForFindResult(resultStatus, additions.length);
+      interaction.finishFind(selectedElements, statusForFindResult(resultStatus, additions.length));
     } catch (err) {
       if (!abortController.signal.aborted && !destroyed) {
         log.error('find text blocks error:', err);
-        findStatus = 'No clear article found. Try Pick Block.';
+        interaction.finishFind(
+          interaction.snapshot().selectedElements,
+          'No clear article found. Try Pick Block.',
+        );
       }
     } finally {
       if (!destroyed && findAbortController === abortController) {
-        // Only the active scan can reach this reset.
-        // eslint-disable-next-line require-atomic-updates
-        isFinding = false;
         findAbortController = null;
-        renderSelectionToolbar();
       }
     }
   }
@@ -413,15 +241,21 @@ export function createSelectionController({
       event.preventDefault();
       event.stopPropagation();
     }
+    const {
+      selectedElements,
+      isSubmitting,
+      isFinding,
+      splittingInstructions,
+      summaryInstructions,
+    } = interaction.snapshot();
     if (destroyed || isSubmitting || isFinding) return;
     if (selectedElements.length === 0) {
       alert('Please pick at least one block first.');
       return;
     }
 
-    isSubmitting = true;
     let succeeded = false;
-    flushSync(() => renderSelectionToolbar());
+    flushSync(() => interaction.setSubmitting(true));
 
     try {
       // A timer alone can run before the next paint. Schedule it from a frame
@@ -456,12 +290,9 @@ export function createSelectionController({
       log.error('submit error:', err);
       alert('PageToLLM error: ' + err.message);
     } finally {
-      // The isSubmitting guard prevents concurrent writers.
-      // eslint-disable-next-line require-atomic-updates
-      isSubmitting = false;
       // Keep the selection and typed instructions on failure so the user can retry.
       if (succeeded) destroy();
-      else renderSelectionToolbar();
+      else if (!destroyed) interaction.setSubmitting(false);
     }
   }
 
@@ -487,14 +318,7 @@ export function createSelectionController({
       }
     }
 
-    selectedElements.forEach(({ el }) => setElementSelected(el, false));
-    selectedElements = [];
-    pickCounter = 0;
-    dragSrcIndex = null;
-    dragOverIndex = null;
-
-    selectionMode = false;
-    disableSelection();
+    interaction.destroy();
     unregisterThemedSurface();
     onDestroy?.();
   }
