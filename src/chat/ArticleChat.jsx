@@ -1,7 +1,7 @@
-import { MAX_TURN_EVENTS } from '../shared/runtime/contracts.js';
 import React, { Activity, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { createTurnId, runArticleChatTurn } from './articleChat.js';
+import { runArticleChatTurn } from './articleChat.js';
+import { useArticleChatTurn } from './useArticleChatTurn.js';
 import { browserChatRepository, getArticleChatLimits } from './chatApi.js';
 import { eventRange, useChatSessions } from './useChatSessions.js';
 import ChatComposer from './ChatComposer.jsx';
@@ -93,28 +93,13 @@ function ArticleChat({
   const [input, setInput] = useState('');
   const [activeTab, setActiveTab] = useState('chat');
   const [showHistory, setShowHistory] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [notice, setNotice] = useState(null);
-  // The visible unsaved answer and its save-retry payload have one lifetime.
-  const [retryTurn, setRetryTurn] = useState(null);
   const mountedRef = useRef(true);
-  const recordKeyRef = useRef(recordKey);
-  const operationRef = useRef(null);
   const focusAttemptRef = useRef(0);
   const panelRef = useRef(null);
   const didFocusPanelRef = useRef(false);
   const chatTabRef = useRef(null);
   const eventsTabRef = useRef(null);
-  // Optimistic user bubble while the turn runs; nothing is persisted yet.
-  const [pendingQuestion, setPendingQuestion] = useState('');
-
-  const isCurrentOperation = useCallback(
-    (operation) =>
-      mountedRef.current &&
-      operationRef.current === operation &&
-      recordKeyRef.current === operation.recordKey,
-    [],
-  );
 
   const focusHighlight = useCallback(
     async (range) => {
@@ -194,22 +179,6 @@ function ArticleChat({
     reconcilePersistedTurn,
   } = useChatSessions({ recordKey, applyEvents, chatRepository });
 
-  useEffect(() => {
-    if (!scopeRequest || appliedScopeRequest.current === scopeRequest) return;
-    appliedScopeRequest.current = scopeRequest;
-    operationRef.current?.controller.abort();
-    operationRef.current = null;
-    setIsLoading(false);
-    setPendingQuestion('');
-    setRetryTurn(null);
-    setInput('');
-    setShowHistory(false);
-    setActiveTab('chat');
-    startNewChat(scopeRequest.paths);
-    void refreshChats().catch(() => {});
-    onScopeRequestHandled?.();
-  }, [scopeRequest, startNewChat, refreshChats, onScopeRequestHandled]);
-
   const missingScopePaths = useMemo(
     () => scope.filter((path) => !topicPaths.includes(path)),
     [scope, topicPaths],
@@ -230,6 +199,60 @@ function ArticleChat({
     [sentences, topics, scope],
   );
 
+  const highlightedRanges = useMemo(
+    () => paintedEvents.map(eventRange).filter(Boolean),
+    [paintedEvents],
+  );
+  const {
+    isLoading,
+    pendingQuestion,
+    retryTurn,
+    setRetryTurn,
+    start: send,
+    cancel: stopActiveTurn,
+    invalidate,
+  } = useArticleChatTurn({
+    recordKey,
+    contentRevision,
+    activeChatId,
+    input,
+    setInput,
+    setError,
+    setNotice,
+    isMutatingHistory,
+    isScopeBlocked,
+    getChatLimits,
+    resolveSentences,
+    topics,
+    scope,
+    scopedSentences,
+    runTurn,
+    messages,
+    highlightedRanges,
+    source,
+    tools,
+    onHighlight,
+    chatRepository,
+    paintedEvents,
+    applyEvents,
+    adoptPersistedTurn,
+    reconcilePersistedTurn,
+    refreshChats,
+    subjectLabel,
+  });
+
+  useEffect(() => {
+    if (!scopeRequest || appliedScopeRequest.current === scopeRequest) return;
+    appliedScopeRequest.current = scopeRequest;
+    invalidate();
+    setInput('');
+    setShowHistory(false);
+    setActiveTab('chat');
+    startNewChat(scopeRequest.paths);
+    void refreshChats().catch(() => {});
+    onScopeRequestHandled?.();
+  }, [scopeRequest, startNewChat, refreshChats, onScopeRequestHandled, invalidate]);
+
   // Unmounting the panel (chat closed) must not leave a stale highlight
   // painted on the article behind it.
   const onClearHighlightsRef = useRef(onClearHighlights);
@@ -240,32 +263,11 @@ function ArticleChat({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      operationRef.current?.controller.abort();
-      operationRef.current = null;
       focusAttemptRef.current += 1;
       onClearHighlightsRef.current?.();
-      // Real unmount: these are no-ops. Deactivated by <Activity> (chat panel
-      // hidden mid-turn): the panel's state survives, so without this the
-      // in-flight turn's own cleanup can never run (its `finally` guard sees
-      // mountedRef.current === false and bails), leaving isLoading stuck true
-      // — composer permanently disabled and Stop unable to find an operation.
-      setIsLoading(false);
-      setPendingQuestion('');
       setNotice(null);
     };
   }, []);
-
-  useEffect(() => {
-    if (recordKeyRef.current !== recordKey) {
-      operationRef.current?.controller.abort();
-      operationRef.current = null;
-      setPendingQuestion('');
-      setIsLoading(false);
-      setNotice(null);
-      setRetryTurn(null);
-    }
-    recordKeyRef.current = recordKey;
-  }, [recordKey]);
 
   useEffect(() => {
     if (isLoadingHistory || didFocusPanelRef.current) return;
@@ -274,14 +276,6 @@ function ArticleChat({
     didFocusPanelRef.current = true;
     textarea.focus();
   }, [isLoadingHistory]);
-
-  // Only currently painted evidence constrains overlap in the next turn.
-  // Historical events remain available in the Events tab without being
-  // misrepresented to the model as visible on the page.
-  const highlightedRanges = useMemo(
-    () => paintedEvents.map(eventRange).filter(Boolean),
-    [paintedEvents],
-  );
 
   const visibleMessages = useMemo(() => {
     const visible = messages.filter((message) => !message.hidden);
@@ -317,7 +311,7 @@ function ArticleChat({
       setActiveTab('chat');
       setNotice(null);
     },
-    [isLoading, isMutatingHistory, startNewChat],
+    [isLoading, isMutatingHistory, startNewChat, setRetryTurn],
   );
 
   const warnActiveTurn = useCallback(() => {
@@ -408,210 +402,6 @@ function ArticleChat({
     (nextTab === 'chat' ? chatTabRef.current : eventsTabRef.current)?.focus();
   }, []);
 
-  const stopActiveTurn = useCallback(() => {
-    const operation = operationRef.current;
-    if (!operation || !isCurrentOperation(operation) || operation.controller.signal.aborted) return;
-    operation.controller.abort();
-    setNotice({ tone: 'progress', message: 'Stopping response…' });
-  }, [isCurrentOperation]);
-
-  const send = useCallback(async () => {
-    const question = input.trim();
-    if (!question || isLoading || isMutatingHistory || !recordKey || isScopeBlocked) return;
-    const candidate = retryTurn;
-    const retry =
-      candidate?.recordKey === recordKey &&
-      candidate?.chatId === (activeChatId ?? null) &&
-      candidate?.contentRevision === contentRevision
-        ? candidate
-        : null;
-    const turnId = retry?.question === question ? retry.turnId : createTurnId();
-    const operation = Object.freeze({
-      turnId,
-      recordKey,
-      contentRevision,
-      chatId: activeChatId ?? null,
-      controller: new AbortController(),
-    });
-    operationRef.current = operation;
-    setInput('');
-    setError('');
-    setNotice(null);
-    setIsLoading(true);
-    setPendingQuestion(question);
-    setRetryTurn(null);
-    let turnResult = retry?.question === question ? retry.turnResult : undefined;
-    try {
-      try {
-        // Run the whole turn first; onHighlight paints new evidence as it streams.
-        // The content-script splits source text, but the active provider (and
-        // its context window) live in the background worker. Read the resulting
-        // budget immediately before the turn so small-window providers do not
-        // receive the static 60k-character fallback.
-        if (!turnResult) {
-          const limits = await getChatLimits();
-          if (!isCurrentOperation(operation)) return;
-          // Late-bound sources (a live tab read on first send) resolve here, so
-          // a failed read surfaces like any other turn error.
-          const turnSentences = resolveSentences
-            ? scopeChatSentences(await resolveSentences(), topics, scope)
-            : scopedSentences;
-          if (!isCurrentOperation(operation)) return;
-          turnResult = await runTurn({
-            article: {
-              history: messages,
-              sentences: turnSentences,
-              highlightedRanges,
-              ...(source ? { source } : {}),
-            },
-            ...(tools?.length ? { tools } : {}),
-            question,
-            limits,
-            runtime: {
-              turnId,
-              signal: operation.controller.signal,
-            },
-            effects: {
-              onHighlight: (range) => {
-                if (!isCurrentOperation(operation)) return undefined;
-                return onHighlight?.(range);
-              },
-            },
-          });
-        }
-        // Closing/unmounting invalidates the operation before it can write.
-        if (!isCurrentOperation(operation)) return;
-        // Persist only replayable user-visible content. Tool transcripts are
-        // transient implementation detail and may contain provider reasoning.
-        const persisted = await chatRepository.append(
-          operation.recordKey,
-          operation.chatId,
-          {
-            turnId,
-            scope,
-            messages: [
-              { role: 'user', content: question },
-              { role: 'assistant', content: turnResult.reply },
-            ],
-            // Redundant guard for injected runTurn implementations; the engine
-            // enforces this limit before painting any highlight.
-            events: turnResult.highlightRanges.slice(0, MAX_TURN_EVENTS).map((range) => ({
-              eventType: 'highlight_span',
-              data: range,
-            })),
-          },
-          { expectedContentRevision: operation.contentRevision },
-        );
-        if (!isCurrentOperation(operation)) return;
-        // The record was reanalyzed while this panel held the old source: the
-        // answer belongs to content this record no longer has, so storage
-        // refused it. Retrying cannot help until the panel is reopened.
-        if (persisted?.stale) {
-          // Unconditional writes gated by the isCurrentOperation() check above
-          // with no intervening await (same rule as the success path below).
-          setRetryTurn(null);
-          setPendingQuestion('');
-          setInput(question);
-          applyEvents(paintedEvents);
-          setError(
-            `This ${subjectLabel} was reanalyzed elsewhere, so the answer was not saved. Reopen it to chat about the new version.`,
-          );
-          return;
-        }
-        adoptPersistedTurn(persisted, {
-          expectedChatId: operation.chatId,
-          turnId,
-        });
-        // Unconditional write gated by the isCurrentOperation() check immediately
-        // above with no intervening await; a concurrent send() would have already
-        // replaced operationRef.current, so no stale invocation reaches this line.
-        setRetryTurn(null);
-        setPendingQuestion('');
-      } catch (err) {
-        if (!isCurrentOperation(operation)) return;
-        // A runtime response can be lost after storage committed. For an
-        // existing chat, reconcile by turnId before treating it as a failure.
-        const reconciled = turnResult
-          ? await reconcilePersistedTurn(operation.chatId, turnId)
-          : false;
-        if (reconciled && isCurrentOperation(operation)) {
-          // Same operation-identity guard as above, checked synchronously on this line.
-          setRetryTurn(null);
-          setPendingQuestion('');
-          return;
-        }
-        if (!isCurrentOperation(operation)) return;
-        // Same operation-identity guard, no intervening await since the check above.
-        setRetryTurn({
-          question,
-          turnId,
-          turnResult,
-          recordKey: operation.recordKey,
-          chatId: operation.chatId,
-          contentRevision: operation.contentRevision,
-        });
-        setPendingQuestion('');
-        setInput(question);
-        applyEvents(paintedEvents);
-        if (err?.name === 'AbortError') {
-          setRetryTurn(null);
-          setError('');
-          setNotice({ tone: 'warning', message: 'Response stopped.' });
-          return;
-        }
-        setError(
-          turnResult
-            ? `${err?.message || 'Failed to save response.'} The answer is unsaved. Send the same question again to retry saving it.`
-            : err?.message || 'Failed to get a response.',
-        );
-        return;
-      }
-      // The turn is durably persisted and adopted; the chat-list refresh is a
-      // runtime round-trip whose only effect is cosmetic sidebar titles/counts.
-      // A failure here must neither roll back the turn nor surface an error.
-      try {
-        await refreshChats();
-      } catch {
-        // Stale sidebar titles/counts are acceptable; the turn is persisted.
-      }
-    } finally {
-      if (mountedRef.current && operationRef.current === operation) {
-        operationRef.current = null;
-        setPendingQuestion('');
-        setIsLoading(false);
-      }
-    }
-  }, [
-    activeChatId,
-    adoptPersistedTurn,
-    applyEvents,
-    chatRepository,
-    contentRevision,
-    getChatLimits,
-    highlightedRanges,
-    input,
-    isCurrentOperation,
-    isLoading,
-    isMutatingHistory,
-    messages,
-    isScopeBlocked,
-    onHighlight,
-    paintedEvents,
-    reconcilePersistedTurn,
-    recordKey,
-    refreshChats,
-    resolveSentences,
-    retryTurn,
-    runTurn,
-    scope,
-    scopedSentences,
-    source,
-    tools,
-    topics,
-    setError,
-    subjectLabel,
-  ]);
-
   const handleInputChange = useCallback(
     (value) => {
       if (retryTurn && retryTurn.question !== value.trim()) {
@@ -620,7 +410,7 @@ function ArticleChat({
       }
       setInput(value);
     },
-    [retryTurn, setError],
+    [retryTurn, setError, setRetryTurn],
   );
 
   return (
