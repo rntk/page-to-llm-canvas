@@ -13,6 +13,7 @@ import { createResplitAction } from '../shared/runtime/topicResplit.js';
 import { buildTopicTree, collectNonLeafPaths } from '../domain/topicTree.js';
 import { getMaxTopicLevel } from '../domain/topicDomain.js';
 import { PIPELINE_STATUS } from '../shared/runtime/contracts.js';
+import '../extension/styles/topic-page.css';
 import './hierarchy.css';
 import ArticleChat from '../chat/ArticleChat.jsx';
 import { createToChatAction } from '../chat/topicScope.js';

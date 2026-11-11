@@ -5,7 +5,7 @@ import { buildSummaryTreeDisplayTree } from '../topics-tree/displayTree.js';
 import { useSourceCardChats } from '../topics-tree/useSourceCardChats.js';
 import { SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
 import { describeMerge } from './projectMergeState.js';
-import '../hierarchy/hierarchy.css';
+import '../extension/styles/topic-page.css';
 import '../topics-tree/topics-tree.css';
 
 const NO_SENTENCES = [];

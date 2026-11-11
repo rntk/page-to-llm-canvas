@@ -11,7 +11,7 @@ import RecordStateGate from './RecordStateGate.jsx';
 import { TREE_SOURCES, TREE_SOURCE_IDS, useSourceTree } from './treeSources.js';
 import TopicsTreeCanvas from './TopicsTreeCanvas.jsx';
 import { useSourceCardChats } from './useSourceCardChats.js';
-import '../hierarchy/hierarchy.css';
+import '../extension/styles/topic-page.css';
 import './topics-tree.css';
 
 const noop = () => {};

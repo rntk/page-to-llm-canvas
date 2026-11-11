@@ -1,6 +1,6 @@
 /* Topics tree route. Page chrome (bar, title, close, states) and the spacing,
    type and motion scales (--th-space-*, --th-font-*, --th-dur*, --th-ease) come
-   from hierarchy.css' .th-page; this file styles the tree canvas only. */
+   from topic-page.css' .th-page; this file styles the tree canvas only. */
 
 .tt-page__body {
   display: flex;
