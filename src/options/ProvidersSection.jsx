@@ -134,7 +134,11 @@ export function ProvidersSection() {
   };
 
   const remove = async (id) => {
-    if (!confirm('Delete this provider?')) return;
+    const message =
+      id === activeId
+        ? 'Delete the active provider? No provider will be active until you choose another one.'
+        : 'Delete this provider?';
+    if (!confirm(message)) return;
     setError('');
     const response = await sendMessage({ type: MSG.deleteProvider, id });
     if (!response || !response.ok) {
@@ -201,53 +205,60 @@ export function ProvidersSection() {
       ) : providers.length === 0 ? (
         <div className="empty">No providers configured yet.</div>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th className="active-cell">Active</th>
-              <th>Name</th>
-              <th>Type</th>
-              <th>Model</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {providers.map((provider) => (
-              <tr key={provider.id}>
-                <td className="active-cell">
-                  {isCompletionProvider(provider) ? (
-                    <input
-                      type="radio"
-                      name="active-provider"
-                      checked={provider.id === activeId}
-                      onChange={() => activate(provider.id)}
-                      aria-label={`Set ${provider.name} active`}
-                    />
-                  ) : null}
-                </td>
-                <td>
-                  {provider.name}{' '}
-                  {provider.id === activeId ? <span className="badge">Active</span> : null}
-                </td>
-                <td>{providerTypeLabel(provider.type)}</td>
-                <td className="mono">
-                  {provider.model || 'Server default'}
-                  {provider.serviceTier ? (
-                    <span className="badge">{provider.serviceTier}</span>
-                  ) : null}
-                </td>
-                <td>
-                  <button type="button" onClick={() => edit(provider)}>
-                    Edit
-                  </button>{' '}
-                  <button className="danger" type="button" onClick={() => remove(provider.id)}>
-                    Delete
-                  </button>
-                </td>
+        <>
+          {!activeId && providers.some(isCompletionProvider) ? (
+            <div className="form-error">
+              No active provider. Select one below to enable completions.
+            </div>
+          ) : null}
+          <table>
+            <thead>
+              <tr>
+                <th className="active-cell">Active</th>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Model</th>
+                <th>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {providers.map((provider) => (
+                <tr key={provider.id}>
+                  <td className="active-cell">
+                    {isCompletionProvider(provider) ? (
+                      <input
+                        type="radio"
+                        name="active-provider"
+                        checked={provider.id === activeId}
+                        onChange={() => activate(provider.id)}
+                        aria-label={`Set ${provider.name} active`}
+                      />
+                    ) : null}
+                  </td>
+                  <td>
+                    {provider.name}{' '}
+                    {provider.id === activeId ? <span className="badge">Active</span> : null}
+                  </td>
+                  <td>{providerTypeLabel(provider.type)}</td>
+                  <td className="mono">
+                    {provider.model || 'Server default'}
+                    {provider.serviceTier ? (
+                      <span className="badge">{provider.serviceTier}</span>
+                    ) : null}
+                  </td>
+                  <td>
+                    <button type="button" onClick={() => edit(provider)}>
+                      Edit
+                    </button>{' '}
+                    <button className="danger" type="button" onClick={() => remove(provider.id)}>
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
 
       {decisionProviders.length ? (

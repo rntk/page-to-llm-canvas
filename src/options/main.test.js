@@ -1719,7 +1719,7 @@ describe('options main.jsx', () => {
     const buttons = providerTable.querySelectorAll('tbody button');
     const deleteBtn = Array.from(buttons).find((b) => b.textContent === 'Delete');
     deleteBtn.click();
-    expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('Delete this provider'));
+    expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('Delete the active provider'));
     expect(sendMessageMock).toHaveBeenCalledWith(
       { type: 'deleteProvider', id: 'p1' },
       expect.any(Function),

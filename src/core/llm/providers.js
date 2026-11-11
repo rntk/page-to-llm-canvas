@@ -335,7 +335,8 @@ export async function saveProvider(input) {
   return queuedUpdate(PROVIDERS_KEY, async () => {
     const state = await getProvidersState();
     const existingIndex = state.providers.findIndex((p) => p.id === entry.id);
-    if (existingIndex === -1) {
+    const isNew = existingIndex === -1;
+    if (isNew) {
       state.providers.push(entry);
     } else {
       const existing = state.providers[existingIndex];
@@ -347,8 +348,14 @@ export async function saveProvider(input) {
       }
       state.providers[existingIndex] = entry;
     }
-    if (!state.providers.some((p) => p.id === state.activeId && isCompletionProvider(p))) {
-      state.activeId = state.providers.find(isCompletionProvider)?.id ?? null;
+    const completionProviders = state.providers.filter(isCompletionProvider);
+    if (!completionProviders.some((p) => p.id === state.activeId)) {
+      // Only auto-activate the very first completion provider. Otherwise leave
+      // activeId null so page text never silently moves to another vendor.
+      state.activeId =
+        isNew && completionProviders.length === 1 && completionProviders[0].id === entry.id
+          ? entry.id
+          : null;
     }
     await writeProvidersState(state);
     return entry;
@@ -356,8 +363,8 @@ export async function saveProvider(input) {
 }
 
 /**
- * Removes a provider. If it was active, activeId falls back to the first
- * remaining completion provider (or null).
+ * Removes a provider. If it was active, activeId is cleared rather than
+ * silently switched to another provider; the user must choose a new one.
  * @param {string} id
  * @returns {Promise<ProvidersState>}
  */
@@ -365,9 +372,7 @@ export async function deleteProvider(id) {
   return queuedUpdate(PROVIDERS_KEY, async () => {
     const state = await getProvidersState();
     state.providers = state.providers.filter((p) => p.id !== id);
-    if (state.activeId === id) {
-      state.activeId = state.providers.find(isCompletionProvider)?.id ?? null;
-    }
+    if (state.activeId === id) state.activeId = null;
     if (state.splitterId === id) state.splitterId = null;
     await writeProvidersState(state);
     return state;

@@ -383,17 +383,18 @@ describe('provider storage', () => {
     expect((await mod.getProvidersState()).providers.find((p) => p.id === a.id)).toBeTruthy();
   });
 
-  it('deleting the active provider falls back to the first remaining', async () => {
+  it('deleting the active provider clears the active id instead of switching vendors', async () => {
     const mod = await freshProviders();
-    const a = await mod.saveProvider({ type: 'openai', name: 'A', model: 'm' });
+    await mod.saveProvider({ type: 'openai', name: 'A', model: 'm' });
     const b = await mod.saveProvider({ type: 'anthropic', name: 'B', model: 'claude-haiku-4-5' });
     await mod.setActiveProvider(b.id);
     const state = await mod.deleteProvider(b.id);
     expect(state.providers).toHaveLength(1);
-    expect(state.activeId).toBe(a.id);
+    expect(state.activeId).toBeNull();
+    expect(await mod.getActiveProvider()).toBeNull();
   });
 
-  it('deleting the active completion provider skips decision providers when falling back', async () => {
+  it('deleting the active completion provider leaves no provider active', async () => {
     const mod = await freshProviders();
     const first = await mod.saveProvider({ type: 'openai', name: 'A', model: 'm' });
     const active = await mod.saveProvider({
@@ -410,7 +411,7 @@ describe('provider storage', () => {
 
     const state = await mod.deleteProvider(active.id);
     expect(state.providers.map((provider) => provider.id)).toEqual([first.id, decision.id]);
-    expect(state.activeId).toBe(first.id);
+    expect(state.activeId).toBeNull();
   });
 
   it('repairs a legacy stored decision active id to a completion provider', async () => {
@@ -427,6 +428,17 @@ describe('provider storage', () => {
 
     expect((await mod.getProvidersState()).activeId).toBe('completion');
     expect((await mod.getActiveProvider()).id).toBe('completion');
+  });
+
+  it('saving a provider after the active one was deleted does not auto-activate it', async () => {
+    const mod = await freshProviders();
+    const a = await mod.saveProvider({ type: 'openai', name: 'A', model: 'm' });
+    const b = await mod.saveProvider({ type: 'anthropic', name: 'B', model: 'claude-haiku-4-5' });
+    await mod.setActiveProvider(b.id);
+    await mod.deleteProvider(b.id);
+    await mod.saveProvider({ ...a, name: 'A renamed' });
+    await mod.saveProvider({ type: 'anthropic', name: 'C', model: 'claude-haiku-4-5' });
+    expect((await mod.getProvidersState()).activeId).toBeNull();
   });
 
   it('deleting the last provider clears the active id', async () => {
