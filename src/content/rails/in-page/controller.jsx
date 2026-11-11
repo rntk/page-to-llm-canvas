@@ -10,13 +10,8 @@ import { computeMaxTopicLevel } from '../shared/railCards.js';
 import { getScrollableAncestor, getRailOriginTop } from './geometry.js';
 import { createPageHighlighter } from './pageHighlighter.js';
 import { buildRailCards } from './railProjection.js';
-import {
-  fetchRecord,
-  findPickedElements,
-  assessRecordForRail,
-  describeFetchFailure,
-} from '../shared/recordFetch.js';
-import { createOptionsRecoveryOpener } from '../shared/optionsRecovery.js';
+import { findPickedElements, assessRecordForRail } from '../shared/recordFetch.js';
+import { createRecordLoader } from '../shared/recordLoader.js';
 import { createRailState, normalizeRailMode } from '../shared/railState.js';
 import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
 import { createLogger } from '../../../shared/runtime/log.js';
@@ -44,40 +39,14 @@ export function createInPageRailController({
 } = {}) {
   const closeRail = surfaceManager.close;
   const { alert, confirm } = { ...defaultDialogs, ...(dialogs ?? {}) };
-  const openOptionsForRecovery = createOptionsRecoveryOpener({ runtimeMessenger, alert, logger });
+  const recordLoader = createRecordLoader({ surfaceManager, runtimeMessenger, alert, logger });
 
   async function openInPageRail(rec, initialMode = 'topics', options = {}) {
-    const guard = surfaceManager.beginLoad();
-
     // Re-fetch even when the widget supplied a record.
-    const fetchOutcome = await fetchRecord(rec.key, runtimeMessenger);
-    if (guard.isStale()) {
-      // A newer rail request superseded this one.
-      return false;
-    }
-
-    const fetchFailure = describeFetchFailure(fetchOutcome);
-    if (fetchFailure) {
-      if (fetchFailure.error) logger.warn('record fetch failed:', fetchFailure.error);
-      alert(fetchFailure.message);
-      return false;
-    }
-
-    const assessment = assessRecordForRail(fetchOutcome.record);
-    if (assessment.kind === 'error') {
-      await openOptionsForRecovery();
-      return false;
-    }
-    if (assessment.kind === 'needs_attention') {
-      await openOptionsForRecovery();
-      return false;
-    }
-    if (assessment.kind === 'in_progress') {
-      alert(
-        `PageToLLM: Analysis is currently in progress (status: ${assessment.stage}). Please wait a moment and try again.`,
-      );
-      return false;
-    }
+    const { guard, assessment } = await recordLoader.load(rec.key, {
+      assess: assessRecordForRail,
+    });
+    if (!assessment) return false;
     if (assessment.kind === 'no_selectors') {
       const openCanvas = confirm(
         'PageToLLM: This record has no saved selectors.\n\nWould you like to open it in the full canvas view instead?',

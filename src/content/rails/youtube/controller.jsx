@@ -4,8 +4,7 @@ import YouTubeRail from './YouTubeRail.jsx';
 import { buildYouTubeRailCards } from './sync.js';
 import { formatTimestampLabel, getTimestampForSentences } from '../../../utils/youtubeTimestamp.js';
 import { computeMaxTopicLevel } from '../shared/railCards.js';
-import { assessRecordLifecycle, describeFetchFailure, fetchRecord } from '../shared/recordFetch.js';
-import { createOptionsRecoveryOpener } from '../shared/optionsRecovery.js';
+import { createRecordLoader } from '../shared/recordLoader.js';
 import { createRailState, normalizeRailMode } from '../shared/railState.js';
 import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
 import { createLogger } from '../../../shared/runtime/log.js';
@@ -26,7 +25,7 @@ export function createYouTubeRailController({
 } = {}) {
   const closeRail = surfaceManager.close;
   const { alert } = { ...defaultDialogs, ...(dialogs ?? {}) };
-  const openOptionsForRecovery = createOptionsRecoveryOpener({ runtimeMessenger, alert, logger });
+  const recordLoader = createRecordLoader({ surfaceManager, runtimeMessenger, alert, logger });
   let videoElement = null;
 
   // Prefer YouTube's main player element so we don't accidentally bind to a
@@ -40,31 +39,9 @@ export function createYouTubeRailController({
   };
 
   async function openYouTubeRail(rec, initialMode = 'topics', options = {}) {
-    const guard = surfaceManager.beginLoad();
-    const fetchOutcome = await fetchRecord(rec.key, runtimeMessenger);
-    if (guard.isStale()) return false;
-
-    const fetchFailure = describeFetchFailure(fetchOutcome);
-    if (fetchFailure) {
-      if (fetchFailure.error) logger.warn('record fetch failed:', fetchFailure.error);
-      alert(fetchFailure.message);
-      return false;
-    }
-    // Lifecycle meaning is shared with the in-page rail: failed/cancelled and
-    // parked records need the user to act in Options, only in-flight ones are
-    // worth waiting for.
-    const lifecycle = assessRecordLifecycle(fetchOutcome.record);
-    if (lifecycle.kind === 'error' || lifecycle.kind === 'needs_attention') {
-      await openOptionsForRecovery();
-      return false;
-    }
-    if (lifecycle.kind === 'in_progress') {
-      alert(
-        `PageToLLM: Analysis is currently in progress (status: ${lifecycle.stage}). Please wait a moment and try again.`,
-      );
-      return false;
-    }
-    const record = lifecycle.record;
+    const { guard, assessment } = await recordLoader.load(rec.key);
+    if (!assessment) return false;
+    const record = assessment.record;
     // The YouTube rail never touches the page article DOM, so the scroll rail's
     // selector/element gating does not apply — gate only on what the sync needs:
     // transcript sentences and at least one topic/summary.
