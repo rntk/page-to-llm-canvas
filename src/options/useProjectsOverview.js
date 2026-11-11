@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { subscribeDebounced } from '../shared/runtime/subscribeDebounced.js';
 
 const EMPTY_OVERVIEW = Object.freeze({ projects: [], ungroupedGroups: [] });
 
@@ -9,6 +10,8 @@ const EMPTY_OVERVIEW = Object.freeze({ projects: [], ungroupedGroups: [] });
  * Change events arrive in bursts, so they are debounced into one refetch. Only
  * the latest request may write state, and a failed refresh keeps the last good
  * overview alongside `loadError`.
+ * Capabilities are captured on mount; remount to replace them. Changing
+ * `debounceMs` restarts the subscription and fetches with those capabilities.
  *
  * @param {{
  *   listOverview: function(): Promise<{projects: object[], ungroupedGroups: object[]}>,
@@ -33,6 +36,8 @@ export function useProjectsOverview({ listOverview, subscribe, debounceMs = 200 
   const listOverviewRef = useRef(listOverview);
   const subscribeRef = useRef(subscribe);
 
+  // Keep this awaitable loader separate from useAsyncResource: overview exposes
+  // refresh errors alongside retained data, and reload resolves after the fetch.
   const reload = useCallback(async () => {
     const requestId = ++requestIdRef.current;
     try {
@@ -53,19 +58,15 @@ export function useProjectsOverview({ listOverview, subscribe, debounceMs = 200 
   useEffect(() => {
     mountedRef.current = true;
     void reload();
-    let timer = null;
-    const unsubscribe = subscribeRef.current?.(() => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        timer = null;
-        void reload();
-      }, debounceMs);
+    const cleanupSubscription = subscribeDebounced({
+      subscribe: subscribeRef.current,
+      onChange: reload,
+      debounceMs,
     });
     return () => {
       mountedRef.current = false;
       requestIdRef.current += 1;
-      clearTimeout(timer);
-      unsubscribe?.();
+      cleanupSubscription();
     };
   }, [reload, debounceMs]);
 

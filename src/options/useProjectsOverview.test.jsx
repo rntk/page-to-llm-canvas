@@ -58,6 +58,123 @@ describe('useProjectsOverview', () => {
     expect(probe.current.overview.projects).toEqual([{ id: 'a' }]);
   });
 
+  it('captures capabilities at mount and reuses them when debounce changes', async () => {
+    const firstList = vi.fn().mockResolvedValue(overviewOf('first'));
+    const nextList = vi.fn().mockResolvedValue(overviewOf('next'));
+    const unsubscribe = vi.fn();
+    const firstSubscribe = vi.fn(() => unsubscribe);
+    const nextSubscribe = vi.fn(() => vi.fn());
+    await mount({ listOverview: firstList, subscribe: firstSubscribe, debounceMs: 200 });
+    await mount({ listOverview: nextList, subscribe: nextSubscribe, debounceMs: 200 });
+    expect(firstList).toHaveBeenCalledTimes(1);
+    expect(firstSubscribe).toHaveBeenCalledTimes(1);
+    await mount({ listOverview: nextList, subscribe: nextSubscribe, debounceMs: 50 });
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(firstList).toHaveBeenCalledTimes(2);
+    expect(firstSubscribe).toHaveBeenCalledTimes(2);
+    expect(nextList).not.toHaveBeenCalled();
+    expect(nextSubscribe).not.toHaveBeenCalled();
+  });
+
+  it('exposes loading, errors and recovery while reload waits for completion', async () => {
+    let resolveInitial;
+    let resolveRecovery;
+    const listOverview = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveInitial = resolve;
+          }),
+      )
+      .mockRejectedValueOnce({})
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveRecovery = resolve;
+          }),
+      );
+    await mount({ listOverview, subscribe: vi.fn(() => vi.fn()) });
+    expect(probe.current.isLoading).toBe(true);
+    await act(async () => resolveInitial(overviewOf('saved')));
+    await act(async () => {
+      await probe.current.reload();
+    });
+    expect(probe.current).toMatchObject({
+      isLoading: false,
+      loadError: 'Failed to load projects',
+      overview: overviewOf('saved'),
+    });
+    let finished = false;
+    let reload;
+    act(() => {
+      reload = probe.current.reload().then(() => {
+        finished = true;
+      });
+    });
+    expect(finished).toBe(false);
+    expect(probe.current.isLoading).toBe(false);
+    await act(async () => {
+      resolveRecovery(overviewOf('recovered'));
+      await reload;
+    });
+    expect(finished).toBe(true);
+    expect(probe.current).toMatchObject({
+      isLoading: false,
+      loadError: '',
+      overview: overviewOf('recovered'),
+    });
+  });
+
+  it('recovers from an initial failure and ignores a stale rejection', async () => {
+    let rejectStale;
+    const listOverview = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('initial failure'))
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectStale = reject;
+          }),
+      )
+      .mockResolvedValueOnce(overviewOf('current'));
+    await mount({ listOverview, subscribe: vi.fn(() => vi.fn()) });
+    expect(probe.current).toMatchObject({ isLoading: false, loadError: 'initial failure' });
+    let stale;
+    act(() => {
+      stale = probe.current.reload();
+    });
+    await act(async () => {
+      await probe.current.reload();
+    });
+    await act(async () => {
+      rejectStale(new Error('stale'));
+      await stale;
+    });
+    expect(probe.current).toMatchObject({ loadError: '', overview: overviewOf('current') });
+  });
+
+  it('ignores an in-flight result after unmount', async () => {
+    let resolve;
+    const listOverview = vi.fn(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    const onValue = vi.fn();
+    await act(async () =>
+      root.render(
+        <Probe listOverview={listOverview} subscribe={() => () => {}} onValue={onValue} />,
+      ),
+    );
+    act(() => root.unmount());
+    const calls = onValue.mock.calls.length;
+    await act(async () => resolve(overviewOf('late')));
+    expect(onValue).toHaveBeenCalledTimes(calls);
+    root = createRoot(container);
+  });
+
   it('debounces bursts of change events into one refetch', async () => {
     const listOverview = vi.fn().mockResolvedValue(overviewOf('a'));
     let notify;

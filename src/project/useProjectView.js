@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useAsyncResource } from '../shared/useAsyncResource.js';
 import { browserScheduler } from '../shared/runtime/browserHosts.js';
 import { shareEqual } from '../shared/runtime/shareEqual.js';
+import { subscribeDebounced } from '../shared/runtime/subscribeDebounced.js';
 
 export const REFRESH_DEBOUNCE_MS = 150;
 
@@ -18,6 +19,8 @@ function reconcileView(previous, view) {
  * Loads a project view and keeps it fresh. Change notifications trigger a
  * debounced refetch; only the latest request may update state, so a slow
  * earlier response never overwrites a newer one.
+ * Changing the project or API starts a new resource scope. Subscription, scheduler
+ * and debounce changes recreate the subscription with the current capabilities.
  *
  * @param {object} options
  * @param {string|null} options.projectId
@@ -52,23 +55,15 @@ export function useProjectView({
 
   useEffect(() => {
     if (!projectId) return undefined;
-    let timer = null;
-
-    const scheduleRefresh = () => {
-      if (timer !== null) scheduler.clearTimeout(timer);
-      timer = scheduler.setTimeout(() => {
-        timer = null;
-        refresh();
-      }, debounceMs);
-    };
-
-    const unsubscribe = subscribe(scheduleRefresh, {
-      scope: { projectId, getView: () => currentView.current },
+    return subscribeDebounced({
+      subscribe,
+      onChange: refresh,
+      scheduler,
+      debounceMs,
+      subscriptionOptions: {
+        scope: { projectId, getView: () => currentView.current },
+      },
     });
-    return () => {
-      if (timer !== null) scheduler.clearTimeout(timer);
-      if (typeof unsubscribe === 'function') unsubscribe();
-    };
   }, [projectId, api, subscribe, scheduler, debounceMs, refresh]);
 
   return { status, view, error, refresh };

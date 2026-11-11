@@ -115,6 +115,58 @@ describe('useProjectView', () => {
     expect(api.getProjectView).toHaveBeenCalledTimes(2);
   });
 
+  it('cleans up the old subscription and timer when dependencies change', async () => {
+    let oldNotify;
+    let newNotify;
+    const unsubscribe = vi.fn();
+    const oldSubscribe = vi.fn((notify) => {
+      oldNotify = notify;
+      return unsubscribe;
+    });
+    const newSubscribe = vi.fn((notify) => {
+      newNotify = notify;
+      return vi.fn();
+    });
+    const oldApi = { getProjectView: vi.fn().mockResolvedValue(viewOf('Old')) };
+    const newApi = { getProjectView: vi.fn().mockResolvedValue(viewOf('New')) };
+    await setup({ api: oldApi, subscribe: oldSubscribe });
+    act(() => oldNotify());
+    await setup({ api: newApi, subscribe: newSubscribe, projectId: 'b' });
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(newApi.getProjectView).toHaveBeenCalledWith('b');
+    await act(async () => {
+      oldNotify();
+      vi.advanceTimersByTime(500);
+    });
+    expect(oldApi.getProjectView).toHaveBeenCalledTimes(1);
+    expect(newApi.getProjectView).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      newNotify();
+      vi.advanceTimersByTime(150);
+    });
+    expect(newApi.getProjectView).toHaveBeenCalledTimes(2);
+  });
+
+  it('cleans up pending work and ignores old notifications when disabled', async () => {
+    let notify;
+    const unsubscribe = vi.fn();
+    const subscribe = (callback) => {
+      notify = callback;
+      return unsubscribe;
+    };
+    const api = { getProjectView: vi.fn().mockResolvedValue(viewOf('One')) };
+    await setup({ api, subscribe });
+    act(() => notify());
+    await setup({ api, subscribe, projectId: null });
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      notify();
+      vi.advanceTimersByTime(500);
+    });
+    expect(api.getProjectView).toHaveBeenCalledTimes(1);
+    expect(latest.status).toBe('idle');
+  });
+
   it('keeps unchanged topic merge parts identical across refetches', async () => {
     let notify;
     const subscribe = (cb) => {
