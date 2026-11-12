@@ -1,7 +1,12 @@
 import React, { useMemo } from 'react';
 import { ExcerptCard } from './ExcerptCard.jsx';
 import { TabCard } from './TabCard.jsx';
-import { ZOOM_STEP, excerptConnectorPath, layoutProjectCanvas } from './canvasLayout.js';
+import {
+  DEFAULT_VIEWPORT,
+  ZOOM_STEP,
+  excerptConnectorPath,
+  layoutProjectCanvas,
+} from './canvasLayout.js';
 import { excerptNodeKey, linkExcerpts } from './excerptLinks.js';
 import { useCanvasViewport } from './useCanvasViewport.js';
 import { CanvasNode } from './CanvasNode.jsx';
@@ -44,7 +49,8 @@ export function ProjectCanvas({
   active = true,
 }) {
   const {
-    viewport,
+    layerRef,
+    zoomLabelRef,
     viewportRef,
     surfaceRef,
     beginGesture,
@@ -69,12 +75,13 @@ export function ProjectCanvas({
   const { pagePosition, excerptPosition, startDrag } = useNodePositions({
     layout,
     links,
+    surfaceRef,
     viewportRef,
     beginGesture,
     raiseNode,
   });
 
-  const { x, y, zoom } = viewport;
+  const { x, y, zoom } = DEFAULT_VIEWPORT;
   const dot = 24 * zoom;
 
   return (
@@ -87,6 +94,7 @@ export function ProjectCanvas({
         onPointerDown={handleSurfacePointerDown}
       >
         <div
+          ref={layerRef}
           className="canvas-layer"
           data-testid="canvas-layer"
           style={{ transform: `translate(${x}px, ${y}px) scale(${zoom})` }}
@@ -165,7 +173,7 @@ export function ProjectCanvas({
         <button type="button" onClick={() => zoomFromCenter(1 / ZOOM_STEP)} aria-label="Zoom out">
           −
         </button>
-        <span className="canvas-zoom-level" aria-live="polite">
+        <span ref={zoomLabelRef} className="canvas-zoom-level" aria-live="polite">
           {Math.round(zoom * 100)}%
         </span>
         <button type="button" onClick={() => zoomFromCenter(ZOOM_STEP)} aria-label="Zoom in">

@@ -186,6 +186,75 @@ describe('ProjectCanvas excerpts', () => {
     );
   });
 
+  it('updates the dragged page, its excerpt and connector once per frame without rendering', async () => {
+    const frames = new Map();
+    let frameId = 0;
+    const requestFrame = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frames.set(++frameId, callback);
+        return frameId;
+      });
+    const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+      frames.delete(id);
+    });
+    try {
+      const renderPageChat = vi.fn(() => <aside />);
+      await render({ renderPageChat });
+      await act(async () => button('Unfold chat for One').click());
+      const header = container.querySelector('[data-tab-id="1"] .tab-card-header');
+      const path = container.querySelector('.excerpt-link[data-excerpt-id="e1"]');
+      const originalPath = path.getAttribute('d');
+      await act(async () => {
+        header.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+      });
+      renderPageChat.mockClear();
+      await act(async () => {
+        window.dispatchEvent(new MouseEvent('pointermove', { clientX: 40, clientY: 20 }));
+        window.dispatchEvent(new MouseEvent('pointermove', { clientX: 100, clientY: 50 }));
+      });
+      expect(requestFrame).toHaveBeenCalledTimes(1);
+      expect(renderPageChat).not.toHaveBeenCalled();
+      expect(path.getAttribute('d')).toBe(originalPath);
+      await act(async () => {
+        const callback = frames.values().next().value;
+        frames.clear();
+        callback();
+      });
+      expect(nodeOf(card('e1')).style.transform).toBe(
+        `translate(${EXCERPT_INDENT + 100}px, ${CARD_HEIGHT + EXCERPT_GAP + 50}px)`,
+      );
+      expect(path.getAttribute('d')).not.toBe(originalPath);
+      expect(renderPageChat).not.toHaveBeenCalled();
+      await act(async () => window.dispatchEvent(new MouseEvent('pointerup')));
+      expect(renderPageChat).toHaveBeenCalled();
+    } finally {
+      requestFrame.mockRestore();
+      cancelFrame.mockRestore();
+    }
+  });
+
+  it('flushes the latest drag position when released before its frame', async () => {
+    const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(123);
+    const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+    try {
+      await render();
+      const header = container.querySelector('[data-tab-id="1"] .tab-card-header');
+      await act(async () => {
+        header.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+        window.dispatchEvent(new MouseEvent('pointermove', { clientX: 80, clientY: 30 }));
+        window.dispatchEvent(new MouseEvent('pointerup'));
+      });
+      expect(cancelFrame).toHaveBeenCalledWith(123);
+      expect(nodeOf(card('e1')).style.transform).toBe(
+        `translate(${EXCERPT_INDENT + 80}px, ${CARD_HEIGHT + EXCERPT_GAP + 30}px)`,
+      );
+    } finally {
+      requestFrame.mockRestore();
+      cancelFrame.mockRestore();
+    }
+  });
+
   it('keeps a separately dragged excerpt in place when its page moves', async () => {
     await render();
     const drag = async (header, dx, dy) =>

@@ -1,5 +1,5 @@
 import { isCanvasShortcutEvent } from '../utils/isCanvasShortcutEvent.js';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { isTypingTarget } from '../utils/isTypingTarget.js';
 import { ARROW_PAN, pagePanStep } from '../utils/canvasMath.js';
 import { trackPointer } from '../utils/trackPointer.js';
@@ -25,8 +25,9 @@ const NAV_KEYS = ['Home', 'End', 'PageUp', 'PageDown'];
  *
  * @param {{active: boolean}} options `active` enables keyboard navigation.
  * @returns {{
- *   viewport: {x: number, y: number, zoom: number},
  *   viewportRef: {current: {x: number, y: number, zoom: number}},
+ *   layerRef: {current: HTMLElement|null},
+ *   zoomLabelRef: {current: HTMLElement|null},
  *   surfaceRef: {current: HTMLElement|null},
  *   beginGesture: function(PointerEvent, function(number, number): void): void,
  *   handleSurfacePointerDown: function(PointerEvent): void,
@@ -35,20 +36,64 @@ const NAV_KEYS = ['Home', 'End', 'PageUp', 'PageDown'];
  * }}
  */
 export function useCanvasViewport({ active }) {
-  const [viewport, setViewport] = useState(DEFAULT_VIEWPORT);
   const surfaceRef = useRef(null);
-  const viewportRef = useRef(viewport);
-  useEffect(() => {
-    viewportRef.current = viewport;
-  }, [viewport]);
+  const layerRef = useRef(null);
+  const zoomLabelRef = useRef(null);
+  const viewportRef = useRef(DEFAULT_VIEWPORT);
+  const frameRef = useRef(null);
   const stopGestureRef = useRef(null);
 
-  const beginGesture = useCallback((event, onMove) => {
-    stopGestureRef.current?.();
-    stopGestureRef.current = trackPointer(event, onMove);
+  const applyViewport = useCallback(() => {
+    const { x, y, zoom } = viewportRef.current;
+    if (surfaceRef.current) {
+      surfaceRef.current.style.backgroundSize = `${24 * zoom}px ${24 * zoom}px`;
+      surfaceRef.current.style.backgroundPosition = `${x}px ${y}px`;
+    }
+    if (layerRef.current) {
+      layerRef.current.style.transform = `translate(${x}px, ${y}px) scale(${zoom})`;
+    }
+    if (zoomLabelRef.current) zoomLabelRef.current.textContent = `${Math.round(zoom * 100)}%`;
   }, []);
 
-  useEffect(() => () => stopGestureRef.current?.(), []);
+  // Update input coordinates immediately and paint at most once per frame.
+  const setViewport = useCallback(
+    (update, scheduled = false) => {
+      viewportRef.current = typeof update === 'function' ? update(viewportRef.current) : update;
+      if (scheduled) {
+        if (frameRef.current === null) {
+          frameRef.current = window.requestAnimationFrame(() => {
+            frameRef.current = null;
+            applyViewport();
+          });
+        }
+      } else {
+        if (frameRef.current !== null) window.cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+        applyViewport();
+      }
+    },
+    [applyViewport],
+  );
+
+  const beginGesture = useCallback((event, onMove, onEnd) => {
+    stopGestureRef.current?.();
+    const stop = trackPointer(event, onMove, () => {
+      stopGestureRef.current = null;
+      onEnd?.();
+    });
+    stopGestureRef.current = () => {
+      stop();
+      onEnd?.();
+    };
+  }, []);
+
+  useEffect(
+    () => () => {
+      stopGestureRef.current?.();
+      if (frameRef.current !== null) window.cancelAnimationFrame(frameRef.current);
+    },
+    [],
+  );
 
   // React registers wheel listeners as passive, so preventDefault (needed to
   // stop browser page-zoom on Ctrl/⌘+wheel) requires a native listener.
@@ -62,18 +107,20 @@ export function useCanvasViewport({ active }) {
       }
       event.preventDefault();
       const rect = surface.getBoundingClientRect();
-      setViewport((current) =>
-        zoomViewport(
-          current,
-          wheelZoomFactor(event.deltaY, event.deltaMode, rect.height),
-          event.clientX - rect.left,
-          event.clientY - rect.top,
-        ),
+      setViewport(
+        (current) =>
+          zoomViewport(
+            current,
+            wheelZoomFactor(event.deltaY, event.deltaMode, rect.height),
+            event.clientX - rect.left,
+            event.clientY - rect.top,
+          ),
+        true,
       );
     };
     surface.addEventListener('wheel', handleWheel, { passive: false });
     return () => surface.removeEventListener('wheel', handleWheel);
-  }, []);
+  }, [setViewport]);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -109,27 +156,35 @@ export function useCanvasViewport({ active }) {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [active]);
+  }, [active, setViewport]);
 
-  const zoomFromCenter = useCallback((factor) => {
-    const rect = surfaceRef.current?.getBoundingClientRect();
-    setViewport((current) =>
-      zoomViewport(current, factor, (rect?.width ?? 0) / 2, (rect?.height ?? 0) / 2),
-    );
-  }, []);
+  const zoomFromCenter = useCallback(
+    (factor) => {
+      const rect = surfaceRef.current?.getBoundingClientRect();
+      setViewport((current) =>
+        zoomViewport(current, factor, (rect?.width ?? 0) / 2, (rect?.height ?? 0) / 2),
+      );
+    },
+    [setViewport],
+  );
 
-  const resetViewport = useCallback(() => setViewport(DEFAULT_VIEWPORT), []);
+  const resetViewport = useCallback(() => setViewport(DEFAULT_VIEWPORT), [setViewport]);
 
   const handleSurfacePointerDown = (event) => {
     if (event.button !== 0 || insideSelector(event.target, NODE_SELECTOR)) return;
     event.preventDefault();
     const origin = viewportRef.current;
-    beginGesture(event, (dx, dy) => setViewport({ ...origin, x: origin.x + dx, y: origin.y + dy }));
+    beginGesture(
+      event,
+      (dx, dy) => setViewport({ ...origin, x: origin.x + dx, y: origin.y + dy }, true),
+      () => setViewport(viewportRef.current),
+    );
   };
 
   return {
-    viewport,
     viewportRef,
+    layerRef,
+    zoomLabelRef,
     surfaceRef,
     beginGesture,
     handleSurfacePointerDown,

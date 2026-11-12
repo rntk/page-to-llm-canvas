@@ -1,16 +1,32 @@
 // @vitest-environment happy-dom
-import React, { act } from 'react';
+import React, { Profiler, act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectCanvas } from './ProjectCanvas.jsx';
 import { ChatDrawer } from './ChatDrawer.jsx';
-import { DEFAULT_VIEWPORT } from './canvasLayout.js';
+import { DEFAULT_VIEWPORT, wheelZoomFactor } from './canvasLayout.js';
 
 let container;
 let root;
+let frames;
+let nextFrame;
+
+function flushFrames() {
+  const pending = [...frames.values()];
+  frames.clear();
+  pending.forEach((callback) => callback(0));
+}
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  frames = new Map();
+  nextFrame = 0;
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+    const id = ++nextFrame;
+    frames.set(id, callback);
+    return id;
+  });
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => frames.delete(id));
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -19,6 +35,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  vi.restoreAllMocks();
   delete globalThis.IS_REACT_ACT_ENVIRONMENT;
 });
 
@@ -69,6 +86,7 @@ describe('ProjectCanvas', () => {
     const plain = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -100 });
     await act(async () => surface().dispatchEvent(plain));
     expect(plain.defaultPrevented).toBe(true);
+    act(flushFrames);
     expect(
       Number.parseInt(container.querySelector('.canvas-zoom-level').textContent),
     ).toBeGreaterThan(100);
@@ -78,6 +96,7 @@ describe('ProjectCanvas', () => {
     Object.defineProperty(ctrl, 'ctrlKey', { value: true });
     await act(async () => surface().dispatchEvent(ctrl));
     expect(ctrl.defaultPrevented).toBe(true);
+    act(flushFrames);
     expect(container.querySelector('.canvas-zoom-level').textContent).toBe('100%');
   });
 
@@ -166,6 +185,7 @@ describe('ProjectCanvas', () => {
     await act(async () => {
       pointer(surface(), 'pointerdown', 100, 100);
       pointer(window, 'pointermove', 150, 130);
+      flushFrames();
     });
     expect(layer().style.transform).toBe(
       `translate(${DEFAULT_VIEWPORT.x + 50}px, ${DEFAULT_VIEWPORT.y + 30}px) scale(1)`,
@@ -175,6 +195,55 @@ describe('ProjectCanvas', () => {
       pointer(window, 'pointermove', 400, 400);
     });
     expect(layer().style.transform).toContain(`${DEFAULT_VIEWPORT.x + 50}px`);
+  });
+
+  it('coalesces viewport moves and wheel zoom without React commits and cancels pending work', async () => {
+    const onRender = vi.fn();
+    const renderCanvas = () =>
+      root.render(
+        <Profiler id="canvas" onRender={onRender}>
+          <ProjectCanvas tabs={tabs} tabsHost={{}} />
+        </Profiler>,
+      );
+    await act(async () => renderCanvas());
+    onRender.mockClear();
+    const initial = layer().style.transform;
+    await act(async () => {
+      pointer(surface(), 'pointerdown', 100, 100);
+      pointer(window, 'pointermove', 120, 110);
+      pointer(window, 'pointermove', 150, 130);
+    });
+    expect(frames.size).toBe(1);
+    expect(layer().style.transform).toBe(initial);
+    expect(onRender).not.toHaveBeenCalled();
+    act(flushFrames);
+    expect(layer().style.transform).toBe('translate(90px, 70px) scale(1)');
+    await act(async () => pointer(window, 'pointerup', 150, 130));
+
+    const wheel = () =>
+      surface().dispatchEvent(
+        new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -100 }),
+      );
+    await act(async () => {
+      wheel();
+      wheel();
+    });
+    expect(frames.size).toBe(1);
+    expect(layer().style.transform).toBe('translate(90px, 70px) scale(1)');
+    expect(onRender).not.toHaveBeenCalled();
+    act(flushFrames);
+    const twiceZoomed = Number.parseInt(container.querySelector('.canvas-zoom-level').textContent);
+    expect(twiceZoomed).toBe(Math.round(100 * wheelZoomFactor(-100, 0, 0) ** 2));
+    expect(onRender).not.toHaveBeenCalled();
+    const zoomedTransform = layer().style.transform;
+    await act(async () => renderCanvas());
+    expect(layer().style.transform).toBe(zoomedTransform);
+    expect(container.querySelector('.canvas-zoom-level').textContent).toBe(`${twiceZoomed}%`);
+
+    await act(async () => wheel());
+    expect(frames.size).toBe(1);
+    act(() => root.unmount());
+    expect(frames.size).toBe(0);
   });
 
   it('does not pan when dragging card content without node styling classes', async () => {
