@@ -135,6 +135,54 @@ describe('PageChatDrawer', () => {
     });
   });
 
+  it('unfolds the passage of a picked chat event under the drawer', async () => {
+    const api = {
+      getPageChat: vi.fn(async () => ({
+        source: { kind: 'page', key: 'page:https://a.test/docs', url: tab.url },
+      })),
+      capturePageText: vi.fn(async () => ({
+        sentences: ['Intro.', 'The evidence.', 'More evidence.', 'Outro.'],
+        truncated: false,
+      })),
+    };
+    const ports = makePorts();
+    ports.runTurn.mockResolvedValue({
+      reply: 'Answer',
+      highlightRanges: [{ startLine: 2, endLine: 3, label: 'Proof' }],
+    });
+    ports.chatRepository.append.mockImplementation(async (key, chatId, turn) => ({
+      chat: {
+        chatId: 'chat-1',
+        messages: turn.messages,
+        events: turn.events.map((event, index) => ({
+          ...event,
+          seq: index + 1,
+          turnId: turn.turnId,
+        })),
+        scope: [],
+      },
+    }));
+    await render(api, ports);
+    await send('Where is the evidence?');
+    expect(container.querySelector('.chat-passage-card')).toBeNull();
+
+    const eventsTab = [...container.querySelectorAll('[role="tab"]')].find((el) =>
+      el.textContent.startsWith('Events'),
+    );
+    act(() => eventsTab.click());
+    await act(async () => container.querySelector('.pagetollm-chat-event button').click());
+    await flush();
+
+    const card = container.querySelector('.page-chat-drawer .chat-passage-card');
+    expect(card.textContent).toContain('Proof · Lines 2–3');
+    expect(card.querySelector('blockquote').textContent).toBe('The evidence. More evidence.');
+    // The tab text read for the turn is reused, not read again.
+    expect(api.capturePageText).toHaveBeenCalledOnce();
+
+    act(() => card.querySelector('.chat-passage-card-close').click());
+    expect(container.querySelector('.chat-passage-card')).toBeNull();
+  });
+
   it('reads an unsaved page from the tab once, on the first send', async () => {
     const api = {
       getPageChat: vi.fn(async () => ({

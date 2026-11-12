@@ -12,8 +12,10 @@ import React from 'react';
  * @param {function(?HTMLElement): void} [props.actionsRef] Receives the header
  *   actions slot, for ArticleChat's `headerActionsTarget`.
  * @param {React.ReactNode} props.children
+ * @param {React.ReactNode} [props.below] Unfolds under the drawer (the passage
+ *   of a picked chat event).
  */
-export function ChatDrawer({ id, label, ariaLabel, actionsRef, children }) {
+export function ChatDrawer({ id, label, ariaLabel, actionsRef, children, below }) {
   return (
     <aside
       id={id}
@@ -27,6 +29,7 @@ export function ChatDrawer({ id, label, ariaLabel, actionsRef, children }) {
         {actionsRef && <span className="page-chat-actions" ref={actionsRef} />}
       </header>
       <div className="page-chat-body">{children}</div>
+      {below}
     </aside>
   );
 }

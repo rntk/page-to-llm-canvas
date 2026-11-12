@@ -18,6 +18,42 @@ afterEach(() => {
   delete globalThis.IS_REACT_ACT_ENVIRONMENT;
 });
 
+it('unfolds the cited passage when a chat event is picked', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const container = document.createElement('div');
+  root = createRoot(container);
+  const excerpt = {
+    id: 'excerpt-1',
+    text: 'The first claim opens the excerpt here. The second claim follows it closely. The third claim ends the passage.',
+    url: 'https://example.com',
+  };
+  await act(async () =>
+    root.render(<ExcerptChatDrawer excerpt={excerpt} readPage={vi.fn()} onClose={() => {}} />),
+  );
+  const card = () => container.querySelector('.chat-passage-card');
+
+  // Streamed or repainted ranges are not picks.
+  await act(async () => chat.props.onHighlight({ startLine: 1, endLine: 1, label: '' }));
+  expect(card()).toBeNull();
+
+  await act(async () =>
+    chat.props.onHighlight({ startLine: 2, endLine: 3, label: 'Key claim' }, { focus: true }),
+  );
+  expect(card().textContent).toContain('Key claim · Lines 2–3');
+  expect(card().querySelector('blockquote').textContent).toBe(
+    'The second claim follows it closely. The third claim ends the passage.',
+  );
+
+  act(() => chat.props.onClearHighlights());
+  expect(card()).toBeNull();
+
+  await act(async () => chat.props.onHighlight({ startLine: 9, endLine: 9 }, { focus: true }));
+  expect(card().getAttribute('aria-label')).toBe('Chat evidence from this excerpt');
+  expect(card().textContent).toContain('no longer in the source text');
+  act(() => card().querySelector('.chat-passage-card-close').click());
+  expect(card()).toBeNull();
+});
+
 it('shares a page read across tools and reloads when the bound reader changes', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   root = createRoot(document.createElement('div'));

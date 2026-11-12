@@ -1,10 +1,12 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import ArticleChat from '../chat/ArticleChat.jsx';
 import { createPageTools } from '../chat/readPageTool.js';
 import { excerptChatKey } from '../core/storage/keys.js';
 import { onceWithRetry } from '../utils/onceWithRetry.js';
+import { ChatPassageCard } from './ChatPassageCard.jsx';
 import { ChatDrawer } from './ChatDrawer.jsx';
 import { excerptSentences } from './excerptText.js';
+import { useChatPassage } from './useChatPassage.js';
 
 const EXCERPT_PROMPT =
   'Ask about this excerpt. The assistant can read the rest of the page when the excerpt is not enough.';
@@ -39,6 +41,8 @@ export function ExcerptChatDrawer({ drawerId, excerpt, readPage, onClose, chatPo
       }),
     [readPage, id, sentences],
   );
+  const getSentences = useCallback(() => sentences, [sentences]);
+  const { passage, onHighlight, onClearHighlights } = useChatPassage(getSentences);
 
   return (
     <ChatDrawer
@@ -46,6 +50,15 @@ export function ExcerptChatDrawer({ drawerId, excerpt, readPage, onClose, chatPo
       actionsRef={setActionsTarget}
       label="Excerpt chat"
       ariaLabel={`Chat about the excerpt from ${title || url}`}
+      below={
+        passage && (
+          <ChatPassageCard
+            passage={passage}
+            sourceName="this excerpt"
+            onClose={onClearHighlights}
+          />
+        )
+      }
     >
       <ArticleChat
         recordKey={excerptChatKey(id)}
@@ -53,6 +66,8 @@ export function ExcerptChatDrawer({ drawerId, excerpt, readPage, onClose, chatPo
         source={source}
         tools={tools}
         emptyPrompt={EXCERPT_PROMPT}
+        onHighlight={onHighlight}
+        onClearHighlights={onClearHighlights}
         onEscape={onClose}
         headerActionsTarget={actionsTarget}
         {...chatPorts}

@@ -584,6 +584,45 @@
         cursor: default;
         user-select: text;
         animation: project-reveal-right var(--motion-base) var(--ease);
+        position: relative;
+      }
+      /* Passage of the picked chat event, unfolded under its drawer. Not saved. */
+      .chat-passage-card {
+        position: absolute;
+        top: calc(100% + var(--space-4));
+        left: -1px;
+        width: calc(100% + 2px);
+        max-height: 220px;
+        border-style: dashed;
+        border-left-style: solid;
+        box-shadow: 4px 4px 0 var(--ink);
+        animation: project-fade-in var(--motion-base) var(--ease);
+      }
+      .chat-passage-card .excerpt-card-text {
+        margin-bottom: var(--space-4);
+      }
+      .chat-passage-card-title {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        font-size: var(--text-xs);
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .chat-passage-card-close {
+        flex: none;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        border: none;
+        background: none;
+        color: var(--on-surface-muted);
+        font-size: var(--text-lg);
+        line-height: 1;
+      }
+      .chat-passage-card-error {
+        margin: var(--space-4);
       }
       .page-chat-header,
       .chat-panel-header {

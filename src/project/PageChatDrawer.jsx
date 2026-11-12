@@ -1,38 +1,21 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import ArticleChat from '../chat/ArticleChat.jsx';
 import { onceWithRetry } from '../utils/onceWithRetry.js';
 import { ChatDrawer } from './ChatDrawer.jsx';
+import { ChatPassageCard } from './ChatPassageCard.jsx';
+import { useChatPassage } from './useChatPassage.js';
 import { usePageChatSource } from './usePageChatSource.js';
 
 const LIVE_PAGE_PROMPT =
   'Ask a question about this page. Its text is read from the tab when you send.';
-
-/**
- * Chat about a page the user has not saved. Its text is read from the live tab
- * once per drawer session, on the first send, then reused for later turns.
- */
-function LivePageChat({ source, tabId, capture, onEscape, headerActionsTarget, chatPorts }) {
-  const resolveSentences = useMemo(
-    () => onceWithRetry(() => capture(tabId).then((result) => result.sentences)),
-    [capture, tabId],
-  );
-
-  return (
-    <ArticleChat
-      recordKey={source.key}
-      resolveSentences={resolveSentences}
-      emptyPrompt={LIVE_PAGE_PROMPT}
-      onEscape={onEscape}
-      headerActionsTarget={headerActionsTarget}
-      {...chatPorts}
-    />
-  );
-}
+const NO_SENTENCES = [];
 
 /**
  * Per-page chat beside a tab card. A saved page shares its history, topics and
  * sentences with the chat opened on the page itself; any other page chats over
- * its live text under a URL-scoped history. Histories never mix across pages.
+ * its live text under a URL-scoped history, read from the tab once per drawer
+ * session (on the first send) and reused for later turns. Histories never mix
+ * across pages. Picking a chat event unfolds its cited passage under the drawer.
  *
  * @param {object} props
  * @param {string} [props.drawerId] The drawer element id.
@@ -51,6 +34,24 @@ export function PageChatDrawer({ drawerId, tab, loadSource, capture, onClose, ch
     url: tab.url || '',
     loadSource,
   });
+
+  const isRecord = status === 'ready' && source.kind === 'record';
+  const isLive = status === 'ready' && source.kind !== 'record' && source.kind !== 'unsupported';
+  const liveKey = isLive ? source.key : null;
+  // One read per live page, shared by the chat's turns and the passage card.
+  const resolveLiveSentences = useMemo(
+    () =>
+      liveKey === null
+        ? null
+        : onceWithRetry(() => capture(tab.id).then((result) => result.sentences)),
+    [capture, tab.id, liveKey],
+  );
+  const recordSentences = isRecord ? source.sentences : NO_SENTENCES;
+  const getSentences = useCallback(
+    () => (resolveLiveSentences ? resolveLiveSentences() : recordSentences),
+    [resolveLiveSentences, recordSentences],
+  );
+  const { passage, onHighlight, onClearHighlights } = useChatPassage(getSentences);
 
   let body;
   if (status === 'loading') {
@@ -85,6 +86,8 @@ export function PageChatDrawer({ drawerId, tab, loadSource, capture, onClose, ch
         sentences={source.sentences}
         topics={source.topics}
         contentRevision={source.contentRevision}
+        onHighlight={onHighlight}
+        onClearHighlights={onClearHighlights}
         onEscape={onClose}
         headerActionsTarget={actionsTarget}
         {...chatPorts}
@@ -92,14 +95,16 @@ export function PageChatDrawer({ drawerId, tab, loadSource, capture, onClose, ch
     );
   } else {
     body = (
-      <LivePageChat
+      <ArticleChat
         key={source.key}
-        source={source}
-        tabId={tab.id}
-        capture={capture}
+        recordKey={source.key}
+        resolveSentences={resolveLiveSentences}
+        emptyPrompt={LIVE_PAGE_PROMPT}
+        onHighlight={onHighlight}
+        onClearHighlights={onClearHighlights}
         onEscape={onClose}
         headerActionsTarget={actionsTarget}
-        chatPorts={chatPorts}
+        {...chatPorts}
       />
     );
   }
@@ -108,8 +113,13 @@ export function PageChatDrawer({ drawerId, tab, loadSource, capture, onClose, ch
     <ChatDrawer
       id={drawerId}
       actionsRef={setActionsTarget}
-      label={status === 'ready' && source.kind === 'record' ? 'Saved page chat' : 'Page chat'}
+      label={isRecord ? 'Saved page chat' : 'Page chat'}
       ariaLabel={`Chat about ${tab.title || tab.url || 'this page'}`}
+      below={
+        passage && (
+          <ChatPassageCard passage={passage} sourceName="this page" onClose={onClearHighlights} />
+        )
+      }
     >
       {body}
     </ChatDrawer>
