@@ -1,7 +1,7 @@
 import { isCanvasShortcutEvent } from '../utils/isCanvasShortcutEvent.js';
 import { useCallback, useEffect, useRef } from 'react';
 import { isTypingTarget } from '../utils/isTypingTarget.js';
-import { ARROW_PAN, pagePanStep } from '../utils/canvasMath.js';
+import { ARROW_PAN, horizontalWheelPan, pagePanStep } from '../utils/canvasMath.js';
 import { trackPointer } from '../utils/trackPointer.js';
 import { DEFAULT_VIEWPORT, wheelZoomFactor, zoomViewport } from './canvasLayout.js';
 
@@ -107,6 +107,12 @@ export function useCanvasViewport({ active }) {
       }
       event.preventDefault();
       const rect = surface.getBoundingClientRect();
+      // A sideways swipe pans instead of zooming.
+      const panX = horizontalWheelPan(event, rect.width);
+      if (panX) {
+        setViewport((current) => ({ ...current, x: current.x + panX }), true);
+        return;
+      }
       setViewport(
         (current) =>
           zoomViewport(

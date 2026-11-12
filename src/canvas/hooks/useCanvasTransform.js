@@ -1,6 +1,11 @@
 import { isCanvasShortcutEvent } from '../../utils/isCanvasShortcutEvent.js';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { clampScale, cursorAnchoredTranslate, wheelZoomFactor } from '../../utils/canvasMath.js';
+import {
+  clampScale,
+  cursorAnchoredTranslate,
+  horizontalWheelPan,
+  wheelZoomFactor,
+} from '../../utils/canvasMath.js';
 import { isTypingTarget } from '../../utils/isTypingTarget.js';
 
 const WHEEL_COMMIT_DELAY = 80;
@@ -14,6 +19,8 @@ const EDGE_MARGIN = 24;
 const FALLBACK_CONTENT_LEFT = 40;
 // Ignore sub-pixel corrections so we never schedule a no-op transform.
 const MIN_DELTA = 0.5;
+// Pixels a pointer must travel before a press counts as a pan and is captured.
+const DRAG_CAPTURE_THRESHOLD = 4;
 
 /**
  * Scale actually applied to an element right now.
@@ -363,12 +370,19 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
     return () => document.body.classList.remove('canvas-global-dragging');
   }, [isCanvasDragging]);
 
-  // Mouse drag pan.
+  // Pointer drag pan (mouse, touch, pen). Listens on window for the drag's
+  // pointer only; once the pointer moves past a small threshold it is also
+  // captured so the drag survives leaving the window or crossing iframes.
+  // Capture is deferred so a plain tap still clicks the element under it.
   const isDragging = useRef(false);
-  const lastMouse = useRef({ x: 0, y: 0 });
-  const handleMouseDown = useCallback(
+  const lastPointer = useRef({ x: 0, y: 0 });
+  const handlePointerDown = useCallback(
     (e) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || e.isPrimary === false) return;
+      const pointerId = e.pointerId;
+      const captureTarget = e.currentTarget;
+      const origin = { x: e.clientX, y: e.clientY };
+      let captured = false;
       setIsFocusingHighlight(false);
       setIsCanvasDragging(true);
       // Cancel stale settle timers before a new drag can lose its smoothing class.
@@ -377,13 +391,24 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
       setIsPanSmoothing(true);
       isDragging.current = true;
       userMovedCanvasRef.current = true;
-      lastMouse.current = { x: e.clientX, y: e.clientY };
+      lastPointer.current = { x: e.clientX, y: e.clientY };
       e.preventDefault();
       const onMove = (mv) => {
-        if (!isDragging.current) return;
-        const dx = mv.clientX - lastMouse.current.x;
-        const dy = mv.clientY - lastMouse.current.y;
-        lastMouse.current = { x: mv.clientX, y: mv.clientY };
+        if (!isDragging.current || mv.pointerId !== pointerId) return;
+        if (
+          !captured &&
+          Math.hypot(mv.clientX - origin.x, mv.clientY - origin.y) >= DRAG_CAPTURE_THRESHOLD
+        ) {
+          captured = true;
+          try {
+            captureTarget?.setPointerCapture?.(pointerId);
+          } catch (_) {
+            /* pointer already gone; window listeners still cover the drag */
+          }
+        }
+        const dx = mv.clientX - lastPointer.current.x;
+        const dy = mv.clientY - lastPointer.current.y;
+        lastPointer.current = { x: mv.clientX, y: mv.clientY };
         // Accumulate from the last *pending* target (not translateRef, which
         // only updates once per rAF) so multiple moves within a frame compose.
         const base = dragPendingRef.current || translateRef.current;
@@ -396,7 +421,8 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
           if (pending) applyTranslateImperative(pending);
         });
       };
-      const onUp = () => {
+      const onUp = (up) => {
+        if (up.pointerId !== pointerId) return;
         isDragging.current = false;
         setIsCanvasDragging(false);
         // Keep smoothing past the final 130ms label transition.
@@ -416,15 +442,24 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
       };
       const detach = () => {
         dragDetachRef.current = null;
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+        if (captured) {
+          try {
+            captureTarget?.releasePointerCapture?.(pointerId);
+          } catch (_) {
+            /* capture already released */
+          }
+        }
       };
-      // A second mousedown without an intervening mouseup (the button released
-      // outside the document, say) would otherwise strand the first pair.
+      // A second pointerdown without an intervening pointerup (the pointer
+      // released outside the document, say) would otherwise strand the first set.
       dragDetachRef.current?.();
       dragDetachRef.current = detach;
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
     },
     [applyTranslateImperative, setTransformNow],
   );
@@ -445,6 +480,15 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
       e.preventDefault();
       stopCardZoomSmoothing();
       const currentScale = scaleRef.current || 1;
+      // A sideways swipe pans instead of zooming.
+      const panX = horizontalWheelPan(e, wrapRect.width);
+      if (panX) {
+        setIsFocusingHighlight(false);
+        userMovedCanvasRef.current = true;
+        const { x, y } = translateRef.current;
+        scheduleTransform(currentScale, { x: x + panX, y });
+        return;
+      }
       // Normalize pixel, line, and page deltas before applying the zoom curve.
       const nextScale = clampScale(
         currentScale * wheelZoomFactor(e.deltaY, e.deltaMode, wrapRect.height),
@@ -681,7 +725,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
     canvasWrapRef,
     canvasViewportRef,
     canvasViewportElRef,
-    handleMouseDown,
+    handlePointerDown,
     navigateCanvas,
     flashFocus,
     viewport,

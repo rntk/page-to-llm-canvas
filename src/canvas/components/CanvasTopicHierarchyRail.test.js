@@ -338,29 +338,6 @@ describe('CanvasTopicHierarchyRail', () => {
     unmount();
   });
 
-  it('handles onMouseDown propagation based on target', () => {
-    const { container, unmount } = render(createElement(CanvasTopicHierarchyRail, defaultProps));
-
-    const aside = container.querySelector('.canvas-topic-hierarchy');
-    const button = container.querySelector('.canvas-topic-hierarchy__card-main');
-
-    const mousedownOnBtn = new MouseEvent('mousedown', { bubbles: true });
-    vi.spyOn(mousedownOnBtn, 'stopPropagation');
-    act(() => {
-      button.dispatchEvent(mousedownOnBtn);
-    });
-    expect(mousedownOnBtn.stopPropagation).toHaveBeenCalled();
-
-    const mousedownOnAside = new MouseEvent('mousedown', { bubbles: true });
-    vi.spyOn(mousedownOnAside, 'stopPropagation');
-    act(() => {
-      aside.dispatchEvent(mousedownOnAside);
-    });
-    expect(mousedownOnAside.stopPropagation).not.toHaveBeenCalled();
-
-    unmount();
-  });
-
   it('opens the extensible topic menu and sends the selected card run to its action', async () => {
     const onSelect = vi.fn().mockResolvedValue({ ok: true });
     const { container, unmount } = render(

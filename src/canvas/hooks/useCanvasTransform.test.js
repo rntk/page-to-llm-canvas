@@ -437,32 +437,100 @@ describe('useCanvasTransform', () => {
     expect(result.current.translate.y).toBe(40);
   });
 
-  it('handleMouseDown sets dragging state', () => {
+  it('handlePointerDown sets dragging state', () => {
     const { result } = renderHook(() => useCanvasTransform());
-    const mouseDown = new MouseEvent('mousedown', {
+    const mouseDown = new MouseEvent('pointerdown', {
       button: 0,
       clientX: 100,
       clientY: 100,
     });
     act(() => {
-      result.current.handleMouseDown(mouseDown);
+      result.current.handlePointerDown(mouseDown);
     });
     expect(result.current.isCanvasDragging).toBe(true);
   });
 
+  it('pans from touch pointers, captures past the threshold, and ends on cancel', () => {
+    const { result } = renderHook(() => useCanvasTransform());
+    const target = document.createElement('div');
+    target.setPointerCapture = vi.fn();
+    target.releasePointerCapture = vi.fn();
+    const down = {
+      button: 0,
+      isPrimary: true,
+      pointerId: 7,
+      pointerType: 'touch',
+      clientX: 100,
+      clientY: 100,
+      currentTarget: target,
+      preventDefault: vi.fn(),
+    };
+    act(() => result.current.handlePointerDown(down));
+    expect(result.current.isCanvasDragging).toBe(true);
+    expect(down.preventDefault).toHaveBeenCalled();
+
+    const fire = (type, init) =>
+      act(() => {
+        window.dispatchEvent(Object.assign(new Event(type), init));
+      });
+    fire('pointermove', { pointerId: 9, clientX: 200, clientY: 200 });
+    expect(target.setPointerCapture).not.toHaveBeenCalled();
+    fire('pointermove', { pointerId: 7, clientX: 102, clientY: 100 });
+    expect(target.setPointerCapture).not.toHaveBeenCalled();
+    fire('pointermove', { pointerId: 7, clientX: 120, clientY: 110 });
+    expect(target.setPointerCapture).toHaveBeenCalledWith(7);
+
+    fire('pointerup', { pointerId: 9 });
+    expect(result.current.isCanvasDragging).toBe(true);
+    fire('pointercancel', { pointerId: 7 });
+    expect(result.current.isCanvasDragging).toBe(false);
+    expect(target.releasePointerCapture).toHaveBeenCalledWith(7);
+  });
+
+  it('ignores non-primary pointers and non-main buttons', () => {
+    const { result } = renderHook(() => useCanvasTransform());
+    act(() =>
+      result.current.handlePointerDown({ button: 0, isPrimary: false, preventDefault: vi.fn() }),
+    );
+    act(() => result.current.handlePointerDown({ button: 2, preventDefault: vi.fn() }));
+    expect(result.current.isCanvasDragging).toBe(false);
+  });
+
   it('body gets dragging class while dragging and removes on unmount', () => {
     const { result, unmount } = renderHook(() => useCanvasTransform());
-    const mouseDown = new MouseEvent('mousedown', {
+    const mouseDown = new MouseEvent('pointerdown', {
       button: 0,
       clientX: 100,
       clientY: 100,
     });
     act(() => {
-      result.current.handleMouseDown(mouseDown);
+      result.current.handlePointerDown(mouseDown);
     });
     expect(document.body.classList.contains('canvas-global-dragging')).toBe(true);
     unmount();
     expect(document.body.classList.contains('canvas-global-dragging')).toBe(false);
+  });
+
+  it('pans on a horizontal wheel swipe instead of zooming', () => {
+    const { result } = renderHook(() => useCanvasTransform());
+    const wrap = document.createElement('div');
+    document.body.appendChild(wrap);
+    act(() => {
+      result.current.canvasWrapRef(wrap);
+    });
+    const startX = result.current.translate.x;
+    const swipe = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaX: 50,
+      deltaY: 2,
+    });
+    act(() => {
+      wrap.dispatchEvent(swipe);
+    });
+    expect(swipe.defaultPrevented).toBe(true);
+    expect(result.current.viewport.translateRef.current.x).toBe(startX - 50);
+    expect(result.current.viewport.scaleRef.current).toBe(1);
   });
 
   it('wheel zoom listener is attached when canvas wrap mounts', () => {

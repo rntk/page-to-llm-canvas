@@ -36,7 +36,7 @@ function SummarySourcePreview({
         '--summary-source-preview-left': `${left}px`,
         '--summary-source-preview-top': `${top}px`,
       }}
-      onMouseDown={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
       onMouseEnter={onPreviewEnter}
       onMouseLeave={onPreviewLeave}
       onTouchStart={(event) => event.stopPropagation()}
@@ -116,7 +116,7 @@ const SummaryCard = React.memo(function SummaryCard({
                 <button
                   type="button"
                   className="canvas-summary-view__summary-tooltip-button"
-                  onMouseDown={(event) => event.stopPropagation()}
+                  onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => {
                     event.stopPropagation();
                     onShowSourceSentences(card);

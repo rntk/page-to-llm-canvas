@@ -45,13 +45,13 @@ describe('CanvasStartupOverlay', () => {
   it('swallows mouse presses so staging is not cancelled by a blind drag', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
-    const onMouseDown = vi.fn();
+    const onPointerDown = vi.fn();
     const root = createRoot(container);
     act(() =>
       root.render(
         createElement(
           'div',
-          { onMouseDown },
+          { onPointerDown },
           createElement(CanvasStartupOverlay, { progress: 0.3, label: 'x' }),
         ),
       ),
@@ -59,9 +59,9 @@ describe('CanvasStartupOverlay', () => {
     act(() => {
       container
         .querySelector('.canvas-startup')
-        .dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        .dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
     });
-    expect(onMouseDown).not.toHaveBeenCalled();
+    expect(onPointerDown).not.toHaveBeenCalled();
     act(() => root.unmount());
     container.remove();
   });

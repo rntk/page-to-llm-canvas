@@ -100,6 +100,22 @@ describe('ProjectCanvas', () => {
     expect(container.querySelector('.canvas-zoom-level').textContent).toBe('100%');
   });
 
+  it('pans on a horizontal wheel swipe without zooming', async () => {
+    const swipe = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaX: 60,
+      deltaY: 3,
+    });
+    await act(async () => surface().dispatchEvent(swipe));
+    expect(swipe.defaultPrevented).toBe(true);
+    act(flushFrames);
+    expect(layer().style.transform).toBe(
+      `translate(${DEFAULT_VIEWPORT.x - 60}px, ${DEFAULT_VIEWPORT.y}px) scale(1)`,
+    );
+    expect(container.querySelector('.canvas-zoom-level').textContent).toBe('100%');
+  });
+
   it('pans with arrow keys and viewport-relative page keys', async () => {
     Object.defineProperty(surface(), 'clientHeight', { configurable: true, value: 500 });
     const press = async (key) => {

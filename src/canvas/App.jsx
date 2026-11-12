@@ -178,7 +178,7 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
     isZoomingToTarget,
     canvasWrapRef,
     canvasViewportRef,
-    handleMouseDown,
+    handlePointerDown,
     navigateCanvas,
     flashFocus,
     // Single imperative handle (live transform refs + setTransformNow/
@@ -192,9 +192,18 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
   // Destructure refs for the React Compiler; pass the stable handle to other hooks.
   const { canvasWrapElRef, scaleRef, userMovedCanvasRef } = viewport;
 
-  const handleCanvasMouseDown = useCallback(
+  const handleCanvasPointerDown = useCallback(
     (e) => {
-      // preventDefault inside handleMouseDown suppresses native focus,
+      // Rail controls must not start a pan. The rail cannot stop the event
+      // itself: its menus listen for outside pointerdowns on the document.
+      if (
+        e.target?.closest?.(
+          '.canvas-topic-hierarchy button, .canvas-topic-hierarchy a, .canvas-topic-hierarchy input, .canvas-topic-hierarchy select, .canvas-topic-hierarchy textarea',
+        )
+      ) {
+        return;
+      }
+      // preventDefault inside handlePointerDown suppresses native focus,
       // so re-focus the wrap explicitly to keep keyboard shortcuts alive.
       const wrap = canvasWrapElRef.current;
       if (wrap && typeof wrap.focus === 'function') {
@@ -205,9 +214,9 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
       } catch (_) {
         /* noop */
       }
-      handleMouseDown(e);
+      handlePointerDown(e);
     },
-    [handleMouseDown, canvasWrapElRef],
+    [handlePointerDown, canvasWrapElRef],
   );
 
   const {
@@ -534,7 +543,7 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
           <div
             ref={canvasWrapRef}
             className={`canvas-area${isCanvasDragging ? ' is-dragging' : ''}${isPanSmoothing ? ' is-pan-smoothing' : ''}`}
-            onMouseDown={handleCanvasMouseDown}
+            onPointerDown={handleCanvasPointerDown}
             tabIndex={0}
           >
             <div

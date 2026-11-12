@@ -46,6 +46,29 @@ function press(key, target = window) {
   return event;
 }
 
+describe('useTreeViewport wheel', () => {
+  it('pans on a horizontal swipe and zooms on a vertical wheel', () => {
+    const { container, stage } = render();
+    const canvas = container.querySelector('.canvas');
+    const swipe = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaX: 40,
+      deltaY: 1,
+    });
+    act(() => canvas.dispatchEvent(swipe));
+    expect(swipe.defaultPrevented).toBe(true);
+    expect(stage.style.transform).toBe('translate(-16px, 24px) scale(1)');
+
+    act(() =>
+      canvas.dispatchEvent(
+        new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -100 }),
+      ),
+    );
+    expect(stage.style.transform).toContain('scale(1.');
+  });
+});
+
 describe('useTreeViewport keyboard navigation', () => {
   it('pans by arrows and pages, and sends Home/End to the tree bounds', () => {
     const { container, stage } = render();

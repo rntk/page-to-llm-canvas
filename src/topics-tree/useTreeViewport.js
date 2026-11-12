@@ -4,6 +4,7 @@ import {
   ARROW_PAN,
   clampScale,
   cursorAnchoredTranslate,
+  horizontalWheelPan,
   pagePanStep,
 } from '../utils/canvasMath.js';
 import { fitTransform } from './treeLayout.js';
@@ -91,6 +92,12 @@ export function useTreeViewport() {
       if (!event.ctrlKey && event.target?.closest?.(NATIVE_WHEEL_SELECTOR)) return;
       event.preventDefault();
       const rect = canvas.getBoundingClientRect();
+      // A sideways swipe pans instead of zooming.
+      const panX = horizontalWheelPan(event, rect.width);
+      if (panX) {
+        translateBy(panX, 0);
+        return;
+      }
       zoomAt(wheelZoomFactor(event), {
         x: event.clientX - rect.left,
         y: event.clientY - rect.top,

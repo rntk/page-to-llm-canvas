@@ -60,3 +60,19 @@ export function wheelZoomFactor(deltaY, deltaMode = 0, viewportHeight = 1) {
     deltaY * (deltaMode === 1 ? 16 : deltaMode === 2 ? Math.max(1, viewportHeight) : 1);
   return Math.exp(-Math.max(-240, Math.min(240, pixels)) * 0.0008);
 }
+
+/** Horizontal pan, in pixels, for a wheel event that is mostly sideways
+ * (a touchpad swipe or shift+wheel). Returns 0 for vertical-dominant wheels,
+ * which zoom, and for Ctrl/⌘ wheels (pinch zoom). A positive result moves
+ * content right, so scrolling right brings content from the right into view.
+ * @param {{deltaX: number, deltaY: number, deltaMode?: number, ctrlKey?: boolean, metaKey?: boolean}} event
+ * @param {number} [viewportWidth]
+ * @returns {number}
+ */
+export function horizontalWheelPan(event, viewportWidth = 1) {
+  if (event.ctrlKey || event.metaKey) return 0;
+  const { deltaX, deltaY, deltaMode = 0 } = event;
+  if (!deltaX || Math.abs(deltaX) <= Math.abs(deltaY)) return 0;
+  const unit = deltaMode === 1 ? 16 : deltaMode === 2 ? Math.max(1, viewportWidth) : 1;
+  return -deltaX * unit;
+}

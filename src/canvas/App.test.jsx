@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => ({
   navigateCanvas: vi.fn(),
   zoomToTarget: vi.fn(),
   flashFocus: vi.fn(),
-  handleMouseDown: vi.fn(),
+  handlePointerDown: vi.fn(),
   canvasFocus: vi.fn(),
   captureAnchor: vi.fn(),
   skipNextAlignment: vi.fn(),
@@ -106,7 +106,7 @@ vi.mock('./hooks/useCanvasTransform.js', () => ({
       isZoomingToTarget: false,
       canvasWrapRef: { current: null },
       canvasViewportRef: { current: null },
-      handleMouseDown: mocks.handleMouseDown,
+      handlePointerDown: mocks.handlePointerDown,
       navigateCanvas: mocks.navigateCanvas,
       flashFocus: mocks.flashFocus,
       viewport: viewportMock,
@@ -499,10 +499,10 @@ describe('App composition behavior', () => {
     const focusCallsBeforeMouseDown = mocks.canvasFocus.mock.calls.length;
     container
       .querySelector('.canvas-area')
-      .dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      .dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
     expect(mocks.canvasFocus).toHaveBeenCalledTimes(focusCallsBeforeMouseDown + 1);
     expect(mocks.canvasFocus).toHaveBeenLastCalledWith({ preventScroll: true });
-    expect(mocks.handleMouseDown).toHaveBeenCalled();
+    expect(mocks.handlePointerDown).toHaveBeenCalled();
     await act(async () => root.unmount());
   });
 
@@ -526,6 +526,22 @@ describe('App composition behavior', () => {
     await act(async () => root.unmount());
   });
 
+  it('does not start a pan from a control inside the topic rail', async () => {
+    const { container, root } = await renderApp();
+    const canvas = container.querySelector('.canvas-area');
+    const rail = document.createElement('aside');
+    rail.className = 'canvas-topic-hierarchy';
+    const button = document.createElement('button');
+    rail.appendChild(button);
+    canvas.appendChild(rail);
+    mocks.handlePointerDown.mockClear();
+    button.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    expect(mocks.handlePointerDown).not.toHaveBeenCalled();
+    rail.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    expect(mocks.handlePointerDown).toHaveBeenCalledOnce();
+    await act(async () => root.unmount());
+  });
+
   it.each([null, { clientHeight: 500 }])(
     'tolerates a canvas wrapper without a focus method: %s',
     async (canvasWrapElement) => {
@@ -534,9 +550,9 @@ describe('App composition behavior', () => {
       expect(() =>
         container
           .querySelector('.canvas-area')
-          .dispatchEvent(new MouseEvent('mousedown', { bubbles: true })),
+          .dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })),
       ).not.toThrow();
-      expect(mocks.handleMouseDown).toHaveBeenCalledOnce();
+      expect(mocks.handlePointerDown).toHaveBeenCalledOnce();
       await act(async () => root.unmount());
     },
   );

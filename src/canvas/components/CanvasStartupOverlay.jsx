@@ -24,7 +24,7 @@ const CanvasStartupOverlay = React.memo(function CanvasStartupOverlay({
   return (
     <div
       className={`canvas-startup${isLeaving ? ' is-leaving' : ''}`}
-      onMouseDown={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
       // aria-hidden while leaving: the content behind it is already the live
       // view, and a departing progress bar should not be announced.
       aria-hidden={isLeaving ? 'true' : undefined}

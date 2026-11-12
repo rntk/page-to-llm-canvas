@@ -238,7 +238,7 @@ function CanvasToolbar({
   return (
     <div
       className={`canvas-controls${isFolded ? ' is-folded' : ''}${isHorizontal ? ' is-horizontal' : ''}`}
-      onMouseDown={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
     >
       <div className="canvas-controls-header">
         <button

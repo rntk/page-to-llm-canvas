@@ -38,14 +38,14 @@ describe('CanvasToolbar', () => {
     onLevelChange: vi.fn(),
   };
 
-  it('renders with default classes, and stopPropagation onMouseDown works', () => {
+  it('renders with default classes, and stopPropagation onPointerDown works', () => {
     const { container, unmount } = render(createElement(CanvasToolbar, defaultProps));
 
     const mainDiv = container.querySelector('.canvas-controls');
     expect(mainDiv).not.toBeNull();
     expect(mainDiv.className).toBe('canvas-controls');
 
-    const mouseDownEvent = new MouseEvent('mousedown', { bubbles: true });
+    const mouseDownEvent = new MouseEvent('pointerdown', { bubbles: true });
     vi.spyOn(mouseDownEvent, 'stopPropagation');
     act(() => {
       mainDiv.dispatchEvent(mouseDownEvent);

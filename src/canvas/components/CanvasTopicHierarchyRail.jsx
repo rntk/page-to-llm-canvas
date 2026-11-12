@@ -468,11 +468,6 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
       <aside
         className="canvas-topic-hierarchy"
         aria-label="Topic hierarchy"
-        onMouseDown={(event) => {
-          if (event.target.closest('button, a, input, select, textarea')) {
-            event.stopPropagation();
-          }
-        }}
         style={{
           '--canvas-topic-hierarchy-width-fallback': `${railWidth}px`,
           '--topic-card-width-fallback': `${cardWidth}px`,

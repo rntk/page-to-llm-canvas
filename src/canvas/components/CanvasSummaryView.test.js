@@ -134,12 +134,12 @@ describe('CanvasSummaryView', () => {
     const button = container.querySelector('.canvas-summary-view__summary-tooltip-button');
     expect(button).not.toBeNull();
 
-    const onMouseDownEvent = new MouseEvent('mousedown', { bubbles: true });
-    vi.spyOn(onMouseDownEvent, 'stopPropagation');
+    const onPointerDownEvent = new MouseEvent('pointerdown', { bubbles: true });
+    vi.spyOn(onPointerDownEvent, 'stopPropagation');
     act(() => {
-      button.dispatchEvent(onMouseDownEvent);
+      button.dispatchEvent(onPointerDownEvent);
     });
-    expect(onMouseDownEvent.stopPropagation).toHaveBeenCalled();
+    expect(onPointerDownEvent.stopPropagation).toHaveBeenCalled();
 
     const onClickEvent = new MouseEvent('click', { bubbles: true });
     vi.spyOn(onClickEvent, 'stopPropagation');
