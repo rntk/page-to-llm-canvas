@@ -116,6 +116,8 @@
 
 .th-node__actions-menu {
   position: fixed;
+  inset: auto;
+  margin: 0;
   z-index: 10000;
   min-width: 176px;
   max-height: calc(100vh - 16px);
@@ -411,20 +413,16 @@
 }
 
 /* Summary Modal Styles */
-.th-summary-modal-overlay {
-  position: fixed;
-  inset: 0;
+.th-summary-modal::backdrop {
   background-color: rgb(0 0 0 / 40%);
   backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
   animation: thFadeIn 0.2s ease-out;
 }
 
 .th-summary-modal {
-  position: relative;
+  padding: 0;
+  margin: auto;
+  color: inherit;
   background: var(--th-surface);
   border: 1px solid var(--th-border-strong);
   box-shadow: 0 12px 32px rgb(0 0 0 / 18%);
@@ -580,7 +578,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .th-summary-modal-overlay,
+  .th-summary-modal::backdrop,
   .th-summary-modal {
     animation: none;
   }

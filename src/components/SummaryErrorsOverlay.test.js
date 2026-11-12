@@ -20,6 +20,21 @@ function render(element) {
   };
 }
 
+function cancelDialog(container) {
+  const dialog = container.querySelector('dialog');
+  const event = new Event('cancel', { cancelable: true });
+  dialog.dispatchEvent(event);
+  // Escape stays handled by the component; the browser must not auto-close.
+  expect(event.defaultPrevented).toBe(true);
+}
+
+function clickBackdrop(container) {
+  // Backdrop clicks target the dialog itself from a point outside its box.
+  container
+    .querySelector('dialog')
+    .dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: -1, clientY: -1 }));
+}
+
 const ERRORS = [
   { topic: 'Tech>AI', error_kind: 'timeout', error_message: 'The model did not respond in time.' },
   { topic: 'Tech>Hardware', error_kind: 'rate_limited', error_message: 'Rate limited.' },
@@ -74,7 +89,8 @@ describe('SummaryErrorsOverlay', () => {
 
     const dialog = container.querySelector('[role="alertdialog"]');
     expect(dialog.classList.contains('host-overlay')).toBe(true);
-    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(dialog.tagName).toBe('DIALOG');
+    expect(dialog.open).toBe(true);
     expect(container.querySelector('.pagetollm-summary-errors-source').textContent).toBe(
       'https://example.com/article',
     );
@@ -84,7 +100,7 @@ describe('SummaryErrorsOverlay', () => {
     unmount();
   });
 
-  it('focuses the primary action, traps Tab, closes with Escape, and restores focus', () => {
+  it('focuses the primary action, closes on cancel, and restores focus', () => {
     const returnButton = document.createElement('button');
     document.body.appendChild(returnButton);
     returnButton.focus();
@@ -101,23 +117,9 @@ describe('SummaryErrorsOverlay', () => {
     const closeButton = container.querySelector('.pagetollm-spinner-close-btn');
 
     expect(document.activeElement).toBe(retryButton);
-
     closeButton.focus();
-    act(() =>
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', cancelable: true })),
-    );
-    expect(document.activeElement).toBe(retryButton);
 
-    act(() =>
-      document.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true }),
-      ),
-    );
-    expect(document.activeElement).toBe(closeButton);
-
-    act(() =>
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
-    );
+    act(() => cancelDialog(container));
     expect(onClose).toHaveBeenCalledTimes(1);
 
     unmount();
@@ -135,12 +137,11 @@ describe('SummaryErrorsOverlay', () => {
         onClose,
       }),
     );
-    const overlay = container.querySelector('[role="alertdialog"]');
     const box = container.querySelector('.pagetollm-spinner-box');
 
     act(() => box.click());
     expect(onClose).not.toHaveBeenCalled();
-    act(() => overlay.click());
+    act(() => clickBackdrop(container));
     expect(onClose).toHaveBeenCalledTimes(1);
     unmount();
   });
@@ -170,10 +171,8 @@ describe('SummaryErrorsOverlay', () => {
       skipBtn.click();
     });
     expect(onSkip).not.toHaveBeenCalled();
-    act(() =>
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
-    );
-    act(() => container.querySelector('[role="alertdialog"]').click());
+    act(() => cancelDialog(container));
+    act(() => clickBackdrop(container));
     expect(onClose).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -210,11 +209,9 @@ describe('SummaryErrorsOverlay', () => {
     expect(skipBtn.disabled).toBe(false);
     expect(closeBtn.disabled).toBe(false);
 
-    act(() =>
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
-    );
+    act(() => cancelDialog(container));
     expect(onClose).toHaveBeenCalledTimes(1);
-    act(() => container.querySelector('[role="alertdialog"]').click());
+    act(() => clickBackdrop(container));
     expect(onClose).toHaveBeenCalledTimes(2);
     act(() => closeBtn.click());
     expect(onClose).toHaveBeenCalledTimes(3);

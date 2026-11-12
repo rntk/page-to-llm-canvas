@@ -748,7 +748,7 @@ describe('options main.jsx', () => {
       { type: 'getRecord', key: 'attention-1' },
       expect.any(Function),
     );
-    expect(document.querySelector('.pagetollm-options-error-overlay').textContent).toContain(
+    expect(document.querySelector('.pagetollm-options-error-dialog').textContent).toContain(
       'Tech>AI',
     );
     document.querySelector('.pagetollm-spinner-skip-btn').click();

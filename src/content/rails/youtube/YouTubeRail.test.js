@@ -225,6 +225,72 @@ describe('YouTubeRail', () => {
     unmount();
   });
 
+  it('stops polling while playback is paused and resyncs on playback events', () => {
+    let currentTime = 0;
+    const getCurrentTime = vi.fn(() => currentTime);
+    let listener;
+    const unsubscribe = vi.fn();
+    const subscribePlayback = vi.fn((cb) => {
+      listener = cb;
+      return unsubscribe;
+    });
+    const { container, unmount } = render(
+      createElement(YouTubeRail, { ...defaultProps, getCurrentTime, subscribePlayback }),
+    );
+    const activeIndex = () =>
+      [...container.querySelectorAll('.pagetollm-yt-rail-card')].findIndex((card) =>
+        card.className.includes('is-active'),
+      );
+
+    act(() => listener({ playing: false }));
+    getCurrentTime.mockClear();
+    currentTime = 45;
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(getCurrentTime).not.toHaveBeenCalled();
+    expect(activeIndex()).toBe(0);
+
+    // A seek while paused still moves the active card once.
+    act(() => listener({ playing: false }));
+    expect(activeIndex()).toBe(1);
+
+    currentTime = 0;
+    act(() => listener({ playing: true }));
+    expect(activeIndex()).toBe(0);
+    currentTime = 45;
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(activeIndex()).toBe(1);
+
+    unmount();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('pauses polling while the tab is hidden and ticks once when it returns', () => {
+    let currentTime = 0;
+    const getCurrentTime = vi.fn(() => currentTime);
+    const { container, unmount } = render(
+      createElement(YouTubeRail, { ...defaultProps, getCurrentTime }),
+    );
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    getCurrentTime.mockClear();
+    currentTime = 45;
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(getCurrentTime).not.toHaveBeenCalled();
+
+    hidden.mockReturnValue(false);
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    expect(container.querySelectorAll('.pagetollm-yt-rail-card')[1].className).toContain(
+      'is-active',
+    );
+    unmount();
+  });
+
   it('places the other cards before/after the active one and slides it in by direction', () => {
     let currentTime = 0;
     const getCurrentTime = vi.fn(() => currentTime);

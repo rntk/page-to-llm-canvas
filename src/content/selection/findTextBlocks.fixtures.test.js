@@ -281,7 +281,7 @@ describe('findTextBlocks default-threshold fixture evaluation', () => {
       article.firstElementChild?.remove();
     }, 0);
 
-    const result = await findTextBlocks(document, { batchSize: 4, maxNodes: 50 });
+    const result = await findTextBlocks(document, { yieldEveryMs: 0, maxNodes: 50 });
 
     expect(['none', 'incomplete']).toContain(result.status);
     expect(result.blocks.every((block) => block.element.isConnected)).toBe(true);

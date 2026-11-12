@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import ErrorDetails from '../components/ErrorDetails.jsx';
 import { splitError } from '../utils/errorUtils.js';
 import { createLogger } from '../shared/runtime/log.js';
+import { clickedOutsideDialog, useModalDialog } from '../shared/useModalDialog.js';
 
 const log = createLogger('Options');
 
@@ -20,8 +21,15 @@ const log = createLogger('Options');
 export default function RecordErrorDialog({ sourceUrl, errorText, onRetry, onClose }) {
   const [busy, setBusy] = useState(false);
   const [retryError, setRetryError] = useState(null);
+  const dialogRef = useRef(null);
+  const busyRef = useRef(false);
   const hasMessage = errorText != null && String(errorText) !== '';
   const { message, details } = hasMessage ? splitError(errorText) : { message: '', details: '' };
+
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
+  useModalDialog(dialogRef);
 
   const handleRetry = async () => {
     if (busy) return;
@@ -39,49 +47,56 @@ export default function RecordErrorDialog({ sourceUrl, errorText, onRetry, onClo
   };
 
   return (
-    <div
-      className="pagetollm-spinner-overlay pagetollm-options-error-overlay"
+    <dialog
+      ref={dialogRef}
+      className="pagetollm-spinner-box pagetollm-options-error-dialog"
       role="alertdialog"
-      aria-modal="true"
-      onClick={onClose}
+      aria-labelledby="pagetollm-record-error-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busyRef.current) onClose();
+      }}
+      onClick={(event) => {
+        if (!busyRef.current && clickedOutsideDialog(event)) onClose();
+      }}
     >
-      <div className="pagetollm-spinner-box" onClick={(e) => e.stopPropagation()}>
-        <div className="pagetollm-spinner-error-title">Processing Failed</div>
-        {sourceUrl ? <div className="pagetollm-options-error-source">{sourceUrl}</div> : null}
-        {hasMessage ? (
-          <div className="pagetollm-spinner-error-body">
-            <ErrorDetails
-              message={message}
-              details={details}
-              msgClassName="pagetollm-spinner-error-msg"
-              detailsClassName="pagetollm-spinner-error-details"
-            />
-          </div>
-        ) : null}
-        {retryError ? (
-          <div className="pagetollm-spinner-error-body" role="alert">
-            Retry failed: {retryError}
-          </div>
-        ) : null}
-        <div className="pagetollm-spinner-actions">
-          <button
-            type="button"
-            className="pagetollm-spinner-retry-btn"
-            onClick={handleRetry}
-            disabled={busy}
-          >
-            {busy ? 'Retrying...' : 'Retry'}
-          </button>
-          <button
-            type="button"
-            className="pagetollm-spinner-close-btn"
-            onClick={onClose}
-            disabled={busy}
-          >
-            Close
-          </button>
-        </div>
+      <div id="pagetollm-record-error-title" className="pagetollm-spinner-error-title">
+        Processing Failed
       </div>
-    </div>
+      {sourceUrl ? <div className="pagetollm-options-error-source">{sourceUrl}</div> : null}
+      {hasMessage ? (
+        <div className="pagetollm-spinner-error-body">
+          <ErrorDetails
+            message={message}
+            details={details}
+            msgClassName="pagetollm-spinner-error-msg"
+            detailsClassName="pagetollm-spinner-error-details"
+          />
+        </div>
+      ) : null}
+      {retryError ? (
+        <div className="pagetollm-spinner-error-body" role="alert">
+          Retry failed: {retryError}
+        </div>
+      ) : null}
+      <div className="pagetollm-spinner-actions">
+        <button
+          type="button"
+          className="pagetollm-spinner-retry-btn"
+          onClick={handleRetry}
+          disabled={busy}
+        >
+          {busy ? 'Retrying...' : 'Retry'}
+        </button>
+        <button
+          type="button"
+          className="pagetollm-spinner-close-btn"
+          onClick={onClose}
+          disabled={busy}
+        >
+          Close
+        </button>
+      </div>
+    </dialog>
   );
 }

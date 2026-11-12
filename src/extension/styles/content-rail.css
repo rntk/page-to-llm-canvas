@@ -188,6 +188,8 @@
 
 .pagetollm__actions-menu {
   position: fixed;
+  inset: auto;
+  margin: 0;
   z-index: 2147483647;
   min-width: 176px;
   max-height: calc(100vh - 16px);

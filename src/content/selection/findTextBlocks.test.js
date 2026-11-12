@@ -61,15 +61,31 @@ describe('measureTextMass', () => {
     expect(metrics.get(details).mass).toBe(11);
   });
 
-  it('yields in batches and reports budgets without partial results', async () => {
+  it('yields on a time budget and reports budgets without partial results', async () => {
     const article = append('article');
     for (let index = 0; index < 8; index += 1) append('p', prose('x', 20), article);
     const timeout = vi.spyOn(document.defaultView, 'setTimeout');
-    const measured = await measureTextMass(document, { batchSize: 2 });
+    const measured = await measureTextMass(document, { yieldEveryMs: 0 });
     expect(measured.status).toBe('complete');
     expect(timeout).toHaveBeenCalled();
+    timeout.mockClear();
+    const unyielded = await measureTextMass(document, { yieldEveryMs: 10_000 });
+    expect(unyielded.status).toBe('complete');
+    expect(timeout).not.toHaveBeenCalled();
     const incomplete = await measureTextMass(document, { maxNodes: 2 });
     expect(incomplete.status).toBe('incomplete');
+  });
+
+  it('prefers scheduler.yield() over a timeout when the page offers it', async () => {
+    const article = append('article');
+    for (let index = 0; index < 4; index += 1) append('p', prose('x', 20), article);
+    const timeout = vi.spyOn(document.defaultView, 'setTimeout');
+    const yieldSpy = vi.fn(() => Promise.resolve());
+    vi.stubGlobal('scheduler', { yield: yieldSpy });
+    const measured = await measureTextMass(document, { yieldEveryMs: 0 });
+    expect(measured.status).toBe('complete');
+    expect(yieldSpy).toHaveBeenCalled();
+    expect(timeout).not.toHaveBeenCalled();
   });
 
   it('budgets direct text nodes and honors suppressed document ancestors', async () => {

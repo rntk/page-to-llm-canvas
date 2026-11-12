@@ -1,5 +1,6 @@
 import { projectArticleView } from '../domain/articleView.js';
 import { useStableJsonValue } from '../shared/hooks/useStableJsonValue.js';
+import { clickedOutsideDialog, useModalDialog } from '../shared/useModalDialog.js';
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { useRecord } from '../canvas/hooks/useRecord.js';
 import TopicHierarchyView from './TopicHierarchyView.jsx';
@@ -310,43 +311,57 @@ export default function HierarchyApp({
         </div>
       )}
       {activeSummary && (
-        <div className="th-summary-modal-overlay" onClick={() => setActiveSummary(null)}>
-          <div
-            className="th-summary-modal"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="th-summary-modal-title"
+        <SummaryModal onClose={() => setActiveSummary(null)}>
+          <button
+            type="button"
+            className="th-summary-modal__close-btn"
+            onClick={() => setActiveSummary(null)}
+            aria-label="Close summary modal"
           >
-            <button
-              type="button"
-              className="th-summary-modal__close-btn"
-              onClick={() => setActiveSummary(null)}
-              aria-label="Close summary modal"
-            >
-              ×
-            </button>
-            <article className="th-summary-modal__card">
-              <header className="th-summary-modal__card-header">
-                <div className="th-summary-modal__card-title-block">
-                  <span className="th-summary-modal__card-kicker">Summary</span>
-                  <span id="th-summary-modal-title" className="th-summary-modal__card-path">
-                    {activeSummary.path}
-                  </span>
-                </div>
-                {activeSummaryYouTubeLink && (
-                  <YouTubeTimestampButton link={activeSummaryYouTubeLink} />
-                )}
-              </header>
-              {activeSummary.text && (
-                <div className="th-summary-modal__text-container">
-                  <p className="th-summary-modal__card-text">{activeSummary.text}</p>
-                </div>
+            ×
+          </button>
+          <article className="th-summary-modal__card">
+            <header className="th-summary-modal__card-header">
+              <div className="th-summary-modal__card-title-block">
+                <span className="th-summary-modal__card-kicker">Summary</span>
+                <span id="th-summary-modal-title" className="th-summary-modal__card-path">
+                  {activeSummary.path}
+                </span>
+              </div>
+              {activeSummaryYouTubeLink && (
+                <YouTubeTimestampButton link={activeSummaryYouTubeLink} />
               )}
-            </article>
-          </div>
-        </div>
+            </header>
+            {activeSummary.text && (
+              <div className="th-summary-modal__text-container">
+                <p className="th-summary-modal__card-text">{activeSummary.text}</p>
+              </div>
+            )}
+          </article>
+        </SummaryModal>
       )}
     </div>
+  );
+}
+
+/** Native modal wrapper for the summary card; unmount it to close. */
+function SummaryModal({ onClose, children }) {
+  const dialogRef = useRef(null);
+  useModalDialog(dialogRef);
+  return (
+    <dialog
+      ref={dialogRef}
+      className="th-summary-modal"
+      aria-labelledby="th-summary-modal-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+      onClick={(event) => {
+        if (clickedOutsideDialog(event)) onClose();
+      }}
+    >
+      {children}
+    </dialog>
   );
 }

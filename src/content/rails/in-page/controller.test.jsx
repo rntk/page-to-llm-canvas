@@ -548,6 +548,53 @@ describe('openInPageRail', () => {
       querySelector.mockRestore();
     });
 
+    it('defers the selector pass for mutations that do not touch picked roots', async () => {
+      let notifyMutations;
+      class TestMutationObserver {
+        constructor(callback) {
+          notifyMutations = callback;
+        }
+        observe = vi.fn();
+        disconnect = vi.fn();
+      }
+      vi.stubGlobal('MutationObserver', TestMutationObserver);
+      const frames = [];
+      vi.stubGlobal('requestAnimationFrame', (callback) => {
+        frames.push(callback);
+        return frames.length;
+      });
+      const timers = [];
+      const setTimeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation((callback) => {
+        timers.push(callback);
+        return timers.length;
+      });
+
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'topics');
+      });
+      const querySelector = vi.spyOn(document, 'querySelector');
+      const articleQueries = () =>
+        querySelector.mock.calls.filter(([selector]) => selector === '#article');
+
+      // A ticker mutating every frame schedules one trailing pass, not one per frame.
+      for (let frame = 0; frame < 3; frame += 1) {
+        act(() => notifyMutations([{ target: document.body, addedNodes: [], removedNodes: [] }]));
+        await act(async () => {
+          frames.shift()();
+        });
+      }
+      expect(articleQueries()).toHaveLength(0);
+      expect(timers).toHaveLength(1);
+
+      await act(async () => {
+        timers.shift()();
+      });
+      expect(articleQueries()).toHaveLength(1);
+      expect(rail()).not.toBeNull();
+      querySelector.mockRestore();
+      setTimeoutSpy.mockRestore();
+    });
+
     it('ignores mutations inside the rail', async () => {
       let notifyMutations;
       class TestMutationObserver {

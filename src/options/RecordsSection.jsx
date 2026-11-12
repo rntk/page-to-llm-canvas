@@ -494,7 +494,7 @@ export function RecordsSection({ fileHost, pageHost, subscribeRecords = subscrib
       ) : null}
       {summaryErrorsDialogItem ? (
         <SummaryErrorsOverlay
-          className="pagetollm-options-error-overlay"
+          className="pagetollm-options-error-dialog"
           sourceUrl={summaryErrorsDialogItem.sourceUrl}
           summaryErrors={summaryErrorsDialogItem.summaryErrors}
           onRetry={() => resolveSummaryErrorsFromDialog('retry')}

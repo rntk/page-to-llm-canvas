@@ -11,7 +11,7 @@ const DEFAULTS = Object.freeze({
   maxCut: 0.2,
   minMass: 800,
   maxLinkRatio: 0.5,
-  batchSize: 400,
+  yieldEveryMs: 50,
   maxNodes: 50_000,
   maxTimeMs: 1_500,
 });
@@ -51,7 +51,15 @@ function abortStatus(signal) {
   return signal?.aborted ? { status: 'cancelled', blocks: [], trace: { reason: 'aborted' } } : null;
 }
 
-function nextTask(contentWindow) {
+function now() {
+  return globalThis.performance?.now?.() ?? Date.now();
+}
+
+// Hand the main thread back between time slices. `scheduler.yield()` resumes
+// ahead of other queued tasks; a zero timeout is the fallback.
+function yieldToMain(contentWindow) {
+  const scheduler = contentWindow?.scheduler || globalThis.scheduler;
+  if (typeof scheduler?.yield === 'function') return scheduler.yield();
   return new Promise((resolve) => {
     const schedule = contentWindow?.setTimeout?.bind(contentWindow) || globalThis.setTimeout;
     schedule(resolve, 0);
@@ -73,10 +81,10 @@ export async function measureTextMass(document, options = {}) {
   );
   const metrics = new Map();
   const styleCache = new Map();
-  const started = globalThis.performance?.now?.() ?? Date.now();
+  const started = now();
+  let sliceStarted = started;
   let visited = 0;
   let work = 0;
-  let nextYield = config.batchSize;
   let skippedSelected = false;
   if (!body) return { status: 'complete', metrics, visited, skippedSelected };
 
@@ -102,9 +110,14 @@ export async function measureTextMass(document, options = {}) {
   ];
   while (stack.length) {
     if (signal?.aborted) return { status: 'cancelled', metrics, visited, skippedSelected };
-    const now = globalThis.performance?.now?.() ?? Date.now();
-    if (work >= config.maxNodes || now - started >= config.maxTimeMs) {
+    const current = now();
+    if (work >= config.maxNodes || current - started >= config.maxTimeMs) {
       return { status: 'incomplete', metrics, visited, skippedSelected };
+    }
+    if (current - sliceStarted >= config.yieldEveryMs) {
+      await yieldToMain(document.defaultView);
+      if (signal?.aborted) return { status: 'cancelled', metrics, visited, skippedSelected };
+      sliceStarted = now();
     }
 
     const frame = stack.pop();
@@ -148,13 +161,6 @@ export async function measureTextMass(document, options = {}) {
       if (selected.has(element)) {
         skippedSelected = true;
         metrics.set(element, emptyMetric());
-        if (work >= config.maxNodes) {
-          return { status: 'incomplete', metrics, visited, skippedSelected };
-        }
-        if (work >= nextYield) {
-          nextYield += config.batchSize;
-          await nextTask(document.defaultView);
-        }
         continue;
       }
       const owned =
@@ -165,13 +171,6 @@ export async function measureTextMass(document, options = {}) {
         renderedSubtreeIsHidden(element, styleCache, document.defaultView);
       if (suppressed) {
         metrics.set(element, emptyMetric());
-        if (work >= config.maxNodes) {
-          return { status: 'incomplete', metrics, visited, skippedSelected };
-        }
-        if (work >= nextYield) {
-          nextYield += config.batchSize;
-          await nextTask(document.defaultView);
-        }
         continue;
       }
       const style = getComputedStyleSafe(element, styleCache, document.defaultView);
@@ -209,11 +208,6 @@ export async function measureTextMass(document, options = {}) {
         frame.parentMetric.mass += metric.mass;
         frame.parentMetric.linkMass += metric.linkMass;
       }
-    }
-
-    if (work >= nextYield) {
-      nextYield += config.batchSize;
-      await nextTask(document.defaultView);
     }
   }
   return { status: 'complete', metrics, visited, skippedSelected };

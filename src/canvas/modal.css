@@ -831,6 +831,8 @@ body.canvas-global-dragging * {
 
 .canvas-topic-hierarchy__actions-menu {
   position: fixed;
+  inset: auto;
+  margin: 0;
   z-index: 10000;
   min-width: 176px;
   max-height: calc(100vh - 16px);

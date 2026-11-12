@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { clickedOutsideDialog, useModalDialog } from '../shared/useModalDialog.js';
 import { isStaleActionError, STALE_ACTION_MESSAGE } from '../shared/runtime/actionResponses.js';
 import { createLogger } from '../shared/runtime/log.js';
 
@@ -32,7 +33,7 @@ export default function SummaryErrorsOverlay({
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState(null);
   const [staleNotice, setStaleNotice] = useState(null);
-  const overlayRef = useRef(null);
+  const dialogRef = useRef(null);
   const retryButtonRef = useRef(null);
   const busyRef = useRef(false);
   const onCloseRef = useRef(onClose);
@@ -47,50 +48,7 @@ export default function SummaryErrorsOverlay({
     onCloseRef.current = onClose;
   }, [onClose]);
 
-  useEffect(() => {
-    const previouslyFocused = document.activeElement;
-    retryButtonRef.current?.focus();
-
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        if (!busyRef.current) onCloseRef.current?.();
-        return;
-      }
-      if (event.key !== 'Tab') return;
-
-      const focusable = Array.from(
-        overlayRef.current?.querySelectorAll(
-          'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
-        ) || [],
-      );
-      if (focusable.length === 0) {
-        event.preventDefault();
-        return;
-      }
-
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (
-        event.shiftKey &&
-        (document.activeElement === first || document.activeElement === overlayRef.current)
-      ) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) {
-        previouslyFocused.focus();
-      }
-    };
-  }, []);
+  useModalDialog(dialogRef, { initialFocus: retryButtonRef });
 
   const run = (fn) => async () => {
     if (busy) return;
@@ -116,81 +74,80 @@ export default function SummaryErrorsOverlay({
   };
 
   return (
-    <div
-      ref={overlayRef}
-      className={['pagetollm-spinner-overlay', className].filter(Boolean).join(' ')}
+    <dialog
+      ref={dialogRef}
+      className={['pagetollm-spinner-box', className].filter(Boolean).join(' ')}
       role="alertdialog"
       aria-live="polite"
-      aria-modal="true"
       aria-labelledby="pagetollm-summary-errors-title"
       aria-describedby="pagetollm-summary-errors-description"
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busyRef.current) onCloseRef.current?.();
+      }}
       onClick={(event) => {
-        if (event.target === event.currentTarget && !busy) onClose?.();
+        if (!busy && clickedOutsideDialog(event)) onClose?.();
       }}
     >
-      <div className="pagetollm-spinner-box">
-        <div id="pagetollm-summary-errors-title" className="pagetollm-spinner-error-title">
-          {count === 1
-            ? '1 topic could not be summarized'
-            : `${count} topics could not be summarized`}
-        </div>
-        <div id="pagetollm-summary-errors-description" className="pagetollm-spinner-error-body">
-          The model kept failing on these after several automatic retries. Retry them, or skip these
-          failures and continue. Any new failures will still need review.
-        </div>
-        {sourceUrl ? <div className="pagetollm-summary-errors-source">{sourceUrl}</div> : null}
-        {count > 0 && (
-          <ul className="pagetollm-summary-errors-list">
-            {errors.map((e, i) => (
-              <li key={`${e.topic}-${i}`} className="pagetollm-summary-errors-item">
-                <span className="pagetollm-summary-errors-topic">
-                  {e.topic || 'Untitled topic'}
-                </span>
-                {e.error_message && (
-                  <span className="pagetollm-summary-errors-reason">{e.error_message}</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-        {actionError && (
-          <div className="pagetollm-spinner-error-body" role="alert">
-            {actionError}
-          </div>
-        )}
-        {staleNotice && (
-          <div className="pagetollm-spinner-error-body" role="status">
-            {staleNotice}
-          </div>
-        )}
-        <div className="pagetollm-spinner-actions">
-          <button
-            ref={retryButtonRef}
-            type="button"
-            className="pagetollm-spinner-retry-btn"
-            onClick={run(onRetry)}
-            disabled={busy}
-          >
-            Retry all
-          </button>
-          <button
-            type="button"
-            className="pagetollm-spinner-skip-btn"
-            onClick={run(onSkip)}
-            disabled={busy}
-          >
-            Skip
-          </button>
-          <button
-            type="button"
-            className="pagetollm-spinner-close-btn"
-            onClick={() => onClose?.()}
-            disabled={busy}
-          >
-            Close
-          </button>
-        </div>
+      <div id="pagetollm-summary-errors-title" className="pagetollm-spinner-error-title">
+        {count === 1
+          ? '1 topic could not be summarized'
+          : `${count} topics could not be summarized`}
       </div>
-    </div>
+      <div id="pagetollm-summary-errors-description" className="pagetollm-spinner-error-body">
+        The model kept failing on these after several automatic retries. Retry them, or skip these
+        failures and continue. Any new failures will still need review.
+      </div>
+      {sourceUrl ? <div className="pagetollm-summary-errors-source">{sourceUrl}</div> : null}
+      {count > 0 && (
+        <ul className="pagetollm-summary-errors-list">
+          {errors.map((e, i) => (
+            <li key={`${e.topic}-${i}`} className="pagetollm-summary-errors-item">
+              <span className="pagetollm-summary-errors-topic">{e.topic || 'Untitled topic'}</span>
+              {e.error_message && (
+                <span className="pagetollm-summary-errors-reason">{e.error_message}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {actionError && (
+        <div className="pagetollm-spinner-error-body" role="alert">
+          {actionError}
+        </div>
+      )}
+      {staleNotice && (
+        <div className="pagetollm-spinner-error-body" role="status">
+          {staleNotice}
+        </div>
+      )}
+      <div className="pagetollm-spinner-actions">
+        <button
+          ref={retryButtonRef}
+          type="button"
+          className="pagetollm-spinner-retry-btn"
+          onClick={run(onRetry)}
+          disabled={busy}
+        >
+          Retry all
+        </button>
+        <button
+          type="button"
+          className="pagetollm-spinner-skip-btn"
+          onClick={run(onSkip)}
+          disabled={busy}
+        >
+          Skip
+        </button>
+        <button
+          type="button"
+          className="pagetollm-spinner-close-btn"
+          onClick={() => onClose?.()}
+          disabled={busy}
+        >
+          Close
+        </button>
+      </div>
+    </dialog>
   );
 }

@@ -346,11 +346,11 @@ describe('HierarchyApp', () => {
     act(() => buttons[2].click());
     const leafSummary = container.querySelector('.th-leaf-summary');
     act(() => leafSummary.click());
-    expect(container.querySelector('.th-summary-modal-overlay')).not.toBeNull();
+    expect(container.querySelector('.th-summary-modal')).not.toBeNull();
 
     rerender(createElement(HierarchyApp, { initialKey: 'key2' }));
 
-    expect(container.querySelector('.th-summary-modal-overlay')).toBeNull();
+    expect(container.querySelector('.th-summary-modal')).toBeNull();
     expect(
       container.querySelector('.th-page__level-switcher .topic-level-switcher__button.active')
         .textContent,
@@ -456,7 +456,7 @@ describe('HierarchyApp', () => {
       summaryEl.click();
     });
 
-    let modalOverlay = container.querySelector('.th-summary-modal-overlay');
+    let modalOverlay = container.querySelector('.th-summary-modal');
     expect(modalOverlay).not.toBeNull();
     expect(container.querySelector('.th-summary-modal__card-path').textContent).toBe('Fruit');
     expect(container.querySelector('.th-summary-modal__card-text').textContent).toBe(
@@ -469,20 +469,20 @@ describe('HierarchyApp', () => {
       window.dispatchEvent(escapeEvent);
     });
     // Modal overlay should be gone
-    modalOverlay = container.querySelector('.th-summary-modal-overlay');
+    modalOverlay = container.querySelector('.th-summary-modal');
     expect(modalOverlay).toBeNull();
     expect(hostActions.onClose).not.toHaveBeenCalled();
 
     act(() => {
       summaryEl.click();
     });
-    expect(container.querySelector('.th-summary-modal-overlay')).not.toBeNull();
+    expect(container.querySelector('.th-summary-modal')).not.toBeNull();
 
     const closeBtn = container.querySelector('.th-summary-modal__close-btn');
     act(() => {
       closeBtn.click();
     });
-    expect(container.querySelector('.th-summary-modal-overlay')).toBeNull();
+    expect(container.querySelector('.th-summary-modal')).toBeNull();
 
     unmount();
   });
@@ -510,9 +510,9 @@ describe('HierarchyApp', () => {
     expect(listenerCount(removeEventListenerSpy)).toBe(0);
 
     act(() => summaryEl.click());
-    expect(container.querySelector('.th-summary-modal-overlay')).not.toBeNull();
+    expect(container.querySelector('.th-summary-modal')).not.toBeNull();
     act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
-    expect(container.querySelector('.th-summary-modal-overlay')).toBeNull();
+    expect(container.querySelector('.th-summary-modal')).toBeNull();
     expect(hostActions.onClose).not.toHaveBeenCalled();
 
     act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));

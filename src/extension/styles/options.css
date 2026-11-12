@@ -703,21 +703,19 @@ h3 {
   border-color: var(--ink);
 }
 
-/* Record error dialog (mirrors the canvas "Processing Failed" overlay,
-   but page-level fixed rather than iframe-absolute). */
-.pagetollm-options-error-overlay {
+/* Record error dialogs (mirror the canvas "Processing Failed" overlay, but as
+   native modal dialogs in the page's top layer). */
+.pagetollm-options-error-dialog {
   --pagetollm-summary-errors-list-width: 100%;
   --pagetollm-summary-errors-list-max-height: 180px;
   --pagetollm-summary-errors-list-margin: 0;
 
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
+  margin: auto;
+  color: inherit;
+}
+
+.pagetollm-options-error-dialog::backdrop {
   background: rgb(0 0 0 / 45%);
-  z-index: 100;
 }
 
 .pagetollm-spinner-box {

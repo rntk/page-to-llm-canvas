@@ -15,6 +15,18 @@ export default function TopicActionsMenu({ actions, topic, classPrefix = 'topic-
   const triggerClass = `${classPrefix}__actions-trigger`;
   const menuClass = `${classPrefix}__actions-menu`;
 
+  // A manual popover renders in the top layer, above any host page z-index,
+  // without light-dismissing the host's own popovers the way popover=auto would.
+  React.useLayoutEffect(() => {
+    const element = menuRef.current;
+    if (!menu || !element) return;
+    try {
+      if (!element.matches(':popover-open')) element.showPopover?.();
+    } catch {
+      // Unsupported pseudo-class or API: the fixed-position fallback still renders.
+    }
+  }, [menu]);
+
   React.useLayoutEffect(() => {
     if (!menu) return;
     const menuRect = menuRef.current?.getBoundingClientRect();
@@ -168,6 +180,7 @@ export default function TopicActionsMenu({ actions, topic, classPrefix = 'topic-
             ref={menuRef}
             className={menuClass}
             role="menu"
+            popover="manual"
             aria-label={`Actions for ${topic.path}`}
             aria-busy={pendingActionId !== null}
             style={{ top: `${menu.top}px`, left: `${menu.left}px`, colorScheme: menu.colorScheme }}

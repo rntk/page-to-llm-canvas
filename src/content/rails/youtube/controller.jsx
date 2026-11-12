@@ -87,6 +87,17 @@ export function createYouTubeRailController({
       return Number.isFinite(time) ? time : null;
     };
 
+    // Report play/pause and seeks so the rail can stop polling a paused clock.
+    const subscribePlayback = (listener) => {
+      const video = getYouTubeVideoElement();
+      if (!video) return () => {};
+      const notify = () => listener({ playing: !video.paused && !video.ended });
+      const events = ['play', 'playing', 'pause', 'ended', 'seeked'];
+      events.forEach((name) => video.addEventListener(name, notify));
+      notify();
+      return () => events.forEach((name) => video.removeEventListener(name, notify));
+    };
+
     const seekTo = async (seconds) => {
       const video = getYouTubeVideoElement();
       if (!Number.isFinite(seconds)) {
@@ -186,6 +197,7 @@ export function createYouTubeRailController({
           onSelectLevel={handleSelectLevel}
           onClose={closeRail}
           getCurrentTime={getCurrentTime}
+          subscribePlayback={subscribePlayback}
           onSeek={seekTo}
           topics={record.topics}
           sentences={sentences}

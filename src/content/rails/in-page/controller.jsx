@@ -18,6 +18,9 @@ import { createLogger } from '../../../shared/runtime/log.js';
 import { MSG } from '../../../shared/runtime/messages.js';
 import { createResplitAction } from '../../../shared/runtime/topicResplit.js';
 
+// Trailing delay before unrelated page mutations trigger a selector pass.
+const UNRELATED_MUTATION_RESOLVE_MS = 500;
+
 const defaultDialogs = {
   alert: (...args) => globalThis.alert(...args),
   confirm: (...args) => globalThis.confirm(...args),
@@ -79,6 +82,7 @@ export function createInPageRailController({
     let isNestedScroll = Boolean(scrollContainer && scrollContainer !== contentWindow);
     let mutationObserver;
     let mutationFrameId = 0;
+    let unrelatedResolveId = 0;
     let pendingMutations = [];
 
     const state = createRailState(initialMode, options);
@@ -100,6 +104,7 @@ export function createInPageRailController({
       onTeardown: () => {
         mutationObserver?.disconnect();
         if (mutationFrameId) contentWindow.cancelAnimationFrame(mutationFrameId);
+        if (unrelatedResolveId) contentWindow.clearTimeout(unrelatedResolveId);
         pendingMutations = [];
         highlighter.destroy();
         onDestroy?.();
@@ -249,6 +254,32 @@ export function createInPageRailController({
       throw err;
     }
 
+    // Re-resolve picked roots; `touched` mutations force a refresh even when
+    // the selectors still match the same elements.
+    const resolveElements = (touched) => {
+      const nextElements = findPickedElements(record.selectors, contentDocument);
+      const changed =
+        nextElements.length !== elements.length ||
+        nextElements.some((element, index) => element !== elements[index]) ||
+        touched;
+      if (!changed) return;
+      // Clear detached ranges; later insertions can restore anchors.
+      elements = nextElements;
+      wordEntries = collectWordEntries(elements);
+      sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
+      scrollContainer = getScrollableAncestor(elements, {
+        win: contentWindow,
+        body: contentDocument.body,
+        docEl: contentDocument.documentElement,
+      });
+      isNestedScroll = Boolean(scrollContainer && scrollContainer !== contentWindow);
+      highlighter.updateAnchors({ wordEntries, sentenceRanges, scrollContainer });
+      // Chat citations still need fresh anchors, but display no rail cards.
+      if (state.mode === 'chat') return;
+      measureRailOrigin();
+      renderRail();
+    };
+
     // Re-resolve selectors and text after article or scroller mutations.
     mutationObserver = new contentWindow.MutationObserver((mutations) => {
       if (isClosed() || guard.isStale()) return;
@@ -261,34 +292,27 @@ export function createInPageRailController({
         const frameMutations = pendingMutations;
         pendingMutations = [];
         if (isClosed() || guard.isStale()) return;
-        // Even unrelated mutation batches share one selector pass per frame.
-        const nextElements = findPickedElements(record.selectors, contentDocument);
-        const changed =
-          nextElements.length !== elements.length ||
-          nextElements.some((element, index) => element !== elements[index]) ||
-          frameMutations.some(({ target, addedNodes, removedNodes }) =>
-            elements.some(
-              (element) =>
-                element.contains(target) ||
-                [...addedNodes, ...removedNodes].some((node) => node.contains(element)),
-            ),
-          );
-        if (!changed) return;
-        // Clear detached ranges; later insertions can restore anchors.
-        elements = nextElements;
-        wordEntries = collectWordEntries(elements);
-        sentenceRanges = buildSentenceWordRanges(sentences, wordEntries);
-        scrollContainer = getScrollableAncestor(elements, {
-          win: contentWindow,
-          body: contentDocument.body,
-          docEl: contentDocument.documentElement,
-        });
-        isNestedScroll = Boolean(scrollContainer && scrollContainer !== contentWindow);
-        highlighter.updateAnchors({ wordEntries, sentenceRanges, scrollContainer });
-        // Chat citations still need fresh anchors, but display no rail cards.
-        if (state.mode === 'chat') return;
-        measureRailOrigin();
-        renderRail();
+        const touchesPicked = frameMutations.some(({ target, addedNodes, removedNodes }) =>
+          elements.some(
+            (element) =>
+              element.contains(target) ||
+              [...addedNodes, ...removedNodes].some((node) => node.contains(element)),
+          ),
+        );
+        // Pages that mutate every frame (tickers, ads) must not cost a selector
+        // pass per frame: unrelated batches re-resolve on a trailing timer. With
+        // nothing picked, every batch is a candidate for recovery.
+        if (!touchesPicked && elements.length > 0) {
+          if (!unrelatedResolveId) {
+            unrelatedResolveId = contentWindow.setTimeout(() => {
+              unrelatedResolveId = 0;
+              if (isClosed() || guard.isStale()) return;
+              resolveElements(false);
+            }, UNRELATED_MUTATION_RESOLVE_MS);
+          }
+          return;
+        }
+        resolveElements(true);
       });
     });
     mutationObserver.observe(contentDocument.documentElement, {

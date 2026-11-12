@@ -46,7 +46,8 @@ describe('RecordErrorDialog', () => {
     const dialog = container.querySelector('[role="alertdialog"]');
 
     expect(dialog).not.toBeNull();
-    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(dialog.tagName).toBe('DIALOG');
+    expect(dialog.open).toBe(true);
     expect(container.textContent).toContain('Processing Failed');
     expect(container.querySelector('.pagetollm-options-error-source').textContent).toBe(
       'https://example.com/article',
@@ -68,11 +69,10 @@ describe('RecordErrorDialog', () => {
     expect(container.querySelector('.pagetollm-spinner-retry-btn').textContent).toBe('Retry');
   });
 
-  it('closes from the backdrop or close button but not from the dialog box', () => {
+  it('closes from the backdrop, Escape, or close button but not from the dialog box', () => {
     const onClose = vi.fn();
     const { container } = renderDialog({ onClose });
-    const overlay = container.querySelector('.pagetollm-options-error-overlay');
-    const box = container.querySelector('.pagetollm-spinner-box');
+    const box = container.querySelector('dialog.pagetollm-spinner-box');
 
     act(() => box.click());
     expect(onClose).not.toHaveBeenCalled();
@@ -80,8 +80,30 @@ describe('RecordErrorDialog', () => {
     act(() => container.querySelector('.pagetollm-spinner-close-btn').click());
     expect(onClose).toHaveBeenCalledTimes(1);
 
-    act(() => overlay.click());
+    // Backdrop clicks target the dialog itself from a point outside its box.
+    act(() =>
+      box.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: -1, clientY: -1 })),
+    );
     expect(onClose).toHaveBeenCalledTimes(2);
+
+    const cancel = new Event('cancel', { cancelable: true });
+    act(() => box.dispatchEvent(cancel));
+    expect(cancel.defaultPrevented).toBe(true);
+    expect(onClose).toHaveBeenCalledTimes(3);
+  });
+
+  it('ignores backdrop clicks and Escape while a retry is in flight', () => {
+    const onRetry = vi.fn(() => new Promise(() => {}));
+    const onClose = vi.fn();
+    const { container } = renderDialog({ onRetry, onClose });
+    const box = container.querySelector('dialog.pagetollm-spinner-box');
+
+    act(() => container.querySelector('.pagetollm-spinner-retry-btn').click());
+    act(() =>
+      box.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: -1, clientY: -1 })),
+    );
+    act(() => box.dispatchEvent(new Event('cancel', { cancelable: true })));
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('disables both actions while retrying and remains busy after success', async () => {

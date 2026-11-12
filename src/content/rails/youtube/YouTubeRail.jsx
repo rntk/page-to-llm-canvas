@@ -45,6 +45,7 @@ export default function YouTubeRail({
   onSelectLevel,
   onClose,
   getCurrentTime,
+  subscribePlayback,
   onSeek,
   sentences = [],
   recordKey,
@@ -269,8 +270,12 @@ export default function YouTubeRail({
 
   useEffect(() => () => window.clearTimeout(settleTimerRef.current), []);
 
+  // Poll only while the clock can move: playing, in a visible tab. Pauses,
+  // seeks, and tab returns trigger one immediate tick instead.
   useEffect(() => {
     let cancelled = false;
+    let intervalId = 0;
+    let playing = true;
     const tick = () => {
       if (cancelled) return;
       const time = getCurrentTimeRef.current ? getCurrentTimeRef.current() : null;
@@ -279,12 +284,32 @@ export default function YouTubeRail({
         getYouTubeRailNextActiveIdFromNormalized(cardsRef.current, time, prev, startsRef.current),
       );
     };
-    const id = window.setInterval(tick, pollIntervalMs);
+    const syncInterval = () => {
+      const shouldPoll = playing && !document.hidden;
+      if (shouldPoll && !intervalId) intervalId = window.setInterval(tick, pollIntervalMs);
+      if (!shouldPoll && intervalId) {
+        window.clearInterval(intervalId);
+        intervalId = 0;
+      }
+    };
+    const handleVisibility = () => {
+      if (!document.hidden) tick();
+      syncInterval();
+    };
+    const unsubscribe = subscribePlayback?.((state) => {
+      if (typeof state?.playing === 'boolean') playing = state.playing;
+      tick();
+      syncInterval();
+    });
+    document.addEventListener('visibilitychange', handleVisibility);
+    syncInterval();
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      if (intervalId) window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      unsubscribe?.();
     };
-  }, [pollIntervalMs]);
+  }, [pollIntervalMs, subscribePlayback]);
 
   // Guard before card expansion shifts scrollTop during layout.
   useLayoutEffect(() => {
