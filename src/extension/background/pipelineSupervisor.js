@@ -146,6 +146,17 @@ export function createPipelineSupervisor({
     });
   }
 
+  function clearKeepAlive() {
+    try {
+      const cleared = alarms.clear(KEEPALIVE_ALARM);
+      if (cleared && typeof cleared.then === 'function') {
+        cleared.catch((err) => logger.warn('chrome.alarms.clear failed:', err));
+      }
+    } catch (err) {
+      logger.warn('chrome.alarms.clear failed:', err);
+    }
+  }
+
   function cancelActivePipeline(key, options = {}) {
     const job = jobRegistry.get(key);
     if (!job) return false;
@@ -297,7 +308,7 @@ export function createPipelineSupervisor({
     const inFlight = (Array.isArray(items) ? items : []).filter(isInFlightRecord);
     if (inFlight.length === 0) {
       if (jobRegistry.size > 0 || starting.size > 0) return;
-      alarms.clear(KEEPALIVE_ALARM);
+      clearKeepAlive();
       return;
     }
     // Startup/install recovery must recreate the alarm before consulting the
@@ -312,7 +323,7 @@ export function createPipelineSupervisor({
     }
     if (resumable.length === 0) {
       if (jobRegistry.size > 0 || starting.size > 0) return;
-      alarms.clear(KEEPALIVE_ALARM);
+      clearKeepAlive();
       return;
     }
     for (const rec of resumable) {

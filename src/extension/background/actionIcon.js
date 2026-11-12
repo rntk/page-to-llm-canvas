@@ -73,15 +73,28 @@ export function createActionIconController({
     typeof actionApi?.setBadgeText === 'function' &&
     typeof actionApi?.setBadgeBackgroundColor === 'function';
 
+  // Action APIs return promises in MV3; a rejection must not go unhandled.
+  function settle(result, label) {
+    if (result && typeof result.then === 'function') {
+      result.catch((err) => logger.warn(`${label} failed:`, err));
+    }
+  }
+
   function setBadge(state) {
     // A failure flash owns the badge until it expires and triggers a refresh.
     if (!hasBadgeApi() || flashTimer !== null) return;
     if (!state.active) {
-      actionApi.setBadgeText({ text: '' });
+      settle(actionApi.setBadgeText({ text: '' }), 'setBadgeText');
       return;
     }
-    actionApi.setBadgeBackgroundColor({ color: ACTION_ICON_PROGRESS_COLOR });
-    actionApi.setBadgeText({ text: state.count > 1 ? String(state.count) : '...' });
+    settle(
+      actionApi.setBadgeBackgroundColor({ color: ACTION_ICON_PROGRESS_COLOR }),
+      'setBadgeBackgroundColor',
+    );
+    settle(
+      actionApi.setBadgeText({ text: state.count > 1 ? String(state.count) : '...' }),
+      'setBadgeText',
+    );
   }
 
   async function loadBitmap(size) {
@@ -126,7 +139,7 @@ export function createActionIconController({
     setBadge(state);
     if (!hasIconApi()) return;
     if (!state.active) {
-      actionApi.setIcon({ path: assets.paths });
+      await actionApi.setIcon({ path: assets.paths });
       return;
     }
 
@@ -137,7 +150,7 @@ export function createActionIconController({
       imageData[size] = rendered;
     }
     if (currentUpdateId !== updateId) return;
-    actionApi.setIcon({ imageData });
+    await actionApi.setIcon({ imageData });
   }
 
   async function refresh() {
@@ -173,8 +186,11 @@ export function createActionIconController({
     if (flashTimer !== null) scheduler.clearTimeout(flashTimer);
     flashTimer = null;
     try {
-      actionApi.setBadgeBackgroundColor({ color: ACTION_ICON_FAILURE_COLOR });
-      actionApi.setBadgeText({ text: '!' });
+      settle(
+        actionApi.setBadgeBackgroundColor({ color: ACTION_ICON_FAILURE_COLOR }),
+        'failure flash',
+      );
+      settle(actionApi.setBadgeText({ text: '!' }), 'failure flash');
     } catch (err) {
       logger.warn('failure flash failed:', err);
       return;

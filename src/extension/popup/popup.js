@@ -311,10 +311,6 @@ function setLoading() {
 /**
  * Finds the window of an already-open options tab, if there is one.
  *
- * `chrome.tabs.query({ url })` cannot see extension pages without the "tabs"
- * permission, but `chrome.extension.getViews` reaches our own pages without
- * requesting one.
- *
  * @returns {Window | null} The live options page window, or null when closed.
  */
 function findOpenOptionsView() {
