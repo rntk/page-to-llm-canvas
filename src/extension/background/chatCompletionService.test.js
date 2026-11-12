@@ -170,4 +170,30 @@ describe('createChatCompletionService (no chrome global)', () => {
     // Registry is empty too, so a reset has nothing left to abort.
     expect(() => service.cancelAll()).not.toThrow();
   });
+
+  it("beats a keepalive while any completion is in flight and stops when idle", async () => {
+    vi.useFakeTimers();
+    try {
+      const keepAlive = vi.fn(() => Promise.reject(new Error("ignored")));
+      const { service, deferred } = makeService({ serviceOptions: { keepAlive } });
+
+      const first = service.complete({ prompt: "a", chatTurnId: "t1" });
+      const second = service.complete({ prompt: "b", chatTurnId: "t2" });
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(keepAlive).toHaveBeenCalledTimes(1);
+
+      deferred[0].resolve({ ok: true });
+      await first;
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(keepAlive).toHaveBeenCalledTimes(2);
+
+      deferred[1].resolve({ ok: true });
+      await second;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(keepAlive).toHaveBeenCalledTimes(2);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

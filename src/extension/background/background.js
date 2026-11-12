@@ -343,6 +343,8 @@ const chatService = createChatCompletionService({
     await seedProviderLimiter();
     return providerLimiter.run(task, signal, { priority: true });
   },
+  // Any extension API call resets the MV3 idle timer.
+  keepAlive: () => chrome.runtime.getPlatformInfo(),
 });
 
 const handleSubmitImpl = createSubmitRecord({

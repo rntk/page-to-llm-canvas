@@ -1,3 +1,6 @@
+/** Heartbeat period, safely under Chrome MV3's 30 s service-worker idle timeout. */
+export const CHAT_KEEPALIVE_INTERVAL_MS = 20_000;
+
 /**
  * Owns in-flight article-chat provider requests: the per-turn abort registry,
  * the set of completion jobs a full reset must drain, and the metric write that
@@ -11,6 +14,11 @@
  *   consumers and tests.
  * @param {function(): number} [deps.clock]
  * @param {function(): AbortController} [deps.abortControllerFactory]
+ * @param {function(): *} [deps.keepAlive] Touches an extension API to reset
+ *   the MV3 idle timer. Called on an interval while any completion is in flight.
+ * @param {number} [deps.keepAliveIntervalMs]
+ * @param {Function} [deps.setIntervalFn]
+ * @param {Function} [deps.clearIntervalFn]
  */
 export function createChatCompletionService({
   callLLMDirectWithRetry,
@@ -18,6 +26,10 @@ export function createChatCompletionService({
   limit = (task) => task(),
   clock = Date.now,
   abortControllerFactory = () => new AbortController(),
+  keepAlive = () => {},
+  keepAliveIntervalMs = CHAT_KEEPALIVE_INTERVAL_MS,
+  setIntervalFn = (fn, ms) => setInterval(fn, ms),
+  clearIntervalFn = (id) => clearInterval(id),
 }) {
   /**
    * One turn can fan out into several provider requests. This registry is
@@ -27,6 +39,30 @@ export function createChatCompletionService({
    */
   const activeChatRequests = new Map();
   const activeChatCompletionJobs = new Set();
+
+  // The worker idles out after 30 s without extension events or API calls, and
+  // a slow provider response does not count. A heartbeat under that window keeps
+  // the response and the cancel registry alive. Chrome's alarm minimum is 30 s,
+  // too coarse for this, so the timer runs in-process.
+  let heartbeat = null;
+
+  function beat() {
+    try {
+      const pending = keepAlive();
+      if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+    } catch {
+      // A failed touch only costs this beat; the next one retries.
+    }
+  }
+
+  function syncHeartbeat() {
+    if (activeChatCompletionJobs.size > 0 && heartbeat === null) {
+      heartbeat = setIntervalFn(beat, keepAliveIntervalMs);
+    } else if (activeChatCompletionJobs.size === 0 && heartbeat !== null) {
+      clearIntervalFn(heartbeat);
+      heartbeat = null;
+    }
+  }
 
   function registerChatRequest(turnId, controller) {
     if (!turnId) return;
@@ -107,10 +143,12 @@ export function createChatCompletionService({
       return result;
     })();
     activeChatCompletionJobs.add(completionJob);
+    syncHeartbeat();
     try {
       return await completionJob;
     } finally {
       activeChatCompletionJobs.delete(completionJob);
+      syncHeartbeat();
     }
   }
 
