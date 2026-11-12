@@ -70,13 +70,13 @@ describe('articleHtml helpers', () => {
       expect(out).toContain('keep');
     });
 
-    it('preserves structural markup and inline style attributes', () => {
+    it('preserves structural markup and drops inline style attributes', () => {
       const out = sanitizeArticleHtml(
         '<h2>Title</h2><p style="font-weight:bold">Body</p><ul><li>item</li></ul>',
       );
 
       expect(out).toContain('<h2>Title</h2>');
-      expect(out).toContain('style="font-weight:bold"');
+      expect(out).not.toContain('style=');
       expect(out).toContain('<li>item</li>');
     });
 

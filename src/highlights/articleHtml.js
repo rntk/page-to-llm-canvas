@@ -1,7 +1,8 @@
 /**
  * Remove executable markup from stored article HTML before rendering it in the
- * extension page. Images and inline styles remain, so opening a record may
- * request images from the source page.
+ * extension page. Images remain, so opening a record may request images
+ * from the source page. Inline `style` attributes are dropped: the extension CSP
+ * blocks them.
  *
  * Resolve relative URLs against the source page instead of the extension origin.
  * @param {string} html Stored article HTML.
@@ -24,7 +25,7 @@ export function sanitizeArticleHtml(html, baseUrl) {
     doc.querySelectorAll('*').forEach((el) => {
       for (const attr of Array.from(el.attributes)) {
         const name = attr.name.toLowerCase();
-        if (name.startsWith('on')) {
+        if (name.startsWith('on') || name === 'style') {
           el.removeAttribute(attr.name);
         } else if (
           (name === 'href' || name === 'src' || name === 'xlink:href' || name === 'formaction') &&

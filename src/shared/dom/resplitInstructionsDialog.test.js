@@ -73,6 +73,15 @@ describe('resplit instructions dialog', () => {
     await pending;
   });
 
+  it('applies styles without an inline <style> element, which the extension CSP blocks', async () => {
+    const pending = showResplitInstructionsDialog({ topic, hasSubtopics: false });
+    const root = dialogRoot();
+    expect(root.querySelector('style')).toBeNull();
+    expect(root.adoptedStyleSheets).toHaveLength(1);
+    completeResplitDialog({ cancel: true });
+    await pending;
+  });
+
   it('collects both fields, shows the target and replacement notice, and restores focus', async () => {
     const trigger = document.createElement('button');
     document.body.append(trigger);

@@ -96,6 +96,30 @@ const STYLES = `
   :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 `;
 
+/**
+ * Apply the dialog styles to its shadow root.
+ *
+ * A constructed stylesheet is CSSOM, so it is allowed under the extension-page
+ * CSP (`style-src 'self'`) that blocks an inline `<style>`. Fall back to a
+ * `<style>` element where constructable stylesheets are unavailable.
+ * @param {ShadowRoot} shadow Shadow root hosting the dialog.
+ */
+function applyDialogStyles(shadow) {
+  if (typeof CSSStyleSheet === 'function' && 'adoptedStyleSheets' in shadow) {
+    try {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(STYLES);
+      shadow.adoptedStyleSheets = [sheet];
+      return;
+    } catch (_) {
+      // Fall through to the <style> element.
+    }
+  }
+  const style = document.createElement('style');
+  style.textContent = STYLES;
+  shadow.append(style);
+}
+
 /** Collect optional guidance before resplitting in any topic view.
  * The isolated dialog also works on pages with their own styles and shortcuts.
  * Cancelling discards its inputs. Submitted guidance is kept on the record only
@@ -126,7 +150,6 @@ export function showResplitInstructionsDialog({ topic, hasSubtopics }) {
     const shadow = host.attachShadow({ mode: 'closed' });
     // Only static markup goes through innerHTML. Topic names are assigned as text below.
     shadow.innerHTML = `
-      <style>${STYLES}</style>
       <dialog aria-labelledby="resplit-title" aria-describedby="resplit-target resplit-description">
         <form>
           <header>
@@ -150,6 +173,7 @@ export function showResplitInstructionsDialog({ topic, hasSubtopics }) {
         </form>
       </dialog>
     `;
+    applyDialogStyles(shadow);
     const dialog = shadow.querySelector('dialog');
     shadow.querySelector('#resplit-target').textContent =
       `${topic.path} · Sentences ${topic.startSentence}–${topic.endSentence}`;
