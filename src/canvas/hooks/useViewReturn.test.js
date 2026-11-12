@@ -140,6 +140,28 @@ describe('useViewReturn', () => {
     expect(ctx.props.setShowSummaryMode).toHaveBeenCalledWith(true);
   });
 
+  it('does not return on modified or already handled Backspace', () => {
+    const ctx = setup();
+    act(() => ctx.result.current.captureReturnPoint());
+    for (const options of [
+      { altKey: true },
+      { ctrlKey: true },
+      { metaKey: true },
+      { shiftKey: true },
+      { handled: true },
+    ]) {
+      const event = new KeyboardEvent('keydown', {
+        key: 'Backspace',
+        cancelable: true,
+        ...options,
+      });
+      if (options.handled) event.preventDefault();
+      act(() => window.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(!!options.handled);
+    }
+    expect(ctx.props.viewport.setTransformNow).not.toHaveBeenCalled();
+  });
+
   it('returns on Backspace, but not while typing', () => {
     const ctx = setup();
     act(() => ctx.result.current.captureReturnPoint());

@@ -26,6 +26,7 @@ export default function ChatComposer({
   const handleKeyDown = useCallback(
     (event) => {
       if (event.key === 'Enter' && !event.shiftKey) {
+        if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
         event.preventDefault();
         onSend();
       }

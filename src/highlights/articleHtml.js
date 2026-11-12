@@ -17,6 +17,8 @@ export function sanitizeArticleHtml(html, baseUrl) {
       .forEach((el) => el.remove());
     // Validate attributes after promoting lazy image sources.
     resolveArticleUrls(doc, baseUrl);
+    // Do not send the extension page URL to article image servers.
+    doc.querySelectorAll('img').forEach((el) => el.setAttribute('referrerpolicy', 'no-referrer'));
     // Preserve form contents; the extension CSP blocks submission.
     doc.querySelectorAll('form').forEach((el) => el.replaceWith(...el.childNodes));
     doc.querySelectorAll('*').forEach((el) => {

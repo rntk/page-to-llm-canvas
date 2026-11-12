@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { scrollBehavior } from '../utils/scrollBehavior.js';
 
 /**
  * Scrolling transcript of visible chat messages plus the loading row.
@@ -18,7 +19,7 @@ function ChatMessageList({
   const endRef = useRef(null);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView?.({ behavior: 'smooth' });
+    endRef.current?.scrollIntoView?.({ behavior: scrollBehavior() });
   }, [messages, isLoading]);
 
   return (

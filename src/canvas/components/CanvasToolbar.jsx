@@ -46,6 +46,7 @@ function CanvasNavigationPad({ onNavigate, hasReturnPoint, onReturnToView }) {
             className="canvas-zoom-btn"
             onClick={() => onNavigate(pos)}
             title={title}
+            aria-label={title}
           >
             {glyph}
           </button>
@@ -67,13 +68,31 @@ function CanvasNavigationPad({ onNavigate, hasReturnPoint, onReturnToView }) {
 function CanvasZoomButtons({ onZoomIn, onZoomOut, onReset }) {
   return (
     <>
-      <button type="button" className="canvas-zoom-btn" onClick={onZoomIn} title="Zoom in">
+      <button
+        type="button"
+        className="canvas-zoom-btn"
+        onClick={onZoomIn}
+        title="Zoom in"
+        aria-label="Zoom in"
+      >
         +
       </button>
-      <button type="button" className="canvas-zoom-btn" onClick={onZoomOut} title="Zoom out">
+      <button
+        type="button"
+        className="canvas-zoom-btn"
+        onClick={onZoomOut}
+        title="Zoom out"
+        aria-label="Zoom out"
+      >
         −
       </button>
-      <button type="button" className="canvas-zoom-btn" onClick={onReset} title="Reset zoom">
+      <button
+        type="button"
+        className="canvas-zoom-btn"
+        onClick={onReset}
+        title="Reset zoom"
+        aria-label="Reset zoom"
+      >
         ⊙
       </button>
     </>
@@ -105,6 +124,7 @@ function CanvasViewControls({
         className={`canvas-chat-toggle${showChat ? ' is-active' : ''}`}
         onClick={onToggleChat}
         title={showChat ? 'Hide article chat' : 'Chat with the article'}
+        aria-label={showChat ? 'Hide article chat' : 'Chat with the article'}
         aria-pressed={showChat}
       >
         C
@@ -115,6 +135,8 @@ function CanvasViewControls({
           className={`canvas-view-toggle${showSummaryMode ? ' is-active' : ''}`}
           onClick={onToggleSummaryMode}
           title={showSummaryMode ? 'Show article text' : 'Show summary view (per topic level)'}
+          aria-label={showSummaryMode ? 'Show article text' : 'Show summary view'}
+          aria-pressed={showSummaryMode}
         >
           S
         </button>
@@ -158,6 +180,8 @@ function CanvasLevelControl({
         className={`canvas-view-toggle${showTopicHierarchy ? ' is-active' : ''}`}
         onClick={onToggleTopicHierarchy}
         title={showTopicHierarchy ? 'Hide topic hierarchy' : 'Show topic hierarchy'}
+        aria-label={showTopicHierarchy ? 'Hide topic hierarchy' : 'Show topic hierarchy'}
+        aria-pressed={showTopicHierarchy}
       >
         H
       </button>
@@ -222,6 +246,7 @@ function CanvasToolbar({
           className="canvas-zoom-btn"
           onClick={() => setIsFolded((v) => !v)}
           title={isFolded ? 'Expand controls' : 'Collapse controls'}
+          aria-label={isFolded ? 'Expand controls' : 'Collapse controls'}
         >
           {isFolded ? '⊞' : '⊟'}
         </button>
@@ -230,6 +255,7 @@ function CanvasToolbar({
           className="canvas-zoom-btn"
           onClick={() => setIsHorizontal((v) => !v)}
           title={isHorizontal ? 'Switch to vertical' : 'Switch to horizontal'}
+          aria-label={isHorizontal ? 'Switch to vertical' : 'Switch to horizontal'}
         >
           {isHorizontal ? '⬍' : '⬌'}
         </button>

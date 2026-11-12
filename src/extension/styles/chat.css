@@ -275,7 +275,7 @@
 .pagetollm-chat-message,
 .pagetollm-chat-event {
   content-visibility: auto;
-  contain-intrinsic-size: 0 80px;
+  contain-intrinsic-block-size: auto 80px;
 }
 
 .pagetollm-chat-message.is-user {

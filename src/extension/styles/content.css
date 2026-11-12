@@ -20,6 +20,8 @@
   --surface-low: light-dark(#f2f3f5, #141519);
   --surface-highest: light-dark(#e4e7eb, #24272e);
   --on-surface: light-dark(#141414, #ececec);
+  --danger: light-dark(#b42318, #ff8a80);
+  --scrollbar-thumb: light-dark(#767676, #9298a2);
   --on-surface-muted: light-dark(#5f646b, #a0a6af);
   --ghost: light-dark(rgb(0 0 0 / 20%), rgb(255 255 255 / 22%));
   --surface-frost: light-dark(rgb(255 255 255 / 82%), rgb(27 29 34 / 82%));
@@ -66,6 +68,12 @@
   width: calc(100vw - 24px);
   max-width: 520px;
   animation: pagetollm-slideDown 0.2s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #pagetollm-selection-toolbar {
+    animation: none;
+  }
 }
 
 @keyframes pagetollm-slideDown {

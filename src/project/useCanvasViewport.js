@@ -1,3 +1,4 @@
+import { isCanvasShortcutEvent } from '../utils/isCanvasShortcutEvent.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isTypingTarget } from '../utils/isTypingTarget.js';
 import { ARROW_PAN, pagePanStep } from '../utils/canvasMath.js';
@@ -77,7 +78,12 @@ export function useCanvasViewport({ active }) {
   useEffect(() => {
     if (!active) return undefined;
     const handleKeyDown = (event) => {
-      if (isTypingTarget(event.target) || insideSelector(event.target, CHAT_SELECTOR)) return;
+      if (
+        !isCanvasShortcutEvent(event) ||
+        isTypingTarget(event.target) ||
+        insideSelector(event.target, CHAT_SELECTOR)
+      )
+        return;
       const pan = ARROW_PAN[event.key];
       if (!pan && !NAV_KEYS.includes(event.key)) return;
       event.preventDefault();

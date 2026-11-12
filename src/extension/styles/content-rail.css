@@ -857,15 +857,13 @@
   color: var(--on-surface);
   white-space: pre-wrap;
   scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb, light-dark(#767676, #9298a2)) var(--surface);
 }
 
-.pagetollm-summary-active-card-body::-webkit-scrollbar {
-  width: 8px;
-}
-
-.pagetollm-summary-active-card-body::-webkit-scrollbar-thumb {
-  background: var(--ghost);
-  border-radius: 0;
+@media (prefers-contrast: more) {
+  .pagetollm-summary-active-card-body {
+    scrollbar-color: var(--ink) var(--surface);
+  }
 }
 
 /* Level Switcher in Rail Header */
@@ -1164,6 +1162,10 @@
   .pagetollm-yt-rail-card-wrap.is-active.is-enter-down,
   .pagetollm-yt-rail-card-wrap.is-active.is-enter-up {
     animation: none;
+  }
+
+  .pagetollm-yt-rail-body {
+    scroll-behavior: auto;
   }
 
   .pagetollm-note-brace-line,

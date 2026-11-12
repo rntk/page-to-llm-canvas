@@ -13,9 +13,11 @@ import './project-actions.css';
 
 function ErrorState({ title, message, pageHost }) {
   return (
-    <main className="project-state" role="alert">
-      <h1>{title}</h1>
-      <p className="note">{message}</p>
+    <main className="project-state">
+      <div role="alert">
+        <h1>{title}</h1>
+        <p className="note">{message}</p>
+      </div>
       {pageHost && (
         <button type="button" onClick={() => pageHost.openOptions()}>
           Open options

@@ -1,3 +1,4 @@
+import { isCanvasShortcutEvent } from '../../utils/isCanvasShortcutEvent.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { isTypingTarget } from '../../utils/isTypingTarget.js';
@@ -96,7 +97,7 @@ export function useViewReturn({
   // topic selection and unlocks a summary preview), and the arrows pan.
   useEffect(() => {
     const onKeyDown = (event) => {
-      if (event.key !== 'Backspace') return;
+      if (event.key !== 'Backspace' || !isCanvasShortcutEvent(event)) return;
       if (isTypingTarget(event.target)) return;
       if (!snapshotRef.current) return;
       event.preventDefault();

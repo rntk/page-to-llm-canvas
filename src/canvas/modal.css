@@ -15,6 +15,7 @@
   --surface-low: light-dark(#f2f3f5, #141519); /* paper stock: insets, canvas */
   --surface-highest: light-dark(#e4e7eb, #24272e); /* weight: nav / footer */
   --on-surface: light-dark(#141414, #ececec);
+  --danger: light-dark(#b42318, #ff8a80);
   --on-surface-muted: light-dark(#5f646b, #a0a6af);
   --ghost: light-dark(rgb(0 0 0 / 20%), rgb(255 255 255 / 22%)); /* outline-variant */
   --surface-frost: light-dark(
@@ -1230,7 +1231,7 @@ body.canvas-global-dragging * {
   flex: 0 0 auto;
   padding: 0.3em 0.4em;
   background: transparent;
-  color: #9c3a33;
+  color: var(--danger);
   font-family: var(--font-data);
   font-size: 12.1px;
   font-weight: 700;

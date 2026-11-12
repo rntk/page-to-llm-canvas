@@ -1,3 +1,4 @@
+import { isCanvasShortcutEvent } from '../utils/isCanvasShortcutEvent.js';
 import { useCallback, useEffect, useRef } from 'react';
 import {
   ARROW_PAN,
@@ -136,11 +137,7 @@ export function useTreeViewport() {
 
     const onKeyDown = (event) => {
       if (
-        event.defaultPrevented ||
-        event.altKey ||
-        event.ctrlKey ||
-        event.metaKey ||
-        event.shiftKey ||
+        !isCanvasShortcutEvent(event) ||
         isTypingTarget(event.target) ||
         event.target?.closest?.('.tt-card')
       )

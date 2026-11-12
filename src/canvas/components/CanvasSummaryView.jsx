@@ -111,7 +111,7 @@ const SummaryCard = React.memo(function SummaryCard({
         <div className="canvas-summary-view__summary-tooltip-wrap">
           {card.text && <p className="canvas-summary-view__card-text">{card.text}</p>}
           {(canShowSourceSentences || cardYouTubeLink) && (
-            <div className="canvas-summary-view__summary-tooltip" role="tooltip">
+            <div className="canvas-summary-view__summary-tooltip">
               {canShowSourceSentences && (
                 <button
                   type="button"

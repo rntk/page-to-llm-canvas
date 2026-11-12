@@ -155,7 +155,7 @@
 
 .th-node__actions-menu [role='alert'] {
   margin: 4px 8px;
-  color: var(--th-error-fg, #dc2626);
+  color: var(--th-error-fg, var(--danger, light-dark(#b42318, #ff8a80)));
   font-size: 12px;
 }
 
@@ -577,4 +577,11 @@
 
 .th-chat-evidence blockquote {
   margin: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .th-summary-modal-overlay,
+  .th-summary-modal {
+    animation: none;
+  }
 }

@@ -11,6 +11,7 @@
  * about load generations.
  */
 
+import { scrollBehavior } from '../../../utils/scrollBehavior.js';
 import {
   HIGHLIGHT_NAME,
   CHAT_HIGHLIGHT_NAME,
@@ -101,10 +102,13 @@ export function createPageHighlighter({
     if (scrollContainer && scrollContainer !== contentWindow) {
       const cRect = scrollContainer.getBoundingClientRect();
       const delta = rect.top - cRect.top - scrollContainer.clientHeight / 2;
-      scrollContainer.scrollTo({ top: scrollContainer.scrollTop + delta, behavior: 'smooth' });
+      scrollContainer.scrollTo({
+        top: scrollContainer.scrollTop + delta,
+        behavior: scrollBehavior(contentWindow),
+      });
     } else {
       const targetY = rect.top + contentWindow.scrollY - contentWindow.innerHeight / 2;
-      contentWindow.scrollTo({ top: targetY, behavior: 'smooth' });
+      contentWindow.scrollTo({ top: targetY, behavior: scrollBehavior(contentWindow) });
     }
   }
 

@@ -267,6 +267,13 @@
   .tt-canvas .tt-link {
     transition: none;
   }
+
+  /* TopicsTreeCanvas never renders ghosts under reduced motion; this keeps
+     the --tt-motion keyframes inert even if that gate is bypassed. */
+  .tt-leaving,
+  .tt-link.is-leaving {
+    animation: none;
+  }
 }
 
 .tt-hint {

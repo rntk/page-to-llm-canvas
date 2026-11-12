@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { scrollBehavior } from '../../../utils/scrollBehavior.js';
 import ArticleChat from '../../../chat/ArticleChat.jsx';
 import { createToChatAction } from '../../../chat/topicScope.js';
 import { formatTimestampLabel } from '../../../utils/youtubeTimestamp.js';
@@ -160,7 +161,7 @@ export default function YouTubeRail({
       const targetTop = Math.max(0, nextTop);
       // Compare landing against the browser's clamped scroll target.
       beginProgrammaticScroll(clampRailScrollTop(body, targetTop));
-      body.scrollTo({ top: targetTop, behavior: 'smooth' });
+      body.scrollTo({ top: targetTop, behavior: scrollBehavior(body.ownerDocument.defaultView) });
     },
     [beginProgrammaticScroll],
   );

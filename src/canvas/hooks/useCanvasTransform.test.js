@@ -506,6 +506,27 @@ describe('useCanvasTransform', () => {
     expect(result.current.translate.y).toBe(40 + 80);
   });
 
+  it('leaves modified and already handled navigation keys alone', () => {
+    const { result } = renderHook(() => useCanvasTransform());
+    for (const options of [
+      { altKey: true },
+      { ctrlKey: true },
+      { metaKey: true },
+      { shiftKey: true },
+      { handled: true },
+    ]) {
+      const event = new KeyboardEvent('keydown', {
+        key: 'ArrowLeft',
+        cancelable: true,
+        ...options,
+      });
+      if (options.handled) event.preventDefault();
+      act(() => window.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(!!options.handled);
+      expect(result.current.translate).toEqual({ x: 40, y: 40 });
+    }
+  });
+
   it('ignores keyboard events when target is an input', () => {
     const { result } = renderHook(() => useCanvasTransform());
     const input = document.createElement('input');

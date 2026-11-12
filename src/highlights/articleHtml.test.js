@@ -8,6 +8,14 @@ describe('articleHtml helpers', () => {
   });
 
   describe('sanitizeArticleHtml', () => {
+    it('forces no-referrer on article images, including existing policies', () => {
+      const out = sanitizeArticleHtml(
+        '<picture><source srcset="https://example.com/a.png"><img src="https://example.com/a.png" referrerpolicy="unsafe-url"></picture>',
+      );
+      const doc = new DOMParser().parseFromString(out, 'text/html');
+      expect(doc.querySelector('img').getAttribute('referrerpolicy')).toBe('no-referrer');
+    });
+
     it('returns empty string for falsy input', () => {
       expect(sanitizeArticleHtml('')).toBe('');
       expect(sanitizeArticleHtml(null)).toBe('');

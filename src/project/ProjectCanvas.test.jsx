@@ -102,6 +102,27 @@ describe('ProjectCanvas', () => {
     expect(layer().style.transform).toBe('translate(40px, -80px) scale(1)');
   });
 
+  it('leaves modified and already handled navigation keys alone', async () => {
+    const initial = layer().style.transform;
+    for (const options of [
+      { altKey: true },
+      { ctrlKey: true },
+      { metaKey: true },
+      { shiftKey: true },
+      { handled: true },
+    ]) {
+      const event = new KeyboardEvent('keydown', {
+        key: 'ArrowLeft',
+        cancelable: true,
+        ...options,
+      });
+      if (options.handled) event.preventDefault();
+      await act(async () => window.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(!!options.handled);
+      expect(layer().style.transform).toBe(initial);
+    }
+  });
+
   it('moves Home and End using card bounds even without styling classes', async () => {
     Object.defineProperty(surface(), 'clientHeight', { configurable: true, value: 200 });
     surface().getBoundingClientRect = () => ({ top: 20, left: 0, width: 0, height: 200 });

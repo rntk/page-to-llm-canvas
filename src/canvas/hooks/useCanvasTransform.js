@@ -1,3 +1,4 @@
+import { isCanvasShortcutEvent } from '../../utils/isCanvasShortcutEvent.js';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { clampScale, cursorAnchoredTranslate, wheelZoomFactor } from '../../utils/canvasMath.js';
 import { isTypingTarget } from '../../utils/isTypingTarget.js';
@@ -519,7 +520,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
   // Keyboard navigation: arrows pan, Home/End/PageUp/PageDown navigate.
   useEffect(() => {
     const onKeyDown = (e) => {
-      if (isTypingTarget(e.target)) return;
+      if (!isCanvasShortcutEvent(e) || isTypingTarget(e.target)) return;
       if (e.key === 'Home') {
         e.preventDefault();
         navigateCanvas('top');
