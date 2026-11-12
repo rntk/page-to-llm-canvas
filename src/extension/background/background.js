@@ -463,6 +463,7 @@ installProjectRuntime({
   chromeContextMenus: chrome.contextMenus,
   chromeCommands: chrome.commands,
   logger: log.child('projects'),
+  notifyActionFailure: actionIconController.flashFailure,
 });
 
 // Reconcile records before their dependent chats, then resume in-flight runs on

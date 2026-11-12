@@ -615,6 +615,8 @@ export function createProjectMenus(contextMenus) {
  * @param {object} [deps.chromeContextMenus]
  * @param {object} [deps.chromeCommands]
  * @param {{info: Function, warn: Function}} [deps.logger]
+ * @param {function(): void} [deps.notifyActionFailure] Visible feedback (badge
+ *   flash) when a menu or command action fails or has nothing to act on.
  */
 export function installProjectRuntime({
   projectService,
@@ -625,16 +627,37 @@ export function installProjectRuntime({
   chromeContextMenus,
   chromeCommands,
   logger = console,
+  notifyActionFailure = () => {},
 }) {
+  const notifyFailure = () => {
+    try {
+      notifyActionFailure();
+    } catch (err) {
+      logger.warn?.('action failure feedback failed:', err);
+    }
+  };
+  // Menu and command actions open a tab on success. A null result means there
+  // was nothing to act on (no tab, empty selection), which is also a failure
+  // from the user's point of view.
+  const reportOutcome = (label, run) =>
+    // Invoke synchronously so listeners act immediately; sync throws reject.
+    new Promise((resolve) => {
+      resolve(run());
+    }).then(
+      (result) => {
+        if (result == null) notifyFailure();
+      },
+      (err) => {
+        logger.warn?.(`${label} failed:`, err);
+        notifyFailure();
+      },
+    );
   const scheduleRebind = createCoalescedRunner(() => projectService.sync(), logger);
   const listen = (event, listener) => {
     if (event?.addListener) event.addListener(listener);
   };
-  const openForTab = (tab) => {
-    projectService.openProjectForTab(tab).catch((err) => {
-      logger.warn?.('open group project failed:', err);
-    });
-  };
+  const openForTab = (tab) =>
+    reportOutcome('open group project', () => projectService.openProjectForTab(tab));
   const installMenus = () => {
     if (!chromeContextMenus?.create) return;
     createProjectMenus(chromeContextMenus).catch((err) => {
@@ -654,26 +677,27 @@ export function installProjectRuntime({
   });
 
   listen(chromeContextMenus?.onClicked, (info, tab) => {
-    if (info?.menuItemId === OPEN_GROUP_PROJECT_MENU_ID) openForTab(tab);
+    if (info?.menuItemId === OPEN_GROUP_PROJECT_MENU_ID) void openForTab(tab);
     if (info?.menuItemId === OPEN_EXCERPT_MENU_ID && excerptService) {
-      excerptService
-        .openExcerptFromSelection(tab, {
+      void reportOutcome('open excerpt', () =>
+        excerptService.openExcerptFromSelection(tab, {
           selectionText: info.selectionText,
           frameId: info.frameId,
-        })
-        .catch((err) => logger.warn?.('open excerpt failed:', err));
+        }),
+      );
     }
   });
 
   listen(chromeCommands?.onCommand, (command, tab) => {
     if (command !== OPEN_GROUP_PROJECT_COMMAND) return;
     if (tab) {
-      openForTab(tab);
+      void openForTab(tab);
       return;
     }
-    Promise.resolve(chromeTabs?.query?.({ active: true, currentWindow: true }))
-      .then((found) => openForTab(found?.[0]))
-      .catch((err) => logger.warn?.('open group project failed:', err));
+    void reportOutcome('open group project', async () => {
+      const found = await chromeTabs?.query?.({ active: true, currentWindow: true });
+      return projectService.openProjectForTab(found?.[0]);
+    });
   });
 
   // Ordinary navigations are ignored; only a project page load or a group

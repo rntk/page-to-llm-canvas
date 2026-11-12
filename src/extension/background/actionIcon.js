@@ -13,6 +13,8 @@ const ACTION_ICON_TRACK_COLOR = 'rgba(15, 23, 42, 0.35)';
 const ACTION_ICON_MIN_DETERMINATE_RATIO = 0.08;
 const ACTION_ICON_INDETERMINATE_RATIO = 0.22;
 const ACTION_ICON_REFRESH_DEBOUNCE_MS = 200;
+const ACTION_ICON_FAILURE_COLOR = '#dc2626';
+export const ACTION_ICON_FAILURE_FLASH_MS = 2500;
 
 export function summarizeProcessingState(records) {
   const inFlight = (Array.isArray(records) ? records : []).filter(isInFlightRecord);
@@ -63,6 +65,7 @@ export function createActionIconController({
 }) {
   let updateId = 0;
   let refreshTimer = null;
+  let flashTimer = null;
   const bitmapCache = new Map();
 
   const hasIconApi = () => typeof actionApi?.setIcon === 'function';
@@ -71,7 +74,8 @@ export function createActionIconController({
     typeof actionApi?.setBadgeBackgroundColor === 'function';
 
   function setBadge(state) {
-    if (!hasBadgeApi()) return;
+    // A failure flash owns the badge until it expires and triggers a refresh.
+    if (!hasBadgeApi() || flashTimer !== null) return;
     if (!state.active) {
       actionApi.setBadgeText({ text: '' });
       return;
@@ -159,14 +163,38 @@ export function createActionIconController({
     }, ACTION_ICON_REFRESH_DEBOUNCE_MS);
   }
 
+  /**
+   * Briefly shows a failure badge for user-triggered actions (context menu,
+   * keyboard command) that would otherwise fail silently, then restores the
+   * progress badge.
+   */
+  function flashFailure() {
+    if (!hasBadgeApi()) return;
+    if (flashTimer !== null) scheduler.clearTimeout(flashTimer);
+    flashTimer = null;
+    try {
+      actionApi.setBadgeBackgroundColor({ color: ACTION_ICON_FAILURE_COLOR });
+      actionApi.setBadgeText({ text: '!' });
+    } catch (err) {
+      logger.warn('failure flash failed:', err);
+      return;
+    }
+    flashTimer = scheduler.setTimeout(() => {
+      flashTimer = null;
+      void refresh();
+    }, ACTION_ICON_FAILURE_FLASH_MS);
+  }
+
   function dispose() {
     ++updateId;
     if (refreshTimer !== null) scheduler.clearTimeout(refreshTimer);
     refreshTimer = null;
+    if (flashTimer !== null) scheduler.clearTimeout(flashTimer);
+    flashTimer = null;
     bitmapCache.clear();
   }
 
-  return { refresh, schedule, dispose };
+  return { refresh, schedule, flashFailure, dispose };
 }
 
 /**

@@ -765,6 +765,53 @@ describe('installProjectRuntime', () => {
     );
   });
 
+  it('flashes failure feedback when the menu or command action fails', async () => {
+    const event = () => {
+      const listeners = [];
+      return { listeners, addListener: (fn) => listeners.push(fn) };
+    };
+    const notifyActionFailure = vi.fn();
+    const logger = { warn: vi.fn() };
+    const projectService = {
+      sync: vi.fn(async () => {}),
+      openProjectForTab: vi
+        .fn()
+        .mockResolvedValueOnce({ tabId: 9 })
+        .mockResolvedValueOnce(null)
+        .mockRejectedValueOnce(new Error('boom')),
+    };
+    const chromeContextMenus = { onClicked: event() };
+    const chromeCommands = { onCommand: event() };
+    installProjectRuntime({
+      projectService,
+      chromeContextMenus,
+      chromeCommands,
+      chromeTabs: {
+        query: vi.fn(async () => {
+          throw new Error('no tabs');
+        }),
+      },
+      logger,
+      notifyActionFailure,
+    });
+    const click = () =>
+      chromeContextMenus.onClicked.listeners[0]({ menuItemId: OPEN_GROUP_PROJECT_MENU_ID }, {});
+
+    click();
+    await new Promise((r) => setTimeout(r));
+    expect(notifyActionFailure).not.toHaveBeenCalled();
+
+    click();
+    await vi.waitFor(() => expect(notifyActionFailure).toHaveBeenCalledTimes(1));
+
+    click();
+    await vi.waitFor(() => expect(notifyActionFailure).toHaveBeenCalledTimes(2));
+    expect(logger.warn).toHaveBeenCalledWith('open group project failed:', expect.any(Error));
+
+    chromeCommands.onCommand.listeners[0](OPEN_GROUP_PROJECT_COMMAND);
+    await vi.waitFor(() => expect(notifyActionFailure).toHaveBeenCalledTimes(3));
+  });
+
   it('rebinds only on project page loads and group changes', () => {
     const { chromeTabs, chromeTabGroups, projectService } = install();
     chromeTabs.onUpdated.listeners[0](1, { url: 'https://example.com' });
@@ -815,5 +862,28 @@ describe('project excerpts menu', () => {
       selectionText: 'Hi',
       frameId: 0,
     });
+  });
+
+  it('flashes failure feedback for an empty selection or a failed excerpt', async () => {
+    const onClicked = event();
+    const notifyActionFailure = vi.fn();
+    const excerptService = {
+      openExcerptFromSelection: vi
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockRejectedValueOnce(new Error('this page cannot hold an excerpt')),
+    };
+    installProjectRuntime({
+      projectService: { sync: vi.fn(async () => {}) },
+      excerptService,
+      chromeContextMenus: { onClicked },
+      logger: { warn: vi.fn() },
+      notifyActionFailure,
+    });
+    const click = () => onClicked.listeners[0]({ menuItemId: OPEN_EXCERPT_MENU_ID }, { id: 1 });
+    click();
+    await vi.waitFor(() => expect(notifyActionFailure).toHaveBeenCalledTimes(1));
+    click();
+    await vi.waitFor(() => expect(notifyActionFailure).toHaveBeenCalledTimes(2));
   });
 });

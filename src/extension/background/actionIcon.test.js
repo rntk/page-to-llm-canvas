@@ -224,6 +224,64 @@ describe('action icon progress rendering', () => {
   });
 });
 
+describe('action icon failure flash', () => {
+  function makeController(records) {
+    const chromeMock = makeChromeMock();
+    const timers = [];
+    const scheduler = {
+      setTimeout: vi.fn((fn, ms) => {
+        const timer = { fn, ms, cleared: false };
+        timers.push(timer);
+        return timer;
+      }),
+      clearTimeout: vi.fn((timer) => {
+        if (timer) timer.cleared = true;
+      }),
+    };
+    return import('./actionIcon.js').then(({ ACTION_ICON_PATHS, createActionIconController }) => ({
+      chromeMock,
+      timers,
+      controller: createActionIconController({
+        records: vi.fn(async () => records),
+        actionApi: chromeMock.action,
+        assets: { paths: ACTION_ICON_PATHS, loadBitmap: vi.fn() },
+        canvasFactory: vi.fn(),
+        scheduler,
+        logger: { warn: vi.fn() },
+      }),
+    }));
+  }
+
+  it('shows a failure badge, holds it over refreshes, then restores progress', async () => {
+    const { ACTION_ICON_FAILURE_FLASH_MS } = await import('./actionIcon.js');
+    const { chromeMock, timers, controller } = await makeController([{ status: 'done' }]);
+
+    controller.flashFailure();
+    expect(chromeMock.action.setBadgeBackgroundColor).toHaveBeenCalledWith({ color: '#dc2626' });
+    expect(chromeMock.action.setBadgeText).toHaveBeenLastCalledWith({ text: '!' });
+
+    await controller.refresh();
+    expect(chromeMock.action.setBadgeText).toHaveBeenLastCalledWith({ text: '!' });
+
+    const flash = timers.find((t) => t.ms === ACTION_ICON_FAILURE_FLASH_MS && !t.cleared);
+    flash.fn();
+    await vi.waitFor(() => {
+      expect(chromeMock.action.setBadgeText).toHaveBeenLastCalledWith({ text: '' });
+    });
+    controller.dispose();
+  });
+
+  it('restarts the flash timer on repeated failures and clears it on dispose', async () => {
+    const { timers, controller } = await makeController([]);
+    controller.flashFailure();
+    controller.flashFailure();
+    expect(timers[0].cleared).toBe(true);
+    expect(timers[1].cleared).toBe(false);
+    controller.dispose();
+    expect(timers[1].cleared).toBe(true);
+  });
+});
+
 describe('createActionIconDependencies', () => {
   it('loads extension assets through fetch, blob, and createImageBitmap', async () => {
     const { ACTION_ICON_PATHS, createActionIconDependencies } = await import('./actionIcon.js');
