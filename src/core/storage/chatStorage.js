@@ -16,6 +16,8 @@ import {
   chatDocumentStorageKey,
   isSafeChatId,
   isDetachedChatKey,
+  isProjectChatKey,
+  PROJECT_BLOCK_CHAT_SEGMENT,
   pageChatKey,
   sourceCardOwnerKey,
 } from './keys.js';
@@ -431,19 +433,43 @@ export async function deleteChatHistory(key, chatId) {
 }
 
 /**
+ * The chat keys a deletion of `key` covers. A project key also covers the
+ * project's block chats (`project:<id>:block:<fingerprint>`), which are keyed
+ * under the project but never listed by it. Any other key covers only itself.
+ * @param {string} key Detached chat key.
+ * @returns {Promise<string[]>}
+ */
+async function chatKeysCoveredBy(key) {
+  if (!isProjectChatKey(key) || key.includes(PROJECT_BLOCK_CHAT_SEGMENT)) return [key];
+  const blockPrefix = `${key}${PROJECT_BLOCK_CHAT_SEGMENT}`;
+  const covered = new Set([key]);
+  const allItems = await getLocalByPrefix(CHAT_STORAGE_PREFIX);
+  for (const [storageKey, value] of Object.entries(allItems)) {
+    const chatKey =
+      recordKeyFromChatIndexStorageKey(storageKey) ??
+      recordKeyFromChatDocumentStorageEntry(storageKey, value);
+    if (chatKey?.startsWith(blockPrefix)) covered.add(chatKey);
+  }
+  return [...covered];
+}
+
+/**
  * Deletes every chat held under one detached key (e.g. a removed excerpt).
+ * Deleting a project key also deletes that project's block chats.
  * Record keys are refused: their chats go with the record's own cascade.
- * @param {string} key Page or excerpt chat key.
+ * @param {string} key Page, excerpt or project chat key.
  * @returns {Promise<number>} Number of storage keys removed.
  */
 export async function deleteDetachedChats(key) {
   if (!isDetachedChatKey(key)) return 0;
   return queuedChatUpdate(async () => {
-    const keys = [...new Set(await chatStorageKeysForRecord(key))];
-    // Documents first, then the index, so a failure leaves them discoverable.
-    const documents = keys.filter((storageKey) => storageKey !== chatIndexStorageKey(key));
+    const chatKeys = await chatKeysCoveredBy(key);
+    const keys = [...new Set((await Promise.all(chatKeys.map(chatStorageKeysForRecord))).flat())];
+    // Documents first, then the indexes, so a failure leaves them discoverable.
+    const indexKeys = new Set(chatKeys.map(chatIndexStorageKey));
+    const documents = keys.filter((storageKey) => !indexKeys.has(storageKey));
     if (documents.length) await removeLocal(documents);
-    await removeLocal(chatIndexStorageKey(key));
+    await removeLocal([...indexKeys]);
     return keys.length;
   });
 }

@@ -1,13 +1,18 @@
 // Decode user-supplied records in both UI previews and the authoritative worker
 // import path. Worker-owned run and revision fields are set later. Preserve
 // unknown fields so older exports round-trip through record meta.
-import {
-  isImportableRecord,
-  isInFlightPipelineStatus,
-  PIPELINE_STAGE,
-  PIPELINE_STATUS,
-} from './contracts.js';
+import { isImportableRecord, PIPELINE_STAGE, PIPELINE_STATUS } from './contracts.js';
 import { progressAt } from './recordTransitions.js';
+import { SUMMARY_TREE_STATUS } from './summaryTree.js';
+
+// Statuses an imported record may keep. Anything else (in-flight or unknown)
+// would be shown as in progress forever, since nothing is running for it.
+const IMPORTABLE_TERMINAL_STATUSES = new Set([
+  PIPELINE_STATUS.DONE,
+  PIPELINE_STATUS.ERROR,
+  PIPELINE_STATUS.CANCELLED,
+  PIPELINE_STATUS.NEEDS_ATTENTION,
+]);
 
 /**
  * Accepts either a single record object or an array of them.
@@ -30,11 +35,24 @@ export function extractImportedRecords(payload) {
  */
 export function normalizeImportedRecord(record, { now = Date.now() } = {}) {
   const key = record.key.trim();
-  const status = isInFlightPipelineStatus(record.status)
-    ? PIPELINE_STATUS.DONE
-    : record.status || PIPELINE_STATUS.DONE;
+  const status = IMPORTABLE_TERMINAL_STATUSES.has(record.status)
+    ? record.status
+    : PIPELINE_STATUS.DONE;
+  // No build is running for an imported tree, so a running one must not be
+  // resumable (or auto-recovered).
+  const tree = record.summary_tree;
+  const summaryTree =
+    tree && typeof tree === 'object' && tree.status === SUMMARY_TREE_STATUS.RUNNING
+      ? {
+          ...tree,
+          status: SUMMARY_TREE_STATUS.CANCELLED,
+          backgroundRecovery: false,
+          error: tree.error || 'Stopped.',
+        }
+      : tree;
   return {
     ...record,
+    ...(summaryTree === tree ? {} : { summary_tree: summaryTree }),
     key,
     status,
     error: status === PIPELINE_STATUS.DONE ? null : record.error || null,

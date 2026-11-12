@@ -13,7 +13,11 @@ import { splitTopicPath } from '../../../shared/runtime/topicPath.js';
 import { finalizeSummariesDisabled, runSummaries } from '../../../core/pipeline/summaryStage.js';
 import { reacceptForcedEmptySummaries } from '../../../core/pipeline/summaryRunMarkers.js';
 import { isCancellationError } from '../../../core/pipeline/cancellation.js';
-import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../../shared/runtime/contracts.js';
+import {
+  IN_FLIGHT_PIPELINE_STATUSES,
+  PIPELINE_STAGE,
+  PIPELINE_STATUS,
+} from '../../../shared/runtime/contracts.js';
 import {
   errorTransition,
   resetSummaryReviewPatch,
@@ -430,7 +434,12 @@ export function createPipelineRunner({
       // run-id CAS decide ownership instead of treating it as cancellation.
       await runtime.log('pipeline_error', { error: formattedError }, { allowAborted: true });
       await runtime
-        .update(errorTransition(formattedError), { allowAborted: true })
+        .update(errorTransition(formattedError), {
+          allowAborted: true,
+          // A committed terminal record whose post-commit cleanup threw must
+          // not be relabelled ERROR; a lost CAS surfaces as a cancellation.
+          expectedStatuses: [...IN_FLIGHT_PIPELINE_STATUSES],
+        })
         .catch((writeError) => {
           logger.error('failed to persist error status to storage:', writeError);
         });

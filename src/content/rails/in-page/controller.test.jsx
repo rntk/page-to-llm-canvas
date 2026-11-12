@@ -620,6 +620,68 @@ describe('openInPageRail', () => {
       );
     });
 
+    it('shows an empty-state notice while the article is gone, keeps the rail mounted, and recovers', async () => {
+      let notifyMutations;
+      class TestMutationObserver {
+        constructor(callback) {
+          notifyMutations = callback;
+        }
+        observe = vi.fn();
+        disconnect = vi.fn();
+      }
+      vi.stubGlobal('MutationObserver', TestMutationObserver);
+      const frames = [];
+      vi.stubGlobal('requestAnimationFrame', (callback) => {
+        frames.push(callback);
+        return frames.length;
+      });
+
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'topics');
+      });
+      const article = document.getElementById('article');
+      expect(rail().querySelector('.pagetollm-rail-card')).not.toBeNull();
+      expect(rail().querySelector('.pagetollm-rail-empty')).toBeNull();
+
+      // Real geometry cannot box a sentence whose text left the page.
+      computeCardVerticalBox.mockReturnValue(null);
+      article.remove();
+      act(() =>
+        notifyMutations([{ target: document.body, addedNodes: [], removedNodes: [article] }]),
+      );
+      await act(async () => {
+        frames.shift()();
+      });
+
+      expect(rail()).not.toBeNull();
+      expect(rail().querySelector('.pagetollm-rail-card')).toBeNull();
+      const notice = rail().querySelector('.pagetollm-rail-empty');
+      expect(notice.textContent).toContain("Can't find this text on the page any more");
+      await act(async () => notice.querySelector('button').click());
+      expect(openCanvasIframe).toHaveBeenCalledWith('rail-key');
+
+      computeCardVerticalBox.mockReturnValue({ top: 0, height: 50 });
+      document.body.appendChild(article);
+      act(() =>
+        notifyMutations([{ target: document.body, addedNodes: [article], removedNodes: [] }]),
+      );
+      await act(async () => {
+        frames.shift()();
+      });
+      expect(rail().querySelector('.pagetollm-rail-empty')).toBeNull();
+      expect(rail().querySelector('.pagetollm-rail-card')).not.toBeNull();
+    });
+
+    it('closes the rail and rethrows when the initial render throws', async () => {
+      getRailOriginTop.mockImplementation(() => {
+        throw new Error('measure exploded');
+      });
+      await expect(openInPageRail({ key: 'rail-key' }, 'topics')).rejects.toThrow(
+        'measure exploded',
+      );
+      expect(rail()).toBeNull();
+    });
+
     it('refreshes chat highlight anchors without projecting or rendering rail cards', async () => {
       let notifyMutations;
       class TestMutationObserver {

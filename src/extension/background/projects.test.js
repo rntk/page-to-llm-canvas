@@ -46,7 +46,7 @@ function makeBrowser({ groups = [], tabs = [] } = {}) {
   return { state, api };
 }
 
-function makeService(browser, { stored = [], bindingSession } = {}) {
+function makeService(browser, { stored = [], bindingSession, onRebound } = {}) {
   const data = { projects: stored };
   const projectStore = createProjectStore({
     key: 'projects',
@@ -60,6 +60,7 @@ function makeService(browser, { stored = [], bindingSession } = {}) {
     getURL: (path) => `chrome-extension://ext/${path}`,
     projectStore,
     ...(bindingSession ? { bindingSession } : {}),
+    ...(onRebound ? { onRebound } : {}),
     now: () => 1000,
     createId: () => `p${++ids}`,
     logger: { info: vi.fn(), warn: vi.fn() },
@@ -195,6 +196,21 @@ describe('openProjectForGroup', () => {
 });
 
 describe('rebinding through the service', () => {
+  it('notifies onRebound only when a sync changed bindings', async () => {
+    const browser = makeBrowser({
+      groups: [group(3, 'Other'), group(55, 'Renamed')],
+      tabs: [tab(9, 55, 0, { url: `${BASE}?id=a` })],
+    });
+    const onRebound = vi.fn();
+    const { service } = makeService(browser, { stored: [stored('a', 3)], onRebound });
+
+    await service.handleStartup();
+    await vi.waitFor(() => expect(onRebound).toHaveBeenCalledTimes(1));
+    await service.sync();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onRebound).toHaveBeenCalledTimes(1);
+  });
+
   it('rebinds after browser startup via the project tab', async () => {
     const browser = makeBrowser({
       groups: [group(3, 'Other'), group(55, 'Renamed')],
@@ -409,6 +425,42 @@ describe('rebinding through the service', () => {
     const { service, data } = makeService(makeBrowser(), { stored: [stored('a', 3)] });
     await service.handleGroupRemoved(3);
     expect(data.projects[0].groupId).toBeNull();
+  });
+});
+
+describe('concurrent opens', () => {
+  it('creates a single project tab for two quick opens of one group', async () => {
+    const browser = makeBrowser({ groups: [group(7)], tabs: [tab(1, 7, 0)] });
+    const { service, data } = makeService(browser);
+    const [first, second] = await Promise.all([
+      service.openProjectForGroup(7),
+      service.openProjectForGroup(7),
+    ]);
+    expect(browser.api.tabs.create).toHaveBeenCalledTimes(1);
+    expect(data.projects).toHaveLength(1);
+    expect(first.createdTab).toBe(true);
+    expect(second).toMatchObject({ createdTab: false, tabId: first.tabId });
+  });
+
+  it('serializes openProject and attachProjectToGroup with the same group open', async () => {
+    const browser = makeBrowser({ groups: [group(7)], tabs: [tab(1, 7, 0)] });
+    const { service } = makeService(browser, { stored: [stored('a', null)] });
+    await Promise.all([
+      service.attachProjectToGroup('a', 7),
+      service.openProject('a'),
+      service.openProject('a'),
+    ]);
+    expect(browser.api.tabs.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps serving opens after one fails', async () => {
+    const browser = makeBrowser({ groups: [group(7)], tabs: [tab(1, 7, 0)] });
+    const { service } = makeService(browser);
+    const results = await Promise.allSettled([
+      service.openProjectForGroup(99),
+      service.openProjectForGroup(7),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(['rejected', 'fulfilled']);
   });
 });
 

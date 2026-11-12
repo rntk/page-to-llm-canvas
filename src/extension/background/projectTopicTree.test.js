@@ -134,6 +134,31 @@ describe('project topic tree service', () => {
     }
   });
 
+  it('resumes an interrupted merge once tabs are rebound after a restart', async () => {
+    const { service, projectStore, records, tabs, runProjectTopicTree } = fixture();
+    await projectStore.update((projects) =>
+      projects.map((project) => ({
+        ...project,
+        topic_tree: {
+          version: 1,
+          status: 'running',
+          backgroundRecovery: true,
+          contentRevision: projectTopicSourceRevision([records[0]]),
+          updatedAt: 1,
+        },
+      })),
+    );
+    // At cold start the project is unbound, so no tab sources are visible.
+    const liveTabs = tabs.splice(0);
+    await service.resumeInFlight();
+    expect(runProjectTopicTree).not.toHaveBeenCalled();
+    // The rebind hook fires resumeInFlight again, now that sources are visible.
+    tabs.push(...liveTabs);
+    await service.resumeInFlight();
+    await waitDone(projectStore);
+    expect(runProjectTopicTree).toHaveBeenCalledTimes(1);
+  });
+
   it('persists Stop for an orphaned running merge and never recovers it', async () => {
     const { service, projectStore, records, runProjectTopicTree } = fixture();
     await projectStore.update((projects) =>

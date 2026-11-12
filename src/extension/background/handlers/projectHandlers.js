@@ -61,9 +61,11 @@ export function createProjectHandlers({
     [MSG.focusProjectGroup]: entry(validateProjectId, (msg) =>
       projectService.focusGroup(msg.projectId),
     ),
-    [MSG.deleteProject]: entry(validateProjectId, (msg) =>
-      (excerptService || projectService).deleteProject(msg.projectId),
-    ),
+    [MSG.deleteProject]: entry(validateProjectId, async (msg) => {
+      // A running merge would keep spending provider calls for a deleted project.
+      await topicTreeService?.stop(msg.projectId);
+      return (excerptService || projectService).deleteProject(msg.projectId);
+    }),
     // The view carries the project's excerpts and the excerpt the page should
     // unfold (one just opened from a page's context menu). Reading it has no
     // side effects; the page acknowledges the focus once it has handled it.

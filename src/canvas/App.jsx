@@ -46,7 +46,9 @@ export default function App({ initialKey, recordSource, onClose = noop }) {
   const closeSentRef = useRef(false);
   // Close the canvas while the record is processing.
   const isReady = record?.status === PIPELINE_STATUS.DONE;
-  const isUnusable = isDeleted || Boolean(error) || (record !== null && !isReady);
+  // A failed refresh keeps the last good record, so only a failed first load is fatal.
+  const isUnusable =
+    isDeleted || (record === null && Boolean(error)) || (record !== null && !isReady);
 
   useEffect(() => {
     if (!isUnusable) {

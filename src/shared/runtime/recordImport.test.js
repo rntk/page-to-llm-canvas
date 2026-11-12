@@ -67,4 +67,30 @@ describe('normalizeImportedRecord', () => {
     expect(record).not.toHaveProperty('pipelineRunId');
     expect(record).not.toHaveProperty('contentRevision');
   });
+
+  it('maps unknown statuses to done and keeps every terminal status', () => {
+    const status = (value) =>
+      normalizeImportedRecord({ key: 'r', html: '<p>x</p>', status: value }, { now: 1 }).status;
+    expect(status('bogus')).toBe('done');
+    expect(status('summarizing')).toBe('done');
+    expect(status(undefined)).toBe('done');
+    for (const terminal of ['done', 'error', 'cancelled', 'needs_attention']) {
+      expect(status(terminal)).toBe(terminal);
+    }
+  });
+
+  it('converts a running summary tree to cancelled so import cannot resume it', () => {
+    const tree = { version: 1, status: 'running', backgroundRecovery: true, nodes: {} };
+    const record = normalizeImportedRecord(
+      { key: 'r', html: '<p>x</p>', summary_tree: tree },
+      { now: 1 },
+    );
+    expect(record.summary_tree).toMatchObject({ status: 'cancelled', backgroundRecovery: false });
+    expect(tree.status).toBe('running');
+    const done = { version: 1, status: 'done' };
+    expect(
+      normalizeImportedRecord({ key: 'r', html: '<p>x</p>', summary_tree: done }, { now: 1 })
+        .summary_tree,
+    ).toBe(done);
+  });
 });

@@ -195,8 +195,23 @@ export const PROVIDERS_KEY = 'pagetollm:llm:providers';
  * @returns {Promise<ProvidersState>}
  */
 export async function getProvidersState() {
+  return (await readProvidersDocument()).state;
+}
+
+/**
+ * Reads the stored document. `state` is the normalized view the public getters
+ * expose; `unrecognized` holds well-formed entries of a type this build does
+ * not know (for example from a newer version) so mutators can write them back
+ * untouched instead of destroying them and their tokens.
+ * @returns {Promise<{state: ProvidersState, unrecognized: object[]}>}
+ */
+async function readProvidersDocument() {
   const items = await getLocal(PROVIDERS_KEY);
   const raw = items[PROVIDERS_KEY];
+  const stored = Array.isArray(raw?.providers) ? raw.providers : [];
+  const unrecognized = stored.filter(
+    (entry) => !isValidStored(entry) && entry && typeof entry.id === 'string',
+  );
   const providers = Array.isArray(raw?.providers) ? raw.providers.filter(isValidStored) : [];
   let activeId = typeof raw?.activeId === 'string' ? raw.activeId : null;
   const activeProvider = providers.find((p) => p.id === activeId);
@@ -206,7 +221,7 @@ export async function getProvidersState() {
     activeId = providers.find(isCompletionProvider)?.id ?? null;
   }
   const splitterId = typeof raw?.splitterId === 'string' ? raw.splitterId : null;
-  return { providers, activeId, splitterId };
+  return { state: { providers, activeId, splitterId }, unrecognized };
 }
 
 /**
@@ -239,8 +254,15 @@ function isValidStored(entry) {
   );
 }
 
-async function writeProvidersState(state) {
-  await setLocal({ [PROVIDERS_KEY]: state });
+/**
+ * Persists the normalized state plus the unrecognized entries read with it.
+ * @param {ProvidersState} state
+ * @param {Awaited<ReturnType<typeof readProvidersDocument>>} document
+ */
+async function writeProvidersState(state, document) {
+  await setLocal({
+    [PROVIDERS_KEY]: { ...state, providers: [...state.providers, ...document.unrecognized] },
+  });
 }
 
 /** @returns {Promise<ProviderEntry[]>} */
@@ -333,7 +355,8 @@ function generateId() {
 export async function saveProvider(input) {
   const entry = normalizeProvider(input);
   return queuedUpdate(PROVIDERS_KEY, async () => {
-    const state = await getProvidersState();
+    const document = await readProvidersDocument();
+    const { state } = document;
     const existingIndex = state.providers.findIndex((p) => p.id === entry.id);
     const isNew = existingIndex === -1;
     if (isNew) {
@@ -348,6 +371,8 @@ export async function saveProvider(input) {
       }
       state.providers[existingIndex] = entry;
     }
+    // An entry saved as a non-decision type can no longer be the splitter.
+    if (state.splitterId === entry.id && !isDecisionProvider(entry)) state.splitterId = null;
     const completionProviders = state.providers.filter(isCompletionProvider);
     if (!completionProviders.some((p) => p.id === state.activeId)) {
       // Only auto-activate the very first completion provider. Otherwise leave
@@ -357,7 +382,7 @@ export async function saveProvider(input) {
           ? entry.id
           : null;
     }
-    await writeProvidersState(state);
+    await writeProvidersState(state, document);
     return entry;
   });
 }
@@ -370,11 +395,12 @@ export async function saveProvider(input) {
  */
 export async function deleteProvider(id) {
   return queuedUpdate(PROVIDERS_KEY, async () => {
-    const state = await getProvidersState();
+    const document = await readProvidersDocument();
+    const { state } = document;
     state.providers = state.providers.filter((p) => p.id !== id);
     if (state.activeId === id) state.activeId = null;
     if (state.splitterId === id) state.splitterId = null;
-    await writeProvidersState(state);
+    await writeProvidersState(state, document);
     return state;
   });
 }
@@ -385,7 +411,8 @@ export async function deleteProvider(id) {
  */
 export async function setActiveProvider(id) {
   return queuedUpdate(PROVIDERS_KEY, async () => {
-    const state = await getProvidersState();
+    const document = await readProvidersDocument();
+    const { state } = document;
     const provider = state.providers.find((p) => p.id === id);
     if (!provider) {
       throw new Error(`Unknown provider id: ${id}`);
@@ -394,7 +421,7 @@ export async function setActiveProvider(id) {
       throw new Error('Decision providers cannot be active completion providers');
     }
     state.activeId = id;
-    await writeProvidersState(state);
+    await writeProvidersState(state, document);
     return state;
   });
 }
@@ -417,7 +444,8 @@ export async function getActiveProvider() {
  */
 export async function setTopicSplitter(id) {
   return queuedUpdate(PROVIDERS_KEY, async () => {
-    const state = await getProvidersState();
+    const document = await readProvidersDocument();
+    const { state } = document;
     if (id != null) {
       const provider = state.providers.find((p) => p.id === id);
       if (!provider) {
@@ -428,7 +456,7 @@ export async function setTopicSplitter(id) {
       }
     }
     state.splitterId = id ?? null;
-    await writeProvidersState(state);
+    await writeProvidersState(state, document);
     return state;
   });
 }

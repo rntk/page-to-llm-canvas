@@ -274,6 +274,42 @@ describe('provider storage', () => {
     expect(await mod.getDecisionProvider()).toBeNull();
   });
 
+  it('keeps an entry of an unrecognized type, token included, when saving another provider', async () => {
+    const future = { id: 'future', type: 'future_type', name: 'F', token: 'secret-token' };
+    const store = installFakeStorage({
+      [PROVIDERS_KEY]: { providers: [future], activeId: null, splitterId: null },
+    });
+    const mod = await freshProviders();
+
+    const saved = await mod.saveProvider({ type: 'openai', name: 'A', model: 'gpt-4o' });
+
+    expect((await mod.getProvidersState()).providers.map((p) => p.id)).toEqual([saved.id]);
+    expect(store[PROVIDERS_KEY].providers).toContainEqual(future);
+    expect(store[PROVIDERS_KEY].providers).toHaveLength(2);
+
+    await mod.setActiveProvider(saved.id);
+    await mod.deleteProvider('nothing');
+    expect(store[PROVIDERS_KEY].providers).toContainEqual(future);
+  });
+
+  it('clears the splitter when its provider is re-saved as a non-decision type', async () => {
+    const store = installFakeStorage({
+      [PROVIDERS_KEY]: {
+        providers: [
+          { id: 'split', type: 'llama_decision', name: 'S', url: 'http://localhost:8080' },
+        ],
+        activeId: null,
+        splitterId: 'split',
+      },
+    });
+    const mod = await freshProviders();
+
+    await mod.saveProvider({ id: 'split', type: 'openai', name: 'S', model: 'gpt-4o' });
+
+    expect(store[PROVIDERS_KEY].splitterId).toBeNull();
+    expect(await mod.getDecisionProvider()).toBeNull();
+  });
+
   it('does not activate a decision provider and activates the first completion provider', async () => {
     const mod = await freshProviders();
     const decision = await mod.saveProvider({

@@ -38,6 +38,11 @@ export function createYouTubeRailController({
     return videoElement;
   };
 
+  // While an ad plays the main <video> carries the ad stream, so its clock and
+  // seek position do not belong to the transcript.
+  const isAdPlaying = () =>
+    Boolean(contentDocument.querySelector('.html5-video-player.ad-showing, .ad-interrupting'));
+
   async function openYouTubeRail(rec, initialMode = 'topics', options = {}) {
     const { guard, assessment } = await recordLoader.load(rec.key);
     if (!assessment) return false;
@@ -75,6 +80,7 @@ export function createYouTubeRailController({
     ];
 
     const getCurrentTime = () => {
+      if (isAdPlaying()) return null;
       const video = getYouTubeVideoElement();
       if (!video) return null;
       const time = video.currentTime;
@@ -85,6 +91,13 @@ export function createYouTubeRailController({
       const video = getYouTubeVideoElement();
       if (!Number.isFinite(seconds)) {
         return { ok: false, message: 'This evidence has no usable video timestamp.' };
+      }
+      if (isAdPlaying()) {
+        return {
+          ok: false,
+          tone: 'warning',
+          message: 'An ad is playing. Wait for it to finish, then try again.',
+        };
       }
       if (!video) {
         return {
@@ -184,7 +197,13 @@ export function createYouTubeRailController({
       );
     }
 
-    renderRail();
+    try {
+      renderRail();
+    } catch (err) {
+      // Never leave a blank rail without a close button.
+      closeRail();
+      throw err;
+    }
 
     if (options && options.sentenceNumbers && options.sentenceNumbers.length > 0) {
       const seconds = getTimestampForSentences(sentences, options.sentenceNumbers);

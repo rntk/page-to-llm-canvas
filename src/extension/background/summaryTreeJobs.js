@@ -107,7 +107,14 @@ export function createSummaryTreeJobs({
      */
     start(key, { fresh = false, recover = false } = {}) {
       return admit(key, async () => {
-        if (jobs.has(key)) return false;
+        const running = jobs.get(key);
+        if (running) {
+          // A stopped run keeps its slot until it settles; wait it out so an
+          // immediate Resume is not silently dropped.
+          if (!running.controller.signal.aborted) return false;
+          await running.settled;
+          if (jobs.has(key)) return false;
+        }
         const controller = new AbortController();
         const job = { controller };
         jobs.set(key, job);
@@ -133,7 +140,8 @@ export function createSummaryTreeJobs({
             await clearRecoveryFailure(key);
             await prepareRun(key, { fresh });
           }
-          void Promise.resolve()
+          // eslint-disable-next-line require-atomic-updates -- the job is owned by this admission
+          job.settled = Promise.resolve()
             .then(() => runSummaryTree(key, { signal: controller.signal, fresh }))
             .catch(async (error) => {
               logger.error(`${label} build failed for`, key, error);
@@ -143,7 +151,8 @@ export function createSummaryTreeJobs({
             .then(() => settleRecovery(key))
             .finally(() => {
               if (jobs.get(key) === job) jobs.delete(key);
-            });
+            })
+            .catch(() => {});
           return true;
         } catch (error) {
           if (jobs.get(key) === job) jobs.delete(key);

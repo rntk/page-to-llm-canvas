@@ -173,6 +173,8 @@ export function sourceCardOwnerKey(key) {
 
 // A project's own chat (over its merged topic tree) lives under the project id.
 export const PROJECT_CHAT_KEY_PREFIX = 'project:';
+/** Separates a project id from the fingerprint of one of its mixed source blocks. */
+export const PROJECT_BLOCK_CHAT_SEGMENT = ':block:';
 
 /**
  * @param {string} projectId
@@ -192,7 +194,7 @@ export function projectChatKey(projectId) {
 export function projectBlockChatKey(projectId, sentenceNumbers) {
   const fingerprint = sentenceSetFingerprint(sentenceNumbers);
   return typeof projectId === 'string' && projectId && fingerprint
-    ? `${PROJECT_CHAT_KEY_PREFIX}${projectId}:block:${fingerprint}`
+    ? `${PROJECT_CHAT_KEY_PREFIX}${projectId}${PROJECT_BLOCK_CHAT_SEGMENT}${fingerprint}`
     : '';
 }
 

@@ -145,7 +145,8 @@ export default function HierarchyApp({
 
   const roots = useMemo(() => buildTopicTree(topics, 0), [topics]);
   const maxLevel = useMemo(() => getMaxTopicLevel(topics), [topics]);
-  const effectiveLevel = selectedLevel === null ? maxLevel : selectedLevel;
+  // A reprocess can lower `maxLevel` in place, leaving a chosen level above it.
+  const effectiveLevel = selectedLevel === null ? maxLevel : Math.min(selectedLevel, maxLevel);
 
   // Collapse branches at or below `level`, leaving levels 0..level visible.
   const handleSelectLevel = useCallback(

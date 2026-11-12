@@ -54,6 +54,26 @@ describe('in-page rail surface', () => {
     document.documentElement.style.removeProperty('--pagetollm-rail-width');
   });
 
+  it('closes the rail when React reports an uncaught render error', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const surface = manager.createSurface({ state: { mode: 'topics' } });
+    const [container, options] = createRoot.mock.calls.at(-1);
+    expect(container).toBe(surface.railEl);
+    expect(document.getElementById('pagetollm-in-page-rail')).not.toBeNull();
+
+    options.onUncaughtError(new Error('render blew up'));
+
+    expect(document.getElementById('pagetollm-in-page-rail')).toBeNull();
+    expect(surface.isClosed()).toBe(true);
+    expect(document.body.classList.contains('pagetollm-rail-open')).toBe(false);
+
+    // A late report from the closed root must not touch a newer rail.
+    const next = manager.createSurface({ state: { mode: 'topics' } });
+    options.onUncaughtError(new Error('late'));
+    expect(next.isClosed()).toBe(false);
+    errorSpy.mockRestore();
+  });
+
   it('creates a themed topic rail with the expected attributes and bookkeeping', () => {
     const state = { mode: 'topics' };
 
@@ -65,7 +85,9 @@ describe('in-page rail surface', () => {
     expect(surface.railEl.hasAttribute('data-youtube')).toBe(false);
     expect(applyContentTheme).toHaveBeenCalledWith(surface.railEl);
     expect(applyContentHighlightColor).toHaveBeenCalledWith(surface.railEl);
-    expect(createRoot).toHaveBeenCalledWith(surface.railEl);
+    expect(createRoot).toHaveBeenCalledWith(surface.railEl, {
+      onUncaughtError: expect.any(Function),
+    });
     expect(trackMountedSurface).toHaveBeenCalledOnce();
     expect(document.body.classList.contains('pagetollm-rail-open')).toBe(true);
   });

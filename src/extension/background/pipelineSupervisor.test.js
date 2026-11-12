@@ -1,6 +1,6 @@
 // Exercise the supervisor without Chrome or a background.js import.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
+import { IN_FLIGHT_PIPELINE_STATUSES, PIPELINE_STATUS } from '../../shared/runtime/contracts.js';
 import { createPipelineSupervisor, KEEPALIVE_ALARM } from './pipelineSupervisor.js';
 
 /** Silences the supervisor's console output without asserting on it. */
@@ -253,7 +253,10 @@ describe('createPipelineSupervisor (no chrome global)', () => {
     const [key, patch, options] = recordRepository.updateRecord.mock.calls.at(-1);
     expect(key).toBe('k1');
     expect(patch.status).toBe(PIPELINE_STATUS.ERROR);
-    expect(options).toEqual({ expectedPipelineRunId: 'run-1' });
+    expect(options).toEqual({
+      expectedPipelineRunId: 'run-1',
+      expectedStatuses: [...IN_FLIGHT_PIPELINE_STATUSES],
+    });
   });
 
   it('cancelActivePipeline refuses to abort a run it does not own', async () => {

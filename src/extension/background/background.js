@@ -136,6 +136,21 @@ const runtimeErrors = {
 const providerLimiter = createAdjustableLimiter(DEFAULT_MAX_PARALLEL_LLM_REQUESTS, {
   reservedPrioritySlots: 1,
 });
+// The orchestrator applies the stored user limit only when a pipeline run starts,
+// so a worker woken just for chat would otherwise keep the default. Seed it once
+// from storage before the first chat request; later changes arrive through the
+// orchestrator's setting subscription and run-start reads. A failed read leaves
+// the default and is retried by the next request instead of blocking chat.
+let providerLimiterSeed = null;
+function seedProviderLimiter() {
+  providerLimiterSeed ??= getStoredMaxParallelLlmRequests()
+    .then((value) => providerLimiter.setLimit(normalizeMaxParallelLlmRequests(value)))
+    .catch((error) => {
+      providerLimiterSeed = null;
+      log.warn('failed to seed the LLM concurrency limit:', error);
+    });
+  return providerLimiterSeed;
+}
 const pipelineRunner = createPipelineRunner({
   runtimeFactory: createPipelineRuntime,
   settings: {
@@ -280,6 +295,9 @@ const projectService = createProjectService({
       await chrome.storage?.session?.set?.({ [PROJECT_BINDING_SESSION_KEY]: true });
     },
   },
+  // A cold start rebinds tabs after the first recovery scan, which then saw no
+  // recoverable merge; scan again once bindings actually change.
+  onRebound: () => topicTreeService.resumeInFlight(),
   logger: log.child('projects'),
 });
 
@@ -321,7 +339,10 @@ const pipelineSupervisor = createPipelineSupervisor({
 const chatService = createChatCompletionService({
   callLLMDirectWithRetry,
   recordLlmMetric,
-  limit: (task, signal) => providerLimiter.run(task, signal, { priority: true }),
+  limit: async (task, signal) => {
+    await seedProviderLimiter();
+    return providerLimiter.run(task, signal, { priority: true });
+  },
 });
 
 const handleSubmitImpl = createSubmitRecord({

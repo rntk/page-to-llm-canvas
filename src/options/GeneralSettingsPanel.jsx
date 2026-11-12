@@ -6,6 +6,7 @@ import {
   themeLabel,
 } from '../shared/runtime/theme.js';
 import { useStoredPreference } from './useStoredPreference.js';
+import { browserScheduler } from '../shared/runtime/browserHosts.js';
 import {
   HIGHLIGHT_COLOR_KEY,
   DEFAULT_HIGHLIGHT_COLOR,
@@ -291,7 +292,75 @@ const VERBOSE_LOGS_PREFERENCE = {
   normalize: normalizeVerboseLogs,
 };
 
-function StoredPreferenceSection({ store, preference }) {
+const NUMBER_COMMIT_DEBOUNCE_MS = 800;
+
+/**
+ * Local text draft for a numeric preference input. Typing only edits the
+ * draft; the value is normalized and persisted on blur, Enter, or after a short
+ * pause, so intermediate keystrokes ("1", "12" while typing "120") are never
+ * stored and the field can be cleared while editing. While no draft exists the
+ * displayed text follows the stored value, including external changes.
+ * @param {{value: unknown, setValue: Function, enabled: boolean, scheduler: {setTimeout: Function, clearTimeout: Function}}} options
+ */
+function useNumberDraft({ value, setValue, enabled, scheduler }) {
+  const [draft, setDraft] = useState(null);
+  const draftRef = useRef(null);
+  const timerRef = useRef(null);
+  const setValueRef = useRef(setValue);
+  const schedulerRef = useRef(scheduler);
+  useEffect(() => {
+    setValueRef.current = setValue;
+    schedulerRef.current = scheduler;
+  }, [setValue, scheduler]);
+
+  const clearTimer = useCallback(() => {
+    if (timerRef.current != null) {
+      schedulerRef.current.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const commit = useCallback(() => {
+    clearTimer();
+    const pending = draftRef.current;
+    if (pending == null) return;
+    draftRef.current = null;
+    setDraft(null);
+    void setValueRef.current(pending);
+  }, [clearTimer]);
+
+  const edit = useCallback(
+    (text) => {
+      draftRef.current = text;
+      setDraft(text);
+      clearTimer();
+      timerRef.current = schedulerRef.current.setTimeout(() => {
+        timerRef.current = null;
+        // An empty draft would normalize to the default; wait for blur/Enter.
+        if (draftRef.current != null && draftRef.current.trim() !== '') commit();
+      }, NUMBER_COMMIT_DEBOUNCE_MS);
+    },
+    [clearTimer, commit],
+  );
+
+  useEffect(
+    () => () => {
+      // Persist a finished edit on unmount, but never turn a cleared field
+      // into the default value implicitly.
+      if (draftRef.current != null && draftRef.current.trim() !== '') {
+        void setValueRef.current(draftRef.current);
+      }
+      draftRef.current = null;
+      clearTimer();
+    },
+    [clearTimer],
+  );
+
+  if (!enabled) return { text: value, onEdit: undefined, onCommit: undefined };
+  return { text: draft ?? String(value), onEdit: edit, onCommit: commit };
+}
+
+function StoredPreferenceSection({ store, preference, scheduler = browserScheduler }) {
   const [value, setValue] = useStoredPreference({
     storageKey: preference.storageKey,
     defaultValue: preference.defaultValue,
@@ -301,6 +370,8 @@ function StoredPreferenceSection({ store, preference }) {
     subscribe: store.subscribe,
   });
   const isCheckbox = preference.type === 'checkbox';
+  const isNumber = preference.type === 'number';
+  const numberDraft = useNumberDraft({ value, setValue, enabled: isNumber, scheduler });
   const input = (
     <input
       id={preference.id}
@@ -309,8 +380,20 @@ function StoredPreferenceSection({ store, preference }) {
       max={preference.max}
       step={isCheckbox ? undefined : (preference.step ?? '1')}
       checked={isCheckbox ? value : undefined}
-      value={isCheckbox ? undefined : value}
-      onChange={(event) => setValue(isCheckbox ? event.target.checked : event.target.value)}
+      value={isCheckbox ? undefined : isNumber ? numberDraft.text : value}
+      onChange={(event) =>
+        isNumber
+          ? numberDraft.onEdit(event.target.value)
+          : setValue(isCheckbox ? event.target.checked : event.target.value)
+      }
+      onBlur={isNumber ? numberDraft.onCommit : undefined}
+      onKeyDown={
+        isNumber
+          ? (event) => {
+              if (event.key === 'Enter') numberDraft.onCommit();
+            }
+          : undefined
+      }
     />
   );
 
@@ -345,12 +428,24 @@ export function SummaryGenerationSection({ store }) {
   return <StoredPreferenceSection preference={SUMMARY_GENERATION_PREFERENCE} store={store} />;
 }
 
-export function LlmConcurrencySection({ store }) {
-  return <StoredPreferenceSection preference={LLM_CONCURRENCY_PREFERENCE} store={store} />;
+export function LlmConcurrencySection({ store, scheduler }) {
+  return (
+    <StoredPreferenceSection
+      preference={LLM_CONCURRENCY_PREFERENCE}
+      store={store}
+      scheduler={scheduler}
+    />
+  );
 }
 
-export function LlmRequestTimeoutSection({ store }) {
-  return <StoredPreferenceSection preference={LLM_TIMEOUT_PREFERENCE} store={store} />;
+export function LlmRequestTimeoutSection({ store, scheduler }) {
+  return (
+    <StoredPreferenceSection
+      preference={LLM_TIMEOUT_PREFERENCE}
+      store={store}
+      scheduler={scheduler}
+    />
+  );
 }
 
 export function DecisionSplitThresholdSection({ store }) {
@@ -375,8 +470,8 @@ export function GeneralSettingsPanel({ store, scheduler }) {
         </div>
         <ContentLanguageSection store={store} />
         <SummaryGenerationSection store={store} />
-        <LlmConcurrencySection store={store} />
-        <LlmRequestTimeoutSection store={store} />
+        <LlmConcurrencySection store={store} scheduler={scheduler} />
+        <LlmRequestTimeoutSection store={store} scheduler={scheduler} />
         <DecisionSplitThresholdSection store={store} />
         <VerboseLogsSection store={store} />
         <HighlightColorSection scheduler={scheduler} store={store} />

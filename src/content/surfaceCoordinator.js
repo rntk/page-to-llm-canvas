@@ -33,7 +33,14 @@ export function createContentSurfaceCoordinator({
     frameManager?.close();
   }
 
+  function getActiveSelection() {
+    return activeSurface?.kind === 'selection' ? activeSurface.controller : null;
+  }
+
   async function openSelection() {
+    // A repeated start request must not wipe unsubmitted picks.
+    const existing = getActiveSelection();
+    if (existing) return existing;
     closeActiveSurface();
     const request = {};
     pendingRequest = request;
@@ -58,6 +65,22 @@ export function createContentSurfaceCoordinator({
     pendingRequest = null;
     activeSurface = { kind: 'selection', controller };
     return controller;
+  }
+
+  /**
+   * Handle an SPA navigation. A selection session that is mid-submit, or holds
+   * picks still on the page (infinite scroll pushes `?page=2`), survives;
+   * every other surface closes.
+   */
+  function handlePageChange() {
+    if (
+      activeSurface?.kind === 'selection' &&
+      selectionController &&
+      (selectionController.isSubmitting?.() || selectionController.hasPicks?.())
+    ) {
+      return;
+    }
+    closeActiveSurface();
   }
 
   async function openRecordFrame(key, view) {
@@ -162,6 +185,7 @@ export function createContentSurfaceCoordinator({
     openRail,
     openRecordFrame,
     closeActiveSurface,
+    handlePageChange,
     getRecordFrame: () => frameManager?.getActiveFrame() ?? null,
     destroy,
   };

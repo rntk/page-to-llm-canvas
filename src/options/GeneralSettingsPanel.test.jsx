@@ -126,6 +126,29 @@ async function changeNumberValue(input, value) {
   await flush();
 }
 
+async function typeNumber(input, value) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  await act(async () => {
+    input.focus();
+    setter.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+async function blurInput(input) {
+  await act(async () => {
+    input.dispatchEvent(new Event('focusout', { bubbles: true }));
+  });
+  await flush();
+}
+
+async function pressKey(input, key) {
+  await act(async () => {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+  });
+  await flush();
+}
+
 async function changeColorValue(input, value) {
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
   await act(async () => {
@@ -274,8 +297,84 @@ describe.each(numericSections)(
       get.mockResolvedValue(initial);
       act(() => root.render(<Component store={store} />));
       await flush();
-      await changeNumberValue(container.querySelector(`#${id}`), changed);
+      const input = container.querySelector(`#${id}`);
+      await changeNumberValue(input, changed);
+      await blurInput(input);
       expect(set).toHaveBeenCalledWith(Number(changed));
+    });
+
+    it('does not persist intermediate keystrokes and commits once on blur', async () => {
+      get.mockResolvedValue(initial);
+      act(() => root.render(<Component store={store} scheduler={scheduler} />));
+      await flush();
+      const input = container.querySelector(`#${id}`);
+      for (const partial of ['1', '12', '120']) await typeNumber(input, partial);
+      expect(set).not.toHaveBeenCalled();
+      expect(input.value).toBe('120');
+
+      await blurInput(input);
+      expect(set).toHaveBeenCalledTimes(1);
+      expect(set).toHaveBeenCalledWith(Math.min(Math.max(120, min), max));
+    });
+
+    it('lets the field be cleared without persisting the default until commit', async () => {
+      get.mockResolvedValue(initial);
+      act(() => root.render(<Component store={store} scheduler={scheduler} />));
+      await flush();
+      const input = container.querySelector(`#${id}`);
+      await typeNumber(input, '');
+      expect(input.value).toBe('');
+      expect(set).not.toHaveBeenCalled();
+      // A debounce firing on an empty draft must not commit it either.
+      const timers = scheduler.setTimeout.mock.calls;
+      if (timers.length) await act(async () => timers[timers.length - 1][0]());
+      expect(set).not.toHaveBeenCalled();
+      expect(input.value).toBe('');
+
+      await blurInput(input);
+      expect(set).toHaveBeenCalledTimes(1);
+      expect(input.value).not.toBe('');
+    });
+
+    it('commits on Enter', async () => {
+      get.mockResolvedValue(initial);
+      act(() => root.render(<Component store={store} scheduler={scheduler} />));
+      await flush();
+      const input = container.querySelector(`#${id}`);
+      await typeNumber(input, changed);
+      expect(set).not.toHaveBeenCalled();
+      await pressKey(input, 'Enter');
+      expect(set).toHaveBeenCalledWith(Number(changed));
+    });
+
+    it('commits the latest draft when the debounce fires', async () => {
+      get.mockResolvedValue(initial);
+      act(() => root.render(<Component store={store} scheduler={scheduler} />));
+      await flush();
+      const input = container.querySelector(`#${id}`);
+      await typeNumber(input, '1');
+      await typeNumber(input, changed);
+      expect(scheduler.clearTimeout).toHaveBeenCalled();
+      expect(set).not.toHaveBeenCalled();
+      const lastTimer = scheduler.setTimeout.mock.calls.at(-1);
+      await act(async () => lastTimer[0]());
+      await flush();
+      expect(set).toHaveBeenCalledTimes(1);
+      expect(set).toHaveBeenCalledWith(Number(changed));
+    });
+
+    it('reflects external changes when unfocused but keeps an in-progress draft', async () => {
+      get.mockResolvedValue(initial);
+      act(() => root.render(<Component store={store} scheduler={scheduler} />));
+      await flush();
+      const input = container.querySelector(`#${id}`);
+      await act(async () => store.publish(value));
+      expect(input.value).toBe(String(value));
+
+      await typeNumber(input, changed);
+      await act(async () => store.publish(initial));
+      expect(input.value).toBe(changed);
+      expect(set).not.toHaveBeenCalled();
     });
   },
 );

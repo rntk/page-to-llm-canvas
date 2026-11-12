@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   PROVIDER_DEFINITIONS,
   SERVICE_TIER_DEFINITIONS,
@@ -17,7 +17,7 @@ import {
 } from '../core/llm/temperatures.js';
 import { MSG } from '../shared/runtime/messages.js';
 import {
-  shouldWarnTokenWipe,
+  tokenWipeWarning,
   createEmptyProviderForm,
   providerToForm,
   updateProviderFormField,
@@ -41,6 +41,12 @@ export function ProvidersSection() {
   // render as "No providers configured yet" - that may prompt someone to
   // needlessly re-enter API keys that are, in fact, still stored.
   const [loadError, setLoadError] = useState(null);
+  // Snapshot of the form as it was opened; used to detect unsaved edits.
+  const [baselineForm, setBaselineForm] = useState(() => createEmptyProviderForm());
+  const [saving, setSaving] = useState(false);
+  // Synchronous guard: state updates are not visible to a second submit event
+  // dispatched before the next render.
+  const savingRef = useRef(false);
 
   const applyProviders = useCallback((next) => {
     if (next.providers) {
@@ -96,35 +102,52 @@ export function ProvidersSection() {
 
   const submit = async (event) => {
     event.preventDefault();
+    if (savingRef.current) return;
     setError('');
-    if (
-      shouldWarnTokenWipe(editingProvider, form) &&
-      !confirm(
-        'Changing this provider base URL will wipe the stored token for the previous URL. Save anyway?',
-      )
-    ) {
+    const wipeWarning = tokenWipeWarning(editingProvider, form);
+    if (wipeWarning && !confirm(wipeWarning)) {
       return;
     }
-    const response = await sendMessage({ type: MSG.saveProvider, provider: { ...form } });
-    if (!response || !response.ok) {
-      setError((response && response.error) || 'Failed to save provider');
-      return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const response = await sendMessage({ type: MSG.saveProvider, provider: { ...form } });
+      if (!response || !response.ok) {
+        setError((response && response.error) || 'Failed to save provider');
+        return;
+      }
+      const emptyForm = createEmptyProviderForm();
+      setForm(emptyForm);
+      setBaselineForm(emptyForm);
+      setIsFormOpen(false);
+    } finally {
+      // The guard is only ever set synchronously before the await above.
+      // eslint-disable-next-line require-atomic-updates
+      savingRef.current = false;
+      setSaving(false);
     }
-    setForm(createEmptyProviderForm());
-    setIsFormOpen(false);
     await load();
   };
 
-  const edit = (provider) => {
+  const isDirty = isFormOpen && JSON.stringify(form) !== JSON.stringify(baselineForm);
+
+  const confirmDiscard = () => !isDirty || confirm('Discard unsaved changes to this provider?');
+
+  const openForm = (nextForm) => {
     setError('');
-    setForm(providerToForm(provider));
+    setForm(nextForm);
+    setBaselineForm(nextForm);
     setIsFormOpen(true);
   };
 
+  const edit = (provider) => {
+    if (!confirmDiscard()) return;
+    openForm(providerToForm(provider));
+  };
+
   const add = () => {
-    setError('');
-    setForm(createEmptyProviderForm());
-    setIsFormOpen(true);
+    if (!confirmDiscard()) return;
+    openForm(createEmptyProviderForm());
   };
 
   const cancel = () => {
@@ -354,7 +377,9 @@ export function ProvidersSection() {
             />
             {editingProvider?.hasToken ? (
               <div id="provider-token-note" className="note">
-                Leave blank to keep the stored token.
+                {form.type === editingProvider.type
+                  ? 'Leave blank to keep the stored token.'
+                  : 'Changing the provider type removes the stored token. Enter a new token to replace it.'}
               </div>
             ) : null}
           </div>
@@ -441,7 +466,9 @@ export function ProvidersSection() {
           {error ? <div className="form-error">{error}</div> : null}
 
           <div className="form-actions">
-            <button type="submit">{isEditing ? 'Save changes' : 'Add provider'}</button>
+            <button type="submit" disabled={saving}>
+              {isEditing ? 'Save changes' : 'Add provider'}
+            </button>
             <button type="button" onClick={cancel}>
               Cancel
             </button>

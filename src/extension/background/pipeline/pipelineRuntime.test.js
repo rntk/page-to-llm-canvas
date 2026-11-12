@@ -62,6 +62,22 @@ describe('createPipelineRuntime', () => {
     );
   });
 
+  it('forwards expectedStatuses to the run-guarded update only when supplied', async () => {
+    const runtime = createPipelineRuntime({ key: 'record-1', pipelineRunId: 'run-7' });
+
+    await runtime.update({ status: 'error' }, { expectedStatuses: ['pending', 'splitting'] });
+    expect(storage.updateRecord).toHaveBeenLastCalledWith(
+      'record-1',
+      { status: 'error' },
+      { expectedPipelineRunId: 'run-7', expectedStatuses: ['pending', 'splitting'] },
+    );
+
+    storage.updateRecord.mockResolvedValueOnce(null);
+    await expect(
+      runtime.update({ status: 'error' }, { expectedStatuses: ['pending'] }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
   it('persists summary work through granular run-guarded operations', async () => {
     const runtime = createPipelineRuntime({ key: 'record-1', pipelineRunId: 'run-7' });
     const summary = { runs: [{ sentences: [1], text: 'leaf' }] };

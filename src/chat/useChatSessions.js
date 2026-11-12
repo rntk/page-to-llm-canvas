@@ -210,12 +210,19 @@ export function useChatSessions({ recordKey, applyEvents, chatRepository }) {
         }
         try {
           await removeChat(requestedRecordKey, chatId);
+          // Leave the deleted chat before the fallible re-list: if the list
+          // throws, the session must not stay bound to an id that no longer
+          // exists, or every later save would fail with 'chat not found'.
+          const wasActive =
+            mountedRef.current &&
+            requestedRecordKey === recordKeyRef.current &&
+            chatId === activeChatIdRef.current;
+          if (wasActive) startNewChat();
           const nextChats = await listChats(requestedRecordKey);
           if (!mountedRef.current || requestedRecordKey !== recordKeyRef.current) return true;
           setChats(nextChats);
-          if (chatId === activeChatIdRef.current) {
-            if (nextChats.length) await loadChat(nextChats[0].chatId);
-            else startNewChat();
+          if (wasActive && nextChats.length && activeChatIdRef.current === null) {
+            await loadChat(nextChats[0].chatId);
           }
           return true;
         } catch (err) {

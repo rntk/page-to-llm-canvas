@@ -42,6 +42,8 @@ const byIndex = (a, b) => a.index - b.index;
  * @param {{isTrusted: Function, markTrusted: Function}} [deps.bindingSession] Session cache guard.
  * @param {function(): number} [deps.now]
  * @param {function(): string} [deps.createId]
+ * @param {function(): *} [deps.onRebound] Called (not awaited) after a sync changed any binding,
+ *   e.g. so interrupted background work can resume once tabs are rebound after a restart.
  * @param {{info: Function, warn: Function}} [deps.logger]
  */
 export function createProjectService({
@@ -53,6 +55,7 @@ export function createProjectService({
   bindingSession = { isTrusted: async () => true, markTrusted: async () => {} },
   now = () => Date.now(),
   createId = () => crypto.randomUUID(),
+  onRebound,
   logger = console,
 }) {
   let startupReset = null;
@@ -113,18 +116,36 @@ export function createProjectService({
       await ensureCacheReady();
     } while (resetRequested);
     const live = await snapshot();
+    let rebound = false;
     const projects = await projectStore.update(
       (current) => {
         const result = rebindProjects(current, live.groups, live.tabs, {
           pageBaseUrl: pageBaseUrl(),
           now: now(),
         });
+        rebound = result.changed;
         return result.changed ? result.projects : null;
       },
       { includeTrees: false },
     );
+    if (rebound && onRebound) {
+      void Promise.resolve()
+        .then(onRebound)
+        .catch((err) => logger.warn?.('project rebound hook failed:', err));
+    }
     return { projects, ...live };
   }
+
+  // Opening creates tabs from a state snapshot, so concurrent opens would each
+  // create a project tab. Run them one at a time; later calls re-sync first.
+  let openQueue = Promise.resolve();
+  const serialized =
+    (action) =>
+    (...args) => {
+      const result = openQueue.then(() => action(...args));
+      openQueue = result.catch(() => {});
+      return result;
+    };
 
   async function requireProject(projectId, projects) {
     const project = projects.find((p) => p.id === projectId);
@@ -234,7 +255,7 @@ export function createProjectService({
      * @param {number} groupId
      * @returns {Promise<{project: object, tabId: number, createdTab: boolean}>}
      */
-    async attachProjectToGroup(projectId, groupId) {
+    attachProjectToGroup: serialized(async (projectId, groupId) => {
       const state = await sync();
       const group = state.groups.find((item) => item.id === groupId);
       if (!group) throw new Error('tab group not found');
@@ -290,7 +311,7 @@ export function createProjectService({
         }
         throw err;
       }
-    },
+    }),
 
     /** @param {string|undefined} url @returns {boolean} */
     isProjectPageUrl: (url) => parseProjectIdFromUrl(url, pageBaseUrl()) !== null,
@@ -299,11 +320,11 @@ export function createProjectService({
      * @param {number} groupId
      * @returns {Promise<{project: object, createdProject: boolean, tabId: number, createdTab: boolean}>}
      */
-    async openProjectForGroup(groupId) {
+    openProjectForGroup: serialized(async (groupId) => {
       const { project, createdProject, group, state } = await bindOrCreate(groupId);
       const tab = await ensureProjectTabInGroup(project, group, state.tabs);
       return { project, createdProject, ...tab };
-    },
+    }),
 
     /**
      * @param {number} groupId
@@ -320,7 +341,7 @@ export function createProjectService({
      * @param {string} projectId
      * @returns {Promise<{project: object, isOpen: boolean, tabId: number, createdTab: boolean}>}
      */
-    async openProject(projectId) {
+    openProject: serialized(async (projectId) => {
       const state = await sync();
       const project = await requireProject(projectId, state.projects);
       const group = state.groups.find((g) => g.id === project.groupId);
@@ -338,7 +359,7 @@ export function createProjectService({
       }
       const created = await tabs.create({ url: pageUrl(project.id), active: true });
       return { project, isOpen: false, tabId: created.id, createdTab: true };
-    },
+    }),
 
     /**
      * Activates a tab in the project's live group (its project tab when present).

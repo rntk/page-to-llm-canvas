@@ -250,49 +250,59 @@ export function makeSourceSummarizer({
     }));
     for (let round = 0; round < SUMMARY_MAX_MERGE_ROUNDS && records.length > 1; round++) {
       const batches = chunkSummaryRecordsForMerge(records, requestMaxChars);
-      const mergedBatches = await parallelMap(
+      const mergeResults = await parallelMap(
         batches,
         SUMMARY_CONCURRENCY,
         async (batch, batchIndex) => {
-          const mergeSource = formatChunkSummariesForMerge(batch);
-          const mergeResponse = await limit(() =>
-            callLLMWithRetry(
-              {
-                prompt: profile.buildMergePrompt(mergeSource, {
-                  preferContentLanguage,
-                  summaryInstructions,
-                }),
-                signal,
-                taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE,
-                sourceSummaryUnit: {
-                  kind: 'merge',
-                  source: mergeSource,
-                  path,
-                  runSentences: runIds,
-                  startSentence: batch[0].start_sentence,
-                  endSentence: batch[batch.length - 1].end_sentence,
-                  ...(round > 0 || batches.length > 1 ? { part: `${round}:${batchIndex}` } : {}),
+          try {
+            const mergeSource = formatChunkSummariesForMerge(batch);
+            const mergeResponse = await limit(() =>
+              callLLMWithRetry(
+                {
+                  prompt: profile.buildMergePrompt(mergeSource, {
+                    preferContentLanguage,
+                    summaryInstructions,
+                  }),
+                  signal,
+                  taskType: LLM_TASK_TYPES.ARTICLE_SUMMARY_MERGE,
+                  sourceSummaryUnit: {
+                    kind: 'merge',
+                    source: mergeSource,
+                    path,
+                    runSentences: runIds,
+                    startSentence: batch[0].start_sentence,
+                    endSentence: batch[batch.length - 1].end_sentence,
+                    ...(round > 0 || batches.length > 1 ? { part: `${round}:${batchIndex}` } : {}),
+                  },
                 },
+                SUMMARY_PROVIDER_MAX_ATTEMPTS,
+              ),
+            );
+            const parsed = profile.parse(mergeResponse);
+            return {
+              start_sentence: batch[0].start_sentence,
+              end_sentence: batch[batch.length - 1].end_sentence,
+              summary: {
+                text:
+                  parsed.text ||
+                  batch
+                    .map((record) => record.summary.text)
+                    .filter(Boolean)
+                    .join('\n'),
               },
-              SUMMARY_PROVIDER_MAX_ATTEMPTS,
-            ),
-          );
-          const parsed = profile.parse(mergeResponse);
-          return {
-            start_sentence: batch[0].start_sentence,
-            end_sentence: batch[batch.length - 1].end_sentence,
-            summary: {
-              text:
-                parsed.text ||
-                batch
-                  .map((record) => record.summary.text)
-                  .filter(Boolean)
-                  .join('\n'),
-            },
-          };
+            };
+          } catch (error) {
+            // Catch per item, as the leaf burst does: a raw rejection would
+            // surface before in-flight siblings settle, leaving them holding
+            // limiter slots on the still-live run signal.
+            return { error };
+          }
         },
-        { warmupFirst: true },
+        { warmupFirst: true, stopBurst: (result) => !!result?.error },
       );
+      const failedMerge = mergeResults.find((result) => result?.error);
+      if (failedMerge) throw failedMerge.error;
+      const mergedBatches = mergeResults;
       const madeProgress =
         mergedBatches.length < records.length ||
         totalSummaryChars(mergedBatches) < totalSummaryChars(records);

@@ -183,7 +183,7 @@ describe('SelectionToolbar', () => {
     unmount();
   });
 
-  it('shows submission progress and disables toolbar actions while submitting', () => {
+  it('shows submission progress and disables toolbar actions except Cancel while submitting', () => {
     const { container, unmount } = render(
       createElement(SelectionToolbar, {
         ...defaultProps,
@@ -196,7 +196,7 @@ describe('SelectionToolbar', () => {
     expect(container.querySelector('#pagetollm-submit-btn').disabled).toBe(true);
     expect(container.querySelector('#pagetollm-submit-btn').className).toContain('submitting');
     expect(container.querySelector('#pagetollm-pick-btn').disabled).toBe(true);
-    expect(container.querySelector('#pagetollm-cancel-btn').disabled).toBe(true);
+    expect(container.querySelector('#pagetollm-cancel-btn').disabled).toBe(false);
     expect([...container.querySelectorAll('textarea')].every((field) => field.disabled)).toBe(true);
     expect(container.querySelector('.pagetollm-remove-btn').disabled).toBe(true);
     expect(container.querySelector('.pagetollm-stepup-btn').disabled).toBe(true);

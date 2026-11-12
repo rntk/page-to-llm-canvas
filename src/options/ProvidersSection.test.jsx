@@ -223,3 +223,161 @@ describe('decision provider form', () => {
     }
   });
 });
+
+async function openAddForm(container) {
+  await act(async () => {
+    Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Add provider')
+      .click();
+  });
+}
+
+function submitForm(container) {
+  container
+    .querySelector('form')
+    .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+}
+
+describe('provider form submit guard', () => {
+  it('sends a single save for two rapid submits and disables the button while saving', async () => {
+    listProviders.mockResolvedValue({ providers: [], activeId: null, error: null });
+    let resolveSave;
+    sendMessage.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    const { container, mount, cleanup } = renderSection();
+    try {
+      await mount();
+      await openAddForm(container);
+      await act(async () => {
+        submitForm(container);
+        submitForm(container);
+      });
+      expect(sendMessage.mock.calls.filter(([msg]) => msg.type === 'saveProvider')).toHaveLength(1);
+      expect(container.querySelector('button[type="submit"]').disabled).toBe(true);
+
+      await act(async () => {
+        resolveSave({ ok: true });
+      });
+      expect(container.querySelector('form')).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('re-enables submit after a failed save so the user can retry', async () => {
+    listProviders.mockResolvedValue({ providers: [], activeId: null, error: null });
+    sendMessage.mockResolvedValueOnce({ ok: false, error: 'boom' });
+    const { container, mount, cleanup } = renderSection();
+    try {
+      await mount();
+      await openAddForm(container);
+      await act(async () => {
+        submitForm(container);
+      });
+      expect(container.textContent).toContain('boom');
+      expect(container.querySelector('button[type="submit"]').disabled).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+function typeInto(input, value) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  setter.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+describe('provider form unsaved-changes and token-wipe UX', () => {
+  const stored = [
+    { id: 'p1', name: 'One', type: 'openai', model: 'gpt-4o', hasToken: true },
+    { id: 'p2', name: 'Two', type: 'openai', model: 'gpt-4o', hasToken: false },
+  ];
+  const clickButton = (container, label, index = 0) =>
+    Array.from(container.querySelectorAll('button')).filter((b) => b.textContent === label)[index];
+
+  it('asks before discarding a dirty form on edit, and keeps the form when declined', async () => {
+    listProviders.mockResolvedValue({ providers: stored, activeId: 'p1', error: null });
+    const confirmMock = vi.fn(() => false);
+    vi.stubGlobal('confirm', confirmMock);
+    const { container, mount, cleanup } = renderSection();
+    try {
+      await mount();
+      await act(async () => clickButton(container, 'Edit', 0).click());
+      // Pristine form: switching does not prompt.
+      await act(async () => clickButton(container, 'Edit', 1).click());
+      expect(confirmMock).not.toHaveBeenCalled();
+      expect(container.querySelector('#provider-name').value).toBe('Two');
+
+      await act(async () => typeInto(container.querySelector('#provider-token'), 'sk-secret'));
+      await act(async () => clickButton(container, 'Edit', 0).click());
+      expect(confirmMock).toHaveBeenCalledTimes(1);
+      expect(container.querySelector('#provider-name').value).toBe('Two');
+      expect(container.querySelector('#provider-token').value).toBe('sk-secret');
+
+      confirmMock.mockReturnValue(true);
+      await act(async () => clickButton(container, 'Edit', 0).click());
+      expect(container.querySelector('#provider-name').value).toBe('One');
+      expect(container.querySelector('#provider-token').value).toBe('');
+    } finally {
+      cleanup();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('asks before add() discards a dirty edit form', async () => {
+    listProviders.mockResolvedValue({ providers: stored, activeId: 'p1', error: null });
+    const confirmMock = vi.fn(() => false);
+    vi.stubGlobal('confirm', confirmMock);
+    const { container, mount, cleanup } = renderSection();
+    try {
+      await mount();
+      await act(async () => clickButton(container, 'Edit', 0).click());
+      await act(async () => typeInto(container.querySelector('#provider-name'), 'Renamed'));
+      await act(async () => clickButton(container, 'Add provider').click());
+      expect(confirmMock).toHaveBeenCalledTimes(1);
+      expect(container.querySelector('#provider-name').value).toBe('Renamed');
+    } finally {
+      cleanup();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('warns about token wipe and swaps the "Leave blank" note when the type changes', async () => {
+    listProviders.mockResolvedValue({ providers: stored, activeId: 'p1', error: null });
+    sendMessage.mockResolvedValue({ ok: true });
+    const confirmMock = vi.fn(() => false);
+    vi.stubGlobal('confirm', confirmMock);
+    const { container, mount, cleanup } = renderSection();
+    try {
+      await mount();
+      await act(async () => clickButton(container, 'Edit', 0).click());
+      expect(container.querySelector('#provider-token-note').textContent).toContain(
+        'Leave blank to keep the stored token',
+      );
+      await act(async () => {
+        const select = container.querySelector('#provider-type');
+        select.value = 'anthropic';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      const note = container.querySelector('#provider-token-note').textContent;
+      expect(note).not.toContain('Leave blank');
+      expect(note).toContain('removes the stored token');
+
+      await act(async () => submitForm(container));
+      expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('provider type'));
+      expect(sendMessage).not.toHaveBeenCalled();
+
+      confirmMock.mockReturnValue(true);
+      await act(async () => submitForm(container));
+      expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'saveProvider' }));
+    } finally {
+      cleanup();
+      vi.unstubAllGlobals();
+    }
+  });
+});

@@ -544,27 +544,22 @@ export function recordLlmMetric(entry) {
 }
 
 /**
+ * Read failures propagate: the record path must not treat an unreadable epoch
+ * or document as empty, or the write that follows would wipe the aggregates.
  * @returns {Promise<number>}
  */
 async function getMetricsEpoch() {
-  try {
-    const items = await getLocal(LLM_METRICS_EPOCH_KEY);
-    return Math.max(0, Number(items[LLM_METRICS_EPOCH_KEY]) || 0);
-  } catch (_) {
-    return 0;
-  }
+  const items = await getLocal(LLM_METRICS_EPOCH_KEY);
+  return Math.max(0, Number(items[LLM_METRICS_EPOCH_KEY]) || 0);
 }
 
 /**
+ * Strict read for the read-modify-write path; rejects when storage fails.
  * @returns {Promise<LlmMetrics>}
  */
 async function readLlmMetricsRaw() {
-  try {
-    const items = await getLocal(LLM_METRICS_KEY);
-    return normalizeLlmMetrics(items[LLM_METRICS_KEY]);
-  } catch (_) {
-    return emptyLlmMetrics();
-  }
+  const items = await getLocal(LLM_METRICS_KEY);
+  return normalizeLlmMetrics(items[LLM_METRICS_KEY]);
 }
 
 /**

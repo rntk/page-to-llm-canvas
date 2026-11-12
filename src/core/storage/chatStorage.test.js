@@ -6,10 +6,12 @@ import {
   deleteChatHistory,
   reconcileChatStorage,
   adoptPageChats,
+  deleteDetachedChats,
   MAX_CHAT_TURNS,
 } from './chatStorage.js';
-import { pageChatKey, projectChatKey, sourceCardChatKey } from './keys.js';
+import { pageChatKey, projectBlockChatKey, projectChatKey, sourceCardChatKey } from './keys.js';
 import {
+  readRecord,
   writeRecord,
   updateRecord,
   deleteRecord,
@@ -668,6 +670,47 @@ describe('appendChatTurn', () => {
     expect(mock.storage.local._store.has('pagetollm:chats:article:index')).toBe(false);
   });
 
+  it('keeps chats when an import-style write replaces a record with identical text', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article', { text: 'same text' }));
+    const before = (await readRecord('article')).contentRevision;
+    const { chat } = await appendChatTurn('article', null, {
+      turnId: 'keep-me',
+      messages: [{ role: 'user', content: 'Question' }],
+    });
+
+    await writeRecord(
+      makeRecord('article', { text: 'same text', contentRevision: 'exported-rev' }),
+      {
+        bumpContentRevision: true,
+        keepRevisionWhenTextUnchanged: true,
+      },
+    );
+
+    expect((await readRecord('article')).contentRevision).toBe(before);
+    expect(mock.storage.local._store.has(`pagetollm:chats:article:${chat.chatId}`)).toBe(true);
+  });
+
+  it('prunes chats when an import-style write replaces a record with different text', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article', { text: 'old text' }));
+    const before = (await readRecord('article')).contentRevision;
+    const { chat } = await appendChatTurn('article', null, {
+      turnId: 'drop-me',
+      messages: [{ role: 'user', content: 'Question' }],
+    });
+
+    await writeRecord(makeRecord('article', { text: 'new text' }), {
+      bumpContentRevision: true,
+      keepRevisionWhenTextUnchanged: true,
+    });
+
+    expect((await readRecord('article')).contentRevision).not.toBe(before);
+    expect(mock.storage.local._store.has(`pagetollm:chats:article:${chat.chatId}`)).toBe(false);
+  });
+
   it('retains a bounded number of complete recent turns', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
@@ -1044,6 +1087,39 @@ describe('project chats (no saved record)', () => {
     expect((await listChats(key)).map((item) => item.chatId)).toEqual([chat.chatId]);
     expect((await readChat(key, chat.chatId)).messages).toHaveLength(2);
     expect(await listChats(projectChatKey('proj-2'))).toEqual([]);
+  });
+
+  it("deletes the project chat together with its block chats, and only that project's", async () => {
+    vi.stubGlobal('chrome', makeChromeMock());
+    const ask = (chatKey) =>
+      appendChatTurn(chatKey, null, { messages: [{ role: 'user', content: 'Question' }] });
+    const blockKey = projectBlockChatKey('proj-1', [1, 2, 3]);
+    const otherBlockKey = projectBlockChatKey('proj-1', [4, 5]);
+    // 'proj-10' shares a string prefix with 'proj-1' but is a different project.
+    const siblingKey = projectChatKey('proj-10');
+    const siblingBlockKey = projectBlockChatKey('proj-10', [1, 2, 3]);
+    expect(blockKey).toMatch(/^project:proj-1:block:/);
+    await Promise.all([key, blockKey, otherBlockKey, siblingKey, siblingBlockKey].map(ask));
+
+    expect(await deleteDetachedChats(key)).toBeGreaterThan(0);
+
+    expect(await listChats(key)).toEqual([]);
+    expect(await listChats(blockKey)).toEqual([]);
+    expect(await listChats(otherBlockKey)).toEqual([]);
+    expect(await listChats(siblingKey)).toHaveLength(1);
+    expect(await listChats(siblingBlockKey)).toHaveLength(1);
+  });
+
+  it('keeps deleting a single block chat key exact', async () => {
+    vi.stubGlobal('chrome', makeChromeMock());
+    const blockKey = projectBlockChatKey('proj-1', [1, 2, 3]);
+    await appendChatTurn(key, null, { messages: [{ role: 'user', content: 'Project' }] });
+    await appendChatTurn(blockKey, null, { messages: [{ role: 'user', content: 'Block' }] });
+
+    await deleteDetachedChats(blockKey);
+
+    expect(await listChats(blockKey)).toEqual([]);
+    expect(await listChats(key)).toHaveLength(1);
   });
 });
 

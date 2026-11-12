@@ -288,7 +288,8 @@ export function createSelectionController({
       succeeded = true;
     } catch (err) {
       log.error('submit error:', err);
-      alert('PageToLLM error: ' + err.message);
+      // A user who cancelled mid-submit has already moved on; stay quiet.
+      if (!destroyed) alert('PageToLLM error: ' + err.message);
     } finally {
       // Keep the selection and typed instructions on failure so the user can retry.
       if (succeeded) destroy();
@@ -323,5 +324,24 @@ export function createSelectionController({
     onDestroy?.();
   }
 
-  return { destroy };
+  /**
+   * Whether any picked block is still attached to the page.
+   *
+   * @returns {boolean}
+   */
+  function hasPicks() {
+    if (destroyed) return false;
+    return interaction.snapshot().selectedElements.some(({ el }) => el.isConnected);
+  }
+
+  /**
+   * Whether a submission is currently in flight.
+   *
+   * @returns {boolean}
+   */
+  function isSubmitting() {
+    return !destroyed && interaction.snapshot().isSubmitting;
+  }
+
+  return { destroy, hasPicks, isSubmitting };
 }

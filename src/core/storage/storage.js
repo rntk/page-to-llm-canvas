@@ -373,6 +373,9 @@ export async function readRecordView(key) {
  * @param {ArticleRecord} rec
  * @param {object} [options]
  * @param {boolean} [options.bumpContentRevision]
+ * @param {boolean} [options.keepRevisionWhenTextUnchanged] With
+ *   `bumpContentRevision`, keep the stored revision (and so its chats) when the
+ *   new text equals the stored text.
  * @param {boolean} [options.onlyIfAbsent] Create-if-absent: commit nothing and
  *   resolve false when the key already exists. The existence check runs inside
  *   this key's mutation queue, so two concurrent creators cannot both observe
@@ -407,8 +410,19 @@ export async function writeRecord(rec, options = {}) {
             ...existingWorkDocuments,
           }
         : null;
-      const contentRevision =
-        options.bumpContentRevision === true
+      // An import of the very text already stored is not a content change, so
+      // it keeps the revision (and with it the chats and the summary tree).
+      const keepsRevision =
+        options.bumpContentRevision === true &&
+        options.keepRevisionWhenTextUnchanged === true &&
+        typeof existingMeta?.contentRevision === 'string' &&
+        existingMeta.contentRevision !== '' &&
+        typeof rec.text === 'string' &&
+        rec.text !== '' &&
+        priorDocs?.[contentStorageKey(rec.key)]?.text === rec.text;
+      const contentRevision = keepsRevision
+        ? existingMeta.contentRevision
+        : options.bumpContentRevision === true
           ? createContentRevision()
           : typeof rec.contentRevision === 'string' && rec.contentRevision
             ? rec.contentRevision
@@ -450,6 +464,16 @@ export async function writeRecord(rec, options = {}) {
       RECORD_PAYLOAD_SCHEMAS.forEach(({ fields, storageKey }) => {
         documents[storageKey(rec.key)] = pickFields(rec, fields);
       });
+      // The tree is read only against the record's current revision. Like the
+      // final summaries, a tree written with the record belongs to this write.
+      const outputDoc = documents[summaryOutputStorageKey(rec.key)];
+      if (
+        outputDoc?.summary_tree &&
+        typeof outputDoc.summary_tree === 'object' &&
+        outputDoc.summary_tree.contentRevision !== contentRevision
+      ) {
+        outputDoc.summary_tree = { ...outputDoc.summary_tree, contentRevision };
+      }
       const priorKeys = [
         ...new Set([...Object.keys(priorDocs || {}), ...Object.keys(existingWorkDocuments)]),
       ];
@@ -491,7 +515,11 @@ export async function writeRecord(rec, options = {}) {
         });
         throw err;
       }
-      if (existingMeta && options.bumpContentRevision === true) {
+      if (
+        existingMeta &&
+        options.bumpContentRevision === true &&
+        contentRevision !== existingMeta.contentRevision
+      ) {
         await pruneChatsForContentRevision(rec.key, contentRevision).catch((err) => {
           log.warn('stale chat cleanup failed:', err);
         });

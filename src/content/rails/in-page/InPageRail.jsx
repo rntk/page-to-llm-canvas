@@ -489,6 +489,8 @@ export default function InPageRail({
   projectedScrollContainerTop = isNestedScroll ? scrollContainer.getBoundingClientRect().top : 0,
   railOriginTop = 0,
   summariesDisabled = false,
+  isMeasuring = false,
+  onOpenFullView,
   sentences = [],
   onChatHighlight,
   onClearChatHighlights,
@@ -515,6 +517,10 @@ export default function InPageRail({
   const isChat = mode === 'chat';
   const isNotes = topicLayout !== 'cards';
   const showSummariesDisabledNotice = isSummary && summariesDisabled;
+  // The first measurement shell has no cards yet by design; only a settled,
+  // card-less rail means the article text can no longer be found.
+  const showEmptyNotice =
+    !isChat && !showSummariesDisabledNotice && !isMeasuring && cards.length === 0;
 
   // Translate content-space card boxes by scroll offset to align with sentences
   // while the rail body stays fixed in the viewport.
@@ -717,6 +723,20 @@ export default function InPageRail({
             </div>
           </div>
         )}
+        {showEmptyNotice ? (
+          <div className="pagetollm-rail-empty" role="status">
+            <div>Can&apos;t find this text on the page any more.</div>
+            {onOpenFullView ? (
+              <button
+                type="button"
+                className="pagetollm-rail-empty-action"
+                onClick={onOpenFullView}
+              >
+                Open full view
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </>
   );

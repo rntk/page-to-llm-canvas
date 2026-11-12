@@ -390,3 +390,107 @@ describe('record deletion cleanup', () => {
     expect(pipelineSupervisor.clearPipelineFailuresForKey).toHaveBeenCalledExactlyOnceWith();
   });
 });
+
+describe('running summary tree and run claims', () => {
+  function makeTreeFixture({ tree } = {}) {
+    const record = {
+      key: 'tree-record',
+      status: 'done',
+      pipelineRunId: 'old-run',
+      contentRevision: 'revision-1',
+      summaryCheckpointContentRevision: 'revision-1',
+      progress: { stage: 'done', done: 1, total: 1 },
+      sentences: ['one', 'two'],
+      topics: [{ name: 'Science', sentences: [1, 2] }],
+      summary_tree: tree,
+    };
+    const calls = [];
+    const recordRepository = {
+      readRecord: vi.fn(async () => record),
+      updateRecord: vi.fn(async (_key, patch) => {
+        calls.push('updateRecord');
+        return { ...record, ...patch };
+      }),
+      deleteRecord: vi.fn(async () => {
+        calls.push('deleteRecord');
+      }),
+    };
+    const summaryTreeJobs = {
+      start: vi.fn(),
+      stop: vi.fn(async () => {
+        calls.push('stop');
+        return false;
+      }),
+    };
+    const handlers = createRecordHandlers({
+      recordRepository,
+      pipelineSupervisor: {
+        createPipelineRunId: vi.fn(() => 'new-run'),
+        cancelActivePipeline: vi.fn(),
+        startPipeline: vi.fn(async () => {}),
+        clearPipelineFailuresForKey: vi.fn(async () => {}),
+      },
+      getStoredSummariesDisabled: vi.fn(async () => false),
+      summaryCheckpoint: { isComplete: vi.fn(() => true), isRevisionCurrent: vi.fn(() => true) },
+      summaryTreeJobs,
+    });
+    return { handlers, recordRepository, summaryTreeJobs, calls };
+  }
+
+  it.each([
+    [MSG.retryRecord, {}],
+    [MSG.reprocessRecord, {}],
+    [MSG.generateRecordSummaries, {}],
+    [
+      MSG.resplitTopic,
+      { path: 'Science', startSentence: 1, endSentence: 2, splittingInstructions: '' },
+    ],
+  ])('%s stops the summary tree before claiming the new run', async (type, extra) => {
+    const { handlers, summaryTreeJobs, calls } = makeTreeFixture();
+
+    const response = await handlers[type].handle({ key: 'tree-record', ...extra });
+
+    expect(response).toMatchObject({ ok: true });
+    expect(summaryTreeJobs.stop).toHaveBeenCalledExactlyOnceWith('tree-record');
+    expect(calls).toEqual(['stop', 'updateRecord']);
+  });
+
+  it('marks a stored running tree cancelled in the claim when no worker job owned it', async () => {
+    const tree = {
+      status: 'running',
+      backgroundRecovery: true,
+      contentRevision: 'revision-1',
+      updatedAt: 1,
+    };
+    const { handlers, recordRepository } = makeTreeFixture({ tree });
+
+    await handlers[MSG.retryRecord].handle({ key: 'tree-record' });
+
+    const [, patch, options] = recordRepository.updateRecord.mock.calls[0];
+    expect(options.expectedPipelineRunId).toBe('old-run');
+    expect(patch.summary_tree).toMatchObject({
+      status: 'cancelled',
+      error: 'Stopped.',
+      backgroundRecovery: true,
+      contentRevision: 'revision-1',
+    });
+  });
+
+  it('leaves a finished tree untouched in the claim', async () => {
+    const { handlers, recordRepository } = makeTreeFixture({
+      tree: { status: 'done', contentRevision: 'revision-1' },
+    });
+
+    await handlers[MSG.retryRecord].handle({ key: 'tree-record' });
+
+    expect(recordRepository.updateRecord.mock.calls[0][1]).not.toHaveProperty('summary_tree');
+  });
+
+  it('stops the summary tree before deleting the record', async () => {
+    const { handlers, calls } = makeTreeFixture();
+
+    await handlers[MSG.deleteRecord].handle({ key: 'tree-record' });
+
+    expect(calls).toEqual(['stop', 'deleteRecord']);
+  });
+});

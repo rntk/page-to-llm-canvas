@@ -216,6 +216,8 @@ export function createInPageRailController({
             projectedScrollContainerTop={projectedScrollContainerTop}
             railOriginTop={railOriginTop}
             summariesDisabled={record.summariesDisabled === true}
+            isMeasuring={measureOnly}
+            onOpenFullView={() => openRecordFrame(record.key)}
             topics={record.topics}
             sentences={sentences}
             onChatHighlight={handleChatHighlight}
@@ -236,10 +238,16 @@ export function createInPageRailController({
       railOriginTop = railBody ? getRailOriginTop(railBody.getBoundingClientRect()) : undefined;
     };
 
-    renderRail({ measureOnly: true });
-    if (isClosed() || guard.isStale()) return false;
-    measureRailOrigin();
-    renderRail();
+    try {
+      renderRail({ measureOnly: true });
+      if (isClosed() || guard.isStale()) return false;
+      measureRailOrigin();
+      renderRail();
+    } catch (err) {
+      // Never leave a blank rail without a close button.
+      closeRail();
+      throw err;
+    }
 
     // Re-resolve selectors and text after article or scroller mutations.
     mutationObserver = new contentWindow.MutationObserver((mutations) => {

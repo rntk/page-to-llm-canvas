@@ -82,7 +82,7 @@ export function DataManagementSection({ onDataChanged }) {
   const deletePageData = async () => {
     if (
       !confirm(
-        'Delete all page data? This removes selected content, sentences, topics, summaries, processing logs, and every related chat.',
+        'Delete all page data? This removes selected content, sentences, topics, summaries, processing logs, and every related chat. Any running page processing will also be cancelled.',
       )
     ) {
       return;
@@ -115,7 +115,7 @@ export function DataManagementSection({ onDataChanged }) {
       setError(response?.error || 'Failed to reset extension data');
       return;
     }
-    onDataChanged?.();
+    onDataChanged?.({ providersChanged: true });
     await refresh();
   };
 

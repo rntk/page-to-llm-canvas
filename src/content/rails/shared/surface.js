@@ -1,8 +1,11 @@
 import { createRoot } from 'react-dom/client';
 import { createLoadToken } from './recordFetch.js';
+import { createLogger } from '../../../shared/runtime/log.js';
 // ?inline supplies CSS text for a style node managed over the rail's lifetime.
 import contentRailCss from '../../../extension/styles/content-rail.css?inline';
 import chatCss from '../../../extension/styles/chat.css?inline';
+
+const log = createLogger();
 
 export const RAIL_STYLE_ELEMENT_ID = 'pagetollm-rail-styles';
 
@@ -82,7 +85,14 @@ export function createRailSurfaceManager({
     if (youtube) railEl.dataset.youtube = 'true';
     preferences.applyContentTheme(railEl);
     preferences.applyContentHighlightColor(railEl);
-    const railRoot = rootFactory(railEl);
+    // A render-time throw would otherwise leave a blank rail with no close button.
+    const railRoot = rootFactory(railEl, {
+      onUncaughtError: (error) => {
+        if (railClosed) return;
+        log.error('rail render error:', error);
+        close();
+      },
+    });
     let railClosed = false;
     let railSurfaceTracked = false;
     // Distinguish existing overflow from overflow caused by rail padding.

@@ -7,6 +7,7 @@ import {
   SUMMARY_GENERATION_SOURCE_STATUSES,
 } from '../../../shared/runtime/contracts.js';
 import { createLogger } from '../../../shared/runtime/log.js';
+import { SUMMARY_TREE_STATUS } from '../../../shared/runtime/summaryTree.js';
 import { decodeImportedRecords } from '../../../shared/runtime/recordImport.js';
 import {
   cancelledTransition,
@@ -81,8 +82,33 @@ export function createRecordHandlers({
 
   // Claim the next run before cancelling the specific run this snapshot observed.
   // A stale claimant must neither cancel nor restart the winning run.
+  //
+  // A running summary tree belongs to the topics this claim is about to replace
+  // or re-derive, so it is stopped first: cancelling a tree requires the record
+  // to still be `done`, which the claim is about to change. `stop` also
+  // cancels a stored `running` tree that has no in-memory job (after a worker
+  // restart). The claim re-asserts that on the record in case a late checkpoint
+  // write reopened it, so background recovery cannot resume it against stale
+  // topic boundaries.
   const claimAndRestart = async (key, scope, patch, options) => {
-    const updated = await updateRecord(key, patch, options);
+    let claim = patch;
+    if (summaryTreeJobs) {
+      await summaryTreeJobs.stop(key);
+      const latest = await readRecord(key);
+      const tree = latest?.summary_tree;
+      if (tree?.status === SUMMARY_TREE_STATUS.RUNNING && !Object.hasOwn(patch, 'summary_tree')) {
+        claim = {
+          ...patch,
+          summary_tree: {
+            ...tree,
+            status: SUMMARY_TREE_STATUS.CANCELLED,
+            error: 'Stopped.',
+            updatedAt: Date.now(),
+          },
+        };
+      }
+    }
+    const updated = await updateRecord(key, claim, options);
     if (!updated) return { ok: true, stale: true };
     cancelActivePipeline(key, { expectedPipelineRunId: options.expectedPipelineRunId });
     restart(key, scope);
@@ -506,7 +532,7 @@ export function createRecordHandlers({
           try {
             await writeRecord(
               { ...record, pipelineRunId: createPipelineRunId() },
-              { bumpContentRevision: true },
+              { bumpContentRevision: true, keepRevisionWhenTextUnchanged: true },
             );
             count += 1;
             // Pipeline updates carry the old run id and cannot overwrite the
@@ -531,6 +557,7 @@ export function createRecordHandlers({
       validate: () => null,
       async handle(msg) {
         cancelActivePipeline(msg.key);
+        await summaryTreeJobs?.stop(msg.key);
         await deleteRecord(msg.key);
         await pipelineSupervisor.clearPipelineFailuresForKey(msg.key);
         return { ok: true };

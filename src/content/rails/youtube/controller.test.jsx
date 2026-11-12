@@ -479,6 +479,126 @@ describe('openYouTubeRail', () => {
       expect(video.play).toHaveBeenCalled();
     });
 
+    describe('render failures', () => {
+      let errorSpy;
+      beforeEach(() => {
+        errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      });
+      afterEach(() => errorSpy.mockRestore());
+
+      it('closes the rail and rethrows when the initial render throws', async () => {
+        buildYouTubeRailCards.mockImplementation(() => {
+          throw new Error('cards exploded');
+        });
+        await expect(openYouTubeRail({ key: 'yt-key' })).rejects.toThrow('cards exploded');
+        expect(rail()).toBeNull();
+      });
+
+      it('removes the rail instead of leaving it blank when a component throws in render', async () => {
+        buildYouTubeRailCards.mockReturnValue([
+          {
+            ...twoCards[0],
+            get name() {
+              throw new Error('component exploded');
+            },
+          },
+        ]);
+        // React hands render errors to the root's onUncaughtError only outside act().
+        globalThis.IS_REACT_ACT_ENVIRONMENT = false;
+        try {
+          await openYouTubeRail({ key: 'yt-key' });
+          await vi.waitFor(() => expect(rail()).toBeNull());
+        } finally {
+          globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+        }
+        expect(document.body.classList.contains('pagetollm-rail-open')).toBe(false);
+      });
+    });
+
+    describe('ads', () => {
+      function mountAdPlayer() {
+        const player = document.createElement('div');
+        player.className = 'html5-video-player ad-showing';
+        document.body.appendChild(player);
+        return player;
+      }
+
+      afterEach(() => {
+        document.querySelector('.html5-video-player')?.remove();
+      });
+
+      it('does not seek the main video while an ad is playing', async () => {
+        const video = mountVideo();
+        video.currentTime = 12;
+        mountAdPlayer();
+        await act(async () => {
+          await openYouTubeRail({ key: 'yt-key' });
+        });
+        const secondCard = rail().querySelectorAll('.pagetollm-yt-rail-card')[1];
+        await act(async () => {
+          secondCard.click();
+        });
+        await flushAsyncWork();
+
+        expect(video.currentTime).toBe(12);
+        expect(video.play).not.toHaveBeenCalled();
+        const status = rail().querySelector('.pagetollm-chat-status');
+        expect(status.textContent).toContain('An ad is playing');
+        expect(status.className).toContain('is-warning');
+      });
+
+      it('does not track the ad clock as the current time', async () => {
+        const video = mountVideo();
+        video.currentTime = 40; // would activate card b if it were read
+        mountAdPlayer();
+        await act(async () => {
+          await openYouTubeRail({ key: 'yt-key' });
+        });
+        const cards = rail().querySelectorAll('.pagetollm-yt-rail-card');
+        expect(cards[0].className).toContain('is-active');
+        expect(cards[1].className).not.toContain('is-active');
+      });
+
+      it('seeks again once the ad ends', async () => {
+        const video = mountVideo();
+        const player = mountAdPlayer();
+        await act(async () => {
+          await openYouTubeRail({ key: 'yt-key' });
+        });
+        const secondCard = () => rail().querySelectorAll('.pagetollm-yt-rail-card')[1];
+        await act(async () => secondCard().click());
+        await flushAsyncWork();
+        expect(video.currentTime).toBe(0);
+
+        player.classList.remove('ad-showing');
+        await act(async () => secondCard().click());
+        await flushAsyncWork();
+        expect(video.currentTime).toBe(30);
+        expect(rail().querySelector('.pagetollm-chat-status').textContent).toBe('Jumped to 0:30.');
+      });
+    });
+
+    it('shows the seek outcome when a card is clicked', async () => {
+      const video = mountVideo();
+      await act(async () => {
+        await openYouTubeRail({ key: 'yt-key' });
+      });
+      const secondCard = rail().querySelectorAll('.pagetollm-yt-rail-card')[1];
+      expect(rail().querySelector('.pagetollm-chat-status')).toBeNull();
+      await act(async () => secondCard.click());
+      await flushAsyncWork();
+      expect(rail().querySelector('.pagetollm-chat-status.is-success').textContent).toBe(
+        'Jumped to 0:30.',
+      );
+
+      video.remove();
+      await act(async () => secondCard.click());
+      await flushAsyncWork();
+      expect(rail().querySelector('.pagetollm-chat-status.is-error').textContent).toContain(
+        'video player is not available',
+      );
+    });
+
     it('reuses the connected video element instead of querying on every read', async () => {
       mountVideo();
       await act(async () => {
@@ -492,7 +612,10 @@ describe('openYouTubeRail', () => {
         secondCard.click();
       });
 
-      expect(querySelector).not.toHaveBeenCalled();
+      // The ad check legitimately queries the player; the video must not be re-queried.
+      const queried = querySelector.mock.calls.map(([selector]) => selector);
+      expect(queried).not.toContain('.html5-main-video');
+      expect(queried).not.toContain('video');
       querySelector.mockRestore();
     });
 

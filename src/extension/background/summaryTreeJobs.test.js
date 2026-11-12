@@ -78,6 +78,23 @@ describe('durable summary tree jobs', () => {
     expect(alarms.clear).toHaveBeenCalledWith('tree-recovery');
   });
 
+  it('starts a new run immediately after stop once the aborted run settles', async () => {
+    const { runs, makeJobs } = fixture();
+    const jobs = makeJobs();
+    expect(await jobs.start('article')).toBe(true);
+    await jobs.stop('article');
+    expect(runs[0].signal.aborted).toBe(true);
+    expect(jobs.isActive('article')).toBe(true);
+    const restart = jobs.start('article');
+    await Promise.resolve();
+    expect(runs).toHaveLength(1);
+    runs[0].finish();
+    expect(await restart).toBe(true);
+    expect(runs).toHaveLength(2);
+    expect(runs[1].signal.aborted).toBe(false);
+    expect(jobs.isActive('article')).toBe(true);
+  });
+
   it('recovers a checkpoint after worker replacement without clearing completed work', async () => {
     const { saved, runs, makeJobs } = fixture();
     saved.set('project', { status: 'running', nodes: { passage: { text: 'Saved summary' } } });

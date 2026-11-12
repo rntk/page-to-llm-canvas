@@ -107,6 +107,9 @@ export function createPipelineRuntime({
       if (!options.allowAborted) runtime.assertActive();
       const updated = await updateRecord(runtime.key, patch, {
         expectedPipelineRunId: runtime.pipelineRunId,
+        // Only forwarded when given: it lets a failure write refuse to relabel a
+        // record that already reached a terminal status.
+        ...(options.expectedStatuses ? { expectedStatuses: options.expectedStatuses } : {}),
       });
       if (!updated) {
         // Losing the CAS means a newer run owns the record. That is a

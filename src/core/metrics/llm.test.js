@@ -594,6 +594,36 @@ describe('storage accessors', () => {
     await expect(getLlmMetrics()).resolves.toEqual(emptyLlmMetrics(100));
   });
 
+  it.each([LLM_METRICS_KEY, LLM_METRICS_EPOCH_KEY])(
+    'does not overwrite stored metrics when reading %s fails during record',
+    async (failingKey) => {
+      const stored = {
+        ...emptyLlmMetrics(0),
+        totalCount: 7,
+        successCount: 7,
+        totalDurationMs: 700,
+      };
+      const store = stubChromeStore({ [LLM_METRICS_KEY]: stored, [LLM_METRICS_EPOCH_KEY]: 0 });
+      const originalGet = chrome.storage.local.get;
+      chrome.storage.local.get = vi.fn((key, cb) => {
+        if (key === failingKey) {
+          chrome.runtime.lastError = { message: 'storage unavailable' };
+          cb(undefined);
+          chrome.runtime.lastError = undefined;
+          return;
+        }
+        originalGet(key, cb);
+      });
+
+      await expect(
+        recordLlmMetric({ durationMs: 10, ok: true, taskType: LLM_TASK_TYPES.TOPIC_RANGES }),
+      ).resolves.toBeUndefined();
+
+      expect(chrome.storage.local.set).not.toHaveBeenCalled();
+      expect(store[LLM_METRICS_KEY]).toBe(stored);
+    },
+  );
+
   it('caps recent entries at max', async () => {
     stubChromeStore();
 

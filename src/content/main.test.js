@@ -351,6 +351,33 @@ describe('content script main.jsx', () => {
     expect(document.getElementById('pagetollm-canvas-iframe')).toBeNull();
   });
 
+  it('keeps a selection with live picks across an SPA page change and on a repeated start', async () => {
+    const pickBtn = await startSelection();
+    const block = addElement('div', 'kept-pick');
+    await pick(pickBtn, block);
+    expect(toolbarQueryAll('.pagetollm-block-item')).toHaveLength(1);
+
+    pageChange();
+    expect(document.getElementById('pagetollm-selection-toolbar')).not.toBeNull();
+
+    await act(async () => {
+      messageListener({ action: 'startSelection' }, {}, vi.fn());
+    });
+    expect(toolbarQueryAll('.pagetollm-block-item')).toHaveLength(1);
+
+    block.remove();
+    pageChange();
+    expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
+  });
+
+  it('closes an empty selection on an SPA page change', async () => {
+    await startSelection();
+
+    pageChange();
+
+    expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
+  });
+
   it('ignores forged iframe commands from the host page', async () => {
     messageListener({ action: 'openRecordView', key: 'test-key', mode: 'canvas' }, {}, vi.fn());
     await new Promise((resolve) => setTimeout(resolve, 0));

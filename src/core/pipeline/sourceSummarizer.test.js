@@ -736,6 +736,55 @@ describe('makeSourceSummarizer', () => {
     }
   });
 
+  it('waits for in-flight sibling merges and starts no new ones after a merge failure', async () => {
+    vi.useFakeTimers();
+    const sentenceTexts = Array.from(
+      { length: 4 },
+      (_, index) => `${index + 1} ${'x'.repeat(500)}`,
+    );
+    const failure = new Error('merge two failed');
+    const events = [];
+    let chunkCall = 0;
+    let mergeCall = 0;
+    const callLLMWithRetry = vi.fn(async ({ prompt }) => {
+      if (!prompt.includes('Merge the partial summaries')) {
+        chunkCall++;
+        return `chunk-${chunkCall}-${'s'.repeat(34)}`;
+      }
+      const id = ++mergeCall;
+      // The first merge is the warmup; the second fails while its siblings are
+      // still in flight.
+      if (id === 2) {
+        events.push('merge:2:failed');
+        throw failure;
+      }
+      if (id === 1) return 'merged';
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      events.push(`merge:${id}:done`);
+      return 'merged';
+    });
+    const { summarize } = make(sentenceTexts, callLLMWithRetry, { maxChars: 100 });
+
+    try {
+      let settled = false;
+      const rejected = expect(summarize([1, 2, 3, 4])).rejects.toBe(failure);
+      void rejected.then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(10);
+      // Siblings are still running, so the failure must not have surfaced yet.
+      expect(events).toEqual(['merge:2:failed']);
+      expect(settled).toBe(false);
+      await vi.runAllTimersAsync();
+      await rejected;
+      expect(events).toEqual(['merge:2:failed', 'merge:3:done', 'merge:4:done', 'merge:5:done']);
+      // Warmup plus one wave of SUMMARY_CONCURRENCY; the other batches never start.
+      expect(mergeCall).toBe(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('waits for other oversized runs to finish persisting before surfacing a run failure', async () => {
     vi.useFakeTimers();
     const sentenceTexts = Array.from(

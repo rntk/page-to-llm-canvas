@@ -4,6 +4,7 @@ import {
   DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
   MAX_PARALLEL_LLM_REQUESTS_KEY,
 } from '../../core/settings/llmConcurrency.js';
+import { IN_FLIGHT_PIPELINE_STATUSES } from '../../shared/runtime/contracts.js';
 import { createChromeStorageFake } from '../../../test/fakes/chromeStorageFake.mjs';
 
 // The checkpoint predicates mirror the real ones in orchestrator.js (their own
@@ -43,6 +44,12 @@ vi.mock('./pipeline/orchestrator.js', async (importOriginal) => {
       dispose: vi.fn(),
     })),
   };
+});
+
+// Wrapped so the limiter handed to the chat service can be reached from tests.
+vi.mock('./chatCompletionService.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, createChatCompletionService: vi.fn(actual.createChatCompletionService) };
 });
 
 // `updateRecord` is wrapped (not replaced) so the real implementation still
@@ -235,6 +242,26 @@ describe('pipeline runner composition', () => {
     expect(deps.settings.normalizeMaxParallelLlmRequests(undefined)).toBe(
       DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
     );
+  });
+
+  it('applies the stored concurrency limit to chat work before any pipeline run', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    chromeMock.storage.local._store.set(MAX_PARALLEL_LLM_REQUESTS_KEY, 1);
+    const { createChatCompletionService } = await import('./chatCompletionService.js');
+    await import('./background.js');
+    const { limit } = createChatCompletionService.mock.calls.at(-1)[0];
+
+    let started = 0;
+    for (let i = 0; i < 3; i++) {
+      void limit(() => {
+        started++;
+        return new Promise(() => {});
+      });
+    }
+    await flushMicrotasks();
+
+    expect(started).toBe(1);
   });
 
   it('supplies every settings reader and collaborator the runner requires', async () => {
@@ -1903,7 +1930,7 @@ describe('background service-worker boundaries', () => {
     const onUnhandledRejection = (err) => unhandledRejections.push(err);
     globalThis.process.on('unhandledRejection', onUnhandledRejection);
 
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     // Fail only the index read `listRecords` performs. `lastError` is reported
     // inside the failing callback and cleared again on the way out, the way
     // Chrome scopes it, so the simulated failure cannot leak into unrelated
@@ -1927,13 +1954,13 @@ describe('background service-worker boundaries', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(unhandledRejections).toEqual([]);
-      expect(errorSpy).toHaveBeenCalledWith(
-        'PageToLLM Canvas keepalive listRecords failed:',
+      expect(warnSpy).toHaveBeenCalledWith(
+        'PageToLLM Canvas keepalive scan failed:',
         expect.any(Error),
       );
     } finally {
       globalThis.process.off('unhandledRejection', onUnhandledRejection);
-      errorSpy.mockRestore();
+      warnSpy.mockRestore();
     }
   });
 
@@ -1960,7 +1987,7 @@ describe('background service-worker boundaries', () => {
           status: 'error',
           error: expect.stringContaining('pipeline boom'),
         }),
-        { expectedPipelineRunId: undefined },
+        { expectedPipelineRunId: undefined, expectedStatuses: [...IN_FLIGHT_PIPELINE_STATUSES] },
       );
       const stored = await readRecord('fallback1');
       expect(stored.status).toBe('error');
@@ -2035,7 +2062,7 @@ describe('background service-worker boundaries', () => {
       expect(updateRecord).toHaveBeenCalledWith(
         'fallback3',
         expect.objectContaining({ status: 'error' }),
-        { expectedPipelineRunId: 'run-A' },
+        { expectedPipelineRunId: 'run-A', expectedStatuses: [...IN_FLIGHT_PIPELINE_STATUSES] },
       );
       expect(warnSpy).toHaveBeenCalledWith(
         'PageToLLM Canvas: fallback error-status write skipped (record superseded) for',
@@ -2054,6 +2081,43 @@ describe('background service-worker boundaries', () => {
     } finally {
       warnSpy.mockRestore();
       errorSpy.mockRestore();
+    }
+  });
+
+  it('keeps a committed done status when post-commit cleanup of the final write throws', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(chromeMock, makeRecord('fallback4', { status: 'summarizing' }));
+
+    const { startPipeline, _resetJobRegistry } = await import('./background.js');
+    const { runPipeline } = await import('./pipeline/orchestrator.js');
+    _resetJobRegistry();
+
+    // The final write commits via setLocal, then its removeLocal cleanup fails;
+    // the pipeline rejects as the orchestrator would have.
+    runPipeline.mockImplementationOnce(async () => {
+      chromeMock.storage.local.remove.mockImplementationOnce((_keys, callback) => {
+        chromeMock.runtime.lastError = { message: 'remove failed' };
+        callback();
+        chromeMock.runtime.lastError = null;
+      });
+      await updateRecord('fallback4', { status: 'done', topic_range_chunks: null });
+    });
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await startPipeline('fallback4');
+      expect(chromeMock.storage.local.remove).toHaveBeenCalled();
+      const stored = await readRecord('fallback4');
+      expect(stored.status).toBe('done');
+      expect(warnSpy).toHaveBeenCalledWith(
+        'PageToLLM Canvas: fallback error-status write skipped (record superseded) for',
+        'fallback4',
+      );
+    } finally {
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
     }
   });
 

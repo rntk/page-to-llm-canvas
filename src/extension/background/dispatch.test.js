@@ -4,6 +4,7 @@ import { LLM_METRICS_KEY } from '../../core/metrics/llm.js';
 import { CHAT_TOOL_METRICS_KEY } from '../../core/metrics/chatTool.js';
 import { PARSER_METRICS_KEY } from '../../core/metrics/parser.js';
 import { createChromeStorageFake } from '../../../test/fakes/chromeStorageFake.mjs';
+import { canRecoverSummaryTree, readSummaryTree } from '../../shared/runtime/summaryTree.js';
 
 const mockedRunPipeline = vi.hoisted(() =>
   vi.fn(() => new Promise((resolve) => setTimeout(resolve, 10))),
@@ -657,6 +658,90 @@ describe('dispatchMessage unit tests', () => {
       (await dispatchMessage({ type: 'getChat', key: 'replace-me', chatId: created.chat.chatId }))
         .ok,
     ).toBe(false);
+  });
+
+  it('keeps chats and a readable summary tree when an import re-supplies identical text', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+    const sender = { id: 'test-id', url: 'chrome-extension://test-id/options.html' };
+    await seedRecord(chromeMock, makeRecord('same', { text: 'same content' }));
+    const created = await dispatchMessage({
+      type: 'appendChatTurn',
+      key: 'same',
+      turn: { turnId: 't1', messages: [{ role: 'user', content: 'Question' }] },
+    });
+    const before = (await readRecord('same')).contentRevision;
+
+    const res = await dispatchMessage(
+      {
+        type: 'importRecords',
+        records: [
+          {
+            key: 'same',
+            html: '<p>same content</p>',
+            text: 'same content',
+            contentRevision: 'exported-revision',
+            summary_tree: {
+              version: 1,
+              status: 'running',
+              backgroundRecovery: true,
+              contentRevision: 'exported-revision',
+              updatedAt: Date.now(),
+              nodes: {},
+            },
+          },
+        ],
+      },
+      sender,
+    );
+
+    expect(res).toEqual({ ok: true, count: 1 });
+    const stored = await readRecord('same');
+    expect(stored.contentRevision).toBe(before);
+    expect(
+      (await dispatchMessage({ type: 'getChat', key: 'same', chatId: created.chat.chatId })).ok,
+    ).toBe(true);
+    expect(stored.summary_tree.contentRevision).toBe(before);
+    expect(readSummaryTree(stored.summary_tree, stored.contentRevision).status).toBe('cancelled');
+    expect(canRecoverSummaryTree(stored.summary_tree, stored.contentRevision)).toBe(false);
+  });
+
+  it('prunes chats and keeps the imported summary tree readable when imported text differs', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatchMessage = await loadDispatchMessage(chromeMock);
+    const sender = { id: 'test-id', url: 'chrome-extension://test-id/options.html' };
+    await seedRecord(chromeMock, makeRecord('changed', { text: 'old content' }));
+    const created = await dispatchMessage({
+      type: 'appendChatTurn',
+      key: 'changed',
+      turn: { turnId: 't1', messages: [{ role: 'user', content: 'Question' }] },
+    });
+
+    await dispatchMessage(
+      {
+        type: 'importRecords',
+        records: [
+          {
+            key: 'changed',
+            html: '<p>new content</p>',
+            text: 'new content',
+            summary_tree: {
+              version: 1,
+              status: 'done',
+              contentRevision: 'exported-revision',
+              nodes: {},
+            },
+          },
+        ],
+      },
+      sender,
+    );
+
+    const stored = await readRecord('changed');
+    expect(
+      (await dispatchMessage({ type: 'getChat', key: 'changed', chatId: created.chat.chatId })).ok,
+    ).toBe(false);
+    expect(readSummaryTree(stored.summary_tree, stored.contentRevision).status).toBe('done');
   });
 
   // A rail loads the record once and answers from that snapshot. If the record

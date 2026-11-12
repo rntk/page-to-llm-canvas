@@ -36,6 +36,14 @@ export function OptionsApp({
   // Mount panels on first visit and retain them to avoid repeating storage loads.
   const [visitedTabs, setVisitedTabs] = useState(() => new Set([tabFromHash()]));
   const [dataVersion, setDataVersion] = useState(0);
+  // Providers hold API keys and half-typed forms, and page-data deletion never
+  // touches them, so they remount only after a full extension reset.
+  const [providersVersion, setProvidersVersion] = useState(0);
+
+  const handleDataChanged = useCallback(({ providersChanged = false } = {}) => {
+    setDataVersion((version) => version + 1);
+    if (providersChanged) setProvidersVersion((version) => version + 1);
+  }, []);
 
   const goToTab = useCallback((tabId) => {
     setActiveTab(tabId);
@@ -116,7 +124,7 @@ export function OptionsApp({
         aria-labelledby="options-tab-providers"
         hidden={activeTab !== 'providers'}
       >
-        {visitedTabs.has('providers') && <ProvidersSection key={`providers-${dataVersion}`} />}
+        {visitedTabs.has('providers') && <ProvidersSection key={`providers-${providersVersion}`} />}
       </div>
 
       <section
@@ -159,9 +167,7 @@ export function OptionsApp({
         aria-labelledby="options-tab-data"
         hidden={activeTab !== 'data'}
       >
-        {visitedTabs.has('data') && (
-          <DataManagementSection onDataChanged={() => setDataVersion((version) => version + 1)} />
-        )}
+        {visitedTabs.has('data') && <DataManagementSection onDataChanged={handleDataChanged} />}
       </section>
 
       <div

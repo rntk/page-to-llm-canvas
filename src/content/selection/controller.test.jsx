@@ -380,6 +380,55 @@ describe('selection controller', () => {
     }
   });
 
+  it('reports connected picks and in-flight submission to the coordinator', async () => {
+    const block = mountBlock('state-probe', 'Probe');
+    const pending = deferred();
+    runtimeMessenger.send.mockReturnValue(pending.promise);
+    act(() => showSelectionToolbar(runtimeMessenger));
+    expect(activeController.hasPicks()).toBe(false);
+    expect(activeController.isSubmitting()).toBe(false);
+
+    click(toolbarButton('pagetollm-pick-btn'));
+    act(() => block.dispatchEvent(event('click')));
+    expect(activeController.hasPicks()).toBe(true);
+
+    block.remove();
+    expect(activeController.hasPicks()).toBe(false);
+    document.body.appendChild(block);
+    expect(activeController.hasPicks()).toBe(true);
+
+    await act(async () => click(toolbarButton('pagetollm-submit-btn')));
+    await vi.waitFor(() => expect(runtimeMessenger.send).toHaveBeenCalled());
+    expect(activeController.isSubmitting()).toBe(true);
+
+    const controller = activeController;
+    pending.resolve({ ok: true });
+    await flush();
+    expect(controller.isSubmitting()).toBe(false);
+    expect(controller.hasPicks()).toBe(false);
+  });
+
+  it('lets the user cancel a stalled submission and ignores the late failure', async () => {
+    const block = mountBlock('stalled', 'Stalled');
+    const pending = deferred();
+    runtimeMessenger.send.mockReturnValue(pending.promise);
+    act(() => showSelectionToolbar(runtimeMessenger));
+    click(toolbarButton('pagetollm-pick-btn'));
+    act(() => block.dispatchEvent(event('click')));
+    await act(async () => click(toolbarButton('pagetollm-submit-btn')));
+    await vi.waitFor(() => expect(runtimeMessenger.send).toHaveBeenCalled());
+
+    const cancel = toolbarButton('pagetollm-cancel-btn');
+    expect(cancel.disabled).toBe(false);
+    await act(async () => click(cancel));
+    expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
+
+    pending.resolve({ ok: false, error: 'too late' });
+    await flush();
+    expect(alert).not.toHaveBeenCalled();
+    expect(document.getElementById('pagetollm-selection-toolbar')).toBeNull();
+  });
+
   it('alerts on submission failure and keeps the selection for retry', async () => {
     const block = mountBlock('failed', 'Fail me');
     runtimeMessenger.send.mockResolvedValue({ ok: false, error: 'network down' });

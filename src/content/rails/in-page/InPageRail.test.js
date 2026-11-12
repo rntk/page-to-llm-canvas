@@ -995,4 +995,40 @@ describe('InPageRail', () => {
 
     unmount();
   });
+
+  it.each([
+    ['topics notes layout', { mode: 'topics', topicLayout: 'notes' }],
+    ['topics cards layout', { mode: 'topics', topicLayout: 'cards' }],
+    ['summaries', { mode: 'summaries' }],
+  ])('shows an empty-state notice with an open-full-view action in %s', (_label, props) => {
+    const onOpenFullView = vi.fn();
+    const { container, unmount } = render(
+      createElement(InPageRail, { ...defaultProps, ...props, cards: [], onOpenFullView }),
+    );
+
+    const notice = container.querySelector('.pagetollm-rail-empty');
+    expect(notice.textContent).toContain("Can't find this text on the page any more");
+    act(() => notice.querySelector('button').click());
+    expect(onOpenFullView).toHaveBeenCalledOnce();
+    expect(container.querySelector('.pagetollm-rail-head')).not.toBeNull();
+
+    unmount();
+  });
+
+  it('omits the empty-state action without a handler, while measuring, and in chat mode', () => {
+    const first = render(createElement(InPageRail, { ...defaultProps, cards: [] }));
+    expect(first.container.querySelector('.pagetollm-rail-empty')).not.toBeNull();
+    expect(first.container.querySelector('.pagetollm-rail-empty button')).toBeNull();
+    first.unmount();
+
+    const measuring = render(
+      createElement(InPageRail, { ...defaultProps, cards: [], isMeasuring: true }),
+    );
+    expect(measuring.container.querySelector('.pagetollm-rail-empty')).toBeNull();
+    measuring.unmount();
+
+    const chat = render(createElement(InPageRail, { ...defaultProps, mode: 'chat', cards: [] }));
+    expect(chat.container.querySelector('.pagetollm-rail-empty')).toBeNull();
+    chat.unmount();
+  });
 });

@@ -244,8 +244,9 @@ function ArticleChat({
   useEffect(() => {
     if (!scopeRequest || appliedScopeRequest.current === scopeRequest) return;
     appliedScopeRequest.current = scopeRequest;
-    invalidate();
-    setInput('');
+    // A question still in flight returns to the composer instead of vanishing
+    // with the chat it was asked in; any finished answer is dropped with that chat.
+    setInput(invalidate(true, { restoreQuestion: true }) ?? '');
     setShowHistory(false);
     setActiveTab('chat');
     startNewChat(scopeRequest.paths);

@@ -332,6 +332,25 @@ describe('useChatSessions', () => {
     expect(ctx.current.isLoadingHistory).toBe(false);
   });
 
+  it('resets the deleted active chat even when re-listing the chats fails', async () => {
+    api.list
+      .mockResolvedValueOnce([{ chatId: 'active' }])
+      .mockRejectedValueOnce(new Error('list failed'));
+    api.get.mockResolvedValue(chat('active', { messages: [{ content: 'old' }] }));
+    const ctx = setup();
+    await flushAsyncWork();
+    expect(ctx.current.activeChatId).toBe('active');
+
+    let result;
+    await act(async () => {
+      result = await ctx.current.deleteChat('active');
+    });
+    expect(result).toBe(false);
+    expect(ctx.current.error).toBe('list failed');
+    expect(ctx.current.activeChatId).toBeNull();
+    expect(ctx.current.messages).toEqual([]);
+  });
+
   it('rejects an empty delete and surfaces both explicit and fallback delete errors', async () => {
     const ctx = setup();
     await flushAsyncWork();

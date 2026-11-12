@@ -417,6 +417,17 @@ describe('App composition behavior', () => {
     await act(async () => root.unmount());
   });
 
+  it('stays open when a refresh fails but the loaded record is still usable', async () => {
+    const onClose = vi.fn();
+    state.error = 'transient refetch failure';
+
+    const { container, root } = await renderApp('record-1', { onClose });
+
+    expect(container.childElementCount).toBeGreaterThan(0);
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => root.unmount());
+  });
+
   it('closes the canvas when its record is deleted', async () => {
     const onClose = vi.fn();
     state.record = null;

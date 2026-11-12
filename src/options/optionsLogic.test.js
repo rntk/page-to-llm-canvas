@@ -11,6 +11,7 @@ import {
   recordActionRouting,
   actionResponseError,
   shouldWarnTokenWipe,
+  tokenWipeWarning,
   actionToMessageType,
   actionConfirmPrompt,
   actionErrorMessage,
@@ -278,6 +279,64 @@ describe('shouldWarnTokenWipe', () => {
     expect(shouldWarnTokenWipe(providerWithoutUrl, { token: '', url: 'http://new' })).toBe(true);
     // keeping the URL blank → no change
     expect(shouldWarnTokenWipe(providerWithoutUrl, { token: '', url: '' })).toBe(false);
+  });
+
+  describe('provider type change', () => {
+    const openai = { type: 'openai', hasToken: true, url: '' };
+
+    it('returns true when the type changes with a blank token and a stored token', () => {
+      expect(shouldWarnTokenWipe(openai, { type: 'anthropic', token: '', url: '' })).toBe(true);
+      expect(shouldWarnTokenWipe(openai, { type: 'anthropic', token: '  ', url: '' })).toBe(true);
+    });
+
+    it('returns false when the type is unchanged', () => {
+      expect(shouldWarnTokenWipe(openai, { type: 'openai', token: '', url: '' })).toBe(false);
+    });
+
+    it('returns false when a new token is supplied with the type change', () => {
+      expect(shouldWarnTokenWipe(openai, { type: 'anthropic', token: 'sk-x', url: '' })).toBe(
+        false,
+      );
+    });
+
+    it('returns false when no token is stored', () => {
+      expect(
+        shouldWarnTokenWipe(
+          { ...openai, hasToken: false },
+          { type: 'anthropic', token: '', url: '' },
+        ),
+      ).toBe(false);
+    });
+  });
+});
+
+describe('tokenWipeWarning', () => {
+  it('returns null when no warning is needed', () => {
+    expect(
+      tokenWipeWarning(
+        { type: 'openai', hasToken: true, url: '' },
+        { type: 'openai', token: '', url: '' },
+      ),
+    ).toBeNull();
+    expect(tokenWipeWarning(null, { type: 'openai', token: '', url: '' })).toBeNull();
+  });
+
+  it('mentions the provider type when the type changed', () => {
+    expect(
+      tokenWipeWarning(
+        { type: 'openai', hasToken: true, url: '' },
+        { type: 'anthropic', token: '', url: '' },
+      ),
+    ).toMatch(/provider type/);
+  });
+
+  it('mentions the base URL when only the URL changed', () => {
+    expect(
+      tokenWipeWarning(
+        { type: 'openai_comp', hasToken: true, url: 'http://old' },
+        { type: 'openai_comp', token: '', url: 'http://new' },
+      ),
+    ).toMatch(/base URL/);
   });
 });
 

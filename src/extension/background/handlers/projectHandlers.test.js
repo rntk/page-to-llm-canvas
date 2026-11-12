@@ -175,6 +175,34 @@ describe('project excerpt handlers', () => {
     expect(projectService.deleteProject).not.toHaveBeenCalled();
   });
 
+  it('stops the project merge before deleting the project', async () => {
+    const calls = [];
+    const excerptService = makeExcerptService();
+    excerptService.deleteProject.mockImplementation(async () => {
+      calls.push('delete');
+      return { deleted: true };
+    });
+    const topicTreeService = {
+      stop: vi.fn(async () => {
+        await Promise.resolve();
+        calls.push('stop');
+        return { stopped: true };
+      }),
+    };
+    const handlers = createProjectHandlers({
+      projectService: makeService(),
+      pageChatService: {},
+      excerptService,
+      topicTreeService,
+    });
+    expect(await handlers[MSG.deleteProject].handle({ projectId: 'a' })).toEqual({
+      ok: true,
+      deleted: true,
+    });
+    expect(topicTreeService.stop).toHaveBeenCalledWith('a');
+    expect(calls).toEqual(['stop', 'delete']);
+  });
+
   it('rejects excerpt requests without an excerpt service', async () => {
     const handlers = createProjectHandlers({ projectService: makeService(), pageChatService: {} });
     await expect(

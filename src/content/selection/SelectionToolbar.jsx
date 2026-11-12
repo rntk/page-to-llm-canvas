@@ -79,7 +79,6 @@ export default function SelectionToolbar({
         <button
           id="pagetollm-cancel-btn"
           type="button"
-          disabled={isSubmitting}
           title={cancelHint}
           aria-label={cancelHint}
           onClick={onCancel}

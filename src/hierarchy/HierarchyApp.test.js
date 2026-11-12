@@ -281,6 +281,50 @@ describe('HierarchyApp', () => {
     unmount();
   });
 
+  it('clamps the selected level when an in-place reprocess lowers the maximum level', () => {
+    const deepRecord = {
+      status: 'done',
+      topics: [
+        { name: 'Fruit > Citrus > Orange', sentences: [1] },
+        { name: 'Veggie', sentences: [2] },
+      ],
+      topic_summaries: {},
+      topic_summary_index: {},
+    };
+    useRecord.mockReturnValue({ record: deepRecord, error: null });
+    const { container, rerender, unmount } = render(
+      createElement(HierarchyApp, { initialKey: 'key1' }),
+    );
+    const activeLevel = () =>
+      container.querySelector('.th-page__level-switcher .topic-level-switcher__button.active')
+        .textContent;
+    act(() =>
+      Array.from(container.querySelectorAll('.topic-level-switcher__button'))
+        .find((button) => button.textContent === 'L2')
+        .click(),
+    );
+    expect(activeLevel()).toBe('L2');
+
+    useRecord.mockReturnValue({
+      record: {
+        ...deepRecord,
+        topics: [
+          { name: 'Fruit > Citrus', sentences: [1] },
+          { name: 'Veggie', sentences: [2] },
+        ],
+      },
+      error: null,
+    });
+    rerender(createElement(HierarchyApp, { initialKey: 'key1' }));
+
+    const labels = Array.from(container.querySelectorAll('.topic-level-switcher__button')).map(
+      (button) => button.textContent,
+    );
+    expect(labels).toEqual(['L0', 'L1']);
+    expect(activeLevel()).toBe('L1');
+    unmount();
+  });
+
   it('resets level, collapsed branches, and summary modal when initialKey changes', () => {
     useRecord.mockReturnValue({
       record: {

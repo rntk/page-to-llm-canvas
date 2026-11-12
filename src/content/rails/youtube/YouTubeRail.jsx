@@ -59,6 +59,23 @@ export default function YouTubeRail({
   const [chatActionsTarget, setChatActionsTarget] = useState(null);
   const [scopeRequest, setScopeRequest] = useState(null);
   const handleScopeRequestHandled = useCallback(() => setScopeRequest(null), []);
+  // Outcome of the latest card click, scoped to the mode it happened in.
+  const [seekNotice, setSeekNotice] = useState(null);
+  const handleCardSeek = useCallback(
+    async (seconds) => {
+      const result = await onSeek(seconds);
+      if (!result?.message) {
+        setSeekNotice(null);
+        return;
+      }
+      setSeekNotice({
+        mode,
+        tone: result.tone || (result.ok === false ? 'error' : 'success'),
+        message: result.message,
+      });
+    },
+    [onSeek, mode],
+  );
   const topicActions = useMemo(
     () => [
       ...suppliedTopicActions,
@@ -384,7 +401,7 @@ export default function YouTubeRail({
                       position,
                     ].join(' ')}
                     style={{ '--pagetollm-card-accent': card.accent }}
-                    onClick={() => onSeek(card.seconds)}
+                    onClick={() => handleCardSeek(card.seconds)}
                     title={`Jump to ${formatTimestampLabel(card.seconds)}`}
                   >
                     <div className="pagetollm-yt-rail-card-head">
@@ -431,6 +448,15 @@ export default function YouTubeRail({
           </>
         )}
       </div>
+      {!isChat && seekNotice?.mode === mode ? (
+        <div
+          className={`pagetollm-chat-status is-${seekNotice.tone}`}
+          role={seekNotice.tone === 'error' ? 'alert' : 'status'}
+          aria-live={seekNotice.tone === 'error' ? 'assertive' : 'polite'}
+        >
+          {seekNotice.message}
+        </div>
+      ) : null}
     </>
   );
 }

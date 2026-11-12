@@ -70,6 +70,80 @@ describe('content surface coordinator lazy loading', () => {
     expect(loader).toHaveBeenCalledTimes(2);
   });
 
+  describe('selection session persistence', () => {
+    function selectionHarness(state = {}) {
+      const controllers = [];
+      const createSelectionSurface = vi.fn(({ onDestroy }) => {
+        const controller = {
+          hasPicks: vi.fn(() => state.picks ?? false),
+          isSubmitting: vi.fn(() => state.submitting ?? false),
+          destroy: vi.fn(() => onDestroy()),
+        };
+        controllers.push(controller);
+        return controller;
+      });
+      const harness = createHarness({ selection: vi.fn(async () => ({ createSelectionSurface })) });
+      return { ...harness, controllers, createSelectionSurface };
+    }
+
+    it('returns the existing controller when selection is requested twice', async () => {
+      const { coordinator, controllers, createSelectionSurface } = selectionHarness();
+
+      const first = await coordinator.openSelection();
+      const second = await coordinator.openSelection();
+
+      expect(second).toBe(first);
+      expect(createSelectionSurface).toHaveBeenCalledTimes(1);
+      expect(controllers[0].destroy).not.toHaveBeenCalled();
+    });
+
+    it('opens a fresh selection after the previous one was destroyed', async () => {
+      const { coordinator, controllers, createSelectionSurface } = selectionHarness();
+
+      await coordinator.openSelection();
+      controllers[0].destroy();
+      await coordinator.openSelection();
+
+      expect(createSelectionSurface).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps a selection with live picks across a page change', async () => {
+      const { coordinator, controllers } = selectionHarness({ picks: true });
+      await coordinator.openSelection();
+
+      coordinator.handlePageChange();
+
+      expect(controllers[0].destroy).not.toHaveBeenCalled();
+    });
+
+    it('keeps a selection that is submitting across a page change', async () => {
+      const { coordinator, controllers } = selectionHarness({ submitting: true });
+      await coordinator.openSelection();
+
+      coordinator.handlePageChange();
+
+      expect(controllers[0].destroy).not.toHaveBeenCalled();
+    });
+
+    it('closes an empty idle selection on a page change', async () => {
+      const { coordinator, controllers } = selectionHarness();
+      await coordinator.openSelection();
+
+      coordinator.handlePageChange();
+
+      expect(controllers[0].destroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('still closes a record frame on a page change', async () => {
+      const { coordinator, frameManager } = createHarness();
+      await coordinator.openRecordFrame('key');
+
+      coordinator.handlePageChange();
+
+      expect(frameManager.close).toHaveBeenCalled();
+    });
+  });
+
   it('cancels a delayed selection import when a frame wins the race', async () => {
     const selectionModule = deferred();
     const createSelectionSurface = vi.fn(() => ({ destroy: vi.fn() }));

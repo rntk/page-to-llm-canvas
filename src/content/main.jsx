@@ -32,7 +32,7 @@ const surfaces = createContentSurfaceCoordinator({
 observePageNavigation({
   document,
   window,
-  onPageChange: () => surfaces.closeActiveSurface(),
+  onPageChange: () => surfaces.handlePageChange(),
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

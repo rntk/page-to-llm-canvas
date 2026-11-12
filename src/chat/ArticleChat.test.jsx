@@ -1344,6 +1344,326 @@ describe('ArticleChat persisted history', () => {
   });
 });
 
+describe('ArticleChat turn lifecycle', () => {
+  function deferredValue() {
+    let resolve;
+    const promise = new Promise((resolvePromise) => {
+      resolve = resolvePromise;
+    });
+    return { promise, resolve };
+  }
+
+  function stopButtonOf(container) {
+    return Array.from(container.querySelectorAll('.pagetollm-chat-composer button')).find(
+      (button) => button.textContent === 'Stop',
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatLimits.getChatLimits.mockResolvedValue({ maxChunkChars: 1258, maxHistoryChars: 628 });
+    api.list.mockResolvedValue([{ chatId: 'chat-1', title: 'First', updatedAt: 1 }]);
+    api.get.mockResolvedValue({ chatId: 'chat-1', messages: [], events: [] });
+  });
+
+  it('saves into a new chat when the active chat was deleted before the answer was saved', async () => {
+    turnLoop.runArticleChatTurn.mockResolvedValue({ reply: 'Recovered.', highlightRanges: [] });
+    api.append
+      .mockRejectedValueOnce(new Error('chat not found'))
+      .mockImplementationOnce(async (_key, _chatId, turn) => ({
+        chat: { chatId: 'chat-new', messages: turn.messages, events: [], scope: turn.scope },
+      }));
+    const { container, unmount } = render(
+      <ArticleChat recordKey="record-1" sentences={['One']} onClearHighlights={vi.fn()} />,
+    );
+    await flushAsyncWork();
+    typeQuestion(container, 'Save me');
+    await clickSend(container);
+
+    expect(turnLoop.runArticleChatTurn).toHaveBeenCalledTimes(1);
+    expect(api.append).toHaveBeenCalledTimes(2);
+    expect(api.append.mock.calls[0][1]).toBe('chat-1');
+    expect(api.append.mock.calls[1][1]).toBeNull();
+    expect(api.append.mock.calls[1][2].turnId).toBe(api.append.mock.calls[0][2].turnId);
+    expect(container.querySelector('.pagetollm-chat-error')).toBeNull();
+    expect(container.textContent).toContain('Recovered.');
+    unmount();
+  });
+
+  it('recovers a replacement chat after its save response is lost', async () => {
+    turnLoop.runArticleChatTurn.mockResolvedValue({ reply: 'Recovered.', highlightRanges: [] });
+    let savedChat;
+    let savedTurnId;
+    api.append.mockImplementation(async (_key, chatId, turn) => {
+      if (chatId) {
+        throw new Error(savedChat ? 'turn already belongs to another chat' : 'chat not found');
+      }
+      if (savedChat) {
+        expect(turn.turnId).toBe(savedTurnId);
+        return { chat: savedChat };
+      }
+      savedTurnId = turn.turnId;
+      savedChat = {
+        chatId: 'chat-new',
+        messages: turn.messages.map((message) => ({ ...message, turnId: turn.turnId })),
+        events: [],
+      };
+      throw new Error('Runtime response lost');
+    });
+    const { container, unmount } = render(
+      <ArticleChat recordKey="record-1" sentences={['One']} onClearHighlights={vi.fn()} />,
+    );
+    await flushAsyncWork();
+    typeQuestion(container, 'Save me');
+    await clickSend(container);
+    expect(container.textContent).toContain('answer is unsaved');
+
+    await clickSend(container);
+    expect(api.append.mock.calls.map((call) => call[1])).toEqual(['chat-1', null, null]);
+    expect(turnLoop.runArticleChatTurn).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('.pagetollm-chat-error')).toBeNull();
+    expect(container.querySelector('.pagetollm-chat-composer textarea').value).toBe('');
+    expect(container.textContent).toContain('Recovered.');
+    unmount();
+  });
+
+  it.each([null, 'chat-1'])(
+    'does not restore a saved question when hidden during refresh (initial chat %s)',
+    async (initialChatId) => {
+      const refresh = deferredValue();
+      const initialChats = initialChatId ? [{ chatId: initialChatId, title: 'First' }] : [];
+      api.list
+        .mockResolvedValue(initialChats)
+        .mockResolvedValueOnce(initialChats)
+        .mockReturnValueOnce(refresh.promise);
+      turnLoop.runArticleChatTurn.mockResolvedValue({
+        reply: 'Saved answer.',
+        highlightRanges: [],
+      });
+      api.append.mockImplementation(async (_key, _chatId, turn) => ({
+        chat: { chatId: initialChatId || 'chat-new', messages: turn.messages, events: [] },
+      }));
+      const element = (mode) => (
+        <Activity mode={mode}>
+          <ArticleChat recordKey="record-1" sentences={['One']} onClearHighlights={vi.fn()} />
+        </Activity>
+      );
+      const view = render(element('visible'));
+      await flushAsyncWork();
+      typeQuestion(view.container, 'Already answered');
+      await clickSend(view.container);
+      expect(view.container.textContent).toContain('Saved answer.');
+      expect(api.list).toHaveBeenCalledTimes(2);
+
+      view.rerender(element('hidden'));
+      await flushAsyncWork();
+      view.rerender(element('visible'));
+      await flushAsyncWork();
+      expect(view.container.querySelector('.pagetollm-chat-composer textarea').value).toBe('');
+      await clickSend(view.container);
+      expect(turnLoop.runArticleChatTurn).toHaveBeenCalledTimes(1);
+      expect(api.append).toHaveBeenCalledTimes(1);
+      await act(async () => refresh.resolve(initialChats));
+      view.unmount();
+    },
+  );
+
+  it('ignores Stop once the answer has arrived and clears a stale stopping notice', async () => {
+    turnLoop.runArticleChatTurn.mockResolvedValue({ reply: 'Complete.', highlightRanges: [] });
+    const save = deferredValue();
+    api.append.mockReturnValue(save.promise);
+    const { container, unmount } = render(
+      <ArticleChat recordKey="record-1" sentences={['One']} onClearHighlights={vi.fn()} />,
+    );
+    await flushAsyncWork();
+    typeQuestion(container, 'Finish me');
+    await clickSend(container);
+    const turnOptions = turnLoop.runArticleChatTurn.mock.calls[0][0];
+
+    act(() => stopButtonOf(container).click());
+    await flushAsyncWork();
+    expect(turnOptions.runtime.signal.aborted).toBe(false);
+    expect(container.querySelector('.pagetollm-chat-status.is-progress')).toBeNull();
+
+    await act(async () => {
+      save.resolve({
+        chat: {
+          chatId: 'chat-1',
+          messages: [
+            { role: 'user', content: 'Finish me' },
+            { role: 'assistant', content: 'Complete.' },
+          ],
+          events: [],
+        },
+      });
+    });
+    await flushAsyncWork();
+    expect(container.textContent).toContain('Complete.');
+    expect(container.querySelector('.pagetollm-chat-status')).toBeNull();
+    unmount();
+  });
+
+  it('clears the stopping notice when the runner finishes anyway and the answer is saved', async () => {
+    const finish = deferredValue();
+    turnLoop.runArticleChatTurn.mockReturnValue(finish.promise);
+    api.append.mockImplementation(async (_key, _chatId, turn) => ({
+      chat: { chatId: 'chat-1', messages: turn.messages, events: [], scope: turn.scope },
+    }));
+    const { container, unmount } = render(
+      <ArticleChat recordKey="record-1" sentences={['One']} onClearHighlights={vi.fn()} />,
+    );
+    await flushAsyncWork();
+    typeQuestion(container, 'Race the stop');
+    await clickSend(container);
+
+    act(() => stopButtonOf(container).click());
+    expect(container.querySelector('.pagetollm-chat-status.is-progress').textContent).toBe(
+      'Stopping response…',
+    );
+    await act(async () => finish.resolve({ reply: 'Raced.', highlightRanges: [] }));
+    await flushAsyncWork();
+
+    expect(api.append).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain('Raced.');
+    expect(container.querySelector('.pagetollm-chat-status')).toBeNull();
+    unmount();
+  });
+
+  it('lets Stop interrupt a pending limits lookup immediately', async () => {
+    chatLimits.getChatLimits.mockReturnValue(new Promise(() => {}));
+    const { container, unmount } = render(
+      <ArticleChat recordKey="record-1" sentences={['One']} onClearHighlights={vi.fn()} />,
+    );
+    await flushAsyncWork();
+    typeQuestion(container, 'Stop early');
+    await clickSend(container);
+
+    act(() => stopButtonOf(container).click());
+    await flushAsyncWork();
+
+    expect(turnLoop.runArticleChatTurn).not.toHaveBeenCalled();
+    expect(container.querySelector('.pagetollm-chat-composer textarea').value).toBe('Stop early');
+    expect(container.querySelector('.pagetollm-chat-status.is-warning').textContent).toBe(
+      'Response stopped.',
+    );
+    unmount();
+  });
+
+  it('lets Stop interrupt a pending source read immediately', async () => {
+    const { container, unmount } = render(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={[]}
+        resolveSentences={() => new Promise(() => {})}
+        onClearHighlights={vi.fn()}
+      />,
+    );
+    await flushAsyncWork();
+    typeQuestion(container, 'Stop reading');
+    await clickSend(container);
+
+    act(() => stopButtonOf(container).click());
+    await flushAsyncWork();
+
+    expect(turnLoop.runArticleChatTurn).not.toHaveBeenCalled();
+    expect(container.querySelector('.pagetollm-chat-composer textarea').value).toBe('Stop reading');
+    expect(container.querySelector('.pagetollm-chat-status.is-warning').textContent).toBe(
+      'Response stopped.',
+    );
+    unmount();
+  });
+
+  it('restores the question when the panel is hidden mid-turn via Activity', async () => {
+    turnLoop.runArticleChatTurn.mockReturnValue(new Promise(() => {}));
+    const element = (mode) => (
+      <Activity mode={mode}>
+        <ArticleChat recordKey="record-1" sentences={['One']} onClearHighlights={vi.fn()} />
+      </Activity>
+    );
+    const view = render(element('visible'));
+    await flushAsyncWork();
+    typeQuestion(view.container, 'Do not lose me');
+    await clickSend(view.container);
+    expect(view.container.querySelector('.pagetollm-chat-composer textarea').value).toBe('');
+
+    view.rerender(element('hidden'));
+    await flushAsyncWork();
+    view.rerender(element('visible'));
+    await flushAsyncWork();
+
+    expect(view.container.querySelector('.pagetollm-chat-composer textarea').value).toBe(
+      'Do not lose me',
+    );
+    expect(api.append).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it('keeps a finished-but-unsaved answer retryable when the panel is hidden mid-save', async () => {
+    turnLoop.runArticleChatTurn.mockResolvedValue({ reply: 'Held answer.', highlightRanges: [] });
+    const save = deferredValue();
+    api.append
+      .mockReturnValueOnce(save.promise)
+      .mockImplementationOnce(async (_key, _chatId, turn) => ({
+        chat: { chatId: 'chat-1', messages: turn.messages, events: [], scope: turn.scope },
+      }));
+    const element = (mode) => (
+      <Activity mode={mode}>
+        <ArticleChat recordKey="record-1" sentences={['One']} onClearHighlights={vi.fn()} />
+      </Activity>
+    );
+    const view = render(element('visible'));
+    await flushAsyncWork();
+    typeQuestion(view.container, 'Hold this answer');
+    await clickSend(view.container);
+    expect(api.append).toHaveBeenCalledTimes(1);
+
+    view.rerender(element('hidden'));
+    await flushAsyncWork();
+    view.rerender(element('visible'));
+    await flushAsyncWork();
+    expect(view.container.querySelector('.pagetollm-chat-composer textarea').value).toBe(
+      'Hold this answer',
+    );
+    expect(view.container.textContent).toContain('Held answer.');
+
+    await clickSend(view.container);
+    expect(turnLoop.runArticleChatTurn).toHaveBeenCalledTimes(1);
+    expect(api.append).toHaveBeenCalledTimes(2);
+    expect(api.append.mock.calls[1][2].turnId).toBe(api.append.mock.calls[0][2].turnId);
+    view.unmount();
+  });
+});
+
+describe('ArticleChat scope request mid-turn', () => {
+  it('returns the in-flight question to the composer and drops its answer', async () => {
+    vi.clearAllMocks();
+    chatLimits.getChatLimits.mockResolvedValue({ maxChunkChars: 1258, maxHistoryChars: 628 });
+    api.list.mockResolvedValue([]);
+    turnLoop.runArticleChatTurn.mockReturnValue(new Promise(() => {}));
+    const view = render(<ArticleChat recordKey="record-1" sentences={['One', 'Two']} />);
+    await flushAsyncWork();
+    typeQuestion(view.container, 'Asked before the scope changed');
+    await clickSend(view.container);
+    const turnOptions = turnLoop.runArticleChatTurn.mock.calls[0][0];
+
+    view.rerender(
+      <ArticleChat
+        recordKey="record-1"
+        sentences={['One', 'Two']}
+        scopeRequest={{ paths: ['Research'], nonce: 1 }}
+      />,
+    );
+    await flushAsyncWork();
+
+    expect(turnOptions.runtime.signal.aborted).toBe(true);
+    expect(view.container.querySelector('.pagetollm-chat-composer textarea').value).toBe(
+      'Asked before the scope changed',
+    );
+    expect(api.append).not.toHaveBeenCalled();
+    view.unmount();
+  });
+});
+
 describe('ArticleChat late-bound sources', () => {
   beforeEach(() => {
     vi.clearAllMocks();

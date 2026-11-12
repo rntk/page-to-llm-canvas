@@ -148,21 +148,37 @@ export function actionResponseError(resp, action) {
 }
 
 /**
- * Returns true when saving a custom-URL provider edit should prompt the user
- * about wiping the stored token because the base URL changed while the token
- * field was left blank.
+ * Returns true when saving a provider edit should prompt the user about
+ * wiping the stored token: the token field was left blank while either the
+ * provider type changed, or (for custom-URL providers) the base URL changed.
  *
  * @param {object|null} editingProvider  – the provider object from state (may be null)
- * @param {{ token: string, url: string }} form  – current form values
+ * @param {{ type?: string, token: string, url: string }} form  – current form values
  * @returns {boolean}
  */
 export function shouldWarnTokenWipe(editingProvider, form) {
+  if (!editingProvider?.hasToken || form.token.trim()) return false;
+  if (form.type && form.type !== editingProvider.type) return true;
   return (
-    !!getProviderDefinition(editingProvider?.type)?.requiresUrl &&
-    !!editingProvider.hasToken &&
-    !form.token.trim() &&
+    !!getProviderDefinition(editingProvider.type)?.requiresUrl &&
     (editingProvider.url || '') !== form.url.trim()
   );
+}
+
+/**
+ * Returns the confirmation message to show before saving a provider edit that
+ * would wipe the stored token, or null when no warning is needed.
+ *
+ * @param {object|null} editingProvider
+ * @param {{ type?: string, token: string, url: string }} form
+ * @returns {string|null}
+ */
+export function tokenWipeWarning(editingProvider, form) {
+  if (!shouldWarnTokenWipe(editingProvider, form)) return null;
+  if (form.type && form.type !== editingProvider.type) {
+    return 'Changing this provider type will wipe the stored token, and no new token was entered. Save anyway?';
+  }
+  return 'Changing this provider base URL will wipe the stored token for the previous URL. Save anyway?';
 }
 
 /**

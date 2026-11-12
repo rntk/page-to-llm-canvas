@@ -1,5 +1,9 @@
 import { formatPipelineError } from './pipeline/pipelineRuntime.js';
-import { isInFlightPipelineStatus, isInFlightRecord } from '../../shared/runtime/contracts.js';
+import {
+  IN_FLIGHT_PIPELINE_STATUSES,
+  isInFlightPipelineStatus,
+  isInFlightRecord,
+} from '../../shared/runtime/contracts.js';
 import { errorTransition } from '../../shared/runtime/recordTransitions.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { STORAGE_UNAVAILABLE_MESSAGE } from './pipelineFailureBreaker.js';
@@ -232,6 +236,9 @@ export function createPipelineSupervisor({
           try {
             const updated = await updateRecord(key, errorTransition(formatPipelineError(err)), {
               expectedPipelineRunId: pipelineRunId,
+              // A done/needs_attention record whose post-commit cleanup threw
+              // keeps its committed status instead of being relabelled ERROR.
+              expectedStatuses: [...IN_FLIGHT_PIPELINE_STATUSES],
             });
             if (!updated) {
               logger.warn('fallback error-status write skipped (record superseded) for', key);
@@ -315,7 +322,10 @@ export function createPipelineSupervisor({
     }
   }
 
-  /** Resume orphaned jobs on an alarm tick and clear the alarm when idle. */
+  /**
+   * Resume orphaned jobs on an alarm tick and clear the alarm when idle.
+   * @param {{name: string}} alarm
+   */
   function handleKeepAliveAlarm(alarm) {
     if (alarm.name === KEEPALIVE_ALARM) {
       void reconcileInFlight({ rearm: false, log: keepaliveLog }).catch((err) => {
