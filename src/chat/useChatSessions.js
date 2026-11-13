@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { normalizeChatScope } from './topicScope.js';
 
-/** Map a stored highlight_span event to a paintable sentence range.
+/** Map a stored highlight_span event to a paintable sentence range. A project
+ * chat's page highlight also keeps its page (`pageUrl`, `pageTitle`, `page`)
+ * and the cited lines as captured (`excerpt`).
  * @param {object} event Stored chat event.
  */
 export function eventRange(event) {
   if (event?.eventType !== 'highlight_span') return null;
-  const startLine = Number(event.data?.startLine);
-  const endLine = Number(event.data?.endLine);
+  const data = event.data || {};
+  const startLine = Number(data.startLine);
+  const endLine = Number(data.endLine);
   if (!Number.isInteger(startLine) || !Number.isInteger(endLine)) return null;
-  return { startLine, endLine, label: event.data?.label || '' };
+  const range = { startLine, endLine, label: data.label || '' };
+  if (typeof data.pageUrl === 'string' && data.pageUrl) {
+    range.pageUrl = data.pageUrl;
+    range.pageTitle = typeof data.pageTitle === 'string' ? data.pageTitle : '';
+    if (Number.isInteger(data.page)) range.page = data.page;
+    if (Array.isArray(data.excerpt)) range.excerpt = data.excerpt.map((line) => String(line ?? ''));
+  }
+  return range;
 }
 
 function eventsForTurn(events, event) {

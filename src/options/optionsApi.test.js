@@ -28,6 +28,7 @@ describe('options API', () => {
       providers: [{ id: 'p1' }],
       activeId: 'p1',
       splitterId: null,
+      pageScanId: null,
       error: null,
       transportError: false,
     });

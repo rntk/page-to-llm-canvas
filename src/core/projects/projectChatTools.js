@@ -1,5 +1,5 @@
-// Tools and context for the project chat. The chat answers over the project's
-// saved, merged topic tree only: no live pages and no raw records. Internal
+// Tree tools and context for the project chat: an optional extra over the
+// project's saved, merged topic tree (the page tools live in projectPageTools.js). Internal
 // global row ids never reach the model; every sentence is identified by its
 // article and that article's own sentence number, so two articles that both
 // have a "sentence 1" can never be confused. Node ids ("n3") are opaque
@@ -522,7 +522,7 @@ function createSearchTopics(model) {
 }
 
 const USAGE_GUIDANCE = [
-  'You can only see this merged topic tree through the tools; you cannot read live pages or unsaved text.',
+  'These tree tools cover only the articles merged into this tree, as saved when it was built; a page that is not merged is not in the tree.',
   'Start with get_topic (the root, then a branch), and use search_topics to find where a subject is discussed.',
   'Summaries are short pointers. Before stating specifics, verify them with read_topic_content (or get_claim_sources for one summary claim).',
   'A node with summary_status "missing" has no summary: read its content instead.',
@@ -557,7 +557,7 @@ function buildPreamble(model, { tree, eligiblePages, skippedPages, stale, maxCha
   const notes = ['PROJECT TOPIC TREE'];
   if (!model) {
     notes.push(
-      'No merged topic tree has been built for this project yet, so there is nothing to search or read. Tell the user to run "Merge similar topics" from Project actions first.',
+      'No merged topic tree has been built for this project yet, so the topic tree tools have nothing to search or read. Answer from the pages instead.',
     );
   } else {
     const status = tree.status ?? 'done';

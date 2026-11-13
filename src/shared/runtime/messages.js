@@ -21,6 +21,8 @@ export const MSG = Object.freeze({
   getArticleChatLimits: 'getArticleChatLimits',
   llmChatCompletion: 'llmChatCompletion',
   cancelChatTurn: 'cancelChatTurn',
+  getProjectChatScanConfig: 'getProjectChatScanConfig',
+  projectChatDecide: 'projectChatDecide',
   recordChatToolMetric: 'recordChatToolMetric',
   clearChatToolMetrics: 'clearChatToolMetrics',
   clearParserMetrics: 'clearParserMetrics',
@@ -33,6 +35,7 @@ export const MSG = Object.freeze({
   deleteProvider: 'deleteProvider',
   setActiveProvider: 'setActiveProvider',
   setTopicSplitter: 'setTopicSplitter',
+  setPageScanProvider: 'setPageScanProvider',
   openOptionsPage: 'openOptionsPage',
   listProjectsOverview: 'listProjectsOverview',
   createProjectFromGroup: 'createProjectFromGroup',
@@ -49,4 +52,5 @@ export const MSG = Object.freeze({
   deleteProjectExcerpt: 'deleteProjectExcerpt',
   acknowledgeProjectExcerptFocus: 'acknowledgeProjectExcerptFocus',
   readProjectExcerptPage: 'readProjectExcerptPage',
+  readProjectPageText: 'readProjectPageText',
 });

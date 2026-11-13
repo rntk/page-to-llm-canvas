@@ -15,6 +15,8 @@ const NO_EXCERPTS = [];
  * @param {function(string): Promise<*>} props.deleteExcerpt
  * @param {function(string): Promise<*>} props.acknowledgeFocus
  * @param {object} props.tabsHost
+ * @param {import('./useChatEvidence.js').ChatEvidence[]} [props.chatEvidence] The project chat's evidence card.
+ * @param {function(string): void} [props.onDismissChatEvidence]
  * @param {boolean} props.active
  */
 export function CanvasPanel({
@@ -25,6 +27,8 @@ export function CanvasPanel({
   deleteExcerpt,
   acknowledgeFocus,
   tabsHost,
+  chatEvidence,
+  onDismissChatEvidence,
   active,
 }) {
   const renderPageChat = useCallback(
@@ -66,6 +70,8 @@ export function CanvasPanel({
         active={active}
         tabs={view.tabs}
         excerpts={view.excerpts || NO_EXCERPTS}
+        chatEvidence={chatEvidence}
+        onDismissChatEvidence={onDismissChatEvidence}
         focusExcerptId={view.focusExcerptId || null}
         onFocusHandled={handleFocus}
         tabsHost={tabsHost}

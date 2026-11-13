@@ -409,22 +409,34 @@ h3 {
   grid-column: 1 / -1;
 }
 
-.topic-splitter {
+.provider-assignments {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 16px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
   margin-top: 16px;
 }
 
-.topic-splitter select {
+.provider-assignment {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 100%;
+}
+
+.provider-assignment select {
   width: 280px;
   max-width: 100%;
   min-width: 0;
 }
 
+.provider-assignment .note {
+  margin-top: 6px;
+  max-width: 560px;
+}
+
 .provider-form label,
-.topic-splitter label {
+.provider-assignment label {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -433,13 +445,9 @@ h3 {
   margin-bottom: 6px;
 }
 
-.topic-splitter label {
-  margin-bottom: 0;
-}
-
 .provider-form input,
 .provider-form select,
-.topic-splitter select {
+.provider-assignment select {
   padding: 8px 10px;
   border: 1px solid var(--ink);
   border-radius: 0;
@@ -451,7 +459,7 @@ h3 {
 
 .provider-form input:focus,
 .provider-form select:focus,
-.topic-splitter select:focus {
+.provider-assignment select:focus {
   outline: none;
   border-width: 2px;
   padding: 7px 9px;
@@ -621,12 +629,13 @@ h3 {
     grid-template-columns: 1fr;
   }
 
-  .topic-splitter {
+  .provider-assignments,
+  .provider-assignment {
     align-items: stretch;
-    flex-direction: column;
+    width: 100%;
   }
 
-  .topic-splitter select {
+  .provider-assignment select {
     width: 100%;
   }
 

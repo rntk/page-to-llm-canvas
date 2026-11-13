@@ -164,7 +164,7 @@ export function validateDecisionUrl(url, hasToken) {
   return parsed;
 }
 
-/** Storage key holding the full provider state ({ providers, activeId, splitterId }). */
+/** Storage key holding the full provider state ({ providers, activeId, splitterId, pageScanId }). */
 export const PROVIDERS_KEY = 'pagetollm:llm:providers';
 
 /**
@@ -188,6 +188,8 @@ export const PROVIDERS_KEY = 'pagetollm:llm:providers';
  * @property {string|null} activeId
  * @property {string|null} splitterId Decision provider placing topic boundaries;
  *   null lets the completion LLM split topics.
+ * @property {string|null} pageScanId Decision provider scanning each project page
+ *   for relevance before the project chat answers; null lets the completion LLM scan.
  */
 
 /**
@@ -221,7 +223,8 @@ async function readProvidersDocument() {
     activeId = providers.find(isCompletionProvider)?.id ?? null;
   }
   const splitterId = typeof raw?.splitterId === 'string' ? raw.splitterId : null;
-  return { state: { providers, activeId, splitterId }, unrecognized };
+  const pageScanId = typeof raw?.pageScanId === 'string' ? raw.pageScanId : null;
+  return { state: { providers, activeId, splitterId, pageScanId }, unrecognized };
 }
 
 /**
@@ -235,13 +238,14 @@ export function sanitizeProvider(provider) {
 
 /**
  * @param {ProvidersState} state
- * @returns {{providers: Array<{id: string, name: string, type: string, model: string, url: string, serviceTier: string, contextWindowTokens: number, hasToken: boolean}>, activeId: string|null, splitterId: string|null}}
+ * @returns {{providers: Array<{id: string, name: string, type: string, model: string, url: string, serviceTier: string, contextWindowTokens: number, hasToken: boolean}>, activeId: string|null, splitterId: string|null, pageScanId: string|null}}
  */
 export function sanitizeProvidersState(state) {
   return {
     providers: state.providers.map(sanitizeProvider),
     activeId: state.activeId,
     splitterId: state.splitterId ?? null,
+    pageScanId: state.pageScanId ?? null,
   };
 }
 
@@ -371,8 +375,10 @@ export async function saveProvider(input) {
       }
       state.providers[existingIndex] = entry;
     }
-    // An entry saved as a non-decision type can no longer be the splitter.
+    // An entry saved as a non-decision type can no longer be the splitter
+    // or the project chat page scanner.
     if (state.splitterId === entry.id && !isDecisionProvider(entry)) state.splitterId = null;
+    if (state.pageScanId === entry.id && !isDecisionProvider(entry)) state.pageScanId = null;
     const completionProviders = state.providers.filter(isCompletionProvider);
     if (!completionProviders.some((p) => p.id === state.activeId)) {
       // Only auto-activate the very first completion provider. Otherwise leave
@@ -400,6 +406,7 @@ export async function deleteProvider(id) {
     state.providers = state.providers.filter((p) => p.id !== id);
     if (state.activeId === id) state.activeId = null;
     if (state.splitterId === id) state.splitterId = null;
+    if (state.pageScanId === id) state.pageScanId = null;
     await writeProvidersState(state, document);
     return state;
   });
@@ -469,5 +476,41 @@ export async function setTopicSplitter(id) {
 export async function getDecisionProvider() {
   const { providers, splitterId } = await getProvidersState();
   const provider = providers.find((p) => p.id === splitterId);
+  return provider && isDecisionProvider(provider) ? provider : null;
+}
+
+/**
+ * Selects the decision provider that scans each project page for relevance
+ * before the project chat answers; null lets the completion LLM scan.
+ * @param {string|null} id
+ * @returns {Promise<ProvidersState>}
+ */
+export async function setPageScanProvider(id) {
+  return queuedUpdate(PROVIDERS_KEY, async () => {
+    const document = await readProvidersDocument();
+    const { state } = document;
+    if (id != null) {
+      const provider = state.providers.find((p) => p.id === id);
+      if (!provider) {
+        throw new Error(`Unknown provider id: ${id}`);
+      }
+      if (!isDecisionProvider(provider)) {
+        throw new Error('Only decision providers can scan project pages');
+      }
+    }
+    state.pageScanId = id ?? null;
+    await writeProvidersState(state, document);
+    return state;
+  });
+}
+
+/**
+ * Returns the selected project chat page-scan decision provider, or null when
+ * the completion LLM scans pages.
+ * @returns {Promise<ProviderEntry|null>}
+ */
+export async function getPageScanProvider() {
+  const { providers, pageScanId } = await getProvidersState();
+  const provider = providers.find((p) => p.id === pageScanId);
   return provider && isDecisionProvider(provider) ? provider : null;
 }

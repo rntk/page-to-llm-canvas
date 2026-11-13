@@ -28,6 +28,34 @@ describe('projects api', () => {
     expect(send).toHaveBeenLastCalledWith({ type: MSG.stopProjectTopicTree, projectId: 'a' });
   });
 
+  it('reads page text for the project chat and passes chat requests through raw', async () => {
+    const send = vi.fn(async (message) =>
+      message.type === MSG.readProjectPageText
+        ? { ok: true, sentences: ['One.'], truncated: false, source: 'record', topics: ['T'] }
+        : { ok: false, error: 'nope', cancelled: true },
+    );
+    const api = createProjectsApi({ send });
+    expect(await api.readPageText('a', 'https://x.test/')).toEqual({
+      sentences: ['One.'],
+      truncated: false,
+      source: 'record',
+      topics: ['T'],
+    });
+    expect(send).toHaveBeenCalledWith({
+      type: MSG.readProjectPageText,
+      projectId: 'a',
+      url: 'https://x.test/',
+    });
+    // Chat requests keep their {ok: false} shape; the turn runner interprets it.
+    const request = { type: MSG.projectChatDecide, questions: { q: {} }, chatTurnId: 't' };
+    expect(await api.sendChatRequest(request)).toEqual({
+      ok: false,
+      error: 'nope',
+      cancelled: true,
+    });
+    expect(send).toHaveBeenLastCalledWith(request);
+  });
+
   it('rejects worker errors and empty responses', async () => {
     await expect(
       createProjectsApi({

@@ -13,6 +13,7 @@ describe('temperatureTaskForTaskType', () => {
     expect(temperatureTaskForTaskType('topic_summary_from_source')).toBe(TemperatureTask.SUMMARIES);
     expect(temperatureTaskForTaskType('chat_answer')).toBe(TemperatureTask.CHAT);
     expect(temperatureTaskForTaskType('chat_synthesis')).toBe(TemperatureTask.CHAT);
+    expect(temperatureTaskForTaskType('chat_page_scan')).toBe(TemperatureTask.CHAT);
     expect(temperatureTaskForTaskType('topic_ranges')).toBe(TemperatureTask.SPLITTING);
     expect(temperatureTaskForTaskType('topic_resplit')).toBe(TemperatureTask.SPLITTING);
     expect(temperatureTaskForTaskType('topic_labels')).toBe(TemperatureTask.SPLITTING);

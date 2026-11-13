@@ -101,6 +101,91 @@ describe('project chat turns', () => {
     ]);
   });
 
+  it('records page highlights through the project highlight tool', async () => {
+    let round = 0;
+    const send = vi.fn(async () => {
+      round += 1;
+      if (round === 1) {
+        return {
+          ok: true,
+          content: '',
+          toolCalls: [
+            {
+              id: 'h1',
+              name: 'highlight_span',
+              arguments: { page: 1, start_line: 2, end_line: 3 },
+            },
+            {
+              id: 'h2',
+              name: 'highlight_span',
+              arguments: { page: 1, start_line: 3, end_line: 3 },
+            },
+            {
+              id: 'h3',
+              name: 'highlight_span',
+              arguments: { page: 2, start_line: 3, end_line: 3 },
+            },
+            {
+              id: 'h4',
+              name: 'highlight_span',
+              arguments: { page: 9, start_line: 1, end_line: 1 },
+            },
+          ],
+        };
+      }
+      return { ok: true, content: 'Cats purr.' };
+    });
+    const resolve = vi.fn(async (args) => {
+      if (args.page === 9)
+        throw Object.assign(new Error('page 9 is not a project page'), {
+          code: 'invalid_arguments',
+        });
+      return {
+        page: args.page,
+        pageUrl: `https://p${args.page}.test/`,
+        startLine: args.start_line,
+        endLine: args.end_line,
+        label: '',
+        excerpt: ['x'],
+      };
+    });
+    const definition = {
+      name: 'highlight_span',
+      description: 'Page lines.',
+      parameters: { type: 'object' },
+    };
+    const onHighlight = vi.fn();
+    const recordToolMetric = vi.fn();
+    const result = await runArticleChatTurn({
+      article: { history: [], sentences: [], source },
+      highlightTool: { definition, resolve },
+      question: 'Why do cats purr?',
+      limits: { maxChunkChars: 4000, maxHistoryChars: 0 },
+      effects: { onHighlight },
+      dependencies: { send, cancelTurn: vi.fn(), recordToolMetric },
+    });
+
+    expect(send.mock.calls[0][0].tools).toEqual([definition]);
+    expect(result.highlightRanges.map((r) => [r.pageUrl, r.startLine, r.endLine])).toEqual([
+      ['https://p1.test/', 2, 3],
+      ['https://p2.test/', 3, 3],
+    ]);
+    expect(onHighlight).toHaveBeenCalledTimes(2);
+    const toolMessages = send.mock.calls[1][0].messages.filter((m) => m.role === 'tool');
+    expect(toolMessages.map((m) => m.content)).toEqual([
+      'Highlighted page 1 lines 2-3.',
+      'Skipped page 1 lines 3-3: that passage is already highlighted.',
+      'Highlighted page 2 lines 3-3.',
+      'Error: page 9 is not a project page',
+    ]);
+    expect(recordToolMetric.mock.calls.map(([sample]) => sample.outcome)).toEqual([
+      CHAT_TOOL_OUTCOMES.HIGHLIGHTED,
+      CHAT_TOOL_OUTCOMES.OVERLAP_SKIPPED,
+      CHAT_TOOL_OUTCOMES.HIGHLIGHTED,
+      CHAT_TOOL_OUTCOMES.INVALID_ARGUMENTS,
+    ]);
+  });
+
   it('shares the source budget between the preamble and tool results', async () => {
     let calls = 0;
     const send = vi.fn(async () => {
@@ -139,5 +224,26 @@ describe('project chat turns', () => {
     const overview = JSON.parse(send.mock.calls[0][0].messages[1].content).overview;
     expect(overview.length).toBeLessThanOrEqual(500);
     expect(overview).toMatch(/\[overview truncated\]$/);
+  });
+});
+
+describe('PROJECT_CHAT_SYSTEM_PROMPT', () => {
+  it('describes page tools, scan leads and the optional topic tree', () => {
+    for (const needle of [
+      'read_page',
+      'search_page',
+      'ask_pages',
+      'Scan results are leads',
+      'may or may not be available',
+      '"Page title, lines N–M"',
+      '"Article title, sentences N–M"',
+      'Answer in the same language',
+      'highlight_span',
+      'quoted excerpt',
+      'Security rules:',
+    ]) {
+      expect(PROJECT_CHAT_SYSTEM_PROMPT).toContain(needle);
+    }
+    expect(PROJECT_CHAT_SYSTEM_PROMPT).not.toMatch(/topics were merged into one topic tree/);
   });
 });

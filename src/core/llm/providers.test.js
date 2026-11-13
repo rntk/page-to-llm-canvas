@@ -206,6 +206,7 @@ describe('provider storage', () => {
       providers: [],
       activeId: null,
       splitterId: null,
+      pageScanId: null,
     });
     expect(await mod.getActiveProvider()).toBeNull();
   });
@@ -260,6 +261,69 @@ describe('provider storage', () => {
     await mod.setTopicSplitter(decision.id);
     expect((await mod.deleteProvider(decision.id)).splitterId).toBeNull();
     expect(await mod.getDecisionProvider()).toBeNull();
+  });
+
+  it('selects the project chat page scan provider independently of the splitter', async () => {
+    const mod = await freshProviders();
+    expect(await mod.getPageScanProvider()).toBeNull();
+    const completion = await mod.saveProvider({
+      type: 'openai',
+      name: 'A',
+      model: 'gpt-4o',
+      token: 'k',
+    });
+    const decision = await mod.saveProvider({
+      type: 'llama_decision',
+      name: 'Decisions',
+      url: 'http://localhost:8080',
+    });
+    expect(await mod.getPageScanProvider()).toBeNull();
+    const state = await mod.setPageScanProvider(decision.id);
+    expect(state.pageScanId).toBe(decision.id);
+    expect(state.splitterId).toBeNull();
+    expect((await mod.getPageScanProvider()).id).toBe(decision.id);
+    expect(await mod.getDecisionProvider()).toBeNull();
+    expect(mod.sanitizeProvidersState(await mod.getProvidersState()).pageScanId).toBe(decision.id);
+
+    await expect(mod.setPageScanProvider(completion.id)).rejects.toThrow(
+      'Only decision providers can scan project pages',
+    );
+    await expect(mod.setPageScanProvider('nope')).rejects.toThrow(/Unknown provider/);
+    expect((await mod.setPageScanProvider(null)).pageScanId).toBeNull();
+    expect(await mod.getPageScanProvider()).toBeNull();
+  });
+
+  it('clears the page scan provider when it is deleted or re-saved as another type', async () => {
+    const mod = await freshProviders();
+    const decision = await mod.saveProvider({
+      type: 'llama_decision',
+      name: 'Decisions',
+      url: 'http://localhost:8080',
+    });
+    await mod.setPageScanProvider(decision.id);
+    await mod.saveProvider({ id: decision.id, type: 'openai', name: 'D', model: 'gpt-4o' });
+    expect((await mod.getProvidersState()).pageScanId).toBeNull();
+
+    const other = await mod.saveProvider({
+      type: 'llama_decision',
+      name: 'Other',
+      url: 'http://localhost:8081',
+    });
+    await mod.setPageScanProvider(other.id);
+    expect((await mod.deleteProvider(other.id)).pageScanId).toBeNull();
+    expect(await mod.getPageScanProvider()).toBeNull();
+  });
+
+  it('ignores a stored page scan id that is not a decision provider', async () => {
+    installFakeStorage({
+      [PROVIDERS_KEY]: {
+        providers: [{ id: 'completion', type: 'openai', name: 'A', model: 'gpt-4o' }],
+        activeId: 'completion',
+        pageScanId: 'completion',
+      },
+    });
+    const mod = await freshProviders();
+    expect(await mod.getPageScanProvider()).toBeNull();
   });
 
   it('ignores a stored splitter id that is not a decision provider', async () => {
@@ -358,6 +422,7 @@ describe('provider storage', () => {
       ],
       activeId: second.id,
       splitterId: null,
+      pageScanId: null,
     });
   });
 

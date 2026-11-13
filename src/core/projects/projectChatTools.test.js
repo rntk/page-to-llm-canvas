@@ -114,6 +114,7 @@ describe('createProjectChatTools', () => {
     expect(chat.tools).toEqual([]);
     expect(chat.preamble).toMatch(/No merged topic tree/);
     expect(chat.preamble).toContain('Page <https://p.test/>');
+    expect(chat.preamble).not.toMatch(/Tell the user to run/);
   });
 });
 
@@ -240,6 +241,10 @@ describe('preamble', () => {
     expect(chat.preamble.length).toBeLessThanOrEqual(6000);
     expect(chat.preamble).toMatch(/more not listed/);
     expect(chat.preamble).toContain('How to use it:');
+    expect(chat.preamble).toContain(
+      'These tree tools cover only the articles merged into this tree',
+    );
+    expect(chat.preamble).not.toMatch(/cannot read live pages/);
     expect(chat.preamble).toContain('Skipped 0');
     const tiny = setup({ skippedPages, preambleMaxChars: 100 }).chat.preamble;
     expect(tiny.length).toBeLessThanOrEqual(1500);

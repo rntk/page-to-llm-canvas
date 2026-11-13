@@ -65,6 +65,7 @@ function buildGroups() {
       deleteProvider: vi.fn(),
       setActiveProvider: vi.fn(),
       setTopicSplitter: vi.fn(),
+      setPageScanProvider: vi.fn(),
       sanitizeProvider: vi.fn(),
       sanitizeProvidersState: vi.fn(),
     }),
@@ -135,6 +136,8 @@ describe('message handler registry (no chrome global)', () => {
         MSG.getArticleChatLimits,
         MSG.llmChatCompletion,
         MSG.cancelChatTurn,
+        MSG.getProjectChatScanConfig,
+        MSG.projectChatDecide,
         MSG.listChats,
         MSG.getChat,
         MSG.appendChatTurn,
@@ -147,6 +150,7 @@ describe('message handler registry (no chrome global)', () => {
         MSG.deleteProvider,
         MSG.setActiveProvider,
         MSG.setTopicSplitter,
+        MSG.setPageScanProvider,
         MSG.getStorageOverview,
         MSG.deleteAllExtensionData,
         MSG.openOptionsPage,
@@ -162,6 +166,7 @@ describe('message handler registry (no chrome global)', () => {
         MSG.captureProjectPageText,
         MSG.deleteProjectExcerpt,
         MSG.readProjectExcerptPage,
+        MSG.readProjectPageText,
       ].sort(),
     );
     // No group may lose an entry to a later spread.
@@ -202,6 +207,10 @@ describe('message handler registry (no chrome global)', () => {
     for (const type of [MSG.clearParserMetrics, MSG.clearChatToolMetrics]) {
       expect(groups.metrics[type].requiresExtensionPage, type).toBe(true);
     }
+    for (const type of [MSG.getProjectChatScanConfig, MSG.projectChatDecide]) {
+      expect(groups.chat[type].requiresExtensionPage, type).toBe(true);
+    }
+    expect(groups.chat[MSG.cancelChatTurn].requiresExtensionPage).toBe(false);
     expect(groups.record[MSG.getRecordView].requiresExtensionPage).toBe(false);
     expect(groups.metrics[MSG.recordChatToolMetric].requiresExtensionPage).toBe(false);
     expect(groups.record[MSG.submit].requiresExtensionPage).toBe(false);

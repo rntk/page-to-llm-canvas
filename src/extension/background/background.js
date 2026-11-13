@@ -51,6 +51,7 @@ import {
 import {
   getActiveProvider,
   getDecisionProvider,
+  getPageScanProvider,
   getProvidersState,
   sanitizeProvider,
   sanitizeProvidersState,
@@ -58,6 +59,7 @@ import {
   deleteProvider,
   setActiveProvider,
   setTopicSplitter,
+  setPageScanProvider,
 } from '../../core/llm/providers.js';
 import { createActionIconController, createActionIconDependencies } from './actionIcon.js';
 import { createSummaryTreeJobs } from './summaryTreeJobs.js';
@@ -71,6 +73,7 @@ import { browserLocalStore } from '../../shared/runtime/localStore.js';
 import { createPipelineSupervisor } from './pipelineSupervisor.js';
 import { createPipelineFailureBreaker } from './pipelineFailureBreaker.js';
 import { createChatCompletionService } from './chatCompletionService.js';
+import { createProjectChatDecisionService } from './projectChatDecisions.js';
 import { createSubmitRecord } from './submitRecord.js';
 import { createDispatcher } from './dispatch.js';
 import { installBackgroundRuntime } from './runtime.js';
@@ -347,6 +350,33 @@ const chatService = createChatCompletionService({
   keepAlive: () => chrome.runtime.getPlatformInfo(),
 });
 
+// Project chat page scans share the chat's interactive slot and idle-timer
+// heartbeat, but go to the selected decision provider.
+const decisionService = createProjectChatDecisionService({
+  getPageScanProvider,
+  createDecisionClient: ({ url, token, model }) =>
+    new DecisionClient({ baseUrl: url, apiKey: token, model }),
+  limit: async (task, signal) => {
+    await seedProviderLimiter();
+    return providerLimiter.run(task, signal, { priority: true });
+  },
+  wrapDecide,
+  getVerboseLogs: getStoredVerboseLogs,
+  keepAlive: () => chrome.runtime.getPlatformInfo(),
+});
+
+// A full reset must stop every provider request, including page-scan decisions.
+const resetChatService = {
+  cancelAll() {
+    chatService.cancelAll();
+    decisionService.cancelAll();
+  },
+  activeCompletionJobs: () => [
+    ...chatService.activeCompletionJobs(),
+    ...decisionService.activeCompletionJobs(),
+  ],
+};
+
 const handleSubmitImpl = createSubmitRecord({
   recordRepository,
   getStoredSummariesDisabled,
@@ -385,6 +415,7 @@ const MESSAGE_HANDLERS = {
     chatRepository,
     chatService,
     providerRepository: { getActiveProvider },
+    decisionService,
   }),
   ...createMetricsHandlers({
     recordChatToolMetric,
@@ -397,12 +428,13 @@ const MESSAGE_HANDLERS = {
     deleteProvider,
     setActiveProvider,
     setTopicSplitter,
+    setPageScanProvider,
     sanitizeProvider,
     sanitizeProvidersState,
   }),
   ...createDataManagementHandlers({
     pipelineSupervisor,
-    chatService,
+    chatService: resetChatService,
     getStorageOverview,
     clearAllExtensionData,
     metricsClears: [clearLlmMetrics, clearParserMetrics, clearChatToolMetrics],

@@ -13,6 +13,7 @@ import { CanvasNode } from './CanvasNode.jsx';
 import { useNodePositions } from './useNodePositions.js';
 import { useOpenChats } from './useOpenChats.js';
 import { useExcerptFocus } from './useExcerptFocus.js';
+import { isChatEvidence } from './useChatEvidence.js';
 
 const NO_EXCERPTS = [];
 
@@ -26,6 +27,10 @@ const NO_EXCERPTS = [];
  * @param {object} props
  * @param {object[]} props.tabs
  * @param {object[]} [props.excerpts] The project's excerpts, oldest first.
+ * @param {import('./useChatEvidence.js').ChatEvidence[]} [props.chatEvidence] The project
+ *   chat's picked highlight: an unsaved card that stacks and links like an
+ *   excerpt (after them), with Close instead of a chat fold or Delete.
+ * @param {function(string): void} [props.onDismissChatEvidence] Closes an evidence card by id.
  * @param {{activateTab: function(number): Promise<void>}} props.tabsHost
  * @param {function(object, {id: string, onClose: function(): void}): import('react').ReactNode} [props.renderPageChat]
  *   Renders a tab's chat drawer (`id` is the one its fold controls); without it
@@ -40,6 +45,8 @@ const NO_EXCERPTS = [];
 export function ProjectCanvas({
   tabs,
   excerpts = NO_EXCERPTS,
+  chatEvidence = NO_EXCERPTS,
+  onDismissChatEvidence,
   tabsHost,
   renderPageChat,
   renderExcerptChat,
@@ -61,7 +68,11 @@ export function ProjectCanvas({
   const { openChats, setChatOpen, raiseNode, nodeZIndex } = useOpenChats();
   useExcerptFocus({ focusExcerptId, excerpts, renderExcerptChat, setChatOpen, onFocusHandled });
 
-  const links = useMemo(() => linkExcerpts(tabs, excerpts), [tabs, excerpts]);
+  const cards = useMemo(
+    () => (chatEvidence.length ? [...excerpts, ...chatEvidence] : excerpts),
+    [excerpts, chatEvidence],
+  );
+  const links = useMemo(() => linkExcerpts(tabs, cards), [tabs, cards]);
   const layout = useMemo(
     () =>
       layoutProjectCanvas(
@@ -101,13 +112,13 @@ export function ProjectCanvas({
         >
           {links.pageOf.size > 0 && (
             <svg className="canvas-links" aria-hidden="true" width="1" height="1">
-              {excerpts.map((excerpt) => {
+              {cards.map((excerpt) => {
                 const page = links.pageOf.get(excerpt.id);
                 if (!page) return null;
                 return (
                   <path
                     key={excerpt.id}
-                    className="excerpt-link"
+                    className={`excerpt-link${isChatEvidence(excerpt) ? ' is-chat-evidence' : ''}`}
                     data-excerpt-id={excerpt.id}
                     d={excerptConnectorPath(pagePosition(page.id), excerptPosition(excerpt.id))}
                   />
@@ -139,10 +150,32 @@ export function ProjectCanvas({
               </CanvasNode>
             );
           })}
-          {excerpts.map((excerpt) => {
+          {cards.map((excerpt) => {
             const key = excerptNodeKey(excerpt.id);
             const position = excerptPosition(excerpt.id);
             const page = links.pageOf.get(excerpt.id) || null;
+            if (isChatEvidence(excerpt)) {
+              return (
+                <CanvasNode
+                  key={key}
+                  nodeKey={key}
+                  position={position}
+                  chatOpen={false}
+                  zIndex={nodeZIndex(key, true)}
+                  raiseNode={raiseNode}
+                  setChatOpen={setChatOpen}
+                >
+                  <ExcerptCard
+                    excerpt={excerpt}
+                    page={page}
+                    tabsHost={tabsHost}
+                    evidence
+                    onClose={() => onDismissChatEvidence?.(excerpt.id)}
+                    onDragStart={(event) => startDrag(key, position, event)}
+                  />
+                </CanvasNode>
+              );
+            }
             const chatOpen = !!renderExcerptChat && openChats.has(key);
             return (
               <CanvasNode

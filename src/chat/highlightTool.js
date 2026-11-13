@@ -27,11 +27,14 @@ export const HIGHLIGHT_SPAN_TOOL = Object.freeze({
 });
 
 /**
- * @param {{startLine: number, endLine: number}} a First range.
- * @param {{startLine: number, endLine: number}} b Second range.
+ * Ranges on different pages (a project chat's `pageUrl`) never overlap; article
+ * ranges have no page and compare by lines alone.
+ * @param {{startLine: number, endLine: number, pageUrl?: string}} a First range.
+ * @param {{startLine: number, endLine: number, pageUrl?: string}} b Second range.
  * @returns {boolean}
  */
 export function rangesOverlap(a, b) {
+  if ((a.pageUrl || '') !== (b.pageUrl || '')) return false;
   return a.startLine <= b.endLine && b.startLine <= a.endLine;
 }
 

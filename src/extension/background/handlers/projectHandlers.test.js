@@ -44,6 +44,33 @@ describe('project handlers', () => {
     });
   });
 
+  it('reads a page by URL for the project chat scan', async () => {
+    const pageChatService = {
+      readPageText: vi.fn(async () => ({
+        sentences: ['One.'],
+        truncated: false,
+        source: 'record',
+        topics: ['T'],
+      })),
+    };
+    const handlers = createProjectHandlers({ projectService: makeService(), pageChatService });
+    const entry = handlers[MSG.readProjectPageText];
+    expect(entry.requiresExtensionPage).toBe(true);
+    expect(entry.validate({ url: 'https://a.test/' })).toBe('invalid projectId');
+    expect(entry.validate({ projectId: 'a' })).toBe('invalid url');
+    expect(entry.validate({ projectId: 'a', url: '  ' })).toBe('invalid url');
+    expect(entry.validate({ projectId: 'a', url: 5 })).toBe('invalid url');
+    expect(entry.validate({ projectId: 'a', url: 'https://a.test/' })).toBeNull();
+    expect(await entry.handle({ projectId: 'a', url: 'https://a.test/' })).toEqual({
+      ok: true,
+      sentences: ['One.'],
+      truncated: false,
+      source: 'record',
+      topics: ['T'],
+    });
+    expect(pageChatService.readPageText).toHaveBeenCalledWith('a', 'https://a.test/');
+  });
+
   it('keeps every project action extension-page only', () => {
     for (const [type, entry] of Object.entries(
       createProjectHandlers({ projectService: makeService(), pageChatService: {} }),

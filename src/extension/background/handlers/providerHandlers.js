@@ -10,6 +10,7 @@ import { MSG } from '../../../shared/runtime/messages.js';
  * @param {Function} deps.deleteProvider
  * @param {Function} deps.setActiveProvider
  * @param {Function} deps.setTopicSplitter
+ * @param {Function} deps.setPageScanProvider Selects the project chat page-scan decision provider.
  * @param {Function} deps.sanitizeProvider
  * @param {Function} deps.sanitizeProvidersState
  */
@@ -19,6 +20,7 @@ export function createProviderHandlers({
   deleteProvider,
   setActiveProvider,
   setTopicSplitter,
+  setPageScanProvider,
   sanitizeProvider,
   sanitizeProvidersState,
 }) {
@@ -69,6 +71,17 @@ export function createProviderHandlers({
         msg.id == null || typeof msg.id === 'string' ? null : 'id must be a string or null',
       async handle(msg) {
         const state = await setTopicSplitter(msg.id || null);
+        return { ok: true, ...sanitizeProvidersState(state) };
+      },
+    },
+
+    // A null id returns the project chat page scan to the completion LLM.
+    [MSG.setPageScanProvider]: {
+      requiresExtensionPage: true,
+      validate: (msg) =>
+        msg.id == null || typeof msg.id === 'string' ? null : 'id must be a string or null',
+      async handle(msg) {
+        const state = await setPageScanProvider(msg.id || null);
         return { ok: true, ...sanitizeProvidersState(state) };
       },
     },

@@ -95,6 +95,22 @@ export function createProjectsApi(messenger = browserRuntimeMessenger) {
      */
     readExcerptPage: (projectId, excerptId) =>
       request({ type: MSG.readProjectExcerptPage, projectId, excerptId }),
+    /**
+     * Reads a page's full text by URL for the project chat: the saved record
+     * when there is one, else the live project tab.
+     * @param {string} projectId
+     * @param {string} url
+     * @returns {Promise<{sentences: string[], truncated: boolean, source: 'record'|'tab', topics: string[]}>}
+     */
+    readPageText: (projectId, url) => request({ type: MSG.readProjectPageText, projectId, url }),
+    /**
+     * Sends a chat request (scan config, scan decision, completion, cancel)
+     * and resolves with the raw response, `{ok: false}` included: the project
+     * chat turn runner interprets those itself.
+     * @param {object} message
+     * @returns {Promise<object>}
+     */
+    sendChatRequest: (message) => messenger.send(message),
   });
 }
 

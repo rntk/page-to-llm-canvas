@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectCanvas } from './ProjectCanvas.jsx';
-import { CARD_HEIGHT, EXCERPT_GAP, EXCERPT_INDENT } from './canvasLayout.js';
+import { CARD_HEIGHT, EXCERPT_GAP, EXCERPT_HEIGHT, EXCERPT_INDENT } from './canvasLayout.js';
 
 let container;
 let root;
@@ -302,5 +302,35 @@ describe('ProjectCanvas excerpts', () => {
     const { onDeleteExcerpt } = await render();
     await act(async () => card('e1').querySelector('.excerpt-card-footer button').click());
     expect(onDeleteExcerpt).toHaveBeenCalledWith(excerpts[0]);
+  });
+
+  it('stacks chat evidence after the excerpts under its page, linked, with Close only', async () => {
+    const evidence = {
+      id: 'chat-evidence:https://one.test/a#2-3',
+      url: 'https://one.test/a',
+      title: 'One',
+      text: 'Cited lines.',
+      label: 'Why',
+      startLine: 2,
+      endLine: 3,
+    };
+    const onDismissChatEvidence = vi.fn();
+    await render({ chatEvidence: [evidence], onDismissChatEvidence });
+    const evidenceCard = card(evidence.id);
+    expect(evidenceCard.classList.contains('is-chat-evidence')).toBe(true);
+    expect(evidenceCard.textContent).toContain('Chat evidence');
+    expect(evidenceCard.querySelector('blockquote').textContent).toBe('Cited lines.');
+    expect(evidenceCard.textContent).toContain('Why · Lines 2–3');
+    expect(evidenceCard.textContent).not.toContain('Delete');
+    expect(nodeOf(evidenceCard).querySelector('.page-chat-fold')).toBeNull();
+    // Second in tab 1's stack, after the saved excerpt.
+    expect(nodeOf(evidenceCard).style.transform).toBe(
+      `translate(${EXCERPT_INDENT}px, ${CARD_HEIGHT + EXCERPT_GAP + EXCERPT_HEIGHT + EXCERPT_GAP}px)`,
+    );
+    const link = container.querySelector(`.excerpt-link[data-excerpt-id="${evidence.id}"]`);
+    expect(link.classList.contains('is-chat-evidence')).toBe(true);
+
+    await act(async () => button('Close chat evidence').click());
+    expect(onDismissChatEvidence).toHaveBeenCalledWith(evidence.id);
   });
 });

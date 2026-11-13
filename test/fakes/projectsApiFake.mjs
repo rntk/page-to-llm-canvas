@@ -25,6 +25,13 @@ export function createFakeProjectsApi(overrides = {}) {
     deleteExcerpt: vi.fn(async () => ({ deleted: true })),
     acknowledgeExcerptFocus: vi.fn(async () => ({ acknowledged: true })),
     readExcerptPage: vi.fn(async () => ({ sentences: [], truncated: false, source: '' })),
+    readPageText: vi.fn(async () => ({
+      sentences: [],
+      truncated: false,
+      source: 'record',
+      topics: [],
+    })),
+    sendChatRequest: vi.fn(async () => ({ ok: true })),
     ...overrides,
   };
 }

@@ -23,6 +23,11 @@ The active completion provider then names each resulting range
 ([`topicRangeLabels.js`](../src/core/pipeline/topicRangeLabels.js)) and writes the
 summaries as before. With no splitter selected, the LLM splits topics itself.
 
+The **Project chat page scan** select (stored as `pageScanId`; `null` = Completion LLM) chooses
+how the [project chat](16-project-canvas.md) checks each page for relevance to a chat's first
+question: the completion provider reads the page in chunks, or the chosen decision provider answers
+typed relevance questions about its passages.
+
 Each decision request is recorded in LLM metrics under the `topic_boundaries`
 task type (duration, outcome, model, request/response size, and token usage when
 the server reports it). Labeling requests are recorded under `topic_labels`. LLM

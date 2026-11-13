@@ -41,6 +41,7 @@ describe('provider form helpers', () => {
       providers: [],
       activeId: null,
       splitterId: null,
+      pageScanId: null,
     });
     expect(
       normalizeProvidersResponse({
@@ -48,8 +49,14 @@ describe('provider form helpers', () => {
         providers: [{ id: 'p1' }],
         activeId: 'p1',
         splitterId: 'd1',
+        pageScanId: 'd2',
       }),
-    ).toEqual({ providers: [{ id: 'p1' }], activeId: 'p1', splitterId: 'd1' });
+    ).toEqual({
+      providers: [{ id: 'p1' }],
+      activeId: 'p1',
+      splitterId: 'd1',
+      pageScanId: 'd2',
+    });
   });
 
   it('builds an edit form without exposing the stored token', () => {

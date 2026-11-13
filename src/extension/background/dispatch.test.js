@@ -152,6 +152,27 @@ describe('provider message handlers', () => {
     expect((await dispatch({ type: 'setTopicSplitter', id: null })).splitterId).toBeNull();
   });
 
+  it('setPageScanProvider selects and clears the page scan decision provider', async () => {
+    const chromeMock = makeChromeMock();
+    const dispatch = await loadDispatcher(chromeMock);
+
+    const saved = await dispatch({
+      type: 'saveProvider',
+      provider: { type: 'llama_decision', name: 'D', url: 'http://localhost:8080' },
+    });
+    expect(saved.pageScanId).toBeNull();
+    const res = await dispatch({ type: 'setPageScanProvider', id: saved.provider.id });
+    expect(res.ok).toBe(true);
+    expect(res.pageScanId).toBe(saved.provider.id);
+    expect(res.splitterId).toBeNull();
+    const config = await dispatch({ type: 'getProjectChatScanConfig' });
+    expect(config).toEqual({ ok: true, mode: 'decision' });
+    expect(JSON.stringify(config)).not.toContain('token');
+    expect((await dispatch({ type: 'setPageScanProvider', id: null })).pageScanId).toBeNull();
+    expect(await dispatch({ type: 'getProjectChatScanConfig' })).toEqual({ ok: true, mode: 'llm' });
+    expect((await dispatch({ type: 'setPageScanProvider', id: 5 })).ok).toBe(false);
+  });
+
   it('deleteProvider removes a provider', async () => {
     const chromeMock = makeChromeMock();
     const dispatch = await loadDispatcher(chromeMock);
@@ -321,6 +342,10 @@ describe('dispatchMessage unit tests', () => {
       'deleteProvider',
       'setActiveProvider',
       'setTopicSplitter',
+      'setPageScanProvider',
+      'getProjectChatScanConfig',
+      'projectChatDecide',
+      'readProjectPageText',
       'getStorageOverview',
       'deleteAllExtensionData',
     ]) {

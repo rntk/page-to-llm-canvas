@@ -187,6 +187,69 @@ describe('decision provider form', () => {
     }
   });
 
+  it('selects the project chat page scan provider separately from the topic splitter', async () => {
+    listProviders.mockResolvedValue({
+      providers: [
+        { id: 'decision', name: 'Decisions', type: 'llama_decision', model: '' },
+        { id: 'completion', name: 'Completion', type: 'openai', model: 'gpt-4o' },
+      ],
+      activeId: 'completion',
+      splitterId: 'decision',
+      pageScanId: null,
+      error: null,
+    });
+    sendMessage.mockResolvedValue({ ok: true });
+    const { container, mount, cleanup } = renderSection();
+    try {
+      await mount();
+      expect(container.querySelector('#topic-splitter').value).toBe('decision');
+      const select = container.querySelector('#page-scan-provider');
+      expect(select.value).toBe('');
+      expect(container.querySelector('label[for="page-scan-provider"]').textContent).toBe(
+        'Project chat page scan',
+      );
+      expect(Array.from(select.options).map((option) => option.textContent)).toEqual([
+        'Completion LLM',
+        'Decisions',
+      ]);
+      expect(container.textContent).toContain('typed relevance questions');
+      await act(async () => {
+        select.value = 'decision';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      expect(sendMessage).toHaveBeenCalledWith({ type: 'setPageScanProvider', id: 'decision' });
+      expect(sendMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'setTopicSplitter' }),
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('shows the error when selecting the page scan provider fails', async () => {
+    listProviders.mockResolvedValue({
+      providers: [{ id: 'decision', name: 'Decisions', type: 'llama_decision', model: '' }],
+      activeId: null,
+      pageScanId: 'decision',
+      error: null,
+    });
+    sendMessage.mockResolvedValue({ ok: false, error: 'nope' });
+    const { container, mount, cleanup } = renderSection();
+    try {
+      await mount();
+      const select = container.querySelector('#page-scan-provider');
+      expect(select.value).toBe('decision');
+      await act(async () => {
+        select.value = '';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      expect(sendMessage).toHaveBeenCalledWith({ type: 'setPageScanProvider', id: null });
+      expect(container.textContent).toContain('nope');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('shows decision settings, saves an optional model, and hides temperature controls', async () => {
     listProviders.mockResolvedValue({ providers: [], activeId: null, error: null });
     sendMessage.mockResolvedValue({ ok: true });

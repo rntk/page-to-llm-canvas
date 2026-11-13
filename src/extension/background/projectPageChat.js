@@ -6,6 +6,26 @@ import { splitSentences } from '../../core/pipeline/sentenceSplitter.js';
 // article chat chunks whatever remains to fit the provider's context window.
 export const MAX_PAGE_TEXT_CHARS = 500_000;
 
+// Bounds on the topic names handed to the project chat's page scan.
+const MAX_TOPIC_NAMES = 40;
+const MAX_TOPIC_NAME_CHARS = 120;
+
+/**
+ * @param {*} topics A saved record's topics.
+ * @returns {string[]} At most 40 non-empty topic names, each clipped to 120 chars.
+ */
+function topicNames(topics) {
+  if (!Array.isArray(topics)) return [];
+  const names = [];
+  for (const topic of topics) {
+    const name = typeof topic?.name === 'string' ? topic.name.trim() : '';
+    if (!name) continue;
+    names.push(name.slice(0, MAX_TOPIC_NAME_CHARS));
+    if (names.length >= MAX_TOPIC_NAMES) break;
+  }
+  return names;
+}
+
 const READABLE_URL = /^(?:https?|file):/i;
 const UNREADABLE_MESSAGE = 'Chat is not available for this kind of page.';
 const UNREACHABLE_MESSAGE =
@@ -102,22 +122,28 @@ export function createProjectPageChatService({ projectService, findRecordByUrl, 
     /**
      * The full text of a page by URL, for an excerpt's chat: the saved record's
      * sentences when there is one, otherwise the live text of a project tab
-     * showing that page.
+     * showing that page. `topics` lists the record's topic names (capped), and is
+     * empty for live tabs and for records without topics.
      * @param {string} projectId
      * @param {string} url
-     * @returns {Promise<{sentences: string[], truncated: boolean, source: 'record'|'tab'}>}
+     * @returns {Promise<{sentences: string[], truncated: boolean, source: 'record'|'tab', topics: string[]}>}
      */
     async readPageText(projectId, url) {
       const canonical = canonicalPageUrl(url);
       if (!canonical || !READABLE_URL.test(canonical)) throw new Error(UNREADABLE_MESSAGE);
       const record = await findRecord(canonical);
       if (record?.key && Array.isArray(record.sentences) && record.sentences.length) {
-        return { sentences: record.sentences, truncated: false, source: 'record' };
+        return {
+          sentences: record.sentences,
+          truncated: false,
+          source: 'record',
+          topics: topicNames(record.topics),
+        };
       }
       const view = await projectService.getProjectView(projectId);
       const tab = view.tabs.find((candidate) => canonicalPageUrl(candidate.url) === canonical);
       if (!tab) throw new Error(PAGE_NOT_OPEN_MESSAGE);
-      return { ...(await service.capturePageText(projectId, tab.id)), source: 'tab' };
+      return { ...(await service.capturePageText(projectId, tab.id)), source: 'tab', topics: [] };
     },
   };
   return service;

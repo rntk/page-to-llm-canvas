@@ -6,6 +6,8 @@ const validateProjectId = (msg) => (isProjectId(msg.projectId) ? null : 'invalid
 const validateProjectTab = (msg) =>
   validateProjectId(msg) ||
   (Number.isInteger(msg.tabId) && msg.tabId >= 0 ? null : 'invalid tabId');
+const validateProjectPageText = (msg) =>
+  validateProjectId(msg) || (typeof msg.url === 'string' && msg.url.trim() ? null : 'invalid url');
 const validateProjectExcerpt = (msg) =>
   validateProjectId(msg) || (isProjectId(msg.excerptId) ? null : 'invalid excerptId');
 
@@ -93,6 +95,11 @@ export function createProjectHandlers({
     })),
     [MSG.captureProjectPageText]: entry(validateProjectTab, (msg) =>
       pageChatService.capturePageText(msg.projectId, msg.tabId),
+    ),
+    // Full text of one page by URL (saved record or a live project tab), with
+    // the record's topic names, for the project chat's per-page scan.
+    [MSG.readProjectPageText]: entry(validateProjectPageText, (msg) =>
+      pageChatService.readPageText(msg.projectId, msg.url),
     ),
     [MSG.deleteProjectExcerpt]: entry(validateProjectExcerpt, (msg) =>
       requireExcerpts().deleteExcerpt(msg.projectId, msg.excerptId),

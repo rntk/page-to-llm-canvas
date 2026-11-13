@@ -15,6 +15,7 @@ export const LLM_TASK_TYPES = Object.freeze({
   SUMMARY_TREE_DECISIONS: 'summary_tree_decisions',
   CHAT_ANSWER: 'chat_answer',
   CHAT_SYNTHESIS: 'chat_synthesis',
+  CHAT_PAGE_SCAN: 'chat_page_scan',
   UNKNOWN: 'unknown',
 });
 

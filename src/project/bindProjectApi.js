@@ -10,6 +10,8 @@ export function bindProjectApi(api, projectId) {
     readPage: (excerptId) => api.readExcerptPage(projectId, excerptId),
     deleteExcerpt: (excerptId) => api.deleteExcerpt(projectId, excerptId),
     acknowledgeFocus: (excerptId) => api.acknowledgeExcerptFocus(projectId, excerptId),
+    readPageText: (url) => api.readPageText(projectId, url),
+    sendChatRequest: (message) => api.sendChatRequest(message),
     buildTopics: (options) => api.buildProjectTopicTree(projectId, options),
     stopTopics: () => api.stopProjectTopicTree(projectId),
   };

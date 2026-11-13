@@ -5,13 +5,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectApp } from './ProjectApp.jsx';
 import { createFakeProjectsApi } from '../../test/fakes/projectsApiFake.mjs';
 
+const chatProps = vi.hoisted(() => ({ last: null }));
 vi.mock('./ProjectChat.jsx', () => ({
-  ProjectChat: ({ tree, stale, eligiblePages, skippedPages }) => (
-    <div data-testid="project-chat" data-stale={String(stale)}>
-      chat {tree.rootId} | {(eligiblePages || []).map((page) => page.title).join(',')} |{' '}
-      {(skippedPages || []).map((page) => page.title).join(',')}
-    </div>
-  ),
+  ProjectChat: (props) => {
+    chatProps.last = props;
+    const { tree, stale, eligiblePages, skippedPages } = props;
+    return (
+      <div data-testid="project-chat" data-stale={String(stale)}>
+        chat {tree ? tree.rootId : 'no tree'} |{' '}
+        {(eligiblePages || []).map((page) => page.title).join(',')} |{' '}
+        {(skippedPages || []).map((page) => page.title).join(',')}
+      </div>
+    );
+  },
 }));
 
 let container;
@@ -158,7 +164,9 @@ describe('ProjectApp', () => {
     });
     await renderApp({ api });
     const panel = container.querySelector('aside[aria-label="Project chat"]');
-    expect(panel.textContent).toContain('Merge similar topics first');
+    // The chat works without a merge; the merge is offered as an optional extra.
+    expect(panel.textContent).toContain('Merging similar topics adds a shared topic tree');
+    expect(panel.querySelector('[data-testid="project-chat"]').textContent).toContain('no tree');
     await act(async () =>
       [...panel.querySelectorAll('button')]
         .find((el) => el.textContent === 'Merge similar topics')
@@ -168,6 +176,48 @@ describe('ProjectApp', () => {
     expect(container.querySelector('[aria-label="Merged project topics"]')).not.toBeNull();
     // The chat follows the refreshed merge status.
     expect(panel.textContent).toContain('still being merged');
+  });
+
+  it('chats over open tabs and saved pages without a merge, reading through the bound api', async () => {
+    const view = viewOf({
+      tabs: [
+        { id: 1, title: 'First', url: 'https://a.test/x#intro' },
+        { id: 2, title: 'Settings', url: 'chrome://settings' },
+      ],
+      topicMerge: {
+        status: 'missing',
+        tree: null,
+        eligiblePages: [
+          { key: 'k1', title: 'First (saved)', url: 'https://a.test/x' },
+          { key: 'k2', title: 'Saved only', url: 'https://c.test/z' },
+        ],
+      },
+    });
+    const api = createFakeProjectsApi({
+      getProjectView: vi.fn(async () => view),
+      readPageText: vi.fn(async () => ({ sentences: ['Hi.'] })),
+    });
+    await renderApp({ api });
+    const props = chatProps.last;
+    expect(props.pages).toEqual([
+      { page: 1, title: 'First', url: 'https://a.test/x' },
+      { page: 2, title: 'Saved only', url: 'https://c.test/z' },
+    ]);
+    expect(props.unreadablePages).toEqual([
+      expect.objectContaining({ title: 'Settings', url: 'chrome://settings' }),
+    ]);
+    expect(props.tree).toBeNull();
+    expect(await props.readPage('https://c.test/z')).toEqual({ sentences: ['Hi.'] });
+    expect(api.readPageText).toHaveBeenCalledWith('a', 'https://c.test/z');
+    await props.send({ type: 'x' });
+    expect(api.sendChatRequest).toHaveBeenCalledWith({ type: 'x' });
+  });
+
+  it('shows a note instead of the chat when the project has no pages', async () => {
+    await renderApp({ view: viewOf({ tabs: [], topicMerge: { status: 'missing', tree: null } }) });
+    const panel = container.querySelector('aside[aria-label="Project chat"]');
+    expect(panel.textContent).toContain('no pages to chat about');
+    expect(panel.querySelector('[data-testid="project-chat"]')).toBeNull();
   });
 
   it('keeps the chat in sync with view.topicMerge, even when only the skipped pages differ', async () => {

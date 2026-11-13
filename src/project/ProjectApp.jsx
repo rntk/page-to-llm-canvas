@@ -9,6 +9,7 @@ import { UNTITLED_PROJECT } from './projectText.js';
 import { useProjectView } from './useProjectView.js';
 import { useProjectMerge } from './useProjectMerge.js';
 import { ProjectTopicTree } from './ProjectTopicTree.jsx';
+import { useChatEvidence } from './useChatEvidence.js';
 import './project-actions.css';
 
 function ErrorState({ title, message, pageHost }) {
@@ -58,6 +59,8 @@ export function ProjectApp({ projectId, api, subscribe, tabsHost, pageHost, sche
     refresh,
     showTopics: () => setActiveView('topics'),
   });
+  // The page highlight of the picked project chat event, as a canvas card.
+  const chatEvidence = useChatEvidence(projectApi.readPageText);
   useDocumentTitle(view ? `${view.project.title || UNTITLED_PROJECT} · Project` : null);
 
   if (status === 'idle') {
@@ -104,6 +107,8 @@ export function ProjectApp({ projectId, api, subscribe, tabsHost, pageHost, sche
             deleteExcerpt={projectApi.deleteExcerpt}
             acknowledgeFocus={projectApi.acknowledgeFocus}
             tabsHost={tabsHost}
+            chatEvidence={chatEvidence.evidence}
+            onDismissChatEvidence={chatEvidence.dismiss}
             active={!topicTreeOpen}
           />
           {topicTreeOpen && (
@@ -127,8 +132,13 @@ export function ProjectApp({ projectId, api, subscribe, tabsHost, pageHost, sche
         {chatOpen && (
           <ProjectChatPanel
             projectId={projectId}
+            tabs={tabs}
             merge={view.topicMerge}
+            readPage={projectApi.readPageText}
+            send={projectApi.sendChatRequest}
             onOpenMerge={openMerge}
+            onHighlight={chatEvidence.onHighlight}
+            onClearHighlights={chatEvidence.onClearHighlights}
             onCollapse={() => setChatOpen(false)}
           />
         )}

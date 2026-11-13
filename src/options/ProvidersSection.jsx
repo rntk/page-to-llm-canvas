@@ -34,6 +34,7 @@ export function ProvidersSection() {
   const [providers, setProviders] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [splitterId, setSplitterId] = useState(null);
+  const [pageScanId, setPageScanId] = useState(null);
   const [form, setForm] = useState(() => createEmptyProviderForm());
   const [error, setError] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -53,6 +54,7 @@ export function ProvidersSection() {
       setProviders(next.providers);
       setActiveId(next.activeId);
       setSplitterId(next.splitterId ?? null);
+      setPageScanId(next.pageScanId ?? null);
       setLoadError(null);
     } else {
       setLoadError(next.error || 'Failed to load providers');
@@ -192,6 +194,16 @@ export function ProvidersSection() {
     await load();
   };
 
+  const choosePageScan = async (id) => {
+    setError('');
+    const response = await sendMessage({ type: MSG.setPageScanProvider, id: id || null });
+    if (!response || !response.ok) {
+      setError((response && response.error) || 'Failed to set project chat page scan provider');
+      return;
+    }
+    await load();
+  };
+
   return (
     <section className="section">
       <div className="section-heading">
@@ -285,20 +297,43 @@ export function ProvidersSection() {
       )}
 
       {decisionProviders.length ? (
-        <div className="topic-splitter">
-          <label htmlFor="topic-splitter">Topic splitter</label>
-          <select
-            id="topic-splitter"
-            value={splitterId || ''}
-            onChange={(event) => chooseSplitter(event.target.value)}
-          >
-            <option value="">Completion LLM</option>
-            {decisionProviders.map((provider) => (
-              <option key={provider.id} value={provider.id}>
-                {provider.name}
-              </option>
-            ))}
-          </select>
+        <div className="provider-assignments">
+          <div className="provider-assignment">
+            <label htmlFor="topic-splitter">Topic splitter</label>
+            <select
+              id="topic-splitter"
+              value={splitterId || ''}
+              onChange={(event) => chooseSplitter(event.target.value)}
+            >
+              <option value="">Completion LLM</option>
+              {decisionProviders.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="provider-assignment">
+            <label htmlFor="page-scan-provider">Project chat page scan</label>
+            <select
+              id="page-scan-provider"
+              aria-describedby="page-scan-provider-note"
+              value={pageScanId || ''}
+              onChange={(event) => choosePageScan(event.target.value)}
+            >
+              <option value="">Completion LLM</option>
+              {decisionProviders.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.name}
+                </option>
+              ))}
+            </select>
+            <div id="page-scan-provider-note" className="note">
+              The project chat checks each page for relevance to the question before answering; a
+              decision provider does this with typed relevance questions instead of LLM calls.
+            </div>
+          </div>
         </div>
       ) : null}
 

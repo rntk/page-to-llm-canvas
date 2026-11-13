@@ -10,7 +10,7 @@ import { eventRange } from './useChatSessions.js';
  * @param {object[]} props.events
  * @param {?number} props.selectedEventSeq
  * @param {function(object): void} props.onSelectEvent
- * @param {'article' | 'video'} [props.subject]
+ * @param {'article' | 'video' | 'project'} [props.subject]
  * @param {function(object): ?number} [props.getEventTimestamp]
  * @param {boolean} [props.disabled]
  */
@@ -35,9 +35,12 @@ export default function ChatEventsList({
         const hasTimestamp = Number.isFinite(seconds);
         const isUnavailable = isVideo && !hasTimestamp;
         const eventLabel = range?.label || (isVideo ? 'Video evidence' : 'Highlight');
+        const lines = `Lines ${range?.startLine ?? '?'}–${range?.endLine ?? '?'}`;
         const detail = isVideo
           ? `${hasTimestamp ? `Jump to ${formatTimestampLabel(seconds)}` : 'Timestamp unavailable'} · Transcript lines ${range?.startLine ?? '?'}–${range?.endLine ?? '?'}`
-          : `Highlight · Lines ${range?.startLine ?? '?'}–${range?.endLine ?? '?'}`;
+          : range?.pageUrl
+            ? `${range.pageTitle || range.pageUrl} · ${lines}`
+            : `Highlight · ${lines}`;
         return (
           <div
             key={event.seq}

@@ -68,6 +68,29 @@ const QUESTION_TOO_LONG_MESSAGE =
 const DEFAULT_REQUESTS_PER_CHUNK = 3;
 
 /**
+ * Reserve space for the question, history, and source before provider work.
+ * @param {object} options Budget inputs.
+ * @param {string} options.question User question.
+ * @param {number} [options.maxChunkChars] Source ceiling.
+ * @param {number} [options.maxHistoryChars] History ceiling.
+ * @returns {{variableBudget: number, historyBudget: number, chunkBudget: number}} Character budgets.
+ */
+export function articleChatBudgets({
+  question,
+  maxChunkChars = ARTICLE_CHAT_CHUNK_MAX_CHARS,
+  maxHistoryChars = CHAT_HISTORY_MAX_CHARS,
+}) {
+  const variableBudget = maxChunkChars + maxHistoryChars;
+  const availableChars = variableBudget - String(question || '').length;
+  const historyBudget = Math.max(0, Math.min(maxHistoryChars, Math.floor(availableChars / 3)));
+  const chunkBudget = Math.min(maxChunkChars, availableChars - historyBudget);
+  if (chunkBudget < Math.min(maxChunkChars, MIN_SOURCE_CHUNK_CHARS)) {
+    throw new Error(QUESTION_TOO_LONG_MESSAGE);
+  }
+  return { variableBudget, historyBudget, chunkBudget };
+}
+
+/**
  * @typedef {Object} ArticleChatTurnOptions
  * @property {object} article
  * @property {object[]} [article.history]
@@ -77,9 +100,15 @@ const DEFAULT_REQUESTS_PER_CHUNK = 3;
  *   Frames the sentences as an excerpt of a longer page, or as sections of one topic's text
  *   drawn from several pages. A project source sends
  *   no sentences: its preamble is the data message and the model answers from
- *   `tools` alone, without highlight_span (citations are prose).
+ *   `tools` alone; it highlights through `highlightTool` instead of highlight_span.
  * @property {Array<{definition: object, run: function(object, {maxChars: number, signal?: AbortSignal}): Promise<string>}>} [tools]
  *   Tools offered besides highlight_span; each result is model-facing text.
+ * @property {{definition: object, resolve: function(object, {signal?: AbortSignal}): Promise<object>}} [highlightTool]
+ *   A project source's own highlight tool (page lines). `resolve` validates the
+ *   arguments and returns the range to record (`startLine`, `endLine`, `label`,
+ *   plus source fields such as `pageUrl`), or rejects with an Error whose
+ *   optional `code` is a CHAT_TOOL_OUTCOMES value. Without it a project chat
+ *   offers no highlight tool.
  * @property {string} question
  * @property {object} [limits]
  * @property {number} [limits.maxChunkChars]
@@ -117,6 +146,7 @@ function normalizeArticleChatTurnOptions(options = {}) {
     onHighlight: effects.onHighlight,
     highlightedRanges: article.highlightedRanges ?? [],
     source: article.source ?? null,
+    highlightTool: options.highlightTool ?? null,
     tools: [
       ...(Array.isArray(options.tools) ? options.tools : []),
       ...pointTreeTools(options.question),
@@ -151,6 +181,16 @@ function projectSourceChunk(source, chunkBudget) {
       ? `${preamble.slice(0, Math.max(0, cap - 24))}\n[overview truncated]`
       : preamble;
   return { startLine: 0, endLine: 0, text };
+}
+
+/**
+ * Model-facing name of a highlighted range: its lines, and its page when the
+ * range belongs to a project page.
+ * @param {{startLine: number, endLine: number, page?: number}} range
+ */
+function describeRange(range) {
+  const lines = `lines ${range.startLine}-${range.endLine}`;
+  return Number.isInteger(range.page) ? `page ${range.page} ${lines}` : lines;
 }
 
 /**
@@ -208,6 +248,7 @@ async function runArticleChatChunk({
   recordToolMetric,
   source,
   tools,
+  highlightTool,
   toolCharBudget,
 }) {
   const replayedHistory = compactConversationHistory(history, maxHistoryChars);
@@ -227,8 +268,11 @@ async function runArticleChatChunk({
     ...replayedHistory,
     { role: 'user', content: buildQuestionDataMessage(question) },
   ];
+  // A project source highlights through its own tool (page lines), if any.
+  const projectHighlight = isProject ? highlightTool : null;
+  const highlightDefinition = isProject ? projectHighlight?.definition : HIGHLIGHT_SPAN_TOOL;
   const toolDefinitions = [
-    ...(isProject ? [] : [HIGHLIGHT_SPAN_TOOL]),
+    ...(highlightDefinition ? [highlightDefinition] : []),
     ...tools.map((tool) => tool.definition),
   ];
 
@@ -325,7 +369,7 @@ async function runArticleChatChunk({
           toolCharBudget,
           signal,
         ));
-      } else if (isProject || call.name !== HIGHLIGHT_SPAN_TOOL.name) {
+      } else if (!highlightDefinition || call.name !== highlightDefinition.name) {
         outcome = CHAT_TOOL_OUTCOMES.UNKNOWN_TOOL;
         // call.name is model-generated and may echo article-derived text, so it
         // goes to the model (result) but is never persisted as a metric detail.
@@ -333,8 +377,11 @@ async function runArticleChatChunk({
       } else {
         let range;
         try {
-          range = validateHighlightArgs(call.arguments, sentenceCount, chunk);
+          range = projectHighlight
+            ? await awaitWithAbort(projectHighlight.resolve(call.arguments, { signal }), signal)
+            : validateHighlightArgs(call.arguments, sentenceCount, chunk);
         } catch (error) {
+          throwIfAborted(signal);
           // `code` is set by validateHighlightArgs; fall back to invalid_arguments.
           outcome = error.code || CHAT_TOOL_OUTCOMES.INVALID_ARGUMENTS;
           result = `Error: ${error.message}`;
@@ -343,7 +390,7 @@ async function runArticleChatChunk({
         if (range) {
           if (ranges.some((existing) => rangesOverlap(existing, range))) {
             outcome = CHAT_TOOL_OUTCOMES.OVERLAP_SKIPPED;
-            result = `Skipped lines ${range.startLine}-${range.endLine}: that passage is already highlighted.`;
+            result = `Skipped ${describeRange(range)}: that passage is already highlighted.`;
           } else if (eventBudget.remaining === 0) {
             outcome = CHAT_TOOL_OUTCOMES.BUDGET_EXHAUSTED;
             result =
@@ -357,7 +404,7 @@ async function runArticleChatChunk({
             // it re-issues the same valid range and can loop.
             ranges.push(range);
             newRanges.push(range);
-            result = `Highlighted lines ${range.startLine}-${range.endLine}.`;
+            result = `Highlighted ${describeRange(range)}.`;
             outcome = CHAT_TOOL_OUTCOMES.HIGHLIGHTED;
             try {
               throwIfAborted(signal);
@@ -438,6 +485,7 @@ export async function runArticleChatTurn(options = {}) {
     recordToolMetric,
     source,
     tools,
+    highlightTool,
   } = normalizeArticleChatTurnOptions(options);
   const log = createChatLogger();
   const startedAt = Date.now();
@@ -466,24 +514,11 @@ export async function runArticleChatTurn(options = {}) {
 
   try {
     throwIfAborted(turnController.signal);
-    // Every request repeats the question alongside the source text, so the
-    // question is charged against the same budget instead of being added on
-    // top of a chunk that already fills the window. No amount of chunking can
-    // rescue a question that fills the window on its own.
-    const questionChars = String(question || '').length;
-    // Source, replayed history and the question share one derived budget, so
-    // the shares are taken from what the question leaves rather than each being
-    // capped independently. Source never exceeds the caller's own ceiling: a
-    // deliberately small maxChunkChars stays a chunking knob.
-    const variableBudget = maxChunkChars + maxHistoryChars;
-    const availableChars = variableBudget - questionChars;
-    const historyBudget = Math.max(0, Math.min(maxHistoryChars, Math.floor(availableChars / 3)));
-    const chunkBudget = Math.min(maxChunkChars, availableChars - historyBudget);
-    // Below this the question has crowded out the article itself, and no
-    // amount of chunking recovers a useful answer.
-    if (chunkBudget < Math.min(maxChunkChars, MIN_SOURCE_CHUNK_CHARS)) {
-      throw new Error(QUESTION_TOO_LONG_MESSAGE);
-    }
+    const { variableBudget, historyBudget, chunkBudget } = articleChatBudgets({
+      question,
+      maxChunkChars,
+      maxHistoryChars,
+    });
     const chunks =
       source?.kind === 'project'
         ? [projectSourceChunk(source, chunkBudget)]
@@ -575,6 +610,7 @@ export async function runArticleChatTurn(options = {}) {
             recordToolMetric,
             source,
             tools,
+            highlightTool,
             toolCharBudget: { remaining: Math.max(0, chunkBudget - chunk.text.length) },
           });
           throwIfAborted(turnController.signal);

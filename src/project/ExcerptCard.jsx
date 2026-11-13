@@ -12,10 +12,22 @@ import { useActivateTab } from './useActivateTab.js';
  * @param {{id: number, title?: string}|null} props.page The open tab showing the
  *   excerpt's page, or null when that page is not in the project.
  * @param {{activateTab: function(number): Promise<void>}} props.tabsHost
- * @param {function(): Promise<*>} props.onDelete
+ * @param {function(): Promise<*>} [props.onDelete] Offers Delete (saved excerpts).
+ * @param {boolean} [props.evidence] An unsaved project chat evidence card: the
+ *   `excerpt` is a ChatEvidence (see useChatEvidence), labelled with its chat
+ *   tag and page lines instead of a Delete button, and closed with `onClose`.
+ * @param {function(): void} [props.onClose] Closes an evidence card.
  * @param {function(import('react').PointerEvent): void} [props.onDragStart]
  */
-export function ExcerptCard({ excerpt, page, tabsHost, onDelete, onDragStart }) {
+export function ExcerptCard({
+  excerpt,
+  page,
+  tabsHost,
+  onDelete,
+  onDragStart,
+  evidence = false,
+  onClose,
+}) {
   const { go, error: goError, clearError } = useActivateTab(tabsHost);
   const [error, setError] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -39,15 +51,26 @@ export function ExcerptCard({ excerpt, page, tabsHost, onDelete, onDragStart }) 
       });
   };
 
+  const lines = evidence
+    ? excerpt.startLine === excerpt.endLine
+      ? `Line ${excerpt.startLine}`
+      : `Lines ${excerpt.startLine}–${excerpt.endLine}`
+    : '';
+  const classes = [
+    'excerpt-card',
+    page ? '' : 'is-detached',
+    evidence ? 'is-chat-evidence' : '',
+  ].filter(Boolean);
+
   return (
     <article
-      className={`excerpt-card${page ? '' : ' is-detached'}`}
+      className={classes.join(' ')}
       style={{ width: EXCERPT_WIDTH, height: EXCERPT_HEIGHT }}
       data-excerpt-id={excerpt.id}
-      aria-label={`Excerpt from ${pageTitle}`}
+      aria-label={`${evidence ? 'Chat evidence' : 'Excerpt'} from ${pageTitle}`}
     >
       <header className="excerpt-card-header" onPointerDown={onDragStart}>
-        <span className="excerpt-card-label">Excerpt</span>
+        <span className="excerpt-card-label">{evidence ? 'Chat evidence' : 'Excerpt'}</span>
         <button
           type="button"
           className="excerpt-card-source"
@@ -60,20 +83,46 @@ export function ExcerptCard({ excerpt, page, tabsHost, onDelete, onDragStart }) 
           <span className="excerpt-card-source-title">{pageTitle}</span>
           {!page && <span className="excerpt-card-source-host"> · {hostnameOf(excerpt.url)}</span>}
         </button>
+        {evidence && onClose && (
+          <button
+            type="button"
+            className="chat-passage-card-close"
+            aria-label="Close chat evidence"
+            title="Close"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={onClose}
+          >
+            ×
+          </button>
+        )}
       </header>
-      <blockquote className="excerpt-card-text" data-canvas-scroll="" cite={excerpt.url}>
-        {excerpt.text}
-        {excerpt.truncated && <span className="excerpt-card-truncated"> [cut]</span>}
-      </blockquote>
+      {evidence && (excerpt.loading || excerpt.error) ? (
+        <p className="note excerpt-card-text" role={excerpt.error ? 'alert' : 'status'}>
+          {excerpt.error || 'Reading the page…'}
+        </p>
+      ) : (
+        <blockquote className="excerpt-card-text" data-canvas-scroll="" cite={excerpt.url}>
+          {excerpt.text}
+          {excerpt.truncated && <span className="excerpt-card-truncated"> [cut]</span>}
+        </blockquote>
+      )}
       <footer className="excerpt-card-footer">
         {(error || goError) && (
           <span className="excerpt-card-error" title={error || goError}>
             {error || goError}
           </span>
         )}
-        <button type="button" onClick={remove} disabled={deleting}>
-          Delete
-        </button>
+        {evidence ? (
+          <span className="excerpt-card-lines" title={excerpt.label || lines}>
+            {excerpt.label ? `${excerpt.label} · ${lines}` : lines}
+          </span>
+        ) : (
+          onDelete && (
+            <button type="button" onClick={remove} disabled={deleting}>
+              Delete
+            </button>
+          )
+        )}
       </footer>
     </article>
   );

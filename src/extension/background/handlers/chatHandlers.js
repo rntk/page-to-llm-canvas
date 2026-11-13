@@ -12,8 +12,16 @@ import { getArticleChatLimits } from '../../../core/pipeline/pipelineConfig.js';
  *   before the page was saved into its record, so listing shows them.
  * @param {{complete: Function, cancelTurn: Function}} deps.chatService
  * @param {{getActiveProvider: Function}} deps.providerRepository
+ * @param {{getConfig: Function, decide: Function, cancelTurn: Function}} [deps.decisionService]
+ *   Project chat page-scan decisions; also cancelled with the chat turn. Without
+ *   it the page scan always uses the completion LLM.
  */
-export function createChatHandlers({ chatRepository, chatService, providerRepository }) {
+export function createChatHandlers({
+  chatRepository,
+  chatService,
+  providerRepository,
+  decisionService,
+}) {
   const { listChats, readChat, appendChatTurn, deleteChatHistory, adoptPageChats } = chatRepository;
 
   return {
@@ -41,7 +49,44 @@ export function createChatHandlers({ chatRepository, chatService, providerReposi
       },
       async handle(msg) {
         chatService.cancelTurn(msg.turnId);
+        decisionService?.cancelTurn(msg.turnId);
         return { ok: true };
+      },
+    },
+
+    // How the project chat should scan each page before answering.
+    [MSG.getProjectChatScanConfig]: {
+      requiresExtensionPage: true,
+      validate: () => null,
+      async handle() {
+        return decisionService ? decisionService.getConfig() : { ok: true, mode: 'llm' };
+      },
+    },
+
+    // One typed-question request against the page-scan decision provider. The
+    // provider's API key stays here; only answers (or an error) are returned.
+    [MSG.projectChatDecide]: {
+      requiresExtensionPage: true,
+      validate(msg) {
+        const { questions, chatTurnId } = msg;
+        if (!questions || typeof questions !== 'object' || Array.isArray(questions)) {
+          return 'questions must be an object';
+        }
+        if (Object.keys(questions).length === 0) return 'questions must not be empty';
+        if (chatTurnId !== undefined && (typeof chatTurnId !== 'string' || !chatTurnId)) {
+          return 'invalid chatTurnId';
+        }
+        return null;
+      },
+      async handle(msg) {
+        if (!decisionService) {
+          return { ok: false, error: 'Project chat page scan is not available.' };
+        }
+        return decisionService.decide({
+          state: msg.state,
+          questions: msg.questions,
+          chatTurnId: msg.chatTurnId,
+        });
       },
     },
 
