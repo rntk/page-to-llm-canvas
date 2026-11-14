@@ -12,33 +12,77 @@
 export function sanitizeArticleHtml(html, baseUrl) {
   if (!html) return '';
   try {
-    const doc = new DOMParser().parseFromString(String(html), 'text/html');
-    doc
-      .querySelectorAll('script, style, noscript, iframe, object, embed, link, meta, base')
-      .forEach((el) => el.remove());
-    // Validate attributes after promoting lazy image sources.
-    resolveArticleUrls(doc, baseUrl);
-    // Do not send the extension page URL to article image servers.
-    doc.querySelectorAll('img').forEach((el) => el.setAttribute('referrerpolicy', 'no-referrer'));
-    // Preserve form contents; the extension CSP blocks submission.
-    doc.querySelectorAll('form').forEach((el) => el.replaceWith(...el.childNodes));
-    doc.querySelectorAll('*').forEach((el) => {
-      for (const attr of Array.from(el.attributes)) {
-        const name = attr.name.toLowerCase();
-        if (name.startsWith('on') || name === 'style') {
-          el.removeAttribute(attr.name);
-        } else if (
-          (name === 'href' || name === 'src' || name === 'xlink:href' || name === 'formaction') &&
-          isJavaScriptUrl(attr.value)
-        ) {
-          el.removeAttribute(attr.name);
-        }
-      }
-    });
-    return doc.body.innerHTML;
+    // The result is re-parsed by innerHTML. Mutation XSS relies on that second
+    // parse building a different tree than the one sanitized, so sanitize until
+    // the output is a fixed point and reject markup that never settles.
+    let out = String(html);
+    for (let pass = 0; pass < MAX_SANITIZE_PASSES; pass += 1) {
+      const next = sanitizeOnce(out, baseUrl);
+      if (next === out) return out;
+      out = next;
+    }
+    return '';
   } catch (_) {
     return '';
   }
+}
+
+// Ordinary input settles on the second pass; the extra pass is headroom.
+const MAX_SANITIZE_PASSES = 3;
+
+// Matched on lowercased localName: CSS type selectors are case-sensitive for
+// SVG elements, so a selector would miss `animateMotion`.
+const REMOVED_ELEMENTS = new Set([
+  'script',
+  'style',
+  'noscript',
+  // Template contents are not reachable by querySelectorAll, so never sanitized.
+  'template',
+  'iframe',
+  'frame',
+  'frameset',
+  'object',
+  'embed',
+  'link',
+  'meta',
+  'base',
+  // SVG animation can set href to a javascript: URL after sanitizing.
+  'animate',
+  'animatemotion',
+  'animatetransform',
+  'set',
+  // Loads external SVG documents; matches the Sanitizer API safe default.
+  'use',
+]);
+
+/**
+ * One parse → sanitize → serialize pass.
+ * @param {string} html Article HTML.
+ * @param {string} [baseUrl] Record source URL.
+ * @returns {string} Sanitized HTML.
+ */
+function sanitizeOnce(html, baseUrl) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('*').forEach((el) => {
+    if (REMOVED_ELEMENTS.has(el.localName.toLowerCase())) el.remove();
+  });
+  // Validate attributes after promoting lazy image sources.
+  resolveArticleUrls(doc, baseUrl);
+  // Do not send the extension page URL to article image servers.
+  doc.querySelectorAll('img').forEach((el) => el.setAttribute('referrerpolicy', 'no-referrer'));
+  // Preserve form contents; the extension CSP blocks submission.
+  doc.querySelectorAll('form').forEach((el) => el.replaceWith(...el.childNodes));
+  doc.querySelectorAll('*').forEach((el) => {
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase();
+      // Any attribute may hold a URL (MathML href, action, data, …), so check
+      // every value instead of a list of known URL attributes.
+      if (name.startsWith('on') || name === 'style' || isJavaScriptUrl(attr.value)) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  });
+  return doc.body.innerHTML;
 }
 
 // Promote only known lazy source attributes; other data attributes may be IDs.

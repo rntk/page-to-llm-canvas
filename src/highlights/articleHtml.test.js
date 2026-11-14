@@ -60,6 +60,54 @@ describe('articleHtml helpers', () => {
       expect(out).toContain('<p>article body</p>');
     });
 
+    it('removes SVG animation that could set a javascript: href', () => {
+      const out = sanitizeArticleHtml(
+        '<svg><a><animate attributeName="href" values="javascript:evil()"/>' +
+          '<set attributeName="href" to="javascript:evil()"/>' +
+          '<animateMotion dur="1s"/><text>label</text></a></svg>',
+      );
+
+      expect(out).not.toMatch(/<animate|<set|javascript:/i);
+      expect(out).toContain('label');
+    });
+
+    it('removes SVG use elements, which load external documents', () => {
+      const out = sanitizeArticleHtml(
+        '<svg><use href="data:image/svg+xml,<svg id=x></svg>#x"/><use xlink:href="#icon"/>' +
+          '<text>label</text></svg>',
+      );
+
+      expect(out).not.toMatch(/<use/i);
+      expect(out).toContain('label');
+    });
+
+    it('drops javascript: URLs from any attribute, including MathML href', () => {
+      const out = sanitizeArticleHtml(
+        '<math><mi href="javascript:evil()">x</mi></math><p data-x=" javascript:evil()">y</p>',
+      );
+
+      expect(out).not.toContain('javascript:');
+      expect(out).toContain('x</mi>');
+    });
+
+    it('drops template contents, which querySelectorAll cannot reach', () => {
+      const out = sanitizeArticleHtml('<template><img src=x onerror="evil()"></template><p>ok</p>');
+
+      expect(out).toBe('<p>ok</p>');
+    });
+
+    it('returns output that is stable when re-parsed', () => {
+      const html =
+        '<form><math><mtext></form><form><mglyph><style></math><img src onerror=evil()>' +
+        '<svg><p><style><img src=x onerror=evil()></style></p></svg><p>body</p>';
+      const out = sanitizeArticleHtml(html);
+      const reparsed = new DOMParser().parseFromString(out, 'text/html').body.innerHTML;
+
+      expect(reparsed).toBe(out);
+      expect(sanitizeArticleHtml(out)).toBe(out);
+      expect(out).not.toMatch(/onerror|<style/i);
+    });
+
     it('removes embedding and loading tags', () => {
       const out = sanitizeArticleHtml(
         '<style>p{color:red}</style><iframe src="evil"></iframe><object></object>' +
