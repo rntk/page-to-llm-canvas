@@ -128,6 +128,7 @@ describe('ProjectChat', () => {
       'read_page',
       'search_page',
       'ask_pages',
+      'ask_page_agent',
     ]);
     // First message: both pages were scanned by the completion LLM.
     expect(deps.readPage).toHaveBeenCalledTimes(2);
@@ -190,6 +191,7 @@ describe('ProjectChat', () => {
       'read_page',
       'search_page',
       'ask_pages',
+      'ask_page_agent',
       'search_topics',
     ]);
   });

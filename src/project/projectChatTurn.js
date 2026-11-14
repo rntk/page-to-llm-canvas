@@ -4,7 +4,8 @@
 // against the question (one small judgment per page, over all of its lines,
 // with the chat's earlier questions as context for follow-ups) and puts the
 // results, with the relevant page lines quoted verbatim, in the overview. The
-// model can still call `ask_pages` for a different sub-question. Pure: the
+// model can still call `ask_pages` for a different sub-question, and
+// `ask_page_agent` to have a helper model work through one page for it. Pure: the
 // page reader, the runtime transport and the wrapped runner are injected.
 
 import { ARTICLE_CHAT_CHUNK_MAX_CHARS } from '../chat/articleChunking.js';
@@ -17,6 +18,7 @@ import {
   formatScanResults,
   scanProjectPages,
 } from '../core/projects/projectPageScan.js';
+import { createPageAgentTool } from '../core/projects/projectPageAgent.js';
 import {
   buildProjectPagesOverview,
   createProjectHighlightTool,
@@ -275,6 +277,21 @@ export function createProjectChatTurnRunner({
     });
     const tools = [
       ...createProjectPageTools({ pages, loadPage, scan }),
+      // The page helper's requests carry the turn id so Stop cancels them too.
+      createPageAgentTool({
+        pages,
+        loadPage,
+        complete: ({ messages, tools: helperTools, toolChoice, taskType }) =>
+          send({
+            type: MSG.llmChatCompletion,
+            messages,
+            tools: helperTools,
+            ...(toolChoice ? { toolChoice } : {}),
+            taskType,
+            chatTurnId: turnId,
+          }),
+        maxChunkChars: budgets.scanChunkChars,
+      }),
       ...(treeContext?.tools || []),
       ...(Array.isArray(options.tools) ? options.tools : []),
     ];

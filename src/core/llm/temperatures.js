@@ -25,7 +25,7 @@ export const TEMPERATURE_TASK_DEFINITIONS = Object.freeze([
   Object.freeze({
     task: TemperatureTask.CHAT,
     label: 'Chat',
-    hint: 'Article chat answers, synthesis and project page scans.',
+    hint: 'Article chat answers, synthesis, project page scans and page helpers.',
   }),
   Object.freeze({
     task: TemperatureTask.SPLITTING,
@@ -46,6 +46,7 @@ const TASK_TYPE_TO_TEMPERATURE_TASK = Object.freeze({
   [LLM_TASK_TYPES.CHAT_ANSWER]: TemperatureTask.CHAT,
   [LLM_TASK_TYPES.CHAT_SYNTHESIS]: TemperatureTask.CHAT,
   [LLM_TASK_TYPES.CHAT_PAGE_SCAN]: TemperatureTask.CHAT,
+  [LLM_TASK_TYPES.CHAT_PAGE_AGENT]: TemperatureTask.CHAT,
   [LLM_TASK_TYPES.TOPIC_RANGES]: TemperatureTask.SPLITTING,
   [LLM_TASK_TYPES.TOPIC_RESPLIT]: TemperatureTask.SPLITTING,
   [LLM_TASK_TYPES.TOPIC_LABELS]: TemperatureTask.SPLITTING,

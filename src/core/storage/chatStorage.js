@@ -1,4 +1,5 @@
 import { MAX_TURN_EVENTS } from '../../shared/runtime/contracts.js';
+import { normalizeToolLog } from '../../chat/toolLog.js';
 // Per-article chat persistence. Split out of storage.js so the record and chat
 // aggregates stay separate concerns. It depends only on storage primitives and
 // realm-neutral key helpers; storage.js owns the one-way cascade dependency.
@@ -181,7 +182,16 @@ function normalizeChatMessage(message, now, turnId) {
     ...(message?.hidden ? { hidden: true } : {}),
     ...(typeof message?.toolCallId === 'string' ? { toolCallId: message.toolCallId } : {}),
     ...(Array.isArray(message?.toolCalls) ? { toolCalls: message.toolCalls } : {}),
+    ...toolLogField(message),
   };
+}
+
+// The user-facing log of tools an assistant answer called (names, compact
+// arguments, outcomes — no results), shown as a foldable block in the chat.
+function toolLogField(message) {
+  if (message?.role !== 'assistant') return {};
+  const toolLog = normalizeToolLog(message.toolLog);
+  return toolLog ? { toolLog } : {};
 }
 
 function normalizeChatEvent(event, seq, now, turnId) {

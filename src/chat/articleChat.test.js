@@ -11,6 +11,7 @@ function buildTurnOptions({
   sentences = [],
   highlightedRanges = [],
   onHighlight,
+  onToolCall,
   maxChunkChars,
   maxToolRounds,
   maxLlmRequests,
@@ -25,7 +26,7 @@ function buildTurnOptions({
     article: makeArticle({ history, sentences, highlightedRanges }),
     question,
     limits: { maxChunkChars, maxToolRounds, maxLlmRequests, chunkConcurrency },
-    effects: { onHighlight },
+    effects: { onHighlight, onToolCall },
     dependencies: { send, cancelTurn, recordToolMetric },
     runtime: { turnId, signal },
   };
@@ -145,6 +146,70 @@ describe('article chat tool loop', () => {
 
     expect(result.highlightRanges).toEqual([{ startLine: 1, endLine: 1, label: '' }]);
     expect(onHighlight).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs every tool call with compact arguments and outcome, live and in the result', async () => {
+    let round = 0;
+    const send = vi.fn(async () => {
+      round += 1;
+      if (round === 1) {
+        return {
+          ok: true,
+          content: '',
+          toolCalls: [
+            { id: 'a', name: 'highlight_span', arguments: { start_line: 1, end_line: 1 } },
+            { id: 'b', name: 'mystery', arguments: { q: 'x'.repeat(1000) } },
+          ],
+        };
+      }
+      return { ok: true, content: 'Answer.' };
+    });
+    const onToolCall = vi.fn();
+    const result = await runArticleChatTurn(
+      buildTurnOptions({
+        question: 'Where?',
+        sentences: ['Evidence.'],
+        onToolCall,
+        send,
+        recordToolMetric: vi.fn(),
+      }),
+    );
+
+    expect(result.toolLog).toHaveLength(2);
+    expect(result.toolLog[0]).toEqual({
+      name: 'highlight_span',
+      args: '{"start_line":1,"end_line":1}',
+      outcome: CHAT_TOOL_OUTCOMES.HIGHLIGHTED,
+    });
+    expect(result.toolLog[1]).toMatchObject({
+      name: 'mystery',
+      outcome: CHAT_TOOL_OUTCOMES.UNKNOWN_TOOL,
+    });
+    expect(result.toolLog[1].args.length).toBeLessThanOrEqual(300);
+    expect(onToolCall.mock.calls.map(([entry]) => entry)).toEqual(result.toolLog);
+  });
+
+  it('keeps the turn running when the live tool log callback throws', async () => {
+    let round = 0;
+    const send = vi.fn(async () => {
+      round += 1;
+      return round === 1
+        ? { ok: true, content: '', toolCalls: [{ id: 'a', name: 'nope', arguments: {} }] }
+        : { ok: true, content: 'Answer.' };
+    });
+    const result = await runArticleChatTurn(
+      buildTurnOptions({
+        question: 'Where?',
+        sentences: ['Evidence.'],
+        onToolCall: () => {
+          throw new Error('render failed');
+        },
+        send,
+        recordToolMetric: vi.fn(),
+      }),
+    );
+    expect(result.reply).toBe('Answer.');
+    expect(result.toolLog).toHaveLength(1);
   });
 
   it('detects overlapping ranges', () => {

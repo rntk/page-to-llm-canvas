@@ -481,6 +481,30 @@ describe('appendChatTurn', () => {
     }
   });
 
+  it('keeps a sanitized tool log on assistant messages only', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await seedRecord(mock, makeRecord('article'));
+
+    const toolLog = [
+      { name: 'read_page', args: '{"page":1}', outcome: 'tool_result', result: 'page text' },
+      { name: 'ask_pages', args: '{}', outcome: 'tool_failed', error: 'Error: boom' },
+      'garbage',
+    ];
+    const { chat } = await appendChatTurn('article', null, {
+      messages: [
+        { role: 'user', content: 'Q', toolLog },
+        { role: 'assistant', content: 'A', toolLog },
+      ],
+    });
+
+    expect(chat.messages[0]).not.toHaveProperty('toolLog');
+    expect(chat.messages[1].toolLog).toEqual([
+      { name: 'read_page', args: '{"page":1}', outcome: 'tool_result' },
+      { name: 'ask_pages', args: '{}', outcome: 'tool_failed', error: 'Error: boom' },
+    ]);
+  });
+
   it('creates the chat inline when chatId is falsy and persists the whole turn', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);

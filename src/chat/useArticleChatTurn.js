@@ -40,6 +40,8 @@ export function useArticleChatTurn({
   const [isLoading, setIsLoading] = useState(false);
   const [pendingQuestion, setPendingQuestion] = useState('');
   const [retryTurn, setRetryTurn] = useState(null);
+  // Tools called so far by the in-flight turn, shown live under "Thinking…".
+  const [liveToolLog, setLiveToolLog] = useState([]);
   const mountedRef = useRef(true);
   const recordKeyRef = useRef(recordKey);
   const operationRef = useRef(null);
@@ -63,6 +65,7 @@ export function useArticleChatTurn({
       operationRef.current = null;
       setIsLoading(false);
       setPendingQuestion('');
+      setLiveToolLog([]);
       if (clearRetry) setRetryTurn(null);
       if (operation && restoreQuestion && !operation.state.persisted) {
         setInput(operation.question);
@@ -131,7 +134,11 @@ export function useArticleChatTurn({
             scope,
             messages: [
               { role: 'user', content: question },
-              { role: 'assistant', content: turnResult.reply },
+              {
+                role: 'assistant',
+                content: turnResult.reply,
+                ...(turnResult.toolLog?.length ? { toolLog: turnResult.toolLog } : {}),
+              },
             ],
             // Redundant guard for injected runTurn implementations; the engine
             // enforces this limit before painting any highlight.
@@ -193,6 +200,7 @@ export function useArticleChatTurn({
     setNotice(null);
     setIsLoading(true);
     setPendingQuestion(question);
+    setLiveToolLog([]);
     setRetryTurn(null);
     let turnResult = retry?.question === question ? retry.turnResult : undefined;
     operation.state.turnResult = turnResult;
@@ -234,6 +242,10 @@ export function useArticleChatTurn({
               onHighlight: (range) => {
                 if (!isCurrentOperation(operation)) return undefined;
                 return onHighlight?.(range);
+              },
+              onToolCall: (entry) => {
+                if (!isCurrentOperation(operation)) return;
+                setLiveToolLog((current) => [...current, entry]);
               },
             },
           });
@@ -326,6 +338,7 @@ export function useArticleChatTurn({
       if (mountedRef.current && operationRef.current === operation) {
         operationRef.current = null;
         setPendingQuestion('');
+        setLiveToolLog([]);
         setIsLoading(false);
         clearStoppingNotice(operation);
       }
@@ -367,6 +380,7 @@ export function useArticleChatTurn({
   return {
     isLoading,
     pendingQuestion,
+    liveToolLog,
     retryTurn,
     setRetryTurn,
     start: send,

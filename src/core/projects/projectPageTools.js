@@ -488,7 +488,7 @@ export function createProjectHighlightTool({ pages, loadPage }) {
 // ---------------------------------------------------------------------------
 
 const OVERVIEW_HEADER =
-  'PROJECT PAGES\nThis project is a set of web pages. Whole pages are not included here: the PAGE SCAN below quotes the lines relevant to the current question, and read_page and search_page reach the rest, using the page numbers below.';
+  'PROJECT PAGES\nThis project is a set of web pages. Whole pages are not included here: the PAGE SCAN below quotes the lines relevant to the current question, and read_page, search_page and ask_page_agent reach the rest, using the page numbers below.';
 
 const SCAN_MODE_LABELS = Object.freeze({
   [PAGE_SCAN_MODES.LLM]:
@@ -511,6 +511,7 @@ const OVERVIEW_GUIDANCE = [
   '- Start from the PAGE SCAN: its quoted lines (">") are the page text, so use every relevant detail in them (numbers, names, dates, conditions, exceptions). Call read_page around them when you need surrounding context, and for findings whose lines are not quoted.',
   '- Read narrowly beyond that; do not read whole pages unless the question needs it. search_page without page searches all pages by keywords.',
   '- Use ask_pages only for a different sub-question than the current message.',
+  '- When a page needs more than a narrow read (a long section, a list to extract, a comparison within the page), call ask_page_agent with the page and a self-contained prompt instead of reading it all here; verify the line numbers it returns with read_page before highlighting.',
   '- Call highlight_span (page, start_line, end_line) for each passage your answer relies on, after reading it; the user sees these as quoted page excerpts.',
   '- Cite as "Page title, lines N–M" using page line numbers from read_page or search_page.',
 ].join('\n');
@@ -586,7 +587,7 @@ export function buildProjectPagesOverview({
       : `PAGE SCAN\n${NO_SCAN_TEXT}`;
     treeHeading = tree ? 'MERGED TOPIC TREE (optional extra)' : '';
     guidance =
-      'Use scan quotes; read_page for context. Use ask_pages for different questions. Call highlight_span for supporting passages; cite page titles and line numbers.';
+      'Use scan quotes; read_page for context. Use ask_pages for different questions, ask_page_agent to have a helper read a long page. Call highlight_span for supporting passages; cite page titles and line numbers.';
     if (fixedText().length > budget / 2) {
       header = '';
       scanHead = scan ? 'PAGE SCAN' : scanHead;

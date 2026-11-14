@@ -4,6 +4,7 @@ import { MSG } from '../shared/runtime/messages.js';
 import { CHAT_TOOL_OUTCOMES, LLM_TASK_TYPES } from '../shared/runtime/telemetry.js';
 import { sendRuntimeMessage } from '../utils/runtimeMessages.js';
 import { createChatLogger } from './chatLogger.js';
+import { createToolLogEntry } from './toolLog.js';
 import {
   ARTICLE_CHAT_SYSTEM_PROMPT,
   EXCERPT_CHAT_SYSTEM_PROMPT,
@@ -118,6 +119,8 @@ export function articleChatBudgets({
  * @property {number} [limits.chunkConcurrency]
  * @property {object} [effects]
  * @property {function(object): (void|Promise<void>)} [effects.onHighlight]
+ * @property {function(import('./toolLog.js').ToolLogEntry): void} [effects.onToolCall]
+ *   Fires after each tool call resolves, for a live tool log in the UI only.
  * @property {object} [dependencies]
  * @property {Function} [dependencies.send]
  * @property {Function} [dependencies.cancelTurn]
@@ -144,6 +147,7 @@ function normalizeArticleChatTurnOptions(options = {}) {
     question: options.question,
     sentences: article.sentences,
     onHighlight: effects.onHighlight,
+    onToolCall: effects.onToolCall,
     highlightedRanges: article.highlightedRanges ?? [],
     source: article.source ?? null,
     highlightTool: options.highlightTool ?? null,
@@ -240,6 +244,8 @@ async function runArticleChatChunk({
   eventBudget,
   transcriptMessages,
   onHighlight,
+  toolLog,
+  onToolCall,
   maxToolRounds,
   send,
   signal,
@@ -428,6 +434,13 @@ async function runArticleChatChunk({
       }
       throwIfAborted(signal);
       recordToolMetric({ outcome, error: outcomeError });
+      const logEntry = createToolLogEntry(call, outcome, outcomeError);
+      toolLog.push(logEntry);
+      try {
+        onToolCall?.(logEntry);
+      } catch (_) {
+        // The live log is cosmetic; it must never fail the turn.
+      }
       const toolResultMessage = { role: 'tool', content: result, toolCallId: call.id };
       messages.push(toolResultMessage);
       transcriptMessages.push(toolResultMessage);
@@ -464,7 +477,10 @@ async function runArticleChatChunk({
  * the background boundary so in-flight provider work can be aborted there.
  *
  * @param {ArticleChatTurnOptions} options
- * @returns {Promise<{reply: string, transcriptMessages: object[], highlightRanges: Array<{startLine: number, endLine: number, label: string}>}>}
+ * `onToolCall(entry)` fires after each tool call resolves, for a live tool
+ * log; the same entries are returned as `toolLog`.
+ *
+ * @returns {Promise<{reply: string, transcriptMessages: object[], highlightRanges: Array<{startLine: number, endLine: number, label: string}>, toolLog: object[]}>}
  */
 export async function runArticleChatTurn(options = {}) {
   const {
@@ -473,6 +489,7 @@ export async function runArticleChatTurn(options = {}) {
     question,
     sentences,
     onHighlight,
+    onToolCall,
     highlightedRanges,
     maxChunkChars,
     maxToolRounds,
@@ -581,6 +598,8 @@ export async function runArticleChatTurn(options = {}) {
     // redundant tool call, even though only the winning highlight is painted.
     const acceptedRanges = [...highlightedRanges];
     const eventBudget = { remaining: MAX_TURN_EVENTS };
+    // Turn-wide, in call order across sibling chunks.
+    const toolLog = [];
     let nextChunkIndex = 0;
     const worker = async () => {
       try {
@@ -602,6 +621,8 @@ export async function runArticleChatTurn(options = {}) {
             eventBudget,
             transcriptMessages: chunkTranscript,
             onHighlight,
+            toolLog,
+            onToolCall,
             maxToolRounds,
             send: sendChunkRequest,
             signal: turnController.signal,
@@ -642,6 +663,7 @@ export async function runArticleChatTurn(options = {}) {
         reply: chunkReplies[0].reply,
         transcriptMessages,
         highlightRanges: newRanges,
+        toolLog,
       };
       log('turn_done', {
         durationMs: Date.now() - startedAt,
@@ -696,7 +718,7 @@ export async function runArticleChatTurn(options = {}) {
       replyChars: reply.length,
       newHighlightCount: newRanges.length,
     });
-    return { reply, transcriptMessages, highlightRanges: newRanges };
+    return { reply, transcriptMessages, highlightRanges: newRanges, toolLog };
   } catch (error) {
     abortTurn(error);
     log(

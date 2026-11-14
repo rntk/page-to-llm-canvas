@@ -206,6 +206,7 @@ function ArticleChat({
   const {
     isLoading,
     pendingQuestion,
+    liveToolLog,
     retryTurn,
     setRetryTurn,
     start: send,
@@ -288,7 +289,11 @@ function ArticleChat({
     ) {
       visible.push(
         { role: 'user', content: retryTurn.question },
-        { role: 'assistant', content: retryTurn.turnResult.reply },
+        {
+          role: 'assistant',
+          content: retryTurn.turnResult.reply,
+          toolLog: retryTurn.turnResult.toolLog,
+        },
       );
     }
     return pendingQuestion ? [...visible, { role: 'user', content: pendingQuestion }] : visible;
@@ -573,6 +578,7 @@ function ArticleChat({
             messages={visibleMessages}
             isLoading={isLoading}
             isLoadingHistory={isLoadingHistory}
+            liveToolLog={liveToolLog}
             emptyPrompt={emptyPrompt || `Ask a question about this ${subjectLabel}.`}
           />
           <ChatComposer

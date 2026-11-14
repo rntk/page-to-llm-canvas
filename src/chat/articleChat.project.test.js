@@ -38,7 +38,12 @@ describe('project chat turns', () => {
       ],
     });
 
-    expect(result).toEqual({ reply: 'Answer.', transcriptMessages: [], highlightRanges: [] });
+    expect(result).toEqual({
+      reply: 'Answer.',
+      transcriptMessages: [],
+      highlightRanges: [],
+      toolLog: [],
+    });
     expect(send).toHaveBeenCalledTimes(1);
     const request = send.mock.calls[0][0];
     expect(request.messages[0]).toEqual({ role: 'system', content: PROJECT_CHAT_SYSTEM_PROMPT });

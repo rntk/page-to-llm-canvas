@@ -122,7 +122,7 @@ describe('createProjectChatTurnRunner', () => {
     expect(call.article.source.preamble).toContain('Covers purring.');
     expect(call.article.source.preamble).toContain('Cats');
     expect(call.article.source.preamble).toContain('language model');
-    expect(toolNames(call)).toEqual(['read_page', 'search_page', 'ask_pages']);
+    expect(toolNames(call)).toEqual(['read_page', 'search_page', 'ask_pages', 'ask_page_agent']);
     // Everything else is passed through untouched.
     expect(call.question).toBe(opts.question);
     expect(call.limits).toBe(opts.limits);
@@ -245,6 +245,35 @@ describe('createProjectChatTurnRunner', () => {
     expect(readPage).toHaveBeenCalledTimes(4);
   });
 
+  it('offers ask_page_agent, which sends helper requests with the turn id and shares the turn page cache', async () => {
+    const send = makeSend({
+      complete: (message) =>
+        message.taskType === 'chat_page_agent' ? { ok: true, content: 'done' } : undefined,
+    });
+    const { run, runTurn, readPage } = setup({ send });
+    await run(options());
+    const call = runTurn.mock.calls[0][0];
+    expect(readPage).toHaveBeenCalledTimes(2);
+
+    const agent = call.tools.find((tool) => tool.definition.name === 'ask_page_agent');
+    const reply = JSON.parse(await agent.run({ page: 1, prompt: 'Summarise' }, { maxChars: 4000 }));
+    expect(reply).toMatchObject({ kind: 'page_agent_answer', page: 1, answer: 'done' });
+
+    const helperRequests = sentTypes(send, MSG.llmChatCompletion).filter(
+      (m) => m.taskType === 'chat_page_agent',
+    );
+    expect(helperRequests).toHaveLength(1);
+    expect(helperRequests[0]).toEqual({
+      type: MSG.llmChatCompletion,
+      taskType: 'chat_page_agent',
+      chatTurnId: 'turn-1',
+      messages: expect.any(Array),
+      tools: expect.any(Array),
+    });
+    // The scan already read both pages this turn, so the helper reuses them.
+    expect(readPage).toHaveBeenCalledTimes(2);
+  });
+
   it('offers a page highlight tool that shares the turn page cache', async () => {
     const { run, runTurn, readPage } = setup();
     await run(options());
@@ -331,7 +360,13 @@ describe('createProjectChatTurnRunner', () => {
     const withTree = setup({ treeContext, treeOverviewInput });
     await withTree.run(options());
     const call = withTree.runTurn.mock.calls[0][0];
-    expect(toolNames(call)).toEqual(['read_page', 'search_page', 'ask_pages', 'search_topics']);
+    expect(toolNames(call)).toEqual([
+      'read_page',
+      'search_page',
+      'ask_pages',
+      'ask_page_agent',
+      'search_topics',
+    ]);
     expect(call.article.source.preamble).toContain('TREE-OVERVIEW-TEXT');
     expect(treeContext.buildPreamble).toHaveBeenCalledWith({
       ...treeOverviewInput,

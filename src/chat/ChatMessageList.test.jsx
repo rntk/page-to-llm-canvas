@@ -69,4 +69,47 @@ describe('ChatMessageList', () => {
 
     expect(transcript(element)).toEqual([{ speaker: 'Assistant', text: 'Loading history…' }]);
   });
+
+  it('shows a folded list of the tools an answer called', () => {
+    const element = render({
+      messages: [
+        { id: 'q1', role: 'user', content: 'Q' },
+        {
+          id: 'a1',
+          role: 'assistant',
+          content: 'Answer',
+          toolLog: [
+            { name: 'read_page', args: '{"page":1}', outcome: 'tool_result' },
+            { name: 'ask_pages', args: '{}', outcome: 'tool_failed', error: 'Error: boom' },
+          ],
+        },
+      ],
+    });
+
+    const details = element.querySelector('.pagetollm-chat-message.is-assistant details');
+    expect(details.open).toBe(false);
+    expect(details.querySelector('summary').textContent).toBe('Tools called (2)');
+    const items = [...details.querySelectorAll('li')];
+    expect(
+      items.map((item) => item.querySelector('.pagetollm-chat-tool-name').textContent),
+    ).toEqual(['read_page', 'ask_pages']);
+    expect(items[1].className).toBe('is-failed');
+    expect(items[1].title).toBe('Error: boom');
+    expect(transcript(element).at(-1)).toEqual({ speaker: 'Assistant', text: 'Answer' });
+  });
+
+  it('shows no tool block for answers without tool calls', () => {
+    const element = render({ messages: [{ id: 'a1', role: 'assistant', content: 'Answer' }] });
+    expect(element.querySelector('details')).toBeNull();
+  });
+
+  it('lists tools called so far on the thinking row', () => {
+    const element = render({
+      messages: [{ id: 'q1', role: 'user', content: 'Hi' }],
+      isLoading: true,
+      liveToolLog: [{ name: 'search_page', args: '{"query":"x"}', outcome: 'tool_result' }],
+    });
+    const summary = element.querySelector('.is-loading details summary');
+    expect(summary.textContent).toBe('Calling tools (1)');
+  });
 });

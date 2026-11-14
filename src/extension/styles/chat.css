@@ -307,6 +307,45 @@
   font-style: italic;
 }
 
+.pagetollm-chat-tools {
+  font-size: 11px;
+  color: var(--on-surface-muted);
+}
+
+.pagetollm-chat-tools summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.pagetollm-chat-tools ol {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 4px 0 2px;
+  padding-left: 18px;
+}
+
+.pagetollm-chat-tools li {
+  overflow-wrap: anywhere;
+}
+
+.pagetollm-chat-tools li.is-failed .pagetollm-chat-tool-outcome {
+  color: var(--accent);
+}
+
+.pagetollm-chat-tool-name {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.pagetollm-chat-tool-args {
+  margin-left: 4px;
+}
+
+.pagetollm-chat-tool-outcome {
+  margin-left: 6px;
+}
+
 .pagetollm-chat-error {
   flex: 0 0 auto;
   margin: 0 12px 8px;
