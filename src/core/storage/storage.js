@@ -318,18 +318,32 @@ export async function readRecord(key) {
  * @returns {Promise<object|null>} Tree state without content or work documents.
  */
 export async function readRecordSummaryTreeState(key) {
-  const metaKey = metaStorageKey(key);
-  const outputKey = summaryOutputStorageKey(key);
-  const items = await getLocal([metaKey, outputKey]);
-  const meta = items[metaKey];
-  if (!isCurrentRecordMeta(meta)) return null;
-  return {
-    key,
-    status: meta.status,
-    contentRevision: meta.contentRevision,
-    pipelineRunId: meta.pipelineRunId,
-    summary_tree: items[outputKey]?.summary_tree,
-  };
+  const [state] = await readRecordSummaryTreeStates([key]);
+  return state;
+}
+
+/**
+ * Batched `readRecordSummaryTreeState`: one storage read for every key, so a
+ * recovery scan costs a single round trip instead of one per record.
+ * @param {string[]} keys Record keys.
+ * @returns {Promise<Array<object|null>>} Tree states in `keys` order.
+ */
+export async function readRecordSummaryTreeStates(keys) {
+  if (!keys.length) return [];
+  const items = await getLocal(
+    keys.flatMap((key) => [metaStorageKey(key), summaryOutputStorageKey(key)]),
+  );
+  return keys.map((key) => {
+    const meta = items[metaStorageKey(key)];
+    if (!isCurrentRecordMeta(meta)) return null;
+    return {
+      key,
+      status: meta.status,
+      contentRevision: meta.contentRevision,
+      pipelineRunId: meta.pipelineRunId,
+      summary_tree: items[summaryOutputStorageKey(key)]?.summary_tree,
+    };
+  });
 }
 
 /**

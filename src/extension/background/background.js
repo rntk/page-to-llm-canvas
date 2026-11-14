@@ -3,6 +3,7 @@ import {
   readRecord,
   readRecordView,
   readRecordSummaryTreeState,
+  readRecordSummaryTreeStates,
   cancelRecordSummaryTree,
   writeRecord,
   updateRecord,
@@ -237,17 +238,17 @@ const summaryTreeJobs = createSummaryTreeJobs({
     if (!updated) throw new Error('The article changed before the tree build started.');
   },
   async listRunningKeys() {
-    const keys = [];
-    for (const item of await listRecords()) {
-      if (item.status !== 'done') continue;
-      const record = await readRecordSummaryTreeState(item.key);
-      if (
-        record?.status === 'done' &&
-        canRecoverSummaryTree(record.summary_tree, record.contentRevision)
+    const candidates = (await listRecords())
+      .filter((item) => item.status === 'done')
+      .map((item) => item.key);
+    const states = await readRecordSummaryTreeStates(candidates);
+    return states
+      .filter(
+        (record) =>
+          record?.status === 'done' &&
+          canRecoverSummaryTree(record.summary_tree, record.contentRevision),
       )
-        keys.push(item.key);
-    }
-    return keys;
+      .map((record) => record.key);
   },
 });
 

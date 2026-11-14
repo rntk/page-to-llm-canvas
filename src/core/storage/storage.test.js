@@ -3,6 +3,7 @@ import {
   readRecord,
   readRecordView,
   readRecordSummaryTreeState,
+  readRecordSummaryTreeStates,
   cancelRecordSummaryTree,
   writeRecord,
   updateRecord,
@@ -1754,6 +1755,19 @@ describe('project topic source revisions', () => {
 });
 
 describe('summary tree recovery storage', () => {
+  it('reads tree states for many records in one storage call', async () => {
+    const mock = makeChromeMock();
+    vi.stubGlobal('chrome', mock);
+    await writeRecord(makeRecord('tree-a', { status: 'done', summary_tree: { status: 'running' } }));
+    await writeRecord(makeRecord('tree-b', { status: 'done' }));
+    mock.storage.local.get.mockClear();
+    const states = await readRecordSummaryTreeStates(['tree-b', 'missing', 'tree-a']);
+    expect(mock.storage.local.get).toHaveBeenCalledTimes(1);
+    expect(states.map((state) => state?.key ?? null)).toEqual(['tree-b', null, 'tree-a']);
+    expect(states[2].summary_tree).toMatchObject({ status: 'running' });
+    expect(await readRecordSummaryTreeStates([])).toEqual([]);
+  });
+
   it('reads only metadata and summary output for recovery', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
