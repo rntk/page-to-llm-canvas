@@ -199,6 +199,14 @@ describe('buildSummaryLookup', () => {
     expect(lookup.get('Sci>Bio')).toBe('Cells. Genes.');
   });
 
+  it('shows a summary repeated across runs only once', () => {
+    const index = {
+      'Sci>Bio': { runs: [{ text: 'Cells.' }, { text: 'Cells.' }] },
+    };
+    const lookup = buildSummaryLookup(index);
+    expect(lookup.get('Sci>Bio')).toBe('Cells.');
+  });
+
   it('normalises a display-form index key to the canonical lookup key', () => {
     const index = { 'Tech > AI': { runs: [{ text: 'AI summary' }] } };
     const lookup = buildSummaryLookup(index);

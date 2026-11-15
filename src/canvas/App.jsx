@@ -34,6 +34,16 @@ import ArticleChat from '../chat/ArticleChat.jsx';
 import { createToChatAction } from '../chat/topicScope.js';
 import { buildSentenceDomRange } from '../highlights/sentenceHighlight.js';
 import { PIPELINE_STATUS } from '../shared/runtime/contracts.js';
+import {
+  TOPIC_SOURCE,
+  summaryTreeEmptyText,
+  summaryTreeRevision,
+  useSummaryTreeActions,
+  useSummaryTreeState,
+  useTopicSourceRecord,
+} from '../shared/topicSource.js';
+import TopicSourceSwitcher from '../components/TopicSourceSwitcher.jsx';
+import SummaryTreeBar from '../topics-tree/SummaryTreeBar.jsx';
 
 const noop = () => {};
 
@@ -66,24 +76,79 @@ export default function App({ initialKey, recordSource, onClose = noop }) {
     onClose();
   }, [onClose]);
 
+  const [source, setSource] = useState(TOPIC_SOURCE.PIPELINE);
+  const isSummaryTreeSource = source === TOPIC_SOURCE.SUMMARY_TREE;
+  const summaryTree = useSummaryTreeState(record);
+  const summaryTreeActions = useSummaryTreeActions(recordSource, initialKey);
+  // The summary tree replaces only the topics and their summaries.
+  const sourceRecord = useTopicSourceRecord(record, source, summaryTree);
+
   // Nothing to show while the first fetch is still in flight.
   if (!isReady) return null;
 
+  const sourceBar = (
+    <div className="canvas-source-bar" onPointerDown={(event) => event.stopPropagation()}>
+      <TopicSourceSwitcher source={source} onChange={setSource} />
+      {isSummaryTreeSource && (
+        <SummaryTreeBar
+          status={summaryTree.status}
+          tree={summaryTree.tree}
+          notice={summaryTreeActions.notice}
+          onBuild={summaryTreeActions.onBuild}
+          onStop={summaryTreeActions.onStop}
+        />
+      )}
+    </div>
+  );
+
+  if (!sourceRecord) {
+    return (
+      <div className="pagetollm-modal-root">
+        <main className="pagetollm-body">
+          <div className="pagetollm-canvas-main">
+            {sourceBar}
+            <div className="canvas-source-state" role="status">
+              <p>{summaryTreeEmptyText(summaryTree.status)}</p>
+              <button type="button" className="canvas-source-state__close" onClick={onClose}>
+                Close
+              </button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   // A completed record can be replaced in place. Remount on revision change to
   // reset sentence-keyed chat evidence, topic selection, and the opening view.
+  // Switching the topic source, or a new summary tree save, remounts likewise:
+  // selections and chat scopes name one source's topic paths.
+  const sourceKey = isSummaryTreeSource
+    ? `:${source}:${summaryTreeRevision(summaryTree) ?? ''}`
+    : '';
   return (
     <CanvasApp
-      key={record.contentRevision}
+      key={`${record.contentRevision}${sourceKey}`}
       initialKey={initialKey}
-      record={record}
+      record={sourceRecord}
       recordSource={recordSource}
       onClose={onClose}
       onResplitAccepted={handleResplitAccepted}
+      canResplit={!isSummaryTreeSource}
+      sourceBar={sourceBar}
     />
   );
 }
 
-function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepted }) {
+function CanvasApp({
+  initialKey,
+  record,
+  recordSource,
+  onClose,
+  onResplitAccepted,
+  canResplit = true,
+  sourceBar = null,
+}) {
   const [showSummaryModeRaw, setShowSummaryMode] = useState(false);
   const [showTopicHierarchy, setShowTopicHierarchy] = useState(true);
   const [showChat, setShowChat] = useState(false);
@@ -409,13 +474,18 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
         setScopeRequest({ paths: [path] });
         setShowChat(true);
       }),
-      createResplitAction({
-        topics,
-        request: (topic) => recordSource.resplitTopic(initialKey, topic),
-        onAccepted: onResplitAccepted,
-      }),
+      // Summary tree paths are not record topics, so they cannot be resplit.
+      ...(canResplit
+        ? [
+            createResplitAction({
+              topics,
+              request: (topic) => recordSource.resplitTopic(initialKey, topic),
+              onAccepted: onResplitAccepted,
+            }),
+          ]
+        : []),
     ];
-  }, [topics, recordSource, initialKey, onResplitAccepted]);
+  }, [topics, recordSource, initialKey, onResplitAccepted, canResplit]);
 
   // Summary cards zoom on click like the rail's topic cards, but without
   // toggling selection: in summary mode `selectedTarget` feeds the preview's
@@ -606,6 +676,7 @@ function CanvasApp({ initialKey, record, recordSource, onClose, onResplitAccepte
             )}
           </div>
 
+          {sourceBar}
           <CanvasToolbar
             onClose={onClose}
             onNavigate={handleNavigate}

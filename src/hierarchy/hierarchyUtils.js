@@ -38,12 +38,14 @@ export function spacedTopicPath(path) {
   return formatTopicPath(splitTopicPath(path));
 }
 
+// Runs repeating one summary (a summary tree topic spanning several
+// stretches) show it once.
 function getSummaryText(summary) {
   if (!summary || !Array.isArray(summary.runs)) return '';
-  return summary.runs
+  const texts = summary.runs
     .map((run) => (run && typeof run.text === 'string' ? run.text.trim() : ''))
-    .filter(Boolean)
-    .join(' ');
+    .filter(Boolean);
+  return [...new Set(texts)].join(' ');
 }
 
 /**

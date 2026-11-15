@@ -14,7 +14,18 @@ import { createResplitAction } from '../shared/runtime/topicResplit.js';
 import { buildTopicTree, collectNonLeafPaths } from '../domain/topicTree.js';
 import { getMaxTopicLevel } from '../domain/topicDomain.js';
 import { PIPELINE_STATUS } from '../shared/runtime/contracts.js';
+import {
+  TOPIC_SOURCE,
+  summaryTreeEmptyText,
+  summaryTreeRevision,
+  useSummaryTreeActions,
+  useSummaryTreeState,
+  useTopicSourceRecord,
+} from '../shared/topicSource.js';
+import TopicSourceSwitcher from '../components/TopicSourceSwitcher.jsx';
+import SummaryTreeBar from '../topics-tree/SummaryTreeBar.jsx';
 import '../extension/styles/topic-page.css';
+import '../topics-tree/topics-tree.css';
 import './hierarchy.css';
 import ArticleChat from '../chat/ArticleChat.jsx';
 import { createToChatAction } from '../chat/topicScope.js';
@@ -92,8 +103,14 @@ export default function HierarchyApp({
     };
   }, [onClose, scopeRequest]);
 
+  const [source, setSource] = useState(TOPIC_SOURCE.PIPELINE);
+  const isSummaryTreeSource = source === TOPIC_SOURCE.SUMMARY_TREE;
+  const summaryTree = useSummaryTreeState(record);
+  const summaryTreeActions = useSummaryTreeActions(recordSource, initialKey);
+  // The summary tree replaces only the topics and their summaries.
+  const sourceRecord = useTopicSourceRecord(record, source, summaryTree);
   const article = projectArticleView(record);
-  const topics = useStableJsonValue(article.topics);
+  const topics = useStableJsonValue(projectArticleView(sourceRecord).topics);
   const isDone = record?.status === PIPELINE_STATUS.DONE;
   const isRecordError =
     record?.status === PIPELINE_STATUS.ERROR || record?.status === PIPELINE_STATUS.CANCELLED;
@@ -107,7 +124,8 @@ export default function HierarchyApp({
   const topicActions = useMemo(
     () => [
       createToChatAction(({ path }) => setScopeRequest({ paths: [path] })),
-      ...(typeof recordSource?.resplitTopic === 'function'
+      // Summary tree paths are not record topics, so they cannot be resplit.
+      ...(!isSummaryTreeSource && typeof recordSource?.resplitTopic === 'function'
         ? [
             createResplitAction({
               topics,
@@ -117,7 +135,7 @@ export default function HierarchyApp({
           ]
         : []),
     ],
-    [topics, recordSource, initialKey, handleResplitAccepted],
+    [topics, recordSource, initialKey, handleResplitAccepted, isSummaryTreeSource],
   );
 
   const isYouTube = useMemo(
@@ -136,13 +154,37 @@ export default function HierarchyApp({
     [isYouTube, activeSummary, record?.sourceUrl, article.sentences],
   );
 
-  if (initialKey !== prevInitialKey) {
-    setPrevInitialKey(initialKey);
+  const resetTopicState = () => {
     setCollapsedPaths(new Set());
     setSelectedLevel(null);
     setActiveSummary(null);
     setScopeRequest(null);
+    setChatEvidence([]);
+  };
+
+  if (initialKey !== prevInitialKey) {
+    setPrevInitialKey(initialKey);
+    setSource(TOPIC_SOURCE.PIPELINE);
+    resetTopicState();
   }
+
+  // A summary tree build or new save replaces the topic paths in place, as the
+  // canvas remount does; reset state that names the previous tree's paths.
+  const topicStateKey = isSummaryTreeSource
+    ? `${sourceRecord ? 'shown' : 'hidden'}:${summaryTreeRevision(summaryTree) ?? ''}`
+    : '';
+  const [prevTopicStateKey, setPrevTopicStateKey] = useState(topicStateKey);
+  if (topicStateKey !== prevTopicStateKey) {
+    setPrevTopicStateKey(topicStateKey);
+    resetTopicState();
+  }
+
+  // Collapsed paths, levels and chat scopes belong to one source's topic paths.
+  const handleSourceChange = (next) => {
+    if (next === source) return;
+    setSource(next);
+    resetTopicState();
+  };
 
   const roots = useMemo(() => buildTopicTree(topics, 0), [topics]);
   const maxLevel = useMemo(() => getMaxTopicLevel(topics), [topics]);
@@ -166,10 +208,11 @@ export default function HierarchyApp({
         rail: isYouTube ? 'youtube' : 'page',
         sentenceNumbers,
         level: entry.node.depth,
-        topicPath: entry.node.fullPath,
+        // Summary tree paths are not record topics; the rail opens at the sentences.
+        topicPath: isSummaryTreeSource ? undefined : entry.node.fullPath,
       });
     },
-    [onNavigateToSentences, initialKey, isYouTube],
+    [onNavigateToSentences, initialKey, isYouTube, isSummaryTreeSource],
   );
 
   const handleToggleCollapse = useCallback((fullPath) => {
@@ -232,11 +275,13 @@ export default function HierarchyApp({
     );
   } else if (!isDone) {
     body = <div className="th-page__state">Still processing this page…</div>;
+  } else if (!sourceRecord) {
+    body = <div className="th-page__state">{summaryTreeEmptyText(summaryTree.status)}</div>;
   } else {
     body = (
       <TopicHierarchyView
         topics={topics}
-        topicSummaryIndex={record?.topic_summary_index}
+        topicSummaryIndex={sourceRecord.topic_summary_index}
         collapsedPaths={collapsedPaths}
         onToggleCollapse={handleToggleCollapse}
         sourceUrl={record?.sourceUrl}
@@ -257,9 +302,25 @@ export default function HierarchyApp({
       <header className="th-page__bar">
         <h1 className="th-page__title">Topic Hierarchy and Summaries</h1>
         <div className="th-page__actions">
+          {isDone && (
+            <TopicSourceSwitcher
+              className="th-page__level-switcher th-hierarchy-source-switcher"
+              source={source}
+              onChange={handleSourceChange}
+            />
+          )}
+          {isDone && isSummaryTreeSource && (
+            <SummaryTreeBar
+              status={summaryTree.status}
+              tree={summaryTree.tree}
+              notice={summaryTreeActions.notice}
+              onBuild={summaryTreeActions.onBuild}
+              onStop={summaryTreeActions.onStop}
+            />
+          )}
           {isDone && topics.length > 0 && maxLevel > 0 && (
             <TopicLevelSwitcher
-              className="th-page__level-switcher"
+              className="th-page__level-switcher th-hierarchy-level-switcher"
               selectedLevel={effectiveLevel}
               maxLevel={maxLevel}
               onChange={handleSelectLevel}
@@ -286,7 +347,7 @@ export default function HierarchyApp({
       {scopeRequest && (
         <div className="th-chat-panel">
           <ArticleChat
-            key={`${initialKey}:${record?.contentRevision || ''}`}
+            key={`${initialKey}:${record?.contentRevision || ''}:${source}:${topicStateKey}`}
             recordKey={initialKey}
             sentences={article.sentences}
             topics={topics}

@@ -589,6 +589,92 @@ body.canvas-global-dragging * {
   box-shadow: none;
 }
 
+/* ── Topic source bar (floating: frosted vellum, like the controls) ────── */
+
+.canvas-source-bar {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 11;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 128px);
+  padding: 4px 8px;
+  border: 1px solid var(--ink);
+  background: var(--surface-frost);
+  backdrop-filter: blur(14px);
+}
+
+.canvas-source-bar .topic-level-switcher__button:hover {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+/* The summary tree build bar, re-themed from the topics tree's page chrome. */
+.canvas-source-bar .tt-source-status {
+  display: flex;
+  max-width: none;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.canvas-source-bar .tt-source-status__text,
+.canvas-source-bar .tt-source-status__notice {
+  min-width: 0;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-source-bar .tt-muted {
+  color: var(--on-surface-muted);
+}
+
+.canvas-source-bar .tt-source-status__notice {
+  color: var(--danger);
+}
+
+.canvas-source-bar .tt-btn,
+.canvas-source-state__close {
+  padding: 4px 8px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.canvas-source-bar .tt-btn:hover,
+.canvas-source-state__close:hover {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+/* Stands in for the canvas while the summary tree cannot be shown. */
+.canvas-source-state {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--on-surface-muted);
+  text-align: center;
+}
+
+.canvas-source-state p {
+  max-width: 420px;
+  margin: 0;
+}
+
 /* ── Sentence highlights (normal view) ─────────────────────────────────── */
 
 /* Hover must read as stronger than the resting highlight below, so it uses the

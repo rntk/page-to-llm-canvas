@@ -8,7 +8,7 @@ Each source card of the tree has a Chat tab that opens a chat scoped to that tex
 
 Every level that has sub-topics also offers a "Source text" link beside its sentence count. Instead of unfolding the child branches, it shows one block with all the text of that topic, split into one section per sub-topic (and, in a combined tree, per article) so the origins stay visible. The block has the same Chat tab. The chat is told the text comes from several sections and pages, and the assistant can read and search each page in full, not just the quoted lines.
 
-The [topics tree](14-topics-tree.md) is the main place to view and manage an article's summary tree. The [project canvas](16-project-canvas.md) uses the same approach to organize topics from multiple saved articles.
+The [topics tree](14-topics-tree.md) is the main place to view and manage an article's summary tree. The [project canvas](16-project-canvas.md) uses the same approach to organize topics from multiple saved articles. The [canvas](08-canvas.md) and [hierarchy](09-hierarchy.md) can also show it through their **Topics** switcher.
 
 Entry points: [summary tree pipeline](../src/core/pipeline/summaryTreeStage.js) and [topics tree view](../src/topics-tree/TopicsTreeApp.jsx).
 

@@ -594,3 +594,91 @@ describe('App composition behavior', () => {
     await act(async () => root.unmount());
   });
 });
+
+describe('App topic source switcher', () => {
+  const summaryTree = (status = 'done') => ({
+    version: 1,
+    contentRevision: 'rev-a',
+    status,
+    updatedAt: Date.now(),
+    stage: status === 'running' ? 'passages' : 'done',
+    progress: { done: 1, total: 4 },
+    rootId: 'r',
+    nodes: {
+      p: { id: 'p', kind: 'passage', title: 'Passage', children: [], sentences: [1] },
+      t: { id: 't', kind: 'topic', title: 'Tree topic', children: ['p'], sentences: [1] },
+      r: { id: 'r', kind: 'root', title: 'Article', children: ['t'], sentences: [1] },
+    },
+  });
+
+  beforeEach(() => {
+    state.record = {
+      key: 'record-1',
+      status: 'done',
+      contentRevision: 'rev-a',
+      topics: [{ name: 'Pipeline topic', sentences: [1] }],
+      topic_summary_index: {},
+    };
+    state.error = null;
+    state.isDeleted = false;
+    state.vm = { ...doneView };
+    state.vmInput = null;
+    state.canvasWrapElement = { focus: mocks.canvasFocus, clientWidth: 800, clientHeight: 500 };
+    state.childProps = {};
+    vi.clearAllMocks();
+    vi.spyOn(window, 'focus').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    document.body.replaceChildren();
+    vi.restoreAllMocks();
+  });
+
+  const sourceButton = (container, label) =>
+    [...container.querySelectorAll('.canvas-source-bar button')].find(
+      (button) => button.textContent === label,
+    );
+
+  it('shows the pipeline topics by default', async () => {
+    const { container, root } = await renderApp();
+    expect(container.querySelector('.canvas-source-bar').textContent).toContain('Topics:');
+    expect(sourceButton(container, 'Pipeline').className).toContain('active');
+    expect(state.vmInput.record.topics).toEqual([{ name: 'Pipeline topic', sentences: [1] }]);
+    await act(async () => root.unmount());
+  });
+
+  it('renders the summary tree as topics, without resplit', async () => {
+    state.record = { ...state.record, summary_tree: summaryTree() };
+    const { container, root } = await renderApp();
+    await act(async () => sourceButton(container, 'Summary tree').click());
+    expect(state.vmInput.record.topics).toEqual([{ name: 'Tree topic>Passage', sentences: [1] }]);
+    expect(state.vmInput.record.topic_summary_index['Tree topic']).toBeTruthy();
+    expect(state.vmInput.record.key).toBe('record-1');
+    expect(state.childProps.rail.topicActions.map((action) => action.id)).toEqual(['to-chat']);
+    expect(container.querySelector('.canvas-source-bar').textContent).toContain('0 topics');
+    await act(async () => root.unmount());
+  });
+
+  it('shows an empty state with a build action when no summary tree exists', async () => {
+    const buildSummaryTree = vi.fn(() => Promise.resolve({ ok: true }));
+    const { container, root } = await renderApp('record-1', { recordSource: { buildSummaryTree } });
+    state.childProps = {};
+    await act(async () => sourceButton(container, 'Summary tree').click());
+    expect(container.querySelector('.canvas-source-state').textContent).toMatch(/No summary tree/);
+    expect(state.childProps.rail).toBeUndefined();
+    await act(async () => sourceButton(container, 'Build summary tree').click());
+    expect(buildSummaryTree).toHaveBeenCalledWith('record-1', { fresh: false });
+    await act(async () => root.unmount());
+  });
+
+  it('shows build progress instead of the canvas while the tree is running', async () => {
+    state.record = { ...state.record, summary_tree: summaryTree('running') };
+    const { container, root } = await renderApp();
+    await act(async () => sourceButton(container, 'Summary tree').click());
+    expect(container.querySelector('.canvas-source-state').textContent).toMatch(/being built/);
+    expect(container.querySelector('.canvas-source-bar').textContent).toContain(
+      'Summarizing passages 1/4',
+    );
+    await act(async () => root.unmount());
+  });
+});

@@ -3,9 +3,8 @@ import { projectArticleView } from '../domain/articleView.js';
 import { useRecord } from '../canvas/hooks/useRecord.js';
 import { getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
 import { PIPELINE_STATUS } from '../shared/runtime/contracts.js';
-import { readSummaryTree, SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
-import { useStaleTick } from '../shared/useStaleTick.js';
-import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
+import { useSummaryTreeActions, useSummaryTreeState } from '../shared/topicSource.js';
+import TopicSourceSwitcher from '../components/TopicSourceSwitcher.jsx';
 import { LEAF_KIND } from './displayTree.js';
 import RecordStateGate from './RecordStateGate.jsx';
 import { TREE_SOURCES, TREE_SOURCE_IDS, useSourceTree } from './treeSources.js';
@@ -49,16 +48,13 @@ export default function TopicsTreeApp({
 
   const [controlsHost, setControlsHost] = useState(null);
   const [source, setSource] = useState(TREE_SOURCE_IDS[0]);
-  const [notice, setNotice] = useState('');
   const sourceConfig = TREE_SOURCES[source];
-  const [now, setNow] = useState(() => Date.now());
-  const summaryTree = readSummaryTree(record?.summary_tree, record?.contentRevision, now);
-
-  // A running build that stops saving becomes resumable without a record change.
-  // A save newer than `now` is never stale, so ticking only while running suffices.
-  const running = summaryTree.status === SUMMARY_TREE_STATUS.RUNNING;
-  const tick = useCallback(() => setNow(Date.now()), []);
-  useStaleTick(running, tick);
+  const summaryTree = useSummaryTreeState(record);
+  const {
+    notice,
+    onBuild: handleBuild,
+    onStop: handleStop,
+  } = useSummaryTreeActions(recordSource, initialKey);
 
   const article = projectArticleView(record);
   const leafChat = useSourceCardChats({
@@ -84,23 +80,6 @@ export default function TopicsTreeApp({
     [onNavigateToSentences, initialKey, isYouTube, sourceConfig],
   );
 
-  const send = (request) => {
-    setNotice('');
-    Promise.resolve(request())
-      .then((response) => {
-        if (response?.ok === false) setNotice(String(response.error || 'Request failed.'));
-      })
-      .catch((err) => setNotice(String(err?.message || err)));
-  };
-  const handleBuild =
-    typeof recordSource?.buildSummaryTree === 'function'
-      ? ({ fresh }) => send(() => recordSource.buildSummaryTree(initialKey, { fresh }))
-      : undefined;
-  const handleStop =
-    typeof recordSource?.stopSummaryTree === 'function'
-      ? () => send(() => recordSource.stopSummaryTree(initialKey))
-      : undefined;
-
   const SourceBar = sourceConfig.Bar;
   const canvas = tree ? (
     <TopicsTreeCanvas
@@ -121,13 +100,10 @@ export default function TopicsTreeApp({
       <header className="th-page__bar">
         <h1 className="th-page__title">Topics Tree</h1>
         {record?.status === PIPELINE_STATUS.DONE && (
-          <TopicLevelSwitcher
+          <TopicSourceSwitcher
             className="th-page__level-switcher tt-source-switcher"
-            label="Topics:"
-            selectedLevel={TREE_SOURCE_IDS.indexOf(source)}
-            maxLevel={TREE_SOURCE_IDS.length - 1}
-            getOptionLabel={(index) => TREE_SOURCES[TREE_SOURCE_IDS[index]].label}
-            onChange={(index) => setSource(TREE_SOURCE_IDS[index])}
+            source={source}
+            onChange={setSource}
           />
         )}
         <div className="tt-bar-controls" ref={setControlsHost} />

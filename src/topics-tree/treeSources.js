@@ -1,15 +1,13 @@
 import { useMemo } from 'react';
 import { articleRootTitle } from '../domain/articleView.js';
 import { SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
+import { TOPIC_SOURCE, TOPIC_SOURCE_LABELS, summaryTreeRevision } from '../shared/topicSource.js';
 import SummaryTreeBar from './SummaryTreeBar.jsx';
-import {
-  buildSummaryTreeDisplayTree,
-  buildTopicsDisplayTree,
-} from './displayTree.js';
+import { buildSummaryTreeDisplayTree, buildTopicsDisplayTree } from './displayTree.js';
 
 export const TREE_SOURCES = Object.freeze({
-  pipeline: {
-    label: 'Pipeline',
+  [TOPIC_SOURCE.PIPELINE]: {
+    label: TOPIC_SOURCE_LABELS[TOPIC_SOURCE.PIPELINE],
     inputOf: (record) => [record?.topics, record?.topic_summary_index],
     revisionOf: (record) => record?.topicsRevision,
     build: ([topics, summaries], options) => buildTopicsDisplayTree(topics, summaries, options),
@@ -17,12 +15,10 @@ export const TREE_SOURCES = Object.freeze({
     showCanvas: () => true,
     emptyText: 'No topics were found for this page.',
   },
-  summary_tree: {
-    label: 'Summary tree',
+  [TOPIC_SOURCE.SUMMARY_TREE]: {
+    label: TOPIC_SOURCE_LABELS[TOPIC_SOURCE.SUMMARY_TREE],
     inputOf: (_record, summaryTree) => [summaryTree.tree?.rootId, summaryTree.tree?.nodes],
-    // A terminal save can share a millisecond with the last running checkpoint.
-    revisionOf: (_record, { tree }) =>
-      Number.isFinite(tree?.updatedAt) ? `${tree.updatedAt}:${tree.status}` : undefined,
+    revisionOf: (_record, summaryTree) => summaryTreeRevision(summaryTree),
     build: ([rootId, nodes], options) => buildSummaryTreeDisplayTree({ rootId, nodes }, options),
     // Summary tree paths are not record topics.
     topicPath: () => undefined,

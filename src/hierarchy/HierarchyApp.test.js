@@ -258,7 +258,7 @@ describe('HierarchyApp', () => {
     const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
 
     const levelButtons = Array.from(
-      container.querySelectorAll('.th-page__level-switcher .topic-level-switcher__button'),
+      container.querySelectorAll('.th-hierarchy-level-switcher .topic-level-switcher__button'),
     );
     expect(levelButtons.map((b) => b.textContent)).toEqual(['L0', 'L1', 'L2']);
     expect(levelButtons[2].classList.contains('active')).toBe(true);
@@ -274,7 +274,7 @@ describe('HierarchyApp', () => {
     expect(container.querySelector('.th-node--collapsed')).not.toBeNull();
 
     const activeAfter = container.querySelector(
-      '.th-page__level-switcher .topic-level-switcher__button.active',
+      '.th-hierarchy-level-switcher .topic-level-switcher__button.active',
     );
     expect(activeAfter.textContent).toBe('L1');
 
@@ -296,10 +296,12 @@ describe('HierarchyApp', () => {
       createElement(HierarchyApp, { initialKey: 'key1' }),
     );
     const activeLevel = () =>
-      container.querySelector('.th-page__level-switcher .topic-level-switcher__button.active')
+      container.querySelector('.th-hierarchy-level-switcher .topic-level-switcher__button.active')
         .textContent;
     act(() =>
-      Array.from(container.querySelectorAll('.topic-level-switcher__button'))
+      Array.from(
+        container.querySelectorAll('.th-hierarchy-level-switcher .topic-level-switcher__button'),
+      )
         .find((button) => button.textContent === 'L2')
         .click(),
     );
@@ -317,9 +319,9 @@ describe('HierarchyApp', () => {
     });
     rerender(createElement(HierarchyApp, { initialKey: 'key1' }));
 
-    const labels = Array.from(container.querySelectorAll('.topic-level-switcher__button')).map(
-      (button) => button.textContent,
-    );
+    const labels = Array.from(
+      container.querySelectorAll('.th-hierarchy-level-switcher .topic-level-switcher__button'),
+    ).map((button) => button.textContent);
     expect(labels).toEqual(['L0', 'L1']);
     expect(activeLevel()).toBe('L1');
     unmount();
@@ -339,7 +341,7 @@ describe('HierarchyApp', () => {
     );
 
     const buttons = container.querySelectorAll(
-      '.th-page__level-switcher .topic-level-switcher__button',
+      '.th-hierarchy-level-switcher .topic-level-switcher__button',
     );
     act(() => buttons[0].click());
     expect(container.textContent).not.toContain('Orange');
@@ -352,7 +354,7 @@ describe('HierarchyApp', () => {
 
     expect(container.querySelector('.th-summary-modal')).toBeNull();
     expect(
-      container.querySelector('.th-page__level-switcher .topic-level-switcher__button.active')
+      container.querySelector('.th-hierarchy-level-switcher .topic-level-switcher__button.active')
         .textContent,
     ).toBe('L2');
     expect(container.textContent).toContain('Orange');
@@ -525,5 +527,190 @@ describe('HierarchyApp', () => {
     expect(listenerCount(removeEventListenerSpy)).toBe(1);
     addEventListenerSpy.mockRestore();
     removeEventListenerSpy.mockRestore();
+  });
+});
+
+describe('HierarchyApp topic source switcher', () => {
+  const summaryTree = (status = 'done', extra = {}) => ({
+    version: 1,
+    contentRevision: 'rev-a',
+    status,
+    updatedAt: Date.now(),
+    stage: 'done',
+    rootId: 'r',
+    nodes: {
+      p: {
+        id: 'p',
+        kind: 'passage',
+        title: 'Passage',
+        children: [],
+        sentences: [2],
+        segments: [{ text: 'Passage summary', sources: [] }],
+      },
+      t: { id: 't', kind: 'topic', title: 'Tree topic', children: ['p'], sentences: [2] },
+      r: { id: 'r', kind: 'root', title: 'Article', children: ['t'], sentences: [2] },
+    },
+    ...extra,
+  });
+  const record = (extra = {}) => ({
+    status: 'done',
+    contentRevision: 'rev-a',
+    topics: [{ name: 'Fruit', sentences: [1] }],
+    topic_summary_index: {},
+    ...extra,
+  });
+  const clickSource = (container, label) =>
+    act(() =>
+      Array.from(
+        container.querySelectorAll('.th-hierarchy-source-switcher .topic-level-switcher__button'),
+      )
+        .find((button) => button.textContent === label)
+        .click(),
+    );
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it('switches the outline to the summary tree and back', () => {
+    useRecord.mockReturnValue({ record: record({ summary_tree: summaryTree() }), error: null });
+    const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
+    expect(container.querySelector('.th-hierarchy-source-switcher').textContent).toContain(
+      'Topics:',
+    );
+    expect(container.textContent).toContain('Fruit');
+
+    clickSource(container, 'Summary tree');
+    expect(container.textContent).not.toContain('Fruit');
+    expect(container.textContent).toContain('Tree topic');
+    expect(container.textContent).toContain('Passage summary');
+
+    // Summary tree paths are not record topics, so the page rail gets no topic path.
+    act(() => container.querySelector('.th-leaf').click());
+    expect(hostActions.onNavigateToSentences).toHaveBeenCalledWith(
+      expect.objectContaining({ sentenceNumbers: [2], topicPath: undefined }),
+    );
+
+    clickSource(container, 'Pipeline');
+    expect(container.textContent).toContain('Fruit');
+    unmount();
+  });
+
+  it('hides the switcher until the record is done', () => {
+    useRecord.mockReturnValue({ record: record({ status: 'pending' }), error: null });
+    const { container, unmount } = render(createElement(HierarchyApp, { initialKey: 'key1' }));
+    expect(container.querySelector('.th-hierarchy-source-switcher')).toBeNull();
+    unmount();
+  });
+
+  it('offers a build when no summary tree exists, and shows progress while running', () => {
+    const buildSummaryTree = vi.fn(() => Promise.resolve({ ok: true }));
+    useRecord.mockReturnValue({ record: record(), error: null });
+    const { container, rerender, unmount } = render(
+      createElement(HierarchyApp, { initialKey: 'key1', recordSource: { buildSummaryTree } }),
+    );
+    clickSource(container, 'Summary tree');
+    expect(container.querySelector('.th-page__body').textContent).toMatch(/No summary tree/);
+    act(() =>
+      Array.from(container.querySelectorAll('.tt-btn'))
+        .find((button) => button.textContent === 'Build summary tree')
+        .click(),
+    );
+    expect(buildSummaryTree).toHaveBeenCalledWith('key1', { fresh: false });
+
+    useRecord.mockReturnValue({
+      record: record({ summary_tree: summaryTree('running') }),
+      error: null,
+    });
+    rerender(
+      createElement(HierarchyApp, {
+        ...hostActions,
+        initialKey: 'key1',
+        recordSource: { buildSummaryTree },
+      }),
+    );
+    expect(container.querySelector('.th-page__body').textContent).toMatch(/being built/);
+    unmount();
+  });
+
+  it('resets level state and closes topic chat when summary tree updates or rebuilds', async () => {
+    vi.stubGlobal('chrome', {
+      runtime: {
+        sendMessage: vi.fn((_message, callback) => callback?.({ ok: true, chats: [] })),
+      },
+    });
+    const initialTree = summaryTree('done', { updatedAt: 1000 });
+    useRecord.mockReturnValue({
+      record: record({ summary_tree: initialTree }),
+      error: null,
+    });
+    const { container, rerender, unmount } = render(
+      createElement(HierarchyApp, { initialKey: 'key1' }),
+    );
+
+    clickSource(container, 'Summary tree');
+    expect(container.textContent).toContain('Tree topic');
+
+    // Select level 0
+    const levelButtons = Array.from(
+      container.querySelectorAll('.th-hierarchy-level-switcher .topic-level-switcher__button'),
+    );
+    expect(levelButtons.map((b) => b.textContent)).toEqual(['L0', 'L1']);
+    expect(levelButtons[1].classList.contains('active')).toBe(true);
+    act(() => levelButtons[0].click());
+    expect(
+      container.querySelector('.th-hierarchy-level-switcher .topic-level-switcher__button.active')
+        .textContent,
+    ).toBe('L0');
+
+    // Open topic chat
+    act(() => container.querySelector('.th-node__actions-trigger').click());
+    const toChat = [
+      ...document.body.querySelectorAll('.th-node__actions-menu [role="menuitem"]'),
+    ].find((item) => item.textContent.includes('To chat'));
+    await act(async () => {
+      toChat.click();
+    });
+    expect(container.querySelector('.th-chat-panel')).not.toBeNull();
+
+    // Rerender with a record whose summary tree has a new updatedAt revision
+    useRecord.mockReturnValue({
+      record: record({ summary_tree: summaryTree('done', { updatedAt: 2000 }) }),
+      error: null,
+    });
+    rerender(createElement(HierarchyApp, { initialKey: 'key1' }));
+
+    expect(container.querySelector('.th-chat-panel')).toBeNull();
+    expect(
+      container.querySelector('.th-hierarchy-level-switcher .topic-level-switcher__button.active')
+        .textContent,
+    ).toBe('L1');
+
+    // Select level 0 and open chat again
+    const updatedButtons = Array.from(
+      container.querySelectorAll('.th-hierarchy-level-switcher .topic-level-switcher__button'),
+    );
+    act(() => updatedButtons[0].click());
+    expect(
+      container.querySelector('.th-hierarchy-level-switcher .topic-level-switcher__button.active')
+        .textContent,
+    ).toBe('L0');
+    act(() => container.querySelector('.th-node__actions-trigger').click());
+    const toChatAgain = [
+      ...document.body.querySelectorAll('.th-node__actions-menu [role="menuitem"]'),
+    ].find((item) => item.textContent.includes('To chat'));
+    await act(async () => {
+      toChatAgain.click();
+    });
+    expect(container.querySelector('.th-chat-panel')).not.toBeNull();
+
+    // Rerender with running summary tree
+    useRecord.mockReturnValue({
+      record: record({ summary_tree: summaryTree('running') }),
+      error: null,
+    });
+    rerender(createElement(HierarchyApp, { initialKey: 'key1' }));
+
+    expect(container.querySelector('.th-chat-panel')).toBeNull();
+
+    unmount();
   });
 });
