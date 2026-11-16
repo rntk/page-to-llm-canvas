@@ -10,8 +10,7 @@ import {
   paintSentenceHighlight,
 } from './sentenceHighlight.js';
 
-// Minimal CSS Custom Highlight API polyfill (happy-dom ships neither Highlight
-// nor CSS.highlights). Highlight just records the live Ranges added to it.
+// Minimal CSS Custom Highlight polyfill; happy-dom has neither Highlight nor CSS.highlights.
 class FakeHighlight {
   constructor() {
     this.ranges = new Set();
@@ -259,9 +258,8 @@ describe('collectWordEntries and buildSentenceDomRange', () => {
   });
 
   it('collectWordEntries keeps the summary when RCDATA text precedes it', () => {
-    // The parser reads `<b>x` inside the textarea as a literal text node, so
-    // <summary> remains a direct child. The textarea's own text is dropped
-    // because it is collapsed-details content outside the summary.
+    // The textarea's `<b>x` is literal text, so <summary> stays a direct child
+    // and the textarea text is dropped as collapsed-details content.
     container.innerHTML =
       '<details><textarea><b>x</textarea><summary>Real</summary><p>a</p></details>';
     expect(collectWordEntries([container]).map((e) => e.word)).toEqual(['Real']);

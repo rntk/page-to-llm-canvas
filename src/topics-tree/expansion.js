@@ -1,7 +1,6 @@
 import { textKey } from './displayTree.js';
 
-// Expansion state over a display tree: which nodes are open, and the tree
-// views derived from it. Pure functions only, so they run without a DOM.
+// Expansion state over a display tree. Pure functions, so they run without a DOM.
 
 /**
  * Start with the root open, so the top-level topics are visible.
@@ -67,7 +66,7 @@ export function toggleNode(tree, expanded, key, exclusive = false) {
 }
 
 /**
- * Number of levels in the tree, the root being level 1 (a lone root is 1).
+ * Number of levels in the tree (a lone root is 1).
  * @param {object|null} tree Display tree.
  */
 export function treeDepth(tree) {

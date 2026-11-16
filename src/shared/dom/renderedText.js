@@ -1,9 +1,7 @@
-// Shared browser-side rules for deciding which DOM text participates in the
-// rendered-text pipeline. The selection capture and live highlighter must use
-// the same tag, layout, and style interpretation or their word indexes drift.
+// Shared rules for which DOM text is rendered. Selection capture and the live
+// highlighter must agree on these or their word indexes drift.
 
-// These elements either never expose fallback text in a normal rendered
-// document or are removed wholesale by canvas HTML sanitization.
+// Never show fallback text, or removed wholesale by canvas HTML sanitization.
 export const NEVER_RENDERED_TAGS = new Set([
   'CANVAS',
   'EMBED',
@@ -17,9 +15,7 @@ export const NEVER_RENDERED_TAGS = new Set([
 
 export const CLOSED_BY_DEFAULT_TAGS = new Set(['DIALOG']);
 
-// Keep this list in step with the capture-side text walker. A boundary is
-// inserted around these elements, while inline elements remain one logical
-// text stream.
+// Must match the capture-side text walker. Inline elements stay one text stream.
 const BLOCK_TAGS = new Set([
   'ADDRESS',
   'ARTICLE',
@@ -67,8 +63,7 @@ const BLOCK_DISPLAYS = new Set([
 ]);
 
 /**
- * Read computed style without making DOM helpers fail in test DOMs or on a
- * detached node. The optional cache is scoped to one DOM walk.
+ * Computed style that tolerates test DOMs and detached nodes. Cache is per DOM walk.
  *
  * @param {Node} node Element whose resolved style is needed.
  * @param {Map<Element, ?CSSStyleDeclaration>} [cache] Per-walk memo.
@@ -133,8 +128,7 @@ export function inlineProperty(node, property, camelProperty = property) {
 }
 
 /**
- * Read a style property, falling back to the inline declaration when a DOM
- * shim does not expose the computed value.
+ * Computed style property, falling back to the inline declaration.
  * @param {Element} node Element whose style is being read.
  * @param {?CSSStyleDeclaration} style Computed style.
  * @param {string} property CSS property name.
@@ -175,8 +169,7 @@ export function computedSubtreeIsHidden(style) {
 }
 
 /**
- * Whether a computed declaration exposes enough layout data to be
- * authoritative over inline-style fallback parsing.
+ * Whether computed style has layout data authoritative over inline-style fallback.
  * @param {?CSSStyleDeclaration} style Computed style.
  * @returns {boolean}
  */
@@ -240,8 +233,7 @@ export function isRenderedTextNode(node, computedStyleCache, contentWindow) {
 /**
  * Whether an element creates a block-level text boundary.
  * @param {Element} node Element to inspect.
- * @param {Map<Element, ?CSSStyleDeclaration>} [computedStyleCache] Per-walk
- *   computed-style memo.
+ * @param {Map<Element, ?CSSStyleDeclaration>} [computedStyleCache] Per-walk memo.
  * @param {Window} [contentWindow] Window to use when capturing another DOM.
  * @returns {boolean}
  */

@@ -48,12 +48,9 @@ const defaultLLMDependencies = Object.freeze({
 });
 
 /**
- * Creates an LLM boundary with all external capabilities supplied explicitly.
- * Production exports below use the default service; focused tests and other
- * runtimes can construct an isolated service without module mocking.
- * Dependencies follow the repository's flat service-factory convention: each
- * key replaces one function, so partial nested capability objects cannot drop
- * required sibling methods.
+ * Creates an LLM boundary with all external capabilities injected. Production
+ * exports use the default service; tests can build an isolated one. Overrides
+ * are flat (one key per function) so partial nested objects cannot drop siblings.
  * @param {object} [overrides] External LLM capabilities to replace.
  * @param {Function} [overrides.getActiveProvider] Active-provider lookup.
  * @param {Function} [overrides.clientFactory] Provider client factory.
@@ -84,13 +81,11 @@ export function createLLMService(overrides = {}) {
 }
 
 /**
- * Makes a single completion call to the active provider.
- * Returns `{ok, content?, error?}` — the same shape used by the background
- * message handler so it can delegate here too.
+ * Makes a single completion call to the active provider. Returns the same
+ * `{ok, content?, error?}` shape as the background message handler.
  *
- * Request/response console detail (and the raw client dumps inside
- * clients.js) only fire when the "verbose pipeline logs" setting is on.
- * Failures still always warn.
+ * Request/response detail (and raw dumps in clients.js) log only when the
+ * "verbose pipeline logs" setting is on; failures always warn.
  *
  * @param {object} options
  * @param {string} [options.prompt]
@@ -121,12 +116,10 @@ async function callLLMDirectWithDependencies(options, dependencies) {
   const scheduler = { setTimeout: scheduleTimeout, clearTimeout: cancelTimeout };
   const clientLogger = { info: logInfo, warn: logWarn };
   const { prompt = '', messages, tools, toolChoice, parallelToolCalls, signal } = options;
-  // Snapshot settings per call (independent of provider resolution below, so
-  // overlap them instead of chaining after it) so mid-flight options changes
-  // apply only to the next request or retry attempt. This extra handler keeps
-  // an early return below from surfacing an unhandled rejection; it doesn't
-  // suppress the failure, since the later `await settingsPromise` still
-  // throws normally on the paths that reach it.
+  // Snapshot settings per call (overlapped with provider resolution) so
+  // mid-flight option changes apply only to the next request or retry. The
+  // catch handler only prevents an unhandled rejection on early returns; the
+  // later `await settingsPromise` still throws.
   const settingsPromise = Promise.all([getRequestTimeoutSeconds(), getVerboseLogs()]);
   settingsPromise.catch((e) => logWarn('settings read failed:', getErrorMessage(e)));
   let provider;
@@ -147,8 +140,7 @@ async function callLLMDirectWithDependencies(options, dependencies) {
     };
   }
 
-  // Provider-configured, per-task temperature. Undefined leaves the parameter
-  // out of the request entirely — the only shape some models accept.
+  // Undefined omits the parameter, the only shape some models accept.
   const temperature = resolveProviderTemperature(provider, options.taskType);
 
   let client;
@@ -282,15 +274,10 @@ function getErrorMessage(error) {
  */
 async function callLLMUsing(callDirect, options) {
   const response = await callDirect(options);
-  // A response the provider cut off at its output limit is a successful HTTP
-  // 200 whose body is missing its tail. Text callers (the whole pipeline) parse
-  // that body as a complete answer — a truncated topic list becomes apparently
-  // complete coverage once the parser repairs the missing tail, and a truncated
-  // summary is checkpointed as a good one — so it has to fail here, at the
-  // boundary, before any parsing or checkpointing sees it. Retryable: the
-  // request itself is well-formed, so a retry (or a smaller re-split) can
-  // succeed. Chat goes through callLLMDirect and keeps its partial text plus
-  // the finishReason, so tool-use and long chat answers are unaffected.
+  // A response cut off at the output limit is an HTTP 200 missing its tail.
+  // Text callers would parse it as complete (a repaired topic list, a
+  // checkpointed summary), so fail here, before parsing. Retryable: a retry or
+  // smaller re-split can succeed. Chat uses callLLMDirect and keeps partial text.
   if (response.ok && isTruncatedFinish(response.finishReason)) {
     throw new Error(TRUNCATED_RESPONSE_ERROR);
   }
@@ -328,9 +315,8 @@ async function callLLMWithRetryUsing(call, dependencies, opts, maxRetries = 3) {
 
 /**
  * Same retry policy as callLLMWithRetryUsing, but resolves with the direct
- * result object (tool calls, finishReason, partial text) instead of throwing
- * on failure. Chat needs that full shape; truncated `ok: true` responses are
- * returned as-is rather than retried.
+ * result (tool calls, finishReason, partial text) instead of throwing.
+ * Truncated `ok: true` responses are returned as-is, not retried.
  * @param {Function} callDirect Direct LLM request function.
  * @param {object} dependencies External LLM capabilities.
  * @param {object} opts Request options accepted by callLLMDirect.
@@ -370,9 +356,8 @@ async function callLLMDirectWithRetryUsing(callDirect, dependencies, opts, maxRe
  */
 function isRetryableFailure(e) {
   if (e?.name === 'AbortError' || e?.retryable === false) return false;
-  // A 4xx status other than 408 (timeout) or 429 (rate limit) reflects a
-  // malformed/unauthorized request that will never succeed on retry.
-  // Statusless errors (network failures, timeouts) and 408/429/5xx remain retryable.
+  // 4xx other than 408/429 means a bad or unauthorized request that retrying
+  // won't fix. Statusless errors (network, timeouts), 408, 429 and 5xx retry.
   return !(
     Number.isFinite(e?.status) &&
     e.status >= 400 &&
@@ -401,8 +386,7 @@ async function runWithRetryPolicy(dependencies, signal, maxRetries, attempt, set
     clearTimeout: cancelTimeout,
   } = dependencies;
   const scheduler = { setTimeout: scheduleTimeout, clearTimeout: cancelTimeout };
-  // Guard against a caller-supplied maxRetries <= 0/NaN reaching the final
-  // `throw lastErr` with lastErr still undefined — always make at least one attempt.
+  // Always make at least one attempt so `throw lastErr` is never undefined.
   const attempts = Number.isFinite(maxRetries) && maxRetries >= 1 ? Math.trunc(maxRetries) : 1;
   let lastErr;
   for (let i = 0; i < attempts; i++) {
@@ -425,8 +409,7 @@ async function runWithRetryPolicy(dependencies, signal, maxRetries, attempt, set
       error: (e && e.message) || String(e),
     });
     if (i === attempts - 1) break;
-    // Equal-jitter backoff spreads retries so multiple concurrent requests
-    // that failed together do not all retry in lockstep.
+    // Equal-jitter backoff keeps concurrent failures from retrying in lockstep.
     let delay = 1000 * Math.pow(2, i) * (0.5 + random());
     if (Number.isFinite(e?.retryAfterMs) && e.retryAfterMs > 0) {
       // Honor the provider's Retry-After when present, capped at 60s.

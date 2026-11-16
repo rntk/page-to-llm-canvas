@@ -80,16 +80,13 @@ export function createRecordHandlers({
     });
   };
 
-  // Claim the next run before cancelling the specific run this snapshot observed.
-  // A stale claimant must neither cancel nor restart the winning run.
-  //
-  // A running summary tree belongs to the topics this claim is about to replace
-  // or re-derive, so it is stopped first: cancelling a tree requires the record
-  // to still be `done`, which the claim is about to change. `stop` also
-  // cancels a stored `running` tree that has no in-memory job (after a worker
-  // restart). The claim re-asserts that on the record in case a late checkpoint
-  // write reopened it, so background recovery cannot resume it against stale
-  // topic boundaries.
+  // Claim the next run before cancelling the run this snapshot observed, so a
+  // stale claimant neither cancels nor restarts the winning run.
+  // A running summary tree belongs to topics this claim replaces, so stop it
+  // first (cancelling requires the record to still be `done`). `stop` also
+  // covers a stored `running` tree with no in-memory job (after a worker
+  // restart); the claim re-asserts the cancel in case a late checkpoint write
+  // reopened it, so recovery cannot resume it against stale topic boundaries.
   const claimAndRestart = async (key, scope, patch, options) => {
     let claim = patch;
     if (summaryTreeJobs) {
@@ -131,20 +128,15 @@ export function createRecordHandlers({
       validate: requireKey,
       async handle(msg) {
         const rec = await requireRecord(msg.key);
-        // Retry an unfinished manual resplit from its saved intent. Otherwise,
-        // a generic failure can happen after the topic checkpoint and one or
-        // more summaries have already been persisted (for example, a later
-        // storage write). Re-enter the summarizing status only when the whole
-        // checkpoint is safe to resume; otherwise retain the normal fresh-run
-        // retry path. Reprocess remains the explicitly destructive operation.
+        // Retry an unfinished manual resplit from its saved intent. Otherwise
+        // a failure may follow a persisted topic checkpoint and summaries, so
+        // resume summarizing only when the whole checkpoint is safe; else do a
+        // fresh run. Reprocess is the explicitly destructive operation.
         const resumesSummaries =
           isSummaryCheckpointRevisionCurrent(rec) && isSummaryCheckpointComplete(rec);
         const retriesResplit = Boolean(rec.manualResplitIntent);
-        // A Retry can be pressed after a generic failure interrupted a prior
-        // Skip/force-finalize resume. Those directives are part of the saved
-        // summary checkpoint: dropping them would re-run merge work the user
-        // explicitly accepted, and would stop accepted leaf failures from being
-        // finalized as retryable empties. They have no meaning on a fresh run.
+        // Skip/force-finalize directives belong to the saved checkpoint: dropping
+        // them would re-run merge work the user accepted. Meaningless on a fresh run.
         const forceFinalize = resumesSummaries && rec.forceFinalize === true;
         const acceptedMergeFailurePaths =
           forceFinalize && Array.isArray(rec.acceptedMergeFailurePaths)
@@ -167,11 +159,9 @@ export function createRecordHandlers({
                 : // A fresh run has nothing to carry: `forceFinalize` and
                   // `acceptedMergeFailurePaths` are already false/[] here.
                   { ...queuedTransition(), ...resetSummaryReviewPatch() }),
-            // A resumed checkpoint must finish the summary work that was
-            // already paid for. Applying a newly enabled global "skip
-            // summaries" preference here would finalize it by clearing those
-            // saved summaries. Fresh retries retain the directive chosen when
-            // the failed run was submitted.
+            // A resumed checkpoint must finish its paid-for summaries; a newly
+            // enabled global "skip summaries" would clear them. Fresh retries
+            // keep the directive from submission.
             skipSummaries: resumesSummaries && !retriesResplit ? false : rec.skipSummaries === true,
           },
           { expectedPipelineRunId: rec.pipelineRunId },
@@ -202,26 +192,21 @@ export function createRecordHandlers({
       },
     },
 
-    // Generates (or completes) summaries for an already-processed record without
-    // redoing the clean/split/topic-ranges stages. Not a new pipeline mode: the
-    // record is put back into the 'summarizing' stage with an explicit
-    // "summaries on" run directive, and the orchestrator's existing resume path
-    // reuses the stored topics/sentences, keeps summaries that already succeeded,
-    // and only queries the LLM for the ones still missing or failed.
+    // Generates or completes summaries for a processed record without redoing
+    // earlier stages: re-enters 'summarizing' with an explicit "summaries on"
+    // directive, so the orchestrator's resume path queries only missing/failed ones.
     [MSG.generateRecordSummaries]: {
       requiresExtensionPage: false,
       validate: requireKey,
       async handle(msg) {
         const rec = await requireRecord(msg.key);
-        // This action resumes a terminal record's saved checkpoint. It must not
-        // replace an active pipeline (which could still be building that
-        // checkpoint) with a summaries-only run.
+        // Resumes a terminal record's checkpoint; must not replace an active
+        // pipeline that may still be building it.
         if (!isSummaryGenerationSourceStatus(rec.status)) {
           return { ok: true, stale: true };
         }
-        // The resume path needs a complete topic/sentence checkpoint. Reject
-        // before changing status or cancelling work: malformed imports can have
-        // non-empty arrays whose topic references still cannot be summarized.
+        // Reject before changing status or cancelling work: malformed imports can
+        // have non-empty arrays whose topic references still cannot be summarized.
         if (!isSummaryCheckpointComplete(rec)) {
           const hasTopicData = Array.isArray(rec.topics) && rec.topics.length > 0;
           const error = hasTopicData
@@ -432,11 +417,9 @@ export function createRecordHandlers({
           pipelineRunId: createPipelineRunId(),
           // A new run supersedes the outcome of any earlier Resplit.
           resplitNotice: null,
-          // Resets the parked progress stage so the resuming UI shows summarizing,
-          // not the transient 'needs_attention' stage, before the worker's first
-          // write. A new review can happen while finalizing an earlier Skip:
-          // keep that earlier, path-scoped acceptance active while retrying
-          // only the newly failed work.
+          // Resets the parked progress stage so the UI shows summarizing, not
+          // 'needs_attention', before the worker's first write. Earlier Skip
+          // acceptances stay active while only newly failed work is retried.
           ...resumeSummariesTransition({
             total: 0,
             forceFinalize:
@@ -458,18 +441,14 @@ export function createRecordHandlers({
             ]),
           ];
         } else if (carriedAcceptedMergePaths.length > 0) {
-          // The parked index contains empty runs for the newly failed merge
-          // paths as well as the paths accepted in an earlier review. Reusing it
-          // wholesale would turn this explicit Retry into a silent Skip. Force a
-          // fresh tree merge; makeForceFinalizeSummarizer still suppresses only
-          // the carried, explicitly accepted paths.
+          // The parked index holds empty runs for newly failed merge paths too;
+          // reusing it would turn this Retry into a silent Skip. Force a fresh
+          // merge; makeForceFinalizeSummarizer suppresses only the accepted paths.
           patch.topic_summary_index = {};
         }
         return claimAndRestart(msg.key, 'resolveSummaryErrors', patch, {
-          // The handler derived the entire patch from this snapshot. Serialize
-          // competing Retry/Skip decisions by accepting only the first writer;
-          // its newly minted run id makes every stale sibling decision fail the
-          // compare-and-swap inside storage's per-record update queue.
+          // The patch derives from this snapshot, so only the first of competing
+          // Retry/Skip decisions wins; its new run id fails the others' compare-and-swap.
           expectedPipelineRunId: rec.pipelineRunId,
         });
       },

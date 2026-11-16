@@ -33,10 +33,9 @@ export function isFutureRecordMeta(value) {
 }
 
 /**
- * Loads a record's meta doc for a write path (updateRecord / log flush).
- * Only reads the small meta doc — the whole point of the split, since this
- * runs on nearly every pipeline step. Returns `null` if the record does not
- * exist.
+ * Loads a record's meta doc for a write path (updateRecord / log flush). Reads
+ * only the small meta doc, since this runs on nearly every pipeline step.
+ * Returns `null` if the record does not exist.
  * @param {string} key Record key.
  */
 export async function loadMetaForWrite(key) {

@@ -1,13 +1,13 @@
 /**
- * Pure projection of a saved summary tree onto the record's primary topic
- * shape, so views built on `record.topics` and `record.topic_summary_index`
- * (the canvas and the hierarchy) can show the summary tree unchanged.
+ * Pure projection of a saved summary tree onto the record's primary topic shape,
+ * so views built on `record.topics` and `record.topic_summary_index` (canvas,
+ * hierarchy) can show the summary tree unchanged.
  *
- * Passages become the leaf topics: they are contiguous and do not overlap,
- * so each source sentence belongs to exactly one leaf, as the chronological
- * canvas builder expects. Topic nodes only contribute their paths and
- * summaries. The root overview is skipped: neither view shows an
- * article-level summary, and the pipeline index has no root entry either.
+ * Passages become the leaf topics: contiguous and non-overlapping, so each
+ * source sentence belongs to exactly one leaf, as the chronological canvas
+ * builder expects. Topic nodes contribute only their paths and summaries. The
+ * root overview is skipped: neither view shows an article-level summary and the
+ * pipeline index has no root entry.
  */
 
 import { PASSAGE, summaryText } from '../core/pipeline/summaryTreeModel.js';
@@ -46,10 +46,10 @@ function uniqueTitle(title, taken) {
 
 /**
  * Index entry in the pipeline's shape. A topic recurring in several stretches
- * gets one run per stretch, as the pipeline writes. A summary tree node has a
- * single summary covering all its stretches, so every run carries it: each
- * occurrence on the canvas rail and in summary mode shows the topic's summary.
- * Views that join run texts collapse repeats.
+ * gets one run per stretch, as the pipeline writes. A summary tree node has one
+ * summary for all its stretches, so every run carries it and each occurrence on
+ * the canvas rail and in summary mode shows it. Views that join run texts
+ * collapse repeats.
  * @param {object} node Summary tree node.
  * @param {number[]} sentences The node's one-based sentence numbers.
  * @param {number} level Zero-based topic level.

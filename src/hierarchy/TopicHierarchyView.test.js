@@ -254,9 +254,8 @@ describe('TopicHierarchyView', () => {
     unmount();
   });
 
-  // happy-dom has no layout engine, so offsetWidth/clientWidth are 0 — stub them
-  // per class so the measurement effect actually runs and we can assert the
-  // shared --th-card-width math (widest card, capped to the pane, floored).
+  // happy-dom has no layout, so stub offsetWidth/clientWidth per class to run the
+  // measurement effect and check the --th-card-width math (widest, capped, floored).
   function withStubbedWidths({ leaf, label, pane }, fn) {
     const widthFor = (value, el) => (typeof value === 'function' ? value(el) : value);
     const origOffset = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');

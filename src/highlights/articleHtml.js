@@ -1,10 +1,10 @@
 /**
  * Remove executable markup from stored article HTML before rendering it in the
- * extension page. Images remain, so opening a record may request images
- * from the source page. Inline `style` attributes are dropped: the extension CSP
+ * extension page. Images remain, so opening a record may load them from the
+ * source page. Inline `style` attributes are dropped because the extension CSP
  * blocks them.
  *
- * Resolve relative URLs against the source page instead of the extension origin.
+ * Relative URLs resolve against the source page, not the extension origin.
  * @param {string} html Stored article HTML.
  * @param {string} [baseUrl] The record's source URL, used to resolve relative
  *   `src`/`href`/`srcset` values. Omitted: URLs are left exactly as stored.
@@ -12,9 +12,8 @@
 export function sanitizeArticleHtml(html, baseUrl) {
   if (!html) return '';
   try {
-    // The result is re-parsed by innerHTML. Mutation XSS relies on that second
-    // parse building a different tree than the one sanitized, so sanitize until
-    // the output is a fixed point and reject markup that never settles.
+    // innerHTML re-parses the output, and mutation XSS relies on that second
+    // parse differing. Iterate to a fixed point and reject markup that never settles.
     let out = String(html);
     for (let pass = 0; pass < MAX_SANITIZE_PASSES; pass += 1) {
       const next = sanitizeOnce(out, baseUrl);
@@ -66,7 +65,7 @@ function sanitizeOnce(html, baseUrl) {
   doc.querySelectorAll('*').forEach((el) => {
     if (REMOVED_ELEMENTS.has(el.localName.toLowerCase())) el.remove();
   });
-  // Validate attributes after promoting lazy image sources.
+  // Promote lazy sources and absolutize URLs before the attribute checks below.
   resolveArticleUrls(doc, baseUrl);
   // Do not send the extension page URL to article image servers.
   doc.querySelectorAll('img').forEach((el) => el.setAttribute('referrerpolicy', 'no-referrer'));
@@ -75,8 +74,7 @@ function sanitizeOnce(html, baseUrl) {
   doc.querySelectorAll('*').forEach((el) => {
     for (const attr of Array.from(el.attributes)) {
       const name = attr.name.toLowerCase();
-      // Any attribute may hold a URL (MathML href, action, data, …), so check
-      // every value instead of a list of known URL attributes.
+      // Any attribute may hold a URL (MathML href, action, data, …); check every value.
       if (name.startsWith('on') || name === 'style' || isJavaScriptUrl(attr.value)) {
         el.removeAttribute(attr.name);
       }
@@ -187,8 +185,7 @@ function parseSrcsetCandidates(value) {
     const rawUrl = text.slice(urlStart, index);
     if (!rawUrl) break;
 
-    // Trailing commas end the candidate right there — the descriptor, if any,
-    // belongs to whatever follows.
+    // A trailing comma ends the candidate; any descriptor after it belongs to the next one.
     const url = rawUrl.replace(/,+$/, '');
     let descriptor = '';
     if (url === rawUrl) {

@@ -14,7 +14,7 @@ import TopicActionsMenu from '../components/TopicActionsMenu.jsx';
 // Fixed h:mm:ss labels keep timestamp links aligned.
 const HIERARCHY_LABEL_OPTIONS = { forceHours: true };
 
-// Bound the shared natural card width to avoid extreme headings or empty trees.
+// Bounds for the shared card width; avoids extreme headings or empty trees.
 const MIN_CARD_WIDTH = 180;
 const CARD_WIDTH_CAP_INSET = 24;
 
@@ -123,7 +123,6 @@ const HierarchyNode = React.memo(function HierarchyNode({
   const youtubeLink = useMemo(() => {
     if (!isYouTube) return null;
     const sourceSentences = getSentencesForNode(entry);
-    // h:mm:ss for every label so the links stay in a straight, fixed-width column.
     return getYouTubeTimestampLink({
       sourceUrl,
       sentences,
@@ -276,7 +275,7 @@ export default function TopicHierarchyView({
   topicActions,
 }) {
   const roots = useMemo(() => buildTopicTree(topics, 0), [topics]);
-  // Cache colors for the current tree, hashing collapsed descendants only when shown.
+  // Per-tree color cache keyed by node uid.
   const colorCache = useMemo(() => createHierarchyColorCache(roots), [roots]);
   const summaryLookup = useMemo(() => buildSummaryLookup(topicSummaryIndex), [topicSummaryIndex]);
 

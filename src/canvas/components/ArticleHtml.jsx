@@ -1,10 +1,9 @@
 import React from 'react';
 
 /**
- * The original article HTML, re-rendered onto the canvas sheet. Sentence
- * highlighting and rail measurement work off live DOM Ranges built over this
- * subtree (see sentenceHighlight.js) rather than per-sentence spans, so the
- * markup can stay structurally identical to the source for readability.
+ * The original article HTML on the canvas sheet. Highlighting and measurement use
+ * DOM Ranges over this subtree (see sentenceHighlight.js), not per-sentence spans,
+ * so the markup stays identical to the source.
  *
  * @param {object} props
  * @param {string} props.html

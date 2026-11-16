@@ -1,7 +1,6 @@
 import { MAX_TURN_EVENTS } from '../../shared/runtime/contracts.js';
 import { normalizeToolLog } from '../../chat/toolLog.js';
-// Per-article chat persistence. Split out of storage.js so the record and chat
-// aggregates stay separate concerns. It depends only on storage primitives and
+// Per-article chat persistence. Depends only on storage primitives and
 // realm-neutral key helpers; storage.js owns the one-way cascade dependency.
 import {
   getLocal,
@@ -35,10 +34,9 @@ const MAX_TURN_INDEX_ENTRIES = 200;
 const CHAT_STORAGE_PREFIX = 'pagetollm:chats:';
 const CHAT_INDEX_SUFFIX = ':index';
 
-// Every chat mutation serializes on the same global mutation queue as the
-// record writes, so a chat write and a cascade-delete of the same record can
-// never interleave. The queue already serializes every caller, so no per-key
-// sub-queue is needed.
+// Chat mutations share the global mutation queue with record writes, so a chat
+// write and a cascade-delete of the same record never interleave. That queue
+// already serializes every caller; no per-key sub-queue is needed.
 function queuedChatUpdate(fn) {
   return queuedUpdate(MUTATION_QUEUE_KEY, fn);
 }
@@ -288,23 +286,19 @@ function applyRetention(chat) {
 }
 
 /**
- * Persists one whole LLM turn — any mix of messages and events — as a single
- * queued mutation and a single storage write, so a mid-turn failure can never
- * leave a dangling assistant tool-call message that corrupts replayed history.
+ * Persists one whole LLM turn (any mix of messages and events) as a single
+ * queued mutation and storage write, so a mid-turn failure cannot leave a
+ * dangling assistant tool-call message that corrupts replayed history.
  *
- * When `chatId` is falsy the chat is created inline (the record must exist)
- * so a failed first turn leaves no empty orphan chat. Messages/events are
- * normalized the same way regardless of chatId, event seqs continue from the
- * chat's nextEventSeq, and the title is derived from the first visible user
- * message in the batch.
+ * When `chatId` is falsy the chat is created inline (the record must exist) so
+ * a failed first turn leaves no empty orphan. Messages/events are normalized
+ * either way, event seqs continue from the chat's nextEventSeq, and the title
+ * is derived from the first visible user message in the batch.
  *
- * `expectedContentRevision` is the revision of the source the caller actually
- * answered from. A UI that loaded a record once keeps that snapshot in memory,
- * so the record can be reanalyzed/replaced meanwhile; without this guard a turn
- * grounded in the old source would be stamped with — and later read back as
- * compatible with — the new revision. Existing chats are already rejected by
- * the compatibility check (they are pruned on replacement); this closes the
- * same hole on the new-chat path.
+ * `expectedContentRevision` is the revision of the source the caller answered
+ * from. A UI holding an old record snapshot could otherwise stamp a turn
+ * grounded in the old source with the new revision. Existing chats are already
+ * rejected by the compatibility check; this closes the same hole for new chats.
  *
  * @param {string} key
  * @param {string | null | undefined} chatId
@@ -314,10 +308,10 @@ function applyRetention(chat) {
  * @param {object[]} [turn.events]
  * @param {object} [options]
  * @param {string} [options.expectedContentRevision] Revision the turn's source
- *   came from; omitted by callers that hold no source snapshot.
+ *   came from; omitted by callers without a source snapshot.
  * @returns {Promise<{chat: object} | {stale: true, contentRevision: string}>}
- *   `{stale: true}` when the record's current revision no longer matches
- *   `expectedContentRevision`; nothing is written in that case.
+ *   `{stale: true}` (nothing written) when the record's revision no longer
+ *   matches `expectedContentRevision`.
  */
 export async function appendChatTurn(key, chatId, turn = {}, options = {}) {
   const inputMessages = Array.isArray(turn?.messages) ? turn.messages : [];
@@ -419,25 +413,23 @@ export async function deleteChatHistory(key, chatId) {
     const nextChats = index.chats.filter((chat) => chat.chatId !== chatId);
     const nextTurns = index.turns.filter((turn) => turn.chatId !== chatId);
 
-    // The document is the space-heavy object and must be removed before its
-    // discoverability is dropped. If removal fails, the unchanged index keeps
-    // the chat visible and retryable instead of stranding an orphan forever.
-    // Chat ids are storage-key segments. Colons are never generated and would
-    // make `{ key: 'a', chatId: 'b:chat_x' }` alias record `a:b`'s document.
-    // Corrupt summaries can be dropped, but must never address a
-    // physical document.
+    // Remove the space-heavy document before dropping its index entry: if removal
+    // fails, the unchanged index keeps the chat visible and retryable.
+    // Chat ids are storage-key segments; a colon would let
+    // `{ key: 'a', chatId: 'b:chat_x' }` alias record `a:b`'s document, so
+    // corrupt ids are dropped from the index but never address a document.
     if (isSafeChatId(chatId)) await removeLocal(chatDocumentStorageKey(key, chatId));
 
     if (nextChats.length === 0) {
-      // No chat owns the retry mappings anymore; remove the empty aggregate
-      // instead of leaving one small tombstone key per record.
+      // No chat owns the retry mappings anymore; drop the empty aggregate
+      // rather than leave a tombstone key per record.
       await removeLocal(chatIndexStorageKey(key));
     } else if (nextChats.length !== index.chats.length || nextTurns.length !== index.turns.length) {
       await writeChatIndex(key, { ...index, chats: nextChats, turns: nextTurns });
     }
 
-    // Deletion is idempotent. A retry after a lost acknowledgement succeeds
-    // even when both the document and its index entry were already absent.
+    // Idempotent: a retry after a lost acknowledgement succeeds even when the
+    // document and index entry are already absent.
     return true;
   });
 }
@@ -486,11 +478,10 @@ export async function deleteDetachedChats(key) {
 
 /**
  * Moves chats held under the record's page key (started from the project canvas
- * before the page was saved) into the record, so every chat surface for that
- * page shares one history. Messages carry over; highlight events are dropped
- * because their line numbers refer to the live page text, not the record's
- * sentences. Moved chats adopt the record's revision, so a later reanalysis
- * prunes them like any other chat of the record.
+ * before the page was saved) into the record, so all chat surfaces for the page
+ * share one history. Highlight events are dropped (their line numbers refer to
+ * the live page text, not the record's sentences). Moved chats adopt the
+ * record's revision, so reanalysis prunes them like any other.
  * @param {string} key Record key.
  * @returns {Promise<number>} Number of chats moved.
  */

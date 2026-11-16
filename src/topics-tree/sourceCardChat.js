@@ -28,7 +28,7 @@ import { sortedUnique } from '../shared/runtime/sortedUnique.js';
  * @property {Array<string|null>} lineKeys The passage (see passageKey) shown by each chat
  *   line; null for heading lines.
  * @property {Array<{title: string, url: string, excerptSentences: string[], pageSentences: string[]}>} pages
- *   The pages quoted, numbered by position (1-based) in the headings and tools.
+ *   The pages quoted, in order; "page N" in the headings is the 1-based index.
  */
 
 /**
@@ -48,8 +48,8 @@ function lineRanges(numbers) {
 }
 
 /**
- * The chat of a topic's whole source text: every section (one per sub-topic)
- * and every page it quotes, with headings so the model can tell them apart.
+ * Chat for a topic's whole source text: one section per sub-topic, headed so
+ * the model can tell them apart.
  */
 function describeSourceBlock({
   node,
@@ -172,11 +172,8 @@ export function articlesFromMergedRows(sentences, sources, records = []) {
 }
 
 /**
- * What a source card's chat needs: the card's own lines as context, and the
- * whole article behind them for the model to read and search.
- *
- * A card shows one article's lines (passages never mix articles); a card that
- * somehow spans several has no chat, as no single article could be read for it.
+ * Chat inputs for a source card: its own lines plus the whole article behind
+ * them. A card spanning several articles gets no chat.
  *
  * @param {object} options
  * @param {{sentences: number[]}} options.node The source (leaf) card.

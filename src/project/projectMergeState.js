@@ -75,8 +75,8 @@ export function describeMerge(merge, { pending = false } = {}) {
     ready: done && !!tree,
     resumable,
     updatable: done && stale,
-    // Opening the merge view should start (or continue) a build. Unknown pages
-    // (view not loaded) count as none, matching the disabled build buttons.
+    // Opening the merge view starts or continues a build. Unknown pages (view not loaded)
+    // count as none, matching the disabled build buttons.
     needsBuild: !running && eligible.length > 0 && (!tree || stale || resumable),
     eligible,
     skipped,

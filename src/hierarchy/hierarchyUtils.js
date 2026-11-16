@@ -27,7 +27,7 @@ export function getSentencesForNode(entry) {
 }
 
 /**
- * Path and summary utilities shared by TopicHierarchyView.
+ * Path and summary helpers shared by the hierarchy and topics-tree views.
  */
 
 export function normalizeTopicPath(path) {
@@ -38,8 +38,7 @@ export function spacedTopicPath(path) {
   return formatTopicPath(splitTopicPath(path));
 }
 
-// Runs repeating one summary (a summary tree topic spanning several
-// stretches) show it once.
+// A summary spanning several runs may repeat its text; show it once.
 function getSummaryText(summary) {
   if (!summary || !Array.isArray(summary.runs)) return '';
   const texts = summary.runs

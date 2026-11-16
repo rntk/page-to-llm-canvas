@@ -19,8 +19,7 @@ export function isStaleActionError(error) {
 }
 
 /**
- * Treats a stale CAS/status rejection as a handled-but-not-performed action,
- * rather than letting `{ok:true}` masquerade as a successful mutation.
+ * A stale response is `{ok:true}` but did not mutate anything, so throw rather than report success.
  *
  * @param {unknown} response
  * @param {string} fallbackMessage

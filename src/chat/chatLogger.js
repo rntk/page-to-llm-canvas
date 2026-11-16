@@ -4,9 +4,8 @@ import { createLogger } from '../shared/runtime/log.js';
 const log = createLogger('chat:');
 
 /**
- * Creates the console boundary for article-chat diagnostics. Like the
- * pipeline runtime, lifecycle and error stages are always visible while
- * per-request detail is opt-in through the shared verbose-logs setting.
+ * Console boundary for article-chat diagnostics. Lifecycle and error stages
+ * always log; per-request detail needs the verbose-logs setting.
  */
 export function createChatLogger() {
   let verboseLogs = false;
@@ -17,9 +16,7 @@ export function createChatLogger() {
     log.event(stage, details, { error });
   };
 
-  // Do not await storage here: the chat loop deliberately starts independent
-  // chunks in the same turn. Buffer early detail so the setting still applies
-  // even when its storage read completes after the first request starts.
+  // Not awaited: chunks start immediately, so buffer early verbose events until the setting loads.
   void getStoredVerboseLogs()
     .then((storedVerboseLogs) => {
       verboseLogs = storedVerboseLogs;
@@ -30,8 +27,7 @@ export function createChatLogger() {
       pendingVerboseEvents.length = 0;
     })
     .catch((err) => {
-      // Verbose-logs setting couldn't be read; keep verbose buffering off and
-      // flush the ready flag so callers aren't stuck waiting forever.
+      // Setting unreadable: stay non-verbose and stop buffering.
       isReady = true;
       pendingVerboseEvents.length = 0;
       log.warn('verbose log setting load failed:', err);

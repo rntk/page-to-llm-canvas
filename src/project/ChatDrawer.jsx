@@ -1,9 +1,8 @@
 import React from 'react';
 
 /**
- * The shell of a chat unfolded beside a canvas card: a labelled aside with one
- * header row (the label, then the chat's own History/New actions portalled
- * into `actionsRef`) and the chat body.
+ * Shell for a chat unfolded beside a canvas card: a labelled aside with a header row
+ * (the label, then the chat's History/New actions portalled into `actionsRef`) and the body.
  *
  * @param {object} props
  * @param {string} [props.id] Lets the card's fold button reference the drawer.

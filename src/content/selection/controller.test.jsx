@@ -54,11 +54,9 @@ function event(type) {
   return new MouseEvent(type, { bubbles: true, cancelable: true });
 }
 
-// Synthetic events are never `isTrusted`, so `guardTrustedUserEvent` only
-// blocks them when it is not running with the test-mode synthetic allowance
-// (see `isTrustedUserEvent` in controller.jsx). Toggling `MODE` around a
-// single dispatch reproduces a real "blocked" (untrusted) event without
-// reaching into the gating implementation.
+// Synthetic events are never `isTrusted`; they are blocked only outside the
+// test-mode allowance (see `isTrustedUserEvent`). Toggling `MODE` around one
+// dispatch reproduces a blocked untrusted event.
 function withBlockedEvents(fn) {
   const previousMode = import.meta.env.MODE;
   import.meta.env.MODE = 'production';

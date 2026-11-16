@@ -1,12 +1,8 @@
 /**
- * Shared loading/recovery workflow for content rail controllers.
- *
- * Owns the surface-independent steps: begin a guarded load, fetch the record,
- * drop superseded requests, report fetch failures, apply the shared lifecycle
- * assessment, route failed/parked records to Options and tell the user when
- * analysis is still in progress. Surface-specific prerequisites (page
- * selectors, transcript eligibility, …) stay with each controller and run on
- * the returned `ready` record.
+ * Shared loading/recovery workflow for rail controllers: guarded fetch, failure
+ * reporting, lifecycle assessment, Options routing for failed/parked records,
+ * and the in-progress notice. Surface-specific prerequisites stay with each
+ * controller and run on the returned `ready` record.
  */
 
 import { fetchRecord, describeFetchFailure, assessRecordLifecycle } from './recordFetch.js';
@@ -31,12 +27,9 @@ export function createRecordLoader({ surfaceManager, runtimeMessenger, alert, lo
   const openOptionsForRecovery = createOptionsRecoveryOpener({ runtimeMessenger, alert, logger });
 
   /**
-   * Load a record for a rail. Resolves with the load `guard` (callers keep using
-   * it after the await) and an `assessment`: `null` when the request was
-   * superseded or the fetch failed (already reported), otherwise the surface's
-   * assessment. Lifecycle outcomes other than `ready` are handled here and
-   * resolve with `assessment: null`; any other kind (e.g. a surface-specific
-   * `no_selectors`) is passed through for the caller to handle.
+   * Load a record for a rail. Resolves with the load `guard` and an `assessment`,
+   * which is `null` when superseded, failed (already reported), or a handled
+   * non-`ready` lifecycle outcome. Other kinds (e.g. `no_selectors`) pass through.
    *
    * @param {string} key
    * @param {{ assess?: function(object): {kind: string} }} [options]

@@ -54,10 +54,8 @@ export function getBlockText(el) {
     const raw = el.textContent;
     return typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim() : '';
   }
-  // Reuse the capture-side rendered-text walk so toolbar labels match the
-  // submitted text (hidden subtrees, block boundaries, visibility handling).
-  // A fresh cache per block resolves each ancestor's style once instead of
-  // once per text node; the walk itself stops at the snippet budget.
+  // Reuse the capture-side walk so labels match the submitted text. A fresh
+  // style cache per block resolves each ancestor once; the walk stops at the budget.
   const raw = getRenderedText(el, el.ownerDocument?.defaultView, MAX_BLOCK_TEXT_LENGTH, new Map());
   return raw.replace(/\s+/g, ' ').trim();
 }

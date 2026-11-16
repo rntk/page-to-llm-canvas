@@ -12,8 +12,7 @@ export default defineConfig({
       '**/.{git,cache,output,temp}/**',
     ],
     setupFiles: ['test/setup.fast-check.mjs'],
-    // Match inert DOMParser documents: Happy DOM otherwise loads iframes in
-    // article HTML before sanitization removes them.
+    // Stop Happy DOM from loading iframes in article HTML before sanitization strips them.
     environmentOptions: {
       happyDOM: {
         settings: {

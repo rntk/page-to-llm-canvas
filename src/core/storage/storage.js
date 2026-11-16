@@ -99,10 +99,10 @@ function pickMetaFields(obj) {
 
 function summaryLeafDocuments(key, summaries, contentRevision, collectionRevision) {
   const documents = {};
-  // Final/leaf summaries describe the imported article and are intentionally
-  // re-scoped when an import collision mints a new content revision. Source
-  // units are request-cache artifacts and are retained only on an exact
-  // revision match (see sourceSummaryUnitDocuments below).
+  // Final/leaf summaries describe the imported article and are re-scoped when an
+  // import collision mints a new content revision. Source units are
+  // request-cache artifacts, retained only on an exact revision match (see
+  // sourceSummaryUnitDocuments below).
   for (const [topicPath, summary] of Object.entries(summaries || {})) {
     documents[summaryLeafStorageKey(key, topicPath)] = {
       topicPath,
@@ -224,11 +224,10 @@ function assembleSummaryWork(key, documents, meta) {
 }
 
 /**
- * Returns the repository's realm-scoped state — spread across this module,
- * recordIndex.js and processingLog.js — to its initial condition. Buffered
- * log disposal is the production lifecycle hook (`disposeProcessingLogs`); the
- * mutation-queue and repair-throttle resets are test-only, since neither has a
- * meaning outside a fresh realm.
+ * Resets the repository's realm-scoped state (this module, recordIndex.js and
+ * processingLog.js) to its initial condition. Buffered log disposal is the
+ * production lifecycle hook (`disposeProcessingLogs`); the mutation-queue and
+ * repair-throttle resets are test-only.
  */
 export function _resetUpdateQueues() {
   resetUpdateQueues();
@@ -270,9 +269,9 @@ async function readRecordDocuments(key, { includeWork = true } = {}) {
   const payloadKeys = RECORD_PAYLOAD_SCHEMAS.map(({ storageKey }) => storageKey(key));
   const checkpointKey = topicRangeCheckpointStorageKey(key);
   const logKey = diagnosticsStorageKey(key);
-  // Static record documents are committed together. Read them together too,
-  // so a concurrent content replacement cannot pair one generation's meta
-  // with another generation's payload.
+  // Static record documents are committed together; read them together so a
+  // concurrent content replacement cannot pair one generation's meta with
+  // another's payload.
   const docKeys = [metaKey, ...payloadKeys, ...(includeWork ? [checkpointKey] : []), logKey];
   for (let attempt = 0; ; attempt += 1) {
     const items = await getLocal(docKeys);
@@ -414,10 +413,10 @@ export async function writeRecord(rec, options = {}) {
       // interrupted delete can leave owner-shaped leaves behind; a new record
       // with the same key must replace, not silently adopt, those documents.
       const existingWorkDocuments = await readSummaryWorkDocuments(rec.key);
-      // Snapshot what is about to be overwritten so the index-failure path
-      // below can put it back. Only for a record that already exists: a
-      // brand-new key has nothing to restore, and skipping the read keeps the
-      // common submit path from pulling in the (possibly large) content doc.
+      // Snapshot what is about to be overwritten so the index-failure path can
+      // restore it. Only for an existing record: a new key has nothing to restore,
+      // and skipping the read keeps the common submit path off the (possibly
+      // large) content doc.
       const priorDocs = existingMeta
         ? {
             ...(await getLocal(docKeys)),
@@ -453,8 +452,8 @@ export async function writeRecord(rec, options = {}) {
         existingWorkDocuments,
         true,
       );
-      // This write always replaces the content document, so the snippet the
-      // index caches is always from this generation. See mintTextRevision().
+      // This write always replaces the content document, so the index's cached
+      // snippet is always from this generation.
       const textRevision = createContentRevision();
       const documents = {
         [metaKey]: {
@@ -510,13 +509,11 @@ export async function writeRecord(rec, options = {}) {
           await writeIndex(idx);
         });
       } catch (err) {
-        // The aggregate documents were already replaced above, so a failed
-        // index write has to undo them. Deleting is only correct for a record
-        // this call created: for an existing key (an import collision, a resubmission)
-        // deletion would destroy the HTML, topics and summaries this write was
-        // merely replacing — a rollback that loses more than the write would
-        // have. Restore the snapshot instead, removing only the docs that did
-        // not exist before.
+        // The aggregate documents were already replaced, so a failed index write
+        // must undo them. Deleting is only right for a record this call created;
+        // for an existing key (import collision, resubmission) it would destroy
+        // the HTML, topics and summaries this write merely replaced. Restore the
+        // snapshot instead, removing only docs that did not exist before.
         await rollbackRecordDocs(priorDocs, [
           ...new Set([...docKeys, ...Object.keys(documents), ...priorKeys]),
         ]).catch((rollbackErr) => {
@@ -607,8 +604,8 @@ export async function updateRecord(key, patch, options = {}) {
       )
         mergedMeta.topicsRevision = createContentRevision();
       // Committed in the same setLocal() as the content document below, so a
-      // worker that dies before the index projection is updated always leaves
-      // a meta document whose marker no longer matches the cached snippet.
+      // worker that dies before the index projection is updated leaves a meta
+      // document whose marker no longer matches the cached snippet.
       if (hasOwn(patch, 'text')) mergedMeta.textRevision = createContentRevision();
       for (const { name, fields, storageKey } of RECORD_PAYLOAD_SCHEMAS) {
         if (!fields.some((field) => hasOwn(patch, field))) continue;
@@ -747,8 +744,8 @@ export async function deleteRecord(key) {
         delete nextMeta[key];
         const nextIdx = { keys: idx.keys.filter((k) => k !== key), meta: nextMeta };
         // Gather all keys before mutating anything. One remove call makes the
-        // cascade atomic from this repository's perspective: a failure cannot
-        // leave an indexed record whose documents were already removed.
+        // cascade atomic: a failure cannot leave an indexed record whose
+        // documents were already removed.
         const recordKeys = await getLocalKeysByPrefix(recordStoragePrefix(key));
         const keys = [...recordKeys, ...(await chatStorageKeysForRecord(key))];
         await removeLocal([...new Set(keys)]);
@@ -779,10 +776,9 @@ export async function deleteRecord(key) {
 export async function deleteAll() {
   return queuedUpdate(MUTATION_QUEUE_KEY, () => {
     return queuedUpdate(INDEX_KEY, async () => {
-      // Neither index is a source of truth for cleanup: an interrupted write
-      // can leave a page or chat document that no index names. Scan both owned
-      // namespaces first, then remove everything in one call so hidden orphan
-      // data is covered by the same user-facing action as visible records.
+      // Neither index is a source of truth for cleanup: an interrupted write can
+      // leave a page or chat document no index names. Scan both owned namespaces,
+      // then remove everything in one call so hidden orphans are covered too.
       const keys = [...(await allRecordStorageKeys()), ...(await allChatStorageKeys()), INDEX_KEY];
       await removeLocal([...new Set(keys)]);
       // Still holding MUTATION_QUEUE_KEY, which every flush must pass through,
@@ -813,18 +809,16 @@ function selectorsEqual(a, b) {
 }
 
 /**
- * Finds a record in storage by its source URL. Only reads the small meta doc
- * for each indexed key — never the content/summaries docs — since neither
- * `sourceUrl` nor `selectors` lives there; the full record is only read once,
- * for the actual match.
+ * Finds a record by its source URL. Reads only the small meta doc per indexed
+ * key (neither `sourceUrl` nor `selectors` lives in the content/summaries
+ * docs); the full record is read once, for the match.
  *
- * A single page can hold several independently picked blocks (chapter 1 and
- * chapter 2 of one long article), and each is its own record. The URL alone
- * therefore does not identify a record: when the caller names the blocks it
- * picked, a record only matches if it was built from the same selection.
- * Selectors are compared only when both sides have them — records written
- * without a selection (imports, pre-selector records) stay reachable by URL
- * alone, so they keep being refreshed in place rather than duplicated.
+ * One page can hold several independently picked blocks (e.g. two chapters of a
+ * long article), each its own record, so the URL alone does not identify a
+ * record: when the caller names the blocks it picked, a record only matches if
+ * built from the same selection. Selectors are compared only when both sides
+ * have them, so records without a selection (imports, pre-selector records)
+ * stay reachable by URL alone and are refreshed in place, not duplicated.
  *
  * @param {string} url - The URL of the source page to match.
  * @param {object} [options]

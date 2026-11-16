@@ -11,8 +11,8 @@ const log = createLogger('SummaryErrorsOverlay');
  * all of them — retry every failed topic, or skip them (accept empty summaries
  * and finish). Buttons disable while the decision is in flight.
  *
- * Rendered only by the Options page: the in-page surfaces (rails, canvas,
- * hierarchy) are read-only and route this decision here.
+ * Rendered only by the Options page; in-page surfaces (rails, canvas,
+ * hierarchy) are read-only and route the decision here.
  *
  * @param {object} props
  * @param {Array<{topic: string, error_kind: string, error_message: string, error_detail: string}>} [props.summaryErrors]
@@ -57,7 +57,7 @@ export default function SummaryErrorsOverlay({
     setStaleNotice(null);
     try {
       const result = await fn();
-      // A stale decision was already resolved or superseded; do not prompt a retry.
+      // Stale: the decision was already resolved or superseded.
       if (result?.stale === true) setStaleNotice(STALE_ACTION_MESSAGE);
     } catch (e) {
       if (isStaleActionError(e)) {

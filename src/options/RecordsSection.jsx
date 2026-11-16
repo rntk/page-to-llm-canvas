@@ -40,11 +40,8 @@ export function RecordsSection({ fileHost, pageHost, subscribeRecords = subscrib
   const hasProcessingRecords = items.some((item) => isInFlightPipelineStatus(item.status));
   const bulkActionsUnavailable = recordsUnavailable || hasProcessingRecords;
 
-  // A failed load (transport failure or `{ok:false}`) must not be rendered as
-  // "No records yet" - that reads as "you have no records" to a user who may
-  // have many, and unlike the metrics sections there is nothing else here to
-  // self-correct. Keep whatever list was last successfully loaded and surface
-  // a distinct error state with a retry affordance instead.
+  // A failed load must not render as "No records yet" (users may have many).
+  // Keep the last good list and show a distinct error with a retry.
   const applyRecords = useCallback(({ items: nextItems, error: nextError }) => {
     setIsLoading(false);
     if (nextItems) {
@@ -55,9 +52,8 @@ export function RecordsSection({ fileHost, pageHost, subscribeRecords = subscrib
     }
   }, []);
 
-  // Writes nothing back into React until the response lands, so it is safe to
-  // start from an effect. Callers that want the "Loading records..." placeholder
-  // back use `reloadRecords` instead.
+  // Sets no state until the response lands, so it is safe to call from an effect.
+  // `reloadRecords` also shows the "Loading records..." placeholder.
   const loadRecords = useCallback(async () => {
     const requestId = ++recordsRequestId.current;
     const result = await listRecords();
@@ -69,24 +65,20 @@ export function RecordsSection({ fileHost, pageHost, subscribeRecords = subscrib
     return loadRecords();
   }, [loadRecords]);
 
-  // Captured in a ref on mount so a caller passing a fresh closure on every
-  // render doesn't tear down and re-establish the subscription — and re-run
-  // the initial load — each time. The subscription is established once on mount;
-  // callers that need a different capability should remount the section.
+  // Captured on mount so fresh closures from callers don't resubscribe or
+  // re-run the initial load; remount the section to change it.
   const subscribeRecordsRef = useRef(subscribeRecords);
 
   useEffect(() => {
-    // `isLoading` already starts true, so the mount read must not flip it again
-    // from inside the effect.
+    // isLoading starts true; the mount read must not set it again.
     void loadRecords();
     let refreshTimer = null;
     let refreshNeeded = false;
     let disposed = false;
     const scheduleRefresh = () => {
       if (disposed || refreshTimer !== null) return;
-      // Bound the wait from the first event; continuous processing logs must
-      // not postpone status updates. Keep one background read in flight so
-      // slow reads can finish even while more storage changes arrive.
+      // Bound the wait from the first event so constant log writes can't
+      // postpone refreshes. At most one read is in flight.
       refreshTimer = setTimeout(async () => {
         refreshNeeded = false;
         await loadRecords();
@@ -94,10 +86,8 @@ export function RecordsSection({ fileHost, pageHost, subscribeRecords = subscrib
         if (refreshNeeded) scheduleRefresh();
       }, 300);
     };
-    // The storage subscription is injected (browser-backed by default) so the
-    // section never touches `chrome` directly, like the other options sections
-    // behind `store`/`fileHost`/`pageHost`. Read through the ref so an
-    // unstable caller identity doesn't resubscribe on every render.
+    // The storage subscription is injected so this section never touches
+    // `chrome` directly. Read through the ref so unstable identities don't resubscribe.
     const unsubscribe = subscribeRecordsRef.current?.(() => {
       refreshNeeded = true;
       scheduleRefresh();
@@ -226,10 +216,8 @@ export function RecordsSection({ fileHost, pageHost, subscribeRecords = subscrib
     event.target.value = '';
     if (!file) return;
 
-    // Collision detection is derived from `items`, so it is only safe after a
-    // successful list load. In particular, a failed refresh may leave a stale
-    // list (or the initial empty value) here while records that would collide
-    // remain unseen in storage.
+    // Collision detection uses `items`, which is only trustworthy after a
+    // successful load; a failed refresh can leave a stale or empty list.
     if (bulkActionsUnavailable) {
       setError(
         hasProcessingRecords

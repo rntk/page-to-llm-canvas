@@ -320,9 +320,8 @@ describe('in-page rail surface', () => {
       surface.setRailWidthForMode();
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
 
-      // Create a second surface via the same manager to prove the per-surface capture.
-      // First close the overflowed surface cleanly before opening with a new state object
-      // so width-change logic is exercised through the state reference.
+      // Close the overflowed surface, then open a second via the same manager with a
+      // new state object to prove the per-surface capture.
       manager.close();
       clearMetrics();
       mockMetrics(1200, 1000);

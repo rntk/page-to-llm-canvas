@@ -7,19 +7,12 @@ import {
 import { IN_FLIGHT_PIPELINE_STATUSES } from '../../shared/runtime/contracts.js';
 import { createChromeStorageFake } from '../../../test/fakes/chromeStorageFake.mjs';
 
-// The checkpoint predicates mirror the real ones in orchestrator.js (their own
-// rules are covered there); what these service-worker tests need to replace is
-// the pipeline itself, so the runner returned by `createPipelineRunner` hands
-// back a stub instead of executing real LLM work.
-//
-// `runPipeline` is exported by this mock purely as a test handle: background.js
-// no longer imports it, but the assertions below reach the same stub through
-// `await import('.../orchestrator.js')` rather than threading it through every
-// test. `vi.hoisted` keeps the two references the same object.
-//
-// The deps background.js passes to `createPipelineRunner` are discarded by this
-// stub, so the composition itself is covered separately in
-// 'pipeline runner composition' below.
+// The checkpoint predicates mirror the real ones in orchestrator.js (covered
+// there); `createPipelineRunner` returns a stub runner instead of real LLM work.
+// `runPipeline` is exported by this mock only as a test handle, reached via
+// `await import('.../orchestrator.js')`; `vi.hoisted` keeps the references identical.
+// The deps passed to `createPipelineRunner` are discarded here, so the composition
+// is covered in 'pipeline runner composition' below.
 const { mockedRunPipeline, pipelineCallListeners, signalPipelineCall } = vi.hoisted(() => {
   const listeners = new Set();
   const signal = () => {
@@ -52,10 +45,8 @@ vi.mock('./chatCompletionService.js', async (importOriginal) => {
   return { ...actual, createChatCompletionService: vi.fn(actual.createChatCompletionService) };
 });
 
-// `updateRecord` is wrapped (not replaced) so the real implementation still
-// runs by default; individual tests can override it with
-// `updateRecord.mockRejectedValueOnce(...)` to simulate a storage failure
-// distinct from the mocked `runPipeline` rejection above.
+// `updateRecord` is wrapped, not replaced, so tests can override it with
+// `mockRejectedValueOnce(...)` to simulate a storage failure.
 vi.mock('../../core/storage/storage.js', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, updateRecord: vi.fn(actual.updateRecord) };
@@ -65,11 +56,8 @@ const STALE_MS = 10 * 60 * 1000;
 
 function makeChromeMock() {
   const storageFake = createChromeStorageFake();
-  // One object, handed out as `chrome.runtime` and closed over by the storage
-  // callbacks below. It used to be spread into the returned mock, which meant a
-  // `lastError` a test set on `chrome.runtime` was never cleared by the reset in
-  // those callbacks — real Chrome scopes `lastError` to the callback that is
-  // running, so a stale one would leak into unrelated calls.
+  // One shared object, so the storage callbacks' `lastError` reset applies to
+  // `chrome.runtime` (real Chrome scopes `lastError` to the running callback).
   const runtime = Object.assign(storageFake.runtime, {
     id: 'test-id',
     lastError: null,
@@ -102,18 +90,14 @@ function makeChromeMock() {
   };
 }
 
-// Records are physically normalized across independently updated documents
-// (see src/core/storage/storage.js); seeding/reading a record for a test goes through
-// the same writeRecord/readRecord functions background.js itself uses,
-// rather than poking the mock store directly. Requires `chrome` to already
-// be stubbed to `chromeMock` (writeRecord/readRecord read the global).
+// Records are split across documents (see src/core/storage/storage.js), so seed
+// and read via writeRecord/readRecord, not the mock store. Requires the global
+// `chrome` to already be stubbed to `chromeMock`.
 async function seedRecord(chromeMock, rec) {
   await writeRecord(rec);
 }
 
-// Detached pipeline starts consist of promise continuations over the in-memory
-// Chrome storage fake. Flush those continuations directly instead of waiting
-// for arbitrary timer delays.
+// Flushes detached pipeline-start continuations over the storage fake without timers.
 async function flushMicrotasks(turns = 30) {
   for (let i = 0; i < turns; i += 1) {
     await Promise.resolve();
@@ -184,11 +168,9 @@ function completeSummaryCheckpoint() {
   };
 }
 
-// `createPipelineRunner` is mocked everywhere else in this file, which means
-// nothing else executes the dependency object background.js builds for it. A
-// typo in the watched storage key, a limiter seeded from the wrong default or a
-// missing settings reader would all be invisible. These tests run the deps the
-// composition root actually passed.
+// `createPipelineRunner` is mocked elsewhere, so a wrong storage key, limiter
+// default or missing settings reader would go unnoticed. These tests run the
+// deps the composition root actually passed.
 describe('pipeline runner composition', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -435,9 +417,8 @@ describe('background pipeline lifecycle', () => {
     const { handleSubmit, _resetJobRegistry } = await import('./background.js');
     _resetJobRegistry();
 
-    // Capture the run id the started job is working under, so the assertion
-    // below can tell whether a second creator reset the record out from under
-    // it (every later CAS from that job would then be rejected).
+    // Capture the started job's run id to detect a second creator resetting
+    // the record under it (which would fail every later CAS).
     const { runPipeline } = await import('./pipeline/orchestrator.js');
     let runningPipelineRunId = null;
     runPipeline.mockImplementationOnce(async (key) => {
@@ -1284,8 +1265,7 @@ describe('background pipeline lifecycle', () => {
       // snapshot but before the handler reaches storage's serialized update.
       await realUpdate(
         key,
-        // Pipeline finalization retains ownership of its run id, which is why
-        // the status guard (not just the run-id guard) is needed here.
+        // Finalization keeps its run id, so the status guard (not just the run-id guard) is needed.
         { status: 'done', error: null, pipelineRunId: 'run-old' },
         { expectedPipelineRunId: 'run-old' },
       );
@@ -1698,9 +1678,8 @@ describe('background service-worker boundaries', () => {
     expect(chromeMock.alarms.create).toHaveBeenCalledWith('pipeline-keepalive', {
       periodInMinutes: 0.5,
     });
-    // `alarms.create` only accepts (name, alarmInfo); a third (callback)
-    // argument makes Chrome reject the call synchronously, so the arity is
-    // asserted explicitly — the mock itself accepts any arity.
+    // Chrome rejects a third (callback) argument to `alarms.create` synchronously;
+    // the mock accepts any arity, so assert it explicitly.
     expect(chromeMock.alarms.create.mock.calls[0].length).toBe(2);
 
     await seedRecord(chromeMock, makeRecord('keepalive-existing', { status: 'pending' }));
@@ -1735,10 +1714,8 @@ describe('background service-worker boundaries', () => {
         'PageToLLM Canvas: chrome.alarms.get failed:',
         expect.objectContaining({ message: 'get boom' }),
       );
-      // A failed get can't be trusted, so bailing out would guarantee no
-      // alarm exists (the worst outcome for the sole SW-restart recovery
-      // path). alarms.create is idempotent by name, so it must still be
-      // attempted.
+      // A failed get can't be trusted, and bailing out would leave no alarm (the
+      // sole restart recovery path). create is idempotent by name, so still attempt it.
       expect(chromeMock.alarms.create).toHaveBeenCalledWith('pipeline-keepalive', {
         periodInMinutes: 0.5,
       });
@@ -1931,10 +1908,8 @@ describe('background service-worker boundaries', () => {
     globalThis.process.on('unhandledRejection', onUnhandledRejection);
 
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    // Fail only the index read `listRecords` performs. `lastError` is reported
-    // inside the failing callback and cleared again on the way out, the way
-    // Chrome scopes it, so the simulated failure cannot leak into unrelated
-    // reads.
+    // Fail only listRecords' index read. `lastError` is set inside the failing
+    // callback and cleared after, as in Chrome, so it cannot leak into other reads.
     const passThroughGet = chromeMock.storage.local.get.getMockImplementation();
     chromeMock.storage.local.get.mockImplementation((keys, cb) => {
       const requested = Array.isArray(keys) ? keys : [keys];
@@ -1948,9 +1923,8 @@ describe('background service-worker boundaries', () => {
     });
     try {
       alarmListener({ name: 'pipeline-keepalive' });
-      // Let the rejected listRecords() promise and its .catch handler settle.
-      // Node emits unhandledRejection at the end of the current event-loop turn,
-      // so this one zero-delay timer advances past that reporting point.
+      // Node emits unhandledRejection at the end of the event-loop turn; one
+      // zero-delay timer advances past it.
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(unhandledRejections).toEqual([]);

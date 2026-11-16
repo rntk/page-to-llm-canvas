@@ -5,8 +5,7 @@ import { getLocal, setLocal } from '../storage/primitives.js';
 import { createLogger } from '../../shared/runtime/log.js';
 
 /**
- * Coerces a raw stored value (possibly corrupt or missing) into a
- * well-formed metrics object.
+ * Coerces a raw (possibly corrupt or missing) stored value into a valid metrics object.
  * @callback NormalizeFn
  * @param {unknown} value
  * @returns {object}
@@ -19,9 +18,8 @@ import { createLogger } from '../../shared/runtime/log.js';
  */
 
 /**
- * A queued mutation callback: receives the current metrics and returns the
- * object to persist, or a nullish value to skip the write (e.g. an
- * unrecognized sample) without touching storage. May itself return a promise.
+ * A queued mutation: receives the current metrics and returns the object to
+ * persist, or nullish to skip the write. May return a promise.
  * @callback MutateFn
  * @param {object} metrics
  * @returns {object | null | undefined | Promise<object | null | undefined>}
@@ -40,8 +38,7 @@ import { createLogger } from '../../shared/runtime/log.js';
 /**
  * @param {object} options
  * @param {string} options.key chrome.storage.local key this store owns.
- * @param {NormalizeFn} options.normalize Coerces a raw stored
- *   value (possibly corrupt or missing) into a well-formed metrics object.
+ * @param {NormalizeFn} options.normalize Coerces a raw stored value.
  * @param {EmptyFn} options.empty Returns a fresh empty metrics object.
  * @param {string} options.label Metric-type name used as the logger scope
  *   (e.g. "chat tool", "parser", "resplit").
@@ -74,10 +71,8 @@ export function createMetricsStore({ key, normalize, empty, label }) {
   }
 
   /**
-   * Queue a read-modify-write against this store's key, serialized after any
-   * writes already queued. `mutate` receives the current metrics and should
-   * return the object to persist, or a nullish value to skip the write
-   * (e.g. an unrecognized sample) without touching storage.
+   * Queues a read-modify-write on this store's key, serialized after earlier
+   * writes. `mutate` returns the object to persist, or nullish to skip the write.
    * Failures are logged and swallowed so metrics cannot break pipeline work.
    * @param {MutateFn} mutate
    * @returns {Promise<void>} Settles after the queued write attempt finishes.
@@ -96,9 +91,8 @@ export function createMetricsStore({ key, normalize, empty, label }) {
   }
 
   function clear() {
-    // Split the chain so a failed clear rejects for the caller while still
-    // keeping subsequent queued writes alive (mirrors primitives.js's
-    // queuedUpdate: the shared writeChain must never itself become rejected).
+    // Split the chain so a failed clear rejects for the caller but later writes
+    // survive (as in primitives.js queuedUpdate, writeChain must never reject).
     const next = writeChain.then(() => setLocal({ [key]: empty() }));
     writeChain = next.catch(() => {});
     return next;

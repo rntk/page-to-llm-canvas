@@ -1,6 +1,6 @@
-/** Return whether a keyboard event is available for an unmodified canvas shortcut.
- * @param {KeyboardEvent} event Keyboard event to inspect.
- * @returns {boolean} Whether the canvas can handle the event.
+/** Whether a key event is an unmodified, unhandled canvas shortcut.
+ * @param {KeyboardEvent} event
+ * @returns {boolean}
  */
 export function isCanvasShortcutEvent(event) {
   return !(

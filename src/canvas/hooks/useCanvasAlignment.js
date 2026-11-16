@@ -2,32 +2,25 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
 // Top inset restored when the reading column is (re)centered from scratch.
 const TOP_MARGIN = 40;
-// The reading column's center may drift within ±this fraction of the viewport
-// width before the comfort layer nudges it back. Acts as a dead-zone so small,
-// expected layout shifts (e.g. a slightly narrower summary column) don't move
-// the canvas.
+// Dead-zone: the column's center may drift ±this fraction of the viewport width
+// before being nudged back, so small layout shifts don't move the canvas.
 const COMFORT_DEAD_ZONE_RATIO = 0.15;
-// Column edges must stay at least this far inside the viewport; an edge past
-// this line counts as "off-screen" and overrides the user-position grace.
+// Column edges must stay at least this far inside the viewport.
 const EDGE_MARGIN = 24;
-// Ignore sub-pixel corrections so we never schedule a no-op transform.
+// Ignore sub-pixel corrections (no-op transforms).
 const MIN_DELTA = 0.5;
 
 /**
- * Decide where the reading column's left edge should sit in wrap-local px.
+ * Where the reading column's left edge should sit, in wrap-local px.
  *
- * Keeps the column in a dead-zone around the viewport center, moving by the
- * minimum delta to re-enter the zone and keeping both edges within `EDGE_MARGIN`.
- * A column already near center is untouched. Runs only on deliberate switches,
- * so it does not fight manual panning.
+ * Moves by the minimum delta to re-enter the center dead-zone, keeping both
+ * edges within `EDGE_MARGIN`; a near-center column is untouched.
  * @param {number} currentLeft Current column left edge.
  * @param {number} columnWidth Column width.
  * @param {number} wrapWidth Viewport width.
  */
 export function computeComfortLeft(currentLeft, columnWidth, wrapWidth) {
-  // Column wider than the comfortable viewport: centering is meaningless, so we
-  // only ever pull it back when its left edge has actually scrolled off-screen
-  // (past the viewport's left edge) — losing the start of the content.
+  // Too wide to center: only pull back when the left edge has scrolled off-screen.
   if (columnWidth >= wrapWidth - 2 * EDGE_MARGIN) {
     if (currentLeft < 0) return EDGE_MARGIN;
     return currentLeft;
@@ -49,17 +42,15 @@ export function computeComfortLeft(currentLeft, columnWidth, wrapWidth) {
 }
 
 /**
- * Unified canvas alignment to prevent layout-affecting changes from jumping.
+ * Keeps layout-affecting changes (mode, level, rail toggles) from jumping the canvas,
+ * using the reading column (`anchorRef`) as the anchor:
+ *  - Continuity: `captureAnchor()` records the column's screen position before the
+ *    change, then an instant pan restores it (FLIP).
+ *  - Comfort: if the column left the dead-zone, a smooth move one frame later
+ *    (via `flashFocus`) nudges it back by the minimum.
  *
- * It uses the reading column (`anchorRef`) as the single anchor. Changes like toggles,
- * levels, or rails switch layout around it:
- *  - Continuity: captures the column's on-screen position before the change via
- *    `captureAnchor()`, then pans instantly so it lands in the same place (FLIP).
- *  - Comfort: if the column drifts out of the dead-zone, nudges it back smoothly
- *    by the minimum amount one frame later (using `flashFocus` for transition).
- *
- * Runs only on deliberate changes (from `deps`) or the initial load (which centering
- * pins to the top margin), never during manual panning/zooming.
+ * Runs only on `deps` changes and initial load (centers, pins top margin), never
+ * during manual panning/zooming.
  *
  * @param {object} params
  * @param {object} params.anchorRef
@@ -73,21 +64,17 @@ export function computeComfortLeft(currentLeft, columnWidth, wrapWidth) {
  * @returns {{captureAnchor: function(boolean=): void, skipNextAlignment: function(): void}}
  */
 export function useCanvasAlignment({ anchorRef, viewport, flashFocus, deps }) {
-  // The wrap element is the measurement frame here, not "the canvas viewport"
-  // in the CSS sense, so keep this hook's own `wrapElRef` naming for the body.
+  // The wrap element is this hook's measurement frame (hence `wrapElRef`).
   const { canvasWrapElRef: wrapElRef, setTransformNow, translateRef, scaleRef } = viewport;
-  // The column's pre-change screen position, recorded synchronously by callers
-  // before they trigger a layout-affecting state update. `resetTop` requests
-  // that vertical position be reset to the top margin instead of preserved
-  // (used when the content swaps wholesale, i.e. summary-mode toggle).
+  // Column's pre-change position, captured by callers before a layout-affecting
+  // update. `resetTop` resets vertical position to the top margin instead of
+  // preserving it (wholesale content swap, i.e. summary-mode toggle).
   const pendingAnchorRef = useRef(null);
-  // Tracks the deps we last aligned for, so we run continuity only on a real
-  // change and the initial center exactly once.
+  // Last-aligned deps: continuity runs only on a real change, initial center once.
   const stateRef = useRef({ inited: false, deps: null });
   // Pending rAF for the deferred (animated) comfort/reset move.
   const moveRafRef = useRef(0);
-  // When set, the next deps change is positioned by someone else (e.g. a
-  // pending zoom-to-sentence) — skip alignment so the two don't fight.
+  // Next deps change is positioned by someone else (e.g. zoom-to-sentence); skip alignment.
   const skipNextRef = useRef(false);
 
   const skipNextAlignment = useCallback(() => {
@@ -140,8 +127,7 @@ export function useCanvasAlignment({ anchorRef, viewport, flashFocus, deps }) {
         return true;
       };
 
-      // Initial center: no prior position to preserve — center and pin the top
-      // margin in one instant move (no animation, so opening doesn't lurch).
+      // Initial: center and pin the top margin in one instant move.
       if (isInitial) {
         panTo(computeComfortLeft(anchorLeft, columnWidth, wrapRect.width), TOP_MARGIN);
         return;
@@ -150,9 +136,8 @@ export function useCanvasAlignment({ anchorRef, viewport, flashFocus, deps }) {
       const captured = pendingAnchorRef.current;
       pendingAnchorRef.current = null;
 
-      // Baseline = the column's pre-switch on-screen position (continuity). For a
-      // content swap (`resetTop`) the vertical baseline stays where it is and the
-      // top reset becomes part of the animated move below.
+      // Baseline = pre-switch position. On a swap (`resetTop`) the vertical
+      // baseline stays put; the top reset joins the animated move below.
       const baseLeft = captured ? captured.left : anchorLeft;
       const baseTop = captured && !captured.resetTop ? captured.top : anchorTop;
 
@@ -160,13 +145,11 @@ export function useCanvasAlignment({ anchorRef, viewport, flashFocus, deps }) {
       const finalLeft = computeComfortLeft(baseLeft, columnWidth, wrapRect.width);
       const finalTop = captured && captured.resetTop ? TOP_MARGIN : baseTop;
 
-      // Step 1 — instant continuity: cancel the reflow so the switch shows no
-      // jump. Applied synchronously, pre-paint, with no transition.
+      // Step 1: instant, pre-paint continuity pan cancelling the reflow.
       panTo(baseLeft, baseTop);
 
-      // Step 2 — animated move: the intentional re-center / top reset, deferred a
-      // frame so the continuity transform paints first and the slide starts from
-      // the jump-free position.
+      // Step 2: animated re-center / top reset, deferred a frame so the slide
+      // starts from the jump-free position.
       if (Math.abs(finalLeft - baseLeft) < MIN_DELTA && Math.abs(finalTop - baseTop) < MIN_DELTA) {
         return;
       }
@@ -203,17 +186,15 @@ export function useCanvasAlignment({ anchorRef, viewport, flashFocus, deps }) {
       return;
     }
     if (prev.deps === depsKey) {
-      // The effect re-ran without a real switch (e.g. a handler captured an
-      // anchor but its setState was a no-op). Drop the stale capture so it is
-      // never consumed by the *next* genuine switch and mis-pins it.
+      // Re-ran without a real switch (e.g. setState was a no-op): drop the stale
+      // capture so the next genuine switch doesn't consume it.
       pendingAnchorRef.current = null;
       return;
     }
     stateRef.current = { inited: true, deps: depsKey };
     if (skipNextRef.current) {
-      // This switch is positioned by another controller (zoom-to-sentence).
-      // Record the deps (so the *next* real switch still aligns) and bail,
-      // dropping any stale capture / pending animated move.
+      // Another controller (zoom-to-sentence) positions this switch. Deps are
+      // recorded so the next one still aligns; drop stale capture and pending move.
       skipNextRef.current = false;
       pendingAnchorRef.current = null;
       if (moveRafRef.current) {

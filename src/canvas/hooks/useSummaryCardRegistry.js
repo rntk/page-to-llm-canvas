@@ -10,8 +10,7 @@ import { useState } from 'react';
  */
 
 /**
- * Wraps a mutable key -> element store in a stable read/write facade so consumers
- * never receive the underlying ref object itself.
+ * Wraps a mutable key -> element store in a read/write facade that hides the ref.
  *
  * @param {{current: Object<string, Element>}} store
  * @returns {CardElementRegistry}
@@ -28,15 +27,13 @@ export function createCardElementRegistry(store) {
 }
 
 /**
- * Owns the summary-card DOM element registry. The identity is stable for the
- * lifetime of the component, so consumers can list it as an effect dependency.
+ * Owns the summary-card element registry; identity is stable, so it is a safe effect dependency.
  *
  * @returns {CardElementRegistry}
  */
 export function useSummaryCardRegistry() {
-  // The store is a plain object rather than a ref: nothing here participates in
-  // React's render cycle, and a ref would trip `react-hooks/refs` by being read
-  // during render. The lazy initializer runs once, so the identity is stable.
+  // A plain object, not a ref: a ref read during render would trip `react-hooks/refs`.
+  // The lazy initializer runs once, keeping identity stable.
   const [registry] = useState(() => createCardElementRegistry({ current: {} }));
   return registry;
 }

@@ -13,9 +13,8 @@ import { useActivateTab } from './useActivateTab.js';
  *   excerpt's page, or null when that page is not in the project.
  * @param {{activateTab: function(number): Promise<void>}} props.tabsHost
  * @param {function(): Promise<*>} [props.onDelete] Offers Delete (saved excerpts).
- * @param {boolean} [props.evidence] An unsaved project chat evidence card: the
- *   `excerpt` is a ChatEvidence (see useChatEvidence), labelled with its chat
- *   tag and page lines instead of a Delete button, and closed with `onClose`.
+ * @param {boolean} [props.evidence] Unsaved chat evidence card: `excerpt` is a ChatEvidence
+ *   (see useChatEvidence), labelled by its chat tag and lines, with Close instead of Delete.
  * @param {function(): void} [props.onClose] Closes an evidence card.
  * @param {function(import('react').PointerEvent): void} [props.onDragStart]
  */

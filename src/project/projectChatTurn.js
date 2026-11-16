@@ -1,12 +1,9 @@
-// Turn runner for the project chat. It wraps `runArticleChatTurn` (or any
-// compatible runner) so each turn gets the project's page tools and an overview
-// for the main model. On every message code first re-reads and scans every page
-// against the question (one small judgment per page, over all of its lines,
-// with the chat's earlier questions as context for follow-ups) and puts the
-// results, with the relevant page lines quoted verbatim, in the overview. The
-// model can still call `ask_pages` for a different sub-question, and
-// `ask_page_agent` to have a helper model work through one page for it. Pure: the
-// page reader, the runtime transport and the wrapped runner are injected.
+// Turn runner for the project chat. Wraps `runArticleChatTurn` (or a compatible runner) with the
+// project's page tools and an overview. Each turn first scans every page against the question
+// (earlier questions give follow-up context) and puts the results, with relevant page lines quoted,
+// in the overview. The model can still call `ask_pages` for a sub-question and `ask_page_agent`
+// to have a helper model work through one page. Pure: the page reader, runtime transport and
+// wrapped runner are injected.
 
 import { ARTICLE_CHAT_CHUNK_MAX_CHARS } from '../chat/articleChunking.js';
 import { articleChatBudgets, runArticleChatTurn } from '../chat/articleChat.js';
@@ -29,15 +26,12 @@ import { MSG } from '../shared/runtime/messages.js';
 /** Phase name of the progress reported while pages are being scanned. */
 export const SCAN_PHASE = 'scan';
 
-// runArticleChatTurn caps a project preamble at half of its chunk budget (the
-// other half is left for tool results). The chunk budget is at most
-// `maxChunkChars` less the question, so the overview is sized from that, with
-// room for the "[overview truncated]" marker.
+// runArticleChatTurn caps a project preamble at half its chunk budget (the rest is for tool results).
+// The overview is sized from the chunk budget minus the question, leaving room for the truncation marker.
 const OVERVIEW_SHARE = 0.5;
 const TRUNCATION_MARKER_CHARS = 24;
 const MIN_OVERVIEW_CHARS = 600;
-// The scan text (with its quoted page lines) gets most of the overview; the
-// page list, the tree overview and the usage guidance share the rest.
+// Scan text gets most of the overview; the page list, tree overview and usage guidance share the rest.
 const SCAN_SHARE = 0.7;
 const TREE_SHARE = 0.25;
 // Earlier user questions handed to the scan judge to resolve follow-ups.
@@ -152,8 +146,7 @@ export function createProjectChatTurnRunner({
       maxHistoryChars: options.limits?.maxHistoryChars ?? undefined,
     });
 
-    // One cache per turn, shared by the scan and the tools. A failed read is
-    // dropped so a later read in the same turn tries again.
+    // Per-turn page cache shared by scan and tools. Failed reads are evicted so they can retry.
     const cache = new Map();
     const loadPage = (page) => {
       let entry = cache.get(page.page);
@@ -169,7 +162,7 @@ export function createProjectChatTurnRunner({
       return entry;
     };
 
-    // Scan mode and judge are resolved at most once per turn, on first use.
+    // Resolved once per turn, on first use.
     let setup;
     const getSetup = () => {
       setup ??= (async () => {
@@ -240,8 +233,7 @@ export function createProjectChatTurnRunner({
     let scanText = '';
     let scanMode;
     if (pages.length > 0) {
-      // The wrapped runner posts the cancellation for aborts during the turn;
-      // an abort during this pre-scan happens before it starts.
+      // The wrapped runner cancels on abort during the turn; this covers aborts during the pre-scan.
       const cancelRequests = () => {
         try {
           Promise.resolve(send({ type: MSG.cancelChatTurn, turnId })).catch(() => {});
@@ -256,7 +248,7 @@ export function createProjectChatTurnRunner({
         scanText = formatScanResults(results, { maxChars: budgets.scanChars });
       } catch (error) {
         if (isAbort(error, signal)) throw signal?.aborted ? abortReason(signal) : error;
-        // The scan is an aid: a failure here leaves the model its tools.
+        // The scan is an aid; on failure the model still has its tools.
         scanText = '';
         scanMode = undefined;
       } finally {

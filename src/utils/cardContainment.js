@@ -2,36 +2,25 @@ import { formatTopicPath, splitTopicPath } from '../shared/runtime/topicPath.js'
 import { sortedUnique } from '../shared/runtime/sortedUnique.js';
 
 /**
- * Cross-column layout invariant: a child topic card never extends outside the
- * parent card it belongs to.
+ * Cross-column invariant: a child card never extends outside its parent card.
  *
- * Column layouts (resolveColumnOverlaps, adjustCrowdedLevelCards) are resolved
- * one level at a time, each against its own neighbours only. A parent may be
- * clipped to clear its next sibling or compacted because its column is crowded
- * while the child column has room, so a child that started with the very same
- * measured box can end up taller than its parent and stick out below it. This
- * pass runs after any per-column step and pulls each child back inside its
- * parent, walking levels top-down so a grandchild is clamped to the already
- * clamped child.
+ * Columns are resolved one level at a time against their own neighbours, so a
+ * parent can be clipped or compacted while its child column has room, leaving the
+ * child taller than its parent. This runs after each column step and clamps
+ * children top-down, so grandchildren clamp to already-clamped children.
  *
- * A child's run always lies inside exactly one parent run (child sentences are
- * a subset of the parent's and runs are maximal contiguous blocks), so the
- * containing parent is the parent-path card with the greatest `startSentence`
- * not after the child's. Cards without sentence positions fall back to the
- * sole parent card of that path, if there is one, and are otherwise left as
- * they are.
+ * A child's run lies inside one parent run, so the parent is the parent-path card
+ * with the greatest `startSentence` not after the child's. Cards without sentence
+ * positions use the sole parent card on that path, if unique.
  *
- * Clamping keeps the card legible: it never shrinks below `minHeight` (or the
- * parent's own height, if that is smaller), preferring to slide the card up
- * inside the parent over cutting it down. The overlap that can reintroduce
- * within the child column is expected — the rail's dense layout layers
- * crowded cards by z-index.
+ * Clamping never shrinks a card below `minHeight` (or the parent's height, if
+ * smaller) and prefers sliding the card inside the parent over cutting it down.
+ * Overlap that reappears among siblings is expected; the dense rail layers by z-index.
  *
  * @template {{fullPath: string, levelIndex: number, top: number, height: number, startSentence?: number, endSentence?: number}} T
  * @param {T[]} cards
  * @param {number} minHeight
- * @returns {T[]} the same cards, in the same order; a card is replaced by a
- *   clamped copy only when its box actually changed
+ * @returns {T[]} Same cards in the same order; changed cards are replaced by clamped copies.
  */
 export function clampCardsToParents(cards, minHeight) {
   if (!Array.isArray(cards) || cards.length === 0) return cards;
@@ -102,9 +91,7 @@ function clampToParent(card, parent, minHeight) {
   let top = Math.max(card.top, parentTop);
   let bottom = Math.min(cardBottom, parentBottom);
   if (bottom - top < floor) {
-    // Too little of the card lies inside the parent (it was measured mostly
-    // above or below it): slide it up to the parent's bottom edge, or down
-    // to its top edge, rather than leaving a sliver.
+    // Mostly outside the parent: slide it to the nearest edge rather than leave a sliver.
     bottom = Math.min(parentBottom, Math.max(bottom, top + floor));
     top = Math.max(parentTop, bottom - floor);
   }

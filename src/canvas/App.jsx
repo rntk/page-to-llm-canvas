@@ -54,7 +54,7 @@ const noop = () => {};
 export default function App({ initialKey, recordSource, onClose = noop }) {
   const { record, error, isDeleted } = useRecord(initialKey, recordSource);
   const closeSentRef = useRef(false);
-  // Close the canvas while the record is processing.
+  // Anything but a DONE record (e.g. still processing) closes the canvas.
   const isReady = record?.status === PIPELINE_STATUS.DONE;
   // A failed refresh keeps the last good record, so only a failed first load is fatal.
   const isUnusable =
@@ -83,7 +83,7 @@ export default function App({ initialKey, recordSource, onClose = noop }) {
   // The summary tree replaces only the topics and their summaries.
   const sourceRecord = useTopicSourceRecord(record, source, summaryTree);
 
-  // Nothing to show while the first fetch is still in flight.
+  // Nothing to render until the record is DONE; unusable states close via the effect above.
   if (!isReady) return null;
 
   const sourceBar = (
@@ -119,10 +119,8 @@ export default function App({ initialKey, recordSource, onClose = noop }) {
     );
   }
 
-  // A completed record can be replaced in place. Remount on revision change to
-  // reset sentence-keyed chat evidence, topic selection, and the opening view.
-  // Switching the topic source, or a new summary tree save, remounts likewise:
-  // selections and chat scopes name one source's topic paths.
+  // Remount on revision, topic-source, or summary-tree change: chat evidence,
+  // selections, and chat scopes are keyed to one source's sentences/topic paths.
   const sourceKey = isSummaryTreeSource
     ? `:${source}:${summaryTreeRevision(summaryTree) ?? ''}`
     : '';
@@ -246,9 +244,7 @@ function CanvasApp({
     handlePointerDown,
     navigateCanvas,
     flashFocus,
-    // Single imperative handle (live transform refs + setTransformNow/
-    // zoomToTarget) handed to the hooks that move the canvas; stable identity,
-    // so it is safe as a lone effect dependency.
+    // Stable imperative handle (live transform refs, setTransformNow, zoomToTarget).
     viewport,
   } = useCanvasTransform({
     contentRef: articleTextRef,
@@ -259,8 +255,8 @@ function CanvasApp({
 
   const handleCanvasPointerDown = useCallback(
     (e) => {
-      // Rail controls must not start a pan. The rail cannot stop the event
-      // itself: its menus listen for outside pointerdowns on the document.
+      // Rail controls must not start a pan; the rail can't stop the event itself
+      // because its menus listen for outside pointerdowns on the document.
       if (
         e.target?.closest?.(
           '.canvas-topic-hierarchy button, .canvas-topic-hierarchy a, .canvas-topic-hierarchy input, .canvas-topic-hierarchy select, .canvas-topic-hierarchy textarea',
@@ -268,8 +264,7 @@ function CanvasApp({
       ) {
         return;
       }
-      // preventDefault inside handlePointerDown suppresses native focus,
-      // so re-focus the wrap explicitly to keep keyboard shortcuts alive.
+      // handlePointerDown's preventDefault suppresses native focus; re-focus for shortcuts.
       const wrap = canvasWrapElRef.current;
       if (wrap && typeof wrap.focus === 'function') {
         wrap.focus({ preventScroll: true });
@@ -302,8 +297,7 @@ function CanvasApp({
       articleTextRef,
       summaryWrapRef,
       summaryCardRegistry,
-      // Measurement only reads the live scale — handing it the whole viewport
-      // handle would widen its surface for nothing.
+      // Measurement only needs the live scale, not the whole viewport handle.
       scaleRef,
       showSummaryMode,
       isZoomingToTarget,
@@ -348,8 +342,7 @@ function CanvasApp({
     [scale, cardWidth, topicCards],
   );
 
-  // Capture the reading column before mode/level changes to preserve its screen
-  // position; re-center only when it drifts outside the comfort zone.
+  // Captures the reading column before mode/level changes; re-centers only when it drifts out of the comfort zone.
   const { captureAnchor, skipNextAlignment } = useCanvasAlignment({
     anchorRef: articleTextRef,
     viewport,
@@ -357,9 +350,7 @@ function CanvasApp({
     deps: [showSummaryMode, selectedLevel, showTopicHierarchy],
   });
 
-  // Jumping to a topic's sentences replaces whatever zoom the reader had settled
-  // on. This remembers the view each jump leaves behind so one click/Backspace
-  // returns to it (and back again) instead of hunting for that zoom by hand.
+  // Remembers the view each topic jump leaves behind so one click/Backspace returns to it (and back).
   const { hasReturnPoint, captureReturnPoint, returnToCapturedView } = useViewReturn({
     viewport,
     showSummaryMode,
@@ -368,9 +359,8 @@ function CanvasApp({
     flashFocus,
   });
 
-  // The single summary card shown to the left of the article for whichever topic
-  // is currently hovered or selected in the rail. Suppressed in summary mode,
-  // where every summary is already shown in the center column.
+  // Summary card left of the article for the hovered/selected rail topic.
+  // Suppressed in summary mode, where all summaries are already shown.
   const currentTopicSummary = useMemo(() => {
     if (summariesDisabled) return null;
     return selectCurrentTopicSummary({
@@ -396,8 +386,7 @@ function CanvasApp({
     refreshSentenceRanges,
   });
 
-  // Keep onHighlight stable while leaving summary mode; changing its identity
-  // would reload chat history and clear streamed evidence mid-turn.
+  // Keeps onHighlight identity stable; a change would reload chat history and clear streamed evidence mid-turn.
   const showSummaryModeRef = useRef(showSummaryMode);
   useEffect(() => {
     showSummaryModeRef.current = showSummaryMode;
@@ -411,11 +400,10 @@ function CanvasApp({
         captureReturnPoint();
       }
       // The pending evidence zoom owns positioning after summary mode reflows.
-      // Read committed mode from the ref so batched event replay keeps this guard.
+      // Read mode from the ref so batched event replay keeps this guard.
       if (focus && showSummaryModeRef.current) skipNextAlignment();
       setShowSummaryMode(false);
-      // Skip duplicate nonfocused ranges. Focus still changes state so already
-      // painted evidence can trigger another zoom.
+      // Skip duplicate nonfocused ranges; focus still updates so painted evidence can re-zoom.
       setChatSentenceNumbers((current) => {
         const next = new Set(current);
         for (let line = startLine; line <= endLine; line += 1) next.add(line);
@@ -487,9 +475,8 @@ function CanvasApp({
     ];
   }, [topics, recordSource, initialKey, onResplitAccepted, canResplit]);
 
-  // Summary cards zoom on click like the rail's topic cards, but without
-  // toggling selection: in summary mode `selectedTarget` feeds the preview's
-  // active card, so selecting here would latch a preview open.
+  // Zoom without toggling selection: in summary mode `selectedTarget` drives the
+  // preview's active card, so selecting here would latch a preview open.
   const handleSummaryCardZoom = useCallback(
     (card) => {
       zoomToTopic(card.path, card);
@@ -498,9 +485,8 @@ function CanvasApp({
   );
 
   // ── Focus & Keyboard Shortcuts ──────────────────────────────────────────
-  // The modal runs inside an iframe. Keyboard listeners on the iframe's
-  // window only fire when the iframe itself has focus, so pull focus in as
-  // soon as the canvas mounts and whenever the user clicks inside it.
+  // The modal is an iframe; its key listeners only fire when it has focus, so
+  // pull focus in on mount and on every click inside.
   useEffect(() => {
     try {
       window.focus();
@@ -544,8 +530,7 @@ function CanvasApp({
 
   const handleToggleSummaryMode = useCallback(() => {
     if (summariesDisabled) return;
-    // Content swaps wholesale (article ⇄ summary cards), so reset the vertical
-    // position to the top margin; horizontal stays continuous.
+    // Content swaps wholesale, so reset vertical position to the top margin; horizontal stays.
     captureAnchor(true);
     setShowSummaryMode((v) => !v);
   }, [captureAnchor, summariesDisabled]);
@@ -561,8 +546,7 @@ function CanvasApp({
 
   const handleLevelChange = useCallback(
     (level) => {
-      // Clicking the already-selected level is a no-op; skip so we never strand
-      // a captured anchor that the next real switch would then mis-consume.
+      // Same level is a no-op; skipping avoids stranding a captured anchor the next switch would mis-consume.
       if (level === selectedLevel) return;
       captureAnchor(false);
       setSelectedLevel(level);
@@ -572,9 +556,7 @@ function CanvasApp({
   );
 
   // ── Opening view: leaf level, zoomed out ~3 clicks, first topic's summary ──
-  // Owned by useInitialView: a one-time three-phase state machine that runs once
-  // the article and topic hierarchy are measured. See the hook for why the steps
-  // are split across separate committed renders.
+  // One-time three-phase machine in useInitialView, run once measurement completes.
   const { isSettled: isInitialViewSettled } = useInitialView({
     topics,
     sentenceMetrics,
@@ -591,12 +573,9 @@ function CanvasApp({
   });
 
   // ── Opening sequence ─────────────────────────────────────────────────────
-  // Measurement and the opening view both move the canvas several times before
-  // it settles — on a long article with many topics that reads as cards popping
-  // in and jumping around. Keep the (fully rendered, fully measurable) canvas
-  // behind an opaque progress overlay until both have settled, then reveal it
-  // once with a short entrance animation. See useCanvasStartup for the reveal
-  // races that keep the overlay from outstaying its welcome.
+  // Measurement and the opening view move the canvas repeatedly; hide the (fully
+  // rendered) canvas behind an opaque overlay until both settle, then reveal once.
+  // See useCanvasStartup.
   const hasCanvasContent = topics.length > 0 || sentences.length > 0;
   const { isEntering, showOverlay, isOverlayLeaving, progress, statusLabel } = useCanvasStartup({
     hasContent: hasCanvasContent,

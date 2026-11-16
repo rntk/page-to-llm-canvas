@@ -81,10 +81,8 @@ describe('useCanvasRecordViewModel', () => {
     expect(ctx.apiRef.current.contentRevision).toBe('rev-a');
   });
 
-  // Regression: the chat stamps each persisted turn with the revision its
-  // source came from, so the sentence snapshot and the revision it belongs to
-  // must advance together. A same-length replacement used to keep revision A's
-  // sentences while the record already reported revision B.
+  // Regression: chat stamps each turn with its source revision, so the sentence snapshot
+  // and revision must advance together, even for a same-length replacement.
   it('advances the sentences and their revision together for a same-length replacement', () => {
     const record = {
       status: 'done',

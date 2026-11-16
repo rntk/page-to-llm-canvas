@@ -1,6 +1,5 @@
-// The excerpt chat's page tools: `read_page` reads the page an excerpt was taken
-// from, a bounded window of numbered lines at a time, and `search_page` finds
-// lines by keyword.
+// Excerpt chat page tools: `read_page` reads a bounded window of numbered lines
+// of the source page; `search_page` finds lines by keyword.
 import { tokenize } from '../core/search/tokenize.js';
 
 export const READ_PAGE_TOOL = Object.freeze({

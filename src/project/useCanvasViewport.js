@@ -5,9 +5,8 @@ import { ARROW_PAN, horizontalWheelPan, pagePanStep } from '../utils/canvasMath.
 import { trackPointer } from '../utils/trackPointer.js';
 import { DEFAULT_VIEWPORT, wheelZoomFactor, zoomViewport } from './canvasLayout.js';
 
-// Chat drawers and excerpt text scroll (and chats take keys) on their own, so
-// canvas wheel-zoom and keyboard panning leave them alone.
-// These data attributes describe input behavior independently of styling.
+// Chats and scrollable excerpts handle their own wheel and keys, so canvas zoom and pan skip them.
+// Selectors use data attributes, not styling.
 const CHAT_SELECTOR = '[data-canvas-chat]';
 const SCROLLABLE_SELECTOR = '[data-canvas-scroll]';
 const NODE_SELECTOR = '[data-canvas-node]';
@@ -95,8 +94,8 @@ export function useCanvasViewport({ active }) {
     [],
   );
 
-  // React registers wheel listeners as passive, so preventDefault (needed to
-  // stop browser page-zoom on Ctrl/⌘+wheel) requires a native listener.
+  // React wheel listeners are passive; preventDefault (to block page zoom on Ctrl/⌘+wheel)
+  // needs a native listener.
   useEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return undefined;

@@ -8,19 +8,17 @@ import { createProjectChatTurnRunner } from './projectChatTurn.js';
 const PROJECT_PROMPT =
   'Ask about this project’s pages. The assistant first checks each page for relevance to your question, then reads the pages it needs and highlights the passages it relies on as evidence cards on the canvas.';
 
-// ArticleChat only needs to know this is a project chat; the turn runner
-// supplies the overview (`preamble`) for each turn.
+// The turn runner supplies the per-turn overview (`preamble`).
 const PROJECT_SOURCE = Object.freeze({ kind: 'project', preamble: '' });
 
 const NO_PAGES = [];
 
 /**
- * The project's own chat, filling the side chat panel. Turns send no article
- * text: the model gets an overview of the project's pages (with a per-page
- * relevance scan on a chat's first question) and reads pages through tools,
- * highlighting the page lines it relies on as chat events. The painted events
- * go to `onHighlight`/`onClearHighlights` (the canvas shows them as evidence
- * cards under their pages). A merged topic tree, when given, adds its own tools.
+ * The project's chat in the side panel. Turns send no article text: the model gets an
+ * overview of the pages (scanned for relevance every turn) and reads them through tools,
+ * highlighting the lines it relies on as chat events. Painted events go to
+ * `onHighlight`/`onClearHighlights`, which show them as evidence cards on the canvas.
+ * A merged topic tree adds its own tools.
  *
  * @param {object} props
  * @param {string} props.projectId
@@ -39,8 +37,7 @@ const NO_PAGES = [];
  * @param {?HTMLElement} [props.headerActionsTarget] Where the chat's History/New
  *   actions render (the panel header); see ArticleChat.
  * @param {{chatRepository?: object, runTurn?: Function, getChatLimits?: Function}} [props.chatPorts]
- *   ArticleChat port overrides (tests); the browser defaults apply otherwise. A
- *   `runTurn` here is the function the project turn runner wraps.
+ *   ArticleChat port overrides (tests). `runTurn` here is what the project turn runner wraps.
  */
 export function ProjectChat({
   projectId,
@@ -59,8 +56,8 @@ export function ProjectChat({
 }) {
   const [scanProgress, setScanProgress] = useState(null);
   const { runTurn: wrappedRunTurn, ...articleChatPorts } = chatPorts || {};
-  // useProjectView keeps an unchanged merge's objects identical across reloads,
-  // so the (costly) tree tools and ArticleChat's props only change with content.
+  // useProjectView keeps unchanged merge objects identical, so the costly tree tools and
+  // ArticleChat props change only with content.
   const treeContext = useMemo(() => (tree ? createProjectChatContext(tree) : null), [tree]);
   const treeOverviewInput = useMemo(
     () => ({ eligiblePages, skippedPages, stale: stale === true }),

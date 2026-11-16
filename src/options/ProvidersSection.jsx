@@ -38,9 +38,8 @@ export function ProvidersSection() {
   const [form, setForm] = useState(() => createEmptyProviderForm());
   const [error, setError] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
-  // Kept separate from `error` (form/action errors): a failed load must not
-  // render as "No providers configured yet" - that may prompt someone to
-  // needlessly re-enter API keys that are, in fact, still stored.
+  // Separate from `error`: a failed load must not render as "No providers
+  // configured yet", which would make stored API keys look lost.
   const [loadError, setLoadError] = useState(null);
   // Snapshot of the form as it was opened; used to detect unsaved edits.
   const [baselineForm, setBaselineForm] = useState(() => createEmptyProviderForm());

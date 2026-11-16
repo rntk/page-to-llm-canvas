@@ -577,10 +577,8 @@ describe('callLLMWithRetry', () => {
     let scheduledTimeouts = 0;
     vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn) => {
       scheduledTimeouts++;
-      // callLLMDirect first installs its per-request timeout. The retry loop
-      // installs the backoff timer only after that request has failed; wait for
-      // this second timer so the test actually aborts during backoff rather
-      // than racing the provider failure itself.
+      // The first timer is the per-request timeout; the second is the retry
+      // backoff, so wait for it to abort during backoff.
       if (scheduledTimeouts === 2) resolveBackoffScheduled(fn);
       return scheduledTimeouts;
     });

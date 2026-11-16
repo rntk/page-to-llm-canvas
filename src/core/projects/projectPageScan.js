@@ -1,12 +1,9 @@
-// Per-page scan for the project chat. Code, not the chat model, walks the
-// project's pages and asks a small judge, one page at a time, whether and where
-// the page helps answer the user's question. Every line of every page is
-// judged (by default), and the lines the judge points to are quoted verbatim in
-// the chat's overview, so small details reach the orchestrating model as page
-// text rather than as a summary. Two interchangeable judges exist: the
-// completion LLM (reads numbered chunks, replies with small JSON) and a
-// decision model (one typed question per passage, mapped to relevance by
-// thresholds in code).
+// Per-page scan for the project chat. Code, not the chat model, walks the pages
+// and asks a small judge, one page at a time, whether and where the page helps
+// answer the question. Every line is judged by default and the judged lines are
+// quoted verbatim in the overview. Two interchangeable judges: the completion
+// LLM (numbered chunks, small JSON replies) and a decision model (one typed
+// question per passage, mapped to relevance by thresholds in code).
 
 import { chunkNumberedArticle } from '../../chat/articleChunking.js';
 import { choice, decisionRequestFits } from '../llm/decisionClient.js';
@@ -854,13 +851,11 @@ function formatFailures(failed, level) {
 
 /**
  * Model-facing text for scan results, within `maxChars`: relevant pages (high,
- * then low) with summary, findings with their page lines quoted verbatim, and
- * topics; one line naming pages with nothing relevant (partly scanned ones
- * listed apart, with their coverage, since their unread text may still be
- * relevant); then pages that could not be scanned. Quotes get whatever budget
- * is left, in page and finding order; findings past that point are listed
- * without quotes. Further over budget it drops notes, then topics, then
- * findings, then summaries, then lists "…and N more".
+ * then low) with summary, findings quoted verbatim, and topics; one line naming
+ * pages with nothing relevant (partly scanned ones listed apart with their
+ * coverage); then pages that could not be scanned. Quotes get the leftover
+ * budget in page and finding order. Further over budget it drops notes, then
+ * topics, findings and summaries, then lists "…and N more".
  * @param {PageScanResult[]} results
  * @param {{maxChars: number}} options
  * @returns {string}

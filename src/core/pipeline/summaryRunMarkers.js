@@ -6,9 +6,7 @@
 // also have an entry-level acceptedFailure without a corresponding run marker.
 
 /**
- * Returns whether a run carries a durable marker that identifies its outcome.
- * Retry and skip decisions are made from these per-run markers.
- *
+ * Whether a run carries a durable outcome marker; retry and skip decisions use these.
  * @param {object} run
  * @returns {boolean}
  */
@@ -17,10 +15,8 @@ export function hasSummaryRunMarker(run) {
 }
 
 /**
- * Returns whether a run should be retried on an ordinary resume.
- * `acceptedFailure` is deliberately excluded: Skip accepts that run for the
- * current resume and finalization converts it to `forcedEmpty` afterward.
- *
+ * Whether a run is retried on an ordinary resume. `acceptedFailure` is excluded:
+ * Skip accepts it for the current resume, then finalization makes it `forcedEmpty`.
  * @param {object} run
  * @returns {boolean}
  */
@@ -29,8 +25,7 @@ export function isFailedSummaryRun(run) {
 }
 
 /**
- * Removes retryable failure fields from a run and marks it accepted by Skip.
- *
+ * Strip retryable failure fields from a run and mark it accepted by Skip.
  * @param {object} run
  * @returns {object}
  */
@@ -72,10 +67,8 @@ export function finalizeSummaryEntries(summaries) {
 }
 
 /**
- * Projects a stored run while retaining retryable failure markers. The
- * transient `acceptedFailure` directive stays in `topic_summaries`; it is not
- * part of the UI-facing index.
- *
+ * Project a stored run, keeping retryable failure markers. The transient
+ * `acceptedFailure` directive stays in `topic_summaries`, out of the UI index.
  * @param {object} run
  * @returns {object}
  */
@@ -90,8 +83,7 @@ export function publicSummaryRun(run) {
 
 /**
  * Restore accepted failures from finalized `forcedEmpty` markers when a scoped
- * Resplit carries the checkpoint forward. Finalization stamps them again.
- *
+ * Resplit carries the checkpoint forward; finalization stamps them again.
  * @param {Record<string, object>} summaries
  * @returns {{summaries: Record<string, object>, hasAcceptedFailure: boolean}}
  */

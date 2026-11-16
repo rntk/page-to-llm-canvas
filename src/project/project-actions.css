@@ -1,5 +1,5 @@
 /* Header controls: the actions menu and the view tabs. Spacing, sizing and
-   motion tokens come from project.html. */
+   motion tokens come from src/extension/styles/project.css. */
 
 .project-actions {
   position: relative;

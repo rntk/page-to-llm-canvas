@@ -68,9 +68,8 @@ export const LLM_TASK_TYPE_LABELS = Object.freeze({
 const KNOWN_TASK_TYPES = new Set(Object.values(LLM_TASK_TYPES));
 
 /**
- * Task types each topic-splitting mode issues for a page's initial split, so
- * the modes can be compared without mixing. Manual resplits always use the
- * completion LLM and are excluded from both.
+ * Task types each topic-splitting mode issues for a page's initial split.
+ * Manual resplits always use the completion LLM and are excluded.
  */
 export const TOPIC_SPLITTER_MODES = Object.freeze([
   Object.freeze({
@@ -520,12 +519,11 @@ export function recordLlmMetric(entry) {
 
   return enqueueWrite(async () => {
     try {
-      // Retry when a clear lands mid read-modify-write. Options page and the
-      // service worker do not share this writeChain, so epoch reconciliation
-      // is what prevents pre-clear aggregates from reappearing.
+      // Retry when a clear lands mid read-modify-write. Options page and service
+      // worker don't share writeChain, so epochs keep pre-clear aggregates gone.
       for (let attempt = 0; attempt < 5; attempt++) {
         const epoch = await getMetricsEpoch();
-        // Sample completed at or before the last clear — drop it.
+        // Sample predates the last clear; drop it.
         if (at <= epoch) return;
 
         const stored = await readLlmMetricsRaw();
@@ -585,9 +583,8 @@ export async function getLlmMetrics() {
  * @returns {Promise<void>}
  */
 function writeLlmMetricsRaw(metrics) {
-  // `setLocal` reaches for `chrome` unguarded. Without this early return a
-  // chrome-less realm would reject here and surface a misleading
-  // 'metrics record failed' warning, where the write used to be a silent no-op.
+  // `setLocal` uses `chrome` unguarded; skip silently in chrome-less realms
+  // rather than log a misleading 'metrics record failed' warning.
   if (typeof chrome === 'undefined' || !chrome?.storage?.local) return Promise.resolve();
   return setLocal({ [LLM_METRICS_KEY]: metrics });
 }

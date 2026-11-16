@@ -12,10 +12,7 @@ function getParentOrigin(hostWindow, hostDocument) {
   return '*';
 }
 
-/**
- * Browser adapter for the iframe-to-content-script modal protocol. UI
- * components receive only the semantic actions returned here.
- */
+/** Adapter for the iframe-to-content-script modal protocol; exposes only semantic actions. */
 export function createModalHost({
   window: hostWindow = globalThis.window,
   document: hostDocument = globalThis.document,
@@ -35,8 +32,7 @@ export function createModalHost({
         const parentOrigin = getParentOrigin(hostWindow, hostDocument);
         hostWindow.parent.postMessage(message, parentOrigin);
 
-        // The content-script receiver authenticates both event.source and
-        // event.origin, so this remains a safe delivery fallback.
+        // Safe fallback: the receiver authenticates both event.source and event.origin.
         if (parentOrigin !== '*') hostWindow.parent.postMessage(message, '*');
       } catch (_) {
         /* noop */
@@ -61,8 +57,7 @@ export function createModalHost({
 }
 
 /**
- * Parses the modal iframe's URL query string into the record key and view
- * mode it was opened with.
+ * Parses the iframe URL query into the record key and view mode.
  *
  * @param {string} search
  * @returns {{key: string, view: string}}

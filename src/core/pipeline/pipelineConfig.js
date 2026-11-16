@@ -83,9 +83,8 @@ export function getCustomInstructionsTextChunkMaxChars(
 }
 
 /**
- * Charge a longer resplit parent path to the text budget while preserving
- * reserved response space. Return zero if a tagged sentence cannot fit.
- *
+ * Charge a longer resplit parent path to the text budget, keeping reserved
+ * response space. Returns zero if a tagged sentence cannot fit.
  * @param {number} baseMaxChars Pipeline text cap for this provider.
  * @param {string} parentPath Model-generated parent path.
  * @param {boolean} [preferContentLanguage]
@@ -111,10 +110,8 @@ export function getResplitTextChunkMaxChars(
 }
 
 /**
- * Normalizes an optional provider context-window declaration. Absent or
- * unusable values yield null so callers fall back to their static budget;
- * declared-but-too-small windows are a configuration error and throw.
- *
+ * Normalize an optional provider context window. Absent or unusable values
+ * yield null (callers use their static budget); too-small windows throw.
  * @param {unknown} contextWindowTokens Provider context window in tokens.
  * @returns {number|null} Whole-token context window, or null when unknown.
  */
@@ -131,10 +128,9 @@ function normalizeContextTokens(contextWindowTokens) {
 }
 
 /**
- * Derives the source-text portion of a request from an optional provider
- * context-window declaration. Unknown windows retain the conservative 60k
- * fallback; known smaller windows reduce every pipeline stage consistently.
- *
+ * Source-text budget of a request from an optional provider context window.
+ * Unknown windows keep the conservative 60k fallback; smaller known windows
+ * shrink every pipeline stage consistently.
  * @param {unknown} contextWindowTokens Provider context window in tokens.
  * @returns {number}
  */
@@ -173,10 +169,9 @@ export function getArticleChatLimits(contextWindowTokens) {
 }
 
 /**
- * Cap topic-range markers by reserved response space. Unknown context windows
- * use only the output ceiling. Worst-case text density prevents double counting
- * the payload budget, at the cost of smaller chunks for some providers.
- *
+ * Cap topic-range markers by reserved response space. Unknown windows use only
+ * the output ceiling. Worst-case text density avoids double counting the
+ * payload budget, at the cost of smaller chunks for some providers.
  * @param {unknown} contextWindowTokens Provider context window in tokens.
  * @param {number} [maxOutputTokens] Output allowance actually requested.
  * @returns {number}

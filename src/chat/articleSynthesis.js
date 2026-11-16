@@ -107,8 +107,7 @@ function fitSynthesisGroup(question, group, capacity) {
       SYNTHESIS_MIN_REPLY_CHARS,
       longest - Math.ceil((payloadChars - capacity) / items.length),
     );
-    // Escaping and wide line numbers can exhaust the finding floor. Never
-    // return a payload that exceeds the configured capacity.
+    // Escaping and wide line numbers can exhaust the finding floor; never exceed capacity.
     if (target >= longest) {
       throw new Error('The synthesis input exceeds the configured chat context limit.');
     }
@@ -124,7 +123,6 @@ function fitSynthesisGroup(question, group, capacity) {
 function truncateFinding(reply, maxChars) {
   const text = String(reply || '');
   if (text.length <= maxChars) return text;
-  // The marker counts against the same budget, so a truncated finding never
-  // grows the payload beyond the share it was allotted.
+  // The marker counts against the same budget.
   return `${text.slice(0, Math.max(0, maxChars - SYNTHESIS_TRUNCATION_MARKER.length))}${SYNTHESIS_TRUNCATION_MARKER}`;
 }

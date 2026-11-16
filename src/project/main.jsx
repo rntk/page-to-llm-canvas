@@ -7,8 +7,7 @@ import { browserScheduler } from '../shared/runtime/browserHosts.js';
 import { createThemeController } from '../shared/runtime/theme.js';
 import { createProjectHosts } from './projectHosts.js';
 
-// Apply the saved light/dark/system preference and follow changes made in the
-// popup/options while this page is open.
+// Apply the saved theme and follow changes made in the popup/options while open.
 const themeController = createThemeController();
 void themeController.init();
 themeController.watch();

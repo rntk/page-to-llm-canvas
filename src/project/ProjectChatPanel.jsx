@@ -32,12 +32,9 @@ const skippedNote = (count) =>
     : `${count} pages are not in the topic tree (not saved or still processing).`;
 
 /**
- * Collapsible project chat over the project's pages, with the merged topic tree
- * as an optional extra source.
- *
- * The chat works whenever the project has a readable page. The merge comes from
- * the project view's `topicMerge` (the single owner of the merge snapshot); its
- * tree is handed to the chat only once the merge is complete.
+ * Collapsible project chat over the project's pages; the merged topic tree is an optional
+ * extra source. Works whenever a page is readable. The tree comes from the view's
+ * `topicMerge` and is passed on only once the merge is complete.
  *
  * @param {object} props
  * @param {string} props.projectId
@@ -75,8 +72,8 @@ export function ProjectChatPanel({
       }),
     [tabs, eligiblePages, savedRecords],
   );
-  // Tabs are refetched as new objects on every view refresh; keeping the page
-  // lists identical while their content is, keeps the chat's runner stable.
+  // Tabs are new objects on every refresh; reuse the page lists while their content is equal
+  // so the chat runner stays stable.
   const [stable, setStable] = useState(computed);
   const shared = shareEqual(stable, computed);
   if (shared !== stable) setStable(shared);

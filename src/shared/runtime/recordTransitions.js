@@ -147,15 +147,12 @@ export function needsAttentionTransition(summaryErrors, { done = 0, total = 0 } 
 }
 
 /**
- * Terminal success. Review state is cleared because nothing is left to review;
- * `summariesIncomplete` is a caller decision (accepted failures survive into a
- * done record as retryable empties).
+ * Terminal success. Review state is cleared; `summariesIncomplete` is the caller's
+ * call (accepted failures stay as retryable empties).
  * @param {object} options
  * @param {number} options.done
  * @param {number} options.total
- * @param {boolean} options.summariesDisabled Required: whether this run skipped
- *   summaries. No default on purpose — a caller that omits it has made a
- *   decision it did not mean to make.
+ * @param {boolean} options.summariesDisabled Required, no default: callers must decide.
  * @param {boolean} [options.summariesIncomplete=false]
  */
 export function doneTransition({
@@ -182,10 +179,8 @@ export const RESPLIT_NO_CHANGE_NOTICE =
 export const RESPLIT_CANCELLED_NOTICE = 'Resplit stopped; the topic was left unchanged.';
 
 /**
- * Ends a manual resplit that did not replace any topics (no change, failure,
- * or Stop) by returning the record to the completed state it was in before
- * the Resplit action. Nothing in the topic checkpoint was modified, so the
- * record is still fully usable; `notice` tells the user what happened.
+ * Ends a manual resplit that replaced no topics (no change, failure, or Stop) by
+ * restoring the pre-Resplit completed state. The topic checkpoint was not touched.
  * @param {object} record Record snapshot still holding `manualResplitIntent`.
  * @param {string} notice User-facing outcome.
  */

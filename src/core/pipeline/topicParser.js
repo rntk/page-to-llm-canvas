@@ -174,7 +174,7 @@ const MAX_IGNORED_LINE_SAMPLES = 10;
 const IGNORED_LINE_SAMPLE_MAX_CHARS = 200;
 const MAX_REPAIRS = 50;
 
-/** Truncate a raw line to a safe sample length (privacy-safe: caller-gated by verbose logging).
+/** Truncate a raw line to a sample length; callers gate it behind verbose logging.
  * @param {string} line Raw parser line.
  */
 function truncateSample(line) {

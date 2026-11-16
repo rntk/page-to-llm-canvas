@@ -9,20 +9,16 @@ import { joinTopicPath } from '../shared/runtime/topicPath.js';
  * node: { name, fullPath, uid, depth, topic }
  * `fullPath` joins parts with ">" (no spaces) to match color helpers.
  *
- * This builds the hierarchy view's navigation tree. It is intentionally separate
- * from `buildTopicHierarchyTree` in topicDomain.js, which drives the canvas and
- * rails. The hierarchy view is an aggregated outline: one node per unique path,
- * regardless of where its sentences fall in the source. The canvas/rails are
- * chronological: each path is split into contiguous sentence runs, and each run
- * becomes a card ordered by source position. The same record can therefore
- * show a different topic layout in the two views. That is by design; do not
- * merge the builders. (topicParser already dedupes labels, so duplicate paths
- * are rare. If one does get through, the last entry becomes `node.topic`.)
+ * This builds the hierarchy view's aggregated outline: one node per unique path,
+ * wherever its sentences fall. It is intentionally separate from
+ * `buildTopicHierarchyTree` in topicDomain.js, which splits each path into
+ * contiguous runs ordered by source position for the canvas/rails, so the same
+ * record can show different layouts in the two views. Do not merge them.
+ * (topicParser already dedupes labels; if a duplicate path gets through, the
+ * last entry becomes `node.topic`.)
  *
- * See src/core/pipeline/topicTreeMerge.js for the
- * worker's separate tree builder, which merges topic summaries during
- * extraction and has different structural requirements — the two are not
- * merged on purpose.
+ * See src/core/pipeline/topicTreeMerge.js for the worker's separate tree
+ * builder, which has different structural requirements.
  *
  * @param {Array<{name: string, sentences: number[]}>} topics
  * @param {number} [startDepth]

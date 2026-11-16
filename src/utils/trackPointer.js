@@ -2,8 +2,8 @@
  * Follows a pointer gesture on the window until release.
  * @param {PointerEvent} start
  * @param {function(number, number): void} onMove Receives total dx, dy in px.
- * @param {function(): void} [onEnd] Called on pointerup/pointercancel, not on cancel.
- * @returns {function(): void} Cancel: stops tracking without calling `onEnd`.
+ * @param {function(): void} [onEnd] Called on pointerup/pointercancel.
+ * @returns {function(): void} Stops tracking without calling `onEnd`.
  */
 export function trackPointer(start, onMove, onEnd) {
   const { clientX: x0, clientY: y0 } = start;

@@ -23,10 +23,8 @@ describe('browserRecordSource', () => {
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ key: 'test' }));
   });
 
-  // Regression: the watched keys must be the same physical keys the storage
-  // layer writes. A hand-built `pagetollm:rec:${key}:` prefix silently stopped
-  // matching once the writer began percent-encoding the record segment, which
-  // dropped every live update for keys containing `:`.
+  // Regression: watched keys must match the storage layer's physical keys. A hand-built
+  // prefix missed percent-encoded record segments, dropping live updates for keys with `:`.
   it('watches the physical doc keys the storage layer actually writes', () => {
     const key = 'article:123';
     browserRecordSource.subscribe(key, () => {});

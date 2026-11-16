@@ -1,8 +1,6 @@
 import { buildSentenceDomRange } from '../../../highlights/sentenceHighlight.js';
 
-/**
- * Geometry and scroll helpers for the in-page rail.
- */
+/** Geometry and scroll helpers for the in-page rail. */
 
 export function getScrollTop(scrollContainer, win = window) {
   return scrollContainer && scrollContainer !== win ? scrollContainer.scrollTop : win.scrollY;
@@ -10,9 +8,7 @@ export function getScrollTop(scrollContainer, win = window) {
 
 /**
  * Origin the card boxes are measured from: the rail body's viewport top.
- *
  * The body stays fixed while the card track follows window or inner scrolling.
- *
  * @param {{top: number}} bodyRect Rail body rect, measured untransformed.
  * @returns {number} Viewport offset the card boxes are relative to.
  */
@@ -80,7 +76,6 @@ export function computeCardVerticalBox(
   }
   if (!Number.isFinite(top) || !Number.isFinite(bottom)) return null;
   const clampedTop = Math.max(0, top);
-  // `right` is the text edge in viewport x (horizontal scroll is not tracked):
-  // topic notes are drawn just past it, beside the sentences they annotate.
+  // `right`: text edge in viewport x (horizontal scroll untracked); topic notes sit just past it.
   return { top: clampedTop, height: Math.max(40, bottom - clampedTop), right };
 }

@@ -6,7 +6,7 @@ import { joinTopicPath } from '../shared/runtime/topicPath.js';
 import { sortedUnique } from '../shared/runtime/sortedUnique.js';
 
 // Topics tree display tree: saved topics + summaries -> display nodes.
-// Pure functions only, so they run without a DOM.
+// Pure functions, so they run without a DOM.
 
 export const ROOT_KIND = 'root';
 export const TOPIC_KIND = 'topic';
@@ -29,8 +29,8 @@ function leavesOf(node) {
 
 /**
  * Give every branch with sub-topics a `textCard`: one source block holding the
- * text of all its leaf cards, one section per leaf so topics stay apart. A
- * branch whose only child is its own source card has no use for one.
+ * text of all its leaf cards, one section per leaf. Branches whose children are
+ * all leaves get none.
  * @param {object} tree Display tree (mutated).
  * @returns {object} The same tree.
  */
@@ -137,10 +137,10 @@ export function buildTopicsDisplayTree(topics, topicSummaryIndex, { title = '' }
 }
 
 /**
- * Build the display tree of a saved summary tree: its root overview, topic
- * nodes with their summaries, and passages as leaf cards. Unlike the pipeline
- * tree it keeps the saved structure as is, since passages under one topic may
- * share a title. Returns null until the topic structure exists.
+ * Build the display tree of a saved summary tree: root overview, topic nodes
+ * with their summaries, and passages as leaf cards. Unlike the pipeline tree,
+ * it keeps the saved structure, since sibling passages may share a title.
+ * Returns null until the topic structure exists.
  *
  * @param {object|null} summaryTree Saved `summary_tree`.
  * @param {{title?: string}} [options]

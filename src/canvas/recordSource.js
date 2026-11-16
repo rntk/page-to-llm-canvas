@@ -8,7 +8,7 @@ import {
   recordDiagnosticsStorageKey,
 } from '../core/storage/keys.js';
 
-// Reuse canonical key helpers: record segments containing `:` need percent encoding.
+// Use the canonical key helpers: record segments containing `:` need percent encoding.
 function recordViewDocumentKeys(key) {
   return [
     recordMetaStorageKey(key),

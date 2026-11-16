@@ -157,7 +157,7 @@ function cloneRenderedSubtree(original, contentWindow) {
 
 /**
  * Capture analysis text while the source document's CSSOM is available, and
- * build an HTML snapshot with definitely non-rendered text removed.
+ * build an HTML snapshot with non-rendered text removed.
  * @param {Element[]} elements Picked live DOM elements.
  * @param {Window} [contentWindow]
  */

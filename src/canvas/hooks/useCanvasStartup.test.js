@@ -43,8 +43,7 @@ describe('canvasStartupReducer', () => {
     const start = { stage: 'preparing', isOverlayLeaving: false };
     const entering = canvasStartupReducer(start, 'reveal');
     expect(entering).toEqual({ stage: 'entering', isOverlayLeaving: true });
-    // A second reveal (e.g. the deadline firing after the gates settled) is a
-    // no-op rather than a restart of the entrance.
+    // A second reveal (e.g. deadline after the gates settled) is a no-op.
     expect(canvasStartupReducer(entering, 'reveal')).toBe(entering);
 
     const faded = canvasStartupReducer(entering, 'overlay-faded');
@@ -124,8 +123,7 @@ describe('useCanvasStartup', () => {
   it('keeps the deadline absolute when a gate settles mid-countdown', () => {
     const ctx = setup(preparing);
     act(() => vi.advanceTimersByTime(REVEAL_TIMEOUT_MS - 100));
-    // Re-running the effect must not restart the countdown, or a canvas that
-    // settles one gate late could stay covered for twice the deadline.
+    // Re-running the effect must not restart the countdown (else up to twice the deadline).
     ctx.rerender({ layoutSettled: true });
     expect(ctx.result.current.isReady).toBe(false);
     act(() => vi.advanceTimersByTime(100));

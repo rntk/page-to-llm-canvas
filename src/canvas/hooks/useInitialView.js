@@ -10,19 +10,16 @@ import {
 /**
  * Phase machine for the one-time "opening view" setup.
  *
- * Modelled as a reducer (rather than a plain state setter) so the phase-
- * advancing transitions the effects below dispatch happen through `dispatch` —
- * a stable, non-render-cascading update — instead of a synchronous setState in
- * an effect body. The guards keep every transition idempotent: an action only
- * advances from the phase that legitimately precedes it, so a re-run of an
- * effect can never skip or rewind a step.
+ * A reducer so effects advance phases via a stable `dispatch` rather than a
+ * synchronous setState in an effect body. Guards make transitions idempotent:
+ * an action only advances from its preceding phase, so a re-run never skips or
+ * rewinds a step.
  * @param {string} phase Current opening-view phase.
  * @param {string} action Requested transition.
  */
 function initialViewReducer(phase, action) {
   switch (action) {
-    // The user already touched the canvas (panned/zoomed/switched level) — or a
-    // non-default level was active — before the opening view could run: skip it.
+    // User already touched the canvas (or a non-default level was active): skip.
     case 'skip':
       return phase === 'pending' ? 'done' : phase;
     // Phase 1 committed the leaf level.
@@ -43,10 +40,9 @@ function initialViewReducer(phase, action) {
  * Drives the one-time "opening view" setup: leaf-level rail, zoomed out enough
  * to see a few levels of cards at once, first topic's summary shown.
  *
- * Split into phases (rather than one effect) because each step depends on state
- * set by the previous one having actually committed and re-rendered (e.g. the
- * topic cards for the leaf level only exist after `selectedLevel` itself has
- * updated) — a single effect closure would read stale values.
+ * Phased because each step needs the previous one committed and re-rendered
+ * (e.g. leaf-level topic cards exist only after `selectedLevel` updates); one
+ * effect closure would read stale values.
  *
  * @param {object} params
  * @param {Array<unknown>} params.topics
@@ -82,26 +78,22 @@ export function useInitialView({
   panToTopic,
   selectTopic,
 }) {
-  // The opening view only reads the live transform and moves it once, so it takes
-  // the imperative viewport handle rather than the render-state scale/translate.
+  // Reads the live transform via the viewport handle, not render-state scale/translate.
   const { userMovedCanvasRef, setTransformNow, scaleRef, translateRef } = viewport;
   const [initialViewPhase, dispatch] = useReducer(initialViewReducer, 'pending');
 
   // ── Opening view: leaf level, zoomed out ~3 clicks, first topic's summary ──
-  // Phase 1: once the article and its topic hierarchy are measured, jump the
-  // level switcher straight to the leaf level (mirrors clicking it manually).
+  // Phase 1: once measured, jump straight to the leaf level.
   useEffect(() => {
     if (initialViewPhase !== 'pending') return;
-    // No topics at all: there is no opening view to stage, and every later phase
-    // would wait on cards that will never exist. Retire the machine so callers
-    // waiting on it (the opening overlay) are not held behind a dead phase.
+    // No topics: later phases would wait on cards that never exist. Retire the
+    // machine so the opening overlay isn't held behind a dead phase.
     if (topics.length === 0) {
       dispatch('skip');
       return;
     }
     if (sentenceMetrics.size === 0) return;
-    // The user already touched the canvas (panned/zoomed/switched level) while
-    // this settled — don't yank their view out from under them.
+    // User touched the canvas while this settled; don't yank their view.
     if (userMovedCanvasRef.current || selectedLevel !== 0) {
       dispatch('skip');
       return;
@@ -120,8 +112,7 @@ export function useInitialView({
     userMovedCanvasRef,
   ]);
 
-  // Phase 2: once the leaf level has actually committed, zoom out the
-  // equivalent of 3 "-" clicks so a few levels of cards fit on screen.
+  // Phase 2: once the leaf level commits, zoom out 3 "-" clicks so a few levels fit.
   useEffect(() => {
     if (initialViewPhase !== 'level-set') return;
     if (maxLevel > 0 && selectedLevel !== maxLevel) return;
@@ -129,8 +120,7 @@ export function useInitialView({
     dispatch('zoomed');
   }, [initialViewPhase, selectedLevel, maxLevel, setTransformNow, scaleRef, translateRef]);
 
-  // Phase 3: with the leaf-level cards and zoom settled, select the first
-  // topic — same as clicking "First topic" once — so its summary is visible.
+  // Phase 3: select the first topic (as "First topic" does) so its summary shows.
   useEffect(() => {
     if (initialViewPhase !== 'zoomed') return;
     const list = buildTopicNavigationList({

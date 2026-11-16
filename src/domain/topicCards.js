@@ -138,35 +138,30 @@ function getMeasuredRunLayout(sentenceRun, sentenceMetrics) {
 }
 
 /**
- * Layout invariant: within a column (levelIndex), cards laid out in document
- * order (by start sentence) do not overlap vertically — as far as that is
- * possible without breaking their alignment with the article.
+ * Layout invariant: within a column (levelIndex), cards in document order (by
+ * start sentence) do not overlap vertically, as far as that is possible without
+ * breaking their alignment with the article.
  *
- * Measured sentence positions can be wrong — e.g. emails with repeated
- * invisible preheader sentences or clipped footers fuzzy-match the wrong DOM
- * text, stretching one card's rect across its neighbours. A card whose extent
- * runs past the next card's top is clipped to end above it; a card overlapped
- * from above is pushed down.
+ * Measured sentence positions can be wrong (e.g. emails with repeated invisible
+ * preheader sentences or clipped footers fuzzy-match the wrong DOM text and
+ * stretch one card's rect across its neighbours). A card whose extent runs past
+ * the next card's top is clipped to end above it; a card overlapped from above
+ * is pushed down.
  *
- * The push is bounded by `CARD_MAX_PUSH`, because a card's whole purpose is to
- * sit beside the sentences it covers. A column denser than
- * `CARD_MIN_CLAMPED_HEIGHT + CARD_VERTICAL_GAP` per card — routine at leaf
- * level, where a topic can be a single sentence — cannot satisfy both
- * alignment and no-overlap, and an unbounded push resolves that by stacking
- * every card below the previous one's *pushed* bottom: the error then
- * compounds card over card and the bottom of a long article ends up thousands
- * of px below its text. Alignment wins; the remaining overlap is expected and
- * is handled downstream by the rail's dense layout (see `denseCardLayout.js`,
- * which compacts heights, nudges within ±`DENSE_CARD_MAX_NUDGE`, and layers
- * crowded cards by z-index). The one position not worth preserving is a card
- * measured above its own predecessor — that is a mis-measurement rather than a
- * dense column, and it is still stacked without a bound.
+ * The push is bounded by `CARD_MAX_PUSH`, because a card must sit beside the
+ * sentences it covers. A column denser than `CARD_MIN_CLAMPED_HEIGHT +
+ * CARD_VERTICAL_GAP` per card (routine at leaf level, where a topic can be one
+ * sentence) cannot satisfy both alignment and no-overlap; an unbounded push
+ * would stack every card below the previous *pushed* bottom, compounding until
+ * the bottom of a long article sits thousands of px below its text. Alignment
+ * wins; the remaining overlap is handled downstream by the rail's dense layout
+ * (see `denseCardLayout.js`). A card measured above its own predecessor is a
+ * mis-measurement, not a dense column, and is still stacked without a bound.
  *
  * Across columns, a child card stays inside its parent's extent. Columns are
- * resolved independently, so a parent clipped to clear its next sibling (or
- * pushed down) would otherwise leave a child — laid out from the very same
- * sentences, but with room in its own column — sticking out below it. That
- * clamp runs last, on the resolved columns (see `clampCardsToParents`).
+ * resolved independently, so a clipped or pushed parent would otherwise leave a
+ * child sticking out below it. That clamp runs last, on the resolved columns
+ * (see `clampCardsToParents`).
  *
  * @template {{key: string, levelIndex: number, startSentence: number, top: number, height: number, fullPath: string}} T
  * @param {T[]} cards
@@ -247,11 +242,9 @@ function addMetricEntry(index, path, entry) {
  * Patches topic card positions from measured summary-card bounding rects,
  * then re-runs overlap resolution so the no-overlap column invariant holds.
  *
- * For each topic card the function looks for matching summary metrics using
- * path ancestor/descendant string matching — the same logic used in the
- * App.jsx useMemo. The accumulated bounding box across all matching metrics
- * (filtered by sentence-range overlap) becomes the card's new top/height.
- * Cards without any matching metric are left at their original positions.
+ * Each card is matched to summary metrics by path ancestor/descendant string
+ * matching; the bounding box of all matching metrics (filtered by sentence-range
+ * overlap) becomes its new top/height. Cards without a match keep their position.
  *
  * @param {Array<{key: string, fullPath: string, startSentence: number, endSentence: number, top: number, height: number, levelIndex: number}>} cards
  *   Topic cards as returned by buildTopicCards.

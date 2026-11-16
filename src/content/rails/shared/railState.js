@@ -1,6 +1,4 @@
-/**
- * Shared rail state helpers for in-page and YouTube rails.
- */
+/** Shared rail state helpers for in-page and YouTube rails. */
 
 export const RAIL_MODES = Object.freeze([
   ['topics', 'Topics'],
@@ -11,8 +9,7 @@ export const RAIL_MODES = Object.freeze([
 const VALID_MODES = new Set(RAIL_MODES.map(([mode]) => mode));
 
 /**
- * Normalize an incoming rail mode to one of the supported modes defined in RAIL_MODES.
- * Falls back to the default mode ('topics') for missing or unrecognized modes.
+ * Normalize a rail mode to one in RAIL_MODES, defaulting to 'topics'.
  *
  * @param {string} [mode]
  * @returns {'topics'|'summaries'|'chat'}

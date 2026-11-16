@@ -1,8 +1,7 @@
 /**
- * Topic sources shared by the topics tree, canvas and hierarchy views: the
- * pipeline's primary topics, or the summary tree built beside them. Owns the
- * summary tree's effective state, its build actions, and the record seen by
- * views that read `record.topics` and `record.topic_summary_index`.
+ * Topic sources for the topics tree, canvas and hierarchy views: pipeline topics
+ * or the summary tree built beside them. Owns the summary tree's effective state,
+ * build actions, and the record views read `record.topics` and `record.topic_summary_index` from.
  */
 
 import { useCallback, useMemo, useState } from 'react';
@@ -76,7 +75,7 @@ export function recordForTopicSource(record, source, summaryTree) {
 
 /**
  * The record's effective summary tree state. A running build that stops
- * saving becomes resumable without a record change.
+ * saving is reported as interrupted once stale, without a record change.
  * @param {object|null} record Saved article.
  * @returns {{status: string, tree: object|null}}
  */

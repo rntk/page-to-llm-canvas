@@ -393,7 +393,7 @@ describe('createLoadToken', () => {
   it('isStale() returns true when holder is nullified (closeInPageRail path)', () => {
     const holder = { current: null };
     const guard = createLoadToken(holder);
-    // Simulate closeInPageRail setting the holder to null
+    // Simulate the surface manager's close() clearing the holder
     holder.current = null;
     expect(guard.isStale()).toBe(true);
   });

@@ -12,12 +12,11 @@ const WHEEL_COMMIT_DELAY = 80;
 // Outlast the 280ms CSS transition to avoid snapping its final frame.
 const CARD_ZOOM_SMOOTHING_HOLD = 340;
 const ARROW_STEP = 80;
-// Keep the canvas content this far inside the viewport edges. Mirrors the
-// alignment hook's margin of the same name.
+// Content stays this far inside the viewport edges (same as the alignment hook's).
 const EDGE_MARGIN = 24;
 // Fallback left edge (wrap-local px) used only when nothing can be measured.
 const FALLBACK_CONTENT_LEFT = 40;
-// Ignore sub-pixel corrections so we never schedule a no-op transform.
+// Ignore sub-pixel corrections (no-op transforms).
 const MIN_DELTA = 0.5;
 // Pixels a pointer must travel before a press counts as a pan and is captured.
 const DRAG_CAPTURE_THRESHOLD = 4;
@@ -72,14 +71,12 @@ function zoomPinnedTranslateX({
 }
 
 /**
- * Simplified canvas transform hook: pan, wheel zoom, programmatic zoom,
- * page navigation, and arrow/Home/End/PageUp/PageDown keyboard shortcuts.
+ * Canvas transform hook: pan, wheel zoom, programmatic zoom, page navigation,
+ * and arrow/Home/End/PageUp/PageDown shortcuts.
  *
- * Returns render state (`translate`/`scale` and the drag/focus flags, which must
- * stay flat so consumers re-render when they change) plus a single `viewport`
- * handle carrying the imperative surface — the live transform refs and the
- * move-the-canvas callbacks — for the hooks that drive the canvas rather than
- * draw it. See the `viewport` memo below for why it is bundled.
+ * Returns flat render state (`translate`/`scale`, drag/focus flags) plus a
+ * `viewport` handle of live transform refs and move callbacks for hooks that
+ * drive the canvas.
  * @param {object} [options] Hook options.
  * @param {object} [options.contentRef]
  * @param {(scale: number) => void} [options.onVisualScaleChange]
@@ -121,8 +118,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
   const focusTimerRef = useRef(null);
   const zoomingTimerRef = useRef(null);
   const panSettleTimerRef = useRef(null);
-  // Set by zoomToTarget when its placement must be redone once the new scale's
-  // layout has committed; consumed by the layout effect below.
+  // Set by zoomToTarget to redo placement once the new scale's layout commits.
   const pendingZoomPinRef = useRef(null);
   // Pan imperatively per frame; commit React state on mouse-up.
   const dragRafRef = useRef(0);
@@ -346,8 +342,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
     setTransformNow(scale, nextTranslate);
   }, [contentRef, scale, setTransformNow]);
 
-  // Track the canvas wrap's height so sticky titles can clamp to the
-  // visible viewport (the sticky CSS reads --canvas-area-height).
+  // Publish the wrap's height for sticky titles (--canvas-area-height).
   useEffect(() => {
     if (!canvasViewportEl || !canvasWrapEl) return undefined;
     const update = () => {
@@ -370,10 +365,9 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
     return () => document.body.classList.remove('canvas-global-dragging');
   }, [isCanvasDragging]);
 
-  // Pointer drag pan (mouse, touch, pen). Listens on window for the drag's
-  // pointer only; once the pointer moves past a small threshold it is also
-  // captured so the drag survives leaving the window or crossing iframes.
-  // Capture is deferred so a plain tap still clicks the element under it.
+  // Pointer drag pan (mouse, touch, pen). Listens on window; past a small threshold
+  // the pointer is also captured so the drag survives leaving the window or
+  // crossing iframes. Capture is deferred so a plain tap still clicks.
   const isDragging = useRef(false);
   const lastPointer = useRef({ x: 0, y: 0 });
   const handlePointerDown = useCallback(
@@ -409,8 +403,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
         const dx = mv.clientX - lastPointer.current.x;
         const dy = mv.clientY - lastPointer.current.y;
         lastPointer.current = { x: mv.clientX, y: mv.clientY };
-        // Accumulate from the last *pending* target (not translateRef, which
-        // only updates once per rAF) so multiple moves within a frame compose.
+        // Accumulate from the pending target (translateRef updates once per rAF) so same-frame moves compose.
         const base = dragPendingRef.current || translateRef.current;
         dragPendingRef.current = { x: base.x + dx, y: base.y + dy };
         if (dragRafRef.current) return;
@@ -435,8 +428,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
         const pending = dragPendingRef.current;
         dragPendingRef.current = null;
         if (pending) applyTranslateImperative(pending);
-        // Reconcile React state with the ref so the CSS-var layout effect won't
-        // later overwrite the imperatively-set vars with a stale translate.
+        // Reconcile React state so the CSS-var layout effect doesn't overwrite vars with a stale translate.
         setTransformNow(scaleRef.current || 1, translateRef.current);
         detach();
       };
@@ -453,8 +445,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
           }
         }
       };
-      // A second pointerdown without an intervening pointerup (the pointer
-      // released outside the document, say) would otherwise strand the first set.
+      // A pointerdown without a prior pointerup (e.g. released outside the document) would strand the old listeners.
       dragDetachRef.current?.();
       dragDetachRef.current = detach;
       window.addEventListener('pointermove', onMove);
@@ -674,8 +665,7 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
       wrapWidth: wrapRect.width,
     });
     if (Math.abs(nextX - (translateRef.current?.x ?? 0)) < MIN_DELTA) return;
-    // Pure horizontal pan at an unchanged scale: no further reflow, so this
-    // settles in one pass.
+    // Horizontal-only pan at unchanged scale: no further reflow, settles in one pass.
     setTransformNow(scale, { x: nextX, y: translateRef.current?.y ?? 0 });
   }, [contentRef, scale, setTransformNow]);
 
@@ -690,16 +680,13 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
       setTransformNow,
       zoomAtPoint,
       zoomToTarget,
-      // Exposed because zoomToTarget is not the only way to commit an animated
-      // scale change: a view restore re-applies a remembered scale through
-      // setTransformNow and needs the same measurement suppression.
+      // Exposed because view restore also animates a scale change via setTransformNow.
       flashZoomingToTarget,
     }),
     [setTransformNow, zoomAtPoint, zoomToTarget, flashZoomingToTarget],
   );
 
-  // Clean up every timer, pending frame and window-level drag listener on
-  // unmount.
+  // Clean up timers, pending frames and drag listeners on unmount.
   useEffect(
     () => () => {
       if (focusTimerRef.current) clearTimeout(focusTimerRef.current);

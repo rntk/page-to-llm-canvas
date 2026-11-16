@@ -926,7 +926,7 @@ describe('dispatchMessage unit tests', () => {
     });
     expect(res.ok).toBe(false);
 
-    // recordLlmMetric is fire-and-forget; wait for the store write to land.
+    // Wait for the metric store write to land.
     await vi.waitFor(() => {
       expect(chromeMock.storage.local._store.has(LLM_METRICS_KEY)).toBe(true);
     });

@@ -1,6 +1,5 @@
-// Shadow-DOM stylesheet for the selection toolbar. Kept as a string so it can be
-// injected into the toolbar's closed shadow root (the palette variables are
-// tagged on the host element by surfacePreferences and flipped by content.css).
+// Shadow-DOM stylesheet for the selection toolbar, injected into its closed shadow
+// root. Palette variables are set on the host by surfacePreferences and flipped by content.css.
 export const TOOLBAR_SHADOW_STYLES = `
   #pagetollm-toolbar-top {
     display: flex;
@@ -89,9 +88,8 @@ export const TOOLBAR_SHADOW_STYLES = `
     cursor: not-allowed;
   }
 
-  /* While actively submitting, keep the button's filled/active look instead of
-     the "nothing selected" disabled look above, so the "Submitting..." label
-     stays legible instead of flashing to a near-blank button. */
+  /* While submitting, keep the filled look (not the disabled look above) so the
+     "Submitting..." label stays legible. */
   #pagetollm-submit-btn.submitting:disabled {
     background: var(--ink);
     color: var(--surface);

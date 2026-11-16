@@ -55,10 +55,8 @@ describe('createCardElementRegistry', () => {
 });
 
 describe('useSummaryCardRegistry', () => {
-  // Stable identity is the hook's whole contract: the registry is listed in the
-  // dependency arrays of measureSummaryPositions (useSentenceMetrics) and
-  // zoomToTopic (useCanvasTopicNavigation), so a fresh object per render would
-  // churn both callbacks and thrash the rAF measurement pass.
+  // Stable identity is the contract: the registry is a dependency of measureSummaryPositions
+  // and zoomToTopic, so a fresh object per render would churn both and thrash measurement.
   it('returns the same registry across renders', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);

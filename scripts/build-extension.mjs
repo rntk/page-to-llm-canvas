@@ -159,5 +159,5 @@ for (const entry of entries) {
 
 await build(configForContentFeatures());
 
-// Copy after the first build clears dist/ and all entry builds finish.
+// Copy after all builds; the first build empties dist/.
 copyExtensionStaticAssets();

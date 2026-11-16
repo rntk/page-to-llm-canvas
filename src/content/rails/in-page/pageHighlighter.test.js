@@ -1,8 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Minimal CSS Custom Highlight API polyfill (happy-dom ships neither Highlight
-// nor CSS.highlights); mirrors the one in controller.test.jsx.
+// Minimal CSS Custom Highlight API polyfill (happy-dom lacks it); mirrors controller.test.jsx.
 class FakeHighlight {
   constructor() {
     this.ranges = new Set();
@@ -43,11 +42,7 @@ const SENTENCES = [
   'Zeta six.',
 ];
 
-/**
- * paintSentenceHighlight builds its Ranges through the real (module-internal)
- * buildSentenceDomRange, so the highlight tests need genuine word entries over
- * a mounted article rather than empty stubs.
- */
+/** paintSentenceHighlight uses the real buildSentenceDomRange, so tests need real word entries. */
 function mountArticle() {
   const el = document.createElement('div');
   el.id = 'article';

@@ -15,10 +15,9 @@ export function createMetricsHandlers({
   clearParserMetrics,
 }) {
   return {
-    // Records the outcome of one article-chat highlight_span tool call. The
-    // classification happens page-side (in articleChat.js) but chat mounts in
-    // content scripts too, so recording is centralized here in the worker.
-    // Terminal handler: await the write so it is not dropped on SW suspension.
+    // Records one article-chat highlight_span tool call outcome. Classified
+    // page-side but recorded here since chat mounts in content scripts too.
+    // Awaited so the write is not dropped on worker suspension.
     [MSG.recordChatToolMetric]: {
       requiresExtensionPage: false,
       validate: () => null,
@@ -28,9 +27,8 @@ export function createMetricsHandlers({
       },
     },
 
-    // Clearing runs in the worker (not the options realm) so it serializes on the
-    // same writeChain as recordChatToolMetric — otherwise an in-flight worker
-    // record could restore the pre-clear aggregate after an options-side clear.
+    // Clears run in the worker so they serialize on the same writeChain as
+    // recordChatToolMetric; an in-flight record could otherwise restore the old aggregate.
     [MSG.clearChatToolMetrics]: {
       requiresExtensionPage: true,
       validate: () => null,
@@ -40,9 +38,8 @@ export function createMetricsHandlers({
       },
     },
 
-    // Parser samples are also produced in the worker. Route their clears
-    // through this realm so each clear shares the same serialized metrics
-    // queue as its in-flight record writes.
+    // Parser samples are also produced in the worker; clear them here to share
+    // the serialized metrics queue with in-flight writes.
     [MSG.clearParserMetrics]: {
       requiresExtensionPage: true,
       validate: () => null,

@@ -50,9 +50,8 @@ export function estimateTokens(text, options = {}) {
 }
 
 // Estimate without allocating a string of length charCount.
-// bytesPerChar is UTF-8 bytes per code unit for the assumed payload density.
-// Defaults to WORST_CASE_BYTES_PER_CODE_UNIT so callers that forget the
-// option remain conservative rather than silently underestimating.
+// bytesPerChar is UTF-8 bytes per code unit; defaults to the worst case so
+// callers that omit it stay conservative.
 export function estimateTokensForCharCount(charCount, options = {}) {
   if (!Number.isFinite(charCount) || charCount < 0)
     throw new TypeError('charCount must be a non-negative finite number');
@@ -84,12 +83,10 @@ export function estimateMaxCharsForTokens(tokenBudget, options = {}) {
   const tokensPerCharByte = (worstCaseBytesPerChar / bytesPerToken) * safetyFactor;
   const tokensPerChar = Math.max(tokensPerCharChar, tokensPerCharByte);
   let maxChars = Math.max(1, Math.floor(tokenBudget / tokensPerChar));
-  // Adjust for ceil effects so the worst-case payload is guaranteed to fit.
-  // Note: for tiny budgets (1–2 tokens) ceil rounding means a single worst-case
-  // char (3 bytes → 1 token → ceil 1*1.1 =2) exceeds the budget; maxChars stays
-  // at 1 and the guarantee does not hold. This is unreachable from the
-  // pipeline (minimum real budget is ~730 tokens) but callers with tiny budgets
-  // should expect the invariant to be violated.
+  // Adjust for ceil effects so the worst-case payload fits. For tiny budgets
+  // (1-2 tokens) one worst-case char (3 bytes -> ceil 1*1.1 = 2) still exceeds
+  // the budget and maxChars stays 1, so the guarantee does not hold. Unreachable
+  // from the pipeline (minimum real budget is ~730 tokens).
   while (
     maxChars > 1 &&
     estimateTokensForCharCount(maxChars, {

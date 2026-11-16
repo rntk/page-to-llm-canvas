@@ -1,9 +1,8 @@
 import { vi } from 'vitest';
 
 /**
- * Builds a complete projects API fake (see `createProjectsApi`). Every method is
- * a `vi.fn` resolving to an inert success; pass overrides for the calls a test
- * cares about.
+ * Builds a projects API fake (see `createProjectsApi`). Each method is a `vi.fn`
+ * resolving to an inert success; pass overrides for calls a test cares about.
  *
  * @param {Partial<import('../../src/project/projectsApi.js').ProjectsApi>} [overrides]
  * @returns {import('../../src/project/projectsApi.js').ProjectsApi}

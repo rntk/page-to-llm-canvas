@@ -666,10 +666,8 @@ describe('CanvasTopicHierarchyRail', () => {
       return fonts;
     };
 
-    // A short anchor card caps its own title font, but that cap must not reach
-    // the floating summary: hovering a small card used to open it at the base
-    // 17.6px while the canvas was drawing it at half size (unreadable until a
-    // zoom nudge). Both anchors now scale on zoom alone: 1.25 / 0.5 - 0.25.
+    // A short anchor card caps its own title font, but that cap must not reach the
+    // floating summary, which scales on zoom alone: 1.25 / 0.5 - 0.25.
     const denseFonts = renderForAnchor({ height: 56, titleFontSize: 12 });
     const tallFonts = renderForAnchor({ height: 220, titleFontSize: 40 });
 
@@ -897,10 +895,8 @@ describe('CanvasTopicHierarchyRail', () => {
     const card1 = Array.from(container.querySelectorAll('.canvas-topic-hierarchy__card')).find(
       (el) => el.textContent.includes('A'),
     );
-    // titleFontSize 18 vs. the 12px base is a 1.5x zoom multiplier, so the
-    // link (12.1px base, same as the summary card's) scales to 18.15px instead
-    // of staying at a flat size that would shrink into illegibility on the
-    // canvas's zoom-out transform.
+    // titleFontSize 18 vs. the 12px base is a 1.5x multiplier: the link (12.1px base)
+    // scales to 18.15px rather than shrinking illegibly under zoom-out.
     expect(card1.style.getPropertyValue('--topic-card-youtube-font-size')).toBe('18.15px');
     unmount();
   });
@@ -919,9 +915,8 @@ describe('CanvasTopicHierarchyRail', () => {
     const cards = Array.from(container.querySelectorAll('.canvas-topic-hierarchy__card'));
     const card1 = cards.find((el) => el.textContent.includes('A'));
     const card2 = cards.find((el) => el.textContent.includes('B'));
-    // titleFontSize 18 vs. the 12px base is a 1.5x zoom multiplier, so the
-    // trigger (16px base) scales to 24px instead of staying a flat size that
-    // would shrink with the canvas zoom-out transform into an untappable dot.
+    // titleFontSize 18 vs. the 12px base is a 1.5x multiplier: the trigger (16px base)
+    // scales to 24px rather than shrinking to an untappable dot under zoom-out.
     expect(card1.style.getPropertyValue('--topic-card-actions-font-size')).toBe('24px');
     // The base-size card keeps the 16px base (multiplier clamped to 1).
     expect(card2.style.getPropertyValue('--topic-card-actions-font-size')).toBe('16px');
@@ -929,10 +924,9 @@ describe('CanvasTopicHierarchyRail', () => {
   });
 
   it('keeps the per-card actions trigger pinned to the visible slice of tall cards', () => {
-    // The canvas pans via a CSS transform, so the sticky title tracks the
-    // visible slice with a translateY offset instead of position: sticky. The
-    // actions trigger uses the same technique: without it the button sits at
-    // the card top and scrolls out of reach on tall cards.
+    // The canvas pans via CSS transform, so the sticky title tracks the visible slice
+    // with a translateY offset instead of position: sticky. The actions trigger does
+    // the same so it doesn't scroll out of reach on tall cards.
     const css = readFileSync('src/canvas/modal.css', 'utf8');
     const triggerBlock = css.match(/\.canvas-topic-hierarchy__actions-trigger\s*\{[^}]*\}/)?.[0];
     expect(triggerBlock).toBeTruthy();
@@ -1032,9 +1026,8 @@ describe('CanvasTopicHierarchyRail', () => {
     rerender(createElement(CanvasTopicHierarchyRail, { ...props, topicCards: movedCards }));
     expect(body().className).toContain('is-settling');
 
-    // A level switch part-way through the glide cancels the timer that would
-    // have cleared the flag; if it latched here, every later geometry change
-    // would animate forever.
+    // A mid-glide level switch cancels the timer that clears the flag; if it latched,
+    // every later geometry change would animate.
     act(() => vi.advanceTimersByTime(100));
     const switchedCards = movedCards.map((card) => ({ ...card, top: card.top + 100 }));
     rerender(

@@ -15,7 +15,7 @@ const NO_EXCERPTS = [];
  * @param {function(string): Promise<*>} props.deleteExcerpt
  * @param {function(string): Promise<*>} props.acknowledgeFocus
  * @param {object} props.tabsHost
- * @param {import('./useChatEvidence.js').ChatEvidence[]} [props.chatEvidence] The project chat's evidence card.
+ * @param {import('./useChatEvidence.js').ChatEvidence[]} [props.chatEvidence] Picked chat evidence.
  * @param {function(string): void} [props.onDismissChatEvidence]
  * @param {boolean} props.active
  */

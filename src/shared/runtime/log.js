@@ -19,8 +19,7 @@ function normalizeScope(scope) {
 export function createLogger(scope) {
   const normalized = normalizeScope(scope);
   const prefix = normalized ? `${BRAND} ${normalized}` : `${BRAND}:`;
-  // `event` writes the prefix as a standalone argument, so it needs the
-  // punctuation the merging methods borrow from the message.
+  // `event` passes the prefix as its own argument, so it gets a trailing colon.
   const eventPrefix = prefix.endsWith(':') ? prefix : `${prefix}:`;
 
   const write = (method, message, rest) =>

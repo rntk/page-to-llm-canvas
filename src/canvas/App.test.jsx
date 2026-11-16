@@ -77,9 +77,8 @@ vi.mock('../chat/ArticleChat.jsx', () => ({ default: captureComponent('chat') })
 vi.mock('../utils/canvasMath.js', () => ({
   clampScale: (value) => Math.max(0.1, Math.min(4, value)),
 }));
-// The real hook memoizes `viewport` to a stable identity, so the mock keeps one
-// object across renders too — App uses it as an effect dependency, and a fresh
-// object per render would re-run those effects on every render.
+// The real hook memoizes `viewport`; keep one object across renders too, since App
+// uses it as an effect dependency.
 const viewportMock = vi.hoisted(() => ({
   // Read through to `state` so tests can swap the wrap element per case.
   canvasWrapElRef: {
@@ -131,8 +130,7 @@ vi.mock('./hooks/useSentenceHighlights.js', () => ({
   useSentenceHighlights: vi.fn(),
   useChatHighlights: vi.fn(),
 }));
-// Stubbed out; App only reads the settled flag it returns (the opening overlay
-// gate), so report the sequence as already finished.
+// Stubbed: App only reads the settled flag (opening overlay gate), so report finished.
 vi.mock('./hooks/useInitialView.js', () => ({
   useInitialView: vi.fn(() => ({ isSettled: true })),
 }));
@@ -210,9 +208,8 @@ describe('App composition behavior', () => {
   });
 
   it('covers the canvas with the opening overlay without unmounting anything', async () => {
-    // The gate has to be purely visual: measurement runs off getClientRects, so
-    // unmounting (or display:none-ing) the article while waiting would starve
-    // the very measurement the overlay is waiting for.
+    // The gate must be purely visual: unmounting or display:none-ing the article
+    // would starve the getClientRects measurement the overlay waits on.
     state.hasSettledLayout = false;
     const { container, root } = await renderApp();
     const overlay = container.querySelector('.canvas-startup');
@@ -227,8 +224,7 @@ describe('App composition behavior', () => {
 
   it('reveals the canvas once measurement and the opening view have settled', async () => {
     const { container, root } = await renderApp();
-    // Revealed on mount: the overlay is only still in the tree to fade out over
-    // the live canvas, and the rail plays its entrance.
+    // Revealed on mount: the overlay remains only to fade out, and the rail plays its entrance.
     const overlay = container.querySelector('.canvas-startup');
     expect(overlay.className).toContain('is-leaving');
     expect(state.childProps.rail.isEntering).toBe(true);
@@ -270,8 +266,7 @@ describe('App composition behavior', () => {
     state.childProps = {};
     state.onVisualScaleChange = null;
     state.hasSettledLayout = true;
-    // The shared viewport handle is stateful across tests now that it is a single
-    // stable object; reset the members App writes to.
+    // The shared viewport handle is stateful across tests; reset the members App writes to.
     viewportMock.scaleRef.current = 1;
     viewportMock.translateRef.current = { x: 3, y: 4 };
     viewportMock.userMovedCanvasRef.current = false;
@@ -463,8 +458,7 @@ describe('App composition behavior', () => {
     expect(state.childProps.controls.showSummaryMode).toBe(false);
     expect(state.childProps.controls.showTopicHierarchy).toBe(true);
     expect(state.childProps.controls.showChat).toBe(false);
-    // ArticleChat stays mounted (via Activity) even while hidden, so its local
-    // state (draft input, tab, scroll position) survives toggling the panel.
+    // ArticleChat stays mounted (via Activity) while hidden, so local state survives toggling.
     expect(state.childProps.chat).toBeDefined();
     expect(state.childProps.chat.recordKey).toBe('record-1');
     expect(mocks.canvasFocus).toHaveBeenCalledWith({ preventScroll: true });
@@ -557,11 +551,9 @@ describe('App composition behavior', () => {
     },
   );
 
-  // Regression: a DONE-to-DONE replacement (importing over an open record)
-  // swaps the article without passing through a non-DONE status, so nothing
-  // else unmounts the canvas. Interaction state accumulated against the old
-  // content — painted chat evidence, the open chat session — must not survive
-  // into the new one.
+  // Regression: a DONE-to-DONE replacement (import over an open record) never passes
+  // through non-DONE, so nothing else unmounts the canvas; chat evidence and session
+  // state from the old content must not survive.
   it('remounts the canvas when the content revision changes', async () => {
     state.record = { ...state.record, contentRevision: 'rev-a' };
     const { root } = await renderApp();

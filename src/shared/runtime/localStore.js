@@ -47,8 +47,8 @@ export async function getLocalItemsByPrefixes(prefixes) {
 }
 
 /**
- * Chrome's getKeys is promise-only; consume its returned promise first, then
- * fall back to callback-based implementations. Callers check it exists first.
+ * Uses getKeys' returned promise when it provides one, else its callback form.
+ * Callers check that getKeys exists first.
  * @returns {Promise<string[]>}
  */
 function readAllLocalKeys() {
@@ -152,13 +152,9 @@ export function clearLocalItems() {
 }
 
 /**
- * Subscribes to `chrome.storage.local` changes for one key.
- *
- * Centralizes the `areaName === 'local'` filter and the defensive try/catch
- * that every UI subscriber used to repeat inline: outside an extension context
- * (or in a test without a chrome mock) `chrome.storage.onChanged` may be
- * absent, in which case this is a no-op and the returned unsubscribe is still
- * safe to call.
+ * Subscribes to `chrome.storage.local` changes for one key. No-op when
+ * `chrome.storage.onChanged` is unavailable (no extension context, or tests);
+ * the returned unsubscribe is still safe to call.
  *
  * @param {string} key Storage key to watch.
  * @param {function(*): void} onValue Called with the key's `newValue`.
@@ -169,9 +165,8 @@ export function subscribeLocalKey(key, onValue) {
 }
 
 /**
- * Subscribes once to a set of local-storage keys while preserving Chrome's
- * per-event change batch. This is useful when several related preferences must
- * be refreshed atomically from one `storage.onChanged` event.
+ * Subscribes to several local-storage keys, keeping Chrome's per-event change
+ * batch so related preferences refresh atomically.
  *
  * @param {string[]} keys Storage keys to watch.
  * @param {function(Object): void} onChanges Called with the matching Chrome
@@ -204,13 +199,8 @@ export function subscribeLocalChanges(keys, onChanges) {
 }
 
 /**
- * Chrome-backed store capability for browser composition roots.
- *
- * Deliberately narrower than this module's export list: it carries only the
- * reads and subscriptions that injected consumers actually take. Writers
- * (settings modules, worker aggregates) import the functions above directly,
- * so mirroring them here would only widen what an injected consumer appears to
- * need. Add a member when a consumer needs it, not before.
+ * Browser-backed read/subscribe capability for injection. Intentionally narrower
+ * than this module's exports; add a member only when a consumer needs it.
  */
 export const browserLocalStore = Object.freeze({
   get: getLocalItems,
@@ -219,13 +209,8 @@ export const browserLocalStore = Object.freeze({
 });
 
 /**
- * Builds the read/write pair for one small persisted setting.
- *
- * Every setting in this extension wants the same asymmetric error contract,
- * which used to be hand-rolled once per setting module: a read degrades to the
- * normalized default rather than throwing (so a storage hiccup never breaks the
- * pipeline), while a write rejects so the UI can roll its optimistic update
- * back.
+ * Read/write pair for one persisted setting. Reads fall back to the default so a
+ * storage error never breaks the pipeline; writes reject so the UI can roll back.
  *
  * @template T
  * @param {{key: string, defaultValue: T, normalize: function(*): T}} options
@@ -255,10 +240,8 @@ export function createStoredSetting({ key, defaultValue, normalize }) {
 }
 
 /**
- * Parses a stored value into an integer inside `[min, max]`, falling back to
- * `fallback` when it is not a finite number. Shared by the numeric settings
- * built on `createStoredSetting` so the parse/clamp semantics (truncate, then
- * clamp, never throw) stay identical across them.
+ * Parses a value to an integer clamped to `[min, max]` (truncate, then clamp;
+ * never throws). Falls back when the value is not a finite number.
  *
  * @param {unknown} value Raw stored or user-supplied value.
  * @param {{min: number, max: number, fallback: number}} bounds

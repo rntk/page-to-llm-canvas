@@ -1,6 +1,6 @@
-// Decode user-supplied records in both UI previews and the authoritative worker
-// import path. Worker-owned run and revision fields are set later. Preserve
-// unknown fields so older exports round-trip through record meta.
+// Decodes user-supplied records for UI previews and the authoritative worker
+// import. Worker-owned run and revision fields are set later. Unknown fields are
+// kept so older exports round-trip.
 import { isImportableRecord, PIPELINE_STAGE, PIPELINE_STATUS } from './contracts.js';
 import { progressAt } from './recordTransitions.js';
 import { SUMMARY_TREE_STATUS } from './summaryTree.js';
@@ -65,10 +65,8 @@ export function normalizeImportedRecord(record, { now = Date.now() } = {}) {
 }
 
 /**
- * Decodes a raw import payload: extracts records, drops anything that is not
- * importable, dedupes by trimmed key (later entries win, since they are the
- * values that would overwrite earlier ones in storage anyway) and normalizes
- * the survivors.
+ * Decodes a raw import payload: keeps importable records, dedupes by trimmed key
+ * (later entries win, as they would in storage) and normalizes the survivors.
  *
  * @param {unknown} payload
  * @param {{now?: number}} [options]

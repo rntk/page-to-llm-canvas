@@ -42,14 +42,11 @@ describe('computeComfortLeft', () => {
   });
 });
 
-// Integration: exercise the real align() runtime path with non-zero rects
-// (happy-dom, like jsdom, returns zero rects by default, which would make the
-// hook inert — so we stub getBoundingClientRect on the anchor and wrap).
+// Integration: exercises the real align() path. happy-dom returns zero rects, which
+// would make the hook inert, so getBoundingClientRect is stubbed on anchor and wrap.
 
 function setup({ wrapRect, anchorRect, autoRaf = true }) {
-  // By default the deferred (animated) move runs synchronously so its result is
-  // observable right after render() in act(). Timing-sensitive tests can opt
-  // into a manual queue.
+  // The deferred (animated) move runs synchronously by default; timing-sensitive tests can opt into a manual queue.
   const origRaf = window.requestAnimationFrame;
   const origCancel = window.cancelAnimationFrame;
   const rafQueue = new Map();
@@ -82,9 +79,7 @@ function setup({ wrapRect, anchorRect, autoRaf = true }) {
     translateRef.current = t;
   });
 
-  // The hook now takes the transform's single imperative handle. Built once, as
-  // the real hook memoizes it, so re-rendering the harness never re-runs effects
-  // that key on it.
+  // Viewport handle built once, as the real hook memoizes it, so re-renders don't re-run effects keyed on it.
   const viewport = {
     canvasWrapElRef: wrapElRef,
     setTransformNow,
@@ -159,13 +154,11 @@ describe('useCanvasAlignment runtime', () => {
 
     // User captures before a layout-affecting switch…
     act(() => ctx.apiRef.current.captureAnchor(false));
-    // …then the switch reflows the column 200px to the left (e.g. a left gutter
-    // collapsing). Without continuity this is the visible "jump".
+    // …then the switch reflows the column 200px left (e.g. a gutter collapsing): the visible "jump".
     ctx.rects.anchor = { left: 100, top: 40, width: COL, height: 600 };
     ctx.render(2);
 
-    // Continuity pans by +200 so the column lands back where it was on screen.
-    // It's instant (no animation) — animating it would re-introduce the jump.
+    // Continuity pans +200 so the column lands where it was; instant, since animating would reintroduce the jump.
     expect(ctx.setTransformNow).toHaveBeenCalledTimes(1);
     expect(ctx.translateRef.current).toEqual({ x: 240, y: 40 });
     expect(ctx.flashFocus).not.toHaveBeenCalled();
@@ -201,8 +194,7 @@ describe('useCanvasAlignment runtime', () => {
     ctx.setTransformNow.mockClear();
     ctx.flashFocus.mockClear();
 
-    // Hand positioning to a zoom: even though the layout shifts, the engine must
-    // not pan — the other controller owns the final position.
+    // Positioning is handed to a zoom: despite the layout shift, no pan.
     act(() => ctx.apiRef.current.skipNextAlignment());
     ctx.rects.anchor = { left: 700, top: 50, width: COL, height: 600 };
     ctx.render(2);
@@ -281,9 +273,8 @@ describe('useCanvasAlignment runtime', () => {
     ctx.render(2);
     expect(ctx.setTransformNow).not.toHaveBeenCalled();
 
-    // Before the deferred top reset runs, a newer layout switch keeps the
-    // column centered and needs no animated follow-up. The old frame must not
-    // survive and apply the obsolete top target afterwards.
+    // A newer switch keeps the column centered before the deferred top reset runs;
+    // the old frame must not survive and apply its obsolete top target.
     ctx.render(3);
     ctx.flushRafs();
 

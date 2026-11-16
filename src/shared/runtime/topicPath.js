@@ -1,16 +1,15 @@
 /**
  * The single owner of the topic-path delimiter.
  *
- * A topic path encodes its hierarchy in the topic name itself. Two spellings
- * are in use and they are NOT interchangeable:
+ * A topic path encodes its hierarchy in the name. The two spellings are NOT
+ * interchangeable:
  *
- *   - canonical/wire form, `A>B>C` — what the worker pipeline produces and what
- *     `topic.name` / `topic_summary_index` keys are stored as.
- *   - display form, `A > B > C` — what the frontend renders and what card
- *     `path` / `fullPath` values (and the indexes keyed by them) use.
+ *   - canonical/wire `A>B>C`: produced by the worker; `topic.name` and
+ *     `topic_summary_index` keys are stored this way.
+ *   - display `A > B > C`: rendered by the frontend; card `path`/`fullPath` use it.
  *
- * `splitTopicPath` accepts either; the two joiners are deliberately separate so
- * a call site has to say which side of the seam it is on.
+ * `splitTopicPath` accepts either. The two joiners are separate so each call site
+ * states which side it is on.
  */
 
 /** Delimiter in canonical/wire topic paths (`A>B`). */
@@ -64,13 +63,12 @@ export function formatTopicPath(parts) {
 }
 
 /**
- * Every proper ancestor of a DISPLAY-form path, shallowest first: `A > B > C`
- * yields `['A', 'A > B']`. The path itself is never included.
+ * Proper ancestors of a DISPLAY-form path, shallowest first: `A > B > C` yields
+ * `['A', 'A > B']`.
  *
- * Scans for the delimiter instead of splitting and re-joining so a path that is
- * not in display form (`A>B`) yields no ancestors rather than inventing them —
- * these results feed "does this path have a descendant?" set membership, where
- * a fabricated ancestor silently drops a card.
+ * Scans for the display delimiter rather than splitting, so a canonical `A>B`
+ * yields nothing. A fabricated ancestor would silently drop a card from
+ * descendant-set lookups.
  *
  * @param {string} path Display-form topic path.
  * @returns {string[]}

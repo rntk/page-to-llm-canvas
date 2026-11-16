@@ -89,10 +89,9 @@ async function doFlushProcessingLog(key) {
 }
 
 /**
- * Forces any buffered log entries for `key` to flush immediately, bypassing
- * the debounce timer. Called at pipeline run exit so the final batch of
- * diagnostic entries isn't left stranded if the service worker is recycled
- * shortly after.
+ * Flushes buffered log entries for `key` now, bypassing the debounce. Called at
+ * pipeline run exit so the last entries are not stranded if the service worker
+ * is recycled.
  * @param {string} key
  * @returns {Promise<object | null>}
  */
@@ -107,15 +106,14 @@ export function flushProcessingLog(key) {
 }
 
 /**
- * Discards buffered entries without writing them. Called when the records they
- * describe are being removed: a buffer that outlives its record would otherwise
- * flush after the delete, and entries appended without an
+ * Discards buffered entries without writing them, for records being removed: a
+ * surviving buffer would flush after the delete, and entries appended without
  * `expectedPipelineRunId` bypass the stale-run guard, so a record recreated
  * inside the debounce window could inherit the deleted run's log.
  *
- * Pending `appendProcessingLog` promises resolve with `null` (the same value a
- * flush that finds no meta document produces) rather than rejecting, so
- * discarding cannot turn into an unhandled rejection on a diagnostic path.
+ * Pending `appendProcessingLog` promises resolve with `null` (as for a flush
+ * that finds no meta document) rather than reject, avoiding unhandled
+ * rejections on a diagnostic path.
  * @param {string} [key] Record key to discard; omit to discard every buffer.
  */
 export function disposeProcessingLogs(key) {
@@ -135,9 +133,9 @@ export function disposeProcessingLogs(key) {
       buf.disposed = true;
       buf.deferred.resolve(null);
     }
-    // Cancel detached buffers too: a flush waiting on the mutation or key
-    // queue would otherwise resume after the caller's delete and write into a
-    // record that no longer exists (or was recreated in the meantime).
+    // Cancel detached buffers too: a flush waiting on the mutation or key queue
+    // would otherwise resume after the delete and write into a missing or
+    // recreated record.
     for (const inflight of _flushingBuffers.get(k) ?? []) {
       inflight.disposed = true;
       inflight.deferred.resolve(null);
@@ -150,10 +148,9 @@ export function disposeProcessingLogs(key) {
  * @param {string} key
  * @param {string} stage
  * @param {Record<string, unknown>} [details]
- * @param {object} [options]  Identifies the pipeline
- *   run this entry belongs to; a buffer whose entries were queued under a
- *   different run id is treated as stale and flushed before this entry starts
- *   a new buffer under `options`.
+ * @param {object} [options]  Identifies the pipeline run of this entry; a buffer
+ *   queued under a different run id is stale and flushed before a new buffer
+ *   starts under `options`.
  * @param {unknown} [options.expectedPipelineRunId]
  * @returns {Promise<object | null>}
  */
@@ -161,11 +158,10 @@ export function appendProcessingLog(key, stage, details = {}, options = {}) {
   const entry = { at: new Date().toISOString(), stage, details };
   const stale = _logBuffers.get(key);
   if (stale && stale.options.expectedPipelineRunId !== options.expectedPipelineRunId) {
-    // A new pipeline run (retry/reprocess) started for this record before the
-    // previous run's buffered entries flushed. Flush the stale buffer now,
-    // under its own run id, instead of letting its entries ride along on this
-    // call's options — otherwise they'd bypass the stale-run guard in
-    // doFlushProcessingLog and get written in under the new run's identity.
+    // A new pipeline run (retry/reprocess) started before the previous run's
+    // entries flushed. Flush that buffer now under its own run id; otherwise its
+    // entries would ride along on this call's options, bypass the stale-run guard
+    // in doFlushProcessingLog, and be written under the new run's identity.
     void flushProcessingLog(key);
   }
   let buf = _logBuffers.get(key);

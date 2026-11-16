@@ -1,9 +1,7 @@
-// Tree tools and context for the project chat: an optional extra over the
-// project's saved, merged topic tree (the page tools live in projectPageTools.js). Internal
-// global row ids never reach the model; every sentence is identified by its
-// article and that article's own sentence number, so two articles that both
-// have a "sentence 1" can never be confused. Node ids ("n3") are opaque
-// handles for these tools, not citations.
+// Tree tools and context for the project chat, over the project's saved merged
+// topic tree (page tools live in projectPageTools.js). Internal global row ids
+// never reach the model: a sentence is identified by its article plus that
+// article's own sentence number. Node ids ("n3") are opaque handles, not citations.
 
 import { claimSentences } from '../pipeline/summaryTreeModel.js';
 import { createTreeModel } from './projectTreeModel.js';

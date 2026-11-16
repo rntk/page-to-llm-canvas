@@ -5,8 +5,8 @@ import {
   DEFAULT_RETRY_BASE_DELAY_MS,
 } from './topicRangeRetry.js';
 
-// Mirror of the orchestrator's TopicParseError shape so we can exercise the
-// isRetryable gate exactly as computeTopics does (retry only on parse errors).
+// Mirrors the TopicParseError shape so the isRetryable gate matches
+// topicRangeSplit (retry only on parse errors).
 class TopicParseError extends Error {
   constructor(message) {
     super(message);
@@ -187,8 +187,7 @@ describe('queryTopicRangesWithRetry', () => {
   });
 
   it('lets an injected computeDelay override the exponential schedule per error', async () => {
-    // The topic-ranges stage uses this to honor a provider Retry-After that
-    // would otherwise be ignored in favor of the fixed 2/4/8s steps.
+    // The topic-ranges stage uses this to honor a provider Retry-After over the fixed backoff.
     const callLLM = vi.fn(async () => 'raw');
     const parse = vi
       .fn()

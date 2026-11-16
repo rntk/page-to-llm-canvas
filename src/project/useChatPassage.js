@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
- * The passage behind the chat event the reader picked, for a canvas chat whose
- * source text the canvas does not display. ArticleChat calls `onHighlight` with
- * `{focus: true}` only when an event is selected; streamed and repainted ranges
- * are ignored. `onClearHighlights` runs before every repaint (another event,
- * Escape, a new turn or chat, closing), so the card never outlives its event.
+ * The passage behind a picked chat event, for a canvas chat whose source text the canvas
+ * does not show. Only `{focus: true}` calls set it; streamed and repainted ranges are ignored.
+ * `onClearHighlights` runs before every repaint, so the card never outlives its event.
  *
  * @param {function(): (string[]|Promise<string[]>)} getSentences The chat's
  *   one-based lines, as the model saw them.

@@ -285,8 +285,7 @@ describe('article chat tool loop', () => {
       endLine: 2,
       numberedText: '1: Intro.\n2: Evidence.',
     });
-    // The first request is an exact prefix of the tool-result follow-up, so
-    // providers can reuse the source prefill/KV cache within the tool loop.
+    // The first request is an exact prefix of the follow-up (prefill/KV cache reuse).
     expect(secondMessages.slice(0, send.mock.calls[0][0].messages.length)).toEqual(
       send.mock.calls[0][0].messages,
     );
@@ -689,12 +688,11 @@ describe('article chat tool loop', () => {
     const send = vi.fn().mockResolvedValue({ ok: true, content: 'Answer.' });
     const history = [
       { role: 'user', content: 'Q1' },
-      // Tool transcripts are persisted for auditability, but are not useful
-      // context for every source chunk on later turns.
+      // Persisted tool transcripts are not replayed as context.
       { role: 'assistant', content: '', toolCalls: [{ id: 'ok-1', name: 'highlight_span' }] },
       { role: 'tool', content: 'Highlighted lines 1-1.', toolCallId: 'ok-1' },
       { role: 'assistant', content: 'A1' },
-      // Dangling tool call (persisted by the old scheme before a failure): dropped.
+      // Dangling tool call: dropped.
       { role: 'assistant', content: '', toolCalls: [{ id: 'lost-1', name: 'highlight_span' }] },
       { role: 'user', content: 'Q2' },
       // Orphan tool result with no matching preceding call: dropped.
@@ -930,8 +928,7 @@ describe('article chat tool-call outcome metrics', () => {
     const { recordToolMetric } = await runWith({
       toolCall: { name: 'frobnicate', arguments: {} },
     });
-    // The model-generated tool name may echo article text, so it must not be
-    // persisted as a metric detail (only the stable outcome is recorded).
+    // The model-generated tool name may echo article text; only the outcome is recorded.
     expect(recordToolMetric).toHaveBeenCalledWith({ outcome: 'unknown_tool', error: undefined });
   });
 
@@ -954,8 +951,7 @@ describe('article chat tool-call outcome metrics', () => {
   });
 
   it('records a range outside the active chunk as "out_of_chunk"', async () => {
-    // Small chunks so line 3 falls outside the first chunk's visible lines
-    // (it is a valid article line, but not in the chunk the model was shown).
+    // Small chunks put line 3 outside the first chunk's visible lines.
     const recordToolMetric = vi.fn();
     await runArticleChatTurn(
       buildTurnOptions({
@@ -1053,8 +1049,7 @@ describe('article chat synthesis budgeting', () => {
 
     const result = await runArticleChatTurn({
       article: makeArticle({ sentences: longArticle() }),
-      // A question this long previously made every synthesis group a singleton,
-      // which stalled the merge and failed the turn.
+      // A question this long makes every synthesis group a singleton, which must not stall the merge.
       question: `Please explain in detail ${'q'.repeat(500)}`,
       limits: SMALL_WINDOW,
       dependencies: { send },
@@ -1145,8 +1140,7 @@ describe('article chat synthesis budgeting', () => {
   it('stops at an explicit turn-wide request limit', async () => {
     const { send, calls } = recordingSend();
 
-    // Chunk requests may not spend the budget the merge still needs, so the
-    // turn stops at the limit rather than issuing uncounted synthesis calls.
+    // Chunk requests may not spend the merge's reserved budget.
     await expect(
       runArticleChatTurn({
         article: makeArticle({ sentences: longArticle() }),

@@ -148,10 +148,9 @@ describe('buildArticleSummaryMergePrompt', () => {
 });
 
 describe('prompt payload delimiters', () => {
-  // Every prompt embeds exactly one payload block under the same delimiter, so
-  // the Anthropic cache split (clients.js) always lands on the first occurrence
-  // of the boundary marker. Prose may name the tag freely; only the payload
-  // opener sits on its own line.
+  // Every prompt embeds one payload block under the same delimiter, so the
+  // Anthropic cache split (clients.js) lands on the first boundary marker. Prose
+  // may name the tag; only the payload opener sits on its own line.
   it.each([
     ['topic ranges', '{0} payload', buildTopicRangesPrompt],
     ['article summary', 'payload', buildArticleSummaryPrompt],
@@ -232,8 +231,8 @@ describe('preferContentLanguage option', () => {
 
   it('requires both category and lower-level labels in the content language', () => {
     const prompt = buildTopicRangesPrompt('{0} hola mundo', { preferContentLanguage: true });
-    // The fix: the instruction must explicitly cover the top-level category, not
-    // just the leaf tag, and neutralize the English example categories.
+    // The instruction must cover the top-level category, not just the leaf tag,
+    // and neutralize the English example categories.
     expect(prompt).toContain('top-level category');
     expect(prompt).toContain('never emit English category names');
   });

@@ -27,7 +27,6 @@ export function tokenizeText(text) {
   return String(text || '').match(WORD_TOKEN_RE) || [];
 }
 
-// Use computed styles when available; parse inline styles in DOM-only environments.
 const HIDING_VALUES = new Map([
   ['display', 'none'],
   ['content-visibility', 'hidden'],
@@ -107,14 +106,11 @@ function hasHidingDeclaration(style) {
 /**
  * Whether a node's whole subtree is invisible to the word walk.
  *
- * Keep the live word walk aligned with capture filtering, or later sentences
- * may map to the wrong DOM words.
- *
- * A closed `<details>` still renders its `<summary>`; the walk excludes only
- * its remaining contents.
+ * Must match capture filtering, or later sentences map to the wrong words.
+ * A closed `<details>` still renders its `<summary>`, so only its other
+ * contents are excluded.
  * @param {Node} node Candidate ancestor of a text node.
- * @param {Map<Element, ?CSSStyleDeclaration>} [computedStyleCache] Optional
- *   per-walk computed-style memo.
+ * @param {Map<Element, ?CSSStyleDeclaration>} [computedStyleCache] Per-walk memo.
  * @returns {boolean}
  */
 export function isSkippableContainer(node, computedStyleCache) {
@@ -138,8 +134,8 @@ export function isSkippableContainer(node, computedStyleCache) {
  * Find the first direct `<summary>` child rendered by a collapsed `<details>`.
  * Descendant summaries belong to other content.
  * @param {Element} details A `details` element.
- * @param {Map<Element, ?Element>} cache Per-walk memo, since this is asked once
- *   per text node below a collapsed subtree.
+ * @param {Map<Element, ?Element>} cache Per-walk memo; called once per text node
+ *   under a collapsed subtree.
  * @returns {?Element}
  */
 function getOwnSummary(details, cache) {
@@ -170,10 +166,9 @@ function isCollapsedDetailsContent(ancestor, node, cache) {
 
 /**
  * Record word positions without mutating the DOM. Adjacent inline text nodes
- * share one stream, so `<span>hel</span><span>lo</span>` is one word.
- * Returns entries of the form:
- * [{ word, node, start, endNode, end }], where the start and end anchors may
- * be in different live text nodes.
+ * form one stream, so `<span>hel</span><span>lo</span>` is one word.
+ * Entries are `{ word, node, start, endNode, end }`; start and end may sit in
+ * different text nodes.
  * @param {Node[]} roots DOM roots to traverse.
  */
 export function collectWordEntries(roots) {
@@ -215,15 +210,12 @@ export function collectWordEntries(roots) {
   const isAcceptedTextNode = (node, root) => {
     let p = node.parentNode;
     while (p && p !== root.parentNode) {
-      // visit() has already pruned every skippable ancestor. This walk remains
-      // necessary for the partial-subtree semantics of collapsed <details>.
+      // visit() prunes skippable ancestors; this still handles partly hidden <details>.
       if (isCollapsedDetailsContent(p, node, summaryCache)) return false;
       p = p.parentNode;
     }
-    // `visibility` is inherited, so the computed value on the text node's
-    // immediate parent includes any hidden ancestor and reflects a visible
-    // descendant override. Opacity is multiplicative across ancestors, so
-    // inspect the complete path for opacity:0.
+    // visibility is inherited, so the parent's computed value covers hidden
+    // ancestors. Opacity multiplies down the tree, so walk the full path.
     const parent = node.parentNode;
     const parentStyle = getComputedStyleSafe(parent, computedStyleCache);
     const visibility =
@@ -290,7 +282,7 @@ export function buildSentenceDomRange(sentenceRanges, wordEntries, sNum) {
   const endEntry = wordEntries[range.endIdx];
   if (!startEntry || !endEntry) return null;
   try {
-    // Use the node's document for embedded content.
+    // Use the owning document so ranges work inside iframes.
     const ownerDocument = startEntry.node?.ownerDocument;
     if (!ownerDocument?.createRange) return null;
     const domRange = ownerDocument.createRange();
@@ -353,7 +345,7 @@ export function buildSentenceWordRanges(sentences, wordEntries) {
     const normalizedTokens = tokens.map(normalize).filter(Boolean);
     if (normalizedTokens.length === 0) return;
 
-    // Search nearby first; larger page mutations require a guarded distant search.
+    // Search near the cursor first; distant matches need the guard below.
     const targetFirst = normalizedTokens[0];
     let startIdx = -1;
     const nearbyEnd = Math.min(norm.length, cursor + START_WINDOW);

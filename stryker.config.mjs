@@ -19,11 +19,9 @@ export default {
   ],
   ignorePatterns: ['dist', 'coverage', 'docs', 'icons', '.antigravitycli'],
   coverageAnalysis: 'perTest',
-  // Limit concurrent mutation workers.
   concurrency: 4,
   timeoutMS: 10000,
   ignoreStatic: true,
-  // Reuse results for unchanged files.
   incremental: true,
   incrementalFile: 'reports/mutation/stryker-incremental.json',
   // The break threshold fails runs below 60%; raise it as the score improves.

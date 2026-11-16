@@ -82,7 +82,7 @@ export function useNodePositions({
         if (!didMove) return;
         if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
         frameRef.current = null;
-        // The shared gesture tracker also ends active gestures during unmount.
+        // Gesture end also fires on unmount, when the surface is gone.
         if (!surfaceRef.current) return;
         paint();
         setMoved((current) => ({ ...current, [key]: next }));

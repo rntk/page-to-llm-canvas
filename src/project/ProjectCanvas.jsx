@@ -18,18 +18,16 @@ import { isChatEvidence } from './useChatEvidence.js';
 const NO_EXCERPTS = [];
 
 /**
- * Pannable, zoomable surface with draggable tab and excerpt cards. Excerpts
- * stack under the card of the page they were taken from, linked to it by a
- * connector, and follow it when it is dragged until dragged themselves. Card
- * positions and which chats are unfolded are kept in component state only
- * (keyed by tab id or excerpt node key): they reset when the page reloads.
+ * Pannable, zoomable surface with draggable tab and excerpt cards. Excerpts stack under
+ * their page's card, linked by a connector, and follow it until dragged themselves.
+ * Card positions and open chats live in component state (keyed by tab id or excerpt
+ * node key) and reset on page reload.
  *
  * @param {object} props
  * @param {object[]} props.tabs
  * @param {object[]} [props.excerpts] The project's excerpts, oldest first.
- * @param {import('./useChatEvidence.js').ChatEvidence[]} [props.chatEvidence] The project
- *   chat's picked highlight: an unsaved card that stacks and links like an
- *   excerpt (after them), with Close instead of a chat fold or Delete.
+ * @param {import('./useChatEvidence.js').ChatEvidence[]} [props.chatEvidence] Picked chat
+ *   highlight: an unsaved card that stacks and links like an excerpt, with Close instead of a fold or Delete.
  * @param {function(string): void} [props.onDismissChatEvidence] Closes an evidence card by id.
  * @param {{activateTab: function(number): Promise<void>}} props.tabsHost
  * @param {function(object, {id: string, onClose: function(): void}): import('react').ReactNode} [props.renderPageChat]

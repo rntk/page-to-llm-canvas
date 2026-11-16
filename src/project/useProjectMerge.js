@@ -30,7 +30,7 @@ export function useProjectMerge({ buildTopics, stopTopics, merge, refresh, showT
     } catch (err) {
       setNotice(err?.message || String(err));
     } finally {
-      // Only the run that set the flag reaches here, so the reset is safe.
+      // Only the run that set the flag gets here, so resetting it is safe.
       // eslint-disable-next-line require-atomic-updates
       inFlight.current = false;
       refresh();

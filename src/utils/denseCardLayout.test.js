@@ -176,13 +176,10 @@ describe('nudgeCrowdedPair', () => {
 
   it('separates an overlapping pair evenly', () => {
     // topCard: top=0 height=60; bottomCard: top=40 height=60
-    // overlap = 0+60+4-40 = 24; split 12/12
+    // overlap = 24. Top is already at its floor (0), so bottom takes its full 18px allowance.
     const top = makeCard(0, 60);
     const bottom = makeCard(40, 60);
     nudgeCrowdedPair(top, bottom);
-    // topCard moves up by min(12, top-topMin)=min(12,0)=0 (can't go below 0-18=-18 but already at 0)
-    // Actually topMin = max(0, 0-18) = 0, topMove = min(12, max(0, 0-0)) = 0
-    // remaining = 24, bottomMove = min(24, max(0, (40+18)-40)) = min(24, 18) = 18
     expect(top.top).toBe(0);
     expect(bottom.top).toBe(58);
   });
@@ -272,9 +269,7 @@ describe('adjustCrowdedLevelCards', () => {
   });
 
   it('separates two overlapping cards so they no longer overlap after adjustment', () => {
-    // compact height = max(56, 80-16) = 64
-    // A: top=0 height=80(→64), B: top=80 height=80(→64)
-    // overlap = 0+64+4-80 = -12 → NO overlap after compaction, no nudge needed
+    // Compacted to 64px, so no overlap remains and no nudge is needed.
     const cards = [makeCard('A', 0, 80), makeCard('B', 80, 80)];
     const result = adjustCrowdedLevelCards(cards);
     expect(result).toHaveLength(2);
@@ -283,8 +278,7 @@ describe('adjustCrowdedLevelCards', () => {
   });
 
   it('resolves 3 overlapping cards so none remain overlapping', () => {
-    // compact height = max(56, 80-16) = 64; cards spaced 80px apart
-    // overlaps = 0+64+4-80=-12 → no residual overlap needed, nudge is a no-op
+    // Compacted to 64px and spaced 80px apart: no overlap, nudge is a no-op.
     const cards = [makeCard('A', 0, 80), makeCard('B', 80, 80), makeCard('C', 160, 80)];
     const result = adjustCrowdedLevelCards(cards);
     expect(result).toHaveLength(3);
@@ -311,10 +305,8 @@ describe('adjustCrowdedLevelCards', () => {
   });
 
   it('reduces overlap even when nudge limits prevent full resolution', () => {
-    // Heavy overlap: both start at top=50, height=80 → compact height=64
-    // After nudge: A moves from 50→32 (max 18 down), B moves from 50→68 (max 18 up)
-    // Residual overlap = 32+64+4-68 = 32 (still overlapping due to limits)
-    // but it's much better than the original overlap of 50+64+4-50=68
+    // Both start at top=50 (compacted to 64). Each nudge is capped at 18px, so
+    // overlap shrinks but remains.
     const cards = [makeCard('A', 50, 80), makeCard('B', 50, 80)];
     const result = adjustCrowdedLevelCards(cards);
     expect(result).toHaveLength(2);
@@ -363,8 +355,7 @@ describe('getAdjustedHierarchyCards', () => {
   });
 
   it('processes each level independently', () => {
-    // Two cards at different levels with the same vertical position should each
-    // be processed in their own column and not affect each other.
+    // Same vertical position on different levels: each column resolves independently.
     const cards = [makeCard('A', 50, 80, 0), makeCard('B', 50, 80, 1)];
     const result = getAdjustedHierarchyCards(cards);
     expect(result).toHaveLength(2);
@@ -380,7 +371,7 @@ describe('getAdjustedHierarchyCards', () => {
   });
 
   it('resolves multi-card overlap within a level column', () => {
-    // compact height = max(56, 80-16) = 64; cards spaced 80px apart — no residual overlap
+    // Compacted to 64px and spaced 80px apart: no residual overlap.
     const cards = [makeCard('A', 0, 80, 0), makeCard('B', 80, 80, 0), makeCard('C', 160, 80, 0)];
     const result = getAdjustedHierarchyCards(cards);
     for (let i = 0; i < result.length - 1; i += 1) {
@@ -393,9 +384,8 @@ describe('getAdjustedHierarchyCards', () => {
   });
 
   it('keeps a child inside a parent that was compacted by its crowded column', () => {
-    // Parent column is crowded (two overlapping 80px cards → compacted to 64
-    // and nudged apart); the child column has a single card that keeps its
-    // 80px. Without containment the child would outgrow its parent.
+    // The parent column is crowded, so it compacts and nudges; the lone child keeps
+    // 80px. Containment must clamp the child inside the parent.
     const parent = { ...makeCard('A', 100, 80, 0), startSentence: 1 };
     const sibling = { ...makeCard('B', 150, 80, 0), startSentence: 5 };
     const child = { ...makeCard('A > C', 100, 80, 1), startSentence: 1 };

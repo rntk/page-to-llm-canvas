@@ -23,8 +23,7 @@ function render(element) {
   };
 }
 
-// Built on the production factory so the double cannot drift from the real
-// registry's behavior; `elements` just exposes the backing store for assertions.
+// Built on the production factory so it can't drift from the real registry; `elements` exposes the store.
 function createCardRegistry() {
   const store = { current: {} };
   return { ...createCardElementRegistry(store), elements: store.current };
@@ -111,8 +110,7 @@ describe('CanvasSummaryView', () => {
     expect(articles[0].className).toContain('is-active');
     expect(articles[1].className).not.toContain('is-active');
 
-    // test hover trigger — the hovered-topic key is now deferred through the same
-    // settle delay as the preview, so it fires after the debounce, not on enter.
+    // The hovered-topic key is deferred through the same settle delay as the preview.
     const mouseOverEvent = new MouseEvent('mouseover', { bubbles: true });
     act(() => {
       articles[0].dispatchEvent(mouseOverEvent);
@@ -187,8 +185,7 @@ describe('CanvasSummaryView', () => {
         .querySelector('.canvas-summary-view__card')
         .dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
     });
-    // The preview opens after a short hover-settle delay (debounced to avoid
-    // rebuilding it for every card crossed during a fast sweep).
+    // The preview opens after a hover-settle delay (avoids rebuilds during a fast sweep).
     act(() => {
       vi.advanceTimersByTime(120);
     });
@@ -510,16 +507,14 @@ describe('CanvasSummaryView', () => {
     });
     expect(onZoomToCard).toHaveBeenCalledWith(mockCards[0]);
 
-    // The preview handler ignores a card with no source sentences; the zoom
-    // must still fire for it.
+    // The preview ignores a card without source sentences; zoom must still fire.
     act(() => {
       articles[1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     expect(onZoomToCard).toHaveBeenCalledWith(mockCards[1]);
     expect(onZoomToCard).toHaveBeenCalledTimes(2);
 
-    // The in-card action button stops propagation, so it shows the source
-    // without also zooming.
+    // The in-card button stops propagation: shows the source without zooming.
     const button = container.querySelector('.canvas-summary-view__summary-tooltip-button');
     act(() => {
       button.dispatchEvent(new MouseEvent('click', { bubbles: true }));

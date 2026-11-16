@@ -1,7 +1,7 @@
 /**
  * Splits one oversized text unit into bounded pieces, preferring a nearby word
- * boundary without allowing a very early boundary to create tiny fragments.
- * Shared by every LLM surface so oversized-unit behavior cannot drift.
+ * boundary but not a very early one that would create tiny fragments.
+ * Shared by every LLM surface so behavior cannot drift.
  *
  * @param {string} text Text to split.
  * @param {number} maxChars Maximum characters per piece.

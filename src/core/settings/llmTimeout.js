@@ -1,6 +1,5 @@
-// Persisted timeout for one provider-facing LLM request. The value is stored in
-// seconds because that is the unit shown on the options page, then converted to
-// milliseconds at the request boundary.
+// Persisted timeout for one LLM request. Stored in seconds (the options-page
+// unit) and converted to milliseconds at the request boundary.
 
 import { createStoredSetting, normalizeClampedInt } from '../../shared/runtime/localStore.js';
 

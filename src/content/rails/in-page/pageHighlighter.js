@@ -1,14 +1,9 @@
 /**
- * DOM-side adapter for the in-page rail, extracted from openInPageRail in
- * src/content/rails/in-page/controller.jsx.
+ * DOM-side adapter for the in-page rail (used by controller.jsx). Owns the two
+ * CSS Custom Highlight sets, their DOM Ranges, smooth scrolling into the article,
+ * and the coalesced viewport-resize listener.
  *
- * Owns everything that touches the live page: the two CSS Custom Highlight
- * sets, the DOM Ranges they are painted from, smooth scrolling into the
- * article, and the coalesced viewport-resize listener.
- *
- * Deliberately guard-free: staleness (`guard.isStale()`) and surface lifetime
- * (`isClosed()`) stay in the controller, which is the only place that knows
- * about load generations.
+ * Deliberately guard-free: staleness and surface lifetime stay in the controller.
  */
 
 import { scrollBehavior } from '../../../utils/scrollBehavior.js';
@@ -34,12 +29,9 @@ export function createPageHighlighter({
   scrollContainer,
   window: contentWindow = globalThis.window,
 }) {
-  // Native CSS Custom Highlight API: topic and chat sentences are painted as
-  // two separate named highlights (mirrors the canvas modal), so chat
-  // highlights stay visually distinct via ::highlight(pagetollm-chat-sentence)
-  // instead of being merged into the topic highlight. Unlike per-word spans, a
-  // single Range per sentence paints continuously across whitespace and inline
-  // tags, so there are no gaps between words.
+  // CSS Custom Highlight API: topic and chat sentences are separate named
+  // highlights so chat stays distinct via ::highlight(pagetollm-chat-sentence).
+  // One Range per sentence paints continuously across whitespace and inline tags.
   const activeTopicSentences = new Set();
   const activeChatSentences = new Set();
 
@@ -115,7 +107,6 @@ export function createPageHighlighter({
   /**
    * Subscribe to viewport resizes, coalesced into one animation frame. Only one
    * subscription is kept; `destroy()` detaches it.
-   *
    * @param {function(): void} callback Invoked inside the animation frame.
    */
   function onViewportResize(callback) {

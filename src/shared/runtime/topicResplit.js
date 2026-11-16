@@ -2,8 +2,8 @@ import { canonicalTopicPath, isCanonicalDescendantPath } from './topicPath.js';
 import { showResplitInstructionsDialog } from '../dom/resplitInstructionsDialog.js';
 
 /**
- * Build the standard topic resplit action.
- * `topics` may be an array or a getter to keep the descendant check current.
+ * Standard topic resplit action. `topics` may be a getter so the descendant
+ * check sees current topics.
  */
 export function createResplitAction({
   topics = [],

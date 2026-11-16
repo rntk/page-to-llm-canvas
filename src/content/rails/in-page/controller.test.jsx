@@ -6,8 +6,7 @@ import { act } from 'react';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 // Minimal CSS Custom Highlight API polyfill (happy-dom ships neither Highlight
-// nor CSS.highlights). Highlight just records the live Ranges added to it, so
-// tests can assert on rebuildHighlight()'s output without a real layout engine.
+// nor CSS.highlights); Highlight just records the Ranges added to it.
 class FakeHighlight {
   constructor() {
     this.ranges = new Set();
@@ -967,9 +966,8 @@ describe('openInPageRail', () => {
         await openInPageRail({ key: 'rail-key' }, 'topics');
       });
       const body = () => rail().querySelector('.pagetollm-rail-body');
-      // The rail is viewport-height and moves its card track instead of
-      // growing, so there is always rail background behind a card — including
-      // behind the viewport-fixed summary column.
+      // The rail is viewport-height and moves its card track instead of growing,
+      // so rail background always sits behind a card, including the summary column.
       expect(body().style.height).toBe('');
 
       const select = rail().querySelector('.pagetollm-rail-mode-select');

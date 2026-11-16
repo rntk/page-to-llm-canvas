@@ -82,9 +82,7 @@ export function installBackgroundRuntime({
   // Wait for storage reconciliation before resuming their in-flight records.
   const resumeAfterBootstrap = async () => {
     try {
-      // A bootstrap that fails must not strand in-flight records: the ordering
-      // is a preference, resuming at all is the requirement. (`backgroundReady`
-      // already swallows its own errors; this covers any other provider.)
+      // Ordering is a preference; a failed bootstrap must not strand in-flight records.
       await waitForBootstrap(bootstrapReady, bootstrapWaitTimeoutMs).catch(() => {});
       await Promise.allSettled([
         Promise.resolve().then(() => pipelineSupervisor.resumeInFlightRecords()),

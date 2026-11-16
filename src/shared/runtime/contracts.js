@@ -1,7 +1,6 @@
 // Browser-safe contracts shared by extension surfaces and the service worker.
-// These values describe the persisted/wire representation; they deliberately
-// remain plain strings and objects so Chrome storage and runtime messaging do
-// not depend on JavaScript prototypes.
+// Describes the persisted/wire form: plain strings and objects only, so Chrome
+// storage and messaging never depend on prototypes.
 
 // Shared contract for generated and persisted chat turns.
 export const MAX_TURN_EVENTS = 200;
@@ -46,9 +45,8 @@ export const SUMMARY_GENERATION_SOURCE_STATUSES = Object.freeze([
 ]);
 const SUMMARY_GENERATION_SOURCE_STATUS_VALUES = new Set(SUMMARY_GENERATION_SOURCE_STATUSES);
 
-// Display consumers require explicit non-negative levels and throw on malformed
-// entries. Validate a supplied index here so imported records stay viewable,
-// while allowing absent/null indexes from older exports.
+// Display code throws on malformed levels, so reject bad indexes here to keep
+// imported records viewable. Absent/null indexes from older exports are allowed.
 /** @param {unknown} value @returns {boolean} */
 function isImportableTopicSummaryIndex(value) {
   if (value == null) return true;
@@ -82,9 +80,8 @@ export function isSummaryGenerationSourceStatus(value) {
 const RESERVED_RECORD_KEYS = new Set(['pagetollm:mutation-queue', 'pagetollm:index']);
 
 /**
- * Identifies records that contain enough article data to be imported. This is
- * shared by the options page and service worker so both import paths enforce
- * the same minimum contract.
+ * Whether a record has enough article data to import. Shared by the options page
+ * and service worker so both enforce the same minimum.
  *
  * @param {unknown} record
  * @returns {boolean}
@@ -99,35 +96,14 @@ export function isImportableRecord(record) {
 }
 
 /**
- * The persisted shape of a page record (see `src/core/storage/storage.js`,
- * which persists immutable data, final output, diagnostics, and individual
- * work checkpoints independently and reassembles them on worker reads).
- * Field names mix camelCase (`sourceUrl`,
- * `createdAt`, `pipelineRunId`, `contentRevision`) with snake_case
- * (`topic_summaries`, `topic_summary_index`, and the per-chunk
- * `start_sentence`/`end_sentence` keys nested inside `topic_summaries`
- * entries). This is the canonical current shape persisted in user storage.
+ * Persisted shape of a page record, written by `writeRecord` and reassembled on
+ * read (see src/core/storage/storage.js). Field names mix camelCase and snake_case.
  *
- * Optionality here is the intersection of the TWO paths that create records,
- * because both write through `writeRecord` and neither backfills defaults
- * (the storage partitioners copy only the keys actually present, and
- * `readRecord` reassembles the normalized documents):
- *
- *   1. `createQueuedRecord` (pipeline kickoff) — populates every field below.
- *   2. Record import (`decodeImportedRecords` in recordImport.js, run
- *      authoritatively by `MSG.importRecords`) — spreads a user-supplied JSON
- *      object that only had to satisfy `isImportableRecord`, then overrides
- *      `key`, `status`, `error`, `progress`, `importedAt` and (worker-side)
- *      `pipelineRunId`.
- *
- * So a field is REQUIRED only if path 2 also guarantees it. Fields that path 1
- * always sets but an imported record can lack are marked optional. This is an
- * external/persisted contract, not a normalized internal display model. UI
- * consumers use `projectArticleView` (src/domain/articleView.js) for dependable
- * sentence/topic arrays. Processing code validates the original record: missing
- * data, stages that have not run, and completed empty output must not be inferred
- * from display defaults. In particular, checkpoint/revision validation remains
- * necessary before resuming work.
+ * A field is required only if both creation paths set it: `createQueuedRecord`
+ * sets every field, while imported records (`decodeImportedRecords`) only have to
+ * pass `isImportableRecord`. Fields an import can lack are optional. Processing
+ * code must validate the stored record itself, not infer state from display
+ * defaults such as `projectArticleView` (src/domain/articleView.js).
  *
  * @typedef {Object} ArticleRecord
  * @property {string} key - Content-hash-derived id; primary storage key.
@@ -145,54 +121,31 @@ export function isImportableRecord(record) {
  * @property {object[]} [topics] - Detected topic ranges over `sentences`,
  *   each containing `{ name: string, sentences: number[] }` where `sentences`
  *   is an ordered, 1-based unique list of sentence indices.
- * @property {object|null} [topic_range_chunks] - Resumable checkpoint for the
- *   topic-ranges stage: `{contentRevision, sentenceCount, chunks}` where
- *   `chunks[i]` is either null (that chunk still needs an LLM request) or
- *   `{start, sentenceCount, segments}` holding the already-parsed, article-
- *   absolute segments for chunk `i`. Updated after successful parse rounds
- *   and cleared when the stage succeeds, so a Retry re-requests only chunks
- *   that never landed. Validated structurally on read (see
- *   `readTopicRangeChunkCheckpoint` in `src/core/pipeline/topicRangeCheckpoint.js`).
- *   Decision splitting uses `{mode: 'decision', contentRevision, identity,
- *   probabilities, labels}` in the same work document. Its identity includes a
- *   source/sentence digest, request settings, prompts, and schema version;
- *   probabilities are keyed by gap id and labels by absolute range start:end.
- *   Both variants are cleared with the final topic write and discarded whole
- *   unless `contentRevision` still matches, since an
- *   imported record can carry an arbitrary user-supplied value here.
- * @property {Record<string, object>} [topic_summaries] - Resumable summary
- *   checkpoints for paths without children, keyed by topic id and containing
- *   per-run results. Older records may also contain mixed-depth path entries,
- *   which a Skip resume can carry through to finalization. An
- *   entry may carry
- *   `forcedEmpty: true`, meaning the user accepted a failed topic via "skip"
- *   and finalization cleared its in-flight `error` marker — it distinguishes
- *   that case from a legitimately empty summary so `planSummaryWork`
- *   (`src/core/pipeline/summaryPlanning.js`) can still retry it on a resume.
- *   An entry may also carry `acceptedFailure: true`, the transient counterpart
- *   written by the "skip" handler (`clearSummaryErrorFlags` in background.js)
- *   in place of the error fields it strips: it tells the resumed run the leaf
- *   is an accepted failure — so ancestor summaries skip its source and
- *   finalization stamps `forcedEmpty` — without making `planSummaryWork`
- *   re-query it. Finalization never persists it, so it only ever exists on a
- *   record between the skip decision and the end of the resumed run.
+ * @property {object|null} [topic_range_chunks] - Resumable topic-ranges checkpoint
+ *   `{contentRevision, sentenceCount, chunks}`; a null chunk still needs an LLM
+ *   request. Cleared on success. Decision splitting stores `{mode: 'decision', ...}`
+ *   in the same work document. Both variants are discarded unless `contentRevision`
+ *   matches, since imported records can carry arbitrary values here. Validated by
+ *   `readTopicRangeChunkCheckpoint` (src/core/pipeline/topicRangeCheckpoint.js).
+ * @property {Record<string, object>} [topic_summaries] - Resumable per-path summary
+ *   checkpoints keyed by topic id. `forcedEmpty: true` marks a failed topic the user
+ *   skipped, so `planSummaryWork` (src/core/pipeline/summaryPlanning.js) still retries
+ *   it on resume. `acceptedFailure: true` is a transient skip marker that finalization
+ *   turns into `forcedEmpty` and never persists. Older records may hold mixed-depth paths.
  * @property {Record<string, {level: number}>} [topic_summary_index] -
  *   Canonical UI projection of every topic-tree path. Tolerated absent/null by
  *   `isImportableRecord`.
- * @property {Record<string, object>} [source_summary_units] - Optional
- *   resumable source-summary units keyed by stable request-kind/path/run/chunk
- *   bounds. A unit is reusable only when it is marked `done`, carries a
- *   non-empty matching `contentRevision`, and its input fingerprint matches
- *   the current source/prompt/settings input. Imported records may omit this
- *   field.
+ * @property {Record<string, object>} [source_summary_units] - Optional resumable
+ *   source-summary units keyed by request-kind/path/run/chunk bounds. Reusable only
+ *   when `done`, with a matching non-empty `contentRevision` and input fingerprint.
  * @property {object[]} [processingLog] - Buffered diagnostic log entries
- *   (capped; see `MAX_PROCESSING_LOG_ENTRIES` in storage.js).
+ *   (capped; see `MAX_PROCESSING_LOG_ENTRIES` in src/core/storage/processingLog.js).
  * @property {string[]} [selectors] - CSS selectors used to capture the page.
  * @property {number|null} [captureVersion] - Browser-side capture schema version.
  * @property {string|null} [capturedText] - Text extracted while source CSS/layout was available.
  * @property {{splittingInstructions: string, summaryInstructions: string}|null} [runInstructions] -
- *   Run directive: user guidance for the current run only. Kept through resume
- *   and Retry, cleared when the run completes.
+ *   Run directive: user guidance for this run only. Kept through resume and Retry,
+ *   cleared when the run completes.
  * @property {boolean} [skipSummaries] - Run directive: summaries disabled for
  *   this run (decided at kickoff from the global toggle).
  * @property {boolean} [summariesDisabled] - Outcome flag: summary generation
@@ -212,16 +165,15 @@ export function isImportableRecord(record) {
  *   empty result without repeating the failed source-summary request.
  * @property {string} [contentRevision] - Opaque id bumped whenever
  *   html/text/sentences/topics change; used to invalidate cached chats.
- * @property {string} [topicsRevision] - Opaque id changed when sentences,
- *   topics, topic_summary_index, sourceUrl, or the content generation changes;
- *   used to invalidate cached topic views. Older records may lack this marker.
+ * @property {string} [topicsRevision] - Opaque id changed when sentences, topics,
+ *   topic_summary_index, sourceUrl or content generation change; invalidates cached
+ *   topic views. Older records may lack it.
  * @property {string|null} [summaryCheckpointContentRevision] - Content
  *   revision whose sentence/topic data reached the summarization stage. Retry
  *   only resumes a summary checkpoint when this matches `contentRevision`.
  * @property {boolean|null} [summaryCheckpointPreferContentLanguage] - Language
- *   preference captured when the topic checkpoint was created. Summary-only
- *   resumes retain it so reused and newly generated summaries follow one
- *   language policy.
+ *   preference captured when the topic checkpoint was created; summary-only resumes
+ *   keep it so all summaries follow one language policy.
  * @property {number} [createdAt] - Epoch ms when the record was first queued.
  * @property {number} [updatedAt] - Epoch ms of the most recent write.
  */

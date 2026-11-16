@@ -4,8 +4,7 @@ import { ancestorPaths, formatTopicPath } from '../shared/runtime/topicPath.js';
 /**
  * Applies this surface's run policy on top of the canonical normalization: the
  * canvas summary view keeps text-less runs and guarantees at least one run per
- * entry, so an errored/skipped topic still occupies its place on the rail
- * instead of vanishing.
+ * entry, so an errored/skipped topic still occupies its place on the rail.
  *
  * @param {Array<{sentences: number[], text: string}>} runs
  * @param {number[]} sourceSentences
@@ -41,8 +40,7 @@ export function filterSummaryCardsByLevel(allSummaryCards, selectedLevel) {
 }
 
 /**
- * Pure helper that turns record.topic_summary_index into summary cards.
- * array consumed by CanvasSummaryView.
+ * Turns record.topic_summary_index into the summary cards consumed by CanvasSummaryView.
  *
  * @param {object} topicSummaryIndex
  * @returns {Array} Card shape: { key, path, name, text, sourceSentences, startSentence, levelIndex }

@@ -25,10 +25,8 @@ export function markProviderFailure(error) {
   return wrapped;
 }
 
-/** Walks an error's `cause` chain (guarding against cycles), calling `check`
- * on each node. The first node where `check` returns a value other than
- * `undefined` stops the walk and that value is returned. If the chain is
- * exhausted without a definitive result, returns `false`.
+/** Walk an error's `cause` chain (cycle-safe), calling `check` on each node.
+ * The first non-`undefined` result is returned; `false` if the chain ends without one.
  * @param {unknown} error Error to walk.
  * @param {function(object): *} check Per-node classifier.
  */
@@ -61,9 +59,9 @@ export function isPermanentProviderError(error) {
   });
 }
 
-/** Detects an error that a provider call marked as its own failure.
- * The `cause` chain is walked because a stage may wrap the original rejection
- * before it reaches the catch that decides whether to park or fail the record.
+/** Detect an error that a provider call marked as its own failure. The `cause`
+ * chain is walked because a stage may wrap the rejection before the catch that
+ * decides whether to park or fail the record.
  * @param {unknown} error Error caught by a pipeline stage.
  */
 export function isProviderFailure(error) {

@@ -9,10 +9,9 @@ const replace = (_previous, next) => next;
  * @param {unknown} key A null key disables loading.
  * @param {function(): Promise<unknown>} load
  * @param {object} [options]
- * @param {boolean} [options.keepPrevious] Keep settled state during reloads and
- *   retain successful data if a background reload fails.
- * @param {function(unknown, unknown): unknown} [options.reconcile] Reuse parts of
- *   the previous value when accepting a successful response.
+ * @param {boolean} [options.keepPrevious] Keep settled data across reloads and failed reloads.
+ * @param {function(unknown, unknown): unknown} [options.reconcile] Merge the previous value
+ *   into a new successful one.
  * @returns {{status: string, data: unknown, error: string|null, reload: Function}}
  */
 export function useAsyncResource(key, load, { keepPrevious = false, reconcile = replace } = {}) {

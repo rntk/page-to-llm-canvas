@@ -11,10 +11,8 @@ import {
 import { clampCardsToParents } from './cardContainment.js';
 
 /**
- * Pure collision-resolution and layout helpers for the dense card rail view.
- *
- * These functions are stateless and have no DOM/React dependencies, making
- * them directly unit-testable without mounting a component.
+ * Stateless collision-resolution and layout helpers for the dense card rail.
+ * No DOM/React dependencies, so they are unit-testable directly.
  */
 
 export const DENSE_CARD_GAP = 4;
@@ -27,9 +25,8 @@ const SUMMARY_KICKER_FONT_SIZE = 11;
 const SUMMARY_TITLE_FONT_SIZE = 17.6;
 const SUMMARY_TEXT_FONT_SIZE = 15.4;
 const SUMMARY_YOUTUBE_FONT_SIZE = 12.1;
-// Base font size of the per-card actions ("···") trigger. Like the YouTube
-// link, the trigger counter-scales on zoom-out via the titleFontSize-driven
-// multiplier so it stays tappable while the canvas transform shrinks.
+// Per-card actions ("···") base size. Scales with titleFontSize like the YouTube
+// link, so it stays tappable when the canvas zooms out.
 const SUMMARY_ACTIONS_FONT_SIZE = 16;
 
 /**
@@ -84,14 +81,10 @@ export function getTitleLineBudget(height) {
 }
 
 /**
- * Clamps the card's title font size so it fits within the available card
- * height after accounting for padding, meta line, and title line-height.
+ * Caps the card's title font size to what the card height can hold.
  *
- * NOTE: This intentionally differs from `getTopicTitleFontSize` in
- * topicCards.js. That function derives its base size from a canvas zoom
- * scale (1/clampScale). This function receives an already-computed
- * `titleFontSize` on the card and simply caps it to what the card height
- * can physically contain. Unifying the two would change visual output.
+ * Intentionally not `getTopicTitleFontSize` (topicCards.js), which derives the size
+ * from canvas zoom. Unifying them would change visuals.
  *
  * @param {{titleFontSize: number}} card
  * @param {number} height
@@ -277,25 +270,16 @@ export function getSummaryFontSizes(anchorCard) {
 }
 
 /**
- * Trim applied to the floating current-topic summary only. At full parity with
- * the topic-title zoom multiplier the panel crowds the view: it has to share
- * the screen with the reading column and the rail. Tuned by eye to 0.85 of the
- * raw zoom size. SUMMARY_CARD_WIDTH is tuned alongside it — the two are stepped
- * together so the panel grows and shrinks as a unit, but they are independent
- * knobs (width sets the footprint, this sets legibility) and are NOT currently
- * at the same fraction of parity. In-card typography (the topic title, the
- * per-card YouTube link) keeps the untrimmed size.
+ * Trim for the floating current-topic summary only: at full zoom parity the panel
+ * crowds the reading column and rail. Tuned by eye. Independent of
+ * SUMMARY_CARD_WIDTH (footprint); in-card typography keeps the untrimmed size.
  */
 export const FLOATING_SUMMARY_FONT_RATIO = 0.85;
 
 /**
- * Font sizes for the floating current-topic summary card.
- *
- * Takes the zoom-only title size (getZoomAdjustedTitleFontSize) rather than an
- * anchor card: the panel floats outside the rail and sizes itself against the
- * canvas transform, not against the height budget of whichever topic card it is
- * anchored to. Both the settled React render and App's live per-frame zoom path
- * call this, so they cannot drift apart.
+ * Font sizes for the floating current-topic summary. Takes the zoom-only title size
+ * (getZoomAdjustedTitleFontSize), not an anchor card, since the panel sizes against
+ * the canvas transform. The React render and App's live zoom path both call this.
  *
  * @param {number} zoomTitleFontSize
  * @returns {{kicker: number, title: number, text: number, youtube: number}}

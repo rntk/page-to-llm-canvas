@@ -57,8 +57,7 @@ export function useChatSessions({ recordKey, applyEvents, chatRepository }) {
   const mountedRef = useRef(true);
   const recordKeyRef = useRef(recordKey);
   const activeChatIdRef = useRef(activeChatId);
-  // A hidden Activity resumes its effects. Keep an explicitly scoped draft
-  // instead of replacing it with the latest (possibly whole-document) chat.
+  // A resumed hidden Activity must keep an explicitly scoped draft, not load the latest chat.
   const scopedDraftRef = useRef(null);
   const loadGenerationRef = useRef(0);
   const mutationQueueRef = useRef(Promise.resolve());
@@ -220,9 +219,8 @@ export function useChatSessions({ recordKey, applyEvents, chatRepository }) {
         }
         try {
           await removeChat(requestedRecordKey, chatId);
-          // Leave the deleted chat before the fallible re-list: if the list
-          // throws, the session must not stay bound to an id that no longer
-          // exists, or every later save would fail with 'chat not found'.
+          // Leave the deleted chat before the fallible re-list, or a failure would
+          // leave the session bound to a missing id ('chat not found' on every save).
           const wasActive =
             mountedRef.current &&
             requestedRecordKey === recordKeyRef.current &&

@@ -63,7 +63,7 @@ export default function HierarchyApp({
   // `null` follows the deepest level until the user chooses one after topics load.
   const [selectedLevel, setSelectedLevel] = useState(null);
   const [activeSummary, setActiveSummary] = useState(null);
-  // Keep the latest state available to the long-lived Escape listener below.
+  // Read by the long-lived Escape listener below.
   const activeSummaryRef = useRef(null);
 
   useEffect(() => {
@@ -168,8 +168,7 @@ export default function HierarchyApp({
     resetTopicState();
   }
 
-  // A summary tree build or new save replaces the topic paths in place, as the
-  // canvas remount does; reset state that names the previous tree's paths.
+  // Summary tree rebuilds or saves replace topic paths in place; reset state that names the old ones.
   const topicStateKey = isSummaryTreeSource
     ? `${sourceRecord ? 'shown' : 'hidden'}:${summaryTreeRevision(summaryTree) ?? ''}`
     : '';
@@ -293,8 +292,7 @@ export default function HierarchyApp({
     );
   }
 
-  // The host removes the iframe asynchronously after the effect above. Avoid
-  // painting a transient "record not found" state in the meantime.
+  // The host removes the iframe asynchronously; avoid flashing "record not found" meanwhile.
   if (isDeleted) return null;
 
   return (

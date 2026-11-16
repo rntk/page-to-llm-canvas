@@ -69,9 +69,8 @@ describe('useTopicSelection', () => {
     expect(apiRef.current.hoveredTarget).toEqual(science);
   });
 
-  // The summary view and the hierarchy rail both write hover state, and their
-  // card keys come from separate builders. A leave that cannot name the same
-  // key must still release the hover, or it latches until an unrelated enter.
+  // The summary view and rail both write hover with keys from separate builders; a leave
+  // with a different key must still release the hover, or it latches.
   it('releases hover on a path match when either side has no card key', () => {
     const { apiRef, cleanup } = setup();
     cleanups.push(cleanup);
@@ -95,8 +94,7 @@ describe('useTopicSelection', () => {
     expect(apiRef.current.hoveredTarget).toBeNull();
   });
 
-  // getTopicNavigationCardKey() resolves to null for keyless cards, so a
-  // path-only target must still select rather than silently doing nothing.
+  // Keyless cards resolve to a null cardKey; a path-only target must still select.
   it('accepts targets without a card key and matches them by path', () => {
     const { apiRef, cleanup } = setup();
     cleanups.push(cleanup);
@@ -120,9 +118,8 @@ describe('useTopicSelection', () => {
     expect(apiRef.current.hoveredTarget).toBeNull();
   });
 
-  // copyTopicTarget() mints a fresh object per call, so the setters must reuse
-  // the previous object when nothing changed — memoized consumers (this state is
-  // passed straight to React.memo'd components) re-render on any new identity.
+  // copyTopicTarget() mints a new object per call, so setters must reuse the previous
+  // one when unchanged, or React.memo'd consumers re-render.
   it('preserves state identity when the same target is re-entered', () => {
     const { apiRef, cleanup } = setup();
     cleanups.push(cleanup);

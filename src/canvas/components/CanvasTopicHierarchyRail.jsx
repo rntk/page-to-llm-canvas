@@ -154,8 +154,7 @@ const TopicCard = React.memo(function TopicCard({
  * @param {boolean} props.show
  */
 function CanvasTopicHierarchyRail({ show, ...props }) {
-  // The rail stays in App's tree so it can be shown immediately, but its card
-  // layout is expensive. Do not mount the hook-heavy body until it is visible.
+  // Card layout is expensive; don't mount the hook-heavy body until visible.
   if (!show) return null;
   return <CanvasTopicHierarchyRailBody {...props} />;
 }
@@ -399,9 +398,8 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
     const el = summaryRef.current;
     if (!el) return;
     el.style.setProperty('--current-summary-height', `${el.offsetHeight}px`);
-    // `scale` is a dep on its own: it also drives --current-summary-width, so at
-    // zoom levels where the font sizes have saturated the text still rewraps and
-    // the height changes.
+    // `scale` is its own dep: it drives --current-summary-width, so text rewraps
+    // even once the font sizes saturate.
   }, [
     currentTopicSummary,
     scale,
@@ -433,10 +431,8 @@ const CanvasTopicHierarchyRailBody = React.memo(function CanvasTopicHierarchyRai
           className="canvas-topic-current-summary"
           aria-label="Current topic summary"
           style={{
-            // Core placement is set inline so the card stays pinned to the left
-            // (opposite the right-hand rail) even if modal.css lags behind the
-            // JS bundle — otherwise the aside falls into the flex flow and lands
-            // on top of the rail. The CSS rule layers on width/transition.
+            // Placement is inline so the card stays pinned left of the rail even if
+            // modal.css lags the JS bundle (else it falls into flex flow over the rail).
             position: 'absolute',
             left: 0,
             top: summaryTop,

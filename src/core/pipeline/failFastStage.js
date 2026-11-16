@@ -1,11 +1,10 @@
 import { mergeAbortSignals } from '../llm/abortSignals.js';
 
 /**
- * Run a stage with a child cancellation scope. On worker failure stop siblings,
- * drain their promises, and preserve the original failure. The parent signal
- * remains untouched, allowing the pipeline to persist its error transition.
- * The scoped runtime only overrides `signal`: requests observe sibling
- * cancellation, while inherited methods (update, log) keep the parent's
+ * Run a stage in a child cancellation scope. On worker failure, stop siblings,
+ * drain them, and rethrow the original failure. The parent signal stays
+ * untouched so the pipeline can persist its error transition. The scoped
+ * runtime overrides only `signal`; inherited update/log keep the parent's
  * user-cancellation and ownership guards.
  * @param {object} runtime Parent pipeline runtime.
  * @param {Function} parallelMap Injected map implementation.

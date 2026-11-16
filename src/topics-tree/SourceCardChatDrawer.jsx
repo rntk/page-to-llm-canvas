@@ -8,10 +8,9 @@ const BLOCK_PROMPT =
   'Ask about the text of this topic. The sections come from different sub-topics and pages, and the assistant can read and search the pages beyond them.';
 
 /**
- * The chat of one source card, or of a topic's whole source text, unfolded
- * beside it. A turn sends the card's lines (framed as part of their article, or
- * as sections of several) and offers `read_page` and `search_page` over the
- * whole article(s), already in memory.
+ * Chat for one source card (or a topic's whole source text), unfolded beside
+ * it. Turns send the card's lines and offer `read_page` and `search_page` over
+ * the article(s) already in memory.
  *
  * @param {object} props
  * @param {import('./sourceCardChat.js').SourceCardChat|import('./sourceCardChat.js').SourceBlockChat} props.card

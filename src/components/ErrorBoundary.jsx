@@ -45,14 +45,11 @@ export function SurfaceError({
 }
 
 /**
- * Shared boundary for surface roots and record views. Shows an error and a
- * recovery action when rendering fails.
+ * Render-error boundary for surface roots and record views.
  *
  * Class component because `componentDidCatch`/`getDerivedStateFromError`
- * have no hook equivalent.
- *
- * Content-script rails run in the host page, so callers provide `onRetry` and
- * `onDismiss` to recover without reloading it. Retry clears local error first.
+ * have no hook equivalent. Content-script rails run in the host page, so
+ * callers pass `onRetry`/`onDismiss` instead of reloading it.
  */
 export default class ErrorBoundary extends React.Component {
   constructor(props) {

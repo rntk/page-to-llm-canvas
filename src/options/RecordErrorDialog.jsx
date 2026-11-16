@@ -7,10 +7,9 @@ import { clickedOutsideDialog, useModalDialog } from '../shared/useModalDialog.j
 const log = createLogger('Options');
 
 /**
- * Modal shown when the user clicks a record's `error` status on the options
- * page. Mirrors the canvas "Processing Failed" overlay (same class names /
- * ErrorDetails split) but lives on a real page instead of the modal iframe, so
- * it owns its own close handler rather than calling `closeModal`.
+ * Modal for a record's `error` status on the options page. Mirrors the canvas
+ * "Processing Failed" overlay, but lives on a real page, so it owns its close
+ * handler instead of calling `closeModal`.
  *
  * @param {object} props
  * @param {string} [props.sourceUrl]

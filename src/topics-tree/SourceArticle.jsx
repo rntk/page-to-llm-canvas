@@ -1,6 +1,6 @@
 import React from 'react';
 
-/** Source identity stays visible beside quoted text, including articles sharing a host. */
+/** Show the title and full URL so articles on the same host stay distinguishable. */
 export default function SourceArticle({ source }) {
   let href;
   try {

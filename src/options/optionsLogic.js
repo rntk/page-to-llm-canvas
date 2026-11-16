@@ -114,9 +114,8 @@ export function updateProviderFormType(form, type, defaultModel = '') {
 export { extractImportedRecords, isImportableRecord };
 
 /**
- * UI preview of what the worker will store for an import payload. The worker
- * re-runs the same decoder authoritatively (see `MSG.importRecords`); this only
- * feeds the "no importable records" / overwrite-confirmation checks.
+ * UI preview of what the worker stores for an import. The worker re-runs the
+ * decoder authoritatively (see `MSG.importRecords`); this only drives UI checks.
  *
  * @param {unknown} payload
  * @returns {Array<object>}
@@ -149,12 +148,12 @@ export function actionResponseError(resp, action) {
 }
 
 /**
- * Returns true when saving a provider edit should prompt the user about
- * wiping the stored token: the token field was left blank while either the
- * provider type changed, or (for custom-URL providers) the base URL changed.
+ * Whether saving a provider edit would wipe the stored token: the token was
+ * left blank while the provider type or (for custom-URL providers) the base
+ * URL changed.
  *
- * @param {object|null} editingProvider  – the provider object from state (may be null)
- * @param {{ type?: string, token: string, url: string }} form  – current form values
+ * @param {object|null} editingProvider Provider from state (may be null).
+ * @param {{ type?: string, token: string, url: string }} form Current form values.
  * @returns {boolean}
  */
 export function shouldWarnTokenWipe(editingProvider, form) {

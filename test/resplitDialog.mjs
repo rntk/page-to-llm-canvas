@@ -1,6 +1,6 @@
 import { beforeEach, vi } from 'vitest';
 
-// Keep test access to the closed shadow root without exposing guidance to host pages.
+// Capture closed shadow roots (production uses mode: 'closed') so tests can reach them.
 const roots = new WeakMap();
 const attachShadow = Element.prototype.attachShadow;
 beforeEach(() => {

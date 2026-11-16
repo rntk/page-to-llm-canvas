@@ -267,7 +267,7 @@ const LeafCard = React.memo(function LeafCard({
     if (!focusRequest) return;
     elRef.current?.querySelector('.is-chat-highlighted')?.scrollIntoView?.({ block: 'nearest' });
   }, [focusRequest]);
-  // A source card carries its topic's path, so show it whole to name that topic.
+  // Show the full parent path; it names the source card's topic.
   const parentPath = formatTopicPath(splitTopicPath(node.path));
   const className = [
     'tt-card',
@@ -374,10 +374,8 @@ const LeafCard = React.memo(function LeafCard({
 });
 
 /**
- * Progressive-disclosure topics tree: topic nodes and leaf-topic cards in an
- * HTML layer over an SVG link layer, both inside one pan/zoom stage. Node sizes
- * are measured from the DOM, so the layout follows the real rendered text.
- *
+ * Topics tree: topic nodes and leaf cards in an HTML layer over an SVG link
+ * layer, inside one pan/zoom stage. Node sizes are measured from the DOM.
  * Remount (via `key`) to start over with a different tree.
  *
  * @param {object} props
@@ -386,8 +384,7 @@ const LeafCard = React.memo(function LeafCard({
  * @param {object|null} [props.sentenceSources] Source article and local line for synthetic rows.
  * @param {(node: object) => void} [props.onShowInPage]
  * @param {{available: function(object): boolean, render: function(object, {onClose: function(): void, onHighlightLines: function(string[], {focus: boolean}): void, onClearHighlights: function(): void}): import('react').ReactNode}|null} [props.leafChat]
- *   Gives source cards a Chat tab that unfolds this chat beside them. Keep it
- *   referentially stable.
+ *   Gives source cards a Chat tab. Keep it referentially stable.
  * @param {HTMLElement|null} [props.controlsHost] Element the view controls render into
  *   (the page bar); no controls are shown without one.
  */
@@ -467,9 +464,8 @@ export default function TopicsTreeCanvas({
     latestRef.current = { positions, offsets, displayPositions, expanded, visible };
   });
 
-  // After a change that can resize nodes: re-measure, and only once the sizes
-  // are settled keep the anchored node still on screen (or fit the view when
-  // asked to). Measuring first matters: e.g. a finished resize must relayout
+  // After a change that can resize nodes: re-measure, then keep the anchored
+  // node on screen (or fit) once sizes settle. A finished resize must relayout
   // before it is anchored.
   useLayoutEffect(() => {
     if (drag) return;
@@ -525,9 +521,9 @@ export default function TopicsTreeCanvas({
     [],
   );
 
-  // Switch to a new fold state, animating the change unless the user prefers
-  // reduced motion. Layout transitions are keyed off `data-motion` on the canvas
-  // (CSS); entering nodes read `motionRef`; leaving ones are kept as ghosts.
+  // Switch fold state, animating unless reduced motion is preferred. Transitions
+  // key off `data-motion` on the canvas; entering nodes read `motionRef`; leaving
+  // ones stay as ghosts.
   const changeExpanded = useCallback(
     (update) => {
       const { expanded: prev, visible: before, displayPositions: placed } = latestRef.current;

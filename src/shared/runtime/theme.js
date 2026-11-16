@@ -6,9 +6,8 @@ import { createStoredSetting, subscribeLocalKey } from './localStore.js';
 
 const log = createLogger();
 
-// Stored outside the `pagetollm:` prefix on purpose: popup.js refreshes its
-// record list for any changed key under that prefix, so a theme write must not
-// match it.
+// Kept out of the `pagetollm:` record namespace on purpose: popup.js refreshes
+// its record list on changes to those keys.
 export const THEME_KEY = 'pagetollm-theme';
 
 export const THEME_LIGHT = 'light';
@@ -46,8 +45,8 @@ export function systemThemeSupported(win = typeof window !== 'undefined' ? windo
 }
 
 /**
- * Coerces an arbitrary stored value into a valid preference. When "system" is
- * unsupported it is the default; otherwise light is the default.
+ * Coerces an arbitrary stored value into a valid preference. Unknown values fall
+ * back to "system" when it is allowed, otherwise to light.
  * @param {string} value Stored theme preference.
  * @param {boolean} allowSystem Whether the system preference is supported.
  */
@@ -99,9 +98,7 @@ export function applyThemeToElement(el, preference) {
 }
 
 /**
- * Applies a preference to the document root. Explicit light/dark set
- * `data-theme`; "system" removes it so the `prefers-color-scheme` media query
- * takes over.
+ * Applies a preference to the document root (see `applyThemeToElement`).
  * @param {string} preference Theme preference.
  * @param {Document|undefined} [doc] Document-like object to update.
  */
@@ -121,9 +118,8 @@ export function setStoredTheme(preference) {
 }
 
 /**
- * Creates a small controller that owns the current preference, applies it to
- * the document, persists changes, and notifies subscribers. Dependencies are
- * injectable for testing.
+ * Controller that owns the current preference, applies it, persists changes and
+ * notifies subscribers. Dependencies are injectable for tests.
  * @param {object} [options]
  * @param {Document} [options.doc]
  * @param {Window} [options.win]
@@ -179,8 +175,7 @@ export function createThemeController({
     return () => listeners.delete(fn);
   }
 
-  // Keep this document in sync when the preference is changed elsewhere (e.g.
-  // the popup/options page) while this view is open. Returns an unsubscribe.
+  // Follow preference changes made elsewhere (popup, options page).
   function watch() {
     return subscribeLocalKey(THEME_KEY, (newValue) => {
       preference = normalizeTheme(newValue, allowSystem);

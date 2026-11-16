@@ -324,10 +324,9 @@ describe('updateRecord basic correctness', () => {
   });
 
   // updateRecord splits a record across a meta doc and one doc per payload
-  // schema, then reassembles them for the caller. Assert the resolved value
-  // carries fields from every doc, not just the meta one: a payload that is
-  // written but dropped from the return would leave callers acting on a record
-  // that silently disagrees with storage.
+  // schema, then reassembles them. Assert the resolved value carries fields from
+  // every doc: a payload written but dropped from the return would leave callers
+  // acting on a record that disagrees with storage.
   it('returns meta plus every touched payload doc, merged', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
@@ -1548,10 +1547,9 @@ describe('reconcileRecordStorage', () => {
 
 describe('_updateQueues pruning', () => {
   it('removes the Map entry after a queued update settles', async () => {
-    // We can't import the private Map directly, so verify behaviour indirectly:
-    // After all queued work for a key resolves, a subsequent write should still
-    // enqueue and complete correctly (proving the queue entry was rebuilt from
-    // scratch rather than pointing at a stale chain).
+    // The private Map is not importable, so verify indirectly: after queued work
+    // for a key resolves, a later write must still enqueue and complete (the
+    // queue entry was rebuilt rather than pointing at a stale chain).
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);
 

@@ -5,13 +5,9 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { RECORD_REFRESH_DEBOUNCE_MS, useRecord } from './useRecord.js';
 
-// The hook is exercised against a fake record source rather than the
-// chrome-backed one. The browser adapters it would otherwise reach through have
-// their own tests: runtimeMessages.test.js covers lastError rejection, and
-// localStore.test.js covers the `local` area filter, the watched-key filter and
-// the addListener/removeListener plumbing. Repeating those here would assert
-// the adapter twice and leave the hook's own contract — which fetch happens
-// when, and what lands in state — untested.
+// Uses a fake record source, not the chrome-backed one; the browser adapters are covered by
+// runtimeMessages.test.js and localStore.test.js. This file tests the hook's own contract:
+// which fetch happens when, and what lands in state.
 function createFakeSource() {
   let subscription = null;
   const unsubscribe = vi.fn(() => {
@@ -152,9 +148,7 @@ describe('useRecord', () => {
     await flush();
     expect(result.current.record.status).toBe('pending');
 
-    // A live update re-fetches through the same messenger path rather than
-    // trusting the change payload directly (the payload is only one of the
-    // three physical docs, not the full record).
+    // A live update refetches rather than trusting the change payload (only one of the split docs).
     source.fetch.mockResolvedValue({
       ok: true,
       record: { key: 'test', status: 'done' },

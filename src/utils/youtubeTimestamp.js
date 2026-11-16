@@ -47,22 +47,16 @@ export function parseTimestampSeconds(text) {
 }
 
 /**
- * Find the timestamp (in seconds) that best marks the start of a card's source
- * sentences by scanning backward from the card's first sentence to the nearest
- * preceding inline timestamp.
+ * Timestamp (seconds) at the start of a card's source sentences: scans backward from
+ * the first sentence to the nearest inline timestamp. Source sentence numbers are
+ * one-based.
  *
- * Source sentence numbers use the canonical one-based record contract. A card
- * whose earliest source sentence lies past the end of the transcript is not
- * locatable in the video (a stale or hallucinated reference), so it resolves to
- * null and gets dropped rather than being pinned to the last transcript cue.
+ * Returns null when the first source sentence is past the transcript end (a stale
+ * reference, so the card is dropped rather than pinned to the last cue).
  *
- * When the card's first sentence sits at the very start of the transcript but
- * that opening line carries no inline timestamp (e.g. a title or greeting before
- * the first "0:00" cue), the backward scan finds nothing. We then anchor the card
- * to the start of the video (0s) so the first topic still appears on the rail and
- * its deep-links resolve — but only if the transcript is timestamped somewhere
- * downstream. A transcript with no parseable timestamps at all isn't a synced
- * transcript, so those cards still resolve to null and get dropped.
+ * A card starting at the transcript's first line with no timestamp (e.g. a title)
+ * anchors to 0s, but only if a later cue exists. A transcript with no timestamps
+ * is not synced, so those cards resolve to null.
  *
  * @param {string[]} sentences
  * @param {number[]} sourceSentences
@@ -102,11 +96,8 @@ export function buildYouTubeTimestampUrl(videoId, seconds) {
 /**
  * Format seconds as a compact transcript label (m:ss or h:mm:ss).
  *
- * Options let a caller render every label in a view at a uniform width so the
- * links don't shift left/right (e.g. the hierarchy view): `padMinutes` forces
- * two-digit minutes (`02:51` instead of `2:51`) and `forceHours` always shows
- * the hours field (`0:02:51`) even for sub-hour timestamps. Both default off, so
- * the bare call is unchanged for existing callers (canvas views).
+ * `padMinutes` (`02:51`) and `forceHours` (`0:02:51`) give uniform label widths so
+ * links don't shift in views like the hierarchy.
  *
  * @param {number} seconds
  * @param {object} [options]

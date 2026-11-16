@@ -1,5 +1,5 @@
 // Watch local records and session pipeline failures, both of which affect the
-// records list. Keys are copied from worker modules to keep them out of this bundle.
+// records list. Keys are copied from worker modules so this bundle doesn't import them.
 
 const RECORD_INDEX_KEY = 'pagetollm:index';
 const RECORD_STORAGE_PREFIX = 'pagetollm:rec:';
@@ -26,8 +26,8 @@ export function isRecordStorageChange(changes, areaName) {
 }
 
 /**
- * Subscribe to relevant storage changes. Returns a safe no-op unsubscribe
- * when the Chrome storage event is unavailable.
+ * Subscribe to relevant storage changes. Returns a no-op unsubscribe when
+ * `chrome.storage.onChanged` is unavailable.
  *
  * @param {function(): void} onChange Refresh trigger, takes no arguments.
  * @returns {function(): void} Unsubscribe.

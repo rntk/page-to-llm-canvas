@@ -33,10 +33,8 @@ export function createLimiter(limit) {
   return function run(fn) {
     return new Promise((resolve, reject) => {
       queue.push(() => {
-        // Release the slot before exposing the task's outcome to its caller.
-        // Apart from making the limiter's state consistent at settlement time,
-        // handling cleanup in the same promise path prevents a throw from
-        // tryNext() becoming an ignored rejection from a detached finally().
+        // Release the slot before exposing the outcome; cleanup in the same
+        // promise path keeps a tryNext() throw from becoming an ignored rejection.
         const settleAfterCleanup = (settle, value) => {
           try {
             active--;
@@ -61,15 +59,14 @@ export function createLimiter(limit) {
 }
 
 /**
- * Returns a concurrency limiter whose cap can be changed without replacing the
- * queue. Priority tasks remain FIFO. Optional reserved priority capacity
- * keeps background work from occupying every slot, while priority work may use
- * any free slot. When the limit is one, normal work remains enabled and strict
- * reservation is impossible.
- * Standard tasks may supply a providerKey and fairnessKey. Prefer providers
- * below half (rounded up) of standard capacity when servers compete. Otherwise
- * use idle standard slots. Eligible records rotate; requests within a record
- * remain FIFO. Running tasks are never preempted when another server arrives.
+ * Returns a concurrency limiter whose cap can change without replacing the
+ * queue. Priority tasks stay FIFO. Reserved priority capacity keeps background
+ * work from occupying every slot, while priority work may use any free slot;
+ * at limit one, normal work stays enabled and strict reservation is impossible.
+ * Standard tasks may supply a providerKey and fairnessKey. When servers
+ * compete, providers below half (rounded up) of standard capacity are preferred;
+ * otherwise idle slots are used. Eligible records rotate; requests within a
+ * record stay FIFO. Running tasks are never preempted.
  *
  * @param {number} initialLimit
  * @param {object} [options]
@@ -98,20 +95,18 @@ export function createAdjustableLimiter(initialLimit, { reservedPrioritySlots = 
         const eligible = (entry) =>
           !entry.providerKey || (activeProviders.get(entry.providerKey) ?? 0) < providerLimit;
         const preferredIndex = queue.findIndex(eligible);
-        // A provider share is a scheduling preference, not an idle reservation.
-        // If no underserved provider can use this slot, let queued work use it.
+        // A provider share is a preference, not an idle reservation: if no
+        // underserved provider can use this slot, queued work takes it.
         const index = preferredIndex >= 0 ? preferredIndex : 0;
         next = queue.splice(index, 1)[0];
         if (next.fairnessKey != null) {
-          // Move this record's remaining requests behind its peers. This is a
-          // round-robin rotation rather than merely alternating two records.
+          // Round-robin: move this record's remaining requests behind its peers.
           const peers = queue.filter((entry) => entry.fairnessKey !== next.fairnessKey);
           const siblings = queue.filter((entry) => entry.fairnessKey === next.fairnessKey);
           queue.splice(0, queue.length, ...peers, ...siblings);
         }
       }
-      // The entry has started now; its abort listener (if any) no longer
-      // needs to watch the queue — the running fn handles its own abort.
+      // Started: the running fn handles its own abort, so stop watching the queue.
       if (next.signal) next.signal.removeEventListener('abort', next.onAbort);
       active++;
       if (!next.priority) activeStandard++;
@@ -152,9 +147,8 @@ export function createAdjustableLimiter(initialLimit, { reservedPrioritySlots = 
         if (signal) {
           entry.onAbort = () => {
             const index = queue.indexOf(entry);
-            // Already dequeued (started running): let the running fn's own
-            // abort handling take care of it — the slot accounting here must
-            // stay untouched since a queued entry never incremented `active`.
+            // Already running: its own abort handling applies; leave slot
+            // accounting alone since a queued entry never incremented `active`.
             if (index === -1) return;
             queue.splice(index, 1);
             reject(makeAbortError('LLM request aborted'));
@@ -177,29 +171,22 @@ export function createAdjustableLimiter(initialLimit, { reservedPrioritySlots = 
  * @param {Array<T>} items
  * @param {number} limit
  * @param {function(T, number): Promise<U>} fn
- * @param {object} [options] When `warmupFirst` is set, the first
- *   item runs to completion before the concurrent burst is released. Every
- *   request in a burst shares the same long prompt prefix, so completing one
- *   first lets the provider commit that prefix to its prompt/KV cache and the
- *   rest reuse it instead of each re-prefilling it from cold. Skipped when there
- *   is fewer than one item to follow, so at least one item always remains for
- *   the parallel phase. A throwing `fn` rejects before the burst starts, just as
- *   it would inside the burst.
+ * @param {object} [options] With `warmupFirst`, the first item runs to
+ *   completion before the burst is released: burst requests share a long prompt
+ *   prefix, so the provider can commit it to its prompt/KV cache for the rest.
+ *   Skipped unless more than one item exists. A throwing `fn` rejects before
+ *   the burst starts.
  *
- *   Once any worker's `fn` rejects, no worker claims a NEW item afterward —
- *   in-flight items are left to finish, but the failure stops the burst from
- *   growing. The returned promise rejects with that first error as soon as it
- *   occurs.
+ *   Once any `fn` rejects, no worker claims a new item; in-flight items finish
+ *   and the returned promise rejects with the first error immediately.
  *
- *   `stopBurst` covers the callers that record a per-item failure instead of
- *   throwing (so one bad item cannot discard the responses its siblings already
- *   paid for). It is consulted after every settled item, warmup included, and a
- *   truthy answer stops new items from being claimed exactly as a rejection
- *   does — in-flight items are still awaited. This is what keeps a permanent
- *   warmup failure (a 401, an unknown model) from fanning out the whole queue
- *   of doomed requests. The returned promise then RESOLVES, and `results` has
- *   holes where items were never claimed, so callers must treat a missing entry
- *   as "not attempted" rather than as a successful empty result.
+ *   `stopBurst` serves callers that record per-item failures instead of
+ *   throwing (so siblings' paid-for responses are kept). It is consulted after
+ *   every settled item, warmup included; a truthy answer stops new claims like
+ *   a rejection, but in-flight items are awaited. This stops a permanent warmup
+ *   failure (401, unknown model) from fanning out doomed requests. The promise
+ *   then RESOLVES with holes in `results` for unclaimed items, which callers
+ *   must treat as "not attempted", not as an empty success.
  * @param {boolean} [options.warmupFirst]
  * @param {function(U, T, number): boolean} [options.stopBurst]
  * @returns {Promise<Array<U>>}
@@ -222,13 +209,11 @@ export async function parallelMap(items, limit, fn, { warmupFirst = false, stopB
       if (i >= items.length) return;
       try {
         results[i] = await fn(items[i], i);
-        // Same one-way flag as below, set from a per-item failure the caller
-        // recorded rather than threw.
+        // Same one-way flag as below, set for a recorded (not thrown) failure.
         // eslint-disable-next-line require-atomic-updates
         if (stopBurst && stopBurst(results[i], items[i], i)) failed = true;
       } catch (e) {
-        // `failed` is a one-way flag: every write is an unconditional `true`, never
-        // derived from a prior read, so concurrent workers racing to set it is harmless.
+        // One-way flag: writes are unconditional `true`, so racing workers are harmless.
         // eslint-disable-next-line require-atomic-updates
         failed = true;
         throw e;

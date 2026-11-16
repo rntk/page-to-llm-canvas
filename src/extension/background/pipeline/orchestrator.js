@@ -118,17 +118,11 @@ export function planResume(record) {
 }
 
 /**
- * Creates one explicitly owned pipeline runner.
+ * Creates one pipeline runner; call once per realm, not per run.
  *
- * Construction resolves the limiter once and installs the concurrency-setting
- * listener that mutates it. Call the runner once per realm, not once per run.
- * `dispose` reverses only that subscription; it deliberately neither resets nor
- * destroys an externally shared limiter, whose lifetime belongs to the
- * composition root and may include article-chat consumers.
- *
- * `limiterFactory` keeps limiter construction at the composition root. The
- * returned limiter may also gate other provider-facing surfaces (article chat)
- * so one setting controls the provider's aggregate concurrency.
+ * Construction resolves the limiter and subscribes to the concurrency setting.
+ * `dispose` removes only that subscription; the shared limiter (which may also
+ * gate article chat) belongs to the composition root.
  *
  * @param {object} deps
  * @param {Function} deps.runtimeFactory
@@ -139,9 +133,7 @@ export function planResume(record) {
  * @param {{callLLMWithRetry: Function, createDecisionClient: Function}} deps.llm
  *   `createDecisionClient(provider)` returns a client exposing `decide(state, questions, options)`.
  * @param {function(): {run: Function, setLimit: Function}} deps.limiterFactory
- *   Called exactly once per runner. A realm-level composition root may return
- *   its existing shared limiter; otherwise the factory may create one seeded
- *   with the same default the settings module normalizes towards.
+ *   Called once per runner; may return an existing shared limiter.
  * @param {{wrapCallLLMWithRetry: Function, wrapDecide: Function}} deps.telemetry
  * @param {{info: Function, error: Function}} deps.logger
  * @returns {{runPipeline: Function, dispose: Function}}
@@ -204,9 +196,8 @@ export function createPipelineRunner({
         settings.getVerboseLogs(),
         settings.getMaxParallelLlmRequests(),
         settings.getDecisionSplitThreshold(),
-        // The provider snapshot sizes and handles every request in this run.
-        // A missing provider remains an ordinary request-boundary error, but an
-        // inability to read provider storage must retain its real cause.
+        // Snapshot sizes and handles every request in this run. A missing provider
+        // is an ordinary request-boundary error; a storage read failure keeps its cause.
         providerRepository.getActiveProvider(),
       ]);
       if (concurrencySettingRevision === concurrencyRevisionAtRead) {
@@ -243,11 +234,9 @@ export function createPipelineRunner({
       // work after service-worker recycling; UI consumers read
       // `topic_summary_index` instead.
       const resumePlan = planResume(record);
-      // A matching revision plus malformed structure is unsafe to consume and
-      // must preserve the checkpoint for an explicit Reprocess decision.  A
-      // A stale or missing revision is different: the saved topics are not proven
-      // to belong to this content, so rebuild them through computeTopics rather
-      // than displaying or summarizing stale data.
+      // Current revision + malformed structure: keep the checkpoint for an explicit
+      // Reprocess. Stale/missing revision: topics may not match this content, so
+      // rebuild via computeTopics.
       const resuming = !record.manualResplitIntent && resumePlan.resuming;
       if (resumePlan.rejectionReason) {
         await runtime.log('pipeline_resume_rejected', {

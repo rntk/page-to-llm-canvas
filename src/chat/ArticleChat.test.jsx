@@ -730,8 +730,7 @@ describe('ArticleChat persisted history', () => {
       endLine: 3,
       label: 'New evidence',
     });
-    // One atomic write: only replayable visible messages + events. Provider
-    // tool transcripts stay transient and are not retained in chat storage.
+    // One atomic write of visible messages + events; tool transcripts are not stored.
     expect(api.append).toHaveBeenCalledTimes(1);
     expect(api.append).toHaveBeenCalledWith(
       'record-1',
@@ -1055,9 +1054,7 @@ describe('ArticleChat persisted history', () => {
     unmount();
   });
 
-  // The panel answers from the sentences it was mounted with. If the record is
-  // reanalyzed elsewhere, storage refuses the write rather than filing the
-  // answer under the new revision, and the panel must not adopt anything.
+  // If the record is reanalyzed elsewhere, storage refuses the write and the panel adopts nothing.
   it('reports a refused turn when the source revision was replaced', async () => {
     turnLoop.runArticleChatTurn.mockResolvedValue({
       reply: 'Answer from the old article.',
@@ -1316,8 +1313,7 @@ describe('ArticleChat persisted history', () => {
     const turnOptions = turnLoop.runArticleChatTurn.mock.calls[0][0];
     expect(turnOptions.runtime.signal.aborted).toBe(false);
 
-    // Toolbar toggle hides the panel (e.g. via <Activity mode="hidden">) while
-    // the turn is still in flight — the panel stays mounted, only hidden.
+    // Hiding the panel (e.g. <Activity mode="hidden">) mid-turn keeps it mounted.
     view.rerender(
       <Activity mode="hidden">
         <ArticleChat recordKey="record-1" sentences={['One']} onClearHighlights={vi.fn()} />

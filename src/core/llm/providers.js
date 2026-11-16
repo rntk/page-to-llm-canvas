@@ -1,8 +1,6 @@
-// User-configurable LLM provider storage for the PageToLLM Canvas extension.
-//
-// Providers are persisted in chrome.storage.local with a single "active
-// provider" selection — the pipeline calls the LLM with no model, so it needs
-// one provider designated as the one to use.
+// User-configurable LLM provider storage. Providers persist in
+// chrome.storage.local with one "active provider" selection, since the
+// pipeline calls the LLM without naming a model.
 
 import {
   PIPELINE_MIN_CONTEXT_WINDOW_TOKENS,
@@ -51,8 +49,7 @@ export const SERVICE_TIER_DEFINITIONS = Object.freeze({
 });
 
 /**
- * Default model suggestions per provider type, used to seed the options-page
- * dropdowns.
+ * Default model suggestions per provider type, seeding the options-page dropdowns.
  * `capability` is 'completion' (generated text) or 'decision' (structured answers only).
  * @type {ReadonlyArray<{type: string, displayName: string, models: string[], defaultModel: string, requiresUrl: boolean, capability: 'completion'|'decision'}>}
  */
@@ -139,7 +136,7 @@ export function isDecisionProvider(provider) {
 
 /**
  * Validates a decision server base URL. Shared by save-time normalization and
- * the DecisionClient constructor so a saved provider cannot fail at run time.
+ * the DecisionClient constructor so a saved provider cannot fail at runtime.
  * @param {string} url
  * @param {boolean} hasToken Whether a bearer token will be sent.
  * @returns {URL}
@@ -201,10 +198,9 @@ export async function getProvidersState() {
 }
 
 /**
- * Reads the stored document. `state` is the normalized view the public getters
- * expose; `unrecognized` holds well-formed entries of a type this build does
- * not know (for example from a newer version) so mutators can write them back
- * untouched instead of destroying them and their tokens.
+ * Reads the stored document. `state` is the normalized view; `unrecognized`
+ * holds well-formed entries of unknown type (e.g. from a newer version) so
+ * mutators can write them back instead of destroying them and their tokens.
  * @returns {Promise<{state: ProvidersState, unrecognized: object[]}>}
  */
 async function readProvidersDocument() {
@@ -375,14 +371,13 @@ export async function saveProvider(input) {
       }
       state.providers[existingIndex] = entry;
     }
-    // An entry saved as a non-decision type can no longer be the splitter
-    // or the project chat page scanner.
+    // A non-decision entry can no longer be the splitter or page scanner.
     if (state.splitterId === entry.id && !isDecisionProvider(entry)) state.splitterId = null;
     if (state.pageScanId === entry.id && !isDecisionProvider(entry)) state.pageScanId = null;
     const completionProviders = state.providers.filter(isCompletionProvider);
     if (!completionProviders.some((p) => p.id === state.activeId)) {
-      // Only auto-activate the very first completion provider. Otherwise leave
-      // activeId null so page text never silently moves to another vendor.
+      // Auto-activate only the first completion provider, so page text never
+      // silently moves to another vendor.
       state.activeId =
         isNew && completionProviders.length === 1 && completionProviders[0].id === entry.id
           ? entry.id
@@ -394,8 +389,8 @@ export async function saveProvider(input) {
 }
 
 /**
- * Removes a provider. If it was active, activeId is cleared rather than
- * silently switched to another provider; the user must choose a new one.
+ * Removes a provider. If active, activeId is cleared, not switched; the user
+ * must choose a new one.
  * @param {string} id
  * @returns {Promise<ProvidersState>}
  */
@@ -469,8 +464,8 @@ export async function setTopicSplitter(id) {
 }
 
 /**
- * Returns the selected topic-splitter decision provider, used alongside the
- * active completion provider, or null when the LLM splits topics.
+ * Returns the selected topic-splitter decision provider, or null when the LLM
+ * splits topics.
  * @returns {Promise<ProviderEntry|null>}
  */
 export async function getDecisionProvider() {

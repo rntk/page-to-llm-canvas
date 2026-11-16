@@ -1,6 +1,5 @@
-// Extension-page client for the worker's project service (see
-// src/extension/background/projects.js). Every call rejects with an Error when
-// the worker answers `{ok: false}` or the runtime transport fails.
+// Extension-page client for the worker's project service (src/extension/background/projects.js).
+// Calls reject with an Error when the worker answers `{ok: false}` or transport fails.
 
 import { MSG } from '../shared/runtime/messages.js';
 import { browserRuntimeMessenger } from '../utils/runtimeMessages.js';
@@ -58,7 +57,7 @@ export function createProjectsApi(messenger = browserRuntimeMessenger) {
     /** @param {string} projectId */
     stopProjectTopicTree: (projectId) => request({ type: MSG.stopProjectTopicTree, projectId }),
     /**
-     * Where a tab's per-page chat lives: its saved record, or a URL page key.
+     * Saved record or URL page key for a tab's per-page chat.
      * @param {string} projectId
      * @param {number} tabId
      * @returns {Promise<{source: object}>}
@@ -80,7 +79,7 @@ export function createProjectsApi(messenger = browserRuntimeMessenger) {
     deleteExcerpt: (projectId, excerptId) =>
       request({ type: MSG.deleteProjectExcerpt, projectId, excerptId }),
     /**
-     * Tells the background the project page handled the excerpt focus request.
+     * Acknowledges an excerpt focus request to the background.
      * @param {string} projectId
      * @param {string} excerptId
      * @returns {Promise<{acknowledged: boolean}>}
@@ -96,17 +95,15 @@ export function createProjectsApi(messenger = browserRuntimeMessenger) {
     readExcerptPage: (projectId, excerptId) =>
       request({ type: MSG.readProjectExcerptPage, projectId, excerptId }),
     /**
-     * Reads a page's full text by URL for the project chat: the saved record
-     * when there is one, else the live project tab.
+     * Reads a page's full text by URL: the saved record if present, else the live tab.
      * @param {string} projectId
      * @param {string} url
      * @returns {Promise<{sentences: string[], truncated: boolean, source: 'record'|'tab', topics: string[]}>}
      */
     readPageText: (projectId, url) => request({ type: MSG.readProjectPageText, projectId, url }),
     /**
-     * Sends a chat request (scan config, scan decision, completion, cancel)
-     * and resolves with the raw response, `{ok: false}` included: the project
-     * chat turn runner interprets those itself.
+     * Sends a chat request and resolves with the raw response, including `{ok: false}`
+     * (the chat turn runner handles those).
      * @param {object} message
      * @returns {Promise<object>}
      */
@@ -120,9 +117,8 @@ const TAB_EVENTS = ['onCreated', 'onRemoved', 'onUpdated', 'onMoved', 'onAttache
 const GROUP_EVENTS = ['onCreated', 'onRemoved', 'onUpdated', 'onMoved'];
 
 /**
- * Listens to live tab/tab group events and calls `onChange()` for those relevant to
- * `scope` (every event when unscoped or before the view loads). Missing namespaces are
- * skipped.
+ * Calls `onChange()` for tab/tab group events relevant to `scope` (all events when
+ * unscoped or before the view loads). Missing namespaces are skipped.
  *
  * @param {function(): void} onChange
  * @param {{tabs?: object, tabGroups?: object}} apis
@@ -173,8 +169,8 @@ const differs = (change, select) =>
   change && JSON.stringify(select(change.oldValue)) !== JSON.stringify(select(change.newValue));
 
 /**
- * Listens to stored projects, excerpts, the index and (when scoped) the project's topic
- * tree. When scoped, project/excerpt writes only notify if the project's slice changed.
+ * Listens to stored projects, excerpts, the index and (when scoped) the topic tree.
+ * When scoped, project/excerpt writes notify only if the project's slice changed.
  *
  * @param {function(): void} onChange
  * @param {{projectId: string, getView: function(): object|null}} [scope]
@@ -200,16 +196,13 @@ function subscribeStoreChanges(onChange, scope) {
 }
 
 /**
- * Calls `onChange()` (no arguments) whenever stored projects or excerpts, or live tabs/tab
- * groups change, so a page can refetch its view. Callers should debounce; tab events can
- * arrive in bursts.
+ * Calls `onChange()` when stored projects/excerpts or live tabs/tab groups change.
+ * Callers should debounce; tab events arrive in bursts.
  *
  * @param {function(): void} onChange
  * @param {object} [options]
- * @param {{projectId: string, getView: function(): object|null}} [options.scope] Current
- *   project view; omit for overview subscriptions.
- * @param {{tabs?: object, tabGroups?: object}} [options.apis] Browser namespaces; defaults
- *   to `chrome.tabs` and `chrome.tabGroups`.
+ * @param {{projectId: string, getView: function(): object|null}} [options.scope] Omit for overview.
+ * @param {{tabs?: object, tabGroups?: object}} [options.apis] Defaults to chrome.tabs/tabGroups.
  * @returns {function(): void} Unsubscribe.
  */
 export function subscribeProjectChanges(

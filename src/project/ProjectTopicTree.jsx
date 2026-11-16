@@ -16,8 +16,7 @@ export function ProjectTopicTree({ project, merge, pending, notice, onBuild, onS
   const tree = merge?.tree;
   const { status, running, resumable, updatable, eligible, skipped, changeText, stateText } =
     useMemo(() => describeMerge(merge, { pending }), [merge, pending]);
-  // useProjectView keeps unchanged tree parts identical across polls, so these
-  // dependencies only change when the tree's content does.
+  // useProjectView keeps unchanged tree parts identical, so these deps change only with content.
   const hasTree = !!tree;
   const rootId = tree?.rootId;
   const nodes = tree?.nodes;

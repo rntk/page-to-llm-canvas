@@ -216,9 +216,8 @@ export function getRecordActions(record) {
     });
   }
 
-  // Records finished with no summaries (global toggle) or a skipped failed
-  // summary get a one-shot action that fills only missing work from stored
-  // topics without redoing clean/split/topic-ranges — same path as Options.
+  // Records with no summaries (global toggle) or a skipped failed summary get a
+  // one-shot action filling only missing work from stored topics (same as Options).
   if (
     record &&
     record.status === PIPELINE_STATUS.DONE &&
@@ -324,10 +323,8 @@ function findOpenOptionsView() {
 
 function openOptionsPage(hash = '') {
   if (hash) {
-    // Reuse an open options tab rather than stacking a duplicate on every
-    // click: the options page re-reads the hash on `hashchange`, so updating
-    // it switches that tab to the requested section, and openOptionsPage()
-    // focuses the tab it already lives in.
+    // Reuse an open options tab: it re-reads the hash on `hashchange` to switch
+    // sections, and openOptionsPage() focuses the existing tab.
     const openView = findOpenOptionsView();
     if (openView && chrome.runtime.openOptionsPage) {
       openView.location.hash = hash;
@@ -673,11 +670,8 @@ async function refreshRecords({ showLoading = false, forceRender = false } = {})
 }
 
 pickBtn.addEventListener('click', async () => {
-  // Resolve into a local rather than writing back to the module-scoped
-  // `activeTab`. That variable is owned by refreshRecords(), which guards its
-  // own writes with `refreshRequestId`; a click racing a refresh would
-  // otherwise read a stale value, await, and clobber the newer tab the
-  // refresh just stored.
+  // Resolve into a local, not module-scoped `activeTab`: refreshRecords() owns
+  // that (guarded by `refreshRequestId`), and a racing click would clobber it.
   try {
     const tab = activeTab || (await getActiveTab());
     if (!tab || !tab.id) {

@@ -6,10 +6,9 @@ const READABLE_URL = /^(?:https?|file):/i;
 export const UNREADABLE_PAGE_REASON = 'Chat is not available for this kind of page.';
 
 /**
- * The pages a project chat can talk about: the project's open tabs plus saved
- * pages (which cover a closed group, whose tabs are gone), deduplicated by
- * canonical URL. Readable pages are numbered from 1 in URL order, so numbering
- * does not depend on tab order. Other tabs are listed as unreadable.
+ * Pages a project chat can use: open tabs plus saved pages (which cover a closed group),
+ * deduped by canonical URL. Readable pages are numbered from 1 in URL order, so numbering
+ * ignores tab order; the rest are listed as unreadable.
  *
  * @param {object} input
  * @param {Array<{title?: string, url?: string}>} [input.tabs] The project view's tabs.

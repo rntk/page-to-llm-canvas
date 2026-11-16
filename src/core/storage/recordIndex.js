@@ -35,10 +35,9 @@ export async function writeIndex(idx) {
 
 /**
  * The lightweight projection of a record cached in the index (`meta`) and
- * returned by `listRecords`. Kept separate from the full record so that
- * frequent metadata-only changes (status/progress ticks) never require
- * reading or writing every record's full payload (html/text/sentences/
- * topics/summaries) just to keep listings up to date.
+ * returned by `listRecords`. Kept apart from the full record so frequent
+ * metadata-only changes (status/progress ticks) never read or write every
+ * record's full payload.
  * @param {object} rec Record metadata source.
  * @param {object} [options] Index projection options.
  * @param {string} [options.snippet] Precomputed snippet; derived from the record by default.
@@ -47,10 +46,9 @@ export function buildRecordMeta(rec, { snippet = buildRecordSnippet(rec) } = {})
   return {
     sourceUrl: rec.sourceUrl,
     snippet,
-    // Text generation the cached snippet was taken from. Startup
-    // reconciliation compares it against the (small) meta document to decide
-    // whether it has to read the record's content document at all; a missing
-    // or mismatched value only means the snippet is re-derived.
+    // Text generation the cached snippet came from. Startup reconciliation
+    // compares it with the small meta document to decide whether to read the
+    // content document; a missing or mismatched value only means re-deriving.
     snippetRevision: rec.textRevision,
     createdAt: rec.createdAt,
     status: rec.status,
@@ -77,17 +75,13 @@ const INDEX_META_FIELDS = [
 ];
 
 /**
- * Best-effort, incremental refresh of a record's cached index projection.
- * Only reads/writes the small `patch` fields the projection cares about (plus
- * whatever was already cached) — never the full record — so a status/progress
- * tick never has to pull in the (possibly large) content doc just to keep the
- * snippet around. The snippet itself is only recomputed when `patch.text` is
- * actually present (i.e. when the content doc changes), not on every sync.
- * Skipped entirely when `patch` touches none of the fields the projection
- * exposes, so the (much more frequent) processingLog-only writes never touch
- * the index. A failure here only makes the cached listing momentarily stale —
- * it never threatens the record write that already succeeded — so it is
- * swallowed.
+ * Best-effort, incremental refresh of a record's cached index projection. Reads
+ * and writes only the small `patch` fields the projection uses (plus what was
+ * already cached), never the full record. The snippet is recomputed only when
+ * `patch.text` is present. Skipped when `patch` touches no projected field, so
+ * processingLog-only writes never touch the index. A failure only leaves the
+ * cached listing momentarily stale, never threatens the record write that
+ * already succeeded, so it is swallowed.
  * @param {string} key Record key.
  * @param {object} patch Partial record update.
  * @param {object} fallbackMeta Existing metadata fallback.
@@ -119,17 +113,14 @@ export async function syncIndexMeta(key, patch, fallbackMeta) {
     });
   } catch (err) {
     // The meta document was already written when this projection write failed.
-    // Retry from that authoritative document rather than merely replaying the
-    // patch: a concurrent writer may have changed another projected field in
-    // the meantime. If storage remains unavailable, listRecords() still
-    // overlays the authoritative metadata for callers (including keepalive),
-    // and retries persisting the repaired projection on its next read.
+    // Retry from it rather than replaying the patch: a concurrent writer may have
+    // changed another projected field. If storage stays unavailable, listRecords()
+    // still overlays the authoritative metadata and retries persisting the repair.
     try {
-      // The repair below rebuilds the projection from the meta document only,
-      // so it cannot restore a snippet this failed write was carrying. It does
-      // not have to: the meta document already committed a new textRevision,
-      // which no longer matches the projection's snippetRevision, so the next
-      // reconciliation re-reads the content document and recomputes it.
+      // The repair rebuilds from the meta document only, so it cannot restore a
+      // snippet this write carried. It need not: the meta document already
+      // committed a new textRevision that mismatches snippetRevision, so the next
+      // reconciliation re-reads the content and recomputes it.
       await repairIndexedRecordProjection(key);
     } catch (repairErr) {
       log.warn('failed to sync index meta for', key, err);
@@ -140,10 +131,9 @@ export async function syncIndexMeta(key, patch, fallbackMeta) {
 
 /**
  * Copies fields that are authoritative in a record's meta document into an
- * existing index projection. The text snippet — and the `snippetRevision`
- * marker naming the generation it was taken from — deliberately remains
- * cached: text lives in the separate content document and normal content
- * writes already update both through syncIndexMeta().
+ * existing index projection. The text snippet and its `snippetRevision` marker
+ * stay cached: text lives in the content document, whose writes already update
+ * both through syncIndexMeta().
  * @param {object} meta Authoritative record metadata document.
  * @param {object} [cached] Existing lightweight index projection.
  * @returns {object} Repaired lightweight index projection.
@@ -164,11 +154,10 @@ function mergeAuthoritativeMetaIntoProjection(meta, cached = {}) {
 }
 
 /**
- * Rebuilds one already-indexed record's lightweight projection from its
- * authoritative metadata. This is intentionally narrow: it is the recovery
- * path for an interrupted incremental index write, whereas startup's
- * reconcileRecordStorage() remains responsible for discovering unindexed
- * records and ownerless documents.
+ * Rebuilds one already-indexed record's projection from its authoritative
+ * metadata: the recovery path for an interrupted incremental index write.
+ * Discovering unindexed records and ownerless documents stays with startup's
+ * reconcileRecordStorage().
  * @param {string} key Record key whose existing projection should be repaired.
  * @returns {Promise<void>}
  */
@@ -230,20 +219,18 @@ function shouldAttemptIndexProjectionRepair(now = Date.now()) {
 /**
  * Lists every indexed record's metadata, read authoritatively.
  *
- * Cost, because this is called on hot paths (the 30s keepalive alarm, the popup
- * and Options listings): one index read plus one batched `getLocal` of EVERY
- * record's meta document — not an index-only read. When the cached projection
- * turns out to be stale, this read path may also WRITE: a throttled
- * `repairAllIndexProjections` attempt re-reads the index and every meta
- * document under the index queue before rewriting the cache. Authoritative
- * reads are never throttled; only this best-effort persistence repair is.
- * Content/summaries documents are never touched on this path.
+ * Cost (hot paths: the 30s keepalive alarm, popup and Options listings): one
+ * index read plus one batched `getLocal` of EVERY record's meta document.
+ * When the cached projection is stale this path may also WRITE: a throttled
+ * `repairAllIndexProjections` re-reads the index and every meta document under
+ * the index queue before rewriting the cache. Authoritative reads are never
+ * throttled, only that persistence repair. Content/summaries documents are
+ * never touched.
  *
- * The extra reads are deliberate: the index is a cache, never the source of
- * truth for a record's status. `updateRecord` commits the small meta document
- * before its index projection, so a failed projection write would otherwise
- * hide a terminal error/done state from the popup, Options, and the keepalive
- * alarm indefinitely.
+ * The extra reads are deliberate: the index is a cache, not the source of truth
+ * for status. `updateRecord` commits the meta document before its index
+ * projection, so a failed projection write would otherwise hide a terminal
+ * error/done state from the popup, Options and the keepalive alarm.
  * @returns {Promise<Array<Partial<ArticleRecord>>>}
  */
 export async function listRecords() {

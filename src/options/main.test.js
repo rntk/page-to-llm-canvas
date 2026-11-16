@@ -40,10 +40,8 @@ async function flushAsyncWork() {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
 }
 
-// Panels other than the default (General) tab only mount their subtree once
-// their tab has been activated at least once (see OptionsApp.jsx). Tests that
-// exercise those panels must switch to them first, once the tab strip itself
-// has rendered (createRoot().render() schedules asynchronously).
+// Non-default panels mount only after their tab is first activated (see
+// OptionsApp.jsx). Switch tabs once the tab strip has rendered; render() is async.
 async function goToTab(tabId) {
   await waitFor(() => {
     expect(document.getElementById(`options-tab-${tabId}`)).not.toBeNull();
@@ -55,10 +53,8 @@ describe('options main.jsx', () => {
   let sendMessageMock;
   let confirmMock;
   let alertMock;
-  // Every `import('./main.jsx')` below creates a fresh React root. Without
-  // unmounting the previous one, its effects (e.g. OptionsApp's `hashchange`
-  // listener) keep running against later tests and can mount panels or fire
-  // storage calls that belong to a prior, already-finished case.
+  // Each `import('./main.jsx')` creates a fresh React root. Unmount the previous
+  // one, or its effects (e.g. the `hashchange` listener) leak into later tests.
   let currentRoot;
 
   beforeEach(() => {
@@ -75,10 +71,9 @@ describe('options main.jsx', () => {
       runtime: {
         sendMessage: sendMessageMock,
       },
-      // Keep storage itself present while leaving the optional APIs absent.
-      // Dedicated metric tests cover a wholly missing storage namespace; doing
-      // that in mounted React effects turns expected mutant failures into
-      // unhandled rejections before Stryker can attribute them to an assertion.
+      // Keep storage present but optional APIs absent. A wholly missing namespace
+      // is covered by metric tests; in mounted effects it would become an
+      // unhandled rejection before Stryker can attribute the failure.
       storage: {},
     });
 
@@ -166,9 +161,8 @@ describe('options main.jsx', () => {
     });
   });
 
-  // Non-default panels must not do any storage I/O until their tab has been
-  // opened at least once - the whole point of gating them behind
-  // `visitedTabs` in OptionsApp.jsx.
+  // Non-default panels must do no storage I/O until their tab is first opened
+  // (gated by `visitedTabs` in OptionsApp.jsx).
   it('does not mount non-default panels before their tab is visited', async () => {
     sendMessageMock.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') cb({ ok: true, items: [] });
@@ -179,8 +173,7 @@ describe('options main.jsx', () => {
     await waitFor(() => {
       expect(document.getElementById('llm-request-timeout-seconds')).not.toBeNull();
     });
-    // Give any (incorrectly) eagerly-mounted panel's initial-load effect a
-    // chance to fire before asserting it never did.
+    // Let any wrongly eager panel's initial-load effect run before asserting it did not.
     vi.useFakeTimers();
     await vi.advanceTimersByTimeAsync(50);
     vi.useRealTimers();
@@ -192,8 +185,7 @@ describe('options main.jsx', () => {
     expect(sent).not.toContain('getStorageOverview');
   });
 
-  // A deep link into a non-default tab must mount that panel on first render
-  // rather than requiring a manual tab switch first.
+  // A deep link into a non-default tab mounts that panel on first render.
   it('mounts the panel for a hash deep link on first render', async () => {
     window.history.replaceState(null, '', '#records');
     sendMessageMock.mockImplementation((msg, cb) => {
@@ -207,8 +199,8 @@ describe('options main.jsx', () => {
     });
   });
 
-  // Once a panel has been visited it stays mounted (only `hidden` toggles),
-  // so navigating away and back must not repeat its initial storage read.
+  // Visited panels stay mounted (only `hidden` toggles), so returning must not
+  // repeat the initial storage read.
   it('does not repeat a panel initial load on returning to an already-visited tab', async () => {
     sendMessageMock.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') cb({ ok: true, items: [] });
@@ -1196,9 +1188,7 @@ describe('options main.jsx', () => {
     });
   });
 
-  // A failed round-trip must render a distinct error state with a retry
-  // affordance, not the same "No records yet" empty state a user with real
-  // records could see on a transient failure.
+  // A failed load must render a distinct error with retry, not "No records yet".
   it('shows a retry affordance instead of "No records yet" when listRecords fails, and recovers on retry', async () => {
     sendMessageMock.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') cb({ ok: false, error: 'storage read failed' });
@@ -1232,7 +1222,7 @@ describe('options main.jsx', () => {
     });
   });
 
-  // U1's same "empty state hides a real failure" defect on the providers list.
+  // Same "empty state hides a real failure" defect as records, on the providers list.
   it('shows a retry banner instead of the empty state and recovers when retried', async () => {
     let providerReads = 0;
     sendMessageMock.mockImplementation((msg, cb) => {
@@ -1266,8 +1256,7 @@ describe('options main.jsx', () => {
     expect(providerReads).toBe(2);
   });
 
-  // A failed delete must surface an error instead of silently reloading the
-  // (unchanged) provider list.
+  // A failed delete must surface an error, not silently reload the unchanged list.
   it('surfaces an error when deleting a provider fails, and the provider is not silently removed', async () => {
     sendMessageMock.mockImplementation((msg, cb) => {
       if (msg.type === 'listRecords') cb({ ok: true, items: [] });
@@ -1301,8 +1290,7 @@ describe('options main.jsx', () => {
         'delete failed',
       );
     });
-    // The provider is still listed - a failed delete must not silently no-op
-    // by reloading a list that (correctly) still contains it, without saying why.
+    // The provider is still listed; a failed delete must not silently reload a list that still contains it.
     expect(document.querySelectorAll('table')[0].querySelectorAll('tbody tr')).toHaveLength(1);
   });
 

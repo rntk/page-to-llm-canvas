@@ -1,6 +1,6 @@
-// Default for new runs: skip summary calls after topic ranges. The worker saves
-// this as the record's skipSummaries directive; "Generate summaries" overrides
-// it for one run. Storage failures fall back to summaries enabled.
+// When true, new runs skip summary calls after topic ranges. The worker saves
+// it as the record's skipSummaries directive; "Generate summaries" overrides it
+// for one run. Defaults to false; storage failures also yield summaries enabled.
 
 import { createStoredSetting } from '../../shared/runtime/localStore.js';
 

@@ -70,14 +70,12 @@ function categoryForKey(key) {
 const APPROXIMATE_BATCH_SIZE = 20;
 
 /**
- * Sums the JSON size of the given keys' values without ever holding more than
- * one batch of them in memory. Only used when `getBytesInUse` is unavailable.
+ * Sums the JSON size of the given keys' values, holding at most one batch in
+ * memory. Only used when `getBytesInUse` is unavailable.
  *
- * A failed batch is skipped rather than aborting the whole overview, but its
- * size is then missing from the sum, so `partial` marks `bytes` as a lower
- * bound. Without that signal a transient read failure would surface as a
- * confidently too-small number, which is the direction that misleads a user
- * deciding whether their stored data is worth deleting.
+ * A failed batch is skipped rather than aborting the overview, so `partial`
+ * marks `bytes` as a lower bound; otherwise a transient read failure would show
+ * a confidently too-small number.
  * @param {string[]} keys
  * @returns {Promise<{bytes: number, partial: boolean}>}
  */
@@ -100,11 +98,9 @@ async function approximateBytes(keys) {
 /**
  * @param {string[]} keys
  * @returns {Promise<{bytes: number, approximate: boolean, partial: boolean}>}
- *   `approximate` is true when the real byte count could not be obtained
- *   (older Chrome without `getBytesInUse`, or a `lastError` on the call) and
- *   `bytes` is a rough JSON-size estimate instead of the true on-disk figure.
- *   `partial` is true when some values could not be read at all, which makes
- *   `bytes` a lower bound rather than a whole-category estimate.
+ *   `approximate`: `bytes` is a JSON-size estimate because the real count was
+ *   unavailable (no `getBytesInUse`, or a `lastError`).
+ *   `partial`: some values could not be read, so `bytes` is a lower bound.
  */
 function bytesInUse(keys) {
   if (!keys.length) return Promise.resolve({ bytes: 0, approximate: false, partial: false });
@@ -176,11 +172,9 @@ export async function getStorageOverview() {
   return {
     totalBytes: Object.values(categories).reduce((sum, category) => sum + category.bytes, 0),
     totalKeyCount: allKeys.length,
-    // True when any category's byte count is an estimate rather than the
-    // real on-disk size, so totalBytes above is an estimate too.
+    // approximate: some byte count is an estimate, so totalBytes is too.
     approximate: Object.values(categories).some((category) => category.approximate),
-    // True when some values could not be read at all, so totalBytes is a lower
-    // bound and not merely imprecise.
+    // partial: some values were unreadable, so totalBytes is a lower bound.
     partial: Object.values(categories).some((category) => category.partial),
     categories,
   };

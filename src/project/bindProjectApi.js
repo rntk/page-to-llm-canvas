@@ -1,5 +1,5 @@
 /**
- * Bind canvas and merge operations to the selected project once at the app boundary.
+ * Binds canvas and merge operations to a project id, once at the app boundary.
  * @param {import('./projectsApi.js').ProjectsApi} api
  * @param {string|null} projectId
  */

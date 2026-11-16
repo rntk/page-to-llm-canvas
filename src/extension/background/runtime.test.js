@@ -159,11 +159,9 @@ describe('installBackgroundRuntime (no chrome global)', () => {
     expect(sendResponse).toHaveBeenCalledTimes(1);
   });
 
-  // Not covered here: a `sendResponse` that itself throws. The listener uses
-  // the two-argument `.then(onFulfilled, onRejected)` form precisely so that
-  // throw is *not* routed into the rejection handler and answered twice — it
-  // surfaces as an unhandled rejection instead, which a test cannot observe
-  // without failing the run on the very error it is asserting.
+  // Not covered: a throwing `sendResponse`. The two-argument `.then` form keeps
+  // it out of the rejection handler (no double answer); it surfaces as an
+  // unhandled rejection, which a test cannot observe without failing the run.
 
   it('resumes orphaned records on browser start and on install/update', async () => {
     const ctx = setup();
@@ -199,9 +197,7 @@ describe('installBackgroundRuntime (no chrome global)', () => {
     const ctx = setup({ bootstrapReady: () => Promise.reject(new Error('reconcile boom')) });
 
     ctx.startupListener();
-    // A failed bootstrap must not strand in-flight records forever: the
-    // reconcile-first ordering is a preference, resuming at all is the
-    // requirement.
+    // Reconcile-first ordering is a preference; a failed bootstrap must not strand records.
     await vi.waitFor(() =>
       expect(ctx.pipelineSupervisor.resumeInFlightRecords).toHaveBeenCalledTimes(1),
     );

@@ -1,8 +1,7 @@
 import React from 'react';
 
 /**
- * Reusable component to render a primary error message and an optional,
- * collapsible stack trace/technical details preformatted block.
+ * Error message with an optional collapsible technical details block.
  *
  * @param {object} props
  * @param {string} props.message

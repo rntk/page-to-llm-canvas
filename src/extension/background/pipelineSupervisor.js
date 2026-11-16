@@ -203,14 +203,11 @@ export function createPipelineSupervisor({
 
       if (options.automatic) {
         const snapshot = options.breakerSnapshot || (await readBreakerSnapshot());
-        // A confirmed open breaker deliberately stops this run. An unknown
-        // breaker state skips only this attempt; the keepalive remains armed
-        // so a transient session-storage read failure can self-heal.
+        // An open breaker stops this run. An unknown state skips only this
+        // attempt (keepalive stays armed so a transient read failure self-heals).
         if (!snapshot.ok || openStateFromSnapshot(rec, snapshot)) return;
-        // Automatic recovery is fail-closed: prove that this run can still
-        // persist its ownership before allowing it to approach provider work.
-        // The guarded no-op patch is also safe if the record was superseded
-        // after the read above.
+        // Fail-closed: prove this run can still persist its ownership before
+        // provider work. The guarded no-op patch is safe if superseded since the read.
         try {
           const claimed = await updateRecord(key, {}, { expectedPipelineRunId: pipelineRunId });
           if (!claimed || !isInFlightPipelineStatus(claimed.status)) return;
@@ -234,16 +231,11 @@ export function createPipelineSupervisor({
         .catch(async (err) => {
           failed = true;
           backgroundLog.error('pipeline failed for', key, err);
-          // Defensive fallback: the pipeline's own attempt to persist an ERROR
-          // status on failure (orchestrator.js) can itself fail to write, in
-          // which case the record would keep an in-flight status forever and
-          // the keepalive alarm would re-run this failing pipeline every 30s.
-          // Best-effort re-attempt here. Repeated failure opens a browser-session
-          // circuit breaker so alarms cannot retry this run forever.
-          // `expectedPipelineRunId` mirrors runtime.update (pipelineRuntime.js)
-          // so a superseded run's fallback can never clobber a newer run that
-          // has since taken ownership of this record — the same run-id guard
-          // orchestrator.js relies on for its own AbortError handling.
+          // Fallback: the orchestrator's own ERROR write can itself fail, leaving
+          // an in-flight status that the keepalive alarm would re-run every 30s.
+          // Retry the write here; repeated failure opens the session breaker.
+          // The run-id guard (as in runtime.update) keeps a superseded run from
+          // clobbering a newer owner.
           try {
             const updated = await updateRecord(key, errorTransition(formatPipelineError(err)), {
               expectedPipelineRunId: pipelineRunId,
@@ -282,10 +274,9 @@ export function createPipelineSupervisor({
           if (current?.promise === promise) {
             jobRegistry.delete(key);
           }
-          // Do not clear the keepalive alarm from here. If this run finished by
-          // being aborted, the record may still be in an in-flight status in
-          // storage; clearing the alarm would orphan it with nothing left to
-          // resume it. The onAlarm handler clears the alarm from storage truth.
+          // Don't clear the keepalive alarm here: an aborted run may leave the
+          // record in-flight, and clearing would orphan it. onAlarm clears it
+          // from storage truth.
         });
 
       jobRegistry.set(key, { promise, controller, pipelineRunId });

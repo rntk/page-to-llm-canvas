@@ -74,8 +74,7 @@ describe('chat API', () => {
       contentRevision: 'rev-a',
     });
 
-    // An empty/absent revision is omitted rather than sent as a falsy value the
-    // background would have to interpret.
+    // An empty/absent revision is omitted rather than sent as a falsy value.
     sendRuntimeMessage.mockResolvedValueOnce({ ok: true, chat: { chatId: 'c1' } });
     await persistChatTurn('article-1', 'c1', { turnId: 't2' }, { expectedContentRevision: '' });
     expect(sendRuntimeMessage).toHaveBeenLastCalledWith({

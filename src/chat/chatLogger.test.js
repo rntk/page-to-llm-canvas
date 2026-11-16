@@ -59,8 +59,7 @@ describe('chat logger', () => {
       'PageToLLM Canvas chat: verbose log setting load failed:',
       expect.any(Error),
     );
-    // isReady flushed to true on failure, so a subsequent verbose call no
-    // longer buffers indefinitely; the setting stayed off (safe default).
+    // After a failed load, verbose calls no longer buffer and the setting stays off.
     log('another', { id: 2 }, { verbose: true });
     expect(console.info).not.toHaveBeenCalled();
   });

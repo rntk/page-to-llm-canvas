@@ -21,12 +21,12 @@ export const SUMMARY_TREE_STAGE = Object.freeze({
 
 // A running build saves at least this often, even while requests are in flight.
 export const SUMMARY_TREE_HEARTBEAT_MS = 20_000;
-// A running tree older than this without a save was interrupted.
+// A running tree with no save inside this window is treated as interrupted.
 export const SUMMARY_TREE_STALE_MS = 3 * SUMMARY_TREE_HEARTBEAT_MS;
 
 /**
- * A tree with its effective status. A tree saved for other
- * content, or a running tree that stopped saving, is reported as such.
+ * Tree with its effective status: MISSING when absent or saved for other content,
+ * INTERRUPTED for a running tree that stopped saving.
  * @param {object|null|undefined} tree
  * @param {*} expectedContentRevision
  * @param {number} [now]
@@ -48,9 +48,8 @@ export function readSummaryTree(tree, expectedContentRevision, now = Date.now())
 }
 
 /**
- * Only builds explicitly started under background recovery may auto-resume.
- * Legacy RUNNING trees retain the manual Resume behavior, even if recent.
- * Opted-in builds may outlive the heartbeat window (e.g. a browser restart).
+ * Only builds started with background recovery auto-resume, even past the heartbeat
+ * window (e.g. after a browser restart). Legacy RUNNING trees keep manual Resume.
  * @param {object|null|undefined} tree
  * @param {*} expectedContentRevision
  */

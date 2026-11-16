@@ -267,13 +267,10 @@
   outline-offset: 2px;
 }
 
-/* Fills the rail below the head and clips it: the rail is viewport-height, so
-   the card track inside is what moves (see InPageRail.jsx), not the body.
-   `clip`, not `hidden`: a hidden box is still a scroll container, and the
-   browser would scroll it to reveal a card that gets keyboard focus below the
-   fold — an offset the track transform knows nothing about, which would leave
-   every card misaligned with its sentences from then on. Clipping cannot
-   scroll, and InPageRail scrolls the article for such a card instead. */
+/* Fills the rail below the head; the card track inside moves (see InPageRail.jsx).
+   `clip`, not `hidden`: a hidden box is a scroll container and the browser would
+   scroll it to reveal a focused card, misaligning every card with its sentences.
+   InPageRail scrolls the article for such a card instead. */
 .pagetollm-rail-body {
   position: relative;
   z-index: 0;

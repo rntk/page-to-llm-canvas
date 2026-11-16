@@ -1,22 +1,14 @@
 /**
- * Shared geometry for a topic card's title block.
+ * Shared geometry for a topic card's title block: padding, up to N title lines,
+ * a gap, then one meta line. Used by canvas cards (domain/topicCards.js) and the
+ * dense rail (utils/denseCardLayout.js), so neither layout owns these numbers.
  *
- * Both card layouts — the canvas cards in `domain/topicCards.js` and the dense
- * hierarchy rail in `utils/denseCardLayout.js` — render the same title block:
- * padding, a title of up to N lines, a gap, then a single meta line. These
- * constants describe that block, and live here rather than in either layout so
- * neither one owns the other's numbers.
- *
- * Deliberately NOT shared, and left duplicated on purpose:
- *
- * - The two `getTitleLineBudget` copies and the two title font-size
- *   derivations. Canvas sizes its title from the zoom scale, while the rail
- *   caps an already-computed per-card size; see the note on
- *   `getAdjustedTitleFontSize` in denseCardLayout.js for why unifying those
- *   two would change visual output.
- * - The min-height clamps. `CARD_MIN_CLAMPED_HEIGHT` (canvas stacking) and
- *   `DENSE_CARD_MIN_HEIGHT` (rail) are both 56 by coincidence, not because
- *   one constrains the other.
+ * Duplicated on purpose:
+ * - `getTitleLineBudget` and the title font-size derivations. Canvas sizes titles
+ *   from zoom; the rail caps a precomputed size. Unifying them would change visuals
+ *   (see `getAdjustedTitleFontSize` in denseCardLayout.js).
+ * - The min-height clamps (`CARD_MIN_CLAMPED_HEIGHT`, `DENSE_CARD_MIN_HEIGHT`). Both
+ *   are 56 by coincidence.
  */
 
 /** Multiplier from title font size to rendered line height. */

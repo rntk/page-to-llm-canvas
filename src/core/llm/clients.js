@@ -1,8 +1,8 @@
-// Provider clients accept one internal message/tool shape and serialize it to
-// each provider's wire format. Provider quirks are handled when parsing HTTP
+// Clients accept one internal message/tool shape and serialize it to each
+// provider's wire format. Provider quirks are tolerated only when parsing HTTP
 // responses; outbound converters expect only the internal shape.
-// `finishReason` uses the shared vocabulary in completionStatus.js. The caller
-// supplies a signal combining cancellation and the configured timeout.
+// `finishReason` uses the vocabulary in completionStatus.js. The caller's
+// signal combines cancellation and the configured timeout.
 
 import { ProviderType, ServiceTier } from './providers.js';
 import {
@@ -121,8 +121,8 @@ function toProviderMessage(message, { includeReasoningContent = true } = {}) {
 }
 
 /**
- * Builds the chat-completions URL from a user-supplied base. Tolerates a base
- * given as a host, a host + `/v1`, or a full `/chat/completions` URL.
+ * Builds the chat-completions URL from a host, host + `/v1`, or full
+ * `/chat/completions` base.
  * @param {string} base
  */
 export function buildChatCompletionsUrl(base) {
@@ -179,10 +179,8 @@ async function postJson(fetchImpl, endpoint, headers, body, signal) {
 }
 
 /**
- * Parses a `Retry-After` header value into milliseconds. Accepts either an
- * integer-seconds value or an HTTP-date value; returns undefined when the
- * header is absent or does not parse. A past HTTP-date floors at 0 rather
- * than going negative.
+ * Parses a `Retry-After` value (integer seconds or HTTP-date) into ms;
+ * undefined when absent or unparseable. A past date floors at 0.
  * @param {string | null | undefined} headerValue
  * @returns {number | undefined}
  */
@@ -209,13 +207,10 @@ function roundedPercent(part, total) {
 }
 
 /**
- * Normalizes the usage fields returned by OpenAI-compatible APIs, DeepSeek,
- * Anthropic, and llama.cpp. Missing fields stay absent so callers can
- * distinguish an actual zero from a provider that did not report a metric.
- *
- * `inputTokens` includes cached and cache-creation tokens. Anthropic reports
- * those separately, while OpenAI-compatible APIs include them in
- * `prompt_tokens` already.
+ * Normalizes usage from OpenAI-compatible APIs, DeepSeek, Anthropic, and
+ * llama.cpp. Unreported fields stay absent so callers can tell zero from
+ * unknown. `inputTokens` includes cached and cache-creation tokens (Anthropic
+ * reports them separately; OpenAI-compatible APIs fold them into `prompt_tokens`).
  *
  * @param {string} provider
  * @param {unknown} data
@@ -351,12 +346,10 @@ function logClientVerbose(logger, verboseLogs, ...args) {
 }
 
 /**
- * OpenAI-compatible `/chat/completions` client. Covers openai, openrouter and
- * openai_comp (custom URL). `cachePrompt` adds the llama.cpp-specific
- * `cache_prompt` flag — only safe for local OpenAI-compatible servers.
- * An unset temperature is never sent: the provider's per-task temperature
- * setting decides, and leaving it unset is how a model that rejects the
- * parameter is served.
+ * OpenAI-compatible `/chat/completions` client (openai, openrouter, openai_comp).
+ * `cachePrompt` adds the llama.cpp-specific `cache_prompt` flag; only safe for
+ * local servers. An unset temperature is never sent, which is how models that
+ * reject the parameter are served.
  * @param {object} options Client options.
  * @param {string} options.baseUrl
  * @param {string} [options.apiKey]
@@ -365,8 +358,7 @@ function logClientVerbose(logger, verboseLogs, ...args) {
  * @param {boolean} [options.cachePrompt]
  * @param {string} [options.promptCacheKey]
  * @param {boolean} [options.stripReasoningContent] Omit `reasoning_content`
- *   when serializing outbound messages on requests that carry no tools.
- *   Tool-carrying requests always keep it (see the `complete` body below).
+ *   on requests without tools; tool-carrying requests always keep it.
  * @param {string} [options.providerLabel]
  * @param {Function} options.fetchImpl HTTP transport.
  * @param {{info: Function, warn?: Function}} options.logger Client logger.
@@ -405,16 +397,13 @@ function openAICompatibleClient({
           Array.isArray(messages) && messages.length
             ? messages.map((message) =>
                 toProviderMessage(message, {
-                  // Tool-carrying requests keep echoed reasoning: DeepSeek
-                  // thinking mode requires reasoning_content on tool
-                  // follow-ups (HTTP 400 when missing) and ignores it on
-                  // tool-less requests, where it is omitted.
+                  // DeepSeek thinking mode 400s without reasoning_content on
+                  // tool follow-ups and ignores it on tool-less requests.
                   includeReasoningContent: !stripReasoningContent || hasTools,
                 }),
               )
             : [{ role: 'user', content: prompt }],
       };
-      // An unset temperature is left out of the body entirely.
       if (Number.isFinite(temperature)) body.temperature = temperature;
       if (serviceTier) body.service_tier = serviceTier;
       if (promptCacheKey) body.prompt_cache_key = promptCacheKey;
@@ -467,9 +456,8 @@ function anthropicCacheableContent(prompt) {
 }
 
 /**
- * Anthropic tool definitions use `input_schema` instead of OpenAI's
- * `parameters` and have no `function` wrapper. Builds from the internal
- * `{name, description, parameters}` shape only — see file header comment.
+ * Anthropic tools use `input_schema` instead of `parameters` and have no
+ * `function` wrapper. Builds from the internal `{name, description, parameters}` only.
  * @param {object} tool Internal tool definition.
  */
 function toAnthropicTool(tool) {
@@ -481,11 +469,10 @@ function toAnthropicTool(tool) {
 }
 
 /**
- * Maps the OpenAI-style tool_choice values used internally onto Anthropic's
- * object dialect ("required" -> {type:"any"}, forced function -> {type:"tool"}).
- * Anthropic has no top-level parallel_tool_calls; `disable_parallel_tool_use`
- * lives inside the tool_choice object, so `parallelToolCalls === false` forces
- * a tool_choice even when the caller did not set one.
+ * Maps internal OpenAI-style tool_choice onto Anthropic's dialect ("required"
+ * -> {type:"any"}, forced function -> {type:"tool"}). `disable_parallel_tool_use`
+ * lives inside tool_choice, so `parallelToolCalls === false` forces a
+ * tool_choice even when the caller set none.
  * @param {unknown} toolChoice Requested tool-choice value.
  * @param {boolean|undefined} parallelToolCalls Whether parallel calls are allowed.
  */
@@ -509,11 +496,9 @@ function toAnthropicToolChoice(toolChoice, parallelToolCalls) {
 
 /**
  * Converts internal message history to Anthropic's format: system messages are
- * hoisted to the top-level `system` field, assistant tool calls become
- * `tool_use` content blocks, and consecutive `tool` messages are grouped into
- * one user message of `tool_result` blocks (Anthropic requires all results for
- * a turn in a single user message, tool_result blocks first). Internal-input
- * only — see file header comment.
+ * hoisted to `system`, assistant tool calls become `tool_use` blocks, and
+ * consecutive `tool` messages merge into one user message of `tool_result`
+ * blocks (required by Anthropic, results first). Accepts internal shape only.
  * @param {object[]} messages Internal message history.
  */
 function toAnthropicMessages(messages) {
@@ -546,8 +531,8 @@ function toAnthropicMessages(messages) {
     }
     const toolCalls = message?.toolCalls;
     if (role === 'assistant' && Array.isArray(toolCalls) && toolCalls.length) {
-      // Thinking is always on for newer models and a tool loop must replay the
-      // turn's thinking blocks, unmodified and first, or the API returns a 400.
+      // Tool loops must replay the turn's thinking blocks, unmodified and first,
+      // or the API returns a 400.
       const blocks = Array.isArray(message?.thinkingBlocks) ? [...message.thinkingBlocks] : [];
       if (text.trim()) blocks.push({ type: 'text', text });
       toolCalls.forEach((toolCall, index) => {
@@ -596,18 +581,15 @@ function anthropicClient({ apiKey, model, serviceTier, maxOutputTokens, fetchImp
         // Required for direct browser/extension calls to the Anthropic API.
         'anthropic-dangerous-direct-browser-access': 'true',
       };
-      // No top-level cache_control: anthropicCacheableContent already places the
-      // breakpoint on the stable prefix. Top-level auto-caching would add a
-      // second breakpoint on the *last* block (the dynamic suffix, or the whole
-      // prompt when there's no marker), paying the cache-write premium on volatile
-      // content that's never read back.
+      // No top-level cache_control: anthropicCacheableContent already marks the
+      // stable prefix, and auto-caching would add a breakpoint on the volatile
+      // last block, paying the cache-write premium for content never read back.
       const hasMessages = Array.isArray(messages) && messages.length > 0;
       const translated = hasMessages ? toAnthropicMessages(messages) : null;
       const body = {
         model,
-        // Shared with the pipeline planner so no request is sized to produce
-        // more output than the allowance asked for here, and narrowed to the
-        // provider's declared context window (see outputBudget.js).
+        // Shared with the pipeline planner and capped by the declared context
+        // window (see outputBudget.js).
         max_tokens: maxOutputTokens,
         messages: hasMessages
           ? translated.messages
@@ -685,9 +667,8 @@ function anthropicClient({ apiKey, model, serviceTier, maxOutputTokens, fetchImp
 }
 
 /**
- * Claude Haiku 5.5 returns a 400 for any `temperature` other than 1, so the
- * parameter is left out and the model default applies. Models from 4.7 on are
- * treated the same way.
+ * Models from 4.7 on (e.g. Haiku 5.5) 400 on any `temperature` other than 1,
+ * so the parameter is omitted.
  * @param {string} model
  */
 function anthropicRejectsSamplingParams(model) {
@@ -705,29 +686,21 @@ function toAnthropicServiceTier(serviceTier) {
 }
 
 /**
- * Creates a completion client for a stored provider entry. Every client
- * accepts the same options — including message history and function tools —
- * and returns tool calls in the normalized `{id, name, arguments}` shape with
- * `arguments` as a parsed object.
+ * Creates a completion client for a stored provider entry. All clients take the
+ * same options and return tool calls as `{id, name, arguments}` with parsed
+ * `arguments`.
  *
- * `messages` and `tools` follow one strict internal contract; the client's
- * converters accept ONLY this shape (see file header comment) — provider
- * wire shapes (OpenAI's `tool_calls`/`tool_call_id`/`{type:'function',
- * function:{...}}` wrappers, string-encoded `arguments`, Anthropic's
- * `input_schema`) are never accepted as input. The sole producer of this
- * shape is src/chat/articleChat.js.
+ * `messages` and `tools` follow one strict internal contract; provider wire
+ * shapes (`tool_calls`/`tool_call_id` wrappers, string `arguments`, Anthropic
+ * `input_schema`) are never accepted as input. Sole producer: src/chat/articleChat.js.
  *   - message: `{ role, content, reasoning?, thinkingBlocks?, toolCallId?, toolCalls? }`
- *     where `thinkingBlocks` are an Anthropic response's raw thinking blocks,
- *     replayed on assistant tool-call messages
- *     where `toolCalls` items are `{ id, name, arguments }` and `arguments`
- *     is always a plain object (never a JSON string).
+ *     `thinkingBlocks` are an Anthropic response's raw thinking blocks, replayed
+ *     on assistant tool-call messages; `toolCalls` items are
+ *     `{ id, name, arguments }` with `arguments` always a plain object.
  *   - tool: `{ name, description, parameters }`.
  *
- * Tolerance for provider quirks (JSON-string arguments, `call_id` vs `id`,
- * missing ids, `<think>` tags, `thinking` content blocks, ...) is applied
- * only when parsing the HTTP response that comes back from the provider —
- * that inbound boundary is where malformed/varying data actually
- * originates, so that is the only place defensive parsing belongs.
+ * Provider quirks (JSON-string arguments, `call_id` vs `id`, missing ids,
+ * `<think>` tags, `thinking` blocks) are tolerated only when parsing responses.
  * @param {object} provider
  * @param {string} provider.type
  * @param {string} provider.model
@@ -783,10 +756,7 @@ export function createClient(
         baseUrl: 'https://api.deepseek.com/chat/completions',
         apiKey: token,
         model,
-        // Tool-less requests omit echoed `reasoning_content` (DeepSeek
-        // ignores it there); tool-carrying requests keep it, as thinking
-        // mode requires it on tool follow-ups (HTTP 400 when missing).
-        // Responses still parse `reasoning_content` normally.
+        // Echoed reasoning_content is sent only on tool-carrying requests.
         stripReasoningContent: true,
         providerLabel: 'deepseek',
         fetchImpl: transport,

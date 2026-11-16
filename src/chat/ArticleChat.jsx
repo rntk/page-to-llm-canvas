@@ -183,8 +183,7 @@ function ArticleChat({
     () => scope.filter((path) => !topicPaths.includes(path)),
     [scope, topicPaths],
   );
-  // The topics still exist but none of them covers any text, so a turn would
-  // send the model an all-blank document.
+  // Topics exist but cover no text, so a turn would send a blank document.
   const isScopeEmpty = useMemo(
     () =>
       scope.length > 0 &&
@@ -245,8 +244,7 @@ function ArticleChat({
   useEffect(() => {
     if (!scopeRequest || appliedScopeRequest.current === scopeRequest) return;
     appliedScopeRequest.current = scopeRequest;
-    // A question still in flight returns to the composer instead of vanishing
-    // with the chat it was asked in; any finished answer is dropped with that chat.
+    // An in-flight question returns to the composer; a finished answer is dropped with the old chat.
     setInput(invalidate(true, { restoreQuestion: true }) ?? '');
     setShowHistory(false);
     setActiveTab('chat');
@@ -255,8 +253,7 @@ function ArticleChat({
     onScopeRequestHandled?.();
   }, [scopeRequest, startNewChat, refreshChats, onScopeRequestHandled, invalidate]);
 
-  // Unmounting the panel (chat closed) must not leave a stale highlight
-  // painted on the article behind it.
+  // Closing the panel must not leave a highlight painted on the article.
   const onClearHighlightsRef = useRef(onClearHighlights);
   useEffect(() => {
     onClearHighlightsRef.current = onClearHighlights;
@@ -612,8 +609,6 @@ function ArticleChat({
   );
 }
 
-// Chat lives beside the canvas's own render-heavy transform state (pan/zoom
-// mint new scale/translate on every frame while the panel is open); without
-// this, every canvas re-render would also reconcile the whole chat subtree.
-// Props are kept referentially stable by callers for this to hold.
+// Memoized: the canvas re-renders every frame during pan/zoom, which would
+// otherwise reconcile the chat subtree. Callers keep props referentially stable.
 export default React.memo(ArticleChat);

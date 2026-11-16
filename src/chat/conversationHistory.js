@@ -4,9 +4,8 @@ export const CHAT_HISTORY_MAX_MESSAGES = 20;
 export const CHAT_HISTORY_MAX_CHARS = ARTICLE_CHAT_MAX_HISTORY_CHARS;
 
 /**
- * Keep only recent user-visible conversation context. Historical tool calls
- * are persisted for auditability, but replaying every chunk's calls into every
- * later chunk multiplies token usage and gives the model irrelevant ranges.
+ * Keep only recent user-visible context. Historical tool calls are persisted
+ * but not replayed: they multiply token usage and give the model irrelevant ranges.
  * @param {object[]} history Persisted conversation history.
  * @param {number} [maxChars] Maximum history characters for this request.
  * @returns {Array<{role: string, content: string}>}

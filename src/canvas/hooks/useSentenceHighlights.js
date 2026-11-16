@@ -10,12 +10,10 @@ import {
 const HIGHLIGHT_HOVER = 'pagetollm-sentence-hover';
 
 /**
- * Paint the selected/hovered topic's sentences with the native CSS Custom
- * Highlight API.
+ * Paints the selected/hovered topic's sentences with the CSS Custom Highlight API.
  *
- * A single live Range per sentence paints continuously across whitespace and
- * inline tags. The selected topic and the hovered topic get separate named
- * highlights so they can be styled distinctly via ::highlight() in modal.css.
+ * One live Range per sentence paints across whitespace and inline tags. Selected
+ * and hovered get separate named highlights, styled via ::highlight() in modal.css.
  *
  * @param {object} params
  * @param {boolean} params.showSummaryMode

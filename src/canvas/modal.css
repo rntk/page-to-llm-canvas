@@ -1,10 +1,8 @@
 /* PageToLLM Canvas modal — "The Editorial Absolute" design system. */
 
-/* One source of truth per token: `light-dark()` picks the value from the
-   element's used color-scheme, so the palette is declared once instead of
-   being repeated in a [data-theme='dark'] rule and a prefers-color-scheme
-   clone. `data-theme` now only has to flip color-scheme; absent means
-   "system", which `light dark` resolves against the OS preference. */
+/* `light-dark()` picks each token from the used color-scheme, so the palette is
+   declared once. `data-theme` only flips color-scheme; absent means "system",
+   resolved by `light dark` against the OS preference. */
 :root {
   color-scheme: light dark;
 
@@ -824,13 +822,11 @@ body.canvas-global-dragging * {
   box-sizing: border-box;
 }
 
-/* The per-card actions ("···") trigger counter-scales on zoom-out like the
-   title and the YouTube link: a flat px size would shrink with the canvas
-   transform into an untappable dot. A single font-size drives the whole
-   element — all box metrics are em-based so width, height, and offsets grow
-   with it. --canvas-zoom-actions-font-size is the live per-frame value during
-   wheel zoom (see applyVisualCardScale); the settled React render falls back
-   to --topic-card-actions-font-size. */
+/* The actions ("···") trigger counter-scales on zoom-out like the title and
+   YouTube link, or it would shrink into an untappable dot. One font-size drives
+   the element (all box metrics are em-based). --canvas-zoom-actions-font-size is
+   the live per-frame value during wheel zoom (see applyVisualCardScale); the
+   settled render falls back to --topic-card-actions-font-size. */
 .canvas-topic-hierarchy__actions-trigger {
   position: absolute;
   top: 0.375em;
@@ -1089,28 +1085,22 @@ body.canvas-global-dragging * {
   transform: translateY(var(--_offset));
 }
 
-/* Smoothing, scoped to the two paths where the canvas itself is moving
- * continuously. Both keep the label in step with the card underneath it; a
- * transition on any other path would let the two drift apart.
+/* Label smoothing, only on the two paths where the canvas moves continuously; any
+ * other transition would let label and card drift apart.
  *
- * Drag-pan: --_offset is a step function of the pan, holding the label still
- * while the card is fully in view and tracking the viewport once an edge is
- * clipped. Crossing between those regimes flips the label's speed, which reads
- * as a jump. Browsers retarget a running transition from its current computed
- * value, so re-triggering this on every drag frame damps the label into a glide
- * rather than stuttering it. During a pure pan the card height and label height
- * are fixed, so both ends of the interpolation sit inside the clamp range and
- * the lag can never carry the title outside the card.
+ * Drag-pan: --_offset is a step function of the pan (still while the card is fully
+ * in view, tracking the viewport once an edge is clipped), so crossing regimes
+ * reads as a jump. Browsers retarget a running transition from its current value,
+ * so re-triggering it each drag frame damps the label into a glide. Card and label
+ * heights are fixed during a pan, so the lag never carries the title out of the card.
  *
- * is-pan-smoothing, not is-dragging: CSS cancels a running transition as soon
- * as the declaration stops matching, snapping the property straight to its end
- * value. The class therefore has to outlast this duration past mouse-up, or
- * releasing mid-glide would jerk every catching-up label into place.
+ * is-pan-smoothing, not is-dragging: CSS snaps a running transition to its end when
+ * the declaration stops matching, so the class must outlast this duration past
+ * mouse-up or a mid-glide release would jerk the labels.
  *
- * Wheel zoom is deliberately excluded: it moves the canvas in instant steps
- * with no viewport transition, so easing the label would leave it swimming
- * behind its card, and --topic-card-label-height counter-scales on zoom, which
- * could carry a mid-transition label past the card's overflow: hidden edge. */
+ * Wheel zoom is excluded: the canvas moves in instant steps, so easing would leave
+ * the label swimming behind its card, and --topic-card-label-height counter-scales
+ * on zoom, which could carry a mid-transition label past the card's overflow edge. */
 .canvas-area.is-pan-smoothing .canvas-topic-hierarchy__card-content {
   transition: transform 130ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
@@ -1126,12 +1116,10 @@ body.canvas-global-dragging * {
     color 0.15s ease;
 }
 
-/* Programmatic pans and zoom-to-target glide the whole viewport over 320ms but
-   set --canvas-translate-y to its final value immediately, so the label used to
-   race ahead to its destination offset and sit there while the canvas caught
-   up. Matching the viewport transition exactly keeps label and card as one.
-   Declared after the drag rule (equal specificity) so the result never depends
-   on a drag and a focus glide staying mutually exclusive in the hook. */
+/* Programmatic pans and zoom-to-target glide the viewport over 320ms but set
+   --canvas-translate-y immediately, so the label would race ahead of its card.
+   Matching the viewport transition keeps them together. Declared after the drag
+   rule (equal specificity) so it never depends on drag and focus glide being exclusive. */
 .canvas-viewport.is-focusing-highlight .canvas-topic-hierarchy__card-content {
   transition: transform 320ms ease;
 }
@@ -1186,19 +1174,13 @@ body.canvas-global-dragging * {
   text-transform: uppercase;
 }
 
-/* The per-card jump-to-video link stays invisible (but present, for keyboard
-   focus) until the card is hovered, focused, or selected — showing it at all
-   times would clutter every card in the rail. It's positioned out of normal
-   flow (left: 100% of the meta text) so its box — sized for an easy target
-   instead of pixel-hunting — never grows the meta row past the fixed height
-   denseCardLayout.js budgets for it, even while invisible.
-   --topic-card-youtube-font-size rides the same titleFontSize-driven
-   zoom counter-scale as the title, so the link stays legible on zoom-out
-   instead of shrinking with the flat canvas transform (see TopicCard). It's
-   anchored to the row's top plus a small em-based margin (scales with the
-   link's own font-size, so the gap stays proportional at every zoom level)
-   rather than vertically centered, so a large link on zoom-out grows
-   downward, away from the title, instead of creeping up into it. */
+/* The jump-to-video link is invisible (but focusable) until the card is hovered,
+   focused, or selected. It sits out of flow (left: 100% of the meta text) so its
+   easy-target box never grows the meta row past the height denseCardLayout.js
+   budgets. --topic-card-youtube-font-size follows the title's zoom counter-scale
+   so the link stays legible on zoom-out (see TopicCard). It is anchored to the row
+   top plus an em-based margin, not centered, so a large link grows downward away
+   from the title. */
 .canvas-topic-hierarchy__card-meta-row .canvas-youtube-timestamp {
   position: absolute;
   left: 100%;

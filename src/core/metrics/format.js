@@ -94,11 +94,9 @@ export function formatDurationMs(ms) {
 /**
  * Formats a stored metrics timestamp for display.
  *
- * @param {number|string|null|undefined} timestamp Epoch millis (or any value
- *   `Date` accepts) recorded for a metrics entry.
- * @param {string} [fallback] Text to use when `timestamp` is falsy. Defaults
- *   to an em dash to match most metrics tables; pass `''` to match sections
- *   that render nothing instead.
+ * @param {number|string|null|undefined} timestamp Epoch millis or any `Date` input.
+ * @param {string} [fallback] Text for a falsy `timestamp`; defaults to an em dash,
+ *   pass `''` to render nothing.
  * @returns {string}
  */
 export function formatDate(timestamp, fallback = '—') {

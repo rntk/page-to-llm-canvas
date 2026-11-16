@@ -54,8 +54,7 @@ export function chunkNumberedArticle(sentences, maxChars = ARTICLE_CHAT_CHUNK_MA
       if (lineNumbers.at(-1) !== lineNumber) lineNumbers.push(lineNumber);
       length += (length ? 1 : 0) + line.length;
       endLine = lineNumber;
-      // A split source unit must remain independently bounded. Otherwise two
-      // parts of the same original sentence can be joined back over the cap.
+      // Flush between parts of a split sentence so they are not rejoined over the cap.
       if (partIndex < parts.length - 1) flush();
     });
   });

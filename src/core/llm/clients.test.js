@@ -834,16 +834,14 @@ describe('createClient dispatch', () => {
     expect(init.headers['anthropic-dangerous-direct-browser-access']).toBe('true');
     const body = JSON.parse(init.body);
     expect(body.max_tokens).toBe(LLM_MAX_OUTPUT_TOKENS);
-    // No top-level cache_control: with no marker there is no stable prefix to
-    // cache, so we must not auto-cache the (volatile) whole prompt.
+    // No marker means no stable prefix, so don't auto-cache the volatile prompt.
     expect(body.cache_control).toBeUndefined();
     expect(body.temperature).toBe(0.5);
     expect(body.messages).toEqual([{ role: 'user', content: 'p' }]);
   });
 
   it('anthropic client narrows max_tokens to the declared context window', async () => {
-    // 32000 against a window the provider cannot honor is a non-retryable 400,
-    // so every request in the run would fail and present as a provider outage.
+    // An unhonorable 32000 is a non-retryable 400 that fails every request.
     vi.mocked(fetch).mockResolvedValue(okJson({ content: [{ type: 'text', text: 'ok' }] }));
     const client = createClient({
       type: 'anthropic',
@@ -898,15 +896,13 @@ describe('createClient dispatch', () => {
         ],
       },
     ]);
-    // The dynamic suffix must not carry a breakpoint, and there must be no
-    // top-level auto-cache that would re-add one on the last (volatile) block.
+    // Neither the dynamic suffix nor a top-level auto-cache may add a breakpoint.
     expect(body.messages[0].content[1].cache_control).toBeUndefined();
     expect(body.cache_control).toBeUndefined();
   });
 
-  // A single delimiter means the split is always the first occurrence: untrusted
-  // payload that echoes the opening tag cannot move the breakpoint later and
-  // leak dynamic text into the cached prefix.
+  // Splitting at the first delimiter stops a payload echoing the opening tag
+  // from moving the breakpoint and leaking dynamic text into the cached prefix.
   it('anthropic client splits at the first delimiter even when the payload echoes it', async () => {
     vi.mocked(fetch).mockResolvedValue(okJson({ content: [{ type: 'text', text: 'ok' }] }));
     const client = createClient({ type: 'anthropic', model: 'claude-haiku-4-5', token: 'k' });

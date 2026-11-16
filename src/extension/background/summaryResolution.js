@@ -21,11 +21,9 @@ export function clearSummaryErrorFlags(topicSummaries) {
         error_detail: _errorDetail,
         ...rest
       } = s;
-      // Replace the stripped flags with the transient `acceptedFailure` marker:
-      // the resumed run must still recognize the leaf as failed (so ancestor
-      // summaries skip its source and finalization stamps `forcedEmpty`), while
-      // `planSummaryWork` deliberately ignores the marker and reuses the leaf
-      // as-is — no re-query, which is the whole point of "skip".
+      // The transient `acceptedFailure` marker keeps the leaf recognizably failed
+      // (ancestors skip its source; finalization stamps `forcedEmpty`) while
+      // `planSummaryWork` ignores it and reuses the leaf without a re-query.
       const runs = (Array.isArray(rest.runs) ? rest.runs : []).map(acceptFailedSummaryRun);
       const acceptedRun = runs.some((run) => run?.acceptedFailure === true);
       out[name] = {
@@ -41,11 +39,10 @@ export function clearSummaryErrorFlags(topicSummaries) {
 }
 
 /**
- * Finds merge-only failures in a parked record. Leaf failures live on
- * `topic_summaries` with `error: true`; a parked error without that marker was
- * raised while resolving an internal tree node. On "skip" we preserve those
- * paths as a transient directive so the resumed run can finalize their empty
- * result without sending the same source-summary request again.
+ * Finds merge-only failures in a parked record. Leaf failures carry
+ * `error: true` on `topic_summaries`; a parked error without it came from an
+ * internal tree node. On "skip" these paths are kept as a transient directive
+ * so the resumed run finalizes them empty without re-sending the request.
  *
  * @param {object[]} summaryErrors
  * @param {Record<string, object>} topicSummaries

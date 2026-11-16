@@ -42,10 +42,8 @@ function pruneEmptyElements(root) {
     'SOURCE',
     'PICTURE',
   ]);
-  // Reverse document order is bottom-up: a parent is visited only after its
-  // descendants, so a single pass handles cascading emptiness (a parent left
-  // empty by removed children is itself empty by the time we reach it). This
-  // replaces a previous while(changed) loop that re-scanned the whole tree.
+  // Reverse document order visits parents after descendants, so one pass handles
+  // cascading emptiness.
   Array.from(root.querySelectorAll('*'))
     .reverse()
     .forEach((el) => {

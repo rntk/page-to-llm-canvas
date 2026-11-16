@@ -13,13 +13,10 @@ import {
  * Build the ordered, timestamped card list for the YouTube rail.
  *
  * Cards use the nearest preceding transcript timestamp; untimed entries are
- * omitted and the rest are sorted in playback order.
- *
- * Topics split into contiguous sentence runs, merging runs at the same second.
- *
- * Each summary run yields at most one card to avoid repeating its text.
- *
- * IDs include path and sentences so runs sharing a timestamp remain distinct.
+ * omitted and the rest are sorted in playback order. Topics split into
+ * contiguous sentence runs, merging runs at the same second; each summary run
+ * yields at most one card. IDs include path and sentences so runs sharing a
+ * timestamp stay distinct.
  *
  * @param {object} input Record and selected rail mode/level.
  * @param {object} [input.record] Article record supplying sentences.
@@ -80,10 +77,8 @@ export function buildYouTubeRailCards({ record, mode, selectedLevel = 0 }) {
 }
 
 /**
- * Index of the card that is "current" for a given player time: the last card
- * whose start second is at or before `currentTime`.
- *
- * Clamp times before the first card to that card; return -1 for no cards.
+ * Index of the "current" card for a player time: the last card starting at or
+ * before `currentTime`. Times before the first card clamp to it; -1 for no cards.
  *
  * @param {number[]} starts ascending start seconds, one per card
  * @param {number} currentTime player position in seconds

@@ -16,11 +16,10 @@ function reconcileView(previous, view) {
 }
 
 /**
- * Loads a project view and keeps it fresh. Change notifications trigger a
- * debounced refetch; only the latest request may update state, so a slow
- * earlier response never overwrites a newer one.
- * Changing the project or API starts a new resource scope. Subscription, scheduler
- * and debounce changes recreate the subscription with the current capabilities.
+ * Loads a project view and keeps it fresh. Change notifications trigger a debounced
+ * refetch; only the latest request may update state, so a slow earlier response never
+ * overwrites a newer one. Changing project or API starts a new scope; subscription,
+ * scheduler or debounce changes re-create the subscription.
  *
  * @param {object} options
  * @param {string|null} options.projectId

@@ -47,9 +47,8 @@ export function createYouTubeRailController({
     const { guard, assessment } = await recordLoader.load(rec.key);
     if (!assessment) return false;
     const record = assessment.record;
-    // The YouTube rail never touches the page article DOM, so the scroll rail's
-    // selector/element gating does not apply — gate only on what the sync needs:
-    // transcript sentences and at least one topic/summary.
+    // No page article DOM here, so no selector gating: require only transcript
+    // sentences and at least one topic/summary.
     const { sentences, topics } = projectArticleView(record);
     const hasTopics = topics.length > 0;
     const hasSummaries =
@@ -157,10 +156,8 @@ export function createYouTubeRailController({
       renderRail();
     };
 
-    // Stored chat events use 1-based transcript line ranges. Deliberate event
-    // selection arrives with `focus: true`; resolve the first line to its
-    // nearest transcript timestamp and use the exact same seek path as a
-    // topic/summary card click.
+    // Chat events use 1-based transcript line ranges. Deliberate selection arrives
+    // with `focus: true`; seek to the first line's nearest timestamp like a card click.
     const getChatEventTimestamp = ({ startLine }) =>
       getTimestampForSentences(sentences, [startLine]);
 

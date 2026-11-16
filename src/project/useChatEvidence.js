@@ -25,13 +25,11 @@ export const isChatEvidence = (item) =>
  */
 
 /**
- * The page highlight behind the project chat event the reader picked, as one
- * canvas card. ArticleChat calls `onHighlight` with `{focus: true}` only when an
- * event is picked; streamed and repainted ranges (and ranges without a page)
- * are ignored, so the canvas stays quiet until the reader asks. The card goes
- * away when it is dismissed or when ArticleChat clears its highlights (another
- * event, a new turn or chat, the panel hidden). A range with no stored
- * `excerpt` is read from its page by URL.
+ * The page highlight behind a picked project chat event, shown as one canvas card.
+ * Only `{focus: true}` calls (an event picked by the reader) set a card; streamed and
+ * repainted ranges and ranges without a page are ignored. The card is removed on
+ * dismiss or when ArticleChat clears highlights. A range without a stored `excerpt`
+ * is read from its page by URL.
  *
  * @param {function(string): Promise<{sentences?: string[]}>} readPage Reads a page's text by URL.
  * @returns {{evidence: ChatEvidence[], onHighlight: function(object, {focus?: boolean}=): void,
@@ -51,7 +49,7 @@ export function useChatEvidence(readPage) {
     [],
   );
 
-  // Both callbacks are stable: ArticleChat is memoized on its props.
+  // Stable callbacks: ArticleChat is memoized on its props.
   const onHighlight = useCallback((range, { focus = false } = {}) => {
     if (!focus || !range?.pageUrl) return;
     generationRef.current += 1;

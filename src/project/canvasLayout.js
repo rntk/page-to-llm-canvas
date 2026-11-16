@@ -38,8 +38,7 @@ export function zoomViewport(viewport, factor, originX = 0, originY = 0) {
   };
 }
 
-// Excerpt cards stack under their page card, indented so the connector from
-// the page can run down the gap on their left.
+// Excerpt cards stack under their page card, indented so the connector can run down the left gap.
 export const EXCERPT_INDENT = 28;
 export const EXCERPT_WIDTH = CARD_WIDTH - EXCERPT_INDENT;
 export const EXCERPT_HEIGHT = 168;
@@ -56,8 +55,7 @@ const SPINE_INSET = EXCERPT_INDENT / 2;
  * @param {Record<string, string[]>} excerptsByPage Excerpt node ids per page id.
  * @param {string[]} [orphanIds] Excerpt node ids without a page card.
  * @returns {{pages: Record<string, {x: number, y: number}>, excerpts: Record<string, {page: (string|number|null), dx: number, dy: number, x: number, y: number}>}}
- *   Excerpts carry their offset from the page card (`dx`, `dy`) so they can
- *   follow a dragged page, plus their default absolute position.
+ *   Excerpt `dx`/`dy` are offsets from the page card, so they follow a dragged page.
  */
 export function layoutProjectCanvas(pageIds, excerptsByPage, orphanIds = []) {
   const slots = [
@@ -93,9 +91,8 @@ export function layoutProjectCanvas(pageIds, excerptsByPage, orphanIds = []) {
 }
 
 /**
- * SVG path linking a page card to one of its excerpt cards. An excerpt still
- * in its stack gets an elbow down the page's left gutter; one dragged
- * elsewhere gets a curve from the page's bottom edge to the excerpt's left edge.
+ * SVG path from a page card to one of its excerpts: an elbow down the left gutter while
+ * stacked, a curve from the page's bottom edge once dragged away.
  * @param {{x: number, y: number}} page Page card top-left.
  * @param {{x: number, y: number}} excerpt Excerpt card top-left.
  * @returns {string}

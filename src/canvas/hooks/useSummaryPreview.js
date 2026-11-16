@@ -42,14 +42,12 @@ function getPreviewHtmlCache(instanceKey, previewSourceModel, cards) {
 }
 
 /**
- * Owns the source-preview behavior of the summary view: which card the preview
- * follows, the hover/lock state machine and its debounce timers, the lazily
- * built source model plus its HTML caches, and the measuring/scrolling layout
- * effects.
+ * Owns the summary view's source preview: which card it follows, the hover/lock
+ * state machine and debounce timers, the lazy source model and HTML caches, and
+ * the measuring/scrolling layout effects.
  *
- * The preview and summary-view refs stay together here on purpose: the measure
- * effect reads and observes both elements, so splitting them across a component
- * boundary would break silently.
+ * The preview and summary-view refs stay together because the measure effect
+ * observes both elements.
  *
  * @param {object} params Hook inputs, mirroring the owning view's props.
  * @returns {object} Preview state, refs and card-interaction handlers.
@@ -291,9 +289,8 @@ export default function useSummaryPreview({
       clearShowPreviewTimer();
       const key = card.key;
       const hasSource = card.sourceSentences.length > 0;
-      // Defer both the parent hover intent and the local preview key. Calling the
-      // parent on entry would make hoveredTopic take precedence before the
-      // debounce, rebuilding preview HTML for every card crossed in a fast sweep.
+      // Defer both the parent hover and the local key: an immediate parent call
+      // would rebuild preview HTML for every card crossed in a fast sweep.
       const apply = () => {
         onTopicEnter({ path: card.path, cardKey: key });
         if (hasSource) setHoveredSummaryKey(key);

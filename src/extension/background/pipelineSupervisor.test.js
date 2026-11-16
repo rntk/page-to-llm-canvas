@@ -229,7 +229,7 @@ describe('createPipelineSupervisor (no chrome global)', () => {
     });
 
     await startWithoutAwaiting(supervisor, 'k1', runPipeline);
-    // Push the record past the old 10-minute stale threshold.
+    // Well past any staleness window: registry ownership must still win.
     advance(11 * 60 * 1000);
     await supervisor.startPipeline('k1');
 

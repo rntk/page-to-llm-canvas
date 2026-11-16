@@ -1,5 +1,4 @@
-// Keep enough range for a high-level canvas view while retaining a usable
-// minimum size for the canvas content.
+// Wide enough for a high-level view, with a usable minimum for the content.
 export const MIN_SCALE = 0.1;
 export const MAX_SCALE = 3;
 
@@ -61,10 +60,9 @@ export function wheelZoomFactor(deltaY, deltaMode = 0, viewportHeight = 1) {
   return Math.exp(-Math.max(-240, Math.min(240, pixels)) * 0.0008);
 }
 
-/** Horizontal pan, in pixels, for a wheel event that is mostly sideways
- * (a touchpad swipe or shift+wheel). Returns 0 for vertical-dominant wheels,
- * which zoom, and for Ctrl/⌘ wheels (pinch zoom). A positive result moves
- * content right, so scrolling right brings content from the right into view.
+/** Horizontal pan in px for a mostly-sideways wheel event (touchpad swipe or
+ * shift+wheel). Returns 0 for vertical wheels (these zoom) and Ctrl/⌘ wheels
+ * (pinch zoom). Positive results move content right.
  * @param {{deltaX: number, deltaY: number, deltaMode?: number, ctrlKey?: boolean, metaKey?: boolean}} event
  * @param {number} [viewportWidth]
  * @returns {number}

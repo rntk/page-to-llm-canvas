@@ -40,7 +40,7 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Per-chat history and events (moved from src/core/storage/storage.test.js)
+// Per-chat history and events
 // ---------------------------------------------------------------------------
 
 describe('per-chat history and events', () => {
@@ -56,11 +56,6 @@ describe('per-chat history and events', () => {
     expect(chat.scope).toEqual(['Research > Child']);
     expect((await readChat('article', chat.chatId)).scope).toEqual(['Research > Child']);
   });
-
-  // 'persists messages and events under one chat and updates its summary' is
-  // covered by the appendChatTurn describe block below (same assertions:
-  // hidden messages excluded from messageCount, events included in
-  // eventCount, title derived from the first visible user message).
 
   it('isolates read-only events by chat and removes them with chat deletion', async () => {
     const mock = makeChromeMock();
@@ -222,10 +217,6 @@ describe('per-chat history and events', () => {
     expect(mock.storage.local._store.has('pagetollm:rec:article:meta')).toBe(true);
     expect(await readChat('article', chat.chatId)).not.toBeNull();
   });
-
-  // 'createChat refuses to create a chat for a missing record' is covered by
-  // the appendChatTurn describe block's 'throws record not found when
-  // creating a chat for a missing record'.
 });
 
 // ---------------------------------------------------------------------------
@@ -971,11 +962,10 @@ describe('appendChatTurn', () => {
     expect(await readChat('article', chat.chatId)).toEqual(chat);
   });
 
-  // Regression: a rail keeps the record it loaded once in a closure. When the
-  // record is reanalyzed elsewhere, a turn answered from the old source must
-  // not be stamped with — and then read back as compatible with — the new
-  // revision. The existing-chatId path is already protected by pruning; this
-  // covers the unversioned new-chat path.
+  // Regression: a rail keeps the record it loaded in a closure. If the record is
+  // reanalyzed elsewhere, a turn answered from the old source must not be stamped
+  // with (and read back as compatible with) the new revision. The existing-chatId
+  // path is protected by pruning; this covers the unversioned new-chat path.
   it('refuses a new chat for a turn whose source revision was replaced', async () => {
     const mock = makeChromeMock();
     vi.stubGlobal('chrome', mock);

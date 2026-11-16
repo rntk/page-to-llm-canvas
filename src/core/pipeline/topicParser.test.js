@@ -207,8 +207,7 @@ describe('malformed numbering', () => {
 
 describe('hallucinated huge range', () => {
   it('clamps fast without iterating billions of indices', () => {
-    // A real hang would make this test time out. Clamping happens at the
-    // boundary level, before any per-index iteration.
+    // A hang would time out; clamping happens before any per-index iteration.
     const groups = parseTopicRanges('Tech>A: 0-999999999', 5);
     expect(groups).toHaveLength(1);
     expect(groups[0].ranges).toEqual([{ start: 0, end: 4 }]);
@@ -224,7 +223,7 @@ describe('TopicParseError identity', () => {
   });
 
   it('repairs partial coverage instead of throwing', () => {
-    // Previously threw on missing 2,3,4; now the trailing gap is filled.
+    // The missing trailing indexes 2..4 are filled by extending the last range.
     const groups = parseTopicRanges('Tech>A: 0-1', 5);
     expect(groups).toHaveLength(1);
     expect(groups[0].ranges).toEqual([{ start: 0, end: 4 }]);
@@ -382,8 +381,7 @@ describe('repairs diagnostics', () => {
   });
 
   it('caps repairs at 50 entries and sets repairsTruncated', () => {
-    // 60 single-sentence topics each separated by a gap sentence force 59 gap
-    // repairs (interleaved singles create a gap before every other range).
+    // 60 single-sentence topics separated by gap sentences force 59 gap repairs.
     const lines = [];
     for (let i = 0; i < 60; i++) {
       lines.push(`Tech>T${i}: ${i * 2}`);

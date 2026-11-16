@@ -1,7 +1,6 @@
 // Pure excerpt domain plus its chrome.storage.local repository. An excerpt is a
-// passage the user selected on a page and opened on a project canvas. It is
-// anchored to its page by URL (tab ids do not survive a restart) and owns a
-// chat of its own under `excerptChatKey(id)`.
+// passage selected on a page and opened on a project canvas, anchored by URL
+// (tab ids do not survive a restart) and owning a chat under `excerptChatKey(id)`.
 
 import { getLocal, setLocal, queuedUpdate } from '../storage/primitives.js';
 import { PROJECT_EXCERPTS_STORAGE_KEY, canonicalPageUrl } from '../storage/keys.js';
@@ -98,8 +97,8 @@ export function normalizeStoredExcerpts(stored) {
 
 /**
  * Serialized repository over the single PROJECT_EXCERPTS_STORAGE_KEY document.
- * Besides the excerpts it holds one pending focus request: the excerpt the
- * project page should unfold next (the one just opened from a page).
+ * Also holds one pending focus request: the excerpt the project page should
+ * unfold next.
  *
  * @param {object} [deps] Storage adapter; defaults to chrome.storage.local.
  * @param {function(string): Promise<object>} [deps.get]

@@ -12,9 +12,9 @@ const EXCERPT_PROMPT =
   'Ask about this excerpt. The assistant can read the rest of the page when the excerpt is not enough.';
 
 /**
- * The excerpt's own chat, beside its card. Turns send the excerpt (framed as
- * part of its page) and offer `read_page` and `search_page` tools; the page is read at most once
- * per drawer session, on the first call that needs it.
+ * The excerpt's own chat, beside its card. Turns send the excerpt (framed as part of its
+ * page) and offer `read_page` and `search_page` tools. The page is read at most once per
+ * drawer session, on the first call that needs it.
  *
  * @param {object} props
  * @param {string} [props.drawerId] The drawer element id.
@@ -22,7 +22,7 @@ const EXCERPT_PROMPT =
  * @param {function(string): Promise<{sentences: string[], truncated?: boolean}>} props.readPage
  * @param {function(): void} props.onClose
  * @param {{chatRepository?: object, runTurn?: Function, getChatLimits?: Function}} [props.chatPorts]
- *   ArticleChat port overrides (tests); the browser defaults apply otherwise.
+ *   ArticleChat port overrides (tests).
  */
 export function ExcerptChatDrawer({ drawerId, excerpt, readPage, onClose, chatPorts }) {
   // The chat's History/New actions share the drawer header row (see ChatDrawer).

@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
-// These helpers are re-imported per test so each case gets a fresh module
-// instance, matching how the pipeline pulls them in.
+// Re-imported per test so each case gets a fresh module instance.
 async function getConcurrency() {
   vi.resetModules();
   return await import('./concurrency.js');
@@ -96,17 +95,13 @@ describe('parallelMap', () => {
     });
 
     const mapPromise = parallelMap(items, 2, fn);
-    // Attach the rejection handler now, before triggering the failure below,
-    // so the promise is never briefly unobserved (which Node flags as an
-    // unhandled rejection even when a handler follows shortly after).
+    // Attach the handler before the failure so Node never sees an unhandled rejection.
     const assertion = expect(mapPromise).rejects.toBe(err);
-    // Both workers claim their first item synchronously (no await before the
-    // first fn call), so items 1 and 2 are in flight immediately.
+    // Workers claim their first items synchronously, so 1 and 2 are in flight.
     expect(calls).toEqual([1, 2]);
 
     rejectFirst(err);
-    // Let item 1's rejection propagate and flip `failed` before item 2's
-    // worker loops back to (not) claim a new item.
+    // Let the rejection flip `failed` before worker 2 loops back.
     await new Promise((r) => setTimeout(r, 0));
 
     resolveSecond();
@@ -121,8 +116,7 @@ describe('parallelMap', () => {
     const calls = [];
     const fn = vi.fn(async (x) => {
       calls.push(x);
-      // The caller records the failure instead of throwing, exactly as the
-      // pipeline stages do to keep a sibling's paid-for response.
+      // Record the failure instead of throwing, as pipeline stages do.
       return x === 1 ? { item: x, error: new Error('401 unauthorized') } : { item: x };
     });
 

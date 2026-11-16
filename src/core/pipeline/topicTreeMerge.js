@@ -7,9 +7,8 @@ import { TOPIC_PATH_DELIMITER, isCanonicalDescendantPath } from '../../shared/ru
 import { sortedUnique } from '../../shared/runtime/sortedUnique.js';
 
 /**
- * Builds the worker's summary tree from flat hierarchical topic paths and
- * aggregates descendant sentence ids onto every parent node.
- *
+ * Build the summary tree from flat hierarchical topic paths, aggregating
+ * descendant sentence ids onto every parent node.
  * @param {Array<{name: string, sentences: number[]}>} topics
  * @returns {{root: object, nodes: Map<string, object>}}
  */
@@ -222,9 +221,8 @@ function publicRuns(runs) {
 }
 
 /**
- * Each summary is a list of per-run entries ({sentences, text}), one per
- * contiguous occurrence of the topic, rather than a single text blob.
- *
+ * Resolve summaries as per-run entries ({sentences, text}), one per contiguous
+ * occurrence of the topic.
  * @param {object} params
  * @param {Map<string, {path: string, level: number, children: Array<object>, sourceSentences: number[], summary: object}>} params.nodes
  * @param {Record<string, {runs: Array<{sentences: number[], text: string}>}>} params.leafSummaries  keyed by topic path

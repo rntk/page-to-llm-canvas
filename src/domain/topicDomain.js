@@ -143,9 +143,8 @@ export function buildTopicSentenceIndex(topics) {
 
 /**
  * Split sentence numbers into contiguous runs. The input is sorted defensively:
- * callers receive sentence lists straight from stored records, which are not
- * guaranteed to be ordered, and an unsorted input would otherwise be split into
- * spurious single-sentence runs.
+ * stored sentence lists are not guaranteed to be ordered, and unsorted input
+ * would split into spurious single-sentence runs.
  *
  * @param {number[]} sentenceNumbers
  * @returns {number[][]}
@@ -211,11 +210,10 @@ export function normalizeSummaryRuns(runs, sourceSentences) {
 /**
  * Build the shared display-path topic hierarchy tree from a flat topic list,
  * truncated at `maxLevel`. The chronological projections (canvas cards, in-page
- * rail, YouTube rail) derive from this single accumulation of path splitting,
- * level limiting and sentence roll-up; they then split each node's sentences
- * into contiguous runs ordered by source position.
+ * rail, YouTube rail) share this path splitting, level limiting and sentence
+ * roll-up, then split each node's sentences into contiguous runs in source order.
  *
- * The hierarchy view intentionally does NOT use this builder. It shows an
+ * The hierarchy view deliberately does not use this builder: it shows an
  * aggregated outline (one node per path) built by `buildTopicTree` in
  * topicTree.js, so the two views can lay out the same record differently.
  * See flows/09-hierarchy.md.

@@ -98,9 +98,8 @@ export function createChatCompletionService({
       if (!prompt && (!Array.isArray(messages) || messages.length === 0)) {
         return { ok: false, error: 'missing prompt or messages' };
       }
-      // Record duration/token/cache metrics for chat calls. The orchestrator path
-      // is wrapped separately (wrapCallLLMWithRetry); the llm.js calls themselves
-      // stay unmetered so pipeline calls are not double-counted here.
+      // Chat calls are metered here; the pipeline path is metered separately
+      // (wrapCallLLMWithRetry), so llm.js itself stays unmetered to avoid double counts.
       const startedAt = clock();
       let sample;
       const controller = chatTurnId ? abortControllerFactory() : null;
@@ -129,10 +128,8 @@ export function createChatCompletionService({
       } finally {
         unregisterChatRequest(chatTurnId, controller);
       }
-      // Await (unlike the orchestrator's fire-and-forget): this handler is
-      // terminal, so a void'd write could be dropped when the service worker
-      // suspends right after the response is sent. recordLlmMetric swallows its
-      // own errors and returns void, so awaiting can't fail the response.
+      // Awaited (unlike the orchestrator): a void'd write could be dropped when
+      // the worker suspends after responding. recordLlmMetric swallows its own errors.
       await recordLlmMetric({
         durationMs: clock() - startedAt,
         ok: result.ok,

@@ -285,9 +285,8 @@ h1 {
     color 0.12s ease;
 }
 
-/* First view action ("Canvas") is the default open target — give it a
-   filled treatment so the record has a clear primary action, echoing the
-   "Pick Blocks" button at a smaller scale. */
+/* The first view action ("Canvas") is the default open target; fill it, echoing
+   the "Pick Blocks" button. */
 .action.primary-action {
   background: var(--ink);
   color: var(--surface);

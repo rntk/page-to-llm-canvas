@@ -4,9 +4,8 @@ import { _resetUpdateQueues } from './storage.js';
 
 /**
  * @param {object} initial Seed contents.
- * @param {{getKeys?: boolean, getBytesInUse?: boolean}} [caps] Which optional
- *   storage APIs this browser exposes; both are absent by default so the
- *   legacy fallback paths stay covered.
+ * @param {{getKeys?: boolean, getBytesInUse?: boolean}} [caps] Optional storage
+ *   APIs this browser exposes; both absent by default so the fallback paths stay covered.
  */
 function makeChromeMock(initial = {}, caps = {}) {
   const store = new Map(Object.entries(initial));

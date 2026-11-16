@@ -42,7 +42,7 @@ describe('getScrollableAncestor', () => {
     makeEl = (tag = 'div', styles = {}) => {
       const el = document.createElement(tag);
       Object.assign(el.style, styles);
-      // Provide minimal layout so scrollHeight/clientHeight checks can be influenced
+      // Minimal layout so scrollHeight/clientHeight can be influenced
       Object.defineProperty(el, 'scrollHeight', { value: 1000, configurable: true });
       Object.defineProperty(el, 'clientHeight', { value: 100, configurable: true });
       return el;
@@ -115,8 +115,7 @@ describe('getScrollableAncestor', () => {
     outer.appendChild(inner);
     container.appendChild(outer);
 
-    // Intentionally do NOT inject getComputedStyle — exercises the default wrapper
-    // (which binds the receiver correctly). This path is taken in production from main.jsx.
+    // No injected getComputedStyle: exercises the default receiver-binding wrapper.
     const ancestor = getScrollableAncestor([picked]);
     expect(ancestor).toBe(outer);
   });

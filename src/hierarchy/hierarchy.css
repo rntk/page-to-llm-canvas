@@ -183,11 +183,8 @@
   opacity: 0.7;
 }
 
-/* Fold/collapse toggle. Sits flush against the card's left edge as a flat
-   segment, divided from the title so it reads as a distinct control and can't
-   be mistaken for the card's scroll-to-sentences click. Inherits the card fill
-   and matches the flat, square card styling (no radius); the divider uses
-   --th-border, which is already theme-aware. */
+/* Fold toggle: flat segment flush with the card's left edge, divided from the
+   title so it isn't mistaken for the scroll-to-sentences click. */
 .th-node__toggle {
   flex: 0 0 auto;
   display: inline-flex;
@@ -300,11 +297,8 @@
   outline-offset: -2px;
 }
 
-/* Empty gutter mirroring .th-node__toggle's footprint. Leaves never fold, but
-   reserving the same space keeps their title aligned with foldable siblings'
-   titles so the column of titles doesn't shift left/right. No divider/chevron —
-   it's spacing only. The negative left margin cancels the leaf's own padding so
-   the gutter sits flush at the card edge, exactly like the toggle does. */
+/* Spacer matching .th-node__toggle's footprint so leaf titles align with
+   foldable siblings. The negative margin cancels the leaf padding. */
 .th-leaf__spacer {
   flex: 0 0 var(--th-toggle-width);
   margin-left: calc(-1 * var(--th-leaf-pad-x));
@@ -382,9 +376,7 @@
   }
 }
 
-/* Topic cards: in dark mode use the per-topic dark fill (same hue, low
-   lightness) instead of the bright pastel light fill. Both fills are provided
-   per card as inline CSS variables by TopicHierarchyView. */
+/* Dark mode: per-topic dark fill (inline CSS var from TopicHierarchyView). */
 :root[data-theme='dark'] .th-node__label,
 :root[data-theme='dark'] .th-leaf {
   background-color: var(--th-card-bg-dark);
@@ -496,7 +488,7 @@
   white-space: pre-wrap;
 }
 
-/* Custom scrollbar for premium look */
+/* Custom scrollbar */
 .th-summary-modal__text-container::-webkit-scrollbar {
   width: 6px;
 }

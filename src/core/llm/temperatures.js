@@ -63,10 +63,9 @@ export function temperatureTaskForTaskType(taskType) {
 }
 
 /**
- * Validates and normalizes the per-task temperatures coming from the UI.
- * Empty strings, null and undefined all mean "unset" and are dropped, so an
- * unset field never reaches the provider request body. Returns undefined when
- * no field is set, keeping stored providers free of empty objects.
+ * Validates and normalizes per-task temperatures from the UI. Empty string,
+ * null and undefined mean "unset" and are dropped. Returns undefined when no
+ * field is set, keeping stored providers free of empty objects.
  *
  * @param {unknown} input
  * @returns {{summaries?: number, chat?: number, splitting?: number}|undefined}

@@ -403,8 +403,7 @@ describe('useChatSessions', () => {
     await act(async () => Promise.resolve());
     expect(value.isMutatingHistory).toBe(true);
 
-    // Toolbar toggle hides the panel (e.g. via <Activity mode="hidden">) while
-    // the delete is still in flight — the hook stays mounted, only hidden.
+    // Hiding the panel (e.g. <Activity mode="hidden">) mid-delete keeps the hook mounted.
     act(() =>
       root.render(
         <Activity mode="hidden">

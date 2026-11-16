@@ -40,10 +40,8 @@ export function computeSummaryCursorState({
   // space by the same scroll offset the card track is translated by.
   const relativeY = scrollTop + cursorTop - bodyTop;
 
-  // `relativeY` is the cursor's position in card-box space; callers use it to
-  // order cards around the cursor even when it falls in a gap between boxes.
-  // Scan once for the smallest (height, top) match instead of sorting the
-  // whole matching set, since only the first item is ever needed.
+  // `relativeY` orders cards around the cursor even in gaps between boxes.
+  // Single scan for the smallest (height, top) match; no sort needed.
   let best = null;
   for (const card of currentCards) {
     const { top, height } = card.box;

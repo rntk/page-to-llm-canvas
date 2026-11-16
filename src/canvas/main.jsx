@@ -16,10 +16,8 @@ import { browserLocalStore } from '../shared/runtime/localStore.js';
 import { createModalHost, parseModalRoute } from './modalHost.js';
 import { browserRecordSource } from './recordSource.js';
 
-// Apply the saved light/dark/system preference to this iframe document, and
-// keep it in sync if the preference changes (from the popup/options) while a
-// canvas/hierarchy view is open. The "system" case is resolved by modal.css's
-// prefers-color-scheme media query.
+// Apply the saved theme to this iframe and keep it synced with changes made
+// elsewhere. "system" is resolved by modal.css's prefers-color-scheme query.
 const themeController = createThemeController();
 void themeController.init();
 themeController.watch();
@@ -35,8 +33,7 @@ const { key, view } = parseModalRoute(window.location.search);
 const container = document.getElementById('pagetollm-root');
 const root = createRoot(container);
 const modalHost = createModalHost();
-// `window` here is our own iframe document, so the boundary's Reload fallback
-// recreates the surface without touching the host article page.
+// `window` is this iframe's, so the boundary's Reload fallback leaves the host page untouched.
 const routes = {
   hierarchy: { label: 'The hierarchy view', App: HierarchyApp },
   tree: { label: 'The topics tree view', App: TopicsTreeApp },

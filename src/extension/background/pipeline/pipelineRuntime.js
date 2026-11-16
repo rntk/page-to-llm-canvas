@@ -100,21 +100,17 @@ export function createPipelineRuntime({
     },
 
     async update(patch, options = {}) {
-      // Failure persistence may race an external abort. The run-id CAS still
-      // prevents a cancelled/superseded job from overwriting its successor,
-      // while allowing an unrelated failure to be saved when this run remains
-      // current.
+      // Failure writes may race an abort; the run-id CAS still stops a
+      // superseded job from overwriting its successor.
       if (!options.allowAborted) runtime.assertActive();
       const updated = await updateRecord(runtime.key, patch, {
         expectedPipelineRunId: runtime.pipelineRunId,
-        // Only forwarded when given: it lets a failure write refuse to relabel a
-        // record that already reached a terminal status.
+        // Lets a failure write refuse to relabel an already-terminal record.
         ...(options.expectedStatuses ? { expectedStatuses: options.expectedStatuses } : {}),
       });
       if (!updated) {
-        // Losing the CAS means a newer run owns the record. That is a
-        // cancellation for this run even though nothing aborted its signal, so
-        // it is marked explicitly rather than relying on the AbortError name.
+        // Losing the CAS means a newer run owns the record: a cancellation even
+        // though the signal never aborted, so mark it explicitly.
         const err = new Error('Pipeline run is no longer current');
         err.name = 'AbortError';
         throw markCancellation(err);
@@ -185,8 +181,7 @@ export function createPipelineRuntime({
       if (options.verbose && !runtime.verboseLogs) return;
       logger.event(stage, details);
       if (!options.allowAborted) runtime.assertActive();
-      // Logging is buffered, so persistence intentionally does not serialize
-      // pipeline progress behind it. The final flush happens in runPipeline.
+      // Buffered: progress is not serialized behind persistence. runPipeline flushes at the end.
       appendProcessingLog(runtime.key, stage, details, {
         expectedPipelineRunId: runtime.pipelineRunId,
       }).catch((err) => {
@@ -195,10 +190,8 @@ export function createPipelineRuntime({
     },
 
     async flushLogs() {
-      // Best-effort like the buffered append above: a failed flush must not
-      // mask the pipeline error this is usually called alongside. It does need
-      // a signal though — the lost buffer is the diagnostic trail explaining
-      // that very failure.
+      // Best-effort: must not mask the pipeline error it accompanies, but is
+      // warned since the lost buffer is the trail explaining that failure.
       await flushProcessingLog(runtime.key).catch((err) => {
         logger.warn('log flush failed:', err);
       });

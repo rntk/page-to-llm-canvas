@@ -62,10 +62,9 @@ export function runSourceText(runIds, sentenceTexts) {
     .trim();
 }
 
-/** A short contiguous run can be shown verbatim without an LLM call.
- * Inclusive limit: 70 words / 560 characters for leaves and parent topics.
- * Both limits must be met.
- * Sentence count does not affect eligibility.
+/** A short run can be shown verbatim without an LLM call.
+ * Inclusive limits: 70 words and 560 characters, both required, for leaves and
+ * parent topics. Sentence count is irrelevant.
  * @param {string} sourceText Source text for the run.
  * @param {'leaf'|'topic'} [summaryMode] Selects the leaf or parent word budget.
  */

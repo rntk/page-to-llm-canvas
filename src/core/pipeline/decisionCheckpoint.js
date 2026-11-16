@@ -4,10 +4,9 @@ import { rethrowIfCancelled, throwIfCancelled } from './cancellation.js';
 export const DECISION_CHECKPOINT_VERSION = 1;
 
 /**
- * Create a validated, serialized checkpoint writer using the existing topic
- * work document. Source and policy identities prevent stale imported work from
- * being reused. Successful gaps and labels survive retries and worker restarts.
- * Supply the parent runtime: sibling request cancellation must not discard
+ * Validated, serialized checkpoint writer on the record's topic work document.
+ * Source and policy identity stop stale imported work from being reused.
+ * Pass the parent runtime: sibling-request cancellation must not discard
  * completed saves; user cancellation and lost ownership still stop writes.
  * @param {object} input Runtime, record, source text, and request policy.
  */

@@ -140,9 +140,8 @@ afterAll(() => {
 });
 
 beforeEach(() => {
-  // `unstubGlobals` removes these globals after every test. Reinstall the
-  // same API object so the content entry point's registered listeners remain
-  // observable across cases.
+  // `unstubGlobals` removes these globals after every test; reinstall the same
+  // API object so registered listeners stay observable across cases.
   installContentGlobals();
 });
 
@@ -714,8 +713,7 @@ describe('content script main.jsx', () => {
       sendResponse,
     );
 
-    // The surface loads asynchronously; poll briefly until getRecord is observed
-    // instead of relying on a single 0ms tick.
+    // The surface loads asynchronously; poll until getRecord is observed.
     for (let i = 0; i < 10 && !resolveMessage; i++) {
       await new Promise((resolve) => setTimeout(resolve, 0));
       await Promise.resolve();

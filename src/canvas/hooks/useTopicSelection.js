@@ -3,17 +3,14 @@ import { useCallback, useState } from 'react';
 /**
  * A topic's stable path and the particular card representing it.
  *
- * `cardKey` is optional: the navigation helpers in `domain/topicNavigation.js`
- * resolve it to `null` for cards that carry no key, and a target is still
- * usable in that state — it simply matches by path alone.
+ * `cardKey` may be `null` (cards without a key); the target then matches by path alone.
  *
  * @typedef {{ path: string, cardKey: ?string }} TopicTarget
  */
 
 /**
- * Normalizes and copies a topic target so callers cannot mutate state through a
- * target object they still hold. A target is valid as long as it names a path;
- * a missing or non-string `cardKey` is narrowed to `null` rather than rejected.
+ * Copies a topic target so callers can't mutate state through it. Valid if it has
+ * a path; a missing or non-string `cardKey` becomes `null`.
  *
  * @param {unknown} target
  * @returns {?TopicTarget}
@@ -42,12 +39,9 @@ function isSameTopicTarget(first, second) {
 /**
  * Whether `leavingTarget` refers to the topic currently hovered.
  *
- * Deliberately matches on path alone. Hover is written by two independent
- * components (the summary view and the hierarchy rail) whose card keys come
- * from separate builders, so requiring the keys to agree would mean a hover set
- * by one writer could only ever be released by that same writer — it would
- * otherwise latch until an unrelated enter replaced it. Two cards sharing a
- * path are the same topic, and the pointer leaves one before entering the next.
+ * Matches on path alone on purpose: hover is written by both the summary view
+ * and the rail, whose card keys come from separate builders. Requiring keys to
+ * agree would let a hover latch until an unrelated enter replaced it.
  *
  * @param {?TopicTarget} currentTarget
  * @param {?TopicTarget} leavingTarget
@@ -59,9 +53,8 @@ function matchesTopicTarget(currentTarget, leavingTarget) {
 }
 
 /**
- * Keeps the previous object when the value is unchanged so React's `Object.is`
- * bail-out still applies. `copyTopicTarget` mints a fresh object on every call,
- * so without this a repeated hover would re-render every memoized consumer.
+ * Keeps the previous object when unchanged so React's `Object.is` bail-out applies
+ * (`copyTopicTarget` always mints a new object).
  *
  * @param {?TopicTarget} currentTarget
  * @param {?TopicTarget} nextTarget

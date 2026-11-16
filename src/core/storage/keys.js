@@ -117,12 +117,11 @@ export function isExcerptChatKey(key) {
 }
 
 // Chats about one source card of a topics tree live beside the article they
-// quote: `card:<first>-<last>:<recordKey>`, where first/last are the card's
-// lowest and highest sentence numbers in that article. A topic's whole source
-// text (several cards in one block) is `block:<fingerprint>:<recordKey>`, the
-// fingerprint standing for exactly the sentences shown. Unlike detached chats
-// they follow the article's content revision, so reanalysis or deletion drops
-// them.
+// quote: `card:<first>-<last>:<recordKey>` (the card's lowest and highest
+// sentence numbers in that article). A topic's whole source text (several cards
+// in one block) is `block:<fingerprint>:<recordKey>`, the fingerprint standing
+// for exactly the sentences shown. Unlike detached chats they follow the
+// article's content revision, so reanalysis or deletion drops them.
 export const SOURCE_CARD_CHAT_KEY_PREFIX = 'card:';
 export const SOURCE_BLOCK_CHAT_KEY_PREFIX = 'block:';
 const SOURCE_CARD_CHAT_KEY = /^(?:card:\d+-\d+|block:[0-9a-z]+):(.+)$/;

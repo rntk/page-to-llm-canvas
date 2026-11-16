@@ -197,9 +197,8 @@ describe('useCanvasTransform', () => {
     act(() => {
       result.current.viewport.setTransformNow(1.5, { x: 100, y: 200 });
     });
-    // Guards against a vacuous identity check: the transform really did commit a
-    // new render, and the handle still survived it unchanged. Its memo must not
-    // depend on the transform, or every pan/zoom would re-run consumers' effects.
+    // Guards against a vacuous identity check: the transform did commit a new render
+    // and the handle survived. Its memo must not depend on the transform.
     expect(result.current.scale).toBe(1.5);
     expect(result.current.viewport).toBe(first);
     expect(Object.keys(result.current.viewport).sort()).toEqual([
@@ -212,7 +211,7 @@ describe('useCanvasTransform', () => {
       'zoomAtPoint',
       'zoomToTarget',
     ]);
-    // Bundled, not duplicated: the handle's members are gone from the flat return.
+    // The handle's members are absent from the flat return.
     expect(result.current.scaleRef).toBeUndefined();
     expect(result.current.setTransformNow).toBeUndefined();
   });
@@ -260,18 +259,13 @@ describe('useCanvasTransform', () => {
   });
 
   it('zoomToTarget places the canvas from the settled (post-reflow) layout', () => {
-    // Regression: the summary gutter and the rail cards are sized 1/scale to
-    // stay screen-constant, so the reading column's layout-x is itself a
-    // function of the scale — 4460px at scale 0.1, 482px at 1.5. Zooming in from
-    // a zoomed-out state therefore reflows the layout out from under the
-    // placement, and placing the canvas from the pre-zoom measurement stranded
-    // the article thousands of px off (which edge depended on the rule). The
-    // placement must be recomputed once the new scale's layout has committed.
+    // Regression: the summary gutter and rail cards are sized 1/scale, so the reading
+    // column's layout-x depends on scale (4460px at 0.1, 482px at 1.5). Placing from the
+    // pre-zoom measurement stranded the article thousands of px off; placement must be
+    // recomputed once the new scale's layout commits.
     //
-    // The fake canvas below models that relationship: `layoutScale` (what the
-    // committed React state reflows to) is deliberately distinct from
-    // `applied.scale` (the mid-transition transform the rects are measured
-    // through), exactly as in the browser.
+    // The fake canvas models this: `layoutScale` (committed state) is distinct from
+    // `applied.scale` (mid-transition transform the rects are measured through).
     const COLUMN = 772;
     const RAIL = 500;
     const gutterFor = (layoutScale) => 442 * Math.max(1, 1 / layoutScale) + 40;
@@ -329,11 +323,9 @@ describe('useCanvasTransform', () => {
         hook.result.current.viewport.zoomToTarget({ top: 100, left: 50, width: 5, height: 5 }, 1.5);
       });
 
-      // Settled layout at 1.5: gutter 482, column 772 * 1.5 = 1158 wide — wider
-      // than the usable width (1000 - 48), so the column's left edge is pinned
-      // one edge-margin in: x = 24 - 482 * 1.5 = -699. The pre-reflow layout
-      // (gutter 4460 at scale 0.1) would have placed it at 24 - 4460 * 1.5,
-      // i.e. ~6000px off screen.
+      // Settled layout at 1.5: gutter 482, column 772 * 1.5 = 1158, wider than the usable
+      // 1000 - 48, so the left edge is pinned one margin in: x = 24 - 482 * 1.5 = -699.
+      // The pre-reflow gutter (4460) would have given ~6000px off screen.
       expect(hook.result.current.scale).toBe(1.5);
       expect(hook.result.current.translate.x).toBeCloseTo(-699, 5);
       hook.unmount();
@@ -354,16 +346,14 @@ describe('useCanvasTransform', () => {
       // group = (482 + 772 + 500) * 1.5 = 2631, centred in 3000.
       const groupWidth = groupLocal() * 1.5;
       expect(hook.result.current.translate.x).toBeCloseTo((3000 - groupWidth) / 2, 5);
-      // The rail's right edge stays inside the canvas — the reported symptom was
-      // the rail being pushed out past the right border.
+      // The rail's right edge stays inside the canvas.
       expect(hook.result.current.translate.x + groupWidth).toBeLessThanOrEqual(3000);
       hook.unmount();
     }
 
-    // Second click while the first zoom is still animating: the scale is already
-    // at the target, so nothing reflows and no settled-layout pass runs — the
-    // placement has to be right first time, measured through the *mid-flight*
-    // transform (0.9 here, not the 1.5 the canvas is heading for).
+    // Second click mid-animation: scale is already at target, so no reflow or settled-layout
+    // pass runs; placement must be right first time, measured through the mid-flight
+    // transform (0.9, not the target 1.5).
     {
       const { hook, applied } = mountFakeCanvas({ wrapWidth: 1000 });
       act(() => {
@@ -375,9 +365,8 @@ describe('useCanvasTransform', () => {
         hook.result.current.viewport.zoomToTarget({ top: 100, left: 50, width: 5, height: 5 }, 1.5);
       });
 
-      // Same settled layout as the narrow case above, so the same placement:
-      // unscaling by 1.5 instead of the applied 0.9 would inflate the column's
-      // local-x by 1.67x and land it hundreds of px off.
+      // Same placement as the narrow case: unscaling by 1.5 instead of the applied 0.9
+      // would inflate the column's local-x by 1.67x.
       expect(hook.result.current.translate.x).toBeCloseTo(-699, 5);
       hook.unmount();
     }
@@ -409,10 +398,8 @@ describe('useCanvasTransform', () => {
     act(() => {
       result.current.viewport.zoomToTarget({ top: 100, left: 220, width: 50, height: 20 }, 1.5);
     });
-    // The group (2000 * 1.5) does not fit, but the column (400 * 1.5 = 600)
-    // does, so it is centred: x = (1000 - 600) / 2 - 200 * 1.5 = -100. The old
-    // rule pinned the column flush left (40 - 300 = -260), which is what pushed
-    // the text off the left edge of the canvas.
+    // The group (2000 * 1.5) does not fit but the column (400 * 1.5 = 600) does, so it is
+    // centred: x = (1000 - 600) / 2 - 200 * 1.5 = -100 (not flush left, 40 - 300 = -260).
     expect(result.current.translate.x).toBe(-100);
 
     // The settled-layout placement fires for the zoom's own scale commit only:
@@ -686,15 +673,13 @@ describe('useCanvasTransform', () => {
       await new Promise((r) => setTimeout(r, 5));
     });
     expect(onVisualScaleChange).toHaveBeenLastCalledWith(liveScale);
-    // React state is intentionally deferred so the expensive canvas subtree is
-    // not rendered once per wheel event.
+    // React state is deferred so the canvas subtree doesn't render per wheel event.
     expect(result.current.scale).toBe(1);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 100));
     });
     expect(result.current.scale).toBeLessThan(1);
-    // Wheel cards track the live scale directly; no delayed settle transition
-    // should remain to create a second movement after the gesture.
+    // Wheel cards track the live scale directly; no delayed settle transition may remain.
     expect(result.current.isCardZoomSmoothing).toBe(false);
     expect(viewport.style.getPropertyValue('--canvas-scale')).toBe(`${liveScale}`);
 

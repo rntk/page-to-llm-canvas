@@ -61,7 +61,7 @@ export default [
     },
   },
   {
-    // Apply these safety rules to production code; test mocks use callback adapters.
+    // Production-only safety rules; test mocks use callback adapters.
     files: ['src/**/*.{js,jsx,mjs}'],
     ignores: ['**/*.test.{js,jsx,mjs}'],
     rules: {

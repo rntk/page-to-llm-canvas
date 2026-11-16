@@ -140,11 +140,9 @@ const runtimeErrors = {
 const providerLimiter = createAdjustableLimiter(DEFAULT_MAX_PARALLEL_LLM_REQUESTS, {
   reservedPrioritySlots: 1,
 });
-// The orchestrator applies the stored user limit only when a pipeline run starts,
-// so a worker woken just for chat would otherwise keep the default. Seed it once
-// from storage before the first chat request; later changes arrive through the
-// orchestrator's setting subscription and run-start reads. A failed read leaves
-// the default and is retried by the next request instead of blocking chat.
+// The orchestrator applies the stored limit only at pipeline start, so a worker
+// woken just for chat would keep the default. Seed it once before the first chat
+// request. A failed read keeps the default and is retried by the next request.
 let providerLimiterSeed = null;
 function seedProviderLimiter() {
   providerLimiterSeed ??= getStoredMaxParallelLlmRequests()

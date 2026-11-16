@@ -1,12 +1,6 @@
 /**
- * Shared record-fetch helpers for content rails.
- *
- * Pure helpers extracted from openInPageRail in rails/in-page/controller.jsx:
- *   - fetchRecord       chrome.runtime.sendMessage wrapper
- *   - findPickedElements querySelector loop
- *   - assessRecordLifecycle  classifies a record by pipeline status only
- *   - assessRecordForRail  lifecycle + the in-page rail's selector requirement
- *   - createLoadToken   race-condition guard factory
+ * Shared record-fetch helpers for content rails: record fetch, picked-element
+ * lookup, record assessment, and the stale-load guard.
  */
 
 import { MSG } from '../../../shared/runtime/messages.js';
@@ -14,8 +8,8 @@ import { PIPELINE_STAGE, PIPELINE_STATUS } from '../../../shared/runtime/contrac
 import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
 
 /**
- * Fetch a record from the background via chrome.runtime.sendMessage without
- * collapsing repository misses, protocol failures, and transport failures.
+ * Fetch a record from the background, keeping repository misses, protocol
+ * failures, and transport failures distinct.
  *
  * @param {string} key
  * @param {{ send: function(object): Promise<object|null> }} runtimeMessenger
@@ -54,9 +48,8 @@ export async function fetchRecord(key, runtimeMessenger = browserRuntimeMessenge
 }
 
 /**
- * Maps a non-successful fetch outcome to its user-facing description. The
- * returned error is suitable for diagnostic logging and deliberately omitted
- * for an ordinary repository miss.
+ * Map a non-successful fetch outcome to a user-facing message. `error` is for
+ * diagnostic logging and is omitted for an ordinary repository miss.
  * @param {{kind: string, error?: Error}} outcome
  * @returns {{message: string, error?: Error}|null}
  */
@@ -90,8 +83,7 @@ export function describeFetchFailure(outcome) {
 }
 
 /**
- * Walk an array of CSS selector strings and return every element found in the
- * document.  Invalid or missing selectors are silently skipped.
+ * Return every element found for the CSS selectors; invalid or missing ones are skipped.
  *
  * @param {string[]} selectors
  * @param {Document} contentDocument
@@ -122,12 +114,10 @@ export function findPickedElements(selectors, contentDocument = globalThis.docum
  */
 
 /**
- * Classify a fetched record purely by its pipeline lifecycle, independent of
- * what any particular surface needs from it. Every rail shares this meaning:
- * error/cancelled and parked records require user action (routed to the
- * Options page), in-flight records are worth waiting for, and only `done`
- * records are candidates for display. Surface-specific prerequisites (page
- * selectors, transcript topics, …) are layered on top by the caller.
+ * Classify a fetched record by pipeline lifecycle only: error/cancelled and
+ * parked records need user action (routed to Options), in-flight records are
+ * worth waiting for, and only `done` records can be displayed. Surface-specific
+ * prerequisites are layered on top by the caller.
  *
  * @param {object} record
  * @returns {{ kind: string }}
@@ -136,11 +126,8 @@ export function assessRecordLifecycle(record) {
   if (record.status === PIPELINE_STATUS.ERROR || record.status === PIPELINE_STATUS.CANCELLED) {
     return { kind: 'error', record };
   }
-  // Parked awaiting a user retry/skip decision. This is deliberately not an
-  // in-flight status and never auto-resumes, so it must NOT look like ordinary
-  // progress (which would tell the user to "wait"). Content surfaces are
-  // read-only, so the caller routes this to the Options page, the only place
-  // the retry/skip resolution lives.
+  // Parked awaiting a user retry/skip decision; never auto-resumes, so it must
+  // not look like progress ("wait"). Retry/skip lives only in Options.
   if (record.status === PIPELINE_STATUS.NEEDS_ATTENTION) {
     return { kind: 'needs_attention', record };
   }
@@ -159,9 +146,8 @@ export function assessRecordLifecycle(record) {
  */
 
 /**
- * Validate a record fetched for the in-page rail and return a discriminated
- * result that openInPageRail can switch on without any inline null/status
- * checks.
+ * Assess a record for the in-page rail: lifecycle result, plus `no_selectors`
+ * when a ready record has no page selectors.
  *
  * @param {object} record
  * @returns {{ kind: string }}
@@ -177,12 +163,8 @@ export function assessRecordForRail(record) {
 }
 
 /**
- * Create a loading-token guard for aborting stale async rail loads.
- *
- * Usage:
- *   const guard = createLoadToken(tokenHolder);
- *   // …await something…
- *   if (guard.isStale()) return;
+ * Create a loading-token guard for aborting stale async rail loads: await,
+ * then bail if `guard.isStale()`.
  *
  * @param {{ current: symbol|null }} tokenHolder  mutable ref shared with callers
  * @returns {{ token: symbol, isStale: function(): boolean }}

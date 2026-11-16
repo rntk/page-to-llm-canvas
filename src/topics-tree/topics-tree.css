@@ -1,6 +1,5 @@
-/* Topics tree route. Page chrome (bar, title, close, states) and the spacing,
-   type and motion scales (--th-space-*, --th-font-*, --th-dur*, --th-ease) come
-   from topic-page.css' .th-page; this file styles the tree canvas only. */
+/* Topics tree canvas styles. Page chrome and the spacing/type/motion scales
+   come from topic-page.css. */
 
 .tt-page__body {
   display: flex;
@@ -188,12 +187,10 @@
 }
 
 /* ---------- fold / unfold motion ----------
-   `data-motion` is set on the canvas by TopicsTreeCanvas only while a fold or
-   unfold plays (and not under reduced motion), so nothing eases for dragging a
-   card, panning, or the first layout. The stage glides with the nodes so the
-   clicked topic stays put under the pointer. New nodes and links animate in
-   from script (they have no earlier style to transition from). --th-ease
-   matches treeMotion.js' MOTION_EASING; --tt-motion is its MOTION_MS. */
+   `data-motion` is set on the canvas only while a fold or unfold plays (not
+   under reduced motion), so drags, pans and the first layout never ease. New
+   nodes and links animate from script. --th-ease matches treeMotion.js'
+   MOTION_EASING; --tt-motion is its MOTION_MS. */
 .tt-canvas[data-motion] .tt-stage {
   transition: transform var(--tt-motion) var(--th-ease);
 }
@@ -569,9 +566,8 @@
 
 /* ---------- source card chat ---------- */
 
-/* Unfolds to the right of the card; the card's measured size is unaffected.
-   The drawer and the Chat tab overlap the card's border (and each other's),
-   so every edge is a single 1px line. */
+/* Unfolds to the right of the card without changing its measured size. The
+   drawer and Chat tab overlap the card border, so every edge is a 1px line. */
 .tt-card__chat {
   position: absolute;
   top: -1px;

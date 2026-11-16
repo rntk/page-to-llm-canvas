@@ -53,10 +53,9 @@ export function useArticleChatTurn({
     [],
   );
   // `restoreQuestion` is for deactivation (panel hidden/unmounted, new scope
-  // request): the user did not cancel, so the in-flight question returns to the
-  // composer, and a finished-but-unsaved answer stays retryable on the next send.
-  // Record switches and explicit Stop never pass it. Returns the restored
-  // question text, or null when nothing was restored.
+  // request): the in-flight question returns to the composer and a finished-but-unsaved
+  // answer stays retryable. Record switches and Stop never pass it.
+  // Returns the restored question, or null.
   const invalidate = useCallback(
     (clearRetry = true, { restoreQuestion = false } = {}) => {
       const operation = operationRef.current;
@@ -105,16 +104,14 @@ export function useArticleChatTurn({
   const stopActiveTurn = useCallback(() => {
     const operation = operationRef.current;
     if (!operation || !isCurrentOperation(operation) || operation.controller.signal.aborted) return;
-    // The answer is already complete and only its save is pending; stopping
-    // would abort nothing and leave a notice that nothing clears.
+    // Answer complete, save pending: stopping would abort nothing and leave a stuck notice.
     if (operation.state.turnResult) return;
     operation.state.stopping = true;
     operation.controller.abort();
     setNotice({ tone: 'progress', message: 'Stopping response…' });
   }, [isCurrentOperation, setNotice]);
 
-  // A Stop that lost the race against a completed answer must not leave its
-  // progress notice behind; the answer was kept, so there is nothing stopping.
+  // A Stop that lost the race to a completed answer must not leave its notice behind.
   const clearStoppingNotice = useCallback(
     (operation) => {
       if (!operation.state.stopping) return;
@@ -152,14 +149,12 @@ export function useArticleChatTurn({
       try {
         return await append(operation.state.persistenceChatId);
       } catch (err) {
-        // The chat was deleted while the turn ran. The finished answer must not
-        // be stranded behind an id that can never be saved to again, so start
-        // a new chat for it (the same turnId keeps the append idempotent).
+        // The chat was deleted mid-turn: save the answer to a new chat (the same
+        // turnId keeps the append idempotent).
         if (operation.state.persistenceChatId === null || err?.message !== CHAT_NOT_FOUND_MESSAGE) {
           throw err;
         }
-        // Preserve this target across lost responses and retries. A null target
-        // lets storage recover the replacement chat through its turn-ID index.
+        // Keep this target across retries; null lets storage find the replacement chat by turn ID.
         operation.state.persistenceChatId = null;
         return append(null);
       }
@@ -206,16 +201,12 @@ export function useArticleChatTurn({
     operation.state.turnResult = turnResult;
     try {
       try {
-        // Run the whole turn first; onHighlight paints new evidence as it streams.
-        // The content-script splits source text, but the active provider (and
-        // its context window) live in the background worker. Read the resulting
-        // budget immediately before the turn so small-window providers do not
-        // receive the static 60k-character fallback.
+        // The provider's context window lives in the background worker, so read the
+        // limits right before the turn instead of using the static fallback.
         if (!turnResult) {
           const limits = await awaitWithAbort(getChatLimits(), operation.controller.signal);
           if (!isCurrentOperation(operation)) return;
-          // Late-bound sources (a live tab read on first send) resolve here, so
-          // a failed read surfaces like any other turn error.
+          // Late-bound sources resolve here so a failed read surfaces as a turn error.
           const turnSentences = resolveSentences
             ? scopeChatSentences(
                 await awaitWithAbort(resolveSentences(), operation.controller.signal),
@@ -254,16 +245,13 @@ export function useArticleChatTurn({
         if (!isCurrentOperation(operation)) return;
         // Visible to Stop/invalidate so they treat the answer as complete.
         operation.state.turnResult = turnResult;
-        // Persist only replayable user-visible content. Tool transcripts are
-        // transient implementation detail and may contain provider reasoning.
+        // Persists only user-visible content; the tool transcript may hold provider reasoning.
         const persisted = await persist(operation, question, turnResult);
         if (!isCurrentOperation(operation)) return;
-        // The record was reanalyzed while this panel held the old source: the
-        // answer belongs to content this record no longer has, so storage
-        // refused it. Retrying cannot help until the panel is reopened.
+        // Record was reanalyzed under this panel; storage refused the answer and
+        // retrying cannot help until the panel is reopened.
         if (persisted?.stale) {
-          // Unconditional writes gated by the isCurrentOperation() check above
-          // with no intervening await (same rule as the success path below).
+          // Writes are safe: isCurrentOperation() was checked with no await since.
           setRetryTurn(null);
           setPendingQuestion('');
           setInput(question);
@@ -278,9 +266,7 @@ export function useArticleChatTurn({
           expectedChatId: operation.chatId,
           turnId,
         });
-        // Unconditional write gated by the isCurrentOperation() check immediately
-        // above with no intervening await; a concurrent send() would have already
-        // replaced operationRef.current, so no stale invocation reaches this line.
+        // Safe: isCurrentOperation() was checked above with no await since.
         setRetryTurn(null);
         setPendingQuestion('');
         clearStoppingNotice(operation);
@@ -293,14 +279,14 @@ export function useArticleChatTurn({
           : false;
         if (reconciled && isCurrentOperation(operation)) {
           operation.state.persisted = true;
-          // Same operation-identity guard as above, checked synchronously on this line.
+          // Same guard: no await since the check.
           setRetryTurn(null);
           setPendingQuestion('');
           clearStoppingNotice(operation);
           return;
         }
         if (!isCurrentOperation(operation)) return;
-        // Same operation-identity guard, no intervening await since the check above.
+        // Same guard: no await since the check.
         setRetryTurn({
           question,
           turnId,
@@ -326,9 +312,8 @@ export function useArticleChatTurn({
         );
         return;
       }
-      // The turn is durably persisted and adopted; the chat-list refresh is a
-      // runtime round-trip whose only effect is cosmetic sidebar titles/counts.
-      // A failure here must neither roll back the turn nor surface an error.
+      // The turn is persisted; the refresh only updates sidebar titles/counts,
+      // so a failure must not roll back or surface an error.
       try {
         await refreshChats();
       } catch {

@@ -25,10 +25,9 @@ export const CHAT_TOOL_OUTCOME_LABELS = Object.freeze({
 
 const OUTCOME_KEYS = Object.values(CHAT_TOOL_OUTCOMES);
 
-// A wrong/malformed tool call the model must correct. `overlap_skipped` and
-// `paint_failed` are not model errors — the range was valid; the passage was
-// already highlighted, or a best-effort streamed paint failed after the range was
-// already committed for persistence.
+// Malformed tool calls the model must correct. `overlap_skipped` (passage
+// already highlighted) and `paint_failed` (best-effort streamed paint failed
+// after the range was committed) are not model errors.
 const ERROR_OUTCOMES = new Set([
   CHAT_TOOL_OUTCOMES.UNKNOWN_TOOL,
   CHAT_TOOL_OUTCOMES.INVALID_ARGUMENTS,

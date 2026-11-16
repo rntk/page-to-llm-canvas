@@ -14,8 +14,7 @@ export function useExcerptFocus({
 }) {
   const handledFocus = useRef(null);
 
-  // Apply before paint without updating state during render. The ref also
-  // prevents Strict Mode effect replay or a new callback from repeating a request.
+  // Runs before paint. The ref stops Strict Mode replays or new callbacks from repeating a request.
   useLayoutEffect(() => {
     if (
       !focusExcerptId ||

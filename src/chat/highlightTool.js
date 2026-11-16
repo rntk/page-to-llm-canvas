@@ -39,8 +39,7 @@ export function rangesOverlap(a, b) {
 }
 
 /**
- * A tool-call validation failure, tagged with a stable `code` so callers can
- * classify the outcome without matching on the human-facing message text.
+ * A tool-call validation failure with a stable `code` for outcome classification.
  * @param {string} message Human-facing error message.
  * @param {string} code Stable error code.
  */
@@ -83,8 +82,7 @@ export function validateHighlightArgs(
       CHAT_TOOL_OUTCOMES.OUT_OF_CHUNK,
     );
   }
-  // Scoped chunks may contain gaps. Both endpoints can be visible while the
-  // span between them includes excluded source sentences.
+  // Scoped chunks have gaps: both endpoints can be visible while the span between them is not.
   if (
     lineNumbers &&
     new Set(lineNumbers.filter((line) => line >= startLine && line <= endLine)).size !==

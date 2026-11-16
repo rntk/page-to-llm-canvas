@@ -12,11 +12,9 @@ import { formatTopicPath } from '../../../shared/runtime/topicPath.js';
 import { sortedUnique } from '../../../shared/runtime/sortedUnique.js';
 
 /**
- * Compute the deepest topic level present in a record, considering both the
- * topic list (depth from `name` path) and the `topic_summary_index` (each
- * entry's explicit `level`). Drives the rail's
- * level selector, so summary-only levels count even when no topic reaches them.
- * Delegates to topicDomain.js.
+ * Deepest topic level in a record, from topic `name` path depth and
+ * `topic_summary_index` levels (so summary-only levels count). Drives the
+ * rail's level selector.
  *
  * @param {object} record
  * @param {Array<{name: string}>} [record.topics]
@@ -30,12 +28,10 @@ export function computeMaxTopicLevel(record) {
 export { getHierarchyTopicAccentColor as topicAccentColor };
 
 /**
- * Build summary entries from record: ONE entry per contiguous run of each node in
- * topic_summary_index. A topic that recurs at
- * non-adjacent places yields one entry per occurrence, each carrying that run's
- * own summary text and its own sentences, so rails position location-specific
- * summaries instead of repeating one blob. `sentenceNumbersByPath` keeps the full
- * aggregated sentence set per path.
+ * Build summary entries: one per contiguous run of each topic_summary_index
+ * node, so a topic recurring in non-adjacent places yields an entry per
+ * occurrence with that run's own text and sentences. `sentenceNumbersByPath`
+ * keeps the full aggregated sentence set per path.
  * @param {object} record Record containing topic summaries.
  */
 export function buildSummaryEntries(record) {
@@ -43,8 +39,7 @@ export function buildSummaryEntries(record) {
   const index = record.topic_summary_index;
   const sentenceNumbersByPath = new Map();
 
-  // Emit only runs with usable summary text. Failed or skipped summaries stay
-  // absent from the rail instead of creating empty placeholder cards.
+  // Skip runs without summary text so failed/skipped summaries yield no empty cards.
   const pushRuns = ({ path, name, level, runs, sourceSentences }) => {
     for (const run of normalizeSummaryRuns(runs, sourceSentences)) {
       if (!run.text) continue;

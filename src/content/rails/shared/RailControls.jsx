@@ -22,9 +22,8 @@ function RailModeSelect({ mode, onSelectMode }) {
 }
 
 /**
- * Topics-mode switch between the margin-note layout (drawn on the page) and
- * the classic card column inside the rail, kept as a fallback for pages where
- * notes beside the text are hard to read.
+ * Topics-mode switch between margin notes (drawn on the page) and the classic
+ * in-rail card column, a fallback for pages where margin notes are hard to read.
  */
 function RailTopicLayoutToggle({ topicLayout, onSelectTopicLayout }) {
   const isNotes = topicLayout !== 'cards';
@@ -48,10 +47,9 @@ function RailTopicLayoutToggle({ topicLayout, onSelectTopicLayout }) {
 }
 
 /**
- * Shared rail header: mode select, then either the chat-action portal target
- * or the level switcher, then the close button. Both rails render this same
- * structure; only the in-page rail passes `onSelectTopicLayout`, which adds
- * the topic layout toggle in topics mode.
+ * Shared rail header: mode select, chat-action portal target or level switcher,
+ * then close button. Only the in-page rail passes `onSelectTopicLayout`, which
+ * adds the topic layout toggle in topics mode.
  */
 export function RailHead({
   mode,

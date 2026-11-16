@@ -22,8 +22,7 @@ export function normalizeYouTubeRailCards(cards) {
     .filter((card) => card && card.id && Number.isFinite(card.seconds));
 }
 
-// Start seconds in card order. Split out so the poll loop can build it once
-// per card-list change instead of re-mapping the cards on every tick.
+// Start seconds in card order; built once per card-list change, not per poll tick.
 export function getYouTubeRailCardStarts(normalizedCards) {
   return normalizedCards.map((card) => card.seconds);
 }

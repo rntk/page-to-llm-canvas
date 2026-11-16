@@ -28,8 +28,7 @@ function setup(overrides = {}) {
     selectedTarget: null,
     selectTopic: vi.fn(),
     refreshSentenceRanges: vi.fn(() => ({ wordEntries: [], sentenceRanges: new Map() })),
-    // The transform hook's single imperative handle (stable identity, as in the
-    // real hook) rather than six loose members.
+    // The transform hook's imperative handle (stable identity, as in the real hook).
     viewport: {
       zoomToTarget: vi.fn(),
       canvasWrapElRef: { current: { clientHeight: 600 } },

@@ -21,8 +21,7 @@ describe('maxTopicRangeSentencesForOutputBudget', () => {
 
 describe('resolveMaxOutputTokens', () => {
   it('narrows the allowance to the declared context window', () => {
-    // Asking for more output than the configured window is a non-retryable
-    // 400 on Anthropic, which fails every request in the run.
+    // Exceeding the configured window is a non-retryable 400 on Anthropic.
     expect(resolveMaxOutputTokens(8192)).toBeLessThanOrEqual(8192);
     expect(resolveMaxOutputTokens(8192)).toBeLessThan(LLM_MAX_OUTPUT_TOKENS);
     expect(resolveMaxOutputTokens(4096)).toBeLessThanOrEqual(4096);

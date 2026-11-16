@@ -151,8 +151,7 @@ describe('normalizeTopicPath', () => {
   });
 
   it('strips > from the title-safe representation', () => {
-    // The .replace(/>/g, " ") pattern in TopicHierarchyView renders
-    // normalised paths without > in title attributes.
+    // TopicHierarchyView renders title attributes with `.replace(/>/g, ' ')`.
     const normalized = normalizeTopicPath('Tech>AI>Models');
     expect(normalized.replace(/>/g, ' ')).toBe('Tech AI Models');
   });

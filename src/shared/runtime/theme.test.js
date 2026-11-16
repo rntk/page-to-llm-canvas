@@ -197,9 +197,7 @@ describe('storage helpers', () => {
   it('resolves safely when chrome is unavailable', async () => {
     vi.stubGlobal('chrome', undefined);
     expect(await getStoredTheme()).toBeUndefined();
-    // setStoredTheme now matches its siblings (verboseLogSettings,
-    // highlightSettings): a failed write rejects rather than reporting a
-    // silent success.
+    // Like sibling settings, a failed write rejects rather than reporting success.
     await expect(setStoredTheme(THEME_LIGHT)).rejects.toThrow();
     vi.unstubAllGlobals();
   });

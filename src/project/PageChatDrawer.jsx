@@ -11,11 +11,10 @@ const LIVE_PAGE_PROMPT =
 const NO_SENTENCES = [];
 
 /**
- * Per-page chat beside a tab card. A saved page shares its history, topics and
- * sentences with the chat opened on the page itself; any other page chats over
- * its live text under a URL-scoped history, read from the tab once per drawer
- * session (on the first send) and reused for later turns. Histories never mix
- * across pages. Picking a chat event unfolds its cited passage under the drawer.
+ * Per-page chat beside a tab card. A saved page shares history, topics and sentences with
+ * its own page chat; any other page chats over its live text under a URL-scoped history,
+ * read once per drawer session (on first send). Histories never mix across pages. A picked
+ * chat event unfolds its cited passage under the drawer.
  *
  * @param {object} props
  * @param {string} [props.drawerId] The drawer element id.
@@ -24,7 +23,7 @@ const NO_SENTENCES = [];
  * @param {function(number): Promise<{sentences: string[]}>} props.capture
  * @param {function(): void} props.onClose
  * @param {{chatRepository?: object, runTurn?: Function, getChatLimits?: Function}} [props.chatPorts]
- *   ArticleChat port overrides (tests); the browser defaults apply otherwise.
+ *   ArticleChat port overrides (tests).
  */
 export function PageChatDrawer({ drawerId, tab, loadSource, capture, onClose, chatPorts }) {
   // The chat's History/New actions share the drawer header row (see ChatDrawer).

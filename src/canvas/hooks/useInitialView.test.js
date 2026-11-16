@@ -6,9 +6,8 @@ import { act } from 'react';
 import { useInitialView } from './useInitialView.js';
 import { clampScale } from '../../utils/canvasMath.js';
 
-// Beyond the `isSettled` flag it returns, the hook's behaviour is observed
-// through the callbacks and refs it drives across the three phases
-// (level-set → zoomed → first topic).
+// Beyond `isSettled`, behaviour is observed through the callbacks and refs the hook
+// drives across the three phases (level-set → zoomed → first topic).
 function makeProps({ viewport: viewportOverrides, ...overrides } = {}) {
   return {
     topics: [{ title: 'T' }],
@@ -16,8 +15,7 @@ function makeProps({ viewport: viewportOverrides, ...overrides } = {}) {
     maxLevel: 0,
     selectedLevel: 0,
     setSelectedLevel: vi.fn(),
-    // The transform hook hands consumers one imperative handle, so the live
-    // transform refs and setTransformNow travel together here too.
+    // Live transform refs and setTransformNow travel together, as in the real handle.
     viewport: {
       userMovedCanvasRef: { current: false },
       setTransformNow: vi.fn(),
@@ -72,8 +70,7 @@ describe('useInitialView', () => {
   });
 
   it('retires immediately when the record has no topics', () => {
-    // Nothing to stage and nothing to wait for: leaving the machine pending
-    // would hold the opening overlay behind a phase that can never advance.
+    // Nothing to stage: staying pending would hold the opening overlay forever.
     const props = makeProps({ topics: [], sentenceMetrics: new Map() });
     const ctx = setup(props);
     ctx.rerender({});

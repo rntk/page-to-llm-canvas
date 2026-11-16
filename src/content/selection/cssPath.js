@@ -33,8 +33,8 @@ function resolvesTo(doc, selector, el) {
 }
 
 /**
- * Walk from `el` up to the document element building a selector.  When `useId`
- * is true the walk stops early at the first ancestor carrying an id.
+ * Build a selector walking from `el` up to the document element; with `useId`,
+ * stops early at the first ancestor carrying an id.
  *
  * @param {Element} el
  * @param {Document} doc

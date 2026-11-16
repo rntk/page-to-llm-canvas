@@ -1,5 +1,5 @@
 /**
- * Minimal deterministic topic color utilities (copied/trimmed from main frontend).
+ * Minimal deterministic topic color utilities.
  */
 
 import { splitTopicPath } from './topicDomain.js';
@@ -46,9 +46,8 @@ export function getHierarchyTopicHighlightColor(topicName, depth) {
 }
 
 /**
- * Dark-mode variant of the topic card fill. Keeps the same per-root hue for
- * identity but uses a low lightness so the cards read as tinted dark surfaces
- * instead of the bright pastels used in light mode.
+ * Dark-mode variant of the topic card fill: same per-root hue, low lightness so
+ * cards read as tinted dark surfaces rather than light-mode pastels.
  * @param {string} topicName Topic path.
  * @param {number} depth Optional topic depth.
  */

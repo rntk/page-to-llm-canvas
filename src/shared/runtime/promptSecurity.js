@@ -1,6 +1,5 @@
 // Shared prompt-injection rules for delimited payloads and JSON data messages.
-// Topic extraction keeps its stricter output-format rules. Use
-// untrustedContentRules for tagged blocks, UNTRUSTED_CONTENT_RULES alone, or
+// Use untrustedContentRules for tagged blocks, UNTRUSTED_CONTENT_RULES alone, or
 // UNTRUSTED_CONTENT_TAIL after a site-specific preamble.
 
 const TAIL =
@@ -16,9 +15,7 @@ export const UNTRUSTED_CONTENT_RULES =
 export const UNTRUSTED_CONTENT_TAIL = 'Security rules:\n' + TAIL;
 
 /**
- * Parameterized variant that anchors the rule to the literal opening tag,
- * preserving the dedup benefit while keeping the link between the
- * <pagetollm_input> tag and "untrusted" explicit in worker prompts.
+ * Like UNTRUSTED_CONTENT_RULES, but ties the rule to the literal opening tag.
  * @param {string} openTag Opening delimiter, e.g. "<pagetollm_input>".
  * @returns {string}
  */

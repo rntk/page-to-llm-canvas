@@ -7,7 +7,7 @@ import { splitTopicPath } from '../../shared/runtime/topicPath.js';
 // Deepest topic hierarchy the pipeline produces; replacement paths must fit.
 const MAX_TOPIC_PATH_LEVELS = 5;
 
-// The prompt requires full paths. Preserve the saved ancestors' spelling; an
+// The prompt requires full paths. Saved ancestors' spelling is preserved; an
 // invalid path leaves only its own group at the selected topic.
 function rootResplitPath(returnedPath, parentPath) {
   const ancestors = parentPath.slice(0, -1);

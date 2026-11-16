@@ -2,11 +2,9 @@ import { useEffect, useReducer, useState } from 'react';
 
 // Reveal by this deadline even if layout, images, or tab painting stalls.
 export const REVEAL_TIMEOUT_MS = 900;
-// Overlay fade-out. Runs concurrently with the content's entrance so the two
-// crossfade rather than blinking through an empty canvas.
+// Overlay fade-out; runs concurrently with the content's entrance (crossfade).
 export const OVERLAY_FADE_MS = 260;
-// How long the entrance classes stay on. Must outlast the longest staggered
-// card animation in modal.css.
+// How long the entrance classes stay on; must outlast the longest card animation in modal.css.
 export const ENTRANCE_MS = 620;
 
 const STEPS = {
@@ -27,8 +25,7 @@ const STEPS = {
  */
 export function canvasStartupReducer(state, action) {
   switch (action) {
-    // Gates settled (or the deadline expired): uncover the canvas and start the
-    // entrance, with the overlay fading out over the top of it.
+    // Gates settled or deadline hit: uncover the canvas; the overlay fades over the entrance.
     case 'reveal':
       return state.stage === 'preparing' ? { stage: 'entering', isOverlayLeaving: true } : state;
     case 'overlay-faded':
@@ -54,19 +51,14 @@ export function resolveStartupStep({ isReady, layoutSettled, viewSettled }) {
 }
 
 /**
- * Owns the canvas opening sequence: hold an opaque overlay over the canvas while
- * the article is measured and the opening view stages itself, then reveal the
- * finished layout in one animated step.
+ * Owns the canvas opening sequence: an opaque overlay covers the canvas while the
+ * article is measured and the opening view stages itself, then the layout is
+ * revealed in one animated step.
  *
- * The work being hidden is the jumpy part — sentence measurement republishing
- * rail geometry, the opening view switching to the leaf level, zooming out, then
- * panning to the first topic. All of it happens at full opacity behind the
- * overlay (never `display: none` or `opacity: 0` on the content itself, both of
- * which zero out `getClientRects()` and would starve the very measurement being
- * waited on).
+ * The content stays at full opacity behind the overlay: `display: none` or
+ * `opacity: 0` would zero `getClientRects()` and starve the measurement.
  *
- * Every gate is individually skippable and the whole thing races a deadline, so
- * the overlay cannot outlive the work it covers.
+ * The whole sequence races a deadline, so the overlay cannot outlive its work.
  *
  * @param {object} params
  * @param {boolean} params.hasContent Whether there is anything to lay out at
@@ -82,13 +74,12 @@ export function useCanvasStartup({
   viewSettled,
   revealTimeoutMs = REVEAL_TIMEOUT_MS,
 }) {
-  // An empty canvas has nothing to stage: start revealed, so it never flashes an
-  // overlay (or an entrance animation) it did not need.
+  // An empty canvas starts revealed: no overlay or entrance flash.
   const [state, dispatch] = useReducer(canvasStartupReducer, hasContent, (content) => ({
     stage: content ? 'preparing' : 'ready',
     isOverlayLeaving: false,
   }));
-  // Absolute, so a gate settling mid-flight cannot restart the countdown.
+  // Absolute, so a gate settling mid-flight doesn't restart the countdown.
   const [deadline] = useState(() => Date.now() + revealTimeoutMs);
   const { stage, isOverlayLeaving } = state;
 
@@ -118,8 +109,7 @@ export function useCanvasStartup({
   return {
     isReady,
     isEntering: stage === 'entering',
-    // Kept mounted through the fade so the overlay and the canvas underneath
-    // crossfade, instead of the overlay vanishing on the first revealed frame.
+    // Stays mounted through the fade so it crossfades with the canvas.
     showOverlay: stage === 'preparing' || isOverlayLeaving,
     isOverlayLeaving,
     progress,

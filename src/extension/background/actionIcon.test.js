@@ -183,11 +183,7 @@ describe('action icon progress rendering', () => {
     });
 
     await controller.refresh();
-    // vi.waitFor only retries while its callback throws — a callback that
-    // merely returns a boolean (the previous form here) resolves on its very
-    // first tick regardless of the value, so it never actually waited for the
-    // async badge update. Assert (which throws on failure) so it genuinely
-    // polls until the badge call lands.
+    // vi.waitFor only retries while its callback throws, so assert inside it.
     await vi.waitFor(() => {
       expect(chromeMock.action.setBadgeText.mock.calls.length).toBeGreaterThan(0);
     });

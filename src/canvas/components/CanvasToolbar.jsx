@@ -13,8 +13,7 @@ const NAV_BUTTONS = [
 ];
 
 /**
- * Grid of scroll/topic navigation buttons, with the "jump back to the view I
- * came from" bar sitting on top of it.
+ * Scroll/topic navigation buttons plus the "return to previous view" bar.
  *
  * @param {object} props
  * @param {function(string): void} props.onNavigate pos: "top" | "bottom" | "prev" | "next" | "first-topic" | "prev-topic" | "next-topic" | "last-topic"
@@ -190,8 +189,7 @@ function CanvasLevelControl({
 }
 
 /**
- * Floating toolbar for the canvas: navigation, zoom, and view-mode controls,
- * mirroring the main app.
+ * Floating canvas toolbar: navigation, zoom, and view-mode controls.
  *
  * @param {object} props
  * @param {function(string): void} props.onNavigate pos: "top" | "bottom" | "prev" | "next" | "first-topic" | "prev-topic" | "next-topic" | "last-topic"

@@ -1,8 +1,8 @@
 import { applyThemeToElement, getStoredTheme, THEME_KEY } from '../runtime/theme.js';
 import { subscribeLocalKey } from '../runtime/localStore.js';
 
-// Match the paper/ink palette and Voice/Data typography in modal.css and content.css.
-// Define tokens on this host so an article's styles cannot change the dialog palette.
+// Palette and fonts mirror modal.css and content.css. Tokens live on the host so
+// page styles can't override them.
 const STYLES = `
   :host {
     all: initial;
@@ -97,11 +97,8 @@ const STYLES = `
 `;
 
 /**
- * Apply the dialog styles to its shadow root.
- *
- * A constructed stylesheet is CSSOM, so it is allowed under the extension-page
- * CSP (`style-src 'self'`) that blocks an inline `<style>`. Fall back to a
- * `<style>` element where constructable stylesheets are unavailable.
+ * Apply dialog styles to the shadow root. Constructed sheets are CSSOM, so they pass
+ * the extension-page CSP (`style-src 'self'`) that blocks inline `<style>`.
  * @param {ShadowRoot} shadow Shadow root hosting the dialog.
  */
 function applyDialogStyles(shadow) {
@@ -120,10 +117,9 @@ function applyDialogStyles(shadow) {
   shadow.append(style);
 }
 
-/** Collect optional guidance before resplitting in any topic view.
- * The isolated dialog also works on pages with their own styles and shortcuts.
- * Cancelling discards its inputs. Submitted guidance is kept on the record only
- * until this resplit run completes, so a resumed or retried run still applies it.
+/**
+ * Collect optional guidance for a resplit. Cancel resolves null. Submitted guidance
+ * lives only until the run completes, so resumed or retried runs still apply it.
  * @param {object} options Dialog context.
  * @param {object} options.topic Selected topic and sentence range.
  * @param {boolean} options.hasSubtopics Whether existing subtopics will be replaced.
@@ -134,7 +130,7 @@ export function showResplitInstructionsDialog({ topic, hasSubtopics }) {
     const previous = document.activeElement?.shadowRoot?.activeElement || document.activeElement;
     const host = document.createElement('div');
     host.id = 'pagetollm-resplit-dialog';
-    // Use the current extension surface's preference immediately, then sync with storage.
+    // Apply the current surface's theme now; storage sync follows.
     const surface = document.getElementById('pagetollm-in-page-rail') || document.documentElement;
     applyThemeToElement(host, surface.getAttribute('data-theme'));
     let finished = false;
@@ -146,7 +142,7 @@ export function showResplitInstructionsDialog({ topic, hasSubtopics }) {
     void getStoredTheme().then((preference) => {
       if (!finished && !themeChanged) applyThemeToElement(host, preference);
     });
-    // Match the capture toolbar: page scripts must not read or alter user guidance.
+    // Closed shadow root, as in the capture toolbar, keeps page scripts from reading guidance.
     const shadow = host.attachShadow({ mode: 'closed' });
     // Only static markup goes through innerHTML. Topic names are assigned as text below.
     shadow.innerHTML = `

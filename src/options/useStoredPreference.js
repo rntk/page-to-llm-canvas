@@ -3,10 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 /**
  * Keeps a small preference synchronized with chrome.storage.local.
  *
- * The persistence functions are injected so the hook stays independent of a
- * specific preference and the storage boundary remains easy to test. That
- * includes `subscribe`, supplied by the owning composition root as a
- * `(key, onValue) => unsubscribe` capability.
+ * Persistence and `subscribe` (`(key, onValue) => unsubscribe`) are injected
+ * by the composition root, so the hook stays independent and testable.
  * @param {{storageKey: string, defaultValue: unknown, readPreference: Function, writePreference: Function, normalize: Function, subscribe: Function}} options Preference dependencies.
  */
 export function useStoredPreference({

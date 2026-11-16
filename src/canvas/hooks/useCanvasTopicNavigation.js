@@ -6,10 +6,8 @@ import { isDescendantPath } from '../../shared/runtime/topicPath.js';
 /**
  * Coordinates topic navigation with the canvas transform and live DOM ranges.
  *
- * Takes the canvas transform's imperative `viewport` handle (live transform refs
- * plus `setTransformNow`/`zoomToTarget`) rather than its members individually;
- * `flashFocus` and `navigateCanvas` stay separate because they are not part of
- * that handle.
+ * Takes the canvas transform's `viewport` handle; `flashFocus` and `navigateCanvas`
+ * are separate because they are not part of it.
  * @param {object} options Navigation hook dependencies.
  */
 export function useCanvasTopicNavigation({
@@ -46,9 +44,7 @@ export function useCanvasTopicNavigation({
             return path === topicKey || isDescendantPath(path, topicKey);
           })?.[1];
         if (summaryEl) {
-          // Remember the reader's current zoom *before* the jump, and only when a
-          // jump actually happens — a card we cannot resolve must not strand a
-          // return point that goes nowhere.
+          // Capture before the jump, and only if it happens: an unresolved card must not leave a dead return point.
           captureReturnPoint();
           zoomToTarget(summaryEl.getBoundingClientRect());
         }
@@ -70,8 +66,7 @@ export function useCanvasTopicNavigation({
   );
 
   useEffect(() => {
-    // Wait for article mode to mount before resolving the queued sentence to a
-    // live DOM range.
+    // Wait for article mode to mount before resolving the queued sentence.
     if (showSummaryMode || pendingZoomSentenceRef.current === null) return;
     const sentenceNumber = Number(pendingZoomSentenceRef.current);
     pendingZoomSentenceRef.current = null;
@@ -148,11 +143,9 @@ export function useCanvasTopicNavigation({
 
   const handleShowSourceSentences = useCallback(
     (card) => {
-      // The pending zoom owns positioning after the article mounts, so suppress
-      // alignment to avoid a glide followed by an immediate correction.
+      // The pending zoom owns positioning; skip alignment to avoid glide-then-correct.
       skipNextAlignment();
-      // Captured here, while still in summary mode, so the way back restores
-      // both the zoom and the summary view the reader left.
+      // Capture while still in summary mode so the way back restores that view too.
       captureReturnPoint();
       pendingZoomSentenceRef.current = card.startSentence;
       selectTopic({ path: card.path, cardKey: card.key });

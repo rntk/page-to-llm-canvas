@@ -3,13 +3,12 @@ import { useEffect } from 'react';
 /**
  * Open a native `<dialog>` as a modal for the component's lifetime.
  *
- * `showModal()` gives the top layer, a `::backdrop`, inert page content, and
- * focus containment for free. Focus restoration is manual because React
- * detaches the element before the browser's own close handling could run.
+ * `showModal()` provides the top layer, `::backdrop`, inert page content and focus
+ * containment. Focus is restored by hand: React detaches the element before the
+ * browser's close handling could run.
  *
  * @param {{current: HTMLDialogElement|null}} dialogRef Rendered dialog element.
- * @param {{initialFocus?: {current: HTMLElement|null}}} [options] Element to
- *   focus after opening; defaults to the browser's choice.
+ * @param {{initialFocus?: {current: HTMLElement|null}}} [options] Element to focus after opening.
  */
 export function useModalDialog(dialogRef, { initialFocus } = {}) {
   useEffect(() => {
@@ -29,9 +28,8 @@ export function useModalDialog(dialogRef, { initialFocus } = {}) {
 }
 
 /**
- * Whether a click landed on the dialog's backdrop rather than its box.
- * Backdrop clicks target the dialog element itself with a point outside its
- * border box; clicks on padding or content fall inside the box.
+ * Whether a click landed on the backdrop: the target is the dialog itself and the
+ * point is outside its border box.
  * @param {{target: EventTarget, currentTarget: Element, clientX: number, clientY: number}} event
  * @returns {boolean} True when the click was outside the dialog box.
  */

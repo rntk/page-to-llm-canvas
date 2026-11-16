@@ -80,8 +80,7 @@ describe('useViewReturn', () => {
     expect(ctx.props.flashFocus).toHaveBeenCalledOnce();
     expect(ctx.props.viewport.userMovedCanvasRef.current).toBe(true);
     expect(ctx.props.setShowSummaryMode).not.toHaveBeenCalled();
-    // Same window zoomToTarget guards: rects animate while scaleRef already
-    // holds the restored scale.
+    // Same window zoomToTarget guards: rects animate while scaleRef holds the restored scale.
     expect(ctx.props.viewport.flashZoomingToTarget).toHaveBeenCalledOnce();
   });
 
@@ -128,8 +127,7 @@ describe('useViewReturn', () => {
     const first = ctx.result.current;
 
     ctx.rerender({ showSummaryMode: true });
-    // App threads captureReturnPoint into handleChatHighlight, whose identity
-    // must survive the mode change the first streamed highlight causes.
+    // handleChatHighlight's identity must survive the mode change the first streamed highlight causes.
     expect(ctx.result.current.captureReturnPoint).toBe(first.captureReturnPoint);
     expect(ctx.result.current.returnToCapturedView).toBe(first.returnToCapturedView);
 

@@ -295,11 +295,10 @@ const VERBOSE_LOGS_PREFERENCE = {
 const NUMBER_COMMIT_DEBOUNCE_MS = 800;
 
 /**
- * Local text draft for a numeric preference input. Typing only edits the
- * draft; the value is normalized and persisted on blur, Enter, or after a short
- * pause, so intermediate keystrokes ("1", "12" while typing "120") are never
- * stored and the field can be cleared while editing. While no draft exists the
- * displayed text follows the stored value, including external changes.
+ * Local text draft for a numeric preference input. Typing edits only the draft;
+ * it is normalized and persisted on blur, Enter, or after a short pause, so
+ * intermediate keystrokes ("1" on the way to "120") are never stored. With no
+ * draft, the text follows the stored value, including external changes.
  * @param {{value: unknown, setValue: Function, enabled: boolean, scheduler: {setTimeout: Function, clearTimeout: Function}}} options
  */
 function useNumberDraft({ value, setValue, enabled, scheduler }) {

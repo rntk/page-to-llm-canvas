@@ -31,17 +31,14 @@ import {
   throwIfAborted,
 } from './turnCancellation.js';
 
-// The turn is the single entry point for chatting about an article; the
-// prompt, chunking, history, tool and synthesis modules above are re-exported
-// so existing callers keep one import site.
+// Re-exported so callers keep one import site.
 export { chunkNumberedArticle } from './articleChunking.js';
 export { rangesOverlap } from './highlightTool.js';
 export { createTurnId } from './turnCancellation.js';
 
 /**
- * Default transport for one tool-call outcome metric. Fire-and-forget: the
- * turn must never fail or stall because diagnostics could not be recorded, and
- * `chrome.runtime` may be absent (tests, non-extension contexts).
+ * Default transport for one tool-call outcome metric. Fire-and-forget: metrics
+ * must never fail the turn, and `chrome.runtime` may be absent (tests).
  * @param {object} sample Metric payload.
  */
 function postToolMetric(sample) {
@@ -52,14 +49,10 @@ function postToolMetric(sample) {
   }
 }
 
-// Long articles may require many distinct highlight passes before the model can
-// compose its answer. Keep a finite guard against runaway tool loops, while
-// allowing enough rounds for large content.
+// Per-chunk guard against runaway tool loops; high enough for large content.
 const MAX_TOOL_ROUNDS = 50;
-// A floor, not a ceiling: a small context window splits an article into many
-// chunks, and each chunk needs its own requests. The effective per-turn limit
-// is derived from the chunk count (see runArticleChatTurn) and never drops
-// below this, so short articles keep the established budget.
+// Floor for the per-turn request limit; the effective limit scales with chunk
+// count (see runArticleChatTurn).
 const MIN_TURN_LLM_REQUESTS = 50;
 const ARTICLE_CHAT_CHUNK_CONCURRENCY = 3;
 // A source chunk smaller than this cannot carry enough article to answer from.
@@ -228,9 +221,9 @@ async function runExtraTool(tool, call, budget, signal) {
 }
 
 /**
- * Run the assistant/tool loop against one bounded source chunk. It shares the
- * turn-wide range lists and transcript with sibling chunks but has its own
- * cacheable source prefix.
+ * Run the assistant/tool loop against one bounded source chunk. Accepted ranges,
+ * the highlight budget and the tool log are shared with sibling chunks; the
+ * transcript and source prefix are per chunk.
  * @param {object} input Chunk-loop state and dependencies.
  */
 async function runArticleChatChunk({
@@ -352,8 +345,7 @@ async function runArticleChatChunk({
       toolCalls,
     };
     messages.push(assistantToolMessage);
-    // Provider reasoning may be required to continue the current tool loop,
-    // but it is intentionally excluded from the persisted turn transcript.
+    // Reasoning is replayed within the loop but kept out of the persisted transcript.
     transcriptMessages.push({
       role: assistantToolMessage.role,
       content: assistantToolMessage.content,
@@ -363,8 +355,7 @@ async function runArticleChatChunk({
     for (const call of toolCalls) {
       throwIfAborted(signal);
       let result;
-      // Every tool call resolves to exactly one outcome code; error outcomes
-      // also carry the short model-facing message for the diagnostics recent list.
+      // Exactly one outcome code per call; errors also carry a short message for diagnostics.
       let outcome;
       let outcomeError;
       const extraTool = tools.find((tool) => tool.definition.name === call.name);
@@ -404,10 +395,8 @@ async function runArticleChatChunk({
           } else {
             // Reserve before awaiting paint so sibling workers share one budget.
             eventBudget.remaining -= 1;
-            // Commit the range for persistence up front. onHighlight is a
-            // best-effort streamed paint (UI only); a paint failure must not drop
-            // the range or be reported to the model as a bad call — otherwise
-            // it re-issues the same valid range and can loop.
+            // Commit the range up front: onHighlight is a best-effort paint, and
+            // reporting its failure as a bad call would make the model re-issue the range.
             ranges.push(range);
             newRanges.push(range);
             result = `Highlighted ${describeRange(range)}.`;
@@ -462,24 +451,17 @@ async function runArticleChatChunk({
 }
 
 /**
- * Run one LLM chat turn, including the assistant/tool result loop. Large
- * articles run through bounded source chunks and then synthesize their
- * findings. Pure with respect to its inputs: `highlightedRanges` is only read,
- * never mutated, and nothing is persisted here — the intermediate messages
- * and the new ranges are returned so the caller can commit the whole turn
- * atomically.
+ * Run one LLM chat turn, including the assistant/tool loop. Large articles run
+ * through bounded source chunks, then synthesize their findings. Nothing is
+ * persisted or mutated here: the transcript and new ranges are returned so the
+ * caller can commit the turn atomically.
  *
- * `onHighlight(range)` fires as each new range is accepted, for streamed UI
- * painting only.
- *
- * The optional AbortSignal cancels local work immediately. Every provider
- * request also carries the stable turn id, and cancellation is forwarded to
- * the background boundary so in-flight provider work can be aborted there.
+ * `onHighlight(range)` fires per accepted range (UI painting only);
+ * `onToolCall(entry)` fires per resolved call (the same entries are returned
+ * as `toolLog`). Aborting the signal cancels local work and forwards the
+ * stable turn id to the background to cancel in-flight provider requests.
  *
  * @param {ArticleChatTurnOptions} options
- * `onToolCall(entry)` fires after each tool call resolves, for a live tool
- * log; the same entries are returned as `toolLog`.
- *
  * @returns {Promise<{reply: string, transcriptMessages: object[], highlightRanges: Array<{startLine: number, endLine: number, label: string}>, toolLog: object[]}>}
  */
 export async function runArticleChatTurn(options = {}) {
@@ -541,9 +523,8 @@ export async function runArticleChatTurn(options = {}) {
         ? [projectSourceChunk(source, chunkBudget)]
         : chunkNumberedArticle(sentences, chunkBudget);
     if (!chunks.length) throw new Error('This record has no article text to chat about.');
-    // Merging repeats the question in every payload. Reject a question that
-    // leaves no room for the smallest possible merge before spending any
-    // request, instead of overflowing the window at the end of the turn.
+    // Merging repeats the question in every payload; fail early if it leaves no
+    // room for the smallest merge.
     if (chunks.length > 1 && minimumSynthesisChars(question) > variableBudget) {
       throw new Error(QUESTION_TOO_LONG_MESSAGE);
     }
@@ -554,10 +535,8 @@ export async function runArticleChatTurn(options = {}) {
       historyMessageCount: Array.isArray(history) ? history.length : 0,
       existingHighlightCount: Array.isArray(highlightedRanges) ? highlightedRanges.length : 0,
     });
-    // Merging N findings at least SYNTHESIS_GROUP_MIN_SIZE at a time is a
-    // binary tree with N leaves, so it costs at most N-1 requests. Reserving
-    // exactly that keeps the chunk loop from consuming the budget the answer
-    // still needs.
+    // Merging N findings costs at most N-1 requests; reserve them so the chunk
+    // loop cannot starve synthesis.
     const synthesisRequestReserve = chunks.length > 1 ? chunks.length - 1 : 0;
     const requestLimit =
       Number.isFinite(maxLlmRequests) && maxLlmRequests > 0
@@ -569,8 +548,7 @@ export async function runArticleChatTurn(options = {}) {
     const chunkRequestLimit = Math.max(1, requestLimit - synthesisRequestReserve);
     let chunkRequestCount = 0;
     let turnRequestCount = 0;
-    // Every provider request for this turn passes through here, so the
-    // turn-wide limit and the logged count cover synthesis as well as chunks.
+    // All provider requests (chunks and synthesis) pass through here for the turn-wide limit.
     const sendRequest = (payload) => {
       throwIfAborted(turnController.signal);
       if (turnRequestCount >= requestLimit) {
@@ -589,13 +567,10 @@ export async function runArticleChatTurn(options = {}) {
       return sendRequest(payload);
     };
     const results = new Array(chunks.length);
-    // Highlight validation is turn-wide. Oversized source units can now appear
-    // in multiple bounded chunks with the same global line number, so sibling
-    // loops must see each other's accepted ranges and avoid duplicate paints.
-    // The overlap check and push are synchronous before onHighlight is awaited,
-    // which makes this shared array safe across the async chunk workers.
-    // A losing sibling intentionally records OVERLAP_SKIPPED: it made a real
-    // redundant tool call, even though only the winning highlight is painted.
+    // Turn-wide: split oversized sentences repeat a line number across chunks, so
+    // siblings must see each other's ranges. The overlap check and push are
+    // synchronous before onHighlight is awaited, so sharing is safe across workers.
+    // The losing sibling records OVERLAP_SKIPPED (a real redundant call).
     const acceptedRanges = [...highlightedRanges];
     const eventBudget = { remaining: MAX_TURN_EVENTS };
     // Turn-wide, in call order across sibling chunks.
@@ -674,17 +649,14 @@ export async function runArticleChatTurn(options = {}) {
       return result;
     }
 
-    // A synthesis request replays no conversation history, so the findings may
-    // use the history budget as well as the source budget.
+    // Synthesis replays no history, so findings may use the history budget too.
     const synthesisCapacity = variableBudget;
     let synthesisInputs = chunkReplies;
     while (synthesisInputs.length > 1) {
       const groups = groupSynthesisReplies(question, synthesisInputs, synthesisCapacity);
       const nextLevel = [];
       for (const group of groups) {
-        // A trailing odd finding has nothing to merge with. Carrying it to the
-        // next level costs no request and loses nothing: the next level trims
-        // it to the same share of the same capacity.
+        // A trailing odd finding is carried to the next level without a request.
         if (group.length < SYNTHESIS_GROUP_MIN_SIZE) {
           nextLevel.push(group[0]);
           continue;

@@ -1,8 +1,6 @@
 /**
- * Whether a keyboard event's target is somewhere the reader is typing, and so
- * off limits for the canvas' global shortcuts (arrows pan, Backspace jumps
- * back). Shared by every `window` keydown listener so the guard cannot drift
- * between them.
+ * Whether a keydown target is a text-entry control, which global canvas shortcuts
+ * (arrow pan, Backspace) must ignore. Shared so every window keydown listener uses one guard.
  *
  * @param {EventTarget|null|undefined} target
  * @returns {boolean}

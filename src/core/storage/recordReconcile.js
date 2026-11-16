@@ -81,12 +81,11 @@ function workDocumentMatchesOwnerGeneration(storageKey, value, ownerMeta) {
 }
 
 // Reconciliation walks every physical record document, so it reads storage in
-// slices rather than pulling the whole corpus into one object: each slice is
-// reduced to a decision (obsolete / keep) or a snippet string and then dropped.
-// Work and meta documents are small; content documents carry the html, text,
-// sentences and topics of a page, so they get a much smaller slice — and are
-// only read for records whose cached snippet is missing or belongs to a
-// superseded content generation.
+// slices and reduces each to a decision (obsolete / keep) or a snippet string
+// before dropping it. Work and meta documents are small; content documents carry
+// html, text, sentences and topics, so they get a much smaller slice and are
+// read only for records whose cached snippet is missing or from a superseded
+// content generation.
 const RECONCILE_METADATA_BATCH_SIZE = 50;
 const RECONCILE_CONTENT_BATCH_SIZE = 10;
 
@@ -108,14 +107,13 @@ async function forEachStoredDocument(storageKeys, batchSize, visit) {
 
 /**
  * Gives records stored before `textRevision` existed a marker, so the snippet
- * just re-derived from their content document can be trusted on the next cold
- * start instead of costing another full content read every time.
+ * just re-derived from their content document is trusted on the next cold start
+ * instead of costing another full content read.
  *
  * Safe to write here: reconciliation holds the global mutation queue, which
- * every writer passes through, so no concurrent write can be overwritten. It is
- * also best effort — a failure only means those records keep re-reading their
- * content, exactly as they did before the marker existed — so the metas are
- * only updated once the write has actually landed.
+ * every writer passes through. Best effort: a failure only means those records
+ * keep re-reading their content, so the metas are updated only once the write
+ * has landed.
  * @param {Map<string, object>} metas Meta documents keyed by record key.
  */
 async function backfillTextRevisions(metas) {
@@ -142,19 +140,18 @@ async function backfillTextRevisions(metas) {
  * Removes invalid or ownerless record documents, then rebuilds the index from
  * records written in the current storage schema.
  *
- * Schema policy: records older than the current schema (no or a lower
- * `storageSchemaVersion`) are deliberately dropped, not migrated. Records from
- * a newer schema are quarantined in place: they and every document under their
- * key prefix are left untouched and kept out of the index, so a later upgrade
- * finds them intact.
+ * Schema policy: records older than the current schema (no or lower
+ * `storageSchemaVersion`) are dropped, not migrated. Records from a newer schema
+ * are quarantined: they and every document under their key prefix are left
+ * untouched and out of the index, so a later upgrade finds them intact.
  */
 export async function reconcileRecordStorage() {
   return queuedUpdate(MUTATION_QUEUE_KEY, () =>
     queuedUpdate(INDEX_KEY, async () => {
       const storageKeys = await getLocalKeysByPrefix(RECORD_STORAGE_PREFIX);
       const metaKeys = [];
-      // Work-document values are needed to collect checkpoints from superseded
-      // content/collection generations. Every other payload document
+      // Work-document values are read to collect checkpoints from superseded
+      // content/collection generations; every other payload document
       // participates by key only.
       const workKeys = [];
       const payloadKeys = [];
@@ -220,11 +217,10 @@ export async function reconcileRecordStorage() {
 
       const current = await readIndex();
       // Reuse a cached snippet only when the meta document still names the text
-      // generation it was taken from. Every writer commits that marker in the
-      // same setLocal() as the content document and before the index write, so
-      // a snippet that a terminated worker never got to update is always
-      // detected here. Records written before the marker existed have none, and
-      // are treated as stale (below).
+      // generation it was taken from. Every writer commits that marker in the same
+      // setLocal() as the content document and before the index write, so a
+      // snippet a terminated worker never updated is always detected. Records
+      // written before the marker existed have none and count as stale.
       const snippets = new Map();
       const snippetContentKeys = [];
       for (const [key, meta] of metas) {

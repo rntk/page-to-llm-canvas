@@ -21,9 +21,9 @@ export function markCancellation(error) {
   return error;
 }
 
-/** Detect cancellation through an explicit marker or an aborted signal paired
- * with abort-shaped error. This preserves transport timeouts and unrelated
- * failures that settle after a racing abort.
+/** Detect cancellation via an explicit marker, or an aborted signal plus an
+ * abort-shaped error, so transport timeouts and unrelated failures that settle
+ * after a racing abort are preserved.
  * @param {unknown} error Error thrown by an LLM call.
  * @param {PipelineRuntime} [runtime] Pipeline runtime. Omit it only where no
  *   run context exists; abort shape is then taken at face value.
@@ -47,8 +47,8 @@ export function isCancellationError(error, runtime) {
 }
 
 /**
- * Stops work at an explicit stage boundary when the runtime has been aborted.
- * No competing error to preserve here, so the signal alone is authoritative.
+ * Stop at a stage boundary if the runtime is aborted; with no competing error
+ * to preserve, the signal alone is authoritative.
  * @param {PipelineRuntime} runtime Pipeline runtime.
  * @param {string} [message] Stage-specific message for the normalized error.
  */

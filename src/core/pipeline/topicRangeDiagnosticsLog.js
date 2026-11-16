@@ -3,8 +3,7 @@ const DIAGNOSTICS_LOG_CAP = 50;
 const RAW_RESPONSE_LOG_MAX_CHARS = 20000;
 
 /**
- * True when parse diagnostics show any permissive-parser quirk worth
- * surfacing verbosely (as opposed to a clean parse with nothing to explain).
+ * True when parse diagnostics show any permissive-parser quirk worth logging verbosely.
  * @param {object} diagnostics Parser diagnostics.
  */
 export function hasDiagnosticQuirks(diagnostics) {

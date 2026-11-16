@@ -1,8 +1,5 @@
-// Passages of a source article: contiguous runs of sentences, each the unit a
-// brief summary is written for.
-
-// A passage is the unit a brief summary is written for. Passages prefer the
-// primary split's topic boundaries, so one passage rarely mixes subjects.
+// Passages: contiguous sentence runs, each the unit a brief summary is written
+// for. They prefer the primary split's topic boundaries, so one rarely mixes subjects.
 export const PASSAGE_TARGET_CHARS = 1500;
 export const PASSAGE_MIN_CHARS = 400;
 export const PASSAGE_MAX_CHARS = 3000;

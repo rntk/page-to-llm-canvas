@@ -6,9 +6,7 @@ import { createLogger } from '../shared/runtime/log.js';
 const log = createLogger();
 
 /**
- * Utility function to split a pipeline error stack trace or message.
- * Extracts the first line as the clean error message, and the rest as details.
- * Hardened to safely handle non-string values.
+ * Splits an error into its first line (message) and the rest (details). Safe for non-strings.
  *
  * @param {*} recordError - The raw error value to split.
  * @returns {{ message: string, details: string }}
@@ -29,10 +27,8 @@ export function splitError(recordError) {
 }
 
 /**
- * Shared helper to send a retryRecord message to the background service worker.
- *
- * Pipeline-mutating actions are Options-only; the in-page surfaces (rails,
- * canvas, hierarchy) are read-only and point the user here instead.
+ * Sends a retryRecord message to the service worker. Pipeline-mutating actions are
+ * Options-only; in-page surfaces are read-only and point the user there.
  *
  * @param {string} key - The unique storage key for the record.
  * @param {string} [serviceName] - The name of the calling service (for logs).
@@ -56,8 +52,7 @@ export async function retryRecord(key, serviceName = 'Options') {
  * Resolves a record parked in `needs_attention`: re-runs the failed summaries
  * ("retry") or accepts them empty and finishes ("skip").
  *
- * A stale response is raised as a distinguishable `StaleActionError`, which the
- * Options review overlay renders informationally.
+ * A stale response throws `StaleActionError`, which the review overlay shows as informational.
  *
  * @param {string} key - The unique storage key for the record.
  * @param {'retry'|'skip'} action

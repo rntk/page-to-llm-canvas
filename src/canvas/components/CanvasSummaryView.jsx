@@ -5,12 +5,11 @@ import useSummaryPreview from '../hooks/useSummaryPreview.js';
 import { getCardEnterDelay } from '../../utils/cardEntrance.js';
 
 /**
- * Floating panel that renders the original article text behind a summary card,
- * with the card's own sentences highlighted.
+ * Floating panel of the source article text with the card's sentences highlighted.
  *
- * Purely presentational: positioning, HTML building and hover intent all live in
- * `useSummaryPreview`. The two refs are passed as ordinary props because the
- * hook's measure effect observes the outer element alongside the summary list.
+ * Presentational: positioning, HTML building and hover intent live in
+ * `useSummaryPreview`. The refs are props because the hook's measure effect
+ * observes the outer element alongside the summary list.
  */
 function SummarySourcePreview({
   card,
@@ -87,8 +86,7 @@ const SummaryCard = React.memo(function SummaryCard({
     <article
       ref={cardRef}
       className={`canvas-summary-view__card${isCardActive ? ' is-active' : ''}${isPreviewActive ? ' is-source-preview-active' : ''}`}
-      // The column mounts as a block on every summary-mode switch; staggering
-      // the shared appear animation turns that from one hard flash into a sweep.
+      // The column mounts at once on each summary-mode switch; staggering turns the flash into a sweep.
       style={enterDelay ? { '--summary-card-enter-delay': `${enterDelay}ms` } : undefined}
       onMouseEnter={() => onCardEnter(card)}
       onMouseLeave={() => onCardLeave(card)}
@@ -176,9 +174,8 @@ function CanvasSummaryView({
     previewWidth,
   });
   const isYouTube = React.useMemo(() => Boolean(getYouTubeVideoId(sourceUrl)), [sourceUrl]);
-  // Resolving a YouTube deep-link scans the sentence array; doing it per card
-  // inside the render map re-ran it for every card on every hover/zoom. Compute
-  // the whole set once and reuse it for both the cards and the preview header.
+  // Resolving a YouTube deep-link scans the sentence array, so compute all links
+  // once for both the cards and the preview header rather than per card per render.
   const youTubeLinkByKey = React.useMemo(() => {
     const map = new Map();
     if (!isYouTube) return map;
@@ -191,11 +188,9 @@ function CanvasSummaryView({
     return map;
   }, [isYouTube, cards, sourceUrl, sentences]);
   const previewYouTubeLink = previewCardKey ? youTubeLinkByKey.get(previewCardKey) || null : null;
-  // A card click both toggles its source preview (the hook's job) and zooms the
-  // canvas onto the card, mirroring a topic-card click in the rail. The zoom is
-  // composed here rather than inside the hook so it also fires for cards with
-  // no source sentences, which the preview handler ignores. The in-card link and
-  // button stop propagation, so they never trigger a zoom.
+  // Click toggles the source preview (hook) and zooms onto the card. Zoom lives here
+  // so it also fires for cards without source sentences, which the preview ignores.
+  // The in-card link and button stop propagation, so they never zoom.
   const handleCardClick = React.useCallback(
     (card) => {
       handleSummaryCardClick(card);
