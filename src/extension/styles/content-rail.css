@@ -958,13 +958,60 @@
   text-decoration: underline;
 }
 
-.pagetollm-rail-mode-select {
+/* View menu: a fixed-width sandwich button, always visible in the rail head. */
+.pagetollm-rail-mode-menu {
+  position: relative;
+  flex: 0 0 28px;
+  width: 28px;
+}
+
+.pagetollm-rail-mode-button {
   box-sizing: border-box;
-  flex: 0 1 112px;
-  min-width: 0;
-  min-height: 28px;
-  max-width: 112px;
-  width: 112px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--on-surface-muted);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.pagetollm-rail-mode-button:hover,
+.pagetollm-rail-mode-button[aria-expanded='true'] {
+  color: var(--ink);
+  background: var(--surface-low);
+}
+
+.pagetollm-rail-mode-button:focus-visible,
+.pagetollm-rail-mode-option:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.pagetollm-rail-mode-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 3001;
+  min-width: 132px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--ink);
+  box-shadow: 4px 4px 0 rgb(0 0 0 / 12%);
+}
+
+.pagetollm-rail-mode-option {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
   background: transparent;
   border: none;
   font-family: var(--font-data);
@@ -972,27 +1019,20 @@
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
   color: var(--on-surface-muted);
   cursor: pointer;
-  padding: 6px 10px;
-  border-radius: 0;
-  display: inline-block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease;
 }
 
-.pagetollm-rail-mode-select:hover {
+.pagetollm-rail-mode-option:hover {
   color: var(--ink);
   background: var(--surface-low);
 }
 
-.pagetollm-rail-mode-select:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 2px;
+.pagetollm-rail-mode-option.active {
+  background: var(--ink);
+  color: var(--surface);
 }
 
 /* ── Article chat (content-surface overrides) ───────────────────────────── */

@@ -2,6 +2,7 @@
 import { completeResplitDialog } from '../../../../test/resplitDialog.mjs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
+import { selectRailMode } from '../shared/railModeTestUtils.js';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -284,11 +285,7 @@ describe('openYouTubeRail', () => {
         await openYouTubeRail({ key: 'yt-key' });
       });
       buildYouTubeRailCards.mockClear();
-      const select = rail().querySelector('.pagetollm-rail-mode-select');
-      await act(async () => {
-        select.value = 'summaries';
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      });
+      await selectRailMode(rail(), 'summaries');
       expect(rail().dataset.mode).toBe('summaries');
       expect(buildYouTubeRailCards).toHaveBeenCalledWith(
         expect.objectContaining({ mode: 'summaries', selectedLevel: 0 }),
@@ -347,11 +344,7 @@ describe('openYouTubeRail', () => {
       await act(async () => {
         await openYouTubeRail({ key: 'yt-key' });
       });
-      const select = rail().querySelector('.pagetollm-rail-mode-select');
-      await act(async () => {
-        select.value = 'chat';
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      });
+      await selectRailMode(rail(), 'chat');
       await flushAsyncWork();
 
       return video;

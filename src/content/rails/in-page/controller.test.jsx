@@ -2,6 +2,7 @@
 import { completeResplitDialog } from '../../../../test/resplitDialog.mjs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
+import { selectRailMode } from '../shared/railModeTestUtils.js';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -859,18 +860,11 @@ describe('openInPageRail', () => {
       expect(rail().dataset.mode).toBe('chat');
       const geometryBeforeLeavingChat = getRailOriginTop.mock.calls.length;
 
-      const select = rail().querySelector('.pagetollm-rail-mode-select');
-      await act(async () => {
-        select.value = 'topics';
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      });
+      await selectRailMode(rail(), 'topics');
       expect(rail().dataset.mode).toBe('topics');
       expect(getRailOriginTop).toHaveBeenCalledTimes(geometryBeforeLeavingChat + 1);
 
-      await act(async () => {
-        select.value = 'chat';
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      });
+      await selectRailMode(rail(), 'chat');
       expect(rail().dataset.mode).toBe('chat');
     });
 
@@ -885,7 +879,8 @@ describe('openInPageRail', () => {
             const isChat = this.classList.contains('is-chat');
             measuredLayouts.push({
               bodyMode: isChat ? 'chat' : 'topics',
-              headerMode: this.parentElement?.querySelector('.pagetollm-rail-mode-select')?.value,
+              headerMode: this.parentElement?.querySelector('.pagetollm-rail-mode-button')?.dataset
+                .mode,
             });
             return {
               top: isChat ? chatBodyTop : topicBodyTop,
@@ -908,11 +903,7 @@ describe('openInPageRail', () => {
         await act(async () => {
           await openInPageRail({ key: 'rail-key' }, 'chat');
         });
-        const select = rail().querySelector('.pagetollm-rail-mode-select');
-        await act(async () => {
-          select.value = 'topics';
-          select.dispatchEvent(new Event('change', { bubbles: true }));
-        });
+        await selectRailMode(rail(), 'topics');
 
         expect(measuredLayouts).toEqual([
           { bodyMode: 'chat', headerMode: 'chat' },
@@ -1025,9 +1016,12 @@ describe('openInPageRail', () => {
       await act(async () => {
         await openInPageRail({ key: 'rail-key' }, 'topics');
       });
-      const select = rail().querySelector('.pagetollm-rail-mode-select');
 
-      expect([...select.options].map((option) => option.value)).toEqual([
+      await act(async () => {
+        rail().querySelector('.pagetollm-rail-mode-button').click();
+      });
+      const options = rail().querySelectorAll('.pagetollm-rail-mode-option');
+      expect([...options].map((option) => option.dataset.mode)).toEqual([
         'topics',
         'summaries',
         'chat',
@@ -1040,11 +1034,7 @@ describe('openInPageRail', () => {
       await act(async () => {
         await openInPageRail({ key: 'rail-key' }, 'topics');
       });
-      const select = rail().querySelector('.pagetollm-rail-mode-select');
-      await act(async () => {
-        select.value = 'summaries';
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      });
+      await selectRailMode(rail(), 'summaries');
       expect(rail()).not.toBeNull();
       expect(rail().dataset.mode).toBe('summaries');
       expect(openCanvasIframe).not.toHaveBeenCalled();
@@ -1060,11 +1050,7 @@ describe('openInPageRail', () => {
       // so rail background always sits behind a card, including the summary column.
       expect(body().style.height).toBe('');
 
-      const select = rail().querySelector('.pagetollm-rail-mode-select');
-      await act(async () => {
-        select.value = 'summaries';
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      });
+      await selectRailMode(rail(), 'summaries');
       await act(async () => {
         rail().querySelector('.pagetollm-rail-level-btn[data-level="1"]').click();
       });

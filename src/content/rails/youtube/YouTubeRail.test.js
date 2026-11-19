@@ -158,11 +158,13 @@ describe('YouTubeRail', () => {
       }),
     );
 
-    const modeSelect = container.querySelector('.pagetollm-rail-mode-select');
-    expect(modeSelect.value).toBe('topics');
+    const modeButton = container.querySelector('.pagetollm-rail-mode-button');
+    expect(modeButton.dataset.mode).toBe('topics');
     act(() => {
-      modeSelect.value = 'summaries';
-      modeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      modeButton.click();
+    });
+    act(() => {
+      container.querySelector('.pagetollm-rail-mode-option[data-mode="summaries"]').click();
     });
     expect(onSelectMode).toHaveBeenCalledWith('summaries');
 

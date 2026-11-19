@@ -1,23 +1,79 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { splitTopicPath } from '../../../shared/runtime/topicPath.js';
 import { normalizeRailMode, RAIL_MODES } from './railState.js';
 
-function RailModeSelect({ mode, onSelectMode }) {
+/**
+ * Fixed-width "sandwich" button that opens a menu of rail views. Replaces a
+ * <select> whose label was truncated in the narrow rail.
+ */
+function RailModeMenu({ mode, onSelectMode }) {
   const activeMode = normalizeRailMode(mode);
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  const buttonRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const doc = rootRef.current?.ownerDocument ?? document;
+    const handlePointerDown = (event) => {
+      const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+      if (rootRef.current && !path.includes(rootRef.current)) setOpen(false);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+      setOpen(false);
+      buttonRef.current?.focus();
+    };
+    doc.addEventListener('pointerdown', handlePointerDown, true);
+    doc.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      doc.removeEventListener('pointerdown', handlePointerDown, true);
+      doc.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [open]);
+
+  const activeLabel = RAIL_MODES.find(([value]) => value === activeMode)?.[1] ?? '';
 
   return (
-    <select
-      className="pagetollm-rail-mode-select pagetollm-rail-title"
-      aria-label="Rail view"
-      value={activeMode}
-      onChange={(event) => onSelectMode(event.target.value)}
-    >
-      {RAIL_MODES.map(([value, label]) => (
-        <option key={value} value={value}>
-          {label}
-        </option>
-      ))}
-    </select>
+    <div className="pagetollm-rail-mode-menu" ref={rootRef}>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="pagetollm-rail-mode-button"
+        aria-label="Rail view"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={`Rail view: ${activeLabel}`}
+        data-mode={activeMode}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+          <path d="M2 3.5h12M2 8h12M2 12.5h12" stroke="currentColor" strokeWidth="1.8" />
+        </svg>
+      </button>
+      {open ? (
+        <div className="pagetollm-rail-mode-list" role="menu" aria-label="Rail view">
+          {RAIL_MODES.map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="menuitemradio"
+              aria-checked={value === activeMode}
+              className={['pagetollm-rail-mode-option', value === activeMode ? 'active' : '']
+                .filter(Boolean)
+                .join(' ')}
+              data-mode={value}
+              onClick={() => {
+                setOpen(false);
+                if (value !== activeMode) onSelectMode(value);
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -47,7 +103,7 @@ function RailTopicLayoutToggle({ topicLayout, onSelectTopicLayout }) {
 }
 
 /**
- * Shared rail header: mode select, chat-action portal target or level switcher,
+ * Shared rail header: view menu button, chat-action portal target or level switcher,
  * then close button. Only the in-page rail passes `onSelectTopicLayout`, which
  * adds the topic layout toggle in topics mode.
  */
@@ -67,7 +123,7 @@ export function RailHead({
   const showLayoutToggle = Boolean(onSelectTopicLayout) && normalizeRailMode(mode) === 'topics';
   return (
     <div className="pagetollm-rail-head">
-      <RailModeSelect mode={mode} onSelectMode={onSelectMode} />
+      <RailModeMenu mode={mode} onSelectMode={onSelectMode} />
       {isChat ? (
         <div className="pagetollm-rail-chat-actions" ref={setChatActionsTarget} />
       ) : (

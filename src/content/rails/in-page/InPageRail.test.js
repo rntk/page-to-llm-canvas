@@ -270,21 +270,28 @@ describe('InPageRail', () => {
     unmount();
   });
 
-  it('handles native mode switching', () => {
+  it('switches mode through the view menu', () => {
     const onSelectMode = vi.fn();
     const { container, unmount } = render(
       createElement(InPageRail, { ...defaultProps, onSelectMode }),
     );
 
-    const select = container.querySelector('.pagetollm-rail-mode-select');
-    expect(select).not.toBeNull();
-    expect(select.value).toBe('topics');
-    expect(select.querySelectorAll('option')).toHaveLength(3);
+    const button = container.querySelector('.pagetollm-rail-mode-button');
+    expect(button).not.toBeNull();
+    expect(button.dataset.mode).toBe('topics');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelector('.pagetollm-rail-mode-select')).toBeNull();
 
     act(() => {
-      select.value = 'summaries';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
+      button.click();
     });
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelectorAll('.pagetollm-rail-mode-option')).toHaveLength(3);
+
+    act(() => {
+      container.querySelector('.pagetollm-rail-mode-option[data-mode="summaries"]').click();
+    });
+    expect(container.querySelector('.pagetollm-rail-mode-option')).toBeNull();
     expect(onSelectMode).toHaveBeenCalledWith('summaries');
 
     unmount();
