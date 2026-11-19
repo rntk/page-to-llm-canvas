@@ -142,6 +142,32 @@ describe('YouTubeRail', () => {
     document.body.innerHTML = '';
   });
 
+  it('offers a side action in the view menu that flips with the current side', () => {
+    const onSelectSide = vi.fn();
+    const { container, rerender, unmount } = render(
+      createElement(YouTubeRail, { ...defaultProps, onSelectSide }),
+    );
+    const open = () =>
+      act(() => {
+        container.querySelector('.pagetollm-rail-mode-button').click();
+      });
+
+    open();
+    const action = container.querySelector('.pagetollm-rail-side-action');
+    expect(action.textContent).toBe('Move to left');
+    act(() => action.click());
+    expect(onSelectSide).toHaveBeenCalledWith('left');
+    expect(container.querySelector('.pagetollm-rail-mode-list')).toBeNull();
+
+    rerender(createElement(YouTubeRail, { ...defaultProps, onSelectSide, side: 'left' }));
+    open();
+    const back = container.querySelector('.pagetollm-rail-side-action');
+    expect(back.textContent).toBe('Move to right');
+    act(() => back.click());
+    expect(onSelectSide).toHaveBeenLastCalledWith('right');
+    unmount();
+  });
+
   it('renders rail controls and handles mode, level, close, and seek actions', () => {
     const onSelectMode = vi.fn();
     const onSelectLevel = vi.fn();

@@ -45,6 +45,8 @@ export default function YouTubeRail({
   topics = [],
   onSelectMode,
   onSelectLevel,
+  side = 'right',
+  onSelectSide,
   onClose,
   getCurrentTime,
   subscribePlayback,
@@ -423,6 +425,8 @@ export default function YouTubeRail({
         selectedLevel={selectedLevel}
         onSelectLevel={onSelectLevel}
         onClose={onClose}
+        side={side}
+        onSelectSide={onSelectSide}
         suggestedLevel={isChat ? null : suggestedLevel}
       />
       <div

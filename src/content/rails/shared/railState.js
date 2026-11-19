@@ -6,6 +6,18 @@ export const RAIL_MODES = Object.freeze([
   ['chat', 'Chat'],
 ]);
 
+export const RAIL_SIDES = Object.freeze(['right', 'left']);
+
+/**
+ * Normalize a rail side to 'right' or 'left', defaulting to 'right'.
+ *
+ * @param {string} [side]
+ * @returns {'right'|'left'}
+ */
+export function normalizeRailSide(side) {
+  return RAIL_SIDES.includes(side) ? side : RAIL_SIDES[0];
+}
+
 const VALID_MODES = new Set(RAIL_MODES.map(([mode]) => mode));
 
 /**

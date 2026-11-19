@@ -143,6 +143,32 @@ describe('in-page rail surface', () => {
     expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-width')).toBe('340px');
   });
 
+  it('mounts on the right by default and moves the reserve to the left on request', () => {
+    const state = { mode: 'topics' };
+    const surface = manager.createSurface({ state });
+    expect(surface.railEl.dataset.side).toBe('right');
+    expect(document.body.classList.contains('pagetollm-rail-left')).toBe(false);
+
+    surface.setRailSide('left');
+    expect(state.side).toBe('left');
+    expect(surface.railEl.dataset.side).toBe('left');
+    expect(document.body.classList.contains('pagetollm-rail-left')).toBe(true);
+
+    surface.setRailSide('bogus');
+    expect(surface.railEl.dataset.side).toBe('right');
+    expect(document.body.classList.contains('pagetollm-rail-left')).toBe(false);
+  });
+
+  it('opens the next rail on the side last chosen and clears the class on close', () => {
+    manager.createSurface({ state: { mode: 'topics' } }).setRailSide('left');
+    const next = manager.createSurface({ state: { mode: 'chat' } });
+    expect(next.railEl.dataset.side).toBe('left');
+    expect(document.body.classList.contains('pagetollm-rail-left')).toBe(true);
+
+    manager.close();
+    expect(document.body.classList.contains('pagetollm-rail-left')).toBe(false);
+  });
+
   it('tears down an existing rail before mounting a replacement', () => {
     const firstRoot = { unmount: vi.fn() };
     createRoot.mockReturnValueOnce(firstRoot);

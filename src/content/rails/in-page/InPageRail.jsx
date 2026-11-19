@@ -583,6 +583,8 @@ export default function InPageRail({
   onSelectLevel,
   topicLayout = 'notes',
   onSelectTopicLayout,
+  side = 'right',
+  onSelectSide,
   onHighlightCard,
   onScrollToCard,
   scrollContainer,
@@ -682,13 +684,13 @@ export default function InPageRail({
 
   // Recomputed on every render: the controller re-renders on viewport resize,
   // which is the only thing besides the cards that moves the column.
-  const noteColumn = computeNoteColumn(cards, getViewportWidth(scrollWindow));
+  const noteColumn = computeNoteColumn(cards, getViewportWidth(scrollWindow), side);
 
   // Notes are measured once rendered, then spread out so none overlaps another.
   useLayoutEffect(() => {
     if (isSummary || isChat || !isNotes || !trackRef.current) return;
     layoutNotes(trackRef.current, cards);
-  }, [cards, isChat, isNotes, isSummary, noteColumn.noteWidth]);
+  }, [cards, isChat, isNotes, isSummary, noteColumn.noteWidth, side]);
 
   const bringForward = useCallback((card) => setFrontCardId(card.id), []);
 
@@ -753,6 +755,8 @@ export default function InPageRail({
         onClose={onClose}
         topicLayout={topicLayout}
         onSelectTopicLayout={onSelectTopicLayout}
+        side={side}
+        onSelectSide={onSelectSide}
       />
       <div
         className={isChat ? 'pagetollm-rail-body is-chat' : 'pagetollm-rail-body'}

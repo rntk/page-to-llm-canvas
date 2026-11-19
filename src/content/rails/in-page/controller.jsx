@@ -10,9 +10,10 @@ import { computeMaxTopicLevel } from '../shared/railCards.js';
 import { getScrollableAncestor, getRailOriginTop } from './geometry.js';
 import { createPageHighlighter } from './pageHighlighter.js';
 import { buildRailCards } from './railProjection.js';
+import { canDrawNotes } from './marginNotes.js';
 import { findPickedElements, assessRecordForRail } from '../shared/recordFetch.js';
 import { createRecordLoader } from '../shared/recordLoader.js';
-import { createRailState, normalizeRailMode } from '../shared/railState.js';
+import { createRailState, normalizeRailMode, normalizeRailSide } from '../shared/railState.js';
 import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
 import { createLogger } from '../../../shared/runtime/log.js';
 import { MSG } from '../../../shared/runtime/messages.js';
@@ -114,7 +115,7 @@ export function createInPageRailController({
       highlighter.destroy();
       return false;
     }
-    const { railEl, railRoot, setRailWidthForMode, isClosed } = surface;
+    const { railEl, railRoot, setRailWidthForMode, setRailSide, isClosed } = surface;
     railEl.dataset.topicLayout = state.topicLayout;
 
     const topicActions = [
@@ -150,6 +151,19 @@ export function createInPageRailController({
       setRailWidthForMode();
       highlighter.clearAll();
       // Chat's sticky body may have a different viewport origin.
+      renderRail({ measureOnly: true });
+      measureRailOrigin();
+      renderRail();
+    };
+
+    const handleSelectSide = (side) => {
+      if (isClosed()) return;
+      const next = normalizeRailSide(side);
+      if (state.side === next) return;
+      setRailSide(next);
+      // Chat citations stay selected in the mounted chat; their ranges follow the reflow.
+      if (state.mode !== 'chat') highlighter.clearAll();
+      // The page reflows around the moved reserve; re-measure before projecting.
       renderRail({ measureOnly: true });
       measureRailOrigin();
       renderRail();
@@ -199,7 +213,7 @@ export function createInPageRailController({
       const projectedScrollContainerTop = isNestedScroll
         ? scrollContainer.getBoundingClientRect().top
         : 0;
-      const canProject = !measureOnly && Number.isFinite(railOriginTop);
+      const canProject = state.mode !== 'chat' && !measureOnly && Number.isFinite(railOriginTop);
       // Summaries mode hints at better levels, so every level is projected;
       // the selected level's cards are reused rather than projected twice.
       let levelCards;
@@ -210,6 +224,10 @@ export function createInPageRailController({
         }
       }
       const cards = !canProject ? [] : (levelCards?.get(state.selectedLevel) ?? projectRail());
+      // Margin notes need room beside the text; otherwise show the in-rail cards.
+      const notesAvailable = canDrawNotes(cards, state.side);
+      const topicLayout = notesAvailable ? state.topicLayout : 'cards';
+      railEl.dataset.topicLayout = topicLayout;
       const commit = () => {
         railRoot.render(
           <InPageRail
@@ -222,8 +240,10 @@ export function createInPageRailController({
             onClose={closeRail}
             onSelectMode={handleSelectMode}
             onSelectLevel={handleSelectLevel}
-            topicLayout={state.topicLayout}
-            onSelectTopicLayout={handleSelectTopicLayout}
+            topicLayout={topicLayout}
+            onSelectTopicLayout={notesAvailable ? handleSelectTopicLayout : undefined}
+            side={state.side}
+            onSelectSide={handleSelectSide}
             onHighlightCard={handleHighlightCard}
             onScrollToCard={handleScrollToCard}
             scrollContainer={scrollContainer}

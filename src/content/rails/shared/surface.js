@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { createLoadToken } from './recordFetch.js';
+import { normalizeRailSide } from './railState.js';
 import { createLogger } from '../../../shared/runtime/log.js';
 // ?inline supplies CSS text for a style node managed over the rail's lifetime.
 import contentRailCss from '../../../extension/styles/content-rail.css?inline';
@@ -58,6 +59,8 @@ export function createRailSurfaceManager({
   preferences,
 } = {}) {
   let activeRailController = null;
+  // The chosen side outlives a single rail, so the next one opens where the last was.
+  let preferredSide = 'right';
   const loadingTokenHolder = { current: null };
   const unregisterThemedSurface =
     preferences.registerThemedSurface(() => activeRailController?.railEl) || (() => {});
@@ -81,7 +84,9 @@ export function createRailSurfaceManager({
     ensureRailStyles(contentDocument);
     const railEl = contentDocument.createElement('aside');
     railEl.id = 'pagetollm-in-page-rail';
+    state.side = normalizeRailSide(state.side ?? preferredSide);
     railEl.dataset.mode = state.mode;
+    railEl.dataset.side = state.side;
     if (youtube) railEl.dataset.youtube = 'true';
     preferences.applyContentTheme(railEl);
     preferences.applyContentHighlightColor(railEl);
@@ -158,8 +163,19 @@ export function createRailSurfaceManager({
       contentDocument.documentElement.scrollWidth > contentDocument.documentElement.clientWidth;
     setRailWidthForMode();
     contentDocument.body.classList.add('pagetollm-rail-open');
+    contentDocument.body.classList.toggle('pagetollm-rail-left', state.side === 'left');
     syncRailReserveFit();
-    return { railEl, railRoot, setRailWidthForMode, isClosed: () => railClosed };
+
+    const setRailSide = (side) => {
+      if (railClosed) return;
+      state.side = preferredSide = normalizeRailSide(side);
+      railEl.dataset.side = state.side;
+      contentDocument.body.classList.toggle('pagetollm-rail-left', state.side === 'left');
+      // The reserve moved to the other edge, so re-check for overflow.
+      syncRailReserveFit();
+    };
+
+    return { railEl, railRoot, setRailWidthForMode, setRailSide, isClosed: () => railClosed };
   }
 
   function clearPageRailState() {
@@ -168,7 +184,11 @@ export function createRailSurfaceManager({
     ).some((railEl) => ownedRailElements.has(railEl));
     if (hasOwnedRail) return;
     removeRailStyles(contentDocument);
-    contentDocument.body?.classList.remove('pagetollm-rail-open', 'pagetollm-rail-fit');
+    contentDocument.body?.classList.remove(
+      'pagetollm-rail-open',
+      'pagetollm-rail-fit',
+      'pagetollm-rail-left',
+    );
     contentDocument.documentElement.style.removeProperty('--pagetollm-rail-reserve');
     contentDocument.documentElement.style.removeProperty('--pagetollm-rail-width');
   }

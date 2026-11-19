@@ -853,11 +853,32 @@ describe('openInPageRail', () => {
       expect(rail().querySelector('.pagetollm-notes-layer')).not.toBeNull();
     });
 
+    async function moveRail() {
+      await act(async () => rail().querySelector('.pagetollm-rail-mode-button').click());
+      await act(async () => rail().querySelector('.pagetollm-rail-side-action').click());
+    }
+
+    it('hides the layout toggle when notes cannot fit and restores notes when they fit', async () => {
+      computeCardVerticalBox.mockReturnValue({ top: 0, height: 50, left: 24 });
+      await act(async () => {
+        await openInPageRail({ key: 'rail-key' }, 'topics');
+      });
+      await moveRail();
+      expect(rail().dataset.topicLayout).toBe('cards');
+      expect(rail().querySelector('.pagetollm-rail-layout-toggle')).toBeNull();
+
+      await moveRail();
+      expect(rail().dataset.topicLayout).toBe('notes');
+      expect(rail().querySelector('.pagetollm-rail-layout-toggle')).not.toBeNull();
+    });
+
     it('updates the mode attribute used to fix chat while switching rail modes', async () => {
       await act(async () => {
         await openInPageRail({ key: 'rail-key' }, 'chat');
       });
       expect(rail().dataset.mode).toBe('chat');
+      await moveRail();
+      expect(computeCardVerticalBox).not.toHaveBeenCalled();
       const geometryBeforeLeavingChat = getRailOriginTop.mock.calls.length;
 
       await selectRailMode(rail(), 'topics');
@@ -914,7 +935,6 @@ describe('openInPageRail', () => {
           topicBodyTop,
         ]);
         expect(computeCardVerticalBox.mock.calls.map(([, , , originTop]) => originTop)).toEqual([
-          chatBodyTop,
           topicBodyTop,
         ]);
       } finally {

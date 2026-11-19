@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from 'vitest';
-import { curlyBracePath, computeNoteColumn, layoutNotes } from './marginNotes.js';
+import { canDrawNotes, curlyBracePath, computeNoteColumn, layoutNotes } from './marginNotes.js';
 
 describe('curlyBracePath', () => {
   it('points right at mid-height and hooks back to the left edge at both ends', () => {
@@ -35,6 +35,38 @@ describe('computeNoteColumn', () => {
 
   it('falls back to the right margin of the viewport when no text edge was measured', () => {
     expect(computeNoteColumn([{ box: {} }], 1000)).toEqual({ left: 682, noteWidth: 288 });
+  });
+});
+
+describe('computeNoteColumn on the left', () => {
+  it('ends the brace just before the leftmost text edge', () => {
+    const cards = [{ box: { left: 400 } }, { box: { left: 360 } }];
+    // 360 - 6 - 14 = 340
+    expect(computeNoteColumn(cards, 1200, 'left')).toEqual({ left: 340, noteWidth: 288 });
+  });
+
+  it('narrows notes to the space left of the brace, down to a readable minimum', () => {
+    // brace at 200 - 20 = 180; 180 - 4 - 12 = 164
+    expect(computeNoteColumn([{ box: { left: 200 } }], 1200, 'left').noteWidth).toBe(164);
+    expect(computeNoteColumn([{ box: { left: 100 } }], 1200, 'left').noteWidth).toBe(144);
+  });
+
+  it('keeps the brace on screen and falls back to the left margin when unmeasured', () => {
+    expect(computeNoteColumn([{ box: { left: 10 } }], 1200, 'left').left).toBe(0);
+    expect(computeNoteColumn([{ box: {} }], 1000, 'left')).toEqual({ left: 304, noteWidth: 288 });
+  });
+});
+
+describe('canDrawNotes', () => {
+  it('always allows right-side notes and unmeasured cards', () => {
+    expect(canDrawNotes([{ box: { right: 1100 } }], 'right')).toBe(true);
+    expect(canDrawNotes([{ box: {} }], 'left')).toBe(true);
+  });
+
+  it('needs a readable note width left of the text on the left side', () => {
+    // 144 note + 4 gap + 14 brace + 6 gap + 12 margin = 180
+    expect(canDrawNotes([{ box: { left: 180 } }], 'left')).toBe(true);
+    expect(canDrawNotes([{ box: { left: 24 } }], 'left')).toBe(false);
   });
 });
 

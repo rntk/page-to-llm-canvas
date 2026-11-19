@@ -5,7 +5,7 @@ import { buildYouTubeRailCards } from './sync.js';
 import { formatTimestampLabel, getTimestampForSentences } from '../../../utils/youtubeTimestamp.js';
 import { computeMaxTopicLevel } from '../shared/railCards.js';
 import { createRecordLoader } from '../shared/recordLoader.js';
-import { createRailState, normalizeRailMode } from '../shared/railState.js';
+import { createRailState, normalizeRailMode, normalizeRailSide } from '../shared/railState.js';
 import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
 import { createLogger } from '../../../shared/runtime/log.js';
 import { MSG } from '../../../shared/runtime/messages.js';
@@ -68,7 +68,7 @@ export function createYouTubeRailController({
       onTeardown: onDestroy,
     });
     if (!surface) return false;
-    const { railEl, railRoot, setRailWidthForMode, isClosed } = surface;
+    const { railEl, railRoot, setRailWidthForMode, setRailSide, isClosed } = surface;
     const topicActions = [
       createResplitAction({
         topics,
@@ -149,6 +149,14 @@ export function createYouTubeRailController({
       renderRail();
     };
 
+    const handleSelectSide = (side) => {
+      if (isClosed()) return;
+      const next = normalizeRailSide(side);
+      if (state.side === next) return;
+      setRailSide(next);
+      renderRail();
+    };
+
     const handleSelectLevel = (level) => {
       if (isClosed()) return;
       if (state.selectedLevel === level) return;
@@ -211,6 +219,8 @@ export function createYouTubeRailController({
           topicActions={topicActions}
           onSelectMode={handleSelectMode}
           onSelectLevel={handleSelectLevel}
+          side={state.side}
+          onSelectSide={handleSelectSide}
           onClose={closeRail}
           getCurrentTime={getCurrentTime}
           subscribePlayback={subscribePlayback}

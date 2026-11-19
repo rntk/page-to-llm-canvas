@@ -42,14 +42,48 @@ export function getViewportWidth(scrollWindow) {
 }
 
 /**
- * Horizontal placement of the note column: braces start just past the rightmost
- * text edge; notes take the remaining viewport width, clamped to
- * [NOTE_MIN_WIDTH, NOTE_MAX_WIDTH].
- * @param {Array<{box: {right?: number}}>} cards Positioned cards.
- * @param {number} viewportWidth Viewport width in px.
- * @returns {{left: number, noteWidth: number}} Column left edge and note width.
+ * Whether margin notes can be drawn readably on the given side. Only the left
+ * can run out of room: its notes lie between the article text and the viewport
+ * edge, which a page whose article is not moved by the rail's reserve (a fixed
+ * pane, say) leaves almost no space for.
+ * @param {Array<{box: {left?: number}}>} cards Positioned cards.
+ * @param {'right'|'left'} [side='right'] Side of the page the notes are drawn on.
+ * @returns {boolean} False when the caller should use in-rail cards instead.
  */
-export function computeNoteColumn(cards, viewportWidth) {
+export function canDrawNotes(cards, side = 'right') {
+  if (side !== 'left') return true;
+  const textLeft = Math.min(
+    Infinity,
+    ...cards.map((card) => card.box.left).filter(Number.isFinite),
+  );
+  if (!Number.isFinite(textLeft)) return true;
+  return textLeft - BRACE_GAP - BRACE_WIDTH - NOTE_GAP - VIEWPORT_MARGIN >= NOTE_MIN_WIDTH;
+}
+
+/**
+ * Horizontal placement of the note column. On the right, braces start just past
+ * the rightmost text edge; on the left, they end just before the leftmost one
+ * and point left. Notes take the remaining viewport width, clamped to
+ * [NOTE_MIN_WIDTH, NOTE_MAX_WIDTH].
+ * @param {Array<{box: {right?: number, left?: number}}>} cards Positioned cards.
+ * @param {number} viewportWidth Viewport width in px.
+ * @param {'right'|'left'} [side='right'] Side of the page the notes are drawn on.
+ * @returns {{left: number, noteWidth: number}} Brace column left edge and note width.
+ */
+export function computeNoteColumn(cards, viewportWidth, side = 'right') {
+  if (side === 'left') {
+    const textLeft = Math.min(
+      Infinity,
+      ...cards.map((card) => card.box.left).filter(Number.isFinite),
+    );
+    // Unmeasured text edge: fall back to the viewport's left margin.
+    const braceLeft = Number.isFinite(textLeft)
+      ? textLeft - BRACE_GAP - BRACE_WIDTH
+      : VIEWPORT_MARGIN + NOTE_GAP + NOTE_MAX_WIDTH;
+    const room = braceLeft - NOTE_GAP - VIEWPORT_MARGIN;
+    const noteWidth = Math.max(NOTE_MIN_WIDTH, Math.min(NOTE_MAX_WIDTH, room));
+    return { left: Math.max(0, braceLeft), noteWidth };
+  }
   const textRight = Math.max(
     -Infinity,
     ...cards.map((card) => card.box.right).filter(Number.isFinite),

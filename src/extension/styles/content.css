@@ -103,8 +103,16 @@
 
 /* ── In-page rail (topics / summaries view) ────────────────────────────── */
 
-body.pagetollm-rail-open {
-  padding-right: var(--pagetollm-rail-reserve, 0) !important;
+/* Non-print only: the rail is hidden in print, so the page keeps its own padding. */
+@media not print {
+  body.pagetollm-rail-open:not(.pagetollm-rail-left) {
+    padding-right: var(--pagetollm-rail-reserve, 0) !important;
+  }
+
+  /* Rail on the left: reserve the strip on that edge instead. */
+  body.pagetollm-rail-open.pagetollm-rail-left {
+    padding-left: var(--pagetollm-rail-reserve, 0) !important;
+  }
 }
 
 /* The reserve padding only widens the page for an explicit-width content-box
@@ -140,6 +148,13 @@ body.pagetollm-rail-open {
   isolation: isolate;
 }
 
+#pagetollm-in-page-rail[data-side='left'] {
+  right: auto;
+  left: 0;
+  border-left: 0;
+  border-right: 2px solid var(--ink);
+}
+
 /* Sentence highlights live on the page's own text ranges, so this rule must be
    in the page tree: ::highlight() only matches rules from the tree its ranges
    belong to. It stays here even though only the rail registers highlights. */
@@ -156,8 +171,5 @@ body.pagetollm-rail-open {
     display: none !important;
   }
 
-  /* .pagetollm-rail-fit is non-print only, so no box-model undo is needed. */
-  body.pagetollm-rail-open {
-    padding-right: 0 !important;
-  }
+  /* The reserve padding and .pagetollm-rail-fit are non-print only: nothing to undo. */
 }

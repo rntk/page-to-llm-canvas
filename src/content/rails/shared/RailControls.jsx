@@ -6,7 +6,7 @@ import { normalizeRailMode, RAIL_MODES } from './railState.js';
  * Fixed-width "sandwich" button that opens a menu of rail views. Replaces a
  * <select> whose label was truncated in the narrow rail.
  */
-function RailModeMenu({ mode, onSelectMode }) {
+function RailModeMenu({ mode, onSelectMode, side, onSelectSide }) {
   const activeMode = normalizeRailMode(mode);
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
@@ -32,6 +32,8 @@ function RailModeMenu({ mode, onSelectMode }) {
     };
   }, [open]);
 
+  const isLeft = side === 'left';
+  const sideLabel = isLeft ? 'Move to right' : 'Move to left';
   const activeLabel = RAIL_MODES.find(([value]) => value === activeMode)?.[1] ?? '';
 
   return (
@@ -71,6 +73,20 @@ function RailModeMenu({ mode, onSelectMode }) {
               {label}
             </button>
           ))}
+          {onSelectSide ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="pagetollm-rail-mode-action pagetollm-rail-side-action"
+              data-side={isLeft ? 'right' : 'left'}
+              onClick={() => {
+                setOpen(false);
+                onSelectSide(isLeft ? 'right' : 'left');
+              }}
+            >
+              {sideLabel}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -103,7 +119,7 @@ function RailTopicLayoutToggle({ topicLayout, onSelectTopicLayout }) {
 }
 
 /**
- * Shared rail header: view menu button, chat-action portal target or level switcher,
+ * Shared rail header: view menu button (also hosts the left/right side action), chat-action portal target or level switcher,
  * then close button. Only the in-page rail passes `onSelectTopicLayout`, which
  * adds the topic layout toggle in topics mode.
  */
@@ -119,11 +135,18 @@ export function RailHead({
   topicLayout,
   onSelectTopicLayout,
   suggestedLevel = null,
+  side = 'right',
+  onSelectSide,
 }) {
   const showLayoutToggle = Boolean(onSelectTopicLayout) && normalizeRailMode(mode) === 'topics';
   return (
     <div className="pagetollm-rail-head">
-      <RailModeMenu mode={mode} onSelectMode={onSelectMode} />
+      <RailModeMenu
+        mode={mode}
+        onSelectMode={onSelectMode}
+        side={side}
+        onSelectSide={onSelectSide}
+      />
       {isChat ? (
         <div className="pagetollm-rail-chat-actions" ref={setChatActionsTarget} />
       ) : (

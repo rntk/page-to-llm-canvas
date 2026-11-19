@@ -323,6 +323,16 @@
   pointer-events: auto;
 }
 
+#pagetollm-in-page-rail[data-side='left'][data-mode='topics'][data-topic-layout='notes'] {
+  border-right-color: transparent;
+}
+
+#pagetollm-in-page-rail[data-side='left'][data-mode='topics'][data-topic-layout='notes']
+  .pagetollm-rail-head {
+  border-left: 0;
+  border-right: 1px solid var(--ink);
+}
+
 .pagetollm-notes-layer {
   position: fixed;
   inset: var(--pagetollm-notes-origin, 0) 0 0 0;
@@ -377,6 +387,16 @@
   max-width: none !important;
   overflow: visible;
   pointer-events: none;
+}
+
+/* Left side: braces point left, away from the article, and notes sit further left. */
+#pagetollm-in-page-rail[data-side='left'] .pagetollm-note-brace {
+  transform: scaleX(-1);
+}
+
+#pagetollm-in-page-rail[data-side='left'] .pagetollm-note-label {
+  left: auto;
+  right: 18px; /* BRACE_WIDTH + NOTE_GAP in marginNotes.js */
 }
 
 #pagetollm-in-page-rail .pagetollm-note-brace-hit {
@@ -631,6 +651,16 @@
   pointer-events: none;
 }
 
+#pagetollm-in-page-rail[data-side='left'] .pagetollm-summary-cursor-line {
+  left: var(--pagetollm-rail-reserve, 356px);
+  right: 0;
+}
+
+#pagetollm-in-page-rail[data-side='left'] .pagetollm-summary-cursor-line::after {
+  right: auto;
+  left: -10px;
+}
+
 .pagetollm-summary-cursor-line::after {
   content: '';
   position: absolute;
@@ -664,6 +694,11 @@
   box-sizing: border-box;
   pointer-events: none;
   animation: pagetollm-summary-fade-in 0.18s ease-out;
+}
+
+#pagetollm-in-page-rail[data-side='left'] .pagetollm-summary-stack {
+  right: auto;
+  left: 12px;
 }
 
 /* Clipped, not hidden, for the same reason as the rail body: focusing a title
@@ -990,7 +1025,8 @@
 }
 
 .pagetollm-rail-mode-button:focus-visible,
-.pagetollm-rail-mode-option:focus-visible {
+.pagetollm-rail-mode-option:focus-visible,
+.pagetollm-rail-mode-action:focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
@@ -1008,7 +1044,8 @@
   box-shadow: 4px 4px 0 rgb(0 0 0 / 12%);
 }
 
-.pagetollm-rail-mode-option {
+.pagetollm-rail-mode-option,
+.pagetollm-rail-mode-action {
   display: block;
   width: 100%;
   padding: 8px 12px;
@@ -1025,9 +1062,15 @@
   cursor: pointer;
 }
 
-.pagetollm-rail-mode-option:hover {
+.pagetollm-rail-mode-option:hover,
+.pagetollm-rail-mode-action:hover {
   color: var(--ink);
   background: var(--surface-low);
+}
+
+/* Set apart from the views: it is an action, not a view. */
+.pagetollm-rail-mode-action {
+  border-top: 1px solid var(--ghost);
 }
 
 .pagetollm-rail-mode-option.active {
