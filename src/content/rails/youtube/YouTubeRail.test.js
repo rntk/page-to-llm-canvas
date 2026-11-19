@@ -225,6 +225,184 @@ describe('YouTubeRail', () => {
     unmount();
   });
 
+  describe('better level hint', () => {
+    // L1 (selected) covers 0-20s and 30-40s; L0 covers 0-200s.
+    const level1Cards = [
+      { ...cards[0], endSeconds: 20 },
+      { ...cards[1], endSeconds: 40 },
+    ];
+    const level0Cards = [
+      {
+        id: 'whole',
+        name: 'Whole',
+        path: 'Whole',
+        text: '',
+        accent: '#111',
+        seconds: 0,
+        endSeconds: 200,
+        sentences: [1],
+      },
+    ];
+    const hintProps = {
+      ...defaultProps,
+      maxLevel: 1,
+      selectedLevel: 1,
+      cards: level1Cards,
+      levelCards: [level0Cards, level1Cards],
+    };
+    const tick = (count = 1) => {
+      for (let i = 0; i < count; i += 1) act(() => vi.advanceTimersByTime(1000));
+    };
+
+    it('shows the hint after two consecutive ticks, under the active card', () => {
+      let currentTime = 10;
+      const getCurrentTime = vi.fn(() => currentTime);
+      const onSelectLevel = vi.fn();
+      const { container, unmount } = render(
+        createElement(YouTubeRail, { ...hintProps, getCurrentTime, onSelectLevel }),
+      );
+      expect(container.querySelector('.pagetollm-level-hint')).toBeNull();
+
+      currentTime = 100;
+      tick();
+      expect(container.querySelector('.pagetollm-level-hint')).toBeNull();
+      expect(container.querySelector('[data-level="0"].is-suggested')).toBeNull();
+      const scrollCalls = Element.prototype.scrollTo.mock.calls.length;
+      tick();
+
+      const note = container.querySelector('.pagetollm-level-hint');
+      expect(note).not.toBeNull();
+      expect(note.dataset.level).toBe('0');
+      const activeButton = container.querySelector('.pagetollm-yt-rail-card.is-active');
+      expect(activeButton.textContent).toContain('Middle');
+      expect(note.parentElement).toBe(activeButton.parentElement);
+      expect(activeButton.nextElementSibling).toBe(note);
+      expect(activeButton.contains(note)).toBe(false);
+      expect(container.querySelectorAll('.pagetollm-level-hint')).toHaveLength(1);
+      expect(
+        container.querySelector('.pagetollm-rail-level-btn[data-level="0"]').className,
+      ).toContain('is-suggested');
+      expect(Element.prototype.scrollTo.mock.calls.length).toBe(scrollCalls);
+
+      act(() => note.click());
+      expect(onSelectLevel).toHaveBeenCalledWith(0);
+      unmount();
+    });
+
+    it('does not flicker: a one-tick suggestion never shows', () => {
+      let currentTime = 100;
+      const getCurrentTime = vi.fn(() => currentTime);
+      const { container, unmount } = render(
+        createElement(YouTubeRail, { ...hintProps, getCurrentTime }),
+      );
+      tick(); // pending at 100
+      currentTime = 10; // covered again
+      tick();
+      currentTime = 100;
+      tick(); // pending again
+      expect(container.querySelector('.pagetollm-level-hint')).toBeNull();
+      tick();
+      expect(container.querySelector('.pagetollm-level-hint')).not.toBeNull();
+      unmount();
+    });
+
+    it('does not promote B after B, A, B with A already shown', () => {
+      // Selected L1 covers 0-20 and 30-40. L0 covers 100-200 (A); L2 covers 300-400 (B).
+      const spanCard = (id, seconds, endSeconds) => ({
+        ...level0Cards[0],
+        id,
+        seconds,
+        endSeconds,
+      });
+      const props = {
+        ...hintProps,
+        maxLevel: 2,
+        levelCards: [[spanCard('a', 100, 200)], level1Cards, [spanCard('b', 300, 400)]],
+      };
+      let currentTime = 150;
+      const getCurrentTime = vi.fn(() => currentTime);
+      const { container, unmount } = render(
+        createElement(YouTubeRail, { ...props, getCurrentTime }),
+      );
+      const hintLevel = () => container.querySelector('.pagetollm-level-hint')?.dataset.level;
+      tick(2);
+      expect(hintLevel()).toBe('0');
+
+      currentTime = 350;
+      tick(); // B pending
+      currentTime = 150;
+      tick(); // back to A: pending B must reset
+      currentTime = 350;
+      tick(); // B pending again, never two in a row
+      expect(hintLevel()).toBe('0');
+      tick(); // second consecutive B poll
+      expect(hintLevel()).toBe('2');
+      unmount();
+    });
+
+    it('clears immediately once the selected level covers the time again', () => {
+      let currentTime = 100;
+      const getCurrentTime = vi.fn(() => currentTime);
+      const { container, unmount } = render(
+        createElement(YouTubeRail, { ...hintProps, getCurrentTime }),
+      );
+      tick(2);
+      expect(container.querySelector('.pagetollm-level-hint')).not.toBeNull();
+
+      currentTime = 35;
+      tick();
+      expect(container.querySelector('.pagetollm-level-hint')).toBeNull();
+      expect(container.querySelector('.is-suggested')).toBeNull();
+      unmount();
+    });
+
+    it('clears when the level or mode changes', () => {
+      const getCurrentTime = vi.fn(() => 100);
+      const { container, rerender, unmount } = render(
+        createElement(YouTubeRail, { ...hintProps, getCurrentTime }),
+      );
+      tick(2);
+      expect(container.querySelector('.pagetollm-level-hint')).not.toBeNull();
+
+      rerender(
+        createElement(YouTubeRail, {
+          ...hintProps,
+          getCurrentTime,
+          selectedLevel: 0,
+          cards: level0Cards,
+        }),
+      );
+      expect(container.querySelector('.pagetollm-level-hint')).toBeNull();
+
+      rerender(createElement(YouTubeRail, { ...hintProps, getCurrentTime }));
+      expect(container.querySelector('.pagetollm-level-hint')).toBeNull();
+      tick(2);
+      expect(container.querySelector('.pagetollm-level-hint')).not.toBeNull();
+
+      rerender(createElement(YouTubeRail, { ...hintProps, getCurrentTime, mode: 'summaries' }));
+      expect(container.querySelector('.pagetollm-level-hint')).toBeNull();
+      unmount();
+    });
+
+    it('never hints in chat mode or without levelCards', () => {
+      const getCurrentTime = vi.fn(() => 100);
+      const chat = render(
+        createElement(YouTubeRail, { ...hintProps, getCurrentTime, mode: 'chat', recordKey: 'r' }),
+      );
+      tick(3);
+      expect(chat.container.querySelector('.pagetollm-level-hint')).toBeNull();
+      expect(chat.container.querySelector('.is-suggested')).toBeNull();
+      chat.unmount();
+
+      const plain = render(
+        createElement(YouTubeRail, { ...hintProps, getCurrentTime, levelCards: undefined }),
+      );
+      tick(3);
+      expect(plain.container.querySelector('.pagetollm-level-hint')).toBeNull();
+      plain.unmount();
+    });
+  });
+
   it('stops polling while playback is paused and resyncs on playback events', () => {
     let currentTime = 0;
     const getCurrentTime = vi.fn(() => currentTime);

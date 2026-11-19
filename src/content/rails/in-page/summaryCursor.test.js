@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeSummaryCursorState } from './summaryCursor.js';
+import { computeSummaryCursorPosition, computeSummaryCursorState } from './summaryCursor.js';
 
 const cards = [
   { id: 'large', box: { top: 100, height: 300 } },
@@ -112,5 +112,41 @@ describe('computeSummaryCursorState', () => {
         containerHeight: 500,
       }),
     ).toEqual({ cursorTop: 112, activeCardId: null, relativeY: 0 });
+  });
+});
+
+describe('computeSummaryCursorPosition', () => {
+  it('maps the cursor into card space without needing cards', () => {
+    expect(
+      computeSummaryCursorPosition({
+        bodyTop: 40,
+        containerTop: 20,
+        containerHeight: 200,
+        scrollTop: 230,
+      }),
+    ).toEqual({ cursorTop: 112, relativeY: 302 });
+  });
+
+  it('glides to the viewport bottom as the scroller runs out', () => {
+    expect(
+      computeSummaryCursorPosition({
+        bodyTop: 0,
+        containerTop: 0,
+        containerHeight: 1000,
+        remainingScroll: 0,
+      }),
+    ).toEqual({ cursorTop: 1000, relativeY: 1000 });
+  });
+
+  it('agrees with computeSummaryCursorState on position', () => {
+    const geometry = {
+      bodyTop: 10,
+      containerTop: 5,
+      containerHeight: 700,
+      scrollTop: 90,
+      remainingScroll: 150,
+    };
+    const { cursorTop, relativeY } = computeSummaryCursorState({ cards, ...geometry });
+    expect(computeSummaryCursorPosition(geometry)).toEqual({ cursorTop, relativeY });
   });
 });

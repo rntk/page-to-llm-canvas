@@ -2,6 +2,34 @@ export const SUMMARY_CURSOR_VIEWPORT_RATIO = 0.38;
 export const SUMMARY_CURSOR_MIN_TOP = 112;
 
 /**
+ * Where the summary cursor sits, independent of any cards.
+ *
+ * @param {object} opts Same geometry fields as `computeSummaryCursorState`.
+ * @returns {{cursorTop: number, relativeY: number}} Viewport top of the cursor
+ *   and its position in card-box space.
+ */
+export function computeSummaryCursorPosition({
+  bodyTop,
+  containerTop,
+  containerHeight,
+  scrollTop = 0,
+  remainingScroll = Infinity,
+}) {
+  const restingTop = Math.max(
+    SUMMARY_CURSOR_MIN_TOP,
+    Math.round(containerTop + containerHeight * SUMMARY_CURSOR_VIEWPORT_RATIO),
+  );
+  // Near maximum scroll, move the cursor down so closing summaries can reach it.
+  const containerBottom = containerTop + containerHeight;
+  const cursorTop = Math.round(
+    Math.max(restingTop, Math.min(containerBottom, containerBottom - remainingScroll)),
+  );
+  // The body is pinned to the viewport, so the cursor is mapped into card-box
+  // space by the same scroll offset the card track is translated by.
+  return { cursorTop, relativeY: scrollTop + cursorTop - bodyTop };
+}
+
+/**
  * Where the summary cursor sits and which card it is on.
  *
  * @param {object} opts
@@ -27,18 +55,13 @@ export function computeSummaryCursorState({
     return { cursorTop: SUMMARY_CURSOR_MIN_TOP, activeCardId: null, relativeY: 0 };
   }
 
-  const restingTop = Math.max(
-    SUMMARY_CURSOR_MIN_TOP,
-    Math.round(containerTop + containerHeight * SUMMARY_CURSOR_VIEWPORT_RATIO),
-  );
-  // Near maximum scroll, move the cursor down so closing summaries can reach it.
-  const containerBottom = containerTop + containerHeight;
-  const cursorTop = Math.round(
-    Math.max(restingTop, Math.min(containerBottom, containerBottom - remainingScroll)),
-  );
-  // The body is pinned to the viewport, so the cursor is mapped into card-box
-  // space by the same scroll offset the card track is translated by.
-  const relativeY = scrollTop + cursorTop - bodyTop;
+  const { cursorTop, relativeY } = computeSummaryCursorPosition({
+    bodyTop,
+    containerTop,
+    containerHeight,
+    scrollTop,
+    remainingScroll,
+  });
 
   // `relativeY` orders cards around the cursor even in gaps between boxes.
   // Single scan for the smallest (height, top) match; no sort needed.

@@ -127,6 +127,37 @@ describe('buildRailCards', () => {
     expect(cards[0].sentences).toEqual([1, 2]);
   });
 
+  it('projects each level separately in summaries mode, so a caller can compare levels', () => {
+    const record = {
+      topic_summary_index: {
+        Parent: {
+          level: 0,
+          runs: [{ sentences: [1, 2], text: 'Parent summary' }],
+          source_sentences: [1, 2],
+        },
+        'Parent > Child': {
+          level: 1,
+          runs: [
+            { sentences: [5], text: 'First child' },
+            { sentences: [9], text: 'Second child' },
+          ],
+          source_sentences: [5, 9],
+        },
+      },
+    };
+
+    const byLevel = [0, 1].map((selectedLevel) =>
+      project({ record, mode: 'summaries', selectedLevel }),
+    );
+
+    expect(byLevel[0].map((c) => c.path)).toEqual(['Parent']);
+    expect(byLevel[1].map((c) => c.text)).toEqual(['First child', 'Second child']);
+    // Boxes are card-box spans, ascending by top, ready for gap measurement.
+    expect(byLevel[1].map((c) => c.box.top)).toEqual([500, 900]);
+    // A level with no summaries projects to nothing.
+    expect(project({ record, mode: 'summaries', selectedLevel: 2 })).toEqual([]);
+  });
+
   it('measures against the rail origin and scroll container it is given', () => {
     const scrollContainer = document.createElement('div');
     project({ railOriginTop: 250, scrollContainer });

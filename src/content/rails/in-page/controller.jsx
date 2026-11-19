@@ -128,11 +128,11 @@ export function createInPageRailController({
 
     let railOriginTop;
 
-    const projectRail = () =>
+    const projectRail = (level = state.selectedLevel) =>
       buildRailCards({
         record,
         mode: state.mode,
-        selectedLevel: state.selectedLevel,
+        selectedLevel: level,
         sentenceRanges,
         wordEntries,
         railOriginTop,
@@ -199,7 +199,17 @@ export function createInPageRailController({
       const projectedScrollContainerTop = isNestedScroll
         ? scrollContainer.getBoundingClientRect().top
         : 0;
-      const cards = !measureOnly && Number.isFinite(railOriginTop) ? projectRail() : [];
+      const canProject = !measureOnly && Number.isFinite(railOriginTop);
+      // Summaries mode hints at better levels, so every level is projected;
+      // the selected level's cards are reused rather than projected twice.
+      let levelCards;
+      if (canProject && state.mode === 'summaries' && maxLevel > 0) {
+        levelCards = new Map();
+        for (let level = 0; level <= maxLevel; level += 1) {
+          levelCards.set(level, projectRail(level));
+        }
+      }
+      const cards = !canProject ? [] : (levelCards?.get(state.selectedLevel) ?? projectRail());
       const commit = () => {
         railRoot.render(
           <InPageRail
@@ -207,6 +217,7 @@ export function createInPageRailController({
             maxLevel={maxLevel}
             selectedLevel={state.selectedLevel}
             cards={cards}
+            levelCards={levelCards}
             topicActions={topicActions}
             onClose={closeRail}
             onSelectMode={handleSelectMode}

@@ -173,22 +173,41 @@ export function createYouTubeRailController({
       return seekTo(seconds);
     };
 
+    // Cards for every level of a mode, built once per mode; the rail compares
+    // levels to hint at a better one. The selected level's cards feed the list.
+    const levelCardsByMode = new Map();
+    const getLevelCards = (mode) => {
+      if (mode === 'chat') return [];
+      if (!levelCardsByMode.has(mode)) {
+        levelCardsByMode.set(
+          mode,
+          Array.from({ length: maxLevel + 1 }, (_, level) =>
+            buildYouTubeRailCards({ record, mode, selectedLevel: level }),
+          ),
+        );
+      }
+      return levelCardsByMode.get(mode);
+    };
+
     function renderRail() {
       if (isClosed() || guard.isStale()) return;
+      const levelCards = getLevelCards(state.mode);
       const cards =
         state.mode === 'chat'
           ? []
-          : buildYouTubeRailCards({
+          : (levelCards[state.selectedLevel] ??
+            buildYouTubeRailCards({
               record,
               mode: state.mode,
               selectedLevel: state.selectedLevel,
-            });
+            }));
       railRoot.render(
         <YouTubeRail
           mode={state.mode}
           maxLevel={maxLevel}
           selectedLevel={state.selectedLevel}
           cards={cards}
+          levelCards={levelCards}
           topicActions={topicActions}
           onSelectMode={handleSelectMode}
           onSelectLevel={handleSelectLevel}

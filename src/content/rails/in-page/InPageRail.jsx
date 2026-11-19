@@ -1,8 +1,13 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { computeSummaryCursorState, SUMMARY_CURSOR_MIN_TOP } from './summaryCursor.js';
+import {
+  computeSummaryCursorPosition,
+  computeSummaryCursorState,
+  SUMMARY_CURSOR_MIN_TOP,
+} from './summaryCursor.js';
 import ArticleChat from '../../../chat/ArticleChat.jsx';
 import { createToChatAction } from '../../../chat/topicScope.js';
-import { HierarchicalCardTitle, RailHead } from '../shared/RailControls.jsx';
+import { HierarchicalCardTitle, LevelHintNote, RailHead } from '../shared/RailControls.jsx';
+import { suggestLevelForCursor } from './summaryLevelHint.js';
 import TopicActionsMenu from '../../../components/TopicActionsMenu.jsx';
 import {
   BRACE_WIDTH,
@@ -246,6 +251,11 @@ function resolveDisplayIndex(cards, activeCardId, cursorY) {
 
 function SummaryCursorView({
   cards,
+  levelCards,
+  selectedLevel,
+  suggestedLevel,
+  onSuggestedLevelChange,
+  onSelectLevel,
   topicActions,
   bodyRef,
   scrollContainer,
@@ -264,9 +274,48 @@ function SummaryCursorView({
   // Same-value setters may still commit after a transition.
   const activeCardIdRef = useRef(null);
   const cardsRef = useRef(cards);
+  const levelCardsRef = useRef(levelCards);
+  const selectedLevelRef = useRef(selectedLevel);
+  // Declared before the cards effect below, which reads both refs.
   useEffect(() => {
     cardsRef.current = cards;
-  }, [cards]);
+    // The selected level always takes part, as an empty list when it has no
+    // cards, so its gap is Infinity rather than "unknown".
+    levelCardsRef.current =
+      levelCards instanceof Map && !levelCards.has(selectedLevel)
+        ? new Map(levelCards).set(selectedLevel, cards)
+        : levelCards;
+    selectedLevelRef.current = selectedLevel;
+  }, [cards, levelCards, selectedLevel]);
+  const onSuggestedLevelChangeRef = useRef(onSuggestedLevelChange);
+  useEffect(() => {
+    onSuggestedLevelChangeRef.current = onSuggestedLevelChange;
+  }, [onSuggestedLevelChange]);
+  // The hint shows after two consecutive updates agree and clears at once, so
+  // a cursor skimming past a gap edge does not flicker it.
+  const shownSuggestionRef = useRef(null);
+  const pendingSuggestionRef = useRef(null);
+  const settleSuggestion = useCallback((candidate, immediate) => {
+    const shown = shownSuggestionRef.current;
+    if (candidate !== null && candidate !== shown && !immediate) {
+      if (pendingSuggestionRef.current !== candidate) {
+        pendingSuggestionRef.current = candidate;
+        return;
+      }
+    }
+    pendingSuggestionRef.current = null;
+    if (candidate === shown) return;
+    shownSuggestionRef.current = candidate;
+    onSuggestedLevelChangeRef.current?.(candidate);
+  }, []);
+  // Leaving summaries (or the disabled notice) must not leave a stale marker.
+  useEffect(
+    () => () => {
+      shownSuggestionRef.current = null;
+      onSuggestedLevelChangeRef.current?.(null);
+    },
+    [],
+  );
   const onHighlightCardRef = useRef(onHighlightCard);
   useEffect(() => {
     onHighlightCardRef.current = onHighlightCard;
@@ -290,57 +339,97 @@ function SummaryCursorView({
     [activeCardId, cards],
   );
 
-  const updateActiveCard = useCallback(() => {
-    const body = bodyRef.current;
-    const currentCards = cardsRef.current;
-    if (!body || currentCards.length === 0) {
-      body?.style.setProperty('--pagetollm-summary-cursor-top', `${SUMMARY_CURSOR_MIN_TOP}px`);
-      activeIndexRef.current = -1;
-      activeCardIdRef.current = null;
-      setHoveredCardId(null);
-      setDisplayIndex(-1);
-      setActiveCardId(null);
-      return;
-    }
-
-    const nextState = computeSummaryCursorState({
-      cards: currentCards,
-      bodyTop: body.getBoundingClientRect().top,
-      containerTop: getScrollContainerViewportTop(scrollContainer, scrollWindow),
-      containerHeight: getScrollContainerViewportHeight(scrollContainer, scrollWindow),
-      scrollTop: getEffectiveScrollOffset({
-        scrollContainer,
-        scrollWindow,
-        isNestedScroll,
-        projectedScrollContainerTop,
-      }),
-      remainingScroll: getRemainingScroll(scrollContainer, scrollWindow),
-    });
-    // Both cursor elements inherit this value; pixel movement needs no React commit.
-    const cursorTop = `${nextState.cursorTop}px`;
-    if (body.style.getPropertyValue('--pagetollm-summary-cursor-top') !== cursorTop) {
-      body.style.setProperty('--pagetollm-summary-cursor-top', cursorTop);
-    }
-    const nextIndex = resolveDisplayIndex(
-      currentCards,
-      nextState.activeCardId,
-      nextState.relativeY,
-    );
-    if (nextIndex !== activeIndexRef.current) {
-      // Slide the incoming summary in the scroll direction.
-      if (nextIndex >= 0) {
-        setEnterDirection(nextIndex > activeIndexRef.current ? 'down' : 'up');
+  // `immediate` skips the two-update confirmation; used when the cards themselves
+  // changed (level switch, re-measure) rather than the cursor moving.
+  const updateActiveCard = useCallback(
+    (immediate = false) => {
+      const body = bodyRef.current;
+      const currentCards = cardsRef.current;
+      if (!body) {
+        settleSuggestion(null, true);
+        activeIndexRef.current = -1;
+        activeCardIdRef.current = null;
+        setHoveredCardId(null);
+        setDisplayIndex(-1);
+        setActiveCardId(null);
+        return;
       }
-      activeIndexRef.current = nextIndex;
-      setDisplayIndex(nextIndex);
-      // Clear hover when scrolling moves a title without firing mouseleave.
-      setHoveredCardId(null);
-    }
-    if (nextState.activeCardId !== activeCardIdRef.current) {
-      activeCardIdRef.current = nextState.activeCardId;
-      setActiveCardId(nextState.activeCardId);
-    }
-  }, [bodyRef, isNestedScroll, projectedScrollContainerTop, scrollContainer, scrollWindow]);
+
+      const geometry = {
+        bodyTop: body.getBoundingClientRect().top,
+        containerTop: getScrollContainerViewportTop(scrollContainer, scrollWindow),
+        containerHeight: getScrollContainerViewportHeight(scrollContainer, scrollWindow),
+        scrollTop: getEffectiveScrollOffset({
+          scrollContainer,
+          scrollWindow,
+          isNestedScroll,
+          projectedScrollContainerTop,
+        }),
+        remainingScroll: getRemainingScroll(scrollContainer, scrollWindow),
+      };
+      if (currentCards.length === 0) {
+        // Nothing to show for the selected level, but another level may still
+        // cover the cursor, so the hint is computed from the cursor alone.
+        body.style.setProperty('--pagetollm-summary-cursor-top', `${SUMMARY_CURSOR_MIN_TOP}px`);
+        activeIndexRef.current = -1;
+        activeCardIdRef.current = null;
+        setHoveredCardId(null);
+        setDisplayIndex(-1);
+        setActiveCardId(null);
+        settleSuggestion(
+          suggestLevelForCursor({
+            levelCards: levelCardsRef.current,
+            selectedLevel: selectedLevelRef.current,
+            relativeY: computeSummaryCursorPosition(geometry).relativeY,
+          }),
+          immediate,
+        );
+        return;
+      }
+
+      const nextState = computeSummaryCursorState({ cards: currentCards, ...geometry });
+      // Both cursor elements inherit this value; pixel movement needs no React commit.
+      const cursorTop = `${nextState.cursorTop}px`;
+      if (body.style.getPropertyValue('--pagetollm-summary-cursor-top') !== cursorTop) {
+        body.style.setProperty('--pagetollm-summary-cursor-top', cursorTop);
+      }
+      const nextIndex = resolveDisplayIndex(
+        currentCards,
+        nextState.activeCardId,
+        nextState.relativeY,
+      );
+      if (nextIndex !== activeIndexRef.current) {
+        // Slide the incoming summary in the scroll direction.
+        if (nextIndex >= 0) {
+          setEnterDirection(nextIndex > activeIndexRef.current ? 'down' : 'up');
+        }
+        activeIndexRef.current = nextIndex;
+        setDisplayIndex(nextIndex);
+        // Clear hover when scrolling moves a title without firing mouseleave.
+        setHoveredCardId(null);
+      }
+      if (nextState.activeCardId !== activeCardIdRef.current) {
+        activeCardIdRef.current = nextState.activeCardId;
+        setActiveCardId(nextState.activeCardId);
+      }
+      settleSuggestion(
+        suggestLevelForCursor({
+          levelCards: levelCardsRef.current,
+          selectedLevel: selectedLevelRef.current,
+          relativeY: nextState.relativeY,
+        }),
+        immediate,
+      );
+    },
+    [
+      bodyRef,
+      isNestedScroll,
+      projectedScrollContainerTop,
+      scrollContainer,
+      scrollWindow,
+      settleSuggestion,
+    ],
+  );
 
   useEffect(() => {
     let frameId = 0;
@@ -348,7 +437,7 @@ function SummaryCursorView({
       if (frameId) return;
       frameId = scrollWindow.requestAnimationFrame(() => {
         frameId = 0;
-        updateActiveCard();
+        updateActiveCard(false);
       });
     };
 
@@ -370,8 +459,8 @@ function SummaryCursorView({
   }, [updateActiveCard, scrollContainer, scrollWindow]);
 
   useEffect(() => {
-    updateActiveCard();
-  }, [cards, updateActiveCard]);
+    updateActiveCard(true);
+  }, [cards, levelCards, updateActiveCard]);
 
   useEffect(() => {
     const highlightFn = onHighlightCardRef.current;
@@ -449,8 +538,20 @@ function SummaryCursorView({
                   classPrefix="pagetollm"
                 />
               )}
+              <LevelHintNote
+                selectedLevel={selectedLevel}
+                suggestedLevel={suggestedLevel}
+                onSelectLevel={onSelectLevel}
+              />
             </div>
-          ) : null}
+          ) : (
+            // Above the first card no summary is shown; the note stands alone.
+            <LevelHintNote
+              selectedLevel={selectedLevel}
+              suggestedLevel={suggestedLevel}
+              onSelectLevel={onSelectLevel}
+            />
+          )}
           <div className="pagetollm-summary-topic-list is-after">
             {cardsAfter.map((card) => (
               <SummaryTopicTitle
@@ -474,6 +575,7 @@ export default function InPageRail({
   maxLevel,
   selectedLevel,
   cards,
+  levelCards,
   topicActions: suppliedTopicActions = [],
   topics = [],
   onClose,
@@ -500,6 +602,8 @@ export default function InPageRail({
   const [frontCardId, setFrontCardId] = useState(null);
   const [chatActionsTarget, setChatActionsTarget] = useState(null);
   const [scopeRequest, setScopeRequest] = useState(null);
+  // Set by the summary cursor view; only meaningful while it is mounted.
+  const [suggestedLevel, setSuggestedLevel] = useState(null);
   const handleScopeRequestHandled = useCallback(() => setScopeRequest(null), []);
   const topicActions = useMemo(
     () => [
@@ -645,6 +749,7 @@ export default function InPageRail({
         maxLevel={maxLevel}
         selectedLevel={selectedLevel}
         onSelectLevel={onSelectLevel}
+        suggestedLevel={isSummary && !summariesDisabled ? suggestedLevel : null}
         onClose={onClose}
         topicLayout={topicLayout}
         onSelectTopicLayout={onSelectTopicLayout}
@@ -672,6 +777,11 @@ export default function InPageRail({
         ) : isSummary ? (
           <SummaryCursorView
             cards={cards}
+            levelCards={levelCards}
+            selectedLevel={selectedLevel}
+            suggestedLevel={suggestedLevel}
+            onSuggestedLevelChange={setSuggestedLevel}
+            onSelectLevel={onSelectLevel}
             topicActions={topicActions}
             bodyRef={bodyRef}
             scrollContainer={scrollContainer}

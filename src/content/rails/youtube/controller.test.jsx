@@ -426,21 +426,89 @@ describe('openYouTubeRail', () => {
       );
     });
 
-    it('switching level re-requests cards at the new level', async () => {
-      await act(async () => {
-        await openYouTubeRail({ key: 'yt-key' });
+    describe('levels', () => {
+      const levelCards = {
+        0: [
+          {
+            id: 'whole',
+            name: 'Whole',
+            path: 'Whole',
+            text: '',
+            accent: '#111',
+            seconds: 0,
+            endSeconds: 200,
+            sentences: [1],
+          },
+        ],
+        1: [
+          { ...twoCards[0], endSeconds: 20 },
+          { ...twoCards[1], endSeconds: 40 },
+        ],
+      };
+      const levelButton = (level) =>
+        Array.from(rail().querySelectorAll('.pagetollm-rail-level-btn')).find(
+          (btn) => btn.textContent === `L${level}`,
+        );
+      const cardNames = () =>
+        Array.from(rail().querySelectorAll('.pagetollm-rail-card-current-topic')).map(
+          (el) => el.textContent,
+        );
+
+      beforeEach(() => {
+        buildYouTubeRailCards.mockImplementation(({ selectedLevel }) => levelCards[selectedLevel]);
       });
-      const level1Btn = Array.from(rail().querySelectorAll('.pagetollm-rail-level-btn')).find(
-        (btn) => btn.textContent === 'L1',
-      );
-      expect(level1Btn).not.toBeUndefined();
-      buildYouTubeRailCards.mockClear();
-      await act(async () => {
-        level1Btn.click();
+
+      it('builds every level once per mode and switches levels from that cache', async () => {
+        await act(async () => {
+          await openYouTubeRail({ key: 'yt-key' });
+        });
+        expect(buildYouTubeRailCards).toHaveBeenCalledWith(
+          expect.objectContaining({ mode: 'topics', selectedLevel: 0 }),
+        );
+        expect(buildYouTubeRailCards).toHaveBeenCalledWith(
+          expect.objectContaining({ mode: 'topics', selectedLevel: 1 }),
+        );
+        expect(cardNames()).toEqual(['Whole']);
+
+        buildYouTubeRailCards.mockClear();
+        await act(async () => {
+          levelButton(1).click();
+        });
+        expect(cardNames()).toEqual(['Intro', 'Middle']);
+        expect(buildYouTubeRailCards).not.toHaveBeenCalled();
       });
-      expect(buildYouTubeRailCards).toHaveBeenCalledWith(
-        expect.objectContaining({ selectedLevel: 1 }),
-      );
+
+      it('hints at a better level during playback and switches when the note is clicked', async () => {
+        const video = mountVideo();
+        await act(async () => {
+          await openYouTubeRail({ key: 'yt-key' });
+        });
+        await act(async () => {
+          levelButton(1).click();
+        });
+        const seekTo = async (time) => {
+          video.currentTime = time;
+          await act(async () => {
+            video.dispatchEvent(new Event('seeked'));
+          });
+        };
+
+        await seekTo(10);
+        expect(rail().querySelector('.pagetollm-level-hint')).toBeNull();
+        await seekTo(100);
+        expect(rail().querySelector('.pagetollm-level-hint')).toBeNull();
+        await seekTo(101);
+        const note = rail().querySelector('.pagetollm-level-hint');
+        expect(note).not.toBeNull();
+        expect(levelButton(0).className).toContain('is-suggested');
+
+        await act(async () => {
+          note.click();
+        });
+        expect(levelButton(0).className).toContain('active');
+        expect(cardNames()).toEqual(['Whole']);
+        expect(rail().querySelector('.pagetollm-level-hint')).toBeNull();
+      });
     });
 
     it('marks the card matching the current video time as active', async () => {

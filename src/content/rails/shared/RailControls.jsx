@@ -62,6 +62,7 @@ export function RailHead({
   onClose,
   topicLayout,
   onSelectTopicLayout,
+  suggestedLevel = null,
 }) {
   const showLayoutToggle = Boolean(onSelectTopicLayout) && normalizeRailMode(mode) === 'topics';
   return (
@@ -74,6 +75,7 @@ export function RailHead({
           maxLevel={maxLevel}
           selectedLevel={selectedLevel}
           onSelectLevel={onSelectLevel}
+          suggestedLevel={suggestedLevel}
         />
       )}
       {showLayoutToggle ? (
@@ -95,26 +97,57 @@ export function RailHead({
   );
 }
 
-function RailLevelSwitcher({ maxLevel, selectedLevel, onSelectLevel }) {
+function RailLevelSwitcher({ maxLevel, selectedLevel, onSelectLevel, suggestedLevel }) {
   if (maxLevel <= 0) return null;
 
   return (
     <div className="pagetollm-rail-level-switcher">
       <div className="pagetollm-rail-level-buttons">
-        {Array.from({ length: maxLevel + 1 }, (_, level) => (
-          <button
-            key={level}
-            type="button"
-            className={`pagetollm-rail-level-btn${selectedLevel === level ? ' active' : ''}`}
-            title={`Switch to level ${level}`}
-            data-level={level}
-            onClick={() => onSelectLevel(level)}
-          >
-            L{level}
-          </button>
-        ))}
+        {Array.from({ length: maxLevel + 1 }, (_, level) => {
+          const isSuggested = suggestedLevel === level && selectedLevel !== level;
+          return (
+            <button
+              key={level}
+              type="button"
+              className={[
+                'pagetollm-rail-level-btn',
+                selectedLevel === level ? 'active' : '',
+                isSuggested ? 'is-suggested' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              title={
+                isSuggested ? `Level ${level} fits this moment better` : `Switch to level ${level}`
+              }
+              data-level={level}
+              onClick={() => onSelectLevel(level)}
+            >
+              L{level}
+            </button>
+          );
+        })}
       </div>
     </div>
+  );
+}
+
+/**
+ * Quiet note under the current card: another level fits this moment better.
+ * Renders nothing without a suggestion, so callers can mount it unconditionally.
+ */
+export function LevelHintNote({ selectedLevel, suggestedLevel, onSelectLevel }) {
+  if (suggestedLevel == null || suggestedLevel === selectedLevel) return null;
+  const isParent = suggestedLevel < selectedLevel;
+  return (
+    <button
+      type="button"
+      className="pagetollm-level-hint"
+      data-level={suggestedLevel}
+      title={`Switch to level ${suggestedLevel}`}
+      onClick={() => onSelectLevel(suggestedLevel)}
+    >
+      {isParent ? 'Broader' : 'More detail'} on L{suggestedLevel} fits this moment
+    </button>
   );
 }
 

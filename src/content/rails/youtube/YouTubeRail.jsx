@@ -3,7 +3,7 @@ import { scrollBehavior } from '../../../utils/scrollBehavior.js';
 import ArticleChat from '../../../chat/ArticleChat.jsx';
 import { createToChatAction } from '../../../chat/topicScope.js';
 import { formatTimestampLabel } from '../../../utils/youtubeTimestamp.js';
-import { HierarchicalCardTitle, RailHead } from '../shared/RailControls.jsx';
+import { HierarchicalCardTitle, LevelHintNote, RailHead } from '../shared/RailControls.jsx';
 import TopicActionsMenu from '../../../components/TopicActionsMenu.jsx';
 import { buildTopicRunMenu } from '../../../components/topicActionRuns.js';
 import {
@@ -13,6 +13,7 @@ import {
   getYouTubeRailCardStarts,
   normalizeYouTubeRailCards,
 } from './viewModel.js';
+import { suggestLevelForTime } from './sync.js';
 
 const DEFAULT_POLL_MS = 1000;
 
@@ -39,6 +40,7 @@ export default function YouTubeRail({
   maxLevel,
   selectedLevel,
   cards,
+  levelCards,
   topicActions: suppliedTopicActions = [],
   topics = [],
   onSelectMode,
@@ -128,6 +130,29 @@ export default function YouTubeRail({
     cardsRef.current = normalizedCards;
     startsRef.current = starts;
   }, [normalizedCards, starts]);
+  // Level hint: shown only after the same suggestion on two consecutive ticks.
+  const [suggestedLevel, setSuggestedLevel] = useState(null);
+  const shownSuggestionRef = useRef(null);
+  const pendingSuggestionRef = useRef(null);
+  const levelCardsRef = useRef(levelCards);
+  const selectedLevelRef = useRef(selectedLevel);
+  const isChatRef = useRef(isChat);
+  useEffect(() => {
+    levelCardsRef.current = levelCards;
+    selectedLevelRef.current = selectedLevel;
+    isChatRef.current = isChat;
+  }, [levelCards, selectedLevel, isChat]);
+  // Drop the hint right away when the mode or level it was computed for changes.
+  const hintScope = `${mode}:${selectedLevel}`;
+  const [suggestionScope, setSuggestionScope] = useState(hintScope);
+  if (suggestionScope !== hintScope) {
+    setSuggestionScope(hintScope);
+    setSuggestedLevel(null);
+  }
+  useEffect(() => {
+    shownSuggestionRef.current = null;
+    pendingSuggestionRef.current = null;
+  }, [hintScope]);
   const getCurrentTimeRef = useRef(getCurrentTime);
   useEffect(() => {
     getCurrentTimeRef.current = getCurrentTime;
@@ -276,6 +301,35 @@ export default function YouTubeRail({
     let cancelled = false;
     let intervalId = 0;
     let playing = true;
+    const updateSuggestion = (time) => {
+      const next =
+        levelCardsRef.current && !isChatRef.current
+          ? suggestLevelForTime({
+              levelCards: levelCardsRef.current,
+              selectedLevel: selectedLevelRef.current,
+              currentTime: time,
+            })
+          : null;
+      if (next == null) {
+        pendingSuggestionRef.current = null;
+        if (shownSuggestionRef.current != null) {
+          shownSuggestionRef.current = null;
+          setSuggestedLevel(null);
+        }
+        return;
+      }
+      if (next === shownSuggestionRef.current) {
+        // Back on the shown suggestion: a stale pending candidate must restart.
+        pendingSuggestionRef.current = null;
+        return;
+      }
+      if (pendingSuggestionRef.current === next) {
+        shownSuggestionRef.current = next;
+        setSuggestedLevel(next);
+      } else {
+        pendingSuggestionRef.current = next;
+      }
+    };
     const tick = () => {
       if (cancelled) return;
       const time = getCurrentTimeRef.current ? getCurrentTimeRef.current() : null;
@@ -283,6 +337,7 @@ export default function YouTubeRail({
       setActiveId((prev) =>
         getYouTubeRailNextActiveIdFromNormalized(cardsRef.current, time, prev, startsRef.current),
       );
+      updateSuggestion(time);
     };
     const syncInterval = () => {
       const shouldPoll = playing && !document.hidden;
@@ -368,6 +423,7 @@ export default function YouTubeRail({
         selectedLevel={selectedLevel}
         onSelectLevel={onSelectLevel}
         onClose={onClose}
+        suggestedLevel={isChat ? null : suggestedLevel}
       />
       <div
         ref={bodyRef}
@@ -448,6 +504,13 @@ export default function YouTubeRail({
                       </div>
                     )}
                   </button>
+                  {isActive && (
+                    <LevelHintNote
+                      selectedLevel={selectedLevel}
+                      suggestedLevel={suggestedLevel}
+                      onSelectLevel={onSelectLevel}
+                    />
+                  )}
                   {topicMenu && (
                     <TopicActionsMenu
                       actions={topicMenu.actions}

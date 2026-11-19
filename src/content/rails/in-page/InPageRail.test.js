@@ -996,6 +996,186 @@ describe('InPageRail', () => {
     unmount();
   });
 
+  describe('better level hint in summaries mode', () => {
+    const box = (top, height) => ({ top, height });
+    const childCards = [
+      { ...mockCards[0], id: 'child1', box: box(100, 400) },
+      { ...mockCards[1], id: 'child2', box: box(800, 100) },
+    ];
+    const parentCards = [{ ...mockCards[0], id: 'parent1', path: 'Topic', box: box(0, 1000) }];
+    const levelCards = new Map([
+      [0, parentCards],
+      [1, childCards],
+    ]);
+
+    function setup(overrides = {}) {
+      const frames = [];
+      vi.stubGlobal('requestAnimationFrame', (cb) => {
+        frames.push(cb);
+        return frames.length;
+      });
+      const scroller = document.createElement('div');
+      scroller.getBoundingClientRect = () => ({ top: 0, height: 800 });
+      Object.defineProperty(scroller, 'clientHeight', { value: 800, configurable: true });
+      let scrollTop = 0;
+      Object.defineProperty(scroller, 'scrollTop', { get: () => scrollTop, configurable: true });
+      const onRender = vi.fn();
+      const props = {
+        ...defaultProps,
+        mode: 'summaries',
+        selectedLevel: 1,
+        cards: childCards,
+        levelCards,
+        onSelectLevel: vi.fn(),
+        scrollContainer: scroller,
+        ...overrides,
+      };
+      const view = render(
+        createElement(Profiler, { id: 'rail', onRender }, createElement(InPageRail, props)),
+      );
+      // Cursor rests at 404px: card space 404 + scrollTop (body top is 0).
+      const scrollTo = async (value) => {
+        scrollTop = value;
+        await act(async () => {
+          scroller.dispatchEvent(new Event('scroll'));
+          while (frames.length) frames.shift()();
+          await Promise.resolve();
+        });
+      };
+      return { ...view, props, onRender, scrollTo };
+    }
+    const hint = (container) => container.querySelector('.pagetollm-level-hint');
+    const suggestedButton = (container) =>
+      container.querySelector('.pagetollm-rail-level-btn.is-suggested');
+
+    it('shows the note and marks the level after two agreeing updates', async () => {
+      const { container, props, scrollTo, unmount } = setup();
+      expect(hint(container)).toBeNull();
+      expect(suggestedButton(container)).toBeNull();
+
+      // Card space 754: between the child cards, covered by the parent.
+      await scrollTo(350);
+      expect(hint(container)).toBeNull();
+      await scrollTo(350);
+
+      const note = hint(container);
+      expect(note.textContent).toContain('Broader on L0');
+      // Beside the active summary button, not nested inside it.
+      expect(note.closest('button.pagetollm-summary-active-card')).toBeNull();
+      expect(note.parentElement.classList.contains('pagetollm-summary-card-wrap')).toBe(true);
+      expect(
+        note.parentElement.querySelector(':scope > button.pagetollm-summary-active-card'),
+      ).not.toBeNull();
+      expect(suggestedButton(container).dataset.level).toBe('0');
+
+      act(() => note.click());
+      expect(props.onSelectLevel).toHaveBeenCalledWith(0);
+      unmount();
+    });
+
+    it('clears at once when the cursor is covered again and does not re-render while it holds', async () => {
+      const { container, onRender, scrollTo, unmount } = setup();
+      await scrollTo(350);
+      await scrollTo(350);
+      expect(hint(container)).not.toBeNull();
+
+      const commits = onRender.mock.calls.length;
+      await scrollTo(360);
+      expect(onRender).toHaveBeenCalledTimes(commits);
+
+      // Card space 404: inside the first child card.
+      await scrollTo(0);
+      expect(hint(container)).toBeNull();
+      expect(suggestedButton(container)).toBeNull();
+      unmount();
+    });
+
+    it('does not show a hint that only one update has seen', async () => {
+      const { container, scrollTo, unmount } = setup();
+      await scrollTo(350);
+      await scrollTo(0);
+      await scrollTo(350);
+      expect(hint(container)).toBeNull();
+      unmount();
+    });
+
+    it('clears at once on a level switch', async () => {
+      const { container, rerender, props, scrollTo, unmount } = setup();
+      await scrollTo(350);
+      await scrollTo(350);
+      expect(hint(container)).not.toBeNull();
+
+      rerender(createElement(InPageRail, { ...props, selectedLevel: 0, cards: parentCards }));
+      expect(hint(container)).toBeNull();
+      expect(suggestedButton(container)).toBeNull();
+      unmount();
+    });
+
+    it('suggests a child level and drops the hint on leaving summaries', async () => {
+      const { container, rerender, props, scrollTo, unmount } = setup({
+        selectedLevel: 0,
+        cards: [{ ...parentCards[0], box: box(0, 300) }],
+        levelCards: new Map([
+          [0, [{ ...parentCards[0], box: box(0, 300) }]],
+          [1, childCards],
+        ]),
+      });
+      // Card space 454: past the parent card, inside the first child card.
+      await scrollTo(50);
+      await scrollTo(50);
+      expect(hint(container).textContent).toContain('More detail on L1');
+      expect(suggestedButton(container).dataset.level).toBe('1');
+
+      rerender(createElement(InPageRail, { ...props, mode: 'topics' }));
+      expect(hint(container)).toBeNull();
+      expect(suggestedButton(container)).toBeNull();
+      unmount();
+    });
+
+    it('marks another level when the selected level has no cards', async () => {
+      const { container, scrollTo, unmount } = setup({
+        cards: [],
+        levelCards: new Map([
+          [0, parentCards],
+          [1, []],
+        ]),
+      });
+      // Immediate on mount: card space 404 is inside the parent card.
+      expect(suggestedButton(container).dataset.level).toBe('0');
+      expect(container.querySelector('.pagetollm-summary-active-card')).toBeNull();
+
+      // Scrolling keeps the hint while level 0 stays the nearest cards.
+      await scrollTo(350);
+      await scrollTo(350);
+      expect(suggestedButton(container).dataset.level).toBe('0');
+      unmount();
+    });
+
+    it('treats a selected level missing from levelCards as empty', () => {
+      const { container, unmount } = setup({
+        cards: [],
+        levelCards: new Map([[0, parentCards]]),
+      });
+      expect(suggestedButton(container).dataset.level).toBe('0');
+      unmount();
+    });
+
+    it('shows nothing without level cards or outside summaries mode', async () => {
+      const bare = setup({ levelCards: undefined });
+      await bare.scrollTo(350);
+      await bare.scrollTo(350);
+      expect(hint(bare.container)).toBeNull();
+      bare.unmount();
+
+      const topics = setup({ mode: 'topics' });
+      await topics.scrollTo(350);
+      await topics.scrollTo(350);
+      expect(hint(topics.container)).toBeNull();
+      expect(suggestedButton(topics.container)).toBeNull();
+      topics.unmount();
+    });
+  });
+
   it.each([
     ['topics notes layout', { mode: 'topics', topicLayout: 'notes' }],
     ['topics cards layout', { mode: 'topics', topicLayout: 'cards' }],

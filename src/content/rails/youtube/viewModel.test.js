@@ -36,6 +36,15 @@ describe('normalizeYouTubeRailCard', () => {
   });
 });
 
+describe('normalizeYouTubeRailCard endSeconds', () => {
+  it('keeps endSeconds, including null for open-ended cards', () => {
+    expect(normalizeYouTubeRailCard({ id: 'a', seconds: 5, endSeconds: 40 }).endSeconds).toBe(40);
+    expect(
+      normalizeYouTubeRailCard({ id: 'a', seconds: 5, endSeconds: null }).endSeconds,
+    ).toBeNull();
+  });
+});
+
 describe('normalizeYouTubeRailCards', () => {
   it('filters invalid cards and keeps valid ones in input order', () => {
     const cards = [

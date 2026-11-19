@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildYouTubeRailCards, findActiveCardIndex } from './sync.js';
+import { buildYouTubeRailCards, findActiveCardIndex, suggestLevelForTime } from './sync.js';
 
 // Transcript sentences carry inline timestamps the way the YouTube capture emits
 // them ("2:51 2 minutes, 51 seconds ..."). Sentence numbers are 1-based.
@@ -199,6 +199,163 @@ describe('buildYouTubeRailCards', () => {
     expect(cards.map((c) => [c.name, c.text, c.seconds])).toEqual([
       ['Pricing', 'One summary blob covering both mentions.', 30],
     ]);
+  });
+});
+
+describe('buildYouTubeRailCards endSeconds', () => {
+  it('ends a card at the next cue after its last sentence, open-ended for the last one', () => {
+    const cards = buildYouTubeRailCards({ record, mode: 'topics', selectedLevel: 0 });
+    // First covers sentences 2-3; the next cue is sentence 4 at 2:00.
+    expect(cards.map((c) => [c.name, c.seconds, c.endSeconds])).toEqual([
+      ['First', 30, 120],
+      ['Second', 120, null],
+    ]);
+    const summaries = buildYouTubeRailCards({ record, mode: 'summaries', selectedLevel: 0 });
+    expect(summaries.map((c) => c.endSeconds)).toEqual([120, null]);
+  });
+
+  it('skips untimed sentences when looking for the next cue', () => {
+    const cards = buildYouTubeRailCards({
+      record: {
+        sentences: ['0:10 start', 'untimed one', 'untimed two', '0:50 later cue'],
+        topics: [{ name: 'A', sentences: [1] }],
+      },
+      mode: 'topics',
+      selectedLevel: 0,
+    });
+    expect(cards.map((c) => [c.seconds, c.endSeconds])).toEqual([[10, 50]]);
+  });
+
+  it('keeps the latest end when same-second runs merge, open-ended winning', () => {
+    const merged = (sentenceList) =>
+      buildYouTubeRailCards({
+        record: { sentences: sentenceList, topics: [{ name: 'Pricing', sentences: [2, 4] }] },
+        mode: 'topics',
+        selectedLevel: 0,
+      });
+    // Run [2] ends at the repeated 0:30 cue; run [4] ends at 1:00.
+    const bounded = merged(['0:00 intro', '0:30 a', '0:30 b', 'c', '1:00 d']);
+    expect(bounded.map((c) => [c.seconds, c.endSeconds])).toEqual([[30, 60]]);
+    // Run [4] has no later cue, so the merged card is open-ended.
+    const open = merged(['0:00 intro', '0:30 a', '0:30 b', 'c']);
+    expect(open.map((c) => [c.seconds, c.endSeconds])).toEqual([[30, null]]);
+  });
+});
+
+describe('buildYouTubeRailCards spans', () => {
+  const gapRecord = {
+    sentences: ['0:00 intro', '0:30 a', '1:00 b', '2:00 c', '3:00 d'],
+    topics: [
+      { name: 'Pricing', sentences: [2, 4] },
+      { name: 'Other', sentences: [3] },
+    ],
+    topic_summary_index: {
+      Pricing: {
+        runs: [{ sentences: [2, 4], text: 'pricing' }],
+        source_sentences: [2, 4],
+        level: 0,
+      },
+      Other: { runs: [{ sentences: [3], text: 'other' }], source_sentences: [3], level: 1 },
+    },
+  };
+
+  it('builds one span per contiguous sentence group of a non-adjacent card', () => {
+    const cards = buildYouTubeRailCards({ record: gapRecord, mode: 'summaries', selectedLevel: 0 });
+    expect(cards).toHaveLength(1);
+    expect(cards[0].sentences).toEqual([2, 4]);
+    expect(cards[0].seconds).toBe(30);
+    expect(cards[0].endSeconds).toBe(180);
+    expect(cards[0].spans).toEqual([
+      { start: 30, end: 60 },
+      { start: 120, end: 180 },
+    ]);
+  });
+
+  it('concats spans when same-second topic runs merge', () => {
+    const cards = buildYouTubeRailCards({
+      record: {
+        sentences: ['0:00 intro', '0:30 a', '0:30 b', 'c', '1:00 d'],
+        topics: [{ name: 'Pricing', sentences: [2, 4] }],
+      },
+      mode: 'topics',
+      selectedLevel: 0,
+    });
+    expect(cards[0].spans).toEqual([
+      { start: 30, end: 30 },
+      { start: 30, end: 60 },
+    ]);
+  });
+
+  it('does not count the gap between non-contiguous groups as covered', () => {
+    const level0 = buildYouTubeRailCards({
+      record: gapRecord,
+      mode: 'summaries',
+      selectedLevel: 0,
+    });
+    const level1 = buildYouTubeRailCards({
+      record: gapRecord,
+      mode: 'summaries',
+      selectedLevel: 1,
+    });
+    // Sentence 3 covers 1:00-2:00 at level 1; level 0's [2,4] card skips it.
+    expect(
+      suggestLevelForTime({ levelCards: [level0, level1], selectedLevel: 0, currentTime: 90 }),
+    ).toBe(1);
+    expect(
+      suggestLevelForTime({ levelCards: [level0, level1], selectedLevel: 0, currentTime: 45 }),
+    ).toBeNull();
+    // Cards without spans fall back to seconds/endSeconds.
+    expect(
+      suggestLevelForTime({
+        levelCards: [[{ seconds: 30, endSeconds: 180 }], level1],
+        selectedLevel: 0,
+        currentTime: 90,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe('suggestLevelForTime', () => {
+  const level0 = [{ seconds: 0, endSeconds: 60 }];
+  const level1 = [
+    { seconds: 0, endSeconds: 20 },
+    { seconds: 40, endSeconds: 100 },
+  ];
+
+  it('suggests the level covering a time the selected level misses', () => {
+    // L0 ended at 60; L1 covers 70.
+    expect(
+      suggestLevelForTime({ levelCards: [level0, level1], selectedLevel: 0, currentTime: 70 }),
+    ).toBe(1);
+    // L1 has a gap at 30; L0 covers it.
+    expect(
+      suggestLevelForTime({ levelCards: [level0, level1], selectedLevel: 1, currentTime: 30 }),
+    ).toBe(0);
+  });
+
+  it('returns null when the selected level covers the time or is within tolerance', () => {
+    expect(
+      suggestLevelForTime({ levelCards: [level0, level1], selectedLevel: 0, currentTime: 30 }),
+    ).toBeNull();
+    // 3s past L0's end is still "covered" under the 5s tolerance.
+    expect(
+      suggestLevelForTime({ levelCards: [level0, level1], selectedLevel: 0, currentTime: 63 }),
+    ).toBeNull();
+  });
+
+  it('treats a missing endSeconds as open-ended and accepts a Map', () => {
+    const levels = new Map([
+      [0, [{ seconds: 10 }]],
+      [1, [{ seconds: 0, endSeconds: 5 }]],
+    ]);
+    expect(suggestLevelForTime({ levelCards: levels, selectedLevel: 1, currentTime: 500 })).toBe(0);
+  });
+
+  it('returns null without usable input', () => {
+    expect(suggestLevelForTime({ levelCards: [], selectedLevel: 0, currentTime: 10 })).toBeNull();
+    expect(
+      suggestLevelForTime({ levelCards: [level0, level1], selectedLevel: 0, currentTime: NaN }),
+    ).toBeNull();
   });
 });
 

@@ -931,6 +931,96 @@ describe('openInPageRail', () => {
       }
     });
 
+    describe('level hint', () => {
+      const levelRecord = () =>
+        baseRecord({
+          sentences: ['A.', 'B.', 'C.', 'D.'],
+          topics: [{ name: 'Parent > Child', sentences: [1, 2, 3, 4] }],
+          topic_summary_index: {
+            Parent: {
+              level: 0,
+              runs: [{ sentences: [1, 2], text: 'Parent summary' }],
+              source_sentences: [1, 2],
+            },
+            'Parent > Child': {
+              level: 1,
+              runs: [{ sentences: [3, 4], text: 'Child summary' }],
+              source_sentences: [3, 4],
+            },
+          },
+        });
+      // Parent box spans the cursor; the child box sits far below it.
+      const boxByLevel = (run) =>
+        run[0] === 1 ? { top: 0, height: 1000 } : { top: 2000, height: 100 };
+
+      beforeEach(() => {
+        mountArticle();
+        fetchRecord.mockResolvedValue(found(levelRecord()));
+        computeCardVerticalBox.mockImplementation(boxByLevel);
+      });
+
+      it('projects every level in summaries mode and hints at the level covering the cursor', async () => {
+        await act(async () => {
+          await openInPageRail({ key: 'rail-key' }, 'summaries', { level: 1 });
+        });
+
+        const projectedRuns = computeCardVerticalBox.mock.calls.map(([run]) => run[0]);
+        expect(new Set(projectedRuns)).toEqual(new Set([1, 3]));
+        expect(rail().querySelector('.pagetollm-summary-active-card-title')).toBeNull();
+        expect(rail().querySelector('.pagetollm-rail-level-btn.is-suggested').dataset.level).toBe(
+          '0',
+        );
+        const note = rail().querySelector('.pagetollm-level-hint');
+        expect(note.textContent).toContain('Broader on L0');
+
+        // Taking the hint switches level; the parent covers the cursor, so it clears.
+        await act(async () => {
+          note.click();
+        });
+        expect(
+          rail().querySelector('.pagetollm-rail-level-btn[data-level="0"].active'),
+        ).not.toBeNull();
+        expect(rail().querySelector('.pagetollm-level-hint')).toBeNull();
+        expect(rail().querySelector('.pagetollm-rail-level-btn.is-suggested')).toBeNull();
+      });
+
+      it('projects only the selected level outside summaries mode', async () => {
+        await act(async () => {
+          await openInPageRail({ key: 'rail-key' }, 'topics', { level: 1 });
+        });
+
+        // Topics mode splits the topic's sentences into one run: [1, 2, 3, 4].
+        expect(new Set(computeCardVerticalBox.mock.calls.map(([run]) => run[0]))).toEqual(
+          new Set([1]),
+        );
+        expect(rail().querySelector('.pagetollm-level-hint')).toBeNull();
+        expect(rail().querySelector('.pagetollm-rail-level-btn.is-suggested')).toBeNull();
+      });
+
+      it('does not project extra levels or hint when the record has a single level', async () => {
+        fetchRecord.mockResolvedValue(
+          found(
+            baseRecord({
+              topics: [{ name: 'Parent', sentences: [1, 2] }],
+              topic_summary_index: {
+                Parent: {
+                  level: 0,
+                  runs: [{ sentences: [1, 2], text: 'Only summary' }],
+                  source_sentences: [1, 2],
+                },
+              },
+            }),
+          ),
+        );
+        await act(async () => {
+          await openInPageRail({ key: 'rail-key' }, 'summaries');
+        });
+
+        expect(rail().querySelector('.pagetollm-level-hint')).toBeNull();
+        expect(rail().querySelector('.pagetollm-summary-active-card-title')).not.toBeNull();
+      });
+    });
+
     it('offers only the in-page rail modes; canvas and hierarchy open from the popup', async () => {
       await act(async () => {
         await openInPageRail({ key: 'rail-key' }, 'topics');
