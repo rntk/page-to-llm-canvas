@@ -66,17 +66,17 @@ export function computeCardVerticalBox(
     const domRange = buildRange(sentenceRanges, wordEntries, sNum);
     if (!domRange) continue;
     // Measure each line box; skip unlaid-out rects that would collapse top to 0.
-    const rects = Array.from(domRange.getClientRects()).filter(isLaidOut);
-    if (rects.length === 0) continue;
-    const sTop = Math.min(...rects.map((r) => r.top)) + scrollTop - railOriginTop;
-    const sBottom = Math.max(...rects.map((r) => r.bottom)) + scrollTop - railOriginTop;
-    if (sTop < top) top = sTop;
-    if (sBottom > bottom) bottom = sBottom;
-    const sRight = Math.max(...rects.map((r) => r.right));
-    if (sRight > right) right = sRight;
-    const sLeft = Math.min(...rects.map((r) => r.left));
-    if (sLeft < left) left = sLeft;
+    for (const rect of domRange.getClientRects()) {
+      if (!isLaidOut(rect)) continue;
+      if (rect.top < top) top = rect.top;
+      if (rect.bottom > bottom) bottom = rect.bottom;
+      if (rect.right > right) right = rect.right;
+      if (rect.left < left) left = rect.left;
+    }
   }
+  const verticalOffset = scrollTop - railOriginTop;
+  top += verticalOffset;
+  bottom += verticalOffset;
   if (!Number.isFinite(top) || !Number.isFinite(bottom)) return null;
   const clampedTop = Math.max(0, top);
   // `right`/`left`: text edges in viewport x (horizontal scroll untracked); topic notes sit

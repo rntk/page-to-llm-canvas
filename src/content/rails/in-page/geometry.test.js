@@ -183,4 +183,76 @@ describe('computeCardVerticalBox', () => {
       computeCardVerticalBox([1], sentenceRanges, wordEntries, 0, window, { buildRange }),
     ).toBeNull();
   });
+
+  it('aggregates bounds across multiple sentences, applies scroll offset, and tracks horizontal edges', () => {
+    const ranges = new Map([
+      [1, null],
+      [
+        2,
+        {
+          getClientRects: () => [
+            { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 },
+            { top: 20, bottom: 45, left: 100, right: 250, width: 150, height: 25 },
+          ],
+        },
+      ],
+      [
+        3,
+        {
+          getClientRects: () => [
+            { top: 50, bottom: 90, left: 80, right: 300, width: 220, height: 40 },
+          ],
+        },
+      ],
+    ]);
+    const buildRange = (_sr, _we, sNum) => ranges.get(sNum) ?? null;
+    const box = computeCardVerticalBox(
+      [1, 2, 3],
+      new Map(),
+      [],
+      10,
+      { scrollTop: 50 },
+      {
+        buildRange,
+      },
+    );
+    expect(box).toEqual({ top: 60, height: 70, left: 80, right: 300 });
+  });
+
+  it('clamps negative top to 0 and computes height from clampedTop', () => {
+    const fakeRange = {
+      getClientRects: () => [
+        { top: -10, bottom: 60, left: 40, right: 200, width: 160, height: 70 },
+      ],
+    };
+    const box = computeCardVerticalBox(
+      [1],
+      new Map(),
+      [],
+      10,
+      { scrollTop: 0 },
+      {
+        buildRange: () => fakeRange,
+      },
+    );
+    expect(box).toEqual({ top: 0, height: 50, left: 40, right: 200 });
+  });
+
+  it('returns null when railOriginTop produces non-finite bounds', () => {
+    const fakeRange = {
+      getClientRects: () => [{ top: 10, bottom: 30, left: 20, right: 100, width: 80, height: 20 }],
+    };
+    expect(
+      computeCardVerticalBox(
+        [1],
+        new Map(),
+        [],
+        NaN,
+        { scrollTop: 0 },
+        {
+          buildRange: () => fakeRange,
+        },
+      ),
+    ).toBeNull();
+  });
 });
