@@ -221,6 +221,100 @@ async function runExtraTool(tool, call, budget, signal) {
 }
 
 /**
+ * Execute one model-issued tool call and return its model-facing result plus
+ * a single outcome classification.
+ * @param {{name?: string, arguments?: object}} call Tool call from the model.
+ * @param {object} context Chunk state and dependencies for tool execution.
+ * @returns {Promise<{result: string, outcome: string, outcomeError?: string}>}
+ */
+async function handleToolCall(
+  call,
+  {
+    tools,
+    toolCharBudget,
+    highlightDefinition,
+    projectHighlight,
+    sentenceCount,
+    chunk,
+    ranges,
+    newRanges,
+    eventBudget,
+    onHighlight,
+    signal,
+    log,
+  },
+) {
+  const extraTool = tools.find((tool) => tool.definition.name === call.name);
+  if (extraTool) {
+    return runExtraTool(extraTool, call, toolCharBudget, signal);
+  }
+  if (!highlightDefinition || call.name !== highlightDefinition.name) {
+    // call.name is model-generated and may echo article-derived text, so it
+    // goes to the model (result) but is never persisted as a metric detail.
+    return {
+      result: `Unknown tool: ${call.name || '(missing name)'}`,
+      outcome: CHAT_TOOL_OUTCOMES.UNKNOWN_TOOL,
+    };
+  }
+
+  let range;
+  try {
+    range = projectHighlight
+      ? await awaitWithAbort(projectHighlight.resolve(call.arguments, { signal }), signal)
+      : validateHighlightArgs(call.arguments, sentenceCount, chunk);
+  } catch (error) {
+    throwIfAborted(signal);
+    // `code` is set by validateHighlightArgs; fall back to invalid_arguments.
+    const result = `Error: ${error.message}`;
+    return {
+      result,
+      outcome: error.code || CHAT_TOOL_OUTCOMES.INVALID_ARGUMENTS,
+      outcomeError: result,
+    };
+  }
+
+  if (ranges.some((existing) => rangesOverlap(existing, range))) {
+    return {
+      result: `Skipped ${describeRange(range)}: that passage is already highlighted.`,
+      outcome: CHAT_TOOL_OUTCOMES.OVERLAP_SKIPPED,
+    };
+  }
+  if (eventBudget.remaining === 0) {
+    return {
+      result:
+        'Skipped: the turn-wide highlight budget is exhausted. Stop calling tools and finish with a normal text answer.',
+      outcome: CHAT_TOOL_OUTCOMES.BUDGET_EXHAUSTED,
+    };
+  }
+
+  // Reserve before awaiting paint so sibling workers share one budget.
+  eventBudget.remaining -= 1;
+  // Commit the range up front: onHighlight is a best-effort paint, and
+  // reporting its failure as a bad call would make the model re-issue the range.
+  ranges.push(range);
+  newRanges.push(range);
+  const result = `Highlighted ${describeRange(range)}.`;
+  try {
+    throwIfAborted(signal);
+    await onHighlight?.(range);
+    throwIfAborted(signal);
+    return { result, outcome: CHAT_TOOL_OUTCOMES.HIGHLIGHTED };
+  } catch (paintError) {
+    throwIfAborted(signal);
+    const outcomeError = paintError?.message || String(paintError);
+    log(
+      'tool_paint_failed',
+      {
+        lineRange: `${range.startLine}-${range.endLine}`,
+        error: outcomeError,
+      },
+      { error: true },
+    );
+    return { result, outcome: CHAT_TOOL_OUTCOMES.PAINT_FAILED, outcomeError };
+  }
+}
+
+/**
  * Run the assistant/tool loop against one bounded source chunk. Accepted ranges,
  * the highlight budget and the tool log are shared with sibling chunks; the
  * transcript and source prefix are per chunk.
@@ -274,6 +368,20 @@ async function runArticleChatChunk({
     ...(highlightDefinition ? [highlightDefinition] : []),
     ...tools.map((tool) => tool.definition),
   ];
+  const toolContext = {
+    tools,
+    toolCharBudget,
+    highlightDefinition,
+    projectHighlight,
+    sentenceCount,
+    chunk,
+    ranges,
+    newRanges,
+    eventBudget,
+    onHighlight,
+    signal,
+    log,
+  };
 
   log(
     'chunk_start',
@@ -354,73 +462,8 @@ async function runArticleChatChunk({
 
     for (const call of toolCalls) {
       throwIfAborted(signal);
-      let result;
       // Exactly one outcome code per call; errors also carry a short message for diagnostics.
-      let outcome;
-      let outcomeError;
-      const extraTool = tools.find((tool) => tool.definition.name === call.name);
-      if (extraTool) {
-        ({ result, outcome, outcomeError } = await runExtraTool(
-          extraTool,
-          call,
-          toolCharBudget,
-          signal,
-        ));
-      } else if (!highlightDefinition || call.name !== highlightDefinition.name) {
-        outcome = CHAT_TOOL_OUTCOMES.UNKNOWN_TOOL;
-        // call.name is model-generated and may echo article-derived text, so it
-        // goes to the model (result) but is never persisted as a metric detail.
-        result = `Unknown tool: ${call.name || '(missing name)'}`;
-      } else {
-        let range;
-        try {
-          range = projectHighlight
-            ? await awaitWithAbort(projectHighlight.resolve(call.arguments, { signal }), signal)
-            : validateHighlightArgs(call.arguments, sentenceCount, chunk);
-        } catch (error) {
-          throwIfAborted(signal);
-          // `code` is set by validateHighlightArgs; fall back to invalid_arguments.
-          outcome = error.code || CHAT_TOOL_OUTCOMES.INVALID_ARGUMENTS;
-          result = `Error: ${error.message}`;
-          outcomeError = result;
-        }
-        if (range) {
-          if (ranges.some((existing) => rangesOverlap(existing, range))) {
-            outcome = CHAT_TOOL_OUTCOMES.OVERLAP_SKIPPED;
-            result = `Skipped ${describeRange(range)}: that passage is already highlighted.`;
-          } else if (eventBudget.remaining === 0) {
-            outcome = CHAT_TOOL_OUTCOMES.BUDGET_EXHAUSTED;
-            result =
-              'Skipped: the turn-wide highlight budget is exhausted. Stop calling tools and finish with a normal text answer.';
-          } else {
-            // Reserve before awaiting paint so sibling workers share one budget.
-            eventBudget.remaining -= 1;
-            // Commit the range up front: onHighlight is a best-effort paint, and
-            // reporting its failure as a bad call would make the model re-issue the range.
-            ranges.push(range);
-            newRanges.push(range);
-            result = `Highlighted ${describeRange(range)}.`;
-            outcome = CHAT_TOOL_OUTCOMES.HIGHLIGHTED;
-            try {
-              throwIfAborted(signal);
-              await onHighlight?.(range);
-              throwIfAborted(signal);
-            } catch (paintError) {
-              throwIfAborted(signal);
-              outcome = CHAT_TOOL_OUTCOMES.PAINT_FAILED;
-              outcomeError = paintError?.message || String(paintError);
-              log(
-                'tool_paint_failed',
-                {
-                  lineRange: `${range.startLine}-${range.endLine}`,
-                  error: outcomeError,
-                },
-                { error: true },
-              );
-            }
-          }
-        }
-      }
+      const { result, outcome, outcomeError } = await handleToolCall(call, toolContext);
       throwIfAborted(signal);
       recordToolMetric({ outcome, error: outcomeError });
       const logEntry = createToolLogEntry(call, outcome, outcomeError);
