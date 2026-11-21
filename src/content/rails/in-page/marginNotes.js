@@ -106,12 +106,16 @@ export function computeNoteColumn(cards, viewportWidth, side = 'right') {
  * @param {Array<{box: {top: number, height: number}}>} cards Cards sorted by box top.
  */
 export function layoutNotes(track, cards) {
-  let previousBottom = -Infinity;
+  // Read every label height before writing any style, so the browser lays out
+  // once instead of once per card.
+  const measured = [];
   cards.forEach((card, index) => {
     const element = track.children[index];
     const label = element?.querySelector('.pagetollm-note-label');
-    if (!label) return;
-    const height = label.offsetHeight;
+    if (label) measured.push({ card, element, height: label.offsetHeight });
+  });
+  let previousBottom = -Infinity;
+  measured.forEach(({ card, element, height }) => {
     const tip = card.box.top + card.box.height / 2;
     const top = Math.max(tip - height / 2, previousBottom + NOTE_STACK_GAP);
     previousBottom = top + height;
