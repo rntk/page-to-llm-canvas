@@ -41,33 +41,37 @@ export function useNodePositions({
     const paths = new Map(
       [...surface.querySelectorAll('.excerpt-link')].map((path) => [path.dataset.excerptId, path]),
     );
-    const affected = [...links.pageOf].filter(
-      ([excerptId, page]) => String(page.id) === String(key) || excerptNodeKey(excerptId) === key,
-    );
+    const translate = (node, position) => {
+      if (node) node.style.transform = `translate(${position.x}px, ${position.y}px)`;
+    };
+    const dragNode = nodes.get(String(key));
+    // Resolve what stays fixed during the drag once, so each frame only interpolates.
+    // Page drag: its excerpts follow by slot offset unless moved. Excerpt drag: its page stays put.
+    const connectors = [];
+    for (const [excerptId, page] of links.pageOf) {
+      const excerptKey = excerptNodeKey(excerptId);
+      const movingPage = String(page.id) === String(key);
+      if (!movingPage && excerptKey !== key) continue;
+      const follows = movingPage && !moved[excerptKey];
+      connectors.push({
+        path: paths.get(String(excerptId)),
+        node: follows ? nodes.get(excerptKey) : null,
+        offset: follows ? layout.excerpts[excerptKey] : null,
+        fixedPage: movingPage ? null : pagePosition(page.id),
+        fixedExcerpt: movingPage && !follows ? excerptPosition(excerptId) : null,
+      });
+    }
     let next = start;
     let didMove = false;
     const paint = () => {
       frameRef.current = null;
-      const setPosition = (nodeKey, position) => {
-        const node = nodes.get(String(nodeKey));
-        if (node) node.style.transform = `translate(${position.x}px, ${position.y}px)`;
-      };
-      setPosition(key, next);
-      for (const [excerptId, page] of affected) {
-        const excerptKey = excerptNodeKey(excerptId);
-        const movingPage = String(page.id) === String(key);
-        const pagePos = movingPage ? next : pagePosition(page.id);
-        const excerptPos =
-          movingPage && !moved[excerptKey]
-            ? {
-                x: next.x + layout.excerpts[excerptKey].dx,
-                y: next.y + layout.excerpts[excerptKey].dy,
-              }
-            : movingPage
-              ? excerptPosition(excerptId)
-              : next;
-        if (movingPage && !moved[excerptKey]) setPosition(excerptKey, excerptPos);
-        paths.get(String(excerptId))?.setAttribute('d', excerptConnectorPath(pagePos, excerptPos));
+      translate(dragNode, next);
+      for (const { path, node, offset, fixedPage, fixedExcerpt } of connectors) {
+        const excerptPos = offset
+          ? { x: next.x + offset.dx, y: next.y + offset.dy }
+          : fixedExcerpt || next;
+        if (offset) translate(node, excerptPos);
+        path?.setAttribute('d', excerptConnectorPath(fixedPage || next, excerptPos));
       }
     };
     raiseNode(key);

@@ -93,6 +93,102 @@ const normalizeLoaded = (result) => ({
 });
 
 /**
+ * Per-turn page cache shared by scan and tools. Failed reads are evicted so they can retry.
+ * @param {function(string): Promise<object>} readPage
+ * @returns {function({page: number, url: string}): Promise<object>}
+ */
+function createTurnPageLoader(readPage) {
+  const cache = new Map();
+  return (page) => {
+    let entry = cache.get(page.page);
+    if (!entry) {
+      entry = Promise.resolve()
+        .then(() => readPage(page.url))
+        .then(normalizeLoaded);
+      cache.set(page.page, entry);
+      entry.catch(() => {
+        if (cache.get(page.page) === entry) cache.delete(page.page);
+      });
+    }
+    return entry;
+  };
+}
+
+/**
+ * Picks the scan judge from the scan config, resolved once per turn on first use.
+ * A config failure falls back to the completion LLM.
+ * @returns {function(): Promise<{mode: string, judge: object}>}
+ */
+function createScanJudgeResolver({ getScanConfig, send, turnId, signal, scanChunkChars }) {
+  let setup;
+  const resolve = async () => {
+    let config = null;
+    try {
+      config = await getScanConfig?.();
+    } catch (_) {
+      config = null;
+    }
+    throwIfAborted(signal);
+    if (config?.ok !== false && config?.mode === PAGE_SCAN_MODES.DECISION) {
+      const contextWindowTokens = Number(config.contextWindowTokens);
+      return {
+        mode: PAGE_SCAN_MODES.DECISION,
+        judge: createDecisionPageJudge({
+          decide: async (state, questions) => {
+            const response = await send({
+              type: MSG.projectChatDecide,
+              state,
+              questions,
+              chatTurnId: turnId,
+            });
+            if (!response?.ok) {
+              throw new Error(response?.error || 'The page scan request failed');
+            }
+            return response;
+          },
+          ...(contextWindowTokens > 0 ? { contextWindowTokens } : {}),
+        }),
+      };
+    }
+    return {
+      mode: PAGE_SCAN_MODES.LLM,
+      judge: createLlmPageJudge({
+        complete: ({ messages, taskType }) =>
+          send({ type: MSG.llmChatCompletion, messages, taskType, chatTurnId: turnId }),
+        maxChunkChars: scanChunkChars,
+      }),
+    };
+  };
+  return () => (setup ??= resolve());
+}
+
+/**
+ * Scans every page before the turn. The scan is an aid: on failure the model still has its
+ * tools, so only aborts propagate.
+ * @returns {Promise<{scanText: string, scanMode: (string|undefined)}>}
+ */
+async function runPreScan({ scan, send, turnId, signal, maxChars }) {
+  // The wrapped runner cancels on abort during the turn; this covers aborts during the pre-scan.
+  const cancelRequests = () => {
+    try {
+      Promise.resolve(send({ type: MSG.cancelChatTurn, turnId })).catch(() => {});
+    } catch (_) {
+      // Best effort.
+    }
+  };
+  signal?.addEventListener('abort', cancelRequests, { once: true });
+  try {
+    const { results, mode } = await scan();
+    return { scanText: formatScanResults(results, { maxChars }), scanMode: mode };
+  } catch (error) {
+    if (isAbort(error, signal)) throw signal?.aborted ? abortReason(signal) : error;
+    return { scanText: '', scanMode: undefined };
+  } finally {
+    signal?.removeEventListener('abort', cancelRequests);
+  }
+}
+
+/**
  * @param {object} deps
  * @param {Array<{page: number, title: string, url: string}>} deps.pages Readable
  *   project pages, numbered from 1.
@@ -146,66 +242,14 @@ export function createProjectChatTurnRunner({
       maxHistoryChars: options.limits?.maxHistoryChars ?? undefined,
     });
 
-    // Per-turn page cache shared by scan and tools. Failed reads are evicted so they can retry.
-    const cache = new Map();
-    const loadPage = (page) => {
-      let entry = cache.get(page.page);
-      if (!entry) {
-        entry = Promise.resolve()
-          .then(() => readPage(page.url))
-          .then(normalizeLoaded);
-        cache.set(page.page, entry);
-        entry.catch(() => {
-          if (cache.get(page.page) === entry) cache.delete(page.page);
-        });
-      }
-      return entry;
-    };
-
-    // Resolved once per turn, on first use.
-    let setup;
-    const getSetup = () => {
-      setup ??= (async () => {
-        let config = null;
-        try {
-          config = await getScanConfig?.();
-        } catch (_) {
-          config = null;
-        }
-        throwIfAborted(signal);
-        const decision = config?.ok !== false && config?.mode === PAGE_SCAN_MODES.DECISION;
-        if (decision) {
-          const contextWindowTokens = Number(config.contextWindowTokens);
-          return {
-            mode: PAGE_SCAN_MODES.DECISION,
-            judge: createDecisionPageJudge({
-              decide: async (state, questions) => {
-                const response = await send({
-                  type: MSG.projectChatDecide,
-                  state,
-                  questions,
-                  chatTurnId: turnId,
-                });
-                if (!response?.ok) {
-                  throw new Error(response?.error || 'The page scan request failed');
-                }
-                return response;
-              },
-              ...(contextWindowTokens > 0 ? { contextWindowTokens } : {}),
-            }),
-          };
-        }
-        return {
-          mode: PAGE_SCAN_MODES.LLM,
-          judge: createLlmPageJudge({
-            complete: ({ messages, taskType }) =>
-              send({ type: MSG.llmChatCompletion, messages, taskType, chatTurnId: turnId }),
-            maxChunkChars: budgets.scanChunkChars,
-          }),
-        };
-      })();
-      return setup;
-    };
+    const loadPage = createTurnPageLoader(readPage);
+    const getJudge = createScanJudgeResolver({
+      getScanConfig,
+      send,
+      turnId,
+      signal,
+      scanChunkChars: budgets.scanChunkChars,
+    });
 
     const scan = async ({
       question: scanQuestion,
@@ -213,10 +257,10 @@ export function createProjectChatTurnRunner({
       earlierQuestions: earlier,
       signal: scanSignal,
     }) => {
-      const { judge } = await getSetup();
+      const { judge, mode } = await getJudge();
       report({ phase: SCAN_PHASE, done: 0, total: subset.length });
       try {
-        return await scanProjectPages({
+        const results = await scanProjectPages({
           pages: subset,
           question: scanQuestion,
           earlierQuestions: earlier,
@@ -225,36 +269,22 @@ export function createProjectChatTurnRunner({
           signal: scanSignal ?? signal,
           onProgress: ({ done, total }) => report({ phase: SCAN_PHASE, done, total }),
         });
+        return { results, mode };
       } finally {
         report(null);
       }
     };
 
-    let scanText = '';
-    let scanMode;
-    if (pages.length > 0) {
-      // The wrapped runner cancels on abort during the turn; this covers aborts during the pre-scan.
-      const cancelRequests = () => {
-        try {
-          Promise.resolve(send({ type: MSG.cancelChatTurn, turnId })).catch(() => {});
-        } catch (_) {
-          // Best effort.
-        }
-      };
-      signal?.addEventListener('abort', cancelRequests, { once: true });
-      try {
-        const results = await scan({ question, pages, earlierQuestions, signal });
-        ({ mode: scanMode } = await getSetup());
-        scanText = formatScanResults(results, { maxChars: budgets.scanChars });
-      } catch (error) {
-        if (isAbort(error, signal)) throw signal?.aborted ? abortReason(signal) : error;
-        // The scan is an aid; on failure the model still has its tools.
-        scanText = '';
-        scanMode = undefined;
-      } finally {
-        signal?.removeEventListener('abort', cancelRequests);
-      }
-    }
+    const { scanText, scanMode } =
+      pages.length > 0
+        ? await runPreScan({
+            scan: () => scan({ question, pages, earlierQuestions, signal }),
+            send,
+            turnId,
+            signal,
+            maxChars: budgets.scanChars,
+          })
+        : { scanText: '', scanMode: undefined };
 
     const treeOverview = treeContext
       ? treeContext.buildPreamble({ ...treeOverviewInput, preambleMaxChars: budgets.treeChars })
@@ -268,7 +298,11 @@ export function createProjectChatTurnRunner({
       maxChars: budgets.overviewChars,
     });
     const tools = [
-      ...createProjectPageTools({ pages, loadPage, scan }),
+      ...createProjectPageTools({
+        pages,
+        loadPage,
+        scan: async (args) => (await scan(args)).results,
+      }),
       // The page helper's requests carry the turn id so Stop cancels them too.
       createPageAgentTool({
         pages,
