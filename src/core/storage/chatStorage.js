@@ -47,12 +47,15 @@ function createStorageId(prefix) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 }
 
-async function readChatIndex(key) {
-  const storageKey = chatIndexStorageKey(key);
-  const value = (await getLocal(storageKey))[storageKey];
+function chatIndexOrEmpty(value) {
   return value && Array.isArray(value.chats) && Array.isArray(value.turns)
     ? value
     : { chats: [], turns: [] };
+}
+
+async function readChatIndex(key) {
+  const storageKey = chatIndexStorageKey(key);
+  return chatIndexOrEmpty((await getLocal(storageKey))[storageKey]);
 }
 
 async function writeChatIndex(key, index) {
@@ -439,13 +442,13 @@ export async function deleteChatHistory(key, chatId) {
  * project's block chats (`project:<id>:block:<fingerprint>`), which are keyed
  * under the project but never listed by it. Any other key covers only itself.
  * @param {string} key Detached chat key.
- * @returns {Promise<string[]>}
+ * @param {Record<string, unknown>} allItems Every item under CHAT_STORAGE_PREFIX.
+ * @returns {string[]}
  */
-async function chatKeysCoveredBy(key) {
+function chatKeysCoveredBy(key, allItems) {
   if (!isProjectChatKey(key) || key.includes(PROJECT_BLOCK_CHAT_SEGMENT)) return [key];
   const blockPrefix = `${key}${PROJECT_BLOCK_CHAT_SEGMENT}`;
   const covered = new Set([key]);
-  const allItems = await getLocalByPrefix(CHAT_STORAGE_PREFIX);
   for (const [storageKey, value] of Object.entries(allItems)) {
     const chatKey =
       recordKeyFromChatIndexStorageKey(storageKey) ??
@@ -465,8 +468,12 @@ async function chatKeysCoveredBy(key) {
 export async function deleteDetachedChats(key) {
   if (!isDetachedChatKey(key)) return 0;
   return queuedChatUpdate(async () => {
-    const chatKeys = await chatKeysCoveredBy(key);
-    const keys = [...new Set((await Promise.all(chatKeys.map(chatStorageKeysForRecord))).flat())];
+    // One scan of the chat namespace serves both discovery and key collection.
+    const allItems = await getLocalByPrefix(CHAT_STORAGE_PREFIX);
+    const chatKeys = chatKeysCoveredBy(key, allItems);
+    const keys = [
+      ...new Set(chatKeys.flatMap((chatKey) => chatStorageKeysFromItems(chatKey, allItems))),
+    ];
     // Documents first, then the indexes, so a failure leaves them discoverable.
     const indexKeys = new Set(chatKeys.map(chatIndexStorageKey));
     const documents = keys.filter((storageKey) => !indexKeys.has(storageKey));
@@ -590,8 +597,18 @@ export async function pruneChatsForContentRevision(key, contentRevision) {
  * @param {string} key Record key.
  */
 export async function chatStorageKeysForRecord(key) {
-  const index = await readChatIndex(key);
-  const allItems = await getLocalByPrefix(CHAT_STORAGE_PREFIX);
+  return chatStorageKeysFromItems(key, await getLocalByPrefix(CHAT_STORAGE_PREFIX));
+}
+
+/**
+ * chatStorageKeysForRecord over an already-read chat namespace. The record's
+ * index key lives under CHAT_STORAGE_PREFIX, so it is taken from `allItems` too.
+ * @param {string} key Record key.
+ * @param {Record<string, unknown>} allItems Every item under CHAT_STORAGE_PREFIX.
+ * @returns {string[]}
+ */
+function chatStorageKeysFromItems(key, allItems) {
+  const index = chatIndexOrEmpty(allItems[chatIndexStorageKey(key)]);
   const discoveredDocuments = Object.entries(allItems)
     .filter(
       ([storageKey, value]) => recordKeyFromChatDocumentStorageEntry(storageKey, value) === key,
