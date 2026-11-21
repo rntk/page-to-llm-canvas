@@ -373,6 +373,45 @@ describe('buildPartialTopicSummaryIndex', () => {
       { sentences: [20], text: 'Ancestor 20.' },
     ]);
   });
+
+  it('retains marked non-string runs while preventing unmarked malformed runs from shadowing valid ones', () => {
+    const index = buildPartialTopicSummaryIndex(
+      [
+        { name: 'Tech>Sub>X', sentences: [1] },
+        { name: 'Tech>Sub>Y', sentences: [2] },
+        { name: 'Tech>Solo1', sentences: [8] },
+        { name: 'Tech>Solo2', sentences: [9] },
+      ],
+      {
+        'Tech>Sub>X': { runs: [{ sentences: [1], text: 'X.' }], source_sentences: [1] },
+        'Tech>Sub>Y': { runs: [{ sentences: [2], text: 'Y.' }], source_sentences: [2] },
+        'Tech>Solo1': { runs: [{ sentences: [8], text: 'Solo1.' }], source_sentences: [8] },
+        'Tech>Solo2': { runs: [{ sentences: [9], text: 'Solo2.' }], source_sentences: [9] },
+      },
+      {
+        'Tech>Sub': {
+          runs: [{ sentences: [1, 2], error: true }],
+          level: 1,
+          source_sentences: [1, 2],
+        },
+        Tech: {
+          runs: [
+            { sentences: [1, 2], text: 'Parent over failed sub.' },
+            { sentences: [8, 9], text: 'Reusable parent.' },
+            { sentences: [8, 9], text: null },
+          ],
+          level: 0,
+          source_sentences: [1, 2, 8, 9],
+        },
+      },
+    );
+
+    expect(index['Tech>Sub'].runs).toEqual([{ sentences: [1, 2], text: '', error: true }]);
+    expect(index.Tech.runs).toEqual([
+      { sentences: [1, 2], text: '' },
+      { sentences: [8, 9], text: 'Reusable parent.' },
+    ]);
+  });
 });
 
 describe('summarizeTopicTree', () => {
@@ -797,5 +836,37 @@ describe('summarizeTopicTree', () => {
     });
 
     expect(index.A).toEqual({ runs: [], level: 0, source_sentences: [1] });
+  });
+
+  it('ignores malformed trailing prior runs with non-string text when reusing summaries', async () => {
+    const topics = [
+      { name: 'Tech>AI', sentences: [1] },
+      { name: 'Tech>HW', sentences: [2] },
+    ];
+    const { nodes } = buildTopicTree(topics);
+    const summarizeSource = vi.fn();
+
+    const index = await summarizeTopicTree({
+      nodes,
+      leafSummaries: {
+        'Tech>AI': oneRun([1], 'ai'),
+        'Tech>HW': oneRun([2], 'hw'),
+      },
+      previousSummaryIndex: {
+        Tech: {
+          runs: [
+            { sentences: [1, 2], text: 'Reusable parent.' },
+            { sentences: [1, 2], text: null },
+          ],
+          level: 0,
+          source_sentences: [1, 2],
+        },
+      },
+      reusePriorSummaries: true,
+      summarizeSource,
+    });
+
+    expect(summarizeSource).not.toHaveBeenCalled();
+    expect(index.Tech.runs).toEqual([{ sentences: [1, 2], text: 'Reusable parent.' }]);
   });
 });

@@ -134,6 +134,56 @@ function addFailedRunsByPath(target, summaries, isFailedRun) {
   }
 }
 
+function collectPriorFailedRunsByPath(previousSummaryIndex, previousSummaries) {
+  const failedRunsByPath = new Map();
+  addFailedRunsByPath(failedRunsByPath, previousSummaryIndex, isFailedSummaryRun);
+  addFailedRunsByPath(failedRunsByPath, previousSummaries, isFailedSummaryRun);
+  return failedRunsByPath;
+}
+
+function indexRunsByFirstSentence(runs, includeRun = () => true) {
+  const byFirst = new Map();
+  for (const run of Array.isArray(runs) ? runs : []) {
+    if (run && Array.isArray(run.sentences) && run.sentences.length > 0 && includeRun(run)) {
+      byFirst.set(run.sentences[0], run);
+    }
+  }
+  return byFirst;
+}
+
+function indexPriorRunsByPath(previousSummaryIndex, includeRun) {
+  const byPath = new Map();
+  if (!previousSummaryIndex || typeof previousSummaryIndex !== 'object') return byPath;
+  for (const [path, prior] of Object.entries(previousSummaryIndex)) {
+    if (!prior || !Array.isArray(prior.runs)) continue;
+    byPath.set(path, indexRunsByFirstSentence(prior.runs, includeRun));
+  }
+  return byPath;
+}
+
+function hasFailedDependency(failedRunsByPath, path, run) {
+  const source = new Set(run);
+  for (const [failedPath, failedRuns] of failedRunsByPath) {
+    if (failedPath !== path && !isCanonicalDescendantPath(failedPath, path)) continue;
+    if (failedRuns.some((failed) => failed.some((sentence) => source.has(sentence)))) return true;
+  }
+  return false;
+}
+
+function matchPriorRun(priorByFirst, run) {
+  const priorRun = priorByFirst?.get(run[0]);
+  return priorRun && sameSource(priorRun.sentences, run) ? priorRun : null;
+}
+
+function isReusablePriorRun(priorRun, failedRunsByPath, path, run) {
+  return (
+    Boolean(priorRun) &&
+    typeof priorRun.text === 'string' &&
+    priorRun.text !== '' &&
+    !hasFailedDependency(failedRunsByPath, path, run)
+  );
+}
+
 /**
  * Project available summaries before parents resolve. Reuse prior runs only
  * when their source still matches and no failed descendant overlaps them.
@@ -166,47 +216,38 @@ export function buildPartialTopicSummaryIndex(
     };
   }
 
-  if (!previousSummaryIndex || typeof previousSummaryIndex !== 'object') return index;
+  const priorRunsByPath = indexPriorRunsByPath(
+    previousSummaryIndex,
+    (run) => typeof run.text === 'string' || hasSummaryRunMarker(run),
+  );
+  if (priorRunsByPath.size === 0) return index;
   const unusableSentences = collectUnusableLeafSentences(leafSummaries);
   // A failed internal or prior leaf run also invalidates overlapping ancestor runs.
-  const priorFailedRunsByPath = new Map();
-  addFailedRunsByPath(priorFailedRunsByPath, previousSummaryIndex, isFailedSummaryRun);
-  addFailedRunsByPath(priorFailedRunsByPath, previousSummaries, isFailedSummaryRun);
-  const hasPriorFailedDependency = (path, run) => {
-    const source = new Set(run);
-    for (const [failedPath, failedRuns] of priorFailedRunsByPath) {
-      if (failedPath !== path && !isCanonicalDescendantPath(failedPath, path)) continue;
-      if (failedRuns.some((failed) => failed.some((sentence) => source.has(sentence)))) return true;
-    }
-    return false;
-  };
+  const priorFailedRunsByPath = collectPriorFailedRunsByPath(
+    previousSummaryIndex,
+    previousSummaries,
+  );
 
-  for (const [path, prior] of Object.entries(previousSummaryIndex)) {
+  for (const [path, priorByFirst] of priorRunsByPath) {
     // A leaf checkpoint from this run is authoritative for its own path.
-    if (index[path] || !prior || !Array.isArray(prior.runs)) continue;
+    if (index[path]) continue;
     const node = nodes.get(path);
     if (!node || node.children.length === 0) continue;
-    const priorByFirst = new Map();
-    for (const run of prior.runs) {
-      if (run && Array.isArray(run.sentences) && run.sentences.length > 0) {
-        priorByFirst.set(run.sentences[0], run);
-      }
-    }
     let kept = 0;
     const runs = splitContiguousRuns(node.sourceSentences).map((run) => {
-      const priorRun = priorByFirst.get(run[0]);
-      if (!priorRun || !sameSource(priorRun.sentences, run)) return { sentences: run, text: '' };
+      const priorRun = matchPriorRun(priorByFirst, run);
+      if (!priorRun) return { sentences: run, text: '' };
       if (hasSummaryRunMarker(priorRun)) {
         // Retry needs this marker to invalidate overlapping ancestors.
         kept += 1;
         return { ...publicSummaryRun(priorRun), sentences: run, text: '' };
       }
-      const usable =
-        typeof priorRun.text === 'string' &&
-        priorRun.text !== '' &&
-        !run.some((sentence) => unusableSentences.has(sentence)) &&
-        !hasPriorFailedDependency(path, run);
-      if (!usable) return { sentences: run, text: '' };
+      if (
+        run.some((sentence) => unusableSentences.has(sentence)) ||
+        !isReusablePriorRun(priorRun, priorFailedRunsByPath, path, run)
+      ) {
+        return { sentences: run, text: '' };
+      }
       kept += 1;
       return { sentences: run, text: priorRun.text };
     });
@@ -263,51 +304,17 @@ export async function summarizeTopicTree({
   };
 
   // Failure markers are scoped to the source run that failed.
-  const priorFailedRunsByPath = new Map();
-  const priorRunsByPath = new Map();
+  let priorRunsByPath = new Map();
+  let failedRunsByPath = new Map();
   if (reusePriorSummaries) {
-    if (previousSummaryIndex && typeof previousSummaryIndex === 'object') {
-      for (const [path, prior] of Object.entries(previousSummaryIndex)) {
-        if (!prior || !Array.isArray(prior.runs)) continue;
-        const byFirst = new Map();
-        for (const run of prior.runs) {
-          if (run && Array.isArray(run.sentences) && typeof run.text === 'string') {
-            byFirst.set(run.sentences[0], run);
-          }
-        }
-        priorRunsByPath.set(path, byFirst);
-      }
-    }
-    addFailedRunsByPath(priorFailedRunsByPath, previousSummaryIndex, isFailedSummaryRun);
-    addFailedRunsByPath(priorFailedRunsByPath, previousSummaries, isFailedSummaryRun);
-  }
-
-  const overlaps = (a, b) => {
-    const source = new Set(Array.isArray(a) ? a : []);
-    return Array.isArray(b) && b.some((sentence) => source.has(sentence));
-  };
-
-  // Accepted leaf failures still invalidate overlapping ancestors.
-  const failedLeafRunsByPath = new Map();
-  addFailedRunsByPath(failedLeafRunsByPath, leafSummaries, hasSummaryRunMarker);
-
-  const isDescendantOrSelf = (candidate, path) =>
-    candidate === path || isCanonicalDescendantPath(candidate, path);
-  const mapHasFailedDependency = (mapByPath, path, valueMatches) => {
-    for (const [failedPath, value] of mapByPath) {
-      if (isDescendantOrSelf(failedPath, path) && valueMatches(value)) {
-        return true;
-      }
-    }
-    return false;
-  };
-  const runsMapHasFailedDependency = (runsByPath, path, run) =>
-    mapHasFailedDependency(runsByPath, path, (failedRuns) =>
-      failedRuns.some((failed) => overlaps(run, failed)),
+    priorRunsByPath = indexPriorRunsByPath(
+      previousSummaryIndex,
+      (run) => typeof run.text === 'string',
     );
-  const hasFailedDependency = (path, run) =>
-    runsMapHasFailedDependency(failedLeafRunsByPath, path, run) ||
-    runsMapHasFailedDependency(priorFailedRunsByPath, path, run);
+    failedRunsByPath = collectPriorFailedRunsByPath(previousSummaryIndex, previousSummaries);
+    // Accepted leaf failures still invalidate overlapping ancestors.
+    addFailedRunsByPath(failedRunsByPath, leafSummaries, hasSummaryRunMarker);
+  }
 
   // Memoize by path so shared children resolve once.
   const resolving = new Map();
@@ -323,17 +330,11 @@ export async function summarizeTopicTree({
       const priorRuns = priorRunsByPath.get(node.path);
       const plan = splitContiguousRuns(node.sourceSentences).map((run) => {
         const child = soleOwningChild(node, run);
-        const prior = priorRuns?.get(run[0]);
-        const priorMatches =
-          reusePriorSummaries &&
-          prior &&
-          Array.isArray(prior.sentences) &&
-          sameSource(prior.sentences, run) &&
-          typeof prior.text === 'string' &&
-          prior.text !== '' &&
-          !priorFailedRunsByPath.get(node.path)?.some((failed) => overlaps(run, failed)) &&
-          !hasFailedDependency(node.path, run);
-        return { run, child, prior: priorMatches ? prior : null };
+        const priorRun = matchPriorRun(priorRuns, run);
+        const prior = isReusablePriorRun(priorRun, failedRunsByPath, node.path, run)
+          ? priorRun
+          : null;
+        return { run, child, prior };
       });
       const generateRuns = plan
         .filter((item) => !item.child && !item.prior)
@@ -353,8 +354,7 @@ export async function summarizeTopicTree({
           }
           generated = { runs: [] };
         }
-        const genRuns = (generated && Array.isArray(generated.runs) && generated.runs) || [];
-        generatedByFirst = new Map(genRuns.map((r) => [r.sentences[0], r]));
+        generatedByFirst = indexRunsByFirstSentence(generated?.runs);
       }
 
       const runs = [];
