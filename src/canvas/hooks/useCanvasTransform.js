@@ -2,6 +2,7 @@ import { isCanvasShortcutEvent } from '../../utils/isCanvasShortcutEvent.js';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   clampScale,
+  computeZoomPinnedX,
   cursorAnchoredTranslate,
   horizontalWheelPan,
   wheelZoomFactor,
@@ -12,10 +13,6 @@ const WHEEL_COMMIT_DELAY = 80;
 // Outlast the 280ms CSS transition to avoid snapping its final frame.
 const CARD_ZOOM_SMOOTHING_HOLD = 340;
 const ARROW_STEP = 80;
-// Content stays this far inside the viewport edges (same as the alignment hook's).
-const EDGE_MARGIN = 24;
-// Fallback left edge (wrap-local px) used only when nothing can be measured.
-const FALLBACK_CONTENT_LEFT = 40;
 // Ignore sub-pixel corrections (no-op transforms).
 const MIN_DELTA = 0.5;
 // Pixels a pointer must travel before a press counts as a pan and is captured.
@@ -38,36 +35,31 @@ function readAppliedScale(el, fallbackScale) {
   }
 }
 
-/**
- * Where the canvas content should sit horizontally after a zoom-to-target.
- *
- * Compute absolute placement from settled layout because inverse-scaled gutters
- * reflow on zoom. Frame the full group when it fits; otherwise frame the reading
- * column or pin its left edge inside the viewport.
- *
- * @param {{localContentLeft: number, columnLayoutWidth: number,
- *          groupLayoutWidth: number, nextScale: number, wrapWidth: number}} params
- * @returns {number} translate.x
- */
-function zoomPinnedTranslateX({
-  localContentLeft,
-  columnLayoutWidth,
-  groupLayoutWidth,
-  nextScale,
-  wrapWidth,
-}) {
-  const scaledLeft = localContentLeft * nextScale;
-  if (!(wrapWidth > 0)) return FALLBACK_CONTENT_LEFT - scaledLeft;
-  const usableWidth = wrapWidth - 2 * EDGE_MARGIN;
+function readLocalContentOrigin(viewportEl, content, fallbackScale) {
+  const viewportRect = viewportEl.getBoundingClientRect();
+  const contentRect = content.getBoundingClientRect();
+  const appliedScale = readAppliedScale(viewportEl, fallbackScale);
+  return {
+    localContentX: (contentRect.left - viewportRect.left) / appliedScale,
+    localContentY: (contentRect.top - viewportRect.top) / appliedScale,
+  };
+}
 
-  // The group is the viewport's only child and begins at local x=0.
-  const groupWidth = groupLayoutWidth * nextScale;
-  if (groupWidth > 0 && groupWidth <= usableWidth) return (wrapWidth - groupWidth) / 2;
+function translateForLayoutAnchor(anchor, { localContentX, localContentY }, scale) {
+  return {
+    x: anchor.targetContentX - localContentX * scale,
+    y: anchor.targetContentY - localContentY * scale,
+  };
+}
 
-  const columnWidth = columnLayoutWidth * nextScale;
-  if (!(columnWidth > 0)) return FALLBACK_CONTENT_LEFT - scaledLeft;
-  const targetLeft = columnWidth >= usableWidth ? EDGE_MARGIN : (wrapWidth - columnWidth) / 2;
-  return targetLeft - scaledLeft;
+function readZoomPinLayout(content, viewportRect, appliedScale) {
+  return {
+    localContentLeft: (content.getBoundingClientRect().left - viewportRect.left) / appliedScale,
+    // offsetWidth is already in layout pixels.
+    columnLayoutWidth: content.offsetWidth,
+    // The group is the viewport's only child and begins at local x=0.
+    groupLayoutWidth: viewportRect.width / appliedScale,
+  };
 }
 
 /**
@@ -149,18 +141,11 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
       const content = contentRef?.current;
       if (!viewportEl || !content) return null;
 
-      let localContentX;
-      let localContentY;
       const currentAnchor = pendingScaleLayoutAnchorRef.current;
-      if (reuseCurrentLayout && currentAnchor) {
-        ({ localContentX, localContentY } = currentAnchor);
-      } else {
-        const viewportRect = viewportEl.getBoundingClientRect();
-        const contentRect = content.getBoundingClientRect();
-        const appliedScale = readAppliedScale(viewportEl, scaleRef.current || 1);
-        localContentX = (contentRect.left - viewportRect.left) / appliedScale;
-        localContentY = (contentRect.top - viewportRect.top) / appliedScale;
-      }
+      const { localContentX, localContentY } =
+        reuseCurrentLayout && currentAnchor
+          ? currentAnchor
+          : readLocalContentOrigin(viewportEl, content, scaleRef.current || 1);
 
       return {
         scale: nextScale,
@@ -220,17 +205,10 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
         const layoutAnchor = pendingScaleLayoutAnchorRef.current;
         const content = contentRef?.current;
         if (layoutAnchor && viewportEl && content) {
-          const viewportRect = viewportEl.getBoundingClientRect();
-          const contentRect = content.getBoundingClientRect();
-          const appliedScale = readAppliedScale(viewportEl, pending.scale);
-          const localContentX = (contentRect.left - viewportRect.left) / appliedScale;
-          const localContentY = (contentRect.top - viewportRect.top) / appliedScale;
-          const correctedTranslate = {
-            x: layoutAnchor.targetContentX - localContentX * pending.scale,
-            y: layoutAnchor.targetContentY - localContentY * pending.scale,
-          };
-          layoutAnchor.localContentX = localContentX;
-          layoutAnchor.localContentY = localContentY;
+          const origin = readLocalContentOrigin(viewportEl, content, pending.scale);
+          const correctedTranslate = translateForLayoutAnchor(layoutAnchor, origin, pending.scale);
+          layoutAnchor.localContentX = origin.localContentX;
+          layoutAnchor.localContentY = origin.localContentY;
           translateRef.current = correctedTranslate;
           viewportEl.style.setProperty('--canvas-translate-x', `${correctedTranslate.x}px`);
           viewportEl.style.setProperty('--canvas-translate-y', `${correctedTranslate.y}px`);
@@ -323,15 +301,8 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
     const viewportEl = canvasViewportElRef.current;
     const content = contentRef?.current;
     if (!viewportEl || !content) return;
-    const viewportRect = viewportEl.getBoundingClientRect();
-    const contentRect = content.getBoundingClientRect();
-    const appliedScale = readAppliedScale(viewportEl, scale);
-    const localContentX = (contentRect.left - viewportRect.left) / appliedScale;
-    const localContentY = (contentRect.top - viewportRect.top) / appliedScale;
-    const nextTranslate = {
-      x: anchor.targetContentX - localContentX * scale,
-      y: anchor.targetContentY - localContentY * scale,
-    };
+    const origin = readLocalContentOrigin(viewportEl, content, scale);
+    const nextTranslate = translateForLayoutAnchor(anchor, origin, scale);
     const currentTranslate = translateRef.current;
     if (
       Math.abs(nextTranslate.x - currentTranslate.x) < MIN_DELTA &&
@@ -602,17 +573,8 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
       let nextX;
       const content = contentRef?.current;
       if (content) {
-        const localContentX =
-          (content.getBoundingClientRect().left - viewportRect.left) / appliedScale;
-        nextX = zoomPinnedTranslateX({
-          localContentLeft: localContentX,
-          // offsetWidth is layout px (transform-free), so it needs no unscaling.
-          columnLayoutWidth: content.offsetWidth,
-          // The viewport must have only the gutter/column/rail group as its child.
-          groupLayoutWidth: viewportRect.width / appliedScale,
-          nextScale,
-          wrapWidth: wrapRect.width,
-        });
+        const layout = readZoomPinLayout(content, viewportRect, appliedScale);
+        nextX = computeZoomPinnedX({ ...layout, nextScale, wrapWidth: wrapRect.width });
       } else {
         const localTargetX =
           (targetRect.left + targetRect.width / 2 - viewportRect.left) / appliedScale;
@@ -653,17 +615,9 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
     const viewportRect = viewportEl.getBoundingClientRect();
     if (wrapRect.width === 0) return;
 
-    // Undo the currently applied transform to recover layout coordinates.
     const appliedScale = readAppliedScale(viewportEl, scale);
-    const localContentLeft =
-      (content.getBoundingClientRect().left - viewportRect.left) / appliedScale;
-    const nextX = zoomPinnedTranslateX({
-      localContentLeft,
-      columnLayoutWidth: content.offsetWidth,
-      groupLayoutWidth: viewportRect.width / appliedScale,
-      nextScale: scale,
-      wrapWidth: wrapRect.width,
-    });
+    const layout = readZoomPinLayout(content, viewportRect, appliedScale);
+    const nextX = computeZoomPinnedX({ ...layout, nextScale: scale, wrapWidth: wrapRect.width });
     if (Math.abs(nextX - (translateRef.current?.x ?? 0)) < MIN_DELTA) return;
     // Horizontal-only pan at unchanged scale: no further reflow, settles in one pass.
     setTransformNow(scale, { x: nextX, y: translateRef.current?.y ?? 0 });

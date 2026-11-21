@@ -2,6 +2,10 @@
 export const MIN_SCALE = 0.1;
 export const MAX_SCALE = 3;
 
+// Match the edge margin in useCanvasAlignment.
+const EDGE_MARGIN = 24;
+const FALLBACK_CONTENT_LEFT = 40;
+
 /**
  * Clamp a canvas scale to the supported zoom range.
  *
@@ -30,6 +34,37 @@ export function cursorAnchoredTranslate({ cursor, translate, currentScale, nextS
     x: cursor.x - cx * nextScale,
     y: cursor.y - cy * nextScale,
   };
+}
+
+/**
+ * Calculate the horizontal translation for a target zoom. Center the full group
+ * if it fits, then try the reading column, and otherwise pin the column's left edge.
+ * @param {object} params
+ * @param {number} params.localContentLeft Reading column's unscaled left offset.
+ * @param {number} params.columnLayoutWidth Unscaled reading column width.
+ * @param {number} params.groupLayoutWidth Unscaled group width.
+ * @param {number} params.nextScale Target zoom scale.
+ * @param {number} params.wrapWidth Visible canvas width.
+ * @returns {number} Horizontal translation in pixels.
+ */
+export function computeZoomPinnedX({
+  localContentLeft,
+  columnLayoutWidth,
+  groupLayoutWidth,
+  nextScale,
+  wrapWidth,
+}) {
+  const scaledLeft = localContentLeft * nextScale;
+  if (!(wrapWidth > 0)) return FALLBACK_CONTENT_LEFT - scaledLeft;
+  const usableWidth = wrapWidth - 2 * EDGE_MARGIN;
+
+  const groupWidth = groupLayoutWidth * nextScale;
+  if (groupWidth > 0 && groupWidth <= usableWidth) return (wrapWidth - groupWidth) / 2;
+
+  const columnWidth = columnLayoutWidth * nextScale;
+  if (!(columnWidth > 0)) return FALLBACK_CONTENT_LEFT - scaledLeft;
+  const targetLeft = columnWidth >= usableWidth ? EDGE_MARGIN : (wrapWidth - columnWidth) / 2;
+  return targetLeft - scaledLeft;
 }
 
 /** Screen-space pan [dx, dy] per arrow key press. */
