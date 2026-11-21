@@ -116,6 +116,22 @@ describe('popup pure functions', () => {
     expect(popup.formatDate(null)).toBe('');
   });
 
+  it('formatDate reuses a cached Intl.DateTimeFormat instance and handles invalid dates', () => {
+    const ts1 = new Date('2024-01-15T10:30:00Z').getTime();
+    const ts2 = new Date('2024-02-20T14:45:00Z').getTime();
+    expect(popup.formatDate(ts1).length).toBeGreaterThan(0);
+
+    const spy = vi.spyOn(Intl, 'DateTimeFormat');
+    try {
+      expect(popup.formatDate(ts2).length).toBeGreaterThan(0);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(popup.formatDate('invalid-date')).toBe('');
+  });
+
   it('providerConfigurationMessage explains missing providers', () => {
     expect(popup.providerConfigurationMessage({ providers: [], activeId: null })).toContain(
       'No LLM provider configured',

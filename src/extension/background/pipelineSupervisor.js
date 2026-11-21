@@ -174,6 +174,64 @@ export function createPipelineSupervisor({
     return true;
   }
 
+  async function claimAutomaticResume(key, rec, options) {
+    const pipelineRunId = rec.pipelineRunId;
+    const snapshot = options.breakerSnapshot || (await readBreakerSnapshot());
+    // An open breaker stops this run. An unknown state skips only this
+    // attempt (keepalive stays armed so a transient read failure self-heals).
+    if (!snapshot.ok || openStateFromSnapshot(rec, snapshot)) return false;
+    // Fail-closed: prove this run can still persist its ownership before
+    // provider work. The guarded no-op patch is safe if superseded since the read.
+    try {
+      const claimed = await updateRecord(key, {}, { expectedPipelineRunId: pipelineRunId });
+      return Boolean(claimed && isInFlightPipelineStatus(claimed.status));
+    } catch (claimError) {
+      await noteStorageFailure(key, pipelineRunId, claimError);
+      backgroundLog.error('automatic resume storage claim failed for', key, claimError);
+      return false;
+    }
+  }
+
+  async function isRunStillOwnedAndInFlight(key, pipelineRunId) {
+    try {
+      const latest = await readRecord(key);
+      return latest?.pipelineRunId === pipelineRunId && isInFlightPipelineStatus(latest?.status);
+    } catch (_) {
+      // Storage is unavailable; retain the fail-closed verdict.
+      return true;
+    }
+  }
+
+  async function handlePipelineFailure(key, pipelineRunId, err) {
+    backgroundLog.error('pipeline failed for', key, err);
+    // Fallback: the orchestrator's own ERROR write can itself fail, leaving
+    // an in-flight status that the keepalive alarm would re-run every 30s.
+    // Retry the write here; repeated failure opens the session breaker.
+    // The run-id guard (as in runtime.update) keeps a superseded run from
+    // clobbering a newer owner.
+    try {
+      const updated = await updateRecord(key, errorTransition(formatPipelineError(err)), {
+        expectedPipelineRunId: pipelineRunId,
+        // A done/needs_attention record whose post-commit cleanup threw
+        // keeps its committed status instead of being relabelled ERROR.
+        expectedStatuses: [...IN_FLIGHT_PIPELINE_STATUSES],
+      });
+      if (!updated) {
+        logger.warn('fallback error-status write skipped (record superseded) for', key);
+      }
+      await clearStorageFailure(key, pipelineRunId);
+    } catch (fallbackErr) {
+      logger.error('fallback error-status write also failed for', key, fallbackErr);
+      // If the authoritative read works and is already terminal, there is
+      // no runaway record to break. A failed read is treated fail-closed.
+      if (await isRunStillOwnedAndInFlight(key, pipelineRunId)) {
+        await noteStorageFailure(key, pipelineRunId, fallbackErr);
+      } else {
+        await clearStorageFailure(key, pipelineRunId);
+      }
+    }
+  }
+
   /**
    * Start or resume an in-flight record unless this worker already owns its job.
    * Long provider requests may leave storage unchanged for hours.
@@ -202,20 +260,7 @@ export function createPipelineSupervisor({
       const pipelineRunId = rec.pipelineRunId;
 
       if (options.automatic) {
-        const snapshot = options.breakerSnapshot || (await readBreakerSnapshot());
-        // An open breaker stops this run. An unknown state skips only this
-        // attempt (keepalive stays armed so a transient read failure self-heals).
-        if (!snapshot.ok || openStateFromSnapshot(rec, snapshot)) return;
-        // Fail-closed: prove this run can still persist its ownership before
-        // provider work. The guarded no-op patch is safe if superseded since the read.
-        try {
-          const claimed = await updateRecord(key, {}, { expectedPipelineRunId: pipelineRunId });
-          if (!claimed || !isInFlightPipelineStatus(claimed.status)) return;
-        } catch (claimError) {
-          await noteStorageFailure(key, pipelineRunId, claimError);
-          backgroundLog.error('automatic resume storage claim failed for', key, claimError);
-          return;
-        }
+        if (!(await claimAutomaticResume(key, rec, options))) return;
       } else {
         // User-initiated retries mint a new run id. Remove breaker entries for
         // older runs of this record so they cannot consume session quota.
@@ -228,43 +273,9 @@ export function createPipelineSupervisor({
         pipelineRunId,
         signal: controller.signal,
       })
-        .catch(async (err) => {
+        .catch((err) => {
           failed = true;
-          backgroundLog.error('pipeline failed for', key, err);
-          // Fallback: the orchestrator's own ERROR write can itself fail, leaving
-          // an in-flight status that the keepalive alarm would re-run every 30s.
-          // Retry the write here; repeated failure opens the session breaker.
-          // The run-id guard (as in runtime.update) keeps a superseded run from
-          // clobbering a newer owner.
-          try {
-            const updated = await updateRecord(key, errorTransition(formatPipelineError(err)), {
-              expectedPipelineRunId: pipelineRunId,
-              // A done/needs_attention record whose post-commit cleanup threw
-              // keeps its committed status instead of being relabelled ERROR.
-              expectedStatuses: [...IN_FLIGHT_PIPELINE_STATUSES],
-            });
-            if (!updated) {
-              logger.warn('fallback error-status write skipped (record superseded) for', key);
-            }
-            await clearStorageFailure(key, pipelineRunId);
-          } catch (fallbackErr) {
-            logger.error('fallback error-status write also failed for', key, fallbackErr);
-            // If the authoritative read works and is already terminal, there is
-            // no runaway record to break. A failed read is treated fail-closed.
-            let stillOwnedAndInFlight = true;
-            try {
-              const latest = await readRecord(key);
-              stillOwnedAndInFlight =
-                latest?.pipelineRunId === pipelineRunId && isInFlightPipelineStatus(latest?.status);
-            } catch (_) {
-              // Storage is unavailable; retain the fail-closed verdict.
-            }
-            if (stillOwnedAndInFlight) {
-              await noteStorageFailure(key, pipelineRunId, fallbackErr);
-            } else {
-              await clearStorageFailure(key, pipelineRunId);
-            }
-          }
+          return handlePipelineFailure(key, pipelineRunId, err);
         })
         .finally(() => {
           if (!failed) {

@@ -100,15 +100,18 @@ export function statusLabel(status) {
   return map[status] || status || 'Unknown';
 }
 
+let dateFormatter = null;
+
 export function formatDate(ms) {
   if (!ms) return '';
   try {
-    return new Intl.DateTimeFormat(undefined, {
+    dateFormatter ??= new Intl.DateTimeFormat(undefined, {
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
-    }).format(new Date(ms));
+    });
+    return dateFormatter.format(new Date(ms));
   } catch (_) {
     return '';
   }
