@@ -344,6 +344,45 @@ export function normalizeLlmMetrics(value) {
 }
 
 /**
+ * @template T
+ * @param {string} taskType
+ * @param {{metricsCollector?: (sample: unknown) => void} | null | undefined} options
+ * @param {(metricsCollector: (sample: unknown) => void) => () => Promise<T>} prepareCall
+ * @param {{provider?: string, model?: string}} [failureDefaults]
+ * @returns {Promise<T>}
+ */
+async function runMeasuredCall(taskType, options, prepareCall, failureDefaults) {
+  const startedAt = Date.now();
+  let responseMetric;
+  const upstreamCollector = options?.metricsCollector;
+  const metricsCollector = (sample) => {
+    if (sample && typeof sample === 'object') responseMetric = sample;
+    if (typeof upstreamCollector === 'function') upstreamCollector(sample);
+  };
+  // Completion calls prepare their options before failure reporting begins.
+  const invoke = prepareCall(metricsCollector);
+  try {
+    const result = await invoke();
+    void recordLlmMetric({
+      durationMs: Date.now() - startedAt,
+      ok: true,
+      taskType,
+      ...responseMetric,
+    });
+    return result;
+  } catch (err) {
+    void recordLlmMetric({
+      durationMs: Date.now() - startedAt,
+      ok: false,
+      taskType,
+      ...failureDefaults,
+      error: errorMessage(err),
+    });
+    throw err;
+  }
+}
+
+/**
  * Wraps `callLLMWithRetry` so every orchestrator LLM call records duration.
  * Failures while recording never affect the LLM call itself.
  *
@@ -358,32 +397,11 @@ export function wrapCallLLMWithRetry(callLLMWithRetry) {
   return /** @type {F} */ (
     async function timedCallLLMWithRetry(opts, maxRetries) {
       const taskType = normalizeTaskType(opts?.taskType);
-      const startedAt = Date.now();
-      let responseMetric;
-      const upstreamCollector = opts?.metricsCollector;
-      const metricsCollector = (sample) => {
-        if (sample && typeof sample === 'object') responseMetric = sample;
-        if (typeof upstreamCollector === 'function') upstreamCollector(sample);
-      };
-      const measuredOpts = opts && typeof opts === 'object' ? { ...opts, metricsCollector } : opts;
-      try {
-        const result = await callLLMWithRetry(measuredOpts, maxRetries);
-        void recordLlmMetric({
-          durationMs: Date.now() - startedAt,
-          ok: true,
-          taskType,
-          ...responseMetric,
-        });
-        return result;
-      } catch (err) {
-        void recordLlmMetric({
-          durationMs: Date.now() - startedAt,
-          ok: false,
-          taskType,
-          error: errorMessage(err),
-        });
-        throw err;
-      }
+      return runMeasuredCall(taskType, opts, (metricsCollector) => {
+        const measuredOpts =
+          opts && typeof opts === 'object' ? { ...opts, metricsCollector } : opts;
+        return () => callLLMWithRetry(measuredOpts, maxRetries);
+      });
     }
   );
 }
@@ -403,33 +421,12 @@ export function wrapDecide(decide, { provider, model } = {}) {
   return /** @type {F} */ (
     async function timedDecide(state, questions, options) {
       const taskType = normalizeTaskType(options?.taskType ?? LLM_TASK_TYPES.TOPIC_BOUNDARIES);
-      const startedAt = Date.now();
-      let responseMetric;
-      const upstreamCollector = options?.metricsCollector;
-      const metricsCollector = (sample) => {
-        if (sample && typeof sample === 'object') responseMetric = sample;
-        if (typeof upstreamCollector === 'function') upstreamCollector(sample);
-      };
-      try {
-        const result = await decide(state, questions, { ...options, metricsCollector });
-        void recordLlmMetric({
-          durationMs: Date.now() - startedAt,
-          ok: true,
-          taskType,
-          ...responseMetric,
-        });
-        return result;
-      } catch (err) {
-        void recordLlmMetric({
-          durationMs: Date.now() - startedAt,
-          ok: false,
-          taskType,
-          ...(provider ? { provider } : {}),
-          ...(model ? { model } : {}),
-          error: errorMessage(err),
-        });
-        throw err;
-      }
+      return runMeasuredCall(
+        taskType,
+        options,
+        (metricsCollector) => () => decide(state, questions, { ...options, metricsCollector }),
+        { provider, model },
+      );
     }
   );
 }

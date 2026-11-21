@@ -439,12 +439,12 @@ export async function getActiveProvider() {
 }
 
 /**
- * Selects the decision provider that places topic boundaries; null lets the
- * completion LLM split topics.
+ * @param {'splitterId'|'pageScanId'} field
  * @param {string|null} id
+ * @param {string} roleErrorMessage
  * @returns {Promise<ProvidersState>}
  */
-export async function setTopicSplitter(id) {
+function setDecisionRoleProvider(field, id, roleErrorMessage) {
   return queuedUpdate(PROVIDERS_KEY, async () => {
     const document = await readProvidersDocument();
     const { state } = document;
@@ -454,13 +454,33 @@ export async function setTopicSplitter(id) {
         throw new Error(`Unknown provider id: ${id}`);
       }
       if (!isDecisionProvider(provider)) {
-        throw new Error('Only decision providers can split topics');
+        throw new Error(roleErrorMessage);
       }
     }
-    state.splitterId = id ?? null;
+    state[field] = id ?? null;
     await writeProvidersState(state, document);
     return state;
   });
+}
+
+/**
+ * @param {'splitterId'|'pageScanId'} field
+ * @returns {Promise<ProviderEntry|null>}
+ */
+async function getDecisionRoleProvider(field) {
+  const state = await getProvidersState();
+  const provider = state.providers.find((p) => p.id === state[field]);
+  return provider && isDecisionProvider(provider) ? provider : null;
+}
+
+/**
+ * Selects the decision provider that places topic boundaries; null lets the
+ * completion LLM split topics.
+ * @param {string|null} id
+ * @returns {Promise<ProvidersState>}
+ */
+export function setTopicSplitter(id) {
+  return setDecisionRoleProvider('splitterId', id, 'Only decision providers can split topics');
 }
 
 /**
@@ -468,10 +488,8 @@ export async function setTopicSplitter(id) {
  * splits topics.
  * @returns {Promise<ProviderEntry|null>}
  */
-export async function getDecisionProvider() {
-  const { providers, splitterId } = await getProvidersState();
-  const provider = providers.find((p) => p.id === splitterId);
-  return provider && isDecisionProvider(provider) ? provider : null;
+export function getDecisionProvider() {
+  return getDecisionRoleProvider('splitterId');
 }
 
 /**
@@ -480,23 +498,12 @@ export async function getDecisionProvider() {
  * @param {string|null} id
  * @returns {Promise<ProvidersState>}
  */
-export async function setPageScanProvider(id) {
-  return queuedUpdate(PROVIDERS_KEY, async () => {
-    const document = await readProvidersDocument();
-    const { state } = document;
-    if (id != null) {
-      const provider = state.providers.find((p) => p.id === id);
-      if (!provider) {
-        throw new Error(`Unknown provider id: ${id}`);
-      }
-      if (!isDecisionProvider(provider)) {
-        throw new Error('Only decision providers can scan project pages');
-      }
-    }
-    state.pageScanId = id ?? null;
-    await writeProvidersState(state, document);
-    return state;
-  });
+export function setPageScanProvider(id) {
+  return setDecisionRoleProvider(
+    'pageScanId',
+    id,
+    'Only decision providers can scan project pages',
+  );
 }
 
 /**
@@ -504,8 +511,6 @@ export async function setPageScanProvider(id) {
  * the completion LLM scans pages.
  * @returns {Promise<ProviderEntry|null>}
  */
-export async function getPageScanProvider() {
-  const { providers, pageScanId } = await getProvidersState();
-  const provider = providers.find((p) => p.id === pageScanId);
-  return provider && isDecisionProvider(provider) ? provider : null;
+export function getPageScanProvider() {
+  return getDecisionRoleProvider('pageScanId');
 }
