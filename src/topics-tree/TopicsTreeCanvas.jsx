@@ -447,8 +447,11 @@ export default function TopicsTreeCanvas({
     () => treeLinks(visible, displayPositions, (node) => node.kind === LEAF_KIND),
     [visible, displayPositions],
   );
-  const maxTopicLevel = Math.max(0, treeDepth(tree) - TOPIC_LEVEL_OFFSET);
-  const level = currentLevel(tree, expanded);
+  const maxTopicLevel = useMemo(
+    () => Math.max(0, treeDepth(tree) - TOPIC_LEVEL_OFFSET),
+    [tree],
+  );
+  const level = useMemo(() => currentLevel(tree, expanded), [tree, expanded]);
   const selectedTopicLevel = level === null ? null : level - TOPIC_LEVEL_OFFSET;
   const totalSentences = tree.sentences.length;
 
