@@ -236,6 +236,26 @@ export function normalizeLlmUsage(value) {
 }
 
 /**
+ * @param {LlmMetricEntry} target
+ * @param {Record<string, unknown> | null | undefined} source
+ */
+function copyOptionalMetricFields(target, source) {
+  const { provider, model, requestChars, responseChars, usage } = source ?? {};
+  const trimmedProvider = typeof provider === 'string' ? provider.trim() : '';
+  if (trimmedProvider) target.provider = trimmedProvider.slice(0, 80);
+  const trimmedModel = typeof model === 'string' ? model.trim() : '';
+  if (trimmedModel) target.model = trimmedModel.slice(0, 160);
+
+  const requestSize = Number(requestChars ?? NaN);
+  if (Number.isFinite(requestSize)) target.requestChars = Math.max(0, requestSize);
+  const responseSize = Number(responseChars ?? NaN);
+  if (Number.isFinite(responseSize)) target.responseChars = Math.max(0, responseSize);
+
+  const normalizedUsage = normalizeLlmUsage(usage);
+  if (normalizedUsage) target.usage = normalizedUsage;
+}
+
+/**
  * @param {unknown} value
  * @returns {Record<string, LlmMetricTotals>}
  */
@@ -309,20 +329,7 @@ export function normalizeLlmMetrics(value) {
             taskType: normalizeTaskType(entry.taskType),
           };
           if (typeof entry.error === 'string' && entry.error) out.error = entry.error;
-          if (typeof entry.provider === 'string' && entry.provider.trim()) {
-            out.provider = entry.provider.trim().slice(0, 80);
-          }
-          if (typeof entry.model === 'string' && entry.model.trim()) {
-            out.model = entry.model.trim().slice(0, 160);
-          }
-          if (entry.requestChars != null && Number.isFinite(Number(entry.requestChars))) {
-            out.requestChars = Math.max(0, Number(entry.requestChars));
-          }
-          if (entry.responseChars != null && Number.isFinite(Number(entry.responseChars))) {
-            out.responseChars = Math.max(0, Number(entry.responseChars));
-          }
-          const usage = normalizeLlmUsage(entry.usage);
-          if (usage) out.usage = usage;
+          copyOptionalMetricFields(out, entry);
           return out;
         })
         .slice(0, LLM_METRICS_MAX_RECENT)
@@ -502,20 +509,7 @@ export function recordLlmMetric(entry) {
   /** @type {LlmMetricEntry} */
   const nextEntry = { at, durationMs, ok, taskType };
   if (error) nextEntry.error = error;
-  if (typeof entry?.provider === 'string' && entry.provider.trim()) {
-    nextEntry.provider = entry.provider.trim().slice(0, 80);
-  }
-  if (typeof entry?.model === 'string' && entry.model.trim()) {
-    nextEntry.model = entry.model.trim().slice(0, 160);
-  }
-  if (entry?.requestChars != null && Number.isFinite(Number(entry.requestChars))) {
-    nextEntry.requestChars = Math.max(0, Number(entry.requestChars));
-  }
-  if (entry?.responseChars != null && Number.isFinite(Number(entry.responseChars))) {
-    nextEntry.responseChars = Math.max(0, Number(entry.responseChars));
-  }
-  const usage = normalizeLlmUsage(entry?.usage);
-  if (usage) nextEntry.usage = usage;
+  copyOptionalMetricFields(nextEntry, entry);
 
   return enqueueWrite(async () => {
     try {
