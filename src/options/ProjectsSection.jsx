@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { browserProjectsApi, subscribeProjectChanges } from '../project/projectsApi.js';
 import { useProjectsOverview } from './useProjectsOverview.js';
 
@@ -18,6 +18,12 @@ const GROUP_COLORS = {
 function formatDate(timestamp) {
   if (!timestamp) return '';
   return new Date(timestamp).toLocaleString();
+}
+
+function closedProjectOptionLabel(project, formattedCreatedAt) {
+  const title = project.title || 'Untitled project';
+  const color = project.color || 'grey';
+  return formattedCreatedAt ? `${title} — ${color} — ${formattedCreatedAt}` : `${title} — ${color}`;
 }
 
 function tabCountLabel(count) {
@@ -61,7 +67,26 @@ export function ProjectsSection({
     subscribe: subscribeProjects,
   });
   const { projects, ungroupedGroups } = overview;
-  const closedProjects = projects.filter((project) => !project.isOpen);
+  const { projectCreatedDates, closedProjectIds, closedProjectOptions } = useMemo(() => {
+    const createdDates = new Map();
+    const ids = new Set();
+    const options = [];
+    for (const project of projects) {
+      const created = formatDate(project.createdAt);
+      createdDates.set(project.id, created);
+      if (project.isOpen) continue;
+      ids.add(project.id);
+      options.push({
+        id: project.id,
+        label: closedProjectOptionLabel(project, created),
+      });
+    }
+    return {
+      projectCreatedDates: createdDates,
+      closedProjectIds: ids,
+      closedProjectOptions: options,
+    };
+  }, [projects]);
 
   const runAction = useCallback(
     async (busyKey, action, { refresh = false } = {}) => {
@@ -152,7 +177,7 @@ export function ProjectsSection({
                       <span className="status">Closed</span>
                     )}
                   </td>
-                  <td>{formatDate(project.createdAt)}</td>
+                  <td>{projectCreatedDates.get(project.id)}</td>
                   <td>
                     <div className="row-actions">
                       <button
@@ -197,7 +222,7 @@ export function ProjectsSection({
       )}
 
       <h3 className="projects-subheading">Tab groups without a project</h3>
-      {!isLoading && ungroupedGroups.length > 0 && closedProjects.length > 0 ? (
+      {!isLoading && ungroupedGroups.length > 0 && closedProjectOptions.length > 0 ? (
         <div className="note note--stacked">
           Attach a closed project to a tab group to keep its saved work, or create a new project.
         </div>
@@ -219,7 +244,7 @@ export function ProjectsSection({
             {ungroupedGroups.map((group) => {
               const busy = busyKeys.has(`group:${group.groupId}`);
               const selectedProject = selectedProjects[group.groupId] || '';
-              const canAttach = closedProjects.some((project) => project.id === selectedProject);
+              const canAttach = closedProjectIds.has(selectedProject);
               return (
                 <tr key={group.groupId}>
                   <td>
@@ -231,7 +256,7 @@ export function ProjectsSection({
                   <td>{tabCountLabel(group.tabCount)}</td>
                   <td>
                     <div className="row-actions">
-                      {closedProjects.length > 0 ? (
+                      {closedProjectOptions.length > 0 ? (
                         <>
                           <label htmlFor={`attach-project-${group.groupId}`}>
                             Existing project for {group.title || 'Untitled group'}
@@ -248,10 +273,9 @@ export function ProjectsSection({
                             }
                           >
                             <option value="">Select a closed project</option>
-                            {closedProjects.map((project) => (
-                              <option key={project.id} value={project.id}>
-                                {project.title || 'Untitled project'} — {project.color || 'grey'}
-                                {project.createdAt ? ` — ${formatDate(project.createdAt)}` : ''}
+                            {closedProjectOptions.map((option) => (
+                              <option key={option.id} value={option.id}>
+                                {option.label}
                               </option>
                             ))}
                           </select>

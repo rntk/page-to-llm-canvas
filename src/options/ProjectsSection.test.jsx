@@ -279,4 +279,51 @@ describe('ProjectsSection', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
     root = createRoot(container);
   });
+
+  it('formats closed-project options once across group selects and keeps labels accurate on rerender', async () => {
+    const expectedClosedDate = new Date(CLOSED_PROJECT.createdAt).toLocaleString();
+    const undatedClosedProject = {
+      id: 'p3',
+      title: 'Archived',
+      color: '',
+      groupId: null,
+      createdAt: 0,
+      updatedAt: 0,
+      isOpen: false,
+      tabCount: 0,
+    };
+    const thirdGroup = { groupId: 23, title: 'Docs', color: 'yellow', windowId: 1, tabCount: 2 };
+    const api = makeApi({
+      projects: [CLOSED_PROJECT, undatedClosedProject],
+      ungroupedGroups: [GROUP, UNTITLED_GROUP, thirdGroup],
+    });
+
+    const toLocaleStringSpy = vi.spyOn(Date.prototype, 'toLocaleString');
+    try {
+      await mount(api);
+
+      expect(rows(0)[0].textContent).toContain(expectedClosedDate);
+      const groupRows = rows(1);
+      expect(groupRows).toHaveLength(3);
+      for (const row of groupRows) {
+        const select = row.querySelector('select');
+        expect(Array.from(select.options, (option) => option.textContent)).toEqual([
+          'Select a closed project',
+          `Untitled project — unknown — ${expectedClosedDate}`,
+          'Archived — grey',
+        ]);
+      }
+      expect(toLocaleStringSpy).toHaveBeenCalledTimes(1);
+
+      const firstSelect = groupRows[0].querySelector('select');
+      await act(async () => {
+        firstSelect.value = 'p2';
+        firstSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      expect(button('Attach & open project', groupRows[0]).disabled).toBe(false);
+      expect(toLocaleStringSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      toLocaleStringSpy.mockRestore();
+    }
+  });
 });
