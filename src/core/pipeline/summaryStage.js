@@ -176,6 +176,96 @@ export async function finalizeSummariesDisabled(
   });
 }
 
+function leafSummaryFailure(error) {
+  const { kind, message } = classifyLlmError(error);
+  return {
+    error_kind: kind,
+    error_message: message,
+    error_detail: errorMessage(error),
+  };
+}
+
+async function checkpointLeafSummary(runtime, topicSummaries, topic, failure) {
+  const entry = {
+    runs: topic.runResults,
+    source_sentences: topic.sentences,
+    ...(failure ? { error: true, ...failure } : {}),
+    ...(topic.acceptedFailure ? { acceptedFailure: true } : {}),
+  };
+  topicSummaries[topic.name] = entry;
+  await runtime.checkpointTopicSummary(topic.name, entry);
+}
+
+function validateLeafSummaryRun(summarized, runIds, topicName) {
+  const summarizedRuns = summarized?.runs;
+  // A pending plan item must produce exactly one run.
+  if (!Array.isArray(summarizedRuns) || summarizedRuns.length !== 1) {
+    throw new Error(
+      `Expected exactly one summary run for topic "${topicName}", received ${
+        Array.isArray(summarizedRuns) ? summarizedRuns.length : 'invalid output'
+      }`,
+    );
+  }
+  const [summarizedRun] = summarizedRuns;
+  const matchesPlannedRun =
+    summarizedRun &&
+    Array.isArray(summarizedRun.sentences) &&
+    summarizedRun.sentences.length === runIds.length &&
+    summarizedRun.sentences.every((sentenceId, index) => sentenceId === runIds[index]) &&
+    typeof summarizedRun.text === 'string';
+  if (!matchesPlannedRun) {
+    throw new Error(`Summary run did not match the planned run for topic "${topicName}"`);
+  }
+  return { sentences: runIds, text: summarizedRun.text };
+}
+
+async function summarizeLeafTopic(runtime, topicSummaries, topic, leafSummarizeSource) {
+  await runtime.log(
+    'topic_summary_llm_request',
+    { topic: topic.name, sentenceCount: topic.sentences.length },
+    { verbose: true },
+  );
+
+  const { runResults, pendingRunIndexes, previousFailure } = topic;
+  const incomplete = { error_kind: 'error', error_message: 'Summary is incomplete.' };
+  let remainingRuns = pendingRunIndexes.length;
+  let failure = null;
+  let providerError = null;
+
+  for (const runIndex of pendingRunIndexes) {
+    const runIds = runResults[runIndex].sentences;
+    let permanent = false;
+    try {
+      const summarized = await leafSummarizeSource(runIds, { path: topic.name });
+      runResults[runIndex] = validateLeafSummaryRun(summarized, runIds, topic.name);
+      remainingRuns--;
+    } catch (error) {
+      rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
+      // Only provider failures are actionable through Retry or Skip.
+      if (!isProviderFailure(error)) throw error;
+      permanent = isPermanentProviderError(error);
+      if (!providerError || permanent) providerError = error;
+
+      const runFailure = leafSummaryFailure(error);
+      await runtime.log('topic_summary_llm_error', {
+        topic: topic.name,
+        error_kind: runFailure.error_kind,
+        error: runFailure.error_message,
+        detail: runFailure.error_detail,
+      });
+      failure ||= runFailure;
+      runResults[runIndex] = { sentences: runIds, text: '', error: true, ...runFailure };
+    }
+
+    const checkpointFailure = remainingRuns > 0 ? failure || previousFailure || incomplete : null;
+    await checkpointLeafSummary(runtime, topicSummaries, topic, checkpointFailure);
+    // Park remaining runs under the same permanent failure.
+    if (permanent) break;
+  }
+
+  return { error: providerError, completed: remainingRuns === 0 };
+}
+
 /** Executes planned leaf summaries and checkpoints their progress. */
 async function executeLeafSummaries({
   runtime,
@@ -212,144 +302,31 @@ async function executeLeafSummaries({
     pending,
     SUMMARY_CONCURRENCY,
     async ({ item: topic }) => {
-      await runtime.log(
-        'topic_summary_llm_request',
-        { topic: topic.name, sentenceCount: topic.sentences.length },
-        { verbose: true },
-      );
-
-      const { runResults, pendingRunIndexes, acceptedFailure, previousFailure } = topic;
-      // Keep each pending run's empty slot and topic-level error marker.
-      const unresolved = new Set(pendingRunIndexes);
-      let failure = null;
-      let providerError = null;
-      const pendingFailure = previousFailure;
-
-      const buildLeafSummaryEntry = () => {
-        const hasUnresolved = unresolved.size > 0;
-        return {
-          runs: runResults,
-          source_sentences: topic.sentences,
-          ...(hasUnresolved
-            ? {
-                error: true,
-                ...(failure ||
-                  pendingFailure || {
-                    error_kind: 'error',
-                    error_message: 'Summary is incomplete.',
-                  }),
-              }
-            : {}),
-          ...(acceptedFailure ? { acceptedFailure: true } : {}),
-        };
-      };
-
-      const persistLeafCheckpoint = async () => {
-        // Write pending topics; reused entries may still have old storage fields.
-        topic_summaries[topic.name] = buildLeafSummaryEntry();
-        await runtime.checkpointTopicSummary(topic.name, topic_summaries[topic.name]);
-      };
-
-      for (const [runIndex, runResult] of runResults.entries()) {
-        if (!unresolved.has(runIndex)) continue;
-        const runIds = runResult.sentences;
-        try {
-          const summarized = await leafSummarizeSource(runIds, { path: topic.name });
-          const summarizedRuns = summarized?.runs;
-          // A pending plan item must produce exactly one run.
-          if (!Array.isArray(summarizedRuns) || summarizedRuns.length !== 1) {
-            throw new Error(
-              `Expected exactly one summary run for topic "${topic.name}", received ${
-                Array.isArray(summarizedRuns) ? summarizedRuns.length : 'invalid output'
-              }`,
-            );
-          }
-          const [summarizedRun] = summarizedRuns;
-          const matchesPlannedRun =
-            summarizedRun &&
-            Array.isArray(summarizedRun.sentences) &&
-            summarizedRun.sentences.length === runIds.length &&
-            summarizedRun.sentences.every((sentenceId, index) => sentenceId === runIds[index]) &&
-            typeof summarizedRun.text === 'string';
-          if (!matchesPlannedRun) {
-            throw new Error(`Summary run did not match the planned run for topic "${topic.name}"`);
-          }
-          unresolved.delete(runIndex);
-          runResults[runIndex] = {
-            sentences: runIds,
-            text: summarizedRun.text,
-          };
-        } catch (error) {
-          rethrowIfCancelled(error, runtime, ABORT_MESSAGE);
-          // Only provider failures are actionable through Retry or Skip.
-          if (!isProviderFailure(error)) throw error;
-          const isPermanentFailure = isPermanentProviderError(error);
-          if (!providerError || isPermanentFailure) providerError = error;
-          const { kind, message } = classifyLlmError(error);
-          const detail = errorMessage(error);
-          await runtime.log('topic_summary_llm_error', {
-            topic: topic.name,
-            error_kind: kind,
-            error: message,
-            detail,
-          });
-          const runFailure = {
-            error_kind: kind,
-            error_message: message,
-            error_detail: detail,
-          };
-          failure = failure || runFailure;
-          runResults[runIndex] = {
-            sentences: runIds,
-            text: '',
-            error: true,
-            ...runFailure,
-          };
-          await persistLeafCheckpoint();
-          // Park remaining runs under the same permanent failure.
-          if (isPermanentFailure) break;
-          continue;
-        }
-        await persistLeafCheckpoint();
-      }
-
-      topic_summaries[topic.name] = buildLeafSummaryEntry();
-      if (unresolved.size === 0) done++;
+      const result = await summarizeLeafTopic(runtime, topic_summaries, topic, leafSummarizeSource);
+      if (result.completed) done++;
       await runtime.log(
         'topic_summary_llm_response',
-        { topic: topic.name, runCount: runResults.length },
+        { topic: topic.name, runCount: topic.runResults.length },
         { verbose: true },
       );
       await runtime.update({
         progress: progressAt(PIPELINE_STAGE.SUMMARIZING_TOPICS, done, total),
       });
-      return { error: providerError };
+      return result;
     },
   );
 
-  if (permanentError) {
-    if (skipped.length > 0) {
-      const { kind, message } = classifyLlmError(permanentError);
-      const detail = (permanentError && permanentError.message) || String(permanentError);
-      for (const topic of skipped) {
-        topic_summaries[topic.name] = {
-          runs: topic.runResults,
-          source_sentences: topic.sentences,
-          error: true,
-          error_kind: kind,
-          error_message: message,
-          error_detail: detail,
-          ...(topic.acceptedFailure ? { acceptedFailure: true } : {}),
-        };
-        await runtime.checkpointTopicSummary(topic.name, topic_summaries[topic.name]);
-      }
-      await runtime.log('topic_summaries_skipped', {
-        skippedTopicCount: skipped.length,
-        error_kind: kind,
-        error: message,
-        detail,
-      });
+  if (permanentError && skipped.length > 0) {
+    const failure = leafSummaryFailure(permanentError);
+    for (const topic of skipped) {
+      await checkpointLeafSummary(runtime, topic_summaries, topic, failure);
     }
+    await runtime.log('topic_summaries_skipped', {
+      skippedTopicCount: skipped.length,
+      error_kind: failure.error_kind,
+      error: failure.error_message,
+      detail: failure.error_detail,
+    });
   }
 
   return done;
