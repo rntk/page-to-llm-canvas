@@ -163,6 +163,110 @@ export function createPipelineRunner({
   });
 
   /**
+   * Re-splits the manual-resplit target range and persists the replacement
+   * topics. Returns null when the split changed nothing (the record is already
+   * restored); otherwise the topics and checkpoint to summarize.
+   *
+   * @param {object} runtime
+   * @param {object} record Record carrying `manualResplitIntent`.
+   * @param {object} providers Bound provider services for this run.
+   * @returns {Promise<object|null>}
+   */
+  async function applyManualResplit(runtime, record, providers) {
+    const intent = record.manualResplitIntent;
+    const sentenceTexts = record.sentences;
+    const invalidTarget = validateResplitTarget(record, intent);
+    if (invalidTarget) throw new Error(invalidTarget);
+    await runtime.log('topic_resplit_start', {
+      path: intent.path,
+      startSentence: intent.startSentence,
+      endSentence: intent.endSentence,
+    });
+    const groups = await resplitTopicRange(
+      runtime,
+      {
+        label: splitTopicPath(intent.path),
+        start: intent.startSentence - 1,
+        end: intent.endSentence - 1,
+      },
+      sentenceTexts,
+      providers.callLLMWithRetry,
+    );
+    const applied = applyTopicResplit(record, intent, groupsToTopics(groups), {
+      invalidateAncestorSummaries: Boolean(runtime.summaryInstructions),
+    });
+    if (!applied) {
+      await runtime.log('topic_resplit_no_change', { path: intent.path });
+      await runtime.update(restoreAfterResplitPatch(record, RESPLIT_NO_CHANGE_NOTICE));
+      return null;
+    }
+    // Summaries skipped outside the selection stay skipped: re-arm them as
+    // accepted failures so they are reused rather than retried, and let
+    // force-finalize keep their sentences out of ancestor requests as the
+    // original Skip did. Persisted so a restarted run resumes the same way.
+    const { summaries: carriedSummaries, hasAcceptedFailure } = reacceptForcedEmptySummaries(
+      applied.topic_summaries,
+    );
+    const topics = applied.topics;
+    const carriedCheckpoint = { ...applied, topic_summaries: carriedSummaries };
+    await runtime.update({
+      ...carriedCheckpoint,
+      manualResplitIntent: null,
+      resplitNotice: null,
+      summaryCheckpointContentRevision: record.contentRevision,
+      summaryCheckpointPreferContentLanguage: runtime.preferContentLanguage === true,
+      ...resetSummaryReviewPatch(),
+      forceFinalize: hasAcceptedFailure,
+      ...summarizingTransition({ total: topics.length }),
+    });
+    return {
+      topics,
+      sentenceTexts,
+      carriedCheckpoint,
+      forceFinalize: hasAcceptedFailure,
+      replacementTopicCount: groups.length,
+    };
+  }
+
+  /**
+   * Handles a failure before a manual resplit committed its topics. Returns
+   * true when the record is settled (restored, or already DONE) and must not
+   * be marked ERROR.
+   *
+   * @param {object} runtime
+   * @param {object} pendingRecord Record snapshot taken before the resplit.
+   * @param {string} formattedError
+   * @returns {Promise<boolean>}
+   */
+  async function recoverFailedResplit(runtime, pendingRecord, formattedError) {
+    await runtime.log('topic_resplit_error', { error: formattedError }, { allowAborted: true });
+    // A rejected write may still have committed: the replacement topics
+    // before obsolete summary documents failed to delete, or a no-change
+    // restore. Restore DONE only while storage still holds the unfinished
+    // intent; a record already back at DONE needs nothing more.
+    const persisted = await runtime.read().catch((readError) => {
+      logger.error('failed to inspect record after resplit failure:', readError);
+      return null;
+    });
+    if (persisted?.status === PIPELINE_STATUS.DONE) return true;
+    if (!persisted?.manualResplitIntent || persisted.status !== PIPELINE_STATUS.SPLITTING) {
+      return false;
+    }
+    try {
+      await runtime.update(
+        restoreAfterResplitPatch(pendingRecord, `Resplit failed: ${formattedError}`),
+        { allowAborted: true },
+      );
+      // Settled: keeps the supervisor from overwriting the restored record with ERROR.
+      return true;
+    } catch (writeError) {
+      // Fall through to ERROR; the kept intent lets Retry re-run it.
+      logger.error('failed to restore record after resplit failure:', writeError);
+      return false;
+    }
+  }
+
+  /**
    * Runs or resumes the persisted article-processing pipeline.
    *
    * @param {string} key
@@ -267,61 +371,18 @@ export function createPipelineRunner({
         runtime.preferContentLanguage = record.summaryCheckpointPreferContentLanguage;
       }
       if (record.manualResplitIntent) {
-        const intent = record.manualResplitIntent;
         // Until the new topics are written, the saved checkpoint is untouched;
         // any failure restores the record instead of marking it failed.
         pendingResplitRecord = record;
-        sentenceTexts = record.sentences;
-        const invalidTarget = validateResplitTarget(record, intent);
-        if (invalidTarget) throw new Error(invalidTarget);
-        await runtime.log('topic_resplit_start', {
-          path: intent.path,
-          startSentence: intent.startSentence,
-          endSentence: intent.endSentence,
-        });
-        const groups = await resplitTopicRange(
-          runtime,
-          {
-            label: splitTopicPath(intent.path),
-            start: intent.startSentence - 1,
-            end: intent.endSentence - 1,
-          },
-          sentenceTexts,
-          providers.callLLMWithRetry,
-        );
-        const applied = applyTopicResplit(record, intent, groupsToTopics(groups), {
-          invalidateAncestorSummaries: Boolean(runtime.summaryInstructions),
-        });
-        if (!applied) {
-          await runtime.log('topic_resplit_no_change', { path: intent.path });
-          await runtime.update(restoreAfterResplitPatch(record, RESPLIT_NO_CHANGE_NOTICE));
-          return;
-        }
-        // Summaries skipped outside the selection stay skipped: re-arm them as
-        // accepted failures so they are reused rather than retried, and let
-        // force-finalize keep their sentences out of ancestor requests as the
-        // original Skip did. Persisted so a restarted run resumes the same way.
-        const { summaries: carriedSummaries, hasAcceptedFailure } = reacceptForcedEmptySummaries(
-          applied.topic_summaries,
-        );
-        topics = applied.topics;
-        carriedCheckpoint = { ...applied, topic_summaries: carriedSummaries };
-        resplitForceFinalize = hasAcceptedFailure;
-        await runtime.update({
-          ...carriedCheckpoint,
-          manualResplitIntent: null,
-          resplitNotice: null,
-          summaryCheckpointContentRevision: record.contentRevision,
-          summaryCheckpointPreferContentLanguage: runtime.preferContentLanguage === true,
-          ...resetSummaryReviewPatch(),
-          forceFinalize: hasAcceptedFailure,
-          ...summarizingTransition({ total: topics.length }),
-        });
+        const resplit = await applyManualResplit(runtime, record, providers);
+        if (!resplit) return;
         pendingResplitRecord = null;
         await runtime.log('topic_resplit_done', {
-          path: intent.path,
-          replacementTopicCount: groups.length,
+          path: record.manualResplitIntent.path,
+          replacementTopicCount: resplit.replacementTopicCount,
         });
+        ({ topics, sentenceTexts, carriedCheckpoint } = resplit);
+        resplitForceFinalize = resplit.forceFinalize;
       } else if (resuming) {
         topics = record.topics;
         sentenceTexts = record.sentences;
@@ -392,32 +453,11 @@ export function createPipelineRunner({
       }
 
       const formattedError = formatPipelineError(error);
-      if (pendingResplitRecord) {
-        await runtime.log('topic_resplit_error', { error: formattedError }, { allowAborted: true });
-        // A rejected write may still have committed: the replacement topics
-        // before obsolete summary documents failed to delete, or a no-change
-        // restore. Restore DONE only while storage still holds the unfinished
-        // intent; a record already back at DONE needs nothing more.
-        const persisted = await runtime.read().catch((readError) => {
-          logger.error('failed to inspect record after resplit failure:', readError);
-          return null;
-        });
-        if (persisted?.manualResplitIntent && persisted.status === PIPELINE_STATUS.SPLITTING) {
-          try {
-            await runtime.update(
-              restoreAfterResplitPatch(pendingResplitRecord, `Resplit failed: ${formattedError}`),
-              { allowAborted: true },
-            );
-            // Returning keeps the supervisor from overwriting the restored
-            // record with ERROR.
-            return;
-          } catch (writeError) {
-            // Fall through to ERROR; the kept intent lets Retry re-run it.
-            logger.error('failed to restore record after resplit failure:', writeError);
-          }
-        } else if (persisted?.status === PIPELINE_STATUS.DONE) {
-          return;
-        }
+      if (
+        pendingResplitRecord &&
+        (await recoverFailedResplit(runtime, pendingResplitRecord, formattedError))
+      ) {
+        return;
       }
       // A provider failure can settle just after the signal aborts; let the
       // run-id CAS decide ownership instead of treating it as cancellation.
