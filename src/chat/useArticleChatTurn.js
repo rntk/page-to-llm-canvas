@@ -7,6 +7,75 @@ import { scopeChatSentences } from './topicScope.js';
 // Thrown by chat storage when an append targets a chat that no longer exists.
 const CHAT_NOT_FOUND_MESSAGE = 'chat not found';
 
+// One turn's identity plus its progress, exposed only through lifecycle operations.
+// `retry` resumes a previous attempt when it asked the same question: the turn ID,
+// any finished answer, and the save target carry over so the append stays idempotent.
+function createTurnOperation({ question, recordKey, contentRevision, chatId, retry }) {
+  const resumed = retry?.question === question ? retry : null;
+  const controller = new AbortController();
+  const turnId = resumed ? resumed.turnId : createTurnId();
+  let turnResult = resumed?.turnResult;
+  let saveTarget = resumed ? resumed.persistenceChatId : chatId;
+  let stopRequested = false;
+  let persisted = false;
+  return Object.freeze({
+    turnId,
+    recordKey,
+    contentRevision,
+    chatId,
+    question,
+    signal: controller.signal,
+    get turnResult() {
+      return turnResult;
+    },
+    get saveTarget() {
+      return saveTarget;
+    },
+    get stopRequested() {
+      return stopRequested;
+    },
+    get persisted() {
+      return persisted;
+    },
+    // User-initiated Stop. Refused once aborted or once the answer is complete
+    // (only the save is pending; aborting would cancel nothing). Returns whether it took effect.
+    requestStop() {
+      if (controller.signal.aborted || turnResult) return false;
+      stopRequested = true;
+      controller.abort();
+      return true;
+    },
+    // Panel deactivation, record switch, or supersession: aborts without counting as Stop.
+    deactivate() {
+      controller.abort();
+    },
+    recordResult(result) {
+      turnResult = result;
+    },
+    // The original chat was deleted: target a new chat (null lets storage find the
+    // replacement by turn ID). Returns false if already targeting a new chat.
+    retargetToNewChat() {
+      if (saveTarget === null) return false;
+      saveTarget = null;
+      return true;
+    },
+    markPersisted() {
+      persisted = true;
+    },
+    retryPayload() {
+      return {
+        question,
+        turnId,
+        turnResult,
+        recordKey,
+        chatId,
+        persistenceChatId: saveTarget,
+        contentRevision,
+      };
+    },
+  });
+}
+
 // Owns the lifetime of a turn, including its retry payload and storage commit.
 export function useArticleChatTurn({
   recordKey,
@@ -60,27 +129,16 @@ export function useArticleChatTurn({
     (clearRetry = true, { restoreQuestion = false } = {}) => {
       const operation = operationRef.current;
       let restoredQuestion = null;
-      operation?.controller.abort();
+      operation?.deactivate();
       operationRef.current = null;
       setIsLoading(false);
       setPendingQuestion('');
       setLiveToolLog([]);
       if (clearRetry) setRetryTurn(null);
-      if (operation && restoreQuestion && !operation.state.persisted) {
+      if (operation && restoreQuestion && !operation.persisted) {
         setInput(operation.question);
         restoredQuestion = operation.question;
-        const { turnResult } = operation.state;
-        if (turnResult && !clearRetry) {
-          setRetryTurn({
-            question: operation.question,
-            turnId: operation.turnId,
-            turnResult,
-            recordKey: operation.recordKey,
-            chatId: operation.chatId,
-            persistenceChatId: operation.state.persistenceChatId,
-            contentRevision: operation.contentRevision,
-          });
-        }
+        if (operation.turnResult && !clearRetry) setRetryTurn(operation.retryPayload());
       }
       return restoredQuestion;
     },
@@ -103,18 +161,16 @@ export function useArticleChatTurn({
 
   const stopActiveTurn = useCallback(() => {
     const operation = operationRef.current;
-    if (!operation || !isCurrentOperation(operation) || operation.controller.signal.aborted) return;
-    // Answer complete, save pending: stopping would abort nothing and leave a stuck notice.
-    if (operation.state.turnResult) return;
-    operation.state.stopping = true;
-    operation.controller.abort();
+    if (!operation || !isCurrentOperation(operation)) return;
+    // Refused when the answer is complete: stopping would abort nothing and leave a stuck notice.
+    if (!operation.requestStop()) return;
     setNotice({ tone: 'progress', message: 'Stopping response…' });
   }, [isCurrentOperation, setNotice]);
 
   // A Stop that lost the race to a completed answer must not leave its notice behind.
   const clearStoppingNotice = useCallback(
     (operation) => {
-      if (!operation.state.stopping) return;
+      if (!operation.stopRequested) return;
       setNotice((current) => (current?.tone === 'progress' ? null : current));
     },
     [setNotice],
@@ -147,16 +203,12 @@ export function useArticleChatTurn({
           { expectedContentRevision: operation.contentRevision },
         );
       try {
-        return await append(operation.state.persistenceChatId);
+        return await append(operation.saveTarget);
       } catch (err) {
         // The chat was deleted mid-turn: save the answer to a new chat (the same
-        // turnId keeps the append idempotent).
-        if (operation.state.persistenceChatId === null || err?.message !== CHAT_NOT_FOUND_MESSAGE) {
-          throw err;
-        }
-        // Keep this target across retries; null lets storage find the replacement chat by turn ID.
-        operation.state.persistenceChatId = null;
-        return append(null);
+        // turnId keeps the append idempotent). The new target carries into retries.
+        if (err?.message !== CHAT_NOT_FOUND_MESSAGE || !operation.retargetToNewChat()) throw err;
+        return append(operation.saveTarget);
       }
     },
     [chatRepository, scope],
@@ -172,23 +224,14 @@ export function useArticleChatTurn({
       candidate?.contentRevision === contentRevision
         ? candidate
         : null;
-    const turnId = retry?.question === question ? retry.turnId : createTurnId();
-    const operation = Object.freeze({
-      turnId,
+    const operation = createTurnOperation({
+      question,
       recordKey,
       contentRevision,
       chatId: activeChatId ?? null,
-      question,
-      controller: new AbortController(),
-      // Mutable progress shared with stop/invalidate, which only see the frozen operation.
-      state: {
-        turnResult: undefined,
-        stopping: false,
-        persisted: false,
-        persistenceChatId:
-          retry?.question === question ? retry.persistenceChatId : (activeChatId ?? null),
-      },
+      retry,
     });
+    const { turnId, signal } = operation;
     operationRef.current = operation;
     setInput('');
     setError('');
@@ -197,19 +240,18 @@ export function useArticleChatTurn({
     setPendingQuestion(question);
     setLiveToolLog([]);
     setRetryTurn(null);
-    let turnResult = retry?.question === question ? retry.turnResult : undefined;
-    operation.state.turnResult = turnResult;
+    let turnResult = operation.turnResult;
     try {
       try {
         // The provider's context window lives in the background worker, so read the
         // limits right before the turn instead of using the static fallback.
         if (!turnResult) {
-          const limits = await awaitWithAbort(getChatLimits(), operation.controller.signal);
+          const limits = await awaitWithAbort(getChatLimits(), signal);
           if (!isCurrentOperation(operation)) return;
           // Late-bound sources resolve here so a failed read surfaces as a turn error.
           const turnSentences = resolveSentences
             ? scopeChatSentences(
-                await awaitWithAbort(resolveSentences(), operation.controller.signal),
+                await awaitWithAbort(resolveSentences(), signal),
                 topics,
                 scope,
               )
@@ -227,7 +269,7 @@ export function useArticleChatTurn({
             limits,
             runtime: {
               turnId,
-              signal: operation.controller.signal,
+              signal,
             },
             effects: {
               onHighlight: (range) => {
@@ -244,7 +286,7 @@ export function useArticleChatTurn({
         // Closing/unmounting invalidates the operation before it can write.
         if (!isCurrentOperation(operation)) return;
         // Visible to Stop/invalidate so they treat the answer as complete.
-        operation.state.turnResult = turnResult;
+        operation.recordResult(turnResult);
         // Persists only user-visible content; the tool transcript may hold provider reasoning.
         const persisted = await persist(operation, question, turnResult);
         if (!isCurrentOperation(operation)) return;
@@ -261,7 +303,7 @@ export function useArticleChatTurn({
           );
           return;
         }
-        operation.state.persisted = true;
+        operation.markPersisted();
         adoptPersistedTurn(persisted, {
           expectedChatId: operation.chatId,
           turnId,
@@ -275,10 +317,10 @@ export function useArticleChatTurn({
         // A runtime response can be lost after storage committed. For an
         // existing chat, reconcile by turnId before treating it as a failure.
         const reconciled = turnResult
-          ? await reconcilePersistedTurn(operation.state.persistenceChatId, turnId)
+          ? await reconcilePersistedTurn(operation.saveTarget, turnId)
           : false;
         if (reconciled && isCurrentOperation(operation)) {
-          operation.state.persisted = true;
+          operation.markPersisted();
           // Same guard: no await since the check.
           setRetryTurn(null);
           setPendingQuestion('');
@@ -287,15 +329,7 @@ export function useArticleChatTurn({
         }
         if (!isCurrentOperation(operation)) return;
         // Same guard: no await since the check.
-        setRetryTurn({
-          question,
-          turnId,
-          turnResult,
-          recordKey: operation.recordKey,
-          chatId: operation.chatId,
-          persistenceChatId: operation.state.persistenceChatId,
-          contentRevision: operation.contentRevision,
-        });
+        setRetryTurn(operation.retryPayload());
         setPendingQuestion('');
         setInput(question);
         applyEvents(paintedEvents);
