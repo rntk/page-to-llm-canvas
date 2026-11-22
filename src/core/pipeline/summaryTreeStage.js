@@ -19,7 +19,13 @@ import { mergeAbortSignals } from '../llm/abortSignals.js';
 import { isCancellationError } from './cancellation.js';
 import { SUMMARY_CONCURRENCY } from './pipelineConfig.js';
 import { createCheckpointer } from './summaryTreeCheckpoint.js';
-import { createClaimVerifier, generateSummaries, markFailed } from './summaryTreeGeneration.js';
+import {
+  applySummaryOutcome,
+  createClaimVerifier,
+  failStage,
+  generateSummaries,
+  markFailed,
+} from './summaryTreeGeneration.js';
 import { PASSAGE, ROOT, topicIds } from './summaryTreeModel.js';
 import { createSummaryTreeJudge, createSummaryTreeLlm } from './summaryTreeRequests.js';
 import { TOPIC_BATCH_CHARS, buildTopics, placeTopics } from './summaryTreeTopics.js';
@@ -195,6 +201,11 @@ export async function runSummaryTree({
   });
   const { save, flush, enterStage } = checkpointer;
   const onAbort = () => controller.abort();
+  // The only writer of summary outcomes: each is applied before its checkpoint.
+  const completeWith = (onFailure) => async (id, outcome) => {
+    applySummaryOutcome(nodes[id], outcome, onFailure);
+    await save();
+  };
   try {
     await enterStage(SUMMARY_TREE_STAGE.PASSAGES);
     // A finished tree extended with new pages carries sources still to summarize.
@@ -208,8 +219,7 @@ export async function runSummaryTree({
       llm,
       verifier,
       workers,
-      onFailure: markFailed,
-      onNodeDone: save,
+      onOutcome: completeWith(markFailed),
       onAbort,
       sourceOf: strategy.sourceOf,
     });
@@ -263,7 +273,7 @@ export async function runSummaryTree({
       llm,
       verifier,
       workers,
-      onNodeDone: save,
+      onOutcome: completeWith(failStage),
       onAbort,
       sourceOf: strategy.sourceOf,
     });
@@ -284,6 +294,8 @@ export async function runSummaryTree({
     merged.dispose();
   }
 
+  // A `running` write still in flight must not land over the finished tree.
+  await checkpointer.idle();
   const result = checkpointer.finish();
   await runtime.saveSummaryTree(result);
   await runtime.log('summary_tree_done', { ...result.progress, ...result.metrics });

@@ -51,6 +51,73 @@ describe('summary tree checkpointer', () => {
     cp.dispose();
   });
 
+  it('keeps a pending checkpoint consistent with its counters despite later node edits', async () => {
+    let release;
+    const written = [];
+    const saveSummaryTree = vi.fn(async (tree) => {
+      // Like the project runtime, serialize only after an await.
+      await new Promise((resolve) => (release = resolve));
+      written.push(JSON.parse(JSON.stringify(tree)));
+    });
+    const { args } = makeInput({ runtime: { saveSummaryTree, log: vi.fn(async () => {}) } });
+    const cp = createCheckpointer(args);
+    const pending = cp.save();
+    args.nodes.p2.failed = false;
+    args.nodes.p2.segments = [{ text: 'late' }];
+    args.nodes.p4 = { kind: 'passage', segments: [], failed: false };
+    args.nodes.t1.children.push('p4');
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    release();
+    await pending;
+    const [tree] = written;
+    expect(tree.progress).toEqual({ done: 2, total: 3 });
+    expect(tree.metrics).toMatchObject({ passages: 3, failedPassages: 1, skippedPassages: 1 });
+    expect(tree.nodes.p2).toEqual({ kind: 'passage', segments: null, failed: true });
+    expect(tree.nodes.p4).toBeUndefined();
+    expect(tree.nodes.t1.children).toEqual(['p1']);
+    cp.dispose();
+  });
+
+  it('commits overlapping saves in capture order even when the older write is slower', async () => {
+    const releases = [];
+    const written = [];
+    const saveSummaryTree = vi.fn(async (tree) => {
+      await new Promise((resolve) => releases.push(resolve));
+      written.push(tree.progress.done);
+    });
+    const { args } = makeInput({ runtime: { saveSummaryTree, log: vi.fn(async () => {}) } });
+    const cp = createCheckpointer(args);
+    const older = cp.save();
+    await Promise.resolve();
+    args.nodes.p2.failed = false;
+    args.nodes.p2.segments = [{ text: 'late' }];
+    const newer = cp.flush();
+    await Promise.resolve();
+    // The newer write waits for the older one instead of racing it.
+    expect(saveSummaryTree).toHaveBeenCalledTimes(1);
+    releases[0]();
+    await older;
+    await vi.waitFor(() => expect(saveSummaryTree).toHaveBeenCalledTimes(2));
+    releases[1]();
+    await newer;
+    expect(written).toEqual([2, 3]);
+    await cp.idle();
+    cp.dispose();
+  });
+
+  it('keeps writing after a failed save', async () => {
+    const saveSummaryTree = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('transient'))
+      .mockResolvedValue(undefined);
+    const { args } = makeInput({ runtime: { saveSummaryTree, log: vi.fn(async () => {}) } });
+    const cp = createCheckpointer(args);
+    await expect(cp.save()).rejects.toThrow('transient');
+    await cp.flush();
+    expect(saveSummaryTree).toHaveBeenCalledTimes(2);
+    cp.dispose();
+  });
+
   it('aborts on heartbeat save rejection and clears its timer on dispose', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1000);

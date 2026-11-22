@@ -1,7 +1,7 @@
 // Dependency-driven summary requests with local citation validation. Each
 // request carries one node under the stable id "item"; a parent becomes
-// eligible as soon as its children are done. Only the coordinator mutates
-// nodes; workers return validated segments.
+// eligible as soon as its children are done. Generation never mutates nodes:
+// it reports each outcome to the stage, which applies it before checkpointing.
 
 import { LLM_TASK_TYPES } from '../metrics/llm.js';
 import { LEVEL, PASSAGE, TOPIC, cleanTitle, relay } from './summaryTreeModel.js';
@@ -210,6 +210,31 @@ export function markFailed(node) {
 }
 
 /**
+ * @typedef {object} SummaryOutcome
+ * @property {Array<{text: string, sources: object[]}>} segments
+ * @property {string|null} [title] Model title for a passage.
+ * @property {boolean} [relayed] Segments reused from children with identical claims.
+ */
+
+/**
+ * The summary transition for one reported outcome; null means no valid answer.
+ * A model title never replaces a strategy-given topic name.
+ * @param {SummaryTreeNode} node Mutated.
+ * @param {SummaryOutcome|null} outcome
+ * @param {function(SummaryTreeNode): void} [onFailure] Marks the node done or throws
+ *   (default {@link failStage}).
+ */
+export function applySummaryOutcome(node, outcome, onFailure = failStage) {
+  if (!outcome) {
+    onFailure(node);
+    return;
+  }
+  if (!outcome.relayed) node.failed = false;
+  node.segments = outcome.segments;
+  if (outcome.title && !node.topicName) node.title = outcome.title;
+}
+
+/**
  * One model round trip for `node`; null when no answer was accepted.
  * @returns {Promise<{segments: Array<{text: string, sources: object[]}>, title: string|null}|null>}
  */
@@ -246,9 +271,8 @@ async function generateNode({ node, nodes, sentenceTexts, llm, verifier, sourceO
  * @param {{ask: Function}} input.llm
  * @param {{filter: Function}} [input.verifier]
  * @param {number} [input.workers]
- * @param {function(SummaryTreeNode): void} [input.onFailure] Called for a node without a valid
- *   answer; must mark the node done or throw (default {@link failStage}).
- * @param {function(object): Promise<void>} [input.onNodeDone] Persists progress.
+ * @param {function(string, SummaryOutcome|null): Promise<void>} input.onOutcome Applies a node's
+ *   outcome (null: no valid answer) so the node is done, then persists it; or throws.
  * @param {function(): void} [input.onAbort] Stops siblings after a fatal error.
  * @param {function(object): object|null} [input.sourceOf] Origin shown to the model for a child node.
  */
@@ -259,8 +283,7 @@ export async function generateSummaries({
   llm,
   verifier,
   workers = 4,
-  onFailure = failStage,
-  onNodeDone = async () => {},
+  onOutcome,
   onAbort = () => {},
   sourceOf,
 }) {
@@ -282,8 +305,7 @@ export async function generateSummaries({
           ? relay(node.children.map((child) => nodes[child]))
           : null;
         if (reused) {
-          node.segments = reused;
-          relayed.push(node);
+          relayed.push([id, reused]);
         } else if (pending.size < workers) {
           pending.set(
             id,
@@ -295,7 +317,9 @@ export async function generateSummaries({
         }
       }
       // Persist after dispatch so saving never delays starting workers.
-      for (const node of relayed) await onNodeDone(node);
+      for (const [relayedId, segments] of relayed) {
+        await onOutcome(relayedId, { segments, relayed: true });
+      }
       if (!pending.size) {
         if (!todo.length) return;
         if (relayed.length) continue;
@@ -304,15 +328,7 @@ export async function generateSummaries({
       const { id, value, error } = await Promise.race(pending.values());
       pending.delete(id);
       if (error) throw error;
-      const node = nodes[id];
-      if (value) {
-        node.failed = false;
-        node.segments = value.segments;
-        if (value.title && !node.topicName) node.title = value.title;
-      } else {
-        onFailure(node);
-      }
-      await onNodeDone(node);
+      await onOutcome(id, value);
     }
   } catch (error) {
     onAbort();

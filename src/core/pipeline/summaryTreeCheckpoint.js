@@ -25,8 +25,9 @@ export function createCheckpointer({
   let lastSaved = 0;
   let unsaved = false;
   const inFlight = new Set();
+  let tail = Promise.resolve();
 
-  const counts = () => {
+  const counts = (nodes) => {
     const totals = {
       passages: 0,
       failedPassages: 0,
@@ -51,15 +52,18 @@ export function createCheckpointer({
     }
     return totals;
   };
-  const progress = (totals = counts()) => {
+  const progress = (totals = counts(nodes)) => {
     if (stage === SUMMARY_TREE_STAGE.PASSAGES)
       return { done: totals.passageDone, total: totals.passages };
     if (stage === SUMMARY_TREE_STAGE.TOPICS) return { done: totals.topics, total: 0 };
     return { done: totals.summaryDone, total: totals.summaryTotal };
   };
+  // Root, node data, and counters are captured together: a write may be
+  // serialized after later node edits, so it must not hold the live map.
   const snapshot = (status, extra = {}) => {
-    const totals = counts();
     const rootId = getRootId();
+    const saved = structuredClone(nodes);
+    const totals = counts(saved);
     return {
       version: SUMMARY_TREE_VERSION,
       backgroundRecovery: true,
@@ -68,7 +72,7 @@ export function createCheckpointer({
       contentRevision: strategy.contentRevision ?? null,
       fingerprint,
       rootId,
-      nodes,
+      nodes: saved,
       progress: progress(totals),
       error: null,
       startedAt,
@@ -78,7 +82,7 @@ export function createCheckpointer({
         failedPassages: totals.failedPassages,
         skippedPassages: totals.skippedPassages,
         topics: totals.topics,
-        levels: treeLevels(rootId, nodes),
+        levels: treeLevels(rootId, saved),
         llmCalls: llm.metrics.calls,
         llmInvalidAnswers: llm.metrics.invalidAnswers,
         llmFailures: llm.metrics.failures,
@@ -99,7 +103,12 @@ export function createCheckpointer({
     }
     lastSaved = now();
     unsaved = false;
-    const write = runtime.saveSummaryTree(snapshot(SUMMARY_TREE_STATUS.RUNNING));
+    // Writes commit in capture order: a slow older write must not land over a
+    // newer snapshot and drop nodes it completed. A failed write still lets
+    // later ones run; their own ownership check rejects them.
+    const tree = snapshot(SUMMARY_TREE_STATUS.RUNNING);
+    const write = tail.then(() => runtime.saveSummaryTree(tree));
+    tail = write.catch(() => {});
     inFlight.add(write);
     try {
       await write;
