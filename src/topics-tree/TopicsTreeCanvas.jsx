@@ -25,8 +25,14 @@ import {
   treeDepth,
   visibleTree,
 } from './expansion.js';
-import { labelSize, topicMaxWidth } from './labelMetrics.js';
-import { boundsOf, clampCardSize, layoutTree, treeLinks } from './treeLayout.js';
+import {
+  containerZoomMultiplier,
+  labelSize,
+  leafTitleZoomSlot,
+  titleZoomSlots,
+  topicMaxWidth,
+} from './labelMetrics.js';
+import { boundsOf, clampCardSize, layoutTree, overviewBoundsOf, treeLinks } from './treeLayout.js';
 import {
   MOTION_LINGER_MS,
   MOTION_MS,
@@ -56,7 +62,7 @@ function sameSizes(a, b) {
 
 function placementStyle(position) {
   return position
-    ? { transform: `translate(${position.left}px, ${position.top}px)` }
+    ? { '--tt-x': `${position.left}px`, '--tt-y': `${position.top}px` }
     : { visibility: 'hidden' };
 }
 
@@ -75,6 +81,7 @@ const TopicNode = React.memo(function TopicNode({
   isExpanded,
   textShown = false,
   fontSize,
+  zoomSlot,
   isSelected,
   isOnPath,
   position,
@@ -116,6 +123,17 @@ const TopicNode = React.memo(function TopicNode({
       style={{
         ...placementStyle(position),
         '--tt-font': `${fontSize}px`,
+        ...(position?.w > 0 ? { '--tt-node-width': `${position.w}px` } : {}),
+        ...(zoomSlot
+          ? {
+              '--tt-title-width': `${zoomSlot.width}px`,
+              '--tt-title-width-cap': `${zoomSlot.widthCap}px`,
+              ...(Number.isFinite(zoomSlot.heightCap)
+                ? { '--tt-title-height-cap': `${zoomSlot.heightCap}px` }
+                : {}),
+              '--tt-title-lines': zoomSlot.maxLines,
+            }
+          : {}),
         maxWidth: `${topicMaxWidth(fontSize)}px`,
       }}
       onClick={() => onToggle(node.key)}
@@ -182,6 +200,9 @@ const TopicNode = React.memo(function TopicNode({
         {node.sourceCount > 0 && <span>· {pluralize(node.sourceCount, 'article')}</span>}
         {node.hiddenCount > 0 && <span>· +{node.hiddenCount} hidden</span>}
       </div>
+      <div className="tt-node__zoom-title" aria-hidden="true" title={node.title}>
+        <span className="tt-node__zoom-text">{node.title}</span>
+      </div>
     </div>
   );
 });
@@ -222,6 +243,8 @@ const LeafCard = React.memo(function LeafCard({
   node,
   articleSentences,
   sentenceSources,
+  fontSize = 14,
+  zoomSlot,
   isSelected,
   isOnPath,
   isFront,
@@ -283,8 +306,20 @@ const LeafCard = React.memo(function LeafCard({
     <article
       ref={ref}
       className={className}
+      aria-label={parentPath ? `${node.title}: ${parentPath}` : node.title}
       style={{
         ...placementStyle(position),
+        '--tt-font': `${fontSize}px`,
+        ...(zoomSlot
+          ? {
+              '--tt-card-width': `${zoomSlot.width}px`,
+              '--tt-title-width-cap': `${zoomSlot.widthCap}px`,
+              ...(Number.isFinite(zoomSlot.heightCap)
+                ? { '--tt-title-height-cap': `${zoomSlot.heightCap}px` }
+                : {}),
+              '--tt-title-lines': zoomSlot.maxLines,
+            }
+          : {}),
         ...(size ? { width: `${size.w}px`, height: `${size.h}px` } : {}),
       }}
       onClick={() => onSelect(node.key)}
@@ -340,6 +375,15 @@ const LeafCard = React.memo(function LeafCard({
             </button>
           </p>
         )}
+      </div>
+      <div
+        className="tt-card__zoom-title"
+        aria-hidden="true"
+        title="Drag to move"
+        onPointerDown={(event) => onStartDrag(event, node.key, 'move')}
+      >
+        {parentPath && <div className="tt-card__zoom-kicker">{node.title}</div>}
+        <div className="tt-card__zoom-heading">{parentPath || node.title}</div>
       </div>
       <div
         className="tt-card__resize"
@@ -447,13 +491,23 @@ export default function TopicsTreeCanvas({
     () => treeLinks(visible, displayPositions, (node) => node.kind === LEAF_KIND),
     [visible, displayPositions],
   );
-  const maxTopicLevel = useMemo(
-    () => Math.max(0, treeDepth(tree) - TOPIC_LEVEL_OFFSET),
-    [tree],
-  );
+  const maxTopicLevel = useMemo(() => Math.max(0, treeDepth(tree) - TOPIC_LEVEL_OFFSET), [tree]);
   const level = useMemo(() => currentLevel(tree, expanded), [tree, expanded]);
   const selectedTopicLevel = level === null ? null : level - TOPIC_LEVEL_OFFSET;
   const totalSentences = tree.sentences.length;
+  const baseZoomSlots = useMemo(
+    () => titleZoomSlots(visible, positions, totalSentences),
+    [visible, positions, totalSentences],
+  );
+  const zoomSlots = useMemo(() => {
+    if (!drag || drag.mode !== 'resize') return baseZoomSlots;
+    const draggedNode = nodes.find((node) => node.key === drag.key);
+    if (!draggedNode || draggedNode.kind !== LEAF_KIND) return baseZoomSlots;
+    return new Map(baseZoomSlots).set(
+      drag.key,
+      leafTitleZoomSlot(draggedNode, drag.pos, totalSentences),
+    );
+  }, [baseZoomSlots, drag, nodes, totalSentences]);
 
   const registerElement = useCallback((key, el) => {
     if (el) elementsRef.current.set(key, el);
@@ -493,7 +547,7 @@ export default function TopicsTreeCanvas({
     if (pendingFitRef.current) {
       pendingFitRef.current = false;
       pendingAnchorRef.current = null;
-      fit(boundsOf(positions.values()));
+      fit(boundsOf(positions.values()), overviewBoundsOf(positions, baseZoomSlots));
       return;
     }
     const anchor = pendingAnchorRef.current;
@@ -502,11 +556,16 @@ export default function TopicsTreeCanvas({
     const after = positions.get(anchor.key);
     if (!after) return;
     const { k } = transformRef.current;
-    translateBy((anchor.before.left - after.left) * k, (anchor.before.top - after.top) * k);
+    const xScale = containerZoomMultiplier(k);
+    translateBy(
+      (anchor.before.left - after.left) * xScale * k,
+      (anchor.before.top - after.top) * k,
+    );
   }, [
     drag,
     sizes,
     positions,
+    baseZoomSlots,
     visible,
     cardSizes,
     shownSummaries,
@@ -663,7 +722,8 @@ export default function TopicsTreeCanvas({
 
       const onMove = (totalX, totalY) => {
         const k = transformRef.current.k || 1;
-        const dx = totalX / k;
+        const xScale = containerZoomMultiplier(k);
+        const dx = totalX / (k * xScale);
         const dy = totalY / k;
         latest =
           mode === 'move'
@@ -723,7 +783,12 @@ export default function TopicsTreeCanvas({
             <button
               type="button"
               className="tt-btn"
-              onClick={() => fit(boundsOf(displayPositions.values()))}
+              onClick={() =>
+                fit(
+                  boundsOf(displayPositions.values()),
+                  overviewBoundsOf(displayPositions, zoomSlots),
+                )
+              }
             >
               Fit
             </button>
@@ -759,6 +824,8 @@ export default function TopicsTreeCanvas({
                   node={node}
                   articleSentences={sentences}
                   sentenceSources={sentenceSources}
+                  fontSize={labelSize(node, totalSentences)}
+                  zoomSlot={zoomSlots.get(node.key)}
                   isSelected={node.key === selectedKey}
                   isOnPath={onPath.has(node.key)}
                   isFront={node.key === frontKey}
@@ -785,6 +852,7 @@ export default function TopicsTreeCanvas({
                   isExpanded={expanded.has(node.key) || expanded.has(textKey(node.key))}
                   textShown={expanded.has(textKey(node.key))}
                   fontSize={labelSize(node, totalSentences)}
+                  zoomSlot={zoomSlots.get(node.key)}
                   isSelected={node.key === selectedKey}
                   isOnPath={onPath.has(node.key)}
                   position={displayPositions.get(node.key)}

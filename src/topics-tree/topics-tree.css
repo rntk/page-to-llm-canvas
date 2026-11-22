@@ -167,12 +167,15 @@
   height: 1px;
   overflow: visible;
   pointer-events: none;
+  transform: scaleX(var(--tt-container-zoom, 1));
+  transform-origin: 0 0;
 }
 
 .tt-link {
   fill: none;
   stroke: var(--th-border);
   stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
 }
 
 .tt-link.is-on-path {
@@ -231,7 +234,7 @@
 @keyframes tt-leave {
   to {
     opacity: 0;
-    transform: translate(var(--tt-dx), var(--tt-dy));
+    transform: translate(calc(var(--tt-dx) * var(--tt-container-zoom, 1)), var(--tt-dy));
   }
 }
 
@@ -295,6 +298,7 @@
   padding: var(--th-space-3) var(--th-space-4);
   border-left: 3px solid transparent;
   cursor: pointer;
+  transform: translate(calc(var(--tt-x, 0px) * var(--tt-container-zoom, 1)), var(--tt-y, 0));
   transition:
     background-color var(--th-dur-fast) var(--th-ease),
     border-color var(--th-dur-fast) var(--th-ease);
@@ -363,6 +367,110 @@
   gap: var(--th-space-1) var(--th-space-2);
 }
 
+/* Overview title shown only when zoomed out: stays out of layout flow so 1:1
+   DOM size measurement never shifts while zooming or unfolding. */
+.tt-node__zoom-title {
+  position: absolute;
+  top: 50%;
+  left: -3px;
+  display: none;
+  box-sizing: border-box;
+  min-width: calc(var(--tt-node-width, 0px) * var(--tt-container-zoom, 1));
+  width: max-content;
+  max-width: calc(var(--tt-title-width, 100%) * var(--tt-container-zoom, 1));
+  padding: 0.2em 0.35em;
+  border: 1px solid var(--th-border);
+  border-left-width: 3px;
+  background: var(--th-surface);
+  color: var(--th-title);
+  font-family: var(--font-voice, serif);
+  font-size: max(
+    var(--tt-font, 16px),
+    min(
+      calc(var(--tt-font, 16px) * var(--tt-title-zoom, 1)),
+      calc(var(--tt-title-width-cap, var(--tt-font, 16px)) * var(--tt-container-zoom, 1)),
+      var(--tt-title-height-cap, 9999px)
+    )
+  );
+  font-weight: 700;
+  line-height: 1.15;
+  transform: translateY(-50%);
+  transition:
+    background-color var(--th-dur-fast) var(--th-ease),
+    border-color var(--th-dur-fast) var(--th-ease),
+    color var(--th-dur-fast) var(--th-ease);
+}
+
+.tt-node__zoom-text {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  hyphens: none;
+  line-clamp: var(--tt-title-lines, 1);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--tt-title-lines, 1);
+}
+
+.tt-node.is-collapsed .tt-node__zoom-title {
+  color: var(--th-text-secondary);
+}
+
+.tt-node--root .tt-node__zoom-title {
+  font-family: var(--font-data, sans-serif);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tt-node:hover .tt-node__zoom-title {
+  border-color: var(--th-border-strong);
+  background: linear-gradient(var(--th-hover), var(--th-hover)), var(--th-surface);
+}
+
+.tt-node.is-on-path .tt-node__zoom-title {
+  border-color: var(--th-border-strong);
+}
+
+.tt-node.is-selected .tt-node__zoom-title {
+  border-color: var(--th-accent);
+}
+
+.tt-stage.is-title-zoomed .tt-node {
+  border-left-color: transparent;
+}
+
+.tt-stage.is-title-zoomed .tt-node:hover {
+  z-index: 1;
+  background: transparent;
+}
+
+.tt-stage.is-title-zoomed .tt-node:focus-visible {
+  outline: none;
+}
+
+.tt-stage.is-title-zoomed .tt-node:focus-visible .tt-node__zoom-title {
+  outline: var(--th-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Keep the plain title in the accessibility tree for the topic button's
+   accessible name, while visibility: hidden takes interactive meta/summary
+   controls out of keyboard tab order without altering 1:1 measurements. */
+.tt-stage.is-title-zoomed .tt-node__title {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tt-stage.is-title-zoomed .tt-node__summary-toggle,
+.tt-stage.is-title-zoomed .tt-node__prose,
+.tt-stage.is-title-zoomed .tt-node__meta {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.tt-stage.is-title-zoomed .tt-node__zoom-title {
+  display: block;
+}
+
 /* ---------- leaf cards ---------- */
 
 /* Head and body share one horizontal padding so their text lines up. */
@@ -380,6 +488,7 @@
   border: 1px solid var(--th-border);
   background: var(--th-surface);
   cursor: default;
+  transform: translate(calc(var(--tt-x, 0px) * var(--tt-container-zoom, 1)), var(--tt-y, 0));
   transition:
     border-color var(--th-dur-fast) var(--th-ease),
     box-shadow var(--th-dur-fast) var(--th-ease);
@@ -438,6 +547,109 @@
 
 .tt-card:not(.is-sized) .tt-card__body {
   max-height: 420px;
+}
+
+.tt-card__zoom-title {
+  --tt-card-zoom-font: max(
+    var(--tt-font, 14px),
+    min(
+      calc(var(--tt-font, 14px) * var(--tt-title-zoom, 1)),
+      calc(var(--tt-title-width-cap, var(--tt-font, 14px)) * var(--tt-container-zoom, 1)),
+      var(--tt-title-height-cap, 9999px)
+    )
+  );
+
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  left: -1px;
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.25em;
+  box-sizing: border-box;
+  width: calc(var(--tt-card-width, 360px) * var(--tt-container-zoom, 1));
+  padding: 0.25em 0.45em;
+  overflow: hidden;
+  border: 1px solid var(--th-border);
+  background: var(--th-surface);
+  font-size: var(--tt-card-zoom-font);
+  cursor: move;
+  user-select: none;
+  transition:
+    border-color var(--th-dur-fast) var(--th-ease),
+    box-shadow var(--th-dur-fast) var(--th-ease);
+}
+
+.tt-card__zoom-kicker {
+  overflow: hidden;
+  color: var(--th-muted);
+  font-size: 0.55em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tt-card__zoom-heading {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  hyphens: none;
+  color: var(--th-title);
+  font-size: 1em;
+  font-weight: 700;
+  line-height: 1.25;
+  line-clamp: var(--tt-title-lines, 2);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--tt-title-lines, 2);
+}
+
+.tt-card.is-on-path .tt-card__zoom-title {
+  border-color: var(--th-border-strong);
+}
+
+.tt-card.is-selected .tt-card__zoom-title {
+  border-color: var(--th-accent);
+  box-shadow: 0 0 0 1px var(--th-accent);
+}
+
+.tt-stage.is-title-zoomed .tt-card {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.tt-stage.is-title-zoomed .tt-card__head,
+.tt-stage.is-title-zoomed .tt-card__body {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.tt-stage.is-title-zoomed .tt-card__zoom-title {
+  display: flex;
+}
+
+.tt-stage.is-title-zoomed .tt-card__resize {
+  right: auto;
+  bottom: 0;
+  left: calc(var(--tt-card-width, 360px) * var(--tt-container-zoom, 1) - 2px);
+  width: min(calc(12px * var(--tt-title-zoom, 1)), 36px);
+  height: min(calc(12px * var(--tt-title-zoom, 1)), 36px);
+  transform: translateX(-100%);
+}
+
+.tt-stage.is-title-zoomed .tt-card__chat,
+.tt-stage.is-title-zoomed .tt-card__chat-fold {
+  left: calc(var(--tt-card-width, 360px) * var(--tt-container-zoom, 1) - 2px);
+}
+
+.tt-stage.is-title-zoomed .tt-card.is-chat-open .tt-card__chat-fold {
+  left: calc(
+    var(--tt-card-width, 360px) * var(--tt-container-zoom, 1) + var(--tt-chat-width) - 3px
+  );
 }
 
 /* Numbers hang in a 4ch gutter (room for "999."), so the text column starts

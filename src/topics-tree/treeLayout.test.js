@@ -6,6 +6,7 @@ import {
   columnOffsets,
   fitTransform,
   layoutTree,
+  overviewBoundsOf,
   treeLinks,
 } from './treeLayout.js';
 
@@ -136,5 +137,63 @@ describe('geometry helpers', () => {
     });
     const big = fitTransform({ minX: 0, minY: 0, width: 4000, height: 200 }, viewport);
     expect(big.k).toBeCloseTo(952 / 4000);
+  });
+
+  it('accounts for horizontal container scaling when fitting wide trees', () => {
+    const viewport = { width: 1000, height: 600 };
+    const bounds = { minX: 0, minY: 0, width: 1600, height: 200 };
+    const widthScaleAt = (scale) => (scale < 0.65 ? Math.min(2, 0.65 / scale) : 1);
+    const fit = fitTransform(bounds, viewport, 24, 0.15, widthScaleAt);
+    const widenedWidth = bounds.width * widthScaleAt(fit.k);
+    expect(widenedWidth * fit.k).toBeLessThanOrEqual(viewport.width - 48 + 1e-6);
+    expect(fit.x).toBeCloseTo((viewport.width - widenedWidth * fit.k) / 2);
+  });
+
+  it('computes overviewBoundsOf and fits rightmost overview titles when zoomed out, while leaving 1:1 fits unaffected', () => {
+    expect(overviewBoundsOf(null)).toBeNull();
+    expect(overviewBoundsOf(new Map())).toBeNull();
+
+    const positions = new Map([
+      ['root', { left: 0, top: 0, w: 300, h: 80 }],
+      ['leaf', { left: 400, top: 0, w: 200, h: 80 }],
+    ]);
+    const slots = new Map([
+      ['root', { width: 300 }],
+      ['leaf', { width: 680 }],
+    ]);
+    const baseBounds = boundsOf(positions.values());
+    const overviewBounds = overviewBoundsOf(positions, slots);
+    expect(baseBounds.width).toBe(600);
+    expect(overviewBounds.width).toBe(1080);
+
+    const widthScaleAt = (scale) => (scale < 0.65 ? Math.min(2, 0.65 / scale) : 1);
+
+    // Fits comfortably at >= 0.65: overviewBounds must not pull zoom below 0.65.
+    const normalViewport = { width: 800, height: 600 };
+    const normalFit = fitTransform(
+      baseBounds,
+      normalViewport,
+      24,
+      0.15,
+      widthScaleAt,
+      overviewBounds,
+    );
+    expect(normalFit.k).toBe(1);
+    expect(normalFit.x).toBeCloseTo((normalViewport.width - baseBounds.width) / 2);
+
+    // Narrow viewport forces zoom < 0.65: uses widened overviewBounds so rightmost title fits inside.
+    const tightViewport = { width: 400, height: 600 };
+    const tightFit = fitTransform(
+      baseBounds,
+      tightViewport,
+      24,
+      0.15,
+      widthScaleAt,
+      overviewBounds,
+    );
+    const widenedOverview = overviewBounds.width * widthScaleAt(tightFit.k);
+    expect(tightFit.k).toBeLessThan(0.65);
+    expect(widenedOverview * tightFit.k).toBeLessThanOrEqual(tightViewport.width - 48 + 1e-6);
+    expect(tightFit.x).toBeCloseTo((tightViewport.width - widenedOverview * tightFit.k) / 2);
   });
 });

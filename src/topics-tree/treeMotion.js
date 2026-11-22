@@ -46,7 +46,8 @@ export function leavingNodes(before, after, positions, isCard) {
   return leaving;
 }
 
-const translate = (position) => `translate(${position.left}px, ${position.top}px)`;
+const translate = (position, xScale = 1) =>
+  `translate(${position.left * xScale}px, ${position.top}px)`;
 
 /**
  * Grow an element out of `origin` (normally its parent) the first time it gets
@@ -65,10 +66,12 @@ export function useEnterMotion(elRef, position, origin, motionRef) {
     placedRef.current = true;
     const el = elRef.current;
     if (!motionRef.current || !origin || typeof el?.animate !== 'function') return;
+    const xScale =
+      Number.parseFloat(window.getComputedStyle?.(el).getPropertyValue('--tt-container-zoom')) || 1;
     el.animate(
       [
-        { opacity: 0, transform: translate(origin) },
-        { opacity: 1, transform: translate(position) },
+        { opacity: 0, transform: translate(origin, xScale) },
+        { opacity: 1, transform: translate(position, xScale) },
       ],
       { duration: MOTION_MS, easing: MOTION_EASING },
     );

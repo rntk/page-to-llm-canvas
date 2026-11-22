@@ -167,6 +167,23 @@ export function boundsOf(rects) {
 }
 
 /**
+ * Bounding box including zoomed-out overview title widths (such as rightmost
+ * topic labels that may render wider than their measured 1:1 node box).
+ *
+ * @param {Map<string, {left: number, top: number, w: number, h: number}>|null} positions Placed node rects.
+ * @param {Map<string, {width: number}>|null} [slots] Per-node zoom slots.
+ * @returns {{minX: number, minY: number, width: number, height: number}|null}
+ */
+export function overviewBoundsOf(positions, slots = null) {
+  if (!positions || positions.size === 0) return null;
+  const rects = [];
+  for (const [key, pos] of positions) {
+    rects.push({ ...pos, w: Math.max(pos.w, slots?.get(key)?.width || 0) });
+  }
+  return boundsOf(rects);
+}
+
+/**
  * Transform that fits `bounds` into the viewport (never enlarging past 1:1),
  * centred on the axis that fits and left/top aligned on the one that does not.
  *
@@ -174,23 +191,52 @@ export function boundsOf(rects) {
  * @param {{width: number, height: number}} viewport Canvas size.
  * @param {number} [pad] Margin kept around the content.
  * @param {number} [minScale] Smallest scale a fit may choose.
+ * @param {((scale: number) => number)|null} [widthScaleAt] Optional horizontal expansion factor at a given scale.
+ * @param {{minX: number, minY: number, width: number, height: number}|null} [overviewBounds] Bounds including overview label extents when zoomed out.
  * @returns {{k: number, x: number, y: number}}
  */
-export function fitTransform(bounds, viewport, pad = 24, minScale = 0.15) {
+export function fitTransform(
+  bounds,
+  viewport,
+  pad = 24,
+  minScale = 0.15,
+  widthScaleAt = null,
+  overviewBounds = null,
+) {
   if (!bounds) return { k: 1, x: pad, y: viewport.height / 2 };
-  const k = Math.max(
-    minScale,
-    Math.min(
-      1,
-      (viewport.width - 2 * pad) / Math.max(1, bounds.width),
-      (viewport.height - 2 * pad) / Math.max(1, bounds.height),
-    ),
-  );
+  const availW = viewport.width - 2 * pad;
+  const availH = viewport.height - 2 * pad;
+  const baseW = Math.max(1, bounds.width);
+  const baseH = Math.max(1, bounds.height);
+  const widthScale = (scale) => (widthScaleAt ? Math.max(1, widthScaleAt(scale)) : 1);
+  const horizontalExtent = (scale) => {
+    const xScale = widthScale(scale);
+    if (xScale <= 1) return { minX: bounds.minX, width: bounds.width };
+    const box = overviewBounds || bounds;
+    return { minX: box.minX * xScale, width: box.width * xScale };
+  };
+  let k = Math.max(minScale, Math.min(1, availW / baseW, availH / baseH));
+  if (
+    widthScaleAt &&
+    availW > 0 &&
+    Math.max(1, horizontalExtent(k).width) * k > availW &&
+    k > minScale
+  ) {
+    let lo = minScale;
+    let hi = k;
+    for (let step = 0; step < 16; step += 1) {
+      const mid = (lo + hi) / 2;
+      if (Math.max(1, horizontalExtent(mid).width) * mid <= availW) lo = mid;
+      else hi = mid;
+    }
+    k = lo;
+  }
+  const { minX: fitMinX, width: fitWidth } = horizontalExtent(k);
   const place = (size, start, extent) =>
     size * k <= extent - 2 * pad ? (extent - size * k) / 2 - start * k : pad - start * k;
   return {
     k,
-    x: place(bounds.width, bounds.minX, viewport.width),
+    x: place(fitWidth, fitMinX, viewport.width),
     y: place(bounds.height, bounds.minY, viewport.height),
   };
 }

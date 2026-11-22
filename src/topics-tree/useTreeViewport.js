@@ -8,6 +8,7 @@ import {
   pagePanStep,
 } from '../utils/canvasMath.js';
 import { fitTransform } from './treeLayout.js';
+import { containerZoomMultiplier, titleZoomMultiplier } from './labelMetrics.js';
 import { isTypingTarget } from '../utils/isTypingTarget.js';
 import { trackPointer } from '../utils/trackPointer.js';
 
@@ -43,6 +44,10 @@ export function useTreeViewport() {
     const stage = stageRef.current;
     if (stage) {
       stage.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${transform.k})`;
+      const titleZoom = titleZoomMultiplier(transform.k);
+      stage.style.setProperty('--tt-title-zoom', String(titleZoom));
+      stage.style.setProperty('--tt-container-zoom', String(containerZoomMultiplier(transform.k)));
+      stage.classList.toggle('is-title-zoomed', titleZoom > 1);
     }
   }, []);
 
@@ -56,13 +61,13 @@ export function useTreeViewport() {
   );
 
   const fit = useCallback(
-    (bounds) => {
+    (bounds, overviewBounds = null) => {
       const canvas = canvasRef.current;
       const viewport = {
         width: canvas?.clientWidth || 800,
         height: canvas?.clientHeight || 600,
       };
-      apply(fitTransform(bounds, viewport));
+      apply(fitTransform(bounds, viewport, 24, 0.15, containerZoomMultiplier, overviewBounds));
     },
     [apply],
   );
@@ -71,7 +76,15 @@ export function useTreeViewport() {
     (factor, cursor) => {
       const current = transformRef.current;
       const k = clampScale(current.k * factor);
-      const { x, y } = cursorAnchoredTranslate({
+      const currentScaleX = current.k * containerZoomMultiplier(current.k);
+      const nextScaleX = k * containerZoomMultiplier(k);
+      const { x } = cursorAnchoredTranslate({
+        cursor,
+        translate: current,
+        currentScale: currentScaleX,
+        nextScale: nextScaleX,
+      });
+      const { y } = cursorAnchoredTranslate({
         cursor,
         translate: current,
         currentScale: current.k,

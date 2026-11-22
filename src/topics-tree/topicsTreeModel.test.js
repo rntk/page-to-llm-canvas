@@ -23,7 +23,17 @@ import {
   treeDepth,
   visibleTree,
 } from './expansion.js';
-import { labelSize } from './labelMetrics.js';
+import { MIN_SCALE } from '../utils/canvasMath.js';
+import {
+  MAX_CONTAINER_ZOOM,
+  TITLE_ZOOM_THRESHOLD,
+  containerZoomMultiplier,
+  labelSize,
+  leafTitleZoomSlot,
+  titleZoomMultiplier,
+  titleZoomSlots,
+  topicMaxWidth,
+} from './labelMetrics.js';
 
 describe('groupSentenceSources', () => {
   it('keeps overlapping article-local sentence ids in distinct source groups', () => {
@@ -279,6 +289,270 @@ describe('labelSize', () => {
     expect(labelSize(fruit, 6)).toBeGreaterThan(15);
     expect(labelSize(fruit.children[0].children[0], 6)).toBe(14);
     expect(labelSize(fruit, 0)).toBe(15);
+  });
+});
+
+describe('titleZoomMultiplier', () => {
+  it('stays at 1 at or above the threshold and for non-finite values', () => {
+    expect(titleZoomMultiplier(1)).toBe(1);
+    expect(titleZoomMultiplier(2)).toBe(1);
+    expect(titleZoomMultiplier(TITLE_ZOOM_THRESHOLD)).toBe(1);
+    expect(titleZoomMultiplier(Number.NaN)).toBe(1);
+  });
+
+  it('grows monotonically below the threshold and clamps at MIN_SCALE', () => {
+    const atHalf = titleZoomMultiplier(0.5);
+    const atQuarter = titleZoomMultiplier(0.25);
+    const atFit = titleZoomMultiplier(0.15);
+    const atMin = titleZoomMultiplier(MIN_SCALE);
+    expect(atHalf).toBeGreaterThan(1);
+    expect(atQuarter).toBeGreaterThan(atHalf);
+    expect(atFit).toBeGreaterThan(atQuarter);
+    expect(atMin).toBeGreaterThan(atFit);
+    expect(titleZoomMultiplier(0.01)).toBe(atMin);
+  });
+});
+
+describe('containerZoomMultiplier', () => {
+  it('stays at 1 at or above the threshold, grows below it, and caps at MAX_CONTAINER_ZOOM', () => {
+    expect(containerZoomMultiplier(1)).toBe(1);
+    expect(containerZoomMultiplier(TITLE_ZOOM_THRESHOLD)).toBe(1);
+    const atHalf = containerZoomMultiplier(0.5);
+    const atQuarter = containerZoomMultiplier(0.25);
+    const atMin = containerZoomMultiplier(MIN_SCALE);
+    expect(atHalf).toBeGreaterThan(1);
+    expect(atQuarter).toBeGreaterThan(atHalf);
+    expect(atQuarter).toBeLessThanOrEqual(MAX_CONTAINER_ZOOM);
+    expect(atMin).toBe(MAX_CONTAINER_ZOOM);
+  });
+});
+
+describe('titleZoomSlots', () => {
+  it('returns an empty map for missing trees or empty positions', () => {
+    const tree = build();
+    expect(titleZoomSlots(null, new Map(), 6).size).toBe(0);
+    expect(titleZoomSlots(tree, null, 6).size).toBe(0);
+    expect(titleZoomSlots(tree, new Map(), 6).size).toBe(0);
+  });
+
+  it('gives higher-level expanded nodes larger font caps and more lines than crowded siblings', () => {
+    const tree = {
+      key: 'root',
+      kind: ROOT_KIND,
+      title: 'Root',
+      path: '',
+      sentences: [1, 2, 3, 4],
+      children: [
+        {
+          key: 'parent',
+          kind: TOPIC_KIND,
+          title: 'Parent',
+          path: 'Parent',
+          sentences: [1, 2, 3],
+          children: [
+            {
+              key: 'c1',
+              kind: TOPIC_KIND,
+              title: 'C1',
+              path: 'Parent>C1',
+              sentences: [1],
+              children: [],
+            },
+            {
+              key: 'c2',
+              kind: TOPIC_KIND,
+              title: 'C2',
+              path: 'Parent>C2',
+              sentences: [2],
+              children: [],
+            },
+            {
+              key: 'c3',
+              kind: TOPIC_KIND,
+              title: 'C3',
+              path: 'Parent>C3',
+              sentences: [3],
+              children: [],
+            },
+          ],
+        },
+        {
+          key: 'other',
+          kind: TOPIC_KIND,
+          title: 'Other',
+          path: 'Other',
+          sentences: [4],
+          children: [],
+        },
+      ],
+    };
+    const positions = new Map([
+      ['root', { left: 0, top: 0, w: 300, h: 100 }],
+      ['parent', { left: 364, top: -150, w: 320, h: 80 }],
+      ['other', { left: 364, top: 200, w: 200, h: 80 }],
+      ['c1', { left: 748, top: -200, w: 260, h: 52 }],
+      ['c2', { left: 748, top: -136, w: 260, h: 52 }],
+      ['c3', { left: 748, top: -72, w: 260, h: 52 }],
+    ]);
+    const slots = titleZoomSlots(tree, positions, 4);
+    const rootSlot = slots.get('root');
+    const parentSlot = slots.get('parent');
+    const middleChildSlot = slots.get('c2');
+
+    expect(rootSlot.maxFontSize).toBeGreaterThan(middleChildSlot.maxFontSize);
+    expect(parentSlot.maxFontSize).toBeGreaterThan(middleChildSlot.maxFontSize);
+    expect(parentSlot.widthCap).toBeGreaterThan(rootSlot.widthCap);
+    expect(middleChildSlot.widthCap).toBeGreaterThan(rootSlot.widthCap);
+    expect(rootSlot.heightCap).toBe(Infinity);
+    expect(middleChildSlot.heightCap).toBeLessThan(parentSlot.heightCap);
+    expect((rootSlot.width * MAX_CONTAINER_ZOOM) / rootSlot.maxFontSize).toBeGreaterThanOrEqual(9);
+    expect((parentSlot.width * MAX_CONTAINER_ZOOM) / parentSlot.maxFontSize).toBeGreaterThanOrEqual(
+      9,
+    );
+    expect(rootSlot.maxLines).toBeGreaterThan(1);
+    expect(parentSlot.maxLines).toBeGreaterThan(1);
+    expect(middleChildSlot.maxLines).toBe(1);
+  });
+
+  it('caps interior columns to column width and expands rightmost columns to topicMaxWidth', () => {
+    const tree = {
+      key: 'root',
+      kind: ROOT_KIND,
+      title: 'Root',
+      path: '',
+      sentences: [1, 2],
+      children: [
+        { key: 'narrow', kind: TOPIC_KIND, title: 'N', path: 'N', sentences: [1], children: [] },
+        {
+          key: 'wide',
+          kind: TOPIC_KIND,
+          title: 'Wide',
+          path: 'W',
+          sentences: [2],
+          children: [
+            {
+              key: 'deep',
+              kind: TOPIC_KIND,
+              title: 'Deep',
+              path: 'W>D',
+              sentences: [2],
+              children: [],
+            },
+          ],
+        },
+      ],
+    };
+    const positions = new Map([
+      ['root', { left: 0, top: 0, w: 250, h: 90 }],
+      ['narrow', { left: 314, top: -120, w: 120, h: 70 }],
+      ['wide', { left: 314, top: 80, w: 300, h: 70 }],
+      ['deep', { left: 678, top: 80, w: 150, h: 70 }],
+    ]);
+    const slots = titleZoomSlots(tree, positions, 2);
+    expect(slots.get('narrow').width).toBe(300);
+    expect(slots.get('deep').width).toBe(topicMaxWidth(labelSize(tree.children[1].children[0], 2)));
+  });
+
+  it('respects mixed columns with LeafCards and handles cards with or without paths and zero sizes', () => {
+    const tree = {
+      key: 'root',
+      kind: ROOT_KIND,
+      title: 'Root',
+      path: '',
+      sentences: [1, 2],
+      children: [
+        {
+          key: 'sibling-topic',
+          kind: TOPIC_KIND,
+          title: 'Sibling',
+          path: 'Sibling',
+          sentences: [1],
+          children: [],
+        },
+        {
+          key: 'card-with-path',
+          kind: LEAF_KIND,
+          title: 'Source',
+          path: 'Root > Topic',
+          sentences: [1],
+          children: [],
+        },
+        {
+          key: 'card-no-path',
+          kind: LEAF_KIND,
+          title: 'Source text',
+          path: '',
+          sentences: [2],
+          children: [],
+        },
+        {
+          key: 'zero-card',
+          kind: LEAF_KIND,
+          title: 'Source',
+          path: 'Zero',
+          sentences: [2],
+          children: [],
+        },
+      ],
+    };
+    const positions = new Map([
+      ['root', { left: 0, top: 0, w: 240, h: 80 }],
+      ['sibling-topic', { left: 304, top: -100, w: 240, h: 60 }],
+      ['card-with-path', { left: 304, top: -28, w: 360, h: 120 }],
+      ['card-no-path', { left: 304, top: 104, w: 360, h: 240 }],
+      ['zero-card', { left: 304, top: 360, w: 0, h: 0 }],
+    ]);
+    const slots = titleZoomSlots(tree, positions, 2);
+    expect(slots.get('sibling-topic').maxLines).toBe(1);
+    expect(slots.get('card-with-path').width).toBe(360);
+    expect(slots.get('card-no-path').maxFontSize).toBeGreaterThan(
+      slots.get('card-with-path').maxFontSize,
+    );
+    expect(slots.get('card-no-path').heightCap).toBeGreaterThan(
+      slots.get('card-with-path').heightCap,
+    );
+    expect(
+      (slots.get('card-no-path').width * MAX_CONTAINER_ZOOM) /
+        slots.get('card-no-path').maxFontSize,
+    ).toBeGreaterThanOrEqual(9);
+    expect(slots.get('card-no-path').maxLines).toBeGreaterThanOrEqual(
+      slots.get('card-with-path').maxLines,
+    );
+    expect(slots.get('zero-card').width).toBe(360);
+    expect(Number.isFinite(slots.get('zero-card').maxFontSize)).toBe(true);
+    expect(slots.get('zero-card').maxFontSize).toBeGreaterThan(0);
+  });
+
+  it('computes leafTitleZoomSlot matching titleZoomSlots and adapts to resized dimensions', () => {
+    const leaf = {
+      key: 'source:x',
+      kind: LEAF_KIND,
+      title: 'Source',
+      path: 'Topic > Subtopic',
+      sentences: [1],
+      children: [],
+    };
+    const tree = {
+      key: 'root',
+      kind: ROOT_KIND,
+      title: 'Root',
+      path: '',
+      sentences: [1],
+      children: [leaf],
+    };
+    const pos = { left: 300, top: 0, w: 360, h: 160 };
+    const positions = new Map([
+      ['root', { left: 0, top: 0, w: 200, h: 80 }],
+      [leaf.key, pos],
+    ]);
+    expect(leafTitleZoomSlot(leaf, pos, 1)).toEqual(
+      titleZoomSlots(tree, positions, 1).get(leaf.key),
+    );
+
+    const wider = leafTitleZoomSlot(leaf, { ...pos, w: 540, h: 240 }, 1);
+    expect(wider.width).toBe(540);
+    expect(wider.widthCap).toBeGreaterThan(leafTitleZoomSlot(leaf, pos, 1).widthCap);
+    expect(wider.heightCap).toBeGreaterThan(leafTitleZoomSlot(leaf, pos, 1).heightCap);
   });
 });
 

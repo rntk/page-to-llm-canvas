@@ -67,6 +67,32 @@ describe('useTreeViewport wheel', () => {
     );
     expect(stage.style.transform).toContain('scale(1.');
   });
+
+  it('publishes --tt-title-zoom and --tt-container-zoom and toggles is-title-zoomed across zoom-out and zoom-in', () => {
+    const { container, stage } = render();
+    const canvas = container.querySelector('.canvas');
+    expect(stage.style.getPropertyValue('--tt-title-zoom')).toBe('1');
+    expect(stage.style.getPropertyValue('--tt-container-zoom')).toBe('1');
+    expect(stage.classList.contains('is-title-zoomed')).toBe(false);
+
+    act(() =>
+      canvas.dispatchEvent(
+        new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 400 }),
+      ),
+    );
+    expect(stage.classList.contains('is-title-zoomed')).toBe(true);
+    expect(Number(stage.style.getPropertyValue('--tt-title-zoom'))).toBeGreaterThan(1);
+    expect(Number(stage.style.getPropertyValue('--tt-container-zoom'))).toBeGreaterThan(1);
+
+    act(() =>
+      canvas.dispatchEvent(
+        new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -600 }),
+      ),
+    );
+    expect(stage.classList.contains('is-title-zoomed')).toBe(false);
+    expect(stage.style.getPropertyValue('--tt-title-zoom')).toBe('1');
+    expect(stage.style.getPropertyValue('--tt-container-zoom')).toBe('1');
+  });
 });
 
 describe('useTreeViewport keyboard navigation', () => {
