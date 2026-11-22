@@ -31,9 +31,11 @@ function appendBoundary(parts) {
   if (parts.length > 0 && parts[parts.length - 1] !== '\n') parts.push('\n');
 }
 
-function collectRenderedText(node, root, contentWindow, parts) {
+// Unlike getRenderedText, hidden non-root blocks are not pruned: they still emit
+// boundaries, matching the highlighter's word segmentation in sentenceHighlight.js.
+function collectRenderedText(node, root, contentWindow, parts, computedStyleCache) {
   if (node.nodeType === 3) {
-    if (isTextRendered(node, contentWindow)) parts.push(node.nodeValue);
+    if (isTextRendered(node, contentWindow, computedStyleCache)) parts.push(node.nodeValue);
     return;
   }
   if (node.nodeType !== 1 || NEVER_RENDERED_TAGS.has(node.tagName)) return;
@@ -41,9 +43,11 @@ function collectRenderedText(node, root, contentWindow, parts) {
     appendBoundary(parts);
     return;
   }
-  const boundary = node !== root && isBlockBoundary(node, undefined, contentWindow);
+  const boundary = node !== root && isBlockBoundary(node, computedStyleCache, contentWindow);
   if (boundary) appendBoundary(parts);
-  for (const child of node.childNodes) collectRenderedText(child, root, contentWindow, parts);
+  for (const child of node.childNodes) {
+    collectRenderedText(child, root, contentWindow, parts, computedStyleCache);
+  }
   if (boundary) appendBoundary(parts);
 }
 
@@ -140,16 +144,18 @@ export function getRenderedText(
   return parts.join('').replace(/^\n+|\n+$/g, '');
 }
 
-function cloneRenderedSubtree(original, contentWindow) {
+function cloneRenderedSubtree(original, contentWindow, computedStyleCache) {
   if (original.nodeType === 3) {
-    return isTextRendered(original, contentWindow) ? original.cloneNode(false) : null;
+    return isTextRendered(original, contentWindow, computedStyleCache)
+      ? original.cloneNode(false)
+      : null;
   }
   if (original.nodeType !== 1 || NEVER_RENDERED_TAGS.has(original.tagName)) return null;
-  if (isSubtreeSuppressed(original, contentWindow)) return null;
+  if (isSubtreeSuppressed(original, contentWindow, computedStyleCache)) return null;
 
   const clone = original.cloneNode(false);
   for (const child of original.childNodes) {
-    const childClone = cloneRenderedSubtree(child, contentWindow);
+    const childClone = cloneRenderedSubtree(child, contentWindow, computedStyleCache);
     if (childClone) clone.appendChild(childClone);
   }
   return clone;
@@ -169,14 +175,16 @@ export function buildCapture(
   const htmlParts = [];
   const textParts = [];
   const capturedRoots = [];
+  // One memo for both walks over every root; the live DOM is not mutated here.
+  const styleCache = new Map();
   for (const root of roots) {
-    const clone = cloneRenderedSubtree(root, contentWindow);
+    const clone = cloneRenderedSubtree(root, contentWindow, styleCache);
     if (!clone) continue;
     stripHighlightClasses(clone);
     htmlParts.push(clone.outerHTML);
     capturedRoots.push(root);
     const rootText = [];
-    collectRenderedText(root, root, contentWindow, rootText);
+    collectRenderedText(root, root, contentWindow, rootText, styleCache);
     // Drop the trailing structural newline from each root.
     textParts.push(rootText.join('').replace(/^\n+|\n+$/g, ''));
   }
