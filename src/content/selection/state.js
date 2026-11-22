@@ -1,17 +1,12 @@
 import { getRenderedText } from './html.js';
 
-export function renumberSelectedEntries(entries, options = {}) {
-  const mutate = options.mutate !== false;
-  if (mutate) {
-    entries.forEach((entry, index) => {
-      entry.originalNumber = index + 1;
-    });
-    return entries;
-  }
-  return entries.map((entry, index) => ({
-    ...entry,
-    originalNumber: index + 1,
-  }));
+// Selection lists are values: helpers return a new array, copy any entry whose
+// number changes, and never write to their input, so earlier snapshots keep their
+// order and numbers. Entries keep their `el` reference, preserving DOM identity.
+export function renumberSelectedEntries(entries) {
+  return entries.map((entry, index) =>
+    entry.originalNumber === index + 1 ? entry : { ...entry, originalNumber: index + 1 },
+  );
 }
 
 export function removeSelectedEntry(entries, index) {
@@ -138,7 +133,7 @@ export function stepUpSelectedEntry(entries, index, boundaries = {}) {
   if (parentIndex >= 0) {
     const next = entries.filter((_, currentIndex) => currentIndex !== index);
     return {
-      entries: renumberSelectedEntries(next, { mutate: false }),
+      entries: renumberSelectedEntries(next),
       oldElement: entry.el,
       newElement: parent,
     };
@@ -149,7 +144,7 @@ export function stepUpSelectedEntry(entries, index, boundaries = {}) {
     currentIndex === index ? { ...currentEntry, el: parent, snippet, snippetTitle } : currentEntry,
   );
   return {
-    entries: renumberSelectedEntries(next, { mutate: false }),
+    entries: renumberSelectedEntries(next),
     oldElement: entry.el,
     newElement: parent,
   };

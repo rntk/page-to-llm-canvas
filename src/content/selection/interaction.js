@@ -13,6 +13,13 @@ import {
   setElementSelected,
 } from './markers.js';
 
+// Entries the interaction holds are frozen records, so neither snapshot readers
+// nor Find callers can redirect a live entry's `el` behind its DOM marker. Unfrozen
+// entries (e.g. caller-built ones) are copied first; `el` references are kept.
+function ownEntries(entries) {
+  return entries.map((entry) => (Object.isFrozen(entry) ? entry : Object.freeze({ ...entry })));
+}
+
 // Owns synchronous interaction transitions and their DOM side effects.
 export function createSelectionInteraction({ document, guardTrustedUserEvent, onChange }) {
   let selectionMode = false;
@@ -84,7 +91,7 @@ export function createSelectionInteraction({ document, guardTrustedUserEvent, on
     const el = event.target;
     setElementSelected(el, true);
     pickCounter += 1;
-    selectedElements.push(createSelectedEntry(el, pickCounter));
+    selectedElements = ownEntries([...selectedElements, createSelectedEntry(el, pickCounter)]);
     findStatus = '';
 
     selectionMode = false;
@@ -97,7 +104,7 @@ export function createSelectionInteraction({ document, guardTrustedUserEvent, on
     if (!guardTrustedUserEvent(event)) return;
     if (destroyed || isSubmitting || isFinding) return;
     const entry = selectedElements[index];
-    selectedElements = removeSelectedEntry(selectedElements, index);
+    selectedElements = ownEntries(removeSelectedEntry(selectedElements, index));
     syncSelectedMarker(entry?.el);
     pickCounter = selectedElements.length;
     // Clear stale scan counts after the list changes.
@@ -123,7 +130,7 @@ export function createSelectionInteraction({ document, guardTrustedUserEvent, on
     const result = stepUpSelectedEntry(selectedElements, index);
     if (result.oldElement === null || result.newElement === null) return;
 
-    selectedElements = result.entries;
+    selectedElements = ownEntries(result.entries);
     syncSelectedMarker(result.oldElement);
     syncSelectedMarker(result.newElement);
     pickCounter = selectedElements.length;
@@ -162,7 +169,7 @@ export function createSelectionInteraction({ document, guardTrustedUserEvent, on
     const destIndex = Number.isInteger(index) ? index : parseInt(event.currentTarget.dataset.index);
     if (dragSrcIndex === null || dragSrcIndex === destIndex) return;
 
-    selectedElements = moveSelectedEntry(selectedElements, dragSrcIndex, destIndex);
+    selectedElements = ownEntries(moveSelectedEntry(selectedElements, dragSrcIndex, destIndex));
     dragOverIndex = null;
 
     renderSelectionToolbar();
@@ -187,7 +194,9 @@ export function createSelectionInteraction({ document, guardTrustedUserEvent, on
   function snapshot() {
     return {
       selectionMode,
-      selectedElements,
+      // Edits replace the list and its frozen entries, so this stays stable; the
+      // array copy keeps callers from editing interaction state through a snapshot.
+      selectedElements: [...selectedElements],
       dragSrcIndex,
       dragOverIndex,
       isSubmitting,
@@ -207,8 +216,9 @@ export function createSelectionInteraction({ document, guardTrustedUserEvent, on
     renderSelectionToolbar();
   }
   function finishFind(entries, status) {
-    entries.forEach(({ el }) => setElementSelected(el, true));
-    selectedElements = entries;
+    // Own the list and its entries so later caller edits never reach live state.
+    selectedElements = ownEntries(entries);
+    selectedElements.forEach(({ el }) => setElementSelected(el, true));
     pickCounter = entries.length;
     findStatus = status;
     isFinding = false;

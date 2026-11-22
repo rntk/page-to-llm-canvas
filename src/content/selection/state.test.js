@@ -20,14 +20,39 @@ function entries(names) {
 }
 
 describe('selection state', () => {
-  it('renumbers entries without changing their element references', () => {
+  it('renumbers into new entries without changing their element references', () => {
     const input = entries(['a', 'b']);
     const result = renumberSelectedEntries(input);
-    expect(result).toBe(input);
+    expect(result).not.toBe(input);
+    expect(result.map((entry) => entry.originalNumber)).toEqual([1, 2]);
+    expect(input.map((entry) => entry.originalNumber)).toEqual([10, 11]);
+    result.forEach((entry, index) => expect(entry.el).toBe(input[index].el));
+  });
+
+  it('reuses entries whose number is already correct', () => {
+    const input = renumberSelectedEntries(entries(['a', 'b']));
+    const result = renumberSelectedEntries(input);
+    expect(result).not.toBe(input);
     expect(result[0]).toBe(input[0]);
     expect(result[1]).toBe(input[1]);
-    expect(result.map((entry) => entry.originalNumber)).toEqual([1, 2]);
-    expect(result.map((entry) => entry.el)).toEqual(input.map((entry) => entry.el));
+  });
+
+  it('leaves the input order and numbers intact across move and removal', () => {
+    const input = renumberSelectedEntries(entries(['a', 'b', 'c']));
+    const before = input.map(({ el, originalNumber }) => [el.name, originalNumber]);
+    const moved = moveSelectedEntry(input, 0, 2);
+    const removed = removeSelectedEntry(moved, 0);
+    expect(moved.map((entry) => [entry.el.name, entry.originalNumber])).toEqual([
+      ['b', 1],
+      ['c', 2],
+      ['a', 3],
+    ]);
+    expect(removed.map((entry) => [entry.el.name, entry.originalNumber])).toEqual([
+      ['c', 1],
+      ['a', 2],
+    ]);
+    expect(input.map(({ el, originalNumber }) => [el.name, originalNumber])).toEqual(before);
+    expect(moved.map(({ el }) => el.name)).toEqual(['b', 'c', 'a']);
   });
 
   it('removes an entry and closes numbering gaps', () => {
@@ -41,7 +66,7 @@ describe('selection state', () => {
     const movedEntry = input[0];
     const result = moveSelectedEntry(input, 0, 2);
     expect(result.map((entry) => entry.el.name)).toEqual(['b', 'c', 'a']);
-    expect(result[2]).toBe(movedEntry);
+    expect(result[2].el).toBe(movedEntry.el);
     expect(result.map((entry) => entry.originalNumber)).toEqual([1, 2, 3]);
   });
 

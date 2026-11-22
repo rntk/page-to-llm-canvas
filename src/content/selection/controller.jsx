@@ -208,9 +208,7 @@ export function createSelectionController({
       additions.sort((a, b) => compareDocumentOrder(a.el, b.el));
 
       if (additions.length > 0) {
-        selectedElements = renumberSelectedEntries([...selectedElements, ...additions], {
-          mutate: false,
-        });
+        selectedElements = renumberSelectedEntries([...selectedElements, ...additions]);
       }
 
       const resultStatus =
