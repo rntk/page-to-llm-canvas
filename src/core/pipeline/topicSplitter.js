@@ -37,8 +37,8 @@ export function createCompletionTopicSplitter({ callLLMWithRetry, dependencies: 
             await runtime.update({ topic_range_chunks: null });
           }
         },
-        saveCheckpoint: (chunkStates, sentenceCount, error) =>
-          dependencies.saveCheckpoint(runtime, record, chunkStates, sentenceCount, error),
+        saveCheckpoint: (snapshot, error) =>
+          dependencies.saveCheckpoint(runtime, record, snapshot, error),
       }),
   };
 }

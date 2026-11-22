@@ -48,56 +48,34 @@ export function readTopicRangeChunkCheckpoint(record, chunks) {
   return reusedChunkCount === 0 ? null : { segments, reusedChunkCount };
 }
 
-function buildTopicRangeChunkCheckpoint(contentRevision, chunkStates, sentenceCount) {
-  return {
-    contentRevision,
-    sentenceCount,
-    chunks: chunkStates.map((state) =>
-      state.segments === null
-        ? null
-        : {
-            start: state.chunk.start,
-            sentenceCount: state.chunk.sentenceCount,
-            segments: state.segments,
-          },
-    ),
-  };
-}
-
 /**
  * Best-effort checkpoint persistence; ownership/cancellation failures
  * propagate so a superseded pipeline cannot continue writing.
  * @param {object} runtime Pipeline runtime.
  * @param {object} record Record snapshot read at pipeline start.
- * @param {object[]} chunkStates Per-chunk stage state.
- * @param {number} sentenceCount Total sentence count.
+ * @param {object} snapshot Total sentence count and completed chunks by position.
  * @param {unknown} [error] Error that ended the stage.
  */
 export async function saveTopicRangeChunkCheckpoint(
   runtime,
   record,
-  chunkStates,
-  sentenceCount,
+  { sentenceCount, chunks },
   error,
 ) {
   // Partial work from a cancelled run belongs to a superseded attempt.
   if (isCancellationError(error, runtime)) return;
   const contentRevision = record?.contentRevision;
   if (typeof contentRevision !== 'string' || !contentRevision) return;
-  const done = chunkStates.filter((state) => state.segments !== null).length;
+  const done = chunks.filter((chunk) => chunk !== null).length;
   if (done === 0) return;
   try {
     await runtime.update({
-      topic_range_chunks: buildTopicRangeChunkCheckpoint(
-        contentRevision,
-        chunkStates,
-        sentenceCount,
-      ),
+      topic_range_chunks: { contentRevision, sentenceCount, chunks },
     });
     // A racing abort after the write is not a checkpoint failure.
     await runtime.log(
       'topic_ranges_checkpoint_saved',
-      { completedChunkCount: done, chunkCount: chunkStates.length },
+      { completedChunkCount: done, chunkCount: chunks.length },
       { allowAborted: true },
     );
   } catch (writeError) {

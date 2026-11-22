@@ -73,14 +73,13 @@ describe('readTopicRangeChunkCheckpoint', () => {
 });
 
 describe('saveTopicRangeChunkCheckpoint', () => {
-  it('persists only completed chunk state', async () => {
+  it('persists a snapshot of completed chunks', async () => {
     const runtime = { update: vi.fn(), log: vi.fn() };
-    const chunkStates = [
-      { chunk: chunks[0], segments },
-      { chunk: chunks[1], segments: null },
-    ];
 
-    await saveTopicRangeChunkCheckpoint(runtime, record(), chunkStates, 3);
+    await saveTopicRangeChunkCheckpoint(runtime, record(), {
+      sentenceCount: 3,
+      chunks: [{ start: 0, sentenceCount: 2, segments }, null],
+    });
 
     expect(runtime.update).toHaveBeenCalledWith({ topic_range_chunks: checkpoint() });
     expect(runtime.log).toHaveBeenCalledWith(
@@ -92,13 +91,18 @@ describe('saveTopicRangeChunkCheckpoint', () => {
 
   it('does not write a checkpoint without a revision or completed chunk', async () => {
     const runtime = { update: vi.fn(), log: vi.fn() };
-    await saveTopicRangeChunkCheckpoint(runtime, {}, [{ chunk: chunks[0], segments }], 2);
     await saveTopicRangeChunkCheckpoint(
       runtime,
-      { contentRevision: 'rev-1' },
-      [{ chunk: chunks[0], segments: null }],
-      2,
+      {},
+      {
+        sentenceCount: 3,
+        chunks: [{ start: 0, sentenceCount: 2, segments }, null],
+      },
     );
+    await saveTopicRangeChunkCheckpoint(runtime, record(), {
+      sentenceCount: 3,
+      chunks: [null, null],
+    });
     expect(runtime.update).not.toHaveBeenCalled();
   });
 });

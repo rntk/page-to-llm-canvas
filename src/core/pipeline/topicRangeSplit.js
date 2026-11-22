@@ -55,13 +55,9 @@ function providerCooldownMs(error) {
  * @param {number} chunkCount Total chunk count for this split.
  */
 function buildChunkFailureError(failedStates, chunkCount) {
-  const retryable = failedStates.every((state) =>
-    state.parseError
-      ? state.parseError instanceof TopicParseError
-      : !isPermanentProviderError(state.dispatchError),
-  );
+  const retryable = failedStates.every((state) => state.failure?.retryable !== false);
   const chunkIndexes = failedStates.map((state) => state.chunkIndex);
-  const errors = failedStates.map((state) => state.parseError || state.dispatchError);
+  const errors = failedStates.map((state) => (state.failure ? state.failure.error : null));
   const first = errors.find(Boolean);
   const firstMessage = (first && first.message) || 'unknown error';
   const label = compactIndexRanges(chunkIndexes).values.join(', ');
@@ -82,145 +78,170 @@ function buildChunkFailureError(failedStates, chunkCount) {
   return aggregate;
 }
 
-/**
- * Record each pending chunk's result so sibling successes survive provider
- * failures. Cancellation stops the burst. Permanent failures stop claiming
- * chunks and are propagated to unclaimed states.
- */
-async function dispatchPendingChunks({
+async function dispatchChunk({
   runtime,
   callLLMWithRetry,
-  pending,
+  chunk,
+  chunkIndex,
   attempt,
-  dependencies,
   parentPath,
-  onResponse,
 }) {
-  const { permanentError, unclaimed: skipped } = await runProviderBurst(
-    pending,
-    TOPIC_RANGE_CONCURRENCY,
-    async ({ item: state }) => {
-      state.response = null;
-      state.dispatchError = null;
-      state.parseError = null;
-      const prompt = buildTopicRangesPrompt(state.chunk.tagged, {
-        preferContentLanguage: runtime.preferContentLanguage,
-        splittingInstructions: runtime.splittingInstructions,
-        resplitParentPath: parentPath,
-      });
-      await runtime.log(
-        'topic_ranges_llm_request',
-        { chunkIndex: state.chunkIndex, promptLength: prompt.length, attempt },
-        { verbose: true },
-      );
-      try {
-        // Each worker owns exactly one state.
-        // eslint-disable-next-line require-atomic-updates
-        state.response = await callLLMWithRetry(
-          {
-            prompt,
-            signal: runtime.signal,
-            // Manual resplits are measured apart from primary LLM splitting.
-            taskType: parentPath ? LLM_TASK_TYPES.TOPIC_RESPLIT : LLM_TASK_TYPES.TOPIC_RANGES,
-          },
-          TOPIC_RANGE_PROVIDER_MAX_ATTEMPTS,
-        );
-      } catch (error) {
-        rethrowIfCancelled(error, runtime, TOPIC_RANGE_ABORT_MESSAGE);
-        // eslint-disable-next-line require-atomic-updates
-        state.dispatchError = error;
-        await runtime.log('topic_ranges_llm_error', {
-          chunkIndex: state.chunkIndex,
-          attempt,
-          error: errorMessage(error),
-        });
-        return { error };
-      }
-      await runtime.log(
-        'topic_ranges_llm_response',
-        { chunkIndex: state.chunkIndex, responseLength: state.response.length, attempt },
-        { verbose: true },
-      );
-      await onResponse(state);
-      return {};
-    },
-    { parallelMap: dependencies.parallelMap },
-  );
-  if (!permanentError || skipped.length === 0) return;
-  for (const state of skipped) {
-    state.response = null;
-    state.parseError = null;
-    // Propagate the permanent failure to unclaimed chunks.
-    state.dispatchError = permanentError;
-  }
-  const skippedIndexes = capForLog(skipped.map((state) => state.chunkIndex));
-  await runtime.log('topic_ranges_llm_skipped', {
-    attempt,
-    skippedChunkCount: skipped.length,
-    skippedChunkIndexes: skippedIndexes.values,
-    skippedChunkIndexesTruncated: skippedIndexes.truncated,
-    error: (permanentError && permanentError.message) || String(permanentError),
+  const prompt = buildTopicRangesPrompt(chunk.tagged, {
+    preferContentLanguage: runtime.preferContentLanguage,
+    splittingInstructions: runtime.splittingInstructions,
+    resplitParentPath: parentPath,
   });
+  await runtime.log(
+    'topic_ranges_llm_request',
+    { chunkIndex, promptLength: prompt.length, attempt },
+    { verbose: true },
+  );
+  let response;
+  try {
+    response = await callLLMWithRetry(
+      {
+        prompt,
+        signal: runtime.signal,
+        // Manual resplits are measured apart from primary LLM splitting.
+        taskType: parentPath ? LLM_TASK_TYPES.TOPIC_RESPLIT : LLM_TASK_TYPES.TOPIC_RANGES,
+      },
+      TOPIC_RANGE_PROVIDER_MAX_ATTEMPTS,
+    );
+  } catch (error) {
+    rethrowIfCancelled(error, runtime, TOPIC_RANGE_ABORT_MESSAGE);
+    await runtime.log('topic_ranges_llm_error', {
+      chunkIndex,
+      attempt,
+      error: errorMessage(error),
+    });
+    return { error };
+  }
+  await runtime.log(
+    'topic_ranges_llm_response',
+    { chunkIndex, responseLength: response.length, attempt },
+    { verbose: true },
+  );
+  return { response };
 }
 
-async function parseDispatchedChunk({
-  runtime,
-  state,
-  attempt,
-  failedChunkIndexes,
-  dependencies,
-  scope,
-}) {
-  const { recordParserMetric } = dependencies;
-  if (state.dispatchError) return;
-  const { chunk, chunkIndex, response } = state;
-  const logContext = { scope, attempt, chunkIndex, sentenceStart: chunk.start };
-  let diagnostics;
+async function parseDispatchedChunk(runtime, chunk, response, logContext) {
   try {
-    const parsed = parseTopicRangesDetailed(response, chunk.sentenceCount);
-    diagnostics = parsed.diagnostics;
+    const { groups, diagnostics } = parseTopicRangesDetailed(response, chunk.sentenceCount);
     if (hasDiagnosticQuirks(diagnostics)) {
       await logParseDiagnostics(runtime, logContext, { diagnostics, response });
     }
-    // Each completion callback owns exactly one state.
-    // eslint-disable-next-line require-atomic-updates
-    state.segments = parsed.groups.flatMap((group) =>
+    const segments = groups.flatMap((group) =>
       group.ranges.map((range) => ({
         label: group.label,
         start: range.start + chunk.start,
         end: range.end + chunk.start,
       })),
     );
+    return { segments, diagnostics };
   } catch (error) {
     rethrowIfCancelled(error, runtime, TOPIC_RANGE_ABORT_MESSAGE);
-    // eslint-disable-next-line require-atomic-updates
-    state.parseError = error;
-    const errorDiagnostics = error?.diagnostics || {};
-    // Record one sample per failed chunk; sibling successes are retained.
-    await recordParserMetric({
-      ok: false,
-      scope,
-      attempt,
-      diagnostics: errorDiagnostics,
-      error: error?.message,
-    });
-    if (error instanceof TopicParseError) {
-      failedChunkIndexes.add(chunkIndex);
-      await logParseDiagnostics(runtime, logContext, {
-        diagnostics: errorDiagnostics,
-        response,
-      });
-    }
-    return;
+    return { error, diagnostics: error?.diagnostics || {} };
   }
-  throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
-  await recordParserMetric({
-    ok: true,
-    scope,
-    attempt,
-    recoveredAfterRetry: failedChunkIndexes.has(chunkIndex),
-    diagnostics,
-  });
+}
+
+function createSplitProgress({
+  runtime,
+  chunks,
+  checkpoint,
+  sentenceCount,
+  saveCheckpoint,
+  recordParserMetric,
+  scope,
+}) {
+  const requests = chunks.map((chunk, chunkIndex) => ({ chunk, chunkIndex }));
+  const states = requests.map(({ chunkIndex }) => ({
+    chunkIndex,
+    segments: checkpoint?.segments[chunkIndex] ?? null,
+    failure: null,
+    hadParseFailure: false,
+  }));
+  const pendingRequests = () =>
+    requests.filter(({ chunkIndex }) => states[chunkIndex].segments === null);
+
+  // Serialize parsing and saves. Awaiting saves also bounds dispatch by storage throughput.
+  let completion = Promise.resolve();
+  let stopped;
+  function persistCheckpoint(error) {
+    if (!saveCheckpoint) return;
+    const snapshot = {
+      sentenceCount,
+      chunks: states.map(({ chunkIndex, segments }) => {
+        if (segments === null) return null;
+        const { start, sentenceCount: chunkSize } = chunks[chunkIndex];
+        return {
+          start,
+          sentenceCount: chunkSize,
+          segments: segments.map(({ label, start, end }) => ({ label: [...label], start, end })),
+        };
+      }),
+    };
+    return saveCheckpoint(snapshot, error);
+  }
+
+  return {
+    pendingRequests,
+    recordDispatchFailure(chunkIndex, error) {
+      if (stopped) throw stopped.error;
+      states[chunkIndex].failure = { error, retryable: !isPermanentProviderError(error) };
+    },
+    completeResponse({ chunk, chunkIndex }, response, attempt) {
+      if (stopped) throw stopped.error;
+      completion = completion.then(async () => {
+        throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
+        const state = states[chunkIndex];
+        const logContext = { scope, attempt, chunkIndex, sentenceStart: chunk.start };
+        const result = await parseDispatchedChunk(runtime, chunk, response, logContext);
+        const { diagnostics } = result;
+        if (Object.hasOwn(result, 'error')) {
+          const { error } = result;
+          const retryable = error instanceof TopicParseError;
+          state.failure = { error, retryable };
+          state.hadParseFailure ||= retryable;
+          await recordParserMetric({
+            ok: false,
+            scope,
+            attempt,
+            diagnostics,
+            error: error?.message,
+          });
+          if (retryable) await logParseDiagnostics(runtime, logContext, { diagnostics, response });
+          return;
+        }
+        state.segments = result.segments;
+        state.failure = null;
+        throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
+        await recordParserMetric({
+          ok: true,
+          scope,
+          attempt,
+          recoveredAfterRetry: state.hadParseFailure,
+          diagnostics,
+        });
+        await persistCheckpoint();
+      });
+      return completion;
+    },
+    groups() {
+      throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
+      const failed = states.filter((state) => state.segments === null);
+      if (failed.length > 0) throw buildChunkFailureError(failed, states.length);
+      return groupsFromSegments(
+        states.flatMap((state) => state.segments),
+        sentenceCount,
+      );
+    },
+    async saveFailure(error) {
+      stopped = { error };
+      // Only responses already queued can finish before the terminal snapshot.
+      await completion.catch(() => {});
+      await persistCheckpoint(error);
+    },
+  };
 }
 
 /**
@@ -236,7 +257,7 @@ async function parseDispatchedChunk({
  * @param {string} [input.parentPath] Hierarchy context for a manual split.
  * @param {number} [input.maxTextChunkChars] Maximum tagged text per request.
  * @param {Function} [input.readCheckpoint] Reads reusable segments for these chunks.
- * @param {Function} [input.saveCheckpoint] Persists completed chunk states.
+ * @param {Function} [input.saveCheckpoint] Persists a detached snapshot of completed chunks.
  * @param {Function} [input.onPrepared] Called after chunk and checkpoint preparation.
  * @returns {Promise<object[]>} Parsed groups with local sentence ranges.
  */
@@ -248,7 +269,7 @@ export async function splitTopicRanges({
   parentPath = '',
   maxTextChunkChars = runtime.maxTextChunkChars,
   readCheckpoint = () => null,
-  saveCheckpoint = async () => {},
+  saveCheckpoint,
   onPrepared = () => {},
 }) {
   const dependencies = createTopicRangeDependencies(overrides);
@@ -279,41 +300,15 @@ export async function splitTopicRanges({
     });
   }
 
-  // Completed chunk states are checkpointed and never dispatched again.
-  const chunkStates = chunks.map((chunk, chunkIndex) => ({
-    chunk,
-    chunkIndex,
-    segments: checkpoint?.segments[chunkIndex] ?? null,
-    response: null,
-    dispatchError: null,
-    parseError: null,
-  }));
-  const pendingChunkStates = () => chunkStates.filter((state) => state.segments === null);
-
-  let parseAttempt = 1;
-  const failedChunkIndexes = new Set();
-  // Serialize parsing and saves to prevent an older snapshot overwriting a
-  // newer one. Awaiting saves also bounds dispatch by storage throughput.
-  let chunkCompletion = Promise.resolve();
-  let stageError;
-  const completeChunk = (state) => {
-    if (stageError) return Promise.reject(stageError);
-    chunkCompletion = chunkCompletion.then(async () => {
-      throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
-      await parseDispatchedChunk({
-        runtime,
-        state,
-        attempt: parseAttempt,
-        failedChunkIndexes,
-        dependencies,
-        scope,
-      });
-      if (state.segments !== null) {
-        await saveCheckpoint(chunkStates, sentenceTexts.length);
-      }
-    });
-    return chunkCompletion;
-  };
+  const progress = createSplitProgress({
+    runtime,
+    chunks,
+    checkpoint,
+    sentenceCount: sentenceTexts.length,
+    saveCheckpoint,
+    recordParserMetric: dependencies.recordParserMetric,
+    scope,
+  });
   let groups;
   try {
     groups = await queryTopicRangesWithRetry({
@@ -325,12 +320,12 @@ export async function splitTopicRanges({
       computeDelay: ({ attemptIndex, baseDelayMs, error }) =>
         Math.max(computeBackoffDelay(attemptIndex, baseDelayMs), providerCooldownMs(error)),
       callLLM: async (attemptIndex) => {
-        parseAttempt = attemptIndex + 1;
-        const pending = pendingChunkStates();
+        const attempt = attemptIndex + 1;
+        const pending = progress.pendingRequests();
         if (attemptIndex > 0) {
-          const retried = capForLog(pending.map((state) => state.chunkIndex));
+          const retried = capForLog(pending.map(({ chunkIndex }) => chunkIndex));
           await runtime.log('topic_ranges_retry_scope', {
-            attempt: parseAttempt,
+            attempt,
             retriedChunkCount: pending.length,
             completedChunkCount: chunks.length - pending.length,
             chunkCount: chunks.length,
@@ -338,31 +333,48 @@ export async function splitTopicRanges({
             retriedChunkIndexesTruncated: retried.truncated,
           });
         }
-        await dispatchPendingChunks({
-          runtime,
-          callLLMWithRetry,
+        const { permanentError, unclaimed } = await runProviderBurst(
           pending,
-          attempt: parseAttempt,
-          dependencies,
-          parentPath,
-          onResponse: completeChunk,
-        });
-      },
-      parse: async () => {
-        throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
-        const failed = pendingChunkStates();
-        if (failed.length > 0) throw buildChunkFailureError(failed, chunks.length);
-        throwIfCancelled(runtime, TOPIC_RANGE_ABORT_MESSAGE);
-        return groupsFromSegments(
-          chunkStates.flatMap((state) => state.segments),
-          sentenceTexts.length,
+          TOPIC_RANGE_CONCURRENCY,
+          async ({ item }) => {
+            const { chunk, chunkIndex } = item;
+            const outcome = await dispatchChunk({
+              runtime,
+              callLLMWithRetry,
+              chunk,
+              chunkIndex,
+              attempt,
+              parentPath,
+            });
+            if (Object.hasOwn(outcome, 'error')) {
+              progress.recordDispatchFailure(chunkIndex, outcome.error);
+              return outcome;
+            }
+            await progress.completeResponse(item, outcome.response, attempt);
+            return {};
+          },
+          { parallelMap: dependencies.parallelMap },
         );
+        if (permanentError && unclaimed.length > 0) {
+          for (const { chunkIndex } of unclaimed) {
+            progress.recordDispatchFailure(chunkIndex, permanentError);
+          }
+          const skippedIndexes = capForLog(unclaimed.map(({ chunkIndex }) => chunkIndex));
+          await runtime.log('topic_ranges_llm_skipped', {
+            attempt,
+            skippedChunkCount: unclaimed.length,
+            skippedChunkIndexes: skippedIndexes.values,
+            skippedChunkIndexesTruncated: skippedIndexes.truncated,
+            error: permanentError.message || String(permanentError),
+          });
+        }
       },
+      parse: progress.groups,
       onParseRetry: ({ attemptNumber, maxRetries, error }) =>
         runtime.log('topic_ranges_parse_retry', {
           attempt: attemptNumber,
           maxRetries,
-          retryingChunkCount: pendingChunkStates().length,
+          retryingChunkCount: progress.pendingRequests().length,
           chunkCount: chunks.length,
           // Log the capped cooldown actually honored by this stage.
           providerCooldownMs: providerCooldownMs(error) || null,
@@ -370,10 +382,7 @@ export async function splitTopicRanges({
         }),
     });
   } catch (error) {
-    stageError = error;
-    // Drain in-flight completions before the final checkpoint save.
-    await chunkCompletion.catch(() => {});
-    await saveCheckpoint(chunkStates, sentenceTexts.length, error);
+    await progress.saveFailure(error);
     throw error;
   }
 

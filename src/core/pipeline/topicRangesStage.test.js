@@ -208,6 +208,57 @@ describe('splitTopicRanges', () => {
       { label: ['Science', 'AI', 'Detail'], ranges: [{ start: 0, end: 1 }] },
     ]);
   });
+
+  it('waits for an in-flight save before writing the failure snapshot', async () => {
+    const runtime = makeRuntime();
+    runtime.maxTopicRangeSentences = 1;
+    const failure = new Error('response logging failed');
+    const thirdResponse = Promise.withResolvers();
+    runtime.log.mockImplementation(async (event, { chunkIndex } = {}) => {
+      if (event === 'topic_ranges_llm_response' && chunkIndex === 2) throw failure;
+    });
+    const secondSave = Promise.withResolvers();
+    const saveCheckpoint = vi.fn(async (_snapshot, error) => {
+      if (!error && saveCheckpoint.mock.calls.length === 2) await secondSave.promise;
+    });
+    const outcome = splitTopicRanges({
+      runtime,
+      sentenceTexts: ['First.', 'Second.', 'Third.'],
+      callLLMWithRetry: vi
+        .fn(async () => 'Tech: 0')
+        .mockResolvedValueOnce('Tech: 0')
+        .mockResolvedValueOnce('Tech: 0')
+        .mockReturnValueOnce(thirdResponse.promise),
+      dependencies: { recordParserMetric },
+      saveCheckpoint,
+    }).catch((error) => error);
+
+    await vi.waitFor(() => expect(saveCheckpoint).toHaveBeenCalledTimes(2));
+    thirdResponse.resolve('Tech: 0');
+    await vi.waitFor(() =>
+      expect(runtime.log).toHaveBeenCalledWith(
+        'topic_ranges_llm_response',
+        expect.objectContaining({ chunkIndex: 2 }),
+        expect.any(Object),
+      ),
+    );
+    expect(saveCheckpoint).toHaveBeenCalledTimes(2);
+    secondSave.resolve();
+
+    expect(await outcome).toBe(failure);
+    expect(saveCheckpoint).toHaveBeenCalledTimes(3);
+    expect(saveCheckpoint).toHaveBeenLastCalledWith(
+      {
+        sentenceCount: 3,
+        chunks: [
+          { start: 0, sentenceCount: 1, segments: [{ label: ['Tech'], start: 0, end: 0 }] },
+          { start: 1, sentenceCount: 1, segments: [{ label: ['Tech'], start: 1, end: 1 }] },
+          null,
+        ],
+      },
+      failure,
+    );
+  });
 });
 
 describe('computeTopics', () => {
@@ -935,7 +986,7 @@ describe('topic-ranges incremental retry', () => {
     expect(runtime.update.mock.calls.filter(([patch]) => patch.topic_range_chunks).length).toBe(2);
   });
 
-  it('serializes delayed checkpoint saves and finishes with a complete snapshot', async () => {
+  it('serializes delayed checkpoint saves and hands storage detached snapshots', async () => {
     const runtime = makeRuntime();
     runtime.maxTextChunkChars = 1_000_000;
     runtime.maxTopicRangeSentences = 1;
@@ -943,11 +994,12 @@ describe('topic-ranges incremental retry', () => {
     let releaseSecond;
     let activeSaves = 0;
     let maxActiveSaves = 0;
-    const snapshots = [];
-    const saveCheckpoint = vi.fn(async (_runtime, _record, chunkStates) => {
+    const saveCheckpoint = vi.fn(async (_runtime, _record, snapshot) => {
       activeSaves++;
       maxActiveSaves = Math.max(maxActiveSaves, activeSaves);
-      snapshots.push(chunkStates.map((state) => state.segments));
+      if (saveCheckpoint.mock.calls.length === 1) {
+        snapshot.chunks[0].segments[0].label[0] = 'Changed by storage';
+      }
       if (saveCheckpoint.mock.calls.length === 2) {
         await new Promise((resolve) => {
           releaseSecond = resolve;
@@ -967,11 +1019,20 @@ describe('topic-ranges incremental retry', () => {
     expect(saveCheckpoint).toHaveBeenCalledTimes(2);
     expect(maxActiveSaves).toBe(1);
     releaseSecond();
-    await run;
+    const result = await run;
 
     expect(maxActiveSaves).toBe(1);
-    expect(snapshots).toHaveLength(3);
-    expect(snapshots.at(-1).every((segments) => Array.isArray(segments))).toBe(true);
+    const snapshots = saveCheckpoint.mock.calls.map(([, , snapshot]) => snapshot);
+    expect(snapshots.map(({ chunks }) => chunks.filter(Boolean).length)).toEqual([1, 2, 3]);
+    expect(snapshots[0].chunks[0]).toEqual({
+      start: 0,
+      sentenceCount: 1,
+      segments: [{ label: ['Changed by storage', 'Part'], start: 0, end: 0 }],
+    });
+    expect(snapshots[2].chunks.map(({ segments }) => segments[0].label)).toEqual(
+      Array.from({ length: 3 }, () => ['Tech', 'Part']),
+    );
+    expect(result.topics).toEqual([{ name: 'Tech>Part', sentences: [1, 2, 3] }]);
   });
 
   it('discards a checkpoint from a different content revision and re-requests everything', async () => {
